@@ -105,63 +105,154 @@ def post_otlp(url, key, payload, signal):
         req = request.Request(url, data=json.dumps(payload).encode(), headers={"Authorization":f"Bearer {key}", "Content-Type":"application/json"})
         with request.urlopen(req, timeout=30) as r:
             res = json.loads(r.read())
-            return int(res.get("inserted", 0))
+            count = res.get("accepted")
+            if count is None:
+                count = res.get("inserted", 0)
+            return int(count)
     except Exception as e: raise RuntimeError(f"OTLP {signal} failed: {e}")
 
-# --- Generation ---
 def generate_data(samples, team_uuid):
     rng = random.Random(42)
     now = datetime.utcnow()
     metrics, logs, traces = [], [], []
     
-    svcs = ["checkout-service", "payment-service", "catalog-service", "inventory-service", "auth-service"]
+    svcs = ["checkout-service", "payment-service", "catalog-service", 
+            "inventory-service", "auth-service"]
     ops = [("GET", "/api/data"), ("POST", "/api/submit")]
 
     for i in range(samples):
         ts = now - timedelta(minutes=(samples - i))
         for svc in svcs:
-            h, p = f"{svc}-host", f"{svc}-pod"
-            for m, r in ops:
-                count = rng.randint(10, 100)
-                err = rng.random() < 0.05
-                lat = rng.uniform(10, 200)
-                t_id, s_id = uuid.uuid4().hex, uuid.uuid4().hex[:16]
-                c = f"{svc}-container"
-                qn = f"{svc}.events"
-                msg_op = "publish" if m == "POST" else "receive"
+            host, pod = f"{svc}-host", f"{svc}-pod"
+            container = f"{svc}-container"
+            queue_name = f"{svc}.events"
+            
+            for method, route in ops:
+                # Random number of requests for this endpoint at this timestamp
+                num_requests = rng.randint(1, 20)          # vary as needed
+                msg_op = "publish" if method == "POST" else "receive"
                 span_kind = 4 if msg_op == "publish" else 5
                 
-                common = {
-                    "service.name": svc, "http.method": m, "http.route": r, 
-                    "server.address": h, "k8s.pod.name": p, "k8s.container.name": c,
-                    "messaging.queue.name": qn, "messaging.operation": msg_op,
-                    "db.connection_pool.utilization": rng.uniform(20, 90),
-                    "messaging.kafka.consumer.lag": rng.randint(0, 2000),
-                    "thread.pool.active": rng.randint(10, 150),
-                    "thread.pool.size": 200,
-                    "queue.depth": rng.randint(0, 500),
-                    "system.cpu.utilization": rng.uniform(10, 90),
-                    "system.memory.utilization": rng.uniform(10, 90),
-                    "system.disk.utilization": rng.uniform(5, 80),
-                    "system.network.utilization": rng.uniform(1, 50),
+                total_latency = 0.0
+                error_count = 0
+                
+                for _ in range(num_requests):
+                    # Per‑request attributes
+                    err = rng.random() < 0.05
+                    lat = rng.uniform(10, 200)
+                    total_latency += lat
+                    if err:
+                        error_count += 1
+                    
+                    trace_id = uuid.uuid4().hex
+                    span_id = uuid.uuid4().hex[:16]
+                    
+                    common = {
+                        "service.name": svc, "http.method": method, "http.route": route,
+                        "server.address": host, "k8s.pod.name": pod,
+                        "k8s.container.name": container,
+                        "messaging.queue.name": queue_name, "messaging.operation": msg_op,
+                        "db.connection_pool.utilization": rng.uniform(20, 90),
+                        "messaging.kafka.consumer.lag": rng.randint(0, 2000),
+                        "thread.pool.active": rng.randint(10, 150),
+                        "thread.pool.size": 200,
+                        "queue.depth": rng.randint(0, 500),
+                        "system.cpu.utilization": rng.uniform(10, 90),
+                        "system.memory.utilization": rng.uniform(10, 90),
+                        "system.disk.utilization": rng.uniform(5, 80),
+                        "system.network.utilization": rng.uniform(1, 50),
+                        "_svc": svc
+                    }
+                    
+                    # Trace span
+                    traces.append({
+                        "traceId": trace_id, "spanId": span_id,
+                        "name": f"{method} {route}", "kind": span_kind,
+                        "startTimeUnixNano": utc_ns(ts),
+                        "endTimeUnixNano": utc_ns(ts + timedelta(milliseconds=lat)),
+                        "attributes": otlp_attrs(common),
+                        "status": {"code": 2 if err else 0},
+                        "_svc": svc
+                    })
+                    
+                    # Log record
+                    logs.append({
+                        "timeUnixNano": utc_ns(ts),
+                        "severityText": "ERROR" if err else "INFO",
+                        "body": {"stringValue": f"Request {method} {route}"},
+                        "traceId": trace_id, "spanId": span_id,
+                        "attributes": otlp_attrs(common),
+                        "_svc": svc
+                    })
+                
+                # Aggregated metrics for this endpoint at this timestamp
+                common_metric = {
+                    "service.name": svc, "http.method": method, "http.route": route,
+                    "server.address": host, "k8s.pod.name": pod,
+                    "k8s.container.name": container,
+                    "messaging.queue.name": queue_name, "messaging.operation": msg_op,
                     "_svc": svc
                 }
                 
-                # Metrics (Histogram, Gauge, Sum)
-                metrics.append({"name": "http.server.requests", "unit": "ms", "histogram": {"dataPoints": [{
-                    "startTimeUnixNano": utc_ns(ts-timedelta(minutes=1)), "timeUnixNano": utc_ns(ts), "count": str(count), "sum": lat*count, "attributes": otlp_attrs(common)
-                }]}, "_svc": svc})
-                metrics.append({"name": "system.cpu.utilization", "gauge": {"dataPoints": [{
-                    "timeUnixNano": utc_ns(ts), "asDouble": rng.uniform(0.1, 0.9), "attributes": otlp_attrs({**common, "cpu.state": "user"})
-                }]}, "_svc": svc})
-                metrics.append({"name": "http.server.requests.count", "sum": {"isMonotonic": True, "dataPoints": [{
-                    "timeUnixNano": utc_ns(ts), "asInt": str(count), "attributes": otlp_attrs(common)
-                }]}, "_svc": svc})
+                # Histogram (http.server.requests)
+                metrics.append({
+                    "name": "http.server.requests", "unit": "ms",
+                    "histogram": {
+                        "dataPoints": [{
+                            "startTimeUnixNano": utc_ns(ts - timedelta(minutes=1)),
+                            "timeUnixNano": utc_ns(ts),
+                            "count": str(num_requests),
+                            "sum": total_latency,
+                            "attributes": otlp_attrs(common_metric)
+                        }]
+                    },
+                    "_svc": svc
+                })
                 
-                # Trace & Log
-                traces.append({"traceId": t_id, "spanId": s_id, "name": f"{m} {r}", "kind": span_kind, "startTimeUnixNano": utc_ns(ts), "endTimeUnixNano": utc_ns(ts+timedelta(milliseconds=lat)), "attributes": otlp_attrs(common), "status": {"code": 2 if err else 0}, "_svc": svc})
-                logs.append({"timeUnixNano": utc_ns(ts), "severityText": "ERROR" if err else "INFO", "body": {"stringValue": f"Request {m} {r}"}, "traceId": t_id, "spanId": s_id, "attributes": otlp_attrs(common), "_svc": svc})
-
+                # Gauge (system.cpu.utilization) – one per service per timestamp (not per endpoint)
+                # To keep it simple, we still add one gauge per service per timestamp,
+                # but you can move it outside the endpoint loop if you prefer.
+                metrics.append({
+                    "name": "system.cpu.utilization",
+                    "gauge": {
+                        "dataPoints": [{
+                            "timeUnixNano": utc_ns(ts),
+                            "asDouble": rng.uniform(0.1, 0.9),
+                            "attributes": otlp_attrs({**common_metric, "cpu.state": "user"})
+                        }]
+                    },
+                    "_svc": svc
+                })
+                
+                # Sum (http.server.requests.count)
+                metrics.append({
+                    "name": "http.server.requests.count",
+                    "sum": {
+                        "isMonotonic": True,
+                        "dataPoints": [{
+                            "timeUnixNano": utc_ns(ts),
+                            "asInt": str(num_requests),
+                            "attributes": otlp_attrs(common_metric)
+                        }]
+                    },
+                    "_svc": svc
+                })
+                
+                # Optionally add error count metric
+                if error_count > 0:
+                    metrics.append({
+                        "name": "http.server.requests.error_count",
+                        "sum": {
+                            "isMonotonic": True,
+                            "dataPoints": [{
+                                "timeUnixNano": utc_ns(ts),
+                                "asInt": str(error_count),
+                                "attributes": otlp_attrs(common_metric)
+                            }]
+                        },
+                        "_svc": svc
+                    })
+    
     return metrics, logs, traces
 
 def main():

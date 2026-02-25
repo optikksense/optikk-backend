@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -24,6 +25,12 @@ type Config struct {
 
 	JWTSecret       string
 	JWTExpirationMs int64
+
+	QueueBatchSize       int
+	QueueFlushIntervalMs int64
+
+	KafkaEnabled bool
+	KafkaBrokers string
 }
 
 func Load() Config {
@@ -41,6 +48,12 @@ func Load() Config {
 		ClickHousePassword: getEnv("CLICKHOUSE_PASSWORD", "clickhouse123"),
 		JWTSecret:          getEnv("JWT_SECRET", "observex-secret-key-for-jwt-token-generation-must-be-at-least-256-bits"),
 		JWTExpirationMs:    getEnvInt64("JWT_EXPIRATION_MS", 86_400_000),
+
+		QueueBatchSize:       int(getEnvInt64("QUEUE_BATCH_SIZE", 500)),
+		QueueFlushIntervalMs: getEnvInt64("QUEUE_FLUSH_INTERVAL_MS", 2_000),
+
+		KafkaEnabled: getEnvBool("KAFKA_ENABLED", true),
+		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
 	}
 
 	return cfg
@@ -72,9 +85,24 @@ func (c Config) JWTDuration() time.Duration {
 	return time.Duration(c.JWTExpirationMs) * time.Millisecond
 }
 
+func (c Config) QueueFlushInterval() time.Duration {
+	return time.Duration(c.QueueFlushIntervalMs) * time.Millisecond
+}
+
+func (c Config) KafkaBrokerList() []string {
+	return strings.Split(c.KafkaBrokers, ",")
+}
+
 func getEnv(key, fallback string) string {
 	if v, ok := os.LookupEnv(key); ok && v != "" {
 		return v
+	}
+	return fallback
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	if v, ok := os.LookupEnv(key); ok && v != "" {
+		return strings.EqualFold(v, "true") || v == "1"
 	}
 	return fallback
 }

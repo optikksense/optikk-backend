@@ -4,11 +4,11 @@ import "database/sql"
 
 // Handler serves OTLP/HTTP ingestion endpoints.
 type Handler struct {
-	Repo  *Repository
-	MySQL *sql.DB
+	Ingester Ingester
+	MySQL    *sql.DB
 }
 
 // NewHandler creates a new telemetry handler.
-func NewHandler(repo *Repository, mysql *sql.DB) *Handler {
-	return &Handler{Repo: repo, MySQL: mysql}
+func NewHandler(ingester Ingester, mysql *sql.DB) *Handler {
+	return &Handler{Ingester: ingester, MySQL: mysql}
 }

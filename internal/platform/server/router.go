@@ -1,6 +1,8 @@
 package server
 
 import (
+	"log"
+
 	"github.com/gin-gonic/gin"
 	"github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/ai"
@@ -69,7 +71,33 @@ func (a *App) registerRoutes(r *gin.Engine) {
 
 	// OTLP ingestion endpoint — authenticated via api_key (not JWT).
 	repo := telemetry.NewRepository(database.NewMySQLWrapper(a.CH))
-	otlpHandler := telemetry.NewHandler(repo, a.DB)
+
+	var ingester telemetry.Ingester
+	if a.Config.KafkaEnabled {
+		kafkaIngester, err := telemetry.NewKafkaIngester(a.Config.KafkaBrokerList())
+		if err != nil {
+			log.Fatalf("failed to create kafka producer: %v", err)
+		}
+		ingester = kafkaIngester
+
+		consumerCfg := telemetry.KafkaConsumerConfig{
+			Brokers:       a.Config.KafkaBrokerList(),
+			BatchSize:     a.Config.QueueBatchSize,
+			FlushInterval: a.Config.QueueFlushInterval(),
+		}
+		consumer, err := telemetry.NewKafkaConsumer(repo, consumerCfg)
+		if err != nil {
+			log.Fatalf("failed to create kafka consumer: %v", err)
+		}
+		a.TelemetryConsumer = consumer
+		log.Println("telemetry: Kafka mode enabled")
+	} else {
+		ingester = telemetry.NewDirectIngester(repo)
+		log.Println("telemetry: direct mode (sync ClickHouse writes)")
+	}
+
+	a.TelemetryIngester = ingester
+	otlpHandler := telemetry.NewHandler(ingester, a.DB)
 	otlp := r.Group("/otlp")
 	telemetry.RegisterRoutes(cfg.Telemetry, otlp, otlpHandler)
 }

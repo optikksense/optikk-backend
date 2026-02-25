@@ -180,9 +180,13 @@ func (h *Handler) HandleMetrics(c *gin.Context) {
 		}
 	}
 
-	if err := h.Repo.InsertMetrics(c.Request.Context(), metricsToInsert); err != nil {
-		log.Printf("otlp: failed to insert metrics: %v", err)
+	if len(metricsToInsert) > 0 {
+		if err := h.Ingester.IngestMetrics(c.Request.Context(), metricsToInsert); err != nil {
+			log.Printf("otlp: failed to ingest %d metrics: %v", len(metricsToInsert), err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to ingest metrics"})
+			return
+		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"inserted": len(metricsToInsert)})
+	c.JSON(http.StatusOK, gin.H{"accepted": len(metricsToInsert)})
 }

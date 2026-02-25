@@ -111,11 +111,13 @@ func (h *Handler) HandleTraces(c *gin.Context) {
 		}
 	}
 
-	if err := h.Repo.InsertSpans(c.Request.Context(), spansToInsert); err != nil {
-		log.Printf("otlp: failed to insert spans: %v", err)
-		// We still return 200/inserted conceptually or decide based on user requirements.
-		// Original code returned HTTP 200 with inserted count for those that worked.
+	if len(spansToInsert) > 0 {
+		if err := h.Ingester.IngestSpans(c.Request.Context(), spansToInsert); err != nil {
+			log.Printf("otlp: failed to ingest %d spans: %v", len(spansToInsert), err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to ingest spans"})
+			return
+		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"inserted": len(spansToInsert)})
+	c.JSON(http.StatusOK, gin.H{"accepted": len(spansToInsert)})
 }

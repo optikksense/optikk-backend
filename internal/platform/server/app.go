@@ -26,6 +26,7 @@ import (
 	"github.com/observability/observability-backend-go/internal/platform/auth"
 	"github.com/observability/observability-backend-go/internal/platform/handlers"
 	"github.com/observability/observability-backend-go/internal/platform/middleware"
+	"github.com/observability/observability-backend-go/internal/telemetry"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 )
@@ -35,6 +36,9 @@ type App struct {
 	CH         *sql.DB
 	Config     config.Config
 	JWTManager auth.JWTManager
+
+	TelemetryIngester telemetry.Ingester
+	TelemetryConsumer *telemetry.KafkaConsumer // nil when Kafka is disabled
 
 	Auth            AuthModule
 	Users           UserModule
@@ -200,9 +204,20 @@ func (a *App) Router() *gin.Engine {
 }
 
 func (a *App) Start(ctx context.Context) error {
+	router := a.Router()
+
+	// Start Kafka consumer workers if Kafka mode is enabled.
+	// Use a separate context so we can drain consumers AFTER the HTTP server shuts down.
+	consumerCtx, consumerCancel := context.WithCancel(context.Background())
+	defer consumerCancel()
+
+	if a.TelemetryConsumer != nil {
+		a.TelemetryConsumer.Start(consumerCtx)
+	}
+
 	srv := &http.Server{
 		Addr:    fmt.Sprintf(":%s", a.Config.Port),
-		Handler: h2c.NewHandler(a.Router(), &http2.Server{}),
+		Handler: h2c.NewHandler(router, &http2.Server{}),
 	}
 
 	errCh := make(chan error, 1)
@@ -215,14 +230,44 @@ func (a *App) Start(ctx context.Context) error {
 
 	select {
 	case err := <-errCh:
+		consumerCancel()
+		if a.TelemetryConsumer != nil {
+			a.TelemetryConsumer.Wait()
+		}
+		if a.TelemetryIngester != nil {
+			a.TelemetryIngester.Close()
+		}
 		return err
 	case <-ctx.Done():
 		log.Println("shutdown signal received, draining connections…")
 		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
+
+		// Phase 1: Stop accepting new HTTP requests and drain in-flight ones.
 		if err := srv.Shutdown(shutCtx); err != nil {
+			consumerCancel()
+			if a.TelemetryConsumer != nil {
+				a.TelemetryConsumer.Wait()
+			}
+			if a.TelemetryIngester != nil {
+				a.TelemetryIngester.Close()
+			}
 			return fmt.Errorf("http shutdown: %w", err)
 		}
+
+		// Phase 2: Close producer, then drain consumer.
+		if a.TelemetryIngester != nil {
+			log.Println("closing telemetry ingester…")
+			a.TelemetryIngester.Close()
+		}
+		if a.TelemetryConsumer != nil {
+			log.Println("draining kafka consumer…")
+			consumerCancel()
+			a.TelemetryConsumer.Wait()
+			a.TelemetryConsumer.Close()
+			log.Println("kafka consumer drained")
+		}
+
 		return <-errCh
 	}
 }

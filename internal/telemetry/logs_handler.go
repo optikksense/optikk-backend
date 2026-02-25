@@ -90,9 +90,13 @@ func (h *Handler) HandleLogs(c *gin.Context) {
 		}
 	}
 
-	if err := h.Repo.InsertLogs(c.Request.Context(), logsToInsert); err != nil {
-		log.Printf("otlp: failed to insert logs: %v", err)
+	if len(logsToInsert) > 0 {
+		if err := h.Ingester.IngestLogs(c.Request.Context(), logsToInsert); err != nil {
+			log.Printf("otlp: failed to ingest %d logs: %v", len(logsToInsert), err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to ingest logs"})
+			return
+		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"inserted": len(logsToInsert)})
+	c.JSON(http.StatusOK, gin.H{"accepted": len(logsToInsert)})
 }
