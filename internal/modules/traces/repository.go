@@ -20,6 +20,9 @@ type TraceFilters struct {
 	Status      string
 	MinDuration string
 	MaxDuration string
+	TraceID     string
+	Operation   string
+	HTTPStatus  string
 }
 
 func buildTraceQueryArgs(f TraceFilters) (string, []any) {
@@ -42,6 +45,18 @@ func buildTraceQueryArgs(f TraceFilters) (string, []any) {
 	if f.MaxDuration != "" {
 		queryFrag += ` AND duration_ms <= ?`
 		args = append(args, dbutil.MustAtoi64(f.MaxDuration, 0))
+	}
+	if f.TraceID != "" {
+		queryFrag += ` AND trace_id = ?`
+		args = append(args, f.TraceID)
+	}
+	if f.Operation != "" {
+		queryFrag += ` AND operation_name LIKE ?`
+		args = append(args, "%"+f.Operation+"%")
+	}
+	if f.HTTPStatus != "" {
+		queryFrag += ` AND http_status_code = ?`
+		args = append(args, dbutil.MustAtoi64(f.HTTPStatus, 0))
 	}
 	return queryFrag, args
 }

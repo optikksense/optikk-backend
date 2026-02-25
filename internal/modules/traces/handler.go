@@ -21,15 +21,34 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 	startMs, endMs := ParseRange(c, 60*60*1000)
 	limit := ParseIntParam(c, "limit", 100)
 	offset := ParseIntParam(c, "offset", 0)
+	services := ParseListParam(c, "services")
+	if len(services) == 0 {
+		if singleService := c.Query("service"); singleService != "" {
+			services = []string{singleService}
+		}
+	}
+
+	operation := c.Query("operationName")
+	if operation == "" {
+		operation = c.Query("operation")
+	}
+
+	httpStatus := c.Query("httpStatusCode")
+	if httpStatus == "" {
+		httpStatus = c.Query("http.status_code")
+	}
 
 	f := TraceFilters{
 		TeamUUID:    teamUUID,
 		StartMs:     startMs,
 		EndMs:       endMs,
-		Services:    ParseListParam(c, "services"),
+		Services:    services,
 		Status:      c.Query("status"),
 		MinDuration: c.Query("minDuration"),
 		MaxDuration: c.Query("maxDuration"),
+		TraceID:     c.Query("traceId"),
+		Operation:   operation,
+		HTTPStatus:  httpStatus,
 	}
 
 	traces, total, summary, err := h.Repo.GetTraces(f, limit, offset)

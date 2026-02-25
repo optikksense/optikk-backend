@@ -144,6 +144,11 @@ func (a *App) registerRoutes(r *gin.Engine) {
 		v1.GET("/dashboard-config/pages", a.DashboardConfig.ListPages)
 		v1.GET("/dashboard-config/:pageId", a.DashboardConfig.GetDashboardConfig)
 		v1.PUT("/dashboard-config/:pageId", a.DashboardConfig.SaveDashboardConfig)
+
+		v1.GET("/explore/saved-queries", a.Explore.ListSavedQueries)
+		v1.POST("/explore/saved-queries", a.Explore.CreateSavedQuery)
+		v1.PUT("/explore/saved-queries/:id", a.Explore.UpdateSavedQuery)
+		v1.DELETE("/explore/saved-queries/:id", a.Explore.DeleteSavedQuery)
 	}
 
 	// OTLP ingestion endpoint — authenticated via api_key (not JWT).

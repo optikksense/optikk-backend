@@ -16,6 +16,7 @@ import (
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 	"github.com/observability/observability-backend-go/internal/modules/dashboardconfig"
 	"github.com/observability/observability-backend-go/internal/modules/deployments"
+	"github.com/observability/observability-backend-go/internal/modules/explore"
 	"github.com/observability/observability-backend-go/internal/modules/health"
 	"github.com/observability/observability-backend-go/internal/modules/identity"
 	"github.com/observability/observability-backend-go/internal/modules/insights"
@@ -35,17 +36,18 @@ type App struct {
 	Config     config.Config
 	JWTManager auth.JWTManager
 
-	Auth        AuthModule
-	Users       UserModule
-	Alerts      *alerts.AlertHandler
-	Health      *health.HealthHandler
-	Deployments *deployments.DeploymentHandler
-	Logs        *logsmodule.LogHandler
-	Traces      *traces.TraceHandler
-	Metrics     *metrics.MetricHandler
+	Auth            AuthModule
+	Users           UserModule
+	Alerts          *alerts.AlertHandler
+	Health          *health.HealthHandler
+	Deployments     *deployments.DeploymentHandler
+	Logs            *logsmodule.LogHandler
+	Traces          *traces.TraceHandler
+	Metrics         *metrics.MetricHandler
 	Insights        *insights.InsightHandler
 	AI              *ai.AIHandler
 	DashboardConfig *dashboardconfig.DashboardConfigHandler
+	Explore         *explore.ExploreHandler
 }
 
 type AuthModule interface {
@@ -88,6 +90,11 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 	dcRepo := dashboardconfig.NewRepository(db)
 	if err := dcRepo.EnsureTable(); err != nil {
 		log.Printf("WARN: dashboard_chart_configs table migration: %v", err)
+	}
+
+	exploreRepo := explore.NewRepository(db)
+	if err := exploreRepo.EnsureTable(); err != nil {
+		log.Printf("WARN: explore_saved_queries table migration: %v", err)
 	}
 
 	return &App{
@@ -169,6 +176,13 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				GetTenant: getTenant,
 			},
 			Repo: dcRepo,
+		},
+		Explore: &explore.ExploreHandler{
+			DBTenant: modulecommon.DBTenant{
+				DB:        db,
+				GetTenant: getTenant,
+			},
+			Repo: exploreRepo,
 		},
 	}
 }
