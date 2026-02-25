@@ -23,38 +23,6 @@ dataSources:
     endpoint: /v1/endpoints/metrics
   - id: latency-histogram
     endpoint: /v1/latency/histogram
-
-charts:
-  - id: trace-duration-distribution
-    title: "Trace Duration Distribution"
-    type: latency-histogram
-    titleIcon: Clock
-    layout:
-      col: 12
-    dataSource: latency-histogram
-    height: 160
-  - id: latency-distribution
-    title: "Latency Distribution (Timeseries)"
-    type: latency
-    titleIcon: Clock
-    layout:
-      col: 12
-    dataSource: metrics-timeseries
-    endpointDataSource: endpoints-timeseries
-    endpointMetricsSource: endpoints-metrics
-    endpointListType: latency
-    height: 240
-  - id: error-rate
-    title: "Error Rate"
-    type: error-rate
-    titleIcon: AlertCircle
-    layout:
-      col: 24
-    dataSource: metrics-timeseries
-    endpointDataSource: endpoints-timeseries
-    endpointMetricsSource: endpoints-metrics
-    endpointListType: errorRate
-    height: 240
 `
 
 const defaultLatencyAnalysis = `page: latency-analysis
