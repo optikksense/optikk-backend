@@ -100,6 +100,18 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 		log.Printf("WARN: dashboard_chart_configs table migration: %v", err)
 	}
 
+	// Dashboard config versioning
+	dcVersionRepo := dashboardconfig.NewVersionRepository(db)
+	if err := dcVersionRepo.EnsureTable(); err != nil {
+		log.Printf("WARN: dashboard_config_versions table migration: %v", err)
+	}
+
+	// Dashboard sharing
+	dcShareRepo := dashboardconfig.NewShareRepository(db)
+	if err := dcShareRepo.EnsureTable(); err != nil {
+		log.Printf("WARN: dashboard_shares table migration: %v", err)
+	}
+
 	exploreRepo := explore.NewRepository(db)
 	if err := exploreRepo.EnsureTable(); err != nil {
 		log.Printf("WARN: explore_saved_queries table migration: %v", err)
@@ -197,7 +209,9 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				DB:        db,
 				GetTenant: getTenant,
 			},
-			Repo: dcRepo,
+			Repo:        dcRepo,
+			VersionRepo: dcVersionRepo,
+			ShareRepo:   dcShareRepo,
 		},
 		Explore: &explore.ExploreHandler{
 			DBTenant: modulecommon.DBTenant{

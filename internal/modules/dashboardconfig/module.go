@@ -18,7 +18,17 @@ func RegisterRoutes(cfg Config, _ *gin.RouterGroup, v1 *gin.RouterGroup, h *Dash
 		return
 	}
 
+	// Core config endpoints
 	v1.GET("/dashboard-config/pages", h.ListPages)
 	v1.GET("/dashboard-config/:pageId", h.GetDashboardConfig)
 	v1.PUT("/dashboard-config/:pageId", h.SaveDashboardConfig)
+
+	// Versioning endpoints
+	v1.GET("/dashboard-config/:pageId/versions", h.ListConfigVersions)
+	v1.GET("/dashboard-config/:pageId/versions/:version", h.GetConfigVersion)
+	v1.POST("/dashboard-config/:pageId/rollback", h.RollbackConfig)
+
+	// Sharing endpoints
+	v1.POST("/dashboard-config/:pageId/share", h.CreateShare)
+	v1.GET("/dashboard-config/shared/:shareId", h.GetShare)
 }
