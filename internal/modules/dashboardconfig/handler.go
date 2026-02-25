@@ -35,7 +35,7 @@ func (h *DashboardConfigHandler) GetDashboardConfig(c *gin.Context) {
 
 	// Fall back to default if no team-specific config
 	if yaml == "" {
-		defaultYaml, exists := DefaultConfigs[pageID]
+		defaultYaml, exists := GetDefaultConfig(pageID)
 		if !exists {
 			RespondError(c, http.StatusNotFound, "NOT_FOUND", "No configuration found for page: "+pageID)
 			return
@@ -91,8 +91,9 @@ func (h *DashboardConfigHandler) SaveDashboardConfig(c *gin.Context) {
 
 // ListPages returns the list of available page IDs with their default configs.
 func (h *DashboardConfigHandler) ListPages(c *gin.Context) {
-	pages := make([]string, 0, len(DefaultConfigs))
-	for pageID := range DefaultConfigs {
+	configs := GetAllDefaultConfigs()
+	pages := make([]string, 0, len(configs))
+	for pageID := range configs {
 		pages = append(pages, pageID)
 	}
 	RespondOK(c, map[string]any{
