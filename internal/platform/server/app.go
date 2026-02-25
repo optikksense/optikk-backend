@@ -14,6 +14,7 @@ import (
 	"github.com/observability/observability-backend-go/internal/modules/ai"
 	"github.com/observability/observability-backend-go/internal/modules/alerts"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
+	"github.com/observability/observability-backend-go/internal/modules/dashboardconfig"
 	"github.com/observability/observability-backend-go/internal/modules/deployments"
 	"github.com/observability/observability-backend-go/internal/modules/health"
 	"github.com/observability/observability-backend-go/internal/modules/identity"
@@ -42,8 +43,9 @@ type App struct {
 	Logs        *logsmodule.LogHandler
 	Traces      *traces.TraceHandler
 	Metrics     *metrics.MetricHandler
-	Insights    *insights.InsightHandler
-	AI          *ai.AIHandler
+	Insights        *insights.InsightHandler
+	AI              *ai.AIHandler
+	DashboardConfig *dashboardconfig.DashboardConfigHandler
 }
 
 type AuthModule interface {
@@ -81,6 +83,12 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 
 	alertCondCol := resolveAlertConditionColumn(db)
 	identityTables := identity.NewMySQLProvider(db)
+
+	// Auto-create dashboard_chart_configs table if needed.
+	dcRepo := dashboardconfig.NewRepository(db)
+	if err := dcRepo.EnsureTable(); err != nil {
+		log.Printf("WARN: dashboard_chart_configs table migration: %v", err)
+	}
 
 	return &App{
 		DB:         db,
@@ -154,6 +162,13 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				GetTenant: getTenant,
 			},
 			Repo: ai.NewRepository(database.NewMySQLWrapper(ch)),
+		},
+		DashboardConfig: &dashboardconfig.DashboardConfigHandler{
+			DBTenant: modulecommon.DBTenant{
+				DB:        db,
+				GetTenant: getTenant,
+			},
+			Repo: dcRepo,
 		},
 	}
 }

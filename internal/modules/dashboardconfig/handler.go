@@ -1,0 +1,101 @@
+package dashboardconfig
+
+import (
+	"io"
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
+	. "github.com/observability/observability-backend-go/internal/platform/handlers"
+)
+
+// DashboardConfigHandler handles dashboard chart configuration endpoints.
+type DashboardConfigHandler struct {
+	modulecommon.DBTenant
+	Repo *Repository
+}
+
+// GetDashboardConfig returns the chart configuration YAML for a page.
+// If no team-specific config exists, returns the default config.
+func (h *DashboardConfigHandler) GetDashboardConfig(c *gin.Context) {
+	tenant := h.GetTenant(c)
+	pageID := c.Param("pageId")
+
+	if pageID == "" {
+		RespondError(c, http.StatusBadRequest, "BAD_REQUEST", "pageId is required")
+		return
+	}
+
+	// Try team-specific config first
+	yaml, err := h.Repo.GetConfig(tenant.TeamID, pageID)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to load dashboard config")
+		return
+	}
+
+	// Fall back to default if no team-specific config
+	if yaml == "" {
+		defaultYaml, exists := DefaultConfigs[pageID]
+		if !exists {
+			RespondError(c, http.StatusNotFound, "NOT_FOUND", "No configuration found for page: "+pageID)
+			return
+		}
+		yaml = defaultYaml
+	}
+
+	RespondOK(c, map[string]any{
+		"pageId":     pageID,
+		"configYaml": yaml,
+	})
+}
+
+// SaveDashboardConfig saves or updates the chart configuration YAML for a page.
+func (h *DashboardConfigHandler) SaveDashboardConfig(c *gin.Context) {
+	tenant := h.GetTenant(c)
+	pageID := c.Param("pageId")
+
+	if pageID == "" {
+		RespondError(c, http.StatusBadRequest, "BAD_REQUEST", "pageId is required")
+		return
+	}
+
+	var body struct {
+		ConfigYaml string `json:"configYaml"`
+	}
+
+	if err := c.ShouldBindJSON(&body); err != nil {
+		// Try reading raw body as YAML
+		raw, readErr := io.ReadAll(c.Request.Body)
+		if readErr != nil || len(raw) == 0 {
+			RespondError(c, http.StatusBadRequest, "BAD_REQUEST", "configYaml is required")
+			return
+		}
+		body.ConfigYaml = string(raw)
+	}
+
+	if body.ConfigYaml == "" {
+		RespondError(c, http.StatusBadRequest, "BAD_REQUEST", "configYaml cannot be empty")
+		return
+	}
+
+	if err := h.Repo.SaveConfig(tenant.TeamID, pageID, body.ConfigYaml); err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to save dashboard config")
+		return
+	}
+
+	RespondOK(c, map[string]any{
+		"pageId":  pageID,
+		"message": "Dashboard config saved successfully",
+	})
+}
+
+// ListPages returns the list of available page IDs with their default configs.
+func (h *DashboardConfigHandler) ListPages(c *gin.Context) {
+	pages := make([]string, 0, len(DefaultConfigs))
+	for pageID := range DefaultConfigs {
+		pages = append(pages, pageID)
+	}
+	RespondOK(c, map[string]any{
+		"pages": pages,
+	})
+}

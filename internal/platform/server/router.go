@@ -140,6 +140,10 @@ func (a *App) registerRoutes(r *gin.Engine) {
 		v1.GET("/ai/security/metrics", a.AI.GetAISecurityMetrics)
 		v1.GET("/ai/security/timeseries", a.AI.GetAISecurityTimeSeries)
 		v1.GET("/ai/security/pii-categories", a.AI.GetAIPiiCategories)
+
+		v1.GET("/dashboard-config/pages", a.DashboardConfig.ListPages)
+		v1.GET("/dashboard-config/:pageId", a.DashboardConfig.GetDashboardConfig)
+		v1.PUT("/dashboard-config/:pageId", a.DashboardConfig.SaveDashboardConfig)
 	}
 
 	// OTLP ingestion endpoint — authenticated via api_key (not JWT).
