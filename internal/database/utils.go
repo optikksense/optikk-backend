@@ -1,0 +1,180 @@
+package database
+
+import (
+	"fmt"
+	"math"
+	"strconv"
+	"strings"
+	"time"
+)
+
+// ---- SQL helpers ------------------------------------------------------------
+
+func SqlTime(ms int64) time.Time {
+	return time.UnixMilli(ms).UTC()
+}
+
+func NullableString(v string) any {
+	if strings.TrimSpace(v) == "" {
+		return nil
+	}
+	return v
+}
+
+func DefaultString(v, fallback string) string {
+	if v == "" {
+		return fallback
+	}
+	return v
+}
+
+func QueryCount(db Querier, q string, args ...any) int64 {
+	var total int64
+	row := db.QueryRow(q, args...)
+	if err := row.Scan(&total); err != nil {
+		return 0
+	}
+	return total
+}
+
+func InClauseFromStrings(values []string) (string, []any) {
+	return InClause(values)
+}
+
+// ---- Type conversion helpers ------------------------------------------------
+
+func Int64FromAny(v any) int64 {
+	switch n := v.(type) {
+	case int64:
+		return n
+	case int32:
+		return int64(n)
+	case int:
+		return int64(n)
+	case uint64:
+		return int64(n)
+	case uint32:
+		return int64(n)
+	case float64:
+		return int64(n)
+	case []byte:
+		return toInt64(string(n), 0)
+	case string:
+		return toInt64(n, 0)
+	default:
+		return 0
+	}
+}
+
+func Float64FromAny(v any) float64 {
+	switch n := v.(type) {
+	case float64:
+		return n
+	case float32:
+		return float64(n)
+	case int64:
+		return float64(n)
+	case int:
+		return float64(n)
+	case uint64:
+		return float64(n)
+	case uint32:
+		return float64(n)
+	case []byte:
+		return float64(toInt64(string(n), 0))
+	case string:
+		return float64(toInt64(n, 0))
+	default:
+		return 0
+	}
+}
+
+func StringFromAny(v any) string {
+	switch s := v.(type) {
+	case string:
+		return s
+	case []byte:
+		return string(s)
+	case nil:
+		return ""
+	default:
+		return fmt.Sprint(v)
+	}
+}
+
+func BoolFromAny(v any) bool {
+	switch b := v.(type) {
+	case bool:
+		return b
+	case int64:
+		return b != 0
+	case int:
+		return b != 0
+	case float64:
+		return b != 0
+	case []byte:
+		return string(b) == "1" || strings.EqualFold(string(b), "true")
+	case string:
+		return b == "1" || strings.EqualFold(b, "true")
+	default:
+		return false
+	}
+}
+
+func ToInt64Slice(v any) []int64 {
+	arr, ok := v.([]any)
+	if !ok {
+		return nil
+	}
+	out := make([]int64, 0, len(arr))
+	for _, item := range arr {
+		id := Int64FromAny(item)
+		if id > 0 {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+func NormalizeRows(rows []map[string]any) []map[string]any {
+	out := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		item := map[string]any{}
+		for k, v := range row {
+			item[k] = sanitizeValue(v)
+		}
+		out = append(out, item)
+	}
+	return out
+}
+
+func NormalizeMap(m map[string]any) map[string]any {
+	out := map[string]any{}
+	for k, v := range m {
+		out[k] = sanitizeValue(v)
+	}
+	return out
+}
+
+// sanitizeValue replaces NaN/Inf float64 with 0 so JSON encoding doesn't fail.
+func sanitizeValue(v any) any {
+	switch n := v.(type) {
+	case float64:
+		if math.IsNaN(n) || math.IsInf(n, 0) {
+			return 0.0
+		}
+	case float32:
+		if math.IsNaN(float64(n)) || math.IsInf(float64(n), 0) {
+			return 0.0
+		}
+	}
+	return v
+}
+
+func toInt64(s string, fallback int64) int64 {
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return v
+}

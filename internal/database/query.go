@@ -1,0 +1,170 @@
+package database
+
+import (
+	"database/sql"
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+)
+
+func QueryMaps(db Querier, query string, args ...any) ([]map[string]any, error) {
+	rows, err := db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	cols := rows.Columns()
+
+	result := make([]map[string]any, 0)
+	for rows.Next() {
+		raw := make([]any, len(cols))
+		rawPtrs := make([]any, len(cols))
+		for i := range raw {
+			rawPtrs[i] = &raw[i]
+		}
+
+		rows.Scan(rawPtrs...)
+
+		item := make(map[string]any, len(cols))
+		for i, col := range cols {
+			item[col] = normalizeValue(raw[i])
+		}
+		result = append(result, item)
+	}
+
+	return result, nil
+}
+
+func QueryMap(db Querier, query string, args ...any) (map[string]any, error) {
+	items, err := QueryMaps(db, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return map[string]any{}, nil
+	}
+	return items[0], nil
+}
+
+func InClause(values []string) (string, []any) {
+	if len(values) == 0 {
+		return "", nil
+	}
+	parts := make([]string, len(values))
+	args := make([]any, len(values))
+	for i, v := range values {
+		parts[i] = "?"
+		args[i] = v
+	}
+	return "(" + strings.Join(parts, ",") + ")", args
+}
+
+func InClauseInt64(values []int64) (string, []any) {
+	if len(values) == 0 {
+		return "", nil
+	}
+	parts := make([]string, len(values))
+	args := make([]any, len(values))
+	for i, v := range values {
+		parts[i] = "?"
+		args[i] = v
+	}
+	return "(" + strings.Join(parts, ",") + ")", args
+}
+
+func parseJSONToMap(v any) map[string]any {
+	if v == nil {
+		return map[string]any{}
+	}
+	s, ok := v.(string)
+	if !ok || s == "" {
+		return map[string]any{}
+	}
+	out := map[string]any{}
+	_ = json.Unmarshal([]byte(s), &out)
+	return out
+}
+
+func normalizeValue(v any) any {
+	switch x := v.(type) {
+	case []byte:
+		s := string(x)
+		if f, err := strconv.ParseFloat(s, 64); err == nil {
+			return f
+		}
+		return s
+	case time.Time:
+		return x.UTC().Format(time.RFC3339)
+	default:
+		return v
+	}
+}
+
+func JSONString(v any) string {
+	if v == nil {
+		return "{}"
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "{}"
+	}
+	return string(b)
+}
+
+func MustAtoi(v string, fallback int) int {
+	i, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	return i
+}
+
+func MustAtoi64(v string, fallback int64) int64 {
+	i, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return fallback
+	}
+	return i
+}
+
+func RowsAffected(res sql.Result) int64 {
+	if res == nil {
+		return 0
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0
+	}
+	return n
+}
+
+func NullFloat(v any) *float64 {
+	if v == nil {
+		return nil
+	}
+	switch n := v.(type) {
+	case float64:
+		return &n
+	case int64:
+		f := float64(n)
+		return &f
+	case int:
+		f := float64(n)
+		return &f
+	case string:
+		f, err := strconv.ParseFloat(n, 64)
+		if err != nil {
+			return nil
+		}
+		return &f
+	default:
+		return nil
+	}
+}
+
+func CountQuery(baseSelect string) string {
+	return fmt.Sprintf("SELECT COUNT(*) as total FROM (%s) q", baseSelect)
+}
