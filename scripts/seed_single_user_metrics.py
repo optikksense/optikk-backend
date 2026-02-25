@@ -164,7 +164,39 @@ def generate_data(samples, team_uuid):
                         "_svc": svc
                     }
                     
+                    # Decide if this request has a DB call and/or cache access
+                    has_db = rng.random() > 0.3
+                    has_cache = rng.random() > 0.5
+                    
                     # Trace span
+                    primary_name = f"{method} {route}"
+                    primary_duration = lat
+                    if has_db:
+                        # Make parent span longer
+                        primary_duration += rng.uniform(10, 50)
+                        db_lat = rng.uniform(5, primary_duration - 5)
+                        db_span_id = uuid.uuid4().hex[:16]
+                        db_table = f"{svc.split('-')[0]}_data"
+                        db_attrs = common.copy()
+                        db_attrs.update({
+                            "db.system": "mysql",
+                            "db.sql.table": db_table,
+                            "db.query.latency.ms": db_lat,
+                            "db.replication.lag.ms": rng.uniform(0, 100) if rng.random() > 0.8 else 0
+                        })
+                        if has_cache:
+                            db_attrs["cache.hit"] = "true" if rng.random() > 0.4 else "false"
+                            
+                        traces.append({
+                            "traceId": trace_id, "spanId": db_span_id, "parentSpanId": span_id,
+                            "name": f"SQL SELECT * FROM {db_table}", "kind": 3, # CLIENT
+                            "startTimeUnixNano": utc_ns(ts + timedelta(milliseconds=2)),
+                            "endTimeUnixNano": utc_ns(ts + timedelta(milliseconds=2+db_lat)),
+                            "attributes": otlp_attrs(db_attrs),
+                            "status": {"code": 0},
+                            "_svc": svc
+                        })
+
                     traces.append({
                         "traceId": trace_id, "spanId": span_id,
                         "name": f"{method} {route}", "kind": span_kind,

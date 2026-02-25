@@ -26,6 +26,4 @@ func RegisterRoutes(cfg Config, _ *gin.RouterGroup, v1 *gin.RouterGroup, h *Trac
 	v1.GET("/latency/heatmap", h.GetLatencyHeatmap)
 	v1.GET("/errors/groups", h.GetErrorGroups)
 	v1.GET("/errors/timeseries", h.GetErrorTimeSeries)
-	v1.GET("/saturation/metrics", h.GetSaturationMetrics)
-	v1.GET("/saturation/timeseries", h.GetSaturationTimeSeries)
 }

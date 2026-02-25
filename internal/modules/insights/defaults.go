@@ -4,9 +4,9 @@ import "github.com/observability/observability-backend-go/internal/modules/dashb
 
 func init() {
 	dashboardconfig.RegisterDefaultConfig("messaging-queue", defaultMessagingQueue)
-	dashboardconfig.RegisterDefaultConfig("saturation", defaultSaturation)
 	dashboardconfig.RegisterDefaultConfig("slo-sli", defaultSloSli)
 	dashboardconfig.RegisterDefaultConfig("resource-utilization", defaultResourceUtilization)
+	dashboardconfig.RegisterDefaultConfig("database-cache", defaultDatabaseCache)
 }
 
 const defaultMessagingQueue = `page: messaging-queue
@@ -94,76 +94,6 @@ charts:
     listType: depth
     listTitle: "Avg Depth"
     listSortField: avg_queue_depth
-`
-
-const defaultSaturation = `page: saturation
-title: "Saturation Metrics"
-icon: "Gauge"
-subtitle: "Leading indicators: queue depths, consumer lag, thread pools, and connection pool utilization"
-
-dataSources:
-  - id: saturation-metrics
-    endpoint: /v1/saturation/metrics
-  - id: saturation-timeseries
-    endpoint: /v1/saturation/timeseries
-    params:
-      interval: "5m"
-  - id: services-metrics
-    endpoint: /v1/services/metrics
-
-statCards:
-  - title: "Max DB Pool Util"
-    dataSource: saturation-metrics
-    valueField: _maxDbPool
-    formatter: percent1
-    icon: Database
-  - title: "Max Consumer Lag"
-    dataSource: saturation-metrics
-    valueField: _maxLag
-    formatter: number
-    icon: Radio
-  - title: "Max Thread Active"
-    dataSource: saturation-metrics
-    valueField: _maxThread
-    formatter: number
-    icon: Cpu
-  - title: "Max Queue Depth"
-    dataSource: saturation-metrics
-    valueField: _maxQueue
-    formatter: number
-    icon: GitPullRequest
-
-charts:
-  - id: consumer-lag
-    title: "Consumer Lag (avg, per service)"
-    type: request
-    layout:
-      col: 12
-    dataSource: saturation-timeseries
-    groupByKey: service
-    valueKey: avg_consumer_lag
-    datasetLabel: "Lag"
-    height: 220
-  - id: thread-pool
-    title: "Thread Pool Active (avg, per service)"
-    type: request
-    layout:
-      col: 12
-    dataSource: saturation-timeseries
-    groupByKey: service
-    valueKey: avg_thread_active
-    datasetLabel: "Active Threads"
-    height: 220
-  - id: queue-depth
-    title: "Queue Depth (avg, per service)"
-    type: request
-    layout:
-      col: 12
-    dataSource: saturation-timeseries
-    groupByKey: service
-    valueKey: avg_queue_depth
-    datasetLabel: "Queue Depth"
-    height: 220
 `
 
 const defaultSloSli = `page: slo-sli
@@ -268,4 +198,36 @@ charts:
     valueKey: avg_memory_util
     datasetLabel: "Mem Util"
     height: 260
+`
+
+const defaultDatabaseCache = `page: database-cache
+title: "Database & Cache Performance"
+icon: "Database"
+subtitle: "Query latency, cache hit ratio, slow logs, replication lag"
+
+dataSources:
+  - id: database-cache-insights
+    endpoint: /v1/insights/database-cache
+
+statCards:
+  - title: "Avg Query Latency"
+    dataSource: database-cache-insights
+    valueField: summary.avg_query_latency_ms
+    formatter: fixed1
+    icon: Timer
+  - title: "P95 Query Latency"
+    dataSource: database-cache-insights
+    valueField: summary.p95_query_latency_ms
+    formatter: fixed1
+    icon: Timer
+  - title: "Cache Hit Ratio"
+    dataSource: database-cache-insights
+    valueField: cache.cacheHitRatio
+    formatter: percent1
+    icon: Layers
+  - title: "Replication Lag"
+    dataSource: database-cache-insights
+    valueField: summary.avg_replication_lag_ms
+    formatter: fixed1
+    icon: Database
 `

@@ -19,9 +19,11 @@ import (
 	"github.com/observability/observability-backend-go/internal/modules/explore"
 	"github.com/observability/observability-backend-go/internal/modules/health"
 	"github.com/observability/observability-backend-go/internal/modules/identity"
+	"github.com/observability/observability-backend-go/internal/modules/infrastructure"
 	"github.com/observability/observability-backend-go/internal/modules/insights"
 	logsmodule "github.com/observability/observability-backend-go/internal/modules/logs"
 	"github.com/observability/observability-backend-go/internal/modules/metrics"
+	"github.com/observability/observability-backend-go/internal/modules/saturation"
 	"github.com/observability/observability-backend-go/internal/modules/traces"
 	"github.com/observability/observability-backend-go/internal/platform/auth"
 	"github.com/observability/observability-backend-go/internal/platform/handlers"
@@ -48,6 +50,8 @@ type App struct {
 	Logs            *logsmodule.LogHandler
 	Traces          *traces.TraceHandler
 	Metrics         *metrics.MetricHandler
+	Infrastructure  *infrastructure.InfrastructureHandler
+	Saturation      *saturation.SaturationHandler
 	Insights        *insights.InsightHandler
 	AI              *ai.AIHandler
 	DashboardConfig *dashboardconfig.DashboardConfigHandler
@@ -159,6 +163,20 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				GetTenant: getTenant,
 			},
 			Repo: metrics.NewRepository(database.NewMySQLWrapper(ch)),
+		},
+		Infrastructure: &infrastructure.InfrastructureHandler{
+			DBTenant: modulecommon.DBTenant{
+				DB:        ch,
+				GetTenant: getTenant,
+			},
+			Repo: infrastructure.NewRepository(database.NewMySQLWrapper(ch)),
+		},
+		Saturation: &saturation.SaturationHandler{
+			DBTenant: modulecommon.DBTenant{
+				DB:        ch,
+				GetTenant: getTenant,
+			},
+			Repo: saturation.NewRepository(database.NewMySQLWrapper(ch)),
 		},
 		Insights: &insights.InsightHandler{
 			DBTenant: modulecommon.DBTenant{

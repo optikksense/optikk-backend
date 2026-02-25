@@ -12,9 +12,11 @@ import (
 	"github.com/observability/observability-backend-go/internal/modules/explore"
 	"github.com/observability/observability-backend-go/internal/modules/health"
 	"github.com/observability/observability-backend-go/internal/modules/identity"
+	"github.com/observability/observability-backend-go/internal/modules/infrastructure"
 	"github.com/observability/observability-backend-go/internal/modules/insights"
 	logsmodule "github.com/observability/observability-backend-go/internal/modules/logs"
 	"github.com/observability/observability-backend-go/internal/modules/metrics"
+	"github.com/observability/observability-backend-go/internal/modules/saturation"
 	"github.com/observability/observability-backend-go/internal/modules/traces"
 	"github.com/observability/observability-backend-go/internal/telemetry"
 )
@@ -23,6 +25,8 @@ type moduleConfigs struct {
 	Identity        identity.Config
 	Alerts          alerts.Config
 	Metrics         metrics.Config
+	Infrastructure  infrastructure.Config
+	Saturation      saturation.Config
 	Logs            logsmodule.Config
 	Traces          traces.Config
 	Health          health.Config
@@ -39,6 +43,8 @@ func defaultModuleConfigs() moduleConfigs {
 		Identity:        identity.DefaultConfig(),
 		Alerts:          alerts.DefaultConfig(),
 		Metrics:         metrics.DefaultConfig(),
+		Infrastructure:  infrastructure.DefaultConfig(),
+		Saturation:      saturation.DefaultConfig(),
 		Logs:            logsmodule.DefaultConfig(),
 		Traces:          traces.DefaultConfig(),
 		Health:          health.DefaultConfig(),
@@ -60,6 +66,8 @@ func (a *App) registerRoutes(r *gin.Engine) {
 	identity.RegisterRoutes(cfg.Identity, api, a.Auth, a.Users)
 	alerts.RegisterRoutes(cfg.Alerts, api, v1, a.Alerts)
 	metrics.RegisterRoutes(cfg.Metrics, api, v1, a.Metrics)
+	infrastructure.RegisterRoutes(cfg.Infrastructure, api, v1, a.Infrastructure)
+	saturation.RegisterRoutes(cfg.Saturation, api, v1, a.Saturation)
 	logsmodule.RegisterRoutes(cfg.Logs, api, v1, a.Logs)
 	traces.RegisterRoutes(cfg.Traces, api, v1, a.Traces)
 	health.RegisterRoutes(cfg.Health, api, v1, a.Health)

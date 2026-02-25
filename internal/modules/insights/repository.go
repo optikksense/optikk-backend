@@ -1,6 +1,8 @@
 package insights
 
 import (
+	"fmt"
+
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
@@ -400,13 +402,17 @@ func (r *Repository) GetInsightDatabaseCache(teamUUID string, startMs, endMs int
 	summary, err := dbutil.QueryMap(r.db, `
 		SELECT avg(JSONExtractFloat(attributes, 'db.query.latency.ms'))  as avg_query_latency_ms,
 		       quantile(0.95)(JSONExtractFloat(attributes, 'db.query.latency.ms')) as p95_query_latency_ms,
-		       sum(if(lower(operation_name) LIKE '%sql%' OR lower(operation_name) LIKE '%db%', 1, 0)) as db_span_count,
+		       sum(if(JSONExtractString(attributes, 'db.system') != '', 1, 0)) as db_span_count,
 		       sum(if(JSONExtractString(attributes, 'cache.hit') = 'true', 1, 0))  as cache_hits,
 		       sum(if(JSONExtractString(attributes, 'cache.hit') = 'false', 1, 0)) as cache_misses,
 		       avg(JSONExtractFloat(attributes, 'db.replication.lag.ms')) as avg_replication_lag_ms
 		FROM spans
 		WHERE team_id = ? AND start_time BETWEEN ? AND ?
 	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+
+	fmt.Printf("[DEBUG GetInsightDatabaseCache] Querying team=%s start=%v end=%v\n", teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	fmt.Printf("[DEBUG GetInsightDatabaseCache] Query Result: %+v Error: %v\n", summary, err)
+
 	if err != nil {
 		return nil, nil, nil, err
 	}

@@ -1,0 +1,193 @@
+package store
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"strings"
+
+	dbutil "github.com/observability/observability-backend-go/internal/database"
+	"github.com/observability/observability-backend-go/internal/telemetry/model"
+)
+
+// Repository persists telemetry records into ClickHouse.
+type Repository struct {
+	DB dbutil.Querier
+}
+
+// NewRepository creates a telemetry repository.
+func NewRepository(db dbutil.Querier) *Repository {
+	return &Repository{DB: db}
+}
+
+func (r *Repository) InsertSpans(ctx context.Context, spans []model.SpanRecord) error {
+	if len(spans) == 0 {
+		return nil
+	}
+	log.Printf("otlp: attempting to insert %d spans", len(spans))
+
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	for _, span := range spans {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO spans (
+				team_id, trace_id, span_id, parent_span_id, is_root,
+				operation_name, service_name, span_kind,
+				start_time, end_time, duration_ms,
+				status, status_message,
+				http_method, http_url, http_status_code,
+				host, pod, container, attributes
+			) VALUES (
+				?, ?, ?, ?, ?,
+				?, ?, ?,
+				?, ?, ?,
+				?, ?,
+				?, ?, ?,
+				?, ?, ?, ?
+			)`,
+			span.TeamUUID, span.TraceID, span.SpanID, nullStr(span.ParentSpanID), span.IsRoot,
+			span.OperationName, span.ServiceName, span.SpanKind,
+			span.StartTime, span.EndTime, span.DurationMs,
+			span.Status, nullStr(span.StatusMessage),
+			nullStr(span.HTTPMethod), nullStr(span.HTTPURL), nullInt(span.HTTPStatusCode),
+			nullStr(span.Host), nullStr(span.Pod), nullStr(span.Container),
+			span.Attributes,
+		)
+		if err != nil {
+			log.Printf("otlp: add span to batch %s/%s failed: %v", span.TraceID, span.SpanID, err)
+			continue
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit batch insertion: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) InsertMetrics(ctx context.Context, metrics []model.MetricRecord) error {
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	for _, rec := range metrics {
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO metrics (
+				team_id, metric_name, metric_type, metric_category,
+				service_name, operation_name, timestamp,
+				value, count, sum, min, max, avg,
+				p50, p95, p99,
+				http_method, http_status_code, status,
+				host, pod, container, attributes
+			) VALUES (
+				?, ?, ?, ?,
+				?, ?, ?,
+				?, ?, ?, ?, ?, ?,
+				?, ?, ?,
+				?, ?, ?,
+				?, ?, ?, ?
+			)`,
+			rec.TeamUUID, rec.MetricName, rec.MetricType, rec.MetricCategory,
+			rec.ServiceName, nullStr(rec.OperationName), rec.Timestamp,
+			rec.Value, rec.Count, rec.Sum, rec.Min, rec.Max, rec.Avg,
+			rec.P50, rec.P95, rec.P99,
+			nullStr(rec.HTTPMethod), nullInt(rec.HTTPStatusCode), rec.Status,
+			nullStr(rec.Host), nullStr(rec.Pod), nullStr(rec.Container),
+			rec.Attributes,
+		)
+		if err != nil {
+			log.Printf("otlp: add metric to batch %q failed: %v", rec.MetricName, err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit batch insertion: %w", err)
+	}
+	return nil
+}
+
+func (r *Repository) InsertLogs(ctx context.Context, logs []model.LogRecord) error {
+	if len(logs) == 0 {
+		return nil
+	}
+
+	tx, err := r.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	for _, rec := range logs {
+		level := normalizeLevel(rec.Level)
+		service := strings.TrimSpace(rec.Service)
+		if service == "" {
+			service = "unknown"
+		}
+		message := strings.TrimSpace(rec.Message)
+		if message == "" {
+			message = "otlp log record"
+		}
+
+		_, err := tx.ExecContext(ctx, `
+			INSERT INTO logs (
+				team_id, timestamp, level, service_name, logger, message, trace_id, span_id,
+				host, pod, container, thread, exception, attributes
+			) VALUES (
+				?, ?, ?, ?, ?, ?, ?, ?,
+				?, ?, ?, ?, ?, ?
+			)`,
+			rec.TeamUUID, rec.Timestamp, level, service,
+			nullStr(rec.Logger), message, nullStr(rec.TraceID), nullStr(rec.SpanID),
+			nullStr(rec.Host), nullStr(rec.Pod), nullStr(rec.Container),
+			nullStr(rec.Thread), nullStr(rec.Exception), rec.Attributes,
+		)
+		if err != nil {
+			log.Printf("otlp: add log to batch failed: %v", err)
+		}
+	}
+
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit batch insertion: %w", err)
+	}
+	return nil
+}
+
+func nullStr(s string) any {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	return s
+}
+
+func nullInt(n int) any {
+	if n == 0 {
+		return nil
+	}
+	return n
+}
+
+func normalizeLevel(s string) string {
+	s = strings.ToUpper(strings.TrimSpace(s))
+	switch s {
+	case "DEBUG", "TRACE":
+		return "DEBUG"
+	case "WARN", "WARNING":
+		return "WARN"
+	case "ERROR":
+		return "ERROR"
+	case "FATAL":
+		return "FATAL"
+	default:
+		return "INFO"
+	}
+}
