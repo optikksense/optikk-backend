@@ -1,7 +1,6 @@
 package api
 
 import (
-	"encoding/json"
 	"log"
 	"net/http"
 	"strconv"
@@ -13,42 +12,20 @@ import (
 
 // HandleTraces is the Gin handler for POST /otlp/v1/traces.
 func (h *Handler) HandleTraces(c *gin.Context) {
-	teamUUID, ok := h.resolveAPIKey(c)
+	teamUUID, payload, ok := decodeRequest(h, c, protoToTracesPayload)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or missing api_key"})
-		return
-	}
-
-	body, err := readBody(c)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "failed to read request body"})
-		return
-	}
-
-	var payload model.OTLPTracesPayload
-	if isProtobuf(c) {
-		payload, err = protoToTracesPayload(body)
-	} else {
-		err = json.Unmarshal(body, &payload)
-	}
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid OTLP payload"})
 		return
 	}
 
 	var spansToInsert []model.SpanRecord
 
 	for _, rs := range payload.ResourceSpans {
-		resourceAttrs := otlpAttrMap(rs.Resource.Attributes)
-		serviceName := resourceAttrs["service.name"]
-		if serviceName == "" {
-			serviceName = "unknown"
-		}
+		rc := newResourceContext(rs.Resource.Attributes)
 
 		for _, ss := range rs.ScopeSpans {
 			for _, span := range ss.Spans {
 				spanAttrs := otlpAttrMap(span.Attributes)
-				allAttrs := mergeOTLPAttrs(resourceAttrs, spanAttrs)
+				allAttrs := mergeOTLPAttrs(rc.attrs, spanAttrs)
 
 				startTime := nanosToTime(span.StartTimeUnixNano)
 				endTime := nanosToTime(span.EndTimeUnixNano)
@@ -56,8 +33,6 @@ func (h *Handler) HandleTraces(c *gin.Context) {
 				if durationMs < 0 {
 					durationMs = 0
 				}
-
-				isRoot := span.ParentSpanID == ""
 
 				status := "OK"
 				statusMessage := ""
@@ -75,14 +50,10 @@ func (h *Handler) HandleTraces(c *gin.Context) {
 					httpStatusCode, _ = strconv.Atoi(codeStr)
 				}
 
-				host := firstNonEmpty(spanAttrs["server.address"], spanAttrs["net.host.name"], resourceAttrs["host.name"])
-				pod := firstNonEmpty(spanAttrs["k8s.pod.name"], resourceAttrs["k8s.pod.name"])
-				container := firstNonEmpty(spanAttrs["k8s.container.name"], resourceAttrs["k8s.container.name"])
-
-				spanKind := spanKindString(span.Kind)
+				infra := extractInfraLabels(spanAttrs, rc.attrs)
 
 				rootInt := 0
-				if isRoot {
+				if span.ParentSpanID == "" {
 					rootInt = 1
 				}
 
@@ -93,8 +64,8 @@ func (h *Handler) HandleTraces(c *gin.Context) {
 					ParentSpanID:   span.ParentSpanID,
 					IsRoot:         rootInt,
 					OperationName:  span.Name,
-					ServiceName:    serviceName,
-					SpanKind:       spanKind,
+					ServiceName:    rc.serviceName,
+					SpanKind:       spanKindString(span.Kind),
 					StartTime:      startTime,
 					EndTime:        endTime,
 					DurationMs:     durationMs,
@@ -103,9 +74,9 @@ func (h *Handler) HandleTraces(c *gin.Context) {
 					HTTPMethod:     httpMethod,
 					HTTPURL:        httpURL,
 					HTTPStatusCode: httpStatusCode,
-					Host:           host,
-					Pod:            pod,
-					Container:      container,
+					Host:           infra.host,
+					Pod:            infra.pod,
+					Container:      infra.container,
 					Attributes:     dbutil.JSONString(allAttrs),
 				})
 			}

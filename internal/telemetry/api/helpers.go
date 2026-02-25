@@ -126,51 +126,58 @@ func numberDPValue(dp model.OTLPNumberDataPoint) float64 {
 	return 0
 }
 
+// resourceContext bundles the resource-level attributes and service name that
+// every handler extracts identically from each OTLP resource.
+type resourceContext struct {
+	attrs       map[string]string
+	serviceName string
+}
+
+// newResourceContext converts raw OTLP resource attributes into a
+// resourceContext, defaulting serviceName to "unknown" when absent.
+func newResourceContext(raw []model.OTLPAttribute) resourceContext {
+	attrs := otlpAttrMap(raw)
+	svc := attrs["service.name"]
+	if svc == "" {
+		svc = "unknown"
+	}
+	return resourceContext{attrs: attrs, serviceName: svc}
+}
+
+// infraLabels holds the common infrastructure fields extracted from OTel
+// semantic conventions (host, pod, container).
+type infraLabels struct {
+	host      string
+	pod       string
+	container string
+}
+
+// extractInfraLabels resolves host/pod/container from datapoint-level and
+// resource-level attribute maps. Datapoint attributes take precedence.
+func extractInfraLabels(dp, resource map[string]string) infraLabels {
+	return infraLabels{
+		host:      firstNonEmpty(dp["server.address"], dp["net.host.name"], resource["host.name"]),
+		pod:       firstNonEmpty(dp["k8s.pod.name"], resource["k8s.pod.name"]),
+		container: firstNonEmpty(dp["k8s.container.name"], resource["k8s.container.name"]),
+	}
+}
+
 // Label extraction (OTel semantic conventions -> dedicated columns)
 type dpLabels struct {
 	httpMethod     string
 	httpStatusCode int
-	host           string
-	pod            string
-	container      string
-	status         string
+	infraLabels
+	status string
 }
 
 // extractDPLabels maps OTel semantic-convention attribute keys to the column
 // fields used by the metrics table. Datapoint attributes take precedence over
 // resource attributes for host/pod/container.
 func extractDPLabels(dp, resource map[string]string) dpLabels {
-	// http.method: prefer newer OTel 1.20+ name, fall back to legacy
-	httpMethod := dp["http.request.method"]
-	if httpMethod == "" {
-		httpMethod = dp["http.method"]
-	}
+	httpMethod := firstNonEmpty(dp["http.request.method"], dp["http.method"])
 
-	// http.status_code: prefer newer name, fall back to legacy
-	statusStr := dp["http.response.status_code"]
-	if statusStr == "" {
-		statusStr = dp["http.status_code"]
-	}
+	statusStr := firstNonEmpty(dp["http.response.status_code"], dp["http.status_code"])
 	httpStatusCode, _ := strconv.Atoi(statusStr)
-
-	// host: datapoint -> resource
-	host := dp["server.address"]
-	if host == "" {
-		host = dp["net.host.name"]
-	}
-	if host == "" {
-		host = resource["host.name"]
-	}
-
-	// pod / container: datapoint first, then resource
-	pod := dp["k8s.pod.name"]
-	if pod == "" {
-		pod = resource["k8s.pod.name"]
-	}
-	container := dp["k8s.container.name"]
-	if container == "" {
-		container = resource["k8s.container.name"]
-	}
 
 	status := "OK"
 	if httpStatusCode >= 500 {
@@ -180,9 +187,7 @@ func extractDPLabels(dp, resource map[string]string) dpLabels {
 	return dpLabels{
 		httpMethod:     httpMethod,
 		httpStatusCode: httpStatusCode,
-		host:           host,
-		pod:            pod,
-		container:      container,
+		infraLabels:    extractInfraLabels(dp, resource),
 		status:         status,
 	}
 }
