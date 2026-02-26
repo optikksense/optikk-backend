@@ -1,4 +1,4 @@
-package api
+package translate
 
 import (
 	"strconv"
@@ -44,7 +44,7 @@ func numberDPValue(dp model.OTLPNumberDataPoint) float64 {
 	return 0
 }
 
-// Label extraction (OTel semantic conventions -> dedicated columns)
+// dpLabels holds the label columns extracted from OTel semantic conventions.
 type dpLabels struct {
 	httpMethod     string
 	httpStatusCode int

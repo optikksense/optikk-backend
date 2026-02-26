@@ -1,4 +1,4 @@
-package api
+package translate
 
 import (
 	"strconv"
@@ -90,7 +90,7 @@ func severityTextFromNumber(n int) string {
 }
 
 // resourceContext bundles the resource-level attributes and service name that
-// every handler extracts identically from each OTLP resource.
+// every translator extracts identically from each OTLP resource.
 type resourceContext struct {
 	attrs       map[string]string
 	serviceName string

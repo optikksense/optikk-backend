@@ -1,36 +1,51 @@
-package api
+package translate
 
 import (
-	"log"
-	"net/http"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/modules/ingestion/model"
 )
 
-// HandleMetrics is the Gin handler for POST /otlp/v1/metrics.
-func (h *Handler) HandleMetrics(c *gin.Context) {
-	teamUUID, payload, ok := decodeRequest(h, c, protoToMetricsPayload)
-	if !ok {
-		return
-	}
+// MetricsTranslator converts OTLP metrics payloads into MetricRecord slices.
+type MetricsTranslator struct{}
 
-	metricsToInsert := TranslateMetrics(teamUUID, payload)
+func (MetricsTranslator) Translate(teamUUID string, payload model.OTLPMetricsPayload) []model.MetricRecord {
+	var metrics []model.MetricRecord
 
-	if len(metricsToInsert) > 0 {
-		if err := h.Ingester.IngestMetrics(c.Request.Context(), metricsToInsert); err != nil {
-			log.Printf("otlp: failed to ingest %d metrics: %v", len(metricsToInsert), err)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to ingest metrics"})
-			return
+	for _, rm := range payload.ResourceMetrics {
+		rc := newResourceContext(rm.Resource.Attributes)
+
+		for _, sm := range rm.ScopeMetrics {
+			for _, metric := range sm.Metrics {
+				category := metricCategory(metric.Name)
+
+				switch {
+				case metric.Gauge != nil:
+					for _, dp := range metric.Gauge.DataPoints {
+						metrics = append(metrics,
+							buildNumberMetricRecord(teamUUID, rc, metric.Name, "gauge", category, dp))
+					}
+
+				case metric.Sum != nil:
+					for _, dp := range metric.Sum.DataPoints {
+						metrics = append(metrics,
+							buildNumberMetricRecord(teamUUID, rc, metric.Name, "sum", category, dp))
+					}
+
+				case metric.Histogram != nil:
+					for _, dp := range metric.Histogram.DataPoints {
+						metrics = append(metrics,
+							buildHistogramMetricRecord(teamUUID, rc, metric.Name, category, dp))
+					}
+				}
+			}
 		}
 	}
 
-	c.JSON(http.StatusOK, gin.H{"accepted": len(metricsToInsert)})
+	return metrics
 }
 
-// buildNumberMetricRecord creates a MetricRecord from a gauge or sum data point.
 func buildNumberMetricRecord(teamUUID string, rc resourceContext, name, metricType, category string, dp model.OTLPNumberDataPoint) model.MetricRecord {
 	dpAttrs := otlpAttrMap(dp.Attributes)
 	labels := extractDPLabels(dpAttrs, rc.attrs)
@@ -59,7 +74,6 @@ func buildNumberMetricRecord(teamUUID string, rc resourceContext, name, metricTy
 	}
 }
 
-// buildHistogramMetricRecord creates a MetricRecord from a histogram data point.
 func buildHistogramMetricRecord(teamUUID string, rc resourceContext, name, category string, dp model.OTLPHistogramDataPoint) model.MetricRecord {
 	dpAttrs := otlpAttrMap(dp.Attributes)
 	labels := extractDPLabels(dpAttrs, rc.attrs)

@@ -1,4 +1,4 @@
-package api
+package translate
 
 import (
 	"strconv"
@@ -7,9 +7,11 @@ import (
 	"github.com/observability/observability-backend-go/modules/ingestion/model"
 )
 
-// TranslateSpans converts OTLP traces payloads into our internal SpanRecord format.
-func TranslateSpans(teamUUID string, payload model.OTLPTracesPayload) []model.SpanRecord {
-	var spansToInsert []model.SpanRecord
+// SpansTranslator converts OTLP traces payloads into SpanRecord slices.
+type SpansTranslator struct{}
+
+func (SpansTranslator) Translate(teamUUID string, payload model.OTLPTracesPayload) []model.SpanRecord {
+	var spans []model.SpanRecord
 
 	for _, rs := range payload.ResourceSpans {
 		rc := newResourceContext(rs.Resource.Attributes)
@@ -46,7 +48,7 @@ func TranslateSpans(teamUUID string, payload model.OTLPTracesPayload) []model.Sp
 					rootInt = 1
 				}
 
-				spansToInsert = append(spansToInsert, model.SpanRecord{
+				spans = append(spans, model.SpanRecord{
 					TeamUUID:       teamUUID,
 					TraceID:        span.TraceID,
 					SpanID:         span.SpanID,
@@ -72,5 +74,22 @@ func TranslateSpans(teamUUID string, payload model.OTLPTracesPayload) []model.Sp
 		}
 	}
 
-	return spansToInsert
+	return spans
+}
+
+func spanKindString(kind int) string {
+	switch kind {
+	case 1:
+		return "INTERNAL"
+	case 2:
+		return "SERVER"
+	case 3:
+		return "CLIENT"
+	case 4:
+		return "PRODUCER"
+	case 5:
+		return "CONSUMER"
+	default:
+		return "INTERNAL"
+	}
 }

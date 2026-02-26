@@ -1,4 +1,4 @@
-package api
+package translate
 
 import (
 	"strings"
@@ -7,9 +7,11 @@ import (
 	"github.com/observability/observability-backend-go/modules/ingestion/model"
 )
 
-// TranslateLogs converts OTLP logs payloads into our internal LogRecord format.
-func TranslateLogs(teamUUID string, payload model.OTLPLogsPayload) []model.LogRecord {
-	var logsToInsert []model.LogRecord
+// LogsTranslator converts OTLP logs payloads into LogRecord slices.
+type LogsTranslator struct{}
+
+func (LogsTranslator) Translate(teamUUID string, payload model.OTLPLogsPayload) []model.LogRecord {
+	var logs []model.LogRecord
 
 	for _, rl := range payload.ResourceLogs {
 		rc := newResourceContext(rl.Resource.Attributes)
@@ -36,7 +38,7 @@ func TranslateLogs(teamUUID string, payload model.OTLPLogsPayload) []model.LogRe
 
 				infra := extractInfraLabels(logAttrs, rc.attrs)
 
-				logsToInsert = append(logsToInsert, model.LogRecord{
+				logs = append(logs, model.LogRecord{
 					TeamUUID:   teamUUID,
 					Timestamp:  ts,
 					Level:      level,
@@ -56,5 +58,5 @@ func TranslateLogs(teamUUID string, payload model.OTLPLogsPayload) []model.LogRe
 		}
 	}
 
-	return logsToInsert
+	return logs
 }
