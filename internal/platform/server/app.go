@@ -12,19 +12,43 @@ import (
 	"github.com/observability/observability-backend-go/internal/config"
 	"github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/ai"
+	aiservice "github.com/observability/observability-backend-go/internal/modules/ai/service"
+	aistore "github.com/observability/observability-backend-go/internal/modules/ai/store"
 	"github.com/observability/observability-backend-go/internal/modules/alerts"
+	alertsservice "github.com/observability/observability-backend-go/internal/modules/alerts/service"
+	alertsstore "github.com/observability/observability-backend-go/internal/modules/alerts/store"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 	"github.com/observability/observability-backend-go/internal/modules/dashboardconfig"
+	dashboardconfigservice "github.com/observability/observability-backend-go/internal/modules/dashboardconfig/service"
+	dashboardconfigstore "github.com/observability/observability-backend-go/internal/modules/dashboardconfig/store"
 	"github.com/observability/observability-backend-go/internal/modules/deployments"
+	deploymentsservice "github.com/observability/observability-backend-go/internal/modules/deployments/service"
+	deploymentsstore "github.com/observability/observability-backend-go/internal/modules/deployments/store"
 	"github.com/observability/observability-backend-go/internal/modules/explore"
+	exploreservice "github.com/observability/observability-backend-go/internal/modules/explore/service"
+	explorestore "github.com/observability/observability-backend-go/internal/modules/explore/store"
 	"github.com/observability/observability-backend-go/internal/modules/health"
+	healthservice "github.com/observability/observability-backend-go/internal/modules/health/service"
+	healthstore "github.com/observability/observability-backend-go/internal/modules/health/store"
 	"github.com/observability/observability-backend-go/internal/modules/identity"
 	"github.com/observability/observability-backend-go/internal/modules/infrastructure"
+	infrastructureservice "github.com/observability/observability-backend-go/internal/modules/infrastructure/service"
+	infrastructurestore "github.com/observability/observability-backend-go/internal/modules/infrastructure/store"
 	"github.com/observability/observability-backend-go/internal/modules/insights"
-	logsmodule "github.com/observability/observability-backend-go/internal/modules/logs"
-	"github.com/observability/observability-backend-go/internal/modules/metrics"
+	insightsservice "github.com/observability/observability-backend-go/internal/modules/insights/service"
+	insightsstore "github.com/observability/observability-backend-go/internal/modules/insights/store"
+	logsapi "github.com/observability/observability-backend-go/internal/modules/logs"
+	logsservice "github.com/observability/observability-backend-go/internal/modules/logs/service"
+	logsstore "github.com/observability/observability-backend-go/internal/modules/logs/store"
+	metricsapi "github.com/observability/observability-backend-go/internal/modules/metrics"
+	metricsservice "github.com/observability/observability-backend-go/internal/modules/metrics/service"
+	metricsstore "github.com/observability/observability-backend-go/internal/modules/metrics/store"
 	"github.com/observability/observability-backend-go/internal/modules/saturation"
-	"github.com/observability/observability-backend-go/internal/modules/traces"
+	saturationservice "github.com/observability/observability-backend-go/internal/modules/saturation/service"
+	saturationstore "github.com/observability/observability-backend-go/internal/modules/saturation/store"
+	tracesapi "github.com/observability/observability-backend-go/internal/modules/traces"
+	tracesservice "github.com/observability/observability-backend-go/internal/modules/traces/service"
+	tracesstore "github.com/observability/observability-backend-go/internal/modules/traces/store"
 	"github.com/observability/observability-backend-go/internal/platform/auth"
 	"github.com/observability/observability-backend-go/internal/platform/handlers"
 	"github.com/observability/observability-backend-go/internal/platform/middleware"
@@ -47,9 +71,9 @@ type App struct {
 	Alerts          *alerts.AlertHandler
 	Health          *health.HealthHandler
 	Deployments     *deployments.DeploymentHandler
-	Logs            *logsmodule.LogHandler
-	Traces          *traces.TraceHandler
-	Metrics         *metrics.MetricHandler
+	Logs            *logsapi.LogHandler
+	Traces          *tracesapi.TraceHandler
+	Metrics         *metricsapi.MetricHandler
 	Infrastructure  *infrastructure.InfrastructureHandler
 	Saturation      *saturation.SaturationHandler
 	Insights        *insights.InsightHandler
@@ -95,13 +119,11 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 	identityTables := identity.NewMySQLProvider(db)
 
 	// Auto-create dashboard_chart_configs table if needed.
-	dcRepo := dashboardconfig.NewRepository(db)
-	if err := dcRepo.EnsureTable(); err != nil {
+	if err := dashboardconfigstore.NewRepository(db).EnsureTable(); err != nil {
 		log.Printf("WARN: dashboard_chart_configs table migration: %v", err)
 	}
 
-	exploreRepo := explore.NewRepository(db)
-	if err := exploreRepo.EnsureTable(); err != nil {
+	if err := explorestore.NewRepository(db).EnsureTable(); err != nil {
 		log.Printf("WARN: explore_saved_queries table migration: %v", err)
 	}
 
@@ -126,85 +148,99 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				DB:        db,
 				GetTenant: getTenant,
 			},
-			AlertCondCol: alertCondCol,
-			Repo:         alerts.NewRepository(db, alertCondCol),
+			Service: alertsservice.NewService(
+				alertsstore.NewRepository(db, alertCondCol),
+			),
 		},
 		Health: &health.HealthHandler{
 			DBTenant: modulecommon.DBTenant{
 				DB:        db,
 				GetTenant: getTenant,
 			},
-			Repo: health.NewRepository(db),
+			Service: healthservice.NewService(
+				healthstore.NewRepository(db),
+			),
 		},
 		Deployments: &deployments.DeploymentHandler{
 			DBTenant: modulecommon.DBTenant{
 				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Repo: deployments.NewRepository(database.NewMySQLWrapper(ch)),
+			Service: deploymentsservice.NewService(
+				deploymentsstore.NewRepository(database.NewMySQLWrapper(ch)),
+			),
 		},
-		Logs: &logsmodule.LogHandler{
-			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
-				GetTenant: getTenant,
-			},
-			Repo: logsmodule.NewRepository(database.NewMySQLWrapper(ch)),
-		},
-		Traces: &traces.TraceHandler{
-			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
-				GetTenant: getTenant,
-			},
-			Repo: traces.NewRepository(database.NewMySQLWrapper(ch)),
-		},
-		Metrics: &metrics.MetricHandler{
-			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
-				GetTenant: getTenant,
-			},
-			Repo: metrics.NewRepository(database.NewMySQLWrapper(ch)),
-		},
+		Logs: logsapi.NewHandler(
+			getTenant,
+			logsservice.NewService(
+				logsstore.NewRepository(database.NewMySQLWrapper(ch)),
+			),
+		),
+		Traces: tracesapi.NewHandler(
+			getTenant,
+			tracesservice.NewService(
+				tracesstore.NewRepository(database.NewMySQLWrapper(ch)),
+			),
+		),
+		Metrics: metricsapi.NewHandler(
+			getTenant,
+			metricsservice.NewService(
+				metricsstore.NewRepository(database.NewMySQLWrapper(ch)),
+			),
+		),
 		Infrastructure: &infrastructure.InfrastructureHandler{
 			DBTenant: modulecommon.DBTenant{
 				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Repo: infrastructure.NewRepository(database.NewMySQLWrapper(ch)),
+			Service: infrastructureservice.NewService(
+				infrastructurestore.NewRepository(database.NewMySQLWrapper(ch)),
+			),
 		},
 		Saturation: &saturation.SaturationHandler{
 			DBTenant: modulecommon.DBTenant{
 				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Repo: saturation.NewRepository(database.NewMySQLWrapper(ch)),
+			Service: saturationservice.NewService(
+				saturationstore.NewRepository(database.NewMySQLWrapper(ch)),
+			),
 		},
 		Insights: &insights.InsightHandler{
 			DBTenant: modulecommon.DBTenant{
 				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Repo: insights.NewRepository(database.NewMySQLWrapper(ch)),
+			Service: insightsservice.NewService(
+				insightsstore.NewRepository(database.NewMySQLWrapper(ch)),
+			),
 		},
 		AI: &ai.AIHandler{
 			DBTenant: modulecommon.DBTenant{
 				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Repo: ai.NewRepository(database.NewMySQLWrapper(ch)),
+			Service: aiservice.NewService(
+				aistore.NewRepository(database.NewMySQLWrapper(ch)),
+			),
 		},
 		DashboardConfig: &dashboardconfig.DashboardConfigHandler{
 			DBTenant: modulecommon.DBTenant{
 				DB:        db,
 				GetTenant: getTenant,
 			},
-			Repo: dcRepo,
+			Service: dashboardconfigservice.NewService(
+				dashboardconfigstore.NewRepository(db),
+			),
 		},
 		Explore: &explore.ExploreHandler{
 			DBTenant: modulecommon.DBTenant{
 				DB:        db,
 				GetTenant: getTenant,
 			},
-			Repo: exploreRepo,
+			Service: exploreservice.NewService(
+				explorestore.NewRepository(db),
+			),
 		},
 	}
 }

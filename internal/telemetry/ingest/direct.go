@@ -10,10 +10,10 @@ import (
 // DirectIngester writes telemetry records synchronously to ClickHouse
 // via the Repository. This is the default mode when Kafka is disabled.
 type DirectIngester struct {
-	repo *store.Repository
+	repo store.Repository
 }
 
-func NewDirectIngester(repo *store.Repository) *DirectIngester {
+func NewDirectIngester(repo store.Repository) *DirectIngester {
 	return &DirectIngester{repo: repo}
 }
 

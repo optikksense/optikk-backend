@@ -7,6 +7,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
+	"github.com/observability/observability-backend-go/internal/modules/explore/model"
+	"github.com/observability/observability-backend-go/internal/modules/explore/service"
 	. "github.com/observability/observability-backend-go/internal/platform/handlers"
 )
 
@@ -18,7 +20,7 @@ var allowedQueryTypes = map[string]struct{}{
 
 type ExploreHandler struct {
 	modulecommon.DBTenant
-	Repo *Repository
+	Service service.Service
 }
 
 func (h *ExploreHandler) ListSavedQueries(c *gin.Context) {
@@ -29,7 +31,7 @@ func (h *ExploreHandler) ListSavedQueries(c *gin.Context) {
 		return
 	}
 
-	items, err := h.Repo.ListSavedQueries(teamID, queryType)
+	items, err := h.Service.ListSavedQueries(teamID, queryType)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to load saved queries")
 		return
@@ -64,7 +66,7 @@ func (h *ExploreHandler) CreateSavedQuery(c *gin.Context) {
 		return
 	}
 
-	item, err := h.Repo.CreateSavedQuery(SavedQueryInput{
+	item, err := h.Service.CreateSavedQuery(model.SavedQueryInput{
 		OrganizationID:  tenant.OrganizationID,
 		TeamID:          tenant.TeamID,
 		QueryType:       queryType,
@@ -114,7 +116,7 @@ func (h *ExploreHandler) UpdateSavedQuery(c *gin.Context) {
 		return
 	}
 
-	item, err := h.Repo.UpdateSavedQuery(teamID, id, SavedQueryInput{
+	item, err := h.Service.UpdateSavedQuery(teamID, id, model.SavedQueryInput{
 		QueryType:   queryType,
 		Name:        name,
 		Description: strings.TrimSpace(req.Description),
@@ -140,7 +142,7 @@ func (h *ExploreHandler) DeleteSavedQuery(c *gin.Context) {
 		return
 	}
 
-	deleted, err := h.Repo.DeleteSavedQuery(teamID, id)
+	deleted, err := h.Service.DeleteSavedQuery(teamID, id)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to delete query")
 		return

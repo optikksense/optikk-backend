@@ -22,14 +22,14 @@ type KafkaConsumerConfig struct {
 
 // KafkaConsumer reads from Kafka topics and batch-inserts into ClickHouse.
 type KafkaConsumer struct {
-	repo   *store.Repository
+	repo   store.Repository
 	cfg    KafkaConsumerConfig
 	client sarama.Consumer
 	wg     sync.WaitGroup
 }
 
 // NewKafkaConsumer creates a new consumer connected to the given brokers.
-func NewKafkaConsumer(repo *store.Repository, cfg KafkaConsumerConfig) (*KafkaConsumer, error) {
+func NewKafkaConsumer(repo store.Repository, cfg KafkaConsumerConfig) (*KafkaConsumer, error) {
 	saramaCfg := sarama.NewConfig()
 	saramaCfg.Consumer.Return.Errors = true
 

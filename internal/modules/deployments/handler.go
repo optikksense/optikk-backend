@@ -7,13 +7,14 @@ import (
 	"github.com/google/uuid"
 	types "github.com/observability/observability-backend-go/internal/contracts"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
+	"github.com/observability/observability-backend-go/internal/modules/deployments/service"
 	. "github.com/observability/observability-backend-go/internal/platform/handlers"
 )
 
 // DeploymentHandler handles deployment tracking API endpoints.
 type DeploymentHandler struct {
 	modulecommon.DBTenant
-	Repo *Repository
+	Service service.Service
 }
 
 // GetDeployments — paginated list of deployments with optional filters.
@@ -25,14 +26,14 @@ func (h *DeploymentHandler) GetDeployments(c *gin.Context) {
 	limit := ParseIntParam(c, "limit", 50)
 	offset := ParseIntParam(c, "offset", 0)
 
-	rows, total, err := h.Repo.GetDeployments(teamUUID, startMs, endMs, serviceName, environment, limit, offset)
+	rows, total, err := h.Service.GetDeployments(teamUUID, startMs, endMs, serviceName, environment, limit, offset)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to load deployments")
 		return
 	}
 
 	RespondOK(c, map[string]any{
-		"deployments": NormalizeRows(rows),
+		"deployments": rows,
 		"total":       total,
 		"limit":       limit,
 		"offset":      offset,
@@ -44,13 +45,13 @@ func (h *DeploymentHandler) GetDeploymentEvents(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	startMs, endMs := ParseRange(c, 60*60*1000)
 	serviceName := c.Query("serviceName")
-	
-	rows, err := h.Repo.GetDeploymentEvents(teamUUID, startMs, endMs, serviceName)
+
+	rows, err := h.Service.GetDeploymentEvents(teamUUID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to load deploy events")
 		return
 	}
-	RespondOK(c, NormalizeRows(rows))
+	RespondOK(c, rows)
 }
 
 // GetDeploymentDiff — before/after performance comparison around a deploy.
@@ -59,7 +60,7 @@ func (h *DeploymentHandler) GetDeploymentDiff(c *gin.Context) {
 	deployID := c.Param("deployId")
 	windowMinutes := ParseIntParam(c, "windowMinutes", 30)
 
-	diff, err := h.Repo.GetDeploymentDiff(teamUUID, deployID, windowMinutes)
+	diff, err := h.Service.GetDeploymentDiff(teamUUID, deployID, windowMinutes)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to calculate deployment diff")
 		return
@@ -81,8 +82,8 @@ func (h *DeploymentHandler) CreateDeployment(c *gin.Context) {
 		return
 	}
 	deployID := uuid.NewString()
-	
-	err := h.Repo.CreateDeployment(teamUUID, deployID, req)
+
+	err := h.Service.CreateDeployment(teamUUID, deployID, req)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to create deployment")
 		return

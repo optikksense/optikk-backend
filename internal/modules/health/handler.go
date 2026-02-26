@@ -1,9 +1,11 @@
 package health
 
 import (
-	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
-	. "github.com/observability/observability-backend-go/internal/platform/handlers"
 	"net/http"
+
+	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
+	"github.com/observability/observability-backend-go/internal/modules/health/service"
+	. "github.com/observability/observability-backend-go/internal/platform/handlers"
 
 	"github.com/gin-gonic/gin"
 	types "github.com/observability/observability-backend-go/internal/contracts"
@@ -12,18 +14,18 @@ import (
 // HealthHandler handles health-check CRUD and result query endpoints.
 type HealthHandler struct {
 	modulecommon.DBTenant
-	Repo *Repository
+	Service service.Service
 }
 
 // GetHealthChecks — list all health checks for the tenant.
 func (h *HealthHandler) GetHealthChecks(c *gin.Context) {
 	tenant := h.GetTenant(c)
-	rows, err := h.Repo.GetHealthChecks(tenant.TeamID)
+	rows, err := h.Service.GetHealthChecks(tenant.TeamID)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to load health checks")
 		return
 	}
-	RespondOK(c, NormalizeRows(rows))
+	RespondOK(c, rows)
 }
 
 // CreateHealthCheck — create a new health check definition.
@@ -34,8 +36,8 @@ func (h *HealthHandler) CreateHealthCheck(c *gin.Context) {
 		return
 	}
 	tenant := h.GetTenant(c)
-	
-	row, err := h.Repo.CreateHealthCheck(tenant.TeamID, tenant.OrganizationID, req)
+
+	row, err := h.Service.CreateHealthCheck(tenant.TeamID, tenant.OrganizationID, req)
 	if err != nil {
 		RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Failed to create health check")
 		return
@@ -55,8 +57,8 @@ func (h *HealthHandler) UpdateHealthCheck(c *gin.Context) {
 		RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid payload")
 		return
 	}
-	
-	row, err := h.Repo.UpdateHealthCheck(id, req)
+
+	row, err := h.Service.UpdateHealthCheck(id, req)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to update health check")
 		return
@@ -71,7 +73,7 @@ func (h *HealthHandler) DeleteHealthCheck(c *gin.Context) {
 		RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid health check id")
 		return
 	}
-	err = h.Repo.DeleteHealthCheck(id)
+	err = h.Service.DeleteHealthCheck(id)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to delete health check")
 		return
@@ -86,8 +88,8 @@ func (h *HealthHandler) ToggleHealthCheck(c *gin.Context) {
 		RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid health check id")
 		return
 	}
-	
-	row, err := h.Repo.ToggleHealthCheck(id)
+
+	row, err := h.Service.ToggleHealthCheck(id)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to toggle health check")
 		return
@@ -99,13 +101,13 @@ func (h *HealthHandler) ToggleHealthCheck(c *gin.Context) {
 func (h *HealthHandler) GetHealthCheckStatus(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	startMs, endMs := ParseRange(c, 7*24*60*60*1000)
-	
-	rows, err := h.Repo.GetHealthCheckStatus(teamUUID, startMs, endMs)
+
+	rows, err := h.Service.GetHealthCheckStatus(teamUUID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query health check status")
 		return
 	}
-	RespondOK(c, NormalizeRows(rows))
+	RespondOK(c, rows)
 }
 
 // GetHealthCheckResults — individual check results for a specific check.
@@ -115,13 +117,13 @@ func (h *HealthHandler) GetHealthCheckResults(c *gin.Context) {
 	startMs, endMs := ParseRange(c, 7*24*60*60*1000)
 	limit := ParseIntParam(c, "limit", 100)
 	offset := ParseIntParam(c, "offset", 0)
-	
-	rows, err := h.Repo.GetHealthCheckResults(teamUUID, checkID, startMs, endMs, limit, offset)
+
+	rows, err := h.Service.GetHealthCheckResults(teamUUID, checkID, startMs, endMs, limit, offset)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query health check results")
 		return
 	}
-	RespondOK(c, NormalizeRows(rows))
+	RespondOK(c, rows)
 }
 
 // GetHealthCheckTrend — aggregated response-time trend for a check.
@@ -129,11 +131,11 @@ func (h *HealthHandler) GetHealthCheckTrend(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	checkID := c.Param("checkId")
 	startMs, endMs := ParseRange(c, 7*24*60*60*1000)
-	
-	rows, err := h.Repo.GetHealthCheckTrend(teamUUID, checkID, startMs, endMs)
+
+	rows, err := h.Service.GetHealthCheckTrend(teamUUID, checkID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query health check trend")
 		return
 	}
-	RespondOK(c, NormalizeRows(rows))
+	RespondOK(c, rows)
 }

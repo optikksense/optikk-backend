@@ -178,3 +178,49 @@ func toInt64(s string, fallback int64) int64 {
 	}
 	return v
 }
+
+func NullableStringFromAny(v any) *string {
+	if v == nil {
+		return nil
+	}
+	s := StringFromAny(v)
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func NullableFloat64FromAny(v any) *float64 {
+	if v == nil {
+		return nil
+	}
+	f := Float64FromAny(v)
+	return &f
+}
+
+func TimeFromAny(v any) time.Time {
+	if t, ok := v.(time.Time); ok {
+		return t
+	}
+	if s, ok := v.(string); ok {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			return t
+		}
+	}
+	return time.Time{}
+}
+
+func NullableTimeFromAny(v any) *time.Time {
+	if v == nil {
+		return nil
+	}
+	if t, ok := v.(time.Time); ok {
+		return &t
+	}
+	if s, ok := v.(string); ok && s != "" {
+		if t, err := time.Parse(time.RFC3339, s); err == nil {
+			return &t
+		}
+	}
+	return nil
+}

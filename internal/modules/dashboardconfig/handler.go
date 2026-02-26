@@ -6,13 +6,14 @@ import (
 
 	"github.com/gin-gonic/gin"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
+	"github.com/observability/observability-backend-go/internal/modules/dashboardconfig/service"
 	. "github.com/observability/observability-backend-go/internal/platform/handlers"
 )
 
 // DashboardConfigHandler handles dashboard chart configuration endpoints.
 type DashboardConfigHandler struct {
 	modulecommon.DBTenant
-	Repo *Repository
+	Service service.Service
 }
 
 // GetDashboardConfig returns the chart configuration YAML for a page.
@@ -27,7 +28,7 @@ func (h *DashboardConfigHandler) GetDashboardConfig(c *gin.Context) {
 	}
 
 	// Try team-specific config first
-	yaml, err := h.Repo.GetConfig(tenant.TeamID, pageID)
+	yaml, err := h.Service.GetConfig(tenant.TeamID, pageID)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to load dashboard config")
 		return
@@ -78,7 +79,7 @@ func (h *DashboardConfigHandler) SaveDashboardConfig(c *gin.Context) {
 		return
 	}
 
-	if err := h.Repo.SaveConfig(tenant.TeamID, pageID, body.ConfigYaml); err != nil {
+	if err := h.Service.SaveConfig(tenant.TeamID, pageID, body.ConfigYaml); err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to save dashboard config")
 		return
 	}

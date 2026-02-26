@@ -17,37 +17,7 @@ func (h *Handler) HandleMetrics(c *gin.Context) {
 		return
 	}
 
-	var metricsToInsert []model.MetricRecord
-
-	for _, rm := range payload.ResourceMetrics {
-		rc := newResourceContext(rm.Resource.Attributes)
-
-		for _, sm := range rm.ScopeMetrics {
-			for _, metric := range sm.Metrics {
-				category := metricCategory(metric.Name)
-
-				switch {
-				case metric.Gauge != nil:
-					for _, dp := range metric.Gauge.DataPoints {
-						metricsToInsert = append(metricsToInsert,
-							buildNumberMetricRecord(teamUUID, rc, metric.Name, "gauge", category, dp))
-					}
-
-				case metric.Sum != nil:
-					for _, dp := range metric.Sum.DataPoints {
-						metricsToInsert = append(metricsToInsert,
-							buildNumberMetricRecord(teamUUID, rc, metric.Name, "sum", category, dp))
-					}
-
-				case metric.Histogram != nil:
-					for _, dp := range metric.Histogram.DataPoints {
-						metricsToInsert = append(metricsToInsert,
-							buildHistogramMetricRecord(teamUUID, rc, metric.Name, category, dp))
-					}
-				}
-			}
-		}
-	}
+	metricsToInsert := TranslateMetrics(teamUUID, payload)
 
 	if len(metricsToInsert) > 0 {
 		if err := h.Ingester.IngestMetrics(c.Request.Context(), metricsToInsert); err != nil {

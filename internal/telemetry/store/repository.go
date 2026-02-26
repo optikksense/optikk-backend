@@ -10,17 +10,17 @@ import (
 	"github.com/observability/observability-backend-go/internal/telemetry/model"
 )
 
-// Repository persists telemetry records into ClickHouse.
-type Repository struct {
+// ClickHouseRepository persists telemetry records into ClickHouse.
+type ClickHouseRepository struct {
 	DB dbutil.Querier
 }
 
 // NewRepository creates a telemetry repository.
-func NewRepository(db dbutil.Querier) *Repository {
-	return &Repository{DB: db}
+func NewRepository(db dbutil.Querier) *ClickHouseRepository {
+	return &ClickHouseRepository{DB: db}
 }
 
-func (r *Repository) InsertSpans(ctx context.Context, spans []model.SpanRecord) error {
+func (r *ClickHouseRepository) InsertSpans(ctx context.Context, spans []model.SpanRecord) error {
 	if len(spans) == 0 {
 		return nil
 	}
@@ -69,7 +69,7 @@ func (r *Repository) InsertSpans(ctx context.Context, spans []model.SpanRecord) 
 	return nil
 }
 
-func (r *Repository) InsertMetrics(ctx context.Context, metrics []model.MetricRecord) error {
+func (r *ClickHouseRepository) InsertMetrics(ctx context.Context, metrics []model.MetricRecord) error {
 	if len(metrics) == 0 {
 		return nil
 	}
@@ -116,7 +116,7 @@ func (r *Repository) InsertMetrics(ctx context.Context, metrics []model.MetricRe
 	return nil
 }
 
-func (r *Repository) InsertLogs(ctx context.Context, logs []model.LogRecord) error {
+func (r *ClickHouseRepository) InsertLogs(ctx context.Context, logs []model.LogRecord) error {
 	if len(logs) == 0 {
 		return nil
 	}
