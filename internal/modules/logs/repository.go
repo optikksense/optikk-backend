@@ -31,6 +31,10 @@ type LogFilters struct {
 	TraceID    string
 	SpanID     string
 	Search     string
+	// Exclusion filters (NOT IN)
+	ExcludeLevels   []string
+	ExcludeServices []string
+	ExcludeHosts    []string
 }
 
 func buildLogWhere(f LogFilters) (string, []any) {
@@ -65,6 +69,21 @@ func buildLogWhere(f LogFilters) (string, []any) {
 	if len(f.Loggers) > 0 {
 		in, vals := dbutil.InClauseFromStrings(f.Loggers)
 		where += ` AND logger IN ` + in
+		args = append(args, vals...)
+	}
+	if len(f.ExcludeLevels) > 0 {
+		in, vals := dbutil.InClauseFromStrings(f.ExcludeLevels)
+		where += ` AND level NOT IN ` + in
+		args = append(args, vals...)
+	}
+	if len(f.ExcludeServices) > 0 {
+		in, vals := dbutil.InClauseFromStrings(f.ExcludeServices)
+		where += ` AND service_name NOT IN ` + in
+		args = append(args, vals...)
+	}
+	if len(f.ExcludeHosts) > 0 {
+		in, vals := dbutil.InClauseFromStrings(f.ExcludeHosts)
+		where += ` AND host NOT IN ` + in
 		args = append(args, vals...)
 	}
 	if f.TraceID != "" {
@@ -102,13 +121,53 @@ func (r *Repository) GetLogs(f LogFilters, limit int, direction string, cursor i
 		return nil, 0, nil, nil, nil, err
 	}
 
+	// Run facet queries in parallel
 	baseWhere, baseArgs := buildLogWhere(f)
-	total := dbutil.QueryCount(r.db, `SELECT COUNT(*) FROM logs WHERE`+baseWhere, baseArgs...)
-	levelFacets, _ := dbutil.QueryMaps(r.db, `SELECT level, COUNT(*) as count FROM logs WHERE`+baseWhere+` GROUP BY level ORDER BY count DESC`, baseArgs...)
-	serviceFacets, _ := dbutil.QueryMaps(r.db, `SELECT service_name, COUNT(*) as count FROM logs WHERE`+baseWhere+` GROUP BY service_name ORDER BY count DESC LIMIT 50`, baseArgs...)
-	hostFacets, _ := dbutil.QueryMaps(r.db, `SELECT host, COUNT(*) as count FROM logs WHERE`+baseWhere+` AND host != '' GROUP BY host ORDER BY count DESC LIMIT 50`, baseArgs...)
 
-	return logs, total, levelFacets, serviceFacets, hostFacets, nil
+	type facetResult struct {
+		rows []map[string]any
+		err  error
+	}
+
+	var (
+		totalCh   = make(chan int64, 1)
+		levelCh   = make(chan facetResult, 1)
+		serviceCh = make(chan facetResult, 1)
+		hostCh    = make(chan facetResult, 1)
+	)
+
+	go func() {
+		totalCh <- dbutil.QueryCount(r.db, `SELECT COUNT(*) FROM logs WHERE`+baseWhere, baseArgs...)
+	}()
+	go func() {
+		rows, err := dbutil.QueryMaps(r.db, `SELECT level, COUNT(*) as count FROM logs WHERE`+baseWhere+` GROUP BY level ORDER BY count DESC`, baseArgs...)
+		levelCh <- facetResult{rows, err}
+	}()
+	go func() {
+		rows, err := dbutil.QueryMaps(r.db, `SELECT service_name, COUNT(*) as count FROM logs WHERE`+baseWhere+` GROUP BY service_name ORDER BY count DESC LIMIT 50`, baseArgs...)
+		serviceCh <- facetResult{rows, err}
+	}()
+	go func() {
+		rows, err := dbutil.QueryMaps(r.db, `SELECT host, COUNT(*) as count FROM logs WHERE`+baseWhere+` AND host != '' GROUP BY host ORDER BY count DESC LIMIT 50`, baseArgs...)
+		hostCh <- facetResult{rows, err}
+	}()
+
+	total := <-totalCh
+	levelRes := <-levelCh
+	serviceRes := <-serviceCh
+	hostRes := <-hostCh
+
+	if levelRes.err != nil {
+		return nil, 0, nil, nil, nil, fmt.Errorf("level facet query failed: %w", levelRes.err)
+	}
+	if serviceRes.err != nil {
+		return nil, 0, nil, nil, nil, fmt.Errorf("service facet query failed: %w", serviceRes.err)
+	}
+	if hostRes.err != nil {
+		return nil, 0, nil, nil, nil, fmt.Errorf("host facet query failed: %w", hostRes.err)
+	}
+
+	return logs, total, levelRes.rows, serviceRes.rows, hostRes.rows, nil
 }
 
 func (r *Repository) GetLogHistogram(f LogFilters, bucketExpr string) ([]map[string]any, error) {
@@ -139,14 +198,58 @@ func (r *Repository) GetLogVolume(f LogFilters, bucketExpr string) ([]map[string
 
 func (r *Repository) GetLogStats(f LogFilters) (int64, []map[string]any, []map[string]any, []map[string]any, []map[string]any, []map[string]any, error) {
 	where, args := buildLogWhere(f)
-	total := dbutil.QueryCount(r.db, `SELECT COUNT(*) FROM logs WHERE`+where, args...)
-	levelRows, _ := dbutil.QueryMaps(r.db, `SELECT level as value, COUNT(*) as count FROM logs WHERE`+where+` GROUP BY level ORDER BY count DESC`, args...)
-	serviceRows, _ := dbutil.QueryMaps(r.db, `SELECT service_name as value, COUNT(*) as count FROM logs WHERE`+where+` GROUP BY service_name ORDER BY count DESC LIMIT 50`, args...)
-	hostRows, _ := dbutil.QueryMaps(r.db, `SELECT host as value, COUNT(*) as count FROM logs WHERE`+where+` AND host != '' GROUP BY host ORDER BY count DESC LIMIT 50`, args...)
-	podRows, _ := dbutil.QueryMaps(r.db, `SELECT pod as value, COUNT(*) as count FROM logs WHERE`+where+` AND pod != '' GROUP BY pod ORDER BY count DESC LIMIT 50`, args...)
-	loggerRows, _ := dbutil.QueryMaps(r.db, `SELECT logger as value, COUNT(*) as count FROM logs WHERE`+where+` AND logger != '' GROUP BY logger ORDER BY count DESC LIMIT 50`, args...)
 
-	return total, levelRows, serviceRows, hostRows, podRows, loggerRows, nil
+	type facetResult struct {
+		rows []map[string]any
+		err  error
+	}
+
+	totalCh := make(chan int64, 1)
+	levelCh := make(chan facetResult, 1)
+	serviceCh := make(chan facetResult, 1)
+	hostCh := make(chan facetResult, 1)
+	podCh := make(chan facetResult, 1)
+	loggerCh := make(chan facetResult, 1)
+
+	go func() {
+		totalCh <- dbutil.QueryCount(r.db, `SELECT COUNT(*) FROM logs WHERE`+where, args...)
+	}()
+	go func() {
+		rows, err := dbutil.QueryMaps(r.db, `SELECT level as value, COUNT(*) as count FROM logs WHERE`+where+` GROUP BY level ORDER BY count DESC`, args...)
+		levelCh <- facetResult{rows, err}
+	}()
+	go func() {
+		rows, err := dbutil.QueryMaps(r.db, `SELECT service_name as value, COUNT(*) as count FROM logs WHERE`+where+` GROUP BY service_name ORDER BY count DESC LIMIT 50`, args...)
+		serviceCh <- facetResult{rows, err}
+	}()
+	go func() {
+		rows, err := dbutil.QueryMaps(r.db, `SELECT host as value, COUNT(*) as count FROM logs WHERE`+where+` AND host != '' GROUP BY host ORDER BY count DESC LIMIT 50`, args...)
+		hostCh <- facetResult{rows, err}
+	}()
+	go func() {
+		rows, err := dbutil.QueryMaps(r.db, `SELECT pod as value, COUNT(*) as count FROM logs WHERE`+where+` AND pod != '' GROUP BY pod ORDER BY count DESC LIMIT 50`, args...)
+		podCh <- facetResult{rows, err}
+	}()
+	go func() {
+		rows, err := dbutil.QueryMaps(r.db, `SELECT logger as value, COUNT(*) as count FROM logs WHERE`+where+` AND logger != '' GROUP BY logger ORDER BY count DESC LIMIT 50`, args...)
+		loggerCh <- facetResult{rows, err}
+	}()
+
+	total := <-totalCh
+	levelRes := <-levelCh
+	serviceRes := <-serviceCh
+	hostRes := <-hostCh
+	podRes := <-podCh
+	loggerRes := <-loggerCh
+
+	// Return first error encountered
+	for _, res := range []facetResult{levelRes, serviceRes, hostRes, podRes, loggerRes} {
+		if res.err != nil {
+			return 0, nil, nil, nil, nil, nil, fmt.Errorf("stats facet query failed: %w", res.err)
+		}
+	}
+
+	return total, levelRes.rows, serviceRes.rows, hostRes.rows, podRes.rows, loggerRes.rows, nil
 }
 
 func (r *Repository) GetLogFields(f LogFilters, col string) ([]map[string]any, error) {

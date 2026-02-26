@@ -17,18 +17,21 @@ type LogHandler struct {
 
 func parseFilters(c *gin.Context, teamUUID string, startMs, endMs int64) LogFilters {
 	return LogFilters{
-		TeamUUID:   teamUUID,
-		StartMs:    startMs,
-		EndMs:      endMs,
-		Levels:     ParseListParam(c, "levels"),
-		Services:   ParseListParam(c, "services"),
-		Hosts:      ParseListParam(c, "hosts"),
-		Pods:       ParseListParam(c, "pods"),
-		Containers: ParseListParam(c, "containers"),
-		Loggers:    ParseListParam(c, "loggers"),
-		TraceID:    c.Query("traceId"),
-		SpanID:     c.Query("spanId"),
-		Search:     c.Query("search"),
+		TeamUUID:        teamUUID,
+		StartMs:         startMs,
+		EndMs:           endMs,
+		Levels:          ParseListParam(c, "levels"),
+		Services:        ParseListParam(c, "services"),
+		Hosts:           ParseListParam(c, "hosts"),
+		Pods:            ParseListParam(c, "pods"),
+		Containers:      ParseListParam(c, "containers"),
+		Loggers:         ParseListParam(c, "loggers"),
+		TraceID:         c.Query("traceId"),
+		SpanID:          c.Query("spanId"),
+		Search:          c.Query("search"),
+		ExcludeLevels:   ParseListParam(c, "excludeLevels"),
+		ExcludeServices: ParseListParam(c, "excludeServices"),
+		ExcludeHosts:    ParseListParam(c, "excludeHosts"),
 	}
 }
 

@@ -44,8 +44,19 @@ sudo dnf install -y podman
 ### Deploy Full Stack
 
 ```bash
-# 1. Start ClickHouse
-podman run -d --name clickhouse \
+# 0. Create network
+podman network create observability
+
+# 1. Start MariaDB
+podman run -d --name mariadb --network observability \
+  -p 3306:3306 \
+  -e MARIADB_ROOT_PASSWORD=root123 \
+  -e MARIADB_DATABASE=observability \
+  -v mariadb-data:/var/lib/mysql \
+  mariadb:11
+
+# 2. Start ClickHouse
+podman run -d --name clickhouse --network observability \
   -p 9000:9000 -p 8123:8123 \
   -e CLICKHOUSE_DB=observability \
   -e CLICKHOUSE_USER=default \
@@ -53,17 +64,36 @@ podman run -d --name clickhouse \
   -v clickhouse-data:/var/lib/clickhouse \
   clickhouse/clickhouse-server:24.3
 
-# 2. Start Backend
-podman run -d --name backend \
+# 3. Start Kafka (KRaft, no Zookeeper)
+podman run -d --name kafka --network observability \
+  -p 9092:9092 \
+  -e KAFKA_NODE_ID=1 \
+  -e KAFKA_PROCESS_ROLES=broker,controller \
+  -e KAFKA_LISTENERS=PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093 \
+  -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092 \
+  -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+  -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT \
+  -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@kafka:9093 \
+  -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
+  -e KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1 \
+  -e KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1 \
+  -e CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk \
+  apache/kafka:latest
+
+# 4. Start Backend
+podman run -d --name backend --network observability \
   -p 8080:8080 \
-  -e CLICKHOUSE_HOST=127.0.0.1 -e CLICKHOUSE_DATABASE=observability \
+  -e CLICKHOUSE_HOST=clickhouse -e CLICKHOUSE_DATABASE=observability \
   -e CLICKHOUSE_USERNAME=default -e CLICKHOUSE_PASSWORD=clickhouse123 \
+  -e MYSQL_HOST=mariadb -e MYSQL_DATABASE=observability \
+  -e MYSQL_USERNAME=root -e MYSQL_PASSWORD=root123 \
+  -e KAFKA_BROKERS=kafka:9092 \
   docker.io/ramantayal12/observability-backend:latest
 
-# 3. Start Frontend
-podman run -d --name frontend \
+# 5. Start Frontend
+podman run -d --name frontend --network observability \
   -p 8443:8443 \
-  -e BACKEND_URL=http://127.0.0.1:8080 \
+  -e BACKEND_URL=http://backend:8080 \
   docker.io/ramantayal12/observability-frontend:latest
 ```
 
@@ -90,12 +120,12 @@ curl -k https://localhost:8443  # Frontend (self-signed cert)
 podman logs -f backend
 
 # Stop/Start
-podman stop frontend backend clickhouse
-podman start clickhouse backend frontend
+podman stop frontend backend kafka clickhouse mariadb
+podman start mariadb clickhouse kafka backend frontend
 
 # Remove (data persists in volumes)
-podman rm -f frontend backend clickhouse
-podman volume rm clickhouse-data  # WARNING: deletes data
+podman rm -f frontend backend kafka clickhouse mariadb
+podman volume rm clickhouse-data mariadb-data  # WARNING: deletes data
 ```
 
 ---
