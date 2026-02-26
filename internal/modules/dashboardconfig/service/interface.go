@@ -1,8 +1,5 @@
 package service
 
-// Service encapsulates the business logic for dashboard configurations.
-type Service interface {
-	EnsureTable() error
-	GetConfig(teamID int64, pageID string) (string, error)
-	SaveConfig(teamID int64, pageID, configYaml string) error
-}
+import serviceinterfaces "github.com/observability/observability-backend-go/internal/modules/dashboardconfig/service/interfaces"
+
+type Service = serviceinterfaces.Service

@@ -1,0 +1,12 @@
+go 1.24.0
+
+use (
+	.
+	./cmd/server
+	./internal/platform/server
+	./modules/ingestion
+	./modules/logs
+	./modules/metrics
+	./modules/spans
+	./modules/user
+)

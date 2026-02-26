@@ -11,14 +11,14 @@ import (
 	"github.com/observability/observability-backend-go/internal/modules/deployments"
 	"github.com/observability/observability-backend-go/internal/modules/explore"
 	"github.com/observability/observability-backend-go/internal/modules/health"
-	"github.com/observability/observability-backend-go/internal/modules/identity"
+	"github.com/observability/observability-backend-go/modules/user"
 	"github.com/observability/observability-backend-go/internal/modules/infrastructure"
 	"github.com/observability/observability-backend-go/internal/modules/insights"
-	logsmodule "github.com/observability/observability-backend-go/internal/modules/logs"
-	"github.com/observability/observability-backend-go/internal/modules/metrics"
+	logsmodule "github.com/observability/observability-backend-go/modules/logs"
+	"github.com/observability/observability-backend-go/modules/metrics"
 	"github.com/observability/observability-backend-go/internal/modules/saturation"
-	"github.com/observability/observability-backend-go/internal/modules/traces"
-	"github.com/observability/observability-backend-go/internal/telemetry"
+	"github.com/observability/observability-backend-go/modules/spans"
+	"github.com/observability/observability-backend-go/modules/ingestion"
 )
 
 type moduleConfigs struct {

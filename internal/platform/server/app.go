@@ -30,29 +30,31 @@ import (
 	"github.com/observability/observability-backend-go/internal/modules/health"
 	healthservice "github.com/observability/observability-backend-go/internal/modules/health/service"
 	healthstore "github.com/observability/observability-backend-go/internal/modules/health/store"
-	"github.com/observability/observability-backend-go/internal/modules/identity"
+	"github.com/observability/observability-backend-go/modules/user"
+	identityservice "github.com/observability/observability-backend-go/modules/user/service"
+	identitystore "github.com/observability/observability-backend-go/modules/user/store"
 	"github.com/observability/observability-backend-go/internal/modules/infrastructure"
 	infrastructureservice "github.com/observability/observability-backend-go/internal/modules/infrastructure/service"
 	infrastructurestore "github.com/observability/observability-backend-go/internal/modules/infrastructure/store"
 	"github.com/observability/observability-backend-go/internal/modules/insights"
 	insightsservice "github.com/observability/observability-backend-go/internal/modules/insights/service"
 	insightsstore "github.com/observability/observability-backend-go/internal/modules/insights/store"
-	logsapi "github.com/observability/observability-backend-go/internal/modules/logs"
-	logsservice "github.com/observability/observability-backend-go/internal/modules/logs/service"
-	logsstore "github.com/observability/observability-backend-go/internal/modules/logs/store"
-	metricsapi "github.com/observability/observability-backend-go/internal/modules/metrics"
-	metricsservice "github.com/observability/observability-backend-go/internal/modules/metrics/service"
-	metricsstore "github.com/observability/observability-backend-go/internal/modules/metrics/store"
+	logsapi "github.com/observability/observability-backend-go/modules/logs"
+	logsservice "github.com/observability/observability-backend-go/modules/logs/service"
+	logsstore "github.com/observability/observability-backend-go/modules/logs/store"
+	metricsapi "github.com/observability/observability-backend-go/modules/metrics"
+	metricsservice "github.com/observability/observability-backend-go/modules/metrics/service"
+	metricsstore "github.com/observability/observability-backend-go/modules/metrics/store"
 	"github.com/observability/observability-backend-go/internal/modules/saturation"
 	saturationservice "github.com/observability/observability-backend-go/internal/modules/saturation/service"
 	saturationstore "github.com/observability/observability-backend-go/internal/modules/saturation/store"
-	tracesapi "github.com/observability/observability-backend-go/internal/modules/traces"
-	tracesservice "github.com/observability/observability-backend-go/internal/modules/traces/service"
-	tracesstore "github.com/observability/observability-backend-go/internal/modules/traces/store"
+	tracesapi "github.com/observability/observability-backend-go/modules/spans"
+	tracesservice "github.com/observability/observability-backend-go/modules/spans/service"
+	tracesstore "github.com/observability/observability-backend-go/modules/spans/store"
 	"github.com/observability/observability-backend-go/internal/platform/auth"
 	"github.com/observability/observability-backend-go/internal/platform/handlers"
 	"github.com/observability/observability-backend-go/internal/platform/middleware"
-	"github.com/observability/observability-backend-go/internal/telemetry"
+	"github.com/observability/observability-backend-go/modules/ingestion"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 )
@@ -116,7 +118,9 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 	getTenant := handlers.GetTenantFunc(middleware.GetTenant)
 
 	alertCondCol := resolveAlertConditionColumn(db)
-	identityTables := identity.NewMySQLProvider(db)
+	identityTables := identitystore.NewMySQLProvider(db)
+	identityAuthService := identityservice.NewAuthService(identityTables, jwt, cfg.JWTExpirationMs)
+	identityUserService := identityservice.NewUserService(identityTables)
 
 	// Auto-create dashboard_chart_configs table if needed.
 	if err := dashboardconfigstore.NewRepository(db).EnsureTable(); err != nil {
@@ -133,16 +137,8 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 		Config:     cfg,
 		JWTManager: jwt,
 
-		Auth: &identity.AuthHandler{
-			Tables:       identityTables,
-			GetTenant:    getTenant,
-			JWTManager:   jwt,
-			JWTExpiresMs: cfg.JWTExpirationMs,
-		},
-		Users: &identity.UserHandler{
-			Tables:    identityTables,
-			GetTenant: getTenant,
-		},
+		Auth:  identity.NewAuthHandler(getTenant, identityAuthService),
+		Users: identity.NewUserHandler(getTenant, identityUserService),
 		Alerts: &alerts.AlertHandler{
 			DBTenant: modulecommon.DBTenant{
 				DB:        db,
