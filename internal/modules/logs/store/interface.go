@@ -9,7 +9,7 @@ import (
 
 // Repository defines the data access layer for logs.
 type Repository interface {
-	GetLogs(ctx context.Context, f model.LogFilters, limit int, direction string, cursor int64) (logs []model.Log, total int64, levelFacets, serviceFacets, hostFacets []model.Facet, err error)
+	GetLogs(ctx context.Context, f model.LogFilters, limit int, direction string, cursor model.LogCursor) (logs []model.Log, total int64, levelFacets, serviceFacets, hostFacets []model.Facet, err error)
 	GetLogHistogram(ctx context.Context, f model.LogFilters, bucketExpr string) ([]model.LogHistogramBucket, error)
 	GetLogVolume(ctx context.Context, f model.LogFilters, bucketExpr string) ([]model.LogVolumeBucket, error)
 	GetLogStats(ctx context.Context, f model.LogFilters) (total int64, levelFacets, serviceFacets, hostFacets, podFacets, loggerFacets []model.Facet, err error)

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync/atomic"
+	"time"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/telemetry/model"
@@ -14,6 +16,11 @@ import (
 type ClickHouseRepository struct {
 	DB dbutil.Querier
 }
+
+const logIDSequenceBits = 12
+const logIDSequenceMask = (1 << logIDSequenceBits) - 1
+
+var logIDSequence uint64
 
 // NewRepository creates a telemetry repository.
 func NewRepository(db dbutil.Querier) *ClickHouseRepository {
@@ -140,13 +147,13 @@ func (r *ClickHouseRepository) InsertLogs(ctx context.Context, logs []model.LogR
 
 		_, err := tx.ExecContext(ctx, `
 			INSERT INTO logs (
-				team_id, timestamp, level, service_name, logger, message, trace_id, span_id,
+				id, team_id, timestamp, level, service_name, logger, message, trace_id, span_id,
 				host, pod, container, thread, exception, attributes
 			) VALUES (
-				?, ?, ?, ?, ?, ?, ?, ?,
+				?, ?, ?, ?, ?, ?, ?, ?, ?,
 				?, ?, ?, ?, ?, ?
 			)`,
-			rec.TeamUUID, rec.Timestamp, level, service,
+			nextLogID(rec.Timestamp), rec.TeamUUID, rec.Timestamp, level, service,
 			nullStr(rec.Logger), message, nullStr(rec.TraceID), nullStr(rec.SpanID),
 			nullStr(rec.Host), nullStr(rec.Pod), nullStr(rec.Container),
 			nullStr(rec.Thread), nullStr(rec.Exception), rec.Attributes,
@@ -190,4 +197,26 @@ func normalizeLevel(s string) string {
 	default:
 		return "INFO"
 	}
+}
+
+// nextLogID generates a sortable UInt64 id for log rows.
+// Layout: unix microseconds in high bits + per-process sequence in low bits.
+func nextLogID(ts time.Time) uint64 {
+	if ts.IsZero() {
+		ts = time.Now().UTC()
+	} else {
+		ts = ts.UTC()
+	}
+
+	micros := ts.UnixMicro()
+	if micros < 0 {
+		micros = time.Now().UTC().UnixMicro()
+	}
+
+	seq := atomic.AddUint64(&logIDSequence, 1) & logIDSequenceMask
+	id := (uint64(micros) << logIDSequenceBits) | seq
+	if id == 0 {
+		return 1
+	}
+	return id
 }

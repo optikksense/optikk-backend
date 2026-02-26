@@ -1,10 +1,15 @@
 package model
 
-import "time"
+import (
+	"fmt"
+	"strconv"
+	"strings"
+	"time"
+)
 
 // Log represents a single log entry.
 type Log struct {
-	ID          int64     `json:"id"`
+	ID          string    `json:"id"`
 	Timestamp   time.Time `json:"timestamp"`
 	Level       string    `json:"level"`
 	ServiceName string    `json:"serviceName"`
@@ -38,6 +43,93 @@ type LogFilters struct {
 	ExcludeLevels   []string `json:"excludeLevels"`
 	ExcludeServices []string `json:"excludeServices"`
 	ExcludeHosts    []string `json:"excludeHosts"`
+}
+
+// LogCursor carries pagination state for deterministic ordering by timestamp,id.
+type LogCursor struct {
+	Timestamp time.Time `json:"timestamp"`
+	ID        uint64    `json:"id"`
+	Offset    int       `json:"offset"`
+}
+
+func (c LogCursor) HasTimestamp() bool {
+	return !c.Timestamp.IsZero()
+}
+
+func (c LogCursor) Encode() string {
+	if c.Offset > 0 {
+		return fmt.Sprintf("o:%d", c.Offset)
+	}
+	if c.ID == 0 {
+		return ""
+	}
+	if c.HasTimestamp() {
+		return fmt.Sprintf("%s|%d", c.Timestamp.UTC().Format(time.RFC3339Nano), c.ID)
+	}
+	// Backward-compatible legacy cursor (id only)
+	return strconv.FormatUint(c.ID, 10)
+}
+
+func ParseLogCursor(raw string) (LogCursor, bool) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return LogCursor{}, false
+	}
+
+	if strings.HasPrefix(strings.ToLower(s), "o:") {
+		offset, err := strconv.Atoi(strings.TrimSpace(s[2:]))
+		if err != nil || offset <= 0 {
+			return LogCursor{}, false
+		}
+		return LogCursor{Offset: offset}, true
+	}
+
+	parts := strings.SplitN(s, "|", 2)
+	if len(parts) == 2 {
+		tsRaw := strings.TrimSpace(parts[0])
+		idRaw := strings.TrimSpace(parts[1])
+
+		id, err := strconv.ParseUint(idRaw, 10, 64)
+		if err != nil || id == 0 {
+			// Backward compatibility for signed cursor IDs.
+			signedID, signedErr := strconv.ParseInt(idRaw, 10, 64)
+			if signedErr != nil || signedID <= 0 {
+				return LogCursor{}, false
+			}
+			id = uint64(signedID)
+		}
+
+		ts, err := time.Parse(time.RFC3339Nano, tsRaw)
+		if err != nil {
+			// Fallback for driver-provided timestamp strings without timezone.
+			ts, err = time.Parse("2006-01-02 15:04:05.999999999", tsRaw)
+			if err != nil {
+				return LogCursor{}, false
+			}
+		}
+
+		return LogCursor{
+			Timestamp: ts.UTC(),
+			ID:        id,
+		}, true
+	}
+
+	// Backward compatibility: old clients send id-only cursor.
+	// Numeric cursor defaults to offset mode for robust pagination when ids are non-unique.
+	offset, offsetErr := strconv.Atoi(s)
+	if offsetErr == nil && offset > 0 {
+		return LogCursor{Offset: offset}, true
+	}
+
+	id, err := strconv.ParseUint(s, 10, 64)
+	if err == nil && id > 0 {
+		return LogCursor{ID: id}, true
+	}
+	signedID, signedErr := strconv.ParseInt(s, 10, 64)
+	if signedErr != nil || signedID <= 0 {
+		return LogCursor{}, false
+	}
+	return LogCursor{ID: uint64(signedID)}, true
 }
 
 // LogHistogramBucket represents a time-bucketed count of logs by level.
@@ -86,7 +178,7 @@ type Facet struct {
 type LogSearchResponse struct {
 	Logs       []Log              `json:"logs"`
 	HasMore    bool               `json:"hasMore"`
-	NextCursor int64              `json:"nextCursor"`
+	NextCursor string             `json:"nextCursor"`
 	Limit      int                `json:"limit"`
 	Total      int64              `json:"total"`
 	Facets     map[string][]Facet `json:"facets"`

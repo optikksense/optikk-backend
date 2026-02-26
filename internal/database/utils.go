@@ -202,9 +202,49 @@ func TimeFromAny(v any) time.Time {
 	if t, ok := v.(time.Time); ok {
 		return t
 	}
+	if b, ok := v.([]byte); ok {
+		return TimeFromAny(string(b))
+	}
+	if n, ok := v.(int64); ok {
+		if n > 1e18 {
+			return time.Unix(0, n).UTC()
+		}
+		if n > 1e15 {
+			return time.UnixMilli(n / 1000).UTC()
+		}
+		if n > 1e12 {
+			return time.UnixMilli(n).UTC()
+		}
+		return time.Unix(n, 0).UTC()
+	}
+	if n, ok := v.(float64); ok {
+		return TimeFromAny(int64(n))
+	}
 	if s, ok := v.(string); ok {
-		if t, err := time.Parse(time.RFC3339, s); err == nil {
-			return t
+		s = strings.TrimSpace(s)
+		if s == "" {
+			return time.Time{}
+		}
+		layouts := []string{
+			time.RFC3339Nano,
+			time.RFC3339,
+			"2006-01-02 15:04:05.999999999",
+			"2006-01-02 15:04:05.999999",
+			"2006-01-02 15:04:05",
+			"2006-01-02 15:04:05Z07:00",
+		}
+		for _, layout := range layouts {
+			if t, err := time.Parse(layout, s); err == nil {
+				return t.UTC()
+			}
+		}
+		if strings.HasSuffix(s, "Z") {
+			if t, err := time.Parse("2006-01-02 15:04:05.999999999Z", s); err == nil {
+				return t.UTC()
+			}
+		}
+		if unixMs, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return TimeFromAny(unixMs)
 		}
 	}
 	return time.Time{}

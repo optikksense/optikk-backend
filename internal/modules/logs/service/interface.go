@@ -8,7 +8,7 @@ import (
 
 // Service defines the business logic layer for logs.
 type Service interface {
-	GetLogs(ctx context.Context, teamUUID string, startMs, endMs int64, limit int, direction string, cursor int64, filters model.LogFilters) (model.LogSearchResponse, error)
+	GetLogs(ctx context.Context, teamUUID string, startMs, endMs int64, limit int, direction string, cursor model.LogCursor, filters model.LogFilters) (model.LogSearchResponse, error)
 	GetLogHistogram(ctx context.Context, teamUUID string, startMs, endMs int64, step string, filters model.LogFilters) (model.LogHistogramData, error)
 	GetLogVolume(ctx context.Context, teamUUID string, startMs, endMs int64, step string, filters model.LogFilters) (model.LogVolumeData, error)
 	GetLogStats(ctx context.Context, teamUUID string, startMs, endMs int64, filters model.LogFilters) (model.LogStats, error)

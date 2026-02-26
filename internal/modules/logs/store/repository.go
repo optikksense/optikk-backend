@@ -3,6 +3,9 @@ package store
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
+	"strconv"
+	"strings"
 	"time"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
@@ -20,19 +23,51 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 const logCols = `id, timestamp, level, service_name, logger, message,
 	trace_id, span_id, host, pod, container, thread, exception, attributes`
 
-func (r *ClickHouseRepository) GetLogs(ctx context.Context, f model.LogFilters, limit int, direction string, cursor int64) ([]model.Log, int64, []model.Facet, []model.Facet, []model.Facet, error) {
+func (r *ClickHouseRepository) GetLogs(ctx context.Context, f model.LogFilters, limit int, direction string, cursor model.LogCursor) ([]model.Log, int64, []model.Facet, []model.Facet, []model.Facet, error) {
 	where, args := r.buildLogWhere(f)
-	if cursor > 0 {
-		if direction == "desc" {
-			where += ` AND id < ?`
-		} else {
-			where += ` AND id > ?`
-		}
-		args = append(args, cursor)
+	orderDir := "DESC"
+	if direction == "asc" {
+		orderDir = "ASC"
 	}
 
-	query := fmt.Sprintf(`SELECT %s FROM logs WHERE%s ORDER BY id %s LIMIT ?`, logCols, where, direction)
+	orderBy := fmt.Sprintf(
+		`timestamp %s, id %s, service_name %s, trace_id %s, span_id %s, message %s`,
+		orderDir, orderDir, orderDir, orderDir, orderDir, orderDir,
+	)
+
+	query := fmt.Sprintf(`SELECT %s FROM logs WHERE%s ORDER BY %s LIMIT ?`, logCols, where, orderBy)
+	offset := 0
+	if cursor.Offset > 0 {
+		offset = cursor.Offset
+	}
+
+	if offset == 0 && cursor.ID > 0 {
+		if direction == "desc" {
+			if cursor.HasTimestamp() {
+				where += ` AND (timestamp < ? OR (timestamp = ? AND id < ?))`
+				args = append(args, cursor.Timestamp, cursor.Timestamp, cursor.ID)
+			} else {
+				// Backward-compatible id-only cursor.
+				where += ` AND id < ?`
+				args = append(args, cursor.ID)
+			}
+		} else {
+			if cursor.HasTimestamp() {
+				where += ` AND (timestamp > ? OR (timestamp = ? AND id > ?))`
+				args = append(args, cursor.Timestamp, cursor.Timestamp, cursor.ID)
+			} else {
+				// Backward-compatible id-only cursor.
+				where += ` AND id > ?`
+				args = append(args, cursor.ID)
+			}
+		}
+		query = fmt.Sprintf(`SELECT %s FROM logs WHERE%s ORDER BY %s LIMIT ?`, logCols, where, orderBy)
+	}
 	args = append(args, limit)
+	if offset > 0 {
+		query += ` OFFSET ?`
+		args = append(args, offset)
+	}
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
@@ -268,9 +303,19 @@ func (r *ClickHouseRepository) buildLogWhere(f model.LogFilters) (string, []any)
 }
 
 func (r *ClickHouseRepository) mapRowToLog(row map[string]any) model.Log {
+	ts := dbutil.TimeFromAny(row["timestamp"])
+	if ts.IsZero() {
+		ts = time.Unix(0, 0).UTC()
+	}
+
+	id := normalizeLogID(row["id"])
+	if id == "" || id == "0" {
+		id = syntheticLogID(row, ts)
+	}
+
 	return model.Log{
-		ID:          dbutil.Int64FromAny(row["id"]),
-		Timestamp:   row["timestamp"].(time.Time),
+		ID:          id,
+		Timestamp:   ts,
 		Level:       dbutil.StringFromAny(row["level"]),
 		ServiceName: dbutil.StringFromAny(row["service_name"]),
 		Logger:      dbutil.StringFromAny(row["logger"]),
@@ -303,4 +348,65 @@ func (r *ClickHouseRepository) mapRowsToFacets(rows []map[string]any) []model.Fa
 		})
 	}
 	return facets
+}
+
+func normalizeLogID(raw any) string {
+	s := strings.TrimSpace(dbutil.StringFromAny(raw))
+	if s == "" {
+		return ""
+	}
+
+	if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+		if i <= 0 {
+			return ""
+		}
+		return strconv.FormatInt(i, 10)
+	}
+
+	if u, err := strconv.ParseUint(s, 10, 64); err == nil {
+		if u == 0 {
+			return ""
+		}
+		return strconv.FormatUint(u, 10)
+	}
+
+	// Handle float/scientific notation from generic scanners.
+	if f, err := strconv.ParseFloat(s, 64); err == nil {
+		if f <= 0 {
+			return ""
+		}
+		return strconv.FormatUint(uint64(f), 10)
+	}
+
+	return s
+}
+
+func syntheticLogID(row map[string]any, ts time.Time) string {
+	h := fnv.New64a()
+	write := func(s string) {
+		_, _ = h.Write([]byte(s))
+		_, _ = h.Write([]byte{0})
+	}
+
+	write(ts.UTC().Format(time.RFC3339Nano))
+	write(dbutil.StringFromAny(row["level"]))
+	write(dbutil.StringFromAny(row["service_name"]))
+	write(dbutil.StringFromAny(row["logger"]))
+	write(dbutil.StringFromAny(row["message"]))
+	write(dbutil.StringFromAny(row["trace_id"]))
+	write(dbutil.StringFromAny(row["span_id"]))
+	write(dbutil.StringFromAny(row["host"]))
+	write(dbutil.StringFromAny(row["pod"]))
+	write(dbutil.StringFromAny(row["container"]))
+	write(dbutil.StringFromAny(row["thread"]))
+	write(dbutil.StringFromAny(row["exception"]))
+	write(dbutil.StringFromAny(row["attributes"]))
+
+	// Keep fallback ids in signed 64-bit range for compatibility with endpoints
+	// that still accept numeric log ids as int64.
+	id := h.Sum64() & uint64((1<<63)-1)
+	if id == 0 {
+		id = 1
+	}
+	return strconv.FormatUint(id, 10)
 }

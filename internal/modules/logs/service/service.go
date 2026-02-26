@@ -16,7 +16,7 @@ func NewService(repo store.Repository) *LogService {
 	return &LogService{repo: repo}
 }
 
-func (s *LogService) GetLogs(ctx context.Context, teamUUID string, startMs, endMs int64, limit int, direction string, cursor int64, filters model.LogFilters) (model.LogSearchResponse, error) {
+func (s *LogService) GetLogs(ctx context.Context, teamUUID string, startMs, endMs int64, limit int, direction string, cursor model.LogCursor, filters model.LogFilters) (model.LogSearchResponse, error) {
 	filters.TeamUUID = teamUUID
 	filters.StartMs = startMs
 	filters.EndMs = endMs
@@ -26,14 +26,21 @@ func (s *LogService) GetLogs(ctx context.Context, teamUUID string, startMs, endM
 		return model.LogSearchResponse{}, err
 	}
 
-	var nextCursor int64
-	if len(logs) == limit {
-		nextCursor = logs[len(logs)-1].ID
+	currentOffset := cursor.Offset
+	if currentOffset < 0 {
+		currentOffset = 0
+	}
+	nextOffset := currentOffset + len(logs)
+	hasMore := int64(nextOffset) < total
+
+	var nextCursor string
+	if hasMore {
+		nextCursor = model.LogCursor{Offset: nextOffset}.Encode()
 	}
 
 	return model.LogSearchResponse{
 		Logs:       logs,
-		HasMore:    len(logs) == limit,
+		HasMore:    hasMore,
 		NextCursor: nextCursor,
 		Limit:      limit,
 		Total:      total,

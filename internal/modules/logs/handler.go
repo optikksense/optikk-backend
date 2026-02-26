@@ -2,6 +2,7 @@ package logs
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/observability/observability-backend-go/internal/modules/logs/model"
@@ -42,8 +43,23 @@ func (h *LogHandler) GetLogs(c *gin.Context) {
 	teamUUID := h.getTenant(c).TeamUUID()
 	startMs, endMs := handlers.ParseRange(c, 60*60*1000)
 	limit := handlers.ParseIntParam(c, "limit", 100)
-	direction := c.DefaultQuery("direction", "desc")
-	cursor := handlers.ParseInt64Param(c, "cursor", 0)
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	direction := strings.ToLower(c.DefaultQuery("direction", "desc"))
+	if direction != "asc" {
+		direction = "desc"
+	}
+
+	var cursor model.LogCursor
+	if rawCursor := strings.TrimSpace(c.Query("cursor")); rawCursor != "" {
+		parsedCursor, ok := model.ParseLogCursor(rawCursor)
+		if !ok {
+			handlers.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid cursor")
+			return
+		}
+		cursor = parsedCursor
+	}
 
 	resp, err := h.service.GetLogs(c.Request.Context(), teamUUID, startMs, endMs, limit, direction, cursor, h.parseFilters(c))
 	if err != nil {

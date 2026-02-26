@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -91,9 +92,24 @@ func parseJSONToMap(v any) map[string]any {
 func normalizeValue(v any) any {
 	switch x := v.(type) {
 	case []byte:
-		s := string(x)
-		if f, err := strconv.ParseFloat(s, 64); err == nil {
-			return f
+		s := strings.TrimSpace(string(x))
+		if s == "" {
+			return ""
+		}
+		if i, err := strconv.ParseInt(s, 10, 64); err == nil {
+			return i
+		}
+		if u, err := strconv.ParseUint(s, 10, 64); err == nil {
+			if u <= math.MaxInt64 {
+				return int64(u)
+			}
+			// Keep very large uint values as string to avoid float precision loss.
+			return s
+		}
+		if strings.ContainsAny(s, ".eE") {
+			if f, err := strconv.ParseFloat(s, 64); err == nil {
+				return f
+			}
 		}
 		return s
 	case time.Time:
