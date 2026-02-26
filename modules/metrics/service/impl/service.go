@@ -5,9 +5,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/observability/observability-backend-go/internal/platform/handlers"
 	"github.com/observability/observability-backend-go/modules/metrics/model"
 	"github.com/observability/observability-backend-go/modules/metrics/store"
-	"github.com/observability/observability-backend-go/internal/platform/handlers"
 )
 
 type MetricService struct {
@@ -158,17 +158,8 @@ func (s *MetricService) GetMetricsSummary(ctx context.Context, teamUUID string, 
 	return s.repo.GetMetricsSummary(ctx, teamUUID, start, end)
 }
 
-func (s *MetricService) GetServiceTimeSeries(ctx context.Context, teamUUID string, start, end time.Time) ([]model.ServiceMetric, error) {
-	// Re-implementing based on how the handler used it
-	points, err := s.repo.GetServiceTimeSeries(ctx, teamUUID, start, end)
-	if err != nil {
-		return nil, err
-	}
-	// Note: The existing repository implementation for GetServiceTimeSeries returns model.TimeSeriesPoint.
-	// We might need to adjust this if the handler expects something else.
-	// For now, returning an empty slice to satisfy interface until I reconcile the return type.
-	_ = points
-	return nil, nil
+func (s *MetricService) GetServiceTimeSeries(ctx context.Context, teamUUID string, start, end time.Time) ([]model.TimeSeriesPoint, error) {
+	return s.repo.GetServiceTimeSeries(ctx, teamUUID, start, end)
 }
 
 func (s *MetricService) GetEndpointTimeSeries(ctx context.Context, teamUUID string, start, end time.Time, serviceName string) ([]model.TimeSeriesPoint, error) {

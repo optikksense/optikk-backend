@@ -2,7 +2,6 @@ package impl
 
 import (
 	"context"
-	"time"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/modules/spans/model"
@@ -26,8 +25,12 @@ func (r *ClickHouseRepository) buildTraceQueryArgs(f model.TraceFilters) (string
 		args = append(args, vals...)
 	}
 	if f.Status != "" {
-		queryFrag += ` AND status = ?`
-		args = append(args, f.Status)
+		if f.Status == "ERROR" {
+			queryFrag += ` AND (status = 'ERROR' OR http_status_code >= 400)`
+		} else {
+			queryFrag += ` AND status = ?`
+			args = append(args, f.Status)
+		}
 	}
 	if f.MinDuration != "" {
 		queryFrag += ` AND duration_ms >= ?`
@@ -72,8 +75,8 @@ func (r *ClickHouseRepository) GetTraces(ctx context.Context, f model.TraceFilte
 			TraceID:        dbutil.StringFromAny(row["trace_id"]),
 			ServiceName:    dbutil.StringFromAny(row["service_name"]),
 			OperationName:  dbutil.StringFromAny(row["operation_name"]),
-			StartTime:      row["start_time"].(time.Time),
-			EndTime:        row["end_time"].(time.Time),
+			StartTime:      dbutil.TimeFromAny(row["start_time"]),
+			EndTime:        dbutil.TimeFromAny(row["end_time"]),
 			DurationMs:     dbutil.Float64FromAny(row["duration_ms"]),
 			Status:         dbutil.StringFromAny(row["status"]),
 			HTTPMethod:     dbutil.StringFromAny(row["http_method"]),
@@ -85,7 +88,7 @@ func (r *ClickHouseRepository) GetTraces(ctx context.Context, f model.TraceFilte
 
 	summaryRow, err := dbutil.QueryMap(r.db, `
 		SELECT COUNT(*) as total_traces,
-		       sum(if(status = 'ERROR', 1, 0)) as error_traces,
+		       sum(if(status = 'ERROR' OR http_status_code >= 400, 1, 0)) as error_traces,
 		       AVG(duration_ms) as avg_duration,
 		       quantile(0.5)(duration_ms) as p50_duration,
 		       quantile(0.95)(duration_ms) as p95_duration,
@@ -129,8 +132,8 @@ func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamUUID, trac
 			OperationName:  dbutil.StringFromAny(row["operation_name"]),
 			ServiceName:    dbutil.StringFromAny(row["service_name"]),
 			SpanKind:       dbutil.StringFromAny(row["span_kind"]),
-			StartTime:      row["start_time"].(time.Time),
-			EndTime:        row["end_time"].(time.Time),
+			StartTime:      dbutil.TimeFromAny(row["start_time"]),
+			EndTime:        dbutil.TimeFromAny(row["end_time"]),
 			DurationMs:     dbutil.Float64FromAny(row["duration_ms"]),
 			Status:         dbutil.StringFromAny(row["status"]),
 			StatusMessage:  dbutil.StringFromAny(row["status_message"]),
@@ -182,7 +185,7 @@ func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamUUID stri
 		       MIN(start_time) as first_occurrence,
 		       (groupArray(trace_id) as trace_ids)[1] as sample_trace_id
 		FROM spans
-		WHERE team_id = ? AND status = 'ERROR' AND start_time BETWEEN ? AND ?`
+		WHERE team_id = ? AND (status = 'ERROR' OR http_status_code >= 400) AND start_time BETWEEN ? AND ?`
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
@@ -205,8 +208,8 @@ func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamUUID stri
 			StatusMessage:   dbutil.StringFromAny(row["status_message"]),
 			HTTPStatusCode:  int(dbutil.Int64FromAny(row["http_status_code"])),
 			ErrorCount:      dbutil.Int64FromAny(row["error_count"]),
-			LastOccurrence:  row["last_occurrence"].(time.Time),
-			FirstOccurrence: row["first_occurrence"].(time.Time),
+			LastOccurrence:  dbutil.TimeFromAny(row["last_occurrence"]),
+			FirstOccurrence: dbutil.TimeFromAny(row["first_occurrence"]),
 			SampleTraceID:   dbutil.StringFromAny(row["sample_trace_id"]),
 		})
 	}
@@ -218,8 +221,8 @@ func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamUUID 
 		SELECT service_name,
 		       toStartOfMinute(start_time) as timestamp,
 		       COUNT(*) as total_count,
-		       sum(if(status='ERROR', 1, 0)) as error_count,
-		       if(COUNT(*) > 0, sum(if(status='ERROR', 1, 0))*100.0/COUNT(*), 0) as error_rate
+		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count,
+		       if(COUNT(*) > 0, sum(if(status='ERROR' OR http_status_code >= 400, 1, 0))*100.0/COUNT(*), 0) as error_rate
 		FROM spans
 		WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
@@ -239,7 +242,7 @@ func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamUUID 
 	for _, row := range rows {
 		points = append(points, model.ErrorTimeSeries{
 			ServiceName: dbutil.StringFromAny(row["service_name"]),
-			Timestamp:   row["timestamp"].(time.Time),
+			Timestamp:   dbutil.TimeFromAny(row["timestamp"]),
 			TotalCount:  dbutil.Int64FromAny(row["total_count"]),
 			ErrorCount:  dbutil.Int64FromAny(row["error_count"]),
 			ErrorRate:   dbutil.Float64FromAny(row["error_rate"]),
@@ -337,7 +340,7 @@ func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamUUID s
 	points := make([]model.LatencyHeatmapPoint, 0, len(rows))
 	for _, row := range rows {
 		points = append(points, model.LatencyHeatmapPoint{
-			TimeBucket:    row["time_bucket"].(time.Time),
+			TimeBucket:    dbutil.TimeFromAny(row["time_bucket"]),
 			LatencyBucket: dbutil.StringFromAny(row["latency_bucket"]),
 			SpanCount:     dbutil.Int64FromAny(row["span_count"]),
 		})

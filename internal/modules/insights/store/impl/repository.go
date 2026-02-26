@@ -19,9 +19,15 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, startMs, endMs int64) ([]model.ServiceResource, []model.InstanceResource, []model.InfraResource, []model.ResourceBucket, error) {
 	byServiceRaw, err := dbutil.QueryMaps(r.db, `
 		SELECT service_name,
-		       if(
-		           countIf(metric_name = 'system.cpu.utilization') > 0,
-		           avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.cpu.utilization'),
+		       coalesce(
+		           if(
+		               countIf(metric_name IN ('system.cpu.utilization', 'system.cpu.usage', 'process.cpu.usage') AND isFinite(value)) > 0,
+		               avgIf(
+		                   if(value <= 1.0, value * 100.0, value),
+		                   metric_name IN ('system.cpu.utilization', 'system.cpu.usage', 'process.cpu.usage') AND isFinite(value)
+		               ),
+		               NULL
+		           ),
 		           if(
 		               countIf(JSONExtractFloat(attributes, 'system.cpu.utilization') > 0) > 0,
 		               avgIf(
@@ -35,9 +41,18 @@ func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, st
 		               NULL
 		           )
 		       ) as avg_cpu_util,
-		       if(
-		           countIf(metric_name = 'system.memory.utilization') > 0,
-		           avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.memory.utilization'),
+		       coalesce(
+		           if(
+		               countIf(metric_name = 'system.memory.utilization' AND isFinite(value)) > 0,
+		               avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.memory.utilization' AND isFinite(value)),
+		               NULL
+		           ),
+		           if(
+		               sumIf(value, metric_name = 'jvm.memory.max' AND value > 0 AND isFinite(value)) > 0,
+		               100.0 * sumIf(value, metric_name = 'jvm.memory.used' AND value >= 0 AND isFinite(value))
+		                   / nullIf(sumIf(value, metric_name = 'jvm.memory.max' AND value > 0 AND isFinite(value)), 0),
+		               NULL
+		           ),
 		           if(
 		               countIf(JSONExtractFloat(attributes, 'system.memory.utilization') > 0) > 0,
 		               avgIf(
@@ -51,9 +66,23 @@ func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, st
 		               NULL
 		           )
 		       ) as avg_memory_util,
-		       if(
-		           countIf(metric_name = 'system.disk.utilization') > 0,
-		           avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.disk.utilization'),
+		       coalesce(
+		           if(
+		               countIf(metric_name = 'system.disk.utilization' AND isFinite(value)) > 0,
+		               avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.disk.utilization' AND isFinite(value)),
+		               NULL
+		           ),
+		           if(
+		               sumIf(value, metric_name = 'disk.total' AND value > 0 AND isFinite(value)) > 0,
+		               100.0 * (
+		                   1.0
+		                   - (
+		                       sumIf(value, metric_name = 'disk.free' AND value >= 0 AND isFinite(value))
+		                       / nullIf(sumIf(value, metric_name = 'disk.total' AND value > 0 AND isFinite(value)), 0)
+		                   )
+		               ),
+		               NULL
+		           ),
 		           if(
 		               countIf(JSONExtractFloat(attributes, 'system.disk.utilization') > 0) > 0,
 		               avgIf(
@@ -67,9 +96,20 @@ func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, st
 		               NULL
 		           )
 		       ) as avg_disk_util,
-		       if(
-		           countIf(metric_name = 'system.network.utilization') > 0,
-		           avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.network.utilization'),
+		       coalesce(
+		           if(
+		               countIf(metric_name = 'system.network.utilization' AND isFinite(value)) > 0,
+		               avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.network.utilization' AND isFinite(value)),
+		               NULL
+		           ),
+		           if(
+		               countIf(metric_name = 'http.server.requests.active.active' AND isFinite(value)) > 0,
+		               avgIf(
+		                   if(value <= 1.0, value * 100.0, least(value, 100.0)),
+		                   metric_name = 'http.server.requests.active.active' AND isFinite(value)
+		               ),
+		               NULL
+		           ),
 		           if(
 		               countIf(JSONExtractFloat(attributes, 'system.network.utilization') > 0) > 0,
 		               avgIf(
@@ -83,9 +123,23 @@ func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, st
 		               NULL
 		           )
 		       ) as avg_network_util,
-		       if(
-		           countIf(metric_name = 'db.connection.pool.utilization') > 0,
-		           avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'db.connection.pool.utilization'),
+		       coalesce(
+		           if(
+		               countIf(metric_name = 'db.connection.pool.utilization' AND isFinite(value)) > 0,
+		               avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'db.connection.pool.utilization' AND isFinite(value)),
+		               NULL
+		           ),
+		           if(
+		               sumIf(value, metric_name = 'hikaricp.connections.max' AND value > 0 AND isFinite(value)) > 0,
+		               100.0 * sumIf(value, metric_name = 'hikaricp.connections.active' AND value >= 0 AND isFinite(value))
+		                   / nullIf(sumIf(value, metric_name = 'hikaricp.connections.max' AND value > 0 AND isFinite(value)), 0),
+		               NULL
+		           ),
+		           if(
+		               countIf(metric_name = 'executor.pool.size' AND isFinite(value)) > 0,
+		               avgIf(if(value <= 1.0, value * 100.0, least(value, 100.0)), metric_name = 'executor.pool.size' AND isFinite(value)),
+		               NULL
+		           ),
 		           if(
 		               countIf(JSONExtractFloat(attributes, 'db.connection_pool.utilization') > 0) > 0,
 		               avgIf(
@@ -105,10 +159,20 @@ func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, st
 		  AND (
 		      metric_name IN (
 		          'system.cpu.utilization',
+		          'system.cpu.usage',
+		          'process.cpu.usage',
 		          'system.memory.utilization',
+		          'jvm.memory.used',
+		          'jvm.memory.max',
 		          'system.disk.utilization',
+		          'disk.free',
+		          'disk.total',
 		          'system.network.utilization',
-		          'db.connection.pool.utilization'
+		          'http.server.requests.active.active',
+		          'db.connection.pool.utilization',
+		          'hikaricp.connections.active',
+		          'hikaricp.connections.max',
+		          'executor.pool.size'
 		      )
 		      OR JSONExtractFloat(attributes, 'system.cpu.utilization') > 0
 		      OR JSONExtractFloat(attributes, 'system.memory.utilization') > 0
@@ -139,9 +203,15 @@ func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, st
 
 	byInstanceRaw, err := dbutil.QueryMaps(r.db, `
 		SELECT host, pod, container, service_name,
-		       if(
-		           countIf(metric_name = 'system.cpu.utilization') > 0,
-		           avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.cpu.utilization'),
+		       coalesce(
+		           if(
+		               countIf(metric_name IN ('system.cpu.utilization', 'system.cpu.usage', 'process.cpu.usage') AND isFinite(value)) > 0,
+		               avgIf(
+		                   if(value <= 1.0, value * 100.0, value),
+		                   metric_name IN ('system.cpu.utilization', 'system.cpu.usage', 'process.cpu.usage') AND isFinite(value)
+		               ),
+		               NULL
+		           ),
 		           if(
 		               countIf(JSONExtractFloat(attributes, 'system.cpu.utilization') > 0) > 0,
 		               avgIf(
@@ -155,9 +225,18 @@ func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, st
 		               NULL
 		           )
 		       ) as avg_cpu_util,
-		       if(
-		           countIf(metric_name = 'system.memory.utilization') > 0,
-		           avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.memory.utilization'),
+		       coalesce(
+		           if(
+		               countIf(metric_name = 'system.memory.utilization' AND isFinite(value)) > 0,
+		               avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.memory.utilization' AND isFinite(value)),
+		               NULL
+		           ),
+		           if(
+		               sumIf(value, metric_name = 'jvm.memory.max' AND value > 0 AND isFinite(value)) > 0,
+		               100.0 * sumIf(value, metric_name = 'jvm.memory.used' AND value >= 0 AND isFinite(value))
+		                   / nullIf(sumIf(value, metric_name = 'jvm.memory.max' AND value > 0 AND isFinite(value)), 0),
+		               NULL
+		           ),
 		           if(
 		               countIf(JSONExtractFloat(attributes, 'system.memory.utilization') > 0) > 0,
 		               avgIf(
@@ -171,9 +250,23 @@ func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, st
 		               NULL
 		           )
 		       ) as avg_memory_util,
-		       if(
-		           countIf(metric_name = 'system.disk.utilization') > 0,
-		           avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.disk.utilization'),
+		       coalesce(
+		           if(
+		               countIf(metric_name = 'system.disk.utilization' AND isFinite(value)) > 0,
+		               avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.disk.utilization' AND isFinite(value)),
+		               NULL
+		           ),
+		           if(
+		               sumIf(value, metric_name = 'disk.total' AND value > 0 AND isFinite(value)) > 0,
+		               100.0 * (
+		                   1.0
+		                   - (
+		                       sumIf(value, metric_name = 'disk.free' AND value >= 0 AND isFinite(value))
+		                       / nullIf(sumIf(value, metric_name = 'disk.total' AND value > 0 AND isFinite(value)), 0)
+		                   )
+		               ),
+		               NULL
+		           ),
 		           if(
 		               countIf(JSONExtractFloat(attributes, 'system.disk.utilization') > 0) > 0,
 		               avgIf(
@@ -187,9 +280,20 @@ func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, st
 		               NULL
 		           )
 		       ) as avg_disk_util,
-		       if(
-		           countIf(metric_name = 'system.network.utilization') > 0,
-		           avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.network.utilization'),
+		       coalesce(
+		           if(
+		               countIf(metric_name = 'system.network.utilization' AND isFinite(value)) > 0,
+		               avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.network.utilization' AND isFinite(value)),
+		               NULL
+		           ),
+		           if(
+		               countIf(metric_name = 'http.server.requests.active.active' AND isFinite(value)) > 0,
+		               avgIf(
+		                   if(value <= 1.0, value * 100.0, least(value, 100.0)),
+		                   metric_name = 'http.server.requests.active.active' AND isFinite(value)
+		               ),
+		               NULL
+		           ),
 		           if(
 		               countIf(JSONExtractFloat(attributes, 'system.network.utilization') > 0) > 0,
 		               avgIf(
@@ -203,9 +307,23 @@ func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, st
 		               NULL
 		           )
 		       ) as avg_network_util,
-		       if(
-		           countIf(metric_name = 'db.connection.pool.utilization') > 0,
-		           avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'db.connection.pool.utilization'),
+		       coalesce(
+		           if(
+		               countIf(metric_name = 'db.connection.pool.utilization' AND isFinite(value)) > 0,
+		               avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'db.connection.pool.utilization' AND isFinite(value)),
+		               NULL
+		           ),
+		           if(
+		               sumIf(value, metric_name = 'hikaricp.connections.max' AND value > 0 AND isFinite(value)) > 0,
+		               100.0 * sumIf(value, metric_name = 'hikaricp.connections.active' AND value >= 0 AND isFinite(value))
+		                   / nullIf(sumIf(value, metric_name = 'hikaricp.connections.max' AND value > 0 AND isFinite(value)), 0),
+		               NULL
+		           ),
+		           if(
+		               countIf(metric_name = 'executor.pool.size' AND isFinite(value)) > 0,
+		               avgIf(if(value <= 1.0, value * 100.0, least(value, 100.0)), metric_name = 'executor.pool.size' AND isFinite(value)),
+		               NULL
+		           ),
 		           if(
 		               countIf(JSONExtractFloat(attributes, 'db.connection_pool.utilization') > 0) > 0,
 		               avgIf(
@@ -225,10 +343,20 @@ func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, st
 		  AND (
 		      metric_name IN (
 		          'system.cpu.utilization',
+		          'system.cpu.usage',
+		          'process.cpu.usage',
 		          'system.memory.utilization',
+		          'jvm.memory.used',
+		          'jvm.memory.max',
 		          'system.disk.utilization',
+		          'disk.free',
+		          'disk.total',
 		          'system.network.utilization',
-		          'db.connection.pool.utilization'
+		          'http.server.requests.active.active',
+		          'db.connection.pool.utilization',
+		          'hikaricp.connections.active',
+		          'hikaricp.connections.max',
+		          'executor.pool.size'
 		      )
 		      OR JSONExtractFloat(attributes, 'system.cpu.utilization') > 0
 		      OR JSONExtractFloat(attributes, 'system.memory.utilization') > 0
@@ -295,9 +423,15 @@ func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, st
 	timeseriesRaw, err := dbutil.QueryMaps(r.db, `
 		SELECT formatDateTime(toStartOfMinute(timestamp), '%Y-%m-%dT%H:%i:%SZ') as time_bucket,
 		       service_name as pod,
-		       if(
-		           countIf(metric_name = 'system.cpu.utilization') > 0,
-		           avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.cpu.utilization'),
+		       coalesce(
+		           if(
+		               countIf(metric_name IN ('system.cpu.utilization', 'system.cpu.usage', 'process.cpu.usage') AND isFinite(value)) > 0,
+		               avgIf(
+		                   if(value <= 1.0, value * 100.0, value),
+		                   metric_name IN ('system.cpu.utilization', 'system.cpu.usage', 'process.cpu.usage') AND isFinite(value)
+		               ),
+		               NULL
+		           ),
 		           if(
 		               countIf(JSONExtractFloat(attributes, 'system.cpu.utilization') > 0) > 0,
 		               avgIf(
@@ -311,9 +445,18 @@ func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, st
 		               NULL
 		           )
 		       ) as avg_cpu_util,
-		       if(
-		           countIf(metric_name = 'system.memory.utilization') > 0,
-		           avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.memory.utilization'),
+		       coalesce(
+		           if(
+		               countIf(metric_name = 'system.memory.utilization' AND isFinite(value)) > 0,
+		               avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.memory.utilization' AND isFinite(value)),
+		               NULL
+		           ),
+		           if(
+		               sumIf(value, metric_name = 'jvm.memory.max' AND value > 0 AND isFinite(value)) > 0,
+		               100.0 * sumIf(value, metric_name = 'jvm.memory.used' AND value >= 0 AND isFinite(value))
+		                   / nullIf(sumIf(value, metric_name = 'jvm.memory.max' AND value > 0 AND isFinite(value)), 0),
+		               NULL
+		           ),
 		           if(
 		               countIf(JSONExtractFloat(attributes, 'system.memory.utilization') > 0) > 0,
 		               avgIf(
@@ -330,7 +473,7 @@ func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, st
 		FROM metrics
 		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
 		  AND (
-		      metric_name IN ('system.cpu.utilization', 'system.memory.utilization')
+		      metric_name IN ('system.cpu.utilization', 'system.cpu.usage', 'process.cpu.usage', 'system.memory.utilization', 'jvm.memory.used', 'jvm.memory.max')
 		      OR JSONExtractFloat(attributes, 'system.cpu.utilization') > 0
 		      OR JSONExtractFloat(attributes, 'system.memory.utilization') > 0
 		  )
@@ -583,30 +726,57 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 	}
 
 	summaryRaw, err := dbutil.QueryMap(r.db, `
-		SELECT avg(JSONExtractFloat(attributes, 'queue.depth'))                    as avg_queue_depth,
-		       max(JSONExtractFloat(attributes, 'queue.depth'))                    as max_queue_depth,
-		       avg(JSONExtractFloat(attributes, 'messaging.kafka.consumer.lag'))   as avg_consumer_lag,
-		       max(JSONExtractFloat(attributes, 'messaging.kafka.consumer.lag'))   as max_consumer_lag,
-		       sum(
-		           if(
-		               span_kind = 'PRODUCER'
-		               OR JSONExtractString(attributes, 'messaging.operation') = 'publish'
-		               OR (JSONExtractFloat(attributes, 'queue.depth') > 0 AND upper(http_method) = 'POST'),
-		               1, 0
-		           )
-		       ) / ? as avg_publish_rate,
-		       sum(
-		           if(
-		               span_kind = 'CONSUMER'
-		               OR JSONExtractString(attributes, 'messaging.operation') = 'receive'
-		               OR (JSONExtractFloat(attributes, 'queue.depth') > 0 AND upper(http_method) = 'GET'),
-		               1, 0
-		           )
-		       ) / ? as avg_receive_rate,
-		       sum(JSONExtractFloat(attributes, 'messaging.error.count')) as processing_errors
-		FROM spans
-		WHERE team_id = ? AND start_time BETWEEN ? AND ?
-	`, durationSecs, durationSecs, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+		SELECT if(sum(queue_depth_samples) > 0, sum(queue_depth_sum) / sum(queue_depth_samples), NULL) as avg_queue_depth,
+		       max(max_queue_depth) as max_queue_depth,
+		       if(sum(consumer_lag_samples) > 0, sum(consumer_lag_sum) / sum(consumer_lag_samples), NULL) as avg_consumer_lag,
+		       max(max_consumer_lag) as max_consumer_lag,
+		       sum(publish_events) / ? as avg_publish_rate,
+		       sum(receive_events) / ? as avg_receive_rate,
+		       sum(processing_errors) as processing_errors
+		FROM (
+		    SELECT sumIf(JSONExtractFloat(attributes, 'queue.depth'), JSONExtractFloat(attributes, 'queue.depth') > 0) as queue_depth_sum,
+		           countIf(JSONExtractFloat(attributes, 'queue.depth') > 0) as queue_depth_samples,
+		           maxIf(JSONExtractFloat(attributes, 'queue.depth'), JSONExtractFloat(attributes, 'queue.depth') > 0) as max_queue_depth,
+		           sumIf(JSONExtractFloat(attributes, 'messaging.kafka.consumer.lag'), JSONExtractFloat(attributes, 'messaging.kafka.consumer.lag') > 0) as consumer_lag_sum,
+		           countIf(JSONExtractFloat(attributes, 'messaging.kafka.consumer.lag') > 0) as consumer_lag_samples,
+		           maxIf(JSONExtractFloat(attributes, 'messaging.kafka.consumer.lag'), JSONExtractFloat(attributes, 'messaging.kafka.consumer.lag') > 0) as max_consumer_lag,
+		           toFloat64(sum(
+		               if(
+		                   span_kind = 'PRODUCER'
+		                   OR JSONExtractString(attributes, 'messaging.operation') = 'publish'
+		                   OR (JSONExtractFloat(attributes, 'queue.depth') > 0 AND upper(http_method) = 'POST'),
+		                   1, 0
+		               )
+		           )) as publish_events,
+		           toFloat64(sum(
+		               if(
+		                   span_kind = 'CONSUMER'
+		                   OR JSONExtractString(attributes, 'messaging.operation') = 'receive'
+		                   OR (JSONExtractFloat(attributes, 'queue.depth') > 0 AND upper(http_method) = 'GET'),
+		                   1, 0
+		               )
+		           )) as receive_events,
+		           sum(if(isFinite(JSONExtractFloat(attributes, 'messaging.error.count')), JSONExtractFloat(attributes, 'messaging.error.count'), 0.0)) as processing_errors
+		    FROM spans
+		    WHERE team_id = ? AND start_time BETWEEN ? AND ?
+
+		    UNION ALL
+
+		    SELECT sumIf(value, metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as queue_depth_sum,
+		           countIf(metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as queue_depth_samples,
+		           maxIf(value, metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as max_queue_depth,
+		           sumIf(value, metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'executor.queued') AND isFinite(value)) as consumer_lag_sum,
+		           countIf(metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'executor.queued') AND isFinite(value)) as consumer_lag_samples,
+		           maxIf(value, metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'executor.queued') AND isFinite(value)) as max_consumer_lag,
+		           toFloat64(0) as publish_events,
+		           toFloat64(0) as receive_events,
+		           sumIf(value, metric_name = 'logback.events' AND lower(JSONExtractString(attributes, 'level')) IN ('error', 'fatal') AND isFinite(value)) as processing_errors
+		    FROM metrics
+		    WHERE team_id = ? AND timestamp BETWEEN ? AND ?
+		) merged
+	`, durationSecs, durationSecs,
+		teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
+		teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return model.MqSummary{}, nil, nil, err
 	}
@@ -622,36 +792,79 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 	}
 
 	timeseriesRaw, err := dbutil.QueryMaps(r.db, `
-		SELECT formatDateTime(toStartOfMinute(start_time), '%Y-%m-%dT%H:%i:%SZ') as time_bucket,
+		SELECT time_bucket,
 		       service_name,
-		       coalesce(
-		           nullIf(JSONExtractString(attributes, 'messaging.queue.name'), ''),
-		           nullIf(JSONExtractString(attributes, 'messaging.destination'), ''),
-		           'unknown'
-		       ) as queue_name,
-		       avg(JSONExtractFloat(attributes, 'queue.depth'))                  as avg_queue_depth,
-		       avg(JSONExtractFloat(attributes, 'messaging.kafka.consumer.lag')) as avg_consumer_lag,
-		       sum(
-		           if(
-		               span_kind = 'PRODUCER'
-		               OR JSONExtractString(attributes, 'messaging.operation') = 'publish'
-		               OR (JSONExtractFloat(attributes, 'queue.depth') > 0 AND upper(http_method) = 'POST'),
-		               1, 0
-		           )
-		       ) / 60.0 as avg_publish_rate,
-		       sum(
-		           if(
-		               span_kind = 'CONSUMER'
-		               OR JSONExtractString(attributes, 'messaging.operation') = 'receive'
-		               OR (JSONExtractFloat(attributes, 'queue.depth') > 0 AND upper(http_method) = 'GET'),
-		               1, 0
-		           )
-		       ) / 60.0 as avg_receive_rate
-		FROM spans
-		WHERE team_id = ? AND start_time BETWEEN ? AND ?
-		GROUP BY 1, 2, 3
-		ORDER BY 1 ASC, 2 ASC, 3 ASC
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+		       queue_name,
+		       if(sum(queue_depth_samples) > 0, sum(queue_depth_sum) / sum(queue_depth_samples), NULL) as avg_queue_depth,
+		       if(sum(consumer_lag_samples) > 0, sum(consumer_lag_sum) / sum(consumer_lag_samples), NULL) as avg_consumer_lag,
+		       sum(publish_events) / 60.0 as avg_publish_rate,
+		       sum(receive_events) / 60.0 as avg_receive_rate
+		FROM (
+		    SELECT formatDateTime(toStartOfMinute(start_time), '%Y-%m-%dT%H:%i:%SZ') as time_bucket,
+		           if(service_name != '', service_name, 'unknown') as service_name,
+		           coalesce(
+		               nullIf(JSONExtractString(attributes, 'messaging.queue.name'), ''),
+		               nullIf(JSONExtractString(attributes, 'messaging.destination'), ''),
+		               'unknown'
+		           ) as queue_name,
+		           sumIf(JSONExtractFloat(attributes, 'queue.depth'), JSONExtractFloat(attributes, 'queue.depth') > 0) as queue_depth_sum,
+		           countIf(JSONExtractFloat(attributes, 'queue.depth') > 0) as queue_depth_samples,
+		           sumIf(JSONExtractFloat(attributes, 'messaging.kafka.consumer.lag'), JSONExtractFloat(attributes, 'messaging.kafka.consumer.lag') > 0) as consumer_lag_sum,
+		           countIf(JSONExtractFloat(attributes, 'messaging.kafka.consumer.lag') > 0) as consumer_lag_samples,
+		           toFloat64(sum(
+		               if(
+		                   span_kind = 'PRODUCER'
+		                   OR JSONExtractString(attributes, 'messaging.operation') = 'publish'
+		                   OR (JSONExtractFloat(attributes, 'queue.depth') > 0 AND upper(http_method) = 'POST'),
+		                   1, 0
+		               )
+		           )) as publish_events,
+		           toFloat64(sum(
+		               if(
+		                   span_kind = 'CONSUMER'
+		                   OR JSONExtractString(attributes, 'messaging.operation') = 'receive'
+		                   OR (JSONExtractFloat(attributes, 'queue.depth') > 0 AND upper(http_method) = 'GET'),
+		                   1, 0
+		               )
+		           )) as receive_events
+		    FROM spans
+		    WHERE team_id = ? AND start_time BETWEEN ? AND ?
+		    GROUP BY 1, 2, 3
+
+		    UNION ALL
+
+		    SELECT formatDateTime(toStartOfMinute(timestamp), '%Y-%m-%dT%H:%i:%SZ') as time_bucket,
+		           if(service_name != '', service_name, 'unknown') as service_name,
+		           coalesce(
+		               nullIf(JSONExtractString(attributes, 'messaging.queue.name'), ''),
+		               nullIf(JSONExtractString(attributes, 'messaging.destination'), ''),
+		               nullIf(JSONExtractString(attributes, 'queue.name'), ''),
+		               nullIf(JSONExtractString(attributes, 'name'), ''),
+		               'unknown'
+		           ) as queue_name,
+		           sumIf(value, metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as queue_depth_sum,
+		           countIf(metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as queue_depth_samples,
+		           sumIf(value, metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'executor.queued') AND isFinite(value)) as consumer_lag_sum,
+		           countIf(metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'executor.queued') AND isFinite(value)) as consumer_lag_samples,
+		           toFloat64(0) as publish_events,
+		           toFloat64(0) as receive_events
+		    FROM metrics
+		    WHERE team_id = ? AND timestamp BETWEEN ? AND ?
+		      AND metric_name IN (
+		          'queue.depth',
+		          'messaging.queue.depth',
+		          'executor.queued',
+		          'messaging.kafka.consumer.lag',
+		          'messaging.kafka.consumer.records.lag',
+		          'kafka.consumer.lag',
+		          'kafka.consumer.records.lag',
+		          'kafka.consumer.records-lag'
+		      )
+		    GROUP BY 1, 2, 3
+		) merged
+		GROUP BY time_bucket, service_name, queue_name
+		ORDER BY time_bucket ASC, service_name ASC, queue_name ASC
+	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return model.MqSummary{}, nil, nil, err
 	}
@@ -670,37 +883,80 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 	}
 
 	topQueuesRaw, err := dbutil.QueryMaps(r.db, `
-		SELECT coalesce(
-		           nullIf(JSONExtractString(attributes, 'messaging.queue.name'), ''),
-		           nullIf(JSONExtractString(attributes, 'messaging.destination'), ''),
-		           'unknown'
-		       ) as queue_name,
+		SELECT queue_name,
 		       service_name,
-		       avg(JSONExtractFloat(attributes, 'queue.depth'))                  as avg_queue_depth,
-		       max(JSONExtractFloat(attributes, 'messaging.kafka.consumer.lag')) as max_consumer_lag,
-		       sum(
-		           if(
-		               span_kind = 'PRODUCER'
-		               OR JSONExtractString(attributes, 'messaging.operation') = 'publish'
-		               OR (JSONExtractFloat(attributes, 'queue.depth') > 0 AND upper(http_method) = 'POST'),
-		               1, 0
-		           )
-		       ) / ? as avg_publish_rate,
-		       sum(
-		           if(
-		               span_kind = 'CONSUMER'
-		               OR JSONExtractString(attributes, 'messaging.operation') = 'receive'
-		               OR (JSONExtractFloat(attributes, 'queue.depth') > 0 AND upper(http_method) = 'GET'),
-		               1, 0
-		           )
-		       ) / ? as avg_receive_rate,
-		       COUNT(*) as sample_count
-		FROM spans
-		WHERE team_id = ? AND start_time BETWEEN ? AND ?
+		       if(sum(queue_depth_samples) > 0, sum(queue_depth_sum) / sum(queue_depth_samples), NULL) as avg_queue_depth,
+		       max(max_consumer_lag) as max_consumer_lag,
+		       sum(publish_events) / ? as avg_publish_rate,
+		       sum(receive_events) / ? as avg_receive_rate,
+		       toInt64(sum(sample_count)) as sample_count
+		FROM (
+		    SELECT coalesce(
+		               nullIf(JSONExtractString(attributes, 'messaging.queue.name'), ''),
+		               nullIf(JSONExtractString(attributes, 'messaging.destination'), ''),
+		               'unknown'
+		           ) as queue_name,
+		           if(service_name != '', service_name, 'unknown') as service_name,
+		           sumIf(JSONExtractFloat(attributes, 'queue.depth'), JSONExtractFloat(attributes, 'queue.depth') > 0) as queue_depth_sum,
+		           countIf(JSONExtractFloat(attributes, 'queue.depth') > 0) as queue_depth_samples,
+		           maxIf(JSONExtractFloat(attributes, 'messaging.kafka.consumer.lag'), JSONExtractFloat(attributes, 'messaging.kafka.consumer.lag') > 0) as max_consumer_lag,
+		           toFloat64(sum(
+		               if(
+		                   span_kind = 'PRODUCER'
+		                   OR JSONExtractString(attributes, 'messaging.operation') = 'publish'
+		                   OR (JSONExtractFloat(attributes, 'queue.depth') > 0 AND upper(http_method) = 'POST'),
+		                   1, 0
+		               )
+		           )) as publish_events,
+		           toFloat64(sum(
+		               if(
+		                   span_kind = 'CONSUMER'
+		                   OR JSONExtractString(attributes, 'messaging.operation') = 'receive'
+		                   OR (JSONExtractFloat(attributes, 'queue.depth') > 0 AND upper(http_method) = 'GET'),
+		                   1, 0
+		               )
+		           )) as receive_events,
+		           toInt64(count()) as sample_count
+		    FROM spans
+		    WHERE team_id = ? AND start_time BETWEEN ? AND ?
+		    GROUP BY queue_name, service_name
+
+		    UNION ALL
+
+		    SELECT coalesce(
+		               nullIf(JSONExtractString(attributes, 'messaging.queue.name'), ''),
+		               nullIf(JSONExtractString(attributes, 'messaging.destination'), ''),
+		               nullIf(JSONExtractString(attributes, 'queue.name'), ''),
+		               nullIf(JSONExtractString(attributes, 'name'), ''),
+		               'unknown'
+		           ) as queue_name,
+		           if(service_name != '', service_name, 'unknown') as service_name,
+		           sumIf(value, metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as queue_depth_sum,
+		           countIf(metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as queue_depth_samples,
+		           maxIf(value, metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'executor.queued') AND isFinite(value)) as max_consumer_lag,
+		           toFloat64(0) as publish_events,
+		           toFloat64(0) as receive_events,
+		           toInt64(count()) as sample_count
+		    FROM metrics
+		    WHERE team_id = ? AND timestamp BETWEEN ? AND ?
+		      AND metric_name IN (
+		          'queue.depth',
+		          'messaging.queue.depth',
+		          'executor.queued',
+		          'messaging.kafka.consumer.lag',
+		          'messaging.kafka.consumer.records.lag',
+		          'kafka.consumer.lag',
+		          'kafka.consumer.records.lag',
+		          'kafka.consumer.records-lag'
+		      )
+		    GROUP BY queue_name, service_name
+		) merged
 		GROUP BY queue_name, service_name
-		ORDER BY avg_queue_depth DESC, max_consumer_lag DESC
+		ORDER BY avg_queue_depth DESC, max_consumer_lag DESC, sample_count DESC
 		LIMIT 50
-	`, durationSecs, durationSecs, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, durationSecs, durationSecs,
+		teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
+		teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return model.MqSummary{}, nil, nil, err
 	}

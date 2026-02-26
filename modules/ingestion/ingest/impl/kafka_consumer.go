@@ -125,7 +125,15 @@ func (kc *KafkaConsumer) consumeMetrics(ctx context.Context) {
 	}
 	defer pc.Close()
 
-	buf := make([]model.MetricRecord, 0, kc.cfg.BatchSize)
+	metricBatchSize := kc.cfg.BatchSize
+	if metricBatchSize <= 0 {
+		metricBatchSize = 100
+	}
+	if metricBatchSize > 100 {
+		metricBatchSize = 100
+	}
+
+	buf := make([]model.MetricRecord, 0, metricBatchSize)
 	ticker := time.NewTicker(kc.cfg.FlushInterval)
 	defer ticker.Stop()
 
@@ -150,7 +158,7 @@ func (kc *KafkaConsumer) consumeMetrics(ctx context.Context) {
 				continue
 			}
 			buf = append(buf, metrics...)
-			if len(buf) >= kc.cfg.BatchSize {
+			if len(buf) >= metricBatchSize {
 				flush()
 			}
 		case err := <-pc.Errors():

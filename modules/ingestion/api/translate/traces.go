@@ -40,6 +40,21 @@ func (SpansTranslator) Translate(teamUUID string, payload model.OTLPTracesPayloa
 				httpMethod := firstNonEmpty(spanAttrs["http.request.method"], spanAttrs["http.method"])
 				httpURL := firstNonEmpty(spanAttrs["url.full"], spanAttrs["http.url"], spanAttrs["http.route"])
 				httpStatusCode, _ := strconv.Atoi(firstNonEmpty(spanAttrs["http.response.status_code"], spanAttrs["http.status_code"]))
+				if status != "ERROR" && httpStatusCode >= 400 {
+					status = "ERROR"
+					if statusMessage == "" {
+						statusMessage = "HTTP " + strconv.Itoa(httpStatusCode)
+					}
+				}
+
+				operationName := firstNonEmpty(
+					span.Name,
+					spanAttrs["http.route"],
+					spanAttrs["rpc.method"],
+					spanAttrs["db.operation"],
+					"unknown",
+				)
+				serviceName := firstNonEmpty(spanAttrs["service.name"], rc.serviceName, "unknown")
 
 				infra := extractInfraLabels(spanAttrs, rc.attrs)
 
@@ -54,8 +69,8 @@ func (SpansTranslator) Translate(teamUUID string, payload model.OTLPTracesPayloa
 					SpanID:         span.SpanID,
 					ParentSpanID:   span.ParentSpanID,
 					IsRoot:         rootInt,
-					OperationName:  span.Name,
-					ServiceName:    rc.serviceName,
+					OperationName:  operationName,
+					ServiceName:    serviceName,
 					SpanKind:       spanKindString(span.Kind),
 					StartTime:      startTime,
 					EndTime:        endTime,

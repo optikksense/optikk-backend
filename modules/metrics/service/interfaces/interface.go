@@ -16,7 +16,7 @@ type Service interface {
 	GetEndpointMetrics(ctx context.Context, teamUUID string, start, end time.Time, serviceName string) ([]model.EndpointMetric, error)
 	GetMetricsTimeSeries(ctx context.Context, teamUUID string, start, end time.Time, serviceName string) ([]model.TimeSeriesPoint, error)
 	GetMetricsSummary(ctx context.Context, teamUUID string, start, end time.Time) (model.MetricsSummary, error)
-	GetServiceTimeSeries(ctx context.Context, teamUUID string, start, end time.Time) ([]model.ServiceMetric, error) // Note: this seems to return per-service TS in existing code
+	GetServiceTimeSeries(ctx context.Context, teamUUID string, start, end time.Time) ([]model.TimeSeriesPoint, error)
 	GetEndpointTimeSeries(ctx context.Context, teamUUID string, start, end time.Time, serviceName string) ([]model.TimeSeriesPoint, error)
 	GetServiceTopology(ctx context.Context, teamUUID string, start, end time.Time) (model.TopologyData, error)
 	GetSystemStatus(ctx context.Context) map[string]any

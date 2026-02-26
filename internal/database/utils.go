@@ -67,23 +67,68 @@ func Int64FromAny(v any) int64 {
 }
 
 func Float64FromAny(v any) float64 {
+	clean := func(f float64) float64 {
+		if math.IsNaN(f) || math.IsInf(f, 0) {
+			return 0
+		}
+		return f
+	}
+
 	switch n := v.(type) {
 	case float64:
-		return n
+		return clean(n)
+	case *float64:
+		if n == nil {
+			return 0
+		}
+		return clean(*n)
 	case float32:
-		return float64(n)
+		return clean(float64(n))
+	case *float32:
+		if n == nil {
+			return 0
+		}
+		return clean(float64(*n))
 	case int64:
 		return float64(n)
+	case *int64:
+		if n == nil {
+			return 0
+		}
+		return float64(*n)
 	case int:
 		return float64(n)
+	case *int:
+		if n == nil {
+			return 0
+		}
+		return float64(*n)
 	case uint64:
 		return float64(n)
+	case *uint64:
+		if n == nil {
+			return 0
+		}
+		return float64(*n)
 	case uint32:
 		return float64(n)
+	case *uint32:
+		if n == nil {
+			return 0
+		}
+		return float64(*n)
 	case []byte:
-		return float64(toInt64(string(n), 0))
+		f, err := strconv.ParseFloat(string(n), 64)
+		if err != nil {
+			return 0
+		}
+		return clean(f)
 	case string:
-		return float64(toInt64(n, 0))
+		f, err := strconv.ParseFloat(n, 64)
+		if err != nil {
+			return 0
+		}
+		return clean(f)
 	default:
 		return 0
 	}
@@ -193,6 +238,20 @@ func NullableStringFromAny(v any) *string {
 func NullableFloat64FromAny(v any) *float64 {
 	if v == nil {
 		return nil
+	}
+	if n, ok := v.(*float64); ok {
+		if n == nil {
+			return nil
+		}
+		f := Float64FromAny(*n)
+		return &f
+	}
+	if n, ok := v.(*float32); ok {
+		if n == nil {
+			return nil
+		}
+		f := Float64FromAny(*n)
+		return &f
 	}
 	f := Float64FromAny(v)
 	return &f

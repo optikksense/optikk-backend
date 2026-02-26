@@ -22,6 +22,59 @@ const logIDSequenceMask = (1 << logIDSequenceBits) - 1
 
 var logIDSequence uint64
 
+var persistedMetricNames = map[string]struct{}{
+	// Resource utilization
+	"system.cpu.utilization":          {},
+	"system.cpu.usage":                {},
+	"process.cpu.usage":               {},
+	"system.memory.utilization":       {},
+	"jvm.memory.used":                 {},
+	"jvm.memory.max":                  {},
+	"system.disk.utilization":         {},
+	"disk.free":                       {},
+	"disk.total":                      {},
+	"system.network.utilization":      {},
+	"http.server.requests.active.active": {},
+	"http.server.request.count":       {},
+	"http.server.request.duration":    {},
+	"http.server.requests":            {},
+
+	// Connection pool saturation
+	"db.connection.pool.utilization": {},
+	"db.connection_pool.utilization": {},
+	"hikaricp.connections.active":    {},
+	"hikaricp.connections.max":       {},
+	"jdbc.connections.active":        {},
+	"jdbc.connections.max":           {},
+
+	// Thread/queue saturation
+	"thread.pool.active":    {},
+	"thread.pool.size":      {},
+	"executor.active":       {},
+	"executor.pool.size":    {},
+	"executor.pool.max":     {},
+	"executor.queued":       {},
+	"executor.queue.remaining": {},
+	"queue.depth":           {},
+	"messaging.queue.depth": {},
+
+	// Kafka/message lag aliases
+	"messaging.kafka.consumer.lag":                  {},
+	"messaging.kafka.consumer.records.lag":          {},
+	"messaging.kafka.consumer.records-lag":          {},
+	"messaging.kafka.consumer.records.lag.max":      {},
+	"kafka.consumer.lag":                            {},
+	"kafka.consumer.records.lag":                    {},
+	"kafka.consumer.records-lag":                    {},
+	"kafka.consumer.records.lag.max":                {},
+	"kafka.consumer.fetch.manager.records.lag":      {},
+	"kafka.consumer.fetch.manager.records.lag.max":  {},
+	"kafka.consumer.fetch.records.lag.max":          {},
+
+	// Error/health counters used by insight fallbacks
+	"logback.events": {},
+}
+
 // NewRepository creates a telemetry repository.
 func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	return &ClickHouseRepository{DB: db}
@@ -77,6 +130,32 @@ func (r *ClickHouseRepository) InsertSpans(ctx context.Context, spans []model.Sp
 }
 
 func (r *ClickHouseRepository) InsertMetrics(ctx context.Context, metrics []model.MetricRecord) error {
+	filtered := make([]model.MetricRecord, 0, len(metrics))
+	for _, rec := range metrics {
+		if shouldPersistMetric(rec.MetricName) {
+			filtered = append(filtered, rec)
+		}
+	}
+	metrics = filtered
+
+	if len(metrics) == 0 {
+		return nil
+	}
+
+	const metricInsertChunkSize = 100
+	for start := 0; start < len(metrics); start += metricInsertChunkSize {
+		end := start + metricInsertChunkSize
+		if end > len(metrics) {
+			end = len(metrics)
+		}
+		if err := r.insertMetricsChunk(ctx, metrics[start:end]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *ClickHouseRepository) insertMetricsChunk(ctx context.Context, metrics []model.MetricRecord) error {
 	if len(metrics) == 0 {
 		return nil
 	}
@@ -87,8 +166,9 @@ func (r *ClickHouseRepository) InsertMetrics(ctx context.Context, metrics []mode
 	}
 	defer tx.Rollback()
 
-	for _, rec := range metrics {
-		_, err := tx.ExecContext(ctx, `
+	const valuesPerRow = "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+	queryBuilder := strings.Builder{}
+	queryBuilder.WriteString(`
 			INSERT INTO metrics (
 				team_id, metric_name, metric_type, metric_category,
 				service_name, operation_name, timestamp,
@@ -96,14 +176,15 @@ func (r *ClickHouseRepository) InsertMetrics(ctx context.Context, metrics []mode
 				p50, p95, p99,
 				http_method, http_status_code, status,
 				host, pod, container, attributes
-			) VALUES (
-				?, ?, ?, ?,
-				?, ?, ?,
-				?, ?, ?, ?, ?, ?,
-				?, ?, ?,
-				?, ?, ?,
-				?, ?, ?, ?
-			)`,
+			) VALUES `)
+
+	args := make([]any, 0, len(metrics)*23)
+	for _, rec := range metrics {
+		if len(args) > 0 {
+			queryBuilder.WriteString(", ")
+		}
+		queryBuilder.WriteString(valuesPerRow)
+		args = append(args,
 			rec.TeamUUID, rec.MetricName, rec.MetricType, rec.MetricCategory,
 			rec.ServiceName, nullStr(rec.OperationName), rec.Timestamp,
 			rec.Value, rec.Count, rec.Sum, rec.Min, rec.Max, rec.Avg,
@@ -112,9 +193,10 @@ func (r *ClickHouseRepository) InsertMetrics(ctx context.Context, metrics []mode
 			nullStr(rec.Host), nullStr(rec.Pod), nullStr(rec.Container),
 			rec.Attributes,
 		)
-		if err != nil {
-			log.Printf("otlp: add metric to batch %q failed: %v", rec.MetricName, err)
-		}
+	}
+
+	if _, err := tx.ExecContext(ctx, queryBuilder.String(), args...); err != nil {
+		return fmt.Errorf("insert metrics chunk (%d rows): %w", len(metrics), err)
 	}
 
 	if err := tx.Commit(); err != nil {
@@ -219,4 +301,9 @@ func nextLogID(ts time.Time) uint64 {
 		return 1
 	}
 	return id
+}
+
+func shouldPersistMetric(metricName string) bool {
+	_, ok := persistedMetricNames[metricName]
+	return ok
 }

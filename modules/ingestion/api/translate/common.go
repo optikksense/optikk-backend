@@ -119,8 +119,17 @@ type infraLabels struct {
 // resource-level attribute maps. Datapoint attributes take precedence.
 func extractInfraLabels(dp, resource map[string]string) infraLabels {
 	return infraLabels{
-		host:      firstNonEmpty(dp["server.address"], dp["net.host.name"], resource["host.name"]),
-		pod:       firstNonEmpty(dp["k8s.pod.name"], resource["k8s.pod.name"]),
-		container: firstNonEmpty(dp["k8s.container.name"], resource["k8s.container.name"]),
+		host: firstNonEmpty(
+			dp["server.address"],
+			dp["server.socket.address"],
+			dp["host.name"],
+			dp["net.host.name"],
+			resource["host.name"],
+			resource["host.id"],
+			resource["k8s.node.name"],
+			resource["service.instance.id"],
+		),
+		pod:       firstNonEmpty(dp["k8s.pod.name"], resource["k8s.pod.name"], dp["pod.name"], resource["pod.name"]),
+		container: firstNonEmpty(dp["k8s.container.name"], resource["k8s.container.name"], dp["container.name"], resource["container.name"]),
 	}
 }

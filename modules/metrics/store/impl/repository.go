@@ -19,7 +19,7 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 func (r *ClickHouseRepository) GetDashboardOverview(ctx context.Context, teamUUID string, start, end time.Time) ([]map[string]any, []map[string]any, []map[string]any, error) {
 	serviceMetrics, err := dbutil.QueryMaps(r.db, `
 		SELECT service_name, COUNT(*) as request_count,
-		       sum(if(status='ERROR', 1, 0)) as error_count,
+		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count,
 		       AVG(duration_ms) as avg_latency
 		FROM spans
 		WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?
@@ -55,7 +55,7 @@ func (r *ClickHouseRepository) GetDashboardServices(ctx context.Context, teamUUI
 	return dbutil.QueryMaps(r.db, `
 		SELECT service_name,
 		       COUNT(*) as request_count,
-		       sum(if(status='ERROR', 1, 0)) as error_count,
+		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count,
 		       AVG(duration_ms) as avg_latency
 		FROM spans
 		WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?
@@ -68,7 +68,7 @@ func (r *ClickHouseRepository) GetDashboardServiceDetail(ctx context.Context, te
 	return dbutil.QueryMap(r.db, `
 		SELECT service_name,
 		       COUNT(*) as request_count,
-		       sum(if(status='ERROR', 1, 0)) as error_count,
+		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count,
 		       AVG(duration_ms) as avg_latency
 		FROM spans
 		WHERE team_id = ? AND is_root = 1 AND service_name = ? AND start_time BETWEEN ? AND ?
@@ -81,13 +81,13 @@ func (r *ClickHouseRepository) GetServiceMetrics(ctx context.Context, teamUUID s
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT service_name,
 		       COUNT(*) as request_count,
-		       sum(if(status='ERROR', 1, 0)) as error_count,
+		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count,
 		       AVG(duration_ms) as avg_latency,
 		       quantile(0.5)(duration_ms) as p50_latency,
 		       quantile(0.95)(duration_ms) as p95_latency,
 		       quantile(0.99)(duration_ms) as p99_latency
 		FROM spans
-		WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ? AND service_name != ''
+		WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?
 		GROUP BY service_name
 		ORDER BY request_count DESC
 	`, teamUUID, start, end)
@@ -114,7 +114,7 @@ func (r *ClickHouseRepository) GetEndpointMetrics(ctx context.Context, teamUUID 
 	query := `
 		SELECT service_name, operation_name, http_method,
 		       COUNT(*) as request_count,
-		       sum(if(status='ERROR', 1, 0)) as error_count,
+		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count,
 		       AVG(duration_ms) as avg_latency,
 		       quantile(0.5)(duration_ms) as p50_latency,
 		       quantile(0.95)(duration_ms) as p95_latency,
@@ -154,7 +154,7 @@ func (r *ClickHouseRepository) GetMetricsTimeSeries(ctx context.Context, teamUUI
 	query := `
 		SELECT toStartOfMinute(start_time) as time_bucket,
 		       COUNT(*) as request_count,
-		       sum(if(status='ERROR', 1, 0)) as error_count,
+		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count,
 		       AVG(duration_ms) as avg_latency,
 		       quantile(0.5)(duration_ms) as p50,
 		       quantile(0.95)(duration_ms) as p95,
@@ -176,7 +176,7 @@ func (r *ClickHouseRepository) GetMetricsTimeSeries(ctx context.Context, teamUUI
 	points := make([]model.TimeSeriesPoint, 0, len(rows))
 	for _, row := range rows {
 		points = append(points, model.TimeSeriesPoint{
-			Timestamp:    row["time_bucket"].(time.Time),
+			Timestamp:    dbutil.TimeFromAny(row["time_bucket"]),
 			RequestCount: dbutil.Int64FromAny(row["request_count"]),
 			ErrorCount:   dbutil.Int64FromAny(row["error_count"]),
 			AvgLatency:   dbutil.Float64FromAny(row["avg_latency"]),
@@ -191,8 +191,8 @@ func (r *ClickHouseRepository) GetMetricsTimeSeries(ctx context.Context, teamUUI
 func (r *ClickHouseRepository) GetMetricsSummary(ctx context.Context, teamUUID string, start, end time.Time) (model.MetricsSummary, error) {
 	row, err := dbutil.QueryMap(r.db, `
 		SELECT COUNT(*) as total_requests,
-		       sum(if(status='ERROR', 1, 0)) as error_count,
-		       if(COUNT(*)>0, sum(if(status='ERROR', 1, 0))*100.0/COUNT(*), 0) as error_rate,
+		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count,
+		       if(COUNT(*)>0, sum(if(status='ERROR' OR http_status_code >= 400, 1, 0))*100.0/COUNT(*), 0) as error_rate,
 		       AVG(duration_ms) as avg_latency,
 		       quantile(0.95)(duration_ms) as p95_latency,
 		       quantile(0.99)(duration_ms) as p99_latency
@@ -222,10 +222,10 @@ func (r *ClickHouseRepository) GetServiceTimeSeries(ctx context.Context, teamUUI
 		SELECT service_name,
 		       toStartOfMinute(start_time) as timestamp,
 		       COUNT(*) as request_count,
-		       sum(if(status='ERROR', 1, 0)) as error_count,
+		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count,
 		       AVG(duration_ms) as avg_latency
 		FROM spans
-		WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ? AND service_name != ''
+		WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?
 		GROUP BY service_name, toStartOfMinute(start_time)
 		ORDER BY timestamp ASC, request_count DESC
 	`, teamUUID, start, end)
@@ -235,10 +235,9 @@ func (r *ClickHouseRepository) GetServiceTimeSeries(ctx context.Context, teamUUI
 
 	points := make([]model.TimeSeriesPoint, 0, len(rows))
 	for _, row := range rows {
-		// Note: The existing code includes service_name, but the model TimeSeriesPoint doesn't yet.
-		// For now, mapping to TimeSeriesPoint as a generic bucketed data point.
 		points = append(points, model.TimeSeriesPoint{
-			Timestamp:    row["timestamp"].(time.Time),
+			Timestamp:    dbutil.TimeFromAny(row["timestamp"]),
+			ServiceName:  dbutil.StringFromAny(row["service_name"]),
 			RequestCount: dbutil.Int64FromAny(row["request_count"]),
 			ErrorCount:   dbutil.Int64FromAny(row["error_count"]),
 			AvgLatency:   dbutil.Float64FromAny(row["avg_latency"]),
@@ -250,7 +249,7 @@ func (r *ClickHouseRepository) GetServiceTimeSeries(ctx context.Context, teamUUI
 func (r *ClickHouseRepository) GetServiceTopologyNodes(ctx context.Context, teamUUID string, start, end time.Time) ([]model.TopologyNode, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT service_name, COUNT(*) as request_count,
-		       sum(if(status='ERROR', 1, 0)) as error_count,
+		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count,
 		       AVG(duration_ms) as avg_latency
 		FROM spans
 		WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?
@@ -286,7 +285,7 @@ func (r *ClickHouseRepository) GetServiceTopologyEdges(ctx context.Context, team
 		       c.service_name as target,
 		       COUNT(*) as call_count,
 		       AVG(c.duration_ms) as avg_latency,
-		       if(COUNT(*) > 0, sum(if(c.status='ERROR', 1, 0))*100.0/COUNT(*), 0) as error_rate
+		       if(COUNT(*) > 0, sum(if(c.status='ERROR' OR c.http_status_code >= 400, 1, 0))*100.0/COUNT(*), 0) as error_rate
 		FROM spans c
 		JOIN spans p ON c.parent_span_id = p.span_id AND c.trace_id = p.trace_id AND c.team_id = p.team_id
 		WHERE c.team_id = ? AND c.start_time BETWEEN ? AND ? AND p.service_name != c.service_name
@@ -314,8 +313,11 @@ func (r *ClickHouseRepository) GetServiceTopologyEdges(ctx context.Context, team
 func (r *ClickHouseRepository) GetEndpointTimeSeries(ctx context.Context, teamUUID string, start, end time.Time, serviceName string) ([]model.TimeSeriesPoint, error) {
 	query := `
 		SELECT toStartOfMinute(start_time) as time_bucket,
+		       service_name,
+		       operation_name,
+		       http_method,
 		       COUNT(*) as request_count,
-		       sum(if(status='ERROR', 1, 0)) as error_count,
+		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count,
 		       AVG(duration_ms) as avg_latency,
 		       quantile(0.5)(duration_ms) as p50,
 		       quantile(0.95)(duration_ms) as p95,
@@ -327,7 +329,7 @@ func (r *ClickHouseRepository) GetEndpointTimeSeries(ctx context.Context, teamUU
 		query += ` AND service_name = ?`
 		args = append(args, serviceName)
 	}
-	query += ` GROUP BY time_bucket ORDER BY time_bucket ASC`
+	query += ` GROUP BY time_bucket, service_name, operation_name, http_method ORDER BY time_bucket ASC, request_count DESC`
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
@@ -337,13 +339,16 @@ func (r *ClickHouseRepository) GetEndpointTimeSeries(ctx context.Context, teamUU
 	points := make([]model.TimeSeriesPoint, 0, len(rows))
 	for _, row := range rows {
 		points = append(points, model.TimeSeriesPoint{
-			Timestamp:    row["time_bucket"].(time.Time),
-			RequestCount: dbutil.Int64FromAny(row["request_count"]),
-			ErrorCount:   dbutil.Int64FromAny(row["error_count"]),
-			AvgLatency:   dbutil.Float64FromAny(row["avg_latency"]),
-			P50:          dbutil.Float64FromAny(row["p50"]),
-			P95:          dbutil.Float64FromAny(row["p95"]),
-			P99:          dbutil.Float64FromAny(row["p99"]),
+			Timestamp:     dbutil.TimeFromAny(row["time_bucket"]),
+			ServiceName:   dbutil.StringFromAny(row["service_name"]),
+			OperationName: dbutil.StringFromAny(row["operation_name"]),
+			HTTPMethod:    dbutil.StringFromAny(row["http_method"]),
+			RequestCount:  dbutil.Int64FromAny(row["request_count"]),
+			ErrorCount:    dbutil.Int64FromAny(row["error_count"]),
+			AvgLatency:    dbutil.Float64FromAny(row["avg_latency"]),
+			P50:           dbutil.Float64FromAny(row["p50"]),
+			P95:           dbutil.Float64FromAny(row["p95"]),
+			P99:           dbutil.Float64FromAny(row["p99"]),
 		})
 	}
 	return points, nil

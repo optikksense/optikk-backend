@@ -52,7 +52,7 @@ func (k *KafkaIngester) IngestSpans(ctx context.Context, spans []model.SpanRecor
 }
 
 func (k *KafkaIngester) IngestMetrics(ctx context.Context, metrics []model.MetricRecord) error {
-	const chunkSize = 500
+	const chunkSize = 100
 	for i := 0; i < len(metrics); i += chunkSize {
 		end := i + chunkSize
 		if end > len(metrics) {

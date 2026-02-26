@@ -28,13 +28,16 @@ type EndpointMetric struct {
 
 // TimeSeriesPoint represents a single data point in a time series.
 type TimeSeriesPoint struct {
-	Timestamp    time.Time `json:"timestamp"`
-	RequestCount int64     `json:"requestCount"`
-	ErrorCount   int64     `json:"errorCount"`
-	AvgLatency   float64   `json:"avgLatency"`
-	P50          float64   `json:"p50,omitempty"`
-	P95          float64   `json:"p95,omitempty"`
-	P99          float64   `json:"p99,omitempty"`
+	Timestamp     time.Time `json:"timestamp"`
+	ServiceName   string    `json:"serviceName,omitempty"`
+	OperationName string    `json:"operationName,omitempty"`
+	HTTPMethod    string    `json:"httpMethod,omitempty"`
+	RequestCount  int64     `json:"requestCount"`
+	ErrorCount    int64     `json:"errorCount"`
+	AvgLatency    float64   `json:"avgLatency"`
+	P50           float64   `json:"p50,omitempty"`
+	P95           float64   `json:"p95,omitempty"`
+	P99           float64   `json:"p99,omitempty"`
 }
 
 // DashboardOverview represents the combined data for the dashboard overview.
