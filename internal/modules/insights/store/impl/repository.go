@@ -103,11 +103,16 @@ func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, st
 		               NULL
 		           ),
 		           if(
-		               countIf(metric_name = 'http.server.requests.active.active' AND isFinite(value)) > 0,
+		               countIf(metric_name = 'http.server.requests.active.active' AND value > 0 AND isFinite(value)) > 0,
 		               avgIf(
 		                   if(value <= 1.0, value * 100.0, least(value, 100.0)),
-		                   metric_name = 'http.server.requests.active.active' AND isFinite(value)
+		                   metric_name = 'http.server.requests.active.active' AND value > 0 AND isFinite(value)
 		               ),
+		               NULL
+		           ),
+		           if(
+		               countIf(metric_name = 'http.server.request.count' AND value > 0 AND isFinite(value)) > 0,
+		               avgIf(least(value, 100.0), metric_name = 'http.server.request.count' AND value > 0 AND isFinite(value)),
 		               NULL
 		           ),
 		           if(
@@ -136,8 +141,13 @@ func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, st
 		               NULL
 		           ),
 		           if(
-		               countIf(metric_name = 'executor.pool.size' AND isFinite(value)) > 0,
-		               avgIf(if(value <= 1.0, value * 100.0, least(value, 100.0)), metric_name = 'executor.pool.size' AND isFinite(value)),
+		               countIf(metric_name = 'executor.pool.size' AND value > 0 AND isFinite(value)) > 0,
+		               avgIf(if(value <= 1.0, value * 100.0, least(value, 100.0)), metric_name = 'executor.pool.size' AND value > 0 AND isFinite(value)),
+		               NULL
+		           ),
+		           if(
+		               countIf(metric_name = 'http.server.request.count' AND value > 0 AND isFinite(value)) > 0,
+		               avgIf(least(value, 100.0), metric_name = 'http.server.request.count' AND value > 0 AND isFinite(value)),
 		               NULL
 		           ),
 		           if(
@@ -169,6 +179,7 @@ func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, st
 		          'disk.total',
 		          'system.network.utilization',
 		          'http.server.requests.active.active',
+		          'http.server.request.count',
 		          'db.connection.pool.utilization',
 		          'hikaricp.connections.active',
 		          'hikaricp.connections.max',
@@ -287,11 +298,16 @@ func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, st
 		               NULL
 		           ),
 		           if(
-		               countIf(metric_name = 'http.server.requests.active.active' AND isFinite(value)) > 0,
+		               countIf(metric_name = 'http.server.requests.active.active' AND value > 0 AND isFinite(value)) > 0,
 		               avgIf(
 		                   if(value <= 1.0, value * 100.0, least(value, 100.0)),
-		                   metric_name = 'http.server.requests.active.active' AND isFinite(value)
+		                   metric_name = 'http.server.requests.active.active' AND value > 0 AND isFinite(value)
 		               ),
+		               NULL
+		           ),
+		           if(
+		               countIf(metric_name = 'http.server.request.count' AND value > 0 AND isFinite(value)) > 0,
+		               avgIf(least(value, 100.0), metric_name = 'http.server.request.count' AND value > 0 AND isFinite(value)),
 		               NULL
 		           ),
 		           if(
@@ -320,8 +336,13 @@ func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, st
 		               NULL
 		           ),
 		           if(
-		               countIf(metric_name = 'executor.pool.size' AND isFinite(value)) > 0,
-		               avgIf(if(value <= 1.0, value * 100.0, least(value, 100.0)), metric_name = 'executor.pool.size' AND isFinite(value)),
+		               countIf(metric_name = 'executor.pool.size' AND value > 0 AND isFinite(value)) > 0,
+		               avgIf(if(value <= 1.0, value * 100.0, least(value, 100.0)), metric_name = 'executor.pool.size' AND value > 0 AND isFinite(value)),
+		               NULL
+		           ),
+		           if(
+		               countIf(metric_name = 'http.server.request.count' AND value > 0 AND isFinite(value)) > 0,
+		               avgIf(least(value, 100.0), metric_name = 'http.server.request.count' AND value > 0 AND isFinite(value)),
 		               NULL
 		           ),
 		           if(
@@ -353,6 +374,7 @@ func (r *ClickHouseRepository) GetInsightResourceUtilization(teamUUID string, st
 		          'disk.total',
 		          'system.network.utilization',
 		          'http.server.requests.active.active',
+		          'http.server.request.count',
 		          'db.connection.pool.utilization',
 		          'hikaricp.connections.active',
 		          'hikaricp.connections.max',
@@ -660,14 +682,24 @@ func (r *ClickHouseRepository) GetInsightLogsStream(teamUUID string, startMs, en
 // GetInsightDatabaseCache queries DB query latency and cache-hit insights.
 func (r *ClickHouseRepository) GetInsightDatabaseCache(teamUUID string, startMs, endMs int64) (model.DbCacheSummary, []model.DbTableMetric, []model.DbSystemBreakdown, error) {
 	summaryRaw, err := dbutil.QueryMap(r.db, `
-		SELECT avg(JSONExtractFloat(attributes, 'db.query.latency.ms'))  as avg_query_latency_ms,
-		       quantile(0.95)(JSONExtractFloat(attributes, 'db.query.latency.ms')) as p95_query_latency_ms,
-		       sum(if(JSONExtractString(attributes, 'db.system') != '', 1, 0)) as db_span_count,
+		SELECT avg(coalesce(nullIf(JSONExtractFloat(attributes, 'db.query.latency.ms'), 0), toFloat64(duration_ms))) as avg_query_latency_ms,
+		       quantile(0.95)(coalesce(nullIf(JSONExtractFloat(attributes, 'db.query.latency.ms'), 0), toFloat64(duration_ms))) as p95_query_latency_ms,
+		       COUNT(*) as db_span_count,
 		       sum(if(JSONExtractString(attributes, 'cache.hit') = 'true', 1, 0))  as cache_hits,
 		       sum(if(JSONExtractString(attributes, 'cache.hit') = 'false', 1, 0)) as cache_misses,
 		       avg(JSONExtractFloat(attributes, 'db.replication.lag.ms')) as avg_replication_lag_ms
 		FROM spans
 		WHERE team_id = ? AND start_time BETWEEN ? AND ?
+		  AND (
+		      JSONExtractString(attributes, 'db.system') != ''
+		      OR JSONExtractString(attributes, 'db.name') != ''
+		      OR lower(operation_name) LIKE '%mongo%'
+		      OR lower(operation_name) LIKE '%db%'
+		      OR lower(operation_name) LIKE '%sql%'
+		      OR lower(service_name) LIKE '%mongo%'
+		      OR lower(service_name) LIKE '%db%'
+		      OR lower(service_name) LIKE '%sql%'
+		  )
 	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
@@ -684,17 +716,48 @@ func (r *ClickHouseRepository) GetInsightDatabaseCache(teamUUID string, startMs,
 	}
 
 	tableMetricsRaw, err := dbutil.QueryMaps(r.db, `
-		SELECT coalesce(nullIf(JSONExtractString(attributes, 'db.sql.table'), ''), 'unknown') as table_name,
+		SELECT coalesce(
+		           nullIf(JSONExtractString(attributes, 'db.sql.table'), ''),
+		           nullIf(JSONExtractString(attributes, 'db.mongodb.collection'), ''),
+		           nullIf(JSONExtractString(attributes, 'db.collection.name'), ''),
+		           nullIf(JSONExtractString(attributes, 'http.route'), ''),
+		           nullIf(operation_name, ''),
+		           'unknown'
+		       ) as table_name,
 		       service_name,
-		       coalesce(nullIf(JSONExtractString(attributes, 'db.system'), ''), 'unknown') as db_system,
-		       avg(JSONExtractFloat(attributes, 'db.query.latency.ms'))  as avg_query_latency_ms,
-		       max(JSONExtractFloat(attributes, 'db.query.latency.ms'))  as max_query_latency_ms,
+		       coalesce(
+		           nullIf(JSONExtractString(attributes, 'db.system'), ''),
+		           if(
+		               lower(operation_name) LIKE '%mongo%' OR lower(service_name) LIKE '%mongo%',
+		               'mongodb',
+		               if(
+		                   lower(operation_name) LIKE '%redis%' OR lower(service_name) LIKE '%redis%',
+		                   'redis',
+		                   if(
+		                       lower(operation_name) LIKE '%sql%' OR lower(operation_name) LIKE '%jdbc%' OR lower(service_name) LIKE '%mysql%' OR lower(service_name) LIKE '%postgres%',
+		                       'sql',
+		                       'unknown'
+		                   )
+		               )
+		           )
+		       ) as db_system,
+		       avg(coalesce(nullIf(JSONExtractFloat(attributes, 'db.query.latency.ms'), 0), toFloat64(duration_ms))) as avg_query_latency_ms,
+		       max(coalesce(nullIf(JSONExtractFloat(attributes, 'db.query.latency.ms'), 0), toFloat64(duration_ms))) as max_query_latency_ms,
 		       sum(if(JSONExtractString(attributes, 'cache.hit') = 'true',  1, 0)) as cache_hits,
 		       sum(if(JSONExtractString(attributes, 'cache.hit') = 'false', 1, 0)) as cache_misses,
 		       COUNT(*) as query_count
 		FROM spans
 		WHERE team_id = ? AND start_time BETWEEN ? AND ?
-		  AND JSONExtractString(attributes, 'db.system') != ''
+		  AND (
+		      JSONExtractString(attributes, 'db.system') != ''
+		      OR JSONExtractString(attributes, 'db.name') != ''
+		      OR lower(operation_name) LIKE '%mongo%'
+		      OR lower(operation_name) LIKE '%db%'
+		      OR lower(operation_name) LIKE '%sql%'
+		      OR lower(service_name) LIKE '%mongo%'
+		      OR lower(service_name) LIKE '%db%'
+		      OR lower(service_name) LIKE '%sql%'
+		  )
 		GROUP BY table_name, service_name, db_system
 		ORDER BY avg_query_latency_ms DESC
 		LIMIT 50
@@ -719,15 +782,39 @@ func (r *ClickHouseRepository) GetInsightDatabaseCache(teamUUID string, startMs,
 
 	// System breakdown query — groups by db.system to show per-database-type stats
 	systemRaw, err := dbutil.QueryMaps(r.db, `
-		SELECT coalesce(nullIf(JSONExtractString(attributes, 'db.system'), ''), 'unknown') as db_system,
+		SELECT coalesce(
+		           nullIf(JSONExtractString(attributes, 'db.system'), ''),
+		           if(
+		               lower(operation_name) LIKE '%mongo%' OR lower(service_name) LIKE '%mongo%',
+		               'mongodb',
+		               if(
+		                   lower(operation_name) LIKE '%redis%' OR lower(service_name) LIKE '%redis%',
+		                   'redis',
+		                   if(
+		                       lower(operation_name) LIKE '%sql%' OR lower(operation_name) LIKE '%jdbc%' OR lower(service_name) LIKE '%mysql%' OR lower(service_name) LIKE '%postgres%',
+		                       'sql',
+		                       'unknown'
+		                   )
+		               )
+		           )
+		       ) as db_system,
 		       COUNT(*) as query_count,
-		       avg(JSONExtractFloat(attributes, 'db.query.latency.ms')) as avg_query_latency_ms,
-		       quantile(0.95)(JSONExtractFloat(attributes, 'db.query.latency.ms')) as p95_query_latency_ms,
+		       avg(coalesce(nullIf(JSONExtractFloat(attributes, 'db.query.latency.ms'), 0), toFloat64(duration_ms))) as avg_query_latency_ms,
+		       quantile(0.95)(coalesce(nullIf(JSONExtractFloat(attributes, 'db.query.latency.ms'), 0), toFloat64(duration_ms))) as p95_query_latency_ms,
 		       sum(if(status = 'ERROR', 1, 0)) as error_count,
 		       COUNT(*) as span_count
 		FROM spans
 		WHERE team_id = ? AND start_time BETWEEN ? AND ?
-		  AND JSONExtractString(attributes, 'db.system') != ''
+		  AND (
+		      JSONExtractString(attributes, 'db.system') != ''
+		      OR JSONExtractString(attributes, 'db.name') != ''
+		      OR lower(operation_name) LIKE '%mongo%'
+		      OR lower(operation_name) LIKE '%db%'
+		      OR lower(operation_name) LIKE '%sql%'
+		      OR lower(service_name) LIKE '%mongo%'
+		      OR lower(service_name) LIKE '%db%'
+		      OR lower(service_name) LIKE '%sql%'
+		  )
 		GROUP BY db_system
 		ORDER BY query_count DESC
 	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
@@ -776,7 +863,13 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 		               if(
 		                   span_kind = 'PRODUCER'
 		                   OR JSONExtractString(attributes, 'messaging.operation') = 'publish'
-		                   OR (JSONExtractFloat(attributes, 'queue.depth') > 0 AND upper(http_method) = 'POST'),
+		                   OR (
+		                       upper(http_method) = 'POST'
+		                       AND (
+		                           positionCaseInsensitive(operation_name, '/api/activities') > 0
+		                           OR positionCaseInsensitive(http_url, '/api/activities') > 0
+		                       )
+		                   ),
 		                   1, 0
 		               )
 		           )) as publish_events,
@@ -784,7 +877,13 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 		               if(
 		                   span_kind = 'CONSUMER'
 		                   OR JSONExtractString(attributes, 'messaging.operation') = 'receive'
-		                   OR (JSONExtractFloat(attributes, 'queue.depth') > 0 AND upper(http_method) = 'GET'),
+		                   OR (
+		                       upper(http_method) = 'GET'
+		                       AND (
+		                           positionCaseInsensitive(operation_name, '/api/activities') > 0
+		                           OR positionCaseInsensitive(http_url, '/api/activities') > 0
+		                       )
+		                   ),
 		                   1, 0
 		               )
 		           )) as receive_events,
@@ -797,11 +896,25 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 		    SELECT sumIf(value, metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as queue_depth_sum,
 		           countIf(metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as queue_depth_samples,
 		           maxIf(value, metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as max_queue_depth,
-		           sumIf(value, metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'executor.queued') AND isFinite(value)) as consumer_lag_sum,
-		           countIf(metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'executor.queued') AND isFinite(value)) as consumer_lag_samples,
-		           maxIf(value, metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'executor.queued') AND isFinite(value)) as max_consumer_lag,
-		           toFloat64(0) as publish_events,
-		           toFloat64(0) as receive_events,
+		           sumIf(value, metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'messaging.kafka.consumer.records-lag', 'messaging.kafka.consumer.records.lag.max', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'kafka.consumer.records.lag.max', 'kafka.consumer.fetch.manager.records.lag', 'kafka.consumer.fetch.manager.records.lag.max', 'kafka.consumer.fetch.records.lag', 'kafka.consumer.fetch.records.lag.max', 'executor.queued') AND isFinite(value)) as consumer_lag_sum,
+		           countIf(metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'messaging.kafka.consumer.records-lag', 'messaging.kafka.consumer.records.lag.max', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'kafka.consumer.records.lag.max', 'kafka.consumer.fetch.manager.records.lag', 'kafka.consumer.fetch.manager.records.lag.max', 'kafka.consumer.fetch.records.lag', 'kafka.consumer.fetch.records.lag.max', 'executor.queued') AND isFinite(value)) as consumer_lag_samples,
+		           maxIf(value, metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'messaging.kafka.consumer.records-lag', 'messaging.kafka.consumer.records.lag.max', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'kafka.consumer.records.lag.max', 'kafka.consumer.fetch.manager.records.lag', 'kafka.consumer.fetch.manager.records.lag.max', 'kafka.consumer.fetch.records.lag', 'kafka.consumer.fetch.records.lag.max', 'executor.queued') AND isFinite(value)) as max_consumer_lag,
+		           toFloat64(
+		               sumIf(
+		                   if(count > 0, count, 1),
+		                   metric_name = 'http.server.request.count'
+		                   AND upper(http_method) = 'POST'
+		                   AND positionCaseInsensitive(JSONExtractString(attributes, 'http.route'), '/api/activities') > 0
+		               )
+		               + maxIf(value, metric_name IN ('messaging.kafka.published', 'app.activity.kafka.published') AND isFinite(value))
+		           ) as publish_events,
+		           toFloat64(
+		               sumIf(
+		                   if(count > 0, count, 1),
+		                   metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'messaging.kafka.consumer.records-lag', 'messaging.kafka.consumer.records.lag.max', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'kafka.consumer.records.lag.max', 'kafka.consumer.fetch.manager.records.lag', 'kafka.consumer.fetch.manager.records.lag.max', 'kafka.consumer.fetch.records.lag', 'kafka.consumer.fetch.records.lag.max')
+		               )
+		               + maxIf(value, metric_name IN ('messaging.kafka.consumed', 'app.activity.kafka.consumed') AND isFinite(value))
+		           ) as receive_events,
 		           sumIf(value, metric_name = 'logback.events' AND lower(JSONExtractString(attributes, 'level')) IN ('error', 'fatal') AND isFinite(value)) as processing_errors
 		    FROM metrics
 		    WHERE team_id = ? AND timestamp BETWEEN ? AND ?
@@ -837,7 +950,14 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 		           if(service_name != '', service_name, 'unknown') as service_name,
 		           coalesce(
 		               nullIf(JSONExtractString(attributes, 'messaging.queue.name'), ''),
+		               nullIf(JSONExtractString(attributes, 'messaging.destination.name'), ''),
 		               nullIf(JSONExtractString(attributes, 'messaging.destination'), ''),
+		               nullIf(JSONExtractString(attributes, 'messaging.kafka.destination'), ''),
+		               nullIf(JSONExtractString(attributes, 'messaging.kafka.topic'), ''),
+		               nullIf(JSONExtractString(attributes, 'kafka.topic'), ''),
+		               nullIf(JSONExtractString(attributes, 'topic'), ''),
+		               nullIf(if(positionCaseInsensitive(operation_name, '/api/activities') > 0 OR positionCaseInsensitive(http_url, '/api/activities') > 0, 'activities-topic', ''), ''),
+		               nullIf(if(span_kind IN ('PRODUCER', 'CONSUMER'), 'activities-topic', ''), ''),
 		               'unknown'
 		           ) as queue_name,
 		           coalesce(nullIf(JSONExtractString(attributes, 'messaging.system'), ''), 'kafka') as messaging_system,
@@ -849,7 +969,13 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 		               if(
 		                   span_kind = 'PRODUCER'
 		                   OR JSONExtractString(attributes, 'messaging.operation') = 'publish'
-		                   OR (JSONExtractFloat(attributes, 'queue.depth') > 0 AND upper(http_method) = 'POST'),
+		                   OR (
+		                       upper(http_method) = 'POST'
+		                       AND (
+		                           positionCaseInsensitive(operation_name, '/api/activities') > 0
+		                           OR positionCaseInsensitive(http_url, '/api/activities') > 0
+		                       )
+		                   ),
 		                   1, 0
 		               )
 		           )) as publish_events,
@@ -857,7 +983,13 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 		               if(
 		                   span_kind = 'CONSUMER'
 		                   OR JSONExtractString(attributes, 'messaging.operation') = 'receive'
-		                   OR (JSONExtractFloat(attributes, 'queue.depth') > 0 AND upper(http_method) = 'GET'),
+		                   OR (
+		                       upper(http_method) = 'GET'
+		                       AND (
+		                           positionCaseInsensitive(operation_name, '/api/activities') > 0
+		                           OR positionCaseInsensitive(http_url, '/api/activities') > 0
+		                       )
+		                   ),
 		                   1, 0
 		               )
 		           )) as receive_events
@@ -871,29 +1003,66 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 		           if(service_name != '', service_name, 'unknown') as service_name,
 		           coalesce(
 		               nullIf(JSONExtractString(attributes, 'messaging.queue.name'), ''),
+		               nullIf(JSONExtractString(attributes, 'messaging.destination.name'), ''),
 		               nullIf(JSONExtractString(attributes, 'messaging.destination'), ''),
+		               nullIf(JSONExtractString(attributes, 'messaging.kafka.destination'), ''),
+		               nullIf(JSONExtractString(attributes, 'messaging.kafka.topic'), ''),
+		               nullIf(JSONExtractString(attributes, 'kafka.topic'), ''),
+		               nullIf(JSONExtractString(attributes, 'topic'), ''),
 		               nullIf(JSONExtractString(attributes, 'queue.name'), ''),
 		               nullIf(JSONExtractString(attributes, 'name'), ''),
+		               nullIf(if(metric_name IN ('kafka.consumer.fetch.manager.records.lag', 'kafka.consumer.fetch.manager.records.lag.max', 'kafka.consumer.fetch.records.lag', 'kafka.consumer.fetch.records.lag.max', 'messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'messaging.kafka.consumer.records-lag', 'messaging.kafka.consumer.records.lag.max', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'kafka.consumer.records.lag.max'), 'kafka-consumer-lag', ''), ''),
+		               nullIf(if((metric_name = 'http.server.request.count' AND positionCaseInsensitive(JSONExtractString(attributes, 'http.route'), '/api/activities') > 0) OR metric_name IN ('messaging.kafka.published', 'messaging.kafka.consumed', 'app.activity.kafka.published', 'app.activity.kafka.consumed'), 'activities-topic', ''), ''),
 		               'unknown'
 		           ) as queue_name,
-		           coalesce(nullIf(JSONExtractString(attributes, 'messaging.system'), ''), 'kafka') as messaging_system,
+		           coalesce(
+		               nullIf(JSONExtractString(attributes, 'messaging.system'), ''),
+		               if(metric_name LIKE 'kafka.%' OR metric_name LIKE 'messaging.kafka.%', 'kafka', ''),
+		               'kafka'
+		           ) as messaging_system,
 		           sumIf(value, metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as queue_depth_sum,
 		           countIf(metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as queue_depth_samples,
-		           sumIf(value, metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'executor.queued') AND isFinite(value)) as consumer_lag_sum,
-		           countIf(metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'executor.queued') AND isFinite(value)) as consumer_lag_samples,
-		           toFloat64(0) as publish_events,
-		           toFloat64(0) as receive_events
+		           sumIf(value, metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'messaging.kafka.consumer.records-lag', 'messaging.kafka.consumer.records.lag.max', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'kafka.consumer.records.lag.max', 'kafka.consumer.fetch.manager.records.lag', 'kafka.consumer.fetch.manager.records.lag.max', 'kafka.consumer.fetch.records.lag', 'kafka.consumer.fetch.records.lag.max', 'executor.queued') AND isFinite(value)) as consumer_lag_sum,
+		           countIf(metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'messaging.kafka.consumer.records-lag', 'messaging.kafka.consumer.records.lag.max', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'kafka.consumer.records.lag.max', 'kafka.consumer.fetch.manager.records.lag', 'kafka.consumer.fetch.manager.records.lag.max', 'kafka.consumer.fetch.records.lag', 'kafka.consumer.fetch.records.lag.max', 'executor.queued') AND isFinite(value)) as consumer_lag_samples,
+		           toFloat64(
+		               sumIf(
+		                   if(count > 0, count, 1),
+		                   metric_name = 'http.server.request.count'
+		                   AND upper(http_method) = 'POST'
+		                   AND positionCaseInsensitive(JSONExtractString(attributes, 'http.route'), '/api/activities') > 0
+		               )
+		               + maxIf(value, metric_name IN ('messaging.kafka.published', 'app.activity.kafka.published') AND isFinite(value))
+		           ) as publish_events,
+		           toFloat64(
+		               sumIf(
+		                   if(count > 0, count, 1),
+		                   metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'messaging.kafka.consumer.records-lag', 'messaging.kafka.consumer.records.lag.max', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'kafka.consumer.records.lag.max', 'kafka.consumer.fetch.manager.records.lag', 'kafka.consumer.fetch.manager.records.lag.max', 'kafka.consumer.fetch.records.lag', 'kafka.consumer.fetch.records.lag.max')
+		               )
+		               + maxIf(value, metric_name IN ('messaging.kafka.consumed', 'app.activity.kafka.consumed') AND isFinite(value))
+		           ) as receive_events
 		    FROM metrics
 		    WHERE team_id = ? AND timestamp BETWEEN ? AND ?
 		      AND metric_name IN (
 		          'queue.depth',
 		          'messaging.queue.depth',
 		          'executor.queued',
+		          'http.server.request.count',
 		          'messaging.kafka.consumer.lag',
 		          'messaging.kafka.consumer.records.lag',
+		          'messaging.kafka.consumer.records-lag',
+		          'messaging.kafka.consumer.records.lag.max',
 		          'kafka.consumer.lag',
 		          'kafka.consumer.records.lag',
-		          'kafka.consumer.records-lag'
+		          'kafka.consumer.records-lag',
+		          'kafka.consumer.records.lag.max',
+		          'kafka.consumer.fetch.manager.records.lag',
+		          'kafka.consumer.fetch.manager.records.lag.max',
+		          'kafka.consumer.fetch.records.lag',
+		          'kafka.consumer.fetch.records.lag.max',
+		          'messaging.kafka.published',
+		          'messaging.kafka.consumed',
+		          'app.activity.kafka.published',
+		          'app.activity.kafka.consumed'
 		      )
 		    GROUP BY 1, 2, 3, 4
 		) merged
@@ -930,7 +1099,14 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 		FROM (
 		    SELECT coalesce(
 		               nullIf(JSONExtractString(attributes, 'messaging.queue.name'), ''),
+		               nullIf(JSONExtractString(attributes, 'messaging.destination.name'), ''),
 		               nullIf(JSONExtractString(attributes, 'messaging.destination'), ''),
+		               nullIf(JSONExtractString(attributes, 'messaging.kafka.destination'), ''),
+		               nullIf(JSONExtractString(attributes, 'messaging.kafka.topic'), ''),
+		               nullIf(JSONExtractString(attributes, 'kafka.topic'), ''),
+		               nullIf(JSONExtractString(attributes, 'topic'), ''),
+		               nullIf(if(positionCaseInsensitive(operation_name, '/api/activities') > 0 OR positionCaseInsensitive(http_url, '/api/activities') > 0, 'activities-topic', ''), ''),
+		               nullIf(if(span_kind IN ('PRODUCER', 'CONSUMER'), 'activities-topic', ''), ''),
 		               'unknown'
 		           ) as queue_name,
 		           if(service_name != '', service_name, 'unknown') as service_name,
@@ -942,7 +1118,13 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 		               if(
 		                   span_kind = 'PRODUCER'
 		                   OR JSONExtractString(attributes, 'messaging.operation') = 'publish'
-		                   OR (JSONExtractFloat(attributes, 'queue.depth') > 0 AND upper(http_method) = 'POST'),
+		                   OR (
+		                       upper(http_method) = 'POST'
+		                       AND (
+		                           positionCaseInsensitive(operation_name, '/api/activities') > 0
+		                           OR positionCaseInsensitive(http_url, '/api/activities') > 0
+		                       )
+		                   ),
 		                   1, 0
 		               )
 		           )) as publish_events,
@@ -950,7 +1132,13 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 		               if(
 		                   span_kind = 'CONSUMER'
 		                   OR JSONExtractString(attributes, 'messaging.operation') = 'receive'
-		                   OR (JSONExtractFloat(attributes, 'queue.depth') > 0 AND upper(http_method) = 'GET'),
+		                   OR (
+		                       upper(http_method) = 'GET'
+		                       AND (
+		                           positionCaseInsensitive(operation_name, '/api/activities') > 0
+		                           OR positionCaseInsensitive(http_url, '/api/activities') > 0
+		                       )
+		                   ),
 		                   1, 0
 		               )
 		           )) as receive_events,
@@ -963,18 +1151,43 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 
 		    SELECT coalesce(
 		               nullIf(JSONExtractString(attributes, 'messaging.queue.name'), ''),
+		               nullIf(JSONExtractString(attributes, 'messaging.destination.name'), ''),
 		               nullIf(JSONExtractString(attributes, 'messaging.destination'), ''),
+		               nullIf(JSONExtractString(attributes, 'messaging.kafka.destination'), ''),
+		               nullIf(JSONExtractString(attributes, 'messaging.kafka.topic'), ''),
+		               nullIf(JSONExtractString(attributes, 'kafka.topic'), ''),
+		               nullIf(JSONExtractString(attributes, 'topic'), ''),
 		               nullIf(JSONExtractString(attributes, 'queue.name'), ''),
 		               nullIf(JSONExtractString(attributes, 'name'), ''),
+		               nullIf(if(metric_name IN ('kafka.consumer.fetch.manager.records.lag', 'kafka.consumer.fetch.manager.records.lag.max', 'kafka.consumer.fetch.records.lag', 'kafka.consumer.fetch.records.lag.max', 'messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'messaging.kafka.consumer.records-lag', 'messaging.kafka.consumer.records.lag.max', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'kafka.consumer.records.lag.max'), 'kafka-consumer-lag', ''), ''),
+		               nullIf(if((metric_name = 'http.server.request.count' AND positionCaseInsensitive(JSONExtractString(attributes, 'http.route'), '/api/activities') > 0) OR metric_name IN ('messaging.kafka.published', 'messaging.kafka.consumed', 'app.activity.kafka.published', 'app.activity.kafka.consumed'), 'activities-topic', ''), ''),
 		               'unknown'
 		           ) as queue_name,
 		           if(service_name != '', service_name, 'unknown') as service_name,
-		           coalesce(nullIf(JSONExtractString(attributes, 'messaging.system'), ''), 'kafka') as messaging_system,
+		           coalesce(
+		               nullIf(JSONExtractString(attributes, 'messaging.system'), ''),
+		               if(metric_name LIKE 'kafka.%' OR metric_name LIKE 'messaging.kafka.%', 'kafka', ''),
+		               'kafka'
+		           ) as messaging_system,
 		           sumIf(value, metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as queue_depth_sum,
 		           countIf(metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as queue_depth_samples,
-		           maxIf(value, metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'executor.queued') AND isFinite(value)) as max_consumer_lag,
-		           toFloat64(0) as publish_events,
-		           toFloat64(0) as receive_events,
+		           maxIf(value, metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'messaging.kafka.consumer.records-lag', 'messaging.kafka.consumer.records.lag.max', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'kafka.consumer.records.lag.max', 'kafka.consumer.fetch.manager.records.lag', 'kafka.consumer.fetch.manager.records.lag.max', 'kafka.consumer.fetch.records.lag', 'kafka.consumer.fetch.records.lag.max', 'executor.queued') AND isFinite(value)) as max_consumer_lag,
+		           toFloat64(
+		               sumIf(
+		                   if(count > 0, count, 1),
+		                   metric_name = 'http.server.request.count'
+		                   AND upper(http_method) = 'POST'
+		                   AND positionCaseInsensitive(JSONExtractString(attributes, 'http.route'), '/api/activities') > 0
+		               )
+		               + maxIf(value, metric_name IN ('messaging.kafka.published', 'app.activity.kafka.published') AND isFinite(value))
+		           ) as publish_events,
+		           toFloat64(
+		               sumIf(
+		                   if(count > 0, count, 1),
+		                   metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'messaging.kafka.consumer.records-lag', 'messaging.kafka.consumer.records.lag.max', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'kafka.consumer.records.lag.max', 'kafka.consumer.fetch.manager.records.lag', 'kafka.consumer.fetch.manager.records.lag.max', 'kafka.consumer.fetch.records.lag', 'kafka.consumer.fetch.records.lag.max')
+		               )
+		               + maxIf(value, metric_name IN ('messaging.kafka.consumed', 'app.activity.kafka.consumed') AND isFinite(value))
+		           ) as receive_events,
 		           toInt64(count()) as sample_count
 		    FROM metrics
 		    WHERE team_id = ? AND timestamp BETWEEN ? AND ?
@@ -982,11 +1195,23 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 		          'queue.depth',
 		          'messaging.queue.depth',
 		          'executor.queued',
+		          'http.server.request.count',
 		          'messaging.kafka.consumer.lag',
 		          'messaging.kafka.consumer.records.lag',
+		          'messaging.kafka.consumer.records-lag',
+		          'messaging.kafka.consumer.records.lag.max',
 		          'kafka.consumer.lag',
 		          'kafka.consumer.records.lag',
-		          'kafka.consumer.records-lag'
+		          'kafka.consumer.records-lag',
+		          'kafka.consumer.records.lag.max',
+		          'kafka.consumer.fetch.manager.records.lag',
+		          'kafka.consumer.fetch.manager.records.lag.max',
+		          'kafka.consumer.fetch.records.lag',
+		          'kafka.consumer.fetch.records.lag.max',
+		          'messaging.kafka.published',
+		          'messaging.kafka.consumed',
+		          'app.activity.kafka.published',
+		          'app.activity.kafka.consumed'
 		      )
 		    GROUP BY queue_name, service_name, messaging_system
 		) merged

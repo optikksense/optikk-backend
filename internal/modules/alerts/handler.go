@@ -1,6 +1,7 @@
 package alerts
 
 import (
+	"database/sql"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -15,6 +16,16 @@ import (
 type AlertHandler struct {
 	modulecommon.DBTenant
 	Service service.Service
+}
+
+// orgIDFromTeam looks up the organization_id for a given team.
+func orgIDFromTeam(db *sql.DB, teamID int64) int64 {
+	var orgID int64
+	_ = db.QueryRow("SELECT organization_id FROM teams WHERE id = ? LIMIT 1", teamID).Scan(&orgID)
+	if orgID == 0 {
+		orgID = 1
+	}
+	return orgID
 }
 
 // GetAlerts — list alerts with optional status filter.
@@ -67,8 +78,9 @@ func (h *AlertHandler) CreateAlert(c *gin.Context) {
 		return
 	}
 	tenant := h.GetTenant(c)
+	orgID := orgIDFromTeam(h.DB, tenant.TeamID)
 
-	alert, err := h.Service.CreateAlert(tenant.OrganizationID, tenant.TeamID, req)
+	alert, err := h.Service.CreateAlert(orgID, tenant.TeamID, req)
 	if err != nil {
 		RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Failed to create alert")
 		return

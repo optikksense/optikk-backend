@@ -69,7 +69,12 @@ var persistedMetricNames = map[string]struct{}{
 	"kafka.consumer.records.lag.max":                {},
 	"kafka.consumer.fetch.manager.records.lag":      {},
 	"kafka.consumer.fetch.manager.records.lag.max":  {},
+	"kafka.consumer.fetch.records.lag":              {},
 	"kafka.consumer.fetch.records.lag.max":          {},
+	"messaging.kafka.published":                     {},
+	"messaging.kafka.consumed":                      {},
+	"app.activity.kafka.published":                  {},
+	"app.activity.kafka.consumed":                   {},
 
 	// Error/health counters used by insight fallbacks
 	"logback.events": {},

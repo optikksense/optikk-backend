@@ -5,6 +5,7 @@ import "github.com/observability/observability-backend-go/internal/modules/dashb
 func init() {
 	dashboardconfig.RegisterDefaultConfig("traces", defaultTraces)
 	dashboardconfig.RegisterDefaultConfig("latency-analysis", defaultLatencyAnalysis)
+	dashboardconfig.RegisterDefaultConfig("error-dashboard", defaultErrorDashboard)
 }
 
 const defaultTraces = `page: traces
@@ -54,4 +55,35 @@ charts:
     layout:
       col: 24
     dataSource: latency-heatmap
+`
+
+const defaultErrorDashboard = `page: error-dashboard
+title: "Error Dashboard"
+icon: "AlertCircle"
+subtitle: "Service error-rate and error-volume trends"
+
+charts:
+  - id: service-error-rate
+    title: "Service Error Rate"
+    type: error-rate
+    layout:
+      col: 12
+    dataSource: service-timeseries
+    groupByKey: service
+  - id: service-error-volume
+    title: "Error Volume"
+    type: request
+    layout:
+      col: 12
+    dataSource: service-timeseries
+    groupByKey: service
+    valueKey: error_count
+    datasetLabel: "Errors/min"
+  - id: service-latency-under-errors
+    title: "Latency During Error Windows"
+    type: latency
+    layout:
+      col: 24
+    dataSource: service-timeseries
+    groupByKey: service
 `

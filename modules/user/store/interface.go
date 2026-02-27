@@ -6,5 +6,4 @@ type AuthUser = storeinterfaces.AuthUser
 
 type UserTableRepository = storeinterfaces.UserTableRepository
 type TeamTableRepository = storeinterfaces.TeamTableRepository
-type UserTeamTableRepository = storeinterfaces.UserTeamTableRepository
 type TableProvider = storeinterfaces.TableProvider

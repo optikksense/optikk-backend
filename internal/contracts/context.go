@@ -3,11 +3,10 @@ package contracts
 import "fmt"
 
 type TenantContext struct {
-	OrganizationID int64
-	TeamID         int64
-	UserID         int64
-	UserEmail      string
-	UserRole       string
+	TeamID    int64
+	UserID    int64
+	UserEmail string
+	UserRole  string
 }
 
 func (t TenantContext) TeamUUID() string {

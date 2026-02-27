@@ -5,6 +5,5 @@ import storeimpl "github.com/observability/observability-backend-go/modules/user
 type MySQLProvider = storeimpl.MySQLProvider
 type MySQLUserTable = storeimpl.MySQLUserTable
 type MySQLTeamTable = storeimpl.MySQLTeamTable
-type MySQLUserTeamTable = storeimpl.MySQLUserTeamTable
 
 var NewMySQLProvider = storeimpl.NewMySQLProvider

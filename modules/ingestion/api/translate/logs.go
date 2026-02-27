@@ -37,6 +37,22 @@ func (LogsTranslator) Translate(teamUUID string, payload model.OTLPLogsPayload) 
 				}
 
 				infra := extractInfraLabels(logAttrs, rc.attrs)
+				traceID := strings.TrimSpace(record.TraceID)
+				if traceID == "" {
+					traceID = firstNonEmpty(
+						logAttrs["trace.id"],
+						logAttrs["trace_id"],
+						logAttrs["otel.trace_id"],
+					)
+				}
+				spanID := strings.TrimSpace(record.SpanID)
+				if spanID == "" {
+					spanID = firstNonEmpty(
+						logAttrs["span.id"],
+						logAttrs["span_id"],
+						logAttrs["otel.span_id"],
+					)
+				}
 
 				logs = append(logs, model.LogRecord{
 					TeamUUID:   teamUUID,
@@ -45,8 +61,8 @@ func (LogsTranslator) Translate(teamUUID string, payload model.OTLPLogsPayload) 
 					Service:    firstNonEmpty(logAttrs["service.name"], rc.serviceName),
 					Logger:     firstNonEmpty(logAttrs["logger.name"], sl.Scope.Name),
 					Message:    message,
-					TraceID:    strings.TrimSpace(record.TraceID),
-					SpanID:     strings.TrimSpace(record.SpanID),
+					TraceID:    traceID,
+					SpanID:     spanID,
 					Host:       infra.host,
 					Pod:        infra.pod,
 					Container:  infra.container,

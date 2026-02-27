@@ -71,9 +71,9 @@ func (h *AuthHandler) ValidateToken(c *gin.Context) {
 		return
 	}
 	apphandlers.RespondOK(c, map[string]any{
-		"valid":          true,
-		"userId":         tenant.UserID,
-		"organizationId": tenant.OrganizationID,
-		"role":           tenant.UserRole,
+		"valid":  true,
+		"userId": tenant.UserID,
+		"teamId": tenant.TeamID,
+		"role":   tenant.UserRole,
 	})
 }

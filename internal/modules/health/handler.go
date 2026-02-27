@@ -1,6 +1,7 @@
 package health
 
 import (
+	"database/sql"
 	"net/http"
 
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -15,6 +16,16 @@ import (
 type HealthHandler struct {
 	modulecommon.DBTenant
 	Service service.Service
+}
+
+// orgIDFromTeam looks up the organization_id for a given team.
+func orgIDFromTeam(db *sql.DB, teamID int64) int64 {
+	var orgID int64
+	_ = db.QueryRow("SELECT organization_id FROM teams WHERE id = ? LIMIT 1", teamID).Scan(&orgID)
+	if orgID == 0 {
+		orgID = 1
+	}
+	return orgID
 }
 
 // GetHealthChecks — list all health checks for the tenant.
@@ -36,8 +47,9 @@ func (h *HealthHandler) CreateHealthCheck(c *gin.Context) {
 		return
 	}
 	tenant := h.GetTenant(c)
+	orgID := orgIDFromTeam(h.DB, tenant.TeamID)
 
-	row, err := h.Service.CreateHealthCheck(tenant.TeamID, tenant.OrganizationID, req)
+	row, err := h.Service.CreateHealthCheck(tenant.TeamID, orgID, req)
 	if err != nil {
 		RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Failed to create health check")
 		return

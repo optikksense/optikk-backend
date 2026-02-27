@@ -11,36 +11,35 @@ type AuthService interface {
 // UserService encapsulates user/team/profile business rules.
 type UserService interface {
 	GetCurrentUser(userID int64) (map[string]any, error)
-	GetUsers(organizationID int64, limit, offset int) ([]map[string]any, error)
+	GetUsers(teamID int64, limit, offset int) ([]map[string]any, error)
 	GetUserByID(userID int64) (map[string]any, error)
 	CreateUser(input CreateUserInput) (map[string]any, error)
 	Signup(input SignupInput) (map[string]any, error)
 	AddUserToTeam(userID, teamID int64, role string) error
 	RemoveUserFromTeam(userID, teamID int64) error
-	GetTeams(organizationID int64) ([]map[string]any, error)
+	GetTeams(teamID int64) ([]map[string]any, error)
 	GetMyTeams(userID int64) ([]map[string]any, error)
 	GetTeamByID(teamID int64) (map[string]any, error)
-	GetTeamBySlug(organizationID int64, slug string) (map[string]any, error)
+	GetTeamBySlug(teamID int64, slug string) (map[string]any, error)
 	CreateTeam(input CreateTeamInput) (map[string]any, error)
 	GetProfile(userID int64) (map[string]any, error)
 	UpdateProfile(input UpdateProfileInput) (map[string]any, error)
 }
 
 type CreateUserInput struct {
-	OrganizationID int64
-	Email          string
-	Name           string
-	Role           string
-	Password       string
+	TeamIDs  []int64
+	Email    string
+	Name     string
+	Role     string
+	Password string
 }
 
 type SignupInput struct {
-	Email              string
-	Name               string
-	Password           string
-	TeamName           string
-	OrganizationID     *int64
-	TenantOrganization int64
+	Email    string
+	Name     string
+	Password string
+	TeamName string
+	OrgName  string
 }
 
 type CreateTeamInput struct {
@@ -49,6 +48,7 @@ type CreateTeamInput struct {
 	Slug           string
 	Description    string
 	Color          string
+	OrgName        string
 }
 
 type UpdateProfileInput struct {

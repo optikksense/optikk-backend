@@ -14,22 +14,20 @@ type JWTManager struct {
 }
 
 type TokenClaims struct {
-	Email          string `json:"email"`
-	Name           string `json:"name"`
-	Role           string `json:"role"`
-	OrganizationID int64  `json:"organizationId"`
-	TeamID         int64  `json:"teamId"`
+	Email  string `json:"email"`
+	Name   string `json:"name"`
+	Role   string `json:"role"`
+	TeamID int64  `json:"teamId"`
 	jwt.RegisteredClaims
 }
 
-func (m JWTManager) Generate(userID int64, email, name, role string, orgID, teamID int64) (string, error) {
+func (m JWTManager) Generate(userID int64, email, name, role string, teamID int64) (string, error) {
 	now := time.Now().UTC()
 	claims := TokenClaims{
-		Email:          email,
-		Name:           name,
-		Role:           role,
-		OrganizationID: orgID,
-		TeamID:         teamID,
+		Email:  email,
+		Name:   name,
+		Role:   role,
+		TeamID: teamID,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   utils.ToString(userID),
 			IssuedAt:  jwt.NewNumericDate(now),

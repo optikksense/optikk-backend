@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	types "github.com/observability/observability-backend-go/internal/contracts"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 	identityservice "github.com/observability/observability-backend-go/modules/user/service"
 	apphandlers "github.com/observability/observability-backend-go/internal/platform/handlers"
 )
@@ -37,7 +38,7 @@ func (h *UserHandler) GetUsers(c *gin.Context) {
 	limit := apphandlers.ParseIntParam(c, "limit", 100)
 	offset := apphandlers.ParseIntParam(c, "offset", 0)
 
-	users, err := h.service.GetUsers(tenant.OrganizationID, limit, offset)
+	users, err := h.service.GetUsers(tenant.TeamID, limit, offset)
 	if err != nil {
 		respondServiceError(c, err, "Failed to load users")
 		return
@@ -67,12 +68,15 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		return
 	}
 
+	// Default to the current team if no team IDs provided.
+	teamIDs := []int64{h.getTenant(c).TeamID}
+
 	user, err := h.service.CreateUser(identityservice.CreateUserInput{
-		OrganizationID: h.getTenant(c).OrganizationID,
-		Email:          req.Email,
-		Name:           req.Name,
-		Role:           req.Role,
-		Password:       req.Password,
+		TeamIDs:  teamIDs,
+		Email:    req.Email,
+		Name:     req.Name,
+		Role:     req.Role,
+		Password: req.Password,
 	})
 	if err != nil {
 		respondServiceError(c, err, "Unable to create user")
@@ -86,7 +90,7 @@ type SignupRequest struct {
 	Name     string `json:"name" example:"John Doe"`
 	Password string `json:"password" example:"securePassword123"`
 	TeamName string `json:"teamName" example:"My Team"`
-	OrgID    *int64 `json:"orgId,omitempty" example:"1"`
+	OrgName  string `json:"orgName,omitempty" example:"My Organization"`
 	TeamID   *int64 `json:"teamId,omitempty" example:"5"`
 }
 
@@ -115,12 +119,11 @@ func (h *UserHandler) Signup(c *gin.Context) {
 	}
 
 	resp, err := h.service.Signup(identityservice.SignupInput{
-		Email:              req.Email,
-		Name:               req.Name,
-		Password:           req.Password,
-		TeamName:           req.TeamName,
-		OrganizationID:     req.OrgID,
-		TenantOrganization: h.getTenant(c).OrganizationID,
+		Email:    req.Email,
+		Name:     req.Name,
+		Password: req.Password,
+		TeamName: req.TeamName,
+		OrgName:  req.OrgName,
 	})
 	if err != nil {
 		respondServiceError(c, err, "Unable to create account")
@@ -168,7 +171,7 @@ func (h *UserHandler) RemoveUserFromTeam(c *gin.Context) {
 }
 
 func (h *UserHandler) GetTeams(c *gin.Context) {
-	teams, err := h.service.GetTeams(h.getTenant(c).OrganizationID)
+	teams, err := h.service.GetTeams(h.getTenant(c).TeamID)
 	if err != nil {
 		respondServiceError(c, err, "Failed to load teams")
 		return
@@ -201,7 +204,7 @@ func (h *UserHandler) GetTeamByID(c *gin.Context) {
 }
 
 func (h *UserHandler) GetTeamBySlug(c *gin.Context) {
-	team, err := h.service.GetTeamBySlug(h.getTenant(c).OrganizationID, c.Param("slug"))
+	team, err := h.service.GetTeamBySlug(h.getTenant(c).TeamID, c.Param("slug"))
 	if err != nil {
 		respondServiceError(c, err, "Team not found")
 		return
@@ -210,12 +213,26 @@ func (h *UserHandler) GetTeamBySlug(c *gin.Context) {
 }
 
 func (h *UserHandler) CreateTeam(c *gin.Context) {
+	tenant := h.getTenant(c)
+
+	// Derive organization from the current team.
+	currentTeam, _ := h.service.GetTeamByID(tenant.TeamID)
+	orgID := int64(1)
+	orgName := "Default"
+	if currentTeam != nil {
+		orgID = dbutil.Int64FromAny(currentTeam["organization_id"])
+		if on := dbutil.StringFromAny(currentTeam["org_name"]); on != "" {
+			orgName = on
+		}
+	}
+
 	team, err := h.service.CreateTeam(identityservice.CreateTeamInput{
-		OrganizationID: h.getTenant(c).OrganizationID,
+		OrganizationID: orgID,
 		Name:           strings.TrimSpace(c.Query("name")),
 		Slug:           strings.TrimSpace(c.Query("slug")),
 		Description:    strings.TrimSpace(c.Query("description")),
 		Color:          c.Query("color"),
+		OrgName:        orgName,
 	})
 	if err != nil {
 		respondServiceError(c, err, "Unable to create team")

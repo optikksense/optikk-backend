@@ -18,8 +18,8 @@ func CORSMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Organization-Id, X-Team-Id, X-User-Id, X-User-Email, X-User-Role")
-		c.Writer.Header().Set("Access-Control-Expose-Headers", "Authorization, X-Organization-Id, X-Team-Id")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Team-Id, X-User-Id, X-User-Email, X-User-Role")
+		c.Writer.Header().Set("Access-Control-Expose-Headers", "Authorization, X-Team-Id")
 		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(http.StatusNoContent)
 			return
@@ -40,24 +40,24 @@ func TenantMiddleware(jwtManager auth.JWTManager) gin.HandlerFunc {
 		if strings.HasPrefix(authHeader, "Bearer ") {
 			token := strings.TrimPrefix(authHeader, "Bearer ")
 			if claims, err := jwtManager.Parse(token); err == nil {
-				orgID := claims.OrganizationID
-				if orgID == 0 {
-					orgID = 1
-				}
 				teamID := claims.TeamID
+				// Allow explicit team switching from UI for users that belong to
+				// multiple teams. JWT claim remains the default team.
+				if requested := utils.ToInt64(c.GetHeader("X-Team-Id"), 0); requested > 0 {
+					teamID = requested
+				}
 				if teamID == 0 {
-					teamID = utils.ToInt64(c.GetHeader("X-Team-Id"), 1)
+					teamID = 1
 				}
 				role := claims.Role
 				if role == "" {
 					role = "member"
 				}
 				c.Set(string(tenantKey), types.TenantContext{
-					OrganizationID: orgID,
-					TeamID:         teamID,
-					UserID:         utils.ToInt64(claims.Subject, 0),
-					UserEmail:      claims.Email,
-					UserRole:       role,
+					TeamID:    teamID,
+					UserID:    utils.ToInt64(claims.Subject, 0),
+					UserEmail: claims.Email,
+					UserRole:  role,
 				})
 				c.Next()
 				return
@@ -71,11 +71,10 @@ func TenantMiddleware(jwtManager auth.JWTManager) gin.HandlerFunc {
 			role = "member"
 		}
 		c.Set(string(tenantKey), types.TenantContext{
-			OrganizationID: utils.ToInt64(c.GetHeader("X-Organization-Id"), 1),
-			TeamID:         utils.ToInt64(c.GetHeader("X-Team-Id"), 1),
-			UserID:         utils.ToInt64(c.GetHeader("X-User-Id"), 0),
-			UserEmail:      c.GetHeader("X-User-Email"),
-			UserRole:       role,
+			TeamID:    utils.ToInt64(c.GetHeader("X-Team-Id"), 1),
+			UserID:    utils.ToInt64(c.GetHeader("X-User-Id"), 0),
+			UserEmail: c.GetHeader("X-User-Email"),
+			UserRole:  role,
 		})
 		c.Next()
 	}
@@ -84,11 +83,11 @@ func TenantMiddleware(jwtManager auth.JWTManager) gin.HandlerFunc {
 func GetTenant(c *gin.Context) types.TenantContext {
 	v, ok := c.Get(string(tenantKey))
 	if !ok {
-		return types.TenantContext{OrganizationID: 1, TeamID: 1, UserID: 0, UserRole: "member"}
+		return types.TenantContext{TeamID: 1, UserID: 0, UserRole: "member"}
 	}
 	t, ok := v.(types.TenantContext)
 	if !ok {
-		return types.TenantContext{OrganizationID: 1, TeamID: 1, UserID: 0, UserRole: "member"}
+		return types.TenantContext{TeamID: 1, UserID: 0, UserRole: "member"}
 	}
 	return t
 }

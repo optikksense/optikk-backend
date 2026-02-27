@@ -4,6 +4,7 @@ import "github.com/observability/observability-backend-go/internal/modules/dashb
 
 func init() {
 	dashboardconfig.RegisterDefaultConfig("metrics", defaultMetrics)
+	dashboardconfig.RegisterDefaultConfig("service-detail", defaultServiceDetail)
 }
 
 const defaultMetrics = `page: metrics
@@ -87,5 +88,35 @@ charts:
     dataSource: metrics-timeseries
     endpointDataSource: endpoints-timeseries
     endpointMetricsSource: endpoints-metrics
+    endpointListType: latency
+`
+
+const defaultServiceDetail = `page: service-detail
+title: "Service Detail"
+icon: "Activity"
+subtitle: "Service request volume, error rate, and latency trends"
+
+charts:
+  - id: service-request-rate
+    title: "Request Rate"
+    type: request
+    layout:
+      col: 12
+    dataSource: metrics-timeseries
+    valueKey: request_count
+    datasetLabel: "Requests/min"
+  - id: service-error-rate
+    title: "Error Rate"
+    type: error-rate
+    layout:
+      col: 12
+    dataSource: metrics-timeseries
+  - id: service-latency
+    title: "Latency Trend"
+    type: latency
+    layout:
+      col: 24
+    dataSource: metrics-timeseries
+    endpointMetricsSource: endpoint-breakdown
     endpointListType: latency
 `

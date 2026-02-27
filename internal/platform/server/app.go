@@ -123,6 +123,9 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 		log.Printf("WARN: dashboard_chart_configs table migration: %v", err)
 	}
 
+	// Migrate users/teams schema: add teams JSON column, org_name, drop user_teams.
+	migrateUserTeamsSchema(db)
+
 return &App{
 		DB:         db,
 		CH:         ch,

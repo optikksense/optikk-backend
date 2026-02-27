@@ -2,6 +2,7 @@ package impl
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"strconv"
@@ -75,6 +76,7 @@ func (r *ClickHouseRepository) GetLogs(ctx context.Context, f model.LogFilters, 
 	}
 
 	logs := r.mapRowsToLogs(rows)
+	r.enrichLogsWithTraceContext(f.TeamUUID, logs)
 
 	// Facets
 	baseWhere, baseArgs := r.buildLogWhere(f)
@@ -194,7 +196,15 @@ func (r *ClickHouseRepository) GetLogSurrounding(ctx context.Context, teamUUID s
 		fmt.Sprintf(`SELECT %s FROM logs WHERE team_id = ? AND service_name = ? AND id > ? ORDER BY id ASC LIMIT ?`, logCols),
 		teamUUID, svc, logID, after)
 
-	return anchor, r.mapRowsToLogs(beforeRows), r.mapRowsToLogs(afterRows), nil
+	beforeLogs := r.mapRowsToLogs(beforeRows)
+	afterLogs := r.mapRowsToLogs(afterRows)
+	r.enrichLogsWithTraceContext(teamUUID, beforeLogs)
+	r.enrichLogsWithTraceContext(teamUUID, afterLogs)
+	anchorSlice := []model.Log{anchor}
+	r.enrichLogsWithTraceContext(teamUUID, anchorSlice)
+	anchor = anchorSlice[0]
+
+	return anchor, beforeLogs, afterLogs, nil
 }
 
 func (r *ClickHouseRepository) GetLogDetail(ctx context.Context, teamUUID, traceID, spanID string, center, from, to time.Time) (model.Log, []model.Log, error) {
@@ -221,6 +231,10 @@ func (r *ClickHouseRepository) GetLogDetail(ctx context.Context, teamUUID, trace
 		`, logCols), teamUUID, serviceName, from, to)
 		contextLogs = r.mapRowsToLogs(rows)
 	}
+	logSlice := []model.Log{log}
+	r.enrichLogsWithTraceContext(teamUUID, logSlice)
+	log = logSlice[0]
+	r.enrichLogsWithTraceContext(teamUUID, contextLogs)
 
 	return log, contextLogs, nil
 }
@@ -234,7 +248,69 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamUUID, trace
 	if err != nil {
 		return nil, err
 	}
-	return r.mapRowsToLogs(rows), nil
+	logs := r.mapRowsToLogs(rows)
+	if len(logs) > 0 {
+		r.enrichLogsWithTraceContext(teamUUID, logs)
+		return logs, nil
+	}
+
+	traceMeta, metaErr := dbutil.QueryMap(r.db, `
+		SELECT min(start_time) as trace_start,
+		       max(end_time) as trace_end,
+		       any(service_name) as service_name,
+		       any(http_method) as http_method,
+		       any(http_url) as http_url,
+		       any(operation_name) as operation_name
+		FROM spans
+		WHERE team_id = ? AND trace_id = ?
+	`, teamUUID, traceID)
+	if metaErr != nil || len(traceMeta) == 0 {
+		return logs, nil
+	}
+
+	traceStart := dbutil.TimeFromAny(traceMeta["trace_start"])
+	traceEnd := dbutil.TimeFromAny(traceMeta["trace_end"])
+	serviceName := dbutil.StringFromAny(traceMeta["service_name"])
+	httpMethod := strings.ToUpper(strings.TrimSpace(dbutil.StringFromAny(traceMeta["http_method"])))
+	route := normalizeRoute(dbutil.StringFromAny(traceMeta["http_url"]))
+	if route == "" {
+		route = normalizeRoute(dbutil.StringFromAny(traceMeta["operation_name"]))
+	}
+	if traceStart.IsZero() || traceEnd.IsZero() || serviceName == "" {
+		return logs, nil
+	}
+
+	routeLike := "%"
+	if route != "" {
+		routeLike = "%" + route + "%"
+	}
+	fallbackRows, fallbackErr := dbutil.QueryMaps(r.db, fmt.Sprintf(`
+		SELECT %s FROM logs
+		WHERE team_id = ? AND service_name = ?
+		  AND timestamp BETWEEN ? AND ?
+		  AND (? = '' OR upper(JSONExtractString(attributes, 'http.method')) = ?)
+		  AND (? = '' OR JSONExtractString(attributes, 'http.route') = ? OR message LIKE ?)
+		ORDER BY timestamp ASC LIMIT 500
+	`, logCols),
+		teamUUID,
+		serviceName,
+		traceStart.Add(-2*time.Second),
+		traceEnd.Add(2*time.Second),
+		httpMethod, httpMethod,
+		route, route, routeLike,
+	)
+	if fallbackErr != nil {
+		return logs, nil
+	}
+
+	logs = r.mapRowsToLogs(fallbackRows)
+	for i := range logs {
+		if strings.TrimSpace(logs[i].TraceID) == "" {
+			logs[i].TraceID = traceID
+		}
+	}
+	r.enrichLogsWithTraceContext(teamUUID, logs)
+	return logs, nil
 }
 
 func (r *ClickHouseRepository) buildLogWhere(f model.LogFilters) (string, []any) {
@@ -348,6 +424,135 @@ func (r *ClickHouseRepository) mapRowsToFacets(rows []map[string]any) []model.Fa
 		})
 	}
 	return facets
+}
+
+func (r *ClickHouseRepository) enrichLogsWithTraceContext(teamUUID string, logs []model.Log) {
+	if len(logs) == 0 || strings.TrimSpace(teamUUID) == "" {
+		return
+	}
+
+	for i := range logs {
+		if strings.TrimSpace(logs[i].TraceID) != "" {
+			continue
+		}
+		if logs[i].Timestamp.IsZero() || strings.TrimSpace(logs[i].ServiceName) == "" {
+			continue
+		}
+
+		httpMethod, route := extractLogHTTPContext(logs[i])
+		traceID, spanID := r.resolveSpanForLog(teamUUID, logs[i], httpMethod, route)
+		if traceID == "" {
+			continue
+		}
+		logs[i].TraceID = traceID
+		if strings.TrimSpace(logs[i].SpanID) == "" {
+			logs[i].SpanID = spanID
+		}
+	}
+}
+
+func (r *ClickHouseRepository) resolveSpanForLog(teamUUID string, log model.Log, httpMethod, route string) (string, string) {
+	routeLike := "%"
+	if route != "" {
+		routeLike = "%" + route + "%"
+	}
+
+	row, err := dbutil.QueryMap(r.db, `
+		SELECT trace_id, span_id
+		FROM spans
+		WHERE team_id = ? AND service_name = ?
+		  AND start_time BETWEEN ? AND ?
+		  AND (? = '' OR upper(http_method) = ?)
+		  AND (? = '' OR http_url LIKE ? OR operation_name LIKE ?)
+		ORDER BY abs(toUnixTimestamp(start_time) - toUnixTimestamp(?)) ASC, duration_ms ASC
+		LIMIT 1
+	`,
+		teamUUID,
+		log.ServiceName,
+		log.Timestamp.Add(-5*time.Second),
+		log.Timestamp.Add(5*time.Second),
+		httpMethod, httpMethod,
+		route, routeLike, routeLike,
+		log.Timestamp,
+	)
+	if err != nil || len(row) == 0 {
+		return "", ""
+	}
+	return dbutil.StringFromAny(row["trace_id"]), dbutil.StringFromAny(row["span_id"])
+}
+
+func extractLogHTTPContext(log model.Log) (string, string) {
+	attrs := parseLogAttributes(log.Attributes)
+	method := strings.ToUpper(strings.TrimSpace(firstNonEmpty(
+		attrs["http.method"],
+		attrs["http.request.method"],
+		attrs["method"],
+	)))
+	route := normalizeRoute(firstNonEmpty(
+		attrs["http.route"],
+		attrs["url.path"],
+		attrs["http.target"],
+	))
+
+	msg := strings.TrimSpace(log.Message)
+	if method == "" && strings.HasPrefix(msg, "HTTP ") {
+		parts := strings.Fields(msg)
+		if len(parts) >= 3 {
+			method = strings.ToUpper(strings.TrimSpace(parts[1]))
+		}
+	}
+	if route == "" && strings.HasPrefix(msg, "HTTP ") {
+		parts := strings.Fields(msg)
+		if len(parts) >= 3 {
+			route = normalizeRoute(parts[2])
+		}
+	}
+	return method, route
+}
+
+func parseLogAttributes(raw string) map[string]string {
+	attrs := map[string]string{}
+	if strings.TrimSpace(raw) == "" {
+		return attrs
+	}
+
+	var generic map[string]any
+	if err := json.Unmarshal([]byte(raw), &generic); err != nil {
+		return attrs
+	}
+	for k, v := range generic {
+		switch typed := v.(type) {
+		case string:
+			attrs[k] = typed
+		default:
+			attrs[k] = strings.TrimSpace(fmt.Sprint(v))
+		}
+	}
+	return attrs
+}
+
+func normalizeRoute(raw string) string {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return ""
+	}
+	parts := strings.Fields(s)
+	if len(parts) >= 2 && strings.HasPrefix(parts[1], "/") {
+		return parts[1]
+	}
+	if strings.HasPrefix(s, "/") {
+		return s
+	}
+	return s
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
 }
 
 func normalizeLogID(raw any) string {
