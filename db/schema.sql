@@ -108,19 +108,3 @@ CREATE TABLE IF NOT EXISTS health_check_results (
   region VARCHAR(100),
   INDEX idx_hcr_team (team_id, check_id, timestamp)
 );
-
-CREATE TABLE IF NOT EXISTS explore_saved_queries (
-  id BIGINT AUTO_INCREMENT PRIMARY KEY,
-  organization_id BIGINT NOT NULL,
-  team_id BIGINT NOT NULL,
-  query_type VARCHAR(20) NOT NULL,
-  name VARCHAR(200) NOT NULL,
-  description VARCHAR(500),
-  query_payload TEXT NOT NULL,
-  created_by_user_id BIGINT NOT NULL DEFAULT 0,
-  created_by_email VARCHAR(255),
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  INDEX idx_explore_saved_queries_team (team_id, query_type, updated_at),
-  INDEX idx_explore_saved_queries_org (organization_id)
-);
