@@ -69,14 +69,6 @@ type DatabaseAvgLatency struct {
 
 // ---- Database Cache Insights ----
 
-type DatabaseCacheResponse struct {
-	Summary         DbCacheSummary      `json:"summary"`
-	TableMetrics    []DbTableMetric     `json:"tableMetrics"`
-	Cache           DbCacheStats        `json:"cache"`
-	SlowLogs        DbSlowLogs          `json:"slowLogs"`
-	SystemBreakdown []DbSystemBreakdown `json:"systemBreakdown"`
-}
-
 type DbSystemBreakdown struct {
 	DbSystem        string   `json:"db_system"`
 	QueryCount      int64    `json:"query_count"`
@@ -106,37 +98,7 @@ type DbTableMetric struct {
 	QueryCount        int64    `json:"query_count"`
 }
 
-type DbCacheStats struct {
-	CacheHits     int64   `json:"cacheHits"`
-	CacheMisses   int64   `json:"cacheMisses"`
-	CacheHitRatio float64 `json:"cacheHitRatio"`
-}
-
-type DbSlowLogs struct {
-	Logs    []any `json:"logs"` // Always empty based on current implementation
-	HasMore bool  `json:"hasMore"`
-	Offset  int   `json:"offset"`
-	Limit   int   `json:"limit"`
-	Total   int   `json:"total"`
-}
-
 // ---- Messaging Queue Insights ----
-
-type MessagingQueueResponse struct {
-	Summary    MqSummary    `json:"summary"`
-	Timeseries []MqBucket   `json:"timeseries"`
-	TopQueues  []MqTopQueue `json:"topQueues"`
-}
-
-type MqSummary struct {
-	AvgQueueDepth    *float64 `json:"avg_queue_depth"`
-	MaxQueueDepth    *float64 `json:"max_queue_depth"`
-	AvgConsumerLag   *float64 `json:"avg_consumer_lag"`
-	MaxConsumerLag   *float64 `json:"max_consumer_lag"`
-	AvgPublishRate   float64  `json:"avg_publish_rate"`
-	AvgReceiveRate   float64  `json:"avg_receive_rate"`
-	ProcessingErrors float64  `json:"processing_errors"`
-}
 
 type MqBucket struct {
 	Timestamp       string   `json:"timestamp"`

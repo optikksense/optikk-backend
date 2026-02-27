@@ -23,6 +23,11 @@ func RegisterRoutes(cfg Config, _ *gin.RouterGroup, v1 *gin.RouterGroup, h *Satu
 	v1.GET("/saturation/database/query-by-table", h.GetDatabaseQueryByTable)
 	v1.GET("/saturation/database/avg-latency", h.GetDatabaseAvgLatency)
 
-	v1.GET("/saturation/database-cache", h.GetInsightDatabaseCache)
-	v1.GET("/saturation/messaging-queue", h.GetInsightMessagingQueue)
+	v1.GET("/saturation/database/latency-summary", h.GetDatabaseCacheSummary)
+	v1.GET("/saturation/database/systems", h.GetDatabaseSystems)
+	v1.GET("/saturation/database/top-tables", h.GetDatabaseTopTables)
+
+	v1.GET("/saturation/queue/consumer-lag", h.GetQueueConsumerLag)
+	v1.GET("/saturation/queue/topic-lag", h.GetQueueTopicLag)
+	v1.GET("/saturation/queue/top-queues", h.GetQueueTopQueues)
 }

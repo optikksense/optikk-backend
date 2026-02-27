@@ -15,31 +15,14 @@ icon: "Network"
 subtitle: "Throughput rates, consumer lag, queue depth, and processing errors per queue"
 
 dataSources:
-  - id: messaging-queue-insights
-    endpoint: /v1/saturation/messaging-queue
-    params:
-      interval: "5m"
-
-statCards:
-  - title: "Avg Queue Depth"
-    dataSource: messaging-queue-insights
-    valueField: summary.avg_queue_depth
-    formatter: fixed1
-    icon: Layers
-  - title: "Max Consumer Lag"
-    dataSource: messaging-queue-insights
-    valueField: summary.max_consumer_lag
-    formatter: fixed1
-    icon: Clock
-  - title: "Avg Processing Errors"
-    dataSource: messaging-queue-insights
-    valueField: summary.processing_errors
-    formatter: fixed0
-    icon: AlertTriangle
-  - title: "Total Queues"
-    dataSource: messaging-queue-insights
-    valueField: _uniqueQueues
-    icon: Network
+  - id: queue-consumer-lag
+    endpoint: /v1/saturation/queue/consumer-lag
+  - id: queue-topic-lag
+    endpoint: /v1/saturation/queue/topic-lag
+  - id: kafka-production-rate
+    endpoint: /v1/saturation/kafka/production-rate
+  - id: kafka-consumption-rate
+    endpoint: /v1/saturation/kafka/consumption-rate
 
 charts:
   - id: production-rate
@@ -48,8 +31,7 @@ charts:
     titleIcon: ArrowUpRight
     layout:
       col: 12
-    dataSource: messaging-queue-insights
-    dataKey: timeseries
+    dataSource: kafka-production-rate
     groupByKey: queue
     valueKey: avg_publish_rate
     listType: productionRate
@@ -61,8 +43,7 @@ charts:
     titleIcon: ArrowDownRight
     layout:
       col: 12
-    dataSource: messaging-queue-insights
-    dataKey: timeseries
+    dataSource: kafka-consumption-rate
     groupByKey: queue
     valueKey: avg_receive_rate
     listType: consumptionRate
@@ -74,8 +55,7 @@ charts:
     titleIcon: Clock
     layout:
       col: 12
-    dataSource: messaging-queue-insights
-    dataKey: timeseries
+    dataSource: queue-consumer-lag
     groupByKey: queue
     valueKey: avg_consumer_lag
     listType: consumerLag
@@ -87,8 +67,7 @@ charts:
     titleIcon: Layers
     layout:
       col: 12
-    dataSource: messaging-queue-insights
-    dataKey: timeseries
+    dataSource: queue-topic-lag
     groupByKey: queue
     valueKey: avg_queue_depth
     listType: depth
@@ -206,28 +185,6 @@ icon: "Database"
 subtitle: "Query latency, cache hit ratio, slow logs, replication lag"
 
 dataSources:
-  - id: database-cache-insights
-    endpoint: /v1/saturation/database-cache
-
-statCards:
-  - title: "Avg Query Latency"
-    dataSource: database-cache-insights
-    valueField: summary.avg_query_latency_ms
-    formatter: fixed1
-    icon: Timer
-  - title: "P95 Query Latency"
-    dataSource: database-cache-insights
-    valueField: summary.p95_query_latency_ms
-    formatter: fixed1
-    icon: Timer
-  - title: "Cache Hit Ratio"
-    dataSource: database-cache-insights
-    valueField: cache.cacheHitRatio
-    formatter: percent1
-    icon: Layers
-  - title: "Replication Lag"
-    dataSource: database-cache-insights
-    valueField: summary.avg_replication_lag_ms
-    formatter: fixed1
-    icon: Database
+  - id: database-latency-summary
+    endpoint: /v1/saturation/database/latency-summary
 `

@@ -22,6 +22,18 @@ dataSources:
     endpoint: /v1/saturation/database/query-by-table
   - id: database-avg-latency
     endpoint: /v1/saturation/database/avg-latency
+  - id: database-latency-summary
+    endpoint: /v1/saturation/database/latency-summary
+  - id: database-systems
+    endpoint: /v1/saturation/database/systems
+  - id: database-top-tables
+    endpoint: /v1/saturation/database/top-tables
+  - id: queue-consumer-lag
+    endpoint: /v1/saturation/queue/consumer-lag
+  - id: queue-topic-lag
+    endpoint: /v1/saturation/queue/topic-lag
+  - id: queue-top-queues
+    endpoint: /v1/saturation/queue/top-queues
 
 statCards:
   - title: "Avg DB Latency"
