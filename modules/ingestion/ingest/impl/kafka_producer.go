@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 
 	"github.com/IBM/sarama"
 	"github.com/observability/observability-backend-go/modules/ingestion/model"
@@ -58,7 +59,7 @@ func (k *KafkaIngester) IngestMetrics(ctx context.Context, metrics []model.Metri
 		if end > len(metrics) {
 			end = len(metrics)
 		}
-		if err := k.produce(TopicMetrics, metrics[i:end]); err != nil {
+		if err := k.produce(TopicMetrics, sanitizeMetrics(metrics[i:end])); err != nil {
 			return err
 		}
 	}
@@ -97,4 +98,27 @@ func (k *KafkaIngester) produce(topic string, records any) error {
 		return fmt.Errorf("kafka send to %s: %w", topic, err)
 	}
 	return nil
+}
+
+func sanitizeMetrics(metrics []model.MetricRecord) []model.MetricRecord {
+	out := make([]model.MetricRecord, 0, len(metrics))
+	for _, metric := range metrics {
+		metric.Value = sanitizeFloat(metric.Value)
+		metric.Sum = sanitizeFloat(metric.Sum)
+		metric.Min = sanitizeFloat(metric.Min)
+		metric.Max = sanitizeFloat(metric.Max)
+		metric.Avg = sanitizeFloat(metric.Avg)
+		metric.P50 = sanitizeFloat(metric.P50)
+		metric.P95 = sanitizeFloat(metric.P95)
+		metric.P99 = sanitizeFloat(metric.P99)
+		out = append(out, metric)
+	}
+	return out
+}
+
+func sanitizeFloat(value float64) float64 {
+	if math.IsNaN(value) || math.IsInf(value, 0) {
+		return 0
+	}
+	return value
 }
