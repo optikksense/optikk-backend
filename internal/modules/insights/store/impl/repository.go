@@ -658,7 +658,7 @@ func (r *ClickHouseRepository) GetInsightLogsStream(teamUUID string, startMs, en
 }
 
 // GetInsightDatabaseCache queries DB query latency and cache-hit insights.
-func (r *ClickHouseRepository) GetInsightDatabaseCache(teamUUID string, startMs, endMs int64) (model.DbCacheSummary, []model.DbTableMetric, error) {
+func (r *ClickHouseRepository) GetInsightDatabaseCache(teamUUID string, startMs, endMs int64) (model.DbCacheSummary, []model.DbTableMetric, []model.DbSystemBreakdown, error) {
 	summaryRaw, err := dbutil.QueryMap(r.db, `
 		SELECT avg(JSONExtractFloat(attributes, 'db.query.latency.ms'))  as avg_query_latency_ms,
 		       quantile(0.95)(JSONExtractFloat(attributes, 'db.query.latency.ms')) as p95_query_latency_ms,
@@ -671,7 +671,7 @@ func (r *ClickHouseRepository) GetInsightDatabaseCache(teamUUID string, startMs,
 	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
-		return model.DbCacheSummary{}, nil, err
+		return model.DbCacheSummary{}, nil, nil, err
 	}
 
 	summary := model.DbCacheSummary{
@@ -686,6 +686,7 @@ func (r *ClickHouseRepository) GetInsightDatabaseCache(teamUUID string, startMs,
 	tableMetricsRaw, err := dbutil.QueryMaps(r.db, `
 		SELECT coalesce(nullIf(JSONExtractString(attributes, 'db.sql.table'), ''), 'unknown') as table_name,
 		       service_name,
+		       coalesce(nullIf(JSONExtractString(attributes, 'db.system'), ''), 'unknown') as db_system,
 		       avg(JSONExtractFloat(attributes, 'db.query.latency.ms'))  as avg_query_latency_ms,
 		       max(JSONExtractFloat(attributes, 'db.query.latency.ms'))  as max_query_latency_ms,
 		       sum(if(JSONExtractString(attributes, 'cache.hit') = 'true',  1, 0)) as cache_hits,
@@ -694,12 +695,12 @@ func (r *ClickHouseRepository) GetInsightDatabaseCache(teamUUID string, startMs,
 		FROM spans
 		WHERE team_id = ? AND start_time BETWEEN ? AND ?
 		  AND JSONExtractString(attributes, 'db.system') != ''
-		GROUP BY table_name, service_name
+		GROUP BY table_name, service_name, db_system
 		ORDER BY avg_query_latency_ms DESC
 		LIMIT 50
 	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
-		return model.DbCacheSummary{}, nil, err
+		return model.DbCacheSummary{}, nil, nil, err
 	}
 
 	tableMetrics := make([]model.DbTableMetric, len(tableMetricsRaw))
@@ -707,6 +708,7 @@ func (r *ClickHouseRepository) GetInsightDatabaseCache(teamUUID string, startMs,
 		tableMetrics[i] = model.DbTableMetric{
 			TableName:         dbutil.StringFromAny(row["table_name"]),
 			ServiceName:       dbutil.StringFromAny(row["service_name"]),
+			DbSystem:          dbutil.StringFromAny(row["db_system"]),
 			AvgQueryLatencyMs: dbutil.NullableFloat64FromAny(row["avg_query_latency_ms"]),
 			MaxQueryLatencyMs: dbutil.NullableFloat64FromAny(row["max_query_latency_ms"]),
 			CacheHits:         dbutil.Int64FromAny(row["cache_hits"]),
@@ -715,7 +717,37 @@ func (r *ClickHouseRepository) GetInsightDatabaseCache(teamUUID string, startMs,
 		}
 	}
 
-	return summary, tableMetrics, err
+	// System breakdown query — groups by db.system to show per-database-type stats
+	systemRaw, err := dbutil.QueryMaps(r.db, `
+		SELECT coalesce(nullIf(JSONExtractString(attributes, 'db.system'), ''), 'unknown') as db_system,
+		       COUNT(*) as query_count,
+		       avg(JSONExtractFloat(attributes, 'db.query.latency.ms')) as avg_query_latency_ms,
+		       quantile(0.95)(JSONExtractFloat(attributes, 'db.query.latency.ms')) as p95_query_latency_ms,
+		       sum(if(status = 'ERROR', 1, 0)) as error_count,
+		       COUNT(*) as span_count
+		FROM spans
+		WHERE team_id = ? AND start_time BETWEEN ? AND ?
+		  AND JSONExtractString(attributes, 'db.system') != ''
+		GROUP BY db_system
+		ORDER BY query_count DESC
+	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return model.DbCacheSummary{}, nil, nil, err
+	}
+
+	systemBreakdown := make([]model.DbSystemBreakdown, len(systemRaw))
+	for i, row := range systemRaw {
+		systemBreakdown[i] = model.DbSystemBreakdown{
+			DbSystem:        dbutil.StringFromAny(row["db_system"]),
+			QueryCount:      dbutil.Int64FromAny(row["query_count"]),
+			AvgQueryLatency: dbutil.NullableFloat64FromAny(row["avg_query_latency_ms"]),
+			P95QueryLatency: dbutil.NullableFloat64FromAny(row["p95_query_latency_ms"]),
+			ErrorCount:      dbutil.Int64FromAny(row["error_count"]),
+			SpanCount:       dbutil.Int64FromAny(row["span_count"]),
+		}
+	}
+
+	return summary, tableMetrics, systemBreakdown, err
 }
 
 // GetInsightMessagingQueue queries queue depth, lag, and rates.
@@ -726,13 +758,13 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 	}
 
 	summaryRaw, err := dbutil.QueryMap(r.db, `
-		SELECT if(sum(queue_depth_samples) > 0, sum(queue_depth_sum) / sum(queue_depth_samples), NULL) as avg_queue_depth,
-		       max(max_queue_depth) as max_queue_depth,
-		       if(sum(consumer_lag_samples) > 0, sum(consumer_lag_sum) / sum(consumer_lag_samples), NULL) as avg_consumer_lag,
-		       max(max_consumer_lag) as max_consumer_lag,
-		       sum(publish_events) / ? as avg_publish_rate,
-		       sum(receive_events) / ? as avg_receive_rate,
-		       sum(processing_errors) as processing_errors
+		SELECT round(if(sum(queue_depth_samples) > 0, sum(queue_depth_sum) / sum(queue_depth_samples), NULL), 2) as avg_queue_depth,
+		       round(max(max_queue_depth), 2) as max_queue_depth,
+		       round(if(sum(consumer_lag_samples) > 0, sum(consumer_lag_sum) / sum(consumer_lag_samples), NULL), 2) as avg_consumer_lag,
+		       round(max(max_consumer_lag), 2) as max_consumer_lag,
+		       round(sum(publish_events) / ?, 2) as avg_publish_rate,
+		       round(sum(receive_events) / ?, 2) as avg_receive_rate,
+		       round(sum(processing_errors), 2) as processing_errors
 		FROM (
 		    SELECT sumIf(JSONExtractFloat(attributes, 'queue.depth'), JSONExtractFloat(attributes, 'queue.depth') > 0) as queue_depth_sum,
 		           countIf(JSONExtractFloat(attributes, 'queue.depth') > 0) as queue_depth_samples,
@@ -795,10 +827,11 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 		SELECT time_bucket,
 		       service_name,
 		       queue_name,
-		       if(sum(queue_depth_samples) > 0, sum(queue_depth_sum) / sum(queue_depth_samples), NULL) as avg_queue_depth,
-		       if(sum(consumer_lag_samples) > 0, sum(consumer_lag_sum) / sum(consumer_lag_samples), NULL) as avg_consumer_lag,
-		       sum(publish_events) / 60.0 as avg_publish_rate,
-		       sum(receive_events) / 60.0 as avg_receive_rate
+		       any(messaging_system) as messaging_system,
+		       round(if(sum(queue_depth_samples) > 0, sum(queue_depth_sum) / sum(queue_depth_samples), NULL), 2) as avg_queue_depth,
+		       round(if(sum(consumer_lag_samples) > 0, sum(consumer_lag_sum) / sum(consumer_lag_samples), NULL), 2) as avg_consumer_lag,
+		       round(sum(publish_events) / 60.0, 2) as avg_publish_rate,
+		       round(sum(receive_events) / 60.0, 2) as avg_receive_rate
 		FROM (
 		    SELECT formatDateTime(toStartOfMinute(start_time), '%Y-%m-%dT%H:%i:%SZ') as time_bucket,
 		           if(service_name != '', service_name, 'unknown') as service_name,
@@ -807,6 +840,7 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 		               nullIf(JSONExtractString(attributes, 'messaging.destination'), ''),
 		               'unknown'
 		           ) as queue_name,
+		           coalesce(nullIf(JSONExtractString(attributes, 'messaging.system'), ''), 'kafka') as messaging_system,
 		           sumIf(JSONExtractFloat(attributes, 'queue.depth'), JSONExtractFloat(attributes, 'queue.depth') > 0) as queue_depth_sum,
 		           countIf(JSONExtractFloat(attributes, 'queue.depth') > 0) as queue_depth_samples,
 		           sumIf(JSONExtractFloat(attributes, 'messaging.kafka.consumer.lag'), JSONExtractFloat(attributes, 'messaging.kafka.consumer.lag') > 0) as consumer_lag_sum,
@@ -829,7 +863,7 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 		           )) as receive_events
 		    FROM spans
 		    WHERE team_id = ? AND start_time BETWEEN ? AND ?
-		    GROUP BY 1, 2, 3
+		    GROUP BY 1, 2, 3, 4
 
 		    UNION ALL
 
@@ -842,6 +876,7 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 		               nullIf(JSONExtractString(attributes, 'name'), ''),
 		               'unknown'
 		           ) as queue_name,
+		           coalesce(nullIf(JSONExtractString(attributes, 'messaging.system'), ''), 'kafka') as messaging_system,
 		           sumIf(value, metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as queue_depth_sum,
 		           countIf(metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as queue_depth_samples,
 		           sumIf(value, metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'executor.queued') AND isFinite(value)) as consumer_lag_sum,
@@ -860,7 +895,7 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 		          'kafka.consumer.records.lag',
 		          'kafka.consumer.records-lag'
 		      )
-		    GROUP BY 1, 2, 3
+		    GROUP BY 1, 2, 3, 4
 		) merged
 		GROUP BY time_bucket, service_name, queue_name
 		ORDER BY time_bucket ASC, service_name ASC, queue_name ASC
@@ -872,23 +907,25 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 	timeseries := make([]model.MqBucket, len(timeseriesRaw))
 	for i, row := range timeseriesRaw {
 		timeseries[i] = model.MqBucket{
-			Timestamp:      dbutil.StringFromAny(row["time_bucket"]),
-			ServiceName:    dbutil.StringFromAny(row["service_name"]),
-			QueueName:      dbutil.StringFromAny(row["queue_name"]),
-			AvgQueueDepth:  dbutil.NullableFloat64FromAny(row["avg_queue_depth"]),
-			AvgConsumerLag: dbutil.NullableFloat64FromAny(row["avg_consumer_lag"]),
-			AvgPublishRate: dbutil.Float64FromAny(row["avg_publish_rate"]),
-			AvgReceiveRate: dbutil.Float64FromAny(row["avg_receive_rate"]),
+			Timestamp:       dbutil.StringFromAny(row["time_bucket"]),
+			ServiceName:     dbutil.StringFromAny(row["service_name"]),
+			QueueName:       dbutil.StringFromAny(row["queue_name"]),
+			MessagingSystem: dbutil.StringFromAny(row["messaging_system"]),
+			AvgQueueDepth:   dbutil.NullableFloat64FromAny(row["avg_queue_depth"]),
+			AvgConsumerLag:  dbutil.NullableFloat64FromAny(row["avg_consumer_lag"]),
+			AvgPublishRate:  dbutil.Float64FromAny(row["avg_publish_rate"]),
+			AvgReceiveRate:  dbutil.Float64FromAny(row["avg_receive_rate"]),
 		}
 	}
 
 	topQueuesRaw, err := dbutil.QueryMaps(r.db, `
 		SELECT queue_name,
 		       service_name,
-		       if(sum(queue_depth_samples) > 0, sum(queue_depth_sum) / sum(queue_depth_samples), NULL) as avg_queue_depth,
-		       max(max_consumer_lag) as max_consumer_lag,
-		       sum(publish_events) / ? as avg_publish_rate,
-		       sum(receive_events) / ? as avg_receive_rate,
+		       any(messaging_system) as messaging_system,
+		       round(if(sum(queue_depth_samples) > 0, sum(queue_depth_sum) / sum(queue_depth_samples), NULL), 2) as avg_queue_depth,
+		       round(max(max_consumer_lag), 2) as max_consumer_lag,
+		       round(sum(publish_events) / ?, 2) as avg_publish_rate,
+		       round(sum(receive_events) / ?, 2) as avg_receive_rate,
 		       toInt64(sum(sample_count)) as sample_count
 		FROM (
 		    SELECT coalesce(
@@ -897,6 +934,7 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 		               'unknown'
 		           ) as queue_name,
 		           if(service_name != '', service_name, 'unknown') as service_name,
+		           coalesce(nullIf(JSONExtractString(attributes, 'messaging.system'), ''), 'kafka') as messaging_system,
 		           sumIf(JSONExtractFloat(attributes, 'queue.depth'), JSONExtractFloat(attributes, 'queue.depth') > 0) as queue_depth_sum,
 		           countIf(JSONExtractFloat(attributes, 'queue.depth') > 0) as queue_depth_samples,
 		           maxIf(JSONExtractFloat(attributes, 'messaging.kafka.consumer.lag'), JSONExtractFloat(attributes, 'messaging.kafka.consumer.lag') > 0) as max_consumer_lag,
@@ -919,7 +957,7 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 		           toInt64(count()) as sample_count
 		    FROM spans
 		    WHERE team_id = ? AND start_time BETWEEN ? AND ?
-		    GROUP BY queue_name, service_name
+		    GROUP BY queue_name, service_name, messaging_system
 
 		    UNION ALL
 
@@ -931,6 +969,7 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 		               'unknown'
 		           ) as queue_name,
 		           if(service_name != '', service_name, 'unknown') as service_name,
+		           coalesce(nullIf(JSONExtractString(attributes, 'messaging.system'), ''), 'kafka') as messaging_system,
 		           sumIf(value, metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as queue_depth_sum,
 		           countIf(metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as queue_depth_samples,
 		           maxIf(value, metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'executor.queued') AND isFinite(value)) as max_consumer_lag,
@@ -949,7 +988,7 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 		          'kafka.consumer.records.lag',
 		          'kafka.consumer.records-lag'
 		      )
-		    GROUP BY queue_name, service_name
+		    GROUP BY queue_name, service_name, messaging_system
 		) merged
 		GROUP BY queue_name, service_name
 		ORDER BY avg_queue_depth DESC, max_consumer_lag DESC, sample_count DESC
@@ -964,13 +1003,14 @@ func (r *ClickHouseRepository) GetInsightMessagingQueue(teamUUID string, startMs
 	topQueues := make([]model.MqTopQueue, len(topQueuesRaw))
 	for i, row := range topQueuesRaw {
 		topQueues[i] = model.MqTopQueue{
-			QueueName:      dbutil.StringFromAny(row["queue_name"]),
-			ServiceName:    dbutil.StringFromAny(row["service_name"]),
-			AvgQueueDepth:  dbutil.NullableFloat64FromAny(row["avg_queue_depth"]),
-			MaxConsumerLag: dbutil.NullableFloat64FromAny(row["max_consumer_lag"]),
-			AvgPublishRate: dbutil.Float64FromAny(row["avg_publish_rate"]),
-			AvgReceiveRate: dbutil.Float64FromAny(row["avg_receive_rate"]),
-			SampleCount:    dbutil.Int64FromAny(row["sample_count"]),
+			QueueName:       dbutil.StringFromAny(row["queue_name"]),
+			ServiceName:     dbutil.StringFromAny(row["service_name"]),
+			MessagingSystem: dbutil.StringFromAny(row["messaging_system"]),
+			AvgQueueDepth:   dbutil.NullableFloat64FromAny(row["avg_queue_depth"]),
+			MaxConsumerLag:  dbutil.NullableFloat64FromAny(row["max_consumer_lag"]),
+			AvgPublishRate:  dbutil.Float64FromAny(row["avg_publish_rate"]),
+			AvgReceiveRate:  dbutil.Float64FromAny(row["avg_receive_rate"]),
+			SampleCount:     dbutil.Int64FromAny(row["sample_count"]),
 		}
 	}
 

@@ -137,10 +137,20 @@ type Facet struct {
 // ---- Database Cache ----
 
 type DatabaseCacheResponse struct {
-	Summary      DbCacheSummary  `json:"summary"`
-	TableMetrics []DbTableMetric `json:"tableMetrics"`
-	Cache        DbCacheStats    `json:"cache"`
-	SlowLogs     DbSlowLogs      `json:"slowLogs"`
+	Summary         DbCacheSummary      `json:"summary"`
+	TableMetrics    []DbTableMetric     `json:"tableMetrics"`
+	Cache           DbCacheStats        `json:"cache"`
+	SlowLogs        DbSlowLogs          `json:"slowLogs"`
+	SystemBreakdown []DbSystemBreakdown `json:"systemBreakdown"`
+}
+
+type DbSystemBreakdown struct {
+	DbSystem        string   `json:"db_system"`
+	QueryCount      int64    `json:"query_count"`
+	AvgQueryLatency *float64 `json:"avg_query_latency_ms"`
+	P95QueryLatency *float64 `json:"p95_query_latency_ms"`
+	ErrorCount      int64    `json:"error_count"`
+	SpanCount       int64    `json:"span_count"`
 }
 
 type DbCacheSummary struct {
@@ -155,6 +165,7 @@ type DbCacheSummary struct {
 type DbTableMetric struct {
 	TableName         string   `json:"table_name"`
 	ServiceName       string   `json:"service_name"`
+	DbSystem          string   `json:"db_system"`
 	AvgQueryLatencyMs *float64 `json:"avg_query_latency_ms"`
 	MaxQueryLatencyMs *float64 `json:"max_query_latency_ms"`
 	CacheHits         int64    `json:"cache_hits"`
@@ -195,21 +206,23 @@ type MqSummary struct {
 }
 
 type MqBucket struct {
-	Timestamp      string   `json:"timestamp"`
-	ServiceName    string   `json:"service_name"`
-	QueueName      string   `json:"queue_name"`
-	AvgQueueDepth  *float64 `json:"avg_queue_depth"`
-	AvgConsumerLag *float64 `json:"avg_consumer_lag"`
-	AvgPublishRate float64  `json:"avg_publish_rate"`
-	AvgReceiveRate float64  `json:"avg_receive_rate"`
+	Timestamp       string   `json:"timestamp"`
+	ServiceName     string   `json:"service_name"`
+	QueueName       string   `json:"queue_name"`
+	MessagingSystem string   `json:"messaging_system"`
+	AvgQueueDepth   *float64 `json:"avg_queue_depth"`
+	AvgConsumerLag  *float64 `json:"avg_consumer_lag"`
+	AvgPublishRate  float64  `json:"avg_publish_rate"`
+	AvgReceiveRate  float64  `json:"avg_receive_rate"`
 }
 
 type MqTopQueue struct {
-	QueueName      string   `json:"queue_name"`
-	ServiceName    string   `json:"service_name"`
-	AvgQueueDepth  *float64 `json:"avg_queue_depth"`
-	MaxConsumerLag *float64 `json:"max_consumer_lag"`
-	AvgPublishRate float64  `json:"avg_publish_rate"`
-	AvgReceiveRate float64  `json:"avg_receive_rate"`
-	SampleCount    int64    `json:"sample_count"`
+	QueueName       string   `json:"queue_name"`
+	ServiceName     string   `json:"service_name"`
+	MessagingSystem string   `json:"messaging_system"`
+	AvgQueueDepth   *float64 `json:"avg_queue_depth"`
+	MaxConsumerLag  *float64 `json:"max_consumer_lag"`
+	AvgPublishRate  float64  `json:"avg_publish_rate"`
+	AvgReceiveRate  float64  `json:"avg_receive_rate"`
+	SampleCount     int64    `json:"sample_count"`
 }

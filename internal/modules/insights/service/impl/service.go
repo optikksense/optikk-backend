@@ -97,7 +97,7 @@ func (s *InsightService) GetInsightLogsStream(teamUUID string, startMs, endMs in
 }
 
 func (s *InsightService) GetInsightDatabaseCache(teamUUID string, startMs, endMs int64) (*model.DatabaseCacheResponse, error) {
-	summary, tableMetrics, err := s.repo.GetInsightDatabaseCache(teamUUID, startMs, endMs)
+	summary, tableMetrics, systemBreakdown, err := s.repo.GetInsightDatabaseCache(teamUUID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -123,6 +123,7 @@ func (s *InsightService) GetInsightDatabaseCache(teamUUID string, startMs, endMs
 			Limit:   50,
 			Total:   0,
 		},
+		SystemBreakdown: systemBreakdown,
 	}, nil
 }
 
