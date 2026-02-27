@@ -39,6 +39,10 @@ func (s *TraceService) GetTraceSpans(ctx context.Context, teamUUID, traceID stri
 	return s.repo.GetTraceSpans(ctx, teamUUID, traceID)
 }
 
+func (s *TraceService) GetSpanTree(ctx context.Context, teamUUID, spanID string) ([]model.Span, error) {
+	return s.repo.GetSpanTree(ctx, teamUUID, spanID)
+}
+
 func (s *TraceService) GetServiceDependencies(ctx context.Context, teamUUID string, startMs, endMs int64) ([]model.ServiceDependency, error) {
 	return s.repo.GetServiceDependencies(ctx, teamUUID, startMs, endMs)
 }

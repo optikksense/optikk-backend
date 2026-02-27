@@ -59,7 +59,7 @@ func (r *ClickHouseRepository) GetTraces(ctx context.Context, f model.TraceFilte
 	queryFrag, args := r.buildTraceQueryArgs(f)
 
 	query := `
-		SELECT trace_id, service_name, operation_name, start_time, end_time, duration_ms,
+		SELECT span_id, trace_id, service_name, operation_name, start_time, end_time, duration_ms,
 		       status, http_method, http_status_code
 		FROM spans` + queryFrag + ` ORDER BY start_time DESC LIMIT ? OFFSET ?`
 	traceArgs := append(args, limit, offset)
@@ -72,6 +72,7 @@ func (r *ClickHouseRepository) GetTraces(ctx context.Context, f model.TraceFilte
 	traces := make([]model.Trace, 0, len(rows))
 	for _, row := range rows {
 		traces = append(traces, model.Trace{
+			SpanID:         dbutil.StringFromAny(row["span_id"]),
 			TraceID:        dbutil.StringFromAny(row["trace_id"]),
 			ServiceName:    dbutil.StringFromAny(row["service_name"]),
 			OperationName:  dbutil.StringFromAny(row["operation_name"]),
@@ -146,6 +147,25 @@ func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamUUID, trac
 		})
 	}
 	return spans, nil
+}
+
+// GetSpanTree resolves the trace_id for the given root spanID and returns all
+// spans belonging to that trace, ordered by start_time ascending.
+func (r *ClickHouseRepository) GetSpanTree(ctx context.Context, teamUUID, spanID string) ([]model.Span, error) {
+	// Step 1: resolve the trace_id for this span_id.
+	traceRow, err := dbutil.QueryMap(r.db, `
+		SELECT trace_id FROM spans WHERE team_id = ? AND span_id = ? LIMIT 1
+	`, teamUUID, spanID)
+	if err != nil {
+		return nil, err
+	}
+	traceID := dbutil.StringFromAny(traceRow["trace_id"])
+	if traceID == "" {
+		return nil, nil
+	}
+
+	// Step 2: fetch all spans for this trace_id.
+	return r.GetTraceSpans(ctx, teamUUID, traceID)
 }
 
 func (r *ClickHouseRepository) GetServiceDependencies(ctx context.Context, teamUUID string, startMs, endMs int64) ([]model.ServiceDependency, error) {

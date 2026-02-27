@@ -10,6 +10,7 @@ import (
 type Repository interface {
 	GetTraces(ctx context.Context, f model.TraceFilters, limit, offset int) ([]model.Trace, int64, model.TraceSummary, error)
 	GetTraceSpans(ctx context.Context, teamUUID, traceID string) ([]model.Span, error)
+	GetSpanTree(ctx context.Context, teamUUID, spanID string) ([]model.Span, error)
 	GetServiceDependencies(ctx context.Context, teamUUID string, startMs, endMs int64) ([]model.ServiceDependency, error)
 	GetErrorGroups(ctx context.Context, teamUUID string, startMs, endMs int64, serviceName string, limit int) ([]model.ErrorGroup, error)
 	GetErrorTimeSeries(ctx context.Context, teamUUID string, startMs, endMs int64, serviceName string) ([]model.ErrorTimeSeries, error)

@@ -74,6 +74,21 @@ func (h *TraceHandler) GetTraceSpans(c *gin.Context) {
 	handlers.RespondOK(c, spans)
 }
 
+// GetSpanTree resolves the trace_id for the given spanId and returns all spans
+// in that trace, ordered by start_time. This allows the waterfall to be driven
+// by a root span_id rather than a trace_id.
+func (h *TraceHandler) GetSpanTree(c *gin.Context) {
+	teamUUID := h.getTenant(c).TeamUUID()
+	spanID := c.Param("spanId")
+
+	spans, err := h.service.GetSpanTree(c.Request.Context(), teamUUID, spanID)
+	if err != nil {
+		handlers.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query span tree")
+		return
+	}
+	handlers.RespondOK(c, spans)
+}
+
 func (h *TraceHandler) GetServiceDependencies(c *gin.Context) {
 	teamUUID := h.getTenant(c).TeamUUID()
 	startMs, endMs := handlers.ParseRange(c, 60*60*1000)

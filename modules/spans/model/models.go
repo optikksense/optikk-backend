@@ -4,6 +4,7 @@ import "time"
 
 // Trace represents a root span (trace summary).
 type Trace struct {
+	SpanID         string    `json:"spanId"`
 	TraceID        string    `json:"traceId"`
 	ServiceName    string    `json:"serviceName"`
 	OperationName  string    `json:"operationName"`
