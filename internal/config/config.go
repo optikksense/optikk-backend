@@ -46,7 +46,7 @@ func Load() Config {
 		ClickHouseDatabase: getEnv("CLICKHOUSE_DATABASE", "observability"),
 		ClickHouseUser:     getEnv("CLICKHOUSE_USERNAME", "default"),
 		ClickHousePassword: getEnv("CLICKHOUSE_PASSWORD", "clickhouse123"),
-		JWTSecret:          getEnv("JWT_SECRET", "observex-secret-key-for-jwt-token-generation-must-be-at-least-256-bits"),
+		JWTSecret:          getEnv("JWT_SECRET", "optic-secret-key-for-jwt-token-generation-must-be-at-least-256-bits"),
 		JWTExpirationMs:    getEnvInt64("JWT_EXPIRATION_MS", 86_400_000),
 
 		QueueBatchSize:       int(getEnvInt64("QUEUE_BATCH_SIZE", 500)),

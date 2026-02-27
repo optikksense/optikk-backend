@@ -24,10 +24,7 @@ import (
 	"github.com/observability/observability-backend-go/internal/modules/deployments"
 	deploymentsservice "github.com/observability/observability-backend-go/internal/modules/deployments/service"
 	deploymentsstore "github.com/observability/observability-backend-go/internal/modules/deployments/store"
-	"github.com/observability/observability-backend-go/internal/modules/explore"
-	exploreservice "github.com/observability/observability-backend-go/internal/modules/explore/service"
-	explorestore "github.com/observability/observability-backend-go/internal/modules/explore/store"
-	"github.com/observability/observability-backend-go/internal/modules/health"
+"github.com/observability/observability-backend-go/internal/modules/health"
 	healthservice "github.com/observability/observability-backend-go/internal/modules/health/service"
 	healthstore "github.com/observability/observability-backend-go/internal/modules/health/store"
 	"github.com/observability/observability-backend-go/modules/user"
@@ -81,7 +78,6 @@ type App struct {
 	Insights        *insights.InsightHandler
 	AI              *ai.AIHandler
 	DashboardConfig *dashboardconfig.DashboardConfigHandler
-	Explore         *explore.ExploreHandler
 }
 
 type AuthModule interface {
@@ -127,11 +123,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 		log.Printf("WARN: dashboard_chart_configs table migration: %v", err)
 	}
 
-	if err := explorestore.NewRepository(db).EnsureTable(); err != nil {
-		log.Printf("WARN: explore_saved_queries table migration: %v", err)
-	}
-
-	return &App{
+return &App{
 		DB:         db,
 		CH:         ch,
 		Config:     cfg,
@@ -227,15 +219,6 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 			},
 			Service: dashboardconfigservice.NewService(
 				dashboardconfigstore.NewRepository(db),
-			),
-		},
-		Explore: &explore.ExploreHandler{
-			DBTenant: modulecommon.DBTenant{
-				DB:        db,
-				GetTenant: getTenant,
-			},
-			Service: exploreservice.NewService(
-				explorestore.NewRepository(db),
 			),
 		},
 	}

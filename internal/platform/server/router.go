@@ -9,8 +9,7 @@ import (
 	"github.com/observability/observability-backend-go/internal/modules/alerts"
 	"github.com/observability/observability-backend-go/internal/modules/dashboardconfig"
 	"github.com/observability/observability-backend-go/internal/modules/deployments"
-	"github.com/observability/observability-backend-go/internal/modules/explore"
-	"github.com/observability/observability-backend-go/internal/modules/health"
+"github.com/observability/observability-backend-go/internal/modules/health"
 	"github.com/observability/observability-backend-go/modules/user"
 	"github.com/observability/observability-backend-go/internal/modules/infrastructure"
 	"github.com/observability/observability-backend-go/internal/modules/insights"
@@ -34,8 +33,7 @@ type moduleConfigs struct {
 	Insights        insights.Config
 	AI              ai.Config
 	DashboardConfig dashboardconfig.Config
-	Explore         explore.Config
-	Telemetry       telemetry.Config
+Telemetry       telemetry.Config
 }
 
 func defaultModuleConfigs() moduleConfigs {
@@ -52,8 +50,7 @@ func defaultModuleConfigs() moduleConfigs {
 		Insights:        insights.DefaultConfig(),
 		AI:              ai.DefaultConfig(),
 		DashboardConfig: dashboardconfig.DefaultConfig(),
-		Explore:         explore.DefaultConfig(),
-		Telemetry:       telemetry.DefaultConfig(),
+Telemetry:       telemetry.DefaultConfig(),
 	}
 }
 
@@ -75,7 +72,6 @@ func (a *App) registerRoutes(r *gin.Engine) {
 	insights.RegisterRoutes(cfg.Insights, api, v1, a.Insights)
 	ai.RegisterRoutes(cfg.AI, api, v1, a.AI)
 	dashboardconfig.RegisterRoutes(cfg.DashboardConfig, api, v1, a.DashboardConfig)
-	explore.RegisterRoutes(cfg.Explore, api, v1, a.Explore)
 
 	// OTLP ingestion endpoint — authenticated via api_key (not JWT).
 	repo := telemetry.NewRepository(database.NewMySQLWrapper(a.CH))
