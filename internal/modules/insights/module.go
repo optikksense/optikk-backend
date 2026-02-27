@@ -21,6 +21,4 @@ func RegisterRoutes(cfg Config, _ *gin.RouterGroup, v1 *gin.RouterGroup, h *Insi
 	v1.GET("/insights/resource-utilization", h.GetInsightResourceUtilization)
 	v1.GET("/insights/slo-sli", h.GetInsightSloSli)
 	v1.GET("/insights/logs-stream", h.GetInsightLogsStream)
-	v1.GET("/insights/database-cache", h.GetInsightDatabaseCache)
-	v1.GET("/insights/messaging-queue", h.GetInsightMessagingQueue)
 }

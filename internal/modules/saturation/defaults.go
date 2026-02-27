@@ -12,62 +12,55 @@ icon: "Gauge"
 subtitle: "Leading indicators: queue depths, consumer lag, thread pools, and connection pool utilization"
 
 dataSources:
-  - id: saturation-metrics
-    endpoint: /v1/saturation/metrics
-  - id: saturation-timeseries
-    endpoint: /v1/saturation/timeseries
-    params:
-      interval: "5m"
-  - id: services-metrics
-    endpoint: /v1/services/metrics
+  - id: kafka-queue-lag
+    endpoint: /v1/saturation/kafka/queue-lag
+  - id: kafka-production-rate
+    endpoint: /v1/saturation/kafka/production-rate
+  - id: kafka-consumption-rate
+    endpoint: /v1/saturation/kafka/consumption-rate
+  - id: database-query-table
+    endpoint: /v1/saturation/database/query-by-table
+  - id: database-avg-latency
+    endpoint: /v1/saturation/database/avg-latency
 
 statCards:
-  - title: "Max DB Pool Util"
-    dataSource: saturation-metrics
-    valueField: _maxDbPool
-    formatter: percent1
+  - title: "Avg DB Latency"
+    dataSource: database-avg-latency
+    valueField: avg_latency_ms
+    formatter: number
     icon: Database
   - title: "Max Consumer Lag"
-    dataSource: saturation-metrics
-    valueField: _maxLag
+    dataSource: kafka-queue-lag
+    valueField: max_consumer_lag
     formatter: number
     icon: Radio
-  - title: "Max Thread Active"
-    dataSource: saturation-metrics
-    valueField: _maxThread
-    formatter: number
-    icon: Cpu
   - title: "Max Queue Depth"
-    dataSource: saturation-metrics
-    valueField: _maxQueue
+    dataSource: kafka-queue-lag
+    valueField: max_queue_depth
     formatter: number
     icon: GitPullRequest
 
 charts:
   - id: consumer-lag
-    title: "Consumer Lag (avg, per service)"
+    title: "Consumer Lag"
     type: request
     layout:
       col: 12
-    dataSource: saturation-timeseries
-    groupByKey: service
+    dataSource: kafka-queue-lag
+    groupByKey: queue
     valueKey: avg_consumer_lag
     datasetLabel: "Lag"
-    endpointMetricsSource: services-metrics
-    endpointListType: requests
-    listTitle: "Services"
+    listTitle: "Queues"
     height: 220
-  - id: thread-pool
-    title: "Thread Pool Active (avg, per service)"
+  - id: database-latencies
+    title: "Database Latencies"
     type: request
     layout:
       col: 12
-    dataSource: saturation-timeseries
-    groupByKey: service
-    valueKey: avg_thread_active
-    datasetLabel: "Active Threads"
-    endpointMetricsSource: services-metrics
-    endpointListType: requests
-    listTitle: "Services"
+    dataSource: database-avg-latency
+    groupByKey: cluster
+    valueKey: avg_latency_ms
+    datasetLabel: "Avg Latency"
+    listTitle: "Database Regions"
     height: 220
 `

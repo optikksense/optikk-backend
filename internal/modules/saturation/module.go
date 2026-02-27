@@ -17,7 +17,12 @@ func RegisterRoutes(cfg Config, _ *gin.RouterGroup, v1 *gin.RouterGroup, h *Satu
 	if !cfg.Enabled || h == nil {
 		return
 	}
+	v1.GET("/saturation/kafka/queue-lag", h.GetKafkaQueueLag)
+	v1.GET("/saturation/kafka/production-rate", h.GetKafkaProductionRate)
+	v1.GET("/saturation/kafka/consumption-rate", h.GetKafkaConsumptionRate)
+	v1.GET("/saturation/database/query-by-table", h.GetDatabaseQueryByTable)
+	v1.GET("/saturation/database/avg-latency", h.GetDatabaseAvgLatency)
 
-	v1.GET("/saturation/metrics", h.GetSaturationMetrics)
-	v1.GET("/saturation/timeseries", h.GetSaturationTimeSeries)
+	v1.GET("/saturation/database-cache", h.GetInsightDatabaseCache)
+	v1.GET("/saturation/messaging-queue", h.GetInsightMessagingQueue)
 }

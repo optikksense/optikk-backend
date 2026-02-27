@@ -16,7 +16,7 @@ subtitle: "Throughput rates, consumer lag, queue depth, and processing errors pe
 
 dataSources:
   - id: messaging-queue-insights
-    endpoint: /v1/insights/messaging-queue
+    endpoint: /v1/saturation/messaging-queue
     params:
       interval: "5m"
 
@@ -207,7 +207,7 @@ subtitle: "Query latency, cache hit ratio, slow logs, replication lag"
 
 dataSources:
   - id: database-cache-insights
-    endpoint: /v1/insights/database-cache
+    endpoint: /v1/saturation/database-cache
 
 statCards:
   - title: "Avg Query Latency"

@@ -61,31 +61,3 @@ func (h *InsightHandler) GetInsightLogsStream(c *gin.Context) {
 
 	RespondOK(c, resp)
 }
-
-// GetInsightDatabaseCache — DB query latency and cache-hit ratio insights.
-func (h *InsightHandler) GetInsightDatabaseCache(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 24*60*60*1000)
-
-	resp, err := h.Service.GetInsightDatabaseCache(teamUUID, startMs, endMs)
-	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query database cache insights")
-		return
-	}
-
-	RespondOK(c, resp)
-}
-
-// GetInsightMessagingQueue — queue depth, consumer lag, and message rate insights.
-func (h *InsightHandler) GetInsightMessagingQueue(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 24*60*60*1000)
-
-	resp, err := h.Service.GetInsightMessagingQueue(teamUUID, startMs, endMs)
-	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query messaging insights")
-		return
-	}
-
-	RespondOK(c, resp)
-}
