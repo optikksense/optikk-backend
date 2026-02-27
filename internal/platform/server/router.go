@@ -13,7 +13,7 @@ import (
 	"github.com/observability/observability-backend-go/modules/user"
 	"github.com/observability/observability-backend-go/internal/modules/infrastructure"
 	"github.com/observability/observability-backend-go/internal/modules/insights"
-	logsmodule "github.com/observability/observability-backend-go/modules/logs"
+	logsmodule "github.com/observability/observability-backend-go/modules/log"
 	"github.com/observability/observability-backend-go/modules/metrics"
 	"github.com/observability/observability-backend-go/internal/modules/saturation"
 	"github.com/observability/observability-backend-go/modules/spans"

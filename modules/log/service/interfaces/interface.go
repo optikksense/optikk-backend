@@ -3,7 +3,7 @@ package interfaces
 import (
 	"context"
 
-	"github.com/observability/observability-backend-go/modules/logs/model"
+	"github.com/observability/observability-backend-go/modules/log/model"
 )
 
 // Service defines the business logic layer for logs.

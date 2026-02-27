@@ -1,4 +1,4 @@
-module github.com/observability/observability-backend-go/modules/logs
+module github.com/observability/observability-backend-go/modules/log
 
 go 1.24.0
 

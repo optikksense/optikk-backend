@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/observability/observability-backend-go/modules/logs/model"
-	"github.com/observability/observability-backend-go/modules/logs/service"
+	"github.com/observability/observability-backend-go/modules/log/model"
+	"github.com/observability/observability-backend-go/modules/log/service"
 	"github.com/observability/observability-backend-go/internal/platform/handlers"
 )
 

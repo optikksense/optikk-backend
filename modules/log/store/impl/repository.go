@@ -9,7 +9,7 @@ import (
 	"time"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
-	"github.com/observability/observability-backend-go/modules/logs/model"
+	"github.com/observability/observability-backend-go/modules/log/model"
 )
 
 type ClickHouseRepository struct {

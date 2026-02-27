@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/observability/observability-backend-go/modules/logs/model"
+	"github.com/observability/observability-backend-go/modules/log/model"
 )
 
 // Repository defines the data access layer for logs.
