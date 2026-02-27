@@ -3,11 +3,6 @@ package database
 import (
 	"context"
 	"database/sql"
-	"fmt"
-	"log"
-	"os"
-	"path/filepath"
-	"strings"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
 )
@@ -43,30 +38,6 @@ func OpenClickHouse(dsn string) (*sql.DB, error) {
 	}
 
 	return conn, nil
-}
-
-func RunClickHouseSchema(conn *sql.DB, root string) error {
-	schemaPath := filepath.Join(root, "db", "clickhouse_schema.sql")
-	sqlBytes, err := os.ReadFile(schemaPath)
-	if err != nil {
-		return fmt.Errorf("read clickhouse schema: %w", err)
-	}
-
-	content := string(sqlBytes)
-	stmts := strings.Split(content, ";")
-	ctx := context.Background()
-	for _, stmt := range stmts {
-		stmt = strings.TrimSpace(stmt)
-		if stmt == "" || strings.HasPrefix(stmt, "--") {
-			continue
-		}
-		_, err := conn.ExecContext(ctx, stmt)
-		if err != nil {
-			return fmt.Errorf("exec clickhouse schema stmt failed: %w; stmt=%s", err, stmt)
-		}
-	}
-	log.Println("clickhouse schema migration applied")
-	return nil
 }
 
 type MySQLWrapper struct {

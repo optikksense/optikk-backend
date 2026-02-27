@@ -3,7 +3,6 @@ package database
 import (
 	"database/sql"
 	"encoding/json"
-	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -76,19 +75,6 @@ func InClauseInt64(values []int64) (string, []any) {
 	return "(" + strings.Join(parts, ",") + ")", args
 }
 
-func parseJSONToMap(v any) map[string]any {
-	if v == nil {
-		return map[string]any{}
-	}
-	s, ok := v.(string)
-	if !ok || s == "" {
-		return map[string]any{}
-	}
-	out := map[string]any{}
-	_ = json.Unmarshal([]byte(s), &out)
-	return out
-}
-
 func normalizeValue(v any) any {
 	switch x := v.(type) {
 	case []byte:
@@ -130,14 +116,6 @@ func JSONString(v any) string {
 	return string(b)
 }
 
-func MustAtoi(v string, fallback int) int {
-	i, err := strconv.Atoi(v)
-	if err != nil {
-		return fallback
-	}
-	return i
-}
-
 func MustAtoi64(v string, fallback int64) int64 {
 	i, err := strconv.ParseInt(v, 10, 64)
 	if err != nil {
@@ -157,30 +135,3 @@ func RowsAffected(res sql.Result) int64 {
 	return n
 }
 
-func NullFloat(v any) *float64 {
-	if v == nil {
-		return nil
-	}
-	switch n := v.(type) {
-	case float64:
-		return &n
-	case int64:
-		f := float64(n)
-		return &f
-	case int:
-		f := float64(n)
-		return &f
-	case string:
-		f, err := strconv.ParseFloat(n, 64)
-		if err != nil {
-			return nil
-		}
-		return &f
-	default:
-		return nil
-	}
-}
-
-func CountQuery(baseSelect string) string {
-	return fmt.Sprintf("SELECT COUNT(*) as total FROM (%s) q", baseSelect)
-}
