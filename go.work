@@ -5,7 +5,7 @@ use (
 	./cmd/server
 	./internal/platform/server
 	./modules/ingestion
-	./modules/logs
+	./modules/log
 	./modules/metrics
 	./modules/spans
 	./modules/user

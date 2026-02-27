@@ -86,6 +86,20 @@ func (r *ClickHouseRepository) InsertSpans(ctx context.Context, spans []model.Sp
 	}
 	log.Printf("otlp: attempting to insert %d spans", len(spans))
 
+	const chunkSize = 100
+	for start := 0; start < len(spans); start += chunkSize {
+		end := start + chunkSize
+		if end > len(spans) {
+			end = len(spans)
+		}
+		if err := r.insertSpansChunk(ctx, spans[start:end]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *ClickHouseRepository) insertSpansChunk(ctx context.Context, spans []model.SpanRecord) error {
 	tx, err := r.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
@@ -210,6 +224,20 @@ func (r *ClickHouseRepository) InsertLogs(ctx context.Context, logs []model.LogR
 		return nil
 	}
 
+	const chunkSize = 100
+	for start := 0; start < len(logs); start += chunkSize {
+		end := start + chunkSize
+		if end > len(logs) {
+			end = len(logs)
+		}
+		if err := r.insertLogsChunk(ctx, logs[start:end]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *ClickHouseRepository) insertLogsChunk(ctx context.Context, logs []model.LogRecord) error {
 	tx, err := r.DB.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("begin transaction: %w", err)
