@@ -59,8 +59,6 @@ import (
 	metricsservice "github.com/observability/observability-backend-go/modules/metrics/service"
 	metricsstore "github.com/observability/observability-backend-go/modules/metrics/store"
 	tracesapi "github.com/observability/observability-backend-go/modules/spans"
-	tracesservice "github.com/observability/observability-backend-go/modules/spans/service"
-	tracesstore "github.com/observability/observability-backend-go/modules/spans/store"
 	identity "github.com/observability/observability-backend-go/modules/user"
 	identityservice "github.com/observability/observability-backend-go/modules/user/service"
 	identitystore "github.com/observability/observability-backend-go/modules/user/store"
@@ -176,9 +174,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 		),
 		Traces: tracesapi.NewHandler(
 			getTenant,
-			tracesservice.NewService(
-				tracesstore.NewRepository(database.NewMySQLWrapper(ch)),
-			),
+			tracesapi.NewRepository(database.NewMySQLWrapper(ch)),
 		),
 		Metrics: metricsapi.NewHandler(
 			getTenant,

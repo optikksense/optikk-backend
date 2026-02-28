@@ -4,7 +4,6 @@ import (
 	"log"
 
 	"github.com/gin-gonic/gin"
-	"github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/ai"
 	"github.com/observability/observability-backend-go/internal/modules/alerts"
 	"github.com/observability/observability-backend-go/internal/modules/dashboardconfig"
@@ -90,7 +89,8 @@ func (a *App) registerRoutes(r *gin.Engine) {
 	dashboardconfig.RegisterRoutes(cfg.DashboardConfig, api, v1, a.DashboardConfig)
 
 	// OTLP ingestion endpoint — authenticated via api_key (not JWT).
-	repo := telemetry.NewRepository(database.NewMySQLWrapper(a.CH))
+	// NewRepository takes *sql.DB directly to use clickhouse-go/v2 batch mode.
+	repo := telemetry.NewRepository(a.CH)
 
 	var ingester telemetry.Ingester
 	if a.Config.KafkaEnabled {
@@ -112,8 +112,13 @@ func (a *App) registerRoutes(r *gin.Engine) {
 		a.TelemetryConsumer = consumer
 		log.Println("telemetry: Kafka mode enabled")
 	} else {
-		ingester = telemetry.NewDirectIngester(repo)
-		log.Println("telemetry: direct mode (sync ClickHouse writes)")
+		ingester = telemetry.NewDirectIngester(repo, telemetry.DirectIngesterConfig{
+			SpansBatchSize:   a.Config.QueueBatchSize,
+			MetricsBatchSize: a.Config.QueueBatchSize,
+			LogsBatchSize:    a.Config.QueueBatchSize,
+			FlushInterval:    a.Config.QueueFlushInterval(),
+		})
+		log.Println("telemetry: direct mode (async buffered ClickHouse writes)")
 	}
 
 	a.TelemetryIngester = ingester

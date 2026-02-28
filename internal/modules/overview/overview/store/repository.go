@@ -26,14 +26,15 @@ func NewRepository(db dbutil.Querier) Repository {
 
 func (r *ClickHouseRepository) GetSummary(teamUUID string, startMs, endMs int64) (model.Summary, error) {
 	row, err := dbutil.QueryMap(r.db, `
-		SELECT COUNT(*) as total_requests,
-		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count,
-		       if(COUNT(*) > 0, sum(if(status='ERROR' OR http_status_code >= 400, 1, 0))*100.0/COUNT(*), 0) as error_rate,
-		       AVG(duration_ms) as avg_latency,
-		       quantile(0.95)(duration_ms) as p95_latency,
-		       quantile(0.99)(duration_ms) as p99_latency
-		FROM spans
-		WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?
+		SELECT countMerge(request_count) AS total_requests,
+		       countMerge(error_count)   AS error_count,
+		       if(countMerge(request_count) > 0,
+		          countMerge(error_count)*100.0/countMerge(request_count), 0) AS error_rate,
+		       avgMerge(avg_state)            AS avg_latency,
+		       quantileMerge(0.95)(p95_state) AS p95_latency,
+		       quantileMerge(0.99)(p99_state) AS p99_latency
+		FROM observability.spans_service_1m
+		WHERE team_id = ? AND minute BETWEEN ? AND ?
 	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return model.Summary{}, err
@@ -51,21 +52,21 @@ func (r *ClickHouseRepository) GetSummary(teamUUID string, startMs, endMs int64)
 
 func (r *ClickHouseRepository) GetTimeSeries(teamUUID string, startMs, endMs int64, serviceName string) ([]model.TimeSeriesPoint, error) {
 	query := `
-		SELECT toStartOfMinute(start_time) as time_bucket,
-		       COUNT(*) as request_count,
-		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count,
-		       AVG(duration_ms) as avg_latency,
-		       quantile(0.5)(duration_ms) as p50,
-		       quantile(0.95)(duration_ms) as p95,
-		       quantile(0.99)(duration_ms) as p99
-		FROM spans
-		WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`
+		SELECT minute                          AS time_bucket,
+		       countMerge(request_count)       AS request_count,
+		       countMerge(error_count)         AS error_count,
+		       avgMerge(avg_state)             AS avg_latency,
+		       quantileMerge(0.5)(p50_state)   AS p50,
+		       quantileMerge(0.95)(p95_state)  AS p95,
+		       quantileMerge(0.99)(p99_state)  AS p99
+		FROM observability.spans_service_1m
+		WHERE team_id = ? AND minute BETWEEN ? AND ?`
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
 		args = append(args, serviceName)
 	}
-	query += ` GROUP BY time_bucket ORDER BY time_bucket ASC`
+	query += ` GROUP BY minute ORDER BY time_bucket ASC`
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
@@ -90,16 +91,16 @@ func (r *ClickHouseRepository) GetTimeSeries(teamUUID string, startMs, endMs int
 func (r *ClickHouseRepository) GetServices(teamUUID string, startMs, endMs int64) ([]model.ServiceMetric, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT service_name,
-		       COUNT(*) as request_count,
-		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count,
-		       AVG(duration_ms) as avg_latency,
-		       quantile(0.5)(duration_ms) as p50_latency,
-		       quantile(0.95)(duration_ms) as p95_latency,
-		       quantile(0.99)(duration_ms) as p99_latency
-		FROM spans
-		WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?
+		       countMerge(request_count)       AS request_count,
+		       countMerge(error_count)         AS error_count,
+		       avgMerge(avg_state)             AS avg_latency,
+		       quantileMerge(0.5)(p50_state)   AS p50_latency,
+		       quantileMerge(0.95)(p95_state)  AS p95_latency,
+		       quantileMerge(0.99)(p99_state)  AS p99_latency
+		FROM observability.spans_service_1m
+		WHERE team_id = ? AND minute BETWEEN ? AND ?
 		GROUP BY service_name
-		ORDER BY request_count DESC
+		ORDER BY countMerge(request_count) DESC
 	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
@@ -123,20 +124,20 @@ func (r *ClickHouseRepository) GetServices(teamUUID string, startMs, endMs int64
 func (r *ClickHouseRepository) GetEndpointMetrics(teamUUID string, startMs, endMs int64, serviceName string) ([]model.EndpointMetric, error) {
 	query := `
 		SELECT service_name, operation_name, http_method,
-		       COUNT(*) as request_count,
-		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count,
-		       AVG(duration_ms) as avg_latency,
-		       quantile(0.5)(duration_ms) as p50_latency,
-		       quantile(0.95)(duration_ms) as p95_latency,
-		       quantile(0.99)(duration_ms) as p99_latency
-		FROM spans
-		WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`
+		       countMerge(request_count)       AS request_count,
+		       countMerge(error_count)         AS error_count,
+		       avgMerge(avg_state)             AS avg_latency,
+		       quantileMerge(0.5)(p50_state)   AS p50_latency,
+		       quantileMerge(0.95)(p95_state)  AS p95_latency,
+		       quantileMerge(0.99)(p99_state)  AS p99_latency
+		FROM observability.spans_endpoint_1m
+		WHERE team_id = ? AND minute BETWEEN ? AND ?`
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
 		args = append(args, serviceName)
 	}
-	query += ` GROUP BY service_name, operation_name, http_method ORDER BY request_count DESC LIMIT 100`
+	query += ` GROUP BY service_name, operation_name, http_method ORDER BY countMerge(request_count) DESC LIMIT 100`
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
@@ -162,24 +163,24 @@ func (r *ClickHouseRepository) GetEndpointMetrics(teamUUID string, startMs, endM
 
 func (r *ClickHouseRepository) GetEndpointTimeSeries(teamUUID string, startMs, endMs int64, serviceName string) ([]model.TimeSeriesPoint, error) {
 	query := `
-		SELECT toStartOfMinute(start_time) as time_bucket,
+		SELECT minute          AS time_bucket,
 		       service_name,
 		       operation_name,
 		       http_method,
-		       COUNT(*) as request_count,
-		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count,
-		       AVG(duration_ms) as avg_latency,
-		       quantile(0.5)(duration_ms) as p50,
-		       quantile(0.95)(duration_ms) as p95,
-		       quantile(0.99)(duration_ms) as p99
-		FROM spans
-		WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`
+		       countMerge(request_count)       AS request_count,
+		       countMerge(error_count)         AS error_count,
+		       avgMerge(avg_state)             AS avg_latency,
+		       quantileMerge(0.5)(p50_state)   AS p50,
+		       quantileMerge(0.95)(p95_state)  AS p95,
+		       quantileMerge(0.99)(p99_state)  AS p99
+		FROM observability.spans_endpoint_1m
+		WHERE team_id = ? AND minute BETWEEN ? AND ?`
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
 		args = append(args, serviceName)
 	}
-	query += ` GROUP BY time_bucket, service_name, operation_name, http_method ORDER BY time_bucket ASC, request_count DESC`
+	query += ` GROUP BY minute, service_name, operation_name, http_method ORDER BY time_bucket ASC, countMerge(request_count) DESC`
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {

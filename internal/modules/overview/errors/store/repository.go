@@ -23,6 +23,7 @@ func NewRepository(db dbutil.Querier) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
+// GetErrorGroups still reads raw spans — needs groupArray(trace_id) for sample trace IDs.
 func (r *ClickHouseRepository) GetErrorGroups(teamUUID string, startMs, endMs int64, serviceName string, limit int) ([]model.ErrorGroup, error) {
 	query := `
 		SELECT service_name, operation_name, status_message, http_status_code,
@@ -62,23 +63,24 @@ func (r *ClickHouseRepository) GetErrorGroups(teamUUID string, startMs, endMs in
 	return groups, nil
 }
 
+// GetServiceErrorRate reads from spans_service_1m — no raw span scan.
 func (r *ClickHouseRepository) GetServiceErrorRate(teamUUID string, startMs, endMs int64, serviceName string) ([]model.TimeSeriesPoint, error) {
 	query := `
 		SELECT service_name,
-		       toStartOfMinute(start_time) as timestamp,
-		       COUNT(*) as request_count,
-		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count,
-		       if(COUNT(*) > 0, sum(if(status='ERROR' OR http_status_code >= 400, 1, 0))*100.0/COUNT(*), 0) as error_rate,
-		       AVG(duration_ms) as avg_latency
-		FROM spans
-		WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`
+		       minute                    AS timestamp,
+		       countMerge(request_count) AS request_count,
+		       countMerge(error_count)   AS error_count,
+		       if(countMerge(request_count) > 0,
+		          countMerge(error_count)*100.0/countMerge(request_count), 0) AS error_rate,
+		       avgMerge(avg_state)       AS avg_latency
+		FROM observability.spans_service_1m
+		WHERE team_id = ? AND minute BETWEEN ? AND ?`
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
 		args = append(args, serviceName)
 	}
-	query += ` GROUP BY service_name, toStartOfMinute(start_time)
-	           ORDER BY timestamp ASC`
+	query += ` GROUP BY service_name, minute ORDER BY timestamp ASC`
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
@@ -99,20 +101,21 @@ func (r *ClickHouseRepository) GetServiceErrorRate(teamUUID string, startMs, end
 	return points, nil
 }
 
+// GetErrorVolume reads from spans_service_1m, filtering minutes with errors.
 func (r *ClickHouseRepository) GetErrorVolume(teamUUID string, startMs, endMs int64, serviceName string) ([]model.TimeSeriesPoint, error) {
 	query := `
 		SELECT service_name,
-		       toStartOfMinute(start_time) as timestamp,
-		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count
-		FROM spans
-		WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`
+		       minute                    AS timestamp,
+		       countMerge(error_count)   AS error_count
+		FROM observability.spans_service_1m
+		WHERE team_id = ? AND minute BETWEEN ? AND ?`
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
 		args = append(args, serviceName)
 	}
-	query += ` GROUP BY service_name, toStartOfMinute(start_time)
-	           HAVING error_count > 0
+	query += ` GROUP BY service_name, minute
+	           HAVING countMerge(error_count) > 0
 	           ORDER BY timestamp ASC`
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
@@ -131,22 +134,23 @@ func (r *ClickHouseRepository) GetErrorVolume(teamUUID string, startMs, endMs in
 	return points, nil
 }
 
+// GetLatencyDuringErrorWindows reads from spans_service_1m, filtering minutes with errors.
 func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(teamUUID string, startMs, endMs int64, serviceName string) ([]model.TimeSeriesPoint, error) {
 	query := `
 		SELECT service_name,
-		       toStartOfMinute(start_time) as timestamp,
-		       COUNT(*) as request_count,
-		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count,
-		       AVG(duration_ms) as avg_latency
-		FROM spans
-		WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`
+		       minute                    AS timestamp,
+		       countMerge(request_count) AS request_count,
+		       countMerge(error_count)   AS error_count,
+		       avgMerge(avg_state)       AS avg_latency
+		FROM observability.spans_service_1m
+		WHERE team_id = ? AND minute BETWEEN ? AND ?`
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
 		args = append(args, serviceName)
 	}
-	query += ` GROUP BY service_name, toStartOfMinute(start_time)
-	           HAVING error_count > 0
+	query += ` GROUP BY service_name, minute
+	           HAVING countMerge(error_count) > 0
 	           ORDER BY timestamp ASC`
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
