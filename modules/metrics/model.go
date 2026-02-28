@@ -1,16 +1,26 @@
-package model
+package metrics
 
 import "time"
+
+// MetricFilters defines common query filters for all metric queries.
+type MetricFilters struct {
+	TeamUUID    string
+	Start       time.Time
+	End         time.Time
+	ServiceName string // optional — empty means all services
+}
 
 // ServiceMetric represents aggregate metrics for a service.
 type ServiceMetric struct {
 	ServiceName  string  `json:"serviceName"`
 	RequestCount int64   `json:"requestCount"`
 	ErrorCount   int64   `json:"errorCount"`
+	ErrorRate    float64 `json:"errorRate"`
 	AvgLatency   float64 `json:"avgLatency"`
 	P50Latency   float64 `json:"p50Latency,omitempty"`
 	P95Latency   float64 `json:"p95Latency,omitempty"`
 	P99Latency   float64 `json:"p99Latency,omitempty"`
+	Status       string  `json:"status,omitempty"`
 }
 
 // EndpointMetric represents metrics for a specific endpoint.
@@ -40,52 +50,14 @@ type TimeSeriesPoint struct {
 	P99           float64   `json:"p99,omitempty"`
 }
 
-// DashboardOverview represents the combined data for the dashboard overview.
-type DashboardOverview struct {
-	Metrics   MetricOverview `json:"metrics"`
-	Logs      LogOverview    `json:"logs"`
-	Traces    TraceOverview  `json:"traces"`
-	TimeRange TimeRange      `json:"timeRange"`
-}
-
-type MetricOverview struct {
-	Count      int         `json:"count"`
-	Recent     []any       `json:"recent"`
-	Statistics MetricStats `json:"statistics"`
-}
-
-type MetricStats struct {
-	AvgLatency    float64 `json:"avgLatency"`
+// MetricsSummary represents a high-level summary of metrics.
+type MetricsSummary struct {
 	TotalRequests int64   `json:"totalRequests"`
-}
-
-type LogOverview struct {
-	Count       int              `json:"count"`
-	Recent      []any            `json:"recent"`
-	LevelCounts map[string]int64 `json:"levelCounts"`
-}
-
-type TraceOverview struct {
-	Count        int              `json:"count"`
-	Recent       []any            `json:"recent"`
-	StatusCounts map[string]int64 `json:"statusCounts"`
-}
-
-type TimeRange struct {
-	Start int64 `json:"start"`
-	End   int64 `json:"end"`
-}
-
-// ServiceHealth represents the health status of a service.
-type ServiceHealth struct {
-	Name        string  `json:"name"`
-	Status      string  `json:"status"`
-	MetricCount int64   `json:"metricCount"`
-	LogCount    int64   `json:"logCount"`
-	TraceCount  int64   `json:"traceCount"`
-	ErrorCount  int64   `json:"errorCount"`
-	ErrorRate   float64 `json:"errorRate"`
-	LastSeen    int64   `json:"lastSeen"`
+	ErrorCount    int64   `json:"errorCount"`
+	ErrorRate     float64 `json:"errorRate"`
+	AvgLatency    float64 `json:"avgLatency"`
+	P95Latency    float64 `json:"p95Latency"`
+	P99Latency    float64 `json:"p99Latency"`
 }
 
 // TopologyNode represents a node in the service topology graph.
@@ -110,14 +82,4 @@ type TopologyEdge struct {
 type TopologyData struct {
 	Nodes []TopologyNode `json:"nodes"`
 	Edges []TopologyEdge `json:"edges"`
-}
-
-// MetricsSummary represents a high-level summary of metrics.
-type MetricsSummary struct {
-	TotalRequests int64   `json:"totalRequests"`
-	ErrorCount    int64   `json:"errorCount"`
-	ErrorRate     float64 `json:"errorRate"`
-	AvgLatency    float64 `json:"avgLatency"`
-	P95Latency    float64 `json:"p95Latency"`
-	P99Latency    float64 `json:"p99Latency"`
 }

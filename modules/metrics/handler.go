@@ -5,61 +5,38 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/observability/observability-backend-go/modules/metrics/service"
 	"github.com/observability/observability-backend-go/internal/platform/handlers"
 )
 
+// MetricHandler handles HTTP requests for metrics.
 type MetricHandler struct {
 	getTenant handlers.GetTenantFunc
-	service   service.Service
+	repo      *ClickHouseRepository
 }
 
-func NewHandler(getTenant handlers.GetTenantFunc, svc service.Service) *MetricHandler {
+// NewHandler creates a new metrics handler.
+func NewHandler(getTenant handlers.GetTenantFunc, repo *ClickHouseRepository) *MetricHandler {
 	return &MetricHandler{
 		getTenant: getTenant,
-		service:   svc,
+		repo:      repo,
 	}
 }
 
-func (h *MetricHandler) GetDashboardOverview(c *gin.Context) {
+// parseFilters extracts common MetricFilters from the request.
+func (h *MetricHandler) parseFilters(c *gin.Context) MetricFilters {
 	teamUUID := h.getTenant(c).TeamUUID()
-	overview, err := h.service.GetDashboardOverview(c.Request.Context(), teamUUID)
-	if err != nil {
-		handlers.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query dashboard overview")
-		return
+	startMs, endMs := handlers.ParseRange(c, 60*60*1000)
+	return MetricFilters{
+		TeamUUID:    teamUUID,
+		Start:       time.UnixMilli(startMs),
+		End:         time.UnixMilli(endMs),
+		ServiceName: c.Query("serviceName"),
 	}
-	handlers.RespondOK(c, overview)
-}
-
-func (h *MetricHandler) GetDashboardServices(c *gin.Context) {
-	teamUUID := h.getTenant(c).TeamUUID()
-	services, err := h.service.GetDashboardServices(c.Request.Context(), teamUUID)
-	if err != nil {
-		handlers.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query services")
-		return
-	}
-	handlers.RespondOK(c, services)
-}
-
-func (h *MetricHandler) GetDashboardServiceDetail(c *gin.Context) {
-	serviceName := c.Param("serviceName")
-	teamUUID := h.getTenant(c).TeamUUID()
-	detail, err := h.service.GetDashboardServiceDetail(c.Request.Context(), teamUUID, serviceName)
-	if err != nil {
-		handlers.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query service detail")
-		return
-	}
-	if detail.Name == "" {
-		handlers.RespondError(c, http.StatusNotFound, "RESOURCE_NOT_FOUND", "Service not found")
-		return
-	}
-	handlers.RespondOK(c, detail)
 }
 
 func (h *MetricHandler) GetServiceMetrics(c *gin.Context) {
-	teamUUID := h.getTenant(c).TeamUUID()
-	startMs, endMs := handlers.ParseRange(c, 60*60*1000)
-	metrics, err := h.service.GetServiceMetrics(c.Request.Context(), teamUUID, time.UnixMilli(startMs), time.UnixMilli(endMs))
+	f := h.parseFilters(c)
+	metrics, err := h.repo.GetServiceMetrics(c.Request.Context(), f)
 	if err != nil {
 		handlers.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query service metrics")
 		return
@@ -67,23 +44,10 @@ func (h *MetricHandler) GetServiceMetrics(c *gin.Context) {
 	handlers.RespondOK(c, metrics)
 }
 
-func (h *MetricHandler) GetEndpointMetrics(c *gin.Context) {
-	teamUUID := h.getTenant(c).TeamUUID()
-	serviceName := c.Query("serviceName")
-	startMs, endMs := handlers.ParseRange(c, 60*60*1000)
-	metrics, err := h.service.GetEndpointMetrics(c.Request.Context(), teamUUID, time.UnixMilli(startMs), time.UnixMilli(endMs), serviceName)
-	if err != nil {
-		handlers.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query endpoint metrics")
-		return
-	}
-	handlers.RespondOK(c, metrics)
-}
-
 func (h *MetricHandler) GetServiceEndpointBreakdown(c *gin.Context) {
-	serviceName := c.Param("serviceName")
-	teamUUID := h.getTenant(c).TeamUUID()
-	startMs, endMs := handlers.ParseRange(c, 60*60*1000)
-	metrics, err := h.service.GetEndpointMetrics(c.Request.Context(), teamUUID, time.UnixMilli(startMs), time.UnixMilli(endMs), serviceName)
+	f := h.parseFilters(c)
+	f.ServiceName = c.Param("serviceName")
+	metrics, err := h.repo.GetEndpointMetrics(c.Request.Context(), f)
 	if err != nil {
 		handlers.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query endpoint breakdown")
 		return
@@ -91,11 +55,19 @@ func (h *MetricHandler) GetServiceEndpointBreakdown(c *gin.Context) {
 	handlers.RespondOK(c, metrics)
 }
 
+func (h *MetricHandler) GetEndpointMetrics(c *gin.Context) {
+	f := h.parseFilters(c)
+	metrics, err := h.repo.GetEndpointMetrics(c.Request.Context(), f)
+	if err != nil {
+		handlers.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query endpoint metrics")
+		return
+	}
+	handlers.RespondOK(c, metrics)
+}
+
 func (h *MetricHandler) GetMetricsTimeSeries(c *gin.Context) {
-	teamUUID := h.getTenant(c).TeamUUID()
-	serviceName := c.Query("serviceName")
-	startMs, endMs := handlers.ParseRange(c, 60*60*1000)
-	points, err := h.service.GetMetricsTimeSeries(c.Request.Context(), teamUUID, time.UnixMilli(startMs), time.UnixMilli(endMs), serviceName)
+	f := h.parseFilters(c)
+	points, err := h.repo.GetServiceTimeSeries(c.Request.Context(), f)
 	if err != nil {
 		handlers.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query metrics timeseries")
 		return
@@ -104,9 +76,8 @@ func (h *MetricHandler) GetMetricsTimeSeries(c *gin.Context) {
 }
 
 func (h *MetricHandler) GetMetricsSummary(c *gin.Context) {
-	teamUUID := h.getTenant(c).TeamUUID()
-	startMs, endMs := handlers.ParseRange(c, 60*60*1000)
-	summary, err := h.service.GetMetricsSummary(c.Request.Context(), teamUUID, time.UnixMilli(startMs), time.UnixMilli(endMs))
+	f := h.parseFilters(c)
+	summary, err := h.repo.GetMetricsSummary(c.Request.Context(), f)
 	if err != nil {
 		handlers.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query metrics summary")
 		return
@@ -114,22 +85,9 @@ func (h *MetricHandler) GetMetricsSummary(c *gin.Context) {
 	handlers.RespondOK(c, summary)
 }
 
-func (h *MetricHandler) GetServiceTimeSeries(c *gin.Context) {
-	teamUUID := h.getTenant(c).TeamUUID()
-	startMs, endMs := handlers.ParseRange(c, 60*60*1000)
-	points, err := h.service.GetServiceTimeSeries(c.Request.Context(), teamUUID, time.UnixMilli(startMs), time.UnixMilli(endMs))
-	if err != nil {
-		handlers.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query service timeseries")
-		return
-	}
-	handlers.RespondOK(c, points)
-}
-
 func (h *MetricHandler) GetEndpointTimeSeries(c *gin.Context) {
-	teamUUID := h.getTenant(c).TeamUUID()
-	serviceName := c.Query("serviceName")
-	startMs, endMs := handlers.ParseRange(c, 60*60*1000)
-	points, err := h.service.GetEndpointTimeSeries(c.Request.Context(), teamUUID, time.UnixMilli(startMs), time.UnixMilli(endMs), serviceName)
+	f := h.parseFilters(c)
+	points, err := h.repo.GetEndpointTimeSeries(c.Request.Context(), f)
 	if err != nil {
 		handlers.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query endpoint timeseries")
 		return
@@ -138,9 +96,8 @@ func (h *MetricHandler) GetEndpointTimeSeries(c *gin.Context) {
 }
 
 func (h *MetricHandler) GetServiceTopology(c *gin.Context) {
-	teamUUID := h.getTenant(c).TeamUUID()
-	startMs, endMs := handlers.ParseRange(c, 60*60*1000)
-	topology, err := h.service.GetServiceTopology(c.Request.Context(), teamUUID, time.UnixMilli(startMs), time.UnixMilli(endMs))
+	f := h.parseFilters(c)
+	topology, err := h.repo.GetTopology(c.Request.Context(), f)
 	if err != nil {
 		handlers.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query topology")
 		return
@@ -149,6 +106,8 @@ func (h *MetricHandler) GetServiceTopology(c *gin.Context) {
 }
 
 func (h *MetricHandler) GetSystemStatus(c *gin.Context) {
-	status := h.service.GetSystemStatus(c.Request.Context())
-	handlers.RespondOK(c, status)
+	handlers.RespondOK(c, map[string]any{
+		"version": "v2-go",
+		"tables":  []string{"spans", "logs", "incidents", "metrics", "deployments", "health_check_results"},
+	})
 }

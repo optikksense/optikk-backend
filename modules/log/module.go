@@ -19,6 +19,7 @@ func RegisterRoutes(cfg Config, _ *gin.RouterGroup, v1 *gin.RouterGroup, h *LogH
 	}
 
 	v1.GET("/logs", h.GetLogs)
+	v1.GET("/logs/facets", h.GetLogFacets)
 	v1.GET("/logs/histogram", h.GetLogHistogram)
 	v1.GET("/logs/volume", h.GetLogVolume)
 	v1.GET("/logs/stats", h.GetLogStats)

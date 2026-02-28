@@ -56,7 +56,12 @@ CREATE TABLE IF NOT EXISTS observability.logs (
     container        LowCardinality(String),
     thread           String,
     exception        String        CODEC(ZSTD(3)),
-    attributes       String        CODEC(ZSTD(3))
+    attributes       String        CODEC(ZSTD(3)),
+    -- Skip indexes for fast point lookups and filter acceleration
+    INDEX idx_trace_id   trace_id     TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_span_id    span_id      TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_level      level        TYPE set(10)            GRANULARITY 1,
+    INDEX idx_service    service_name TYPE set(100)           GRANULARITY 1
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, timestamp, level, service_name)

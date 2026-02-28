@@ -84,7 +84,7 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS observability.logs_level_1m
 ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMM(minute)
 ORDER BY (team_id, service_name, level, minute)
-TTL minute + INTERVAL 30 DAY
+TTL minute + INTERVAL 90 DAY
 AS
 SELECT
     team_id,
@@ -94,6 +94,26 @@ SELECT
     countState()               AS log_count
 FROM observability.logs
 GROUP BY team_id, service_name, level, minute;
+
+
+-- ---------------------------------------------------------------------------
+-- logs_service_1m
+-- Per-service per-minute log counts (level-agnostic).
+-- Feeds: service facets, log stats, total count queries.
+-- ---------------------------------------------------------------------------
+CREATE MATERIALIZED VIEW IF NOT EXISTS observability.logs_service_1m
+ENGINE = AggregatingMergeTree()
+PARTITION BY toYYYYMM(minute)
+ORDER BY (team_id, service_name, minute)
+TTL minute + INTERVAL 90 DAY
+AS
+SELECT
+    team_id,
+    service_name,
+    toStartOfMinute(timestamp) AS minute,
+    countState()               AS log_count
+FROM observability.logs
+GROUP BY team_id, service_name, minute;
 
 
 -- ---------------------------------------------------------------------------
