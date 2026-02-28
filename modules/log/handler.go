@@ -185,5 +185,7 @@ func (h *LogHandler) GetTraceLogs(c *gin.Context) {
 		handlers.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query trace logs")
 		return
 	}
-	handlers.RespondOK(c, resp)
+	// Return the logs array directly to preserve the API contract.
+	// The frontend expects a raw JSON array, not a wrapped object.
+	handlers.RespondOK(c, resp.Logs)
 }
