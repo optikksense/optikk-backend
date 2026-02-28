@@ -5,9 +5,9 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/observability/observability-backend-go/internal/platform/handlers"
 	"github.com/observability/observability-backend-go/modules/log/model"
 	"github.com/observability/observability-backend-go/modules/log/service"
-	"github.com/observability/observability-backend-go/internal/platform/handlers"
 )
 
 type LogHandler struct {
@@ -112,6 +112,15 @@ func (h *LogHandler) GetLogFields(c *gin.Context) {
 	startMs, endMs := handlers.ParseRange(c, 60*60*1000)
 	field := c.Query("field")
 
+	allowed := map[string]bool{
+		"level": true, "service_name": true, "host": true,
+		"pod": true, "container": true, "logger": true,
+	}
+	if field == "" || !allowed[field] {
+		handlers.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "field is required and must be one of: level, service_name, host, pod, container, logger")
+		return
+	}
+
 	resp, err := h.service.GetLogFields(c.Request.Context(), teamUUID, startMs, endMs, field, h.parseFilters(c))
 	if err != nil {
 		handlers.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query field values")
@@ -123,6 +132,10 @@ func (h *LogHandler) GetLogFields(c *gin.Context) {
 func (h *LogHandler) GetLogSurrounding(c *gin.Context) {
 	teamUUID := h.getTenant(c).TeamUUID()
 	logID := handlers.ParseInt64Param(c, "id", 0)
+	if logID == 0 {
+		handlers.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "id is required")
+		return
+	}
 	before := handlers.ParseIntParam(c, "before", 10)
 	after := handlers.ParseIntParam(c, "after", 10)
 
@@ -141,6 +154,15 @@ func (h *LogHandler) GetLogDetail(c *gin.Context) {
 	timestamp := handlers.ParseInt64Param(c, "timestamp", 0)
 	window := handlers.ParseIntParam(c, "contextWindow", 30)
 
+	if traceID == "" || spanID == "" {
+		handlers.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "traceId and spanId are required")
+		return
+	}
+	if timestamp == 0 {
+		handlers.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "timestamp is required")
+		return
+	}
+
 	resp, err := h.service.GetLogDetail(c.Request.Context(), teamUUID, traceID, spanID, timestamp, window)
 	if err != nil {
 		handlers.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query log detail")
@@ -152,6 +174,11 @@ func (h *LogHandler) GetLogDetail(c *gin.Context) {
 func (h *LogHandler) GetTraceLogs(c *gin.Context) {
 	teamUUID := h.getTenant(c).TeamUUID()
 	traceID := c.Param("traceId")
+
+	if traceID == "" {
+		handlers.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "traceId is required")
+		return
+	}
 
 	resp, err := h.service.GetTraceLogs(c.Request.Context(), teamUUID, traceID)
 	if err != nil {

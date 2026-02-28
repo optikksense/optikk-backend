@@ -11,8 +11,12 @@ import (
 	deployments "github.com/observability/observability-backend-go/internal/modules/infrastructure/deployments"
 	nodes "github.com/observability/observability-backend-go/internal/modules/infrastructure/nodes"
 	resourceutilisation "github.com/observability/observability-backend-go/internal/modules/infrastructure/resource_utilisation"
-	"github.com/observability/observability-backend-go/internal/modules/insights"
+	overviewerrors "github.com/observability/observability-backend-go/internal/modules/overview/errors"
+	overviewmodule "github.com/observability/observability-backend-go/internal/modules/overview/overview"
+	overviewslo "github.com/observability/observability-backend-go/internal/modules/overview/slo"
 	"github.com/observability/observability-backend-go/internal/modules/saturation"
+	servicepage "github.com/observability/observability-backend-go/internal/modules/services/service"
+	servicetopology "github.com/observability/observability-backend-go/internal/modules/services/topology"
 	telemetry "github.com/observability/observability-backend-go/modules/ingestion"
 	logsmodule "github.com/observability/observability-backend-go/modules/log"
 	"github.com/observability/observability-backend-go/modules/metrics"
@@ -24,13 +28,17 @@ type moduleConfigs struct {
 	Identity            identity.Config
 	Alerts              alerts.Config
 	Metrics             metrics.Config
+	Overview            overviewmodule.Config
+	OverviewSLO         overviewslo.Config
+	OverviewErrors      overviewerrors.Config
+	ServicesPage        servicepage.Config
+	ServicesTopology    servicetopology.Config
 	Nodes               nodes.Config
 	ResourceUtilisation resourceutilisation.Config
 	Saturation          saturation.Config
 	Logs                logsmodule.Config
 	Traces              traces.Config
 	Deployments         deployments.Config
-	Insights            insights.Config
 	AI                  ai.Config
 	DashboardConfig     dashboardconfig.Config
 	Telemetry           telemetry.Config
@@ -41,13 +49,17 @@ func defaultModuleConfigs() moduleConfigs {
 		Identity:            identity.DefaultConfig(),
 		Alerts:              alerts.DefaultConfig(),
 		Metrics:             metrics.DefaultConfig(),
+		Overview:            overviewmodule.DefaultConfig(),
+		OverviewSLO:         overviewslo.DefaultConfig(),
+		OverviewErrors:      overviewerrors.DefaultConfig(),
+		ServicesPage:        servicepage.DefaultConfig(),
+		ServicesTopology:    servicetopology.DefaultConfig(),
 		Nodes:               nodes.DefaultConfig(),
 		ResourceUtilisation: resourceutilisation.DefaultConfig(),
 		Saturation:          saturation.DefaultConfig(),
 		Logs:                logsmodule.DefaultConfig(),
 		Traces:              traces.DefaultConfig(),
 		Deployments:         deployments.DefaultConfig(),
-		Insights:            insights.DefaultConfig(),
 		AI:                  ai.DefaultConfig(),
 		DashboardConfig:     dashboardconfig.DefaultConfig(),
 		Telemetry:           telemetry.DefaultConfig(),
@@ -63,13 +75,17 @@ func (a *App) registerRoutes(r *gin.Engine) {
 	identity.RegisterRoutes(cfg.Identity, api, a.Auth, a.Users)
 	alerts.RegisterRoutes(cfg.Alerts, api, v1, a.Alerts)
 	metrics.RegisterRoutes(cfg.Metrics, api, v1, a.Metrics)
+	overviewmodule.RegisterRoutes(cfg.Overview, api, v1, a.Overview)
+	overviewslo.RegisterRoutes(cfg.OverviewSLO, api, v1, a.OverviewSLO)
+	overviewerrors.RegisterRoutes(cfg.OverviewErrors, api, v1, a.OverviewErrors)
+	servicepage.RegisterRoutes(cfg.ServicesPage, api, v1, a.ServicesPage)
+	servicetopology.RegisterRoutes(cfg.ServicesTopology, api, v1, a.ServicesTopology)
 	nodes.RegisterRoutes(cfg.Nodes, api, v1, a.Nodes)
 	resourceutilisation.RegisterRoutes(cfg.ResourceUtilisation, api, v1, a.ResourceUtilisation)
 	saturation.RegisterRoutes(cfg.Saturation, api, v1, a.Saturation)
 	logsmodule.RegisterRoutes(cfg.Logs, api, v1, a.Logs)
 	traces.RegisterRoutes(cfg.Traces, api, v1, a.Traces)
 	deployments.RegisterRoutes(cfg.Deployments, api, v1, a.Deployments)
-	insights.RegisterRoutes(cfg.Insights, api, v1, a.Insights)
 	ai.RegisterRoutes(cfg.AI, api, v1, a.AI)
 	dashboardconfig.RegisterRoutes(cfg.DashboardConfig, api, v1, a.DashboardConfig)
 

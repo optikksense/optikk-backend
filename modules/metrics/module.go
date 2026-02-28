@@ -26,9 +26,6 @@ func RegisterRoutes(cfg Config, api *gin.RouterGroup, v1 *gin.RouterGroup, h *Me
 	}
 
 	v1.GET("/status", h.GetSystemStatus)
-	v1.GET("/services/topology", h.GetServiceTopology)
-	v1.GET("/services/metrics", h.GetServiceMetrics)
-	v1.GET("/services/timeseries", h.GetServiceTimeSeries)
 	v1.GET("/services/:serviceName/endpoints", h.GetServiceEndpointBreakdown)
 	v1.GET("/endpoints/metrics", h.GetEndpointMetrics)
 	v1.GET("/endpoints/timeseries", h.GetEndpointTimeSeries)

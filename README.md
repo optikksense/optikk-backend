@@ -167,7 +167,6 @@ The script creates a user and team via `/api/signup`, then ingests synthetic met
   - `logs`
   - `traces`
   - `metrics`
-  - `insights`
   - `ai`
 - All non-identity modules share a common dependency struct (`DB` + `GetTenant`) via `internal/modules/common/deps.go`, reducing repeated boilerplate.
 - Identity database access is segregated into table repositories:

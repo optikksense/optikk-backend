@@ -1,5 +1,0 @@
-package service
-
-import serviceinterfaces "github.com/observability/observability-backend-go/modules/spans/service/interfaces"
-
-type Service = serviceinterfaces.Service

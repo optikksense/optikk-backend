@@ -4,6 +4,8 @@ import "github.com/observability/observability-backend-go/internal/modules/dashb
 
 func init() {
 	dashboardconfig.RegisterDefaultConfig("saturation", defaultSaturation)
+	dashboardconfig.RegisterDefaultConfig("messaging-queue", defaultMessagingQueue)
+	dashboardconfig.RegisterDefaultConfig("database-cache", defaultDatabaseCache)
 }
 
 const defaultSaturation = `page: saturation
@@ -75,4 +77,80 @@ charts:
     datasetLabel: "Avg Latency"
     listTitle: "Database Regions"
     height: 220
+`
+
+const defaultMessagingQueue = `page: messaging-queue
+title: "Messaging / Queue Monitoring"
+icon: "Network"
+subtitle: "Throughput rates, consumer lag, queue depth, and processing errors per queue"
+
+dataSources:
+  - id: queue-consumer-lag
+    endpoint: /v1/saturation/queue/consumer-lag
+  - id: queue-topic-lag
+    endpoint: /v1/saturation/queue/topic-lag
+  - id: kafka-production-rate
+    endpoint: /v1/saturation/kafka/production-rate
+  - id: kafka-consumption-rate
+    endpoint: /v1/saturation/kafka/consumption-rate
+
+charts:
+  - id: production-rate
+    title: "Production Rate (msg/s)"
+    type: request
+    titleIcon: ArrowUpRight
+    layout:
+      col: 12
+    dataSource: kafka-production-rate
+    groupByKey: queue
+    valueKey: avg_publish_rate
+    listType: productionRate
+    listTitle: "Production Rate"
+    listSortField: avg_publish_rate
+  - id: consumption-rate
+    title: "Consumption Rate (msg/s)"
+    type: request
+    titleIcon: ArrowDownRight
+    layout:
+      col: 12
+    dataSource: kafka-consumption-rate
+    groupByKey: queue
+    valueKey: avg_receive_rate
+    listType: consumptionRate
+    listTitle: "Consumption Rate"
+    listSortField: avg_receive_rate
+  - id: consumer-lag
+    title: "Consumer Group Lag"
+    type: request
+    titleIcon: Clock
+    layout:
+      col: 12
+    dataSource: queue-consumer-lag
+    groupByKey: queue
+    valueKey: avg_consumer_lag
+    listType: consumerLag
+    listTitle: "Max Lag"
+    listSortField: max_consumer_lag
+  - id: queue-depth
+    title: "Topic Lag (Queue Depth)"
+    type: request
+    titleIcon: Layers
+    layout:
+      col: 12
+    dataSource: queue-topic-lag
+    groupByKey: queue
+    valueKey: avg_queue_depth
+    listType: depth
+    listTitle: "Avg Depth"
+    listSortField: avg_queue_depth
+`
+
+const defaultDatabaseCache = `page: database-cache
+title: "Database & Cache Performance"
+icon: "Database"
+subtitle: "Query latency, cache hit ratio, slow logs, replication lag"
+
+dataSources:
+  - id: database-latency-summary
+    endpoint: /v1/saturation/database/latency-summary
 `

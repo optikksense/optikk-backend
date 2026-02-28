@@ -174,6 +174,25 @@ type Facet struct {
 	Count int64  `json:"count"`
 }
 
+// LogQueryResult is the repository-level result for paginated log queries.
+type LogQueryResult struct {
+	Logs          []Log
+	Total         int64
+	LevelFacets   []Facet
+	ServiceFacets []Facet
+	HostFacets    []Facet
+}
+
+// LogStatsResult is the repository-level result for log statistics.
+type LogStatsResult struct {
+	Total         int64
+	LevelFacets   []Facet
+	ServiceFacets []Facet
+	HostFacets    []Facet
+	PodFacets     []Facet
+	LoggerFacets  []Facet
+}
+
 // LogSearchResponse represents the result of a log search with pagination and facets.
 type LogSearchResponse struct {
 	Logs       []Log              `json:"logs"`
@@ -195,4 +214,10 @@ type LogSurroundingResponse struct {
 type LogDetailResponse struct {
 	Log         Log   `json:"log"`
 	ContextLogs []Log `json:"contextLogs"`
+}
+
+// TraceLogsResponse represents trace logs, separating direct matches from speculative matches.
+type TraceLogsResponse struct {
+	Logs        []Log `json:"logs"`
+	IsSpeculative bool  `json:"isSpeculative"`
 }
