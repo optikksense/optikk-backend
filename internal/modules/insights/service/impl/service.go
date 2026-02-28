@@ -17,20 +17,6 @@ func NewService(repo store.Repository) *InsightService {
 	return &InsightService{repo: repo}
 }
 
-func (s *InsightService) GetInsightResourceUtilization(teamUUID string, startMs, endMs int64) (*model.ResourceUtilizationResponse, error) {
-	byService, byInstance, infra, timeseries, err := s.repo.GetInsightResourceUtilization(teamUUID, startMs, endMs)
-	if err != nil {
-		return nil, err
-	}
-
-	return &model.ResourceUtilizationResponse{
-		ByService:      byService,
-		ByInstance:     byInstance,
-		Infrastructure: infra,
-		Timeseries:     timeseries,
-	}, nil
-}
-
 func (s *InsightService) GetInsightSloSli(teamUUID string, startMs, endMs int64, serviceName string) (*model.SloSliResponse, error) {
 	summary, timeseries, err := s.repo.GetInsightSloSli(teamUUID, startMs, endMs, serviceName)
 	if err != nil {
@@ -95,4 +81,3 @@ func (s *InsightService) GetInsightLogsStream(teamUUID string, startMs, endMs in
 		},
 	}, nil
 }
-

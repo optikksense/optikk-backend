@@ -17,20 +17,6 @@ type InsightHandler struct {
 	Service service.Service
 }
 
-// GetInsightResourceUtilization — CPU / memory / disk / network utilisation by service and instance.
-func (h *InsightHandler) GetInsightResourceUtilization(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 24*60*60*1000)
-
-	resp, err := h.Service.GetInsightResourceUtilization(teamUUID, startMs, endMs)
-	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query resource utilization")
-		return
-	}
-
-	RespondOK(c, resp)
-}
-
 // GetInsightSloSli — SLO / SLI compliance status and trend.
 func (h *InsightHandler) GetInsightSloSli(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()

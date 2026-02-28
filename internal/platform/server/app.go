@@ -21,37 +21,37 @@ import (
 	"github.com/observability/observability-backend-go/internal/modules/dashboardconfig"
 	dashboardconfigservice "github.com/observability/observability-backend-go/internal/modules/dashboardconfig/service"
 	dashboardconfigstore "github.com/observability/observability-backend-go/internal/modules/dashboardconfig/store"
-	"github.com/observability/observability-backend-go/internal/modules/deployments"
-	deploymentsservice "github.com/observability/observability-backend-go/internal/modules/deployments/service"
-	deploymentsstore "github.com/observability/observability-backend-go/internal/modules/deployments/store"
-"github.com/observability/observability-backend-go/internal/modules/health"
-	healthservice "github.com/observability/observability-backend-go/internal/modules/health/service"
-	healthstore "github.com/observability/observability-backend-go/internal/modules/health/store"
-	"github.com/observability/observability-backend-go/modules/user"
-	identityservice "github.com/observability/observability-backend-go/modules/user/service"
-	identitystore "github.com/observability/observability-backend-go/modules/user/store"
-	"github.com/observability/observability-backend-go/internal/modules/infrastructure"
-	infrastructureservice "github.com/observability/observability-backend-go/internal/modules/infrastructure/service"
-	infrastructurestore "github.com/observability/observability-backend-go/internal/modules/infrastructure/store"
+	deployments "github.com/observability/observability-backend-go/internal/modules/infrastructure/deployments"
+	deploymentsservice "github.com/observability/observability-backend-go/internal/modules/infrastructure/deployments/service"
+	deploymentsstore "github.com/observability/observability-backend-go/internal/modules/infrastructure/deployments/store"
+	nodes "github.com/observability/observability-backend-go/internal/modules/infrastructure/nodes"
+	nodesservice "github.com/observability/observability-backend-go/internal/modules/infrastructure/nodes/service"
+	nodesstore "github.com/observability/observability-backend-go/internal/modules/infrastructure/nodes/store"
+	resourceutilisation "github.com/observability/observability-backend-go/internal/modules/infrastructure/resource_utilisation"
+	resourceutilisationservice "github.com/observability/observability-backend-go/internal/modules/infrastructure/resource_utilisation/service"
+	resourceutilisationstore "github.com/observability/observability-backend-go/internal/modules/infrastructure/resource_utilisation/store"
 	"github.com/observability/observability-backend-go/internal/modules/insights"
 	insightsservice "github.com/observability/observability-backend-go/internal/modules/insights/service"
 	insightsstore "github.com/observability/observability-backend-go/internal/modules/insights/store"
+	"github.com/observability/observability-backend-go/internal/modules/saturation"
+	saturationservice "github.com/observability/observability-backend-go/internal/modules/saturation/service"
+	saturationstore "github.com/observability/observability-backend-go/internal/modules/saturation/store"
+	"github.com/observability/observability-backend-go/internal/platform/auth"
+	"github.com/observability/observability-backend-go/internal/platform/handlers"
+	"github.com/observability/observability-backend-go/internal/platform/middleware"
+	telemetry "github.com/observability/observability-backend-go/modules/ingestion"
 	logsapi "github.com/observability/observability-backend-go/modules/log"
 	logsservice "github.com/observability/observability-backend-go/modules/log/service"
 	logsstore "github.com/observability/observability-backend-go/modules/log/store"
 	metricsapi "github.com/observability/observability-backend-go/modules/metrics"
 	metricsservice "github.com/observability/observability-backend-go/modules/metrics/service"
 	metricsstore "github.com/observability/observability-backend-go/modules/metrics/store"
-	"github.com/observability/observability-backend-go/internal/modules/saturation"
-	saturationservice "github.com/observability/observability-backend-go/internal/modules/saturation/service"
-	saturationstore "github.com/observability/observability-backend-go/internal/modules/saturation/store"
 	tracesapi "github.com/observability/observability-backend-go/modules/spans"
 	tracesservice "github.com/observability/observability-backend-go/modules/spans/service"
 	tracesstore "github.com/observability/observability-backend-go/modules/spans/store"
-	"github.com/observability/observability-backend-go/internal/platform/auth"
-	"github.com/observability/observability-backend-go/internal/platform/handlers"
-	"github.com/observability/observability-backend-go/internal/platform/middleware"
-	"github.com/observability/observability-backend-go/modules/ingestion"
+	identity "github.com/observability/observability-backend-go/modules/user"
+	identityservice "github.com/observability/observability-backend-go/modules/user/service"
+	identitystore "github.com/observability/observability-backend-go/modules/user/store"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 )
@@ -65,19 +65,19 @@ type App struct {
 	TelemetryIngester telemetry.Ingester
 	TelemetryConsumer *telemetry.KafkaConsumer // nil when Kafka is disabled
 
-	Auth            AuthModule
-	Users           UserModule
-	Alerts          *alerts.AlertHandler
-	Health          *health.HealthHandler
-	Deployments     *deployments.DeploymentHandler
-	Logs            *logsapi.LogHandler
-	Traces          *tracesapi.TraceHandler
-	Metrics         *metricsapi.MetricHandler
-	Infrastructure  *infrastructure.InfrastructureHandler
-	Saturation      *saturation.SaturationHandler
-	Insights        *insights.InsightHandler
-	AI              *ai.AIHandler
-	DashboardConfig *dashboardconfig.DashboardConfigHandler
+	Auth                AuthModule
+	Users               UserModule
+	Alerts              *alerts.AlertHandler
+	Deployments         *deployments.DeploymentHandler
+	Logs                *logsapi.LogHandler
+	Traces              *tracesapi.TraceHandler
+	Metrics             *metricsapi.MetricHandler
+	Nodes               *nodes.NodeHandler
+	ResourceUtilisation *resourceutilisation.ResourceUtilisationHandler
+	Saturation          *saturation.SaturationHandler
+	Insights            *insights.InsightHandler
+	AI                  *ai.AIHandler
+	DashboardConfig     *dashboardconfig.DashboardConfigHandler
 }
 
 type AuthModule interface {
@@ -126,7 +126,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 	// Migrate users/teams schema: add teams JSON column, org_name, drop user_teams.
 	migrateUserTeamsSchema(db)
 
-return &App{
+	return &App{
 		DB:         db,
 		CH:         ch,
 		Config:     cfg,
@@ -141,15 +141,6 @@ return &App{
 			},
 			Service: alertsservice.NewService(
 				alertsstore.NewRepository(db, alertCondCol),
-			),
-		},
-		Health: &health.HealthHandler{
-			DBTenant: modulecommon.DBTenant{
-				DB:        db,
-				GetTenant: getTenant,
-			},
-			Service: healthservice.NewService(
-				healthstore.NewRepository(db),
 			),
 		},
 		Deployments: &deployments.DeploymentHandler{
@@ -179,13 +170,22 @@ return &App{
 				metricsstore.NewRepository(database.NewMySQLWrapper(ch)),
 			),
 		),
-		Infrastructure: &infrastructure.InfrastructureHandler{
+		Nodes: &nodes.NodeHandler{
 			DBTenant: modulecommon.DBTenant{
 				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: infrastructureservice.NewService(
-				infrastructurestore.NewRepository(database.NewMySQLWrapper(ch)),
+			Service: nodesservice.NewService(
+				nodesstore.NewRepository(database.NewMySQLWrapper(ch)),
+			),
+		},
+		ResourceUtilisation: &resourceutilisation.ResourceUtilisationHandler{
+			DBTenant: modulecommon.DBTenant{
+				DB:        ch,
+				GetTenant: getTenant,
+			},
+			Service: resourceutilisationservice.NewService(
+				resourceutilisationstore.NewRepository(database.NewMySQLWrapper(ch)),
 			),
 		},
 		Saturation: &saturation.SaturationHandler{

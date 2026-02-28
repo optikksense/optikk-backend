@@ -8,49 +8,49 @@ import (
 	"github.com/observability/observability-backend-go/internal/modules/ai"
 	"github.com/observability/observability-backend-go/internal/modules/alerts"
 	"github.com/observability/observability-backend-go/internal/modules/dashboardconfig"
-	"github.com/observability/observability-backend-go/internal/modules/deployments"
-"github.com/observability/observability-backend-go/internal/modules/health"
-	"github.com/observability/observability-backend-go/modules/user"
-	"github.com/observability/observability-backend-go/internal/modules/infrastructure"
+	deployments "github.com/observability/observability-backend-go/internal/modules/infrastructure/deployments"
+	nodes "github.com/observability/observability-backend-go/internal/modules/infrastructure/nodes"
+	resourceutilisation "github.com/observability/observability-backend-go/internal/modules/infrastructure/resource_utilisation"
 	"github.com/observability/observability-backend-go/internal/modules/insights"
+	"github.com/observability/observability-backend-go/internal/modules/saturation"
+	telemetry "github.com/observability/observability-backend-go/modules/ingestion"
 	logsmodule "github.com/observability/observability-backend-go/modules/log"
 	"github.com/observability/observability-backend-go/modules/metrics"
-	"github.com/observability/observability-backend-go/internal/modules/saturation"
-	"github.com/observability/observability-backend-go/modules/spans"
-	"github.com/observability/observability-backend-go/modules/ingestion"
+	traces "github.com/observability/observability-backend-go/modules/spans"
+	identity "github.com/observability/observability-backend-go/modules/user"
 )
 
 type moduleConfigs struct {
-	Identity        identity.Config
-	Alerts          alerts.Config
-	Metrics         metrics.Config
-	Infrastructure  infrastructure.Config
-	Saturation      saturation.Config
-	Logs            logsmodule.Config
-	Traces          traces.Config
-	Health          health.Config
-	Deployments     deployments.Config
-	Insights        insights.Config
-	AI              ai.Config
-	DashboardConfig dashboardconfig.Config
-Telemetry       telemetry.Config
+	Identity            identity.Config
+	Alerts              alerts.Config
+	Metrics             metrics.Config
+	Nodes               nodes.Config
+	ResourceUtilisation resourceutilisation.Config
+	Saturation          saturation.Config
+	Logs                logsmodule.Config
+	Traces              traces.Config
+	Deployments         deployments.Config
+	Insights            insights.Config
+	AI                  ai.Config
+	DashboardConfig     dashboardconfig.Config
+	Telemetry           telemetry.Config
 }
 
 func defaultModuleConfigs() moduleConfigs {
 	return moduleConfigs{
-		Identity:        identity.DefaultConfig(),
-		Alerts:          alerts.DefaultConfig(),
-		Metrics:         metrics.DefaultConfig(),
-		Infrastructure:  infrastructure.DefaultConfig(),
-		Saturation:      saturation.DefaultConfig(),
-		Logs:            logsmodule.DefaultConfig(),
-		Traces:          traces.DefaultConfig(),
-		Health:          health.DefaultConfig(),
-		Deployments:     deployments.DefaultConfig(),
-		Insights:        insights.DefaultConfig(),
-		AI:              ai.DefaultConfig(),
-		DashboardConfig: dashboardconfig.DefaultConfig(),
-Telemetry:       telemetry.DefaultConfig(),
+		Identity:            identity.DefaultConfig(),
+		Alerts:              alerts.DefaultConfig(),
+		Metrics:             metrics.DefaultConfig(),
+		Nodes:               nodes.DefaultConfig(),
+		ResourceUtilisation: resourceutilisation.DefaultConfig(),
+		Saturation:          saturation.DefaultConfig(),
+		Logs:                logsmodule.DefaultConfig(),
+		Traces:              traces.DefaultConfig(),
+		Deployments:         deployments.DefaultConfig(),
+		Insights:            insights.DefaultConfig(),
+		AI:                  ai.DefaultConfig(),
+		DashboardConfig:     dashboardconfig.DefaultConfig(),
+		Telemetry:           telemetry.DefaultConfig(),
 	}
 }
 
@@ -63,11 +63,11 @@ func (a *App) registerRoutes(r *gin.Engine) {
 	identity.RegisterRoutes(cfg.Identity, api, a.Auth, a.Users)
 	alerts.RegisterRoutes(cfg.Alerts, api, v1, a.Alerts)
 	metrics.RegisterRoutes(cfg.Metrics, api, v1, a.Metrics)
-	infrastructure.RegisterRoutes(cfg.Infrastructure, api, v1, a.Infrastructure)
+	nodes.RegisterRoutes(cfg.Nodes, api, v1, a.Nodes)
+	resourceutilisation.RegisterRoutes(cfg.ResourceUtilisation, api, v1, a.ResourceUtilisation)
 	saturation.RegisterRoutes(cfg.Saturation, api, v1, a.Saturation)
 	logsmodule.RegisterRoutes(cfg.Logs, api, v1, a.Logs)
 	traces.RegisterRoutes(cfg.Traces, api, v1, a.Traces)
-	health.RegisterRoutes(cfg.Health, api, v1, a.Health)
 	deployments.RegisterRoutes(cfg.Deployments, api, v1, a.Deployments)
 	insights.RegisterRoutes(cfg.Insights, api, v1, a.Insights)
 	ai.RegisterRoutes(cfg.AI, api, v1, a.AI)

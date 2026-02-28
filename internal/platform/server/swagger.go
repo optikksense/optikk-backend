@@ -186,13 +186,13 @@ func getSchemaNameForPath(path string, method string) string {
 	// Map specific endpoints to their request schemas
 	schemaMap := map[string]string{
 		// Auth & Users
-		"/api/signup|post":                       "SignupRequest",
-		"/api/auth/login|post":                   "LoginRequest",
-		"/api/auth/logout|post":                  "EmptyRequest",
-		"/api/users|post":                        "UserRequest",
+		"/api/signup|post":                        "SignupRequest",
+		"/api/auth/login|post":                    "LoginRequest",
+		"/api/auth/logout|post":                   "EmptyRequest",
+		"/api/users|post":                         "UserRequest",
 		"/api/users/{userId}/teams/{teamId}|post": "EmptyRequest",
-		"/api/teams|post":                        "CreateTeamRequest",
-		"/api/settings/profile|put":              "SettingsRequest",
+		"/api/teams|post":                         "CreateTeamRequest",
+		"/api/settings/profile|put":               "SettingsRequest",
 
 		// Alerts
 		"/api/alerts|post":                       "AlertRequest",
@@ -203,19 +203,13 @@ func getSchemaNameForPath(path string, method string) string {
 		"/api/alerts/bulk/mute|post":             "BulkAlertActionRequest",
 		"/api/alerts/bulk/resolve|post":          "BulkAlertActionRequest",
 
-		// Health Checks
-		"/api/v1/health-checks|post":             "HealthCheckRequest",
-		"/api/v1/health-checks/{id}|put":         "HealthCheckRequest",
-		"/api/v1/health-checks/{id}|patch":       "HealthCheckToggleRequest",
-		"/api/v1/health-checks/{id}|delete":      "EmptyRequest",
-
 		// Deployments
-		"/api/v1/deployments|post":                "DeploymentCreateRequest",
+		"/api/v1/deployments|post": "DeploymentCreateRequest",
 
 		// OTLP
-		"/otlp/v1/metrics|post":                   "OTLPMetricsRequest",
-		"/otlp/v1/logs|post":                      "OTLPLogsRequest",
-		"/otlp/v1/traces|post":                    "OTLPTracesRequest",
+		"/otlp/v1/metrics|post": "OTLPMetricsRequest",
+		"/otlp/v1/logs|post":    "OTLPLogsRequest",
+		"/otlp/v1/traces|post":  "OTLPTracesRequest",
 	}
 
 	key := path + "|" + method
@@ -273,17 +267,17 @@ func getSchemas() map[string]any {
 		"AlertRequest": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
-				"name":             map[string]any{"type": "string"},
-				"description":      map[string]any{"type": "string"},
-				"type":             map[string]any{"type": "string"},
-				"severity":         map[string]any{"type": "string"},
-				"serviceName":      map[string]any{"type": "string"},
-				"condition":        map[string]any{"type": "string"},
-				"metric":           map[string]any{"type": "string"},
-				"operator":         map[string]any{"type": "string"},
-				"threshold":        map[string]any{"type": "number"},
-				"durationMinutes":  map[string]any{"type": "integer"},
-				"runbookUrl":       map[string]any{"type": "string"},
+				"name":            map[string]any{"type": "string"},
+				"description":     map[string]any{"type": "string"},
+				"type":            map[string]any{"type": "string"},
+				"severity":        map[string]any{"type": "string"},
+				"serviceName":     map[string]any{"type": "string"},
+				"condition":       map[string]any{"type": "string"},
+				"metric":          map[string]any{"type": "string"},
+				"operator":        map[string]any{"type": "string"},
+				"threshold":       map[string]any{"type": "number"},
+				"durationMinutes": map[string]any{"type": "integer"},
+				"runbookUrl":      map[string]any{"type": "string"},
 			},
 			"required": []string{"name", "type", "severity"},
 		},
@@ -297,33 +291,14 @@ func getSchemas() map[string]any {
 			"type": "object",
 			"properties": map[string]any{
 				"alertIds": map[string]any{
-					"type":  "array",
-					"items": map[string]any{"type": "integer"},
+					"type":    "array",
+					"items":   map[string]any{"type": "integer"},
 					"example": []int{1, 2, 3},
 				},
 			},
 			"required": []string{"alertIds"},
 		},
-		"HealthCheckRequest": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"name":            map[string]any{"type": "string"},
-				"type":            map[string]any{"type": "string"},
-				"targetUrl":       map[string]any{"type": "string"},
-				"intervalSeconds": map[string]any{"type": "integer"},
-				"timeoutMs":       map[string]any{"type": "integer"},
-				"expectedStatus":  map[string]any{"type": "integer"},
-				"enabled":         map[string]any{"type": "boolean"},
-				"tags":            map[string]any{"type": "string"},
-			},
-			"required": []string{"name", "type", "targetUrl"},
-		},
-		"HealthCheckToggleRequest": map[string]any{
-			"type": "object",
-			"properties": map[string]any{
-				"enabled": map[string]any{"type": "boolean"},
-			},
-		},
+
 		"DeploymentCreateRequest": map[string]any{
 			"type": "object",
 			"properties": map[string]any{

@@ -1,55 +1,5 @@
 package model
 
-// ---- Resource Utilization ----
-
-type ResourceUtilizationResponse struct {
-	ByService      []ServiceResource  `json:"byService"`
-	ByInstance     []InstanceResource `json:"byInstance"`
-	Infrastructure []InfraResource    `json:"infrastructure"`
-	Timeseries     []ResourceBucket   `json:"timeseries"`
-}
-
-type ServiceResource struct {
-	ServiceName           string   `json:"service_name"`
-	AvgCpuUtil            *float64 `json:"avg_cpu_util"`
-	AvgMemoryUtil         *float64 `json:"avg_memory_util"`
-	AvgDiskUtil           *float64 `json:"avg_disk_util"`
-	AvgNetworkUtil        *float64 `json:"avg_network_util"`
-	AvgConnectionPoolUtil *float64 `json:"avg_connection_pool_util"`
-	SampleCount           int64    `json:"sample_count"`
-}
-
-type InstanceResource struct {
-	Host                  string   `json:"host"`
-	Pod                   string   `json:"pod"`
-	Container             string   `json:"container"`
-	ServiceName           string   `json:"service_name"`
-	AvgCpuUtil            *float64 `json:"avg_cpu_util"`
-	AvgMemoryUtil         *float64 `json:"avg_memory_util"`
-	AvgDiskUtil           *float64 `json:"avg_disk_util"`
-	AvgNetworkUtil        *float64 `json:"avg_network_util"`
-	AvgConnectionPoolUtil *float64 `json:"avg_connection_pool_util"`
-	SampleCount           int64    `json:"sample_count"`
-}
-
-type InfraResource struct {
-	Host        string  `json:"host"`
-	Pod         string  `json:"pod"`
-	Container   string  `json:"container"`
-	SpanCount   int64   `json:"span_count"`
-	ErrorCount  int64   `json:"error_count"`
-	AvgLatency  float64 `json:"avg_latency"`
-	P95Latency  float64 `json:"p95_latency"`
-	ServicesCsv string  `json:"services_csv"`
-}
-
-type ResourceBucket struct {
-	Timestamp     string   `json:"timestamp"` // Frontend expects "timestamp" instead of "time_bucket"
-	Pod           string   `json:"pod"`
-	AvgCpuUtil    *float64 `json:"avg_cpu_util"`
-	AvgMemoryUtil *float64 `json:"avg_memory_util"`
-}
-
 // ---- SLO / SLI ----
 
 type SloSliResponse struct {
