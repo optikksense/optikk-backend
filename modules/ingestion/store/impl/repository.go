@@ -22,64 +22,6 @@ const logIDSequenceMask = (1 << logIDSequenceBits) - 1
 
 var logIDSequence uint64
 
-var persistedMetricNames = map[string]struct{}{
-	// Resource utilization
-	"system.cpu.utilization":             {},
-	"system.cpu.usage":                   {},
-	"process.cpu.usage":                  {},
-	"system.memory.utilization":          {},
-	"jvm.memory.used":                    {},
-	"jvm.memory.max":                     {},
-	"system.disk.utilization":            {},
-	"disk.free":                          {},
-	"disk.total":                         {},
-	"system.network.utilization":         {},
-	"http.server.requests.active.active": {},
-	"http.server.request.count":          {},
-	"http.server.request.duration":       {},
-	"http.server.requests":               {},
-
-	// Connection pool saturation
-	"db.connection.pool.utilization": {},
-	"db.connection_pool.utilization": {},
-	"hikaricp.connections.active":    {},
-	"hikaricp.connections.max":       {},
-	"jdbc.connections.active":        {},
-	"jdbc.connections.max":           {},
-
-	// Thread/queue saturation
-	"thread.pool.active":       {},
-	"thread.pool.size":         {},
-	"executor.active":          {},
-	"executor.pool.size":       {},
-	"executor.pool.max":        {},
-	"executor.queued":          {},
-	"executor.queue.remaining": {},
-	"queue.depth":              {},
-	"messaging.queue.depth":    {},
-
-	// Kafka/message lag aliases
-	"messaging.kafka.consumer.lag":                 {},
-	"messaging.kafka.consumer.records.lag":         {},
-	"messaging.kafka.consumer.records-lag":         {},
-	"messaging.kafka.consumer.records.lag.max":     {},
-	"kafka.consumer.lag":                           {},
-	"kafka.consumer.records.lag":                   {},
-	"kafka.consumer.records-lag":                   {},
-	"kafka.consumer.records.lag.max":               {},
-	"kafka.consumer.fetch.manager.records.lag":     {},
-	"kafka.consumer.fetch.manager.records.lag.max": {},
-	"kafka.consumer.fetch.records.lag":             {},
-	"kafka.consumer.fetch.records.lag.max":         {},
-	"messaging.kafka.published":                    {},
-	"messaging.kafka.consumed":                     {},
-	"app.activity.kafka.published":                 {},
-	"app.activity.kafka.consumed":                  {},
-
-	// Error/health counters used by insight fallbacks
-	"logback.events": {},
-}
-
 // NewRepository creates a telemetry repository.
 func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	return &ClickHouseRepository{DB: db}
@@ -337,13 +279,6 @@ func nextLogID(ts time.Time) uint64 {
 }
 
 func shouldPersistMetric(metricName string) bool {
-	_, ok := persistedMetricNames[metricName]
-	if ok {
-		return true
-	}
-
-	lower := strings.ToLower(metricName)
-	return strings.HasPrefix(lower, "db.") ||
-		strings.HasPrefix(lower, "mongodb.driver.") ||
-		strings.HasPrefix(lower, "cache.")
+	_ = metricName
+	return true
 }
