@@ -1,9 +1,27 @@
 package store
 
 import (
+	"fmt"
+
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/overview/overview/model"
 )
+
+// overviewBucketExpr returns a ClickHouse expression for adaptive time bucketing
+// over spans_service_1m / spans_endpoint_1m materialized views.
+func overviewBucketExpr(startMs, endMs int64) string {
+	hours := (endMs - startMs) / 3_600_000
+	switch {
+	case hours <= 3:
+		return "minute"
+	case hours <= 24:
+		return "toStartOfInterval(minute, INTERVAL 5 MINUTE)"
+	case hours <= 168:
+		return "toStartOfInterval(minute, INTERVAL 60 MINUTE)"
+	default:
+		return "toStartOfInterval(minute, INTERVAL 1440 MINUTE)"
+	}
+}
 
 // Repository encapsulates data access logic for overview dashboards.
 type Repository interface {
@@ -51,8 +69,9 @@ func (r *ClickHouseRepository) GetSummary(teamUUID string, startMs, endMs int64)
 }
 
 func (r *ClickHouseRepository) GetTimeSeries(teamUUID string, startMs, endMs int64, serviceName string) ([]model.TimeSeriesPoint, error) {
-	query := `
-		SELECT minute                          AS time_bucket,
+	bucket := overviewBucketExpr(startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT %s                          AS time_bucket,
 		       countMerge(request_count)       AS request_count,
 		       countMerge(error_count)         AS error_count,
 		       avgMerge(avg_state)             AS avg_latency,
@@ -60,13 +79,13 @@ func (r *ClickHouseRepository) GetTimeSeries(teamUUID string, startMs, endMs int
 		       quantileMerge(0.95)(p95_state)  AS p95,
 		       quantileMerge(0.99)(p99_state)  AS p99
 		FROM observability.spans_service_1m
-		WHERE team_id = ? AND minute BETWEEN ? AND ?`
+		WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
 		args = append(args, serviceName)
 	}
-	query += ` GROUP BY minute ORDER BY time_bucket ASC`
+	query += fmt.Sprintf(` GROUP BY %s ORDER BY time_bucket ASC`, bucket)
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
@@ -162,8 +181,9 @@ func (r *ClickHouseRepository) GetEndpointMetrics(teamUUID string, startMs, endM
 }
 
 func (r *ClickHouseRepository) GetEndpointTimeSeries(teamUUID string, startMs, endMs int64, serviceName string) ([]model.TimeSeriesPoint, error) {
-	query := `
-		SELECT minute          AS time_bucket,
+	bucket := overviewBucketExpr(startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT %s          AS time_bucket,
 		       service_name,
 		       operation_name,
 		       http_method,
@@ -174,13 +194,13 @@ func (r *ClickHouseRepository) GetEndpointTimeSeries(teamUUID string, startMs, e
 		       quantileMerge(0.95)(p95_state)  AS p95,
 		       quantileMerge(0.99)(p99_state)  AS p99
 		FROM observability.spans_endpoint_1m
-		WHERE team_id = ? AND minute BETWEEN ? AND ?`
+		WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
 		args = append(args, serviceName)
 	}
-	query += ` GROUP BY minute, service_name, operation_name, http_method ORDER BY time_bucket ASC, countMerge(request_count) DESC`
+	query += fmt.Sprintf(` GROUP BY %s, service_name, operation_name, http_method ORDER BY time_bucket ASC, countMerge(request_count) DESC`, bucket)
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {

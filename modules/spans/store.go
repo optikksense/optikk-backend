@@ -2,6 +2,7 @@ package traces
 
 import (
 	"context"
+	"fmt"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
@@ -136,6 +137,7 @@ func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamUUID, trac
 		FROM spans
 		WHERE team_id = ? AND trace_id = ?
 		ORDER BY start_time ASC
+		LIMIT 10000
 	`, teamUUID, traceID)
 	if err != nil {
 		return nil, err
@@ -179,6 +181,7 @@ func (r *ClickHouseRepository) GetSpanTree(ctx context.Context, teamUUID, spanID
 		      SELECT trace_id FROM spans WHERE team_id = ? AND span_id = ? LIMIT 1
 		  )
 		ORDER BY start_time ASC
+		LIMIT 10000
 	`, teamUUID, teamUUID, spanID)
 	if err != nil {
 		return nil, err
@@ -275,23 +278,24 @@ func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamUUID stri
 	return groups, nil
 }
 
-// GetErrorTimeSeries reads from spans_service_1m — no raw span scan.
+// GetErrorTimeSeries reads from spans_service_1m with adaptive time bucketing.
 func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamUUID string, startMs, endMs int64, serviceName string) ([]ErrorTimeSeries, error) {
-	query := `
+	bucket := timeBucketExpr(startMs, endMs)
+	query := fmt.Sprintf(`
 		SELECT service_name,
-		       minute AS timestamp,
+		       %s AS timestamp,
 		       countMerge(request_count) AS total_count,
 		       countMerge(error_count)   AS error_count,
 		       if(countMerge(request_count) > 0,
 		          countMerge(error_count)*100.0/countMerge(request_count), 0) AS error_rate
 		FROM observability.spans_service_1m
-		WHERE team_id = ? AND minute BETWEEN ? AND ?`
+		WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
 		args = append(args, serviceName)
 	}
-	query += ` GROUP BY service_name, minute ORDER BY timestamp ASC`
+	query += fmt.Sprintf(` GROUP BY service_name, %s ORDER BY timestamp ASC`, bucket)
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
@@ -371,8 +375,9 @@ func (r *ClickHouseRepository) GetLatencyHistogram(ctx context.Context, teamUUID
 }
 
 func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamUUID string, startMs, endMs int64, serviceName string) ([]LatencyHeatmapPoint, error) {
-	query := `
-		SELECT toStartOfMinute(start_time) as time_bucket,
+	bucket := timeBucketExpr(startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket,
 		       CASE
 				WHEN duration_ms < 50 THEN '0-50ms'
 				WHEN duration_ms < 100 THEN '50-100ms'
@@ -383,14 +388,14 @@ func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamUUID s
 			END as latency_bucket,
 			COUNT(*) as span_count
 		FROM spans
-		WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`
+		WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
 		args = append(args, serviceName)
 	}
-	query += ` GROUP BY toStartOfMinute(start_time), latency_bucket
-	           ORDER BY time_bucket ASC, latency_bucket ASC`
+	query += fmt.Sprintf(` GROUP BY %s, latency_bucket
+	           ORDER BY time_bucket ASC, latency_bucket ASC`, bucket)
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {

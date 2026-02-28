@@ -98,7 +98,7 @@ func (r *ClickHouseRepository) GetAlerts(teamID int64, status string) ([]model.A
 		query += ` AND LOWER(status) = LOWER(?)`
 		args = append(args, status)
 	}
-	query += ` ORDER BY created_at DESC`
+	query += ` ORDER BY created_at DESC LIMIT 1000`
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
 		return nil, err
@@ -199,6 +199,7 @@ func (r *ClickHouseRepository) GetAlertsForIncident(teamID int64, policyID strin
 	rows, err := dbutil.QueryMaps(r.db, r.selectSQL()+`
 		WHERE team_id = ? AND triggered_by LIKE ?
 		ORDER BY created_at DESC
+		LIMIT 500
 	`, teamID, "%"+policyID+"%")
 	if err != nil {
 		return nil, err

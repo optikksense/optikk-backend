@@ -1,11 +1,27 @@
 package store
 
 import (
+	"fmt"
 	"strings"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/infrastructure/resource_utilisation/model"
 )
+
+// resBucketExpr returns a ClickHouse time-bucketing expression for adaptive granularity.
+func resBucketExpr(startMs, endMs int64) string {
+	hours := (endMs - startMs) / 3_600_000
+	switch {
+	case hours <= 3:
+		return "formatDateTime(toStartOfMinute(timestamp), '%Y-%m-%dT%H:%i:%SZ')"
+	case hours <= 24:
+		return "formatDateTime(toStartOfFiveMinutes(timestamp), '%Y-%m-%dT%H:%i:%SZ')"
+	case hours <= 168:
+		return "formatDateTime(toStartOfHour(timestamp), '%Y-%m-%dT%H:%i:%SZ')"
+	default:
+		return "formatDateTime(toStartOfDay(timestamp), '%Y-%m-%dT%H:%i:%SZ')"
+	}
+}
 
 // Repository encapsulates data access logic for resource utilization.
 type Repository interface {
@@ -170,10 +186,11 @@ func (r *ClickHouseRepository) GetAvgConnPool(teamUUID string, startMs, endMs in
 }
 
 func (r *ClickHouseRepository) GetCPUUsagePercentage(teamUUID string, startMs, endMs int64) ([]model.ResourceBucket, error) {
-	query := `
-		SELECT formatDateTime(toStartOfMinute(timestamp), '%Y-%m-%dT%H:%i:%SZ') as time_bucket,
+	bucket := resBucketExpr(startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket,
 		       service_name as pod,
-		       ` + getByServiceQuerySelect("cpu")[7:] + `
+		       `+getByServiceQuerySelect("cpu")[7:]+`
 		FROM metrics
 		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
 		  AND (
@@ -183,7 +200,7 @@ func (r *ClickHouseRepository) GetCPUUsagePercentage(teamUUID string, startMs, e
 		GROUP BY 1, 2
 		HAVING pod != ''
 		ORDER BY 1 ASC, 2 ASC
-	`
+	`, bucket)
 	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
@@ -200,10 +217,11 @@ func (r *ClickHouseRepository) GetCPUUsagePercentage(teamUUID string, startMs, e
 }
 
 func (r *ClickHouseRepository) GetMemoryUsagePercentage(teamUUID string, startMs, endMs int64) ([]model.ResourceBucket, error) {
-	query := `
-		SELECT formatDateTime(toStartOfMinute(timestamp), '%Y-%m-%dT%H:%i:%SZ') as time_bucket,
+	bucket := resBucketExpr(startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket,
 		       service_name as pod,
-		       ` + getByServiceQuerySelect("memory")[7:] + `
+		       `+getByServiceQuerySelect("memory")[7:]+`
 		FROM metrics
 		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
 		  AND (
@@ -213,7 +231,7 @@ func (r *ClickHouseRepository) GetMemoryUsagePercentage(teamUUID string, startMs
 		GROUP BY 1, 2
 		HAVING pod != ''
 		ORDER BY 1 ASC, 2 ASC
-	`
+	`, bucket)
 	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err

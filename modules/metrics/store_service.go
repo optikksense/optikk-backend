@@ -53,12 +53,15 @@ func (r *ClickHouseRepository) GetServiceMetrics(ctx context.Context, f MetricFi
 	return metrics, nil
 }
 
-// GetServiceTimeSeries returns per-minute time series for service metrics.
-// This replaces both GetMetricsTimeSeries and GetServiceTimeSeries.
+// GetServiceTimeSeries returns time-bucketed time series for service metrics.
+// Uses autoStep to pick a bucket size (~30 points) so that wide windows
+// (e.g. 30d) don't return 43,200 raw minute rows.
 func (r *ClickHouseRepository) GetServiceTimeSeries(ctx context.Context, f MetricFilters) ([]TimeSeriesPoint, error) {
 	view := selectServiceView(f.Start, f.End)
+	step := autoStep(f.Start, f.End)
+	bucket := metricBucketExpr(step)
 	query := fmt.Sprintf(`
-		SELECT minute                          AS time_bucket,
+		SELECT %s                              AS time_bucket,
 		       service_name,
 		       countMerge(request_count)       AS request_count,
 		       countMerge(error_count)         AS error_count,
@@ -67,13 +70,13 @@ func (r *ClickHouseRepository) GetServiceTimeSeries(ctx context.Context, f Metri
 		       quantileMerge(0.95)(p95_state)  AS p95,
 		       quantileMerge(0.99)(p99_state)  AS p99
 		FROM %s
-		WHERE team_id = ? AND minute BETWEEN ? AND ?`, view)
+		WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket, view)
 	args := []any{f.TeamUUID, f.Start, f.End}
 	if f.ServiceName != "" {
 		query += ` AND service_name = ?`
 		args = append(args, f.ServiceName)
 	}
-	query += ` GROUP BY service_name, minute ORDER BY time_bucket ASC, countMerge(request_count) DESC`
+	query += fmt.Sprintf(` GROUP BY service_name, %s ORDER BY time_bucket ASC, countMerge(request_count) DESC`, bucket)
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {

@@ -1,9 +1,41 @@
 package store
 
 import (
+	"fmt"
+
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/saturation/model"
 )
+
+// satBucketExpr returns a ClickHouse time-bucketing expression for adaptive granularity.
+func satBucketExpr(startMs, endMs int64) string {
+	hours := (endMs - startMs) / 3_600_000
+	switch {
+	case hours <= 3:
+		return "toStartOfMinute(timestamp)"
+	case hours <= 24:
+		return "toStartOfFiveMinutes(timestamp)"
+	case hours <= 168:
+		return "toStartOfHour(timestamp)"
+	default:
+		return "toStartOfDay(timestamp)"
+	}
+}
+
+// satFmtBucketExpr returns a formatted ClickHouse time-bucketing expression.
+func satFmtBucketExpr(startMs, endMs int64) string {
+	hours := (endMs - startMs) / 3_600_000
+	switch {
+	case hours <= 3:
+		return "formatDateTime(toStartOfMinute(timestamp), '%Y-%m-%dT%H:%i:%SZ')"
+	case hours <= 24:
+		return "formatDateTime(toStartOfFiveMinutes(timestamp), '%Y-%m-%dT%H:%i:%SZ')"
+	case hours <= 168:
+		return "formatDateTime(toStartOfHour(timestamp), '%Y-%m-%dT%H:%i:%SZ')"
+	default:
+		return "formatDateTime(toStartOfDay(timestamp), '%Y-%m-%dT%H:%i:%SZ')"
+	}
+}
 
 // ClickHouseRepository encapsulates saturation data access logic.
 type ClickHouseRepository struct {
@@ -16,12 +48,13 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) GetKafkaQueueLag(teamUUID string, startMs, endMs int64) ([]model.KafkaQueueLag, error) {
-	rows, err := dbutil.QueryMaps(r.db, `
+	bucket := satBucketExpr(startMs, endMs)
+	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT coalesce(
 		           nullIf(JSONExtractString(attributes, 'messaging.destination.name'), ''),
 		           'unknown_topic'
 		       ) as queue,
-		       toStartOfMinute(timestamp) as minute_bucket,
+		       %s as minute_bucket,
 		       avgIf(value, metric_name IN (
 		           'messaging.kafka.consumer.lag',
 		           'messaging.kafka.consumer.records.lag',
@@ -65,7 +98,7 @@ func (r *ClickHouseRepository) GetKafkaQueueLag(teamUUID string, startMs, endMs 
 		  )
 		GROUP BY queue, minute_bucket
 		ORDER BY minute_bucket ASC, queue ASC
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, bucket), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -84,12 +117,13 @@ func (r *ClickHouseRepository) GetKafkaQueueLag(teamUUID string, startMs, endMs 
 }
 
 func (r *ClickHouseRepository) GetKafkaProductionRate(teamUUID string, startMs, endMs int64) ([]model.KafkaProductionRate, error) {
-	rows, err := dbutil.QueryMaps(r.db, `
+	bucket := satBucketExpr(startMs, endMs)
+	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT coalesce(
 		           nullIf(JSONExtractString(attributes, 'messaging.destination.name'), ''),
 		           'unknown_topic'
 		       ) as queue,
-		       toStartOfMinute(timestamp) as minute_bucket,
+		       %s as minute_bucket,
 		       avgIf(value, metric_name IN (
 		           'messaging.publish.rate',
 		           'kafka.producer.record.send.rate',
@@ -104,7 +138,7 @@ func (r *ClickHouseRepository) GetKafkaProductionRate(teamUUID string, startMs, 
 		  )
 		GROUP BY queue, minute_bucket
 		ORDER BY minute_bucket ASC, queue ASC
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, bucket), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -122,12 +156,13 @@ func (r *ClickHouseRepository) GetKafkaProductionRate(teamUUID string, startMs, 
 }
 
 func (r *ClickHouseRepository) GetKafkaConsumptionRate(teamUUID string, startMs, endMs int64) ([]model.KafkaConsumptionRate, error) {
-	rows, err := dbutil.QueryMaps(r.db, `
+	bucket := satBucketExpr(startMs, endMs)
+	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT coalesce(
 		           nullIf(JSONExtractString(attributes, 'messaging.destination.name'), ''),
 		           'unknown_topic'
 		       ) as queue,
-		       toStartOfMinute(timestamp) as minute_bucket,
+		       %s as minute_bucket,
 		       avgIf(value, metric_name IN (
 		           'messaging.receive.rate',
 		           'kafka.consumer.fetch.rate',
@@ -142,7 +177,7 @@ func (r *ClickHouseRepository) GetKafkaConsumptionRate(teamUUID string, startMs,
 		  )
 		GROUP BY queue, minute_bucket
 		ORDER BY minute_bucket ASC, queue ASC
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, bucket), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -160,14 +195,15 @@ func (r *ClickHouseRepository) GetKafkaConsumptionRate(teamUUID string, startMs,
 }
 
 func (r *ClickHouseRepository) GetDatabaseQueryByTable(teamUUID string, startMs, endMs int64) ([]model.DatabaseQueryByTable, error) {
-	rows, err := dbutil.QueryMaps(r.db, `
+	bucket := satBucketExpr(startMs, endMs)
+	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT coalesce(
 		           nullIf(JSONExtractString(attributes, 'db.statement'), ''),
 		           nullIf(JSONExtractString(attributes, 'db.sql.table'), ''),
 		           nullIf(JSONExtractString(attributes, 'db.collection.name'), ''),
 		           'unknown_table'
 		       ) as table_name,
-		       toStartOfMinute(timestamp) as minute_bucket,
+		       %s as minute_bucket,
 		       sumIf(value, metric_name IN (
 		           'db.client.operation.duration',
 		           'db.system.queries',
@@ -182,7 +218,7 @@ func (r *ClickHouseRepository) GetDatabaseQueryByTable(teamUUID string, startMs,
 		  )
 		GROUP BY table_name, minute_bucket
 		ORDER BY minute_bucket ASC, table_name ASC
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, bucket), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -200,8 +236,9 @@ func (r *ClickHouseRepository) GetDatabaseQueryByTable(teamUUID string, startMs,
 }
 
 func (r *ClickHouseRepository) GetDatabaseAvgLatency(teamUUID string, startMs, endMs int64) ([]model.DatabaseAvgLatency, error) {
-	rows, err := dbutil.QueryMaps(r.db, `
-		SELECT toStartOfMinute(timestamp) as minute_bucket,
+	bucket := satBucketExpr(startMs, endMs)
+	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
+		SELECT %s as minute_bucket,
 		       avgIf(value, metric_name IN (
 		           'db.client.operation.duration',
 		           'db.client.latency'
@@ -215,7 +252,7 @@ func (r *ClickHouseRepository) GetDatabaseAvgLatency(teamUUID string, startMs, e
 		  )
 		GROUP BY minute_bucket
 		ORDER BY minute_bucket ASC
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, bucket), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -392,8 +429,9 @@ func (r *ClickHouseRepository) GetDatabaseTopTables(teamUUID string, startMs, en
 
 // GetQueueConsumerLag queries the consumer lag timeseries for queues.
 func (r *ClickHouseRepository) GetQueueConsumerLag(teamUUID string, startMs, endMs int64) ([]model.MqBucket, error) {
-	timeseriesRaw, err := dbutil.QueryMaps(r.db, `
-		SELECT formatDateTime(toStartOfMinute(timestamp), '%Y-%m-%dT%H:%i:%SZ') as time_bucket,
+	bucket := satFmtBucketExpr(startMs, endMs)
+	timeseriesRaw, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
+		SELECT %s as time_bucket,
 		       if(service_name != '', service_name, 'unknown') as service_name,
 		       coalesce(
 		           nullIf(JSONExtractString(attributes, 'messaging.queue.name'), ''),
@@ -410,7 +448,7 @@ func (r *ClickHouseRepository) GetQueueConsumerLag(teamUUID string, startMs, end
 		       ) as queue_name,
 		       coalesce(
 		           nullIf(JSONExtractString(attributes, 'messaging.system'), ''),
-		           if(metric_name LIKE 'kafka.%' OR metric_name LIKE 'messaging.kafka.%', 'kafka', ''),
+		           if(metric_name LIKE 'kafka.%%' OR metric_name LIKE 'messaging.kafka.%%', 'kafka', ''),
 		           'kafka'
 		       ) as messaging_system,
 		       avgIf(value, metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'messaging.kafka.consumer.records-lag', 'messaging.kafka.consumer.records.lag.max', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'kafka.consumer.records.lag.max', 'kafka.consumer.fetch.manager.records.lag', 'kafka.consumer.fetch.manager.records.lag.max', 'kafka.consumer.fetch.records.lag', 'kafka.consumer.fetch.records.lag.max', 'executor.queued') AND isFinite(value)) as avg_consumer_lag
@@ -433,7 +471,7 @@ func (r *ClickHouseRepository) GetQueueConsumerLag(teamUUID string, startMs, end
 		  )
 		GROUP BY time_bucket, service_name, queue_name, messaging_system
 		ORDER BY time_bucket ASC, service_name ASC, queue_name ASC
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, bucket), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -454,8 +492,9 @@ func (r *ClickHouseRepository) GetQueueConsumerLag(teamUUID string, startMs, end
 
 // GetQueueTopicLag queries the queue depth timeseries for topics.
 func (r *ClickHouseRepository) GetQueueTopicLag(teamUUID string, startMs, endMs int64) ([]model.MqBucket, error) {
-	timeseriesRaw, err := dbutil.QueryMaps(r.db, `
-		SELECT formatDateTime(toStartOfMinute(timestamp), '%Y-%m-%dT%H:%i:%SZ') as time_bucket,
+	bucket := satFmtBucketExpr(startMs, endMs)
+	timeseriesRaw, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
+		SELECT %s as time_bucket,
 		       if(service_name != '', service_name, 'unknown') as service_name,
 		       coalesce(
 		           nullIf(JSONExtractString(attributes, 'messaging.queue.name'), ''),
@@ -471,7 +510,7 @@ func (r *ClickHouseRepository) GetQueueTopicLag(teamUUID string, startMs, endMs 
 		       ) as queue_name,
 		       coalesce(
 		           nullIf(JSONExtractString(attributes, 'messaging.system'), ''),
-		           if(metric_name LIKE 'kafka.%' OR metric_name LIKE 'messaging.kafka.%', 'kafka', ''),
+		           if(metric_name LIKE 'kafka.%%' OR metric_name LIKE 'messaging.kafka.%%', 'kafka', ''),
 		           'kafka'
 		       ) as messaging_system,
 		       avgIf(value, metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as avg_queue_depth
@@ -484,7 +523,7 @@ func (r *ClickHouseRepository) GetQueueTopicLag(teamUUID string, startMs, endMs 
 		  )
 		GROUP BY time_bucket, service_name, queue_name, messaging_system
 		ORDER BY time_bucket ASC, service_name ASC, queue_name ASC
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, bucket), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err

@@ -1,9 +1,26 @@
 package store
 
 import (
+	"fmt"
+
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/overview/slo/model"
 )
+
+// sloBucketExpr returns a ClickHouse time-bucketing expression for adaptive granularity.
+func sloBucketExpr(startMs, endMs int64) string {
+	hours := (endMs - startMs) / 3_600_000
+	switch {
+	case hours <= 3:
+		return "formatDateTime(toStartOfMinute(timestamp), '%Y-%m-%d %H:%i:00')"
+	case hours <= 24:
+		return "formatDateTime(toStartOfFiveMinutes(timestamp), '%Y-%m-%d %H:%i:00')"
+	case hours <= 168:
+		return "formatDateTime(toStartOfHour(timestamp), '%Y-%m-%d %H:%i:00')"
+	default:
+		return "formatDateTime(toStartOfDay(timestamp), '%Y-%m-%d %H:%i:00')"
+	}
+}
 
 // Repository encapsulates data access logic for the SLO dashboard.
 type Repository interface {
@@ -51,14 +68,15 @@ func (r *ClickHouseRepository) GetSummary(teamUUID string, startMs, endMs int64,
 }
 
 func (r *ClickHouseRepository) GetTimeSeries(teamUUID string, startMs, endMs int64, serviceName string) ([]model.TimeSlice, error) {
-	query := `
-		SELECT formatDateTime(toStartOfMinute(timestamp), '%Y-%m-%d %H:%i:00') as time_bucket,
+	bucket := sloBucketExpr(startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket,
 		       sum(count) as request_count,
 		       sum(if(status='ERROR', count, 0)) as error_count,
 		       if(sum(count) > 0, (sum(count)-sum(if(status='ERROR', count, 0)))*100.0/sum(count), 100.0) as availability_percent,
 		       avg(avg) as avg_latency_ms
 		FROM metrics
-		WHERE team_id = ? AND metric_category = 'http' AND timestamp BETWEEN ? AND ?`
+		WHERE team_id = ? AND metric_category = 'http' AND timestamp BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`

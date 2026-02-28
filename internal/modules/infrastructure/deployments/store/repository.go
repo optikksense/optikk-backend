@@ -74,7 +74,7 @@ func (r *ClickHouseRepository) GetDeploymentEvents(teamUUID string, startMs, end
 		query += ` AND service_name = ?`
 		args = append(args, serviceName)
 	}
-	query += ` ORDER BY deploy_time ASC`
+	query += ` ORDER BY deploy_time ASC LIMIT 500`
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {

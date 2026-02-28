@@ -49,11 +49,14 @@ func (r *ClickHouseRepository) GetEndpointMetrics(ctx context.Context, f MetricF
 	return metrics, nil
 }
 
-// GetEndpointTimeSeries returns per-minute time series for endpoint metrics.
+// GetEndpointTimeSeries returns time-bucketed time series for endpoint metrics.
+// Uses autoStep for adaptive granularity.
 func (r *ClickHouseRepository) GetEndpointTimeSeries(ctx context.Context, f MetricFilters) ([]TimeSeriesPoint, error) {
 	view := selectEndpointView(f.Start, f.End)
+	step := autoStep(f.Start, f.End)
+	bucket := metricBucketExpr(step)
 	query := fmt.Sprintf(`
-		SELECT minute          AS time_bucket,
+		SELECT %s              AS time_bucket,
 		       service_name,
 		       operation_name,
 		       http_method,
@@ -64,13 +67,13 @@ func (r *ClickHouseRepository) GetEndpointTimeSeries(ctx context.Context, f Metr
 		       quantileMerge(0.95)(p95_state)  AS p95,
 		       quantileMerge(0.99)(p99_state)  AS p99
 		FROM %s
-		WHERE team_id = ? AND minute BETWEEN ? AND ?`, view)
+		WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket, view)
 	args := []any{f.TeamUUID, f.Start, f.End}
 	if f.ServiceName != "" {
 		query += ` AND service_name = ?`
 		args = append(args, f.ServiceName)
 	}
-	query += ` GROUP BY minute, service_name, operation_name, http_method ORDER BY time_bucket ASC, countMerge(request_count) DESC`
+	query += fmt.Sprintf(` GROUP BY %s, service_name, operation_name, http_method ORDER BY time_bucket ASC, countMerge(request_count) DESC`, bucket)
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {

@@ -1,9 +1,26 @@
 package store
 
 import (
+	"fmt"
+
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/ai/model"
 )
+
+// aiBucketExpr returns a ClickHouse time-bucketing expression for adaptive granularity.
+func aiBucketExpr(startMs, endMs int64) string {
+	hours := (endMs - startMs) / 3_600_000
+	switch {
+	case hours <= 3:
+		return "DATE_FORMAT(timestamp, '%Y-%m-%d %H:%i:00')"
+	case hours <= 24:
+		return "toStartOfFiveMinutes(timestamp)"
+	case hours <= 168:
+		return "toStartOfHour(timestamp)"
+	default:
+		return "toStartOfDay(timestamp)"
+	}
+}
 
 // Repository encapsulates data access logic for AI models.
 type Repository interface {
@@ -149,11 +166,12 @@ func (r *ClickHouseRepository) GetAIPerformanceMetrics(teamUUID string, startMs,
 	return metrics, nil
 }
 
-// GetAIPerformanceTimeSeries returns per-model latency / throughput time series.
+// GetAIPerformanceTimeSeries returns per-model latency / throughput time series with adaptive bucketing.
 func (r *ClickHouseRepository) GetAIPerformanceTimeSeries(teamUUID string, startMs, endMs int64) ([]model.AIPerformanceTimeSeries, error) {
-	rows, err := dbutil.QueryMaps(r.db, `
+	bucket := aiBucketExpr(startMs, endMs)
+	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT model_name,
-		       DATE_FORMAT(timestamp, '%Y-%m-%d %H:%i:00') as timestamp,
+		       %s as timestamp,
 		       COUNT(*) as request_count,
 		       AVG(duration_ms) as avg_latency_ms,
 		       AVG(duration_ms) as p95_latency_ms,
@@ -162,9 +180,9 @@ func (r *ClickHouseRepository) GetAIPerformanceTimeSeries(teamUUID string, start
 		       AVG(CASE WHEN duration_ms>0 THEN COALESCE(tokens_completion,0)/(duration_ms/1000.0) ELSE 0 END) as tokens_per_sec
 		FROM ai_requests
 		WHERE team_id = ? AND timestamp BETWEEN ? AND ? AND model_name <> ''
-		GROUP BY model_name, DATE_FORMAT(timestamp, '%Y-%m-%d %H:%i:00')
+		GROUP BY model_name, %s
 		ORDER BY timestamp ASC
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, bucket, bucket), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -264,20 +282,21 @@ func (r *ClickHouseRepository) GetAICostMetrics(teamUUID string, startMs, endMs 
 	return metrics, nil
 }
 
-// GetAICostTimeSeries returns cost and token usage over time per model.
+// GetAICostTimeSeries returns cost and token usage over time per model with adaptive bucketing.
 func (r *ClickHouseRepository) GetAICostTimeSeries(teamUUID string, startMs, endMs int64) ([]model.AICostTimeSeries, error) {
-	rows, err := dbutil.QueryMaps(r.db, `
+	bucket := aiBucketExpr(startMs, endMs)
+	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT model_name,
-		       DATE_FORMAT(timestamp, '%Y-%m-%d %H:%i:00') as timestamp,
+		       %s as timestamp,
 		       SUM(COALESCE(cost_usd,0)) as cost_per_interval,
 		       SUM(COALESCE(tokens_prompt,0)) as prompt_tokens,
 		       SUM(COALESCE(tokens_completion,0)) as completion_tokens,
 		       COUNT(*) as request_count
 		FROM ai_requests
 		WHERE team_id = ? AND timestamp BETWEEN ? AND ? AND model_name <> ''
-		GROUP BY model_name, DATE_FORMAT(timestamp, '%Y-%m-%d %H:%i:00')
+		GROUP BY model_name, %s
 		ORDER BY timestamp ASC
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, bucket, bucket), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -368,20 +387,21 @@ func (r *ClickHouseRepository) GetAISecurityMetrics(teamUUID string, startMs, en
 	return metrics, nil
 }
 
-// GetAISecurityTimeSeries returns security-event time series per model.
+// GetAISecurityTimeSeries returns security-event time series per model with adaptive bucketing.
 func (r *ClickHouseRepository) GetAISecurityTimeSeries(teamUUID string, startMs, endMs int64) ([]model.AISecurityTimeSeries, error) {
-	rows, err := dbutil.QueryMaps(r.db, `
+	bucket := aiBucketExpr(startMs, endMs)
+	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT model_name,
-		       DATE_FORMAT(timestamp, '%Y-%m-%d %H:%i:00') as timestamp,
+		       %s as timestamp,
 		       COUNT(*) as total_requests,
 		       SUM(CASE WHEN pii_detected=1 THEN 1 ELSE 0 END) as pii_count,
 		       SUM(CASE WHEN guardrail_blocked=1 THEN 1 ELSE 0 END) as guardrail_count,
 		       SUM(CASE WHEN content_policy=1 THEN 1 ELSE 0 END) as content_policy_count
 		FROM ai_requests
 		WHERE team_id = ? AND timestamp BETWEEN ? AND ? AND model_name <> ''
-		GROUP BY model_name, DATE_FORMAT(timestamp, '%Y-%m-%d %H:%i:00')
+		GROUP BY model_name, %s
 		ORDER BY timestamp ASC
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, bucket, bucket), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err

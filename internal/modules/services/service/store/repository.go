@@ -1,9 +1,26 @@
 package store
 
 import (
+	"fmt"
+
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/services/service/model"
 )
+
+// serviceBucketExpr returns a ClickHouse expression for adaptive time bucketing.
+func serviceBucketExpr(startMs, endMs int64) string {
+	hours := (endMs - startMs) / 3_600_000
+	switch {
+	case hours <= 3:
+		return "minute"
+	case hours <= 24:
+		return "toStartOfInterval(minute, INTERVAL 5 MINUTE)"
+	case hours <= 168:
+		return "toStartOfInterval(minute, INTERVAL 60 MINUTE)"
+	default:
+		return "toStartOfInterval(minute, INTERVAL 1440 MINUTE)"
+	}
+}
 
 const (
 	healthyMaxErrorRate  = 1.0
@@ -92,17 +109,18 @@ func (r *ClickHouseRepository) GetServiceMetrics(teamUUID string, startMs, endMs
 }
 
 func (r *ClickHouseRepository) GetServiceTimeSeries(teamUUID string, startMs, endMs int64) ([]model.TimeSeriesPoint, error) {
-	rows, err := dbutil.QueryMaps(r.db, `
+	bucket := serviceBucketExpr(startMs, endMs)
+	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT service_name,
-		       minute                    AS timestamp,
+		       %s                    AS timestamp,
 		       countMerge(request_count) AS request_count,
 		       countMerge(error_count)   AS error_count,
 		       avgMerge(avg_state)       AS avg_latency
 		FROM observability.spans_service_1m
 		WHERE team_id = ? AND minute BETWEEN ? AND ?
-		GROUP BY service_name, minute
-		ORDER BY minute ASC, countMerge(request_count) DESC
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+		GROUP BY service_name, %s
+		ORDER BY timestamp ASC, countMerge(request_count) DESC
+	`, bucket, bucket), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
