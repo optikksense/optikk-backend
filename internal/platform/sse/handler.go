@@ -12,9 +12,17 @@ import (
 	"github.com/observability/observability-backend-go/internal/platform/utils"
 )
 
+// Publisher is the interface satisfied by both *Broker and *RedisBroker,
+// allowing the handler to work with either SSE implementation.
+type Publisher interface {
+	Subscribe(teamID int64) chan Event
+	Unsubscribe(teamID int64, ch chan Event)
+	Publish(teamID int64, eventType string, data any)
+}
+
 // Handler serves the SSE stream endpoint.
 type Handler struct {
-	broker     *Broker
+	broker     Publisher
 	getTenant  func(*gin.Context) types.TenantContext
 	jwtManager auth.JWTManager
 }
@@ -22,7 +30,7 @@ type Handler struct {
 // NewHandler creates a new SSE handler backed by the given broker.
 // jwtManager is used to validate tokens passed as query params (EventSource
 // does not support custom HTTP headers).
-func NewHandler(broker *Broker, getTenant func(*gin.Context) types.TenantContext, jwtManager auth.JWTManager) *Handler {
+func NewHandler(broker Publisher, getTenant func(*gin.Context) types.TenantContext, jwtManager auth.JWTManager) *Handler {
 	return &Handler{
 		broker:     broker,
 		getTenant:  getTenant,

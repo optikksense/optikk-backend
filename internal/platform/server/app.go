@@ -50,6 +50,7 @@ import (
 	servicetopologystore "github.com/observability/observability-backend-go/internal/modules/services/topology/store"
 	"github.com/observability/observability-backend-go/internal/platform/auth"
 	"github.com/observability/observability-backend-go/internal/platform/handlers"
+	"github.com/observability/observability-backend-go/internal/platform/leader"
 	appmetrics "github.com/observability/observability-backend-go/internal/platform/metrics"
 	"github.com/observability/observability-backend-go/internal/platform/middleware"
 	"github.com/observability/observability-backend-go/internal/platform/sse"
@@ -60,6 +61,7 @@ import (
 	identityservice "github.com/observability/observability-backend-go/modules/user/service"
 	identitystore "github.com/observability/observability-backend-go/modules/user/store"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/redis/go-redis/v9"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 )
@@ -71,7 +73,8 @@ type App struct {
 	JWTManager     auth.JWTManager
 	TokenBlacklist *auth.TokenBlacklist
 
-	SSEBroker *sse.Broker // real-time event broker for SSE streams
+	SSEBroker     SSEPublisher   // real-time event broker for SSE streams
+	LeaderElector leader.Elector // decides which pod runs singleton background jobs
 
 	TelemetryIngester telemetry.Ingester
 	TelemetryHandler  *telemetry.Handler       // OTLP handler (owns span cache)
@@ -94,6 +97,14 @@ type App struct {
 	Saturation          *saturation.SaturationHandler
 	AI                  *ai.AIHandler
 	DashboardConfig     *dashboardconfig.DashboardConfigHandler
+}
+
+// SSEPublisher is the interface satisfied by both *sse.Broker (in-process)
+// and *sse.RedisBroker (multi-pod Redis Pub/Sub).
+type SSEPublisher interface {
+	Subscribe(teamID int64) chan sse.Event
+	Unsubscribe(teamID int64, ch chan sse.Event)
+	Publish(teamID int64, eventType string, data any)
 }
 
 type AuthModule interface {
@@ -145,14 +156,28 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 		DefaultRetentionDays: cfg.DefaultRetentionDays,
 	})
 
+	// Fix 6: Use Redis-backed SSE broker for cross-pod event fanout.
+	// When Redis is available all pods share the same Pub/Sub channel:
+	// "sse:team:{teamID}". Falls back to in-process on Redis errors.
+	redisClient := redis.NewClient(&redis.Options{
+		Addr: fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort),
+	})
+	sseBroker := sse.NewRedisBroker(redisClient)
+
+	// Fix 7: Leader election for RetentionManager — only the elected pod runs it.
+	// In local dev / single-pod deployments, ProcessElector is always elected.
+	// For multi-pod production, swap to leader.NewRedisElector(redisClient, ...) here.
+	leaderElector := leader.NewProcessElector()
+
 	return &App{
 		DB:               db,
 		CH:               ch,
 		Config:           cfg,
 		JWTManager:       jwt,
 		TokenBlacklist:   blacklist,
-		SSEBroker:        sse.NewBroker(),
+		SSEBroker:        sseBroker,
 		RetentionManager: retentionMgr,
+		LeaderElector:    leaderElector,
 
 		Auth:  identity.NewAuthHandler(getTenant, identityAuthService, jwt, blacklist),
 		Users: identity.NewUserHandler(getTenant, identityUserService),

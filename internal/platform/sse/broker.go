@@ -7,6 +7,9 @@ import (
 	"sync"
 )
 
+// Ensure Event's json field is used (avoids unused-import if json only appears via RawMessage).
+var _ = json.RawMessage{}
+
 // Event is the payload sent over an SSE connection.
 type Event struct {
 	// Event type name (appears as the "event:" field in SSE).
@@ -84,6 +87,22 @@ func (b *Broker) Publish(teamID int64, eventType string, data any) {
 		case ch <- evt:
 		default:
 			// Channel full — drop event for this slow subscriber.
+		}
+	}
+}
+
+// publishRaw is like Publish but accepts a pre-marshalled json.RawMessage,
+// avoiding double-marshalling when forwarding events from the Redis listener.
+// It is used by RedisBroker to forward cross-pod events to local subscribers.
+func (b *Broker) publishRaw(teamID int64, eventType string, data json.RawMessage) {
+	evt := Event{Type: eventType, Data: data}
+	b.mu.RLock()
+	subs := b.subscribers[teamID]
+	b.mu.RUnlock()
+	for ch := range subs {
+		select {
+		case ch <- evt:
+		default:
 		}
 	}
 }
