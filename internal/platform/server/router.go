@@ -88,7 +88,9 @@ func (a *App) registerRoutes(r *gin.Engine) {
 	dashboardconfig.RegisterRoutes(cfg.DashboardConfig, api, v1, a.DashboardConfig)
 
 	// SSE real-time event stream — authenticated via JWT (same as other API routes).
-	sseHandler := sse.NewHandler(a.SSEBroker, middleware.GetTenant)
+	// Pass JWTManager so the handler can validate tokens from query params
+	// (EventSource does not support custom HTTP headers).
+	sseHandler := sse.NewHandler(a.SSEBroker, middleware.GetTenant, a.JWTManager)
 	api.GET("/events/stream", sseHandler.Stream)
 	v1.GET("/events/stream", sseHandler.Stream)
 

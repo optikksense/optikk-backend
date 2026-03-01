@@ -31,10 +31,10 @@ func NewBroker() *Broker {
 }
 
 // Subscribe registers a new SSE client for the given team.
-// It returns a channel that will receive events and an unsubscribe function
-// that MUST be called when the client disconnects.
-func (b *Broker) Subscribe(teamID int64) (ch chan Event, unsubscribe func()) {
-	ch = make(chan Event, 64) // buffered to avoid blocking publishers
+// It returns a channel that will receive events.
+// Call Unsubscribe when the client disconnects.
+func (b *Broker) Subscribe(teamID int64) chan Event {
+	ch := make(chan Event, 64) // buffered to avoid blocking publishers
 
 	b.mu.Lock()
 	if b.subscribers[teamID] == nil {
@@ -43,19 +43,21 @@ func (b *Broker) Subscribe(teamID int64) (ch chan Event, unsubscribe func()) {
 	b.subscribers[teamID][ch] = struct{}{}
 	b.mu.Unlock()
 
-	unsubscribe = func() {
-		b.mu.Lock()
+	return ch
+}
+
+// Unsubscribe removes a client channel from the broker and closes it.
+// Safe to call multiple times.
+func (b *Broker) Unsubscribe(teamID int64, ch chan Event) {
+	b.mu.Lock()
+	if _, ok := b.subscribers[teamID][ch]; ok {
 		delete(b.subscribers[teamID], ch)
 		if len(b.subscribers[teamID]) == 0 {
 			delete(b.subscribers, teamID)
 		}
-		b.mu.Unlock()
-		// Drain any pending events so senders don't block.
-		for range ch {
-		}
+		close(ch)
 	}
-
-	return ch, unsubscribe
+	b.mu.Unlock()
 }
 
 // Publish sends an event to all SSE subscribers for the given team.
@@ -86,7 +88,7 @@ func (b *Broker) Publish(teamID int64, eventType string, data any) {
 	}
 }
 
-// format renders an Event as an SSE-formatted byte slice:
+// Format renders an Event as an SSE-formatted byte slice:
 //
 //	event: <type>\ndata: <json>\n\n
 func (e Event) Format() []byte {
