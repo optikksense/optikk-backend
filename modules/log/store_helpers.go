@@ -17,8 +17,19 @@ const logCols = `id, timestamp, level, service_name, logger, message,
 
 // buildLogWhere builds a WHERE clause from LogFilters.
 func buildLogWhere(f LogFilters) (string, []any) {
+	const maxTimeRangeMs = 30 * 24 * 60 * 60 * 1000 // 30 days max window
+	startMs := f.StartMs
+	endMs := f.EndMs
+	if endMs <= 0 {
+		endMs = time.Now().UnixMilli()
+	}
+	// Prevent unbounded or massively expensive full-table scans
+	if startMs <= 0 || (endMs-startMs) > maxTimeRangeMs {
+		startMs = endMs - maxTimeRangeMs
+	}
+
 	where := ` team_id = ? AND timestamp BETWEEN ? AND ?`
-	args := []any{f.TeamUUID, dbutil.SqlTime(f.StartMs), dbutil.SqlTime(f.EndMs)}
+	args := []any{f.TeamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 
 	if len(f.Levels) > 0 {
 		in, vals := dbutil.InClauseFromStrings(f.Levels)

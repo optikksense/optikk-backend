@@ -10,7 +10,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/observability/observability-backend-go/internal/config"
-	appmetrics "github.com/observability/observability-backend-go/internal/platform/metrics"
 	"github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/ai"
 	aiservice "github.com/observability/observability-backend-go/internal/modules/ai/service"
@@ -51,15 +50,16 @@ import (
 	servicetopologystore "github.com/observability/observability-backend-go/internal/modules/services/topology/store"
 	"github.com/observability/observability-backend-go/internal/platform/auth"
 	"github.com/observability/observability-backend-go/internal/platform/handlers"
+	appmetrics "github.com/observability/observability-backend-go/internal/platform/metrics"
 	"github.com/observability/observability-backend-go/internal/platform/middleware"
 	"github.com/observability/observability-backend-go/internal/platform/sse"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
 	telemetry "github.com/observability/observability-backend-go/modules/ingestion"
 	logsapi "github.com/observability/observability-backend-go/modules/log"
 	tracesapi "github.com/observability/observability-backend-go/modules/spans"
 	identity "github.com/observability/observability-backend-go/modules/user"
 	identityservice "github.com/observability/observability-backend-go/modules/user/service"
 	identitystore "github.com/observability/observability-backend-go/modules/user/store"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 )
@@ -73,10 +73,10 @@ type App struct {
 
 	SSEBroker *sse.Broker // real-time event broker for SSE streams
 
-	TelemetryIngester  telemetry.Ingester
-	TelemetryHandler   *telemetry.Handler       // OTLP handler (owns span cache)
-	TelemetryConsumer  *telemetry.KafkaConsumer  // nil when Kafka is disabled
-	RetentionManager   *telemetry.RetentionManager
+	TelemetryIngester telemetry.Ingester
+	TelemetryHandler  *telemetry.Handler       // OTLP handler (owns span cache)
+	TelemetryConsumer *telemetry.KafkaConsumer // nil when Kafka is disabled
+	RetentionManager  *telemetry.RetentionManager
 
 	Auth                AuthModule
 	Users               UserModule
@@ -134,18 +134,12 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 	identityAuthService := identityservice.NewAuthService(identityTables, jwt, cfg.JWTExpirationMs)
 	identityUserService := identityservice.NewUserService(identityTables)
 
-	// Auto-create dashboard_chart_configs table if needed.
-	if err := dashboardconfigstore.NewRepository(db).EnsureTable(); err != nil {
-		log.Printf("WARN: dashboard_chart_configs table migration: %v", err)
-	}
+	// Run all schema migrations under a MySQL advisory lock to prevent races
+	// when multiple pods start simultaneously during rolling Kubernetes deploys.
+	ensureDashboardTable(db, dashboardconfigstore.NewRepository(db))
+	runMigrations(db, cfg.DefaultRetentionDays)
 
-	// Migrate users/teams schema: add teams JSON column, org_name, drop user_teams.
-	migrateUserTeamsSchema(db)
-
-	// Migrate teams table: add retention_days column for per-team retention policies.
-	migrateTeamRetentionDays(db, cfg.DefaultRetentionDays)
-
-	blacklist := auth.NewTokenBlacklist()
+	blacklist := auth.NewTokenBlacklist(cfg.RedisHost, cfg.RedisPort)
 
 	retentionMgr := telemetry.NewRetentionManager(db, ch, telemetry.RetentionManagerConfig{
 		DefaultRetentionDays: cfg.DefaultRetentionDays,

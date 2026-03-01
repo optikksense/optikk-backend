@@ -3,6 +3,7 @@ package traces
 import (
 	"context"
 	"fmt"
+	"time"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
@@ -49,8 +50,19 @@ func rawTimeBucketExpr(startMs, endMs int64, column string) string {
 }
 
 func (r *ClickHouseRepository) buildTraceQueryArgs(f TraceFilters) (string, []any) {
+	const maxTimeRangeMs = 30 * 24 * 60 * 60 * 1000 // 30 days max window
+	startMs := f.StartMs
+	endMs := f.EndMs
+	if endMs <= 0 {
+		endMs = time.Now().UnixMilli()
+	}
+	// Prevent unbounded or massively expensive full-table scans
+	if startMs <= 0 || (endMs-startMs) > maxTimeRangeMs {
+		startMs = endMs - maxTimeRangeMs
+	}
+
 	queryFrag := ` WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`
-	args := []any{f.TeamUUID, dbutil.SqlTime(f.StartMs), dbutil.SqlTime(f.EndMs)}
+	args := []any{f.TeamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 
 	if len(f.Services) > 0 {
 		in, vals := dbutil.InClauseFromStrings(f.Services)

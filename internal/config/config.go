@@ -32,6 +32,9 @@ type Config struct {
 	KafkaEnabled bool
 	KafkaBrokers string
 
+	RedisHost string
+	RedisPort string
+
 	AllowedOrigins string
 
 	MaxMySQLOpenConns int
@@ -65,6 +68,9 @@ func Load() Config {
 
 		KafkaEnabled: getEnvBool("KAFKA_ENABLED", true),
 		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
+
+		RedisHost: getEnv("REDIS_HOST", "localhost"),
+		RedisPort: getEnv("REDIS_PORT", "6379"),
 
 		AllowedOrigins: getEnv("ALLOWED_ORIGINS", ""),
 

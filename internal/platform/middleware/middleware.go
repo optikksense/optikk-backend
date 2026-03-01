@@ -17,7 +17,7 @@ const tenantKey tenantContextKey = "tenant"
 
 // CORSMiddleware restricts cross-origin requests to explicitly allowed origins.
 // Set ALLOWED_ORIGINS env var to a comma-separated list of origins (e.g. "https://app.example.com,https://dashboard.example.com").
-// Falls back to "*" only in development when ALLOWED_ORIGINS is not set.
+// Falls back to "http://localhost:5173" only in development when ALLOWED_ORIGINS is not set.
 func CORSMiddleware() gin.HandlerFunc {
 	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
 	originSet := make(map[string]bool)
@@ -36,12 +36,16 @@ func CORSMiddleware() gin.HandlerFunc {
 			}
 			// If origin is not in the allowed set, omit the header entirely.
 		} else {
-			// No ALLOWED_ORIGINS configured — permissive mode for local development.
-			c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+			// No ALLOWED_ORIGINS configured — default to strict local development mode.
+			// Prevent wildcard '*' in production if forgot to set env var.
+			c.Writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
+			c.Writer.Header().Set("Vary", "Origin")
 		}
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Team-Id, X-User-Id, X-User-Email, X-User-Role")
 		c.Writer.Header().Set("Access-Control-Expose-Headers", "Authorization, X-Team-Id")
+		// Allow cookies to be sent cross-origin (required for httpOnly cookie auth).
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		if c.Request.Method == http.MethodOptions {
 			c.AbortWithStatus(http.StatusNoContent)
 			return
@@ -77,6 +81,21 @@ func isPublicPath(path string) bool {
 	return false
 }
 
+// extractBearerToken extracts a JWT token string from the request.
+// Priority: Authorization header → httpOnly cookie "token".
+// This allows browser clients to use the secure cookie flow while
+// SDK/CLI clients continue using the Authorization header.
+func extractBearerToken(c *gin.Context) string {
+	if authHeader := c.GetHeader("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
+		return strings.TrimPrefix(authHeader, "Bearer ")
+	}
+	// Fall back to the httpOnly cookie set by the login handler.
+	if cookie, err := c.Cookie("token"); err == nil && cookie != "" {
+		return cookie
+	}
+	return ""
+}
+
 // TenantMiddleware extracts the authenticated tenant from the JWT token.
 // Public paths (signup, login, OTLP ingestion) are allowed through without
 // authentication. All other paths require a valid JWT; requests without one
@@ -84,6 +103,11 @@ func isPublicPath(path string) bool {
 //
 // When a non-nil TokenBlacklist is provided, revoked tokens are rejected
 // with 401 even if they are otherwise valid.
+//
+// Fix 1: Accepts JWT from httpOnly cookie as fallback to Authorization header.
+// Fix 2: Validates X-Team-Id override against the JWT's Teams claim to
+//
+//	prevent cross-tenant data access via forged headers.
 func TenantMiddleware(jwtManager auth.JWTManager, blacklist ...*auth.TokenBlacklist) gin.HandlerFunc {
 	var bl *auth.TokenBlacklist
 	if len(blacklist) > 0 {
@@ -91,10 +115,9 @@ func TenantMiddleware(jwtManager auth.JWTManager, blacklist ...*auth.TokenBlackl
 	}
 
 	return func(c *gin.Context) {
-		authHeader := c.GetHeader("Authorization")
-		if strings.HasPrefix(authHeader, "Bearer ") {
-			token := strings.TrimPrefix(authHeader, "Bearer ")
+		token := extractBearerToken(c)
 
+		if token != "" {
 			// Reject revoked tokens before spending time on signature verification.
 			if bl != nil && bl.IsRevoked(token) {
 				c.AbortWithStatusJSON(http.StatusUnauthorized, types.Failure(
@@ -105,11 +128,22 @@ func TenantMiddleware(jwtManager auth.JWTManager, blacklist ...*auth.TokenBlackl
 
 			if claims, err := jwtManager.Parse(token); err == nil {
 				teamID := claims.TeamID
+
 				// Allow explicit team switching from UI for users that belong to
 				// multiple teams. JWT claim remains the default team.
+				// Fix 2: validate the requested team against the claims before allowing override.
 				if requested := utils.ToInt64(c.GetHeader("X-Team-Id"), 0); requested > 0 {
+					if !auth.ClaimsAuthorizedForTeam(claims, requested) {
+						c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
+							"FORBIDDEN_TEAM",
+							"You are not a member of the requested team",
+							c.Request.URL.Path,
+						))
+						return
+					}
 					teamID = requested
 				}
+
 				if teamID == 0 {
 					c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
 						"MISSING_TEAM", "JWT does not contain a valid team_id", c.Request.URL.Path,

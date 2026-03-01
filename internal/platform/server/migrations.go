@@ -6,6 +6,44 @@ import (
 	"log"
 )
 
+// runWithAdvisoryLock acquires a MySQL advisory lock identified by lockName,
+// runs fn, then releases the lock. This ensures that schema migrations run
+// serially across all pods in a rolling Kubernetes deployment — preventing
+// concurrent ALTER TABLE races that can cause duplicate-column errors.
+//
+// lockTimeout is the maximum number of seconds to wait for the lock before
+// giving up. A timeout of 0 means wait indefinitely.
+func runWithAdvisoryLock(db *sql.DB, lockName string, lockTimeout int, fn func()) {
+	var acquired int
+	err := db.QueryRow(`SELECT GET_LOCK(?, ?)`, lockName, lockTimeout).Scan(&acquired)
+	if err != nil {
+		log.Printf("WARN: advisory lock GET_LOCK(%q) error: %v — running migration without lock", lockName, err)
+		fn()
+		return
+	}
+	if acquired != 1 {
+		log.Printf("WARN: advisory lock GET_LOCK(%q) timed out — skipping migration (another pod is migrating)", lockName)
+		return
+	}
+	defer func() {
+		if _, err := db.Exec(`SELECT RELEASE_LOCK(?)`, lockName); err != nil {
+			log.Printf("WARN: advisory lock RELEASE_LOCK(%q) error: %v", lockName, err)
+		}
+	}()
+	fn()
+}
+
+// runMigrations runs all schema migrations under a single MySQL advisory lock,
+// ensuring only one pod performs schema changes at a time during rolling deploys.
+func runMigrations(db *sql.DB, defaultRetentionDays int) {
+	runWithAdvisoryLock(db, "optic_schema_migration", 30, func() {
+		// Migrate users/teams schema: add teams JSON column, org_name, drop user_teams.
+		migrateUserTeamsSchema(db)
+		// Migrate teams table: add retention_days column for per-team retention policies.
+		migrateTeamRetentionDays(db, defaultRetentionDays)
+	})
+}
+
 // migrateTeamRetentionDays adds a retention_days column to the teams table.
 // The column controls how many days of telemetry data to keep per team.
 // Default is 30 days. Idempotent — safe to re-run.

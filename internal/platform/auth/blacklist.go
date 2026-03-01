@@ -1,87 +1,83 @@
 package auth
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"fmt"
 	"log"
-	"sync"
 	"time"
+
+	"github.com/redis/go-redis/v9"
 )
 
-// TokenBlacklist maintains an in-memory set of revoked JWT token hashes.
-// Expired entries are automatically purged by a background goroutine.
+// TokenBlacklist maintains a set of revoked JWT token hashes in Redis.
+// Expired entries are automatically purged by Redis TTL.
 type TokenBlacklist struct {
-	mu      sync.RWMutex
-	entries map[string]time.Time // SHA-256 hash -> expiry time
-	stop    chan struct{}
+	client *redis.Client
 }
 
-// NewTokenBlacklist creates a new blacklist and starts a background cleanup
-// goroutine that removes expired entries every minute.
-func NewTokenBlacklist() *TokenBlacklist {
-	b := &TokenBlacklist{
-		entries: make(map[string]time.Time),
-		stop:    make(chan struct{}),
+// NewTokenBlacklist creates a new Redis-backed Token Blacklist.
+func NewTokenBlacklist(redisHost, redisPort string) *TokenBlacklist {
+	addr := fmt.Sprintf("%s:%s", redisHost, redisPort)
+	client := redis.NewClient(&redis.Options{
+		Addr:     addr,
+		Password: "", // no password set by default
+		DB:       0,  // use default DB
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := client.Ping(ctx).Err(); err != nil {
+		log.Printf("WARN: Redis not connected for TokenBlacklist at %s: %v", addr, err)
+	} else {
+		log.Printf("Redis connected for TokenBlacklist at %s", addr)
 	}
-	go b.cleanupLoop()
-	return b
+
+	return &TokenBlacklist{
+		client: client,
+	}
 }
 
 // Revoke adds a token to the blacklist. The token is stored as a SHA-256 hash
-// for memory efficiency. expiresAt should match the token's expiry time so the
-// entry can be cleaned up once the token would have expired naturally.
+// for memory efficiency.
 func (b *TokenBlacklist) Revoke(tokenString string, expiresAt time.Time) {
 	hash := hashToken(tokenString)
-	b.mu.Lock()
-	b.entries[hash] = expiresAt
-	b.mu.Unlock()
-	log.Printf("token blacklisted (hash=%s…, expires=%s)", hash[:8], expiresAt.Format(time.RFC3339))
+	ctx := context.Background()
+
+	ttl := time.Until(expiresAt)
+	if ttl <= 0 {
+		return // Already expired
+	}
+
+	err := b.client.Set(ctx, "blacklist:"+hash, "revoked", ttl).Err()
+	if err != nil {
+		log.Printf("ERROR: Failed to blacklist token: %v", err)
+	} else {
+		log.Printf("token blacklisted (hash=%s…, expires=%s)", hash[:8], expiresAt.Format(time.RFC3339))
+	}
 }
 
 // IsRevoked checks whether a token has been revoked.
 func (b *TokenBlacklist) IsRevoked(tokenString string) bool {
 	hash := hashToken(tokenString)
-	b.mu.RLock()
-	_, revoked := b.entries[hash]
-	b.mu.RUnlock()
-	return revoked
+	ctx := context.Background()
+
+	err := b.client.Get(ctx, "blacklist:"+hash).Err()
+	if err == redis.Nil {
+		return false // Not found = not revoked
+	} else if err != nil {
+		log.Printf("ERROR: Redis get error on IsRevoked: %v", err)
+		return false // Fail open for safety or default to strict? usually fail open for cache
+	}
+
+	return true
 }
 
-// Stop terminates the background cleanup goroutine. Call this during
-// application shutdown.
+// Stop is a no-op for the Redis implementation, provided for interface compatibility.
 func (b *TokenBlacklist) Stop() {
-	close(b.stop)
-}
-
-// cleanupLoop runs every minute and removes entries whose expiry time has
-// passed — those tokens would be rejected by the JWT parser anyway.
-func (b *TokenBlacklist) cleanupLoop() {
-	ticker := time.NewTicker(1 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ticker.C:
-			b.purgeExpired()
-		case <-b.stop:
-			return
-		}
-	}
-}
-
-func (b *TokenBlacklist) purgeExpired() {
-	now := time.Now()
-	b.mu.Lock()
-	removed := 0
-	for hash, exp := range b.entries {
-		if now.After(exp) {
-			delete(b.entries, hash)
-			removed++
-		}
-	}
-	b.mu.Unlock()
-	if removed > 0 {
-		log.Printf("token blacklist: purged %d expired entries", removed)
+	if err := b.client.Close(); err != nil {
+		log.Printf("ERROR closing redis client: %v", err)
 	}
 }
 

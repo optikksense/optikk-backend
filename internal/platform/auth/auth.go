@@ -18,16 +18,25 @@ type TokenClaims struct {
 	Name   string `json:"name"`
 	Role   string `json:"role"`
 	TeamID int64  `json:"teamId"`
+	// Teams lists all team IDs this user is a member of. Used by TenantMiddleware
+	// to validate X-Team-Id header overrides. Empty slice = legacy token (allow override).
+	Teams []int64 `json:"teams,omitempty"`
 	jwt.RegisteredClaims
 }
 
-func (m JWTManager) Generate(userID int64, email, name, role string, teamID int64) (string, error) {
+func (m JWTManager) Generate(userID int64, email, name, role string, teamID int64, teams ...int64) (string, error) {
 	now := time.Now().UTC()
+	// Ensure the primary teamID is always included in the Teams list.
+	allTeams := teams
+	if len(allTeams) == 0 && teamID > 0 {
+		allTeams = []int64{teamID}
+	}
 	claims := TokenClaims{
 		Email:  email,
 		Name:   name,
 		Role:   role,
 		TeamID: teamID,
+		Teams:  allTeams,
 		RegisteredClaims: jwt.RegisteredClaims{
 			Subject:   utils.ToString(userID),
 			IssuedAt:  jwt.NewNumericDate(now),
@@ -37,6 +46,22 @@ func (m JWTManager) Generate(userID int64, email, name, role string, teamID int6
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	return token.SignedString(m.Secret)
+}
+
+// ClaimsAuthorizedForTeam returns true if the claims permit access to the
+// requested team. Legacy tokens with an empty Teams list are allowed through
+// for backward compatibility (they only contain the single primary team).
+func ClaimsAuthorizedForTeam(claims *TokenClaims, requestedTeamID int64) bool {
+	if len(claims.Teams) == 0 {
+		// Legacy token: only allow the primary team.
+		return claims.TeamID == requestedTeamID
+	}
+	for _, tid := range claims.Teams {
+		if tid == requestedTeamID {
+			return true
+		}
+	}
+	return false
 }
 
 func (m JWTManager) Parse(token string) (*TokenClaims, error) {

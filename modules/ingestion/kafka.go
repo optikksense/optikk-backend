@@ -43,16 +43,28 @@ func NewKafkaIngester(brokers []string) (*KafkaIngester, error) {
 	return &KafkaIngester{producer: producer}, nil
 }
 
-func (k *KafkaIngester) IngestSpans(_ context.Context, spans []SpanRecord) error {
-	return k.produceChunked(TopicSpans, spans, 500)
+func (k *KafkaIngester) IngestSpans(_ context.Context, spans []SpanRecord) (*BatchInsertResult, error) {
+	err := k.produceChunked(TopicSpans, spans, 500)
+	if err != nil {
+		return &BatchInsertResult{TotalCount: len(spans), AcceptedCount: 0}, err
+	}
+	return &BatchInsertResult{TotalCount: len(spans), AcceptedCount: len(spans)}, nil
 }
 
-func (k *KafkaIngester) IngestMetrics(_ context.Context, metrics []MetricRecord) error {
-	return k.produceChunked(TopicMetrics, metrics, 100)
+func (k *KafkaIngester) IngestMetrics(_ context.Context, metrics []MetricRecord) (*BatchInsertResult, error) {
+	err := k.produceChunked(TopicMetrics, metrics, 100)
+	if err != nil {
+		return &BatchInsertResult{TotalCount: len(metrics), AcceptedCount: 0}, err
+	}
+	return &BatchInsertResult{TotalCount: len(metrics), AcceptedCount: len(metrics)}, nil
 }
 
-func (k *KafkaIngester) IngestLogs(_ context.Context, logs []LogRecord) error {
-	return k.produceChunked(TopicLogs, logs, 500)
+func (k *KafkaIngester) IngestLogs(_ context.Context, logs []LogRecord) (*BatchInsertResult, error) {
+	err := k.produceChunked(TopicLogs, logs, 500)
+	if err != nil {
+		return &BatchInsertResult{TotalCount: len(logs), AcceptedCount: 0}, err
+	}
+	return &BatchInsertResult{TotalCount: len(logs), AcceptedCount: len(logs)}, nil
 }
 
 func (k *KafkaIngester) Close() error { return k.producer.Close() }

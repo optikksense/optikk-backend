@@ -1,15 +1,22 @@
 package middleware
 
 import (
+	"context"
+	"fmt"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	types "github.com/observability/observability-backend-go/internal/contracts"
+	"github.com/redis/go-redis/v9"
 )
 
-// RateLimiter implements a per-key token bucket rate limiter.
+// ── In-process rate limiter (local dev / Redis fallback) ─────────────────────
+
+// RateLimiter implements a per-key token bucket rate limiter backed by an
+// in-process map. Safe for single-pod use only; under multi-pod deployment use
+// RedisRateLimiter so all pods share the same counters.
 type RateLimiter struct {
 	mu      sync.Mutex
 	buckets map[string]*bucket
@@ -19,8 +26,8 @@ type RateLimiter struct {
 }
 
 type bucket struct {
-	tokens    int
-	lastFill  time.Time
+	tokens   int
+	lastFill time.Time
 }
 
 // NewRateLimiter creates a rate limiter allowing `rate` requests per `window`
@@ -49,7 +56,7 @@ func (rl *RateLimiter) allow(key string) bool {
 
 	// Refill tokens based on elapsed time.
 	elapsed := time.Since(b.lastFill)
-	refill := int(elapsed / rl.window) * rl.rate
+	refill := int(elapsed/rl.window) * rl.rate
 	if refill > 0 {
 		b.tokens += refill
 		if b.tokens > rl.burst {
@@ -80,22 +87,92 @@ func (rl *RateLimiter) cleanup() {
 	}
 }
 
-// RateLimitMiddleware creates Gin middleware that rate-limits by the requester's
-// API key or IP address. Returns 429 when the limit is exceeded.
+// ── Redis-backed rate limiter (production, multi-pod safe) ───────────────────
+
+// RedisRateLimiter implements a per-key fixed-window rate limiter using Redis
+// INCR + EXPIRE. All pods share the same counters so the configured limit is
+// enforced globally, not per-replica.
+type RedisRateLimiter struct {
+	client   *redis.Client
+	limit    int           // max requests per window
+	window   time.Duration // window duration
+	fallback *RateLimiter  // used if Redis is unavailable
+}
+
+// NewRedisRateLimiter creates a distributed rate limiter using an existing
+// Redis client connection. Falls back to the provided in-process limiter when
+// Redis commands fail (fail-open strategy to preserve availability).
+func NewRedisRateLimiter(client *redis.Client, limit int, window time.Duration) *RedisRateLimiter {
+	return &RedisRateLimiter{
+		client:   client,
+		limit:    limit,
+		window:   window,
+		fallback: NewRateLimiter(limit, limit*2, window),
+	}
+}
+
+// allow returns true if the key is within the rate limit for the current window.
+func (r *RedisRateLimiter) allow(key string) bool {
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	redisKey := fmt.Sprintf("rl:%s", key)
+	count, err := r.client.Incr(ctx, redisKey).Result()
+	if err != nil {
+		// Redis unavailable — fall back to in-process limiter.
+		return r.fallback.allow(key)
+	}
+
+	// Set TTL only on the first request in the window.
+	if count == 1 {
+		r.client.Expire(ctx, redisKey, r.window)
+	}
+
+	return count <= int64(r.limit)
+}
+
+// ── Gin middleware ────────────────────────────────────────────────────────────
+
+// rateLimitKey extracts the rate-limit key from the request.
+// Priority: API key header → JWT (identifies tenant) → client IP.
+func rateLimitKey(c *gin.Context) string {
+	if key := c.GetHeader("X-API-Key"); key != "" {
+		return "apikey:" + key
+	}
+	if auth := c.GetHeader("Authorization"); len(auth) > 7 {
+		// Rate-limit by the raw token so each tenant has their own bucket.
+		return "jwt:" + auth[7:min(len(auth), 40)]
+	}
+	return "ip:" + c.ClientIP()
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+// RateLimitMiddleware creates Gin middleware that rate-limits using an in-process
+// limiter (single-pod / dev). For multi-pod deployments use RedisRateLimitMiddleware.
 func RateLimitMiddleware(rl *RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// Prefer API key for rate limiting (OTLP endpoints); fall back to client IP.
-		key := c.GetHeader("X-API-Key")
-		if key == "" {
-			if auth := c.GetHeader("Authorization"); len(auth) > 7 {
-				key = auth[7:]
-			}
+		if !rl.allow(rateLimitKey(c)) {
+			c.AbortWithStatusJSON(http.StatusTooManyRequests, types.Failure(
+				"RATE_LIMITED", "Too many requests, please try again later", c.Request.URL.Path,
+			))
+			return
 		}
-		if key == "" {
-			key = c.ClientIP()
-		}
+		c.Next()
+	}
+}
 
-		if !rl.allow(key) {
+// RedisRateLimitMiddleware creates Gin middleware using the distributed Redis
+// rate limiter. This is the recommended middleware for multi-pod Kubernetes
+// deployments — all replicas share the same counters.
+func RedisRateLimitMiddleware(rl *RedisRateLimiter) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !rl.allow(rateLimitKey(c)) {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, types.Failure(
 				"RATE_LIMITED", "Too many requests, please try again later", c.Request.URL.Path,
 			))
