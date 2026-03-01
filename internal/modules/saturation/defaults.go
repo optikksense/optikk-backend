@@ -151,6 +151,38 @@ icon: "Database"
 subtitle: "Query latency, cache hit ratio, slow logs, replication lag"
 
 dataSources:
-  - id: database-latency-summary
-    endpoint: /v1/saturation/database/latency-summary
+  - id: database-query-table
+    endpoint: /v1/saturation/database/query-by-table
+  - id: database-avg-latency
+    endpoint: /v1/saturation/database/avg-latency
+
+charts:
+  - id: db-query-volume
+    title: "Query Volume by Collection"
+    type: request
+    layout:
+      col: 12
+    dataSource: database-query-table
+    groupByKey: table
+    valueKey: query_count
+    listTitle: "Query Volume"
+    listSortField: query_count
+  - id: db-query-latency
+    title: "Query Latency by Collection"
+    type: latency
+    layout:
+      col: 12
+    dataSource: database-query-table
+    groupByKey: table
+    valueKey: avg_latency_ms
+    listTitle: "Average Latency"
+    listSortField: avg_latency_ms
+  - id: db-overall-latency
+    title: "Overall Database Latency"
+    type: latency
+    layout:
+      col: 24
+    dataSource: database-avg-latency
+    valueKey: avg_latency_ms
+    datasetLabel: "Avg Latency"
 `

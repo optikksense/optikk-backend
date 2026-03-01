@@ -81,6 +81,10 @@ func (r *ClickHouseRepository) buildTraceQueryArgs(f TraceFilters) (string, []an
 		queryFrag += ` AND operation_name LIKE ?`
 		args = append(args, "%"+f.Operation+"%")
 	}
+	if f.HTTPMethod != "" {
+		queryFrag += ` AND upper(http_method) = upper(?)`
+		args = append(args, f.HTTPMethod)
+	}
 	if f.HTTPStatus != "" {
 		queryFrag += ` AND http_status_code = ?`
 		args = append(args, dbutil.MustAtoi64(f.HTTPStatus, 0))

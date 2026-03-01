@@ -55,9 +55,11 @@ type KafkaConsumptionRate struct {
 
 // DatabaseQueryByTable represents query counts per table.
 type DatabaseQueryByTable struct {
-	Table      string `json:"table"`
-	Timestamp  string `json:"timestamp"`
-	QueryCount int64  `json:"query_count"`
+	Table        string  `json:"table"`
+	Timestamp    string  `json:"timestamp"`
+	QueryCount   int64   `json:"query_count"`
+	AvgLatencyMs float64 `json:"avg_latency_ms"`
+	P95LatencyMs float64 `json:"p95_latency_ms"`
 }
 
 // DatabaseAvgLatency represents latency metrics for the database over time.

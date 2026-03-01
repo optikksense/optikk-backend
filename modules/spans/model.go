@@ -48,6 +48,7 @@ type TraceFilters struct {
 	MaxDuration string   `json:"maxDuration"`
 	TraceID     string   `json:"traceId"`
 	Operation   string   `json:"operation"`
+	HTTPMethod  string   `json:"httpMethod"`
 	HTTPStatus  string   `json:"httpStatus"`
 }
 

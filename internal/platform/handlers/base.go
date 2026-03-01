@@ -53,6 +53,9 @@ func ParseIntParam(c *gin.Context, key string, fallback int) int {
 
 func ParseListParam(c *gin.Context, key string) []string {
 	vals := c.QueryArray(key)
+	if len(vals) == 0 {
+		vals = c.QueryArray(key + "[]")
+	}
 	if len(vals) > 0 {
 		clean := make([]string, 0, len(vals))
 		for _, v := range vals {

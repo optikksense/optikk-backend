@@ -52,6 +52,7 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 		MaxDuration: c.Query("maxDuration"),
 		TraceID:     c.Query("traceId"),
 		Operation:   operation,
+		HTTPMethod:  c.Query("httpMethod"),
 		HTTPStatus:  httpStatus,
 	}
 
