@@ -12,13 +12,13 @@ func sloBucketExpr(startMs, endMs int64) string {
 	hours := (endMs - startMs) / 3_600_000
 	switch {
 	case hours <= 3:
-		return "formatDateTime(toStartOfMinute(timestamp), '%Y-%m-%d %H:%i:00')"
+		return "formatDateTime(minute, '%Y-%m-%d %H:%i:00')"
 	case hours <= 24:
-		return "formatDateTime(toStartOfFiveMinutes(timestamp), '%Y-%m-%d %H:%i:00')"
+		return "formatDateTime(toStartOfFiveMinutes(minute), '%Y-%m-%d %H:%i:00')"
 	case hours <= 168:
-		return "formatDateTime(toStartOfHour(timestamp), '%Y-%m-%d %H:%i:00')"
+		return "formatDateTime(toStartOfHour(minute), '%Y-%m-%d %H:%i:00')"
 	default:
-		return "formatDateTime(toStartOfDay(timestamp), '%Y-%m-%d %H:%i:00')"
+		return "formatDateTime(toStartOfDay(minute), '%Y-%m-%d %H:%i:00')"
 	}
 }
 
@@ -40,18 +40,27 @@ func NewRepository(db dbutil.Querier) Repository {
 
 func (r *ClickHouseRepository) GetSummary(teamUUID string, startMs, endMs int64, serviceName string) (model.Summary, error) {
 	query := `
-		SELECT sum(count) as total_requests,
-		       sum(if(status='ERROR', count, 0)) as error_count,
-		       if(sum(count) > 0, (sum(count)-sum(if(status='ERROR', count, 0)))*100.0/sum(count), 100.0) as availability_percent,
-		       avg(avg) as avg_latency_ms,
-		       avg(p95) as p95_latency_ms
-		FROM metrics
-		WHERE team_id = ? AND metric_category = 'http' AND timestamp BETWEEN ? AND ?`
+		SELECT total_requests,
+		       error_count,
+		       if(total_requests > 0,
+		          (total_requests-error_count)*100.0/total_requests,
+		          100.0)              AS availability_percent,
+		       avg_latency_ms,
+		       p95_latency_ms
+		FROM (
+			SELECT countMerge(request_count)       AS total_requests,
+			       countIfMerge(error_count)       AS error_count,
+			       avgMerge(avg_state)             AS avg_latency_ms,
+			       quantileMerge(0.95)(p95_state)  AS p95_latency_ms
+			FROM observability.spans_service_1m
+			WHERE team_id = ? AND minute BETWEEN ? AND ?`
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
 		args = append(args, serviceName)
 	}
+	query += `
+		)`
 
 	row, err := dbutil.QueryMap(r.db, query, args...)
 	if err != nil {
@@ -70,19 +79,28 @@ func (r *ClickHouseRepository) GetSummary(teamUUID string, startMs, endMs int64,
 func (r *ClickHouseRepository) GetTimeSeries(teamUUID string, startMs, endMs int64, serviceName string) ([]model.TimeSlice, error) {
 	bucket := sloBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT %s as time_bucket,
-		       sum(count) as request_count,
-		       sum(if(status='ERROR', count, 0)) as error_count,
-		       if(sum(count) > 0, (sum(count)-sum(if(status='ERROR', count, 0)))*100.0/sum(count), 100.0) as availability_percent,
-		       avg(avg) as avg_latency_ms
-		FROM metrics
-		WHERE team_id = ? AND metric_category = 'http' AND timestamp BETWEEN ? AND ?`, bucket)
+		SELECT time_bucket,
+		       request_count,
+		       error_count,
+		       if(request_count > 0,
+		          (request_count-error_count)*100.0/request_count,
+		          100.0)            AS availability_percent,
+		       avg_latency_ms
+		FROM (
+			SELECT %s                     AS time_bucket,
+			       countMerge(request_count) AS request_count,
+			       countIfMerge(error_count) AS error_count,
+			       avgMerge(avg_state)       AS avg_latency_ms
+			FROM observability.spans_service_1m
+			WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
 		args = append(args, serviceName)
 	}
-	query += ` GROUP BY 1 ORDER BY 1 ASC`
+	query += ` GROUP BY 1
+		)
+		ORDER BY 1 ASC`
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {

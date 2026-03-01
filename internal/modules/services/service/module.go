@@ -24,4 +24,8 @@ func RegisterRoutes(cfg Config, _ *gin.RouterGroup, v1 *gin.RouterGroup, h *Serv
 	v1.GET("/services/summary/unhealthy", h.GetUnhealthyServices)
 	v1.GET("/services/metrics", h.GetServiceMetrics)
 	v1.GET("/services/timeseries", h.GetServiceTimeSeries)
+	v1.GET("/services/:serviceName/endpoints", h.GetServiceEndpoints)
+
+	// Legacy path alias for backward compat with the metrics feature page.
+	v1.GET("/metrics/timeseries", h.GetServiceTimeSeries)
 }

@@ -23,4 +23,9 @@ func RegisterRoutes(cfg Config, _ *gin.RouterGroup, v1 *gin.RouterGroup, h *Over
 	v1.GET("/overview/services", h.GetServices)
 	v1.GET("/overview/endpoints/metrics", h.GetEndpointMetrics)
 	v1.GET("/overview/endpoints/timeseries", h.GetEndpointTimeSeries)
+
+	// Legacy path aliases for backward compat with the metrics feature page.
+	v1.GET("/endpoints/metrics", h.GetEndpointMetrics)
+	v1.GET("/endpoints/timeseries", h.GetEndpointTimeSeries)
+	v1.GET("/metrics/summary", h.GetSummary)
 }

@@ -53,7 +53,6 @@ import (
 	"github.com/observability/observability-backend-go/internal/platform/middleware"
 	telemetry "github.com/observability/observability-backend-go/modules/ingestion"
 	logsapi "github.com/observability/observability-backend-go/modules/log"
-	metricsapi "github.com/observability/observability-backend-go/modules/metrics"
 	tracesapi "github.com/observability/observability-backend-go/modules/spans"
 	identity "github.com/observability/observability-backend-go/modules/user"
 	identityservice "github.com/observability/observability-backend-go/modules/user/service"
@@ -77,7 +76,6 @@ type App struct {
 	Deployments         *deployments.DeploymentHandler
 	Logs                *logsapi.LogHandler
 	Traces              *tracesapi.TraceHandler
-	Metrics             *metricsapi.MetricHandler
 	Overview            *overviewmodule.OverviewHandler
 	OverviewSLO         *overviewslo.SLOHandler
 	OverviewErrors      *overviewerrors.ErrorHandler
@@ -169,10 +167,6 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 		Traces: tracesapi.NewHandler(
 			getTenant,
 			tracesapi.NewRepository(database.NewMySQLWrapper(ch)),
-		),
-		Metrics: metricsapi.NewHandler(
-			getTenant,
-			metricsapi.NewRepository(database.NewMySQLWrapper(ch)),
 		),
 		Overview: &overviewmodule.OverviewHandler{
 			DBTenant: modulecommon.DBTenant{

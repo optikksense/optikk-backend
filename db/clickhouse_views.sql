@@ -39,7 +39,7 @@ GROUP BY team_id, service_name, minute;
 --     service_name,
 --     minute,
 --     countMerge(request_count)    AS requests,
---     countMerge(error_count)      AS errors,
+--     countIfMerge(error_count)    AS errors,
 --     quantileMerge(0.95)(p95_state) AS p95_ms
 -- FROM observability.spans_service_1m
 -- WHERE team_id = ? AND minute BETWEEN ? AND ?
@@ -145,7 +145,7 @@ GROUP BY team_id, parent_service_name, service_name, minute;
 --        countMerge(call_count)                                        AS call_count,
 --        avgMerge(avg_latency_state)                                   AS avg_latency,
 --        if(countMerge(call_count) > 0,
---           countMerge(error_count)*100.0/countMerge(call_count), 0)  AS error_rate
+--           countIfMerge(error_count)*100.0/countMerge(call_count), 0)  AS error_rate
 -- FROM observability.spans_edges_1m
 -- WHERE team_id = ? AND minute BETWEEN ? AND ?
 -- GROUP BY parent_service_name, service_name

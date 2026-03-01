@@ -63,6 +63,21 @@ func (h *ServiceHandler) GetServiceTimeSeries(c *gin.Context) {
 	RespondOK(c, points)
 }
 
+// GetServiceEndpoints returns endpoint-level metrics for a specific service.
+func (h *ServiceHandler) GetServiceEndpoints(c *gin.Context) {
+	teamUUID := h.GetTenant(c).TeamUUID()
+	serviceName := c.Param("serviceName")
+	startMs, endMs := ParseRange(c, 60*60*1000)
+
+	endpoints, err := h.Service.GetServiceEndpoints(teamUUID, startMs, endMs, serviceName)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query endpoint breakdown")
+		return
+	}
+
+	RespondOK(c, endpoints)
+}
+
 func (h *ServiceHandler) respondWithCount(c *gin.Context, fn func(string, int64, int64) (int64, error), message string) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	startMs, endMs := ParseRange(c, 60*60*1000)

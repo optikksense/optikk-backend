@@ -36,10 +36,7 @@ func (s *SLOService) GetSloSli(teamUUID string, startMs, endMs int64, serviceNam
 		return nil, err
 	}
 
-	errorBudgetRemaining := 100.0
-	if summary.AvailabilityPercent < availabilityTarget {
-		errorBudgetRemaining = summary.AvailabilityPercent
-	}
+	errorBudgetRemaining := remainingErrorBudgetPercent(summary.AvailabilityPercent)
 
 	return &model.Response{
 		Objectives: model.Objectives{
@@ -55,4 +52,22 @@ func (s *SLOService) GetSloSli(teamUUID string, startMs, endMs int64, serviceNam
 		Summary:    summary,
 		Timeseries: timeseries,
 	}, nil
+}
+
+func remainingErrorBudgetPercent(availabilityPercent float64) float64 {
+	totalBudget := 100.0 - availabilityTarget
+	if totalBudget <= 0 {
+		return 100.0
+	}
+
+	burned := 100.0 - availabilityPercent
+	remaining := (totalBudget - burned) * 100.0 / totalBudget
+	switch {
+	case remaining < 0:
+		return 0
+	case remaining > 100:
+		return 100
+	default:
+		return remaining
+	}
 }

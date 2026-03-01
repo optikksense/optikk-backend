@@ -13,6 +13,7 @@ type Service interface {
 	GetUnhealthyServices(teamUUID string, startMs, endMs int64) (int64, error)
 	GetServiceMetrics(teamUUID string, startMs, endMs int64) ([]model.ServiceMetric, error)
 	GetServiceTimeSeries(teamUUID string, startMs, endMs int64) ([]model.TimeSeriesPoint, error)
+	GetServiceEndpoints(teamUUID string, startMs, endMs int64, serviceName string) ([]model.EndpointMetric, error)
 }
 
 // ServicePageService provides business logic orchestration for services overview.
@@ -47,4 +48,8 @@ func (s *ServicePageService) GetServiceMetrics(teamUUID string, startMs, endMs i
 
 func (s *ServicePageService) GetServiceTimeSeries(teamUUID string, startMs, endMs int64) ([]model.TimeSeriesPoint, error) {
 	return s.repo.GetServiceTimeSeries(teamUUID, startMs, endMs)
+}
+
+func (s *ServicePageService) GetServiceEndpoints(teamUUID string, startMs, endMs int64, serviceName string) ([]model.EndpointMetric, error) {
+	return s.repo.GetServiceEndpoints(teamUUID, startMs, endMs, serviceName)
 }

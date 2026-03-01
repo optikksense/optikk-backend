@@ -6,7 +6,6 @@ use (
 	./internal/platform/server
 	./modules/ingestion
 	./modules/log
-	./modules/metrics
 	./modules/spans
 	./modules/user
 )

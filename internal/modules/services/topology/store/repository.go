@@ -22,14 +22,17 @@ func NewRepository(db dbutil.Querier) Repository {
 
 func (r *ClickHouseRepository) GetTopology(teamUUID string, startMs, endMs int64) (model.TopologyData, error) {
 	nodesRaw, err := dbutil.QueryMaps(r.db, `
-		SELECT service_name,
-		       countMerge(request_count) AS request_count,
-		       countMerge(error_count)   AS error_count,
-		       avgMerge(avg_state)       AS avg_latency
-		FROM observability.spans_service_1m
-		WHERE team_id = ? AND minute BETWEEN ? AND ?
-		GROUP BY service_name
-		ORDER BY countMerge(request_count) DESC
+		SELECT *
+		FROM (
+			SELECT service_name,
+			       countMerge(request_count) AS request_count,
+			       countIfMerge(error_count) AS error_count,
+			       avgMerge(avg_state)       AS avg_latency
+			FROM observability.spans_service_1m
+			WHERE team_id = ? AND minute BETWEEN ? AND ?
+			GROUP BY service_name
+		)
+		ORDER BY request_count DESC
 	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return model.TopologyData{}, err
@@ -37,16 +40,22 @@ func (r *ClickHouseRepository) GetTopology(teamUUID string, startMs, endMs int64
 
 	// Reads spans_edges_1m — no self-JOIN on raw spans.
 	edgesRaw, err := dbutil.QueryMaps(r.db, `
-		SELECT parent_service_name                                              AS source,
-		       service_name                                                     AS target,
-		       countMerge(call_count)                                          AS call_count,
-		       avgMerge(avg_latency_state)                                     AS avg_latency,
-		       if(countMerge(call_count) > 0,
-		          countMerge(error_count)*100.0/countMerge(call_count), 0)    AS error_rate
-		FROM observability.spans_edges_1m
-		WHERE team_id = ? AND minute BETWEEN ? AND ?
-		GROUP BY parent_service_name, service_name
-		ORDER BY countMerge(call_count) DESC
+		SELECT source,
+		       target,
+		       call_count,
+		       avg_latency,
+		       if(call_count > 0, error_count*100.0/call_count, 0) AS error_rate
+		FROM (
+			SELECT parent_service_name        AS source,
+			       service_name               AS target,
+			       countMerge(call_count)     AS call_count,
+			       countIfMerge(error_count)  AS error_count,
+			       avgMerge(avg_latency_state) AS avg_latency
+			FROM observability.spans_edges_1m
+			WHERE team_id = ? AND minute BETWEEN ? AND ?
+			GROUP BY parent_service_name, service_name
+		)
+		ORDER BY call_count DESC
 		LIMIT 100
 	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {

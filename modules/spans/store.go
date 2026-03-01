@@ -33,6 +33,21 @@ func timeBucketExpr(startMs, endMs int64) string {
 	}
 }
 
+// rawTimeBucketExpr returns a ClickHouse expression grouping a raw timestamp column.
+func rawTimeBucketExpr(startMs, endMs int64, column string) string {
+	hours := (endMs - startMs) / 3_600_000
+	switch {
+	case hours <= 3:
+		return fmt.Sprintf("toStartOfMinute(%s)", column)
+	case hours <= 24:
+		return fmt.Sprintf("toStartOfFiveMinutes(%s)", column)
+	case hours <= 168:
+		return fmt.Sprintf("toStartOfHour(%s)", column)
+	default:
+		return fmt.Sprintf("toStartOfDay(%s)", column)
+	}
+}
+
 func (r *ClickHouseRepository) buildTraceQueryArgs(f TraceFilters) (string, []any) {
 	queryFrag := ` WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`
 	args := []any{f.TeamUUID, dbutil.SqlTime(f.StartMs), dbutil.SqlTime(f.EndMs)}
@@ -283,19 +298,25 @@ func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamUUID 
 	bucket := timeBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT service_name,
-		       %s AS timestamp,
-		       countMerge(request_count) AS total_count,
-		       countMerge(error_count)   AS error_count,
-		       if(countMerge(request_count) > 0,
-		          countMerge(error_count)*100.0/countMerge(request_count), 0) AS error_rate
-		FROM observability.spans_service_1m
-		WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket)
+		       timestamp,
+		       total_count,
+		       error_count,
+		       if(total_count > 0, error_count*100.0/total_count, 0) AS error_rate
+		FROM (
+			SELECT service_name,
+			       %s AS timestamp,
+			       countMerge(request_count) AS total_count,
+			       countIfMerge(error_count) AS error_count
+			FROM observability.spans_service_1m
+			WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
 		args = append(args, serviceName)
 	}
-	query += fmt.Sprintf(` GROUP BY service_name, %s ORDER BY timestamp ASC`, bucket)
+	query += fmt.Sprintf(` GROUP BY service_name, %s
+		)
+		ORDER BY timestamp ASC`, bucket)
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
@@ -375,7 +396,7 @@ func (r *ClickHouseRepository) GetLatencyHistogram(ctx context.Context, teamUUID
 }
 
 func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamUUID string, startMs, endMs int64, serviceName string) ([]LatencyHeatmapPoint, error) {
-	bucket := timeBucketExpr(startMs, endMs)
+	bucket := rawTimeBucketExpr(startMs, endMs, "start_time")
 	query := fmt.Sprintf(`
 		SELECT %s as time_bucket,
 		       CASE

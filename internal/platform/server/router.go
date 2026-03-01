@@ -18,7 +18,6 @@ import (
 	servicetopology "github.com/observability/observability-backend-go/internal/modules/services/topology"
 	telemetry "github.com/observability/observability-backend-go/modules/ingestion"
 	logsmodule "github.com/observability/observability-backend-go/modules/log"
-	"github.com/observability/observability-backend-go/modules/metrics"
 	traces "github.com/observability/observability-backend-go/modules/spans"
 	identity "github.com/observability/observability-backend-go/modules/user"
 )
@@ -26,7 +25,6 @@ import (
 type moduleConfigs struct {
 	Identity            identity.Config
 	Alerts              alerts.Config
-	Metrics             metrics.Config
 	Overview            overviewmodule.Config
 	OverviewSLO         overviewslo.Config
 	OverviewErrors      overviewerrors.Config
@@ -47,7 +45,6 @@ func defaultModuleConfigs() moduleConfigs {
 	return moduleConfigs{
 		Identity:            identity.DefaultConfig(),
 		Alerts:              alerts.DefaultConfig(),
-		Metrics:             metrics.DefaultConfig(),
 		Overview:            overviewmodule.DefaultConfig(),
 		OverviewSLO:         overviewslo.DefaultConfig(),
 		OverviewErrors:      overviewerrors.DefaultConfig(),
@@ -73,7 +70,6 @@ func (a *App) registerRoutes(r *gin.Engine) {
 
 	identity.RegisterRoutes(cfg.Identity, api, a.Auth, a.Users)
 	alerts.RegisterRoutes(cfg.Alerts, api, v1, a.Alerts)
-	metrics.RegisterRoutes(cfg.Metrics, api, v1, a.Metrics)
 	overviewmodule.RegisterRoutes(cfg.Overview, api, v1, a.Overview)
 	overviewslo.RegisterRoutes(cfg.OverviewSLO, api, v1, a.OverviewSLO)
 	overviewerrors.RegisterRoutes(cfg.OverviewErrors, api, v1, a.OverviewErrors)

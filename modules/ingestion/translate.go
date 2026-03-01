@@ -50,9 +50,21 @@ func TranslateSpans(teamUUID string, payload OTLPTracesPayload) []SpanRecord {
 					statusMessage = span.Status.Message
 				}
 
-				httpMethod := firstNonEmpty(spanAttrs["http.request.method"], spanAttrs["http.method"])
-				httpURL := firstNonEmpty(spanAttrs["url.full"], spanAttrs["http.url"], spanAttrs["http.route"])
-				httpStatusCode, _ := strconv.Atoi(firstNonEmpty(spanAttrs["http.response.status_code"], spanAttrs["http.status_code"]))
+				httpMethod := firstNonEmpty(
+					spanAttrs["http.request.method"],
+					spanAttrs["http.method"],
+					spanAttrs["method"],
+					spanAttrs["request.method"],
+				)
+				httpURL := firstNonEmpty(
+					spanAttrs["url.full"],
+					spanAttrs["http.url"],
+					spanAttrs["http.target"],
+					spanAttrs["http.route"],
+					spanAttrs["uri"],
+					spanAttrs["path"],
+				)
+				httpStatusCode := parseHTTPStatusCode(spanAttrs)
 				if status != "ERROR" && httpStatusCode >= 400 {
 					status = "ERROR"
 					if statusMessage == "" {
@@ -450,11 +462,10 @@ type dpLabels struct {
 }
 
 func extractDPLabels(dp, resource map[string]string) dpLabels {
-	httpMethod := firstNonEmpty(dp["http.request.method"], dp["http.method"])
-	statusStr := firstNonEmpty(dp["http.response.status_code"], dp["http.status_code"])
-	httpStatusCode, _ := strconv.Atoi(statusStr)
+	httpMethod := firstNonEmpty(dp["http.request.method"], dp["http.method"], dp["method"])
+	httpStatusCode := parseHTTPStatusCode(dp)
 	status := "OK"
-	if httpStatusCode >= 500 {
+	if httpStatusCode >= 400 {
 		status = "ERROR"
 	}
 	return dpLabels{
@@ -463,4 +474,20 @@ func extractDPLabels(dp, resource map[string]string) dpLabels {
 		infraLabels:    extractInfraLabels(dp, resource),
 		status:         status,
 	}
+}
+
+func parseHTTPStatusCode(attrs map[string]string) int {
+	for _, key := range []string{
+		"http.response.status_code",
+		"http.status_code",
+		"status_code",
+		"status",
+	} {
+		if value := strings.TrimSpace(attrs[key]); value != "" {
+			if code, err := strconv.Atoi(value); err == nil {
+				return code
+			}
+		}
+	}
+	return 0
 }

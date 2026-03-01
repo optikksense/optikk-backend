@@ -85,20 +85,27 @@ func (r *ClickHouseRepository) GetServiceErrorRate(teamUUID string, startMs, end
 	bucket := errorBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT service_name,
-		       %s                    AS timestamp,
-		       countMerge(request_count) AS request_count,
-		       countMerge(error_count)   AS error_count,
-		       if(countMerge(request_count) > 0,
-		          countMerge(error_count)*100.0/countMerge(request_count), 0) AS error_rate,
-		       avgMerge(avg_state)       AS avg_latency
-		FROM observability.spans_service_1m
-		WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket)
+		       timestamp,
+		       request_count,
+		       error_count,
+		       if(request_count > 0, error_count*100.0/request_count, 0) AS error_rate,
+		       avg_latency
+		FROM (
+			SELECT service_name,
+			       %s AS timestamp,
+			       countMerge(request_count) AS request_count,
+			       countIfMerge(error_count) AS error_count,
+			       avgMerge(avg_state)       AS avg_latency
+			FROM observability.spans_service_1m
+			WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
 		args = append(args, serviceName)
 	}
-	query += fmt.Sprintf(` GROUP BY service_name, %s ORDER BY timestamp ASC`, bucket)
+	query += fmt.Sprintf(` GROUP BY service_name, %s
+		)
+		ORDER BY timestamp ASC`, bucket)
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
@@ -123,19 +130,22 @@ func (r *ClickHouseRepository) GetServiceErrorRate(teamUUID string, startMs, end
 func (r *ClickHouseRepository) GetErrorVolume(teamUUID string, startMs, endMs int64, serviceName string) ([]model.TimeSeriesPoint, error) {
 	bucket := errorBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT service_name,
-		       %s                    AS timestamp,
-		       countMerge(error_count)   AS error_count
-		FROM observability.spans_service_1m
-		WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket)
+		SELECT *
+		FROM (
+			SELECT service_name,
+			       %s AS timestamp,
+			       countIfMerge(error_count) AS error_count
+			FROM observability.spans_service_1m
+			WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
 		args = append(args, serviceName)
 	}
 	query += fmt.Sprintf(` GROUP BY service_name, %s
-	           HAVING countMerge(error_count) > 0
-	           ORDER BY timestamp ASC`, bucket)
+		)
+		WHERE error_count > 0
+		ORDER BY timestamp ASC`, bucket)
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
@@ -157,21 +167,24 @@ func (r *ClickHouseRepository) GetErrorVolume(teamUUID string, startMs, endMs in
 func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(teamUUID string, startMs, endMs int64, serviceName string) ([]model.TimeSeriesPoint, error) {
 	bucket := errorBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT service_name,
-		       %s                    AS timestamp,
-		       countMerge(request_count) AS request_count,
-		       countMerge(error_count)   AS error_count,
-		       avgMerge(avg_state)       AS avg_latency
-		FROM observability.spans_service_1m
-		WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket)
+		SELECT *
+		FROM (
+			SELECT service_name,
+			       %s AS timestamp,
+			       countMerge(request_count) AS request_count,
+			       countIfMerge(error_count) AS error_count,
+			       avgMerge(avg_state)       AS avg_latency
+			FROM observability.spans_service_1m
+			WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
 		args = append(args, serviceName)
 	}
 	query += fmt.Sprintf(` GROUP BY service_name, %s
-	           HAVING countMerge(error_count) > 0
-	           ORDER BY timestamp ASC`, bucket)
+		)
+		WHERE error_count > 0
+		ORDER BY timestamp ASC`, bucket)
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
