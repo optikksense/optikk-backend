@@ -31,7 +31,7 @@ import (
 func main() {
 	cfg := config.Load()
 
-	dbConn, err := database.Open(cfg.MySQLDSN())
+	dbConn, err := database.Open(cfg.MySQLDSN(), cfg.MaxMySQLOpenConns, cfg.MaxMySQLIdleConns)
 	if err != nil {
 		log.Fatalf("failed to connect mysql: %v", err)
 	}

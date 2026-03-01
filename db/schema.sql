@@ -24,6 +24,7 @@ CREATE TABLE IF NOT EXISTS teams (
   color VARCHAR(50),
   icon VARCHAR(100),
   api_key VARCHAR(64) UNIQUE,
+  retention_days INT NOT NULL DEFAULT 30,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NULL,
   INDEX idx_team_org (organization_id),

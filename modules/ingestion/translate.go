@@ -10,10 +10,12 @@ import (
 )
 
 // TranslateSpans converts an OTLP traces payload into SpanRecord slices.
-// ParentServiceName is populated via a batch-local spanID→serviceName lookup,
-// enabling JOIN-free service dependency views. Cross-batch parents are left empty.
-func TranslateSpans(teamUUID string, payload OTLPTracesPayload) []SpanRecord {
-	// Pass 1: build spanID → serviceName map for the entire batch.
+// ParentServiceName is populated via a batch-local spanID->serviceName lookup,
+// then falls back to the cross-batch SpanCache for parents that arrived in
+// earlier HTTP requests. After translation, every span in the batch is written
+// to the cache so future batches can resolve them.
+func TranslateSpans(teamUUID string, payload OTLPTracesPayload, cache *SpanCache) []SpanRecord {
+	// Pass 1: build spanID -> serviceName map for the entire batch.
 	spanService := make(map[string]string)
 	for _, rs := range payload.ResourceSpans {
 		rc := newResourceContext(rs.Resource.Attributes)
@@ -81,12 +83,18 @@ func TranslateSpans(teamUUID string, payload OTLPTracesPayload) []SpanRecord {
 					isRoot = 1
 				}
 
+				// Resolve parent service name: batch-local first, then cross-batch cache.
+				parentServiceName := spanService[span.ParentSpanID]
+				if parentServiceName == "" && span.ParentSpanID != "" && cache != nil {
+					parentServiceName, _ = cache.Get(span.ParentSpanID)
+				}
+
 				spans = append(spans, SpanRecord{
 					TeamUUID:          teamUUID,
 					TraceID:           span.TraceID,
 					SpanID:            span.SpanID,
 					ParentSpanID:      span.ParentSpanID,
-					ParentServiceName: spanService[span.ParentSpanID], // "" for cross-batch parents
+					ParentServiceName: parentServiceName,
 					IsRoot:            isRoot,
 					OperationName:     operationName,
 					ServiceName:       serviceName,
@@ -107,6 +115,15 @@ func TranslateSpans(teamUUID string, payload OTLPTracesPayload) []SpanRecord {
 			}
 		}
 	}
+
+	// Populate the cross-batch cache with every span from this batch so that
+	// future batches can resolve parent service names across HTTP requests.
+	if cache != nil {
+		for spanID, svcName := range spanService {
+			cache.Put(spanID, svcName)
+		}
+	}
+
 	return spans
 }
 
@@ -327,15 +344,42 @@ func nanosToTime(s string) time.Time {
 	return time.Unix(0, ns).UTC()
 }
 
+const (
+	maxAttributeCount    = 128
+	maxAttributeKeyLen   = 256
+	maxAttributeValueLen = 4096
+)
+
 func mergeOTLPAttrs(resource, dp map[string]string) map[string]any {
 	out := make(map[string]any, len(resource)+len(dp))
+	count := 0
 	for k, v := range resource {
+		if count >= maxAttributeCount {
+			break
+		}
+		k, v = truncateAttr(k, v)
 		out[k] = v
+		count++
 	}
 	for k, v := range dp {
+		if count >= maxAttributeCount {
+			break
+		}
+		k, v = truncateAttr(k, v)
 		out[k] = v
+		count++
 	}
 	return out
+}
+
+func truncateAttr(key, value string) (string, string) {
+	if len(key) > maxAttributeKeyLen {
+		key = key[:maxAttributeKeyLen]
+	}
+	if len(value) > maxAttributeValueLen {
+		value = value[:maxAttributeValueLen]
+	}
+	return key, value
 }
 
 func firstNonEmpty(values ...string) string {

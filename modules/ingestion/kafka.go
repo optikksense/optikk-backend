@@ -130,8 +130,10 @@ func (k *KafkaIngester) produce(topic string, records any) error {
 }
 
 // ---------------------------------------------------------------------------
-// KafkaConsumer — consumer side
+// KafkaConsumer — consumer side (ConsumerGroup)
 // ---------------------------------------------------------------------------
+
+const consumerGroupID = "optic-telemetry"
 
 // KafkaConsumerConfig holds batching parameters for the consumer.
 type KafkaConsumerConfig struct {
@@ -140,183 +142,171 @@ type KafkaConsumerConfig struct {
 	FlushInterval time.Duration
 }
 
-// KafkaConsumer reads from Kafka topics and batch-inserts into ClickHouse.
-// One goroutine per topic; each goroutine batches messages and flushes on
-// BatchSize threshold, FlushInterval timer, or context cancellation.
-//
-// TODO: Migrate from partition consumer to ConsumerGroup for proper offset
-// management and at-least-once delivery guarantees across restarts.
+// KafkaConsumer reads from Kafka topics using a ConsumerGroup for proper offset
+// management and at-least-once delivery guarantees. One handler per topic
+// batches messages and flushes on BatchSize threshold, FlushInterval timer,
+// or rebalance/shutdown.
 type KafkaConsumer struct {
 	repo   *Repository
 	cfg    KafkaConsumerConfig
-	client sarama.Consumer
+	group  sarama.ConsumerGroup
+	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
 
 func NewKafkaConsumer(repo *Repository, cfg KafkaConsumerConfig) (*KafkaConsumer, error) {
 	saramaCfg := sarama.NewConfig()
 	saramaCfg.Consumer.Return.Errors = true
+	saramaCfg.Consumer.Offsets.Initial = sarama.OffsetNewest
+	saramaCfg.Consumer.Offsets.AutoCommit.Enable = true
+	saramaCfg.Consumer.Offsets.AutoCommit.Interval = 5 * time.Second
 
-	client, err := sarama.NewConsumer(cfg.Brokers, saramaCfg)
+	group, err := sarama.NewConsumerGroup(cfg.Brokers, consumerGroupID, saramaCfg)
 	if err != nil {
-		return nil, fmt.Errorf("kafka consumer: %w", err)
+		return nil, fmt.Errorf("kafka consumer group: %w", err)
 	}
-	return &KafkaConsumer{repo: repo, cfg: cfg, client: client}, nil
+	return &KafkaConsumer{repo: repo, cfg: cfg, group: group}, nil
 }
 
-// Start launches three consumer goroutines (one per topic).
+// Start launches the consumer group loop. It consumes from all three topics
+// (spans, metrics, logs) using a single consumer group.
 func (kc *KafkaConsumer) Start(ctx context.Context) {
-	kc.wg.Add(3)
-	go kc.consumeSpans(ctx)
-	go kc.consumeMetrics(ctx)
-	go kc.consumeLogs(ctx)
-	log.Printf("kafka: consumer started (batch=%d, flush=%s)", kc.cfg.BatchSize, kc.cfg.FlushInterval)
+	ctx, kc.cancel = context.WithCancel(ctx)
+	topics := []string{TopicSpans, TopicMetrics, TopicLogs}
+
+	kc.wg.Add(1)
+	go func() {
+		defer kc.wg.Done()
+		for {
+			handler := &consumerGroupHandler{repo: kc.repo, cfg: kc.cfg}
+			if err := kc.group.Consume(ctx, topics, handler); err != nil {
+				log.Printf("kafka: consumer group error: %v", err)
+			}
+			if ctx.Err() != nil {
+				return
+			}
+			// Rebalance happened — re-enter consume loop.
+			log.Println("kafka: consumer group rebalancing…")
+		}
+	}()
+
+	// Log consumer errors in background.
+	kc.wg.Add(1)
+	go func() {
+		defer kc.wg.Done()
+		for {
+			select {
+			case err, ok := <-kc.group.Errors():
+				if !ok {
+					return
+				}
+				log.Printf("kafka: consumer group error: %v", err)
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	log.Printf("kafka: consumer group started (group=%s, batch=%d, flush=%s)",
+		consumerGroupID, kc.cfg.BatchSize, kc.cfg.FlushInterval)
 }
 
 // Wait blocks until all consumer goroutines have exited.
 func (kc *KafkaConsumer) Wait() { kc.wg.Wait() }
 
-// Close closes the underlying Sarama client.
-func (kc *KafkaConsumer) Close() error { return kc.client.Close() }
-
-func (kc *KafkaConsumer) consumeSpans(ctx context.Context) {
-	defer kc.wg.Done()
-	pc, err := kc.client.ConsumePartition(TopicSpans, 0, sarama.OffsetNewest)
-	if err != nil {
-		log.Printf("kafka: failed to consume %s: %v", TopicSpans, err)
-		return
+// Close cancels the consumer context and closes the group.
+func (kc *KafkaConsumer) Close() error {
+	if kc.cancel != nil {
+		kc.cancel()
 	}
-	defer pc.Close()
+	return kc.group.Close()
+}
 
-	buf := make([]SpanRecord, 0, kc.cfg.BatchSize)
-	ticker := time.NewTicker(kc.cfg.FlushInterval)
+// consumerGroupHandler implements sarama.ConsumerGroupHandler.
+type consumerGroupHandler struct {
+	repo *Repository
+	cfg  KafkaConsumerConfig
+}
+
+func (h *consumerGroupHandler) Setup(_ sarama.ConsumerGroupSession) error   { return nil }
+func (h *consumerGroupHandler) Cleanup(_ sarama.ConsumerGroupSession) error { return nil }
+
+func (h *consumerGroupHandler) ConsumeClaim(session sarama.ConsumerGroupSession, claim sarama.ConsumerGroupClaim) error {
+	batchSize := h.cfg.BatchSize
+	if batchSize <= 0 {
+		batchSize = 500
+	}
+	ticker := time.NewTicker(h.cfg.FlushInterval)
 	defer ticker.Stop()
 
-	flush := func() {
-		if len(buf) == 0 {
-			return
-		}
-		if err := kc.repo.InsertSpans(context.Background(), buf); err != nil {
-			log.Printf("kafka: flush %d spans: %v", len(buf), err)
-		}
-		buf = buf[:0]
-	}
+	topic := claim.Topic()
 
-	for {
-		select {
-		case msg := <-pc.Messages():
-			var spans []SpanRecord
-			if err := json.Unmarshal(msg.Value, &spans); err != nil {
-				log.Printf("kafka: unmarshal spans: %v", err)
-				continue
-			}
-			buf = append(buf, spans...)
-			if len(buf) >= kc.cfg.BatchSize {
-				flush()
-			}
-		case err := <-pc.Errors():
-			log.Printf("kafka: error on %s: %v", TopicSpans, err)
-		case <-ticker.C:
-			flush()
-		case <-ctx.Done():
-			flush()
-			return
+	switch topic {
+	case TopicSpans:
+		return consumeAndFlush(session, claim, ticker, batchSize, h.repo.InsertSpans, "spans")
+	case TopicMetrics:
+		bs := batchSize
+		if bs > 100 {
+			bs = 100
 		}
+		return consumeAndFlush(session, claim, ticker, bs, h.repo.InsertMetrics, "metrics")
+	case TopicLogs:
+		return consumeAndFlush(session, claim, ticker, batchSize, h.repo.InsertLogs, "logs")
+	default:
+		log.Printf("kafka: unexpected topic %s", topic)
+		return nil
 	}
 }
 
-func (kc *KafkaConsumer) consumeMetrics(ctx context.Context) {
-	defer kc.wg.Done()
-	pc, err := kc.client.ConsumePartition(TopicMetrics, 0, sarama.OffsetNewest)
-	if err != nil {
-		log.Printf("kafka: failed to consume %s: %v", TopicMetrics, err)
-		return
-	}
-	defer pc.Close()
-
-	batchSize := kc.cfg.BatchSize
-	if batchSize <= 0 || batchSize > 100 {
-		batchSize = 100
-	}
-	buf := make([]MetricRecord, 0, batchSize)
-	ticker := time.NewTicker(kc.cfg.FlushInterval)
-	defer ticker.Stop()
+// consumeAndFlush is a generic consume loop for any signal type.
+func consumeAndFlush[T any](
+	session sarama.ConsumerGroupSession,
+	claim sarama.ConsumerGroupClaim,
+	ticker *time.Ticker,
+	batchSize int,
+	insertFn func(context.Context, []T) error,
+	signalName string,
+) error {
+	buf := make([]T, 0, batchSize)
+	var lastMsg *sarama.ConsumerMessage
 
 	flush := func() {
 		if len(buf) == 0 {
 			return
 		}
-		if err := kc.repo.InsertMetrics(context.Background(), buf); err != nil {
-			log.Printf("kafka: flush %d metrics: %v", len(buf), err)
+		if err := insertFn(context.Background(), buf); err != nil {
+			log.Printf("kafka: flush %d %s: %v", len(buf), signalName, err)
+			return // Don't mark offset on failure — will retry after rebalance.
+		}
+		if lastMsg != nil {
+			session.MarkMessage(lastMsg, "")
 		}
 		buf = buf[:0]
 	}
 
 	for {
 		select {
-		case msg := <-pc.Messages():
-			var metrics []MetricRecord
-			if err := json.Unmarshal(msg.Value, &metrics); err != nil {
-				log.Printf("kafka: unmarshal metrics: %v", err)
+		case msg, ok := <-claim.Messages():
+			if !ok {
+				flush()
+				return nil
+			}
+			var records []T
+			if err := json.Unmarshal(msg.Value, &records); err != nil {
+				log.Printf("kafka: unmarshal %s: %v", signalName, err)
+				session.MarkMessage(msg, "") // Skip bad messages.
 				continue
 			}
-			buf = append(buf, metrics...)
+			buf = append(buf, records...)
+			lastMsg = msg
 			if len(buf) >= batchSize {
 				flush()
 			}
-		case err := <-pc.Errors():
-			log.Printf("kafka: error on %s: %v", TopicMetrics, err)
 		case <-ticker.C:
 			flush()
-		case <-ctx.Done():
+		case <-session.Context().Done():
 			flush()
-			return
-		}
-	}
-}
-
-func (kc *KafkaConsumer) consumeLogs(ctx context.Context) {
-	defer kc.wg.Done()
-	pc, err := kc.client.ConsumePartition(TopicLogs, 0, sarama.OffsetNewest)
-	if err != nil {
-		log.Printf("kafka: failed to consume %s: %v", TopicLogs, err)
-		return
-	}
-	defer pc.Close()
-
-	buf := make([]LogRecord, 0, kc.cfg.BatchSize)
-	ticker := time.NewTicker(kc.cfg.FlushInterval)
-	defer ticker.Stop()
-
-	flush := func() {
-		if len(buf) == 0 {
-			return
-		}
-		if err := kc.repo.InsertLogs(context.Background(), buf); err != nil {
-			log.Printf("kafka: flush %d logs: %v", len(buf), err)
-		}
-		buf = buf[:0]
-	}
-
-	for {
-		select {
-		case msg := <-pc.Messages():
-			var logs []LogRecord
-			if err := json.Unmarshal(msg.Value, &logs); err != nil {
-				log.Printf("kafka: unmarshal logs: %v", err)
-				continue
-			}
-			buf = append(buf, logs...)
-			if len(buf) >= kc.cfg.BatchSize {
-				flush()
-			}
-		case err := <-pc.Errors():
-			log.Printf("kafka: error on %s: %v", TopicLogs, err)
-		case <-ticker.C:
-			flush()
-		case <-ctx.Done():
-			flush()
-			return
+			return nil
 		}
 	}
 }

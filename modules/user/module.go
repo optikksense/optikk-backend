@@ -39,45 +39,50 @@ type UserRoutes interface {
 	UpdateProfile(*gin.Context)
 }
 
-// RegisterRoutes mounts identity routes.
-func RegisterRoutes(cfg Config, api *gin.RouterGroup, auth AuthRoutes, users UserRoutes) {
+// RegisterRoutes mounts identity routes on both the legacy /api and versioned
+// /api/v1 route groups for backward compatibility.
+func RegisterRoutes(cfg Config, api *gin.RouterGroup, v1 *gin.RouterGroup, auth AuthRoutes, users UserRoutes) {
 	if !cfg.Enabled || auth == nil || users == nil {
 		return
 	}
 
-	api.POST("/signup", users.Signup)
+	// Register on both route groups so /api/v1/* is the canonical prefix while
+	// the legacy /api/* paths keep working for existing clients.
+	for _, g := range []*gin.RouterGroup{api, v1} {
+		g.POST("/signup", users.Signup)
 
-	authGroup := api.Group("/auth")
-	{
-		authGroup.POST("/login", auth.Login)
-		authGroup.POST("/logout", auth.Logout)
-		authGroup.GET("/me", auth.AuthMe)
-		authGroup.GET("/context", auth.AuthContext)
-		authGroup.GET("/validate", auth.ValidateToken)
-	}
+		authGroup := g.Group("/auth")
+		{
+			authGroup.POST("/login", auth.Login)
+			authGroup.POST("/logout", auth.Logout)
+			authGroup.GET("/me", auth.AuthMe)
+			authGroup.GET("/context", auth.AuthContext)
+			authGroup.GET("/validate", auth.ValidateToken)
+		}
 
-	usersGroup := api.Group("/users")
-	{
-		usersGroup.GET("/me", users.GetCurrentUser)
-		usersGroup.GET("", users.GetUsers)
-		usersGroup.GET("/:id", users.GetUserByID)
-		usersGroup.POST("", users.CreateUser)
-		usersGroup.POST("/:userId/teams/:teamId", users.AddUserToTeam)
-		usersGroup.DELETE("/:userId/teams/:teamId", users.RemoveUserFromTeam)
-	}
+		usersGroup := g.Group("/users")
+		{
+			usersGroup.GET("/me", users.GetCurrentUser)
+			usersGroup.GET("", users.GetUsers)
+			usersGroup.GET("/:id", users.GetUserByID)
+			usersGroup.POST("", users.CreateUser)
+			usersGroup.POST("/:userId/teams/:teamId", users.AddUserToTeam)
+			usersGroup.DELETE("/:userId/teams/:teamId", users.RemoveUserFromTeam)
+		}
 
-	teamsGroup := api.Group("/teams")
-	{
-		teamsGroup.GET("", users.GetTeams)
-		teamsGroup.GET("/my-teams", users.GetMyTeams)
-		teamsGroup.GET("/:id", users.GetTeamByID)
-		teamsGroup.GET("/slug/:slug", users.GetTeamBySlug)
-		teamsGroup.POST("", users.CreateTeam)
-	}
+		teamsGroup := g.Group("/teams")
+		{
+			teamsGroup.GET("", users.GetTeams)
+			teamsGroup.GET("/my-teams", users.GetMyTeams)
+			teamsGroup.GET("/:id", users.GetTeamByID)
+			teamsGroup.GET("/slug/:slug", users.GetTeamBySlug)
+			teamsGroup.POST("", users.CreateTeam)
+		}
 
-	settingsGroup := api.Group("/settings")
-	{
-		settingsGroup.GET("/profile", users.GetProfile)
-		settingsGroup.PUT("/profile", users.UpdateProfile)
+		settingsGroup := g.Group("/settings")
+		{
+			settingsGroup.GET("/profile", users.GetProfile)
+			settingsGroup.PUT("/profile", users.UpdateProfile)
+		}
 	}
 }

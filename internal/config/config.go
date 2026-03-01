@@ -31,8 +31,19 @@ type Config struct {
 
 	KafkaEnabled bool
 	KafkaBrokers string
+
+	AllowedOrigins string
+
+	MaxMySQLOpenConns int
+	MaxMySQLIdleConns int
+
+	DefaultRetentionDays int
 }
 
+// Load reads configuration from environment variables.
+// In production (GO_ENV=production), JWT_SECRET, MYSQL_PASSWORD, and
+// CLICKHOUSE_PASSWORD must be set explicitly — the process will exit
+// if they are left at their insecure defaults.
 func Load() Config {
 	cfg := Config{
 		Port:               getEnv("PORT", "8080"),
@@ -54,9 +65,42 @@ func Load() Config {
 
 		KafkaEnabled: getEnvBool("KAFKA_ENABLED", true),
 		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
+
+		AllowedOrigins: getEnv("ALLOWED_ORIGINS", ""),
+
+		MaxMySQLOpenConns: int(getEnvInt64("MAX_MYSQL_OPEN_CONNS", 50)),
+		MaxMySQLIdleConns: int(getEnvInt64("MAX_MYSQL_IDLE_CONNS", 25)),
+
+		DefaultRetentionDays: int(getEnvInt64("DEFAULT_RETENTION_DAYS", 30)),
 	}
 
+	cfg.validate()
 	return cfg
+}
+
+// validate checks for insecure defaults in production.
+func (c Config) validate() {
+	isProd := strings.EqualFold(os.Getenv("GO_ENV"), "production")
+	if !isProd {
+		return
+	}
+	var errs []string
+	if c.JWTSecret == "optic-secret-key-for-jwt-token-generation-must-be-at-least-256-bits" {
+		errs = append(errs, "JWT_SECRET must be set in production (do not use the default)")
+	}
+	if c.MySQLPassword == "root123" {
+		errs = append(errs, "MYSQL_PASSWORD must be set in production (do not use the default)")
+	}
+	if c.ClickHousePassword == "clickhouse123" {
+		errs = append(errs, "CLICKHOUSE_PASSWORD must be set in production (do not use the default)")
+	}
+	if len(errs) > 0 {
+		fmt.Fprintf(os.Stderr, "FATAL: insecure configuration detected:\n")
+		for _, e := range errs {
+			fmt.Fprintf(os.Stderr, "  - %s\n", e)
+		}
+		os.Exit(1)
+	}
 }
 
 func (c Config) MySQLDSN() string {

@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -14,9 +15,30 @@ type tenantContextKey string
 
 const tenantKey tenantContextKey = "tenant"
 
+// CORSMiddleware restricts cross-origin requests to explicitly allowed origins.
+// Set ALLOWED_ORIGINS env var to a comma-separated list of origins (e.g. "https://app.example.com,https://dashboard.example.com").
+// Falls back to "*" only in development when ALLOWED_ORIGINS is not set.
 func CORSMiddleware() gin.HandlerFunc {
+	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
+	originSet := make(map[string]bool)
+	if allowedOrigins != "" {
+		for _, o := range strings.Split(allowedOrigins, ",") {
+			originSet[strings.TrimSpace(o)] = true
+		}
+	}
+
 	return func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := c.GetHeader("Origin")
+		if len(originSet) > 0 {
+			if originSet[origin] {
+				c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+				c.Writer.Header().Set("Vary", "Origin")
+			}
+			// If origin is not in the allowed set, omit the header entirely.
+		} else {
+			// No ALLOWED_ORIGINS configured — permissive mode for local development.
+			c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		}
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Team-Id, X-User-Id, X-User-Email, X-User-Role")
 		c.Writer.Header().Set("Access-Control-Expose-Headers", "Authorization, X-Team-Id")
@@ -34,11 +56,53 @@ func ErrorRecovery() gin.HandlerFunc {
 	})
 }
 
-func TenantMiddleware(jwtManager auth.JWTManager) gin.HandlerFunc {
+// publicPathPrefixes lists URL prefixes that do not require JWT authentication.
+// OTLP endpoints use API-key auth in their own handler; auth routes need to be
+// accessible without a token.
+var publicPathPrefixes = []string{
+	"/api/signup",
+	"/api/auth/login",
+	"/otlp/",
+	"/swagger/",
+	"/health",
+	"/metrics",
+}
+
+func isPublicPath(path string) bool {
+	for _, prefix := range publicPathPrefixes {
+		if strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// TenantMiddleware extracts the authenticated tenant from the JWT token.
+// Public paths (signup, login, OTLP ingestion) are allowed through without
+// authentication. All other paths require a valid JWT; requests without one
+// are rejected with 401.
+//
+// When a non-nil TokenBlacklist is provided, revoked tokens are rejected
+// with 401 even if they are otherwise valid.
+func TenantMiddleware(jwtManager auth.JWTManager, blacklist ...*auth.TokenBlacklist) gin.HandlerFunc {
+	var bl *auth.TokenBlacklist
+	if len(blacklist) > 0 {
+		bl = blacklist[0]
+	}
+
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
 		if strings.HasPrefix(authHeader, "Bearer ") {
 			token := strings.TrimPrefix(authHeader, "Bearer ")
+
+			// Reject revoked tokens before spending time on signature verification.
+			if bl != nil && bl.IsRevoked(token) {
+				c.AbortWithStatusJSON(http.StatusUnauthorized, types.Failure(
+					"TOKEN_REVOKED", "Token has been revoked", c.Request.URL.Path,
+				))
+				return
+			}
+
 			if claims, err := jwtManager.Parse(token); err == nil {
 				teamID := claims.TeamID
 				// Allow explicit team switching from UI for users that belong to
@@ -47,7 +111,10 @@ func TenantMiddleware(jwtManager auth.JWTManager) gin.HandlerFunc {
 					teamID = requested
 				}
 				if teamID == 0 {
-					teamID = 1
+					c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
+						"MISSING_TEAM", "JWT does not contain a valid team_id", c.Request.URL.Path,
+					))
+					return
 				}
 				role := claims.Role
 				if role == "" {
@@ -64,30 +131,29 @@ func TenantMiddleware(jwtManager auth.JWTManager) gin.HandlerFunc {
 			}
 		}
 
-		// No valid JWT — fall back to explicit X-* headers only.
-		// Default role is "member", not "admin", to avoid privilege escalation.
-		role := c.GetHeader("X-User-Role")
-		if role == "" {
-			role = "member"
+		// No valid JWT — allow public paths through without authentication.
+		if isPublicPath(c.Request.URL.Path) {
+			c.Next()
+			return
 		}
-		c.Set(string(tenantKey), types.TenantContext{
-			TeamID:    utils.ToInt64(c.GetHeader("X-Team-Id"), 1),
-			UserID:    utils.ToInt64(c.GetHeader("X-User-Id"), 0),
-			UserEmail: c.GetHeader("X-User-Email"),
-			UserRole:  role,
-		})
-		c.Next()
+
+		// Protected path without valid JWT — reject.
+		c.AbortWithStatusJSON(http.StatusUnauthorized, types.Failure(
+			"UNAUTHORIZED", "Valid authentication is required", c.Request.URL.Path,
+		))
 	}
 }
 
+// GetTenant extracts the TenantContext set by TenantMiddleware.
+// Returns a zero-value context if no tenant was set (e.g. on public routes).
 func GetTenant(c *gin.Context) types.TenantContext {
 	v, ok := c.Get(string(tenantKey))
 	if !ok {
-		return types.TenantContext{TeamID: 1, UserID: 0, UserRole: "member"}
+		return types.TenantContext{}
 	}
 	t, ok := v.(types.TenantContext)
 	if !ok {
-		return types.TenantContext{TeamID: 1, UserID: 0, UserRole: "member"}
+		return types.TenantContext{}
 	}
 	return t
 }

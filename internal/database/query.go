@@ -9,7 +9,21 @@ import (
 	"time"
 )
 
+// MaxQueryRows is the default hard limit on rows returned by QueryMaps to
+// prevent unbounded memory allocation on large result sets.
+const MaxQueryRows = 10_000
+
 func QueryMaps(db Querier, query string, args ...any) ([]map[string]any, error) {
+	return QueryMapsLimit(db, MaxQueryRows, query, args...)
+}
+
+// QueryMapsLimit is like QueryMaps but allows the caller to specify a custom
+// row limit. Pass 0 to use MaxQueryRows.
+func QueryMapsLimit(db Querier, limit int, query string, args ...any) ([]map[string]any, error) {
+	if limit <= 0 {
+		limit = MaxQueryRows
+	}
+
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		return nil, err
@@ -20,6 +34,9 @@ func QueryMaps(db Querier, query string, args ...any) ([]map[string]any, error) 
 
 	result := make([]map[string]any, 0)
 	for rows.Next() {
+		if len(result) >= limit {
+			break
+		}
 		raw := make([]any, len(cols))
 		rawPtrs := make([]any, len(cols))
 		for i := range raw {

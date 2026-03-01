@@ -2,23 +2,29 @@ package identity
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	types "github.com/observability/observability-backend-go/internal/contracts"
-	identityservice "github.com/observability/observability-backend-go/modules/user/service"
+	"github.com/observability/observability-backend-go/internal/platform/auth"
 	apphandlers "github.com/observability/observability-backend-go/internal/platform/handlers"
+	identityservice "github.com/observability/observability-backend-go/modules/user/service"
 )
 
 // AuthHandler handles authentication endpoints for the identity module.
 type AuthHandler struct {
-	service   identityservice.AuthService
-	getTenant apphandlers.GetTenantFunc
+	service    identityservice.AuthService
+	getTenant  apphandlers.GetTenantFunc
+	jwtManager auth.JWTManager
+	blacklist  *auth.TokenBlacklist
 }
 
-func NewAuthHandler(getTenant apphandlers.GetTenantFunc, service identityservice.AuthService) *AuthHandler {
+func NewAuthHandler(getTenant apphandlers.GetTenantFunc, service identityservice.AuthService, jwtManager auth.JWTManager, blacklist *auth.TokenBlacklist) *AuthHandler {
 	return &AuthHandler{
-		service:   service,
-		getTenant: getTenant,
+		service:    service,
+		getTenant:  getTenant,
+		jwtManager: jwtManager,
+		blacklist:  blacklist,
 	}
 }
 
@@ -48,6 +54,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 }
 
 func (h *AuthHandler) Logout(c *gin.Context) {
+	// Extract the raw token from the Authorization header and revoke it.
+	if header := c.GetHeader("Authorization"); strings.HasPrefix(header, "Bearer ") {
+		token := strings.TrimPrefix(header, "Bearer ")
+		if claims, err := h.jwtManager.Parse(token); err == nil && claims.ExpiresAt != nil {
+			h.blacklist.Revoke(token, claims.ExpiresAt.Time)
+		}
+	}
 	apphandlers.RespondOK(c, map[string]string{"message": "Logged out successfully"})
 }
 

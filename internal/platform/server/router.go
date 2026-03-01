@@ -4,6 +4,9 @@ import (
 	"log"
 
 	"github.com/gin-gonic/gin"
+	util "github.com/observability/observability-backend-go/internal/helpers"
+	"github.com/observability/observability-backend-go/internal/platform/middleware"
+	"github.com/observability/observability-backend-go/internal/platform/sse"
 	"github.com/observability/observability-backend-go/internal/modules/ai"
 	"github.com/observability/observability-backend-go/internal/modules/alerts"
 	"github.com/observability/observability-backend-go/internal/modules/dashboardconfig"
@@ -68,7 +71,7 @@ func (a *App) registerRoutes(r *gin.Engine) {
 	api := r.Group("/api")
 	v1 := r.Group("/api/v1")
 
-	identity.RegisterRoutes(cfg.Identity, api, a.Auth, a.Users)
+	identity.RegisterRoutes(cfg.Identity, api, v1, a.Auth, a.Users)
 	alerts.RegisterRoutes(cfg.Alerts, api, v1, a.Alerts)
 	overviewmodule.RegisterRoutes(cfg.Overview, api, v1, a.Overview)
 	overviewslo.RegisterRoutes(cfg.OverviewSLO, api, v1, a.OverviewSLO)
@@ -83,6 +86,11 @@ func (a *App) registerRoutes(r *gin.Engine) {
 	deployments.RegisterRoutes(cfg.Deployments, api, v1, a.Deployments)
 	ai.RegisterRoutes(cfg.AI, api, v1, a.AI)
 	dashboardconfig.RegisterRoutes(cfg.DashboardConfig, api, v1, a.DashboardConfig)
+
+	// SSE real-time event stream — authenticated via JWT (same as other API routes).
+	sseHandler := sse.NewHandler(a.SSEBroker, middleware.GetTenant)
+	api.GET("/events/stream", sseHandler.Stream)
+	v1.GET("/events/stream", sseHandler.Stream)
 
 	// OTLP ingestion endpoint — authenticated via api_key (not JWT).
 	// NewRepository takes *sql.DB directly to use clickhouse-go/v2 batch mode.
@@ -119,6 +127,20 @@ func (a *App) registerRoutes(r *gin.Engine) {
 
 	a.TelemetryIngester = ingester
 	otlpHandler := telemetry.NewHandler(ingester, a.DB)
+
+	// Wire SSE notifications: after successful ingest, publish a lightweight
+	// event to the broker so SSE-connected dashboards can refresh.
+	broker := a.SSEBroker
+	otlpHandler.SetOnIngest(func(teamUUID string, signal string, count int) {
+		teamID := util.FromTeamUUID(teamUUID)
+		if teamID > 0 {
+			broker.Publish(teamID, "data-update", map[string]any{
+				"signal": signal,
+				"count":  count,
+			})
+		}
+	})
+
 	otlp := r.Group("/otlp")
 	telemetry.RegisterRoutes(cfg.Telemetry, otlp, otlpHandler)
 }

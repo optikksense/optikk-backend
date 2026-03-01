@@ -3,11 +3,22 @@ package telemetry
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"log"
 	"strings"
 	"sync/atomic"
 	"time"
 )
+
+// BatchInsertResult reports how many records were accepted vs rejected during
+// a batch insert. When RejectedCount > 0, ErrorMessage contains a summary of
+// the first failure encountered.
+type BatchInsertResult struct {
+	TotalCount    int
+	AcceptedCount int
+	RejectedCount int
+	ErrorMessage  string
+}
 
 // Repository persists telemetry records into ClickHouse.
 // It uses the clickhouse-go/v2 SQL driver's batch mode:
@@ -24,15 +35,18 @@ func NewRepository(db *sql.DB) *Repository {
 // Spans
 // ---------------------------------------------------------------------------
 
-func (r *Repository) InsertSpans(ctx context.Context, spans []SpanRecord) error {
+func (r *Repository) InsertSpans(ctx context.Context, spans []SpanRecord) (*BatchInsertResult, error) {
+	result := &BatchInsertResult{TotalCount: len(spans)}
 	if len(spans) == 0 {
-		return nil
+		return result, nil
 	}
 	log.Printf("otlp: inserting %d spans", len(spans))
 
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		result.RejectedCount = len(spans)
+		result.ErrorMessage = fmt.Sprintf("begin tx: %v", err)
+		return result, err
 	}
 	defer tx.Rollback()
 
@@ -45,10 +59,13 @@ func (r *Repository) InsertSpans(ctx context.Context, spans []SpanRecord) error 
 		host, pod, container, attributes
 	)`)
 	if err != nil {
-		return err
+		result.RejectedCount = len(spans)
+		result.ErrorMessage = fmt.Sprintf("prepare: %v", err)
+		return result, err
 	}
 	defer stmt.Close()
 
+	var firstErr string
 	for _, s := range spans {
 		if _, err := stmt.ExecContext(ctx,
 			s.TeamUUID, s.TraceID, s.SpanID, s.ParentSpanID, s.ParentServiceName, s.IsRoot,
@@ -58,25 +75,42 @@ func (r *Repository) InsertSpans(ctx context.Context, spans []SpanRecord) error 
 			s.HTTPMethod, s.HTTPURL, s.HTTPStatusCode,
 			s.Host, s.Pod, s.Container, s.Attributes,
 		); err != nil {
+			result.RejectedCount++
+			if firstErr == "" {
+				firstErr = fmt.Sprintf("span %s/%s: %v", s.TraceID, s.SpanID, err)
+			}
 			log.Printf("otlp: span append %s/%s: %v", s.TraceID, s.SpanID, err)
 		}
 	}
-	return tx.Commit()
+
+	if err := tx.Commit(); err != nil {
+		result.RejectedCount = len(spans)
+		result.AcceptedCount = 0
+		result.ErrorMessage = fmt.Sprintf("commit: %v", err)
+		return result, err
+	}
+
+	result.AcceptedCount = len(spans) - result.RejectedCount
+	result.ErrorMessage = firstErr
+	return result, nil
 }
 
 // ---------------------------------------------------------------------------
 // Metrics
 // ---------------------------------------------------------------------------
 
-func (r *Repository) InsertMetrics(ctx context.Context, metrics []MetricRecord) error {
+func (r *Repository) InsertMetrics(ctx context.Context, metrics []MetricRecord) (*BatchInsertResult, error) {
+	result := &BatchInsertResult{TotalCount: len(metrics)}
 	if len(metrics) == 0 {
-		return nil
+		return result, nil
 	}
 	log.Printf("otlp: inserting %d metrics", len(metrics))
 
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		result.RejectedCount = len(metrics)
+		result.ErrorMessage = fmt.Sprintf("begin tx: %v", err)
+		return result, err
 	}
 	defer tx.Rollback()
 
@@ -89,10 +123,13 @@ func (r *Repository) InsertMetrics(ctx context.Context, metrics []MetricRecord) 
 		host, pod, container, attributes
 	)`)
 	if err != nil {
-		return err
+		result.RejectedCount = len(metrics)
+		result.ErrorMessage = fmt.Sprintf("prepare: %v", err)
+		return result, err
 	}
 	defer stmt.Close()
 
+	var firstErr string
 	for _, m := range metrics {
 		if _, err := stmt.ExecContext(ctx,
 			m.TeamUUID, m.MetricName, m.MetricType, m.MetricCategory,
@@ -102,25 +139,42 @@ func (r *Repository) InsertMetrics(ctx context.Context, metrics []MetricRecord) 
 			m.HTTPMethod, m.HTTPStatusCode, m.Status,
 			m.Host, m.Pod, m.Container, m.Attributes,
 		); err != nil {
+			result.RejectedCount++
+			if firstErr == "" {
+				firstErr = fmt.Sprintf("metric %s: %v", m.MetricName, err)
+			}
 			log.Printf("otlp: metric append %s: %v", m.MetricName, err)
 		}
 	}
-	return tx.Commit()
+
+	if err := tx.Commit(); err != nil {
+		result.RejectedCount = len(metrics)
+		result.AcceptedCount = 0
+		result.ErrorMessage = fmt.Sprintf("commit: %v", err)
+		return result, err
+	}
+
+	result.AcceptedCount = len(metrics) - result.RejectedCount
+	result.ErrorMessage = firstErr
+	return result, nil
 }
 
 // ---------------------------------------------------------------------------
 // Logs
 // ---------------------------------------------------------------------------
 
-func (r *Repository) InsertLogs(ctx context.Context, logs []LogRecord) error {
+func (r *Repository) InsertLogs(ctx context.Context, logs []LogRecord) (*BatchInsertResult, error) {
+	result := &BatchInsertResult{TotalCount: len(logs)}
 	if len(logs) == 0 {
-		return nil
+		return result, nil
 	}
 	log.Printf("otlp: inserting %d logs", len(logs))
 
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		result.RejectedCount = len(logs)
+		result.ErrorMessage = fmt.Sprintf("begin tx: %v", err)
+		return result, err
 	}
 	defer tx.Rollback()
 
@@ -129,10 +183,13 @@ func (r *Repository) InsertLogs(ctx context.Context, logs []LogRecord) error {
 		trace_id, span_id, host, pod, container, thread, exception, attributes
 	)`)
 	if err != nil {
-		return err
+		result.RejectedCount = len(logs)
+		result.ErrorMessage = fmt.Sprintf("prepare: %v", err)
+		return result, err
 	}
 	defer stmt.Close()
 
+	var firstErr string
 	for _, rec := range logs {
 		level := normalizeLevel(rec.Level)
 		service := strings.TrimSpace(rec.Service)
@@ -148,10 +205,24 @@ func (r *Repository) InsertLogs(ctx context.Context, logs []LogRecord) error {
 			rec.Logger, message, rec.TraceID, rec.SpanID,
 			rec.Host, rec.Pod, rec.Container, rec.Thread, rec.Exception, rec.Attributes,
 		); err != nil {
+			result.RejectedCount++
+			if firstErr == "" {
+				firstErr = fmt.Sprintf("log record: %v", err)
+			}
 			log.Printf("otlp: log append: %v", err)
 		}
 	}
-	return tx.Commit()
+
+	if err := tx.Commit(); err != nil {
+		result.RejectedCount = len(logs)
+		result.AcceptedCount = 0
+		result.ErrorMessage = fmt.Sprintf("commit: %v", err)
+		return result, err
+	}
+
+	result.AcceptedCount = len(logs) - result.RejectedCount
+	result.ErrorMessage = firstErr
+	return result, nil
 }
 
 // ---------------------------------------------------------------------------

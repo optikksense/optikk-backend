@@ -45,7 +45,7 @@ func (h *AlertHandler) GetAlerts(c *gin.Context) {
 func (h *AlertHandler) GetAlertsPaged(c *gin.Context) {
 	tenant := h.GetTenant(c)
 	page := ParseIntParam(c, "page", 0)
-	size := ParseIntParam(c, "size", 20)
+	size := ParsePageSize(c, "size", 20)
 
 	pageResp, err := h.Service.GetAlertsPaged(tenant.TeamID, page, size)
 	if err != nil {

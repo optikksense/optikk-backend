@@ -2,8 +2,30 @@ package server
 
 import (
 	"database/sql"
+	"fmt"
 	"log"
 )
+
+// migrateTeamRetentionDays adds a retention_days column to the teams table.
+// The column controls how many days of telemetry data to keep per team.
+// Default is 30 days. Idempotent — safe to re-run.
+func migrateTeamRetentionDays(db *sql.DB, defaultRetentionDays int) {
+	if columnExists(db, "teams", "retention_days") {
+		return
+	}
+	if defaultRetentionDays < 1 {
+		defaultRetentionDays = 30
+	}
+	q := fmt.Sprintf(
+		`ALTER TABLE teams ADD COLUMN retention_days INT NOT NULL DEFAULT %d AFTER api_key`,
+		defaultRetentionDays,
+	)
+	if _, err := db.Exec(q); err != nil {
+		log.Printf("WARN: migration add teams.retention_days: %v", err)
+	} else {
+		log.Printf("migration: added teams.retention_days column (default %d)", defaultRetentionDays)
+	}
+}
 
 // migrateUserTeamsSchema migrates the users/teams tables to the new schema:
 // - Adds teams JSON column to users (backfilled from user_teams)

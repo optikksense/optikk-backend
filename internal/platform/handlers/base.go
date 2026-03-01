@@ -42,6 +42,9 @@ func ParseInt64Param(c *gin.Context, key string, fallback int64) int64 {
 	return fallback
 }
 
+// MaxPageSize is the hard upper limit for pagination size parameters.
+const MaxPageSize = 200
+
 func ParseIntParam(c *gin.Context, key string, fallback int) int {
 	if v := c.Query(key); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil {
@@ -49,6 +52,18 @@ func ParseIntParam(c *gin.Context, key string, fallback int) int {
 		}
 	}
 	return fallback
+}
+
+// ParsePageSize is like ParseIntParam but caps the value at MaxPageSize.
+func ParsePageSize(c *gin.Context, key string, fallback int) int {
+	size := ParseIntParam(c, key, fallback)
+	if size > MaxPageSize {
+		size = MaxPageSize
+	}
+	if size <= 0 {
+		size = fallback
+	}
+	return size
 }
 
 func ParseListParam(c *gin.Context, key string) []string {

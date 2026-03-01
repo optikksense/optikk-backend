@@ -10,6 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/observability/observability-backend-go/internal/config"
+	appmetrics "github.com/observability/observability-backend-go/internal/platform/metrics"
 	"github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/ai"
 	aiservice "github.com/observability/observability-backend-go/internal/modules/ai/service"
@@ -51,6 +52,8 @@ import (
 	"github.com/observability/observability-backend-go/internal/platform/auth"
 	"github.com/observability/observability-backend-go/internal/platform/handlers"
 	"github.com/observability/observability-backend-go/internal/platform/middleware"
+	"github.com/observability/observability-backend-go/internal/platform/sse"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	telemetry "github.com/observability/observability-backend-go/modules/ingestion"
 	logsapi "github.com/observability/observability-backend-go/modules/log"
 	tracesapi "github.com/observability/observability-backend-go/modules/spans"
@@ -62,13 +65,18 @@ import (
 )
 
 type App struct {
-	DB         *sql.DB
-	CH         *sql.DB
-	Config     config.Config
-	JWTManager auth.JWTManager
+	DB             *sql.DB
+	CH             *sql.DB
+	Config         config.Config
+	JWTManager     auth.JWTManager
+	TokenBlacklist *auth.TokenBlacklist
 
-	TelemetryIngester telemetry.Ingester
-	TelemetryConsumer *telemetry.KafkaConsumer // nil when Kafka is disabled
+	SSEBroker *sse.Broker // real-time event broker for SSE streams
+
+	TelemetryIngester  telemetry.Ingester
+	TelemetryHandler   *telemetry.Handler       // OTLP handler (owns span cache)
+	TelemetryConsumer  *telemetry.KafkaConsumer  // nil when Kafka is disabled
+	RetentionManager   *telemetry.RetentionManager
 
 	Auth                AuthModule
 	Users               UserModule
@@ -134,13 +142,25 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 	// Migrate users/teams schema: add teams JSON column, org_name, drop user_teams.
 	migrateUserTeamsSchema(db)
 
-	return &App{
-		DB:         db,
-		CH:         ch,
-		Config:     cfg,
-		JWTManager: jwt,
+	// Migrate teams table: add retention_days column for per-team retention policies.
+	migrateTeamRetentionDays(db, cfg.DefaultRetentionDays)
 
-		Auth:  identity.NewAuthHandler(getTenant, identityAuthService),
+	blacklist := auth.NewTokenBlacklist()
+
+	retentionMgr := telemetry.NewRetentionManager(db, ch, telemetry.RetentionManagerConfig{
+		DefaultRetentionDays: cfg.DefaultRetentionDays,
+	})
+
+	return &App{
+		DB:               db,
+		CH:               ch,
+		Config:           cfg,
+		JWTManager:       jwt,
+		TokenBlacklist:   blacklist,
+		SSEBroker:        sse.NewBroker(),
+		RetentionManager: retentionMgr,
+
+		Auth:  identity.NewAuthHandler(getTenant, identityAuthService, jwt, blacklist),
 		Users: identity.NewUserHandler(getTenant, identityUserService),
 		Alerts: &alerts.AlertHandler{
 			DBTenant: modulecommon.DBTenant{
@@ -262,15 +282,47 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 }
 
 func (a *App) Router() *gin.Engine {
+	// Register Prometheus metrics collectors once.
+	appmetrics.Register()
+
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(middleware.ErrorRecovery())
 	r.Use(middleware.CORSMiddleware())
-	r.Use(middleware.TenantMiddleware(a.JWTManager))
+	r.Use(appmetrics.GinMiddleware())
+	r.Use(middleware.TenantMiddleware(a.JWTManager, a.TokenBlacklist))
+
+	// Rate limiting: 1000 requests per second with burst of 2000.
+	rl := middleware.NewRateLimiter(1000, 2000, time.Second)
+	r.Use(middleware.RateLimitMiddleware(rl))
+
+	// Health check endpoints (unauthenticated).
+	r.GET("/health", a.healthLive)
+	r.GET("/health/live", a.healthLive)
+	r.GET("/health/ready", a.healthReady)
+
+	// Prometheus metrics endpoint (unauthenticated).
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	a.registerRoutes(r)
 	a.registerSwagger(r)
 	return r
+}
+
+func (a *App) healthLive(c *gin.Context) {
+	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+func (a *App) healthReady(c *gin.Context) {
+	if err := a.DB.Ping(); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "mysql": err.Error()})
+		return
+	}
+	if err := a.CH.Ping(); err != nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "clickhouse": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ready", "mysql": "ok", "clickhouse": "ok"})
 }
 
 func (a *App) Start(ctx context.Context) error {
@@ -283,6 +335,11 @@ func (a *App) Start(ctx context.Context) error {
 
 	if a.TelemetryConsumer != nil {
 		a.TelemetryConsumer.Start(consumerCtx)
+	}
+
+	// Start the retention manager to periodically enforce per-team data retention.
+	if a.RetentionManager != nil {
+		a.RetentionManager.Start(consumerCtx)
 	}
 
 	srv := &http.Server{
@@ -310,6 +367,12 @@ func (a *App) Start(ctx context.Context) error {
 		return err
 	case <-ctx.Done():
 		log.Println("shutdown signal received, draining connections…")
+		if a.RetentionManager != nil {
+			a.RetentionManager.Stop()
+		}
+		if a.TokenBlacklist != nil {
+			a.TokenBlacklist.Stop()
+		}
 		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 

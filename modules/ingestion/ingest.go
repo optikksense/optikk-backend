@@ -7,10 +7,13 @@ import (
 
 // Ingester abstracts telemetry record ingestion.
 // DirectIngester buffers asynchronously; KafkaIngester produces to Kafka.
+// Methods return a *BatchInsertResult describing how many records were accepted
+// vs rejected. For async ingesters (DirectIngester), all records are accepted
+// into the buffer immediately and partial failures are handled during flush.
 type Ingester interface {
-	IngestSpans(ctx context.Context, spans []SpanRecord) error
-	IngestMetrics(ctx context.Context, metrics []MetricRecord) error
-	IngestLogs(ctx context.Context, logs []LogRecord) error
+	IngestSpans(ctx context.Context, spans []SpanRecord) (*BatchInsertResult, error)
+	IngestMetrics(ctx context.Context, metrics []MetricRecord) (*BatchInsertResult, error)
+	IngestLogs(ctx context.Context, logs []LogRecord) (*BatchInsertResult, error)
 	Close() error
 }
 
@@ -46,25 +49,34 @@ func NewDirectIngester(repo *Repository, cfg DirectIngesterConfig) *DirectIngest
 		cfg.FlushInterval = 5 * time.Second
 	}
 	return &DirectIngester{
-		spans:   newAsyncBuffer(cfg.SpansBatchSize, cfg.FlushInterval, repo.InsertSpans),
-		metrics: newAsyncBuffer(cfg.MetricsBatchSize, cfg.FlushInterval, repo.InsertMetrics),
-		logs:    newAsyncBuffer(cfg.LogsBatchSize, cfg.FlushInterval, repo.InsertLogs),
+		spans: newAsyncBuffer(cfg.SpansBatchSize, cfg.FlushInterval, func(ctx context.Context, spans []SpanRecord) error {
+			_, err := repo.InsertSpans(ctx, spans)
+			return err
+		}),
+		metrics: newAsyncBuffer(cfg.MetricsBatchSize, cfg.FlushInterval, func(ctx context.Context, metrics []MetricRecord) error {
+			_, err := repo.InsertMetrics(ctx, metrics)
+			return err
+		}),
+		logs: newAsyncBuffer(cfg.LogsBatchSize, cfg.FlushInterval, func(ctx context.Context, logs []LogRecord) error {
+			_, err := repo.InsertLogs(ctx, logs)
+			return err
+		}),
 	}
 }
 
-func (d *DirectIngester) IngestSpans(_ context.Context, spans []SpanRecord) error {
+func (d *DirectIngester) IngestSpans(_ context.Context, spans []SpanRecord) (*BatchInsertResult, error) {
 	d.spans.Append(spans)
-	return nil
+	return &BatchInsertResult{TotalCount: len(spans), AcceptedCount: len(spans)}, nil
 }
 
-func (d *DirectIngester) IngestMetrics(_ context.Context, metrics []MetricRecord) error {
+func (d *DirectIngester) IngestMetrics(_ context.Context, metrics []MetricRecord) (*BatchInsertResult, error) {
 	d.metrics.Append(metrics)
-	return nil
+	return &BatchInsertResult{TotalCount: len(metrics), AcceptedCount: len(metrics)}, nil
 }
 
-func (d *DirectIngester) IngestLogs(_ context.Context, logs []LogRecord) error {
+func (d *DirectIngester) IngestLogs(_ context.Context, logs []LogRecord) (*BatchInsertResult, error) {
 	d.logs.Append(logs)
-	return nil
+	return &BatchInsertResult{TotalCount: len(logs), AcceptedCount: len(logs)}, nil
 }
 
 // Close flushes all remaining buffered records before returning.
