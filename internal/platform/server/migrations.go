@@ -41,6 +41,8 @@ func runMigrations(db *sql.DB, defaultRetentionDays int) {
 		migrateUserTeamsSchema(db)
 		// Migrate teams table: add retention_days column for per-team retention policies.
 		migrateTeamRetentionDays(db, defaultRetentionDays)
+		// Fix 22: Add region column to teams for multi-region data model.
+		migrateTeamsRegion(db)
 	})
 }
 
@@ -62,6 +64,23 @@ func migrateTeamRetentionDays(db *sql.DB, defaultRetentionDays int) {
 		log.Printf("WARN: migration add teams.retention_days: %v", err)
 	} else {
 		log.Printf("migration: added teams.retention_days column (default %d)", defaultRetentionDays)
+	}
+}
+
+// migrateTeamsRegion adds a region column to the teams table.
+// The region field identifies which data-plane region hosts this team's data,
+// allowing multi-region ClickHouse queries to be scoped to the correct shard.
+// Default region is 'us-east-1'. Idempotent — safe to re-run.
+//
+// Fix 22: Multi-Region Data Model.
+func migrateTeamsRegion(db *sql.DB) {
+	if columnExists(db, "teams", "region") {
+		return
+	}
+	if _, err := db.Exec(`ALTER TABLE teams ADD COLUMN region VARCHAR(64) NOT NULL DEFAULT 'us-east-1' AFTER retention_days`); err != nil {
+		log.Printf("WARN: migration add teams.region: %v", err)
+	} else {
+		log.Println("migration: added teams.region column (default us-east-1)")
 	}
 }
 

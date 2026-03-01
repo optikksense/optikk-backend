@@ -11,7 +11,7 @@ import (
 
 // JWTGenerator is the subset of JWT manager required by AuthService.
 type JWTGenerator interface {
-	Generate(userID int64, email, name, role string, teamID int64) (string, error)
+	Generate(userID int64, email, name, role string, teamID int64, teams ...int64) (string, error)
 }
 
 type authService struct {
@@ -61,7 +61,12 @@ func (s *authService) Login(email, password string) (map[string]any, error) {
 		teamID = mapInt64(currentTeam, "id")
 	}
 
-	token, err := s.jwtGenerator.Generate(user.ID, user.Email, user.Name, user.Role, teamID)
+	var teamIDs []int64
+	for _, t := range teams {
+		teamIDs = append(teamIDs, mapInt64(t, "id"))
+	}
+
+	token, err := s.jwtGenerator.Generate(user.ID, user.Email, user.Name, user.Role, teamID, teamIDs...)
 	if err != nil {
 		return nil, newInternalError("Failed to generate token", err)
 	}

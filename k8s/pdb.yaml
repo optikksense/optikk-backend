@@ -1,0 +1,10 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: optic-backend-pdb
+  namespace: optic
+spec:
+  maxUnavailable: 1          # Allow at most 1 pod down during disruptions
+  selector:
+    matchLabels:
+      app: optic-backend

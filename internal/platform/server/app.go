@@ -147,7 +147,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 
 	// Run all schema migrations under a MySQL advisory lock to prevent races
 	// when multiple pods start simultaneously during rolling Kubernetes deploys.
-	ensureDashboardTable(db, dashboardconfigstore.NewRepository(db))
+
 	runMigrations(db, cfg.DefaultRetentionDays)
 
 	blacklist := auth.NewTokenBlacklist(cfg.RedisHost, cfg.RedisPort)

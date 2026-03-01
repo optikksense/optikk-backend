@@ -41,6 +41,12 @@ type Config struct {
 	MaxMySQLIdleConns int
 
 	DefaultRetentionDays int
+
+	// Fix 22: Multi-region support.
+	// AppRegion is the Kubernetes region/AZ this pod is running in (e.g. "us-east-1").
+	// Populated from APP_REGION env var (set in the K8s Deployment manifest).
+	// Used by leader election and to scope ClickHouse queries to the correct shard.
+	AppRegion string
 }
 
 // Load reads configuration from environment variables.
@@ -78,6 +84,8 @@ func Load() Config {
 		MaxMySQLIdleConns: int(getEnvInt64("MAX_MYSQL_IDLE_CONNS", 25)),
 
 		DefaultRetentionDays: int(getEnvInt64("DEFAULT_RETENTION_DAYS", 30)),
+
+		AppRegion: getEnv("APP_REGION", "us-east-1"),
 	}
 
 	cfg.validate()

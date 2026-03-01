@@ -17,17 +17,31 @@ docker push ramantayal12/observability-backend:latest
 
 | Variable | Default | Description |
 |----------|---------|-------------|
+| `PORT` | `8080` | HTTP server port |
+| `MYSQL_HOST` | `127.0.0.1` | MariaDB host (for identity/alerts) |
+| `MYSQL_PORT` | `3306` | MariaDB port |
+| `MYSQL_DATABASE` | `observability` | Database name |
+| `MYSQL_USERNAME` | `root` | Database user |
+| `MYSQL_PASSWORD` | `root123` | Database password |
 | `CLICKHOUSE_HOST` | `127.0.0.1` | ClickHouse host |
 | `CLICKHOUSE_PORT` | `9000` | ClickHouse port |
 | `CLICKHOUSE_DATABASE` | `observability` | Database name |
 | `CLICKHOUSE_USERNAME` | `default` | Database user |
 | `CLICKHOUSE_PASSWORD` | `clickhouse123` | Database password |
-| `MYSQL_HOST` | `127.0.0.1` | MariaDB host (for identity/alerts) |
-| `MYSQL_DATABASE` | `observability` | Database name |
-| `MYSQL_USERNAME` | `root` | Database user |
-| `MYSQL_PASSWORD` | `root123` | Database password |
-| `JWT_SECRET` | *(built-in default)* | JWT secret (set for production) |
-| `PORT` | `8080` | HTTP server port |
+| `JWT_SECRET` | *(built-in default)* | JWT secret (must set for production) |
+| `JWT_EXPIRATION_MS` | `86400000` | JWT expiration (1 day) |
+| `QUEUE_BATCH_SIZE` | `500` | Batch size for queue processing |
+| `QUEUE_FLUSH_INTERVAL_MS`| `2000` | Flush interval for queues (ms) |
+| `KAFKA_ENABLED` | `true` | Enable Kafka for high-throughput ingestion |
+| `KAFKA_BROKERS` | `localhost:9092` | Kafka broker list (comma-separated) |
+| `REDIS_HOST` | `localhost` | Redis host |
+| `REDIS_PORT` | `6379` | Redis port |
+| `ALLOWED_ORIGINS` | *(empty)* | CORS allowed origins (comma-separated) |
+| `MAX_MYSQL_OPEN_CONNS` | `50` | Max open connections to MySQL |
+| `MAX_MYSQL_IDLE_CONNS` | `25` | Max idle connections to MySQL |
+| `DEFAULT_RETENTION_DAYS` | `30` | Default data retention |
+| `APP_REGION` | `us-east-1` | App region for multi-region scope |
+| `GO_ENV` | *(empty)* | Set `production` to enforce secure secrets |
 
 ---
 
@@ -132,8 +146,21 @@ podman volume rm clickhouse-data mariadb-data  # WARNING: deletes data
 
 ## Local Development
 
+If you are running the backing services (MariaDB, ClickHouse, Kafka, Redis) on their default ports locally, you can run the server directly:
+
 ```bash
-# Requires Go 1.23+, MariaDB on port 3306, and ClickHouse on port 9000
+# Requires Go 1.23+ and backing services
+go run ./cmd/server
+```
+
+If your backing services are hosted elsewhere or use custom ports, you must populate the required environment variables inline or via an export script:
+
+```bash
+PORT=8080 \
+MYSQL_HOST=127.0.0.1 MYSQL_PORT=3306 \
+CLICKHOUSE_HOST=127.0.0.1 CLICKHOUSE_PORT=9000 \
+KAFKA_ENABLED=true KAFKA_BROKERS=localhost:9092 \
+REDIS_HOST=localhost REDIS_PORT=6379 \
 go run ./cmd/server
 ```
 Schema migration runs automatically from `migrations/` on startup.

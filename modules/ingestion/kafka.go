@@ -276,7 +276,7 @@ func consumeAndFlush[T any](
 	claim sarama.ConsumerGroupClaim,
 	ticker *time.Ticker,
 	batchSize int,
-	insertFn func(context.Context, []T) error,
+	insertFn func(context.Context, []T) (*BatchInsertResult, error),
 	signalName string,
 ) error {
 	buf := make([]T, 0, batchSize)
@@ -286,7 +286,7 @@ func consumeAndFlush[T any](
 		if len(buf) == 0 {
 			return
 		}
-		if err := insertFn(context.Background(), buf); err != nil {
+		if _, err := insertFn(context.Background(), buf); err != nil {
 			log.Printf("kafka: flush %d %s: %v", len(buf), signalName, err)
 			return // Don't mark offset on failure — will retry after rebalance.
 		}

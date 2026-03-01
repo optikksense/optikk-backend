@@ -1,0 +1,132 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: optic-backend
+  namespace: optic
+  labels:
+    app: optic-backend
+    version: "1.0"
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: optic-backend
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0          # Zero-downtime rolling deploy
+  template:
+    metadata:
+      labels:
+        app: optic-backend
+        version: "1.0"
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      terminationGracePeriodSeconds: 30
+      serviceAccountName: optic-backend
+      containers:
+        - name: optic-backend
+          image: ghcr.io/optikk/optic-backend:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          env:
+            - name: PORT
+              value: "8080"
+            - name: GO_ENV
+              value: production
+            - name: POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: MYSQL_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: optic-db-secret
+                  key: mysql-host
+            - name: MYSQL_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: optic-db-secret
+                  key: mysql-user
+            - name: MYSQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: optic-db-secret
+                  key: mysql-password
+            - name: MYSQL_DATABASE
+              value: observability
+            - name: CLICKHOUSE_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: optic-db-secret
+                  key: clickhouse-host
+            - name: CLICKHOUSE_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: optic-db-secret
+                  key: clickhouse-user
+            - name: CLICKHOUSE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: optic-db-secret
+                  key: clickhouse-password
+            - name: CLICKHOUSE_DATABASE
+              value: observability
+            - name: REDIS_HOST
+              valueFrom:
+                secretKeyRef:
+                  name: optic-redis-secret
+                  key: redis-host
+            - name: REDIS_PORT
+              value: "6379"
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: optic-jwt-secret
+                  key: jwt-secret
+            - name: ALLOWED_ORIGINS
+              value: "https://app.optikk.com"
+            - name: DEFAULT_RETENTION_DAYS
+              value: "30"
+            - name: APP_REGION
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.labels['topology.kubernetes.io/region']
+          resources:
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+            failureThreshold: 5
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: optic-backend
+  namespace: optic
