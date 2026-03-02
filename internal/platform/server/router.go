@@ -2,6 +2,7 @@ package server
 
 import (
 	"log"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 	util "github.com/observability/observability-backend-go/internal/helpers"
@@ -133,7 +134,7 @@ func (a *App) registerRoutes(r *gin.Engine) {
 	// Wire SSE notifications: after successful ingest, publish a lightweight
 	// event to the broker so SSE-connected dashboards can refresh.
 	broker := a.SSEBroker
-	otlpHandler.SetOnIngest(func(teamUUID string, signal string, count int) {
+	onIngest := func(teamUUID string, signal string, count int) {
 		teamID := util.FromTeamUUID(teamUUID)
 		if teamID > 0 {
 			broker.Publish(teamID, "data-update", map[string]any{
@@ -141,8 +142,49 @@ func (a *App) registerRoutes(r *gin.Engine) {
 				"count":  count,
 			})
 		}
-	})
+	}
+	otlpHandler.SetOnIngest(onIngest)
 
-	otlp := r.Group("/otlp")
-	telemetry.RegisterRoutes(cfg.Telemetry, otlp, otlpHandler)
+	// OTLP ingestion is isolated to dedicated ports (4317/4318).
+	// The main port (8080) is reserved for the frontend and application APIs.
+
+	// Start the OTLP gRPC server on a separate port (default :4317).
+	grpcSrv, grpcOTLP, err := telemetry.StartGRPCServer(
+		telemetry.GRPCServerConfig{
+			Port:             a.Config.GRPCPort,
+			MaxRecvMsgSizeMB: a.Config.GRPCMaxRecvMsgSizeMB,
+			EnableReflection: true,
+		},
+		ingester,
+		otlpHandler.SpanCacheRef(),
+		a.DB,
+	)
+	if err != nil {
+		log.Fatalf("failed to start gRPC server: %v", err)
+	}
+	grpcOTLP.SetOnIngest(onIngest)
+
+	// 3. OTLP/HTTP server on dedicated port (default :4318).
+	// Pure HTTP — gRPC is served exclusively on port 4317.
+	if a.Config.HTTPPortOTLP != "" && a.Config.HTTPPortOTLP != a.Config.Port {
+		otelRouter := gin.New()
+		otelRouter.Use(gin.Recovery())
+		telemetry.RegisterRoutes(cfg.Telemetry, otelRouter.Group(""), otlpHandler)
+
+		otelSrv := &http.Server{
+			Addr:    ":" + a.Config.HTTPPortOTLP,
+			Handler: otelRouter,
+		}
+
+		go func() {
+			log.Printf("otlp: HTTP server listening on :%s", a.Config.HTTPPortOTLP)
+			if err := otelSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Printf("otlp: HTTP server error: %v", err)
+			}
+		}()
+		a.OTLPServerHTTP = otelSrv
+	}
+
+	a.GRPCServer = grpcSrv
+	a.TelemetryHandler = otlpHandler
 }

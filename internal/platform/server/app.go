@@ -39,6 +39,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
+	"google.golang.org/grpc"
 )
 
 type App struct {
@@ -52,8 +53,10 @@ type App struct {
 	LeaderElector leader.Elector // decides which pod runs singleton background jobs
 
 	TelemetryIngester telemetry.Ingester
-	TelemetryHandler  *telemetry.Handler       // OTLP handler (owns span cache)
+	TelemetryHandler  *telemetry.Handler       // OTLP HTTP handler (owns span cache)
 	TelemetryConsumer *telemetry.KafkaConsumer // nil when Kafka is disabled
+	GRPCServer        *grpc.Server             // OTLP gRPC server; nil until Start()
+	OTLPServerHTTP    *http.Server             // OTLP HTTP server on :4318; nil until Start()
 	RetentionManager  *telemetry.RetentionManager
 
 	Auth                AuthModule
@@ -131,19 +134,27 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 		log.Printf("WARN: failed to ensure dashboard_chart_configs table: %v", err)
 	}
 
-	blacklist := auth.NewTokenBlacklist(cfg.RedisHost, cfg.RedisPort)
+	var blacklist *auth.TokenBlacklist
+	var sseBroker SSEPublisher
+
+	if cfg.RedisEnabled {
+		blacklist = auth.NewTokenBlacklist(cfg.RedisHost, cfg.RedisPort)
+
+		// Fix 6: Use Redis-backed SSE broker for cross-pod event fanout.
+		// When Redis is available all pods share the same Pub/Sub channel:
+		// "sse:team:{teamID}". Falls back to in-process on Redis errors.
+		redisClient := redis.NewClient(&redis.Options{
+			Addr: fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort),
+		})
+		sseBroker = sse.NewRedisBroker(redisClient)
+	} else {
+		blacklist = auth.NewInMemoryTokenBlacklist()
+		sseBroker = sse.NewBroker()
+	}
 
 	retentionMgr := telemetry.NewRetentionManager(db, ch, telemetry.RetentionManagerConfig{
 		DefaultRetentionDays: cfg.DefaultRetentionDays,
 	})
-
-	// Fix 6: Use Redis-backed SSE broker for cross-pod event fanout.
-	// When Redis is available all pods share the same Pub/Sub channel:
-	// "sse:team:{teamID}". Falls back to in-process on Redis errors.
-	redisClient := redis.NewClient(&redis.Options{
-		Addr: fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort),
-	})
-	sseBroker := sse.NewRedisBroker(redisClient)
 
 	// Fix 7: Leader election for RetentionManager — only the elected pod runs it.
 	// In local dev / single-pod deployments, ProcessElector is always elected.
@@ -357,6 +368,13 @@ func (a *App) Start(ctx context.Context) error {
 
 	select {
 	case err := <-errCh:
+		// Cleanup on early HTTP failure.
+		if a.GRPCServer != nil {
+			a.GRPCServer.GracefulStop()
+		}
+		if a.OTLPServerHTTP != nil {
+			a.OTLPServerHTTP.Shutdown(context.Background())
+		}
 		consumerCancel()
 		if a.TelemetryConsumer != nil {
 			a.TelemetryConsumer.Wait()
@@ -376,7 +394,19 @@ func (a *App) Start(ctx context.Context) error {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		// Phase 1: Stop accepting new HTTP requests and drain in-flight ones.
+		// Phase 1: Stop ingestion servers (drain in-flight requests).
+		if a.GRPCServer != nil {
+			log.Println("stopping gRPC server…")
+			a.GRPCServer.GracefulStop()
+			log.Println("gRPC server stopped")
+		}
+		if a.OTLPServerHTTP != nil {
+			log.Println("stopping OTLP HTTP server…")
+			a.OTLPServerHTTP.Shutdown(shutCtx)
+			log.Println("OTLP HTTP server stopped")
+		}
+
+		// Phase 2: Stop main API server.
 		if err := srv.Shutdown(shutCtx); err != nil {
 			consumerCancel()
 			if a.TelemetryConsumer != nil {
@@ -388,7 +418,7 @@ func (a *App) Start(ctx context.Context) error {
 			return fmt.Errorf("http shutdown: %w", err)
 		}
 
-		// Phase 2: Close producer, then drain consumer.
+		// Phase 3: Close producer, then drain consumer.
 		if a.TelemetryIngester != nil {
 			log.Println("closing telemetry ingester…")
 			a.TelemetryIngester.Close()

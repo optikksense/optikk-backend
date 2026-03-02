@@ -11,6 +11,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	util "github.com/observability/observability-backend-go/internal/helpers"
+
+	collogspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	colmetricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	coltracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 )
 
 // IngestCallback is invoked after a successful ingest with the team UUID,
@@ -40,12 +44,9 @@ func (h *Handler) SetOnIngest(cb IngestCallback) {
 	h.onIngest = cb
 }
 
-func (h *Handler) HandleTraces(c *gin.Context) {
-	cache := h.spanCache
-	translateFn := func(teamUUID string, payload OTLPTracesPayload) []SpanRecord {
-		return TranslateSpans(teamUUID, payload, cache)
-	}
-	handleSignal(h, c, ProtoToTracesPayload, translateFn, h.ingester.IngestSpans, "spans")
+// SpanCacheRef returns the span cache for sharing with the gRPC server.
+func (h *Handler) SpanCacheRef() *SpanCache {
+	return h.spanCache
 }
 
 // Close releases resources held by the Handler (e.g. the span cache purge goroutine).
@@ -55,38 +56,72 @@ func (h *Handler) Close() {
 	}
 }
 
-func (h *Handler) HandleMetrics(c *gin.Context) {
-	handleSignal(h, c, ProtoToMetricsPayload, TranslateMetrics, h.ingester.IngestMetrics, "metrics")
-}
-
-func (h *Handler) HandleLogs(c *gin.Context) {
-	handleSignal(h, c, ProtoToLogsPayload, TranslateLogs, h.ingester.IngestLogs, "logs")
-}
-
-// handleSignal is the generic pipeline: auth → decode → translate → ingest → respond.
-// Returns OTLP-compliant partial success when some records are rejected.
-func handleSignal[P any, R any](
-	h *Handler,
-	c *gin.Context,
-	protoDec ProtoDecoder[P],
-	translateFn func(string, P) []R,
-	ingestFn func(context.Context, []R) (*BatchInsertResult, error),
-	signalName string,
-) {
+func (h *Handler) HandleTraces(c *gin.Context) {
 	teamUUID, ok := h.auth.resolveAPIKey(c)
 	if !ok {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or missing api_key"})
 		return
 	}
 
-	payload, err := DecodePayload(c, protoDec)
+	req, err := DecodeProto(c, func() *coltracepb.ExportTraceServiceRequest {
+		return &coltracepb.ExportTraceServiceRequest{}
+	})
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	records := translateFn(teamUUID, payload)
+	spans := TranslateProtoSpans(teamUUID, req, h.spanCache)
+	h.ingestAndRespond(c, spans, h.ingester.IngestSpans, "spans", teamUUID)
+}
 
+func (h *Handler) HandleMetrics(c *gin.Context) {
+	teamUUID, ok := h.auth.resolveAPIKey(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or missing api_key"})
+		return
+	}
+
+	req, err := DecodeProto(c, func() *colmetricspb.ExportMetricsServiceRequest {
+		return &colmetricspb.ExportMetricsServiceRequest{}
+	})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	metrics := TranslateProtoMetrics(teamUUID, req)
+	h.ingestAndRespond(c, metrics, h.ingester.IngestMetrics, "metrics", teamUUID)
+}
+
+func (h *Handler) HandleLogs(c *gin.Context) {
+	teamUUID, ok := h.auth.resolveAPIKey(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid or missing api_key"})
+		return
+	}
+
+	req, err := DecodeProto(c, func() *collogspb.ExportLogsServiceRequest {
+		return &collogspb.ExportLogsServiceRequest{}
+	})
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	logs := TranslateProtoLogs(teamUUID, req)
+	h.ingestAndRespond(c, logs, h.ingester.IngestLogs, "logs", teamUUID)
+}
+
+// ingestAndRespond is the generic ingest → respond pipeline for all signals.
+func ingestAndRespond[R any](
+	h *Handler,
+	c *gin.Context,
+	records []R,
+	ingestFn func(context.Context, []R) (*BatchInsertResult, error),
+	signalName string,
+	teamUUID string,
+) {
 	if len(records) == 0 {
 		c.JSON(http.StatusOK, gin.H{})
 		return
@@ -94,18 +129,15 @@ func handleSignal[P any, R any](
 
 	result, err := ingestFn(c.Request.Context(), records)
 	if err != nil && (result == nil || result.AcceptedCount == 0) {
-		// Complete failure — nothing was ingested.
 		log.Printf("otlp: failed to ingest %d %s: %v", len(records), signalName, err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to ingest " + signalName})
 		return
 	}
 
 	if result != nil && result.RejectedCount > 0 {
-		// Partial success — OTLP spec: return 200 with partialSuccess body.
 		log.Printf("otlp: partial success for %s: %d accepted, %d rejected: %s",
 			signalName, result.AcceptedCount, result.RejectedCount, result.ErrorMessage)
 
-		// Notify even on partial success — some data was ingested.
 		if h.onIngest != nil && result.AcceptedCount > 0 {
 			h.onIngest(teamUUID, signalName, result.AcceptedCount)
 		}
@@ -119,7 +151,6 @@ func handleSignal[P any, R any](
 		return
 	}
 
-	// Full success — notify subscribers.
 	accepted := len(records)
 	if result != nil {
 		accepted = result.AcceptedCount
@@ -129,6 +160,22 @@ func handleSignal[P any, R any](
 	}
 
 	c.JSON(http.StatusOK, gin.H{})
+}
+
+// Convenience method so HandleTraces/Metrics/Logs can call it as a method.
+func (h *Handler) ingestAndRespond(c *gin.Context, records any, ingestFn any, signalName, teamUUID string) {
+	// Use type switch to call the right typed version.
+	switch r := records.(type) {
+	case []SpanRecord:
+		fn := ingestFn.(func(context.Context, []SpanRecord) (*BatchInsertResult, error))
+		ingestAndRespond(h, c, r, fn, signalName, teamUUID)
+	case []MetricRecord:
+		fn := ingestFn.(func(context.Context, []MetricRecord) (*BatchInsertResult, error))
+		ingestAndRespond(h, c, r, fn, signalName, teamUUID)
+	case []LogRecord:
+		fn := ingestFn.(func(context.Context, []LogRecord) (*BatchInsertResult, error))
+		ingestAndRespond(h, c, r, fn, signalName, teamUUID)
+	}
 }
 
 // ---------------------------------------------------------------------------
@@ -145,7 +192,6 @@ type cacheEntry struct {
 }
 
 // cachedAPIKeyResolver validates API keys against MySQL with a 5-minute in-process cache.
-// At high ingest rates (thousands of RPS), this avoids a MySQL query on every request.
 type cachedAPIKeyResolver struct {
 	db    *sql.DB
 	cache sync.Map // map[string]cacheEntry

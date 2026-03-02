@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS observability.spans (
     INDEX idx_trace_id   trace_id     TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_span_id    span_id      TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_service    service_name TYPE set(100)           GRANULARITY 1
-) ENGINE = ReplacingMergeTree()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/spans', '{replica}')
 PARTITION BY toYYYYMM(start_time)
 ORDER BY (team_id, service_name, start_time, trace_id, span_id)
 TTL toDateTime(start_time) + INTERVAL 3 DAY TO VOLUME 'warm',
@@ -104,7 +104,7 @@ CREATE TABLE IF NOT EXISTS observability.logs (
     INDEX idx_span_id    span_id      TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_level      level        TYPE set(10)            GRANULARITY 1,
     INDEX idx_service    service_name TYPE set(100)           GRANULARITY 1
-) ENGINE = ReplacingMergeTree()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/logs', '{replica}')
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, service_name, timestamp, id)
 TTL toDateTime(timestamp) + INTERVAL 3 DAY TO VOLUME 'warm',
@@ -140,7 +140,7 @@ CREATE TABLE IF NOT EXISTS observability.metrics (
     pod              LowCardinality(String),
     container        LowCardinality(String),
     attributes       String        CODEC(ZSTD(3))
-) ENGINE = ReplacingMergeTree()
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/{shard}/metrics', '{replica}')
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, service_name, timestamp, metric_name)
 TTL toDateTime(timestamp) + INTERVAL 3 DAY TO VOLUME 'warm',
@@ -163,7 +163,7 @@ CREATE TABLE IF NOT EXISTS observability.deployments (
     commit_sha       String,
     duration_seconds Int32,
     attributes       String CODEC(ZSTD(3))
-) ENGINE = MergeTree()
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/deployments', '{replica}')
 ORDER BY (team_id, deploy_time, service_name)
 SETTINGS index_granularity = 8192;
 
@@ -183,7 +183,7 @@ CREATE TABLE IF NOT EXISTS observability.health_check_results (
     http_status_code Int32,
     error_message    String,
     region           LowCardinality(String)
-) ENGINE = MergeTree()
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/health_check_results', '{replica}')
 ORDER BY (team_id, timestamp, check_id)
 TTL toDateTime(timestamp) + INTERVAL 3 DAY TO VOLUME 'warm',
     toDateTime(timestamp) + INTERVAL 7 DAY DELETE
@@ -216,7 +216,7 @@ CREATE TABLE IF NOT EXISTS observability.ai_requests (
     guardrail_blocked UInt8,
     content_policy    UInt8,
     attributes        String CODEC(ZSTD(3))
-) ENGINE = MergeTree()
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/ai_requests', '{replica}')
 ORDER BY (team_id, timestamp, model_name, status)
 TTL toDateTime(timestamp) + INTERVAL 3 DAY TO VOLUME 'warm',
     toDateTime(timestamp) + INTERVAL 30 DAY DELETE

@@ -32,10 +32,15 @@ type Config struct {
 	KafkaEnabled bool
 	KafkaBrokers string
 
-	RedisHost string
-	RedisPort string
+	RedisEnabled bool
+	RedisHost    string
+	RedisPort    string
 
 	AllowedOrigins string
+
+	GRPCPort             string
+	HTTPPortOTLP         string
+	GRPCMaxRecvMsgSizeMB int
 
 	MaxMySQLOpenConns int
 	MaxMySQLIdleConns int
@@ -75,10 +80,15 @@ func Load() Config {
 		KafkaEnabled: getEnvBool("KAFKA_ENABLED", true),
 		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
 
-		RedisHost: getEnv("REDIS_HOST", "localhost"),
-		RedisPort: getEnv("REDIS_PORT", "6379"),
+		RedisEnabled: getEnvBool("REDIS_ENABLED", true),
+		RedisHost:    getEnv("REDIS_HOST", "localhost"),
+		RedisPort:    getEnv("REDIS_PORT", "6379"),
 
 		AllowedOrigins: getEnv("ALLOWED_ORIGINS", ""),
+
+		GRPCPort:             getEnv("GRPC_PORT", "4317"),
+		HTTPPortOTLP:         getEnv("HTTP_PORT_OTLP", "4318"),
+		GRPCMaxRecvMsgSizeMB: int(getEnvInt64("GRPC_MAX_RECV_MSG_SIZE_MB", 16)),
 
 		MaxMySQLOpenConns: int(getEnvInt64("MAX_MYSQL_OPEN_CONNS", 50)),
 		MaxMySQLIdleConns: int(getEnvInt64("MAX_MYSQL_IDLE_CONNS", 25)),

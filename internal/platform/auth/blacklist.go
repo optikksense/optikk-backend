@@ -6,15 +6,25 @@ import (
 	"encoding/hex"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 )
 
-// TokenBlacklist maintains a set of revoked JWT token hashes in Redis.
-// Expired entries are automatically purged by Redis TTL.
+// TokenBlacklist maintains a set of revoked JWT token hashes.
+// It can use Redis (for multi-pod) or an in-memory map (when Redis is disabled).
 type TokenBlacklist struct {
-	client *redis.Client
+	client   *redis.Client
+	inMemory map[string]time.Time
+	mu       sync.RWMutex
+}
+
+// NewInMemoryTokenBlacklist creates a new memory-backed Token Blacklist.
+func NewInMemoryTokenBlacklist() *TokenBlacklist {
+	return &TokenBlacklist{
+		inMemory: make(map[string]time.Time),
+	}
 }
 
 // NewTokenBlacklist creates a new Redis-backed Token Blacklist.
@@ -43,13 +53,21 @@ func NewTokenBlacklist(redisHost, redisPort string) *TokenBlacklist {
 // for memory efficiency.
 func (b *TokenBlacklist) Revoke(tokenString string, expiresAt time.Time) {
 	hash := hashToken(tokenString)
-	ctx := context.Background()
 
 	ttl := time.Until(expiresAt)
 	if ttl <= 0 {
 		return // Already expired
 	}
 
+	if b.client == nil {
+		b.mu.Lock()
+		b.inMemory[hash] = expiresAt
+		b.mu.Unlock()
+		log.Printf("token blacklisted locally (hash=%s…, expires=%s)", hash[:8], expiresAt.Format(time.RFC3339))
+		return
+	}
+
+	ctx := context.Background()
 	err := b.client.Set(ctx, "blacklist:"+hash, "revoked", ttl).Err()
 	if err != nil {
 		log.Printf("ERROR: Failed to blacklist token: %v", err)
@@ -61,8 +79,24 @@ func (b *TokenBlacklist) Revoke(tokenString string, expiresAt time.Time) {
 // IsRevoked checks whether a token has been revoked.
 func (b *TokenBlacklist) IsRevoked(tokenString string) bool {
 	hash := hashToken(tokenString)
-	ctx := context.Background()
 
+	if b.client == nil {
+		b.mu.RLock()
+		expiresAt, ok := b.inMemory[hash]
+		b.mu.RUnlock()
+		if !ok {
+			return false
+		}
+		if time.Now().After(expiresAt) {
+			b.mu.Lock()
+			delete(b.inMemory, hash)
+			b.mu.Unlock()
+			return false
+		}
+		return true
+	}
+
+	ctx := context.Background()
 	err := b.client.Get(ctx, "blacklist:"+hash).Err()
 	if err == redis.Nil {
 		return false // Not found = not revoked
@@ -76,8 +110,10 @@ func (b *TokenBlacklist) IsRevoked(tokenString string) bool {
 
 // Stop is a no-op for the Redis implementation, provided for interface compatibility.
 func (b *TokenBlacklist) Stop() {
-	if err := b.client.Close(); err != nil {
-		log.Printf("ERROR closing redis client: %v", err)
+	if b.client != nil {
+		if err := b.client.Close(); err != nil {
+			log.Printf("ERROR closing redis client: %v", err)
+		}
 	}
 }
 
