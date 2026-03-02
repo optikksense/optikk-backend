@@ -6,15 +6,14 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
-	"github.com/observability/observability-backend-go/internal/modules/dashboardconfig/service"
-	. "github.com/observability/observability-backend-go/internal/platform/handlers"
 )
 
 // DashboardConfigHandler handles dashboard chart configuration endpoints.
 type DashboardConfigHandler struct {
 	modulecommon.DBTenant
-	Service service.Service
+	Service Service
 }
 
 // GetDashboardConfig returns the chart configuration YAML for a page.

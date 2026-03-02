@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	. "github.com/observability/observability-backend-go/internal/platform/handlers"
+	. "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
 // AlertFatigueMetrics is the response shape for GET /api/v1/alerts/fatigue.

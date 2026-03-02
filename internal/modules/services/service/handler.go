@@ -4,15 +4,14 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
-	serviceservice "github.com/observability/observability-backend-go/internal/modules/services/service/service"
-	. "github.com/observability/observability-backend-go/internal/platform/handlers"
 )
 
 // ServiceHandler handles services overview page endpoints.
 type ServiceHandler struct {
 	modulecommon.DBTenant
-	Service serviceservice.Service
+	Service Service
 }
 
 // GetTotalServices returns the total number of services in range.

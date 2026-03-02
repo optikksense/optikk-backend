@@ -1,0 +1,6 @@
+./defaults.go
+./handler.go
+./models.go
+./module.go
+./repository.go
+./service.go

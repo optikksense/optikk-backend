@@ -4,15 +4,14 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
-	topologyservice "github.com/observability/observability-backend-go/internal/modules/services/topology/service"
-	. "github.com/observability/observability-backend-go/internal/platform/handlers"
 )
 
 // TopologyHandler handles services topology endpoints.
 type TopologyHandler struct {
 	modulecommon.DBTenant
-	Service topologyservice.Service
+	Service Service
 }
 
 // GetTopology returns the complete service topology graph payload.

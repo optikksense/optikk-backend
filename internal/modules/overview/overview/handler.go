@@ -4,15 +4,14 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
-	"github.com/observability/observability-backend-go/internal/modules/overview/overview/service"
-	. "github.com/observability/observability-backend-go/internal/platform/handlers"
 )
 
 // OverviewHandler handles overview page endpoints.
 type OverviewHandler struct {
 	modulecommon.DBTenant
-	Service service.Service
+	Service Service
 }
 
 // GetSummary returns the KPI summary for the overview page.

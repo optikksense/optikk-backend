@@ -2,15 +2,14 @@ package ai
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/observability/observability-backend-go/internal/modules/ai/service"
+	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
-	. "github.com/observability/observability-backend-go/internal/platform/handlers"
 )
 
 // AIHandler handles AI-model observability API endpoints.
 type AIHandler struct {
 	modulecommon.DBTenant
-	Service service.Service
+	Service Service
 }
 
 // GetAISummary — aggregate performance / cost / security summary for all AI models.

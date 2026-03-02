@@ -6,15 +6,14 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	types "github.com/observability/observability-backend-go/internal/contracts"
+	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
-	"github.com/observability/observability-backend-go/internal/modules/infrastructure/deployments/service"
-	. "github.com/observability/observability-backend-go/internal/platform/handlers"
 )
 
 // DeploymentHandler handles deployment tracking API endpoints.
 type DeploymentHandler struct {
 	modulecommon.DBTenant
-	Service service.Service
+	Service Service
 }
 
 // GetDeployments — paginated list of deployments with optional filters.

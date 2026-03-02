@@ -4,15 +4,14 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
-	"github.com/observability/observability-backend-go/internal/modules/saturation/service"
-	. "github.com/observability/observability-backend-go/internal/platform/handlers"
 )
 
 // SaturationHandler handles saturation page endpoints.
 type SaturationHandler struct {
 	modulecommon.DBTenant
-	Service *service.SaturationService
+	Service *SaturationService
 }
 
 // GetKafkaQueueLag returns the lag per Kafka queue.

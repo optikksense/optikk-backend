@@ -4,15 +4,14 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
-	"github.com/observability/observability-backend-go/internal/modules/infrastructure/resource_utilisation/service"
-	. "github.com/observability/observability-backend-go/internal/platform/handlers"
 )
 
 // ResourceUtilisationHandler handles API endpoints for 8 individual metrics.
 type ResourceUtilisationHandler struct {
 	modulecommon.DBTenant
-	Service service.Service
+	Service Service
 }
 
 func (h *ResourceUtilisationHandler) GetAvgCPU(c *gin.Context) {

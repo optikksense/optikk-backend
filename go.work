@@ -4,8 +4,4 @@ use (
 	.
 	./cmd/server
 	./internal/platform/server
-	./modules/ingestion
-	./modules/log
-	./modules/spans
-	./modules/user
 )

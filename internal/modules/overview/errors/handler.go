@@ -4,15 +4,14 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
-	"github.com/observability/observability-backend-go/internal/modules/overview/errors/service"
-	. "github.com/observability/observability-backend-go/internal/platform/handlers"
 )
 
 // ErrorHandler handles overview error page endpoints.
 type ErrorHandler struct {
 	modulecommon.DBTenant
-	Service service.Service
+	Service Service
 }
 
 // GetServiceErrorRate returns service-level error-rate buckets for the errors dashboard.

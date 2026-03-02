@@ -3,6 +3,7 @@ module github.com/observability/observability-backend-go
 go 1.24.0
 
 require (
+	github.com/IBM/sarama v1.46.3
 	github.com/ClickHouse/clickhouse-go/v2 v2.22.0
 	github.com/gin-gonic/gin v1.10.0
 	github.com/go-sql-driver/mysql v1.8.1
@@ -10,6 +11,7 @@ require (
 	github.com/google/uuid v1.6.0
 	github.com/prometheus/client_golang v1.23.2
 	github.com/redis/go-redis/v9 v9.18.0
+	go.opentelemetry.io/proto/otlp v1.9.0
 )
 
 require (

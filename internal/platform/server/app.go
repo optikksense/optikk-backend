@@ -12,54 +12,29 @@ import (
 	"github.com/observability/observability-backend-go/internal/config"
 	"github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/ai"
-	aiservice "github.com/observability/observability-backend-go/internal/modules/ai/service"
-	aistore "github.com/observability/observability-backend-go/internal/modules/ai/store"
 	"github.com/observability/observability-backend-go/internal/modules/alerts"
-	alertsservice "github.com/observability/observability-backend-go/internal/modules/alerts/service"
-	alertsstore "github.com/observability/observability-backend-go/internal/modules/alerts/store"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 	"github.com/observability/observability-backend-go/internal/modules/dashboardconfig"
-	dashboardconfigservice "github.com/observability/observability-backend-go/internal/modules/dashboardconfig/service"
-	dashboardconfigstore "github.com/observability/observability-backend-go/internal/modules/dashboardconfig/store"
-	deployments "github.com/observability/observability-backend-go/internal/modules/infrastructure/deployments"
-	deploymentsservice "github.com/observability/observability-backend-go/internal/modules/infrastructure/deployments/service"
-	deploymentsstore "github.com/observability/observability-backend-go/internal/modules/infrastructure/deployments/store"
+	"github.com/observability/observability-backend-go/internal/modules/infrastructure/deployments"
 	nodes "github.com/observability/observability-backend-go/internal/modules/infrastructure/nodes"
-	nodesservice "github.com/observability/observability-backend-go/internal/modules/infrastructure/nodes/service"
-	nodesstore "github.com/observability/observability-backend-go/internal/modules/infrastructure/nodes/store"
-	resourceutilisation "github.com/observability/observability-backend-go/internal/modules/infrastructure/resource_utilisation"
-	resourceutilisationservice "github.com/observability/observability-backend-go/internal/modules/infrastructure/resource_utilisation/service"
-	resourceutilisationstore "github.com/observability/observability-backend-go/internal/modules/infrastructure/resource_utilisation/store"
+	"github.com/observability/observability-backend-go/internal/modules/infrastructure/resource_utilisation"
+	telemetry "github.com/observability/observability-backend-go/internal/modules/ingestion"
+	logsapi "github.com/observability/observability-backend-go/internal/modules/log"
 	overviewerrors "github.com/observability/observability-backend-go/internal/modules/overview/errors"
-	overviewerrorsservice "github.com/observability/observability-backend-go/internal/modules/overview/errors/service"
-	overviewerrorsstore "github.com/observability/observability-backend-go/internal/modules/overview/errors/store"
 	overviewmodule "github.com/observability/observability-backend-go/internal/modules/overview/overview"
-	overviewservice "github.com/observability/observability-backend-go/internal/modules/overview/overview/service"
-	overviewstore "github.com/observability/observability-backend-go/internal/modules/overview/overview/store"
 	overviewslo "github.com/observability/observability-backend-go/internal/modules/overview/slo"
-	overviewsloservice "github.com/observability/observability-backend-go/internal/modules/overview/slo/service"
-	overviewslostore "github.com/observability/observability-backend-go/internal/modules/overview/slo/store"
 	"github.com/observability/observability-backend-go/internal/modules/saturation"
-	saturationservice "github.com/observability/observability-backend-go/internal/modules/saturation/service"
-	saturationstore "github.com/observability/observability-backend-go/internal/modules/saturation/store"
 	servicepage "github.com/observability/observability-backend-go/internal/modules/services/service"
-	servicepageservice "github.com/observability/observability-backend-go/internal/modules/services/service/service"
-	servicepagestore "github.com/observability/observability-backend-go/internal/modules/services/service/store"
 	servicetopology "github.com/observability/observability-backend-go/internal/modules/services/topology"
-	servicetopologyservice "github.com/observability/observability-backend-go/internal/modules/services/topology/service"
-	servicetopologystore "github.com/observability/observability-backend-go/internal/modules/services/topology/store"
+	tracesapi "github.com/observability/observability-backend-go/internal/modules/spans"
+	identity "github.com/observability/observability-backend-go/internal/modules/user"
+	identityservice "github.com/observability/observability-backend-go/internal/modules/user/service"
+	identitystore "github.com/observability/observability-backend-go/internal/modules/user/store"
 	"github.com/observability/observability-backend-go/internal/platform/auth"
-	"github.com/observability/observability-backend-go/internal/platform/handlers"
 	"github.com/observability/observability-backend-go/internal/platform/leader"
 	appmetrics "github.com/observability/observability-backend-go/internal/platform/metrics"
 	"github.com/observability/observability-backend-go/internal/platform/middleware"
 	"github.com/observability/observability-backend-go/internal/platform/sse"
-	telemetry "github.com/observability/observability-backend-go/modules/ingestion"
-	logsapi "github.com/observability/observability-backend-go/modules/log"
-	tracesapi "github.com/observability/observability-backend-go/modules/spans"
-	identity "github.com/observability/observability-backend-go/modules/user"
-	identityservice "github.com/observability/observability-backend-go/modules/user/service"
-	identitystore "github.com/observability/observability-backend-go/modules/user/store"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/redis/go-redis/v9"
 	"golang.org/x/net/http2"
@@ -93,7 +68,7 @@ type App struct {
 	ServicesPage        *servicepage.ServiceHandler
 	ServicesTopology    *servicetopology.TopologyHandler
 	Nodes               *nodes.NodeHandler
-	ResourceUtilisation *resourceutilisation.ResourceUtilisationHandler
+	ResourceUtilisation *resource_utilisation.ResourceUtilisationHandler
 	Saturation          *saturation.SaturationHandler
 	AI                  *ai.AIHandler
 	DashboardConfig     *dashboardconfig.DashboardConfigHandler
@@ -138,7 +113,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 		Expiration: cfg.JWTDuration(),
 	}
 
-	getTenant := handlers.GetTenantFunc(middleware.GetTenant)
+	getTenant := modulecommon.GetTenantFunc(middleware.GetTenant)
 
 	alertCondCol := resolveAlertConditionColumn(db)
 	identityTables := identitystore.NewMySQLProvider(db)
@@ -152,7 +127,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 
 	// Ensure dashboard-config storage exists so page config APIs can always
 	// serve defaults/fallbacks even on a freshly reset database.
-	if err := dashboardconfigstore.NewRepository(db).EnsureTable(); err != nil {
+	if err := dashboardconfig.NewRepository(db).EnsureTable(); err != nil {
 		log.Printf("WARN: failed to ensure dashboard_chart_configs table: %v", err)
 	}
 
@@ -192,8 +167,8 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				DB:        db,
 				GetTenant: getTenant,
 			},
-			Service: alertsservice.NewService(
-				alertsstore.NewRepository(db, alertCondCol),
+			Service: alerts.NewService(
+				alerts.NewRepository(db, alertCondCol),
 			),
 		},
 		Deployments: &deployments.DeploymentHandler{
@@ -201,8 +176,8 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: deploymentsservice.NewService(
-				deploymentsstore.NewRepository(database.NewMySQLWrapper(ch)),
+			Service: deployments.NewService(
+				deployments.NewRepository(database.NewMySQLWrapper(ch)),
 			),
 		},
 		Logs: logsapi.NewHandler(
@@ -218,8 +193,8 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: overviewservice.NewService(
-				overviewstore.NewRepository(database.NewMySQLWrapper(ch)),
+			Service: overviewmodule.NewService(
+				overviewmodule.NewRepository(database.NewMySQLWrapper(ch)),
 			),
 		},
 		OverviewSLO: &overviewslo.SLOHandler{
@@ -227,8 +202,8 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: overviewsloservice.NewService(
-				overviewslostore.NewRepository(database.NewMySQLWrapper(ch)),
+			Service: overviewslo.NewService(
+				overviewslo.NewRepository(database.NewMySQLWrapper(ch)),
 			),
 		},
 		OverviewErrors: &overviewerrors.ErrorHandler{
@@ -236,8 +211,8 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: overviewerrorsservice.NewService(
-				overviewerrorsstore.NewRepository(database.NewMySQLWrapper(ch)),
+			Service: overviewerrors.NewService(
+				overviewerrors.NewRepository(database.NewMySQLWrapper(ch)),
 			),
 		},
 		ServicesPage: &servicepage.ServiceHandler{
@@ -245,8 +220,8 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: servicepageservice.NewService(
-				servicepagestore.NewRepository(database.NewMySQLWrapper(ch)),
+			Service: servicepage.NewService(
+				servicepage.NewRepository(database.NewMySQLWrapper(ch)),
 			),
 		},
 		ServicesTopology: &servicetopology.TopologyHandler{
@@ -254,8 +229,8 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: servicetopologyservice.NewService(
-				servicetopologystore.NewRepository(database.NewMySQLWrapper(ch)),
+			Service: servicetopology.NewService(
+				servicetopology.NewRepository(database.NewMySQLWrapper(ch)),
 			),
 		},
 		Nodes: &nodes.NodeHandler{
@@ -263,17 +238,17 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: nodesservice.NewService(
-				nodesstore.NewRepository(database.NewMySQLWrapper(ch)),
+			Service: nodes.NewService(
+				nodes.NewRepository(database.NewMySQLWrapper(ch)),
 			),
 		},
-		ResourceUtilisation: &resourceutilisation.ResourceUtilisationHandler{
+		ResourceUtilisation: &resource_utilisation.ResourceUtilisationHandler{
 			DBTenant: modulecommon.DBTenant{
 				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: resourceutilisationservice.NewService(
-				resourceutilisationstore.NewRepository(database.NewMySQLWrapper(ch)),
+			Service: resource_utilisation.NewService(
+				resource_utilisation.NewRepository(database.NewMySQLWrapper(ch)),
 			),
 		},
 		Saturation: &saturation.SaturationHandler{
@@ -281,8 +256,8 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: saturationservice.NewService(
-				saturationstore.NewRepository(database.NewMySQLWrapper(ch)),
+			Service: saturation.NewService(
+				saturation.NewRepository(database.NewMySQLWrapper(ch)),
 			),
 		},
 		AI: &ai.AIHandler{
@@ -290,8 +265,8 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: aiservice.NewService(
-				aistore.NewRepository(database.NewMySQLWrapper(ch)),
+			Service: ai.NewService(
+				ai.NewRepository(database.NewMySQLWrapper(ch)),
 			),
 		},
 		DashboardConfig: &dashboardconfig.DashboardConfigHandler{
@@ -299,8 +274,8 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				DB:        db,
 				GetTenant: getTenant,
 			},
-			Service: dashboardconfigservice.NewService(
-				dashboardconfigstore.NewRepository(db),
+			Service: dashboardconfig.NewService(
+				dashboardconfig.NewRepository(db),
 			),
 		},
 	}

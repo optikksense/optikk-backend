@@ -1,0 +1,9 @@
+./defaults.go
+./handler.go
+./model.go
+./module.go
+./store_aggregation.go
+./store_context.go
+./store_facets.go
+./store_helpers.go
+./store_search.go

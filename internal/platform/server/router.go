@@ -5,24 +5,24 @@ import (
 
 	"github.com/gin-gonic/gin"
 	util "github.com/observability/observability-backend-go/internal/helpers"
-	"github.com/observability/observability-backend-go/internal/platform/middleware"
-	"github.com/observability/observability-backend-go/internal/platform/sse"
 	"github.com/observability/observability-backend-go/internal/modules/ai"
 	"github.com/observability/observability-backend-go/internal/modules/alerts"
 	"github.com/observability/observability-backend-go/internal/modules/dashboardconfig"
-	deployments "github.com/observability/observability-backend-go/internal/modules/infrastructure/deployments"
+	"github.com/observability/observability-backend-go/internal/modules/infrastructure/deployments"
 	nodes "github.com/observability/observability-backend-go/internal/modules/infrastructure/nodes"
-	resourceutilisation "github.com/observability/observability-backend-go/internal/modules/infrastructure/resource_utilisation"
+	"github.com/observability/observability-backend-go/internal/modules/infrastructure/resource_utilisation"
+	telemetry "github.com/observability/observability-backend-go/internal/modules/ingestion"
+	logsmodule "github.com/observability/observability-backend-go/internal/modules/log"
 	overviewerrors "github.com/observability/observability-backend-go/internal/modules/overview/errors"
 	overviewmodule "github.com/observability/observability-backend-go/internal/modules/overview/overview"
 	overviewslo "github.com/observability/observability-backend-go/internal/modules/overview/slo"
 	"github.com/observability/observability-backend-go/internal/modules/saturation"
 	servicepage "github.com/observability/observability-backend-go/internal/modules/services/service"
 	servicetopology "github.com/observability/observability-backend-go/internal/modules/services/topology"
-	telemetry "github.com/observability/observability-backend-go/modules/ingestion"
-	logsmodule "github.com/observability/observability-backend-go/modules/log"
-	traces "github.com/observability/observability-backend-go/modules/spans"
-	identity "github.com/observability/observability-backend-go/modules/user"
+	traces "github.com/observability/observability-backend-go/internal/modules/spans"
+	identity "github.com/observability/observability-backend-go/internal/modules/user"
+	"github.com/observability/observability-backend-go/internal/platform/middleware"
+	"github.com/observability/observability-backend-go/internal/platform/sse"
 )
 
 type moduleConfigs struct {
@@ -34,7 +34,7 @@ type moduleConfigs struct {
 	ServicesPage        servicepage.Config
 	ServicesTopology    servicetopology.Config
 	Nodes               nodes.Config
-	ResourceUtilisation resourceutilisation.Config
+	ResourceUtilisation resource_utilisation.Config
 	Saturation          saturation.Config
 	Logs                logsmodule.Config
 	Traces              traces.Config
@@ -54,7 +54,7 @@ func defaultModuleConfigs() moduleConfigs {
 		ServicesPage:        servicepage.DefaultConfig(),
 		ServicesTopology:    servicetopology.DefaultConfig(),
 		Nodes:               nodes.DefaultConfig(),
-		ResourceUtilisation: resourceutilisation.DefaultConfig(),
+		ResourceUtilisation: resource_utilisation.DefaultConfig(),
 		Saturation:          saturation.DefaultConfig(),
 		Logs:                logsmodule.DefaultConfig(),
 		Traces:              traces.DefaultConfig(),
@@ -79,7 +79,7 @@ func (a *App) registerRoutes(r *gin.Engine) {
 	servicepage.RegisterRoutes(cfg.ServicesPage, api, v1, a.ServicesPage)
 	servicetopology.RegisterRoutes(cfg.ServicesTopology, api, v1, a.ServicesTopology)
 	nodes.RegisterRoutes(cfg.Nodes, api, v1, a.Nodes)
-	resourceutilisation.RegisterRoutes(cfg.ResourceUtilisation, api, v1, a.ResourceUtilisation)
+	resource_utilisation.RegisterRoutes(cfg.ResourceUtilisation, api, v1, a.ResourceUtilisation)
 	saturation.RegisterRoutes(cfg.Saturation, api, v1, a.Saturation)
 	logsmodule.RegisterRoutes(cfg.Logs, api, v1, a.Logs)
 	traces.RegisterRoutes(cfg.Traces, api, v1, a.Traces)

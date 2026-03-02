@@ -4,15 +4,14 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
-	"github.com/observability/observability-backend-go/internal/modules/infrastructure/nodes/service"
-	. "github.com/observability/observability-backend-go/internal/platform/handlers"
 )
 
 // NodeHandler handles node page endpoints.
 type NodeHandler struct {
 	modulecommon.DBTenant
-	Service service.Service
+	Service Service
 }
 
 // GetInfrastructureNodes returns host-level aggregation for the nodes view.

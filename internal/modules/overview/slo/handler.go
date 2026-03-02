@@ -4,15 +4,14 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
-	"github.com/observability/observability-backend-go/internal/modules/overview/slo/service"
-	. "github.com/observability/observability-backend-go/internal/platform/handlers"
 )
 
 // SLOHandler handles overview SLO endpoints.
 type SLOHandler struct {
 	modulecommon.DBTenant
-	Service service.Service
+	Service Service
 }
 
 // GetSloSli returns the SLO dashboard payload.

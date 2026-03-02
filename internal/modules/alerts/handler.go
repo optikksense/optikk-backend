@@ -7,15 +7,14 @@ import (
 	"github.com/gin-gonic/gin"
 	types "github.com/observability/observability-backend-go/internal/contracts"
 	dbutil "github.com/observability/observability-backend-go/internal/database"
-	"github.com/observability/observability-backend-go/internal/modules/alerts/service"
+	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
-	. "github.com/observability/observability-backend-go/internal/platform/handlers"
 )
 
 // AlertHandler handles alert and incident API endpoints.
 type AlertHandler struct {
 	modulecommon.DBTenant
-	Service service.Service
+	Service Service
 }
 
 // orgIDFromTeam looks up the organization_id for a given team.
