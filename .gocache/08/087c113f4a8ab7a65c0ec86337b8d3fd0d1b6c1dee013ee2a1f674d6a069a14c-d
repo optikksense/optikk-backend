@@ -1,4 +1,0 @@
-./auth_handler.go
-./handler_errors.go
-./module.go
-./user_handler.go

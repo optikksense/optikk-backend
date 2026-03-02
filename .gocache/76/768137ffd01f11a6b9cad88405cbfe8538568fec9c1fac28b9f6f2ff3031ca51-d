@@ -1,6 +1,0 @@
-./defaults.go
-./handler.go
-./model.go
-./module.go
-./store.go
-./store_test.go
