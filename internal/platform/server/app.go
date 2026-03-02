@@ -150,6 +150,12 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 
 	runMigrations(db, cfg.DefaultRetentionDays)
 
+	// Ensure dashboard-config storage exists so page config APIs can always
+	// serve defaults/fallbacks even on a freshly reset database.
+	if err := dashboardconfigstore.NewRepository(db).EnsureTable(); err != nil {
+		log.Printf("WARN: failed to ensure dashboard_chart_configs table: %v", err)
+	}
+
 	blacklist := auth.NewTokenBlacklist(cfg.RedisHost, cfg.RedisPort)
 
 	retentionMgr := telemetry.NewRetentionManager(db, ch, telemetry.RetentionManagerConfig{

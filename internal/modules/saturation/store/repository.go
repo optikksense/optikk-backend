@@ -155,11 +155,18 @@ func (r *ClickHouseRepository) GetKafkaProductionRate(teamUUID string, startMs, 
 	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT %s as queue,
 		       %s as minute_bucket,
-		       maxIf(toFloat64(count), metric_name = 'spring.kafka.template') / ? as avg_publish_rate
+		       maxIf(
+		           toFloat64(value),
+		           metric_name IN (
+		               'kafka.producer.record.send.total',
+		               'spring.kafka.template'
+		           ) AND isFinite(value)
+		       ) / ? as avg_publish_rate
 		FROM metrics
 		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
 		  AND metric_name IN (
-		      'spring.kafka.template'
+		      'spring.kafka.template',
+		      'kafka.producer.record.send.total'
 		  )
 		GROUP BY queue, minute_bucket
 		ORDER BY minute_bucket ASC, queue ASC
@@ -186,11 +193,18 @@ func (r *ClickHouseRepository) GetKafkaConsumptionRate(teamUUID string, startMs,
 	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT %s as queue,
 		       %s as minute_bucket,
-		       maxIf(toFloat64(count), metric_name = 'spring.kafka.listener') / ? as avg_receive_rate
+		       maxIf(
+		           toFloat64(value),
+		           metric_name IN (
+		               'spring.kafka.listener',
+		               'kafka.consumer.fetch.manager.records.consumed.total'
+		           ) AND isFinite(value)
+		       ) / ? as avg_receive_rate
 		FROM metrics
 		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
 		  AND metric_name IN (
-		      'spring.kafka.listener'
+		      'spring.kafka.listener',
+		      'kafka.consumer.fetch.manager.records.consumed.total'
 		  )
 		GROUP BY queue, minute_bucket
 		ORDER BY minute_bucket ASC, queue ASC

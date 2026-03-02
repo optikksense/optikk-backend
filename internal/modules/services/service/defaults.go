@@ -4,6 +4,7 @@ import "github.com/observability/observability-backend-go/internal/modules/dashb
 
 func init() {
 	dashboardconfig.RegisterDefaultConfig("services", defaultServices)
+	dashboardconfig.RegisterDefaultConfig("service-detail", defaultServiceDetail)
 }
 
 const defaultServices = `page: services
@@ -41,4 +42,24 @@ charts:
       col: 24
     dataSource: service-timeseries
     groupByKey: service
+`
+
+const defaultServiceDetail = `page: service-detail
+title: "Service Details"
+icon: "Activity"
+subtitle: "Endpoint, latency, error, and dependency drill-down"
+
+dataSources:
+  - id: endpoint-breakdown
+    endpoint: /v1/services/{serviceName}/endpoints
+  - id: service-timeseries
+    endpoint: /v1/services/timeseries
+    params:
+      interval: "5m"
+  - id: error-groups
+    endpoint: /v1/errors/groups
+  - id: service-dependencies
+    endpoint: /v1/services/dependencies
+
+charts: []
 `

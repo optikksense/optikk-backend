@@ -76,9 +76,9 @@ func (k *KafkaIngester) produceChunked(topic string, records any, chunkSize int)
 	if err != nil {
 		return fmt.Errorf("kafka marshal: %w", err)
 	}
-	// Split into chunks only when the payload is very large (> 10 MB).
-	// For typical batch sizes the single message is fine.
-	const maxMsgBytes = 10 * 1024 * 1024
+	// Keep each Kafka message safely below the default broker limit (~1 MB).
+	// Without this, larger OTLP bursts can fail with "Message was too large".
+	const maxMsgBytes = 900 * 1024
 	if len(data) > maxMsgBytes {
 		return k.produceInChunks(topic, records, chunkSize)
 	}

@@ -66,6 +66,8 @@ func ErrorRecovery() gin.HandlerFunc {
 var publicPathPrefixes = []string{
 	"/api/signup",
 	"/api/auth/login",
+	"/api/events/stream",
+	"/api/v1/events/stream",
 	"/otlp/",
 	"/swagger/",
 	"/health",

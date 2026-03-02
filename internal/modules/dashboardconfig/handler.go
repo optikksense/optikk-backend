@@ -2,6 +2,7 @@ package dashboardconfig
 
 import (
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -30,8 +31,7 @@ func (h *DashboardConfigHandler) GetDashboardConfig(c *gin.Context) {
 	// Try team-specific config first
 	yaml, err := h.Service.GetConfig(tenant.TeamID, pageID)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to load dashboard config")
-		return
+		log.Printf("dashboard-config: team override lookup failed for page=%s team=%d: %v; falling back to default", pageID, tenant.TeamID, err)
 	}
 
 	// Fall back to default if no team-specific config
