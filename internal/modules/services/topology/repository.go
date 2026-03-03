@@ -24,11 +24,11 @@ func (r *ClickHouseRepository) GetTopology(teamUUID string, startMs, endMs int64
 		SELECT *
 		FROM (
 			SELECT service_name,
-			       countMerge(request_count) AS request_count,
-			       countIfMerge(error_count) AS error_count,
-			       avgMerge(avg_state)       AS avg_latency
-			FROM observability.spans_service_1m
-			WHERE team_id = ? AND minute BETWEEN ? AND ?
+			       count()                   AS request_count,
+			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
+			       avg(duration_ms)          AS avg_latency
+			FROM spans
+			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?
 			GROUP BY service_name
 		)
 		ORDER BY request_count DESC
@@ -47,11 +47,11 @@ func (r *ClickHouseRepository) GetTopology(teamUUID string, startMs, endMs int64
 		FROM (
 			SELECT parent_service_name        AS source,
 			       service_name               AS target,
-			       countMerge(call_count)     AS call_count,
-			       countIfMerge(error_count)  AS error_count,
-			       avgMerge(avg_latency_state) AS avg_latency
-			FROM observability.spans_edges_1m
-			WHERE team_id = ? AND minute BETWEEN ? AND ?
+			       count()                    AS call_count,
+			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
+			       avg(duration_ms)           AS avg_latency
+			FROM spans
+			WHERE team_id = ? AND parent_service_name != '' AND start_time BETWEEN ? AND ?
 			GROUP BY parent_service_name, service_name
 		)
 		ORDER BY call_count DESC

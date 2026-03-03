@@ -23,8 +23,6 @@ var defaultRetentionTables = []retentionTable{
 	{Name: "spans", TSColumn: "start_time"},
 	{Name: "logs", TSColumn: "timestamp"},
 	{Name: "metrics", TSColumn: "timestamp"},
-	{Name: "deployments", TSColumn: "deploy_time"},
-	{Name: "health_check_results", TSColumn: "timestamp"},
 }
 
 // RetentionManager periodically checks each team's retention policy in MySQL

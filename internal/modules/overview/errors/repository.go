@@ -11,13 +11,13 @@ func errorBucketExpr(startMs, endMs int64) string {
 	hours := (endMs - startMs) / 3_600_000
 	switch {
 	case hours <= 3:
-		return "minute"
+		return "toStartOfMinute(start_time)"
 	case hours <= 24:
-		return "toStartOfInterval(minute, INTERVAL 5 MINUTE)"
+		return "toStartOfInterval(start_time, INTERVAL 5 MINUTE)"
 	case hours <= 168:
-		return "toStartOfInterval(minute, INTERVAL 60 MINUTE)"
+		return "toStartOfInterval(start_time, INTERVAL 60 MINUTE)"
 	default:
-		return "toStartOfInterval(minute, INTERVAL 1440 MINUTE)"
+		return "toStartOfInterval(start_time, INTERVAL 1440 MINUTE)"
 	}
 }
 
@@ -92,11 +92,11 @@ func (r *ClickHouseRepository) GetServiceErrorRate(teamUUID string, startMs, end
 		FROM (
 			SELECT service_name,
 			       %s AS timestamp,
-			       countMerge(request_count) AS request_count,
-			       countIfMerge(error_count) AS error_count,
-			       avgMerge(avg_state)       AS avg_latency
-			FROM observability.spans_service_1m
-			WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket)
+			       count()                   AS request_count,
+			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
+			       avg(duration_ms)          AS avg_latency
+			FROM spans
+			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
@@ -133,9 +133,9 @@ func (r *ClickHouseRepository) GetErrorVolume(teamUUID string, startMs, endMs in
 		FROM (
 			SELECT service_name,
 			       %s AS timestamp,
-			       countIfMerge(error_count) AS error_count
-			FROM observability.spans_service_1m
-			WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket)
+			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count
+			FROM spans
+			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
@@ -170,11 +170,11 @@ func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(teamUUID string, sta
 		FROM (
 			SELECT service_name,
 			       %s AS timestamp,
-			       countMerge(request_count) AS request_count,
-			       countIfMerge(error_count) AS error_count,
-			       avgMerge(avg_state)       AS avg_latency
-			FROM observability.spans_service_1m
-			WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket)
+			       count()                   AS request_count,
+			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
+			       avg(duration_ms)          AS avg_latency
+			FROM spans
+			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`

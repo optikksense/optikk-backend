@@ -11,13 +11,13 @@ func serviceBucketExpr(startMs, endMs int64) string {
 	hours := (endMs - startMs) / 3_600_000
 	switch {
 	case hours <= 3:
-		return "minute"
+		return "toStartOfMinute(start_time)"
 	case hours <= 24:
-		return "toStartOfInterval(minute, INTERVAL 5 MINUTE)"
+		return "toStartOfInterval(start_time, INTERVAL 5 MINUTE)"
 	case hours <= 168:
-		return "toStartOfInterval(minute, INTERVAL 60 MINUTE)"
+		return "toStartOfInterval(start_time, INTERVAL 60 MINUTE)"
 	default:
-		return "toStartOfInterval(minute, INTERVAL 1440 MINUTE)"
+		return "toStartOfInterval(start_time, INTERVAL 1440 MINUTE)"
 	}
 }
 
@@ -52,8 +52,8 @@ func (r *ClickHouseRepository) GetTotalServices(teamUUID string, startMs, endMs 
 		SELECT COUNT(*) as count
 		FROM (
 			SELECT service_name
-			FROM observability.spans_service_1m
-			WHERE team_id = ? AND minute BETWEEN ? AND ?
+			FROM spans
+			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?
 			GROUP BY service_name
 		)
 	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
@@ -80,14 +80,14 @@ func (r *ClickHouseRepository) GetServiceMetrics(teamUUID string, startMs, endMs
 		SELECT *
 		FROM (
 			SELECT service_name,
-			       countMerge(request_count)      AS request_count,
-			       countIfMerge(error_count)      AS error_count,
-			       avgMerge(avg_state)            AS avg_latency,
-			       quantileMerge(0.5)(p50_state)  AS p50_latency,
-			       quantileMerge(0.95)(p95_state) AS p95_latency,
-			       quantileMerge(0.99)(p99_state) AS p99_latency
-			FROM observability.spans_service_1m
-			WHERE team_id = ? AND minute BETWEEN ? AND ?
+			       count()                        AS request_count,
+			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
+			       avg(duration_ms)               AS avg_latency,
+			       quantile(0.5)(duration_ms)     AS p50_latency,
+			       quantile(0.95)(duration_ms)    AS p95_latency,
+			       quantile(0.99)(duration_ms)    AS p99_latency
+			FROM spans
+			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?
 			GROUP BY service_name
 		)
 		ORDER BY request_count DESC
@@ -118,11 +118,11 @@ func (r *ClickHouseRepository) GetServiceTimeSeries(teamUUID string, startMs, en
 		FROM (
 			SELECT service_name,
 			       %s AS timestamp,
-			       countMerge(request_count) AS request_count,
-			       countIfMerge(error_count) AS error_count,
-			       avgMerge(avg_state)       AS avg_latency
-			FROM observability.spans_service_1m
-			WHERE team_id = ? AND minute BETWEEN ? AND ?
+			       count()                   AS request_count,
+			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
+			       avg(duration_ms)          AS avg_latency
+			FROM spans
+			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?
 			GROUP BY service_name, %s
 		)
 		ORDER BY timestamp ASC, request_count DESC
@@ -149,14 +149,14 @@ func (r *ClickHouseRepository) GetServiceEndpoints(teamUUID string, startMs, end
 		SELECT *
 		FROM (
 			SELECT service_name, operation_name, http_method,
-			       countMerge(request_count)      AS request_count,
-			       countIfMerge(error_count)      AS error_count,
-			       avgMerge(avg_state)            AS avg_latency,
-			       quantileMerge(0.5)(p50_state)  AS p50_latency,
-			       quantileMerge(0.95)(p95_state) AS p95_latency,
-			       quantileMerge(0.99)(p99_state) AS p99_latency
-			FROM observability.spans_endpoint_1m
-			WHERE team_id = ? AND minute BETWEEN ? AND ? AND service_name = ?
+			       count()                        AS request_count,
+			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
+			       avg(duration_ms)               AS avg_latency,
+			       quantile(0.5)(duration_ms)     AS p50_latency,
+			       quantile(0.95)(duration_ms)    AS p95_latency,
+			       quantile(0.99)(duration_ms)    AS p99_latency
+			FROM spans
+			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ? AND service_name = ?
 			GROUP BY service_name, operation_name, http_method
 		)
 		ORDER BY request_count DESC
@@ -191,10 +191,10 @@ func (r *ClickHouseRepository) countServicesByErrorRate(teamUUID string, startMs
 		SELECT COUNT(*) as count
 		FROM (
 			SELECT service_name,
-			       if(countMerge(request_count) > 0,
-			          countIfMerge(error_count)*100.0/countMerge(request_count), 0) as error_rate
-			FROM observability.spans_service_1m
-			WHERE team_id = ? AND minute BETWEEN ? AND ?
+			       if(count() > 0,
+			          countIf(status = 'ERROR' OR http_status_code >= 400)*100.0/count(), 0) as error_rate
+			FROM spans
+			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?
 			GROUP BY service_name
 			HAVING `+havingClause+`
 		)

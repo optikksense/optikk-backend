@@ -11,13 +11,13 @@ func sloBucketExpr(startMs, endMs int64) string {
 	hours := (endMs - startMs) / 3_600_000
 	switch {
 	case hours <= 3:
-		return "formatDateTime(minute, '%Y-%m-%d %H:%i:00')"
+		return "formatDateTime(toStartOfMinute(start_time), '%Y-%m-%d %H:%i:00')"
 	case hours <= 24:
-		return "formatDateTime(toStartOfFiveMinutes(minute), '%Y-%m-%d %H:%i:00')"
+		return "formatDateTime(toStartOfFiveMinutes(start_time), '%Y-%m-%d %H:%i:00')"
 	case hours <= 168:
-		return "formatDateTime(toStartOfHour(minute), '%Y-%m-%d %H:%i:00')"
+		return "formatDateTime(toStartOfHour(start_time), '%Y-%m-%d %H:%i:00')"
 	default:
-		return "formatDateTime(toStartOfDay(minute), '%Y-%m-%d %H:%i:00')"
+		return "formatDateTime(toStartOfDay(start_time), '%Y-%m-%d %H:%i:00')"
 	}
 }
 
@@ -47,12 +47,12 @@ func (r *ClickHouseRepository) GetSummary(teamUUID string, startMs, endMs int64,
 		       avg_latency_ms,
 		       p95_latency_ms
 		FROM (
-			SELECT countMerge(request_count)       AS total_requests,
-			       countIfMerge(error_count)       AS error_count,
-			       avgMerge(avg_state)             AS avg_latency_ms,
-			       quantileMerge(0.95)(p95_state)  AS p95_latency_ms
-			FROM observability.spans_service_1m
-			WHERE team_id = ? AND minute BETWEEN ? AND ?`
+			SELECT count()                         AS total_requests,
+			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
+			       avg(duration_ms)                AS avg_latency_ms,
+			       quantile(0.95)(duration_ms)     AS p95_latency_ms
+			FROM spans
+			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
@@ -87,11 +87,11 @@ func (r *ClickHouseRepository) GetTimeSeries(teamUUID string, startMs, endMs int
 		       avg_latency_ms
 		FROM (
 			SELECT %s                     AS time_bucket,
-			       countMerge(request_count) AS request_count,
-			       countIfMerge(error_count) AS error_count,
-			       avgMerge(avg_state)       AS avg_latency_ms
-			FROM observability.spans_service_1m
-			WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket)
+			       count()                   AS request_count,
+			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
+			       avg(duration_ms)          AS avg_latency_ms
+			FROM spans
+			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`

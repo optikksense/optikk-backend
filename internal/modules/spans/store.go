@@ -243,14 +243,14 @@ func (r *ClickHouseRepository) GetSpanTree(ctx context.Context, teamUUID, spanID
 	return spans, nil
 }
 
-// GetServiceDependencies reads from spans_edges_1m (pre-aggregated, no JOIN).
+// GetServiceDependencies reads from raw spans table.
 func (r *ClickHouseRepository) GetServiceDependencies(ctx context.Context, teamUUID string, startMs, endMs int64) ([]ServiceDependency, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT parent_service_name AS source,
 		       service_name        AS target,
-		       countMerge(call_count) AS call_count
-		FROM observability.spans_edges_1m
-		WHERE team_id = ? AND minute BETWEEN ? AND ?
+		       count()             AS call_count
+		FROM spans
+		WHERE team_id = ? AND parent_service_name != '' AND start_time BETWEEN ? AND ?
 		GROUP BY parent_service_name, service_name
 		ORDER BY call_count DESC
 		LIMIT 100
@@ -309,9 +309,9 @@ func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamUUID stri
 	return groups, nil
 }
 
-// GetErrorTimeSeries reads from spans_service_1m with adaptive time bucketing.
+// GetErrorTimeSeries reads from raw spans with adaptive time bucketing.
 func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamUUID string, startMs, endMs int64, serviceName string) ([]ErrorTimeSeries, error) {
-	bucket := timeBucketExpr(startMs, endMs)
+	bucket := rawTimeBucketExpr(startMs, endMs, "start_time")
 	query := fmt.Sprintf(`
 		SELECT service_name,
 		       timestamp,
@@ -321,10 +321,10 @@ func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamUUID 
 		FROM (
 			SELECT service_name,
 			       %s AS timestamp,
-			       countMerge(request_count) AS total_count,
-			       countIfMerge(error_count) AS error_count
-			FROM observability.spans_service_1m
-			WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket)
+			       count()                   AS total_count,
+			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count
+			FROM spans
+			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`

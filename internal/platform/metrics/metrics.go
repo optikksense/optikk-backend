@@ -225,7 +225,7 @@ func GinMiddleware() gin.HandlerFunc {
 		HTTPActiveRequests.Dec()
 
 		status := strconv.Itoa(c.Writer.Status())
-		route := c.FullPath() // returns the registered route pattern, e.g. "/api/alerts/:id"
+		route := c.FullPath() // returns the registered route pattern, e.g. "/api/users/:id"
 		if route == "" {
 			route = "unmatched"
 		}

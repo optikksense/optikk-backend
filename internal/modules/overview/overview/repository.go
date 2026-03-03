@@ -7,18 +7,18 @@ import (
 )
 
 // overviewBucketExpr returns a ClickHouse expression for adaptive time bucketing
-// over spans_service_1m / spans_endpoint_1m materialized views.
+// over the raw spans table.
 func overviewBucketExpr(startMs, endMs int64) string {
 	hours := (endMs - startMs) / 3_600_000
 	switch {
 	case hours <= 3:
-		return "minute"
+		return "toStartOfMinute(start_time)"
 	case hours <= 24:
-		return "toStartOfInterval(minute, INTERVAL 5 MINUTE)"
+		return "toStartOfInterval(start_time, INTERVAL 5 MINUTE)"
 	case hours <= 168:
-		return "toStartOfInterval(minute, INTERVAL 60 MINUTE)"
+		return "toStartOfInterval(start_time, INTERVAL 60 MINUTE)"
 	default:
-		return "toStartOfInterval(minute, INTERVAL 1440 MINUTE)"
+		return "toStartOfInterval(start_time, INTERVAL 1440 MINUTE)"
 	}
 }
 
@@ -50,13 +50,13 @@ func (r *ClickHouseRepository) GetSummary(teamUUID string, startMs, endMs int64)
 		       p95_latency,
 		       p99_latency
 		FROM (
-			SELECT countMerge(request_count)       AS total_requests,
-			       countIfMerge(error_count)      AS error_count,
-			       avgMerge(avg_state)            AS avg_latency,
-			       quantileMerge(0.95)(p95_state) AS p95_latency,
-			       quantileMerge(0.99)(p99_state) AS p99_latency
-			FROM observability.spans_service_1m
-			WHERE team_id = ? AND minute BETWEEN ? AND ?
+			SELECT count()                         AS total_requests,
+			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
+			       avg(duration_ms)                AS avg_latency,
+			       quantile(0.95)(duration_ms)     AS p95_latency,
+			       quantile(0.99)(duration_ms)     AS p99_latency
+			FROM spans
+			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?
 		)
 	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
@@ -77,14 +77,14 @@ func (r *ClickHouseRepository) GetTimeSeries(teamUUID string, startMs, endMs int
 	bucket := overviewBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT %s                          AS time_bucket,
-		       countMerge(request_count)       AS request_count,
-		       countIfMerge(error_count)         AS error_count,
-		       avgMerge(avg_state)             AS avg_latency,
-		       quantileMerge(0.5)(p50_state)   AS p50,
-		       quantileMerge(0.95)(p95_state)  AS p95,
-		       quantileMerge(0.99)(p99_state)  AS p99
-		FROM observability.spans_service_1m
-		WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket)
+		       count()                         AS request_count,
+		       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
+		       avg(duration_ms)                AS avg_latency,
+		       quantile(0.5)(duration_ms)      AS p50,
+		       quantile(0.95)(duration_ms)     AS p95,
+		       quantile(0.99)(duration_ms)     AS p99
+		FROM spans
+		WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
@@ -117,14 +117,14 @@ func (r *ClickHouseRepository) GetServices(teamUUID string, startMs, endMs int64
 		SELECT *
 		FROM (
 			SELECT service_name,
-			       countMerge(request_count)      AS request_count,
-			       countIfMerge(error_count)      AS error_count,
-			       avgMerge(avg_state)            AS avg_latency,
-			       quantileMerge(0.5)(p50_state)  AS p50_latency,
-			       quantileMerge(0.95)(p95_state) AS p95_latency,
-			       quantileMerge(0.99)(p99_state) AS p99_latency
-			FROM observability.spans_service_1m
-			WHERE team_id = ? AND minute BETWEEN ? AND ?
+			       count()                        AS request_count,
+			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
+			       avg(duration_ms)               AS avg_latency,
+			       quantile(0.5)(duration_ms)     AS p50_latency,
+			       quantile(0.95)(duration_ms)    AS p95_latency,
+			       quantile(0.99)(duration_ms)    AS p99_latency
+			FROM spans
+			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?
 			GROUP BY service_name
 		)
 		ORDER BY request_count DESC
@@ -153,14 +153,14 @@ func (r *ClickHouseRepository) GetEndpointMetrics(teamUUID string, startMs, endM
 		SELECT *
 		FROM (
 			SELECT service_name, operation_name, http_method,
-			       countMerge(request_count)      AS request_count,
-			       countIfMerge(error_count)      AS error_count,
-			       avgMerge(avg_state)            AS avg_latency,
-			       quantileMerge(0.5)(p50_state)  AS p50_latency,
-			       quantileMerge(0.95)(p95_state) AS p95_latency,
-			       quantileMerge(0.99)(p99_state) AS p99_latency
-			FROM observability.spans_endpoint_1m
-			WHERE team_id = ? AND minute BETWEEN ? AND ?`
+			       count()                        AS request_count,
+			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
+			       avg(duration_ms)               AS avg_latency,
+			       quantile(0.5)(duration_ms)     AS p50_latency,
+			       quantile(0.95)(duration_ms)    AS p95_latency,
+			       quantile(0.99)(duration_ms)    AS p99_latency
+			FROM spans
+			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
@@ -202,14 +202,14 @@ func (r *ClickHouseRepository) GetEndpointTimeSeries(teamUUID string, startMs, e
 			       service_name,
 			       operation_name,
 			       http_method,
-			       countMerge(request_count)      AS request_count,
-			       countIfMerge(error_count)      AS error_count,
-			       avgMerge(avg_state)            AS avg_latency,
-			       quantileMerge(0.5)(p50_state)  AS p50,
-			       quantileMerge(0.95)(p95_state) AS p95,
-			       quantileMerge(0.99)(p99_state) AS p99
-			FROM observability.spans_endpoint_1m
-			WHERE team_id = ? AND minute BETWEEN ? AND ?`, bucket)
+			       count()                        AS request_count,
+			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
+			       avg(duration_ms)               AS avg_latency,
+			       quantile(0.5)(duration_ms)     AS p50,
+			       quantile(0.95)(duration_ms)    AS p95,
+			       quantile(0.99)(duration_ms)    AS p99
+			FROM spans
+			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND service_name = ?`
