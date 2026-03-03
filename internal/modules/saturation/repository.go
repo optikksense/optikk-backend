@@ -2,6 +2,7 @@ package saturation
 
 import (
 	"fmt"
+	"strings"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
@@ -24,9 +25,81 @@ const dbCollectionExpr = `coalesce(
 	nullIf(JSONExtractString(attributes, 'collection'), ''),
 	nullIf(JSONExtractString(attributes, 'db.collection.name'), ''),
 	nullIf(JSONExtractString(attributes, 'db.sql.table'), ''),
+	nullIf(JSONExtractString(attributes, 'pool'), ''),
 	nullIf(JSONExtractString(attributes, 'db.statement'), ''),
 	'unknown'
 )`
+
+const dbSystemExpr = `coalesce(
+	nullIf(JSONExtractString(attributes, 'db.system'), ''),
+	if(
+		lower(metric_name) LIKE '%mongo%' OR lower(service_name) LIKE '%mongo%',
+		'mongodb',
+		if(
+			lower(metric_name) LIKE 'hikaricp.%' OR lower(metric_name) LIKE 'jdbc.%'
+			OR lower(service_name) LIKE '%mysql%' OR lower(service_name) LIKE '%postgres%',
+			'mysql',
+			if(
+				lower(metric_name) LIKE '%redis%' OR lower(service_name) LIKE '%redis%',
+				'redis',
+				if(
+					lower(metric_name) LIKE '%sql%',
+					'sql',
+					'unknown'
+				)
+			)
+		)
+	)
+)`
+
+const dbLatencyMetricFilter = `metric_name IN (
+	'mongodb.driver.commands',
+	'hikaricp.connections.usage'
+)`
+
+const dbAllMetricFilter = `metric_name IN (
+	'mongodb.driver.commands',
+	'hikaricp.connections.acquire',
+	'hikaricp.connections.usage',
+	'hikaricp.connections.active',
+	'hikaricp.connections.max',
+	'jdbc.connections.active',
+	'jdbc.connections.max',
+	'cache.hits',
+	'cache.misses',
+	'db.replication.lag.ms',
+	'db.client.errors'
+)`
+
+func syncAggregateExpr(parts ...string) string {
+	joined := strings.Join(parts, ", ")
+	return `if(
+		length(arrayFilter(x -> isNotNull(x), [` + joined + `])) > 0,
+		arrayReduce('avg', arrayFilter(x -> isNotNull(x), [` + joined + `])),
+		NULL
+	)`
+}
+
+func mergeNullableFloatPair(a, b *float64) float64 {
+	if a != nil && b != nil {
+		return (*a + *b) / 2
+	}
+	if a != nil {
+		return *a
+	}
+	if b != nil {
+		return *b
+	}
+	return 0
+}
+
+func nullableMergedFloatPair(a, b *float64) *float64 {
+	if a == nil && b == nil {
+		return nil
+	}
+	v := mergeNullableFloatPair(a, b)
+	return &v
+}
 
 // satBucketExpr returns a ClickHouse time-bucketing expression for adaptive granularity.
 func satBucketExpr(startMs, endMs int64) string {
@@ -229,14 +302,15 @@ func (r *ClickHouseRepository) GetDatabaseQueryByTable(teamUUID string, startMs,
 	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT %s as table_name,
 		       %s as minute_bucket,
-		       maxIf(count, metric_name = 'mongodb.driver.commands') as query_count,
-		       avgIf(avg, metric_name = 'mongodb.driver.commands' AND isFinite(avg)) * 1000 as avg_latency_ms,
-		       maxIf(p95, metric_name = 'mongodb.driver.commands' AND isFinite(p95)) * 1000 as p95_latency_ms
+		       maxIf(count, metric_name = 'mongodb.driver.commands') as mongo_query_count,
+		       maxIf(count, metric_name = 'hikaricp.connections.usage') as usage_query_count,
+		       avgIf(avg, metric_name = 'mongodb.driver.commands' AND isFinite(avg)) * 1000 as mongo_avg_latency_ms,
+		       avgIf(avg, metric_name = 'hikaricp.connections.usage' AND isFinite(avg)) * 1000 as usage_avg_latency_ms,
+		       maxIf(p95, metric_name = 'mongodb.driver.commands' AND isFinite(p95)) * 1000 as mongo_p95_latency_ms,
+		       maxIf(p95, metric_name = 'hikaricp.connections.usage' AND isFinite(p95)) * 1000 as usage_p95_latency_ms
 		FROM metrics
 		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
-		  AND metric_name IN (
-		      'mongodb.driver.commands'
-		  )
+		  AND `+dbLatencyMetricFilter+`
 		GROUP BY table_name, minute_bucket
 		ORDER BY minute_bucket ASC, table_name ASC
 	`, dbCollectionExpr, bucket), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
@@ -247,12 +321,24 @@ func (r *ClickHouseRepository) GetDatabaseQueryByTable(teamUUID string, startMs,
 
 	results := make([]DatabaseQueryByTable, len(rows))
 	for i, row := range rows {
+		mongoAvg := dbutil.NullableFloat64FromAny(row["mongo_avg_latency_ms"])
+		usageAvg := dbutil.NullableFloat64FromAny(row["usage_avg_latency_ms"])
+		mongoP95 := dbutil.NullableFloat64FromAny(row["mongo_p95_latency_ms"])
+		usageP95 := dbutil.NullableFloat64FromAny(row["usage_p95_latency_ms"])
+		queryCount := dbutil.Int64FromAny(row["mongo_query_count"])
+		if usageCount := dbutil.Int64FromAny(row["usage_query_count"]); usageCount > 0 {
+			if queryCount > 0 {
+				queryCount = (queryCount + usageCount) / 2
+			} else {
+				queryCount = usageCount
+			}
+		}
 		results[i] = DatabaseQueryByTable{
 			Table:        dbutil.StringFromAny(row["table_name"]),
 			Timestamp:    dbutil.StringFromAny(row["minute_bucket"]),
-			QueryCount:   dbutil.Int64FromAny(row["query_count"]),
-			AvgLatencyMs: dbutil.Float64FromAny(row["avg_latency_ms"]),
-			P95LatencyMs: dbutil.Float64FromAny(row["p95_latency_ms"]),
+			QueryCount:   queryCount,
+			AvgLatencyMs: mergeNullableFloatPair(mongoAvg, usageAvg),
+			P95LatencyMs: mergeNullableFloatPair(mongoP95, usageP95),
 		}
 	}
 	return results, nil
@@ -260,18 +346,24 @@ func (r *ClickHouseRepository) GetDatabaseQueryByTable(teamUUID string, startMs,
 
 func (r *ClickHouseRepository) GetDatabaseAvgLatency(teamUUID string, startMs, endMs int64) ([]DatabaseAvgLatency, error) {
 	bucket := satBucketExpr(startMs, endMs)
+	avgLatencyExpr := syncAggregateExpr(
+		`avgIf(avg, metric_name = 'mongodb.driver.commands' AND isFinite(avg)) * 1000`,
+		`avgIf(avg, metric_name = 'hikaricp.connections.usage' AND isFinite(avg)) * 1000`,
+	)
+	p95LatencyExpr := syncAggregateExpr(
+		`maxIf(p95, metric_name = 'mongodb.driver.commands' AND isFinite(p95)) * 1000`,
+		`maxIf(p95, metric_name = 'hikaricp.connections.usage' AND isFinite(p95)) * 1000`,
+	)
 	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT %s as minute_bucket,
-		       avgIf(avg, metric_name = 'mongodb.driver.commands' AND isFinite(avg)) * 1000 as avg_latency_ms,
-		       maxIf(p95, metric_name = 'mongodb.driver.commands' AND isFinite(p95)) * 1000 as p95_latency_ms
+		       coalesce(%s, 0) as avg_latency_ms,
+		       coalesce(%s, 0) as p95_latency_ms
 		FROM metrics
 		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
-		  AND metric_name IN (
-		      'mongodb.driver.commands'
-		  )
+		  AND `+dbLatencyMetricFilter+`
 		GROUP BY minute_bucket
 		ORDER BY minute_bucket ASC
-	`, bucket), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, bucket, avgLatencyExpr, p95LatencyExpr), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -290,21 +382,28 @@ func (r *ClickHouseRepository) GetDatabaseAvgLatency(teamUUID string, startMs, e
 
 // GetDatabaseCacheSummary queries DB query latency and cache-hit insights from metrics.
 func (r *ClickHouseRepository) GetDatabaseCacheSummary(teamUUID string, startMs, endMs int64) (DbCacheSummary, error) {
+	avgLatencyExpr := syncAggregateExpr(
+		`avgIf(avg, metric_name = 'mongodb.driver.commands' AND isFinite(avg)) * 1000`,
+		`avgIf(avg, metric_name = 'hikaricp.connections.usage' AND isFinite(avg)) * 1000`,
+	)
+	p95LatencyExpr := syncAggregateExpr(
+		`maxIf(p95, metric_name = 'mongodb.driver.commands' AND isFinite(p95)) * 1000`,
+		`maxIf(p95, metric_name = 'hikaricp.connections.usage' AND isFinite(p95)) * 1000`,
+	)
+	queryCountExpr := syncAggregateExpr(
+		`if(maxIf(count, metric_name = 'mongodb.driver.commands') > 0, toFloat64(maxIf(count, metric_name = 'mongodb.driver.commands')), NULL)`,
+		`if(maxIf(count, metric_name = 'hikaricp.connections.usage') > 0, toFloat64(maxIf(count, metric_name = 'hikaricp.connections.usage')), NULL)`,
+	)
 	summaryRaw, err := dbutil.QueryMap(r.db, `
-		SELECT avgIf(avg, metric_name = 'mongodb.driver.commands' AND isFinite(avg)) * 1000 as avg_query_latency_ms,
-		       maxIf(p95, metric_name = 'mongodb.driver.commands' AND isFinite(p95)) * 1000 as p95_query_latency_ms,
-		       maxIf(count, metric_name = 'mongodb.driver.commands') as db_span_count,
+		SELECT `+avgLatencyExpr+` as avg_query_latency_ms,
+		       `+p95LatencyExpr+` as p95_query_latency_ms,
+		       toInt64(coalesce(`+queryCountExpr+`, 0)) as db_span_count,
 		       sumIf(value, metric_name = 'cache.hits' AND isFinite(value)) as cache_hits,
 		       sumIf(value, metric_name = 'cache.misses' AND isFinite(value)) as cache_misses,
 		       avgIf(value, metric_name = 'db.replication.lag.ms' AND isFinite(value)) as avg_replication_lag_ms
 		FROM metrics
 		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
-		  AND metric_name IN (
-		      'mongodb.driver.commands',
-		      'cache.hits',
-		      'cache.misses',
-		      'db.replication.lag.ms'
-		  )
+		  AND `+dbAllMetricFilter+`
 	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
@@ -324,35 +423,21 @@ func (r *ClickHouseRepository) GetDatabaseCacheSummary(teamUUID string, startMs,
 // GetDatabaseSystems queries DB metrics grouped by the database system.
 func (r *ClickHouseRepository) GetDatabaseSystems(teamUUID string, startMs, endMs int64) ([]DbSystemBreakdown, error) {
 	systemRaw, err := dbutil.QueryMaps(r.db, `
-		SELECT coalesce(
-		           nullIf(JSONExtractString(attributes, 'db.system'), ''),
-		           if(
-		               lower(metric_name) LIKE '%mongo%' OR lower(service_name) LIKE '%mongo%',
-		               'mongodb',
-		               if(
-		                   lower(metric_name) LIKE '%redis%' OR lower(service_name) LIKE '%redis%',
-		                   'redis',
-		                   if(
-		                       lower(metric_name) LIKE '%sql%' OR lower(service_name) LIKE '%mysql%' OR lower(service_name) LIKE '%postgres%',
-		                       'sql',
-		                       'unknown'
-		                   )
-		               )
-		           )
-		       ) as db_system,
-		       maxIf(count, metric_name = 'mongodb.driver.commands') as query_count,
-		       avgIf(avg, metric_name = 'mongodb.driver.commands' AND isFinite(avg)) * 1000 as avg_query_latency_ms,
-		       maxIf(p95, metric_name = 'mongodb.driver.commands' AND isFinite(p95)) * 1000 as p95_query_latency_ms,
+		SELECT `+dbSystemExpr+` as db_system,
+		       maxIf(count, metric_name = 'mongodb.driver.commands') as mongo_query_count,
+		       maxIf(count, metric_name = 'hikaricp.connections.usage') as usage_query_count,
+		       avgIf(avg, metric_name = 'mongodb.driver.commands' AND isFinite(avg)) * 1000 as mongo_avg_query_latency_ms,
+		       avgIf(avg, metric_name = 'hikaricp.connections.usage' AND isFinite(avg)) * 1000 as usage_avg_query_latency_ms,
+		       maxIf(p95, metric_name = 'mongodb.driver.commands' AND isFinite(p95)) * 1000 as mongo_p95_query_latency_ms,
+		       maxIf(p95, metric_name = 'hikaricp.connections.usage' AND isFinite(p95)) * 1000 as usage_p95_query_latency_ms,
 		       sumIf(value, metric_name = 'db.client.errors') as error_count,
-		       maxIf(count, metric_name = 'mongodb.driver.commands') as span_count
+		       maxIf(count, metric_name = 'mongodb.driver.commands') as mongo_span_count,
+		       maxIf(count, metric_name = 'hikaricp.connections.usage') as usage_span_count
 		FROM metrics
 		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
-		  AND metric_name IN (
-		      'mongodb.driver.commands',
-		      'db.client.errors'
-		  )
+		  AND `+dbAllMetricFilter+`
 		GROUP BY db_system
-		ORDER BY query_count DESC
+		ORDER BY greatest(ifNull(mongo_query_count, 0), ifNull(usage_query_count, 0)) DESC
 	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
@@ -361,13 +446,33 @@ func (r *ClickHouseRepository) GetDatabaseSystems(teamUUID string, startMs, endM
 
 	systemBreakdown := make([]DbSystemBreakdown, len(systemRaw))
 	for i, row := range systemRaw {
+		mongoAvg := dbutil.NullableFloat64FromAny(row["mongo_avg_query_latency_ms"])
+		usageAvg := dbutil.NullableFloat64FromAny(row["usage_avg_query_latency_ms"])
+		mongoP95 := dbutil.NullableFloat64FromAny(row["mongo_p95_query_latency_ms"])
+		usageP95 := dbutil.NullableFloat64FromAny(row["usage_p95_query_latency_ms"])
+		queryCount := dbutil.Int64FromAny(row["mongo_query_count"])
+		if usageCount := dbutil.Int64FromAny(row["usage_query_count"]); usageCount > 0 {
+			if queryCount > 0 {
+				queryCount = (queryCount + usageCount) / 2
+			} else {
+				queryCount = usageCount
+			}
+		}
+		spanCount := dbutil.Int64FromAny(row["mongo_span_count"])
+		if usageSpanCount := dbutil.Int64FromAny(row["usage_span_count"]); usageSpanCount > 0 {
+			if spanCount > 0 {
+				spanCount = (spanCount + usageSpanCount) / 2
+			} else {
+				spanCount = usageSpanCount
+			}
+		}
 		systemBreakdown[i] = DbSystemBreakdown{
 			DbSystem:        dbutil.StringFromAny(row["db_system"]),
-			QueryCount:      dbutil.Int64FromAny(row["query_count"]),
-			AvgQueryLatency: dbutil.NullableFloat64FromAny(row["avg_query_latency_ms"]),
-			P95QueryLatency: dbutil.NullableFloat64FromAny(row["p95_query_latency_ms"]),
+			QueryCount:      queryCount,
+			AvgQueryLatency: nullableMergedFloatPair(mongoAvg, usageAvg),
+			P95QueryLatency: nullableMergedFloatPair(mongoP95, usageP95),
 			ErrorCount:      dbutil.Int64FromAny(row["error_count"]),
-			SpanCount:       dbutil.Int64FromAny(row["span_count"]),
+			SpanCount:       spanCount,
 		}
 	}
 
@@ -379,38 +484,22 @@ func (r *ClickHouseRepository) GetDatabaseTopTables(teamUUID string, startMs, en
 	tableMetricsRaw, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT %s as table_name,
 		       service_name,
-		       coalesce(
-		           nullIf(JSONExtractString(attributes, 'db.system'), ''),
-		           if(
-		               lower(metric_name) LIKE '%%mongo%%' OR lower(service_name) LIKE '%%mongo%%',
-		               'mongodb',
-		               if(
-		                   lower(metric_name) LIKE '%%redis%%' OR lower(service_name) LIKE '%%redis%%',
-		                   'redis',
-		                   if(
-		                       lower(metric_name) LIKE '%%sql%%' OR lower(service_name) LIKE '%%mysql%%' OR lower(service_name) LIKE '%%postgres%%',
-		                       'sql',
-		                       'unknown'
-		                   )
-		               )
-		           )
-		       ) as db_system,
-		       avgIf(avg, metric_name = 'mongodb.driver.commands' AND isFinite(avg)) * 1000 as avg_query_latency_ms,
-		       maxIf(max, metric_name = 'mongodb.driver.commands' AND isFinite(max)) * 1000 as max_query_latency_ms,
+		       %s as db_system,
+		       avgIf(avg, metric_name = 'mongodb.driver.commands' AND isFinite(avg)) * 1000 as mongo_avg_query_latency_ms,
+		       avgIf(avg, metric_name = 'hikaricp.connections.usage' AND isFinite(avg)) * 1000 as usage_avg_query_latency_ms,
+		       maxIf(max, metric_name = 'mongodb.driver.commands' AND isFinite(max)) * 1000 as mongo_max_query_latency_ms,
+		       maxIf(max, metric_name = 'hikaricp.connections.usage' AND isFinite(max)) * 1000 as usage_max_query_latency_ms,
 		       sumIf(value, metric_name = 'cache.hits' AND isFinite(value)) as cache_hits,
 		       sumIf(value, metric_name = 'cache.misses' AND isFinite(value)) as cache_misses,
-		       maxIf(count, metric_name = 'mongodb.driver.commands') as query_count
+		       maxIf(count, metric_name = 'mongodb.driver.commands') as mongo_query_count,
+		       maxIf(count, metric_name = 'hikaricp.connections.usage') as usage_query_count
 		FROM metrics
 		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
-		  AND metric_name IN (
-		      'mongodb.driver.commands',
-		      'cache.hits',
-		      'cache.misses'
-		  )
+		  AND `+dbAllMetricFilter+`
 		GROUP BY table_name, service_name, db_system
-		ORDER BY avg_query_latency_ms DESC
+		ORDER BY greatest(ifNull(mongo_avg_query_latency_ms, 0), ifNull(usage_avg_query_latency_ms, 0)) DESC
 		LIMIT 50
-	`, dbCollectionExpr), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, dbCollectionExpr, dbSystemExpr), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -418,15 +507,27 @@ func (r *ClickHouseRepository) GetDatabaseTopTables(teamUUID string, startMs, en
 
 	tableMetrics := make([]DbTableMetric, len(tableMetricsRaw))
 	for i, row := range tableMetricsRaw {
+		mongoAvg := dbutil.NullableFloat64FromAny(row["mongo_avg_query_latency_ms"])
+		usageAvg := dbutil.NullableFloat64FromAny(row["usage_avg_query_latency_ms"])
+		mongoMax := dbutil.NullableFloat64FromAny(row["mongo_max_query_latency_ms"])
+		usageMax := dbutil.NullableFloat64FromAny(row["usage_max_query_latency_ms"])
+		queryCount := dbutil.Int64FromAny(row["mongo_query_count"])
+		if usageCount := dbutil.Int64FromAny(row["usage_query_count"]); usageCount > 0 {
+			if queryCount > 0 {
+				queryCount = (queryCount + usageCount) / 2
+			} else {
+				queryCount = usageCount
+			}
+		}
 		tableMetrics[i] = DbTableMetric{
 			TableName:         dbutil.StringFromAny(row["table_name"]),
 			ServiceName:       dbutil.StringFromAny(row["service_name"]),
 			DbSystem:          dbutil.StringFromAny(row["db_system"]),
-			AvgQueryLatencyMs: dbutil.NullableFloat64FromAny(row["avg_query_latency_ms"]),
-			MaxQueryLatencyMs: dbutil.NullableFloat64FromAny(row["max_query_latency_ms"]),
+			AvgQueryLatencyMs: nullableMergedFloatPair(mongoAvg, usageAvg),
+			MaxQueryLatencyMs: nullableMergedFloatPair(mongoMax, usageMax),
 			CacheHits:         dbutil.Int64FromAny(row["cache_hits"]),
 			CacheMisses:       dbutil.Int64FromAny(row["cache_misses"]),
-			QueryCount:        dbutil.Int64FromAny(row["query_count"]),
+			QueryCount:        queryCount,
 		}
 	}
 

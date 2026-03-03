@@ -148,7 +148,7 @@ charts:
 const defaultDatabaseCache = `page: database-cache
 title: "Database & Cache Performance"
 icon: "Database"
-subtitle: "Query latency, cache hit ratio, slow logs, replication lag"
+subtitle: "Mongo query latency, SQL pool latency, cache hit ratio, slow logs, replication lag"
 
 dataSources:
   - id: database-query-table
@@ -158,7 +158,7 @@ dataSources:
 
 charts:
   - id: db-query-volume
-    title: "Query Volume by Collection"
+    title: "Operations by Collection / Pool"
     type: request
     layout:
       col: 12
@@ -168,21 +168,21 @@ charts:
     listTitle: "Query Volume"
     listSortField: query_count
   - id: db-query-latency
-    title: "Query Latency by Collection"
+    title: "Latency by Collection / Pool"
     type: latency
     layout:
       col: 12
     dataSource: database-query-table
     groupByKey: table
     valueKey: avg_latency_ms
-    listTitle: "Average Latency"
+    listTitle: "Average Query / Pool Latency"
     listSortField: avg_latency_ms
   - id: db-overall-latency
-    title: "Overall Database Latency"
+    title: "Overall DB / Pool Latency"
     type: latency
     layout:
       col: 24
     dataSource: database-avg-latency
     valueKey: avg_latency_ms
-    datasetLabel: "Avg Latency"
+    datasetLabel: "Avg Query / Pool Latency"
 `

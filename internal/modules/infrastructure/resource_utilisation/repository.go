@@ -2,6 +2,7 @@ package resource_utilisation
 
 import (
 	"fmt"
+	"strings"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
@@ -58,34 +59,40 @@ func (r *ClickHouseRepository) getAvgMetric(metricField string, teamUUID string,
 	return MetricValue{Value: dbutil.Float64FromAny(row["value"])}, nil
 }
 
+func syncAverageExpr(parts ...string) string {
+	joined := strings.Join(parts, ", ")
+	return `if(
+		length(arrayFilter(x -> isNotNull(x), [` + joined + `])) > 0,
+		arrayReduce('avg', arrayFilter(x -> isNotNull(x), [` + joined + `])),
+		NULL
+	)`
+}
+
 func getByServiceQuerySelect(singleMetric string) string {
-	cpuCol := `coalesce(
-		if(countIf(metric_name IN ('system.cpu.utilization', 'system.cpu.usage', 'process.cpu.usage') AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, value), metric_name IN ('system.cpu.utilization', 'system.cpu.usage', 'process.cpu.usage') AND isFinite(value)), NULL),
-		if(countIf(JSONExtractFloat(attributes, 'system.cpu.utilization') > 0) > 0, avgIf(if(JSONExtractFloat(attributes, 'system.cpu.utilization') <= 1.0, JSONExtractFloat(attributes, 'system.cpu.utilization') * 100.0, JSONExtractFloat(attributes, 'system.cpu.utilization')), JSONExtractFloat(attributes, 'system.cpu.utilization') > 0), NULL)
-	)`
-	memCol := `coalesce(
-		if(countIf(metric_name = 'system.memory.utilization' AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.memory.utilization' AND isFinite(value)), NULL),
-		if(sumIf(value, metric_name = 'jvm.memory.max' AND value > 0 AND isFinite(value)) > 0, 100.0 * sumIf(value, metric_name = 'jvm.memory.used' AND value >= 0 AND isFinite(value)) / nullIf(sumIf(value, metric_name = 'jvm.memory.max' AND value > 0 AND isFinite(value)), 0), NULL),
-		if(countIf(JSONExtractFloat(attributes, 'system.memory.utilization') > 0) > 0, avgIf(if(JSONExtractFloat(attributes, 'system.memory.utilization') <= 1.0, JSONExtractFloat(attributes, 'system.memory.utilization') * 100.0, JSONExtractFloat(attributes, 'system.memory.utilization')), JSONExtractFloat(attributes, 'system.memory.utilization') > 0), NULL)
-	)`
-	diskCol := `coalesce(
-		if(countIf(metric_name = 'system.disk.utilization' AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.disk.utilization' AND isFinite(value)), NULL),
-		if(sumIf(value, metric_name = 'disk.total' AND value > 0 AND isFinite(value)) > 0, 100.0 * (1.0 - (sumIf(value, metric_name = 'disk.free' AND value >= 0 AND isFinite(value)) / nullIf(sumIf(value, metric_name = 'disk.total' AND value > 0 AND isFinite(value)), 0))), NULL),
-		if(countIf(JSONExtractFloat(attributes, 'system.disk.utilization') > 0) > 0, avgIf(if(JSONExtractFloat(attributes, 'system.disk.utilization') <= 1.0, JSONExtractFloat(attributes, 'system.disk.utilization') * 100.0, JSONExtractFloat(attributes, 'system.disk.utilization')), JSONExtractFloat(attributes, 'system.disk.utilization') > 0), NULL)
-	)`
-	netCol := `coalesce(
-		if(countIf(metric_name = 'system.network.utilization' AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.network.utilization' AND isFinite(value)), NULL),
-		if(countIf(metric_name = 'http.server.requests.active.active' AND value > 0 AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, least(value, 100.0)), metric_name = 'http.server.requests.active.active' AND value > 0 AND isFinite(value)), NULL),
-		if(countIf(metric_name = 'http.server.request.count' AND value > 0 AND isFinite(value)) > 0, avgIf(least(value, 100.0), metric_name = 'http.server.request.count' AND value > 0 AND isFinite(value)), NULL),
-		if(countIf(JSONExtractFloat(attributes, 'system.network.utilization') > 0) > 0, avgIf(if(JSONExtractFloat(attributes, 'system.network.utilization') <= 1.0, JSONExtractFloat(attributes, 'system.network.utilization') * 100.0, JSONExtractFloat(attributes, 'system.network.utilization')), JSONExtractFloat(attributes, 'system.network.utilization') > 0), NULL)
-	)`
-	connCol := `coalesce(
-		if(countIf(metric_name = 'db.connection.pool.utilization' AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'db.connection.pool.utilization' AND isFinite(value)), NULL),
-		if(sumIf(value, metric_name = 'hikaricp.connections.max' AND value > 0 AND isFinite(value)) > 0, 100.0 * sumIf(value, metric_name = 'hikaricp.connections.active' AND value >= 0 AND isFinite(value)) / nullIf(sumIf(value, metric_name = 'hikaricp.connections.max' AND value > 0 AND isFinite(value)), 0), NULL),
-		if(countIf(metric_name = 'executor.pool.size' AND value > 0 AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, least(value, 100.0)), metric_name = 'executor.pool.size' AND value > 0 AND isFinite(value)), NULL),
-		if(countIf(metric_name = 'http.server.request.count' AND value > 0 AND isFinite(value)) > 0, avgIf(least(value, 100.0), metric_name = 'http.server.request.count' AND value > 0 AND isFinite(value)), NULL),
-		if(countIf(JSONExtractFloat(attributes, 'db.connection_pool.utilization') > 0) > 0, avgIf(if(JSONExtractFloat(attributes, 'db.connection_pool.utilization') <= 1.0, JSONExtractFloat(attributes, 'db.connection_pool.utilization') * 100.0, JSONExtractFloat(attributes, 'db.connection_pool.utilization')), JSONExtractFloat(attributes, 'db.connection_pool.utilization') > 0), NULL)
-	)`
+	cpuSystemCol := `if(countIf(metric_name IN ('system.cpu.utilization', 'system.cpu.usage') AND isFinite(value) AND value >= 0 AND value <= 1) > 0, avgIf(value * 100.0, metric_name IN ('system.cpu.utilization', 'system.cpu.usage') AND isFinite(value) AND value >= 0 AND value <= 1), NULL)`
+	cpuProcessCol := `if(countIf(metric_name = 'process.cpu.usage' AND isFinite(value) AND value >= 0 AND value <= 1) > 0, avgIf(value * 100.0, metric_name = 'process.cpu.usage' AND isFinite(value) AND value >= 0 AND value <= 1), NULL)`
+	cpuAttrCol := `if(countIf(JSONExtractFloat(attributes, 'system.cpu.utilization') >= 0 AND JSONExtractFloat(attributes, 'system.cpu.utilization') <= 1) > 0, avgIf(JSONExtractFloat(attributes, 'system.cpu.utilization') * 100.0, JSONExtractFloat(attributes, 'system.cpu.utilization') >= 0 AND JSONExtractFloat(attributes, 'system.cpu.utilization') <= 1), NULL)`
+	cpuCol := syncAverageExpr(cpuSystemCol, cpuProcessCol, cpuAttrCol)
+
+	memSystemCol := `if(countIf(metric_name = 'system.memory.utilization' AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.memory.utilization' AND isFinite(value)), NULL)`
+	memJvmCol := `if(sumIf(value, metric_name = 'jvm.memory.max' AND value > 0 AND isFinite(value)) > 0, 100.0 * sumIf(value, metric_name = 'jvm.memory.used' AND value >= 0 AND isFinite(value)) / nullIf(sumIf(value, metric_name = 'jvm.memory.max' AND value > 0 AND isFinite(value)), 0), NULL)`
+	memAttrCol := `if(countIf(JSONExtractFloat(attributes, 'system.memory.utilization') > 0) > 0, avgIf(if(JSONExtractFloat(attributes, 'system.memory.utilization') <= 1.0, JSONExtractFloat(attributes, 'system.memory.utilization') * 100.0, JSONExtractFloat(attributes, 'system.memory.utilization')), JSONExtractFloat(attributes, 'system.memory.utilization') > 0), NULL)`
+	memCol := syncAverageExpr(memSystemCol, memJvmCol, memAttrCol)
+
+	diskSystemCol := `if(countIf(metric_name = 'system.disk.utilization' AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.disk.utilization' AND isFinite(value)), NULL)`
+	diskRatioCol := `if(sumIf(value, metric_name = 'disk.total' AND value > 0 AND isFinite(value)) > 0, 100.0 * (1.0 - (sumIf(value, metric_name = 'disk.free' AND value >= 0 AND isFinite(value)) / nullIf(sumIf(value, metric_name = 'disk.total' AND value > 0 AND isFinite(value)), 0))), NULL)`
+	diskAttrCol := `if(countIf(JSONExtractFloat(attributes, 'system.disk.utilization') > 0) > 0, avgIf(if(JSONExtractFloat(attributes, 'system.disk.utilization') <= 1.0, JSONExtractFloat(attributes, 'system.disk.utilization') * 100.0, JSONExtractFloat(attributes, 'system.disk.utilization')), JSONExtractFloat(attributes, 'system.disk.utilization') > 0), NULL)`
+	diskCol := syncAverageExpr(diskSystemCol, diskRatioCol, diskAttrCol)
+
+	netSystemCol := `if(countIf(metric_name = 'system.network.utilization' AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.network.utilization' AND isFinite(value)), NULL)`
+	netAttrCol := `if(countIf(JSONExtractFloat(attributes, 'system.network.utilization') > 0) > 0, avgIf(if(JSONExtractFloat(attributes, 'system.network.utilization') <= 1.0, JSONExtractFloat(attributes, 'system.network.utilization') * 100.0, JSONExtractFloat(attributes, 'system.network.utilization')), JSONExtractFloat(attributes, 'system.network.utilization') > 0), NULL)`
+	netCol := syncAverageExpr(netSystemCol, netAttrCol)
+
+	connMetricCol := `if(countIf(metric_name = 'db.connection.pool.utilization' AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'db.connection.pool.utilization' AND isFinite(value)), NULL)`
+	connHikariCol := `if(sumIf(value, metric_name = 'hikaricp.connections.max' AND value > 0 AND isFinite(value)) > 0, 100.0 * sumIf(value, metric_name = 'hikaricp.connections.active' AND value >= 0 AND isFinite(value)) / nullIf(sumIf(value, metric_name = 'hikaricp.connections.max' AND value > 0 AND isFinite(value)), 0), NULL)`
+	connJdbcCol := `if(sumIf(value, metric_name = 'jdbc.connections.max' AND value > 0 AND isFinite(value)) > 0, 100.0 * sumIf(value, metric_name = 'jdbc.connections.active' AND value >= 0 AND isFinite(value)) / nullIf(sumIf(value, metric_name = 'jdbc.connections.max' AND value > 0 AND isFinite(value)), 0), NULL)`
+	connAttrCol := `if(countIf(JSONExtractFloat(attributes, 'db.connection_pool.utilization') > 0) > 0, avgIf(if(JSONExtractFloat(attributes, 'db.connection_pool.utilization') <= 1.0, JSONExtractFloat(attributes, 'db.connection_pool.utilization') * 100.0, JSONExtractFloat(attributes, 'db.connection_pool.utilization')), JSONExtractFloat(attributes, 'db.connection_pool.utilization') > 0), NULL)`
+	connCol := syncAverageExpr(connMetricCol, connHikariCol, connJdbcCol, connAttrCol)
 
 	if singleMetric == "cpu" {
 		return "SELECT " + cpuCol + " as metric_val"
@@ -107,33 +114,30 @@ func getByServiceQuerySelect(singleMetric string) string {
 }
 
 func getByInstanceQuerySelectFull() string {
-	cpuCol := `coalesce(
-		if(countIf(metric_name IN ('system.cpu.utilization', 'system.cpu.usage', 'process.cpu.usage') AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, value), metric_name IN ('system.cpu.utilization', 'system.cpu.usage', 'process.cpu.usage') AND isFinite(value)), NULL),
-		if(countIf(JSONExtractFloat(attributes, 'system.cpu.utilization') > 0) > 0, avgIf(if(JSONExtractFloat(attributes, 'system.cpu.utilization') <= 1.0, JSONExtractFloat(attributes, 'system.cpu.utilization') * 100.0, JSONExtractFloat(attributes, 'system.cpu.utilization')), JSONExtractFloat(attributes, 'system.cpu.utilization') > 0), NULL)
-	)`
-	memCol := `coalesce(
-		if(countIf(metric_name = 'system.memory.utilization' AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.memory.utilization' AND isFinite(value)), NULL),
-		if(sumIf(value, metric_name = 'jvm.memory.max' AND value > 0 AND isFinite(value)) > 0, 100.0 * sumIf(value, metric_name = 'jvm.memory.used' AND value >= 0 AND isFinite(value)) / nullIf(sumIf(value, metric_name = 'jvm.memory.max' AND value > 0 AND isFinite(value)), 0), NULL),
-		if(countIf(JSONExtractFloat(attributes, 'system.memory.utilization') > 0) > 0, avgIf(if(JSONExtractFloat(attributes, 'system.memory.utilization') <= 1.0, JSONExtractFloat(attributes, 'system.memory.utilization') * 100.0, JSONExtractFloat(attributes, 'system.memory.utilization')), JSONExtractFloat(attributes, 'system.memory.utilization') > 0), NULL)
-	)`
-	diskCol := `coalesce(
-		if(countIf(metric_name = 'system.disk.utilization' AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.disk.utilization' AND isFinite(value)), NULL),
-		if(sumIf(value, metric_name = 'disk.total' AND value > 0 AND isFinite(value)) > 0, 100.0 * (1.0 - (sumIf(value, metric_name = 'disk.free' AND value >= 0 AND isFinite(value)) / nullIf(sumIf(value, metric_name = 'disk.total' AND value > 0 AND isFinite(value)), 0))), NULL),
-		if(countIf(JSONExtractFloat(attributes, 'system.disk.utilization') > 0) > 0, avgIf(if(JSONExtractFloat(attributes, 'system.disk.utilization') <= 1.0, JSONExtractFloat(attributes, 'system.disk.utilization') * 100.0, JSONExtractFloat(attributes, 'system.disk.utilization')), JSONExtractFloat(attributes, 'system.disk.utilization') > 0), NULL)
-	)`
-	netCol := `coalesce(
-		if(countIf(metric_name = 'system.network.utilization' AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.network.utilization' AND isFinite(value)), NULL),
-		if(countIf(metric_name = 'http.server.requests.active.active' AND value > 0 AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, least(value, 100.0)), metric_name = 'http.server.requests.active.active' AND value > 0 AND isFinite(value)), NULL),
-		if(countIf(metric_name = 'http.server.request.count' AND value > 0 AND isFinite(value)) > 0, avgIf(least(value, 100.0), metric_name = 'http.server.request.count' AND value > 0 AND isFinite(value)), NULL),
-		if(countIf(JSONExtractFloat(attributes, 'system.network.utilization') > 0) > 0, avgIf(if(JSONExtractFloat(attributes, 'system.network.utilization') <= 1.0, JSONExtractFloat(attributes, 'system.network.utilization') * 100.0, JSONExtractFloat(attributes, 'system.network.utilization')), JSONExtractFloat(attributes, 'system.network.utilization') > 0), NULL)
-	)`
-	connCol := `coalesce(
-		if(countIf(metric_name = 'db.connection.pool.utilization' AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'db.connection.pool.utilization' AND isFinite(value)), NULL),
-		if(sumIf(value, metric_name = 'hikaricp.connections.max' AND value > 0 AND isFinite(value)) > 0, 100.0 * sumIf(value, metric_name = 'hikaricp.connections.active' AND value >= 0 AND isFinite(value)) / nullIf(sumIf(value, metric_name = 'hikaricp.connections.max' AND value > 0 AND isFinite(value)), 0), NULL),
-		if(countIf(metric_name = 'executor.pool.size' AND value > 0 AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, least(value, 100.0)), metric_name = 'executor.pool.size' AND value > 0 AND isFinite(value)), NULL),
-		if(countIf(metric_name = 'http.server.request.count' AND value > 0 AND isFinite(value)) > 0, avgIf(least(value, 100.0), metric_name = 'http.server.request.count' AND value > 0 AND isFinite(value)), NULL),
-		if(countIf(JSONExtractFloat(attributes, 'db.connection_pool.utilization') > 0) > 0, avgIf(if(JSONExtractFloat(attributes, 'db.connection_pool.utilization') <= 1.0, JSONExtractFloat(attributes, 'db.connection_pool.utilization') * 100.0, JSONExtractFloat(attributes, 'db.connection_pool.utilization')), JSONExtractFloat(attributes, 'db.connection_pool.utilization') > 0), NULL)
-	)`
+	cpuSystemCol := `if(countIf(metric_name IN ('system.cpu.utilization', 'system.cpu.usage') AND isFinite(value) AND value >= 0 AND value <= 1) > 0, avgIf(value * 100.0, metric_name IN ('system.cpu.utilization', 'system.cpu.usage') AND isFinite(value) AND value >= 0 AND value <= 1), NULL)`
+	cpuProcessCol := `if(countIf(metric_name = 'process.cpu.usage' AND isFinite(value) AND value >= 0 AND value <= 1) > 0, avgIf(value * 100.0, metric_name = 'process.cpu.usage' AND isFinite(value) AND value >= 0 AND value <= 1), NULL)`
+	cpuAttrCol := `if(countIf(JSONExtractFloat(attributes, 'system.cpu.utilization') >= 0 AND JSONExtractFloat(attributes, 'system.cpu.utilization') <= 1) > 0, avgIf(JSONExtractFloat(attributes, 'system.cpu.utilization') * 100.0, JSONExtractFloat(attributes, 'system.cpu.utilization') >= 0 AND JSONExtractFloat(attributes, 'system.cpu.utilization') <= 1), NULL)`
+	cpuCol := syncAverageExpr(cpuSystemCol, cpuProcessCol, cpuAttrCol)
+
+	memSystemCol := `if(countIf(metric_name = 'system.memory.utilization' AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.memory.utilization' AND isFinite(value)), NULL)`
+	memJvmCol := `if(sumIf(value, metric_name = 'jvm.memory.max' AND value > 0 AND isFinite(value)) > 0, 100.0 * sumIf(value, metric_name = 'jvm.memory.used' AND value >= 0 AND isFinite(value)) / nullIf(sumIf(value, metric_name = 'jvm.memory.max' AND value > 0 AND isFinite(value)), 0), NULL)`
+	memAttrCol := `if(countIf(JSONExtractFloat(attributes, 'system.memory.utilization') > 0) > 0, avgIf(if(JSONExtractFloat(attributes, 'system.memory.utilization') <= 1.0, JSONExtractFloat(attributes, 'system.memory.utilization') * 100.0, JSONExtractFloat(attributes, 'system.memory.utilization')), JSONExtractFloat(attributes, 'system.memory.utilization') > 0), NULL)`
+	memCol := syncAverageExpr(memSystemCol, memJvmCol, memAttrCol)
+
+	diskSystemCol := `if(countIf(metric_name = 'system.disk.utilization' AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.disk.utilization' AND isFinite(value)), NULL)`
+	diskRatioCol := `if(sumIf(value, metric_name = 'disk.total' AND value > 0 AND isFinite(value)) > 0, 100.0 * (1.0 - (sumIf(value, metric_name = 'disk.free' AND value >= 0 AND isFinite(value)) / nullIf(sumIf(value, metric_name = 'disk.total' AND value > 0 AND isFinite(value)), 0))), NULL)`
+	diskAttrCol := `if(countIf(JSONExtractFloat(attributes, 'system.disk.utilization') > 0) > 0, avgIf(if(JSONExtractFloat(attributes, 'system.disk.utilization') <= 1.0, JSONExtractFloat(attributes, 'system.disk.utilization') * 100.0, JSONExtractFloat(attributes, 'system.disk.utilization')), JSONExtractFloat(attributes, 'system.disk.utilization') > 0), NULL)`
+	diskCol := syncAverageExpr(diskSystemCol, diskRatioCol, diskAttrCol)
+
+	netSystemCol := `if(countIf(metric_name = 'system.network.utilization' AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'system.network.utilization' AND isFinite(value)), NULL)`
+	netAttrCol := `if(countIf(JSONExtractFloat(attributes, 'system.network.utilization') > 0) > 0, avgIf(if(JSONExtractFloat(attributes, 'system.network.utilization') <= 1.0, JSONExtractFloat(attributes, 'system.network.utilization') * 100.0, JSONExtractFloat(attributes, 'system.network.utilization')), JSONExtractFloat(attributes, 'system.network.utilization') > 0), NULL)`
+	netCol := syncAverageExpr(netSystemCol, netAttrCol)
+
+	connMetricCol := `if(countIf(metric_name = 'db.connection.pool.utilization' AND isFinite(value)) > 0, avgIf(if(value <= 1.0, value * 100.0, value), metric_name = 'db.connection.pool.utilization' AND isFinite(value)), NULL)`
+	connHikariCol := `if(sumIf(value, metric_name = 'hikaricp.connections.max' AND value > 0 AND isFinite(value)) > 0, 100.0 * sumIf(value, metric_name = 'hikaricp.connections.active' AND value >= 0 AND isFinite(value)) / nullIf(sumIf(value, metric_name = 'hikaricp.connections.max' AND value > 0 AND isFinite(value)), 0), NULL)`
+	connJdbcCol := `if(sumIf(value, metric_name = 'jdbc.connections.max' AND value > 0 AND isFinite(value)) > 0, 100.0 * sumIf(value, metric_name = 'jdbc.connections.active' AND value >= 0 AND isFinite(value)) / nullIf(sumIf(value, metric_name = 'jdbc.connections.max' AND value > 0 AND isFinite(value)), 0), NULL)`
+	connAttrCol := `if(countIf(JSONExtractFloat(attributes, 'db.connection_pool.utilization') > 0) > 0, avgIf(if(JSONExtractFloat(attributes, 'db.connection_pool.utilization') <= 1.0, JSONExtractFloat(attributes, 'db.connection_pool.utilization') * 100.0, JSONExtractFloat(attributes, 'db.connection_pool.utilization')), JSONExtractFloat(attributes, 'db.connection_pool.utilization') > 0), NULL)`
+	connCol := syncAverageExpr(connMetricCol, connHikariCol, connJdbcCol, connAttrCol)
 	return `SELECT host, pod, container, service_name,
 		` + cpuCol + ` as avg_cpu_util,
 		` + memCol + ` as avg_memory_util,
@@ -149,8 +153,9 @@ func getByServiceQueryFromWhere() string {
 		  AND (
 		      metric_name IN (
 		          'system.cpu.utilization', 'system.cpu.usage', 'process.cpu.usage', 'system.memory.utilization', 'jvm.memory.used', 'jvm.memory.max',
-		          'system.disk.utilization', 'disk.free', 'disk.total', 'system.network.utilization', 'http.server.requests.active.active',
-		          'http.server.request.count', 'db.connection.pool.utilization', 'hikaricp.connections.active', 'hikaricp.connections.max', 'executor.pool.size'
+		          'system.disk.utilization', 'disk.free', 'disk.total', 'system.network.utilization',
+		          'db.connection.pool.utilization', 'hikaricp.connections.active', 'hikaricp.connections.max',
+		          'jdbc.connections.active', 'jdbc.connections.max'
 		      )
 		      OR JSONExtractFloat(attributes, 'system.cpu.utilization') > 0 OR JSONExtractFloat(attributes, 'system.memory.utilization') > 0
 		      OR JSONExtractFloat(attributes, 'system.disk.utilization') > 0 OR JSONExtractFloat(attributes, 'system.network.utilization') > 0
@@ -266,8 +271,9 @@ func (r *ClickHouseRepository) GetResourceUsageByInstance(teamUUID string, start
 		  AND (
 		      metric_name IN (
 		          'system.cpu.utilization', 'system.cpu.usage', 'process.cpu.usage', 'system.memory.utilization', 'jvm.memory.used', 'jvm.memory.max',
-		          'system.disk.utilization', 'disk.free', 'disk.total', 'system.network.utilization', 'http.server.requests.active.active',
-		          'http.server.request.count', 'db.connection.pool.utilization', 'hikaricp.connections.active', 'hikaricp.connections.max', 'executor.pool.size'
+		          'system.disk.utilization', 'disk.free', 'disk.total', 'system.network.utilization',
+		          'db.connection.pool.utilization', 'hikaricp.connections.active', 'hikaricp.connections.max',
+		          'jdbc.connections.active', 'jdbc.connections.max'
 		      )
 		      OR JSONExtractFloat(attributes, 'system.cpu.utilization') > 0 OR JSONExtractFloat(attributes, 'system.memory.utilization') > 0
 		      OR JSONExtractFloat(attributes, 'system.disk.utilization') > 0 OR JSONExtractFloat(attributes, 'system.network.utilization') > 0

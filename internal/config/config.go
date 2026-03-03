@@ -77,10 +77,10 @@ func Load() Config {
 		QueueBatchSize:       int(getEnvInt64("QUEUE_BATCH_SIZE", 500)),
 		QueueFlushIntervalMs: getEnvInt64("QUEUE_FLUSH_INTERVAL_MS", 2_000),
 
-		KafkaEnabled: getEnvBool("KAFKA_ENABLED", true),
+		KafkaEnabled: getEnvBool("KAFKA_ENABLED", false),
 		KafkaBrokers: getEnv("KAFKA_BROKERS", "localhost:9092"),
 
-		RedisEnabled: getEnvBool("REDIS_ENABLED", true),
+		RedisEnabled: getEnvBool("REDIS_ENABLED", false),
 		RedisHost:    getEnv("REDIS_HOST", "localhost"),
 		RedisPort:    getEnv("REDIS_PORT", "6379"),
 
