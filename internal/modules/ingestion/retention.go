@@ -25,18 +25,17 @@ var defaultRetentionTables = []retentionTable{
 	{Name: "metrics", TSColumn: "timestamp"},
 	{Name: "deployments", TSColumn: "deploy_time"},
 	{Name: "health_check_results", TSColumn: "timestamp"},
-	{Name: "ai_requests", TSColumn: "timestamp"},
 }
 
 // RetentionManager periodically checks each team's retention policy in MySQL
 // and deletes expired data from ClickHouse. It enforces a minimum retention
 // of 1 day to prevent accidental data loss.
 type RetentionManager struct {
-	mysql              *sql.DB
-	clickhouse         *sql.DB
-	defaultRetention   int // days
-	interval           time.Duration
-	minRetentionDays   int
+	mysql            *sql.DB
+	clickhouse       *sql.DB
+	defaultRetention int // days
+	interval         time.Duration
+	minRetentionDays int
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup

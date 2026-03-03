@@ -189,35 +189,4 @@ TTL toDateTime(timestamp) + INTERVAL 3 DAY TO VOLUME 'warm',
     toDateTime(timestamp) + INTERVAL 7 DAY DELETE
 SETTINGS index_granularity = 8192;
 
--- ---------------------------------------------------------------------------
--- ai_requests
--- ---------------------------------------------------------------------------
-CREATE TABLE IF NOT EXISTS observability.ai_requests (
-    id                UInt64,
-    team_id           LowCardinality(String),
-    trace_id          String,
-    span_id           String,
-    model_name        LowCardinality(String),
-    model_provider    LowCardinality(String),
-    request_type      LowCardinality(String),
-    timestamp         DateTime64(9) CODEC(Delta, ZSTD(1)),
-    duration_ms       UInt64        CODEC(Delta, ZSTD(1)),
-    status            LowCardinality(String),
-    timeout           UInt8,
-    retry_count       Int32,
-    cost_usd          Float64,
-    tokens_prompt     UInt64,
-    tokens_completion UInt64,
-    tokens_system     UInt64,
-    cache_hit         UInt8,
-    cache_tokens      UInt64,
-    pii_detected      UInt8,
-    pii_categories    String,
-    guardrail_blocked UInt8,
-    content_policy    UInt8,
-    attributes        String CODEC(ZSTD(3))
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/ai_requests', '{replica}')
-ORDER BY (team_id, timestamp, model_name, status)
-TTL toDateTime(timestamp) + INTERVAL 3 DAY TO VOLUME 'warm',
-    toDateTime(timestamp) + INTERVAL 30 DAY DELETE
-SETTINGS index_granularity = 8192;
+
