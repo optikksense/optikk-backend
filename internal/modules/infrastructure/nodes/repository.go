@@ -1,6 +1,7 @@
 package nodes
 
 import (
+	"fmt"
 	"strings"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
@@ -24,21 +25,21 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 
 func (r *ClickHouseRepository) GetInfrastructureNodes(teamUUID string, startMs, endMs int64) ([]InfrastructureNode, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
-		SELECT if(host != '', host, ifNull(nullIf(JSONExtractString(attributes, 'host.name'), ''), 'unknown')) as host_name,
-		       uniqExactIf(pod, pod != '') as pod_count,
-		       uniqExactIf(container, container != '') as container_count,
-		       arrayStringConcat(groupUniqArray(if(service_name != '', service_name, 'unknown')), ',') as services_csv,
+		SELECT `+HostNameExpression()+` as host_name,
+		       uniqExactIf(`+ColPod+`, `+ColPod+` != '') as pod_count,
+		       uniqExactIf(`+ColContainer+`, `+ColContainer+` != '') as container_count,
+		       arrayStringConcat(groupUniqArray(if(`+ColServiceName+` != '', `+ColServiceName+`, '`+DefaultUnknown+`')), ',') as services_csv,
 		       COUNT(*) as request_count,
-		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count,
-		       if(COUNT(*) > 0, sum(if(status='ERROR' OR http_status_code >= 400, 1, 0))*100.0/COUNT(*), 0) as error_rate,
-		       AVG(duration_ms) as avg_latency,
-		       quantile(0.95)(duration_ms) as p95_latency,
-		       MAX(start_time) as last_seen
+		       sum(if(`+ErrorCondition()+`, 1, 0)) as error_count,
+		       if(COUNT(*) > 0, sum(if(`+ErrorCondition()+`, 1, 0))*100.0/COUNT(*), 0) as error_rate,
+		       AVG(`+ColDurationMs+`) as avg_latency,
+		       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(`+ColDurationMs+`) as p95_latency,
+		       MAX(`+ColStartTime+`) as last_seen
 		FROM spans
-		WHERE team_id = ? AND start_time BETWEEN ? AND ?
+		WHERE `+ColTeamID+` = ? AND `+ColStartTime+` BETWEEN ? AND ?
 		GROUP BY host_name
 		ORDER BY request_count DESC
-		LIMIT 200
+		LIMIT `+fmt.Sprintf("%d", MaxNodes)+`
 	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
@@ -65,21 +66,21 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(teamUUID string, startMs, 
 
 func (r *ClickHouseRepository) GetInfrastructureNodeServices(teamUUID, host string, startMs, endMs int64) ([]InfrastructureNodeService, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
-		SELECT if(service_name != '', service_name, 'unknown') as service_name,
+		SELECT if(`+ColServiceName+` != '', `+ColServiceName+`, '`+DefaultUnknown+`') as service_name,
 		       COUNT(*) as request_count,
-		       sum(if(status='ERROR' OR http_status_code >= 400, 1, 0)) as error_count,
-		       if(COUNT(*) > 0, sum(if(status='ERROR' OR http_status_code >= 400, 1, 0))*100.0/COUNT(*), 0) as error_rate,
-		       AVG(duration_ms) as avg_latency,
-		       quantile(0.95)(duration_ms) as p95_latency,
-		       uniqExact(pod) as pod_count
+		       sum(if(`+ErrorCondition()+`, 1, 0)) as error_count,
+		       if(COUNT(*) > 0, sum(if(`+ErrorCondition()+`, 1, 0))*100.0/COUNT(*), 0) as error_rate,
+		       AVG(`+ColDurationMs+`) as avg_latency,
+		       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(`+ColDurationMs+`) as p95_latency,
+		       uniqExact(`+ColPod+`) as pod_count
 		FROM spans
-		WHERE team_id = ?
-		  AND if(host != '', host, ifNull(nullIf(JSONExtractString(attributes, 'host.name'), ''), 'unknown')) = ?
-		  AND is_root = 1
-		  AND start_time BETWEEN ? AND ?
+		WHERE `+ColTeamID+` = ?
+		  AND `+HostNameExpression()+` = ?
+		  AND `+RootSpanCondition()+`
+		  AND `+ColStartTime+` BETWEEN ? AND ?
 		GROUP BY service_name
 		ORDER BY request_count DESC
-		LIMIT 100
+		LIMIT `+fmt.Sprintf("%d", MaxServices)+`
 	`, teamUUID, host, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {

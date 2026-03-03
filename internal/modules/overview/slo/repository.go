@@ -6,18 +6,19 @@ import (
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
-// sloBucketExpr returns a ClickHouse time-bucketing expression for adaptive granularity.
+// sloBucketExpr returns a ClickHouse time-bucketing expression for adaptive granularity
+// using OpenTelemetry conventions.
 func sloBucketExpr(startMs, endMs int64) string {
 	hours := (endMs - startMs) / 3_600_000
 	switch {
 	case hours <= 3:
-		return "formatDateTime(toStartOfMinute(start_time), '%Y-%m-%d %H:%i:00')"
+		return FmtIntervalOneMinute
 	case hours <= 24:
-		return "formatDateTime(toStartOfFiveMinutes(start_time), '%Y-%m-%d %H:%i:00')"
+		return FmtIntervalFiveMinutes
 	case hours <= 168:
-		return "formatDateTime(toStartOfHour(start_time), '%Y-%m-%d %H:%i:00')"
+		return FmtIntervalSixtyMinutes
 	default:
-		return "formatDateTime(toStartOfDay(start_time), '%Y-%m-%d %H:%i:00')"
+		return FmtIntervalOneDay
 	}
 }
 
@@ -48,14 +49,14 @@ func (r *ClickHouseRepository) GetSummary(teamUUID string, startMs, endMs int64,
 		       p95_latency_ms
 		FROM (
 			SELECT count()                         AS total_requests,
-			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
-			       avg(duration_ms)                AS avg_latency_ms,
-			       quantile(0.95)(duration_ms)     AS p95_latency_ms
+			       countIf(` + ErrorCondition() + `) AS error_count,
+			       avg(` + ColDurationMs + `)                AS avg_latency_ms,
+			       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(` + ColDurationMs + `)     AS p95_latency_ms
 			FROM spans
-			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`
+			WHERE ` + ColTeamID + ` = ? AND ` + RootSpanCondition() + ` AND ` + ColStartTime + ` BETWEEN ? AND ?`
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
-		query += ` AND service_name = ?`
+		query += ` AND ` + ColServiceName + ` = ?`
 		args = append(args, serviceName)
 	}
 	query += `
@@ -88,13 +89,13 @@ func (r *ClickHouseRepository) GetTimeSeries(teamUUID string, startMs, endMs int
 		FROM (
 			SELECT %s                     AS time_bucket,
 			       count()                   AS request_count,
-			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
-			       avg(duration_ms)          AS avg_latency_ms
+			       countIf(`+ErrorCondition()+`) AS error_count,
+			       avg(`+ColDurationMs+`)          AS avg_latency_ms
 			FROM spans
-			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`, bucket)
+			WHERE `+ColTeamID+` = ? AND `+RootSpanCondition()+` AND `+ColStartTime+` BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
-		query += ` AND service_name = ?`
+		query += ` AND ` + ColServiceName + ` = ?`
 		args = append(args, serviceName)
 	}
 	query += ` GROUP BY 1

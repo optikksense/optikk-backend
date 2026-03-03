@@ -6,18 +6,19 @@ import (
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
-// errorBucketExpr returns a ClickHouse expression for adaptive time bucketing.
+// errorBucketExpr returns a ClickHouse expression for adaptive time bucketing
+// using OpenTelemetry conventions.
 func errorBucketExpr(startMs, endMs int64) string {
 	hours := (endMs - startMs) / 3_600_000
 	switch {
 	case hours <= 3:
-		return "toStartOfMinute(start_time)"
+		return IntervalOneMinute
 	case hours <= 24:
-		return "toStartOfInterval(start_time, INTERVAL 5 MINUTE)"
+		return IntervalFiveMinutes
 	case hours <= 168:
-		return "toStartOfInterval(start_time, INTERVAL 60 MINUTE)"
+		return IntervalSixtyMinutes
 	default:
-		return "toStartOfInterval(start_time, INTERVAL 1440 MINUTE)"
+		return IntervalOneDay
 	}
 }
 
@@ -39,22 +40,22 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-// GetErrorGroups still reads raw spans — needs groupArray(trace_id) for sample trace IDs.
+// GetErrorGroups reads raw spans and groups errors by service, operation, and status.
 func (r *ClickHouseRepository) GetErrorGroups(teamUUID string, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error) {
 	query := `
-		SELECT service_name, operation_name, status_message, http_status_code,
+		SELECT ` + ColServiceName + `, ` + ColOperationName + `, ` + ColStatusMessage + `, ` + ColHTTPStatusCode + `,
 		       COUNT(*) as error_count,
-		       MAX(start_time) as last_occurrence,
-		       MIN(start_time) as first_occurrence,
-		       (groupArray(trace_id) as trace_ids)[1] as sample_trace_id
+		       MAX(` + ColStartTime + `) as last_occurrence,
+		       MIN(` + ColStartTime + `) as first_occurrence,
+		       (groupArray(` + ColTraceID + `) as trace_ids)[1] as sample_trace_id
 		FROM spans
-		WHERE team_id = ? AND (status = 'ERROR' OR http_status_code >= 400) AND start_time BETWEEN ? AND ?`
+		WHERE ` + ColTeamID + ` = ? AND (` + ErrorCondition() + `) AND ` + ColStartTime + ` BETWEEN ? AND ?`
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
-		query += ` AND service_name = ?`
+		query += ` AND ` + ColServiceName + ` = ?`
 		args = append(args, serviceName)
 	}
-	query += ` GROUP BY service_name, operation_name, status_message, http_status_code
+	query += ` GROUP BY ` + ColServiceName + `, ` + ColOperationName + `, ` + ColStatusMessage + `, ` + ColHTTPStatusCode + `
 	           ORDER BY error_count DESC LIMIT ?`
 	args = append(args, limit)
 
@@ -79,7 +80,7 @@ func (r *ClickHouseRepository) GetErrorGroups(teamUUID string, startMs, endMs in
 	return groups, nil
 }
 
-// GetServiceErrorRate reads from spans_service_1m with adaptive time bucketing.
+// GetServiceErrorRate reads from spans with adaptive time bucketing.
 func (r *ClickHouseRepository) GetServiceErrorRate(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
 	bucket := errorBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
@@ -90,19 +91,19 @@ func (r *ClickHouseRepository) GetServiceErrorRate(teamUUID string, startMs, end
 		       if(request_count > 0, error_count*100.0/request_count, 0) AS error_rate,
 		       avg_latency
 		FROM (
-			SELECT service_name,
+			SELECT `+ColServiceName+`,
 			       %s AS timestamp,
 			       count()                   AS request_count,
-			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
-			       avg(duration_ms)          AS avg_latency
+			       countIf(`+ErrorCondition()+`) AS error_count,
+			       avg(`+ColDurationMs+`)          AS avg_latency
 			FROM spans
-			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`, bucket)
+			WHERE `+ColTeamID+` = ? AND `+RootSpanCondition()+` AND `+ColStartTime+` BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
-		query += ` AND service_name = ?`
+		query += ` AND ` + ColServiceName + ` = ?`
 		args = append(args, serviceName)
 	}
-	query += fmt.Sprintf(` GROUP BY service_name, %s
+	query += fmt.Sprintf(` GROUP BY `+ColServiceName+`, %s
 		)
 		ORDER BY timestamp ASC`, bucket)
 
@@ -125,23 +126,23 @@ func (r *ClickHouseRepository) GetServiceErrorRate(teamUUID string, startMs, end
 	return points, nil
 }
 
-// GetErrorVolume reads from spans_service_1m with adaptive time bucketing, filtering minutes with errors.
+// GetErrorVolume reads from spans with adaptive time bucketing, filtering minutes with errors.
 func (r *ClickHouseRepository) GetErrorVolume(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
 	bucket := errorBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT *
 		FROM (
-			SELECT service_name,
+			SELECT `+ColServiceName+`,
 			       %s AS timestamp,
-			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count
+			       countIf(`+ErrorCondition()+`) AS error_count
 			FROM spans
-			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`, bucket)
+			WHERE `+ColTeamID+` = ? AND `+RootSpanCondition()+` AND `+ColStartTime+` BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
-		query += ` AND service_name = ?`
+		query += ` AND ` + ColServiceName + ` = ?`
 		args = append(args, serviceName)
 	}
-	query += fmt.Sprintf(` GROUP BY service_name, %s
+	query += fmt.Sprintf(` GROUP BY `+ColServiceName+`, %s
 		)
 		WHERE error_count > 0
 		ORDER BY timestamp ASC`, bucket)
@@ -162,25 +163,25 @@ func (r *ClickHouseRepository) GetErrorVolume(teamUUID string, startMs, endMs in
 	return points, nil
 }
 
-// GetLatencyDuringErrorWindows reads from spans_service_1m with adaptive time bucketing, filtering minutes with errors.
+// GetLatencyDuringErrorWindows reads from spans with adaptive time bucketing, filtering minutes with errors.
 func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
 	bucket := errorBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT *
 		FROM (
-			SELECT service_name,
+			SELECT `+ColServiceName+`,
 			       %s AS timestamp,
 			       count()                   AS request_count,
-			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
-			       avg(duration_ms)          AS avg_latency
+			       countIf(`+ErrorCondition()+`) AS error_count,
+			       avg(`+ColDurationMs+`)          AS avg_latency
 			FROM spans
-			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?`, bucket)
+			WHERE `+ColTeamID+` = ? AND `+RootSpanCondition()+` AND `+ColStartTime+` BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
-		query += ` AND service_name = ?`
+		query += ` AND ` + ColServiceName + ` = ?`
 		args = append(args, serviceName)
 	}
-	query += fmt.Sprintf(` GROUP BY service_name, %s
+	query += fmt.Sprintf(` GROUP BY `+ColServiceName+`, %s
 		)
 		WHERE error_count > 0
 		ORDER BY timestamp ASC`, bucket)

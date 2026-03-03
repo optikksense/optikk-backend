@@ -1,6 +1,8 @@
 package topology
 
 import (
+	"fmt"
+
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
@@ -23,13 +25,13 @@ func (r *ClickHouseRepository) GetTopology(teamUUID string, startMs, endMs int64
 	nodesRaw, err := dbutil.QueryMaps(r.db, `
 		SELECT *
 		FROM (
-			SELECT service_name,
+			SELECT `+ColServiceName+`,
 			       count()                   AS request_count,
-			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
-			       avg(duration_ms)          AS avg_latency
+			       countIf(`+ErrorCondition()+`) AS error_count,
+			       avg(`+ColDurationMs+`)          AS avg_latency
 			FROM spans
-			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?
-			GROUP BY service_name
+			WHERE `+ColTeamID+` = ? AND `+RootSpanCondition()+` AND `+ColStartTime+` BETWEEN ? AND ?
+			GROUP BY `+ColServiceName+`
 		)
 		ORDER BY request_count DESC
 	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
@@ -37,7 +39,7 @@ func (r *ClickHouseRepository) GetTopology(teamUUID string, startMs, endMs int64
 		return TopologyData{}, err
 	}
 
-	// Reads spans_edges_1m — no self-JOIN on raw spans.
+	// Reads service-to-service edges from spans
 	edgesRaw, err := dbutil.QueryMaps(r.db, `
 		SELECT source,
 		       target,
@@ -45,17 +47,17 @@ func (r *ClickHouseRepository) GetTopology(teamUUID string, startMs, endMs int64
 		       avg_latency,
 		       if(call_count > 0, error_count*100.0/call_count, 0) AS error_rate
 		FROM (
-			SELECT parent_service_name        AS source,
-			       service_name               AS target,
+			SELECT `+ColParentServiceName+`        AS source,
+			       `+ColServiceName+`               AS target,
 			       count()                    AS call_count,
-			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
-			       avg(duration_ms)           AS avg_latency
+			       countIf(`+ErrorCondition()+`) AS error_count,
+			       avg(`+ColDurationMs+`)           AS avg_latency
 			FROM spans
-			WHERE team_id = ? AND parent_service_name != '' AND start_time BETWEEN ? AND ?
-			GROUP BY parent_service_name, service_name
+			WHERE `+ColTeamID+` = ? AND `+ColParentServiceName+` != '' AND `+ColStartTime+` BETWEEN ? AND ?
+			GROUP BY `+ColParentServiceName+`, `+ColServiceName+`
 		)
 		ORDER BY call_count DESC
-		LIMIT 100
+		LIMIT `+fmt.Sprintf("%d", MaxEdges)+`
 	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return TopologyData{}, err
@@ -97,11 +99,11 @@ func (r *ClickHouseRepository) GetTopology(teamUUID string, startMs, endMs int64
 }
 
 func serviceStatus(errorRate float64) string {
-	if errorRate > 5 {
-		return "unhealthy"
+	if errorRate > UnhealthyMinErrorRate {
+		return StatusUnhealthy
 	}
-	if errorRate > 1 {
-		return "degraded"
+	if errorRate > HealthyMaxErrorRate {
+		return StatusDegraded
 	}
-	return "healthy"
+	return StatusHealthy
 }

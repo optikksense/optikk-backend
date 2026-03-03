@@ -7,69 +7,93 @@ import (
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
-const queueNameExpr = `coalesce(
-	nullIf(JSONExtractString(attributes, 'messaging.destination.name'), ''),
-	nullIf(JSONExtractString(attributes, 'messaging.source.name'), ''),
-	nullIf(JSONExtractString(attributes, 'messaging.destination'), ''),
-	nullIf(JSONExtractString(attributes, 'messaging.kafka.destination'), ''),
-	nullIf(JSONExtractString(attributes, 'messaging.kafka.topic'), ''),
-	nullIf(JSONExtractString(attributes, 'kafka.topic'), ''),
-	nullIf(JSONExtractString(attributes, 'topic'), ''),
-	nullIf(JSONExtractString(attributes, 'queue.name'), ''),
-	nullIf(JSONExtractString(attributes, 'name'), ''),
-	'unknown'
-)`
+// queueNameExpression returns a ClickHouse expression to extract queue name from attributes
+func queueNameExpression() string {
+	return fmt.Sprintf(`coalesce(
+	nullIf(JSONExtractString(%s, '%s'), ''),
+	nullIf(JSONExtractString(%s, '%s'), ''),
+	nullIf(JSONExtractString(%s, '%s'), ''),
+	nullIf(JSONExtractString(%s, '%s'), ''),
+	nullIf(JSONExtractString(%s, '%s'), ''),
+	nullIf(JSONExtractString(%s, '%s'), ''),
+	nullIf(JSONExtractString(%s, '%s'), ''),
+	nullIf(JSONExtractString(%s, '%s'), ''),
+	nullIf(JSONExtractString(%s, '%s'), ''),
+	'%s'
+)`,
+		ColAttributes, AttrMessagingDestinationName,
+		ColAttributes, AttrMessagingSourceName,
+		ColAttributes, AttrMessagingDestination,
+		ColAttributes, AttrMessagingKafkaDestination,
+		ColAttributes, AttrMessagingKafkaTopic,
+		ColAttributes, AttrKafkaTopic,
+		ColAttributes, AttrTopic,
+		ColAttributes, AttrQueueName,
+		ColAttributes, AttrName,
+		DefaultUnknown)
+}
 
-const dbCollectionExpr = `coalesce(
-	nullIf(JSONExtractString(attributes, 'db.mongodb.collection'), ''),
-	nullIf(JSONExtractString(attributes, 'collection'), ''),
-	nullIf(JSONExtractString(attributes, 'db.collection.name'), ''),
-	nullIf(JSONExtractString(attributes, 'db.sql.table'), ''),
-	nullIf(JSONExtractString(attributes, 'pool'), ''),
-	nullIf(JSONExtractString(attributes, 'db.statement'), ''),
-	'unknown'
-)`
+// dbCollectionExpression returns a ClickHouse expression to extract database collection/table name
+func dbCollectionExpression() string {
+	return fmt.Sprintf(`coalesce(
+	nullIf(JSONExtractString(%s, '%s'), ''),
+	nullIf(JSONExtractString(%s, '%s'), ''),
+	nullIf(JSONExtractString(%s, '%s'), ''),
+	nullIf(JSONExtractString(%s, '%s'), ''),
+	nullIf(JSONExtractString(%s, '%s'), ''),
+	nullIf(JSONExtractString(%s, '%s'), ''),
+	'%s'
+)`,
+		ColAttributes, AttrDBMongoDBCollection,
+		ColAttributes, AttrCollection,
+		ColAttributes, AttrDBCollectionName,
+		ColAttributes, AttrDBSQLTable,
+		ColAttributes, AttrPool,
+		ColAttributes, AttrDBStatement,
+		DefaultUnknown)
+}
 
-const dbSystemExpr = `coalesce(
-	nullIf(JSONExtractString(attributes, 'db.system'), ''),
+// dbSystemExpression returns a ClickHouse expression to determine database system
+func dbSystemExpression() string {
+	return fmt.Sprintf(`coalesce(
+	nullIf(JSONExtractString(%s, '%s'), ''),
 	if(
-		lower(metric_name) LIKE '%mongo%' OR lower(service_name) LIKE '%mongo%',
-		'mongodb',
+		lower(%s) LIKE '%%mongo%%' OR lower(%s) LIKE '%%mongo%%',
+		'%s',
 		if(
-			lower(metric_name) LIKE 'hikaricp.%' OR lower(metric_name) LIKE 'jdbc.%'
-			OR lower(service_name) LIKE '%mysql%' OR lower(service_name) LIKE '%postgres%',
-			'mysql',
+			lower(%s) LIKE 'hikaricp.%%' OR lower(%s) LIKE 'jdbc.%%'
+			OR lower(%s) LIKE '%%mysql%%' OR lower(%s) LIKE '%%postgres%%',
+			'%s',
 			if(
-				lower(metric_name) LIKE '%redis%' OR lower(service_name) LIKE '%redis%',
-				'redis',
+				lower(%s) LIKE '%%redis%%' OR lower(%s) LIKE '%%redis%%',
+				'%s',
 				if(
-					lower(metric_name) LIKE '%sql%',
-					'sql',
-					'unknown'
+					lower(%s) LIKE '%%sql%%',
+					'%s',
+					'%s'
 				)
 			)
 		)
 	)
-)`
+)`,
+		ColAttributes, AttrDBSystem,
+		ColMetricName, ColServiceName, DBSystemMongoDB,
+		ColMetricName, ColMetricName,
+		ColServiceName, ColServiceName, DBSystemMySQL,
+		ColMetricName, ColServiceName, DBSystemRedis,
+		ColMetricName, DBSystemSQL,
+		DefaultUnknown)
+}
 
-const dbLatencyMetricFilter = `metric_name IN (
-	'mongodb.driver.commands',
-	'hikaricp.connections.usage'
-)`
+// dbLatencyMetricFilter returns a filter for database latency metrics
+func dbLatencyMetricFilter() string {
+	return fmt.Sprintf(`%s IN (%s)`, ColMetricName, MetricSetToInClause(DatabaseLatencyMetrics))
+}
 
-const dbAllMetricFilter = `metric_name IN (
-	'mongodb.driver.commands',
-	'hikaricp.connections.acquire',
-	'hikaricp.connections.usage',
-	'hikaricp.connections.active',
-	'hikaricp.connections.max',
-	'jdbc.connections.active',
-	'jdbc.connections.max',
-	'cache.hits',
-	'cache.misses',
-	'db.replication.lag.ms',
-	'db.client.errors'
-)`
+// dbAllMetricFilter returns a filter for all database-related metrics
+func dbAllMetricFilter() string {
+	return fmt.Sprintf(`%s IN (%s)`, ColMetricName, MetricSetToInClause(DatabaseAllMetrics))
+}
 
 func syncAggregateExpr(parts ...string) string {
 	joined := strings.Join(parts, ", ")
@@ -101,50 +125,6 @@ func nullableMergedFloatPair(a, b *float64) *float64 {
 	return &v
 }
 
-// satBucketExpr returns a ClickHouse time-bucketing expression for adaptive granularity.
-func satBucketExpr(startMs, endMs int64) string {
-	hours := (endMs - startMs) / 3_600_000
-	switch {
-	case hours <= 3:
-		return "toStartOfMinute(timestamp)"
-	case hours <= 24:
-		return "toStartOfFiveMinutes(timestamp)"
-	case hours <= 168:
-		return "toStartOfHour(timestamp)"
-	default:
-		return "toStartOfDay(timestamp)"
-	}
-}
-
-// satFmtBucketExpr returns a formatted ClickHouse time-bucketing expression.
-func satFmtBucketExpr(startMs, endMs int64) string {
-	hours := (endMs - startMs) / 3_600_000
-	switch {
-	case hours <= 3:
-		return "formatDateTime(toStartOfMinute(timestamp), '%Y-%m-%dT%H:%i:%SZ')"
-	case hours <= 24:
-		return "formatDateTime(toStartOfFiveMinutes(timestamp), '%Y-%m-%dT%H:%i:%SZ')"
-	case hours <= 168:
-		return "formatDateTime(toStartOfHour(timestamp), '%Y-%m-%dT%H:%i:%SZ')"
-	default:
-		return "formatDateTime(toStartOfDay(timestamp), '%Y-%m-%dT%H:%i:%SZ')"
-	}
-}
-
-func satBucketSeconds(startMs, endMs int64) float64 {
-	hours := (endMs - startMs) / 3_600_000
-	switch {
-	case hours <= 3:
-		return 60
-	case hours <= 24:
-		return 300
-	case hours <= 168:
-		return 3600
-	default:
-		return 86400
-	}
-}
-
 // ClickHouseRepository encapsulates saturation data access logic.
 type ClickHouseRepository struct {
 	db dbutil.Querier
@@ -156,54 +136,27 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) GetKafkaQueueLag(teamUUID string, startMs, endMs int64) ([]KafkaQueueLag, error) {
-	bucket := satBucketExpr(startMs, endMs)
+	bucket := TimeBucketExpression(startMs, endMs)
+	queueExpr := queueNameExpression()
+
+	kafkaLagMetrics := MetricSetToInClause(KafkaConsumerLagMetrics)
+
 	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT %s as queue,
 		       %s as minute_bucket,
-		       avgIf(value, metric_name IN (
-		           'messaging.kafka.consumer.lag',
-		           'messaging.kafka.consumer.records.lag',
-		           'messaging.kafka.consumer.records-lag',
-		           'messaging.kafka.consumer.records.lag.max',
-		           'kafka.consumer.lag',
-		           'kafka.consumer.records.lag',
-		           'kafka.consumer.records-lag',
-		           'kafka.consumer.records.lag.max',
-		           'kafka.consumer.fetch.manager.records.lag',
-		           'kafka.consumer.fetch.manager.records.lag.max',
-		           'kafka.consumer.fetch.records.lag.max'
-		       ) AND isFinite(value)) as avg_consumer_lag,
-		       maxIf(value, metric_name IN (
-		           'messaging.kafka.consumer.lag',
-		           'messaging.kafka.consumer.records.lag',
-		           'messaging.kafka.consumer.records-lag',
-		           'messaging.kafka.consumer.records.lag.max',
-		           'kafka.consumer.lag',
-		           'kafka.consumer.records.lag',
-		           'kafka.consumer.records-lag',
-		           'kafka.consumer.records.lag.max',
-		           'kafka.consumer.fetch.manager.records.lag',
-		           'kafka.consumer.fetch.manager.records.lag.max',
-		           'kafka.consumer.fetch.records.lag.max'
-		       ) AND isFinite(value)) as max_consumer_lag
+		       avgIf(%s, %s IN (%s) AND isFinite(%s)) as avg_consumer_lag,
+		       maxIf(%s, %s IN (%s) AND isFinite(%s)) as max_consumer_lag
 		FROM metrics
-		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
-		  AND metric_name IN (
-		      'messaging.kafka.consumer.lag',
-		      'messaging.kafka.consumer.records.lag',
-		      'messaging.kafka.consumer.records-lag',
-		      'messaging.kafka.consumer.records.lag.max',
-		      'kafka.consumer.lag',
-		      'kafka.consumer.records.lag',
-		      'kafka.consumer.records-lag',
-		      'kafka.consumer.records.lag.max',
-		      'kafka.consumer.fetch.manager.records.lag',
-		      'kafka.consumer.fetch.manager.records.lag.max',
-		      'kafka.consumer.fetch.records.lag.max'
-		  )
+		WHERE %s = ? AND %s BETWEEN ? AND ?
+		  AND %s IN (%s)
 		GROUP BY queue, minute_bucket
 		ORDER BY minute_bucket ASC, queue ASC
-	`, queueNameExpr, bucket), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, queueExpr, bucket,
+		ColValue, ColMetricName, kafkaLagMetrics, ColValue,
+		ColValue, ColMetricName, kafkaLagMetrics, ColValue,
+		ColTeamID, ColTimestamp,
+		ColMetricName, kafkaLagMetrics),
+		teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -222,27 +175,25 @@ func (r *ClickHouseRepository) GetKafkaQueueLag(teamUUID string, startMs, endMs 
 }
 
 func (r *ClickHouseRepository) GetKafkaProductionRate(teamUUID string, startMs, endMs int64) ([]KafkaProductionRate, error) {
-	bucket := satBucketExpr(startMs, endMs)
-	bucketSeconds := satBucketSeconds(startMs, endMs)
+	bucket := TimeBucketExpression(startMs, endMs)
+	bucketSeconds := TimeBucketSeconds(startMs, endMs)
+	queueExpr := queueNameExpression()
+	producerMetrics := MetricSetToInClause(KafkaProducerMetrics)
+
 	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT %s as queue,
 		       %s as minute_bucket,
-		       maxIf(
-		           toFloat64(value),
-		           metric_name IN (
-		               'kafka.producer.record.send.total',
-		               'spring.kafka.template'
-		           ) AND isFinite(value)
-		       ) / ? as avg_publish_rate
+		       maxIf(toFloat64(%s), %s IN (%s) AND isFinite(%s)) / ? as avg_publish_rate
 		FROM metrics
-		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
-		  AND metric_name IN (
-		      'spring.kafka.template',
-		      'kafka.producer.record.send.total'
-		  )
+		WHERE %s = ? AND %s BETWEEN ? AND ?
+		  AND %s IN (%s)
 		GROUP BY queue, minute_bucket
 		ORDER BY minute_bucket ASC, queue ASC
-	`, queueNameExpr, bucket), bucketSeconds, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, queueExpr, bucket,
+		ColValue, ColMetricName, producerMetrics, ColValue,
+		ColTeamID, ColTimestamp,
+		ColMetricName, producerMetrics),
+		bucketSeconds, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -260,27 +211,25 @@ func (r *ClickHouseRepository) GetKafkaProductionRate(teamUUID string, startMs, 
 }
 
 func (r *ClickHouseRepository) GetKafkaConsumptionRate(teamUUID string, startMs, endMs int64) ([]KafkaConsumptionRate, error) {
-	bucket := satBucketExpr(startMs, endMs)
-	bucketSeconds := satBucketSeconds(startMs, endMs)
+	bucket := TimeBucketExpression(startMs, endMs)
+	bucketSeconds := TimeBucketSeconds(startMs, endMs)
+	queueExpr := queueNameExpression()
+	consumerMetrics := MetricSetToInClause(KafkaConsumerMetrics)
+
 	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT %s as queue,
 		       %s as minute_bucket,
-		       maxIf(
-		           toFloat64(value),
-		           metric_name IN (
-		               'spring.kafka.listener',
-		               'kafka.consumer.fetch.manager.records.consumed.total'
-		           ) AND isFinite(value)
-		       ) / ? as avg_receive_rate
+		       maxIf(toFloat64(%s), %s IN (%s) AND isFinite(%s)) / ? as avg_receive_rate
 		FROM metrics
-		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
-		  AND metric_name IN (
-		      'spring.kafka.listener',
-		      'kafka.consumer.fetch.manager.records.consumed.total'
-		  )
+		WHERE %s = ? AND %s BETWEEN ? AND ?
+		  AND %s IN (%s)
 		GROUP BY queue, minute_bucket
 		ORDER BY minute_bucket ASC, queue ASC
-	`, queueNameExpr, bucket), bucketSeconds, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, queueExpr, bucket,
+		ColValue, ColMetricName, consumerMetrics, ColValue,
+		ColTeamID, ColTimestamp,
+		ColMetricName, consumerMetrics),
+		bucketSeconds, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -298,22 +247,32 @@ func (r *ClickHouseRepository) GetKafkaConsumptionRate(teamUUID string, startMs,
 }
 
 func (r *ClickHouseRepository) GetDatabaseQueryByTable(teamUUID string, startMs, endMs int64) ([]DatabaseQueryByTable, error) {
-	bucket := satBucketExpr(startMs, endMs)
+	bucket := TimeBucketExpression(startMs, endMs)
+	dbCollExpr := dbCollectionExpression()
+
 	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT %s as table_name,
 		       %s as minute_bucket,
-		       maxIf(count, metric_name = 'mongodb.driver.commands') as mongo_query_count,
-		       maxIf(count, metric_name = 'hikaricp.connections.usage') as usage_query_count,
-		       avgIf(avg, metric_name = 'mongodb.driver.commands' AND isFinite(avg)) * 1000 as mongo_avg_latency_ms,
-		       avgIf(avg, metric_name = 'hikaricp.connections.usage' AND isFinite(avg)) * 1000 as usage_avg_latency_ms,
-		       maxIf(p95, metric_name = 'mongodb.driver.commands' AND isFinite(p95)) * 1000 as mongo_p95_latency_ms,
-		       maxIf(p95, metric_name = 'hikaricp.connections.usage' AND isFinite(p95)) * 1000 as usage_p95_latency_ms
+		       maxIf(%s, %s = '%s') as mongo_query_count,
+		       maxIf(%s, %s = '%s') as usage_query_count,
+		       avgIf(%s, %s = '%s' AND isFinite(%s)) * 1000 as mongo_avg_latency_ms,
+		       avgIf(%s, %s = '%s' AND isFinite(%s)) * 1000 as usage_avg_latency_ms,
+		       maxIf(%s, %s = '%s' AND isFinite(%s)) * 1000 as mongo_p95_latency_ms,
+		       maxIf(%s, %s = '%s' AND isFinite(%s)) * 1000 as usage_p95_latency_ms
 		FROM metrics
-		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
-		  AND `+dbLatencyMetricFilter+`
+		WHERE %s = ? AND %s BETWEEN ? AND ?
+		  AND %s
 		GROUP BY table_name, minute_bucket
 		ORDER BY minute_bucket ASC, table_name ASC
-	`, dbCollectionExpr, bucket), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, dbCollExpr, bucket,
+		ColCount, ColMetricName, MetricMongoDBDriverCommands,
+		ColCount, ColMetricName, MetricHikariCPConnectionsUsage,
+		ColAvg, ColMetricName, MetricMongoDBDriverCommands, ColAvg,
+		ColAvg, ColMetricName, MetricHikariCPConnectionsUsage, ColAvg,
+		ColP95, ColMetricName, MetricMongoDBDriverCommands, ColP95,
+		ColP95, ColMetricName, MetricHikariCPConnectionsUsage, ColP95,
+		ColTeamID, ColTimestamp,
+		dbLatencyMetricFilter()), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -345,25 +304,25 @@ func (r *ClickHouseRepository) GetDatabaseQueryByTable(teamUUID string, startMs,
 }
 
 func (r *ClickHouseRepository) GetDatabaseAvgLatency(teamUUID string, startMs, endMs int64) ([]DatabaseAvgLatency, error) {
-	bucket := satBucketExpr(startMs, endMs)
+	bucket := TimeBucketExpression(startMs, endMs)
 	avgLatencyExpr := syncAggregateExpr(
-		`avgIf(avg, metric_name = 'mongodb.driver.commands' AND isFinite(avg)) * 1000`,
-		`avgIf(avg, metric_name = 'hikaricp.connections.usage' AND isFinite(avg)) * 1000`,
+		fmt.Sprintf(`avgIf(%s, %s = '%s' AND isFinite(%s)) * 1000`, ColAvg, ColMetricName, MetricMongoDBDriverCommands, ColAvg),
+		fmt.Sprintf(`avgIf(%s, %s = '%s' AND isFinite(%s)) * 1000`, ColAvg, ColMetricName, MetricHikariCPConnectionsUsage, ColAvg),
 	)
 	p95LatencyExpr := syncAggregateExpr(
-		`maxIf(p95, metric_name = 'mongodb.driver.commands' AND isFinite(p95)) * 1000`,
-		`maxIf(p95, metric_name = 'hikaricp.connections.usage' AND isFinite(p95)) * 1000`,
+		fmt.Sprintf(`maxIf(%s, %s = '%s' AND isFinite(%s)) * 1000`, ColP95, ColMetricName, MetricMongoDBDriverCommands, ColP95),
+		fmt.Sprintf(`maxIf(%s, %s = '%s' AND isFinite(%s)) * 1000`, ColP95, ColMetricName, MetricHikariCPConnectionsUsage, ColP95),
 	)
 	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT %s as minute_bucket,
 		       coalesce(%s, 0) as avg_latency_ms,
 		       coalesce(%s, 0) as p95_latency_ms
 		FROM metrics
-		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
-		  AND `+dbLatencyMetricFilter+`
+		WHERE %s = ? AND %s BETWEEN ? AND ?
+		  AND %s
 		GROUP BY minute_bucket
 		ORDER BY minute_bucket ASC
-	`, bucket, avgLatencyExpr, p95LatencyExpr), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, bucket, avgLatencyExpr, p95LatencyExpr, ColTeamID, ColTimestamp, dbLatencyMetricFilter()), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -383,28 +342,33 @@ func (r *ClickHouseRepository) GetDatabaseAvgLatency(teamUUID string, startMs, e
 // GetDatabaseCacheSummary queries DB query latency and cache-hit insights from metrics.
 func (r *ClickHouseRepository) GetDatabaseCacheSummary(teamUUID string, startMs, endMs int64) (DbCacheSummary, error) {
 	avgLatencyExpr := syncAggregateExpr(
-		`avgIf(avg, metric_name = 'mongodb.driver.commands' AND isFinite(avg)) * 1000`,
-		`avgIf(avg, metric_name = 'hikaricp.connections.usage' AND isFinite(avg)) * 1000`,
+		fmt.Sprintf(`avgIf(%s, %s = '%s' AND isFinite(%s)) * 1000`, ColAvg, ColMetricName, MetricMongoDBDriverCommands, ColAvg),
+		fmt.Sprintf(`avgIf(%s, %s = '%s' AND isFinite(%s)) * 1000`, ColAvg, ColMetricName, MetricHikariCPConnectionsUsage, ColAvg),
 	)
 	p95LatencyExpr := syncAggregateExpr(
-		`maxIf(p95, metric_name = 'mongodb.driver.commands' AND isFinite(p95)) * 1000`,
-		`maxIf(p95, metric_name = 'hikaricp.connections.usage' AND isFinite(p95)) * 1000`,
+		fmt.Sprintf(`maxIf(%s, %s = '%s' AND isFinite(%s)) * 1000`, ColP95, ColMetricName, MetricMongoDBDriverCommands, ColP95),
+		fmt.Sprintf(`maxIf(%s, %s = '%s' AND isFinite(%s)) * 1000`, ColP95, ColMetricName, MetricHikariCPConnectionsUsage, ColP95),
 	)
 	queryCountExpr := syncAggregateExpr(
-		`if(maxIf(count, metric_name = 'mongodb.driver.commands') > 0, toFloat64(maxIf(count, metric_name = 'mongodb.driver.commands')), NULL)`,
-		`if(maxIf(count, metric_name = 'hikaricp.connections.usage') > 0, toFloat64(maxIf(count, metric_name = 'hikaricp.connections.usage')), NULL)`,
+		fmt.Sprintf(`if(maxIf(%s, %s = '%s') > 0, toFloat64(maxIf(%s, %s = '%s')), NULL)`, ColCount, ColMetricName, MetricMongoDBDriverCommands, ColCount, ColMetricName, MetricMongoDBDriverCommands),
+		fmt.Sprintf(`if(maxIf(%s, %s = '%s') > 0, toFloat64(maxIf(%s, %s = '%s')), NULL)`, ColCount, ColMetricName, MetricHikariCPConnectionsUsage, ColCount, ColMetricName, MetricHikariCPConnectionsUsage),
 	)
-	summaryRaw, err := dbutil.QueryMap(r.db, `
-		SELECT `+avgLatencyExpr+` as avg_query_latency_ms,
-		       `+p95LatencyExpr+` as p95_query_latency_ms,
-		       toInt64(coalesce(`+queryCountExpr+`, 0)) as db_span_count,
-		       sumIf(value, metric_name = 'cache.hits' AND isFinite(value)) as cache_hits,
-		       sumIf(value, metric_name = 'cache.misses' AND isFinite(value)) as cache_misses,
-		       avgIf(value, metric_name = 'db.replication.lag.ms' AND isFinite(value)) as avg_replication_lag_ms
+	summaryRaw, err := dbutil.QueryMap(r.db, fmt.Sprintf(`
+		SELECT %s as avg_query_latency_ms,
+		       %s as p95_query_latency_ms,
+		       toInt64(coalesce(%s, 0)) as db_span_count,
+		       sumIf(%s, %s = '%s' AND isFinite(%s)) as cache_hits,
+		       sumIf(%s, %s = '%s' AND isFinite(%s)) as cache_misses,
+		       avgIf(%s, %s = '%s' AND isFinite(%s)) as avg_replication_lag_ms
 		FROM metrics
-		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
-		  AND `+dbAllMetricFilter+`
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+		WHERE %s = ? AND %s BETWEEN ? AND ?
+		  AND %s
+	`, avgLatencyExpr, p95LatencyExpr, queryCountExpr,
+		ColValue, ColMetricName, MetricCacheHits, ColValue,
+		ColValue, ColMetricName, MetricCacheMisses, ColValue,
+		ColValue, ColMetricName, MetricDBReplicationLagMs, ColValue,
+		ColTeamID, ColTimestamp,
+		dbAllMetricFilter()), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return DbCacheSummary{}, err
@@ -422,23 +386,36 @@ func (r *ClickHouseRepository) GetDatabaseCacheSummary(teamUUID string, startMs,
 
 // GetDatabaseSystems queries DB metrics grouped by the database system.
 func (r *ClickHouseRepository) GetDatabaseSystems(teamUUID string, startMs, endMs int64) ([]DbSystemBreakdown, error) {
-	systemRaw, err := dbutil.QueryMaps(r.db, `
-		SELECT `+dbSystemExpr+` as db_system,
-		       maxIf(count, metric_name = 'mongodb.driver.commands') as mongo_query_count,
-		       maxIf(count, metric_name = 'hikaricp.connections.usage') as usage_query_count,
-		       avgIf(avg, metric_name = 'mongodb.driver.commands' AND isFinite(avg)) * 1000 as mongo_avg_query_latency_ms,
-		       avgIf(avg, metric_name = 'hikaricp.connections.usage' AND isFinite(avg)) * 1000 as usage_avg_query_latency_ms,
-		       maxIf(p95, metric_name = 'mongodb.driver.commands' AND isFinite(p95)) * 1000 as mongo_p95_query_latency_ms,
-		       maxIf(p95, metric_name = 'hikaricp.connections.usage' AND isFinite(p95)) * 1000 as usage_p95_query_latency_ms,
-		       sumIf(value, metric_name = 'db.client.errors') as error_count,
-		       maxIf(count, metric_name = 'mongodb.driver.commands') as mongo_span_count,
-		       maxIf(count, metric_name = 'hikaricp.connections.usage') as usage_span_count
+	dbSysExpr := dbSystemExpression()
+
+	systemRaw, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
+		SELECT %s as db_system,
+		       maxIf(%s, %s = '%s') as mongo_query_count,
+		       maxIf(%s, %s = '%s') as usage_query_count,
+		       avgIf(%s, %s = '%s' AND isFinite(%s)) * 1000 as mongo_avg_query_latency_ms,
+		       avgIf(%s, %s = '%s' AND isFinite(%s)) * 1000 as usage_avg_query_latency_ms,
+		       maxIf(%s, %s = '%s' AND isFinite(%s)) * 1000 as mongo_p95_query_latency_ms,
+		       maxIf(%s, %s = '%s' AND isFinite(%s)) * 1000 as usage_p95_query_latency_ms,
+		       sumIf(%s, %s = '%s') as error_count,
+		       maxIf(%s, %s = '%s') as mongo_span_count,
+		       maxIf(%s, %s = '%s') as usage_span_count
 		FROM metrics
-		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
-		  AND `+dbAllMetricFilter+`
+		WHERE %s = ? AND %s BETWEEN ? AND ?
+		  AND %s
 		GROUP BY db_system
 		ORDER BY greatest(ifNull(mongo_query_count, 0), ifNull(usage_query_count, 0)) DESC
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, dbSysExpr,
+		ColCount, ColMetricName, MetricMongoDBDriverCommands,
+		ColCount, ColMetricName, MetricHikariCPConnectionsUsage,
+		ColAvg, ColMetricName, MetricMongoDBDriverCommands, ColAvg,
+		ColAvg, ColMetricName, MetricHikariCPConnectionsUsage, ColAvg,
+		ColP95, ColMetricName, MetricMongoDBDriverCommands, ColP95,
+		ColP95, ColMetricName, MetricHikariCPConnectionsUsage, ColP95,
+		ColValue, ColMetricName, MetricDBClientErrors,
+		ColCount, ColMetricName, MetricMongoDBDriverCommands,
+		ColCount, ColMetricName, MetricHikariCPConnectionsUsage,
+		ColTeamID, ColTimestamp,
+		dbAllMetricFilter()), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -481,25 +458,41 @@ func (r *ClickHouseRepository) GetDatabaseSystems(teamUUID string, startMs, endM
 
 // GetDatabaseTopTables queries table-specific DB latency, hits, and misses.
 func (r *ClickHouseRepository) GetDatabaseTopTables(teamUUID string, startMs, endMs int64) ([]DbTableMetric, error) {
+	dbCollExpr := dbCollectionExpression()
+	dbSysExpr := dbSystemExpression()
+
 	tableMetricsRaw, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT %s as table_name,
-		       service_name,
+		       %s,
 		       %s as db_system,
-		       avgIf(avg, metric_name = 'mongodb.driver.commands' AND isFinite(avg)) * 1000 as mongo_avg_query_latency_ms,
-		       avgIf(avg, metric_name = 'hikaricp.connections.usage' AND isFinite(avg)) * 1000 as usage_avg_query_latency_ms,
-		       maxIf(max, metric_name = 'mongodb.driver.commands' AND isFinite(max)) * 1000 as mongo_max_query_latency_ms,
-		       maxIf(max, metric_name = 'hikaricp.connections.usage' AND isFinite(max)) * 1000 as usage_max_query_latency_ms,
-		       sumIf(value, metric_name = 'cache.hits' AND isFinite(value)) as cache_hits,
-		       sumIf(value, metric_name = 'cache.misses' AND isFinite(value)) as cache_misses,
-		       maxIf(count, metric_name = 'mongodb.driver.commands') as mongo_query_count,
-		       maxIf(count, metric_name = 'hikaricp.connections.usage') as usage_query_count
+		       avgIf(%s, %s = '%s' AND isFinite(%s)) * 1000 as mongo_avg_query_latency_ms,
+		       avgIf(%s, %s = '%s' AND isFinite(%s)) * 1000 as usage_avg_query_latency_ms,
+		       maxIf(%s, %s = '%s' AND isFinite(%s)) * 1000 as mongo_max_query_latency_ms,
+		       maxIf(%s, %s = '%s' AND isFinite(%s)) * 1000 as usage_max_query_latency_ms,
+		       sumIf(%s, %s = '%s' AND isFinite(%s)) as cache_hits,
+		       sumIf(%s, %s = '%s' AND isFinite(%s)) as cache_misses,
+		       maxIf(%s, %s = '%s') as mongo_query_count,
+		       maxIf(%s, %s = '%s') as usage_query_count
 		FROM metrics
-		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
-		  AND `+dbAllMetricFilter+`
-		GROUP BY table_name, service_name, db_system
+		WHERE %s = ? AND %s BETWEEN ? AND ?
+		  AND %s
+		GROUP BY table_name, %s, db_system
 		ORDER BY greatest(ifNull(mongo_avg_query_latency_ms, 0), ifNull(usage_avg_query_latency_ms, 0)) DESC
 		LIMIT 50
-	`, dbCollectionExpr, dbSystemExpr), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, dbCollExpr,
+		ColServiceName,
+		dbSysExpr,
+		ColAvg, ColMetricName, MetricMongoDBDriverCommands, ColAvg,
+		ColAvg, ColMetricName, MetricHikariCPConnectionsUsage, ColAvg,
+		ColMax, ColMetricName, MetricMongoDBDriverCommands, ColMax,
+		ColMax, ColMetricName, MetricHikariCPConnectionsUsage, ColMax,
+		ColValue, ColMetricName, MetricCacheHits, ColValue,
+		ColValue, ColMetricName, MetricCacheMisses, ColValue,
+		ColCount, ColMetricName, MetricMongoDBDriverCommands,
+		ColCount, ColMetricName, MetricHikariCPConnectionsUsage,
+		ColTeamID, ColTimestamp,
+		dbAllMetricFilter(),
+		ColServiceName), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -536,7 +529,9 @@ func (r *ClickHouseRepository) GetDatabaseTopTables(teamUUID string, startMs, en
 
 // GetQueueConsumerLag queries the consumer lag timeseries for queues.
 func (r *ClickHouseRepository) GetQueueConsumerLag(teamUUID string, startMs, endMs int64) ([]MqBucket, error) {
-	bucket := satFmtBucketExpr(startMs, endMs)
+	bucket := FormattedTimeBucketExpression(startMs, endMs)
+	consumerLagMetrics := MetricSetToInClause(KafkaConsumerLagMetricsExtended)
+
 	timeseriesRaw, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT %s as time_bucket,
 		       if(service_name != '', service_name, 'unknown') as service_name,
@@ -551,7 +546,7 @@ func (r *ClickHouseRepository) GetQueueConsumerLag(teamUUID string, startMs, end
 		           nullIf(JSONExtractString(attributes, 'topic'), ''),
 		           nullIf(JSONExtractString(attributes, 'queue.name'), ''),
 		           nullIf(JSONExtractString(attributes, 'name'), ''),
-		           nullIf(if(metric_name IN ('kafka.consumer.fetch.manager.records.lag', 'kafka.consumer.fetch.manager.records.lag.max', 'kafka.consumer.fetch.records.lag', 'kafka.consumer.fetch.records.lag.max', 'messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'messaging.kafka.consumer.records-lag', 'messaging.kafka.consumer.records.lag.max', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'kafka.consumer.records.lag.max'), 'kafka-consumer-lag', ''), ''),
+		           nullIf(if(metric_name IN (%s), 'kafka-consumer-lag', ''), ''),
 		           'unknown'
 		       ) as queue_name,
 		       coalesce(
@@ -559,27 +554,13 @@ func (r *ClickHouseRepository) GetQueueConsumerLag(teamUUID string, startMs, end
 		           if(metric_name LIKE 'kafka.%%' OR metric_name LIKE 'messaging.kafka.%%', 'kafka', ''),
 		           'kafka'
 		       ) as messaging_system,
-		       avgIf(value, metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'messaging.kafka.consumer.records-lag', 'messaging.kafka.consumer.records.lag.max', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'kafka.consumer.records.lag.max', 'kafka.consumer.fetch.manager.records.lag', 'kafka.consumer.fetch.manager.records.lag.max', 'kafka.consumer.fetch.records.lag', 'kafka.consumer.fetch.records.lag.max', 'executor.queued') AND isFinite(value)) as avg_consumer_lag
+		       avgIf(value, metric_name IN (%s) AND isFinite(value)) as avg_consumer_lag
 		FROM metrics
 		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
-		  AND metric_name IN (
-		      'messaging.kafka.consumer.lag',
-		      'messaging.kafka.consumer.records.lag',
-		      'messaging.kafka.consumer.records-lag',
-		      'messaging.kafka.consumer.records.lag.max',
-		      'kafka.consumer.lag',
-		      'kafka.consumer.records.lag',
-		      'kafka.consumer.records-lag',
-		      'kafka.consumer.records.lag.max',
-		      'kafka.consumer.fetch.manager.records.lag',
-		      'kafka.consumer.fetch.manager.records.lag.max',
-		      'kafka.consumer.fetch.records.lag',
-		      'kafka.consumer.fetch.records.lag.max',
-		      'executor.queued'
-		  )
+		  AND metric_name IN (%s)
 		GROUP BY time_bucket, service_name, queue_name, messaging_system
 		ORDER BY time_bucket ASC, service_name ASC, queue_name ASC
-	`, bucket), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, bucket, consumerLagMetrics, consumerLagMetrics, consumerLagMetrics), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -600,7 +581,9 @@ func (r *ClickHouseRepository) GetQueueConsumerLag(teamUUID string, startMs, end
 
 // GetQueueTopicLag queries the queue depth timeseries for topics.
 func (r *ClickHouseRepository) GetQueueTopicLag(teamUUID string, startMs, endMs int64) ([]MqBucket, error) {
-	bucket := satFmtBucketExpr(startMs, endMs)
+	bucket := FormattedTimeBucketExpression(startMs, endMs)
+	queueDepthMetrics := MetricSetToInClause(QueueDepthMetrics)
+
 	timeseriesRaw, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT %s as time_bucket,
 		       if(service_name != '', service_name, 'unknown') as service_name,
@@ -621,17 +604,13 @@ func (r *ClickHouseRepository) GetQueueTopicLag(teamUUID string, startMs, endMs 
 		           if(metric_name LIKE 'kafka.%%' OR metric_name LIKE 'messaging.kafka.%%', 'kafka', ''),
 		           'kafka'
 		       ) as messaging_system,
-		       avgIf(value, metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as avg_queue_depth
+		       avgIf(value, metric_name IN (%s) AND isFinite(value)) as avg_queue_depth
 		FROM metrics
 		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
-		  AND metric_name IN (
-		      'queue.depth',
-		      'messaging.queue.depth',
-		      'executor.queued'
-		  )
+		  AND metric_name IN (%s)
 		GROUP BY time_bucket, service_name, queue_name, messaging_system
 		ORDER BY time_bucket ASC, service_name ASC, queue_name ASC
-	`, bucket), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, bucket, queueDepthMetrics, queueDepthMetrics), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -657,7 +636,11 @@ func (r *ClickHouseRepository) GetQueueTopQueues(teamUUID string, startMs, endMs
 		durationSecs = 1.0
 	}
 
-	topQueuesRaw, err := dbutil.QueryMaps(r.db, `
+	allQueueMetrics := MetricSetToInClause(AllQueueMetrics)
+	consumerLagMetrics := MetricSetToInClause(KafkaConsumerLagMetricsExtended)
+	queueDepthMetrics := MetricSetToInClause(QueueDepthMetrics)
+
+	topQueuesRaw, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT coalesce(
 		           nullIf(JSONExtractString(attributes, 'messaging.queue.name'), ''),
 		           nullIf(JSONExtractString(attributes, 'messaging.source.name'), ''),
@@ -669,49 +652,29 @@ func (r *ClickHouseRepository) GetQueueTopQueues(teamUUID string, startMs, endMs
 		           nullIf(JSONExtractString(attributes, 'topic'), ''),
 		           nullIf(JSONExtractString(attributes, 'queue.name'), ''),
 		           nullIf(JSONExtractString(attributes, 'name'), ''),
-		           nullIf(if(metric_name IN ('kafka.consumer.fetch.manager.records.lag', 'kafka.consumer.fetch.manager.records.lag.max', 'kafka.consumer.fetch.records.lag', 'kafka.consumer.fetch.records.lag.max', 'messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'messaging.kafka.consumer.records-lag', 'messaging.kafka.consumer.records.lag.max', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'kafka.consumer.records.lag.max'), 'kafka-consumer-lag', ''), ''),
+		           nullIf(if(metric_name IN (%s), 'kafka-consumer-lag', ''), ''),
 		           'unknown'
 		       ) as queue_name,
 		       if(service_name != '', service_name, 'unknown') as service_name,
 		       coalesce(
 		           nullIf(JSONExtractString(attributes, 'messaging.system'), ''),
-		           if(metric_name LIKE 'kafka.%' OR metric_name LIKE 'messaging.kafka.%', 'kafka', ''),
+		           if(metric_name LIKE 'kafka.%%' OR metric_name LIKE 'messaging.kafka.%%', 'kafka', ''),
 		           'kafka'
 		       ) as messaging_system,
-		       avgIf(value, metric_name IN ('queue.depth', 'messaging.queue.depth', 'executor.queued') AND isFinite(value)) as avg_queue_depth,
-		       maxIf(value, metric_name IN ('messaging.kafka.consumer.lag', 'messaging.kafka.consumer.records.lag', 'messaging.kafka.consumer.records-lag', 'messaging.kafka.consumer.records.lag.max', 'kafka.consumer.lag', 'kafka.consumer.records.lag', 'kafka.consumer.records-lag', 'kafka.consumer.records.lag.max', 'kafka.consumer.fetch.manager.records.lag', 'kafka.consumer.fetch.manager.records.lag.max', 'kafka.consumer.fetch.records.lag', 'kafka.consumer.fetch.records.lag.max', 'executor.queued') AND isFinite(value)) as max_consumer_lag,
-		       maxIf(toFloat64(count), metric_name = 'spring.kafka.template') / ? as avg_publish_rate,
-		       maxIf(toFloat64(count), metric_name = 'spring.kafka.listener') / ? as avg_receive_rate,
+		       avgIf(value, metric_name IN (%s) AND isFinite(value)) as avg_queue_depth,
+		       maxIf(value, metric_name IN (%s) AND isFinite(value)) as max_consumer_lag,
+		       maxIf(toFloat64(count), metric_name = '%s') / ? as avg_publish_rate,
+		       maxIf(toFloat64(count), metric_name = '%s') / ? as avg_receive_rate,
 		       toInt64(count()) as sample_count
 		FROM metrics
 		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
-		  AND metric_name IN (
-		      'queue.depth',
-		      'messaging.queue.depth',
-		      'executor.queued',
-		      'spring.kafka.template',
-		      'spring.kafka.listener',
-		      'messaging.kafka.consumer.lag',
-		      'messaging.kafka.consumer.records.lag',
-		      'messaging.kafka.consumer.records-lag',
-		      'messaging.kafka.consumer.records.lag.max',
-		      'kafka.consumer.lag',
-		      'kafka.consumer.records.lag',
-		      'kafka.consumer.records-lag',
-		      'kafka.consumer.records.lag.max',
-		      'kafka.consumer.fetch.manager.records.lag',
-		      'kafka.consumer.fetch.manager.records.lag.max',
-		      'kafka.consumer.fetch.records.lag',
-		      'kafka.consumer.fetch.records.lag.max',
-		      'messaging.kafka.published',
-		      'messaging.kafka.consumed',
-		      'app.activity.kafka.published',
-		      'app.activity.kafka.consumed'
-		  )
+		  AND metric_name IN (%s)
 		GROUP BY queue_name, service_name, messaging_system
 		ORDER BY avg_queue_depth DESC, max_consumer_lag DESC, sample_count DESC
 		LIMIT 50
-	`, durationSecs, durationSecs, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, consumerLagMetrics, queueDepthMetrics, consumerLagMetrics,
+		MetricSpringKafkaTemplate, MetricSpringKafkaListener, allQueueMetrics),
+		durationSecs, durationSecs, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err

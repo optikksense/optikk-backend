@@ -6,25 +6,21 @@ import (
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
-// serviceBucketExpr returns a ClickHouse expression for adaptive time bucketing.
+// serviceBucketExpr returns a ClickHouse expression for adaptive time bucketing
+// using OpenTelemetry conventions.
 func serviceBucketExpr(startMs, endMs int64) string {
 	hours := (endMs - startMs) / 3_600_000
 	switch {
 	case hours <= 3:
-		return "toStartOfMinute(start_time)"
+		return IntervalOneMinute
 	case hours <= 24:
-		return "toStartOfInterval(start_time, INTERVAL 5 MINUTE)"
+		return IntervalFiveMinutes
 	case hours <= 168:
-		return "toStartOfInterval(start_time, INTERVAL 60 MINUTE)"
+		return IntervalSixtyMinutes
 	default:
-		return "toStartOfInterval(start_time, INTERVAL 1440 MINUTE)"
+		return IntervalOneDay
 	}
 }
-
-const (
-	healthyMaxErrorRate  = 1.0
-	degradedMaxErrorRate = 5.0
-)
 
 // Repository encapsulates data access logic for the services overview page.
 type Repository interface {
@@ -51,10 +47,10 @@ func (r *ClickHouseRepository) GetTotalServices(teamUUID string, startMs, endMs 
 	row, err := dbutil.QueryMap(r.db, `
 		SELECT COUNT(*) as count
 		FROM (
-			SELECT service_name
+			SELECT `+ColServiceName+`
 			FROM spans
-			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?
-			GROUP BY service_name
+			WHERE `+ColTeamID+` = ? AND `+RootSpanCondition()+` AND `+ColStartTime+` BETWEEN ? AND ?
+			GROUP BY `+ColServiceName+`
 		)
 	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
@@ -64,31 +60,31 @@ func (r *ClickHouseRepository) GetTotalServices(teamUUID string, startMs, endMs 
 }
 
 func (r *ClickHouseRepository) GetHealthyServices(teamUUID string, startMs, endMs int64) (int64, error) {
-	return r.countServicesByErrorRate(teamUUID, startMs, endMs, "error_rate <= ?", healthyMaxErrorRate)
+	return r.countServicesByErrorRate(teamUUID, startMs, endMs, "error_rate <= ?", HealthyMaxErrorRate)
 }
 
 func (r *ClickHouseRepository) GetDegradedServices(teamUUID string, startMs, endMs int64) (int64, error) {
-	return r.countServicesByErrorRate(teamUUID, startMs, endMs, "error_rate > ? AND error_rate <= ?", healthyMaxErrorRate, degradedMaxErrorRate)
+	return r.countServicesByErrorRate(teamUUID, startMs, endMs, "error_rate > ? AND error_rate <= ?", HealthyMaxErrorRate, DegradedMaxErrorRate)
 }
 
 func (r *ClickHouseRepository) GetUnhealthyServices(teamUUID string, startMs, endMs int64) (int64, error) {
-	return r.countServicesByErrorRate(teamUUID, startMs, endMs, "error_rate > ?", degradedMaxErrorRate)
+	return r.countServicesByErrorRate(teamUUID, startMs, endMs, "error_rate > ?", DegradedMaxErrorRate)
 }
 
 func (r *ClickHouseRepository) GetServiceMetrics(teamUUID string, startMs, endMs int64) ([]ServiceMetric, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT *
 		FROM (
-			SELECT service_name,
+			SELECT `+ColServiceName+`,
 			       count()                        AS request_count,
-			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
-			       avg(duration_ms)               AS avg_latency,
-			       quantile(0.5)(duration_ms)     AS p50_latency,
-			       quantile(0.95)(duration_ms)    AS p95_latency,
-			       quantile(0.99)(duration_ms)    AS p99_latency
+			       countIf(`+ErrorCondition()+`) AS error_count,
+			       avg(`+ColDurationMs+`)               AS avg_latency,
+			       quantile(`+fmt.Sprintf("%.1f", QuantileP50)+`)(`+ColDurationMs+`)     AS p50_latency,
+			       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(`+ColDurationMs+`)    AS p95_latency,
+			       quantile(`+fmt.Sprintf("%.2f", QuantileP99)+`)(`+ColDurationMs+`)    AS p99_latency
 			FROM spans
-			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?
-			GROUP BY service_name
+			WHERE `+ColTeamID+` = ? AND `+RootSpanCondition()+` AND `+ColStartTime+` BETWEEN ? AND ?
+			GROUP BY `+ColServiceName+`
 		)
 		ORDER BY request_count DESC
 	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
@@ -116,14 +112,14 @@ func (r *ClickHouseRepository) GetServiceTimeSeries(teamUUID string, startMs, en
 	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT *
 		FROM (
-			SELECT service_name,
+			SELECT `+ColServiceName+`,
 			       %s AS timestamp,
 			       count()                   AS request_count,
-			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
-			       avg(duration_ms)          AS avg_latency
+			       countIf(`+ErrorCondition()+`) AS error_count,
+			       avg(`+ColDurationMs+`)          AS avg_latency
 			FROM spans
-			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?
-			GROUP BY service_name, %s
+			WHERE `+ColTeamID+` = ? AND `+RootSpanCondition()+` AND `+ColStartTime+` BETWEEN ? AND ?
+			GROUP BY `+ColServiceName+`, %s
 		)
 		ORDER BY timestamp ASC, request_count DESC
 	`, bucket, bucket), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
@@ -148,16 +144,16 @@ func (r *ClickHouseRepository) GetServiceEndpoints(teamUUID string, startMs, end
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT *
 		FROM (
-			SELECT service_name, operation_name, http_method,
+			SELECT `+ColServiceName+`, `+ColOperationName+`, `+ColHTTPMethod+`,
 			       count()                        AS request_count,
-			       countIf(status = 'ERROR' OR http_status_code >= 400) AS error_count,
-			       avg(duration_ms)               AS avg_latency,
-			       quantile(0.5)(duration_ms)     AS p50_latency,
-			       quantile(0.95)(duration_ms)    AS p95_latency,
-			       quantile(0.99)(duration_ms)    AS p99_latency
+			       countIf(`+ErrorCondition()+`) AS error_count,
+			       avg(`+ColDurationMs+`)               AS avg_latency,
+			       quantile(`+fmt.Sprintf("%.1f", QuantileP50)+`)(`+ColDurationMs+`)     AS p50_latency,
+			       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(`+ColDurationMs+`)    AS p95_latency,
+			       quantile(`+fmt.Sprintf("%.2f", QuantileP99)+`)(`+ColDurationMs+`)    AS p99_latency
 			FROM spans
-			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ? AND service_name = ?
-			GROUP BY service_name, operation_name, http_method
+			WHERE `+ColTeamID+` = ? AND `+RootSpanCondition()+` AND `+ColStartTime+` BETWEEN ? AND ? AND `+ColServiceName+` = ?
+			GROUP BY `+ColServiceName+`, `+ColOperationName+`, `+ColHTTPMethod+`
 		)
 		ORDER BY request_count DESC
 		LIMIT 100
@@ -190,12 +186,12 @@ func (r *ClickHouseRepository) countServicesByErrorRate(teamUUID string, startMs
 	row, err := dbutil.QueryMap(r.db, `
 		SELECT COUNT(*) as count
 		FROM (
-			SELECT service_name,
+			SELECT `+ColServiceName+`,
 			       if(count() > 0,
-			          countIf(status = 'ERROR' OR http_status_code >= 400)*100.0/count(), 0) as error_rate
+			          countIf(`+ErrorCondition()+`)*100.0/count(), 0) as error_rate
 			FROM spans
-			WHERE team_id = ? AND is_root = 1 AND start_time BETWEEN ? AND ?
-			GROUP BY service_name
+			WHERE `+ColTeamID+` = ? AND `+RootSpanCondition()+` AND `+ColStartTime+` BETWEEN ? AND ?
+			GROUP BY `+ColServiceName+`
 			HAVING `+havingClause+`
 		)
 	`, queryArgs...)
