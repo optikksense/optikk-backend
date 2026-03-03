@@ -178,12 +178,16 @@ var (
 	KafkaProducerMetrics = []string{
 		MetricKafkaProducerRecordSendTotal,
 		MetricSpringKafkaTemplate,
+		MetricMessagingKafkaPublished,
+		MetricAppActivityKafkaPublished,
 	}
 
 	// KafkaConsumerMetrics - All metrics related to Kafka consumer consumption
 	KafkaConsumerMetrics = []string{
 		MetricSpringKafkaListener,
 		MetricKafkaConsumerFetchManagerRecordsConsumedTotal,
+		MetricMessagingKafkaConsumed,
+		MetricAppActivityKafkaConsumed,
 	}
 
 	// AllQueueMetrics - All queue-related metrics for top queues analysis
