@@ -7,9 +7,7 @@ import (
 	"github.com/gin-gonic/gin"
 	util "github.com/observability/observability-backend-go/internal/helpers"
 	"github.com/observability/observability-backend-go/internal/modules/ai"
-	"github.com/observability/observability-backend-go/internal/modules/alerts"
 	"github.com/observability/observability-backend-go/internal/modules/dashboardconfig"
-	"github.com/observability/observability-backend-go/internal/modules/infrastructure/deployments"
 	nodes "github.com/observability/observability-backend-go/internal/modules/infrastructure/nodes"
 	"github.com/observability/observability-backend-go/internal/modules/infrastructure/resource_utilisation"
 	telemetry "github.com/observability/observability-backend-go/internal/modules/ingestion"
@@ -28,7 +26,6 @@ import (
 
 type moduleConfigs struct {
 	Identity            identity.Config
-	Alerts              alerts.Config
 	Overview            overviewmodule.Config
 	OverviewSLO         overviewslo.Config
 	OverviewErrors      overviewerrors.Config
@@ -39,7 +36,6 @@ type moduleConfigs struct {
 	Saturation          saturation.Config
 	Logs                logsmodule.Config
 	Traces              traces.Config
-	Deployments         deployments.Config
 	AI                  ai.Config
 	DashboardConfig     dashboardconfig.Config
 	Telemetry           telemetry.Config
@@ -48,7 +44,6 @@ type moduleConfigs struct {
 func defaultModuleConfigs() moduleConfigs {
 	return moduleConfigs{
 		Identity:            identity.DefaultConfig(),
-		Alerts:              alerts.DefaultConfig(),
 		Overview:            overviewmodule.DefaultConfig(),
 		OverviewSLO:         overviewslo.DefaultConfig(),
 		OverviewErrors:      overviewerrors.DefaultConfig(),
@@ -59,7 +54,6 @@ func defaultModuleConfigs() moduleConfigs {
 		Saturation:          saturation.DefaultConfig(),
 		Logs:                logsmodule.DefaultConfig(),
 		Traces:              traces.DefaultConfig(),
-		Deployments:         deployments.DefaultConfig(),
 		AI:                  ai.DefaultConfig(),
 		DashboardConfig:     dashboardconfig.DefaultConfig(),
 		Telemetry:           telemetry.DefaultConfig(),
@@ -73,7 +67,6 @@ func (a *App) registerRoutes(r *gin.Engine) {
 	v1 := r.Group("/api/v1")
 
 	identity.RegisterRoutes(cfg.Identity, api, v1, a.Auth, a.Users)
-	alerts.RegisterRoutes(cfg.Alerts, api, v1, a.Alerts)
 	overviewmodule.RegisterRoutes(cfg.Overview, api, v1, a.Overview)
 	overviewslo.RegisterRoutes(cfg.OverviewSLO, api, v1, a.OverviewSLO)
 	overviewerrors.RegisterRoutes(cfg.OverviewErrors, api, v1, a.OverviewErrors)
@@ -84,7 +77,6 @@ func (a *App) registerRoutes(r *gin.Engine) {
 	saturation.RegisterRoutes(cfg.Saturation, api, v1, a.Saturation)
 	logsmodule.RegisterRoutes(cfg.Logs, api, v1, a.Logs)
 	traces.RegisterRoutes(cfg.Traces, api, v1, a.Traces)
-	deployments.RegisterRoutes(cfg.Deployments, api, v1, a.Deployments)
 	ai.RegisterRoutes(cfg.AI, api, v1, a.AI)
 	dashboardconfig.RegisterRoutes(cfg.DashboardConfig, api, v1, a.DashboardConfig)
 

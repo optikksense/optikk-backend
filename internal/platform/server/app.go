@@ -12,10 +12,8 @@ import (
 	"github.com/observability/observability-backend-go/internal/config"
 	"github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/ai"
-	"github.com/observability/observability-backend-go/internal/modules/alerts"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 	"github.com/observability/observability-backend-go/internal/modules/dashboardconfig"
-	"github.com/observability/observability-backend-go/internal/modules/infrastructure/deployments"
 	nodes "github.com/observability/observability-backend-go/internal/modules/infrastructure/nodes"
 	"github.com/observability/observability-backend-go/internal/modules/infrastructure/resource_utilisation"
 	telemetry "github.com/observability/observability-backend-go/internal/modules/ingestion"
@@ -61,8 +59,6 @@ type App struct {
 
 	Auth                AuthModule
 	Users               UserModule
-	Alerts              *alerts.AlertHandler
-	Deployments         *deployments.DeploymentHandler
 	Logs                *logsapi.LogHandler
 	Traces              *tracesapi.TraceHandler
 	Overview            *overviewmodule.OverviewHandler
@@ -118,7 +114,6 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 
 	getTenant := modulecommon.GetTenantFunc(middleware.GetTenant)
 
-	alertCondCol := resolveAlertConditionColumn(db)
 	identityTables := identitystore.NewMySQLProvider(db)
 	identityAuthService := identityservice.NewAuthService(identityTables, jwt, cfg.JWTExpirationMs)
 	identityUserService := identityservice.NewUserService(identityTables)
@@ -173,24 +168,6 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 
 		Auth:  identity.NewAuthHandler(getTenant, identityAuthService, jwt, blacklist),
 		Users: identity.NewUserHandler(getTenant, identityUserService),
-		Alerts: &alerts.AlertHandler{
-			DBTenant: modulecommon.DBTenant{
-				DB:        db,
-				GetTenant: getTenant,
-			},
-			Service: alerts.NewService(
-				alerts.NewRepository(db, alertCondCol),
-			),
-		},
-		Deployments: &deployments.DeploymentHandler{
-			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
-				GetTenant: getTenant,
-			},
-			Service: deployments.NewService(
-				deployments.NewRepository(database.NewMySQLWrapper(ch)),
-			),
-		},
 		Logs: logsapi.NewHandler(
 			getTenant,
 			logsapi.NewRepository(database.NewMySQLWrapper(ch)),
@@ -433,18 +410,4 @@ func (a *App) Start(ctx context.Context) error {
 
 		return <-errCh
 	}
-}
-
-func resolveAlertConditionColumn(db *sql.DB) string {
-	var count int64
-	if err := db.QueryRow(`
-		SELECT COUNT(*)
-		FROM INFORMATION_SCHEMA.COLUMNS
-		WHERE TABLE_SCHEMA = DATABASE()
-		  AND TABLE_NAME = 'alerts'
-		  AND COLUMN_NAME = 'condition_expr'
-	`).Scan(&count); err == nil && count > 0 {
-		return "condition_expr"
-	}
-	return "`condition`"
 }
