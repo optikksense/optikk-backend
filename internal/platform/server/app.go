@@ -30,11 +30,7 @@ import (
 	identitystore "github.com/observability/observability-backend-go/internal/modules/user/store"
 	"github.com/observability/observability-backend-go/internal/platform/auth"
 	"github.com/observability/observability-backend-go/internal/platform/leader"
-	appmetrics "github.com/observability/observability-backend-go/internal/platform/metrics"
 	"github.com/observability/observability-backend-go/internal/platform/middleware"
-	"github.com/observability/observability-backend-go/internal/platform/sse"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/redis/go-redis/v9"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
@@ -47,7 +43,6 @@ type App struct {
 	JWTManager     auth.JWTManager
 	TokenBlacklist *auth.TokenBlacklist
 
-	SSEBroker     SSEPublisher   // real-time event broker for SSE streams
 	LeaderElector leader.Elector // decides which pod runs singleton background jobs
 
 	TelemetryIngester telemetry.Ingester
@@ -71,14 +66,6 @@ type App struct {
 	Saturation          *saturation.SaturationHandler
 	AI                  *ai.AIHandler
 	DashboardConfig     *dashboardconfig.DashboardConfigHandler
-}
-
-// SSEPublisher is the interface satisfied by both *sse.Broker (in-process)
-// and *sse.RedisBroker (multi-pod Redis Pub/Sub).
-type SSEPublisher interface {
-	Subscribe(teamID int64) chan sse.Event
-	Unsubscribe(teamID int64, ch chan sse.Event)
-	Publish(teamID int64, eventType string, data any)
 }
 
 type AuthModule interface {
@@ -130,21 +117,11 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 	}
 
 	var blacklist *auth.TokenBlacklist
-	var sseBroker SSEPublisher
 
 	if cfg.RedisEnabled {
 		blacklist = auth.NewTokenBlacklist(cfg.RedisHost, cfg.RedisPort)
-
-		// Fix 6: Use Redis-backed SSE broker for cross-pod event fanout.
-		// When Redis is available all pods share the same Pub/Sub channel:
-		// "sse:team:{teamID}". Falls back to in-process on Redis errors.
-		redisClient := redis.NewClient(&redis.Options{
-			Addr: fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort),
-		})
-		sseBroker = sse.NewRedisBroker(redisClient)
 	} else {
 		blacklist = auth.NewInMemoryTokenBlacklist()
-		sseBroker = sse.NewBroker()
 	}
 
 	retentionMgr := telemetry.NewRetentionManager(db, ch, telemetry.RetentionManagerConfig{
@@ -162,7 +139,6 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 		Config:           cfg,
 		JWTManager:       jwt,
 		TokenBlacklist:   blacklist,
-		SSEBroker:        sseBroker,
 		RetentionManager: retentionMgr,
 		LeaderElector:    leaderElector,
 
@@ -270,14 +246,10 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 }
 
 func (a *App) Router() *gin.Engine {
-	// Register Prometheus metrics collectors once.
-	appmetrics.Register()
-
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(middleware.ErrorRecovery())
 	r.Use(middleware.CORSMiddleware())
-	r.Use(appmetrics.GinMiddleware())
 	r.Use(middleware.TenantMiddleware(a.JWTManager, a.TokenBlacklist))
 
 	// Rate limiting: 1000 requests per second with burst of 2000.
@@ -289,11 +261,7 @@ func (a *App) Router() *gin.Engine {
 	r.GET("/health/live", a.healthLive)
 	r.GET("/health/ready", a.healthReady)
 
-	// Prometheus metrics endpoint (unauthenticated).
-	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
-
 	a.registerRoutes(r)
-	a.registerSwagger(r)
 	return r
 }
 

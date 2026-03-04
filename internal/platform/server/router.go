@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	util "github.com/observability/observability-backend-go/internal/helpers"
 	"github.com/observability/observability-backend-go/internal/modules/ai"
 	"github.com/observability/observability-backend-go/internal/modules/dashboardconfig"
 	nodes "github.com/observability/observability-backend-go/internal/modules/infrastructure/nodes"
@@ -20,8 +19,6 @@ import (
 	servicetopology "github.com/observability/observability-backend-go/internal/modules/services/topology"
 	traces "github.com/observability/observability-backend-go/internal/modules/spans"
 	identity "github.com/observability/observability-backend-go/internal/modules/user"
-	"github.com/observability/observability-backend-go/internal/platform/middleware"
-	"github.com/observability/observability-backend-go/internal/platform/sse"
 )
 
 type moduleConfigs struct {
@@ -80,13 +77,6 @@ func (a *App) registerRoutes(r *gin.Engine) {
 	ai.RegisterRoutes(cfg.AI, api, v1, a.AI)
 	dashboardconfig.RegisterRoutes(cfg.DashboardConfig, api, v1, a.DashboardConfig)
 
-	// SSE real-time event stream — authenticated via JWT (same as other API routes).
-	// Pass JWTManager so the handler can validate tokens from query params
-	// (EventSource does not support custom HTTP headers).
-	sseHandler := sse.NewHandler(a.SSEBroker, middleware.GetTenant, a.JWTManager)
-	api.GET("/events/stream", sseHandler.Stream)
-	v1.GET("/events/stream", sseHandler.Stream)
-
 	// OTLP ingestion endpoint — authenticated via api_key (not JWT).
 	// NewRepository takes *sql.DB directly to use clickhouse-go/v2 batch mode.
 	repo := telemetry.NewRepository(a.CH)
@@ -123,17 +113,8 @@ func (a *App) registerRoutes(r *gin.Engine) {
 	a.TelemetryIngester = ingester
 	otlpHandler := telemetry.NewHandler(ingester, a.DB)
 
-	// Wire SSE notifications: after successful ingest, publish a lightweight
-	// event to the broker so SSE-connected dashboards can refresh.
-	broker := a.SSEBroker
 	onIngest := func(teamUUID string, signal string, count int) {
-		teamID := util.FromTeamUUID(teamUUID)
-		if teamID > 0 {
-			broker.Publish(teamID, "data-update", map[string]any{
-				"signal": signal,
-				"count":  count,
-			})
-		}
+		// no-op without SSE
 	}
 	otlpHandler.SetOnIngest(onIngest)
 
