@@ -50,7 +50,7 @@ type Config struct {
 	// Fix 22: Multi-region support.
 	// AppRegion is the Kubernetes region/AZ this pod is running in (e.g. "us-east-1").
 	// Populated from APP_REGION env var (set in the K8s Deployment manifest).
-	// Used by leader election and to scope ClickHouse queries to the correct shard.
+	// Used to scope ClickHouse queries to the correct shard.
 	AppRegion string
 }
 

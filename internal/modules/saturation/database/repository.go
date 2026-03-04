@@ -1,4 +1,4 @@
-package saturation
+package database
 
 import (
 	"fmt"
@@ -114,10 +114,10 @@ func hikariLatencyMax(col string) string {
 // Scan-layer helpers
 // ──────────────────────────────────────────────────────────────────────────────
 
-// mergeQueryCount combines a MongoDB-sourced count and a HikariCP-sourced count
+// mergeAvgLatencyMs combines a MongoDB-sourced count and a HikariCP-sourced count
 // into a single representative value. When both are populated, their average is
 // taken; when only one is non-zero, it is used directly.
-func mergeQueryCount(mongo, usage int64) int64 {
+func mergeAvgLatencyMs(mongo, usage int64) int64 {
 	switch {
 	case mongo > 0 && usage > 0:
 		return (mongo + usage) / 2
@@ -126,6 +126,25 @@ func mergeQueryCount(mongo, usage int64) int64 {
 	default:
 		return mongo
 	}
+}
+
+// nullableFloat64FromAny converts an interface{} (usually *float64) to a float64.
+func nullableFloat64FromAny(val interface{}) float64 {
+	switch v := val.(type) {
+	case *float64:
+		if v != nil {
+			return *v
+		}
+	case float64:
+		return v
+	case *float32:
+		if v != nil {
+			return float64(*v)
+		}
+	case float32:
+		return float64(v)
+	}
+	return 0
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -183,8 +202,8 @@ func (r *ClickHouseRepository) GetDatabaseQueryByTable(teamUUID string, startMs,
 			Table:        dbutil.StringFromAny(row["table_name"]),
 			Timestamp:    dbutil.StringFromAny(row["minute_bucket"]),
 			QueryCount:   mergeQueryCount(dbutil.Int64FromAny(row["mongo_query_count"]), dbutil.Int64FromAny(row["usage_query_count"])),
-			AvgLatencyMs: mergeNullableFloatPair(mongoAvg, usageAvg),
-			P95LatencyMs: mergeNullableFloatPair(mongoP95, usageP95),
+			AvgLatencyMs: nullableMergedFloatPair(mongoAvg, usageAvg),
+			P95LatencyMs: nullableMergedFloatPair(mongoP95, usageP95),
 		}
 	}
 	return results, nil
@@ -278,14 +297,15 @@ func (r *ClickHouseRepository) GetDatabaseCacheSummary(teamUUID string, startMs,
 		return DbCacheSummary{}, err
 	}
 
-	return DbCacheSummary{
-		AvgQueryLatencyMs:   dbutil.NullableFloat64FromAny(row["avg_query_latency_ms"]),
-		P95QueryLatencyMs:   dbutil.NullableFloat64FromAny(row["p95_query_latency_ms"]),
+	out := DbCacheSummary{
+		AvgQueryLatencyMs:   nullableFloat64FromAny(row["avg_query_latency_ms"]),
+		P95QueryLatencyMs:   nullableFloat64FromAny(row["p95_query_latency_ms"]),
 		DbSpanCount:         dbutil.Int64FromAny(row["db_span_count"]),
 		CacheHits:           dbutil.Int64FromAny(row["cache_hits"]),
 		CacheMisses:         dbutil.Int64FromAny(row["cache_misses"]),
-		AvgReplicationLagMs: dbutil.NullableFloat64FromAny(row["avg_replication_lag_ms"]),
-	}, nil
+		AvgReplicationLagMs: nullableFloat64FromAny(row["avg_replication_lag_ms"]),
+	}
+	return out, nil
 }
 
 // GetDatabaseSystems returns a per-DB-system rollup of query counts, latency,
@@ -343,10 +363,8 @@ func (r *ClickHouseRepository) GetDatabaseSystems(teamUUID string, startMs, endM
 		breakdown[i] = DbSystemBreakdown{
 			DbSystem:        dbutil.StringFromAny(row["db_system"]),
 			QueryCount:      mergeQueryCount(dbutil.Int64FromAny(row["mongo_query_count"]), dbutil.Int64FromAny(row["usage_query_count"])),
-			AvgQueryLatency: nullableMergedFloatPair(mongoAvg, usageAvg),
+			AvgLatency:      nullableMergedFloatPair(mongoAvg, usageAvg),
 			P95QueryLatency: nullableMergedFloatPair(mongoP95, usageP95),
-			ErrorCount:      dbutil.Int64FromAny(row["error_count"]),
-			SpanCount:       mergeQueryCount(dbutil.Int64FromAny(row["mongo_span_count"]), dbutil.Int64FromAny(row["usage_span_count"])),
 		}
 	}
 	return breakdown, nil
@@ -412,8 +430,8 @@ func (r *ClickHouseRepository) GetDatabaseTopTables(teamUUID string, startMs, en
 
 		metrics[i] = DbTableMetric{
 			TableName:         dbutil.StringFromAny(row["table_name"]),
-			ServiceName:       dbutil.StringFromAny(row["service_name"]),
-			DbSystem:          dbutil.StringFromAny(row["db_system"]),
+			SystemName:        dbutil.StringFromAny(row["db_system"]),
+			DatabaseName:      dbutil.StringFromAny(row["database_name"]),
 			AvgQueryLatencyMs: nullableMergedFloatPair(mongoAvg, usageAvg),
 			MaxQueryLatencyMs: nullableMergedFloatPair(mongoMax, usageMax),
 			CacheHits:         dbutil.Int64FromAny(row["cache_hits"]),

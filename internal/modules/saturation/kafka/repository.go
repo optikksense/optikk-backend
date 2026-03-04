@@ -1,4 +1,4 @@
-package saturation
+package kafka
 
 import (
 	"fmt"
@@ -18,6 +18,52 @@ func queueNameExpr() string {
 		AttrTopic,
 		DefaultUnknown,
 	)
+}
+
+// TimeBucketExpression returns the SQL fragment to bucket times based on the interval.
+func TimeBucketExpression(startMs, endMs int64) string {
+	durationSecs := (endMs - startMs) / 1000
+	if durationSecs <= 3600 {
+		return "toStartOfMinute(timestamp)"
+	} else if durationSecs <= 86400 {
+		return "toStartOfFiveMinutes(timestamp)"
+	}
+	return "toStartOfHour(timestamp)"
+}
+
+// TimeBucketSeconds returns the bucket width in seconds for the given interval.
+func TimeBucketSeconds(startMs, endMs int64) float64 {
+	durationSecs := (endMs - startMs) / 1000
+	if durationSecs <= 3600 {
+		return 60.0
+	} else if durationSecs <= 86400 {
+		return 300.0
+	}
+	return 3600.0
+}
+
+// FormattedTimeBucketExpression returns the bucket string formatted as YYYY-MM-DD HH:mm:00
+func FormattedTimeBucketExpression(startMs, endMs int64) string {
+	return fmt.Sprintf("formatDateTime(%s, '%%Y-%%m-%%d %%H:%%i:00')", TimeBucketExpression(startMs, endMs))
+}
+
+// nullableFloat64FromAny converts an interface{} (usually *float64) to a float64.
+func nullableFloat64FromAny(val interface{}) float64 {
+	switch v := val.(type) {
+	case *float64:
+		if v != nil {
+			return *v
+		}
+	case float64:
+		return v
+	case *float32:
+		if v != nil {
+			return float64(*v)
+		}
+	case float32:
+		return float64(v)
+	}
+	return 0
 }
 
 func messagingSystemExpr() string {
@@ -131,9 +177,9 @@ func (r *ClickHouseRepository) GetKafkaProductionRate(teamUUID string, startMs, 
 	out := make([]KafkaProductionRate, len(rows))
 	for i, row := range rows {
 		out[i] = KafkaProductionRate{
-			Queue:          dbutil.StringFromAny(row["queue"]),
+			Topic:          dbutil.StringFromAny(row["topic"]),
 			Timestamp:      dbutil.StringFromAny(row["minute_bucket"]),
-			AvgPublishRate: dbutil.Float64FromAny(row["avg_publish_rate"]),
+			AvgPublishRate: nullableFloat64FromAny(row["avg_publish_rate"]),
 		}
 	}
 	return out, nil
@@ -174,9 +220,9 @@ func (r *ClickHouseRepository) GetKafkaConsumptionRate(teamUUID string, startMs,
 	out := make([]KafkaConsumptionRate, len(rows))
 	for i, row := range rows {
 		out[i] = KafkaConsumptionRate{
-			Queue:          dbutil.StringFromAny(row["queue"]),
+			Topic:          dbutil.StringFromAny(row["topic"]),
 			Timestamp:      dbutil.StringFromAny(row["minute_bucket"]),
-			AvgReceiveRate: dbutil.Float64FromAny(row["avg_receive_rate"]),
+			AvgReceiveRate: nullableFloat64FromAny(row["avg_receive_rate"]),
 		}
 	}
 	return out, nil
@@ -229,7 +275,7 @@ func (r *ClickHouseRepository) GetQueueConsumerLag(teamUUID string, startMs, end
 			ServiceName:     dbutil.StringFromAny(row["service_name"]),
 			QueueName:       dbutil.StringFromAny(row["queue_name"]),
 			MessagingSystem: dbutil.StringFromAny(row["messaging_system"]),
-			AvgConsumerLag:  dbutil.NullableFloat64FromAny(row["avg_consumer_lag"]),
+			AvgConsumerLag:  nullableFloat64FromAny(row["max_consumer_lag"]),
 		}
 	}
 	return out, nil
@@ -278,7 +324,7 @@ func (r *ClickHouseRepository) GetQueueTopicLag(teamUUID string, startMs, endMs 
 			ServiceName:     dbutil.StringFromAny(row["service_name"]),
 			QueueName:       dbutil.StringFromAny(row["queue_name"]),
 			MessagingSystem: dbutil.StringFromAny(row["messaging_system"]),
-			AvgQueueDepth:   dbutil.NullableFloat64FromAny(row["avg_queue_depth"]),
+			AvgQueueDepth:   nullableFloat64FromAny(row["avg_queue_depth"]),
 		}
 	}
 	return out, nil
@@ -343,14 +389,14 @@ func (r *ClickHouseRepository) GetQueueTopQueues(teamUUID string, startMs, endMs
 	out := make([]MqTopQueue, len(rows))
 	for i, row := range rows {
 		out[i] = MqTopQueue{
-			QueueName:       dbutil.StringFromAny(row["queue_name"]),
-			ServiceName:     dbutil.StringFromAny(row["service_name"]),
-			MessagingSystem: dbutil.StringFromAny(row["messaging_system"]),
-			AvgQueueDepth:   dbutil.NullableFloat64FromAny(row["avg_queue_depth"]),
-			MaxConsumerLag:  dbutil.NullableFloat64FromAny(row["max_consumer_lag"]),
-			AvgPublishRate:  dbutil.Float64FromAny(row["avg_publish_rate"]),
-			AvgReceiveRate:  dbutil.Float64FromAny(row["avg_receive_rate"]),
-			SampleCount:     dbutil.Int64FromAny(row["sample_count"]),
+			ServiceName:       dbutil.StringFromAny(row["service_name"]),
+			QueueName:         dbutil.StringFromAny(row["queue_name"]),
+			MessagingSystem:   dbutil.StringFromAny(row["messaging_system"]),
+			AvgPublishRate:    nullableFloat64FromAny(row["avg_publish_rate"]),
+			AvgReceiveRate:    nullableFloat64FromAny(row["avg_receive_rate"]),
+			AvgConsumerLag:    nullableFloat64FromAny(row["avg_consumer_lag"]),
+			ActiveConnections: dbutil.Int64FromAny(row["active_connections"]),
+			SampleCount:       dbutil.Int64FromAny(row["sample_count"]),
 		}
 	}
 	return out, nil
