@@ -95,11 +95,6 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 	identityAuthService := identityservice.NewAuthService(identityTables, jwt, cfg.JWTExpirationMs)
 	identityUserService := identityservice.NewUserService(identityTables)
 
-	// Run all schema migrations under a MySQL advisory lock to prevent races
-	// when multiple pods start simultaneously during rolling Kubernetes deploys.
-
-	runMigrations(db, cfg.DefaultRetentionDays)
-
 	// Ensure dashboard-config storage exists so page config APIs can always
 	// serve defaults/fallbacks even on a freshly reset database.
 	if err := dashboardconfig.NewRepository(db).EnsureTable(); err != nil {

@@ -23,7 +23,7 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 
 func (r *ClickHouseRepository) GetTopology(teamUUID string, startMs, endMs int64) (TopologyData, error) {
 	nodesRaw, err := dbutil.QueryMaps(r.db, `
-		SELECT *
+		SELECT service_name, request_count, error_count, avg_latency
 		FROM (
 			SELECT `+ColServiceName+`,
 			       count()                   AS request_count,

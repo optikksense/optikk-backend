@@ -73,7 +73,7 @@ func (r *ClickHouseRepository) GetUnhealthyServices(teamUUID string, startMs, en
 
 func (r *ClickHouseRepository) GetServiceMetrics(teamUUID string, startMs, endMs int64) ([]ServiceMetric, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
-		SELECT *
+		SELECT service_name, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
 		FROM (
 			SELECT `+ColServiceName+`,
 			       count()                        AS request_count,
@@ -110,7 +110,7 @@ func (r *ClickHouseRepository) GetServiceMetrics(teamUUID string, startMs, endMs
 func (r *ClickHouseRepository) GetServiceTimeSeries(teamUUID string, startMs, endMs int64) ([]TimeSeriesPoint, error) {
 	bucket := serviceBucketExpr(startMs, endMs)
 	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
-		SELECT *
+		SELECT service_name, timestamp, request_count, error_count, avg_latency
 		FROM (
 			SELECT `+ColServiceName+`,
 			       %s AS timestamp,
@@ -142,7 +142,7 @@ func (r *ClickHouseRepository) GetServiceTimeSeries(teamUUID string, startMs, en
 
 func (r *ClickHouseRepository) GetServiceEndpoints(teamUUID string, startMs, endMs int64, serviceName string) ([]EndpointMetric, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
-		SELECT *
+		SELECT service_name, operation_name, http_method, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
 		FROM (
 			SELECT `+ColServiceName+`, `+ColOperationName+`, `+ColHTTPMethod+`,
 			       count()                        AS request_count,

@@ -114,7 +114,7 @@ func (r *ClickHouseRepository) GetTimeSeries(teamUUID string, startMs, endMs int
 
 func (r *ClickHouseRepository) GetServices(teamUUID string, startMs, endMs int64) ([]ServiceMetric, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
-		SELECT *
+		SELECT service_name, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
 		FROM (
 			SELECT `+ColServiceName+`,
 			       count()                        AS request_count,
@@ -150,7 +150,7 @@ func (r *ClickHouseRepository) GetServices(teamUUID string, startMs, endMs int64
 
 func (r *ClickHouseRepository) GetEndpointMetrics(teamUUID string, startMs, endMs int64, serviceName string) ([]EndpointMetric, error) {
 	query := `
-		SELECT *
+		SELECT service_name, operation_name, http_method, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
 		FROM (
 			SELECT ` + ColServiceName + `, ` + ColOperationName + `, ` + ColHTTPMethod + `,
 			       count()                        AS request_count,
@@ -196,7 +196,7 @@ func (r *ClickHouseRepository) GetEndpointMetrics(teamUUID string, startMs, endM
 func (r *ClickHouseRepository) GetEndpointTimeSeries(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
 	bucket := overviewBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT *
+		SELECT time_bucket, service_name, operation_name, http_method, request_count, error_count, avg_latency, p50, p95, p99
 		FROM (
 			SELECT %s         AS time_bucket,
 			       `+ColServiceName+`,

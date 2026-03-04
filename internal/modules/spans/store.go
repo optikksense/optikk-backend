@@ -18,8 +18,7 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 }
 
 // timeBucketExpr returns a ClickHouse expression grouping the `minute` column by
-// adaptive granularity. The spans_service_1m view stores 1-minute rows, so coarser
-// groupings are a free second-level aggregation over already-aggregated data.
+// adaptive granularity based on the requested time range width.
 func timeBucketExpr(startMs, endMs int64) string {
 	hours := (endMs - startMs) / 3_600_000
 	switch {

@@ -1,0 +1,58 @@
+<!--
+  ClickHouse Storage Configuration for GCP Tiered Storage
+  =========================================================
+  Place this file at: /etc/clickhouse-server/config.d/storage.xml
+
+  Volumes:
+    hot   — Local SSD (GCP Local SSD only, never Persistent Disk)
+    warm  — GCS Nearline (data >30 days, via TTL MOVE TO VOLUME 'warm')
+    cold  — GCS Coldline (data >90 days, via TTL MOVE TO VOLUME 'cold')
+
+  move_factor = 0.2 on the hot volume: when local SSD is 80% full,
+  ClickHouse automatically spills coldest parts to the warm volume.
+-->
+<clickhouse>
+  <storage_configuration>
+    <disks>
+      <!-- Hot: local SSD attached to the GCE VM -->
+      <default>
+        <path>/var/lib/clickhouse/</path>
+      </default>
+
+      <!-- Warm: GCS Nearline for >30‑day data -->
+      <gcs_nearline>
+        <type>s3</type>
+        <!-- GCS uses the S3-compatible endpoint -->
+        <endpoint>https://storage.googleapis.com/BUCKET_NAME_NEARLINE/clickhouse/</endpoint>
+        <access_key_id>GCS_HMAC_ACCESS_KEY</access_key_id>
+        <secret_access_key>GCS_HMAC_SECRET_KEY</secret_access_key>
+      </gcs_nearline>
+
+      <!-- Cold: GCS Coldline for >90‑day data -->
+      <gcs_coldline>
+        <type>s3</type>
+        <endpoint>https://storage.googleapis.com/BUCKET_NAME_COLDLINE/clickhouse/</endpoint>
+        <access_key_id>GCS_HMAC_ACCESS_KEY</access_key_id>
+        <secret_access_key>GCS_HMAC_SECRET_KEY</secret_access_key>
+      </gcs_coldline>
+    </disks>
+
+    <policies>
+      <tiered_gcs>
+        <volumes>
+          <hot>
+            <disk>default</disk>
+            <!-- Spill cold parts to GCS when local SSD is 80% full -->
+            <move_factor>0.2</move_factor>
+          </hot>
+          <warm>
+            <disk>gcs_nearline</disk>
+          </warm>
+          <cold>
+            <disk>gcs_coldline</disk>
+          </cold>
+        </volumes>
+      </tiered_gcs>
+    </policies>
+  </storage_configuration>
+</clickhouse>

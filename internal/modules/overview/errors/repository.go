@@ -130,7 +130,7 @@ func (r *ClickHouseRepository) GetServiceErrorRate(teamUUID string, startMs, end
 func (r *ClickHouseRepository) GetErrorVolume(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
 	bucket := errorBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT *
+		SELECT service_name, timestamp, error_count
 		FROM (
 			SELECT `+ColServiceName+`,
 			       %s AS timestamp,
@@ -167,7 +167,7 @@ func (r *ClickHouseRepository) GetErrorVolume(teamUUID string, startMs, endMs in
 func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
 	bucket := errorBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT *
+		SELECT service_name, timestamp, request_count, error_count, avg_latency
 		FROM (
 			SELECT `+ColServiceName+`,
 			       %s AS timestamp,
