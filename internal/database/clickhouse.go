@@ -3,8 +3,10 @@ package database
 import (
 	"context"
 	"database/sql"
+	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
+	circuitbreaker "github.com/observability/observability-backend-go/internal/platform/circuit_breaker"
 )
 
 type Querier interface {
@@ -42,18 +44,34 @@ func OpenClickHouse(dsn string) (*sql.DB, error) {
 
 type MySQLWrapper struct {
 	db *sql.DB
+	cb *circuitbreaker.CircuitBreaker
 }
 
 func NewMySQLWrapper(db *sql.DB) *MySQLWrapper {
-	return &MySQLWrapper{db: db}
+	return &MySQLWrapper{
+		db: db,
+		cb: circuitbreaker.NewCircuitBreaker("mysql_wrapper", 5, 30*time.Second),
+	}
 }
 
 func (m *MySQLWrapper) Exec(query string, args ...any) (sql.Result, error) {
-	return m.db.Exec(query, args...)
+	var res sql.Result
+	err := m.cb.Call(func() error {
+		var err error
+		res, err = m.db.Exec(query, args...)
+		return err
+	})
+	return res, err
 }
 
 func (m *MySQLWrapper) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	return m.db.ExecContext(ctx, query, args...)
+	var res sql.Result
+	err := m.cb.Call(func() error {
+		var err error
+		res, err = m.db.ExecContext(ctx, query, args...)
+		return err
+	})
+	return res, err
 }
 
 func (m *MySQLWrapper) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
@@ -61,7 +79,12 @@ func (m *MySQLWrapper) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.T
 }
 
 func (m *MySQLWrapper) Query(query string, args ...any) (Rows, error) {
-	rows, err := m.db.Query(query, args...)
+	var rows *sql.Rows
+	err := m.cb.Call(func() error {
+		var err error
+		rows, err = m.db.Query(query, args...)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -69,7 +92,26 @@ func (m *MySQLWrapper) Query(query string, args ...any) (Rows, error) {
 }
 
 func (m *MySQLWrapper) QueryRow(query string, args ...any) Row {
-	return &sqlRowAdapter{row: m.db.QueryRow(query, args...)}
+	var row *sql.Row
+	// We run QueryRow under the circuit breaker, but since it doesn't return an error directly
+	// (errors are deferred to Scan), any immediate errors (like connection drops) might not drop the breaker here.
+	// However, if the circuit is currently open, we return a structural dummy that returns ErrCircuitOpen on Scan.
+	err := m.cb.Call(func() error {
+		row = m.db.QueryRow(query, args...)
+		return nil // QueryRow doesn't return an error itself
+	})
+	if err != nil {
+		return &circuitBreakerRowAdapter{err: err}
+	}
+	return &sqlRowAdapter{row: row}
+}
+
+type circuitBreakerRowAdapter struct {
+	err error
+}
+
+func (r *circuitBreakerRowAdapter) Scan(dest ...any) error {
+	return r.err
 }
 
 type sqlRowsAdapter struct {

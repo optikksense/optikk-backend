@@ -1,4 +1,4 @@
-package database
+package circuitbreaker
 
 import (
 	"errors"
@@ -21,9 +21,9 @@ import (
 //
 // Usage:
 //
-//	cb := database.NewCircuitBreaker("clickhouse", 5, 30*time.Second)
+//	cb := circuitbreaker.NewCircuitBreaker("clickhouse", 5, 30*time.Second)
 //	err := cb.Call(func() error { return doClickHouseQuery() })
-//	if errors.Is(err, database.ErrCircuitOpen) {
+//	if errors.Is(err, circuitbreaker.ErrCircuitOpen) {
 //	    // surface as 503
 //	}
 
