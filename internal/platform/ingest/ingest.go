@@ -230,5 +230,8 @@ func (q *Queue) flush(batch []Row) error {
 	defer cancel()
 
 	_, err := q.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		log.Printf("ERROR: ClickHouse insert failed for table %s: %v", q.table, err)
+	}
 	return err
 }

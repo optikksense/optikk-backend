@@ -57,7 +57,7 @@ Use [`grpcurl`](https://github.com/fullstorydev/grpcurl) — it transparently tr
 
 ```bash
 grpcurl -plaintext \
-  -H "x-api-key: 298acd2c840247ecd956fc294f81a55a775a39f8f9efbebc219f11a03997cbf2" \
+  -H "x-api-key: 3676cb53c5f82057886c8d72bbdd24c1aebe386d5639b0db24c83858b713e2ae" \
   -d '{
     "resourceMetrics": [
       {
