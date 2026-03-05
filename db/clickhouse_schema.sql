@@ -137,54 +137,45 @@ SETTINGS index_granularity = 8192,
 --
 -- Batch inserts only: 1000 rows or 500ms minimum.
 -- Never insert from HTTP hot path — queue → worker → ClickHouse always.
+-- Requires ClickHouse 26+ (JSON type is stable from 26.x onwards).
 -- ===========================================================================
 CREATE TABLE IF NOT EXISTS observability.metrics (
-    -- Tenant + identity
+
     team_id              LowCardinality(String),
-    env                  LowCardinality(String)    DEFAULT 'default',
+    env                  LowCardinality(String) DEFAULT 'default',
     metric_name          LowCardinality(String),
-    metric_type          LowCardinality(String),   -- Gauge/Sum/Histogram/Summary
-    temporality          LowCardinality(String)    DEFAULT 'Unspecified', -- Unspecified/Cumulative/Delta
-    is_monotonic         Bool                      CODEC(T64, ZSTD(1)),
-    unit                 LowCardinality(String)    DEFAULT '',
-    description          LowCardinality(String)    DEFAULT '',
-
-    -- Fingerprint of the resource (host, pod, k8s node etc.)
-    resource_fingerprint UInt64                    CODEC(Delta(8), ZSTD(1)),
-
-    -- Timestamp — DoubleDelta beats Delta for non-monotonic gaps
-    timestamp            DateTime64(3)             CODEC(DoubleDelta, LZ4),
-
-    -- Values
-    value                Float64                   CODEC(Gorilla, ZSTD(1)), 
-
-    -- Histogram columns (null when not histogram = typically defaults to 0 and empty)
-    hist_sum             Float64                   CODEC(Gorilla, ZSTD(1)),
-    hist_count           UInt64                    CODEC(T64, ZSTD(1)),
-    hist_buckets         Array(Float64)            CODEC(ZSTD(1)),  -- bucket bounds
-    hist_counts          Array(UInt64)             CODEC(T64, ZSTD(1)),  -- per-bucket counts
-
-    -- All labels/attributes in typed JSON
+    metric_type          LowCardinality(String),
+    temporality          LowCardinality(String) DEFAULT 'Unspecified',
+    is_monotonic         Bool CODEC(T64, ZSTD(1)),
+    unit                 LowCardinality(String) DEFAULT '',
+    description          LowCardinality(String) DEFAULT '',
+    resource_fingerprint UInt64 CODEC(Delta(8), ZSTD(1)),
+    timestamp            DateTime64(3) CODEC(DoubleDelta, LZ4),
+    value                Float64 CODEC(Gorilla, ZSTD(1)),
+    hist_sum             Float64 CODEC(Gorilla, ZSTD(1)),
+    hist_count           UInt64 CODEC(T64, ZSTD(1)),
+    hist_buckets         Array(Float64) CODEC(ZSTD(1)),
+    hist_counts          Array(UInt64) CODEC(T64, ZSTD(1)),
     attributes           JSON(max_dynamic_paths=100) CODEC(ZSTD(1)),
 
-    -- === MATERIALIZED columns ===
-    service              LowCardinality(String)    MATERIALIZED attributes.`service.name`::String,
-    host                 LowCardinality(String)    MATERIALIZED attributes.`host.name`::String,
-    environment          LowCardinality(String)    MATERIALIZED attributes.`deployment.environment`::String,
-    k8s_namespace        LowCardinality(String)    MATERIALIZED attributes.`k8s.namespace.name`::String,
-    http_method          LowCardinality(String)    MATERIALIZED attributes.`http.method`::String,
-    http_status_code     UInt16                    MATERIALIZED attributes.`http.status_code`::UInt16,
-    has_error            Bool                      MATERIALIZED attributes.`error`::Bool,
+    -- === MATERIALIZED columns (native JSON path extraction, requires CH 26+) ===
+    service              LowCardinality(String) MATERIALIZED attributes.`service.name`::String,
+    host                 LowCardinality(String) MATERIALIZED attributes.`host.name`::String,
+    environment          LowCardinality(String) MATERIALIZED attributes.`deployment.environment`::String,
+    k8s_namespace        LowCardinality(String) MATERIALIZED attributes.`k8s.namespace.name`::String,
+    http_method          LowCardinality(String) MATERIALIZED attributes.`http.method`::String,
+    http_status_code     UInt16                 MATERIALIZED attributes.`http.status_code`::UInt16,
+    has_error            Bool                   MATERIALIZED attributes.`error`::Bool,
 
     -- === INDEXES on materialized columns ===
-    INDEX idx_service          service          TYPE set(200)      GRANULARITY 1,
-    INDEX idx_host             host             TYPE bloom_filter  GRANULARITY 4,
-    INDEX idx_environment      environment      TYPE set(10)       GRANULARITY 1,
-    INDEX idx_k8s_namespace    k8s_namespace    TYPE set(100)      GRANULARITY 1,
-    INDEX idx_http_method      http_method      TYPE set(20)       GRANULARITY 1,
-    INDEX idx_http_status_code http_status_code TYPE minmax        GRANULARITY 1,
-    INDEX idx_has_error        has_error        TYPE set(2)        GRANULARITY 1,
-    INDEX idx_fingerprint      resource_fingerprint TYPE bloom_filter GRANULARITY 4
+    INDEX idx_service          service              TYPE set(200)      GRANULARITY 1,
+    INDEX idx_host             host                 TYPE bloom_filter  GRANULARITY 4,
+    INDEX idx_environment      environment          TYPE set(10)       GRANULARITY 1,
+    INDEX idx_k8s_namespace    k8s_namespace        TYPE set(100)      GRANULARITY 1,
+    INDEX idx_http_method      http_method          TYPE set(20)       GRANULARITY 1,
+    INDEX idx_http_status_code http_status_code     TYPE minmax        GRANULARITY 1,
+    INDEX idx_has_error        has_error            TYPE set(2)        GRANULARITY 1,
+    INDEX idx_fingerprint      resource_fingerprint TYPE bloom_filter  GRANULARITY 4
 
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/metrics', '{replica}')
 PARTITION BY toYYYYMMDD(timestamp)
@@ -192,6 +183,6 @@ ORDER BY (team_id, metric_name, service, environment, temporality, timestamp, re
 TTL toDateTime(timestamp) + INTERVAL 30 DAY   TO VOLUME 'warm',
     toDateTime(timestamp) + INTERVAL 90 DAY   TO VOLUME 'cold',
     toDateTime(timestamp) + INTERVAL 365 DAY  DELETE
-SETTINGS 
+SETTINGS
     index_granularity = 8192,
     storage_policy = 'tiered_gcs';

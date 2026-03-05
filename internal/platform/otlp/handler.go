@@ -38,6 +38,13 @@ func NewHandler(
 	}
 }
 
+// RegisterRoutes registers the OTLP/HTTP endpoints on the given router group.
+func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
+	r.POST("/v1/traces", h.ExportTraces)
+	r.POST("/v1/logs", h.ExportLogs)
+	r.POST("/v1/metrics", h.ExportMetrics)
+}
+
 // resolveTeamID looks up team_id from the X-API-Key header sent by the SDK.
 func (h *Handler) resolveTeamID(c *gin.Context) (string, bool) {
 	apiKey := c.GetHeader("X-API-Key")

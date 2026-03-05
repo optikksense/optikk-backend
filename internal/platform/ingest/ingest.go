@@ -14,6 +14,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -156,7 +157,9 @@ func (q *Queue) worker() {
 			q.mu.Unlock()
 
 			if len(batch) > 0 {
-				_ = q.flush(batch) // TODO: structured logging on error
+				if err := q.flush(batch); err != nil {
+					log.Printf("ingest: worker flush error (%s): %v", q.table, err)
+				}
 			}
 		default:
 			q.mu.Lock()
@@ -168,7 +171,9 @@ func (q *Queue) worker() {
 			q.mu.Unlock()
 
 			if ready {
-				_ = q.flush(batch)
+				if err := q.flush(batch); err != nil {
+					log.Printf("ingest: worker batch flush error (%s): %v", q.table, err)
+				}
 			} else {
 				// Avoid busy-spin: sleep a short interval before re-checking.
 				time.Sleep(10 * time.Millisecond)

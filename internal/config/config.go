@@ -60,7 +60,7 @@ type Config struct {
 // if they are left at their insecure defaults.
 func Load() Config {
 	cfg := Config{
-		Port:               getEnv("PORT", "8080"),
+		Port:               getEnv("PORT", "9090"),
 		MySQLHost:          getEnv("MYSQL_HOST", "127.0.0.1"),
 		MySQLPort:          getEnv("MYSQL_PORT", "3306"),
 		MySQLDatabase:      getEnv("MYSQL_DATABASE", "observability"),

@@ -72,6 +72,11 @@ func isPublicRequest(method, path string) bool {
 		return true
 	}
 
+	// create team must be public.
+	if method == http.MethodPost && (path == "/api/v1/teams" || path == "/api/v1/teams/") {
+		return true
+	}
+
 	// OTLP endpoints use API-key auth in their own handler.
 	if strings.HasPrefix(path, "/otlp/") {
 		return true

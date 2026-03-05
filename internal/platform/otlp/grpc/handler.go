@@ -16,14 +16,29 @@ import (
 
 // Handler implements the three OTel gRPC collector services.
 type Handler struct {
-	tracepb.UnimplementedTraceServiceServer
-	logspb.UnimplementedLogsServiceServer
-	metricspb.UnimplementedMetricsServiceServer
-
 	auth         *auth.Authenticator
 	spansQueue   *ingest.Queue
 	logsQueue    *ingest.Queue
 	metricsQueue *ingest.Queue
+
+	TraceServer   *TraceServer
+	LogsServer    *LogsServer
+	MetricsServer *MetricsServer
+}
+
+type TraceServer struct {
+	tracepb.UnimplementedTraceServiceServer
+	h *Handler
+}
+
+type LogsServer struct {
+	logspb.UnimplementedLogsServiceServer
+	h *Handler
+}
+
+type MetricsServer struct {
+	metricspb.UnimplementedMetricsServiceServer
+	h *Handler
 }
 
 // NewHandler creates a new gRPC OTLP receiver handler.
@@ -33,12 +48,16 @@ func NewHandler(
 	logsQueue *ingest.Queue,
 	metricsQueue *ingest.Queue,
 ) *Handler {
-	return &Handler{
+	h := &Handler{
 		auth:         auth,
 		spansQueue:   spansQueue,
 		logsQueue:    logsQueue,
 		metricsQueue: metricsQueue,
 	}
+	h.TraceServer = &TraceServer{h: h}
+	h.LogsServer = &LogsServer{h: h}
+	h.MetricsServer = &MetricsServer{h: h}
+	return h
 }
 
 // resolveTeamID extracts "x-api-key" from gRPC metadata and validates against the Authenticator.
@@ -66,8 +85,8 @@ func (h *Handler) resolveTeamID(ctx context.Context) (string, error) {
 }
 
 // Export trace payloads.
-func (h *Handler) Export(ctx context.Context, req *tracepb.ExportTraceServiceRequest) (*tracepb.ExportTraceServiceResponse, error) {
-	teamID, err := h.resolveTeamID(ctx)
+func (s *TraceServer) Export(ctx context.Context, req *tracepb.ExportTraceServiceRequest) (*tracepb.ExportTraceServiceResponse, error) {
+	teamID, err := s.h.resolveTeamID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +96,7 @@ func (h *Handler) Export(ctx context.Context, req *tracepb.ExportTraceServiceReq
 		return &tracepb.ExportTraceServiceResponse{}, nil
 	}
 
-	if err := h.spansQueue.Enqueue(rows); err != nil {
+	if err := s.h.spansQueue.Enqueue(rows); err != nil {
 		if errors.Is(err, ingest.ErrBackpressure) {
 			return nil, status.Error(codes.ResourceExhausted, "ingest queue full")
 		}
@@ -88,10 +107,8 @@ func (h *Handler) Export(ctx context.Context, req *tracepb.ExportTraceServiceReq
 }
 
 // Export logs payloads.
-// Note: name collision with tracing means we rename it in Go if needed, but the protobuf
-// go_package separates them. The standard interface is `Export` for all three.
-func (h *Handler) ExportLogs(ctx context.Context, req *logspb.ExportLogsServiceRequest) (*logspb.ExportLogsServiceResponse, error) {
-	teamID, err := h.resolveTeamID(ctx)
+func (s *LogsServer) Export(ctx context.Context, req *logspb.ExportLogsServiceRequest) (*logspb.ExportLogsServiceResponse, error) {
+	teamID, err := s.h.resolveTeamID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +118,7 @@ func (h *Handler) ExportLogs(ctx context.Context, req *logspb.ExportLogsServiceR
 		return &logspb.ExportLogsServiceResponse{}, nil
 	}
 
-	if err := h.logsQueue.Enqueue(rows); err != nil {
+	if err := s.h.logsQueue.Enqueue(rows); err != nil {
 		if errors.Is(err, ingest.ErrBackpressure) {
 			return nil, status.Error(codes.ResourceExhausted, "ingest queue full")
 		}
@@ -112,8 +129,8 @@ func (h *Handler) ExportLogs(ctx context.Context, req *logspb.ExportLogsServiceR
 }
 
 // Export metrics payloads.
-func (h *Handler) ExportMetrics(ctx context.Context, req *metricspb.ExportMetricsServiceRequest) (*metricspb.ExportMetricsServiceResponse, error) {
-	teamID, err := h.resolveTeamID(ctx)
+func (s *MetricsServer) Export(ctx context.Context, req *metricspb.ExportMetricsServiceRequest) (*metricspb.ExportMetricsServiceResponse, error) {
+	teamID, err := s.h.resolveTeamID(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +140,7 @@ func (h *Handler) ExportMetrics(ctx context.Context, req *metricspb.ExportMetric
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
 
-	if err := h.metricsQueue.Enqueue(rows); err != nil {
+	if err := s.h.metricsQueue.Enqueue(rows); err != nil {
 		if errors.Is(err, ingest.ErrBackpressure) {
 			return nil, status.Error(codes.ResourceExhausted, "ingest queue full")
 		}

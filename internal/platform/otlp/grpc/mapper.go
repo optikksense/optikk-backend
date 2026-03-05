@@ -425,24 +425,3 @@ func numberDataPointValue(dp *metricsdatapb.NumberDataPoint) float64 {
 	}
 	return 0
 }
-
-func histogramP95(dp *metricsdatapb.HistogramDataPoint) float64 {
-	if dp.Count == 0 || len(dp.BucketCounts) == 0 {
-		return 0
-	}
-	target := uint64(float64(dp.Count) * 0.95)
-	var cumulative uint64
-	for i, c := range dp.BucketCounts {
-		cumulative += c
-		if cumulative >= target {
-			if i < len(dp.ExplicitBounds) {
-				return dp.ExplicitBounds[i]
-			}
-			if dp.Max != nil {
-				return *dp.Max
-			}
-			return 0
-		}
-	}
-	return 0
-}

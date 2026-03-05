@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"time"
 
@@ -33,8 +34,13 @@ import (
 	"github.com/observability/observability-backend-go/internal/platform/otlp"
 	otlpauth "github.com/observability/observability-backend-go/internal/platform/otlp/auth"
 	otlpgrpc "github.com/observability/observability-backend-go/internal/platform/otlp/grpc"
+	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
+	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 )
 
 type moduleConfigs struct {
@@ -288,6 +294,19 @@ func (a *App) Router() *gin.Engine {
 	return r
 }
 
+func (a *App) OTLPRouter() *gin.Engine {
+	r := gin.New()
+	r.Use(gin.Logger())
+	r.Use(middleware.ErrorRecovery())
+	r.Use(middleware.CORSMiddleware())
+
+	// Use the OTLP HTTP handler to register routes
+	// Note: Authentication is handled inside the handler (resolves API key from headers)
+	a.OTLPHTTP.RegisterRoutes(r.Group(""))
+
+	return r
+}
+
 func (a *App) registerRoutesToGroup(v1 *gin.RouterGroup) {
 	cfg := defaultModuleConfigs()
 
@@ -324,24 +343,63 @@ func (a *App) healthReady(c *gin.Context) {
 }
 
 func (a *App) Start(ctx context.Context) error {
-	router := a.Router()
-
-	srv := &http.Server{
+	// 1. Setup Main API Server (9090)
+	mainRouter := a.Router()
+	mainSrv := &http.Server{
 		Addr:    fmt.Sprintf(":%s", a.Config.Port),
-		Handler: h2c.NewHandler(router, &http2.Server{}),
+		Handler: h2c.NewHandler(mainRouter, &http2.Server{}),
 	}
 
-	errCh := make(chan error, 1)
+	// 2. Setup OTLP HTTP Server (4318)
+	otlpRouter := a.OTLPRouter()
+	otlpSrv := &http.Server{
+		Addr:    fmt.Sprintf(":%s", a.Config.HTTPPortOTLP),
+		Handler: h2c.NewHandler(otlpRouter, &http2.Server{}),
+	}
+
+	// 3. Setup OTLP gRPC Server (4317)
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%s", a.Config.GRPCPort))
+	if err != nil {
+		return fmt.Errorf("gRPC listen failed: %v", err)
+	}
+	grpcSrv := grpc.NewServer(
+		grpc.MaxRecvMsgSize(a.Config.GRPCMaxRecvMsgSizeMB * 1024 * 1024),
+	)
+	tracepb.RegisterTraceServiceServer(grpcSrv, a.OTLPGRPC.TraceServer)
+	logspb.RegisterLogsServiceServer(grpcSrv, a.OTLPGRPC.LogsServer)
+	metricspb.RegisterMetricsServiceServer(grpcSrv, a.OTLPGRPC.MetricsServer)
+
+	// Enable reflection for tools like grpcurl
+	reflection.Register(grpcSrv)
+
+	errCh := make(chan error, 3)
+
+	// Start Main API Server
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			errCh <- err
+		log.Printf("Main API server starting on %s", mainSrv.Addr)
+		if err := mainSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- fmt.Errorf("main api server: %w", err)
 		}
-		close(errCh)
+	}()
+
+	// Start OTLP HTTP Server
+	go func() {
+		log.Printf("OTLP HTTP server starting on %s", otlpSrv.Addr)
+		if err := otlpSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			errCh <- fmt.Errorf("otlp http server: %w", err)
+		}
+	}()
+
+	// Start OTLP gRPC Server
+	go func() {
+		log.Printf("OTLP gRPC server starting on %s", a.Config.GRPCPort)
+		if err := grpcSrv.Serve(lis); err != nil {
+			errCh <- fmt.Errorf("otlp grpc server: %w", err)
+		}
 	}()
 
 	select {
 	case err := <-errCh:
-		// Cleanup on early HTTP failure.
 		return err
 	case <-ctx.Done():
 		log.Println("shutdown signal received, draining connections…")
@@ -361,11 +419,15 @@ func (a *App) Start(ctx context.Context) error {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
-		// Phase 2: Stop main API server.
-		if err := srv.Shutdown(shutCtx); err != nil {
-			return fmt.Errorf("http shutdown: %w", err)
+		// Phase 2: Shutdown HTTP servers and stop gRPC
+		grpcSrv.GracefulStop()
+		if err := mainSrv.Shutdown(shutCtx); err != nil {
+			log.Printf("WARN: main api shutdown error: %v", err)
+		}
+		if err := otlpSrv.Shutdown(shutCtx); err != nil {
+			log.Printf("WARN: otlp http shutdown error: %v", err)
 		}
 
-		return <-errCh
+		return nil
 	}
 }

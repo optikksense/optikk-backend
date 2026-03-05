@@ -151,7 +151,7 @@ type NumberDataPoint struct {
 type HistogramDataPoint struct {
 	Attributes     []KeyValue `json:"attributes"`
 	TimeUnixNano   string     `json:"timeUnixNano"`
-	Count          uint64     `json:"count,string"`
+	Count          uint64     `json:"count"`
 	Sum            *float64   `json:"sum,omitempty"`
 	Min            *float64   `json:"min,omitempty"`
 	Max            *float64   `json:"max,omitempty"`
