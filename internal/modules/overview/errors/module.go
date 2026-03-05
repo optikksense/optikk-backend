@@ -13,7 +13,7 @@ func DefaultConfig() Config {
 }
 
 // RegisterRoutes mounts overview error routes.
-func RegisterRoutes(cfg Config, _ *gin.RouterGroup, v1 *gin.RouterGroup, h *ErrorHandler) {
+func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ErrorHandler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}

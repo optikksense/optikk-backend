@@ -20,12 +20,13 @@ import (
 	overviewerrors "github.com/observability/observability-backend-go/internal/modules/overview/errors"
 	overviewmodule "github.com/observability/observability-backend-go/internal/modules/overview/overview"
 	overviewslo "github.com/observability/observability-backend-go/internal/modules/overview/slo"
+	"github.com/observability/observability-backend-go/internal/modules/saturation/database"
 	satdatabase "github.com/observability/observability-backend-go/internal/modules/saturation/database"
 	"github.com/observability/observability-backend-go/internal/modules/saturation/kafka"
 	servicepage "github.com/observability/observability-backend-go/internal/modules/services/service"
 	servicetopology "github.com/observability/observability-backend-go/internal/modules/services/topology"
 	tracesapi "github.com/observability/observability-backend-go/internal/modules/spans"
-	identity "github.com/observability/observability-backend-go/internal/modules/user"
+	usermodule "github.com/observability/observability-backend-go/internal/modules/user"
 	"github.com/observability/observability-backend-go/internal/platform/auth"
 	"github.com/observability/observability-backend-go/internal/platform/ingest"
 	"github.com/observability/observability-backend-go/internal/platform/middleware"
@@ -36,6 +37,42 @@ import (
 	"golang.org/x/net/http2/h2c"
 )
 
+type moduleConfigs struct {
+	Identity            usermodule.Config
+	Overview            overviewmodule.Config
+	OverviewSLO         overviewslo.Config
+	OverviewErrors      overviewerrors.Config
+	ServicesPage        servicepage.Config
+	ServicesTopology    servicetopology.Config
+	Nodes               nodes.Config
+	ResourceUtilisation resource_utilisation.Config
+	SaturationDatabase  database.Config
+	SaturationKafka     kafka.Config
+	Logs                logsapi.Config
+	Traces              tracesapi.Config
+	AI                  ai.Config
+	DashboardConfig     dashboardconfig.Config
+}
+
+func defaultModuleConfigs() moduleConfigs {
+	return moduleConfigs{
+		Identity:            usermodule.DefaultConfig(),
+		Overview:            overviewmodule.DefaultConfig(),
+		OverviewSLO:         overviewslo.DefaultConfig(),
+		OverviewErrors:      overviewerrors.DefaultConfig(),
+		ServicesPage:        servicepage.DefaultConfig(),
+		ServicesTopology:    servicetopology.DefaultConfig(),
+		Nodes:               nodes.DefaultConfig(),
+		ResourceUtilisation: resource_utilisation.DefaultConfig(),
+		SaturationDatabase:  database.DefaultConfig(),
+		SaturationKafka:     kafka.DefaultConfig(),
+		Logs:                logsapi.DefaultConfig(),
+		Traces:              tracesapi.DefaultConfig(),
+		AI:                  ai.DefaultConfig(),
+		DashboardConfig:     dashboardconfig.DefaultConfig(),
+	}
+}
+
 type App struct {
 	DB             *sql.DB
 	CH             *sql.DB
@@ -43,8 +80,8 @@ type App struct {
 	JWTManager     auth.JWTManager
 	TokenBlacklist *auth.TokenBlacklist
 
-	Auth                *identity.AuthHandler
-	Users               *identity.UserHandler
+	Auth                *usermodule.AuthHandler
+	Users               *usermodule.UserHandler
 	Logs                *logsapi.LogHandler
 	Traces              *tracesapi.TraceHandler
 	Overview            *overviewmodule.OverviewHandler
@@ -75,7 +112,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 
 	getTenant := modulecommon.GetTenantFunc(middleware.GetTenant)
 
-	identityStore := identity.NewStore(db)
+	userStore := usermodule.NewStore(db)
 
 	// Ensure dashboard-config storage exists so page config APIs can always
 	// serve defaults/fallbacks even on a freshly reset database.
@@ -107,8 +144,8 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 		JWTManager:     jwt,
 		TokenBlacklist: blacklist,
 
-		Auth:  identity.NewAuthHandler(getTenant, identityStore, jwt, blacklist, cfg.JWTExpirationMs),
-		Users: identity.NewUserHandler(getTenant, identityStore),
+		Auth:  usermodule.NewAuthHandler(getTenant, userStore, jwt, blacklist, cfg.JWTExpirationMs),
+		Users: usermodule.NewUserHandler(getTenant, userStore),
 		Logs: logsapi.NewHandler(
 			getTenant,
 			logsapi.NewRepository(dbutil.NewMySQLWrapper(ch)),
@@ -230,19 +267,44 @@ func (a *App) Router() *gin.Engine {
 	r.Use(gin.Logger())
 	r.Use(middleware.ErrorRecovery())
 	r.Use(middleware.CORSMiddleware())
-	r.Use(middleware.TenantMiddleware(a.JWTManager, a.TokenBlacklist))
 
-	// Rate limiting: 1000 requests per second with burst of 2000.
-	rl := middleware.NewRateLimiter(1000, 2000, time.Second)
-	r.Use(middleware.RateLimitMiddleware(rl))
-
-	// Health check endpoints (unauthenticated).
+	// Health check endpoints (unauthenticated, no rate limits).
 	r.GET("/health", a.healthLive)
 	r.GET("/health/live", a.healthLive)
 	r.GET("/health/ready", a.healthReady)
 
-	a.registerRoutes(r)
+	// API v1 Group
+	v1 := r.Group("/api/v1")
+
+	// Apply identity and rate limiting middleware ONLY to versioned API routes.
+	// This ensures unversioned legacy paths return 404 instead of 401.
+	v1.Use(middleware.TenantMiddleware(a.JWTManager, a.TokenBlacklist))
+
+	// Rate limiting: 1000 requests per second with burst of 2000.
+	rl := middleware.NewRateLimiter(1000, 2000, time.Second)
+	v1.Use(middleware.RateLimitMiddleware(rl))
+
+	a.registerRoutesToGroup(v1)
 	return r
+}
+
+func (a *App) registerRoutesToGroup(v1 *gin.RouterGroup) {
+	cfg := defaultModuleConfigs()
+
+	usermodule.RegisterRoutes(cfg.Identity, v1, a.Auth, a.Users)
+	overviewmodule.RegisterRoutes(cfg.Overview, v1, a.Overview)
+	overviewslo.RegisterRoutes(cfg.OverviewSLO, v1, a.OverviewSLO)
+	overviewerrors.RegisterRoutes(cfg.OverviewErrors, v1, a.OverviewErrors)
+	servicepage.RegisterRoutes(cfg.ServicesPage, v1, a.ServicesPage)
+	servicetopology.RegisterRoutes(cfg.ServicesTopology, v1, a.ServicesTopology)
+	nodes.RegisterRoutes(cfg.Nodes, v1, a.Nodes)
+	resource_utilisation.RegisterRoutes(cfg.ResourceUtilisation, v1, a.ResourceUtilisation)
+	database.RegisterRoutes(cfg.SaturationDatabase, v1, a.SaturationDatabase)
+	kafka.RegisterRoutes(cfg.SaturationKafka, v1, a.SaturationKafka)
+	logsapi.RegisterRoutes(cfg.Logs, v1, a.Logs)
+	tracesapi.RegisterRoutes(cfg.Traces, v1, a.Traces)
+	ai.RegisterRoutes(cfg.AI, v1, a.AI)
+	dashboardconfig.RegisterRoutes(cfg.DashboardConfig, v1, a.DashboardConfig)
 }
 
 func (a *App) healthLive(c *gin.Context) {

@@ -13,7 +13,7 @@ func DefaultConfig() Config {
 }
 
 // RegisterRoutes mounts saturation routes for the kafka module.
-func RegisterRoutes(cfg Config, _ *gin.RouterGroup, v1 *gin.RouterGroup, h *KafkaHandler) {
+func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *KafkaHandler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}

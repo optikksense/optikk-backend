@@ -13,7 +13,7 @@ func DefaultConfig() Config {
 }
 
 // RegisterRoutes mounts trace and latency routes.
-func RegisterRoutes(cfg Config, _ *gin.RouterGroup, v1 *gin.RouterGroup, h *TraceHandler) {
+func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *TraceHandler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}

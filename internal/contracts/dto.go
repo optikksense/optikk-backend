@@ -19,38 +19,10 @@ type SettingsRequest struct {
 	Preferences map[string]any `json:"preferences"`
 }
 
-type AlertRequest struct {
-	Name            string   `json:"name" binding:"required"`
-	Description     string   `json:"description"`
-	Type            string   `json:"type" binding:"required"`
-	Severity        string   `json:"severity" binding:"required"`
-	ServiceName     string   `json:"serviceName"`
-	Condition       string   `json:"condition"`
-	Metric          string   `json:"metric"`
-	Operator        string   `json:"operator"`
-	Threshold       *float64 `json:"threshold"`
-	DurationMinutes *int     `json:"durationMinutes"`
-	RunbookURL      string   `json:"runbookUrl"`
-}
-
-type HealthCheckRequest struct {
-	Name            string `json:"name" binding:"required"`
-	Type            string `json:"type" binding:"required"`
-	TargetURL       string `json:"targetUrl" binding:"required"`
-	IntervalSeconds *int   `json:"intervalSeconds"`
-	TimeoutMs       *int   `json:"timeoutMs"`
-	ExpectedStatus  *int   `json:"expectedStatus"`
-	Enabled         *bool  `json:"enabled"`
-	Tags            string `json:"tags"`
-}
-
-type DeploymentCreateRequest struct {
-	ServiceName     string         `json:"service_name"`
-	Version         string         `json:"version"`
-	Environment     string         `json:"environment"`
-	DeployedBy      string         `json:"deployed_by"`
-	Status          string         `json:"status"`
-	CommitSHA       string         `json:"commit_sha"`
-	DurationSeconds *int           `json:"duration_seconds"`
-	Attributes      map[string]any `json:"attributes"`
+type TeamRequest struct {
+	TeamName    string `json:"team_name" binding:"required"`
+	OrgName     string `json:"org_name" binding:"required"`
+	Slug        string `json:"slug"`
+	Description string `json:"description"`
+	Color       string `json:"color"`
 }

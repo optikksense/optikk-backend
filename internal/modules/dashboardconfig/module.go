@@ -13,7 +13,7 @@ func DefaultConfig() Config {
 }
 
 // RegisterRoutes mounts dashboard-config routes.
-func RegisterRoutes(cfg Config, _ *gin.RouterGroup, v1 *gin.RouterGroup, h *DashboardConfigHandler) {
+func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *DashboardConfigHandler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}

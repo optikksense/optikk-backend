@@ -13,7 +13,7 @@ func DefaultConfig() Config {
 }
 
 // RegisterRoutes mounts overview SLO routes.
-func RegisterRoutes(cfg Config, _ *gin.RouterGroup, v1 *gin.RouterGroup, h *SLOHandler) {
+func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *SLOHandler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}

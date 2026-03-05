@@ -60,22 +60,28 @@ func ErrorRecovery() gin.HandlerFunc {
 	})
 }
 
-// publicPathPrefixes lists URL prefixes that do not require JWT authentication.
-// OTLP endpoints use API-key auth in their own handler; auth routes need to be
-// accessible without a token.
-var publicPathPrefixes = []string{
-	"/api/auth/login",
-	"/api/teams",
-	"/otlp/",
-	"/health",
-}
-
-func isPublicPath(path string) bool {
-	for _, prefix := range publicPathPrefixes {
-		if strings.HasPrefix(path, prefix) {
-			return true
-		}
+// isPublicRequest returns true if the request method and path do not require JWT authentication.
+func isPublicRequest(method, path string) bool {
+	// auth routes need to be accessible without a token.
+	if strings.HasPrefix(path, "/api/v1/auth/login") {
+		return true
 	}
+
+	// signup/create user must be public to allow first login.
+	if method == http.MethodPost && (path == "/api/v1/users" || path == "/api/v1/users/") {
+		return true
+	}
+
+	// OTLP endpoints use API-key auth in their own handler.
+	if strings.HasPrefix(path, "/otlp/") {
+		return true
+	}
+
+	// Health check endpoints are always public.
+	if strings.HasPrefix(path, "/health") {
+		return true
+	}
+
 	return false
 }
 
@@ -164,7 +170,7 @@ func TenantMiddleware(jwtManager auth.JWTManager, blacklist ...*auth.TokenBlackl
 		}
 
 		// No valid JWT — allow public paths through without authentication.
-		if isPublicPath(c.Request.URL.Path) {
+		if isPublicRequest(c.Request.Method, c.Request.URL.Path) {
 			c.Next()
 			return
 		}

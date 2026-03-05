@@ -13,7 +13,7 @@ func DefaultConfig() Config {
 }
 
 // RegisterRoutes mounts log query routes.
-func RegisterRoutes(cfg Config, _ *gin.RouterGroup, v1 *gin.RouterGroup, h *LogHandler) {
+func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *LogHandler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}

@@ -8,22 +8,35 @@ Before running the application, you must set up the required databases (MySQL an
 
 ### 1. Execute Database Schemas
 
-**MySQL** (Used for user auth, teams, alerts, and dashboard configs):
+#### **MySQL** (Used for user auth, teams, alerts, and dashboard configs):
+Log into the MySQL container and create the database if it doesn't exist:
 ```bash
-# Log into the MySQL container and create the database if it doesn't exist:
-docker exec -it <mysql_container_name> mysql -h 127.0.0.1 -P 3306 -u root -p<your_password> -e "CREATE DATABASE IF NOT EXISTS observability;"
-
-# Execute the MySQL schema from the host machine into the container:
-docker exec -i <mysql_container_name> mysql -h 127.0.0.1 -P 3306 -u root -p<your_password> observability < db/mysql_schema.sql
+docker exec -it mysql mysql -u root -proot123 -e "CREATE DATABASE IF NOT EXISTS observability;"
 ```
 
-**ClickHouse** (Used for telemetry data: spans, logs, metrics):
+Execute the table creation commands individually:
 ```bash
-# Execute the ClickHouse schema from the host machine into the container:
-docker exec -i <clickhouse_container_name> clickhouse-client -h 127.0.0.1 --port 9000 -u default --password <your_password> -n < db/clickhouse_schema.sql
+# Create users table
+docker exec -i mysql mysql -u root -proot123 observability -e "CREATE TABLE IF NOT EXISTS users (id BIGINT AUTO_INCREMENT PRIMARY KEY, email VARCHAR(255) NOT NULL UNIQUE, password_hash VARCHAR(255), name VARCHAR(100) NOT NULL, avatar_url VARCHAR(255), role VARCHAR(20) NOT NULL DEFAULT 'member', teams JSON NOT NULL DEFAULT ('[]'), active TINYINT(1) NOT NULL DEFAULT 1, last_login_at DATETIME NULL, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NULL, INDEX idx_user_email (email));"
+
+# Create teams table
+docker exec -i mysql mysql -u root -proot123 observability -e "CREATE TABLE IF NOT EXISTS teams (id BIGINT AUTO_INCREMENT PRIMARY KEY, org_name VARCHAR(100) NOT NULL, name VARCHAR(100) NOT NULL, slug VARCHAR(50), description VARCHAR(500), active TINYINT(1) NOT NULL DEFAULT 1, color VARCHAR(50), icon VARCHAR(100), api_key VARCHAR(64) NOT NULL UNIQUE, retention_days INT NOT NULL DEFAULT 30, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NULL, INDEX idx_team_api_key (api_key), UNIQUE KEY uq_team_org_name (org_name, name));"
 ```
 
-*(Adjust host, port, user, and password parameters as needed for your database connections).*
+#### **ClickHouse** (Used for telemetry data: spans, logs, metrics):
+Execute the ClickHouse table creation commands individually:
+```bash
+# Create spans table
+docker exec -i clickhouse clickhouse-client -u default --password clickhouse123 -q "CREATE TABLE IF NOT EXISTS observability.spans (team_id LowCardinality(String), trace_id String, span_id String, parent_span_id String, parent_service_name LowCardinality(String), is_root UInt8, operation_name LowCardinality(String), service_name LowCardinality(String), span_kind LowCardinality(String), start_time DateTime64(9) CODEC(Delta, ZSTD(3)), end_time DateTime64(9) CODEC(Delta, ZSTD(3)), duration_ms UInt64 CODEC(Delta, ZSTD(1)), status LowCardinality(String), status_message String CODEC(ZSTD(3)), http_method LowCardinality(String), http_url String CODEC(ZSTD(3)), http_status_code Int32, host LowCardinality(String), pod LowCardinality(String), container LowCardinality(String), attributes String CODEC(ZSTD(3)), tags Map(String, String), INDEX idx_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 4, INDEX idx_span_id span_id TYPE bloom_filter(0.01) GRANULARITY 4, INDEX idx_service service_name TYPE set(100) GRANULARITY 1) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/spans', '{replica}') PARTITION BY toYYYYMMDD(start_time) ORDER BY (team_id, service_name, start_time, trace_id, span_id) TTL toDateTime(start_time) + INTERVAL 7 DAY DELETE SETTINGS index_granularity = 8192, storage_policy = 'tiered_gcs';"
+
+# Create logs table
+docker exec -i clickhouse clickhouse-client -u default --password clickhouse123 -q "CREATE TABLE IF NOT EXISTS observability.logs (team_id LowCardinality(String), timestamp DateTime64(9) CODEC(Delta, ZSTD(3)), level LowCardinality(String), service_name LowCardinality(String), logger LowCardinality(String), message String CODEC(ZSTD(3)), trace_id String, span_id String, host LowCardinality(String), pod LowCardinality(String), container LowCardinality(String), thread LowCardinality(String), exception String CODEC(ZSTD(3)), attributes String CODEC(ZSTD(3)), tags Map(String, String), INDEX idx_trace_id trace_id TYPE bloom_filter(0.01) GRANULARITY 4, INDEX idx_span_id span_id TYPE bloom_filter(0.01) GRANULARITY 4, INDEX idx_level level TYPE set(10) GRANULARITY 1, INDEX idx_service service_name TYPE set(100) GRANULARITY 1) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/logs', '{replica}') PARTITION BY toYYYYMMDD(timestamp) ORDER BY (team_id, service_name, timestamp) TTL toDateTime(timestamp) + INTERVAL 7 DAY DELETE SETTINGS index_granularity = 8192, storage_policy = 'tiered_gcs';"
+
+# Create metrics table
+docker exec -i clickhouse clickhouse-client -u default --password clickhouse123 -q "CREATE TABLE IF NOT EXISTS observability.metrics (team_id LowCardinality(String), env LowCardinality(String) DEFAULT 'default', metric_name LowCardinality(String), metric_type LowCardinality(String), temporality LowCardinality(String) DEFAULT 'Unspecified', is_monotonic Bool CODEC(T64, ZSTD(1)), unit LowCardinality(String) DEFAULT '', description LowCardinality(String) DEFAULT '', resource_fingerprint UInt64 CODEC(Delta(8), ZSTD(1)), timestamp DateTime64(3) CODEC(DoubleDelta, LZ4), value Float64 CODEC(Gorilla, ZSTD(1)), hist_sum Float64 CODEC(Gorilla, ZSTD(1)), hist_count UInt64 CODEC(T64, ZSTD(1)), hist_buckets Array(Float64) CODEC(ZSTD(1)), hist_counts Array(UInt64) CODEC(T64, ZSTD(1)), attributes JSON(max_dynamic_paths=100) CODEC(ZSTD(1)), service LowCardinality(String) MATERIALIZED attributes.\`service.name\`::String, host LowCardinality(String) MATERIALIZED attributes.\`host.name\`::String, environment LowCardinality(String) MATERIALIZED attributes.\`deployment.environment\`::String, k8s_namespace LowCardinality(String) MATERIALIZED attributes.\`k8s.namespace.name\`::String, http_method LowCardinality(String) MATERIALIZED attributes.\`http.method\`::String, http_status_code UInt16 MATERIALIZED attributes.\`http.status_code\`::UInt16, has_error Bool MATERIALIZED attributes.\`error\`::Bool, INDEX idx_service service TYPE set(200) GRANULARITY 1, INDEX idx_host host TYPE bloom_filter GRANULARITY 4, INDEX idx_environment environment TYPE set(10) GRANULARITY 1, INDEX idx_k8s_namespace k8s_namespace TYPE set(100) GRANULARITY 1, INDEX idx_http_method http_method TYPE set(20) GRANULARITY 1, INDEX idx_http_status_code http_status_code TYPE minmax GRANULARITY 1, INDEX idx_has_error has_error TYPE set(2) GRANULARITY 1, INDEX idx_fingerprint resource_fingerprint TYPE bloom_filter GRANULARITY 4) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/metrics', '{replica}') PARTITION BY toYYYYMMDD(timestamp) ORDER BY (team_id, metric_name, service, environment, temporality, timestamp, resource_fingerprint) TTL toDateTime(timestamp) + INTERVAL 30 DAY TO VOLUME 'warm', toDateTime(timestamp) + INTERVAL 90 DAY TO VOLUME 'cold', toDateTime(timestamp) + INTERVAL 365 DAY DELETE SETTINGS index_granularity = 8192, storage_policy = 'tiered_gcs';"
+```
+
+*(Adjust user and password parameters as needed for your database connections).*
 
 ## Running the Application with Docker
 

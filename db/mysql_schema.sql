@@ -26,9 +26,8 @@ CREATE TABLE IF NOT EXISTS teams (
   retention_days INT NOT NULL DEFAULT 30,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NULL,
-  INDEX idx_team_org_name (org_name),
-  INDEX idx_team_slug (slug),
-  INDEX idx_team_api_key (api_key)
+  INDEX idx_team_api_key (api_key),
+  UNIQUE KEY uq_team_org_name (org_name, name)
 );
 
 

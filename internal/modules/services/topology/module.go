@@ -13,7 +13,7 @@ func DefaultConfig() Config {
 }
 
 // RegisterRoutes mounts services-topology routes.
-func RegisterRoutes(cfg Config, _ *gin.RouterGroup, v1 *gin.RouterGroup, h *TopologyHandler) {
+func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *TopologyHandler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}

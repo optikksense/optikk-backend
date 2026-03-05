@@ -1,6 +1,7 @@
-package identity
+package user
 
 import (
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -125,15 +126,13 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		return
 	}
 
-	if len(req.TeamIDs) == 0 {
-		apphandlers.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "At least one team ID is required")
-		return
-	}
-
 	email := strings.TrimSpace(req.Email)
 	name := strings.TrimSpace(req.Name)
-	if email == "" || name == "" {
-		respondServiceError(c, newValidationError("email and name are required", nil), "Unable to create user")
+	password := req.Password
+
+	// Mandatory fields: name, email, password, teamIDs
+	if email == "" || name == "" || password == "" || len(req.TeamIDs) == 0 {
+		apphandlers.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "email, name, password and teamIDs are mandatory")
 		return
 	}
 
@@ -142,15 +141,12 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		role = "member"
 	}
 
-	passwordHash := ""
-	if req.Password != "" {
-		hash, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
-		if err != nil {
-			respondServiceError(c, newInternalError("Failed to hash password", err), "Unable to create user")
-			return
-		}
-		passwordHash = string(hash)
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		respondServiceError(c, newInternalError("Failed to hash password", err), "Unable to create user")
+		return
 	}
+	passwordHash := string(hash)
 
 	memberships := make([]TeamMembership, 0, len(req.TeamIDs))
 	for _, tid := range req.TeamIDs {
@@ -334,37 +330,30 @@ func (h *UserHandler) GetTeamBySlug(c *gin.Context) {
 }
 
 func (h *UserHandler) CreateTeam(c *gin.Context) {
-	orgName := strings.TrimSpace(c.Query("org_name"))
-
-	if orgName == "" {
-		tenant := h.getTenant(c)
-		if tenant.TeamID > 0 {
-			currentTeam, _ := h.store.FindTeamByID(tenant.TeamID)
-			if currentTeam != nil {
-				if on := dbutil.StringFromAny(currentTeam["org_name"]); on != "" {
-					orgName = on
-				}
-			}
-		}
+	var req types.TeamRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		apphandlers.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+		return
 	}
 
-	name := strings.TrimSpace(c.Query("name"))
+	name := strings.TrimSpace(req.TeamName)
 	if name == "" {
 		respondServiceError(c, newValidationError("team name is required", nil), "Unable to create team")
 		return
 	}
 
+	orgName := strings.TrimSpace(req.OrgName)
 	if orgName == "" {
 		respondServiceError(c, newValidationError("organization name is required", nil), "Unable to create team")
 		return
 	}
 
-	slug := strings.TrimSpace(c.Query("slug"))
+	slug := strings.TrimSpace(req.Slug)
 	if slug == "" {
 		slug = strings.ToLower(strings.ReplaceAll(name, " ", "-"))
 	}
 
-	color := strings.TrimSpace(c.Query("color"))
+	color := strings.TrimSpace(req.Color)
 	if color == "" {
 		color = "#3B82F6"
 	}
@@ -376,14 +365,13 @@ func (h *UserHandler) CreateTeam(c *gin.Context) {
 	}
 
 	var descriptionPtr *string
-	if desc := strings.TrimSpace(c.Query("description")); desc != "" {
+	if desc := strings.TrimSpace(req.Description); desc != "" {
 		descriptionPtr = &desc
 	}
 
 	teamID, err := h.store.CreateTeam(orgName, name, slug, descriptionPtr, color, apiKey, time.Now().UTC())
 	if err != nil {
-		respondServiceError(c, newValidationError("Unable to create team", err), "Unable to create team")
-		return
+		log.Printf("ERROR: Failed to create team: %v (orgName=%s, name=%s)", err, orgName, name)
 	}
 
 	team, err := h.store.FindTeamByID(teamID)

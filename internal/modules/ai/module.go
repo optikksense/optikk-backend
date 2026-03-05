@@ -13,7 +13,7 @@ func DefaultConfig() Config {
 }
 
 // RegisterRoutes mounts AI routes.
-func RegisterRoutes(cfg Config, _ *gin.RouterGroup, v1 *gin.RouterGroup, h *AIHandler) {
+func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *AIHandler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}
