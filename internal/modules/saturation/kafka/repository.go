@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
+	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
 func queueNameExpr() string {
@@ -20,15 +21,10 @@ func queueNameExpr() string {
 	)
 }
 
-// TimeBucketExpression returns the SQL fragment to bucket times based on the interval.
+// TimeBucketExpression returns the SQL fragment to bucket timestamps based on the time range.
+// Delegates to the shared timebucket package.
 func TimeBucketExpression(startMs, endMs int64) string {
-	durationSecs := (endMs - startMs) / 1000
-	if durationSecs <= 3600 {
-		return "toStartOfMinute(timestamp)"
-	} else if durationSecs <= 86400 {
-		return "toStartOfFiveMinutes(timestamp)"
-	}
-	return "toStartOfHour(timestamp)"
+	return timebucket.Expression(startMs, endMs)
 }
 
 // TimeBucketSeconds returns the bucket width in seconds for the given interval.
@@ -42,9 +38,10 @@ func TimeBucketSeconds(startMs, endMs int64) float64 {
 	return 3600.0
 }
 
-// FormattedTimeBucketExpression returns the bucket string formatted as YYYY-MM-DD HH:mm:00
+// FormattedTimeBucketExpression returns the bucket expression (already formatted as a datetime string).
 func FormattedTimeBucketExpression(startMs, endMs int64) string {
-	return fmt.Sprintf("formatDateTime(%s, '%%Y-%%m-%%d %%H:%%i:00')", TimeBucketExpression(startMs, endMs))
+	// The shared package already wraps in formatDateTime, so no extra wrapping needed.
+	return TimeBucketExpression(startMs, endMs)
 }
 
 // nullableFloat64FromAny converts an interface{} (usually *float64) to a float64.
@@ -110,7 +107,7 @@ func (r *ClickHouseRepository) GetKafkaQueueLag(teamUUID string, startMs, endMs 
 		    %s                                              AS minute_bucket,
 		    avgIf(%s, %s IN (%s) AND isFinite(%s))          AS avg_consumer_lag,
 		    maxIf(%s, %s IN (%s) AND isFinite(%s))          AS max_consumer_lag
-		FROM metrics
+		FROM metrics_v5
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s IN (%s)
@@ -155,7 +152,7 @@ func (r *ClickHouseRepository) GetKafkaProductionRate(teamUUID string, startMs, 
 		    %s                                                             AS queue,
 		    %s                                                             AS minute_bucket,
 		    %s / ?                                                         AS avg_publish_rate
-		FROM metrics
+		FROM metrics_v5
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s IN (%s)
@@ -198,7 +195,7 @@ func (r *ClickHouseRepository) GetKafkaConsumptionRate(teamUUID string, startMs,
 		    %s                                                             AS queue,
 		    %s                                                             AS minute_bucket,
 		    %s / ?                                                         AS avg_receive_rate
-		FROM metrics
+		FROM metrics_v5
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s IN (%s)
@@ -247,7 +244,7 @@ func (r *ClickHouseRepository) GetQueueConsumerLag(teamUUID string, startMs, end
 		    %s                                                      AS queue_name,
 		    %s                                                      AS messaging_system,
 		    avgIf(%s, %s IN (%s) AND isFinite(%s))                  AS avg_consumer_lag
-		FROM metrics
+		FROM metrics_v5
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s IN (%s)
@@ -296,7 +293,7 @@ func (r *ClickHouseRepository) GetQueueTopicLag(teamUUID string, startMs, endMs 
 		    %s                                                      AS queue_name,
 		    %s                                                      AS messaging_system,
 		    avgIf(%s, %s IN (%s) AND isFinite(%s))                  AS avg_queue_depth
-		FROM metrics
+		FROM metrics_v5
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s IN (%s)
@@ -358,7 +355,7 @@ func (r *ClickHouseRepository) GetQueueTopQueues(teamUUID string, startMs, endMs
 		    %s / ?                                                       AS avg_publish_rate,
 		    %s / ?                                                       AS avg_receive_rate,
 		    toInt64(count())                                             AS sample_count
-		FROM metrics
+		FROM metrics_v5
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s IN (%s)

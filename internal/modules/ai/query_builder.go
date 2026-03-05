@@ -100,7 +100,7 @@ func (b *PerformanceMetricsQueryBuilder) Build() (string, []any) {
 		       IF(COUNT(*)>0, SUM(CASE WHEN status='ERROR' THEN 1 ELSE 0 END)*100.0/COUNT(*), 0) as error_rate,
 		       AVG(CASE WHEN CAST(JSONExtractString(attributes, 'duration_ms') AS Float64)>0 THEN COALESCE(JSONExtractInt(attributes, 'gen.ai.usage.output_tokens'),0)/(CAST(JSONExtractString(attributes, 'duration_ms') AS Float64)/1000.0) ELSE 0 END) as avg_tokens_per_sec,
 		       AVG(COALESCE(JSONExtractInt(attributes, 'ai.retry_count'),0)) as avg_retry_count
-		FROM metrics
+		FROM metrics_v5
 		%s
 		GROUP BY model_name, model_provider, request_type
 		ORDER BY total_requests DESC
@@ -141,7 +141,7 @@ func (b *CostMetricsQueryBuilder) Build() (string, []any) {
 		       AVG(COALESCE(JSONExtractInt(attributes, 'gen.ai.usage.output_tokens'),0)) as avg_completion_tokens,
 		       IF(COUNT(*)>0, SUM(CASE WHEN JSONExtractInt(attributes, 'ai.cache_hit')=1 THEN 1 ELSE 0 END)*100.0/COUNT(*), 0) as cache_hit_rate,
 		       SUM(COALESCE(JSONExtractInt(attributes, 'gen.ai.usage.cache_read_input_tokens'),0)) as total_cache_tokens
-		FROM metrics
+		FROM metrics_v5
 		%s
 		GROUP BY model_name, model_provider
 		ORDER BY total_cost_usd DESC
@@ -178,7 +178,7 @@ func (b *SecurityMetricsQueryBuilder) Build() (string, []any) {
 		       IF(COUNT(*)>0, SUM(CASE WHEN JSONExtractInt(attributes, 'ai.security.guardrail_blocked')=1 THEN 1 ELSE 0 END)*100.0/COUNT(*), 0) as guardrail_block_rate,
 		       SUM(CASE WHEN JSONExtractInt(attributes, 'ai.security.content_policy')=1 THEN 1 ELSE 0 END) as content_policy_count,
 		       IF(COUNT(*)>0, SUM(CASE WHEN JSONExtractInt(attributes, 'ai.security.content_policy')=1 THEN 1 ELSE 0 END)*100.0/COUNT(*), 0) as content_policy_rate
-		FROM metrics
+		FROM metrics_v5
 		%s
 		GROUP BY model_name, model_provider
 		ORDER BY pii_detected_count DESC
@@ -235,7 +235,7 @@ func (b *TimeSeriesQueryBuilder) Build() (string, []any) {
 		SELECT JSONExtractString(attributes, 'gen.ai.request.model') as model_name,
 		       %s as timestamp,
 		       %s
-		FROM metrics
+		FROM metrics_v5
 		%s
 		GROUP BY %s
 		ORDER BY %s
@@ -273,7 +273,7 @@ func (b *LatencyHistogramQueryBuilder) Build() (string, []any) {
 		SELECT JSONExtractString(attributes, 'gen.ai.request.model') as model_name,
 		       FLOOR(CAST(JSONExtractString(attributes, 'duration_ms') AS Float64) / %d) * %d as bucket_ms,
 		       COUNT(*) as request_count
-		FROM metrics
+		FROM metrics_v5
 		%s
 		GROUP BY model_name, bucket_ms
 		ORDER BY model_name, bucket_ms ASC
@@ -319,7 +319,7 @@ func (b *SummaryQueryBuilder) Build() (string, []any) {
 		       IF(COUNT(*)>0, SUM(CASE WHEN JSONExtractInt(attributes, 'ai.security.guardrail_blocked')=1 THEN 1 ELSE 0 END)*100.0/COUNT(*), 0) as guardrail_block_rate,
 		       AVG(CASE WHEN CAST(JSONExtractString(attributes, 'duration_ms') AS Float64) > 0 THEN COALESCE(JSONExtractInt(attributes, 'gen.ai.usage.output_tokens'),0) / (CAST(JSONExtractString(attributes, 'duration_ms') AS Float64)/1000.0) ELSE 0 END) as avg_tokens_per_sec,
 		       COUNT(DISTINCT JSONExtractString(attributes, 'gen.ai.request.model')) as active_models
-		FROM metrics
+		FROM metrics_v5
 		%s
 	`, where)
 
@@ -346,7 +346,7 @@ func (b *ModelListQueryBuilder) Build() (string, []any) {
 	query := fmt.Sprintf(`
 		SELECT JSONExtractString(attributes, 'gen.ai.request.model') as model_name,
 		       JSONExtractString(attributes, 'server.address') as model_provider
-		FROM metrics
+		FROM metrics_v5
 		%s
 		GROUP BY model_name, model_provider
 		ORDER BY model_name ASC
@@ -379,7 +379,7 @@ func (b *TokenBreakdownQueryBuilder) Build() (string, []any) {
 		       SUM(COALESCE(JSONExtractInt(attributes, 'gen.ai.usage.output_tokens'),0)) as completion_tokens,
 		       SUM(COALESCE(JSONExtractInt(attributes, 'ai.tokens_system'),0)) as system_tokens,
 		       SUM(COALESCE(JSONExtractInt(attributes, 'gen.ai.usage.cache_read_input_tokens'),0)) as cache_tokens
-		FROM metrics
+		FROM metrics_v5
 		%s
 		GROUP BY model_name
 		ORDER BY (prompt_tokens + completion_tokens) DESC
@@ -410,7 +410,7 @@ func (b *PIICategoryQueryBuilder) Build() (string, []any) {
 		SELECT JSONExtractString(attributes, 'gen.ai.request.model') as model_name,
 		       JSONExtractString(attributes, 'ai.security.pii_categories') as pii_categories,
 		       COUNT(*) as detection_count
-		FROM metrics
+		FROM metrics_v5
 		%s AND JSONExtractInt(attributes, 'ai.security.pii_detected') = 1
 		GROUP BY model_name, pii_categories
 		ORDER BY detection_count DESC

@@ -29,7 +29,11 @@ import (
 	identityservice "github.com/observability/observability-backend-go/internal/modules/user/service"
 	identitystore "github.com/observability/observability-backend-go/internal/modules/user/store"
 	"github.com/observability/observability-backend-go/internal/platform/auth"
+	"github.com/observability/observability-backend-go/internal/platform/ingest"
 	"github.com/observability/observability-backend-go/internal/platform/middleware"
+	"github.com/observability/observability-backend-go/internal/platform/otlp"
+	otlpauth "github.com/observability/observability-backend-go/internal/platform/otlp/auth"
+	otlpgrpc "github.com/observability/observability-backend-go/internal/platform/otlp/grpc"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 )
@@ -56,6 +60,13 @@ type App struct {
 	SaturationKafka     *kafka.KafkaHandler
 	AI                  *ai.AIHandler
 	DashboardConfig     *dashboardconfig.DashboardConfigHandler
+
+	// OTLP ingest handlers & queues.
+	OTLPHTTP     *otlp.Handler
+	OTLPGRPC     *otlpgrpc.Handler
+	SpansQueue   *ingest.Queue
+	LogsQueue    *ingest.Queue
+	MetricsQueue *ingest.Queue
 }
 
 type AuthModule interface {
@@ -108,6 +119,15 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 	} else {
 		blacklist = auth.NewInMemoryTokenBlacklist()
 	}
+
+	// OTLP ingest queues — batch-write to ClickHouse.
+	spansQueue := ingest.NewQueue(ch, "observability.spans", otlp.SpanColumns)
+	logsQueue := ingest.NewQueue(ch, "observability.logs", otlp.LogColumns)
+	metricsQueue := ingest.NewQueue(ch, "observability.metrics", otlp.MetricColumns)
+
+	authResolver := otlpauth.NewAuthenticator(db)
+	otlpHTTPHandler := otlp.NewHandler(authResolver, spansQueue, logsQueue, metricsQueue)
+	otlpGRPCHandler := otlpgrpc.NewHandler(authResolver, spansQueue, logsQueue, metricsQueue)
 
 	return &App{
 		DB:             db,
@@ -225,6 +245,12 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				dashboardconfig.NewRepository(db),
 			),
 		},
+
+		OTLPHTTP:     otlpHTTPHandler,
+		OTLPGRPC:     otlpGRPCHandler,
+		SpansQueue:   spansQueue,
+		LogsQueue:    logsQueue,
+		MetricsQueue: metricsQueue,
 	}
 }
 
@@ -289,6 +315,16 @@ func (a *App) Start(ctx context.Context) error {
 		if a.TokenBlacklist != nil {
 			a.TokenBlacklist.Stop()
 		}
+
+		// Phase 1: Flush all ingest queues before accepting no more requests.
+		for _, q := range []*ingest.Queue{a.SpansQueue, a.LogsQueue, a.MetricsQueue} {
+			if q != nil {
+				if err := q.Close(); err != nil {
+					log.Printf("WARN: error flushing ingest queue on shutdown: %v", err)
+				}
+			}
+		}
+
 		shutCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 

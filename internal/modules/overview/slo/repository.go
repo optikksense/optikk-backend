@@ -4,22 +4,13 @@ import (
 	"fmt"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
+	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
 // sloBucketExpr returns a ClickHouse time-bucketing expression for adaptive granularity
-// using OpenTelemetry conventions.
+// over the spans start_time column.
 func sloBucketExpr(startMs, endMs int64) string {
-	hours := (endMs - startMs) / 3_600_000
-	switch {
-	case hours <= 3:
-		return FmtIntervalOneMinute
-	case hours <= 24:
-		return FmtIntervalFiveMinutes
-	case hours <= 168:
-		return FmtIntervalSixtyMinutes
-	default:
-		return FmtIntervalOneDay
-	}
+	return timebucket.ExprForColumn(startMs, endMs, ColStartTime)
 }
 
 // Repository encapsulates data access logic for the SLO dashboard.

@@ -6,15 +6,15 @@ package servicepage
 
 const (
 	// Span Table Columns - Standard OpenTelemetry fields
-	ColTeamID        = "team_id"
-	ColServiceName   = "service_name"
-	ColOperationName = "operation_name"
-	ColStartTime     = "start_time"
-	ColDurationMs    = "duration_ms"
-	ColStatus        = "status"
+	ColTeamID         = "team_id"
+	ColServiceName    = "service_name"
+	ColOperationName  = "operation_name"
+	ColStartTime      = "start_time"
+	ColDurationMs     = "duration_ms"
+	ColStatus         = "status"
 	ColHTTPStatusCode = "http_status_code"
-	ColHTTPMethod    = "http_method"
-	ColIsRoot        = "is_root"
+	ColHTTPMethod     = "http_method"
+	ColIsRoot         = "is_root"
 
 	// Status Values - OpenTelemetry Span Status
 	StatusOK    = "OK"
@@ -42,12 +42,6 @@ const (
 	ThreeHours      = 3 * 3_600_000
 	TwentyFourHours = 24 * 3_600_000
 	OneWeek         = 168 * 3_600_000
-
-	// Time Bucket Intervals
-	IntervalOneMinute    = "toStartOfMinute(start_time)"
-	IntervalFiveMinutes  = "toStartOfInterval(start_time, INTERVAL 5 MINUTE)"
-	IntervalSixtyMinutes = "toStartOfInterval(start_time, INTERVAL 60 MINUTE)"
-	IntervalOneDay       = "toStartOfInterval(start_time, INTERVAL 1440 MINUTE)"
 )
 
 // ErrorCondition returns the SQL condition for identifying errors based on OpenTelemetry conventions
@@ -59,4 +53,3 @@ func ErrorCondition() string {
 func RootSpanCondition() string {
 	return "is_root = 1"
 }
-

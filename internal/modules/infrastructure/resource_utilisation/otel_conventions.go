@@ -1,6 +1,10 @@
 package resource_utilisation
 
-import "strings"
+import (
+	"strings"
+
+	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
+)
 
 // OpenTelemetry Semantic Conventions for Resource Utilization Metrics
 // Based on OpenTelemetry Semantic Conventions for System Metrics
@@ -8,22 +12,22 @@ import "strings"
 
 const (
 	// Table Names
-	TableMetrics = "metrics"
+	TableMetrics = "metrics_v5"
 
 	// Metrics Table Columns
 	ColTeamID      = "team_id"
 	ColTimestamp   = "timestamp"
 	ColMetricName  = "metric_name"
 	ColValue       = "value"
-	ColServiceName = "service_name"
+	ColServiceName = "service"
 	ColHost        = "host"
 	ColPod         = "pod"
 	ColContainer   = "container"
 	ColAttributes  = "attributes"
-	ColCount       = "count"
-	ColAvg         = "avg"
-	ColMax         = "max"
-	ColMin         = "min"
+	ColCount       = "hist_count"
+	ColAvg         = "value"
+	ColMax         = "value"
+	ColMin         = "value"
 
 	// Standard OpenTelemetry System Metrics
 	MetricSystemCPUUtilization     = "system.cpu.utilization"
@@ -129,19 +133,10 @@ var (
 	}
 )
 
-// TimeBucketExpression returns the appropriate time bucket expression based on time range
+// TimeBucketExpression returns the appropriate time bucket expression based on time range.
+// Delegates to the shared timebucket package.
 func TimeBucketExpression(startMs, endMs int64) string {
-	hours := (endMs - startMs) / 3_600_000
-	switch {
-	case hours <= 3:
-		return "formatDateTime(toStartOfMinute(timestamp), '" + TimeFormatISO8601 + "')"
-	case hours <= 24:
-		return "formatDateTime(toStartOfFiveMinutes(timestamp), '" + TimeFormatISO8601 + "')"
-	case hours <= 168:
-		return "formatDateTime(toStartOfHour(timestamp), '" + TimeFormatISO8601 + "')"
-	default:
-		return "formatDateTime(toStartOfDay(timestamp), '" + TimeFormatISO8601 + "')"
-	}
+	return timebucket.Expression(startMs, endMs)
 }
 
 // MetricSetToInClause converts a metric set to a SQL IN clause

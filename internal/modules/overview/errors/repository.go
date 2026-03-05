@@ -4,22 +4,13 @@ import (
 	"fmt"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
+	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
 // errorBucketExpr returns a ClickHouse expression for adaptive time bucketing
-// using OpenTelemetry conventions.
+// over the spans table using start_time column.
 func errorBucketExpr(startMs, endMs int64) string {
-	hours := (endMs - startMs) / 3_600_000
-	switch {
-	case hours <= 3:
-		return IntervalOneMinute
-	case hours <= 24:
-		return IntervalFiveMinutes
-	case hours <= 168:
-		return IntervalSixtyMinutes
-	default:
-		return IntervalOneDay
-	}
+	return timebucket.ExprForColumn(startMs, endMs, ColStartTime)
 }
 
 // Repository encapsulates data access logic for overview error dashboards.

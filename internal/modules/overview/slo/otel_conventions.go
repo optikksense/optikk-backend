@@ -22,9 +22,9 @@ const (
 	HTTPErrorThreshold = 400
 
 	// Metric Aggregation Functions
-	AggCount   = "count()"
-	AggCountIf = "countIf"
-	AggAvg     = "avg"
+	AggCount    = "count()"
+	AggCountIf  = "countIf"
+	AggAvg      = "avg"
 	AggQuantile = "quantile"
 
 	// Quantile Values
@@ -34,12 +34,6 @@ const (
 	ThreeHours      = 3 * 3_600_000
 	TwentyFourHours = 24 * 3_600_000
 	OneWeek         = 168 * 3_600_000
-
-	// Time Bucket Functions with Formatting
-	FmtIntervalOneMinute    = "formatDateTime(toStartOfMinute(start_time), '%Y-%m-%d %H:%i:00')"
-	FmtIntervalFiveMinutes  = "formatDateTime(toStartOfFiveMinutes(start_time), '%Y-%m-%d %H:%i:00')"
-	FmtIntervalSixtyMinutes = "formatDateTime(toStartOfHour(start_time), '%Y-%m-%d %H:%i:00')"
-	FmtIntervalOneDay       = "formatDateTime(toStartOfDay(start_time), '%Y-%m-%d %H:%i:00')"
 )
 
 // ErrorCondition returns the SQL condition for identifying errors based on OpenTelemetry conventions
@@ -51,4 +45,3 @@ func ErrorCondition() string {
 func RootSpanCondition() string {
 	return "is_root = 1"
 }
-

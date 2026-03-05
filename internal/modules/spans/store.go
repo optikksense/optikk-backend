@@ -6,6 +6,7 @@ import (
 	"time"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
+	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
 // ClickHouseRepository is the data access layer for traces.
@@ -17,35 +18,10 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-// timeBucketExpr returns a ClickHouse expression grouping the `minute` column by
-// adaptive granularity based on the requested time range width.
-func timeBucketExpr(startMs, endMs int64) string {
-	hours := (endMs - startMs) / 3_600_000
-	switch {
-	case hours <= 3:
-		return "minute"
-	case hours <= 24:
-		return "toStartOfFiveMinutes(minute)"
-	case hours <= 168:
-		return "toStartOfHour(minute)"
-	default:
-		return "toStartOfDay(minute)"
-	}
-}
-
 // rawTimeBucketExpr returns a ClickHouse expression grouping a raw timestamp column.
+// Delegates to the shared timebucket package.
 func rawTimeBucketExpr(startMs, endMs int64, column string) string {
-	hours := (endMs - startMs) / 3_600_000
-	switch {
-	case hours <= 3:
-		return fmt.Sprintf("toStartOfMinute(%s)", column)
-	case hours <= 24:
-		return fmt.Sprintf("toStartOfFiveMinutes(%s)", column)
-	case hours <= 168:
-		return fmt.Sprintf("toStartOfHour(%s)", column)
-	default:
-		return fmt.Sprintf("toStartOfDay(%s)", column)
-	}
+	return timebucket.ExprForColumn(startMs, endMs, column)
 }
 
 func (r *ClickHouseRepository) buildTraceQueryArgs(f TraceFilters) (string, []any) {

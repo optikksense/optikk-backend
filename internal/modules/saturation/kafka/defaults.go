@@ -12,16 +12,16 @@ const (
 	MessagingSystemKafka = "kafka"
 
 	// Column names
-	ColAttributes  = "Attributes"
-	ColMetricName  = "MetricName"
-	ColServiceName = "ServiceName"
-	ColCount       = "Count"
-	ColAvg         = "Avg"
-	ColMax         = "Max"
-	ColP95         = "P95"
-	ColTeamID      = "TeamId"
-	ColTimestamp   = "Timestamp"
-	ColValue       = "Value"
+	ColAttributes  = "attributes"
+	ColMetricName  = "metric_name"
+	ColServiceName = "service"
+	ColCount       = "hist_count"
+	ColAvg         = "value"
+	ColMax         = "value"
+	ColP95         = "value"
+	ColTeamID      = "team_id"
+	ColTimestamp   = "timestamp"
+	ColValue       = "value"
 
 	// Limits
 	MaxTopQueues = 50

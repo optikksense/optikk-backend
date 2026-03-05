@@ -2,7 +2,11 @@ package database
 
 import (
 	dbutil "github.com/observability/observability-backend-go/internal/database"
+	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
+
+// Ensure timebucket import is used.
+var _ = timebucket.Expression
 
 const (
 	// DefaultUnknown is used when a dimensional value cannot be extracted.
@@ -23,16 +27,16 @@ const (
 	MetricDBClientErrors           = "db.client.errors"
 
 	// Column names
-	ColAttributes  = "Attributes"
-	ColMetricName  = "MetricName"
-	ColServiceName = "ServiceName"
-	ColCount       = "Count"
-	ColAvg         = "Avg"
-	ColMax         = "Max"
-	ColP95         = "P95"
-	ColTeamID      = "TeamId"
-	ColTimestamp   = "Timestamp"
-	ColValue       = "Value"
+	ColAttributes  = "attributes"
+	ColMetricName  = "metric_name"
+	ColServiceName = "service"
+	ColCount       = "hist_count"
+	ColAvg         = "value"
+	ColMax         = "value"
+	ColP95         = "value"
+	ColTeamID      = "team_id"
+	ColTimestamp   = "timestamp"
+	ColValue       = "value"
 
 	// Constants for queries
 	MaxTopTables = 50
@@ -79,10 +83,6 @@ func MetricSetToInClause(metrics []string) string {
 		res += "'" + m + "'"
 	}
 	return res
-}
-
-func TimeBucketExpression(startMs, endMs int64) string {
-	return "toStartOfInterval(Timestamp, INTERVAL 1 MINUTE)"
 }
 
 func syncAggregateExpr(expr1, expr2 string) string {

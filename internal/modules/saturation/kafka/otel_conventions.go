@@ -37,7 +37,7 @@ const (
 	StatusUnset = "STATUS_CODE_UNSET"
 
 	TableSpans   = "otel_traces"
-	TableMetrics = "otel_metrics"
+	TableMetrics = "metrics_v5"
 )
 
 // ExtractJSONString builds a ClickHouse JSON extraction expression.

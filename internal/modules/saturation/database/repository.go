@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
+	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -154,7 +155,7 @@ func nullableFloat64FromAny(val interface{}) float64 {
 // GetDatabaseQueryByTable returns per-collection/table query counts and latency
 // percentiles, bucketed by time. Merges MongoDB driver and HikariCP pool metrics.
 func (r *ClickHouseRepository) GetDatabaseQueryByTable(teamUUID string, startMs, endMs int64) ([]DatabaseQueryByTable, error) {
-	bucket := TimeBucketExpression(startMs, endMs)
+	bucket := timebucket.Expression(startMs, endMs)
 	collExpr := dbCollectionExpression()
 
 	query := fmt.Sprintf(`
@@ -167,7 +168,7 @@ func (r *ClickHouseRepository) GetDatabaseQueryByTable(teamUUID string, startMs,
 		    %s                                                              AS usage_avg_latency_ms,
 		    %s                                                              AS mongo_p95_latency_ms,
 		    %s                                                              AS usage_p95_latency_ms
-		FROM metrics
+		FROM metrics_v5
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s
@@ -212,7 +213,7 @@ func (r *ClickHouseRepository) GetDatabaseQueryByTable(teamUUID string, startMs,
 // GetDatabaseAvgLatency returns the overall (cross-collection) average and p95
 // query latency bucketed by time, merging MongoDB driver and HikariCP sources.
 func (r *ClickHouseRepository) GetDatabaseAvgLatency(teamUUID string, startMs, endMs int64) ([]DatabaseAvgLatency, error) {
-	bucket := TimeBucketExpression(startMs, endMs)
+	bucket := timebucket.Expression(startMs, endMs)
 
 	avgLatencyExpr := syncAggregateExpr(mongoLatencyAvg(ColAvg), hikariLatencyAvg(ColAvg))
 	p95LatencyExpr := syncAggregateExpr(mongoLatencyMax(ColP95), hikariLatencyMax(ColP95))
@@ -222,7 +223,7 @@ func (r *ClickHouseRepository) GetDatabaseAvgLatency(teamUUID string, startMs, e
 		    %s                                 AS minute_bucket,
 		    coalesce(%s, 0)                    AS avg_latency_ms,
 		    coalesce(%s, 0)                    AS p95_latency_ms
-		FROM metrics
+		FROM metrics_v5
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s
@@ -276,7 +277,7 @@ func (r *ClickHouseRepository) GetDatabaseCacheSummary(teamUUID string, startMs,
 		    sumIf(%s, %s = '%s' AND isFinite(%s))                     AS cache_hits,
 		    sumIf(%s, %s = '%s' AND isFinite(%s))                     AS cache_misses,
 		    avgIf(%s, %s = '%s' AND isFinite(%s))                     AS avg_replication_lag_ms
-		FROM metrics
+		FROM metrics_v5
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s
@@ -326,7 +327,7 @@ func (r *ClickHouseRepository) GetDatabaseSystems(teamUUID string, startMs, endM
 		    sumIf(%s, %s = '%s')                                        AS error_count,
 		    maxIf(%s, %s = '%s')                                        AS mongo_span_count,
 		    maxIf(%s, %s = '%s')                                        AS usage_span_count
-		FROM metrics
+		FROM metrics_v5
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s
@@ -390,7 +391,7 @@ func (r *ClickHouseRepository) GetDatabaseTopTables(teamUUID string, startMs, en
 		    sumIf(%s, %s = '%s' AND isFinite(%s))                           AS cache_misses,
 		    maxIf(%s, %s = '%s')                                            AS mongo_query_count,
 		    maxIf(%s, %s = '%s')                                            AS usage_query_count
-		FROM metrics
+		FROM metrics_v5
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s
