@@ -15,19 +15,18 @@ CREATE TABLE IF NOT EXISTS users (
 
 CREATE TABLE IF NOT EXISTS teams (
   id BIGINT AUTO_INCREMENT PRIMARY KEY,
-  organization_id BIGINT NOT NULL,
-  org_name VARCHAR(100),
+  org_name VARCHAR(100) NOT NULL,
   name VARCHAR(100) NOT NULL,
   slug VARCHAR(50),
   description VARCHAR(500),
   active TINYINT(1) NOT NULL DEFAULT 1,
   color VARCHAR(50),
   icon VARCHAR(100),
-  api_key VARCHAR(64) UNIQUE,
+  api_key VARCHAR(64) NOT NULL UNIQUE,
   retention_days INT NOT NULL DEFAULT 30,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NULL,
-  INDEX idx_team_org (organization_id),
+  INDEX idx_team_org_name (org_name),
   INDEX idx_team_slug (slug),
   INDEX idx_team_api_key (api_key)
 );

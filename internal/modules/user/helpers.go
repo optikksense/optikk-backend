@@ -1,4 +1,4 @@
-package service
+package identity
 
 import (
 	"crypto/rand"
@@ -7,14 +7,7 @@ import (
 	"encoding/json"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
-	"github.com/observability/observability-backend-go/internal/modules/user/store"
 )
-
-// TeamMembership represents a single entry in the users.teams JSON array.
-type TeamMembership struct {
-	TeamID int64  `json:"team_id"`
-	Role   string `json:"role"`
-}
 
 func parseTeamsJSON(raw string) ([]TeamMembership, error) {
 	var memberships []TeamMembership
@@ -41,8 +34,8 @@ func teamIDsFromMemberships(ms []TeamMembership) []int64 {
 	return ids
 }
 
-func listActiveTeamsForUser(tables store.TableProvider, userID int64) ([]map[string]any, error) {
-	user, err := tables.Users().FindActiveByID(userID)
+func listActiveTeamsForUser(store *Store, userID int64) ([]map[string]any, error) {
+	user, err := store.FindActiveUserByID(userID)
 	if err != nil {
 		return nil, err
 	}
@@ -63,7 +56,7 @@ func listActiveTeamsForUser(tables store.TableProvider, userID int64) ([]map[str
 		roleByTeamID[m.TeamID] = m.Role
 	}
 
-	rows, err := tables.Teams().ListActiveByIDs(teamIDs)
+	rows, err := store.ListActiveTeamsByIDs(teamIDs)
 	if err != nil {
 		return nil, err
 	}
@@ -83,13 +76,13 @@ func listActiveTeamsForUser(tables store.TableProvider, userID int64) ([]map[str
 	return teams, nil
 }
 
-func buildAuthContextResponse(tables store.TableProvider, userID int64) (map[string]any, error) {
-	user, err := tables.Users().FindActiveByID(userID)
+func buildAuthContextResponse(store *Store, userID int64) (map[string]any, error) {
+	user, err := store.FindActiveUserByID(userID)
 	if err != nil || len(user) == 0 {
 		return nil, sql.ErrNoRows
 	}
 
-	teams, _ := listActiveTeamsForUser(tables, userID)
+	teams, _ := listActiveTeamsForUser(store, userID)
 	var currentTeam map[string]any
 	if len(teams) > 0 {
 		currentTeam = teams[0]
@@ -108,8 +101,8 @@ func buildAuthContextResponse(tables store.TableProvider, userID int64) (map[str
 	}, nil
 }
 
-func buildUserResponseByID(tables store.TableProvider, userID int64) (map[string]any, error) {
-	user, err := tables.Users().FindByID(userID)
+func buildUserResponseByID(store *Store, userID int64) (map[string]any, error) {
+	user, err := store.FindUserByID(userID)
 	if err != nil || len(user) == 0 {
 		return nil, sql.ErrNoRows
 	}
@@ -125,7 +118,7 @@ func buildUserResponseByID(tables store.TableProvider, userID int64) (map[string
 
 	var teamDetails []map[string]any
 	if len(teamIDs) > 0 {
-		rows, _ := tables.Teams().ListActiveByIDs(teamIDs)
+		rows, _ := store.ListActiveTeamsByIDs(teamIDs)
 		teamDetails = make([]map[string]any, 0, len(rows))
 		for _, row := range rows {
 			tid := dbutil.Int64FromAny(row["id"])
@@ -154,8 +147,8 @@ func buildUserResponseByID(tables store.TableProvider, userID int64) (map[string
 	}, nil
 }
 
-func buildSettingsResponse(tables store.TableProvider, userID int64) (map[string]any, error) {
-	row, err := tables.Users().FindActiveByID(userID)
+func buildSettingsResponse(store *Store, userID int64) (map[string]any, error) {
+	row, err := store.FindActiveUserByID(userID)
 	if err != nil || len(row) == 0 {
 		return nil, sql.ErrNoRows
 	}
@@ -166,7 +159,7 @@ func buildSettingsResponse(tables store.TableProvider, userID int64) (map[string
 
 	var teams []map[string]any
 	if len(teamIDs) > 0 {
-		teams, _ = tables.Teams().ListActiveByIDs(teamIDs)
+		teams, _ = store.ListActiveTeamsByIDs(teamIDs)
 	}
 
 	return map[string]any{

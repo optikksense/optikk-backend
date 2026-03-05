@@ -68,3 +68,29 @@ docker run -d \
 - `CLICKHOUSE_*`: Credentials to connect to the ClickHouse database.
 - `JWT_SECRET`: A secure randomly generated secret used for signing JWT auth tokens.
 - `REDIS_ENABLED` / `KAFKA_ENABLED`: Toggle depending on whether you're using Redis for pub/sub (SSE) and token blacklisting, and Kafka for telemetry queuing. (Set to `true` and define target hosts/ports if using them).
+
+### 3. Get dabases Up Before
+
+#### Run MySQl
+```bash
+docker run -d \
+  --name mysql \
+  -e MYSQL_ROOT_PASSWORD=root123 \     
+  -e MYSQL_DATABASE=observability \
+  -p 3306:3306 \
+  mysql:latest
+```
+
+#### Run Clickhouse 
+```bash
+docker run -d \
+  --name clickhouse \
+  -p 8123:8123 \
+  -p 9000:9000 \
+  --ulimit nofile=262144:262144 \
+  -e CLICKHOUSE_DB=observability \
+  -e CLICKHOUSE_USER=default \
+  -e CLICKHOUSE_PASSWORD=clickhouse123 \
+  clickhouse/clickhouse-server:latest
+```
+

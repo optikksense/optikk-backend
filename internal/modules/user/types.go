@@ -1,30 +1,6 @@
-package service
+package identity
 
 import "fmt"
-
-// AuthService encapsulates authentication business rules.
-type AuthService interface {
-	Login(email, password string) (map[string]any, error)
-	BuildAuthContext(userID int64) (map[string]any, error)
-}
-
-// UserService encapsulates user/team/profile business rules.
-type UserService interface {
-	GetCurrentUser(userID int64) (map[string]any, error)
-	GetUsers(teamID int64, limit, offset int) ([]map[string]any, error)
-	GetUserByID(userID int64) (map[string]any, error)
-	CreateUser(input CreateUserInput) (map[string]any, error)
-	Signup(input SignupInput) (map[string]any, error)
-	AddUserToTeam(userID, teamID int64, role string) error
-	RemoveUserFromTeam(userID, teamID int64) error
-	GetTeams(teamID int64) ([]map[string]any, error)
-	GetMyTeams(userID int64) ([]map[string]any, error)
-	GetTeamByID(teamID int64) (map[string]any, error)
-	GetTeamBySlug(teamID int64, slug string) (map[string]any, error)
-	CreateTeam(input CreateTeamInput) (map[string]any, error)
-	GetProfile(userID int64) (map[string]any, error)
-	UpdateProfile(input UpdateProfileInput) (map[string]any, error)
-}
 
 type CreateUserInput struct {
 	TeamIDs  []int64
@@ -34,21 +10,12 @@ type CreateUserInput struct {
 	Password string
 }
 
-type SignupInput struct {
-	Email    string
-	Name     string
-	Password string
-	TeamName string
-	OrgName  string
-}
-
 type CreateTeamInput struct {
-	OrganizationID int64
-	Name           string
-	Slug           string
-	Description    string
-	Color          string
-	OrgName        string
+	OrgName     string
+	Name        string
+	Slug        string
+	Description string
+	Color       string
 }
 
 type UpdateProfileInput struct {
@@ -97,4 +64,9 @@ func newNotFoundError(message string, cause error) error {
 
 func newInternalError(message string, cause error) error {
 	return &ServiceError{Code: ServiceErrorInternal, Message: message, Cause: cause}
+}
+
+type TeamMembership struct {
+	TeamID int64  `json:"team_id"`
+	Role   string `json:"role"`
 }

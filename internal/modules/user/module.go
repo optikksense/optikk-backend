@@ -12,36 +12,7 @@ func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-// AuthRoutes defines auth endpoints used by identity route registration.
-type AuthRoutes interface {
-	Login(*gin.Context)
-	Logout(*gin.Context)
-	AuthMe(*gin.Context)
-	AuthContext(*gin.Context)
-	ValidateToken(*gin.Context)
-}
-
-// UserRoutes defines user/team/profile endpoints used by identity route registration.
-type UserRoutes interface {
-	GetCurrentUser(*gin.Context)
-	GetUsers(*gin.Context)
-	GetUserByID(*gin.Context)
-	Signup(*gin.Context)
-	CreateUser(*gin.Context)
-	AddUserToTeam(*gin.Context)
-	RemoveUserFromTeam(*gin.Context)
-	GetTeams(*gin.Context)
-	GetMyTeams(*gin.Context)
-	GetTeamByID(*gin.Context)
-	GetTeamBySlug(*gin.Context)
-	CreateTeam(*gin.Context)
-	GetProfile(*gin.Context)
-	UpdateProfile(*gin.Context)
-}
-
-// RegisterRoutes mounts identity routes on both the legacy /api and versioned
-// /api/v1 route groups for backward compatibility.
-func RegisterRoutes(cfg Config, api *gin.RouterGroup, v1 *gin.RouterGroup, auth AuthRoutes, users UserRoutes) {
+func RegisterRoutes(cfg Config, api *gin.RouterGroup, v1 *gin.RouterGroup, auth *AuthHandler, users *UserHandler) {
 	if !cfg.Enabled || auth == nil || users == nil {
 		return
 	}
@@ -49,8 +20,6 @@ func RegisterRoutes(cfg Config, api *gin.RouterGroup, v1 *gin.RouterGroup, auth 
 	// Register on both route groups so /api/v1/* is the canonical prefix while
 	// the legacy /api/* paths keep working for existing clients.
 	for _, g := range []*gin.RouterGroup{api, v1} {
-		g.POST("/signup", users.Signup)
-
 		authGroup := g.Group("/auth")
 		{
 			authGroup.POST("/login", auth.Login)

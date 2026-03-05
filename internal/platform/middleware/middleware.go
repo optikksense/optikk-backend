@@ -64,8 +64,8 @@ func ErrorRecovery() gin.HandlerFunc {
 // OTLP endpoints use API-key auth in their own handler; auth routes need to be
 // accessible without a token.
 var publicPathPrefixes = []string{
-	"/api/signup",
 	"/api/auth/login",
+	"/api/teams",
 	"/otlp/",
 	"/health",
 }

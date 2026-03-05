@@ -6,10 +6,11 @@ type LoginRequest struct {
 }
 
 type UserRequest struct {
-	Email    string `json:"email"`
-	Name     string `json:"name"`
-	Role     string `json:"role"`
-	Password string `json:"password"`
+	Email    string  `json:"email" binding:"required"`
+	Name     string  `json:"name" binding:"required"`
+	Role     string  `json:"role"`
+	Password string  `json:"password" binding:"required"`
+	TeamIDs  []int64 `json:"teamIds" binding:"required,min=1"`
 }
 
 type SettingsRequest struct {

@@ -1,4 +1,4 @@
-package store
+package identity
 
 import (
 	"database/sql"
@@ -9,33 +9,25 @@ import (
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
-// MySQLProvider wires users/teams repositories backed by MySQL.
-type MySQLProvider struct {
-	users *MySQLUserTable
-	teams *MySQLTeamTable
+type AuthUser struct {
+	ID           int64
+	Email        string
+	PasswordHash string
+	Name         string
+	AvatarURL    string
+	Role         string
+	TeamsJSON    string
 }
 
-func NewMySQLProvider(db *sql.DB) *MySQLProvider {
-	qdb := dbutil.NewMySQLWrapper(db)
-	return &MySQLProvider{
-		users: &MySQLUserTable{DB: qdb},
-		teams: &MySQLTeamTable{DB: qdb},
-	}
-}
-
-func (p *MySQLProvider) Users() UserTableRepository {
-	return p.users
-}
-
-func (p *MySQLProvider) Teams() TeamTableRepository {
-	return p.teams
-}
-
-type MySQLUserTable struct {
+type Store struct {
 	DB dbutil.Querier
 }
 
-func (r *MySQLUserTable) FindByID(userID int64) (map[string]any, error) {
+func NewStore(db *sql.DB) *Store {
+	return &Store{DB: dbutil.NewMySQLWrapper(db)}
+}
+
+func (r *Store) FindUserByID(userID int64) (map[string]any, error) {
 	row, err := dbutil.QueryMap(r.DB, `
 		SELECT id, email, name, avatar_url, role, teams, active, last_login_at, created_at
 		FROM users
@@ -51,7 +43,7 @@ func (r *MySQLUserTable) FindByID(userID int64) (map[string]any, error) {
 	return row, nil
 }
 
-func (r *MySQLUserTable) FindActiveByID(userID int64) (map[string]any, error) {
+func (r *Store) FindActiveUserByID(userID int64) (map[string]any, error) {
 	row, err := dbutil.QueryMap(r.DB, `
 		SELECT id, email, name, avatar_url, role, teams, active, last_login_at, created_at
 		FROM users
@@ -67,7 +59,7 @@ func (r *MySQLUserTable) FindActiveByID(userID int64) (map[string]any, error) {
 	return row, nil
 }
 
-func (r *MySQLUserTable) FindActiveByEmail(email string) (AuthUser, error) {
+func (r *Store) FindActiveUserByEmail(email string) (AuthUser, error) {
 	var user AuthUser
 	err := r.DB.QueryRow(`
 		SELECT id, email, COALESCE(password_hash,''), name, COALESCE(avatar_url,''), role, COALESCE(teams, '[]')
@@ -89,7 +81,7 @@ func (r *MySQLUserTable) FindActiveByEmail(email string) (AuthUser, error) {
 	return user, nil
 }
 
-func (r *MySQLUserTable) ListActiveByTeamIDs(teamIDs []int64, limit, offset int) ([]map[string]any, error) {
+func (r *Store) ListActiveUsersByTeamIDs(teamIDs []int64, limit, offset int) ([]map[string]any, error) {
 	if len(teamIDs) == 0 {
 		return []map[string]any{}, nil
 	}
@@ -112,7 +104,7 @@ func (r *MySQLUserTable) ListActiveByTeamIDs(teamIDs []int64, limit, offset int)
 	`, whereClause), args...)
 }
 
-func (r *MySQLUserTable) Create(email, passwordHash, name, role, teamsJSON string, createdAt time.Time) (int64, error) {
+func (r *Store) CreateUser(email, passwordHash, name, role, teamsJSON string, createdAt time.Time) (int64, error) {
 	res, err := r.DB.Exec(`
 		INSERT INTO users (email, password_hash, name, role, teams, active, created_at)
 		VALUES (?, ?, ?, ?, ?, 1, ?)
@@ -127,12 +119,12 @@ func (r *MySQLUserTable) Create(email, passwordHash, name, role, teamsJSON strin
 	return id, nil
 }
 
-func (r *MySQLUserTable) UpdateLastLogin(userID int64, at time.Time) error {
+func (r *Store) UpdateUserLastLogin(userID int64, at time.Time) error {
 	_, err := r.DB.Exec(`UPDATE users SET last_login_at = ? WHERE id = ?`, at, userID)
 	return err
 }
 
-func (r *MySQLUserTable) UpdateProfile(userID int64, name, avatarURL *string, updatedAt time.Time) error {
+func (r *Store) UpdateUserProfile(userID int64, name, avatarURL *string, updatedAt time.Time) error {
 	_, err := r.DB.Exec(`
 		UPDATE users
 		SET name = COALESCE(?, name), avatar_url = COALESCE(?, avatar_url), updated_at = ?
@@ -141,18 +133,14 @@ func (r *MySQLUserTable) UpdateProfile(userID int64, name, avatarURL *string, up
 	return err
 }
 
-func (r *MySQLUserTable) UpdateTeams(userID int64, teamsJSON string, updatedAt time.Time) error {
+func (r *Store) UpdateUserTeams(userID int64, teamsJSON string, updatedAt time.Time) error {
 	_, err := r.DB.Exec(`UPDATE users SET teams = ?, updated_at = ? WHERE id = ?`, teamsJSON, updatedAt, userID)
 	return err
 }
 
-type MySQLTeamTable struct {
-	DB dbutil.Querier
-}
-
-func (r *MySQLTeamTable) FindByID(teamID int64) (map[string]any, error) {
+func (r *Store) FindTeamByID(teamID int64) (map[string]any, error) {
 	row, err := dbutil.QueryMap(r.DB, `
-		SELECT id, organization_id, org_name, name, slug, description, active, color, icon, api_key, created_at
+		SELECT id, org_name, name, slug, description, active, color, icon, api_key, created_at
 		FROM teams
 		WHERE id = ?
 		LIMIT 1
@@ -166,13 +154,13 @@ func (r *MySQLTeamTable) FindByID(teamID int64) (map[string]any, error) {
 	return row, nil
 }
 
-func (r *MySQLTeamTable) FindBySlug(orgID int64, slug string) (map[string]any, error) {
+func (r *Store) FindTeamBySlug(orgName, slug string) (map[string]any, error) {
 	row, err := dbutil.QueryMap(r.DB, `
-		SELECT id, organization_id, org_name, name, slug, description, active, color, icon, api_key, created_at
+		SELECT id, org_name, name, slug, description, active, color, icon, api_key, created_at
 		FROM teams
-		WHERE organization_id = ? AND slug = ?
+		WHERE org_name = ? AND slug = ?
 		LIMIT 1
-	`, orgID, slug)
+	`, orgName, slug)
 	if err != nil {
 		return nil, err
 	}
@@ -182,33 +170,33 @@ func (r *MySQLTeamTable) FindBySlug(orgID int64, slug string) (map[string]any, e
 	return row, nil
 }
 
-func (r *MySQLTeamTable) ListActiveByOrganization(orgID int64) ([]map[string]any, error) {
+func (r *Store) ListActiveTeamsByOrganization(orgName string) ([]map[string]any, error) {
 	return dbutil.QueryMaps(r.DB, `
-		SELECT id, organization_id, org_name, name, slug, description, active, color, icon, api_key, created_at
+		SELECT id, org_name, name, slug, description, active, color, icon, api_key, created_at
 		FROM teams
-		WHERE organization_id = ? AND active = 1
+		WHERE org_name = ? AND active = 1
 		ORDER BY created_at DESC
-	`, orgID)
+	`, orgName)
 }
 
-func (r *MySQLTeamTable) ListActiveByIDs(teamIDs []int64) ([]map[string]any, error) {
+func (r *Store) ListActiveTeamsByIDs(teamIDs []int64) ([]map[string]any, error) {
 	if len(teamIDs) == 0 {
 		return []map[string]any{}, nil
 	}
 	inClause, args := dbutil.InClauseInt64(teamIDs)
 	return dbutil.QueryMaps(r.DB, fmt.Sprintf(`
-		SELECT id, organization_id, org_name, name, slug, description, active, color, icon, api_key, created_at
+		SELECT id, org_name, name, slug, description, active, color, icon, api_key, created_at
 		FROM teams
 		WHERE id IN %s AND active = 1
 		ORDER BY created_at DESC
 	`, inClause), args...)
 }
 
-func (r *MySQLTeamTable) Create(orgID int64, name, slug string, description *string, color, apiKey, orgName string, createdAt time.Time) (int64, error) {
+func (r *Store) CreateTeam(orgName, name, slug string, description *string, color, apiKey string, createdAt time.Time) (int64, error) {
 	res, err := r.DB.Exec(`
-		INSERT INTO teams (organization_id, org_name, name, slug, description, active, color, api_key, created_at)
-		VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
-	`, orgID, orgName, name, slug, nullableStringPtr(description), color, apiKey, createdAt)
+		INSERT INTO teams (org_name, name, slug, description, active, color, api_key, created_at)
+		VALUES (?, ?, ?, ?, 1, ?, ?, ?)
+	`, orgName, name, slug, nullableStringPtr(description), color, apiKey, createdAt)
 	if err != nil {
 		return 0, err
 	}

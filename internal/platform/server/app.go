@@ -26,8 +26,6 @@ import (
 	servicetopology "github.com/observability/observability-backend-go/internal/modules/services/topology"
 	tracesapi "github.com/observability/observability-backend-go/internal/modules/spans"
 	identity "github.com/observability/observability-backend-go/internal/modules/user"
-	identityservice "github.com/observability/observability-backend-go/internal/modules/user/service"
-	identitystore "github.com/observability/observability-backend-go/internal/modules/user/store"
 	"github.com/observability/observability-backend-go/internal/platform/auth"
 	"github.com/observability/observability-backend-go/internal/platform/ingest"
 	"github.com/observability/observability-backend-go/internal/platform/middleware"
@@ -45,8 +43,8 @@ type App struct {
 	JWTManager     auth.JWTManager
 	TokenBlacklist *auth.TokenBlacklist
 
-	Auth                AuthModule
-	Users               UserModule
+	Auth                *identity.AuthHandler
+	Users               *identity.UserHandler
 	Logs                *logsapi.LogHandler
 	Traces              *tracesapi.TraceHandler
 	Overview            *overviewmodule.OverviewHandler
@@ -69,31 +67,6 @@ type App struct {
 	MetricsQueue *ingest.Queue
 }
 
-type AuthModule interface {
-	Login(*gin.Context)
-	Logout(*gin.Context)
-	AuthMe(*gin.Context)
-	AuthContext(*gin.Context)
-	ValidateToken(*gin.Context)
-}
-
-type UserModule interface {
-	GetCurrentUser(*gin.Context)
-	GetUsers(*gin.Context)
-	GetUserByID(*gin.Context)
-	Signup(*gin.Context)
-	CreateUser(*gin.Context)
-	AddUserToTeam(*gin.Context)
-	RemoveUserFromTeam(*gin.Context)
-	GetTeams(*gin.Context)
-	GetMyTeams(*gin.Context)
-	GetTeamByID(*gin.Context)
-	GetTeamBySlug(*gin.Context)
-	CreateTeam(*gin.Context)
-	GetProfile(*gin.Context)
-	UpdateProfile(*gin.Context)
-}
-
 func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 	jwt := auth.JWTManager{
 		Secret:     []byte(cfg.JWTSecret),
@@ -102,9 +75,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 
 	getTenant := modulecommon.GetTenantFunc(middleware.GetTenant)
 
-	identityTables := identitystore.NewMySQLProvider(db)
-	identityAuthService := identityservice.NewAuthService(identityTables, jwt, cfg.JWTExpirationMs)
-	identityUserService := identityservice.NewUserService(identityTables)
+	identityStore := identity.NewStore(db)
 
 	// Ensure dashboard-config storage exists so page config APIs can always
 	// serve defaults/fallbacks even on a freshly reset database.
@@ -136,8 +107,8 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 		JWTManager:     jwt,
 		TokenBlacklist: blacklist,
 
-		Auth:  identity.NewAuthHandler(getTenant, identityAuthService, jwt, blacklist),
-		Users: identity.NewUserHandler(getTenant, identityUserService),
+		Auth:  identity.NewAuthHandler(getTenant, identityStore, jwt, blacklist, cfg.JWTExpirationMs),
+		Users: identity.NewUserHandler(getTenant, identityStore),
 		Logs: logsapi.NewHandler(
 			getTenant,
 			logsapi.NewRepository(dbutil.NewMySQLWrapper(ch)),

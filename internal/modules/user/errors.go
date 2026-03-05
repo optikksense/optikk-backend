@@ -6,21 +6,20 @@ import (
 
 	"github.com/gin-gonic/gin"
 	apphandlers "github.com/observability/observability-backend-go/internal/modules/common"
-	identityservice "github.com/observability/observability-backend-go/internal/modules/user/service"
 )
 
 func respondServiceError(c *gin.Context, err error, fallbackMessage string) {
-	var serviceErr *identityservice.ServiceError
+	var serviceErr *ServiceError
 	if errors.As(err, &serviceErr) {
 		status := http.StatusInternalServerError
 		switch serviceErr.Code {
-		case identityservice.ServiceErrorValidation:
+		case ServiceErrorValidation:
 			status = http.StatusBadRequest
-		case identityservice.ServiceErrorUnauthorized:
+		case ServiceErrorUnauthorized:
 			status = http.StatusUnauthorized
-		case identityservice.ServiceErrorNotFound:
+		case ServiceErrorNotFound:
 			status = http.StatusNotFound
-		case identityservice.ServiceErrorInternal:
+		case ServiceErrorInternal:
 			status = http.StatusInternalServerError
 		}
 
@@ -34,7 +33,7 @@ func respondServiceError(c *gin.Context, err error, fallbackMessage string) {
 
 		code := string(serviceErr.Code)
 		if code == "" {
-			code = string(identityservice.ServiceErrorInternal)
+			code = string(ServiceErrorInternal)
 		}
 		apphandlers.RespondError(c, status, code, message)
 		return
@@ -43,5 +42,5 @@ func respondServiceError(c *gin.Context, err error, fallbackMessage string) {
 	if fallbackMessage == "" {
 		fallbackMessage = "Internal error"
 	}
-	apphandlers.RespondError(c, http.StatusInternalServerError, string(identityservice.ServiceErrorInternal), fallbackMessage)
+	apphandlers.RespondError(c, http.StatusInternalServerError, string(ServiceErrorInternal), fallbackMessage)
 }
