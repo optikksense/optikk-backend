@@ -448,3 +448,322 @@ func (r *ClickHouseRepository) GetDatabaseTopTables(teamUUID string, startMs, en
 	}
 	return metrics, nil
 }
+
+// ─── db.client.* OTel standard metrics ────────────────────────────────────────
+
+// GetConnectionCount returns connection counts grouped by state over time.
+func (r *ClickHouseRepository) GetConnectionCount(teamUUID string, startMs, endMs int64) ([]ConnectionStatValue, error) {
+	bucket := timebucket.Expression(startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT
+		    %s                                                  AS time_bucket,
+		    %s                                                  AS state,
+		    avg(value)                                          AS val
+		FROM %s
+		WHERE %s = ?
+		  AND %s BETWEEN ? AND ?
+		  AND %s = '%s'
+		GROUP BY time_bucket, state
+		ORDER BY time_bucket, state
+	`,
+		bucket,
+		attrString(AttrDBConnectionState),
+		TableMetrics,
+		ColTeamID, ColTimestamp,
+		ColMetricName, MetricDBClientConnectionCount,
+	)
+	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, err
+	}
+	results := make([]ConnectionStatValue, len(rows))
+	for i, row := range rows {
+		v := dbutil.NullableFloat64FromAny(row["val"])
+		results[i] = ConnectionStatValue{
+			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
+			State:     dbutil.StringFromAny(row["state"]),
+			Value:     v,
+		}
+	}
+	return results, nil
+}
+
+// GetConnectionWaitTime returns histogram summary (p50/p95/p99/avg) for connection wait time.
+func (r *ClickHouseRepository) GetConnectionWaitTime(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
+	query := fmt.Sprintf(`
+		SELECT
+		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
+		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
+		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99,
+		    avg(hist_sum / nullIf(hist_count, 0))                                     AS avg_val
+		FROM %s
+		WHERE %s = ?
+		  AND %s BETWEEN ? AND ?
+		  AND %s = '%s'
+		  AND metric_type = 'Histogram'
+	`,
+		TableMetrics, ColTeamID, ColTimestamp,
+		ColMetricName, MetricDBClientConnectionWait,
+	)
+	row, err := dbutil.QueryMap(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return HistogramSummary{}, err
+	}
+	return HistogramSummary{
+		P50: dbutil.Float64FromAny(row["p50"]),
+		P95: dbutil.Float64FromAny(row["p95"]),
+		P99: dbutil.Float64FromAny(row["p99"]),
+		Avg: dbutil.Float64FromAny(row["avg_val"]),
+	}, nil
+}
+
+// GetConnectionPending returns pending connection request counts over time.
+func (r *ClickHouseRepository) GetConnectionPending(teamUUID string, startMs, endMs int64) ([]DatabaseAvgLatency, error) {
+	bucket := timebucket.Expression(startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT
+		    %s         AS minute_bucket,
+		    avg(value) AS avg_latency_ms,
+		    0          AS p95_latency_ms
+		FROM %s
+		WHERE %s = ?
+		  AND %s BETWEEN ? AND ?
+		  AND %s = '%s'
+		GROUP BY minute_bucket
+		ORDER BY minute_bucket
+	`,
+		bucket, TableMetrics, ColTeamID, ColTimestamp,
+		ColMetricName, MetricDBClientConnectionPending,
+	)
+	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, err
+	}
+	results := make([]DatabaseAvgLatency, len(rows))
+	for i, row := range rows {
+		results[i] = DatabaseAvgLatency{
+			Timestamp:    dbutil.StringFromAny(row["minute_bucket"]),
+			AvgLatencyMs: dbutil.Float64FromAny(row["avg_latency_ms"]),
+			P95LatencyMs: dbutil.Float64FromAny(row["p95_latency_ms"]),
+		}
+	}
+	return results, nil
+}
+
+// GetConnectionTimeouts returns connection timeout counts over time.
+func (r *ClickHouseRepository) GetConnectionTimeouts(teamUUID string, startMs, endMs int64) ([]DatabaseAvgLatency, error) {
+	bucket := timebucket.Expression(startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT
+		    %s         AS minute_bucket,
+		    sum(value) AS avg_latency_ms,
+		    0          AS p95_latency_ms
+		FROM %s
+		WHERE %s = ?
+		  AND %s BETWEEN ? AND ?
+		  AND %s = '%s'
+		GROUP BY minute_bucket
+		ORDER BY minute_bucket
+	`,
+		bucket, TableMetrics, ColTeamID, ColTimestamp,
+		ColMetricName, MetricDBClientConnectionTimeouts,
+	)
+	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, err
+	}
+	results := make([]DatabaseAvgLatency, len(rows))
+	for i, row := range rows {
+		results[i] = DatabaseAvgLatency{
+			Timestamp:    dbutil.StringFromAny(row["minute_bucket"]),
+			AvgLatencyMs: dbutil.Float64FromAny(row["avg_latency_ms"]),
+			P95LatencyMs: dbutil.Float64FromAny(row["p95_latency_ms"]),
+		}
+	}
+	return results, nil
+}
+
+// GetQueryDuration returns histogram summary for db.client.operation.duration.
+func (r *ClickHouseRepository) GetQueryDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
+	query := fmt.Sprintf(`
+		SELECT
+		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
+		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
+		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99,
+		    avg(hist_sum / nullIf(hist_count, 0))                                     AS avg_val
+		FROM %s
+		WHERE %s = ?
+		  AND %s BETWEEN ? AND ?
+		  AND %s = '%s'
+		  AND metric_type = 'Histogram'
+	`,
+		TableMetrics, ColTeamID, ColTimestamp,
+		ColMetricName, MetricDBClientOperationDuration,
+	)
+	row, err := dbutil.QueryMap(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return HistogramSummary{}, err
+	}
+	return HistogramSummary{
+		P50: dbutil.Float64FromAny(row["p50"]),
+		P95: dbutil.Float64FromAny(row["p95"]),
+		P99: dbutil.Float64FromAny(row["p99"]),
+		Avg: dbutil.Float64FromAny(row["avg_val"]),
+	}, nil
+}
+
+// ─── Redis metrics ─────────────────────────────────────────────────────────────
+
+// GetRedisCacheHitRate returns Redis keyspace hit/miss counts and computed hit rate.
+func (r *ClickHouseRepository) GetRedisCacheHitRate(teamUUID string, startMs, endMs int64) (RedisHitRate, error) {
+	query := fmt.Sprintf(`
+		SELECT
+		    toInt64(sumIf(value, %s = '%s')) AS hits,
+		    toInt64(sumIf(value, %s = '%s')) AS misses
+		FROM %s
+		WHERE %s = ?
+		  AND %s BETWEEN ? AND ?
+		  AND %s IN ('%s', '%s')
+	`,
+		ColMetricName, MetricRedisKeyspaceHits,
+		ColMetricName, MetricRedisKeyspaceMisses,
+		TableMetrics, ColTeamID, ColTimestamp,
+		ColMetricName, MetricRedisKeyspaceHits, MetricRedisKeyspaceMisses,
+	)
+	row, err := dbutil.QueryMap(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return RedisHitRate{}, err
+	}
+	hits := dbutil.Int64FromAny(row["hits"])
+	misses := dbutil.Int64FromAny(row["misses"])
+	total := hits + misses
+	var rate float64
+	if total > 0 {
+		rate = float64(hits) / float64(total) * 100.0
+	}
+	return RedisHitRate{Hits: hits, Misses: misses, HitRatePct: rate}, nil
+}
+
+// GetRedisConnectedClients returns connected client count over time.
+func (r *ClickHouseRepository) GetRedisConnectedClients(teamUUID string, startMs, endMs int64) ([]RedisTimeSeries, error) {
+	return r.queryRedisTimeSeries(teamUUID, startMs, endMs, MetricRedisClientsConnected)
+}
+
+// GetRedisMemoryUsed returns Redis memory usage over time.
+func (r *ClickHouseRepository) GetRedisMemoryUsed(teamUUID string, startMs, endMs int64) ([]RedisTimeSeries, error) {
+	return r.queryRedisTimeSeries(teamUUID, startMs, endMs, MetricRedisMemoryUsed)
+}
+
+// GetRedisMemoryFragmentation returns memory fragmentation ratio over time.
+func (r *ClickHouseRepository) GetRedisMemoryFragmentation(teamUUID string, startMs, endMs int64) ([]RedisTimeSeries, error) {
+	return r.queryRedisTimeSeries(teamUUID, startMs, endMs, MetricRedisMemoryFragmentationRatio)
+}
+
+// GetRedisCommandRate returns Redis commands processed per time bucket.
+func (r *ClickHouseRepository) GetRedisCommandRate(teamUUID string, startMs, endMs int64) ([]RedisTimeSeries, error) {
+	return r.queryRedisTimeSeries(teamUUID, startMs, endMs, MetricRedisCommandsProcessed)
+}
+
+// GetRedisEvictions returns key eviction count over time.
+func (r *ClickHouseRepository) GetRedisEvictions(teamUUID string, startMs, endMs int64) ([]RedisTimeSeries, error) {
+	return r.queryRedisTimeSeries(teamUUID, startMs, endMs, MetricRedisKeysEvicted)
+}
+
+// GetRedisKeyspaceSize returns per-DB key counts.
+func (r *ClickHouseRepository) GetRedisKeyspaceSize(teamUUID string, startMs, endMs int64) ([]RedisDBKeyStat, error) {
+	return r.queryRedisDBStat(teamUUID, startMs, endMs, MetricRedisDBKeys)
+}
+
+// GetRedisKeyExpiries returns per-DB expiring key counts.
+func (r *ClickHouseRepository) GetRedisKeyExpiries(teamUUID string, startMs, endMs int64) ([]RedisDBKeyStat, error) {
+	return r.queryRedisDBStat(teamUUID, startMs, endMs, MetricRedisDBExpires)
+}
+
+// GetRedisReplicationLag returns replication offset and backlog offset.
+func (r *ClickHouseRepository) GetRedisReplicationLag(teamUUID string, startMs, endMs int64) (RedisReplicationLag, error) {
+	query := fmt.Sprintf(`
+		SELECT
+		    toInt64(avgIf(value, %s = '%s')) AS repl_offset,
+		    toInt64(avgIf(value, %s = '%s')) AS backlog_offset
+		FROM %s
+		WHERE %s = ?
+		  AND %s BETWEEN ? AND ?
+		  AND %s IN ('%s', '%s')
+	`,
+		ColMetricName, MetricRedisReplicationOffset,
+		ColMetricName, MetricRedisReplicationBacklogOffset,
+		TableMetrics, ColTeamID, ColTimestamp,
+		ColMetricName, MetricRedisReplicationOffset, MetricRedisReplicationBacklogOffset,
+	)
+	row, err := dbutil.QueryMap(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return RedisReplicationLag{}, err
+	}
+	return RedisReplicationLag{
+		Offset:        dbutil.Int64FromAny(row["repl_offset"]),
+		BacklogOffset: dbutil.Int64FromAny(row["backlog_offset"]),
+	}, nil
+}
+
+// queryRedisTimeSeries is a shared helper for scalar Redis timeseries queries.
+func (r *ClickHouseRepository) queryRedisTimeSeries(teamUUID string, startMs, endMs int64, metricName string) ([]RedisTimeSeries, error) {
+	bucket := timebucket.Expression(startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT
+		    %s         AS time_bucket,
+		    avg(value) AS val
+		FROM %s
+		WHERE %s = ?
+		  AND %s BETWEEN ? AND ?
+		  AND %s = '%s'
+		GROUP BY time_bucket
+		ORDER BY time_bucket
+	`,
+		bucket, TableMetrics, ColTeamID, ColTimestamp,
+		ColMetricName, metricName,
+	)
+	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, err
+	}
+	results := make([]RedisTimeSeries, len(rows))
+	for i, row := range rows {
+		v := dbutil.NullableFloat64FromAny(row["val"])
+		results[i] = RedisTimeSeries{
+			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
+			Value:     v,
+		}
+	}
+	return results, nil
+}
+
+// queryRedisDBStat returns per-DB aggregate stats (sum of value grouped by redis.db attr).
+func (r *ClickHouseRepository) queryRedisDBStat(teamUUID string, startMs, endMs int64, metricName string) ([]RedisDBKeyStat, error) {
+	query := fmt.Sprintf(`
+		SELECT
+		    %s              AS db_name,
+		    toInt64(sum(value)) AS key_count
+		FROM %s
+		WHERE %s = ?
+		  AND %s BETWEEN ? AND ?
+		  AND %s = '%s'
+		GROUP BY db_name
+		ORDER BY key_count DESC
+	`,
+		attrString(AttrRedisDB),
+		TableMetrics, ColTeamID, ColTimestamp,
+		ColMetricName, metricName,
+	)
+	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, err
+	}
+	results := make([]RedisDBKeyStat, len(rows))
+	for i, row := range rows {
+		results[i] = RedisDBKeyStat{
+			DB:   dbutil.StringFromAny(row["db_name"]),
+			Keys: dbutil.Int64FromAny(row["key_count"]),
+		}
+	}
+	return results, nil
+}

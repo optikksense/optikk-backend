@@ -19,6 +19,16 @@ const (
 	MetricMessagingPublishSize = "messaging.publish.message.size"
 	MetricMessagingReceiveSize = "messaging.receive.message.size"
 
+	// OTel messaging.* standard metrics
+	MetricMessagingConsumerLagOTel   = "messaging.kafka.consumer.lag"
+	MetricMessagingPublishedMessages = "messaging.client.published.messages"
+	MetricMessagingConsumedMessages  = "messaging.client.consumed.messages"
+	MetricMessagingOperationDuration = "messaging.client.operation.duration"
+	MetricMessagingConsumerOffset    = "messaging.kafka.consumer.offset"
+
+	// Operation attribute
+	AttrMessagingOperationName = "messaging.operation.name"
+
 	TableMetrics = "metrics"
 )
 

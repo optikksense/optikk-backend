@@ -73,6 +73,16 @@ dataSources:
     endpoint: /v1/endpoints/timeseries
   - id: endpoints-metrics
     endpoint: /v1/endpoints/metrics
+  - id: http-request-rate
+    endpoint: /v1/http/request-rate
+  - id: http-request-duration
+    endpoint: /v1/http/request-duration
+  - id: http-active-requests
+    endpoint: /v1/http/active-requests
+  - id: http-client-duration
+    endpoint: /v1/http/client-duration
+  - id: dns-tls-duration
+    endpoint: /v1/http/dns-duration
 
 charts:
   - id: request-rate
@@ -103,4 +113,47 @@ charts:
     endpointDataSource: endpoints-timeseries
     endpointMetricsSource: endpoints-metrics
     endpointListType: latency
+  - id: http-request-rate
+    title: "HTTP Request Rate by Status Code"
+    type: request
+    titleIcon: Globe
+    layout:
+      col: 12
+    dataSource: http-request-rate
+    groupByKey: status_code
+    valueKey: count
+    height: 260
+  - id: http-request-duration
+    title: "HTTP Server Request Duration p50/p95/p99"
+    type: stat
+    titleIcon: Clock
+    layout:
+      col: 12
+    dataSource: http-request-duration
+    height: 120
+  - id: http-active-requests
+    title: "Active HTTP Requests"
+    type: area
+    titleIcon: Activity
+    layout:
+      col: 12
+    dataSource: http-active-requests
+    valueKey: value
+    height: 260
+  - id: http-client-duration
+    title: "Outbound HTTP Duration p50/p95/p99"
+    type: stat
+    titleIcon: ArrowUpRight
+    layout:
+      col: 12
+    dataSource: http-client-duration
+    height: 120
+  - id: dns-tls-duration
+    title: "DNS Lookup & TLS Handshake Duration"
+    type: stat
+    titleIcon: Shield
+    layout:
+      col: 24
+    dataSource: dns-tls-duration
+    height: 120
 `

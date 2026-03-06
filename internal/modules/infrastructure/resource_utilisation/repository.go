@@ -23,6 +23,32 @@ type Repository interface {
 	GetMemoryUsagePercentage(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error)
 	GetResourceUsageByService(teamUUID string, startMs, endMs int64) ([]ServiceResource, error)
 	GetResourceUsageByInstance(teamUUID string, startMs, endMs int64) ([]InstanceResource, error)
+
+	// System infrastructure metrics
+	GetCPUTime(teamUUID string, startMs, endMs int64) ([]StateBucket, error)
+	GetMemoryUsage(teamUUID string, startMs, endMs int64) ([]StateBucket, error)
+	GetSwapUsage(teamUUID string, startMs, endMs int64) ([]StateBucket, error)
+	GetDiskIO(teamUUID string, startMs, endMs int64) ([]DirectionBucket, error)
+	GetDiskOperations(teamUUID string, startMs, endMs int64) ([]DirectionBucket, error)
+	GetDiskIOTime(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error)
+	GetFilesystemUsage(teamUUID string, startMs, endMs int64) ([]MountpointBucket, error)
+	GetFilesystemUtilization(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error)
+	GetNetworkIO(teamUUID string, startMs, endMs int64) ([]DirectionBucket, error)
+	GetNetworkPackets(teamUUID string, startMs, endMs int64) ([]DirectionBucket, error)
+	GetNetworkErrors(teamUUID string, startMs, endMs int64) ([]StateBucket, error)
+	GetNetworkDropped(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error)
+	GetLoadAverage(teamUUID string, startMs, endMs int64) (LoadAverageResult, error)
+	GetProcessCount(teamUUID string, startMs, endMs int64) ([]StateBucket, error)
+	GetNetworkConnections(teamUUID string, startMs, endMs int64) ([]StateBucket, error)
+
+	// JVM runtime metrics
+	GetJVMMemory(teamUUID string, startMs, endMs int64) ([]JVMMemoryBucket, error)
+	GetJVMGCDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error)
+	GetJVMGCCollections(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error)
+	GetJVMThreadCount(teamUUID string, startMs, endMs int64) ([]StateBucket, error)
+	GetJVMClasses(teamUUID string, startMs, endMs int64) (JVMClassStats, error)
+	GetJVMCPU(teamUUID string, startMs, endMs int64) (JVMCPUStats, error)
+	GetJVMBuffers(teamUUID string, startMs, endMs int64) ([]JVMBufferBucket, error)
 }
 
 type ClickHouseRepository struct {
@@ -902,4 +928,475 @@ func (r *ClickHouseRepository) getInstanceList(teamUUID string, startMs, endMs i
 		}
 	}
 	return instances, nil
+}
+
+// ─── System Infrastructure Metrics ───────────────────────────────────────────
+
+func (r *ClickHouseRepository) GetCPUTime(teamUUID string, startMs, endMs int64) ([]StateBucket, error) {
+	bucket := resBucketExpr(startMs, endMs)
+	state := fmt.Sprintf("attributes.'%s'::String", AttrSystemCPUState)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket, %s as state, sum(%s) as metric_val
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		GROUP BY 1, 2 ORDER BY 1, 2`,
+		bucket, state, ColValue,
+		TableMetrics,
+		ColTeamID, ColTimestamp, ColMetricName, MetricSystemCPUTime)
+	return r.queryStateBuckets(query, teamUUID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) GetMemoryUsage(teamUUID string, startMs, endMs int64) ([]StateBucket, error) {
+	bucket := resBucketExpr(startMs, endMs)
+	state := fmt.Sprintf("attributes.'%s'::String", AttrSystemMemoryState)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket, %s as state, avg(%s) as metric_val
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		GROUP BY 1, 2 ORDER BY 1, 2`,
+		bucket, state, ColValue,
+		TableMetrics,
+		ColTeamID, ColTimestamp, ColMetricName, MetricSystemMemoryUsage)
+	return r.queryStateBuckets(query, teamUUID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) GetSwapUsage(teamUUID string, startMs, endMs int64) ([]StateBucket, error) {
+	bucket := resBucketExpr(startMs, endMs)
+	state := fmt.Sprintf("attributes.'%s'::String", AttrSystemMemoryState)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket, %s as state, avg(%s) as metric_val
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		GROUP BY 1, 2 ORDER BY 1, 2`,
+		bucket, state, ColValue,
+		TableMetrics,
+		ColTeamID, ColTimestamp, ColMetricName, MetricSystemPagingUsage)
+	return r.queryStateBuckets(query, teamUUID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) GetDiskIO(teamUUID string, startMs, endMs int64) ([]DirectionBucket, error) {
+	bucket := resBucketExpr(startMs, endMs)
+	dir := fmt.Sprintf("attributes.'%s'::String", AttrSystemDiskDirection)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket, %s as direction, sum(%s) as metric_val
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		GROUP BY 1, 2 ORDER BY 1, 2`,
+		bucket, dir, ColValue,
+		TableMetrics,
+		ColTeamID, ColTimestamp, ColMetricName, MetricSystemDiskIO)
+	return r.queryDirectionBuckets(query, teamUUID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) GetDiskOperations(teamUUID string, startMs, endMs int64) ([]DirectionBucket, error) {
+	bucket := resBucketExpr(startMs, endMs)
+	dir := fmt.Sprintf("attributes.'%s'::String", AttrSystemDiskDirection)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket, %s as direction, sum(%s) as metric_val
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		GROUP BY 1, 2 ORDER BY 1, 2`,
+		bucket, dir, ColValue,
+		TableMetrics,
+		ColTeamID, ColTimestamp, ColMetricName, MetricSystemDiskOperations)
+	return r.queryDirectionBuckets(query, teamUUID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) GetDiskIOTime(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error) {
+	bucket := resBucketExpr(startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket, '' as pod, sum(%s) as metric_val
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		GROUP BY 1 ORDER BY 1`,
+		bucket, ColValue,
+		TableMetrics,
+		ColTeamID, ColTimestamp, ColMetricName, MetricSystemDiskIOTime)
+	return r.queryResourceBuckets(query, teamUUID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) GetFilesystemUsage(teamUUID string, startMs, endMs int64) ([]MountpointBucket, error) {
+	bucket := resBucketExpr(startMs, endMs)
+	mp := fmt.Sprintf("attributes.'%s'::String", AttrFilesystemMountpoint)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket, %s as mountpoint, avg(%s) as metric_val
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		GROUP BY 1, 2 ORDER BY 1, 2`,
+		bucket, mp, ColValue,
+		TableMetrics,
+		ColTeamID, ColTimestamp, ColMetricName, MetricSystemFilesystemUsage)
+	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, err
+	}
+	buckets := make([]MountpointBucket, len(rows))
+	for i, row := range rows {
+		v := dbutil.NullableFloat64FromAny(row["metric_val"])
+		buckets[i] = MountpointBucket{
+			Timestamp:  dbutil.StringFromAny(row["time_bucket"]),
+			Mountpoint: dbutil.StringFromAny(row["mountpoint"]),
+			Value:      v,
+		}
+	}
+	return buckets, nil
+}
+
+func (r *ClickHouseRepository) GetFilesystemUtilization(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error) {
+	bucket := resBucketExpr(startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket, '' as pod, avg(%s) as metric_val
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		GROUP BY 1 ORDER BY 1`,
+		bucket, ColValue,
+		TableMetrics,
+		ColTeamID, ColTimestamp, ColMetricName, MetricSystemFilesystemUtil)
+	return r.queryResourceBuckets(query, teamUUID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) GetNetworkIO(teamUUID string, startMs, endMs int64) ([]DirectionBucket, error) {
+	bucket := resBucketExpr(startMs, endMs)
+	dir := fmt.Sprintf("attributes.'%s'::String", AttrSystemNetworkDirection)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket, %s as direction, sum(%s) as metric_val
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		GROUP BY 1, 2 ORDER BY 1, 2`,
+		bucket, dir, ColValue,
+		TableMetrics,
+		ColTeamID, ColTimestamp, ColMetricName, MetricSystemNetworkIO)
+	return r.queryDirectionBuckets(query, teamUUID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) GetNetworkPackets(teamUUID string, startMs, endMs int64) ([]DirectionBucket, error) {
+	bucket := resBucketExpr(startMs, endMs)
+	dir := fmt.Sprintf("attributes.'%s'::String", AttrSystemNetworkDirection)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket, %s as direction, sum(%s) as metric_val
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		GROUP BY 1, 2 ORDER BY 1, 2`,
+		bucket, dir, ColValue,
+		TableMetrics,
+		ColTeamID, ColTimestamp, ColMetricName, MetricSystemNetworkPackets)
+	return r.queryDirectionBuckets(query, teamUUID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) GetNetworkErrors(teamUUID string, startMs, endMs int64) ([]StateBucket, error) {
+	bucket := resBucketExpr(startMs, endMs)
+	dir := fmt.Sprintf("attributes.'%s'::String", AttrSystemNetworkDirection)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket, %s as state, sum(%s) as metric_val
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		GROUP BY 1, 2 ORDER BY 1, 2`,
+		bucket, dir, ColValue,
+		TableMetrics,
+		ColTeamID, ColTimestamp, ColMetricName, MetricSystemNetworkErrors)
+	return r.queryStateBuckets(query, teamUUID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) GetNetworkDropped(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error) {
+	bucket := resBucketExpr(startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket, '' as pod, sum(%s) as metric_val
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		GROUP BY 1 ORDER BY 1`,
+		bucket, ColValue,
+		TableMetrics,
+		ColTeamID, ColTimestamp, ColMetricName, MetricSystemNetworkDropped)
+	return r.queryResourceBuckets(query, teamUUID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) GetLoadAverage(teamUUID string, startMs, endMs int64) (LoadAverageResult, error) {
+	query := fmt.Sprintf(`
+		SELECT
+			avgIf(%s, %s = '%s') as load_1m,
+			avgIf(%s, %s = '%s') as load_5m,
+			avgIf(%s, %s = '%s') as load_15m
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ?
+		  AND %s IN ('%s', '%s', '%s')`,
+		ColValue, ColMetricName, MetricSystemCPULoadAvg1m,
+		ColValue, ColMetricName, MetricSystemCPULoadAvg5m,
+		ColValue, ColMetricName, MetricSystemCPULoadAvg15m,
+		TableMetrics,
+		ColTeamID, ColTimestamp,
+		ColMetricName, MetricSystemCPULoadAvg1m, MetricSystemCPULoadAvg5m, MetricSystemCPULoadAvg15m)
+	row, err := dbutil.QueryMap(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return LoadAverageResult{}, err
+	}
+	return LoadAverageResult{
+		Load1m:  dbutil.Float64FromAny(row["load_1m"]),
+		Load5m:  dbutil.Float64FromAny(row["load_5m"]),
+		Load15m: dbutil.Float64FromAny(row["load_15m"]),
+	}, nil
+}
+
+func (r *ClickHouseRepository) GetProcessCount(teamUUID string, startMs, endMs int64) ([]StateBucket, error) {
+	bucket := resBucketExpr(startMs, endMs)
+	status := fmt.Sprintf("attributes.'%s'::String", AttrProcessStatus)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket, %s as state, avg(%s) as metric_val
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		GROUP BY 1, 2 ORDER BY 1, 2`,
+		bucket, status, ColValue,
+		TableMetrics,
+		ColTeamID, ColTimestamp, ColMetricName, MetricSystemProcessCount)
+	return r.queryStateBuckets(query, teamUUID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) GetNetworkConnections(teamUUID string, startMs, endMs int64) ([]StateBucket, error) {
+	bucket := resBucketExpr(startMs, endMs)
+	state := fmt.Sprintf("attributes.'%s'::String", AttrSystemNetworkState)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket, %s as state, avg(%s) as metric_val
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		GROUP BY 1, 2 ORDER BY 1, 2`,
+		bucket, state, ColValue,
+		TableMetrics,
+		ColTeamID, ColTimestamp, ColMetricName, MetricSystemNetworkConnections)
+	return r.queryStateBuckets(query, teamUUID, startMs, endMs)
+}
+
+// ─── JVM Runtime Metrics ─────────────────────────────────────────────────────
+
+func (r *ClickHouseRepository) GetJVMMemory(teamUUID string, startMs, endMs int64) ([]JVMMemoryBucket, error) {
+	bucket := resBucketExpr(startMs, endMs)
+	pool := fmt.Sprintf("attributes.'%s'::String", AttrJVMMemoryPoolName)
+	memType := fmt.Sprintf("attributes.'%s'::String", AttrJVMMemoryType)
+	query := fmt.Sprintf(`
+		SELECT
+			%s as time_bucket,
+			%s as pool_name,
+			%s as mem_type,
+			avgIf(%s, %s = '%s') as used,
+			avgIf(%s, %s = '%s') as committed,
+			avgIf(%s, %s = '%s') as limit_val
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ?
+		  AND %s IN ('%s', '%s', '%s')
+		GROUP BY 1, 2, 3 ORDER BY 1, 2, 3`,
+		bucket, pool, memType,
+		ColValue, ColMetricName, MetricJVMMemoryUsed,
+		ColValue, ColMetricName, MetricJVMMemoryCommitted,
+		ColValue, ColMetricName, MetricJVMMemoryLimit,
+		TableMetrics,
+		ColTeamID, ColTimestamp,
+		ColMetricName, MetricJVMMemoryUsed, MetricJVMMemoryCommitted, MetricJVMMemoryLimit)
+	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, err
+	}
+	buckets := make([]JVMMemoryBucket, len(rows))
+	for i, row := range rows {
+		used := dbutil.NullableFloat64FromAny(row["used"])
+		committed := dbutil.NullableFloat64FromAny(row["committed"])
+		limit := dbutil.NullableFloat64FromAny(row["limit_val"])
+		buckets[i] = JVMMemoryBucket{
+			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
+			PoolName:  dbutil.StringFromAny(row["pool_name"]),
+			MemType:   dbutil.StringFromAny(row["mem_type"]),
+			Used:      used,
+			Committed: committed,
+			Limit:     limit,
+		}
+	}
+	return buckets, nil
+}
+
+func (r *ClickHouseRepository) GetJVMGCDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
+	query := fmt.Sprintf(`
+		SELECT
+			quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) as p50,
+			quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) as p95,
+			quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) as p99,
+			avg(hist_sum / nullIf(hist_count, 0)) as avg_val
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ?
+		  AND %s = '%s' AND metric_type = 'Histogram'`,
+		TableMetrics,
+		ColTeamID, ColTimestamp,
+		ColMetricName, MetricJVMGCDuration)
+	return r.queryHistogramSummary(query, teamUUID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) GetJVMGCCollections(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error) {
+	bucket := resBucketExpr(startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket, '' as pod, sum(hist_count) as metric_val
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ?
+		  AND %s = '%s' AND metric_type = 'Histogram'
+		GROUP BY 1 ORDER BY 1`,
+		bucket,
+		TableMetrics,
+		ColTeamID, ColTimestamp,
+		ColMetricName, MetricJVMGCDuration)
+	return r.queryResourceBuckets(query, teamUUID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) GetJVMThreadCount(teamUUID string, startMs, endMs int64) ([]StateBucket, error) {
+	bucket := resBucketExpr(startMs, endMs)
+	daemon := fmt.Sprintf("attributes.'%s'::String", AttrJVMThreadDaemon)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket, %s as state, avg(%s) as metric_val
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		GROUP BY 1, 2 ORDER BY 1, 2`,
+		bucket, daemon, ColValue,
+		TableMetrics,
+		ColTeamID, ColTimestamp, ColMetricName, MetricJVMThreadCount)
+	return r.queryStateBuckets(query, teamUUID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) GetJVMClasses(teamUUID string, startMs, endMs int64) (JVMClassStats, error) {
+	query := fmt.Sprintf(`
+		SELECT
+			sumIf(%s, %s = '%s') as loaded,
+			avgIf(%s, %s = '%s') as count_val
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ?
+		  AND %s IN ('%s', '%s')`,
+		ColValue, ColMetricName, MetricJVMClassLoaded,
+		ColValue, ColMetricName, MetricJVMClassCount,
+		TableMetrics,
+		ColTeamID, ColTimestamp,
+		ColMetricName, MetricJVMClassLoaded, MetricJVMClassCount)
+	row, err := dbutil.QueryMap(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return JVMClassStats{}, err
+	}
+	return JVMClassStats{
+		Loaded: dbutil.Int64FromAny(row["loaded"]),
+		Count:  dbutil.Int64FromAny(row["count_val"]),
+	}, nil
+}
+
+func (r *ClickHouseRepository) GetJVMCPU(teamUUID string, startMs, endMs int64) (JVMCPUStats, error) {
+	query := fmt.Sprintf(`
+		SELECT
+			sumIf(%s, %s = '%s') as cpu_time,
+			avgIf(%s, %s = '%s') as cpu_util
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ?
+		  AND %s IN ('%s', '%s')`,
+		ColValue, ColMetricName, MetricJVMCPUTime,
+		ColValue, ColMetricName, MetricJVMCPUUtilization,
+		TableMetrics,
+		ColTeamID, ColTimestamp,
+		ColMetricName, MetricJVMCPUTime, MetricJVMCPUUtilization)
+	row, err := dbutil.QueryMap(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return JVMCPUStats{}, err
+	}
+	return JVMCPUStats{
+		CPUTimeValue:      dbutil.Float64FromAny(row["cpu_time"]),
+		RecentUtilization: dbutil.Float64FromAny(row["cpu_util"]),
+	}, nil
+}
+
+func (r *ClickHouseRepository) GetJVMBuffers(teamUUID string, startMs, endMs int64) ([]JVMBufferBucket, error) {
+	bucket := resBucketExpr(startMs, endMs)
+	pool := fmt.Sprintf("attributes.'%s'::String", AttrJVMBufferPoolName)
+	query := fmt.Sprintf(`
+		SELECT
+			%s as time_bucket,
+			%s as pool_name,
+			avgIf(%s, %s = '%s') as memory_usage,
+			avgIf(%s, %s = '%s') as buf_count
+		FROM %s
+		WHERE %s = ? AND %s BETWEEN ? AND ?
+		  AND %s IN ('%s', '%s')
+		GROUP BY 1, 2 ORDER BY 1, 2`,
+		bucket, pool,
+		ColValue, ColMetricName, MetricJVMBufferMemoryUsage,
+		ColValue, ColMetricName, MetricJVMBufferCount,
+		TableMetrics,
+		ColTeamID, ColTimestamp,
+		ColMetricName, MetricJVMBufferMemoryUsage, MetricJVMBufferCount)
+	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, err
+	}
+	buckets := make([]JVMBufferBucket, len(rows))
+	for i, row := range rows {
+		mu := dbutil.NullableFloat64FromAny(row["memory_usage"])
+		cnt := dbutil.NullableFloat64FromAny(row["buf_count"])
+		buckets[i] = JVMBufferBucket{
+			Timestamp:   dbutil.StringFromAny(row["time_bucket"]),
+			PoolName:    dbutil.StringFromAny(row["pool_name"]),
+			MemoryUsage: mu,
+			Count:       cnt,
+		}
+	}
+	return buckets, nil
+}
+
+// ─── Shared query helpers ─────────────────────────────────────────────────────
+
+func (r *ClickHouseRepository) queryStateBuckets(query, teamUUID string, startMs, endMs int64) ([]StateBucket, error) {
+	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, err
+	}
+	buckets := make([]StateBucket, len(rows))
+	for i, row := range rows {
+		buckets[i] = StateBucket{
+			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
+			State:     dbutil.StringFromAny(row["state"]),
+			Value:     dbutil.NullableFloat64FromAny(row["metric_val"]),
+		}
+	}
+	return buckets, nil
+}
+
+func (r *ClickHouseRepository) queryDirectionBuckets(query, teamUUID string, startMs, endMs int64) ([]DirectionBucket, error) {
+	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, err
+	}
+	buckets := make([]DirectionBucket, len(rows))
+	for i, row := range rows {
+		buckets[i] = DirectionBucket{
+			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
+			Direction: dbutil.StringFromAny(row["direction"]),
+			Value:     dbutil.NullableFloat64FromAny(row["metric_val"]),
+		}
+	}
+	return buckets, nil
+}
+
+func (r *ClickHouseRepository) queryResourceBuckets(query, teamUUID string, startMs, endMs int64) ([]ResourceBucket, error) {
+	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, err
+	}
+	buckets := make([]ResourceBucket, len(rows))
+	for i, row := range rows {
+		buckets[i] = ResourceBucket{
+			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
+			Pod:       dbutil.StringFromAny(row["pod"]),
+			Value:     dbutil.NullableFloat64FromAny(row["metric_val"]),
+		}
+	}
+	return buckets, nil
+}
+
+func (r *ClickHouseRepository) queryHistogramSummary(query, teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
+	row, err := dbutil.QueryMap(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return HistogramSummary{}, err
+	}
+	return HistogramSummary{
+		P50: dbutil.Float64FromAny(row["p50"]),
+		P95: dbutil.Float64FromAny(row["p95"]),
+		P99: dbutil.Float64FromAny(row["p99"]),
+		Avg: dbutil.Float64FromAny(row["avg_val"]),
+	}, nil
 }

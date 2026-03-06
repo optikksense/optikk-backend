@@ -96,3 +96,49 @@ func (h *KafkaHandler) GetQueueTopQueues(c *gin.Context) {
 
 	modulecommon.RespondOK(c, resp)
 }
+
+// ─── OTel messaging.* standard metrics ────────────────────────────────────────
+
+func (h *KafkaHandler) GetConsumerLagPerPartition(c *gin.Context) {
+	teamUUID := h.GetTenant(c).TeamUUID()
+	startMs, endMs := modulecommon.ParseRange(c, 24*60*60*1000)
+	resp, err := h.Service.GetConsumerLagPerPartition(teamUUID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query consumer lag per partition")
+		return
+	}
+	modulecommon.RespondOK(c, resp)
+}
+
+func (h *KafkaHandler) GetMessageRates(c *gin.Context) {
+	teamUUID := h.GetTenant(c).TeamUUID()
+	startMs, endMs := modulecommon.ParseRange(c, 24*60*60*1000)
+	resp, err := h.Service.GetMessageRates(teamUUID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query message rates")
+		return
+	}
+	modulecommon.RespondOK(c, resp)
+}
+
+func (h *KafkaHandler) GetOperationDuration(c *gin.Context) {
+	teamUUID := h.GetTenant(c).TeamUUID()
+	startMs, endMs := modulecommon.ParseRange(c, 24*60*60*1000)
+	resp, err := h.Service.GetOperationDuration(teamUUID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query operation duration")
+		return
+	}
+	modulecommon.RespondOK(c, resp)
+}
+
+func (h *KafkaHandler) GetOffsetCommitRate(c *gin.Context) {
+	teamUUID := h.GetTenant(c).TeamUUID()
+	startMs, endMs := modulecommon.ParseRange(c, 24*60*60*1000)
+	resp, err := h.Service.GetOffsetCommitRate(teamUUID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query offset commit rate")
+		return
+	}
+	modulecommon.RespondOK(c, resp)
+}

@@ -63,6 +63,52 @@ const (
 	AttrSystemNetworkUtilization    = "system.network.utilization"
 	AttrDBConnectionPoolUtilization = "db.connection_pool.utilization"
 
+	// System metrics (extended)
+	MetricSystemCPUTime            = "system.cpu.time"
+	MetricSystemMemoryUsage        = "system.memory.usage"
+	MetricSystemPagingUsage        = "system.paging.usage"
+	MetricSystemDiskIO             = "system.disk.io"
+	MetricSystemDiskOperations     = "system.disk.operations"
+	MetricSystemDiskIOTime         = "system.disk.io_time"
+	MetricSystemFilesystemUsage    = "system.filesystem.usage"
+	MetricSystemFilesystemUtil     = "system.filesystem.utilization"
+	MetricSystemNetworkIO          = "system.network.io"
+	MetricSystemNetworkPackets     = "system.network.packets"
+	MetricSystemNetworkErrors      = "system.network.errors"
+	MetricSystemNetworkDropped     = "system.network.dropped"
+	MetricSystemCPULoadAvg1m       = "system.cpu.load_average.1m"
+	MetricSystemCPULoadAvg5m       = "system.cpu.load_average.5m"
+	MetricSystemCPULoadAvg15m      = "system.cpu.load_average.15m"
+	MetricSystemProcessCount       = "system.process.count"
+	MetricSystemNetworkConnections = "system.network.connections"
+
+	// JVM metrics (consolidated here)
+	MetricJVMMemoryCommitted   = "jvm.memory.committed"
+	MetricJVMMemoryLimit       = "jvm.memory.limit"
+	MetricJVMGCDuration        = "jvm.gc.duration"
+	MetricJVMThreadCount       = "jvm.thread.count"
+	MetricJVMClassLoaded       = "jvm.class.loaded"
+	MetricJVMClassCount        = "jvm.class.count"
+	MetricJVMCPUTime           = "jvm.cpu.time"
+	MetricJVMCPUUtilization    = "jvm.cpu.recent_utilization"
+	MetricJVMBufferMemoryUsage = "jvm.buffer.memory.usage"
+	MetricJVMBufferCount       = "jvm.buffer.count"
+
+	// Attribute names for dimensional queries
+	AttrSystemCPUState         = "system.cpu.state"
+	AttrSystemMemoryState      = "system.memory.state"
+	AttrSystemDiskDirection    = "system.disk.direction"
+	AttrSystemNetworkDirection = "system.network.io.direction"
+	AttrSystemNetworkState     = "system.network.state"
+	AttrFilesystemMountpoint   = "system.filesystem.mountpoint"
+	AttrProcessStatus          = "process.status"
+	AttrJVMMemoryType          = "jvm.memory.type"
+	AttrJVMMemoryPoolName      = "jvm.memory.pool.name"
+	AttrJVMGCName              = "jvm.gc.name"
+	AttrJVMGCAction            = "jvm.gc.action"
+	AttrJVMThreadDaemon        = "jvm.thread.daemon"
+	AttrJVMBufferPoolName      = "jvm.buffer.pool.name"
+
 	// Percentage Conversion
 	PercentageMultiplier = 100.0
 	PercentageThreshold  = 1.0

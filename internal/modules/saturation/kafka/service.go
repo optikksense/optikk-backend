@@ -33,3 +33,19 @@ func (s *KafkaService) GetQueueTopicLag(teamUUID string, startMs, endMs int64) (
 func (s *KafkaService) GetQueueTopQueues(teamUUID string, startMs, endMs int64) ([]MqTopQueue, error) {
 	return s.repo.GetQueueTopQueues(teamUUID, startMs, endMs)
 }
+
+func (s *KafkaService) GetConsumerLagPerPartition(teamUUID string, startMs, endMs int64) ([]PartitionLag, error) {
+	return s.repo.GetConsumerLagPerPartition(teamUUID, startMs, endMs)
+}
+
+func (s *KafkaService) GetMessageRates(teamUUID string, startMs, endMs int64) (MessageRates, error) {
+	return s.repo.GetMessageRates(teamUUID, startMs, endMs)
+}
+
+func (s *KafkaService) GetOperationDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
+	return s.repo.GetOperationDuration(teamUUID, startMs, endMs)
+}
+
+func (s *KafkaService) GetOffsetCommitRate(teamUUID string, startMs, endMs int64) ([]OffsetTimeSeries, error) {
+	return s.repo.GetOffsetCommitRate(teamUUID, startMs, endMs)
+}

@@ -24,4 +24,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *KafkaHandler) {
 	v1.GET("/saturation/queue/consumer-lag", h.GetQueueConsumerLag)
 	v1.GET("/saturation/queue/topic-lag", h.GetQueueTopicLag)
 	v1.GET("/saturation/queue/top-queues", h.GetQueueTopQueues)
+
+	// OTel messaging.* standard metrics
+	v1.GET("/saturation/queue/consumer-lag-detail", h.GetConsumerLagPerPartition)
+	v1.GET("/saturation/queue/message-rates", h.GetMessageRates)
+	v1.GET("/saturation/queue/operation-duration", h.GetOperationDuration)
+	v1.GET("/saturation/queue/offset-commit-rate", h.GetOffsetCommitRate)
 }

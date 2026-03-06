@@ -405,3 +405,151 @@ func (r *ClickHouseRepository) GetQueueTopQueues(teamUUID string, startMs, endMs
 	}
 	return out, nil
 }
+
+// ─── OTel messaging.* standard metrics ────────────────────────────────────────
+
+// GetConsumerLagPerPartition returns consumer lag grouped by topic, partition, and consumer group.
+func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamUUID string, startMs, endMs int64) ([]PartitionLag, error) {
+	lagMetrics := MetricSetToInClause([]string{MetricMessagingConsumerLagOTel, MetricMessagingConsumerLag})
+	topicAttr := attrString(AttrMessagingDestinationName)
+	partitionAttr := attrString(AttrMessagingKafkaDestinationPartition)
+	consumerGroupAttr := attrString(AttrMessagingKafkaConsumerGroup)
+
+	query := fmt.Sprintf(`
+		SELECT
+		    %s                                AS topic,
+		    toInt64(%s)                       AS partition,
+		    %s                                AS consumer_group,
+		    toInt64(avg(value))               AS lag
+		FROM %s
+		WHERE %s = ?
+		  AND %s BETWEEN ? AND ?
+		  AND %s IN (%s)
+		GROUP BY topic, partition, consumer_group
+		ORDER BY lag DESC
+		LIMIT 200
+	`,
+		topicAttr, partitionAttr, consumerGroupAttr,
+		TableMetrics,
+		ColTeamID, ColTimestamp,
+		ColMetricName, lagMetrics,
+	)
+	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PartitionLag, len(rows))
+	for i, row := range rows {
+		out[i] = PartitionLag{
+			Topic:         dbutil.StringFromAny(row["topic"]),
+			Partition:     dbutil.Int64FromAny(row["partition"]),
+			ConsumerGroup: dbutil.StringFromAny(row["consumer_group"]),
+			Lag:           dbutil.Int64FromAny(row["lag"]),
+		}
+	}
+	return out, nil
+}
+
+// GetMessageRates returns total published and consumed message rates over the window.
+func (r *ClickHouseRepository) GetMessageRates(teamUUID string, startMs, endMs int64) (MessageRates, error) {
+	durationSecs := float64(endMs-startMs) / 1000.0
+	if durationSecs <= 0 {
+		durationSecs = 1.0
+	}
+
+	query := fmt.Sprintf(`
+		SELECT
+		    sumIf(value, %s = '%s') / ? AS published_per_sec,
+		    sumIf(value, %s = '%s') / ? AS consumed_per_sec
+		FROM %s
+		WHERE %s = ?
+		  AND %s BETWEEN ? AND ?
+		  AND %s IN ('%s', '%s')
+	`,
+		ColMetricName, MetricMessagingPublishedMessages,
+		ColMetricName, MetricMessagingConsumedMessages,
+		TableMetrics,
+		ColTeamID, ColTimestamp,
+		ColMetricName,
+		MetricMessagingPublishedMessages,
+		MetricMessagingConsumedMessages,
+	)
+	row, err := dbutil.QueryMap(r.db, query,
+		durationSecs, durationSecs,
+		teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
+	)
+	if err != nil {
+		return MessageRates{}, err
+	}
+	return MessageRates{
+		PublishedPerSec: dbutil.Float64FromAny(row["published_per_sec"]),
+		ConsumedPerSec:  dbutil.Float64FromAny(row["consumed_per_sec"]),
+	}, nil
+}
+
+// GetOperationDuration returns histogram summary for messaging.client.operation.duration.
+func (r *ClickHouseRepository) GetOperationDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
+	query := fmt.Sprintf(`
+		SELECT
+		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
+		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
+		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99,
+		    avg(hist_sum / nullIf(hist_count, 0))                                     AS avg_val
+		FROM %s
+		WHERE %s = ?
+		  AND %s BETWEEN ? AND ?
+		  AND %s = '%s'
+		  AND metric_type = 'Histogram'
+	`,
+		TableMetrics, ColTeamID, ColTimestamp,
+		ColMetricName, MetricMessagingOperationDuration,
+	)
+	row, err := dbutil.QueryMap(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return HistogramSummary{}, err
+	}
+	return HistogramSummary{
+		P50: dbutil.Float64FromAny(row["p50"]),
+		P95: dbutil.Float64FromAny(row["p95"]),
+		P99: dbutil.Float64FromAny(row["p99"]),
+		Avg: dbutil.Float64FromAny(row["avg_val"]),
+	}, nil
+}
+
+// GetOffsetCommitRate returns consumer offset timeseries per topic.
+func (r *ClickHouseRepository) GetOffsetCommitRate(teamUUID string, startMs, endMs int64) ([]OffsetTimeSeries, error) {
+	bucket := TimeBucketExpression(startMs, endMs)
+	topicAttr := attrString(AttrMessagingDestinationName)
+
+	query := fmt.Sprintf(`
+		SELECT
+		    %s         AS time_bucket,
+		    %s         AS topic,
+		    avg(value) AS val
+		FROM %s
+		WHERE %s = ?
+		  AND %s BETWEEN ? AND ?
+		  AND %s = '%s'
+		GROUP BY time_bucket, topic
+		ORDER BY time_bucket, topic
+	`,
+		bucket, topicAttr,
+		TableMetrics,
+		ColTeamID, ColTimestamp,
+		ColMetricName, MetricMessagingConsumerOffset,
+	)
+	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, err
+	}
+	out := make([]OffsetTimeSeries, len(rows))
+	for i, row := range rows {
+		v := dbutil.NullableFloat64FromAny(row["val"])
+		out[i] = OffsetTimeSeries{
+			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
+			Topic:     dbutil.StringFromAny(row["topic"]),
+			Value:     v,
+		}
+	}
+	return out, nil
+}

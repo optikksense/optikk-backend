@@ -46,3 +46,32 @@ type MqTopQueue struct {
 	SampleCount       int64   `json:"sample_count"`
 	PublishRetry      float64 `json:"publish_retry"`
 }
+
+// PartitionLag represents consumer lag per topic/partition/consumer group.
+type PartitionLag struct {
+	Topic         string `json:"topic"`
+	Partition     int64  `json:"partition"`
+	ConsumerGroup string `json:"consumer_group"`
+	Lag           int64  `json:"lag"`
+}
+
+// MessageRates holds published and consumed message rates.
+type MessageRates struct {
+	PublishedPerSec float64 `json:"published_per_sec"`
+	ConsumedPerSec  float64 `json:"consumed_per_sec"`
+}
+
+// HistogramSummary holds p50/p95/p99/avg for histogram metrics.
+type HistogramSummary struct {
+	P50 float64 `json:"p50"`
+	P95 float64 `json:"p95"`
+	P99 float64 `json:"p99"`
+	Avg float64 `json:"avg"`
+}
+
+// OffsetTimeSeries represents consumer offset over time per topic.
+type OffsetTimeSeries struct {
+	Timestamp string   `json:"timestamp"`
+	Topic     string   `json:"topic"`
+	Value     *float64 `json:"value"`
+}

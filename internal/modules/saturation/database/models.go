@@ -68,3 +68,43 @@ type DbTableMetric struct {
 	CacheHits         int64   `json:"cache_hits"`
 	CacheMisses       int64   `json:"cache_misses"`
 }
+
+// HistogramSummary holds p50/p95/p99/avg for histogram metrics.
+type HistogramSummary struct {
+	P50 float64 `json:"p50"`
+	P95 float64 `json:"p95"`
+	P99 float64 `json:"p99"`
+	Avg float64 `json:"avg"`
+}
+
+// ConnectionStatValue represents a connection count grouped by state.
+type ConnectionStatValue struct {
+	Timestamp string   `json:"timestamp"`
+	State     string   `json:"state"`
+	Value     *float64 `json:"value"`
+}
+
+// RedisHitRate holds cache hit/miss counts and the computed hit rate.
+type RedisHitRate struct {
+	Hits       int64   `json:"hits"`
+	Misses     int64   `json:"misses"`
+	HitRatePct float64 `json:"hit_rate_pct"`
+}
+
+// RedisTimeSeries is a simple scalar timeseries point.
+type RedisTimeSeries struct {
+	Timestamp string   `json:"timestamp"`
+	Value     *float64 `json:"value"`
+}
+
+// RedisDBKeyStat holds per-DB key/expiry counts.
+type RedisDBKeyStat struct {
+	DB   string `json:"db"`
+	Keys int64  `json:"keys"`
+}
+
+// RedisReplicationLag holds replication offset stats.
+type RedisReplicationLag struct {
+	Offset        int64 `json:"offset"`
+	BacklogOffset int64 `json:"backlog_offset"`
+}

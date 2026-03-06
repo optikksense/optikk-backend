@@ -17,6 +17,9 @@ import (
 	"github.com/observability/observability-backend-go/internal/modules/dashboardconfig"
 	nodes "github.com/observability/observability-backend-go/internal/modules/infrastructure/nodes"
 	"github.com/observability/observability-backend-go/internal/modules/infrastructure/resource_utilisation"
+	"github.com/observability/observability-backend-go/internal/modules/apm"
+	"github.com/observability/observability-backend-go/internal/modules/httpmetrics"
+	kubernetes "github.com/observability/observability-backend-go/internal/modules/infrastructure/kubernetes"
 	logsapi "github.com/observability/observability-backend-go/internal/modules/log"
 	overviewerrors "github.com/observability/observability-backend-go/internal/modules/overview/errors"
 	overviewmodule "github.com/observability/observability-backend-go/internal/modules/overview/overview"
@@ -54,6 +57,9 @@ type moduleConfigs struct {
 	ResourceUtilisation resource_utilisation.Config
 	SaturationDatabase  database.Config
 	SaturationKafka     kafka.Config
+	Kubernetes          kubernetes.Config
+	HTTPMetrics         httpmetrics.Config
+	APM                 apm.Config
 	Logs                logsapi.Config
 	Traces              tracesapi.Config
 	AI                  ai.Config
@@ -72,6 +78,9 @@ func defaultModuleConfigs() moduleConfigs {
 		ResourceUtilisation: resource_utilisation.DefaultConfig(),
 		SaturationDatabase:  database.DefaultConfig(),
 		SaturationKafka:     kafka.DefaultConfig(),
+		Kubernetes:          kubernetes.DefaultConfig(),
+		HTTPMetrics:         httpmetrics.DefaultConfig(),
+		APM:                 apm.DefaultConfig(),
 		Logs:                logsapi.DefaultConfig(),
 		Traces:              tracesapi.DefaultConfig(),
 		AI:                  ai.DefaultConfig(),
@@ -99,6 +108,9 @@ type App struct {
 	ResourceUtilisation *resource_utilisation.ResourceUtilisationHandler
 	SaturationDatabase  *satdatabase.DatabaseHandler
 	SaturationKafka     *kafka.KafkaHandler
+	Kubernetes          *kubernetes.KubernetesHandler
+	HTTPMetrics         *httpmetrics.HTTPMetricsHandler
+	APM                 *apm.APMHandler
 	AI                  *ai.AIHandler
 	DashboardConfig     *dashboardconfig.DashboardConfigHandler
 
@@ -241,6 +253,33 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				kafka.NewRepository(dbutil.NewMySQLWrapper(ch)),
 			),
 		},
+		Kubernetes: &kubernetes.KubernetesHandler{
+			DBTenant: modulecommon.DBTenant{
+				DB:        ch,
+				GetTenant: getTenant,
+			},
+			Service: kubernetes.NewService(
+				kubernetes.NewRepository(dbutil.NewMySQLWrapper(ch)),
+			),
+		},
+		HTTPMetrics: &httpmetrics.HTTPMetricsHandler{
+			DBTenant: modulecommon.DBTenant{
+				DB:        ch,
+				GetTenant: getTenant,
+			},
+			Service: httpmetrics.NewService(
+				httpmetrics.NewRepository(dbutil.NewMySQLWrapper(ch)),
+			),
+		},
+		APM: &apm.APMHandler{
+			DBTenant: modulecommon.DBTenant{
+				DB:        ch,
+				GetTenant: getTenant,
+			},
+			Service: apm.NewService(
+				apm.NewRepository(dbutil.NewMySQLWrapper(ch)),
+			),
+		},
 		AI: &ai.AIHandler{
 			DBTenant: modulecommon.DBTenant{
 				DB:        ch,
@@ -320,6 +359,9 @@ func (a *App) registerRoutesToGroup(v1 *gin.RouterGroup) {
 	resource_utilisation.RegisterRoutes(cfg.ResourceUtilisation, v1, a.ResourceUtilisation)
 	database.RegisterRoutes(cfg.SaturationDatabase, v1, a.SaturationDatabase)
 	kafka.RegisterRoutes(cfg.SaturationKafka, v1, a.SaturationKafka)
+	kubernetes.RegisterRoutes(cfg.Kubernetes, v1, a.Kubernetes)
+	httpmetrics.RegisterRoutes(cfg.HTTPMetrics, v1, a.HTTPMetrics)
+	apm.RegisterRoutes(cfg.APM, v1, a.APM)
 	logsapi.RegisterRoutes(cfg.Logs, v1, a.Logs)
 	tracesapi.RegisterRoutes(cfg.Traces, v1, a.Traces)
 	ai.RegisterRoutes(cfg.AI, v1, a.AI)
