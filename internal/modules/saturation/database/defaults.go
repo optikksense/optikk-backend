@@ -12,6 +12,9 @@ const (
 	// DefaultUnknown is used when a dimensional value cannot be extracted.
 	DefaultUnknown = "unknown"
 
+	// Table name for the metrics store.
+	TableMetrics = "metrics"
+
 	// DB system canonical names
 	DBSystemMongoDB = "mongodb"
 	DBSystemMySQL   = "mysql"
@@ -27,7 +30,6 @@ const (
 	MetricDBClientErrors           = "db.client.errors"
 
 	// Column names
-	ColAttributes  = "attributes"
 	ColMetricName  = "metric_name"
 	ColServiceName = "service"
 	ColCount       = "hist_count"

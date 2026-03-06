@@ -12,7 +12,7 @@ import (
 
 const (
 	// Table Names
-	TableMetrics = "metrics_v5"
+	TableMetrics = "metrics"
 
 	// Metrics Table Columns
 	ColTeamID      = "team_id"
@@ -137,6 +137,12 @@ var (
 // Delegates to the shared timebucket package.
 func TimeBucketExpression(startMs, endMs int64) string {
 	return timebucket.Expression(startMs, endMs)
+}
+
+// attrFloat returns a CH 26+ native JSON path expression that reads a Float64
+// from the attributes JSON column. Replaces JSONExtractFloat(attributes, 'key').
+func attrFloat(attrName string) string {
+	return "attributes.'" + attrName + "'::Float64"
 }
 
 // MetricSetToInClause converts a metric set to a SQL IN clause

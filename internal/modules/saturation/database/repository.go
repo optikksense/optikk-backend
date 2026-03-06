@@ -16,20 +16,20 @@ import (
 // with legacy vendor variants as fallbacks.
 func dbCollectionExpression() string {
 	return fmt.Sprintf(`coalesce(
-	nullIf(JSONExtractString(%s, '%s'), ''),
-	nullIf(JSONExtractString(%s, '%s'), ''),
-	nullIf(JSONExtractString(%s, '%s'), ''),
-	nullIf(JSONExtractString(%s, '%s'), ''),
-	nullIf(JSONExtractString(%s, '%s'), ''),
-	nullIf(JSONExtractString(%s, '%s'), ''),
+	nullIfEmpty(%s),
+	nullIfEmpty(%s),
+	nullIfEmpty(%s),
+	nullIfEmpty(%s),
+	nullIfEmpty(%s),
+	nullIfEmpty(%s),
 	'%s'
 )`,
-		ColAttributes, AttrDBMongoDBCollection,
-		ColAttributes, AttrCollection,
-		ColAttributes, AttrDBCollectionName,
-		ColAttributes, AttrDBSQLTable,
-		ColAttributes, AttrPool,
-		ColAttributes, AttrDBStatement,
+		attrString(AttrDBMongoDBCollection),
+		attrString(AttrCollection),
+		attrString(AttrDBCollectionName),
+		attrString(AttrDBSQLTable),
+		attrString(AttrPool),
+		attrString(AttrDBStatement),
 		DefaultUnknown)
 }
 
@@ -38,8 +38,9 @@ func dbCollectionExpression() string {
 // service-name pattern matching. The nested ifs mirror ClickHouse's lack of a
 // CASE WHEN; they are structured for readability with one branch per DB system.
 func dbSystemExpression() string {
+	aSystem := attrString(AttrDBSystem)
 	return fmt.Sprintf(`coalesce(
-	nullIf(JSONExtractString(%s, '%s'), ''),
+	nullIfEmpty(%s),
 	if(
 		lower(%s) LIKE '%%%%mongo%%%%' OR lower(%s) LIKE '%%%%mongo%%%%',
 		'%s',
@@ -59,7 +60,7 @@ func dbSystemExpression() string {
 		)
 	)
 )`,
-		ColAttributes, AttrDBSystem,
+		aSystem,
 		ColMetricName, ColServiceName, DBSystemMongoDB,
 		ColMetricName, ColMetricName,
 		ColServiceName, ColServiceName, DBSystemMySQL,
@@ -168,7 +169,7 @@ func (r *ClickHouseRepository) GetDatabaseQueryByTable(teamUUID string, startMs,
 		    %s                                                              AS usage_avg_latency_ms,
 		    %s                                                              AS mongo_p95_latency_ms,
 		    %s                                                              AS usage_p95_latency_ms
-		FROM metrics_v5
+		FROM %s
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s
@@ -182,6 +183,7 @@ func (r *ClickHouseRepository) GetDatabaseQueryByTable(teamUUID string, startMs,
 		hikariLatencyAvg(ColAvg),
 		mongoLatencyMax(ColP95),
 		hikariLatencyMax(ColP95),
+		TableMetrics,
 		ColTeamID,
 		ColTimestamp,
 		dbLatencyMetricFilter(),
@@ -223,7 +225,7 @@ func (r *ClickHouseRepository) GetDatabaseAvgLatency(teamUUID string, startMs, e
 		    %s                                 AS minute_bucket,
 		    coalesce(%s, 0)                    AS avg_latency_ms,
 		    coalesce(%s, 0)                    AS p95_latency_ms
-		FROM metrics_v5
+		FROM %s
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s
@@ -233,6 +235,7 @@ func (r *ClickHouseRepository) GetDatabaseAvgLatency(teamUUID string, startMs, e
 		bucket,
 		avgLatencyExpr,
 		p95LatencyExpr,
+		TableMetrics,
 		ColTeamID,
 		ColTimestamp,
 		dbLatencyMetricFilter(),
@@ -277,7 +280,7 @@ func (r *ClickHouseRepository) GetDatabaseCacheSummary(teamUUID string, startMs,
 		    sumIf(%s, %s = '%s' AND isFinite(%s))                     AS cache_hits,
 		    sumIf(%s, %s = '%s' AND isFinite(%s))                     AS cache_misses,
 		    avgIf(%s, %s = '%s' AND isFinite(%s))                     AS avg_replication_lag_ms
-		FROM metrics_v5
+		FROM %s
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s
@@ -288,6 +291,7 @@ func (r *ClickHouseRepository) GetDatabaseCacheSummary(teamUUID string, startMs,
 		ColValue, ColMetricName, MetricCacheHits, ColValue,
 		ColValue, ColMetricName, MetricCacheMisses, ColValue,
 		ColValue, ColMetricName, MetricDBReplicationLagMs, ColValue,
+		TableMetrics,
 		ColTeamID,
 		ColTimestamp,
 		dbAllMetricFilter(),
@@ -327,7 +331,7 @@ func (r *ClickHouseRepository) GetDatabaseSystems(teamUUID string, startMs, endM
 		    sumIf(%s, %s = '%s')                                        AS error_count,
 		    maxIf(%s, %s = '%s')                                        AS mongo_span_count,
 		    maxIf(%s, %s = '%s')                                        AS usage_span_count
-		FROM metrics_v5
+		FROM %s
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s
@@ -344,6 +348,7 @@ func (r *ClickHouseRepository) GetDatabaseSystems(teamUUID string, startMs, endM
 		ColValue, ColMetricName, MetricDBClientErrors,
 		ColCount, ColMetricName, MetricMongoDBDriverCommands,
 		ColCount, ColMetricName, MetricHikariCPConnectionsUsage,
+		TableMetrics,
 		ColTeamID,
 		ColTimestamp,
 		dbAllMetricFilter(),
@@ -391,7 +396,7 @@ func (r *ClickHouseRepository) GetDatabaseTopTables(teamUUID string, startMs, en
 		    sumIf(%s, %s = '%s' AND isFinite(%s))                           AS cache_misses,
 		    maxIf(%s, %s = '%s')                                            AS mongo_query_count,
 		    maxIf(%s, %s = '%s')                                            AS usage_query_count
-		FROM metrics_v5
+		FROM %s
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s
@@ -410,6 +415,7 @@ func (r *ClickHouseRepository) GetDatabaseTopTables(teamUUID string, startMs, en
 		ColValue, ColMetricName, MetricCacheMisses, ColValue,
 		ColCount, ColMetricName, MetricMongoDBDriverCommands,
 		ColCount, ColMetricName, MetricHikariCPConnectionsUsage,
+		TableMetrics,
 		ColTeamID,
 		ColTimestamp,
 		dbAllMetricFilter(),

@@ -275,10 +275,61 @@ func MapSpans(teamID string, req ExportTraceServiceRequest) []ingest.Row {
 
 // LogColumns is the ordered column list for observability.logs inserts.
 var LogColumns = []string{
-	"team_id", "timestamp", "level", "service_name",
-	"logger", "message", "trace_id", "span_id",
-	"host", "pod", "container", "thread",
-	"exception", "attributes", "tags",
+	"team_id", "ts_bucket_start", "timestamp", "observed_timestamp",
+	"id", "trace_id", "span_id", "trace_flags",
+	"severity_text", "severity_number", "body",
+	"attributes_string", "attributes_number", "attributes_bool",
+	"resource", "resource_fingerprint",
+	"scope_name", "scope_version", "scope_string",
+}
+
+// attrsToTypedMaps splits a []KeyValue into typed maps by AnyValue variant.
+func attrsToTypedMaps(kvs []KeyValue) (map[string]string, map[string]float64, map[string]bool) {
+	sm := make(map[string]string, len(kvs))
+	nm := make(map[string]float64)
+	bm := make(map[string]bool)
+	for _, kv := range kvs {
+		switch {
+		case kv.Value.StringValue != nil:
+			sm[kv.Key] = *kv.Value.StringValue
+		case kv.Value.IntValue != nil:
+			nm[kv.Key] = float64(*kv.Value.IntValue)
+		case kv.Value.DoubleValue != nil:
+			nm[kv.Key] = *kv.Value.DoubleValue
+		case kv.Value.BoolValue != nil:
+			bm[kv.Key] = *kv.Value.BoolValue
+		case kv.Value.BytesValue != nil:
+			sm[kv.Key] = *kv.Value.BytesValue
+		}
+	}
+	return sm, nm, bm
+}
+
+// nanoStrToUint64 parses a Unix nanosecond string to uint64, falling back to now.
+func nanoStrToUint64(s string) uint64 {
+	ns, err := strconv.ParseUint(s, 10, 64)
+	if err != nil || ns == 0 {
+		return uint64(time.Now().UnixNano())
+	}
+	return ns
+}
+
+// logID generates a stable FNV-64a ID for a log record.
+func logID(teamID string, tsNano uint64, lr LogRecord) string {
+	h := fnv.New64a()
+	h.Write([]byte(teamID))
+	h.Write([]byte{0})
+	b := strconv.AppendUint(nil, tsNano, 10)
+	h.Write(b)
+	h.Write([]byte{0})
+	h.Write([]byte(lr.TraceID))
+	h.Write([]byte{0})
+	h.Write([]byte(lr.SpanID))
+	h.Write([]byte{0})
+	if lr.Body.StringValue != nil {
+		h.Write([]byte(*lr.Body.StringValue))
+	}
+	return strconv.FormatUint(h.Sum64(), 16)
 }
 
 // MapLogs converts an OTLP logs export request into ingest rows.
@@ -287,24 +338,32 @@ func MapLogs(teamID string, req ExportLogsServiceRequest) []ingest.Row {
 
 	for _, rl := range req.ResourceLogs {
 		resAttrs := rl.Resource.Attributes
-		serviceName := lookupAttr(resAttrs, "service.name")
-		host := lookupAttr(resAttrs, "host.name")
-		pod := lookupAttr(resAttrs, "k8s.pod.name")
-		container := lookupAttr(resAttrs, "k8s.container.name")
+		resourceMap := attrsToMap(resAttrs)
+		fingerprint := strconv.FormatUint(resourceFingerprint(resAttrs), 16)
 
 		for _, sl := range rl.ScopeLogs {
-			loggerName := sl.Scope.Name
+			scopeName := sl.Scope.Name
+			scopeVersion := sl.Scope.Version
+			scopeAttrs := map[string]string{}
+			if scopeName != "" {
+				scopeAttrs["name"] = scopeName
+			}
 
 			for _, lr := range sl.LogRecords {
 				tsStr := lr.TimeUnixNano
 				if tsStr == "" {
 					tsStr = lr.ObservedTimeUnixNano
 				}
-				ts := nanoToTime(tsStr)
+				tsNano := nanoStrToUint64(tsStr)
+				observedNano := nanoStrToUint64(lr.ObservedTimeUnixNano)
 
-				level := lr.SeverityText
-				if level == "" {
-					level = severityNumberToLevel(lr.SeverityNumber)
+				// ts_bucket_start: truncate to day boundary (seconds)
+				tsSec := tsNano / 1_000_000_000
+				tsBucket := uint32(tsSec - tsSec%86400)
+
+				severityText := lr.SeverityText
+				if severityText == "" {
+					severityText = severityNumberToLevel(lr.SeverityNumber)
 				}
 
 				body := ""
@@ -312,32 +371,29 @@ func MapLogs(teamID string, req ExportLogsServiceRequest) []ingest.Row {
 					body = *lr.Body.StringValue
 				}
 
-				logAttrs := lr.Attributes
-				thread := lookupAttr(logAttrs, "thread.name")
-				exception := lookupAttr(logAttrs, "exception.message")
-
-				attrsJSON := attrsToJSON(logAttrs)
-				tags := attrsToMap(resAttrs)
-				for k, v := range attrsToMap(logAttrs) {
-					tags[k] = v
-				}
+				attrStr, attrNum, attrBool := attrsToTypedMaps(lr.Attributes)
+				id := logID(teamID, tsNano, lr)
 
 				rows = append(rows, ingest.Row{Values: []any{
 					teamID,
-					ts,
-					level,
-					serviceName,
-					loggerName,
-					body,
+					tsBucket,
+					tsNano,
+					observedNano,
+					id,
 					lr.TraceID,
 					lr.SpanID,
-					host,
-					pod,
-					container,
-					thread,
-					exception,
-					attrsJSON,
-					tags,
+					lr.Flags,
+					severityText,
+					uint8(lr.SeverityNumber),
+					body,
+					attrStr,
+					attrNum,
+					attrBool,
+					resourceMap,
+					fingerprint,
+					scopeName,
+					scopeVersion,
+					scopeAttrs,
 				}})
 			}
 		}

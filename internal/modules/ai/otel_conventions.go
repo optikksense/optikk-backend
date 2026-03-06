@@ -100,6 +100,9 @@ const (
 	ColAISecurityContentPolicy    = "ai_security_content_policy"
 )
 
+// TableMetrics is the ClickHouse table that holds all OTLP metrics.
+const TableMetrics = "metrics"
+
 // OperationType represents the type of GenAI operation
 type OperationType string
 

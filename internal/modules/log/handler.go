@@ -3,7 +3,6 @@ package logs
 import (
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/observability/observability-backend-go/internal/modules/common"
@@ -23,18 +22,18 @@ func NewHandler(getTenant common.GetTenantFunc, repo *ClickHouseRepository) *Log
 
 func (h *LogHandler) parseFilters(c *gin.Context) LogFilters {
 	return LogFilters{
-		Levels:          common.ParseListParam(c, "levels"),
-		Services:        common.ParseListParam(c, "services"),
-		Hosts:           common.ParseListParam(c, "hosts"),
-		Pods:            common.ParseListParam(c, "pods"),
-		Containers:      common.ParseListParam(c, "containers"),
-		Loggers:         common.ParseListParam(c, "loggers"),
-		TraceID:         c.Query("traceId"),
-		SpanID:          c.Query("spanId"),
-		Search:          c.Query("search"),
-		ExcludeLevels:   common.ParseListParam(c, "excludeLevels"),
-		ExcludeServices: common.ParseListParam(c, "excludeServices"),
-		ExcludeHosts:    common.ParseListParam(c, "excludeHosts"),
+		Severities:        common.ParseListParam(c, "severities"),
+		Services:          common.ParseListParam(c, "services"),
+		Hosts:             common.ParseListParam(c, "hosts"),
+		Pods:              common.ParseListParam(c, "pods"),
+		Containers:        common.ParseListParam(c, "containers"),
+		Environments:      common.ParseListParam(c, "environments"),
+		TraceID:           c.Query("traceId"),
+		SpanID:            c.Query("spanId"),
+		Search:            c.Query("search"),
+		ExcludeSeverities: common.ParseListParam(c, "excludeSeverities"),
+		ExcludeServices:   common.ParseListParam(c, "excludeServices"),
+		ExcludeHosts:      common.ParseListParam(c, "excludeHosts"),
 	}
 }
 
@@ -116,9 +115,6 @@ func (h *LogHandler) GetLogHistogram(c *gin.Context) {
 		return
 	}
 
-	if step == "" {
-		step = autoStep(f.StartMs, f.EndMs)
-	}
 	common.RespondOK(c, LogHistogramData{Buckets: buckets, Step: step})
 }
 
@@ -132,9 +128,6 @@ func (h *LogHandler) GetLogVolume(c *gin.Context) {
 		return
 	}
 
-	if step == "" {
-		step = autoStep(f.StartMs, f.EndMs)
-	}
 	common.RespondOK(c, LogVolumeData{Buckets: buckets, Step: step})
 }
 
@@ -154,12 +147,13 @@ func (h *LogHandler) GetLogFields(c *gin.Context) {
 	field := c.Query("field")
 
 	allowed := map[string]string{
-		"level": "level", "service_name": "service_name", "host": "host",
-		"pod": "pod", "container": "container", "logger": "logger",
+		"severity_text": "severity_text", "service": "service", "host": "host",
+		"pod": "pod", "container": "container", "scope_name": "scope_name",
+		"environment": "environment",
 	}
 	col, ok := allowed[field]
 	if !ok {
-		common.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "field is required and must be one of: level, service_name, host, pod, container, logger")
+		common.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "field is required and must be one of: severity_text, service, host, pod, container, scope_name, environment")
 		return
 	}
 
@@ -173,8 +167,8 @@ func (h *LogHandler) GetLogFields(c *gin.Context) {
 
 func (h *LogHandler) GetLogSurrounding(c *gin.Context) {
 	teamUUID := h.getTenant(c).TeamUUID()
-	logID := common.ParseInt64Param(c, "id", 0)
-	if logID == 0 {
+	logID := strings.TrimSpace(c.Query("id"))
+	if logID == "" {
 		common.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "id is required")
 		return
 	}
@@ -203,23 +197,25 @@ func (h *LogHandler) GetLogDetail(c *gin.Context) {
 	teamUUID := h.getTenant(c).TeamUUID()
 	traceID := c.Query("traceId")
 	spanID := c.Query("spanId")
-	timestamp := common.ParseInt64Param(c, "timestamp", 0)
+	timestampMs := common.ParseInt64Param(c, "timestamp", 0)
 	window := common.ParseIntParam(c, "contextWindow", 30)
 
 	if traceID == "" || spanID == "" {
 		common.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "traceId and spanId are required")
 		return
 	}
-	if timestamp == 0 {
+	if timestampMs == 0 {
 		common.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "timestamp is required")
 		return
 	}
 
-	center := time.UnixMilli(timestamp).UTC()
-	from := center.Add(-time.Duration(window) * time.Second)
-	to := center.Add(time.Duration(window) * time.Second)
+	// Convert ms to nanoseconds.
+	centerNs := uint64(timestampMs) * 1_000_000
+	windowNs := uint64(window) * 1_000_000_000
+	fromNs := centerNs - windowNs
+	toNs := centerNs + windowNs
 
-	log, contextLogs, err := h.repo.GetLogDetail(c.Request.Context(), teamUUID, traceID, spanID, center, from, to)
+	log, contextLogs, err := h.repo.GetLogDetail(c.Request.Context(), teamUUID, traceID, spanID, centerNs, fromNs, toNs)
 	if err != nil {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query log detail")
 		return
@@ -244,6 +240,5 @@ func (h *LogHandler) GetTraceLogs(c *gin.Context) {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query trace logs")
 		return
 	}
-	// Return the logs array directly to preserve the API contract.
 	common.RespondOK(c, resp.Logs)
 }

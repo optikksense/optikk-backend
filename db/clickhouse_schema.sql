@@ -84,45 +84,61 @@ SETTINGS index_granularity = 8192,
 -- LOGS
 -- ===========================================================================
 CREATE TABLE IF NOT EXISTS observability.logs (
-    team_id          LowCardinality(String),
-    timestamp        DateTime64(9)   CODEC(Delta, ZSTD(3)),
-    level            LowCardinality(String),
-    service_name     LowCardinality(String),
-    logger           LowCardinality(String),
-    message          String          CODEC(ZSTD(3)),
-    trace_id         String,
-    span_id          String,
-    host             LowCardinality(String),
-    pod              LowCardinality(String),
-    container        LowCardinality(String),
-    thread           LowCardinality(String),
-    exception        String          CODEC(ZSTD(3)),
-    attributes       String          CODEC(ZSTD(3)),
-    tags             Map(String, String),
+    -- Multi-tenancy
+    team_id              LowCardinality(String) CODEC(ZSTD(1)),
+
+    -- Time columns
+    ts_bucket_start      UInt32 CODEC(DoubleDelta, LZ4),
+    timestamp            UInt64 CODEC(DoubleDelta, LZ4),
+    observed_timestamp   UInt64 CODEC(DoubleDelta, LZ4),
+
+    -- Identity
+    id                   String CODEC(ZSTD(1)),
+    trace_id             String CODEC(ZSTD(1)),
+    span_id              String CODEC(ZSTD(1)),
+    trace_flags          UInt32 DEFAULT 0,
+
+    -- Severity
+    severity_text        LowCardinality(String) CODEC(ZSTD(1)),
+    severity_number      UInt8 DEFAULT 0,
+
+    -- Body
+    body                 String CODEC(ZSTD(2)),
+
+    -- Typed attribute maps
+    attributes_string    Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+    attributes_number    Map(LowCardinality(String), Float64) CODEC(ZSTD(1)),
+    attributes_bool      Map(LowCardinality(String), Bool) CODEC(ZSTD(1)),
+
+    -- Resource (JSON column with MATERIALIZED extraction for hot paths)
+    resource             JSON(max_dynamic_paths=100) CODEC(ZSTD(1)),
+    resource_fingerprint String CODEC(ZSTD(1)),
+
+    -- Scope
+    scope_name           String CODEC(ZSTD(1)),
+    scope_version        String CODEC(ZSTD(1)),
+    scope_string         Map(LowCardinality(String), String) CODEC(ZSTD(1)),
+
+    -- MATERIALIZED columns (native JSON path extraction, requires CH 26+)
+    service              LowCardinality(String) MATERIALIZED resource.`service.name`::String,
+    host                 LowCardinality(String) MATERIALIZED resource.`host.name`::String,
+    pod                  LowCardinality(String) MATERIALIZED resource.`k8s.pod.name`::String,
+    container            LowCardinality(String) MATERIALIZED resource.`k8s.container.name`::String,
+    environment          LowCardinality(String) MATERIALIZED resource.`deployment.environment`::String,
 
     -- Skip indexes
-    INDEX idx_trace_id       trace_id             TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_span_id        span_id              TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_level          level                TYPE set(10)            GRANULARITY 1,
-    INDEX idx_service        service_name         TYPE set(100)           GRANULARITY 1,
+    INDEX idx_trace_id   trace_id        TYPE bloom_filter(0.01) GRANULARITY 1,
+    INDEX idx_span_id    span_id         TYPE bloom_filter(0.01) GRANULARITY 1,
+    INDEX idx_body       body            TYPE ngrambf_v1(3, 256, 2, 0) GRANULARITY 1,
+    INDEX idx_severity   severity_text   TYPE set(10) GRANULARITY 1,
+    INDEX idx_service    service         TYPE set(200) GRANULARITY 1,
+    INDEX idx_host       host            TYPE bloom_filter(0.01) GRANULARITY 1
 
-    -- Materialized indexes on top 10 queried tag keys
-    INDEX idx_tags_service   tags['service.name']            TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_tags_env       tags['deployment.environment']  TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_tags_version   tags['service.version']         TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_tags_http_url  tags['http.url']                TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_tags_http_meth tags['http.method']             TYPE set(20)            GRANULARITY 1,
-    INDEX idx_tags_status    tags['otel.status_code']        TYPE set(10)            GRANULARITY 1,
-    INDEX idx_tags_host      tags['host.name']               TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_tags_k8s_ns    tags['k8s.namespace.name']      TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_tags_k8s_pod   tags['k8s.pod.name']            TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_tags_error     tags['error']                   TYPE set(5)             GRANULARITY 1
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/logs', '{replica}')
-PARTITION BY toYYYYMMDD(timestamp)
-ORDER BY (team_id, service_name, timestamp)
-TTL toDateTime(timestamp) + INTERVAL 7 DAY DELETE
-SETTINGS index_granularity = 8192,
-         storage_policy = 'tiered_gcs';
+) ENGINE = MergeTree
+PARTITION BY toDate(toDateTime(ts_bucket_start))
+ORDER BY (team_id, ts_bucket_start, service, timestamp)
+TTL toDateTime(ts_bucket_start) + INTERVAL 30 DAY DELETE
+SETTINGS index_granularity = 8192;
 
 
 -- ===========================================================================

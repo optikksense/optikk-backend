@@ -254,6 +254,47 @@ func MapSpans(teamID string, req *tracepb.ExportTraceServiceRequest) []ingest.Ro
 	return rows
 }
 
+// protoAttrsToTypedMaps splits protobuf KeyValue slice into typed maps.
+func protoAttrsToTypedMaps(kvs []*commonpb.KeyValue) (map[string]string, map[string]float64, map[string]bool) {
+	sm := make(map[string]string, len(kvs))
+	nm := make(map[string]float64)
+	bm := make(map[string]bool)
+	for _, kv := range kvs {
+		if kv.Value == nil {
+			continue
+		}
+		switch val := kv.Value.Value.(type) {
+		case *commonpb.AnyValue_StringValue:
+			sm[kv.Key] = val.StringValue
+		case *commonpb.AnyValue_IntValue:
+			nm[kv.Key] = float64(val.IntValue)
+		case *commonpb.AnyValue_DoubleValue:
+			nm[kv.Key] = val.DoubleValue
+		case *commonpb.AnyValue_BoolValue:
+			bm[kv.Key] = val.BoolValue
+		case *commonpb.AnyValue_BytesValue:
+			sm[kv.Key] = string(val.BytesValue)
+		}
+	}
+	return sm, nm, bm
+}
+
+// protoLogID generates a stable FNV-64a ID for a gRPC log record.
+func protoLogID(teamID string, tsNano uint64, traceID, spanID []byte, body string) string {
+	h := fnv.New64a()
+	h.Write([]byte(teamID))
+	h.Write([]byte{0})
+	b := strconv.AppendUint(nil, tsNano, 10)
+	h.Write(b)
+	h.Write([]byte{0})
+	h.Write(traceID)
+	h.Write([]byte{0})
+	h.Write(spanID)
+	h.Write([]byte{0})
+	h.Write([]byte(body))
+	return strconv.FormatUint(h.Sum64(), 16)
+}
+
 // MapLogs maps gRPC Logs Request to ingest.Row.
 func MapLogs(teamID string, req *logspb.ExportLogsServiceRequest) []ingest.Row {
 	var rows []ingest.Row
@@ -262,15 +303,19 @@ func MapLogs(teamID string, req *logspb.ExportLogsServiceRequest) []ingest.Row {
 		if rl.Resource != nil {
 			resAttrs = rl.Resource.Attributes
 		}
-		serviceName := lookupAttr(resAttrs, "service.name")
-		host := lookupAttr(resAttrs, "host.name")
-		pod := lookupAttr(resAttrs, "k8s.pod.name")
-		container := lookupAttr(resAttrs, "k8s.container.name")
+		resourceMap := attrsToMap(resAttrs)
+		fingerprint := strconv.FormatUint(resourceFingerprint(resAttrs), 16)
 
 		for _, sl := range rl.ScopeLogs {
-			loggerName := ""
+			scopeName := ""
+			scopeVersion := ""
 			if sl.Scope != nil {
-				loggerName = sl.Scope.Name
+				scopeName = sl.Scope.Name
+				scopeVersion = sl.Scope.Version
+			}
+			scopeAttrs := map[string]string{}
+			if scopeName != "" {
+				scopeAttrs["name"] = scopeName
 			}
 
 			for _, lr := range sl.LogRecords {
@@ -278,40 +323,47 @@ func MapLogs(teamID string, req *logspb.ExportLogsServiceRequest) []ingest.Row {
 				if tsNs == 0 {
 					tsNs = lr.ObservedTimeUnixNano
 				}
-				ts := nanoToTime(tsNs)
+				if tsNs == 0 {
+					tsNs = uint64(time.Now().UnixNano())
+				}
+				observedNs := lr.ObservedTimeUnixNano
+				if observedNs == 0 {
+					observedNs = uint64(time.Now().UnixNano())
+				}
 
-				level := lr.SeverityText
-				if level == "" {
-					level = severityNumberToLevel(lr.SeverityNumber)
+				// ts_bucket_start: truncate to day boundary (seconds)
+				tsSec := tsNs / 1_000_000_000
+				tsBucket := uint32(tsSec - tsSec%86400)
+
+				severityText := lr.SeverityText
+				if severityText == "" {
+					severityText = severityNumberToLevel(lr.SeverityNumber)
 				}
 
 				body := anyValueString(lr.Body)
-				logAttrs := lr.Attributes
-				thread := lookupAttr(logAttrs, "thread.name")
-				exception := lookupAttr(logAttrs, "exception.message")
-
-				attrsJSON := attrsToJSON(logAttrs)
-				tags := attrsToMap(resAttrs)
-				for k, v := range attrsToMap(logAttrs) {
-					tags[k] = v
-				}
+				attrStr, attrNum, attrBool := protoAttrsToTypedMaps(lr.Attributes)
+				id := protoLogID(teamID, tsNs, lr.TraceId, lr.SpanId, body)
 
 				rows = append(rows, ingest.Row{Values: []any{
 					teamID,
-					ts,
-					level,
-					serviceName,
-					loggerName,
-					body,
+					tsBucket,
+					tsNs,
+					observedNs,
+					id,
 					bytesToHex(lr.TraceId),
 					bytesToHex(lr.SpanId),
-					host,
-					pod,
-					container,
-					thread,
-					exception,
-					attrsJSON,
-					tags,
+					lr.Flags,
+					severityText,
+					uint8(lr.SeverityNumber),
+					body,
+					attrStr,
+					attrNum,
+					attrBool,
+					resourceMap,
+					fingerprint,
+					scopeName,
+					scopeVersion,
+					scopeAttrs,
 				}})
 			}
 		}

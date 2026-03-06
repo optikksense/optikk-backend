@@ -95,6 +95,7 @@ type LogRecord struct {
 	Attributes           []KeyValue `json:"attributes"`
 	TraceID              string     `json:"traceId"`
 	SpanID               string     `json:"spanId"`
+	Flags                uint32     `json:"flags"`
 }
 
 // ── Metrics ───────────────────────────────────────────────────────────────────

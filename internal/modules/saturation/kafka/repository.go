@@ -8,15 +8,15 @@ import (
 )
 
 func queueNameExpr() string {
+	a := func(attr string) string { return attrString(attr) }
 	return fmt.Sprintf(
-		"multiIf(JSONExtractString(%[1]s, '%[2]s') != '', JSONExtractString(%[1]s, '%[2]s'), JSONExtractString(%[1]s, '%[3]s') != '', JSONExtractString(%[1]s, '%[3]s'), JSONExtractString(%[1]s, '%[4]s') != '', JSONExtractString(%[1]s, '%[4]s'), JSONExtractString(%[1]s, '%[5]s') != '', JSONExtractString(%[1]s, '%[5]s'), JSONExtractString(%[1]s, '%[6]s') != '', JSONExtractString(%[1]s, '%[6]s'), JSONExtractString(%[1]s, '%[7]s') != '', JSONExtractString(%[1]s, '%[7]s'), '%[8]s')",
-		ColAttributes,
-		AttrMessagingDestinationName,
-		AttrMessagingKafkaDestination,
-		AttrMessagingKafkaTopic,
-		AttrMessagingDestination,
-		AttrKafkaTopic,
-		AttrTopic,
+		"multiIf(%[1]s != '', %[1]s, %[2]s != '', %[2]s, %[3]s != '', %[3]s, %[4]s != '', %[4]s, %[5]s != '', %[5]s, %[6]s != '', %[6]s, '%[7]s')",
+		a(AttrMessagingDestinationName),
+		a(AttrMessagingKafkaDestination),
+		a(AttrMessagingKafkaTopic),
+		a(AttrMessagingDestination),
+		a(AttrKafkaTopic),
+		a(AttrTopic),
 		DefaultUnknown,
 	)
 }
@@ -64,11 +64,12 @@ func nullableFloat64FromAny(val interface{}) float64 {
 }
 
 func messagingSystemExpr() string {
+	aSystem := attrString(AttrMessagingSystem)
+	aTopic := attrString(AttrMessagingKafkaTopic)
 	return fmt.Sprintf(
-		"multiIf(JSONExtractString(%[1]s, '%[2]s') != '', JSONExtractString(%[1]s, '%[2]s'), JSONExtractString(%[1]s, '%[3]s') != '', '%[4]s', '%[5]s')",
-		ColAttributes,
-		AttrMessagingSystem,
-		AttrMessagingKafkaTopic,
+		"multiIf(%[1]s != '', %[1]s, %[2]s != '', '%[3]s', '%[4]s')",
+		aSystem,
+		aTopic,
 		MessagingSystemKafka,
 		DefaultUnknown,
 	)
@@ -107,7 +108,7 @@ func (r *ClickHouseRepository) GetKafkaQueueLag(teamUUID string, startMs, endMs 
 		    %s                                              AS minute_bucket,
 		    avgIf(%s, %s IN (%s) AND isFinite(%s))          AS avg_consumer_lag,
 		    maxIf(%s, %s IN (%s) AND isFinite(%s))          AS max_consumer_lag
-		FROM metrics_v5
+		FROM %s
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s IN (%s)
@@ -117,6 +118,7 @@ func (r *ClickHouseRepository) GetKafkaQueueLag(teamUUID string, startMs, endMs 
 		bucket,
 		ColValue, ColMetricName, lagMetrics, ColValue,
 		ColValue, ColMetricName, lagMetrics, ColValue,
+		TableMetrics,
 		ColTeamID,
 		ColTimestamp,
 		ColMetricName, lagMetrics,
@@ -152,7 +154,7 @@ func (r *ClickHouseRepository) GetKafkaProductionRate(teamUUID string, startMs, 
 		    %s                                                             AS queue,
 		    %s                                                             AS minute_bucket,
 		    %s / ?                                                         AS avg_publish_rate
-		FROM metrics_v5
+		FROM %s
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s IN (%s)
@@ -161,6 +163,7 @@ func (r *ClickHouseRepository) GetKafkaProductionRate(teamUUID string, startMs, 
 		queueExpr,
 		bucket,
 		rateExpr,
+		TableMetrics,
 		ColTeamID,
 		ColTimestamp,
 		ColMetricName, producerMetrics,
@@ -195,7 +198,7 @@ func (r *ClickHouseRepository) GetKafkaConsumptionRate(teamUUID string, startMs,
 		    %s                                                             AS queue,
 		    %s                                                             AS minute_bucket,
 		    %s / ?                                                         AS avg_receive_rate
-		FROM metrics_v5
+		FROM %s
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s IN (%s)
@@ -204,6 +207,7 @@ func (r *ClickHouseRepository) GetKafkaConsumptionRate(teamUUID string, startMs,
 		queueExpr,
 		bucket,
 		rateExpr,
+		TableMetrics,
 		ColTeamID,
 		ColTimestamp,
 		ColMetricName, consumerMetrics,
@@ -244,7 +248,7 @@ func (r *ClickHouseRepository) GetQueueConsumerLag(teamUUID string, startMs, end
 		    %s                                                      AS queue_name,
 		    %s                                                      AS messaging_system,
 		    avgIf(%s, %s IN (%s) AND isFinite(%s))                  AS avg_consumer_lag
-		FROM metrics_v5
+		FROM %s
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s IN (%s)
@@ -255,6 +259,7 @@ func (r *ClickHouseRepository) GetQueueConsumerLag(teamUUID string, startMs, end
 		queueExpr,
 		systemExpr,
 		ColValue, ColMetricName, lagMetrics, ColValue,
+		TableMetrics,
 		ColTeamID,
 		ColTimestamp,
 		ColMetricName, lagMetrics,
@@ -293,7 +298,7 @@ func (r *ClickHouseRepository) GetQueueTopicLag(teamUUID string, startMs, endMs 
 		    %s                                                      AS queue_name,
 		    %s                                                      AS messaging_system,
 		    avgIf(%s, %s IN (%s) AND isFinite(%s))                  AS avg_queue_depth
-		FROM metrics_v5
+		FROM %s
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s IN (%s)
@@ -304,6 +309,7 @@ func (r *ClickHouseRepository) GetQueueTopicLag(teamUUID string, startMs, endMs 
 		queueExpr,
 		systemExpr,
 		ColValue, ColMetricName, depthMetrics, ColValue,
+		TableMetrics,
 		ColTeamID,
 		ColTimestamp,
 		ColMetricName, depthMetrics,
@@ -355,7 +361,7 @@ func (r *ClickHouseRepository) GetQueueTopQueues(teamUUID string, startMs, endMs
 		    %s / ?                                                       AS avg_publish_rate,
 		    %s / ?                                                       AS avg_receive_rate,
 		    toInt64(count())                                             AS sample_count
-		FROM metrics_v5
+		FROM %s
 		WHERE %s = ?
 		  AND %s BETWEEN ? AND ?
 		  AND %s IN (%s)
@@ -369,6 +375,7 @@ func (r *ClickHouseRepository) GetQueueTopQueues(teamUUID string, startMs, endMs
 		ColValue, ColMetricName, lagMetrics, ColValue,
 		publishRateExpr,
 		receiveRateExpr,
+		TableMetrics,
 		ColTeamID,
 		ColTimestamp,
 		ColMetricName, allMetrics,

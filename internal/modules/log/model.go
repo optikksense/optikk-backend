@@ -4,70 +4,74 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
-	"time"
 )
 
 // Log represents a single log entry.
 type Log struct {
-	ID          string    `json:"id"`
-	Timestamp   time.Time `json:"timestamp"`
-	Level       string    `json:"level"`
-	ServiceName string    `json:"serviceName"`
-	Logger      string    `json:"logger"`
-	Message     string    `json:"message"`
-	TraceID     string    `json:"traceId"`
-	SpanID      string    `json:"spanId"`
-	Host        string    `json:"host"`
-	Pod         string    `json:"pod"`
-	Container   string    `json:"container"`
-	Thread      string    `json:"thread"`
-	Exception   string    `json:"exception"`
-	Attributes  string    `json:"attributes"`
+	ID                string             `json:"id"`
+	Timestamp         uint64             `json:"timestamp"`
+	ObservedTimestamp uint64             `json:"observedTimestamp"`
+	SeverityText      string             `json:"severityText"`
+	SeverityNumber    uint8              `json:"severityNumber"`
+	Body              string             `json:"body"`
+	TraceID           string             `json:"traceId"`
+	SpanID            string             `json:"spanId"`
+	TraceFlags        uint32             `json:"traceFlags"`
+	ServiceName       string             `json:"serviceName"`
+	Host              string             `json:"host"`
+	Pod               string             `json:"pod"`
+	Container         string             `json:"container"`
+	Environment       string             `json:"environment"`
+	AttributesString  map[string]string  `json:"attributesString,omitempty"`
+	AttributesNumber  map[string]float64 `json:"attributesNumber,omitempty"`
+	AttributesBool    map[string]bool    `json:"attributesBool,omitempty"`
+	ScopeName         string             `json:"scopeName"`
+	ScopeVersion      string             `json:"scopeVersion"`
+	Resource          map[string]string  `json:"resource,omitempty"`
 }
 
 // LogFilters defines the search criteria for logs.
 type LogFilters struct {
-	TeamUUID   string   `json:"teamUuid"`
-	StartMs    int64    `json:"startMs"`
-	EndMs      int64    `json:"endMs"`
-	Levels     []string `json:"levels"`
-	Services   []string `json:"services"`
-	Hosts      []string `json:"hosts"`
-	Pods       []string `json:"pods"`
-	Containers []string `json:"containers"`
-	Loggers    []string `json:"loggers"`
-	TraceID    string   `json:"traceId"`
-	SpanID     string   `json:"spanId"`
-	Search     string   `json:"search"`
+	TeamUUID     string   `json:"teamUuid"`
+	StartMs      int64    `json:"startMs"`
+	EndMs        int64    `json:"endMs"`
+	Severities   []string `json:"severities"`
+	Services     []string `json:"services"`
+	Hosts        []string `json:"hosts"`
+	Pods         []string `json:"pods"`
+	Containers   []string `json:"containers"`
+	Environments []string `json:"environments"`
+	TraceID      string   `json:"traceId"`
+	SpanID       string   `json:"spanId"`
+	Search       string   `json:"search"`
 
-	ExcludeLevels   []string `json:"excludeLevels"`
-	ExcludeServices []string `json:"excludeServices"`
-	ExcludeHosts    []string `json:"excludeHosts"`
+	ExcludeSeverities []string `json:"excludeSeverities"`
+	ExcludeServices   []string `json:"excludeServices"`
+	ExcludeHosts      []string `json:"excludeHosts"`
 }
 
-// LogCursor carries pagination state for deterministic ordering by timestamp,id.
+// LogCursor carries pagination state for deterministic ordering by (timestamp, id).
 type LogCursor struct {
-	Timestamp time.Time `json:"timestamp"`
-	ID        uint64    `json:"id"`
-	Offset    int       `json:"offset"`
+	Timestamp uint64 `json:"timestamp"` // nanoseconds
+	ID        string `json:"id"`
+	Offset    int    `json:"offset"`
 }
 
 func (c LogCursor) HasTimestamp() bool {
-	return !c.Timestamp.IsZero()
+	return c.Timestamp > 0
 }
 
 func (c LogCursor) Encode() string {
 	if c.Offset > 0 {
 		return fmt.Sprintf("o:%d", c.Offset)
 	}
-	if c.ID == 0 {
+	if c.ID == "" {
 		return ""
 	}
 	if c.HasTimestamp() {
-		return fmt.Sprintf("%s|%d", c.Timestamp.UTC().Format(time.RFC3339Nano), c.ID)
+		return fmt.Sprintf("%d|%s", c.Timestamp, c.ID)
 	}
-	// Backward-compatible legacy cursor (id only)
-	return strconv.FormatUint(c.ID, 10)
+	return c.ID
 }
 
 func ParseLogCursor(raw string) (LogCursor, bool) {
@@ -89,53 +93,27 @@ func ParseLogCursor(raw string) (LogCursor, bool) {
 		tsRaw := strings.TrimSpace(parts[0])
 		idRaw := strings.TrimSpace(parts[1])
 
-		id, err := strconv.ParseUint(idRaw, 10, 64)
-		if err != nil || id == 0 {
-			// Backward compatibility for signed cursor IDs.
-			signedID, signedErr := strconv.ParseInt(idRaw, 10, 64)
-			if signedErr != nil || signedID <= 0 {
-				return LogCursor{}, false
-			}
-			id = uint64(signedID)
+		ts, err := strconv.ParseUint(tsRaw, 10, 64)
+		if err != nil || ts == 0 {
+			return LogCursor{}, false
 		}
-
-		ts, err := time.Parse(time.RFC3339Nano, tsRaw)
-		if err != nil {
-			// Fallback for driver-provided timestamp strings without timezone.
-			ts, err = time.Parse("2006-01-02 15:04:05.999999999", tsRaw)
-			if err != nil {
-				return LogCursor{}, false
-			}
+		if idRaw == "" {
+			return LogCursor{}, false
 		}
 
 		return LogCursor{
-			Timestamp: ts.UTC(),
-			ID:        id,
+			Timestamp: ts,
+			ID:        idRaw,
 		}, true
 	}
 
-	// Backward compatibility: old clients send id-only cursor.
-	// Numeric cursor defaults to offset mode for robust pagination when ids are non-unique.
-	offset, offsetErr := strconv.Atoi(s)
-	if offsetErr == nil && offset > 0 {
-		return LogCursor{Offset: offset}, true
-	}
-
-	id, err := strconv.ParseUint(s, 10, 64)
-	if err == nil && id > 0 {
-		return LogCursor{ID: id}, true
-	}
-	signedID, signedErr := strconv.ParseInt(s, 10, 64)
-	if signedErr != nil || signedID <= 0 {
-		return LogCursor{}, false
-	}
-	return LogCursor{ID: uint64(signedID)}, true
+	return LogCursor{}, false
 }
 
-// LogHistogramBucket represents a time-bucketed count of logs by level.
+// LogHistogramBucket represents a time-bucketed count of logs by severity.
 type LogHistogramBucket struct {
 	TimeBucket string `json:"timeBucket"`
-	Level      string `json:"level"`
+	Severity   string `json:"severity"`
 	Count      int64  `json:"count"`
 }
 
@@ -145,7 +123,7 @@ type LogHistogramData struct {
 	Step    string               `json:"step"`
 }
 
-// LogVolumeBucket represents per-bucket totals with level breakdown.
+// LogVolumeBucket represents per-bucket totals with severity breakdown.
 type LogVolumeBucket struct {
 	TimeBucket string `json:"timeBucket"`
 	Total      int64  `json:"total"`

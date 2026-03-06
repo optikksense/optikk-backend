@@ -36,30 +36,29 @@ func NewRepository(db dbutil.Querier) Repository {
 
 // queryDiskMetricByService queries disk utilization metrics for a service
 func (r *ClickHouseRepository) queryDiskMetricByService(teamUUID, serviceName string, startMs, endMs int64) (*float64, error) {
+	aDisk := attrFloat(AttrSystemDiskUtilization)
 	query := fmt.Sprintf(`
 		SELECT
 			avgIf(if(%s <= %s, %s * %s, %s), %s = '%s' AND isFinite(%s)) as system_disk,
 			if(sumIf(%s, %s = '%s' AND %s > 0) > 0,
 			   %s * (1.0 - (sumIf(%s, %s = '%s' AND %s >= 0) / nullIf(sumIf(%s, %s = '%s' AND %s > 0), 0))),
 			   NULL) as ratio_disk,
-			avgIf(if(JSONExtractFloat(%s, '%s') <= %s, JSONExtractFloat(%s, '%s') * %s, JSONExtractFloat(%s, '%s')),
-			      JSONExtractFloat(%s, '%s') > 0) as attr_disk
+			avgIf(if(%s <= %s, %s * %s, %s), %s > 0) as attr_disk
 		FROM %s
 		WHERE %s = ? AND %s = ? AND %s BETWEEN ? AND ?
 		  AND (
 		      %s IN ('%s', '%s', '%s')
-		      OR JSONExtractFloat(%s, '%s') > 0
+		      OR %s > 0
 		  )`,
 		ColValue, fmt.Sprintf("%.1f", PercentageThreshold), ColValue, fmt.Sprintf("%.1f", PercentageMultiplier), ColValue, ColMetricName, MetricSystemDiskUtilization, ColValue,
 		ColValue, ColMetricName, MetricDiskTotal, ColValue,
 		fmt.Sprintf("%.1f", PercentageMultiplier), ColValue, ColMetricName, MetricDiskFree, ColValue,
 		ColValue, ColMetricName, MetricDiskTotal, ColValue,
-		ColAttributes, AttrSystemDiskUtilization, fmt.Sprintf("%.1f", PercentageThreshold), ColAttributes, AttrSystemDiskUtilization, fmt.Sprintf("%.1f", PercentageMultiplier), ColAttributes, AttrSystemDiskUtilization,
-		ColAttributes, AttrSystemDiskUtilization,
+		aDisk, fmt.Sprintf("%.1f", PercentageThreshold), aDisk, fmt.Sprintf("%.1f", PercentageMultiplier), aDisk, aDisk,
 		TableMetrics,
 		ColTeamID, ColServiceName, ColTimestamp,
 		ColMetricName, MetricSystemDiskUtilization, MetricDiskFree, MetricDiskTotal,
-		ColAttributes, AttrSystemDiskUtilization)
+		aDisk)
 
 	row, err := dbutil.QueryMap(r.db, query, teamUUID, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
@@ -76,24 +75,23 @@ func (r *ClickHouseRepository) queryDiskMetricByService(teamUUID, serviceName st
 
 // queryNetworkMetricByService queries network utilization metrics for a service
 func (r *ClickHouseRepository) queryNetworkMetricByService(teamUUID, serviceName string, startMs, endMs int64) (*float64, error) {
+	aNet := attrFloat(AttrSystemNetworkUtilization)
 	query := fmt.Sprintf(`
 		SELECT
 			avgIf(if(%s <= %s, %s * %s, %s), %s = '%s' AND isFinite(%s)) as system_net,
-			avgIf(if(JSONExtractFloat(%s, '%s') <= %s, JSONExtractFloat(%s, '%s') * %s, JSONExtractFloat(%s, '%s')),
-			      JSONExtractFloat(%s, '%s') > 0) as attr_net
+			avgIf(if(%s <= %s, %s * %s, %s), %s > 0) as attr_net
 		FROM %s
 		WHERE %s = ? AND %s = ? AND %s BETWEEN ? AND ?
 		  AND (
 		      %s = '%s'
-		      OR JSONExtractFloat(%s, '%s') > 0
+		      OR %s > 0
 		  )`,
 		ColValue, fmt.Sprintf("%.1f", PercentageThreshold), ColValue, fmt.Sprintf("%.1f", PercentageMultiplier), ColValue, ColMetricName, MetricSystemNetworkUtilization, ColValue,
-		ColAttributes, AttrSystemNetworkUtilization, fmt.Sprintf("%.1f", PercentageThreshold), ColAttributes, AttrSystemNetworkUtilization, fmt.Sprintf("%.1f", PercentageMultiplier), ColAttributes, AttrSystemNetworkUtilization,
-		ColAttributes, AttrSystemNetworkUtilization,
+		aNet, fmt.Sprintf("%.1f", PercentageThreshold), aNet, fmt.Sprintf("%.1f", PercentageMultiplier), aNet, aNet,
 		TableMetrics,
 		ColTeamID, ColServiceName, ColTimestamp,
 		ColMetricName, MetricSystemNetworkUtilization,
-		ColAttributes, AttrSystemNetworkUtilization)
+		aNet)
 
 	row, err := dbutil.QueryMap(r.db, query, teamUUID, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
@@ -109,6 +107,7 @@ func (r *ClickHouseRepository) queryNetworkMetricByService(teamUUID, serviceName
 
 // queryConnectionPoolMetricByService queries connection pool utilization metrics for a service
 func (r *ClickHouseRepository) queryConnectionPoolMetricByService(teamUUID, serviceName string, startMs, endMs int64) (*float64, error) {
+	aConn := attrFloat(AttrDBConnectionPoolUtilization)
 	query := fmt.Sprintf(`
 		SELECT
 			avgIf(if(%s <= %s, %s * %s, %s), %s = '%s' AND isFinite(%s)) as system_conn,
@@ -118,13 +117,12 @@ func (r *ClickHouseRepository) queryConnectionPoolMetricByService(teamUUID, serv
 			if(sumIf(%s, %s = '%s' AND %s > 0) > 0,
 			   %s * sumIf(%s, %s = '%s' AND %s >= 0) / nullIf(sumIf(%s, %s = '%s' AND %s > 0), 0),
 			   NULL) as jdbc_conn,
-			avgIf(if(JSONExtractFloat(%s, '%s') <= %s, JSONExtractFloat(%s, '%s') * %s, JSONExtractFloat(%s, '%s')),
-			      JSONExtractFloat(%s, '%s') > 0) as attr_conn
+			avgIf(if(%s <= %s, %s * %s, %s), %s > 0) as attr_conn
 		FROM %s
 		WHERE %s = ? AND %s = ? AND %s BETWEEN ? AND ?
 		  AND (
 		      %s IN ('%s', '%s', '%s', '%s', '%s')
-		      OR JSONExtractFloat(%s, '%s') > 0
+		      OR %s > 0
 		  )`,
 		ColValue, fmt.Sprintf("%.1f", PercentageThreshold), ColValue, fmt.Sprintf("%.1f", PercentageMultiplier), ColValue, ColMetricName, MetricDBConnectionPoolUtilization, ColValue,
 		ColValue, ColMetricName, MetricHikariCPConnectionsMax, ColValue,
@@ -133,12 +131,11 @@ func (r *ClickHouseRepository) queryConnectionPoolMetricByService(teamUUID, serv
 		ColValue, ColMetricName, MetricJDBCConnectionsMax, ColValue,
 		fmt.Sprintf("%.1f", PercentageMultiplier), ColValue, ColMetricName, MetricJDBCConnectionsActive, ColValue,
 		ColValue, ColMetricName, MetricJDBCConnectionsMax, ColValue,
-		ColAttributes, AttrDBConnectionPoolUtilization, fmt.Sprintf("%.1f", PercentageThreshold), ColAttributes, AttrDBConnectionPoolUtilization, fmt.Sprintf("%.1f", PercentageMultiplier), ColAttributes, AttrDBConnectionPoolUtilization,
-		ColAttributes, AttrDBConnectionPoolUtilization,
+		aConn, fmt.Sprintf("%.1f", PercentageThreshold), aConn, fmt.Sprintf("%.1f", PercentageMultiplier), aConn, aConn,
 		TableMetrics,
 		ColTeamID, ColServiceName, ColTimestamp,
 		ColMetricName, MetricDBConnectionPoolUtilization, MetricHikariCPConnectionsActive, MetricHikariCPConnectionsMax, MetricJDBCConnectionsActive, MetricJDBCConnectionsMax,
-		ColAttributes, AttrDBConnectionPoolUtilization)
+		aConn)
 
 	row, err := dbutil.QueryMap(r.db, query, teamUUID, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
@@ -184,24 +181,25 @@ func syncAverageExpr(parts ...string) string {
 
 // queryCPUMetricByService queries CPU utilization metrics for a service
 func (r *ClickHouseRepository) queryCPUMetricByService(teamUUID, serviceName string, startMs, endMs int64) (*float64, error) {
+	aCPU := attrFloat(AttrSystemCPUUtilization)
 	query := fmt.Sprintf(`
 		SELECT
 			avgIf(%s * %s, %s IN ('%s', '%s') AND isFinite(%s) AND %s >= 0 AND %s <= %s) as system_cpu,
 			avgIf(%s * %s, %s = '%s' AND isFinite(%s) AND %s >= 0 AND %s <= %s) as process_cpu,
-			avgIf(JSONExtractFloat(%s, '%s') * %s, JSONExtractFloat(%s, '%s') >= 0 AND JSONExtractFloat(%s, '%s') <= %s) as attr_cpu
+			avgIf(%s * %s, %s >= 0 AND %s <= %s) as attr_cpu
 		FROM %s
 		WHERE %s = ? AND %s = ? AND %s BETWEEN ? AND ?
 		  AND (
 		      %s IN ('%s', '%s', '%s')
-		      OR JSONExtractFloat(%s, '%s') > 0
+		      OR %s > 0
 		  )`,
 		ColValue, fmt.Sprintf("%.1f", PercentageMultiplier), ColMetricName, MetricSystemCPUUtilization, MetricSystemCPUUsage, ColValue, ColValue, ColValue, fmt.Sprintf("%.1f", PercentageThreshold),
 		ColValue, fmt.Sprintf("%.1f", PercentageMultiplier), ColMetricName, MetricProcessCPUUsage, ColValue, ColValue, ColValue, fmt.Sprintf("%.1f", PercentageThreshold),
-		ColAttributes, AttrSystemCPUUtilization, fmt.Sprintf("%.1f", PercentageMultiplier), ColAttributes, AttrSystemCPUUtilization, ColAttributes, AttrSystemCPUUtilization, fmt.Sprintf("%.1f", PercentageThreshold),
+		aCPU, fmt.Sprintf("%.1f", PercentageMultiplier), aCPU, aCPU, fmt.Sprintf("%.1f", PercentageThreshold),
 		TableMetrics,
 		ColTeamID, ColServiceName, ColTimestamp,
 		ColMetricName, MetricSystemCPUUtilization, MetricSystemCPUUsage, MetricProcessCPUUsage,
-		ColAttributes, AttrSystemCPUUtilization)
+		aCPU)
 
 	row, err := dbutil.QueryMap(r.db, query, teamUUID, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
@@ -218,30 +216,29 @@ func (r *ClickHouseRepository) queryCPUMetricByService(teamUUID, serviceName str
 
 // queryMemoryMetricByService queries memory utilization metrics for a service
 func (r *ClickHouseRepository) queryMemoryMetricByService(teamUUID, serviceName string, startMs, endMs int64) (*float64, error) {
+	aMem := attrFloat(AttrSystemMemoryUtilization)
 	query := fmt.Sprintf(`
 		SELECT
 			avgIf(if(%s <= %s, %s * %s, %s), %s = '%s' AND isFinite(%s)) as system_mem,
 			if(sumIf(%s, %s = '%s' AND %s > 0) > 0,
 			   %s * sumIf(%s, %s = '%s' AND %s >= 0) / nullIf(sumIf(%s, %s = '%s' AND %s > 0), 0),
 			   NULL) as jvm_mem,
-			avgIf(if(JSONExtractFloat(%s, '%s') <= %s, JSONExtractFloat(%s, '%s') * %s, JSONExtractFloat(%s, '%s')),
-			      JSONExtractFloat(%s, '%s') > 0) as attr_mem
+			avgIf(if(%s <= %s, %s * %s, %s), %s > 0) as attr_mem
 		FROM %s
 		WHERE %s = ? AND %s = ? AND %s BETWEEN ? AND ?
 		  AND (
 		      %s IN ('%s', '%s', '%s')
-		      OR JSONExtractFloat(%s, '%s') > 0
+		      OR %s > 0
 		  )`,
 		ColValue, fmt.Sprintf("%.1f", PercentageThreshold), ColValue, fmt.Sprintf("%.1f", PercentageMultiplier), ColValue, ColMetricName, MetricSystemMemoryUtilization, ColValue,
 		ColValue, ColMetricName, MetricJVMMemoryMax, ColValue,
 		fmt.Sprintf("%.1f", PercentageMultiplier), ColValue, ColMetricName, MetricJVMMemoryUsed, ColValue,
 		ColValue, ColMetricName, MetricJVMMemoryMax, ColValue,
-		ColAttributes, AttrSystemMemoryUtilization, fmt.Sprintf("%.1f", PercentageThreshold), ColAttributes, AttrSystemMemoryUtilization, fmt.Sprintf("%.1f", PercentageMultiplier), ColAttributes, AttrSystemMemoryUtilization,
-		ColAttributes, AttrSystemMemoryUtilization,
+		aMem, fmt.Sprintf("%.1f", PercentageThreshold), aMem, fmt.Sprintf("%.1f", PercentageMultiplier), aMem, aMem,
 		TableMetrics,
 		ColTeamID, ColServiceName, ColTimestamp,
 		ColMetricName, MetricSystemMemoryUtilization, MetricJVMMemoryUsed, MetricJVMMemoryMax,
-		ColAttributes, AttrSystemMemoryUtilization)
+		aMem)
 
 	row, err := dbutil.QueryMap(r.db, query, teamUUID, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
@@ -350,24 +347,25 @@ func (r *ClickHouseRepository) GetAvgConnPool(teamUUID string, startMs, endMs in
 
 // queryCPUMetricByInstance queries CPU utilization metrics for a specific instance
 func (r *ClickHouseRepository) queryCPUMetricByInstance(teamUUID, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
+	aCPU := attrFloat(AttrSystemCPUUtilization)
 	query := fmt.Sprintf(`
 		SELECT
 			avgIf(%s * %s, %s IN ('%s', '%s') AND isFinite(%s) AND %s >= 0 AND %s <= %s) as system_cpu,
 			avgIf(%s * %s, %s = '%s' AND isFinite(%s) AND %s >= 0 AND %s <= %s) as process_cpu,
-			avgIf(JSONExtractFloat(%s, '%s') * %s, JSONExtractFloat(%s, '%s') >= 0 AND JSONExtractFloat(%s, '%s') <= %s) as attr_cpu
+			avgIf(%s * %s, %s >= 0 AND %s <= %s) as attr_cpu
 		FROM %s
 		WHERE %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s BETWEEN ? AND ?
 		  AND (
 		      %s IN ('%s', '%s', '%s')
-		      OR JSONExtractFloat(%s, '%s') > 0
+		      OR %s > 0
 		  )`,
 		ColValue, fmt.Sprintf("%.1f", PercentageMultiplier), ColMetricName, MetricSystemCPUUtilization, MetricSystemCPUUsage, ColValue, ColValue, ColValue, fmt.Sprintf("%.1f", PercentageThreshold),
 		ColValue, fmt.Sprintf("%.1f", PercentageMultiplier), ColMetricName, MetricProcessCPUUsage, ColValue, ColValue, ColValue, fmt.Sprintf("%.1f", PercentageThreshold),
-		ColAttributes, AttrSystemCPUUtilization, fmt.Sprintf("%.1f", PercentageMultiplier), ColAttributes, AttrSystemCPUUtilization, ColAttributes, AttrSystemCPUUtilization, fmt.Sprintf("%.1f", PercentageThreshold),
+		aCPU, fmt.Sprintf("%.1f", PercentageMultiplier), aCPU, aCPU, fmt.Sprintf("%.1f", PercentageThreshold),
 		TableMetrics,
 		ColTeamID, ColHost, ColPod, ColContainer, ColServiceName, ColTimestamp,
 		ColMetricName, MetricSystemCPUUtilization, MetricSystemCPUUsage, MetricProcessCPUUsage,
-		ColAttributes, AttrSystemCPUUtilization)
+		aCPU)
 
 	row, err := dbutil.QueryMap(r.db, query, teamUUID, host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
@@ -384,30 +382,29 @@ func (r *ClickHouseRepository) queryCPUMetricByInstance(teamUUID, host, pod, con
 
 // queryMemoryMetricByInstance queries memory utilization metrics for a specific instance
 func (r *ClickHouseRepository) queryMemoryMetricByInstance(teamUUID, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
+	aMem := attrFloat(AttrSystemMemoryUtilization)
 	query := fmt.Sprintf(`
 		SELECT
 			avgIf(if(%s <= %s, %s * %s, %s), %s = '%s' AND isFinite(%s)) as system_mem,
 			if(sumIf(%s, %s = '%s' AND %s > 0) > 0,
 			   %s * sumIf(%s, %s = '%s' AND %s >= 0) / nullIf(sumIf(%s, %s = '%s' AND %s > 0), 0),
 			   NULL) as jvm_mem,
-			avgIf(if(JSONExtractFloat(%s, '%s') <= %s, JSONExtractFloat(%s, '%s') * %s, JSONExtractFloat(%s, '%s')),
-			      JSONExtractFloat(%s, '%s') > 0) as attr_mem
+			avgIf(if(%s <= %s, %s * %s, %s), %s > 0) as attr_mem
 		FROM %s
 		WHERE %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s BETWEEN ? AND ?
 		  AND (
 		      %s IN ('%s', '%s', '%s')
-		      OR JSONExtractFloat(%s, '%s') > 0
+		      OR %s > 0
 		  )`,
 		ColValue, fmt.Sprintf("%.1f", PercentageThreshold), ColValue, fmt.Sprintf("%.1f", PercentageMultiplier), ColValue, ColMetricName, MetricSystemMemoryUtilization, ColValue,
 		ColValue, ColMetricName, MetricJVMMemoryMax, ColValue,
 		fmt.Sprintf("%.1f", PercentageMultiplier), ColValue, ColMetricName, MetricJVMMemoryUsed, ColValue,
 		ColValue, ColMetricName, MetricJVMMemoryMax, ColValue,
-		ColAttributes, AttrSystemMemoryUtilization, fmt.Sprintf("%.1f", PercentageThreshold), ColAttributes, AttrSystemMemoryUtilization, fmt.Sprintf("%.1f", PercentageMultiplier), ColAttributes, AttrSystemMemoryUtilization,
-		ColAttributes, AttrSystemMemoryUtilization,
+		aMem, fmt.Sprintf("%.1f", PercentageThreshold), aMem, fmt.Sprintf("%.1f", PercentageMultiplier), aMem, aMem,
 		TableMetrics,
 		ColTeamID, ColHost, ColPod, ColContainer, ColServiceName, ColTimestamp,
 		ColMetricName, MetricSystemMemoryUtilization, MetricJVMMemoryUsed, MetricJVMMemoryMax,
-		ColAttributes, AttrSystemMemoryUtilization)
+		aMem)
 
 	row, err := dbutil.QueryMap(r.db, query, teamUUID, host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
@@ -424,30 +421,29 @@ func (r *ClickHouseRepository) queryMemoryMetricByInstance(teamUUID, host, pod, 
 
 // queryDiskMetricByInstance queries disk utilization metrics for a specific instance
 func (r *ClickHouseRepository) queryDiskMetricByInstance(teamUUID, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
+	aDisk := attrFloat(AttrSystemDiskUtilization)
 	query := fmt.Sprintf(`
 		SELECT
 			avgIf(if(%s <= %s, %s * %s, %s), %s = '%s' AND isFinite(%s)) as system_disk,
 			if(sumIf(%s, %s = '%s' AND %s > 0) > 0,
 			   %s * (1.0 - (sumIf(%s, %s = '%s' AND %s >= 0) / nullIf(sumIf(%s, %s = '%s' AND %s > 0), 0))),
 			   NULL) as ratio_disk,
-			avgIf(if(JSONExtractFloat(%s, '%s') <= %s, JSONExtractFloat(%s, '%s') * %s, JSONExtractFloat(%s, '%s')),
-			      JSONExtractFloat(%s, '%s') > 0) as attr_disk
+			avgIf(if(%s <= %s, %s * %s, %s), %s > 0) as attr_disk
 		FROM %s
 		WHERE %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s BETWEEN ? AND ?
 		  AND (
 		      %s IN ('%s', '%s', '%s')
-		      OR JSONExtractFloat(%s, '%s') > 0
+		      OR %s > 0
 		  )`,
 		ColValue, fmt.Sprintf("%.1f", PercentageThreshold), ColValue, fmt.Sprintf("%.1f", PercentageMultiplier), ColValue, ColMetricName, MetricSystemDiskUtilization, ColValue,
 		ColValue, ColMetricName, MetricDiskTotal, ColValue,
 		fmt.Sprintf("%.1f", PercentageMultiplier), ColValue, ColMetricName, MetricDiskFree, ColValue,
 		ColValue, ColMetricName, MetricDiskTotal, ColValue,
-		ColAttributes, AttrSystemDiskUtilization, fmt.Sprintf("%.1f", PercentageThreshold), ColAttributes, AttrSystemDiskUtilization, fmt.Sprintf("%.1f", PercentageMultiplier), ColAttributes, AttrSystemDiskUtilization,
-		ColAttributes, AttrSystemDiskUtilization,
+		aDisk, fmt.Sprintf("%.1f", PercentageThreshold), aDisk, fmt.Sprintf("%.1f", PercentageMultiplier), aDisk, aDisk,
 		TableMetrics,
 		ColTeamID, ColHost, ColPod, ColContainer, ColServiceName, ColTimestamp,
 		ColMetricName, MetricSystemDiskUtilization, MetricDiskFree, MetricDiskTotal,
-		ColAttributes, AttrSystemDiskUtilization)
+		aDisk)
 
 	row, err := dbutil.QueryMap(r.db, query, teamUUID, host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
@@ -464,24 +460,23 @@ func (r *ClickHouseRepository) queryDiskMetricByInstance(teamUUID, host, pod, co
 
 // queryNetworkMetricByInstance queries network utilization metrics for a specific instance
 func (r *ClickHouseRepository) queryNetworkMetricByInstance(teamUUID, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
+	aNet := attrFloat(AttrSystemNetworkUtilization)
 	query := fmt.Sprintf(`
 		SELECT
 			avgIf(if(%s <= %s, %s * %s, %s), %s = '%s' AND isFinite(%s)) as system_net,
-			avgIf(if(JSONExtractFloat(%s, '%s') <= %s, JSONExtractFloat(%s, '%s') * %s, JSONExtractFloat(%s, '%s')),
-			      JSONExtractFloat(%s, '%s') > 0) as attr_net
+			avgIf(if(%s <= %s, %s * %s, %s), %s > 0) as attr_net
 		FROM %s
 		WHERE %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s BETWEEN ? AND ?
 		  AND (
 		      %s = '%s'
-		      OR JSONExtractFloat(%s, '%s') > 0
+		      OR %s > 0
 		  )`,
 		ColValue, fmt.Sprintf("%.1f", PercentageThreshold), ColValue, fmt.Sprintf("%.1f", PercentageMultiplier), ColValue, ColMetricName, MetricSystemNetworkUtilization, ColValue,
-		ColAttributes, AttrSystemNetworkUtilization, fmt.Sprintf("%.1f", PercentageThreshold), ColAttributes, AttrSystemNetworkUtilization, fmt.Sprintf("%.1f", PercentageMultiplier), ColAttributes, AttrSystemNetworkUtilization,
-		ColAttributes, AttrSystemNetworkUtilization,
+		aNet, fmt.Sprintf("%.1f", PercentageThreshold), aNet, fmt.Sprintf("%.1f", PercentageMultiplier), aNet, aNet,
 		TableMetrics,
 		ColTeamID, ColHost, ColPod, ColContainer, ColServiceName, ColTimestamp,
 		ColMetricName, MetricSystemNetworkUtilization,
-		ColAttributes, AttrSystemNetworkUtilization)
+		aNet)
 
 	row, err := dbutil.QueryMap(r.db, query, teamUUID, host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
@@ -497,6 +492,7 @@ func (r *ClickHouseRepository) queryNetworkMetricByInstance(teamUUID, host, pod,
 
 // queryConnectionPoolMetricByInstance queries connection pool utilization metrics for a specific instance
 func (r *ClickHouseRepository) queryConnectionPoolMetricByInstance(teamUUID, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
+	aConn := attrFloat(AttrDBConnectionPoolUtilization)
 	query := fmt.Sprintf(`
 		SELECT
 			avgIf(if(%s <= %s, %s * %s, %s), %s = '%s' AND isFinite(%s)) as system_conn,
@@ -506,13 +502,12 @@ func (r *ClickHouseRepository) queryConnectionPoolMetricByInstance(teamUUID, hos
 			if(sumIf(%s, %s = '%s' AND %s > 0) > 0,
 			   %s * sumIf(%s, %s = '%s' AND %s >= 0) / nullIf(sumIf(%s, %s = '%s' AND %s > 0), 0),
 			   NULL) as jdbc_conn,
-			avgIf(if(JSONExtractFloat(%s, '%s') <= %s, JSONExtractFloat(%s, '%s') * %s, JSONExtractFloat(%s, '%s')),
-			      JSONExtractFloat(%s, '%s') > 0) as attr_conn
+			avgIf(if(%s <= %s, %s * %s, %s), %s > 0) as attr_conn
 		FROM %s
 		WHERE %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s BETWEEN ? AND ?
 		  AND (
 		      %s IN ('%s', '%s', '%s', '%s', '%s')
-		      OR JSONExtractFloat(%s, '%s') > 0
+		      OR %s > 0
 		  )`,
 		ColValue, fmt.Sprintf("%.1f", PercentageThreshold), ColValue, fmt.Sprintf("%.1f", PercentageMultiplier), ColValue, ColMetricName, MetricDBConnectionPoolUtilization, ColValue,
 		ColValue, ColMetricName, MetricHikariCPConnectionsMax, ColValue,
@@ -521,12 +516,11 @@ func (r *ClickHouseRepository) queryConnectionPoolMetricByInstance(teamUUID, hos
 		ColValue, ColMetricName, MetricJDBCConnectionsMax, ColValue,
 		fmt.Sprintf("%.1f", PercentageMultiplier), ColValue, ColMetricName, MetricJDBCConnectionsActive, ColValue,
 		ColValue, ColMetricName, MetricJDBCConnectionsMax, ColValue,
-		ColAttributes, AttrDBConnectionPoolUtilization, fmt.Sprintf("%.1f", PercentageThreshold), ColAttributes, AttrDBConnectionPoolUtilization, fmt.Sprintf("%.1f", PercentageMultiplier), ColAttributes, AttrDBConnectionPoolUtilization,
-		ColAttributes, AttrDBConnectionPoolUtilization,
+		aConn, fmt.Sprintf("%.1f", PercentageThreshold), aConn, fmt.Sprintf("%.1f", PercentageMultiplier), aConn, aConn,
 		TableMetrics,
 		ColTeamID, ColHost, ColPod, ColContainer, ColServiceName, ColTimestamp,
 		ColMetricName, MetricDBConnectionPoolUtilization, MetricHikariCPConnectionsActive, MetricHikariCPConnectionsMax, MetricJDBCConnectionsActive, MetricJDBCConnectionsMax,
-		ColAttributes, AttrDBConnectionPoolUtilization)
+		aConn)
 
 	row, err := dbutil.QueryMap(r.db, query, teamUUID, host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
@@ -544,6 +538,11 @@ func (r *ClickHouseRepository) queryConnectionPoolMetricByInstance(teamUUID, hos
 
 // getSampleCountByInstance gets the count of metric samples for a specific instance
 func (r *ClickHouseRepository) getSampleCountByInstance(teamUUID, host, pod, container, serviceName string, startMs, endMs int64) (int64, error) {
+	aCPU := attrFloat(AttrSystemCPUUtilization)
+	aMem := attrFloat(AttrSystemMemoryUtilization)
+	aDisk := attrFloat(AttrSystemDiskUtilization)
+	aNet := attrFloat(AttrSystemNetworkUtilization)
+	aConn := attrFloat(AttrDBConnectionPoolUtilization)
 	query := fmt.Sprintf(`
 		SELECT COUNT(*) as count
 		FROM %s
@@ -555,9 +554,9 @@ func (r *ClickHouseRepository) getSampleCountByInstance(teamUUID, host, pod, con
 		          '%s', '%s', '%s',
 		          '%s', '%s'
 		      )
-		      OR JSONExtractFloat(%s, '%s') > 0 OR JSONExtractFloat(%s, '%s') > 0
-		      OR JSONExtractFloat(%s, '%s') > 0 OR JSONExtractFloat(%s, '%s') > 0
-		      OR JSONExtractFloat(%s, '%s') > 0
+		      OR %s > 0 OR %s > 0
+		      OR %s > 0 OR %s > 0
+		      OR %s > 0
 		  )`,
 		TableMetrics,
 		ColTeamID, ColHost, ColPod, ColContainer, ColServiceName, ColTimestamp,
@@ -566,9 +565,7 @@ func (r *ClickHouseRepository) getSampleCountByInstance(teamUUID, host, pod, con
 		MetricSystemDiskUtilization, MetricDiskFree, MetricDiskTotal, MetricSystemNetworkUtilization,
 		MetricDBConnectionPoolUtilization, MetricHikariCPConnectionsActive, MetricHikariCPConnectionsMax,
 		MetricJDBCConnectionsActive, MetricJDBCConnectionsMax,
-		ColAttributes, AttrSystemCPUUtilization, ColAttributes, AttrSystemMemoryUtilization,
-		ColAttributes, AttrSystemDiskUtilization, ColAttributes, AttrSystemNetworkUtilization,
-		ColAttributes, AttrDBConnectionPoolUtilization)
+		aCPU, aMem, aDisk, aNet, aConn)
 
 	row, err := dbutil.QueryMap(r.db, query, teamUUID, host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
@@ -579,6 +576,11 @@ func (r *ClickHouseRepository) getSampleCountByInstance(teamUUID, host, pod, con
 
 // getServiceList retrieves the list of distinct services that have metrics in the time range
 func (r *ClickHouseRepository) getServiceList(teamUUID string, startMs, endMs int64) ([]string, error) {
+	aCPU := attrFloat(AttrSystemCPUUtilization)
+	aMem := attrFloat(AttrSystemMemoryUtilization)
+	aDisk := attrFloat(AttrSystemDiskUtilization)
+	aNet := attrFloat(AttrSystemNetworkUtilization)
+	aConn := attrFloat(AttrDBConnectionPoolUtilization)
 	query := fmt.Sprintf(`
 		SELECT DISTINCT %s
 		FROM %s
@@ -591,9 +593,9 @@ func (r *ClickHouseRepository) getServiceList(teamUUID string, startMs, endMs in
 		          '%s', '%s', '%s',
 		          '%s', '%s'
 		      )
-		      OR JSONExtractFloat(%s, '%s') > 0 OR JSONExtractFloat(%s, '%s') > 0
-		      OR JSONExtractFloat(%s, '%s') > 0 OR JSONExtractFloat(%s, '%s') > 0
-		      OR JSONExtractFloat(%s, '%s') > 0
+		      OR %s > 0 OR %s > 0
+		      OR %s > 0 OR %s > 0
+		      OR %s > 0
 		  )
 		ORDER BY %s`,
 		ColServiceName,
@@ -605,9 +607,7 @@ func (r *ClickHouseRepository) getServiceList(teamUUID string, startMs, endMs in
 		MetricSystemDiskUtilization, MetricDiskFree, MetricDiskTotal, MetricSystemNetworkUtilization,
 		MetricDBConnectionPoolUtilization, MetricHikariCPConnectionsActive, MetricHikariCPConnectionsMax,
 		MetricJDBCConnectionsActive, MetricJDBCConnectionsMax,
-		ColAttributes, AttrSystemCPUUtilization, ColAttributes, AttrSystemMemoryUtilization,
-		ColAttributes, AttrSystemDiskUtilization, ColAttributes, AttrSystemNetworkUtilization,
-		ColAttributes, AttrDBConnectionPoolUtilization,
+		aCPU, aMem, aDisk, aNet, aConn,
 		ColServiceName)
 
 	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
@@ -624,6 +624,7 @@ func (r *ClickHouseRepository) getServiceList(teamUUID string, startMs, endMs in
 
 func (r *ClickHouseRepository) GetCPUUsagePercentage(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
+	aCPU := attrFloat(AttrSystemCPUUtilization)
 
 	// Build CPU metric aggregation expression
 	cpuSystemCol := fmt.Sprintf(`if(countIf(%s IN ('%s', '%s') AND isFinite(%s) AND %s >= 0 AND %s <= %s) > 0, avgIf(%s * %s, %s IN ('%s', '%s') AND isFinite(%s) AND %s >= 0 AND %s <= %s), NULL)`,
@@ -632,9 +633,9 @@ func (r *ClickHouseRepository) GetCPUUsagePercentage(teamUUID string, startMs, e
 	cpuProcessCol := fmt.Sprintf(`if(countIf(%s = '%s' AND isFinite(%s) AND %s >= 0 AND %s <= %s) > 0, avgIf(%s * %s, %s = '%s' AND isFinite(%s) AND %s >= 0 AND %s <= %s), NULL)`,
 		ColMetricName, MetricProcessCPUUsage, ColValue, ColValue, ColValue, fmt.Sprintf("%.1f", PercentageThreshold),
 		ColValue, fmt.Sprintf("%.1f", PercentageMultiplier), ColMetricName, MetricProcessCPUUsage, ColValue, ColValue, ColValue, fmt.Sprintf("%.1f", PercentageThreshold))
-	cpuAttrCol := fmt.Sprintf(`if(countIf(JSONExtractFloat(%s, '%s') >= 0 AND JSONExtractFloat(%s, '%s') <= %s) > 0, avgIf(JSONExtractFloat(%s, '%s') * %s, JSONExtractFloat(%s, '%s') >= 0 AND JSONExtractFloat(%s, '%s') <= %s), NULL)`,
-		ColAttributes, AttrSystemCPUUtilization, ColAttributes, AttrSystemCPUUtilization, fmt.Sprintf("%.1f", PercentageThreshold),
-		ColAttributes, AttrSystemCPUUtilization, fmt.Sprintf("%.1f", PercentageMultiplier), ColAttributes, AttrSystemCPUUtilization, ColAttributes, AttrSystemCPUUtilization, fmt.Sprintf("%.1f", PercentageThreshold))
+	cpuAttrCol := fmt.Sprintf(`if(countIf(%s >= 0 AND %s <= %s) > 0, avgIf(%s * %s, %s >= 0 AND %s <= %s), NULL)`,
+		aCPU, aCPU, fmt.Sprintf("%.1f", PercentageThreshold),
+		aCPU, fmt.Sprintf("%.1f", PercentageMultiplier), aCPU, aCPU, fmt.Sprintf("%.1f", PercentageThreshold))
 	cpuCol := syncAverageExpr(cpuSystemCol, cpuProcessCol, cpuAttrCol)
 
 	query := fmt.Sprintf(`
@@ -645,14 +646,14 @@ func (r *ClickHouseRepository) GetCPUUsagePercentage(teamUUID string, startMs, e
 		WHERE %s = ? AND %s BETWEEN ? AND ?
 		  AND (
 		      %s IN ('%s', '%s', '%s')
-		      OR JSONExtractFloat(%s, '%s') > 0
+		      OR %s > 0
 		  )
 		GROUP BY 1, 2
 		HAVING pod != ''
 		ORDER BY 1 ASC, 2 ASC
 	`, bucket, ColServiceName, cpuCol, TableMetrics, ColTeamID, ColTimestamp,
 		ColMetricName, MetricSystemCPUUtilization, MetricSystemCPUUsage, MetricProcessCPUUsage,
-		ColAttributes, AttrSystemCPUUtilization)
+		aCPU)
 	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
@@ -670,6 +671,7 @@ func (r *ClickHouseRepository) GetCPUUsagePercentage(teamUUID string, startMs, e
 
 func (r *ClickHouseRepository) GetMemoryUsagePercentage(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
+	aMem := attrFloat(AttrSystemMemoryUtilization)
 
 	// Build memory metric aggregation expression
 	memSystemCol := fmt.Sprintf(`if(countIf(%s = '%s' AND isFinite(%s)) > 0, avgIf(if(%s <= %s, %s * %s, %s), %s = '%s' AND isFinite(%s)), NULL)`,
@@ -679,9 +681,9 @@ func (r *ClickHouseRepository) GetMemoryUsagePercentage(teamUUID string, startMs
 		ColValue, ColMetricName, MetricJVMMemoryMax, ColValue, ColValue, fmt.Sprintf("%.1f", PercentageMultiplier),
 		ColValue, ColMetricName, MetricJVMMemoryUsed, ColValue, ColValue,
 		ColValue, ColMetricName, MetricJVMMemoryMax, ColValue, ColValue)
-	memAttrCol := fmt.Sprintf(`if(countIf(JSONExtractFloat(%s, '%s') > 0) > 0, avgIf(if(JSONExtractFloat(%s, '%s') <= %s, JSONExtractFloat(%s, '%s') * %s, JSONExtractFloat(%s, '%s')), JSONExtractFloat(%s, '%s') > 0), NULL)`,
-		ColAttributes, AttrSystemMemoryUtilization, ColAttributes, AttrSystemMemoryUtilization, fmt.Sprintf("%.1f", PercentageThreshold),
-		ColAttributes, AttrSystemMemoryUtilization, fmt.Sprintf("%.1f", PercentageMultiplier), ColAttributes, AttrSystemMemoryUtilization, ColAttributes, AttrSystemMemoryUtilization)
+	memAttrCol := fmt.Sprintf(`if(countIf(%s > 0) > 0, avgIf(if(%s <= %s, %s * %s, %s), %s > 0), NULL)`,
+		aMem, aMem, fmt.Sprintf("%.1f", PercentageThreshold),
+		aMem, fmt.Sprintf("%.1f", PercentageMultiplier), aMem, aMem)
 	memCol := syncAverageExpr(memSystemCol, memJvmCol, memAttrCol)
 
 	query := fmt.Sprintf(`
@@ -692,14 +694,14 @@ func (r *ClickHouseRepository) GetMemoryUsagePercentage(teamUUID string, startMs
 		WHERE %s = ? AND %s BETWEEN ? AND ?
 		  AND (
 		      %s IN ('%s', '%s', '%s')
-		      OR JSONExtractFloat(%s, '%s') > 0
+		      OR %s > 0
 		  )
 		GROUP BY 1, 2
 		HAVING pod != ''
 		ORDER BY 1 ASC, 2 ASC
 	`, bucket, ColServiceName, memCol, TableMetrics, ColTeamID, ColTimestamp,
 		ColMetricName, MetricSystemMemoryUtilization, MetricJVMMemoryUsed, MetricJVMMemoryMax,
-		ColAttributes, AttrSystemMemoryUtilization)
+		aMem)
 	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
@@ -759,6 +761,11 @@ func (r *ClickHouseRepository) GetResourceUsageByService(teamUUID string, startM
 
 // getSampleCountByService gets the count of metric samples for a service
 func (r *ClickHouseRepository) getSampleCountByService(teamUUID, serviceName string, startMs, endMs int64) (int64, error) {
+	aCPU := attrFloat(AttrSystemCPUUtilization)
+	aMem := attrFloat(AttrSystemMemoryUtilization)
+	aDisk := attrFloat(AttrSystemDiskUtilization)
+	aNet := attrFloat(AttrSystemNetworkUtilization)
+	aConn := attrFloat(AttrDBConnectionPoolUtilization)
 	query := fmt.Sprintf(`
 		SELECT COUNT(*) as count
 		FROM %s
@@ -770,9 +777,9 @@ func (r *ClickHouseRepository) getSampleCountByService(teamUUID, serviceName str
 		          '%s', '%s', '%s',
 		          '%s', '%s'
 		      )
-		      OR JSONExtractFloat(%s, '%s') > 0 OR JSONExtractFloat(%s, '%s') > 0
-		      OR JSONExtractFloat(%s, '%s') > 0 OR JSONExtractFloat(%s, '%s') > 0
-		      OR JSONExtractFloat(%s, '%s') > 0
+		      OR %s > 0 OR %s > 0
+		      OR %s > 0 OR %s > 0
+		      OR %s > 0
 		  )`,
 		TableMetrics,
 		ColTeamID, ColServiceName, ColTimestamp,
@@ -781,9 +788,7 @@ func (r *ClickHouseRepository) getSampleCountByService(teamUUID, serviceName str
 		MetricSystemDiskUtilization, MetricDiskFree, MetricDiskTotal, MetricSystemNetworkUtilization,
 		MetricDBConnectionPoolUtilization, MetricHikariCPConnectionsActive, MetricHikariCPConnectionsMax,
 		MetricJDBCConnectionsActive, MetricJDBCConnectionsMax,
-		ColAttributes, AttrSystemCPUUtilization, ColAttributes, AttrSystemMemoryUtilization,
-		ColAttributes, AttrSystemDiskUtilization, ColAttributes, AttrSystemNetworkUtilization,
-		ColAttributes, AttrDBConnectionPoolUtilization)
+		aCPU, aMem, aDisk, aNet, aConn)
 
 	row, err := dbutil.QueryMap(r.db, query, teamUUID, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
@@ -847,6 +852,11 @@ type Instance struct {
 
 // getInstanceList retrieves the list of distinct instances that have metrics in the time range
 func (r *ClickHouseRepository) getInstanceList(teamUUID string, startMs, endMs int64) ([]Instance, error) {
+	aCPU := attrFloat(AttrSystemCPUUtilization)
+	aMem := attrFloat(AttrSystemMemoryUtilization)
+	aDisk := attrFloat(AttrSystemDiskUtilization)
+	aNet := attrFloat(AttrSystemNetworkUtilization)
+	aConn := attrFloat(AttrDBConnectionPoolUtilization)
 	query := fmt.Sprintf(`
 		SELECT DISTINCT %s, %s, %s, %s
 		FROM %s
@@ -859,9 +869,9 @@ func (r *ClickHouseRepository) getInstanceList(teamUUID string, startMs, endMs i
 		          '%s', '%s', '%s',
 		          '%s', '%s'
 		      )
-		      OR JSONExtractFloat(%s, '%s') > 0 OR JSONExtractFloat(%s, '%s') > 0
-		      OR JSONExtractFloat(%s, '%s') > 0 OR JSONExtractFloat(%s, '%s') > 0
-		      OR JSONExtractFloat(%s, '%s') > 0
+		      OR %s > 0 OR %s > 0
+		      OR %s > 0 OR %s > 0
+		      OR %s > 0
 		  )
 		ORDER BY %s, %s, %s, %s
 		LIMIT 200`,
@@ -874,9 +884,7 @@ func (r *ClickHouseRepository) getInstanceList(teamUUID string, startMs, endMs i
 		MetricSystemDiskUtilization, MetricDiskFree, MetricDiskTotal, MetricSystemNetworkUtilization,
 		MetricDBConnectionPoolUtilization, MetricHikariCPConnectionsActive, MetricHikariCPConnectionsMax,
 		MetricJDBCConnectionsActive, MetricJDBCConnectionsMax,
-		ColAttributes, AttrSystemCPUUtilization, ColAttributes, AttrSystemMemoryUtilization,
-		ColAttributes, AttrSystemDiskUtilization, ColAttributes, AttrSystemNetworkUtilization,
-		ColAttributes, AttrDBConnectionPoolUtilization,
+		aCPU, aMem, aDisk, aNet, aConn,
 		ColHost, ColPod, ColContainer, ColServiceName)
 
 	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))

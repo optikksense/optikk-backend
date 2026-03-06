@@ -45,15 +45,30 @@ func (b *BaseQueryBuilder) WithLimit(limit int) *BaseQueryBuilder {
 	return b
 }
 
-// baseWhereClause returns the common WHERE clause and arguments
-// Queries metrics table and filters for GenAI metrics using JSON attribute extraction
+// attrStr returns a CH 26+ native JSON path expression reading a String from attributes.
+func attrStr(key string) string {
+	return "attributes.'" + key + "'::String"
+}
+
+// attrInt returns a CH 26+ native JSON path expression reading an Int64 from attributes.
+func attrInt(key string) string {
+	return "attributes.'" + key + "'::Int64"
+}
+
+// attrFlt returns a CH 26+ native JSON path expression reading a Float64 from attributes.
+func attrFlt(key string) string {
+	return "attributes.'" + key + "'::Float64"
+}
+
+// baseWhereClause returns the common WHERE clause and arguments.
+// Filters for metrics that carry a gen.ai.request.model attribute (GenAI metrics).
 func (b *BaseQueryBuilder) baseWhereClause() (string, []any) {
-	// Filter for metrics that have gen.ai.request.model attribute (indicates GenAI metrics)
-	where := "WHERE team_id = ? AND timestamp BETWEEN ? AND ? AND JSONExtractString(attributes, 'gen.ai.request.model') <> ''"
+	modelExpr := attrStr("gen.ai.request.model")
+	where := fmt.Sprintf("WHERE team_id = ? AND timestamp BETWEEN ? AND ? AND %s <> ''", modelExpr)
 	args := []any{b.teamUUID, dbutil.SqlTime(b.startMs), dbutil.SqlTime(b.endMs)}
 
 	if b.modelName != "" {
-		where += " AND JSONExtractString(attributes, 'gen.ai.request.model') = ?"
+		where += fmt.Sprintf(" AND %s = ?", modelExpr)
 		args = append(args, b.modelName)
 	}
 
@@ -75,7 +90,7 @@ func NewPerformanceMetricsQueryBuilder(teamUUID string, startMs, endMs int64) *P
 	}
 }
 
-// Build constructs the performance metrics query using OpenTelemetry column names
+// Build constructs the performance metrics query
 func (b *PerformanceMetricsQueryBuilder) Build() (string, []any) {
 	where, args := b.baseWhereClause()
 
@@ -83,29 +98,43 @@ func (b *PerformanceMetricsQueryBuilder) Build() (string, []any) {
 	timeRangeArgs := []any{dbutil.SqlTime(b.startMs), dbutil.SqlTime(b.endMs)}
 	args = append(timeRangeArgs, args...)
 
+	durationMs := attrFlt("duration_ms")
+	outputTokens := attrInt("gen.ai.usage.output_tokens")
+	retryCount := attrInt("ai.retry_count")
+	aiTimeout := attrInt("ai.timeout")
+
 	query := fmt.Sprintf(`
-		SELECT JSONExtractString(attributes, 'gen.ai.request.model') as model_name,
-		       JSONExtractString(attributes, 'server.address') as model_provider,
-		       JSONExtractString(attributes, 'gen.ai.operation.name') as request_type,
+		SELECT %s as model_name,
+		       %s as model_provider,
+		       %s as request_type,
 		       COUNT(*) as total_requests,
 		       COUNT(*) / GREATEST(dateDiff('second', ?, ?), 1) as avg_qps,
-		       AVG(CAST(JSONExtractString(attributes, 'duration_ms') AS Float64)) as avg_latency_ms,
-		       AVG(CAST(JSONExtractString(attributes, 'duration_ms') AS Float64)) as p50_latency_ms,
-		       AVG(CAST(JSONExtractString(attributes, 'duration_ms') AS Float64)) as p95_latency_ms,
-		       AVG(CAST(JSONExtractString(attributes, 'duration_ms') AS Float64)) as p99_latency_ms,
-		       MAX(CAST(JSONExtractString(attributes, 'duration_ms') AS Float64)) as max_latency_ms,
-		       SUM(CASE WHEN JSONExtractInt(attributes, 'ai.timeout')=1 THEN 1 ELSE 0 END) as timeout_count,
-		       SUM(CASE WHEN status='ERROR' THEN 1 ELSE 0 END) as error_count,
-		       IF(COUNT(*)>0, SUM(CASE WHEN JSONExtractInt(attributes, 'ai.timeout')=1 THEN 1 ELSE 0 END)*100.0/COUNT(*), 0) as timeout_rate,
-		       IF(COUNT(*)>0, SUM(CASE WHEN status='ERROR' THEN 1 ELSE 0 END)*100.0/COUNT(*), 0) as error_rate,
-		       AVG(CASE WHEN CAST(JSONExtractString(attributes, 'duration_ms') AS Float64)>0 THEN COALESCE(JSONExtractInt(attributes, 'gen.ai.usage.output_tokens'),0)/(CAST(JSONExtractString(attributes, 'duration_ms') AS Float64)/1000.0) ELSE 0 END) as avg_tokens_per_sec,
-		       AVG(COALESCE(JSONExtractInt(attributes, 'ai.retry_count'),0)) as avg_retry_count
-		FROM metrics_v5
+		       AVG(%s) as avg_latency_ms,
+		       AVG(%s) as p50_latency_ms,
+		       AVG(%s) as p95_latency_ms,
+		       AVG(%s) as p99_latency_ms,
+		       MAX(%s) as max_latency_ms,
+		       SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) as timeout_count,
+		       countIf(has_error) as error_count,
+		       IF(COUNT(*) > 0, SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 0) as timeout_rate,
+		       IF(COUNT(*) > 0, countIf(has_error) * 100.0 / COUNT(*), 0) as error_rate,
+		       AVG(CASE WHEN %s > 0 THEN COALESCE(%s, 0) / (%s / 1000.0) ELSE 0 END) as avg_tokens_per_sec,
+		       AVG(COALESCE(%s, 0)) as avg_retry_count
+		FROM %s
 		%s
 		GROUP BY model_name, model_provider, request_type
 		ORDER BY total_requests DESC
 		LIMIT %d
-	`, where, b.limit)
+	`,
+		attrStr("gen.ai.request.model"),
+		attrStr("server.address"),
+		attrStr("gen.ai.operation.name"),
+		durationMs, durationMs, durationMs, durationMs, durationMs,
+		aiTimeout,
+		aiTimeout,
+		durationMs, outputTokens, durationMs,
+		retryCount,
+		TableMetrics, where, b.limit)
 
 	return query, args
 }
@@ -123,30 +152,47 @@ func NewCostMetricsQueryBuilder(teamUUID string, startMs, endMs int64) *CostMetr
 	}
 }
 
-// Build constructs the cost metrics query using OpenTelemetry column names
+// Build constructs the cost metrics query
 func (b *CostMetricsQueryBuilder) Build() (string, []any) {
 	where, args := b.baseWhereClause()
 
+	costUSD := attrFlt("ai.cost_usd")
+	inputTokens := attrInt("gen.ai.usage.input_tokens")
+	outputTokens := attrInt("gen.ai.usage.output_tokens")
+	cacheReadTokens := attrInt("gen.ai.usage.cache_read_input_tokens")
+	cacheHit := attrInt("ai.cache_hit")
+
 	query := fmt.Sprintf(`
-		SELECT JSONExtractString(attributes, 'gen.ai.request.model') as model_name,
-		       JSONExtractString(attributes, 'server.address') as model_provider,
+		SELECT %s as model_name,
+		       %s as model_provider,
 		       COUNT(*) as total_requests,
-		       SUM(COALESCE(JSONExtractFloat(attributes, 'ai.cost_usd'),0)) as total_cost_usd,
-		       AVG(COALESCE(JSONExtractFloat(attributes, 'ai.cost_usd'),0)) as avg_cost_per_query,
-		       MAX(COALESCE(JSONExtractFloat(attributes, 'ai.cost_usd'),0)) as max_cost_per_query,
-		       SUM(COALESCE(JSONExtractInt(attributes, 'gen.ai.usage.input_tokens'),0)) as total_prompt_tokens,
-		       SUM(COALESCE(JSONExtractInt(attributes, 'gen.ai.usage.output_tokens'),0)) as total_completion_tokens,
-		       SUM(COALESCE(JSONExtractInt(attributes, 'gen.ai.usage.input_tokens'),0)+COALESCE(JSONExtractInt(attributes, 'gen.ai.usage.output_tokens'),0)) as total_tokens,
-		       AVG(COALESCE(JSONExtractInt(attributes, 'gen.ai.usage.input_tokens'),0)) as avg_prompt_tokens,
-		       AVG(COALESCE(JSONExtractInt(attributes, 'gen.ai.usage.output_tokens'),0)) as avg_completion_tokens,
-		       IF(COUNT(*)>0, SUM(CASE WHEN JSONExtractInt(attributes, 'ai.cache_hit')=1 THEN 1 ELSE 0 END)*100.0/COUNT(*), 0) as cache_hit_rate,
-		       SUM(COALESCE(JSONExtractInt(attributes, 'gen.ai.usage.cache_read_input_tokens'),0)) as total_cache_tokens
-		FROM metrics_v5
+		       SUM(COALESCE(%s, 0)) as total_cost_usd,
+		       AVG(COALESCE(%s, 0)) as avg_cost_per_query,
+		       MAX(COALESCE(%s, 0)) as max_cost_per_query,
+		       SUM(COALESCE(%s, 0)) as total_prompt_tokens,
+		       SUM(COALESCE(%s, 0)) as total_completion_tokens,
+		       SUM(COALESCE(%s, 0) + COALESCE(%s, 0)) as total_tokens,
+		       AVG(COALESCE(%s, 0)) as avg_prompt_tokens,
+		       AVG(COALESCE(%s, 0)) as avg_completion_tokens,
+		       IF(COUNT(*) > 0, SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 0) as cache_hit_rate,
+		       SUM(COALESCE(%s, 0)) as total_cache_tokens
+		FROM %s
 		%s
 		GROUP BY model_name, model_provider
 		ORDER BY total_cost_usd DESC
 		LIMIT %d
-	`, where, b.limit)
+	`,
+		attrStr("gen.ai.request.model"),
+		attrStr("server.address"),
+		costUSD, costUSD, costUSD,
+		inputTokens,
+		outputTokens,
+		inputTokens, outputTokens,
+		inputTokens,
+		outputTokens,
+		cacheHit,
+		cacheReadTokens,
+		TableMetrics, where, b.limit)
 
 	return query, args
 }
@@ -164,26 +210,36 @@ func NewSecurityMetricsQueryBuilder(teamUUID string, startMs, endMs int64) *Secu
 	}
 }
 
-// Build constructs the security metrics query using OpenTelemetry column names
+// Build constructs the security metrics query
 func (b *SecurityMetricsQueryBuilder) Build() (string, []any) {
 	where, args := b.baseWhereClause()
 
+	piiDetected := attrInt("ai.security.pii_detected")
+	guardrailBlocked := attrInt("ai.security.guardrail_blocked")
+	contentPolicy := attrInt("ai.security.content_policy")
+
 	query := fmt.Sprintf(`
-		SELECT JSONExtractString(attributes, 'gen.ai.request.model') as model_name,
-		       JSONExtractString(attributes, 'server.address') as model_provider,
+		SELECT %s as model_name,
+		       %s as model_provider,
 		       COUNT(*) as total_requests,
-		       SUM(CASE WHEN JSONExtractInt(attributes, 'ai.security.pii_detected')=1 THEN 1 ELSE 0 END) as pii_detected_count,
-		       IF(COUNT(*)>0, SUM(CASE WHEN JSONExtractInt(attributes, 'ai.security.pii_detected')=1 THEN 1 ELSE 0 END)*100.0/COUNT(*), 0) as pii_detection_rate,
-		       SUM(CASE WHEN JSONExtractInt(attributes, 'ai.security.guardrail_blocked')=1 THEN 1 ELSE 0 END) as guardrail_blocked_count,
-		       IF(COUNT(*)>0, SUM(CASE WHEN JSONExtractInt(attributes, 'ai.security.guardrail_blocked')=1 THEN 1 ELSE 0 END)*100.0/COUNT(*), 0) as guardrail_block_rate,
-		       SUM(CASE WHEN JSONExtractInt(attributes, 'ai.security.content_policy')=1 THEN 1 ELSE 0 END) as content_policy_count,
-		       IF(COUNT(*)>0, SUM(CASE WHEN JSONExtractInt(attributes, 'ai.security.content_policy')=1 THEN 1 ELSE 0 END)*100.0/COUNT(*), 0) as content_policy_rate
-		FROM metrics_v5
+		       SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) as pii_detected_count,
+		       IF(COUNT(*) > 0, SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 0) as pii_detection_rate,
+		       SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) as guardrail_blocked_count,
+		       IF(COUNT(*) > 0, SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 0) as guardrail_block_rate,
+		       SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) as content_policy_count,
+		       IF(COUNT(*) > 0, SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 0) as content_policy_rate
+		FROM %s
 		%s
 		GROUP BY model_name, model_provider
 		ORDER BY pii_detected_count DESC
 		LIMIT %d
-	`, where, b.limit)
+	`,
+		attrStr("gen.ai.request.model"),
+		attrStr("server.address"),
+		piiDetected, piiDetected,
+		guardrailBlocked, guardrailBlocked,
+		contentPolicy, contentPolicy,
+		TableMetrics, where, b.limit)
 
 	return query, args
 }
@@ -219,7 +275,7 @@ func (b *TimeSeriesQueryBuilder) WithGroupByFields(fields []string) *TimeSeriesQ
 	return b
 }
 
-// Build constructs the time series query extracting GenAI attributes from JSON
+// Build constructs the time series query
 func (b *TimeSeriesQueryBuilder) Build() (string, []any) {
 	where, args := b.baseWhereClause()
 
@@ -232,14 +288,14 @@ func (b *TimeSeriesQueryBuilder) Build() (string, []any) {
 	}
 
 	query := fmt.Sprintf(`
-		SELECT JSONExtractString(attributes, 'gen.ai.request.model') as model_name,
+		SELECT %s as model_name,
 		       %s as timestamp,
 		       %s
-		FROM metrics_v5
+		FROM %s
 		%s
 		GROUP BY %s
 		ORDER BY %s
-	`, bucketExpr, selectClause, where, groupByClause, b.orderBy)
+	`, attrStr("gen.ai.request.model"), bucketExpr, selectClause, TableMetrics, where, groupByClause, b.orderBy)
 
 	return query, args
 }
@@ -265,20 +321,22 @@ func (b *LatencyHistogramQueryBuilder) WithBucketSize(sizeMs int64) *LatencyHist
 	return b
 }
 
-// Build constructs the latency histogram query extracting GenAI attributes from JSON
+// Build constructs the latency histogram query
 func (b *LatencyHistogramQueryBuilder) Build() (string, []any) {
 	where, args := b.baseWhereClause()
 
+	durationMs := attrFlt("duration_ms")
+
 	query := fmt.Sprintf(`
-		SELECT JSONExtractString(attributes, 'gen.ai.request.model') as model_name,
-		       FLOOR(CAST(JSONExtractString(attributes, 'duration_ms') AS Float64) / %d) * %d as bucket_ms,
+		SELECT %s as model_name,
+		       FLOOR(%s / %d) * %d as bucket_ms,
 		       COUNT(*) as request_count
-		FROM metrics_v5
+		FROM %s
 		%s
 		GROUP BY model_name, bucket_ms
 		ORDER BY model_name, bucket_ms ASC
 		LIMIT %d
-	`, b.bucketSizeMs, b.bucketSizeMs, where, b.limit)
+	`, attrStr("gen.ai.request.model"), durationMs, b.bucketSizeMs, b.bucketSizeMs, TableMetrics, where, b.limit)
 
 	return query, args
 }
@@ -296,7 +354,7 @@ func NewSummaryQueryBuilder(teamUUID string, startMs, endMs int64) *SummaryQuery
 	}
 }
 
-// Build constructs the summary query extracting GenAI attributes from JSON
+// Build constructs the summary query
 func (b *SummaryQueryBuilder) Build() (string, []any) {
 	where, args := b.baseWhereClause()
 
@@ -304,24 +362,44 @@ func (b *SummaryQueryBuilder) Build() (string, []any) {
 	timeRangeArgs := []any{dbutil.SqlTime(b.startMs), dbutil.SqlTime(b.endMs)}
 	args = append(timeRangeArgs, args...)
 
+	durationMs := attrFlt("duration_ms")
+	inputTokens := attrInt("gen.ai.usage.input_tokens")
+	outputTokens := attrInt("gen.ai.usage.output_tokens")
+	costUSD := attrFlt("ai.cost_usd")
+	cacheHit := attrInt("ai.cache_hit")
+	aiTimeout := attrInt("ai.timeout")
+	piiDetected := attrInt("ai.security.pii_detected")
+	guardrailBlocked := attrInt("ai.security.guardrail_blocked")
+
 	query := fmt.Sprintf(`
 		SELECT COUNT(*) as total_requests,
 		       COUNT(*) / GREATEST(dateDiff('second', ?, ?), 1) as avg_qps,
-		       AVG(CAST(JSONExtractString(attributes, 'duration_ms') AS Float64)) as avg_latency_ms,
-		       AVG(CAST(JSONExtractString(attributes, 'duration_ms') AS Float64)) as p95_latency_ms,
-		       SUM(CASE WHEN JSONExtractInt(attributes, 'ai.timeout') = 1 THEN 1 ELSE 0 END) as timeout_count,
-		       SUM(CASE WHEN status='ERROR' THEN 1 ELSE 0 END) as error_count,
-		       SUM(COALESCE(JSONExtractInt(attributes, 'gen.ai.usage.input_tokens'),0) + COALESCE(JSONExtractInt(attributes, 'gen.ai.usage.output_tokens'),0)) as total_tokens,
-		       SUM(COALESCE(JSONExtractFloat(attributes, 'ai.cost_usd'),0)) as total_cost_usd,
-		       AVG(COALESCE(JSONExtractFloat(attributes, 'ai.cost_usd'),0)) as avg_cost_per_query,
-		       IF(COUNT(*)>0, SUM(CASE WHEN JSONExtractInt(attributes, 'ai.cache_hit')=1 THEN 1 ELSE 0 END)*100.0/COUNT(*), 0) as cache_hit_rate,
-		       IF(COUNT(*)>0, SUM(CASE WHEN JSONExtractInt(attributes, 'ai.security.pii_detected')=1 THEN 1 ELSE 0 END)*100.0/COUNT(*), 0) as pii_detection_rate,
-		       IF(COUNT(*)>0, SUM(CASE WHEN JSONExtractInt(attributes, 'ai.security.guardrail_blocked')=1 THEN 1 ELSE 0 END)*100.0/COUNT(*), 0) as guardrail_block_rate,
-		       AVG(CASE WHEN CAST(JSONExtractString(attributes, 'duration_ms') AS Float64) > 0 THEN COALESCE(JSONExtractInt(attributes, 'gen.ai.usage.output_tokens'),0) / (CAST(JSONExtractString(attributes, 'duration_ms') AS Float64)/1000.0) ELSE 0 END) as avg_tokens_per_sec,
-		       COUNT(DISTINCT JSONExtractString(attributes, 'gen.ai.request.model')) as active_models
-		FROM metrics_v5
+		       AVG(%s) as avg_latency_ms,
+		       AVG(%s) as p95_latency_ms,
+		       SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) as timeout_count,
+		       countIf(has_error) as error_count,
+		       SUM(COALESCE(%s, 0) + COALESCE(%s, 0)) as total_tokens,
+		       SUM(COALESCE(%s, 0)) as total_cost_usd,
+		       AVG(COALESCE(%s, 0)) as avg_cost_per_query,
+		       IF(COUNT(*) > 0, SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 0) as cache_hit_rate,
+		       IF(COUNT(*) > 0, SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 0) as pii_detection_rate,
+		       IF(COUNT(*) > 0, SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 0) as guardrail_block_rate,
+		       AVG(CASE WHEN %s > 0 THEN COALESCE(%s, 0) / (%s / 1000.0) ELSE 0 END) as avg_tokens_per_sec,
+		       COUNT(DISTINCT %s) as active_models
+		FROM %s
 		%s
-	`, where)
+	`,
+		durationMs, durationMs,
+		aiTimeout,
+		inputTokens, outputTokens,
+		costUSD,
+		costUSD,
+		cacheHit,
+		piiDetected,
+		guardrailBlocked,
+		durationMs, outputTokens, durationMs,
+		attrStr("gen.ai.request.model"),
+		TableMetrics, where)
 
 	return query, args
 }
@@ -339,19 +417,19 @@ func NewModelListQueryBuilder(teamUUID string, startMs, endMs int64) *ModelListQ
 	}
 }
 
-// Build constructs the model list query extracting GenAI attributes from JSON
+// Build constructs the model list query
 func (b *ModelListQueryBuilder) Build() (string, []any) {
 	where, args := b.baseWhereClause()
 
 	query := fmt.Sprintf(`
-		SELECT JSONExtractString(attributes, 'gen.ai.request.model') as model_name,
-		       JSONExtractString(attributes, 'server.address') as model_provider
-		FROM metrics_v5
+		SELECT %s as model_name,
+		       %s as model_provider
+		FROM %s
 		%s
 		GROUP BY model_name, model_provider
 		ORDER BY model_name ASC
 		LIMIT %d
-	`, where, b.limit)
+	`, attrStr("gen.ai.request.model"), attrStr("server.address"), TableMetrics, where, b.limit)
 
 	return query, args
 }
@@ -369,22 +447,28 @@ func NewTokenBreakdownQueryBuilder(teamUUID string, startMs, endMs int64) *Token
 	}
 }
 
-// Build constructs the token breakdown query extracting GenAI attributes from JSON
+// Build constructs the token breakdown query
 func (b *TokenBreakdownQueryBuilder) Build() (string, []any) {
 	where, args := b.baseWhereClause()
 
 	query := fmt.Sprintf(`
-		SELECT JSONExtractString(attributes, 'gen.ai.request.model') as model_name,
-		       SUM(COALESCE(JSONExtractInt(attributes, 'gen.ai.usage.input_tokens'),0)) as prompt_tokens,
-		       SUM(COALESCE(JSONExtractInt(attributes, 'gen.ai.usage.output_tokens'),0)) as completion_tokens,
-		       SUM(COALESCE(JSONExtractInt(attributes, 'ai.tokens_system'),0)) as system_tokens,
-		       SUM(COALESCE(JSONExtractInt(attributes, 'gen.ai.usage.cache_read_input_tokens'),0)) as cache_tokens
-		FROM metrics_v5
+		SELECT %s as model_name,
+		       SUM(COALESCE(%s, 0)) as prompt_tokens,
+		       SUM(COALESCE(%s, 0)) as completion_tokens,
+		       SUM(COALESCE(%s, 0)) as system_tokens,
+		       SUM(COALESCE(%s, 0)) as cache_tokens
+		FROM %s
 		%s
 		GROUP BY model_name
 		ORDER BY (prompt_tokens + completion_tokens) DESC
 		LIMIT %d
-	`, where, b.limit)
+	`,
+		attrStr("gen.ai.request.model"),
+		attrInt("gen.ai.usage.input_tokens"),
+		attrInt("gen.ai.usage.output_tokens"),
+		attrInt("ai.tokens_system"),
+		attrInt("gen.ai.usage.cache_read_input_tokens"),
+		TableMetrics, where, b.limit)
 
 	return query, args
 }
@@ -402,20 +486,25 @@ func NewPIICategoryQueryBuilder(teamUUID string, startMs, endMs int64) *PIICateg
 	}
 }
 
-// Build constructs the PII category query extracting GenAI attributes from JSON
+// Build constructs the PII category query
 func (b *PIICategoryQueryBuilder) Build() (string, []any) {
 	where, args := b.baseWhereClause()
 
+	piiDetected := attrInt("ai.security.pii_detected")
+
 	query := fmt.Sprintf(`
-		SELECT JSONExtractString(attributes, 'gen.ai.request.model') as model_name,
-		       JSONExtractString(attributes, 'ai.security.pii_categories') as pii_categories,
+		SELECT %s as model_name,
+		       %s as pii_categories,
 		       COUNT(*) as detection_count
-		FROM metrics_v5
-		%s AND JSONExtractInt(attributes, 'ai.security.pii_detected') = 1
+		FROM %s
+		%s AND %s = 1
 		GROUP BY model_name, pii_categories
 		ORDER BY detection_count DESC
 		LIMIT %d
-	`, where, b.limit)
+	`,
+		attrStr("gen.ai.request.model"),
+		attrStr("ai.security.pii_categories"),
+		TableMetrics, where, piiDetected, b.limit)
 
 	return query, args
 }

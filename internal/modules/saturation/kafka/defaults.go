@@ -12,7 +12,6 @@ const (
 	MessagingSystemKafka = "kafka"
 
 	// Column names
-	ColAttributes  = "attributes"
 	ColMetricName  = "metric_name"
 	ColServiceName = "service"
 	ColCount       = "hist_count"
