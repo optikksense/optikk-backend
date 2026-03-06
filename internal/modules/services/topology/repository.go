@@ -45,13 +45,15 @@ func (r *ClickHouseRepository) GetTopology(teamUUID string, startMs, endMs int64
 		       target,
 		       call_count,
 		       avg_latency,
+		       p95_latency_ms,
 		       if(call_count > 0, error_count*100.0/call_count, 0) AS error_rate
 		FROM (
-			SELECT `+ColParentServiceName+`        AS source,
-			       `+ColServiceName+`               AS target,
-			       count()                    AS call_count,
-			       countIf(`+ErrorCondition()+`) AS error_count,
-			       avg(`+ColDurationMs+`)           AS avg_latency
+			SELECT `+ColParentServiceName+`                    AS source,
+			       `+ColServiceName+`                           AS target,
+			       count()                               AS call_count,
+			       countIf(`+ErrorCondition()+`)         AS error_count,
+			       avg(`+ColDurationMs+`)                AS avg_latency,
+			       quantile(0.95)(`+ColDurationMs+`)     AS p95_latency_ms
 			FROM spans
 			WHERE `+ColTeamID+` = ? AND `+ColParentServiceName+` != '' AND `+ColStartTime+` BETWEEN ? AND ?
 			GROUP BY `+ColParentServiceName+`, `+ColServiceName+`
@@ -84,11 +86,12 @@ func (r *ClickHouseRepository) GetTopology(teamUUID string, startMs, endMs int64
 	edges := make([]TopologyEdge, len(edgesRaw))
 	for i, row := range edgesRaw {
 		edges[i] = TopologyEdge{
-			Source:     dbutil.StringFromAny(row["source"]),
-			Target:     dbutil.StringFromAny(row["target"]),
-			CallCount:  dbutil.Int64FromAny(row["call_count"]),
-			AvgLatency: dbutil.Float64FromAny(row["avg_latency"]),
-			ErrorRate:  dbutil.Float64FromAny(row["error_rate"]),
+			Source:       dbutil.StringFromAny(row["source"]),
+			Target:       dbutil.StringFromAny(row["target"]),
+			CallCount:    dbutil.Int64FromAny(row["call_count"]),
+			AvgLatency:   dbutil.Float64FromAny(row["avg_latency"]),
+			P95LatencyMs: dbutil.Float64FromAny(row["p95_latency_ms"]),
+			ErrorRate:    dbutil.Float64FromAny(row["error_rate"]),
 		}
 	}
 

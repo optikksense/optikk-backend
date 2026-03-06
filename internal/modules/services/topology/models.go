@@ -11,11 +11,12 @@ type TopologyNode struct {
 
 // TopologyEdge represents an edge in the service topology graph.
 type TopologyEdge struct {
-	Source     string  `json:"source"`
-	Target     string  `json:"target"`
-	CallCount  int64   `json:"callCount"`
-	AvgLatency float64 `json:"avgLatency"`
-	ErrorRate  float64 `json:"errorRate"`
+	Source       string  `json:"source"`
+	Target       string  `json:"target"`
+	CallCount    int64   `json:"callCount"`
+	AvgLatency   float64 `json:"avgLatency"`
+	P95LatencyMs float64 `json:"p95LatencyMs"`
+	ErrorRate    float64 `json:"errorRate"`
 }
 
 // TopologyData represents the complete topology graph.

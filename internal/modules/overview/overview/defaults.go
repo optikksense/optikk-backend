@@ -1,11 +1,9 @@
 package overview
 
-import "github.com/observability/observability-backend-go/internal/modules/dashboardconfig"
-
-func init() {
-	dashboardconfig.RegisterDefaultConfig("overview", defaultOverview)
-	dashboardconfig.RegisterDefaultConfig("metrics", defaultMetrics)
-}
+// Dashboard configs for the overview and metrics pages are now registered by the
+// errortracking and redmetrics modules respectively, which provide the tabbed
+// versions of these configs. This file retains the legacy constants for reference
+// but no longer registers them to avoid overwriting the new tabbed configs.
 
 const defaultOverview = `page: overview
 title: "Overview"

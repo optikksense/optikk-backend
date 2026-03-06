@@ -28,8 +28,12 @@ import (
 	satdatabase "github.com/observability/observability-backend-go/internal/modules/saturation/database"
 	"github.com/observability/observability-backend-go/internal/modules/saturation/kafka"
 	servicepage "github.com/observability/observability-backend-go/internal/modules/services/service"
+	servicemap "github.com/observability/observability-backend-go/internal/modules/services/servicemap"
 	servicetopology "github.com/observability/observability-backend-go/internal/modules/services/topology"
 	tracesapi "github.com/observability/observability-backend-go/internal/modules/spans"
+	errortracking "github.com/observability/observability-backend-go/internal/modules/spans/errortracking"
+	redmetrics "github.com/observability/observability-backend-go/internal/modules/spans/redmetrics"
+	tracedetail "github.com/observability/observability-backend-go/internal/modules/spans/tracedetail"
 	usermodule "github.com/observability/observability-backend-go/internal/modules/user"
 	"github.com/observability/observability-backend-go/internal/platform/auth"
 	"github.com/observability/observability-backend-go/internal/platform/ingest"
@@ -62,6 +66,10 @@ type moduleConfigs struct {
 	APM                 apm.Config
 	Logs                logsapi.Config
 	Traces              tracesapi.Config
+	TraceDetail         tracedetail.Config
+	ServiceMap          servicemap.Config
+	REDMetrics          redmetrics.Config
+	ErrorTracking       errortracking.Config
 	AI                  ai.Config
 	DashboardConfig     dashboardconfig.Config
 }
@@ -83,6 +91,10 @@ func defaultModuleConfigs() moduleConfigs {
 		APM:                 apm.DefaultConfig(),
 		Logs:                logsapi.DefaultConfig(),
 		Traces:              tracesapi.DefaultConfig(),
+		TraceDetail:         tracedetail.DefaultConfig(),
+		ServiceMap:          servicemap.DefaultConfig(),
+		REDMetrics:          redmetrics.DefaultConfig(),
+		ErrorTracking:       errortracking.DefaultConfig(),
 		AI:                  ai.DefaultConfig(),
 		DashboardConfig:     dashboardconfig.DefaultConfig(),
 	}
@@ -99,6 +111,10 @@ type App struct {
 	Users               *usermodule.UserHandler
 	Logs                *logsapi.LogHandler
 	Traces              *tracesapi.TraceHandler
+	TraceDetail         *tracedetail.TraceDetailHandler
+	ServiceMap          *servicemap.ServiceMapHandler
+	REDMetrics          *redmetrics.REDMetricsHandler
+	ErrorTracking       *errortracking.ErrorTrackingHandler
 	Overview            *overviewmodule.OverviewHandler
 	OverviewSLO         *overviewslo.SLOHandler
 	OverviewErrors      *overviewerrors.ErrorHandler
@@ -172,6 +188,42 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 			getTenant,
 			tracesapi.NewRepository(dbutil.NewMySQLWrapper(ch)),
 		),
+		TraceDetail: &tracedetail.TraceDetailHandler{
+			DBTenant: modulecommon.DBTenant{
+				DB:        ch,
+				GetTenant: getTenant,
+			},
+			Service: tracedetail.NewService(
+				tracedetail.NewRepository(dbutil.NewMySQLWrapper(ch)),
+			),
+		},
+		ServiceMap: &servicemap.ServiceMapHandler{
+			DBTenant: modulecommon.DBTenant{
+				DB:        ch,
+				GetTenant: getTenant,
+			},
+			Service: servicemap.NewService(
+				servicemap.NewRepository(dbutil.NewMySQLWrapper(ch)),
+			),
+		},
+		REDMetrics: &redmetrics.REDMetricsHandler{
+			DBTenant: modulecommon.DBTenant{
+				DB:        ch,
+				GetTenant: getTenant,
+			},
+			Service: redmetrics.NewService(
+				redmetrics.NewRepository(dbutil.NewMySQLWrapper(ch)),
+			),
+		},
+		ErrorTracking: &errortracking.ErrorTrackingHandler{
+			DBTenant: modulecommon.DBTenant{
+				DB:        ch,
+				GetTenant: getTenant,
+			},
+			Service: errortracking.NewService(
+				errortracking.NewRepository(dbutil.NewMySQLWrapper(ch)),
+			),
+		},
 		Overview: &overviewmodule.OverviewHandler{
 			DBTenant: modulecommon.DBTenant{
 				DB:        ch,
@@ -364,6 +416,10 @@ func (a *App) registerRoutesToGroup(v1 *gin.RouterGroup) {
 	apm.RegisterRoutes(cfg.APM, v1, a.APM)
 	logsapi.RegisterRoutes(cfg.Logs, v1, a.Logs)
 	tracesapi.RegisterRoutes(cfg.Traces, v1, a.Traces)
+	tracedetail.RegisterRoutes(cfg.TraceDetail, v1, a.TraceDetail)
+	servicemap.RegisterRoutes(cfg.ServiceMap, v1, a.ServiceMap)
+	redmetrics.RegisterRoutes(cfg.REDMetrics, v1, a.REDMetrics)
+	errortracking.RegisterRoutes(cfg.ErrorTracking, v1, a.ErrorTracking)
 	ai.RegisterRoutes(cfg.AI, v1, a.AI)
 	dashboardconfig.RegisterRoutes(cfg.DashboardConfig, v1, a.DashboardConfig)
 }
