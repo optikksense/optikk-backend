@@ -22,62 +22,180 @@ CREATE DATABASE IF NOT EXISTS observability;
 
 
 -- ===========================================================================
--- SPANS: one row per OTel span
+-- SPANS: one row per OTel span (optimized schema with JSON and materialized columns)
 -- ===========================================================================
--- Always ReplicatedMergeTree — never plain MergeTree in production.
--- Partition by toYYYYMMDD for time-series tables.
--- Order keys: (team_id, service_name, start_time, ...).
--- LowCardinality(String) for any column with <10k unique values.
--- Codec(Delta, ZSTD(3)) for timestamps. No Gorilla on integer durations.
--- Tags as Map(String, String) with MATERIALIZED indexes on top 10 OTel keys.
--- Never store JSON blobs in String columns — parse at ingest.
+-- Optimizations applied:
+-- 1. Replaced Map columns with JSON (max_dynamic_paths=50) for better query performance
+-- 2. Added materialized columns for hot attributes (HTTP, DB, RPC, Messaging, Network)
+-- 3. Monthly partitions (toYYYYMM) instead of daily for better partition management
+-- 4. Optimized ORDER BY with ts_bucket_start for better time-range queries
+-- 5. Added bloom filter indexes on materialized columns
 -- ===========================================================================
 CREATE TABLE IF NOT EXISTS observability.spans (
-    team_id              LowCardinality(String),
-    trace_id             String,
-    span_id              String,
-    parent_span_id       String,
-    parent_service_name  LowCardinality(String),
-    is_root              UInt8,
-    operation_name       LowCardinality(String),
-    service_name         LowCardinality(String),
-    span_kind            LowCardinality(String),
-    start_time           DateTime64(9)   CODEC(Delta, ZSTD(3)),
-    end_time             DateTime64(9)   CODEC(Delta, ZSTD(3)),
-    duration_ms          UInt64          CODEC(Delta, ZSTD(1)),
-    status               LowCardinality(String),
-    status_message       String          CODEC(ZSTD(3)),
-    http_method          LowCardinality(String),
-    http_url             String          CODEC(ZSTD(3)),
-    http_status_code     Int32,
-    host                 LowCardinality(String),
-    pod                  LowCardinality(String),
-    container            LowCardinality(String),
-    attributes           String          CODEC(ZSTD(3)),
-    tags                 Map(String, String),
+    -- BUCKETING & ORDERING
+    ts_bucket_start                       UInt64          CODEC(DoubleDelta, LZ4),
+    resource_fingerprint                  String          CODEC(ZSTD(1)),
 
-    -- Skip indexes for fast point lookups
-    INDEX idx_trace_id       trace_id             TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_span_id        span_id              TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_service        service_name         TYPE set(100)           GRANULARITY 1,
+    -- MULTI-TENANCY
+    team_id                               LowCardinality(String) CODEC(ZSTD(1)),
 
-    -- Materialized indexes on top 10 queried tag keys
-    INDEX idx_tags_service   tags['service.name']            TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_tags_env       tags['deployment.environment']  TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_tags_version   tags['service.version']         TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_tags_http_url  tags['http.url']                TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_tags_http_meth tags['http.method']             TYPE set(20)            GRANULARITY 1,
-    INDEX idx_tags_status    tags['otel.status_code']        TYPE set(10)            GRANULARITY 1,
-    INDEX idx_tags_host      tags['host.name']               TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_tags_k8s_ns    tags['k8s.namespace.name']      TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_tags_k8s_pod   tags['k8s.pod.name']            TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_tags_error     tags['error']                   TYPE set(5)             GRANULARITY 1
+    -- CORE IDENTITY
+    timestamp                             DateTime64(9)   CODEC(DoubleDelta, LZ4),
+    trace_id                              FixedString(32) CODEC(ZSTD(1)),
+    span_id                               String          CODEC(ZSTD(1)),
+    parent_span_id                        String          CODEC(ZSTD(1)),
+    trace_state                           String          CODEC(ZSTD(1)),
+    flags                                 UInt32          CODEC(T64, ZSTD(1)),
+
+    -- SPAN METADATA
+    name                                  LowCardinality(String) CODEC(ZSTD(1)),
+    kind                                  Int8            CODEC(T64, ZSTD(1)),
+    kind_string                           LowCardinality(String) CODEC(ZSTD(1)),
+    duration_nano                         UInt64          CODEC(T64, ZSTD(1)),
+    has_error                             Bool            CODEC(T64, ZSTD(1)),
+    is_remote                             LowCardinality(String) CODEC(ZSTD(1)),
+
+    -- STATUS
+    status_code                           Int16           CODEC(T64, ZSTD(1)),
+    status_code_string                    LowCardinality(String) CODEC(ZSTD(1)),
+    status_message                        String          CODEC(ZSTD(1)),
+
+    -- HTTP / DB SHORTCUTS (derived at ingest)
+    http_url                              LowCardinality(String) CODEC(ZSTD(1)),
+    http_method                           LowCardinality(String) CODEC(ZSTD(1)),
+    http_host                             LowCardinality(String) CODEC(ZSTD(1)),
+    external_http_url                     LowCardinality(String) CODEC(ZSTD(1)),
+    external_http_method                  LowCardinality(String) CODEC(ZSTD(1)),
+    response_status_code                  LowCardinality(String) CODEC(ZSTD(1)),
+    db_name                               LowCardinality(String) CODEC(ZSTD(1)),
+    db_operation                          LowCardinality(String) CODEC(ZSTD(1)),
+
+    -- ATTRIBUTES (JSON overflow - replaces Map for better performance)
+    attributes                            JSON(max_dynamic_paths = 50) CODEC(ZSTD(1)),
+
+    -- EVENTS & LINKS
+    events                                Array(String)   CODEC(ZSTD(2)),
+    links                                 String          CODEC(ZSTD(1)),
+
+    -- ERROR FIELDS
+    exception_type                        LowCardinality(String) CODEC(ZSTD(1)),
+    exception_message                     String          CODEC(ZSTD(1)),
+    exception_stacktrace                  String          CODEC(ZSTD(1)),
+    exception_escaped                     Bool            CODEC(T64, ZSTD(1)),
+
+    -- MATERIALIZED HOT ATTRIBUTES (computed at insert from JSON column)
+    -- HTTP
+    mat_http_route            LowCardinality(String)
+                                    MATERIALIZED attributes.`http.route`::String               CODEC(ZSTD(1)),
+    mat_http_status_code      LowCardinality(String)
+                                    MATERIALIZED attributes.`http.status_code`::String         CODEC(ZSTD(1)),
+    mat_http_target           LowCardinality(String)
+                                    MATERIALIZED attributes.`http.target`::String              CODEC(ZSTD(1)),
+    mat_http_scheme           LowCardinality(String)
+                                    MATERIALIZED attributes.`http.scheme`::String              CODEC(ZSTD(1)),
+
+    -- DB
+    mat_db_system             LowCardinality(String)
+                                    MATERIALIZED attributes.`db.system`::String                CODEC(ZSTD(1)),
+    mat_db_name               LowCardinality(String)
+                                    MATERIALIZED attributes.`db.name`::String                  CODEC(ZSTD(1)),
+    mat_db_operation          LowCardinality(String)
+                                    MATERIALIZED attributes.`db.operation`::String             CODEC(ZSTD(1)),
+    mat_db_statement          String
+                                    MATERIALIZED attributes.`db.statement`::String             CODEC(ZSTD(1)),
+
+    -- RPC
+    mat_rpc_system            LowCardinality(String)
+                                    MATERIALIZED attributes.`rpc.system`::String               CODEC(ZSTD(1)),
+    mat_rpc_service           LowCardinality(String)
+                                    MATERIALIZED attributes.`rpc.service`::String              CODEC(ZSTD(1)),
+    mat_rpc_method            LowCardinality(String)
+                                    MATERIALIZED attributes.`rpc.method`::String               CODEC(ZSTD(1)),
+    mat_rpc_grpc_status_code  LowCardinality(String)
+                                    MATERIALIZED attributes.`rpc.grpc.status_code`::String     CODEC(ZSTD(1)),
+
+    -- Messaging
+    mat_messaging_system      LowCardinality(String)
+                                    MATERIALIZED attributes.`messaging.system`::String         CODEC(ZSTD(1)),
+    mat_messaging_operation   LowCardinality(String)
+                                    MATERIALIZED attributes.`messaging.operation`::String      CODEC(ZSTD(1)),
+    mat_messaging_destination LowCardinality(String)
+                                    MATERIALIZED attributes.`messaging.destination`::String    CODEC(ZSTD(1)),
+
+    -- Network / Peer
+    mat_peer_service          LowCardinality(String)
+                                    MATERIALIZED attributes.`peer.service`::String             CODEC(ZSTD(1)),
+    mat_net_peer_name         LowCardinality(String)
+                                    MATERIALIZED attributes.`net.peer.name`::String            CODEC(ZSTD(1)),
+    mat_net_peer_port         LowCardinality(String)
+                                    MATERIALIZED attributes.`net.peer.port`::String            CODEC(ZSTD(1)),
+
+    -- Exceptions
+    mat_exception_type        LowCardinality(String)
+                                    MATERIALIZED attributes.`exception.type`::String           CODEC(ZSTD(1)),
+
+    -- BLOOM FILTER INDEXES
+    INDEX idx_trace_id              trace_id                TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_span_name             name                    TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_mat_http_route        mat_http_route          TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_mat_http_status_code  mat_http_status_code    TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_mat_db_system         mat_db_system           TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_mat_db_name           mat_db_name             TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_mat_rpc_service       mat_rpc_service         TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_mat_peer_service      mat_peer_service        TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_mat_exception_type    mat_exception_type      TYPE bloom_filter(0.01) GRANULARITY 4
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/spans', '{replica}')
-PARTITION BY toYYYYMMDD(start_time)
-ORDER BY (team_id, service_name, start_time, trace_id, span_id)
-TTL toDateTime(start_time) + INTERVAL 7 DAY DELETE
-SETTINGS index_granularity = 8192,
-         storage_policy = 'tiered_gcs';
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (ts_bucket_start, resource_fingerprint, has_error, name, timestamp)
+TTL toDate(timestamp) + INTERVAL 30 DAY
+SETTINGS
+    index_granularity = 8192,
+    ttl_only_drop_parts = 1,
+    storage_policy = 'tiered_gcs';
+
+
+-- ===========================================================================
+-- RESOURCES: resource metadata for spans (optimized schema)
+-- ===========================================================================
+-- Stores unique resource fingerprints with top known keys as real columns
+-- to avoid JSON parsing at query time. Overflow attributes stored in JSON.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS observability.resources (
+    fingerprint               String  CODEC(ZSTD(1)),
+    seen_at_ts_bucket_start   Int64   CODEC(Delta(8), ZSTD(1)),
+
+    -- Multi-tenancy
+    team_id                   LowCardinality(String) CODEC(ZSTD(1)),
+
+    -- Top known keys as real columns — zero JSON parsing at query time
+    service_name              LowCardinality(String) CODEC(ZSTD(1)),
+    environment               LowCardinality(String) CODEC(ZSTD(1)),
+    host_name                 LowCardinality(String) CODEC(ZSTD(1)),
+    host_type                 LowCardinality(String) CODEC(ZSTD(1)),
+    k8s_namespace             LowCardinality(String) CODEC(ZSTD(1)),
+    k8s_pod_name              LowCardinality(String) CODEC(ZSTD(1)),
+    k8s_deployment_name       LowCardinality(String) CODEC(ZSTD(1)),
+    k8s_cluster_name          LowCardinality(String) CODEC(ZSTD(1)),
+    cloud_provider            LowCardinality(String) CODEC(ZSTD(1)),
+    cloud_region              LowCardinality(String) CODEC(ZSTD(1)),
+    telemetry_sdk_language    LowCardinality(String) CODEC(ZSTD(1)),
+    telemetry_sdk_version     LowCardinality(String) CODEC(ZSTD(1)),
+
+    -- Overflow JSON capped at 50 paths
+    labels                    JSON(max_dynamic_paths = 50) CODEC(ZSTD(1)),
+
+    INDEX idx_service_name      service_name    TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_environment       environment     TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_k8s_namespace     k8s_namespace   TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_k8s_cluster       k8s_cluster_name TYPE bloom_filter(0.01) GRANULARITY 4
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/resources', '{replica}')
+PARTITION BY toYYYYMM(toDateTime(seen_at_ts_bucket_start))
+ORDER BY (fingerprint, seen_at_ts_bucket_start)
+TTL toDate(toDateTime(seen_at_ts_bucket_start)) + INTERVAL 30 DAY
+SETTINGS
+    index_granularity = 8192,
+    ttl_only_drop_parts = 1,
+    storage_policy = 'tiered_gcs';
 
 
 -- ===========================================================================

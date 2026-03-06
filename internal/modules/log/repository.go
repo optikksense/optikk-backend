@@ -453,8 +453,8 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamUUID, trace
 	}
 
 	// Convert trace time bounds to nanoseconds with ±2s padding.
-	startNs := uint64(traceStart.Add(-2*time.Second).UnixNano())
-	endNs := uint64(traceEnd.Add(2*time.Second).UnixNano())
+	startNs := uint64(traceStart.Add(-2 * time.Second).UnixNano())
+	endNs := uint64(traceEnd.Add(2 * time.Second).UnixNano())
 	bucketLow := uint32(startNs / 1_000_000_000 / 86400 * 86400)
 	bucketHigh := uint32(endNs / 1_000_000_000 / 86400 * 86400)
 

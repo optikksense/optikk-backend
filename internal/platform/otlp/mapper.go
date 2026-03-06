@@ -68,6 +68,15 @@ func nanoToTime(nanoStr string) time.Time {
 	return time.Unix(0, ns)
 }
 
+// parseNano converts a Unix nanosecond string to int64.
+func parseNano(nanoStr string) int64 {
+	ns, err := strconv.ParseInt(nanoStr, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return ns
+}
+
 // attrsToMap converts a []KeyValue slice into a map[string]string.
 func attrsToMap(kvs []KeyValue) map[string]string {
 	m := make(map[string]string, len(kvs))
@@ -171,43 +180,43 @@ func lookupAttrInt(kvs []KeyValue, key string) int64 {
 
 // ── Spans mapper ──────────────────────────────────────────────────────────────
 
-// SpanColumns is the ordered column list for observability.spans inserts.
+// SpanColumns is the ordered column list for observability.spans inserts (optimized schema).
 var SpanColumns = []string{
-	"team_id", "trace_id", "span_id", "parent_span_id",
-	"parent_service_name", "is_root",
-	"operation_name", "service_name", "span_kind",
-	"start_time", "end_time", "duration_ms",
-	"status", "status_message",
-	"http_method", "http_url", "http_status_code",
-	"host", "pod", "container",
-	"attributes", "tags",
+	"ts_bucket_start", "resource_fingerprint", "team_id",
+	"timestamp", "trace_id", "span_id", "parent_span_id", "trace_state", "flags",
+	"name", "kind", "kind_string", "duration_nano", "has_error", "is_remote",
+	"status_code", "status_code_string", "status_message",
+	"http_url", "http_method", "http_host", "external_http_url", "external_http_method",
+	"response_status_code", "db_name", "db_operation",
+	"attributes", "events", "links",
+	"exception_type", "exception_message", "exception_stacktrace", "exception_escaped",
 }
 
-// MapSpans converts an OTLP trace export request into ingest rows.
+// MapSpans converts an OTLP trace export request into ingest rows (optimized schema).
 func MapSpans(teamID string, req ExportTraceServiceRequest) []ingest.Row {
 	rows := make([]ingest.Row, 0, 64)
 
 	for _, rs := range req.ResourceSpans {
 		resAttrs := rs.Resource.Attributes
-		serviceName := lookupAttr(resAttrs, "service.name")
-		host := lookupAttr(resAttrs, "host.name")
-		pod := lookupAttr(resAttrs, "k8s.pod.name")
-		container := lookupAttr(resAttrs, "k8s.container.name")
+		resFp := strconv.FormatUint(resourceFingerprint(resAttrs), 16)
 
 		for _, ss := range rs.ScopeSpans {
 			for _, s := range ss.Spans {
-				start := nanoToTime(s.StartTimeUnixNano)
-				end := nanoToTime(s.EndTimeUnixNano)
-				durMs := uint64(end.Sub(start).Milliseconds())
-				if durMs == 0 && !end.IsZero() && !start.IsZero() {
-					durMs = 0
+				timestamp := nanoToTime(s.StartTimeUnixNano)
+				startNano := parseNano(s.StartTimeUnixNano)
+				endNano := parseNano(s.EndTimeUnixNano)
+				durNano := uint64(0)
+				if endNano > startNano {
+					durNano = uint64(endNano - startNano)
 				}
 
-				isRoot := uint8(0)
-				if s.ParentSpanID == "" {
-					isRoot = 1
-				}
+				// ts_bucket_start: 5-minute bucket in seconds
+				tsBucket := uint64(timestamp.Unix() / 300 * 300)
 
+				// Determine has_error from status code
+				hasError := s.Status.Code == 2 // ERROR = 2
+
+				// Extract HTTP attributes
 				spanAttrs := s.Attributes
 				httpMethod := lookupAttr(spanAttrs, "http.method")
 				if httpMethod == "" {
@@ -217,52 +226,91 @@ func MapSpans(teamID string, req ExportTraceServiceRequest) []ingest.Row {
 				if httpURL == "" {
 					httpURL = lookupAttr(spanAttrs, "url.full")
 				}
-				httpStatus := int32(lookupAttrInt(spanAttrs, "http.status_code"))
-				if httpStatus == 0 {
-					httpStatus = int32(lookupAttrInt(spanAttrs, "http.response.status_code"))
+				httpHost := lookupAttr(spanAttrs, "http.host")
+				if httpHost == "" {
+					httpHost = lookupAttr(spanAttrs, "net.host.name")
+				}
+				httpStatusCode := lookupAttr(spanAttrs, "http.status_code")
+				if httpStatusCode == "" {
+					httpStatusCode = lookupAttr(spanAttrs, "http.response.status_code")
 				}
 
-				// Span host/pod/container can come from span attrs too.
-				if host == "" {
-					host = lookupAttr(spanAttrs, "host.name")
-				}
-				if pod == "" {
-					pod = lookupAttr(spanAttrs, "k8s.pod.name")
-				}
-				if container == "" {
-					container = lookupAttr(spanAttrs, "k8s.container.name")
+				// External HTTP (for CLIENT spans)
+				externalHTTPURL := ""
+				externalHTTPMethod := ""
+				if s.Kind == 3 { // CLIENT
+					externalHTTPURL = lookupAttr(spanAttrs, "http.url")
+					if externalHTTPURL == "" {
+						externalHTTPURL = lookupAttr(spanAttrs, "url.full")
+					}
+					externalHTTPMethod = httpMethod
 				}
 
-				attrsJSON := attrsToJSON(spanAttrs)
-				tags := attrsToMap(resAttrs)
-				// Merge span attributes into tags map.
-				for k, v := range attrsToMap(spanAttrs) {
-					tags[k] = v
+				// DB attributes
+				dbName := lookupAttr(spanAttrs, "db.name")
+				dbOperation := lookupAttr(spanAttrs, "db.operation")
+
+				// Exception attributes
+				exceptionType := lookupAttr(spanAttrs, "exception.type")
+				exceptionMessage := lookupAttr(spanAttrs, "exception.message")
+				exceptionStacktrace := lookupAttr(spanAttrs, "exception.stacktrace")
+				exceptionEscaped := lookupAttr(spanAttrs, "exception.escaped") == "true"
+
+				// Merge resource and span attributes into JSON
+				allAttrs := make([]KeyValue, 0, len(resAttrs)+len(spanAttrs))
+				allAttrs = append(allAttrs, resAttrs...)
+				allAttrs = append(allAttrs, spanAttrs...)
+				attrsJSON := attrsToJSON(allAttrs)
+
+				// Events (simplified - store as JSON array of strings)
+				eventsJSON := "[]"
+				if len(s.Events) > 0 {
+					eventStrs := make([]string, len(s.Events))
+					for i, e := range s.Events {
+						eventStrs[i] = e.Name
+					}
+					if b, err := json.Marshal(eventStrs); err == nil {
+						eventsJSON = string(b)
+					}
 				}
+
+				// Links (simplified - store as JSON string)
+				linksJSON := "[]"
 
 				rows = append(rows, ingest.Row{Values: []any{
+					tsBucket,
+					resFp,
 					teamID,
+					timestamp,
 					s.TraceID,
 					s.SpanID,
 					s.ParentSpanID,
-					"", // parent_service_name — not available at ingest without lookup
-					isRoot,
+					"",        // trace_state
+					uint32(0), // flags
 					s.Name,
-					serviceName,
+					int8(s.Kind),
 					spanKindString(s.Kind),
-					start,
-					end,
-					durMs,
+					durNano,
+					hasError,
+					"", // is_remote
+					int16(s.Status.Code),
 					statusCodeString(s.Status.Code),
 					s.Status.Message,
-					httpMethod,
 					httpURL,
-					httpStatus,
-					host,
-					pod,
-					container,
+					httpMethod,
+					httpHost,
+					externalHTTPURL,
+					externalHTTPMethod,
+					httpStatusCode,
+					dbName,
+					dbOperation,
 					attrsJSON,
-					tags,
+					eventsJSON,
+					linksJSON,
+					exceptionType,
+					exceptionMessage,
+					exceptionStacktrace,
+					exceptionEscaped,
 				}})
 			}
 		}

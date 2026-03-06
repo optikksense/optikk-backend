@@ -160,7 +160,7 @@ func bytesToHex(b []byte) string {
 	return ""
 }
 
-// MapSpans maps gRPC Traces Request to ingest.Row.
+// MapSpans maps gRPC Traces Request to ingest.Row (optimized schema).
 func MapSpans(teamID string, req *tracepb.ExportTraceServiceRequest) []ingest.Row {
 	var rows []ingest.Row
 	for _, rs := range req.ResourceSpans {
@@ -168,26 +168,28 @@ func MapSpans(teamID string, req *tracepb.ExportTraceServiceRequest) []ingest.Ro
 		if rs.Resource != nil {
 			resAttrs = rs.Resource.Attributes
 		}
-		serviceName := lookupAttr(resAttrs, "service.name")
-		host := lookupAttr(resAttrs, "host.name")
-		pod := lookupAttr(resAttrs, "k8s.pod.name")
-		container := lookupAttr(resAttrs, "k8s.container.name")
+		resFp := strconv.FormatUint(resourceFingerprint(resAttrs), 16)
 
 		for _, ss := range rs.ScopeSpans {
 			for _, s := range ss.Spans {
-				start := nanoToTime(s.StartTimeUnixNano)
-				end := nanoToTime(s.EndTimeUnixNano)
-				durMs := uint64(end.Sub(start).Milliseconds())
-				if durMs == 0 && !end.IsZero() && !start.IsZero() {
-					durMs = 0
+				timestamp := nanoToTime(s.StartTimeUnixNano)
+				durNano := uint64(0)
+				if s.EndTimeUnixNano > s.StartTimeUnixNano {
+					durNano = s.EndTimeUnixNano - s.StartTimeUnixNano
 				}
 
-				parentSpanID := bytesToHex(s.ParentSpanId)
-				isRoot := uint8(0)
-				if parentSpanID == "" {
-					isRoot = 1
-				}
+				// ts_bucket_start: 5-minute bucket in seconds
+				tsBucket := uint64(timestamp.Unix() / 300 * 300)
 
+				// Determine has_error from status code
+				statusMsg, statusCode := "", trace.Status_STATUS_CODE_UNSET
+				if s.Status != nil {
+					statusMsg = s.Status.Message
+					statusCode = s.Status.Code
+				}
+				hasError := statusCode == trace.Status_STATUS_CODE_ERROR
+
+				// Extract HTTP attributes
 				spanAttrs := s.Attributes
 				httpMethod := lookupAttr(spanAttrs, "http.method")
 				if httpMethod == "" {
@@ -197,56 +199,91 @@ func MapSpans(teamID string, req *tracepb.ExportTraceServiceRequest) []ingest.Ro
 				if httpURL == "" {
 					httpURL = lookupAttr(spanAttrs, "url.full")
 				}
-				httpStatus := int32(lookupAttrInt(spanAttrs, "http.status_code"))
-				if httpStatus == 0 {
-					httpStatus = int32(lookupAttrInt(spanAttrs, "http.response.status_code"))
+				httpHost := lookupAttr(spanAttrs, "http.host")
+				if httpHost == "" {
+					httpHost = lookupAttr(spanAttrs, "net.host.name")
+				}
+				httpStatusCode := lookupAttr(spanAttrs, "http.status_code")
+				if httpStatusCode == "" {
+					httpStatusCode = lookupAttr(spanAttrs, "http.response.status_code")
 				}
 
-				if host == "" {
-					host = lookupAttr(spanAttrs, "host.name")
-				}
-				if pod == "" {
-					pod = lookupAttr(spanAttrs, "k8s.pod.name")
-				}
-				if container == "" {
-					container = lookupAttr(spanAttrs, "k8s.container.name")
-				}
-
-				attrsJSON := attrsToJSON(spanAttrs)
-				tags := attrsToMap(resAttrs)
-				for k, v := range attrsToMap(spanAttrs) {
-					tags[k] = v
+				// External HTTP (for CLIENT spans)
+				externalHTTPURL := ""
+				externalHTTPMethod := ""
+				if s.Kind == trace.Span_SPAN_KIND_CLIENT {
+					externalHTTPURL = lookupAttr(spanAttrs, "http.url")
+					if externalHTTPURL == "" {
+						externalHTTPURL = lookupAttr(spanAttrs, "url.full")
+					}
+					externalHTTPMethod = httpMethod
 				}
 
-				statusMsg, statusCode := "", trace.Status_STATUS_CODE_UNSET
-				if s.Status != nil {
-					statusMsg = s.Status.Message
-					statusCode = s.Status.Code
+				// DB attributes
+				dbName := lookupAttr(spanAttrs, "db.name")
+				dbOperation := lookupAttr(spanAttrs, "db.operation")
+
+				// Exception attributes
+				exceptionType := lookupAttr(spanAttrs, "exception.type")
+				exceptionMessage := lookupAttr(spanAttrs, "exception.message")
+				exceptionStacktrace := lookupAttr(spanAttrs, "exception.stacktrace")
+				exceptionEscaped := lookupAttr(spanAttrs, "exception.escaped") == "true"
+
+				// Merge resource and span attributes into JSON
+				allAttrs := make([]*commonpb.KeyValue, 0, len(resAttrs)+len(spanAttrs))
+				allAttrs = append(allAttrs, resAttrs...)
+				allAttrs = append(allAttrs, spanAttrs...)
+				attrsJSON := attrsToJSON(allAttrs)
+
+				// Events (simplified - store as JSON array of strings)
+				eventsJSON := "[]"
+				if len(s.Events) > 0 {
+					eventStrs := make([]string, len(s.Events))
+					for i, e := range s.Events {
+						eventStrs[i] = e.Name
+					}
+					if b, err := json.Marshal(eventStrs); err == nil {
+						eventsJSON = string(b)
+					}
 				}
+
+				// Links (simplified - store as JSON string)
+				linksJSON := "[]"
 
 				rows = append(rows, ingest.Row{Values: []any{
+					tsBucket,
+					resFp,
 					teamID,
+					timestamp,
 					bytesToHex(s.TraceId),
 					bytesToHex(s.SpanId),
-					parentSpanID,
-					"", // parent_service_name
-					isRoot,
+					bytesToHex(s.ParentSpanId),
+					s.TraceState,
+					s.Flags,
 					s.Name,
-					serviceName,
+					int8(s.Kind),
 					spanKindString(s.Kind),
-					start,
-					end,
-					durMs,
+					durNano,
+					hasError,
+					"", // is_remote
+					int16(statusCode),
 					statusCodeString(statusCode),
 					statusMsg,
-					httpMethod,
 					httpURL,
-					httpStatus,
-					host,
-					pod,
-					container,
+					httpMethod,
+					httpHost,
+					externalHTTPURL,
+					externalHTTPMethod,
+					httpStatusCode,
+					dbName,
+					dbOperation,
 					attrsJSON,
-					tags,
+					eventsJSON,
+					linksJSON,
+					exceptionType,
+					exceptionMessage,
+					exceptionStacktrace,
+					exceptionEscaped,
 				}})
 			}
 		}

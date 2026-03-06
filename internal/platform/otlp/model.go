@@ -51,15 +51,31 @@ type ScopeSpans struct {
 
 // OTLPSpan mirrors the OTel Span proto fields surfaced in OTLP/JSON.
 type OTLPSpan struct {
-	TraceID           string     `json:"traceId"`
-	SpanID            string     `json:"spanId"`
-	ParentSpanID      string     `json:"parentSpanId"`
-	Name              string     `json:"name"`
-	Kind              int        `json:"kind"` // SpanKind enum 0-5
-	StartTimeUnixNano string     `json:"startTimeUnixNano"`
-	EndTimeUnixNano   string     `json:"endTimeUnixNano"`
-	Attributes        []KeyValue `json:"attributes"`
-	Status            SpanStatus `json:"status"`
+	TraceID           string      `json:"traceId"`
+	SpanID            string      `json:"spanId"`
+	ParentSpanID      string      `json:"parentSpanId"`
+	Name              string      `json:"name"`
+	Kind              int         `json:"kind"` // SpanKind enum 0-5
+	StartTimeUnixNano string      `json:"startTimeUnixNano"`
+	EndTimeUnixNano   string      `json:"endTimeUnixNano"`
+	Attributes        []KeyValue  `json:"attributes"`
+	Status            SpanStatus  `json:"status"`
+	Events            []SpanEvent `json:"events,omitempty"`
+	Links             []SpanLink  `json:"links,omitempty"`
+}
+
+// SpanEvent represents an event within a span.
+type SpanEvent struct {
+	TimeUnixNano string     `json:"timeUnixNano"`
+	Name         string     `json:"name"`
+	Attributes   []KeyValue `json:"attributes,omitempty"`
+}
+
+// SpanLink represents a link to another span.
+type SpanLink struct {
+	TraceID    string     `json:"traceId"`
+	SpanID     string     `json:"spanId"`
+	Attributes []KeyValue `json:"attributes,omitempty"`
 }
 
 // SpanStatus mirrors the OTel Status proto (code 0=UNSET,1=OK,2=ERROR).
