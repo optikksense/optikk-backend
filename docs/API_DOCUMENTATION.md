@@ -57,7 +57,7 @@ Use [`grpcurl`](https://github.com/fullstorydev/grpcurl) — it transparently tr
 
 ```bash
 grpcurl -plaintext \
-  -H "x-api-key: 3676cb53c5f82057886c8d72bbdd24c1aebe386d5639b0db24c83858b713e2ae" \
+  -H "x-api-key: 298acd2c840247ecd956fc294f81a55a775a39f8f9efbebc219f11a03997cbf2" \
   -d '{
     "resourceMetrics": [
       {
@@ -79,7 +79,7 @@ grpcurl -plaintext \
                 "unit": "1",
                 "gauge": {
                   "dataPoints": [
-                    { "timeUnixNano": "1741132860000000000", "asDouble": 0.72 }
+                    { "timeUnixNano": "1770000000000000000", "asDouble": 0.72 }
                   ]
                 }
               },
@@ -94,8 +94,8 @@ grpcurl -plaintext \
                       "attributes": [
                         { "key": "http.status_code", "value": { "intValue": "200" } }
                       ],
-                      "startTimeUnixNano": "1741132800000000000",
-                      "timeUnixNano":      "1741132860000000000",
+                      "startTimeUnixNano": "1770000000000000000",
+                      "timeUnixNano":      "1770000000000000000",
                       "asDouble": 15234
                     }
                   ]
@@ -111,8 +111,8 @@ grpcurl -plaintext \
                       "attributes": [
                         { "key": "http.route", "value": { "stringValue": "/v1/payments" } }
                       ],
-                      "startTimeUnixNano": "1741132800000000000",
-                      "timeUnixNano":      "1741132860000000000",
+                      "startTimeUnixNano": "1770000000000000000",
+                      "timeUnixNano":      "1770000000000000000",
                       "count": 1000,
                       "sum":   95000.0,
                       "min":   1.2,
@@ -164,7 +164,7 @@ curl -X POST http://localhost:4318/v1/metrics \
                 "unit": "1",
                 "gauge": {
                   "dataPoints": [
-                    { "timeUnixNano": "1741132860000000000", "asDouble": 0.72 }
+                    { "timeUnixNano": "1770000000000000000", "asDouble": 0.72 }
                   ]
                 }
               },
@@ -179,8 +179,8 @@ curl -X POST http://localhost:4318/v1/metrics \
                       "attributes": [
                         { "key": "http.status_code", "value": { "intValue": "200" } }
                       ],
-                      "startTimeUnixNano": "1741132800000000000",
-                      "timeUnixNano":      "1741132860000000000",
+                      "startTimeUnixNano": "1770000000000000000",
+                      "timeUnixNano":      "1770000000000000000",
                       "asDouble": 15234
                     }
                   ]
@@ -196,8 +196,8 @@ curl -X POST http://localhost:4318/v1/metrics \
                       "attributes": [
                         { "key": "http.route", "value": { "stringValue": "/v1/payments" } }
                       ],
-                      "startTimeUnixNano": "1741132800000000000",
-                      "timeUnixNano":      "1741132860000000000",
+                      "startTimeUnixNano": "1770000000000000000",
+                      "timeUnixNano":      "1770000000000000000",
                       "count": 1000,
                       "sum":   95000.0,
                       "min":   1.2,

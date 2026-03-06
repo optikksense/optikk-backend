@@ -169,7 +169,7 @@ CREATE TABLE IF NOT EXISTS observability.metrics (
 
     -- === INDEXES on materialized columns ===
     INDEX idx_service          service              TYPE set(200)      GRANULARITY 1,
-    INDEX idx_host             host                 TYPE bloom_filter  GRANULARITY 4,
+    INDEX idx_host             host                 TYPE bloom_filter  GRANULARITY 1,
     INDEX idx_environment      environment          TYPE set(10)       GRANULARITY 1,
     INDEX idx_k8s_namespace    k8s_namespace        TYPE set(100)      GRANULARITY 1,
     INDEX idx_http_method      http_method          TYPE set(20)       GRANULARITY 1,
@@ -185,4 +185,5 @@ TTL toDateTime(timestamp) + INTERVAL 30 DAY   TO VOLUME 'warm',
     toDateTime(timestamp) + INTERVAL 365 DAY  DELETE
 SETTINGS
     index_granularity = 8192,
+    enable_mixed_granularity_parts = 1,
     storage_policy = 'tiered_gcs';
