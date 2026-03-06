@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"math"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
@@ -16,12 +17,12 @@ import (
 // with legacy vendor variants as fallbacks.
 func dbCollectionExpression() string {
 	return fmt.Sprintf(`coalesce(
-	nullIfEmpty(%s),
-	nullIfEmpty(%s),
-	nullIfEmpty(%s),
-	nullIfEmpty(%s),
-	nullIfEmpty(%s),
-	nullIfEmpty(%s),
+	nullIf(%s, ''),
+	nullIf(%s, ''),
+	nullIf(%s, ''),
+	nullIf(%s, ''),
+	nullIf(%s, ''),
+	nullIf(%s, ''),
 	'%s'
 )`,
 		attrString(AttrDBMongoDBCollection),
@@ -40,7 +41,7 @@ func dbCollectionExpression() string {
 func dbSystemExpression() string {
 	aSystem := attrString(AttrDBSystem)
 	return fmt.Sprintf(`coalesce(
-	nullIfEmpty(%s),
+	nullIf(%s, ''),
 	if(
 		lower(%s) LIKE '%%%%mongo%%%%' OR lower(%s) LIKE '%%%%mongo%%%%',
 		'%s',
@@ -132,21 +133,25 @@ func mergeAvgLatencyMs(mongo, usage int64) int64 {
 
 // nullableFloat64FromAny converts an interface{} (usually *float64) to a float64.
 func nullableFloat64FromAny(val interface{}) float64 {
+	out := 0.0
 	switch v := val.(type) {
 	case *float64:
 		if v != nil {
-			return *v
+			out = *v
 		}
 	case float64:
-		return v
+		out = v
 	case *float32:
 		if v != nil {
-			return float64(*v)
+			out = float64(*v)
 		}
 	case float32:
-		return float64(v)
+		out = float64(v)
 	}
-	return 0
+	if math.IsNaN(out) || math.IsInf(out, 0) {
+		return 0
+	}
+	return out
 }
 
 // ──────────────────────────────────────────────────────────────────────────────

@@ -63,6 +63,7 @@ docker run -d \
   -e CLICKHOUSE_DATABASE=observability \
   -e CLICKHOUSE_USERNAME=default \
   -e CLICKHOUSE_PASSWORD=clickhouse123 \
+  -e ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173 \
   -e JWT_SECRET=your_super_secret_jwt_key_that_is_long_enough \
   -e REDIS_ENABLED=false \
   -e KAFKA_ENABLED=false \
@@ -73,6 +74,7 @@ docker run -d \
 - `GO_ENV=production`: Enforces secure defaults (requires non-default passwords and secrets).
 - `MYSQL_*`: Credentials to connect to the MySQL database.
 - `CLICKHOUSE_*`: Credentials to connect to the ClickHouse database.
+- `ALLOWED_ORIGINS`: Comma-separated UI origins allowed by CORS (for example `http://localhost:3000,http://localhost:5173`).
 - `JWT_SECRET`: A secure randomly generated secret used for signing JWT auth tokens.
 - `REDIS_ENABLED` / `KAFKA_ENABLED`: Toggle depending on whether you're using Redis for pub/sub (SSE) and token blacklisting, and Kafka for telemetry queuing. (Set to `true` and define target hosts/ports if using them).
 

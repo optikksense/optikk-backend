@@ -1,58 +1,187 @@
 package overview
 
-// Dashboard configs for the overview and metrics pages are now registered by the
-// errortracking and redmetrics modules respectively, which provide the tabbed
-// versions of these configs. This file retains the legacy constants for reference
-// but no longer registers them to avoid overwriting the new tabbed configs.
+import "github.com/observability/observability-backend-go/internal/modules/dashboardconfig"
 
+func init() {
+	dashboardconfig.RegisterDefaultConfig("overview", defaultOverview)
+}
+
+// The overview page config is owned by the overview module. The metrics page
+// continues to be registered by the redmetrics module; the constant below is
+// kept only as a legacy reference.
 const defaultOverview = `page: overview
 title: "Overview"
-icon: "Activity"
-subtitle: "Monitor your system health"
+icon: "LayoutDashboard"
+subtitle: "Service health, error tracking, and SLO compliance"
 
-dataSources:
-  - id: metrics-summary
-    endpoint: /v1/overview/summary
-  - id: metrics-timeseries
-    endpoint: /v1/overview/timeseries
-    params:
-      interval: "5m"
-  - id: endpoints-timeseries
-    endpoint: /v1/overview/endpoints/timeseries
-  - id: endpoints-metrics
-    endpoint: /v1/overview/endpoints/metrics
-  - id: overview-services
-    endpoint: /v1/overview/services
+tabs:
+  - id: summary
+    label: Summary
+    dataSources:
+      - id: overview-request-rate
+        endpoint: /v1/overview/request-rate
+      - id: overview-error-rate
+        endpoint: /v1/overview/error-rate
+      - id: overview-p95-latency
+        endpoint: /v1/overview/p95-latency
+      - id: overview-services
+        endpoint: /v1/overview/services
+      - id: overview-top-endpoints
+        endpoint: /v1/overview/top-endpoints
+    charts:
+      - id: request-rate
+        title: "Request Rate"
+        type: request
+        titleIcon: TrendingUp
+        layout:
+          col: 12
+        dataSource: overview-request-rate
+        groupByKey: service_name
+        height: 260
+      - id: error-rate
+        title: "Error Rate"
+        type: error-rate
+        titleIcon: AlertCircle
+        layout:
+          col: 12
+        dataSource: overview-error-rate
+        groupByKey: service_name
+        height: 260
+      - id: p95-latency
+        title: "p95 Latency"
+        type: latency
+        titleIcon: Clock
+        layout:
+          col: 24
+        dataSource: overview-p95-latency
+        groupByKey: service_name
+        valueKey: p95
+        height: 260
+      - id: services-table
+        title: "Services"
+        type: table
+        titleIcon: Layers
+        layout:
+          col: 12
+        dataSource: overview-services
+        height: 360
+      - id: endpoints-table
+        title: "Top Endpoints"
+        type: table
+        titleIcon: List
+        layout:
+          col: 12
+        dataSource: overview-top-endpoints
+        height: 360
 
-charts:
-  - id: request-rate
-    title: "Request Rate"
-    type: request
-    layout:
-      col: 12
-    dataSource: metrics-timeseries
-    endpointDataSource: endpoints-timeseries
-    endpointMetricsSource: endpoints-metrics
-    endpointListType: requests
-    valueKey: request_count
-  - id: error-rate
-    title: "Error Rate"
-    type: error-rate
-    layout:
-      col: 12
-    dataSource: metrics-timeseries
-    endpointDataSource: endpoints-timeseries
-    endpointMetricsSource: endpoints-metrics
-    endpointListType: errorRate
-  - id: latency-distribution
-    title: "Latency Distribution"
-    type: latency
-    layout:
-      col: 24
-    dataSource: metrics-timeseries
-    endpointDataSource: endpoints-timeseries
-    endpointMetricsSource: endpoints-metrics
-    endpointListType: latency
+  - id: errors
+    label: Errors
+    dataSources:
+      - id: exception-rate-by-type
+        endpoint: /v1/spans/exception-rate-by-type
+      - id: error-hotspot
+        endpoint: /v1/spans/error-hotspot
+      - id: http-5xx-by-route
+        endpoint: /v1/spans/http-5xx-by-route
+      - id: error-groups
+        endpoint: /v1/errors/groups
+      - id: error-timeseries
+        endpoint: /v1/errors/timeseries
+      - id: service-error-rate
+        endpoint: /v1/overview/errors/service-error-rate
+    charts:
+      - id: service-error-rate
+        title: "Service Error Rate"
+        type: error-rate
+        titleIcon: AlertCircle
+        layout:
+          col: 12
+        dataSource: service-error-rate
+        groupByKey: service
+        height: 260
+      - id: exception-rate-by-type
+        title: "Exception Rate by Type"
+        type: area
+        titleIcon: Bug
+        layout:
+          col: 12
+        dataSource: exception-rate-by-type
+        groupByKey: exceptionType
+        valueKey: count
+        height: 260
+      - id: error-hotspot
+        title: "Error Hotspot (Service × Operation)"
+        type: heatmap
+        titleIcon: Crosshair
+        layout:
+          col: 24
+        dataSource: error-hotspot
+        xKey: operationName
+        yKey: serviceName
+        valueKey: errorRate
+        height: 360
+      - id: http-5xx-by-route
+        title: "HTTP 5xx by Route"
+        type: bar
+        titleIcon: AlertTriangle
+        layout:
+          col: 12
+        dataSource: http-5xx-by-route
+        groupByKey: httpRoute
+        valueKey: count
+        height: 260
+      - id: error-groups
+        title: "Error Groups"
+        type: table
+        titleIcon: List
+        layout:
+          col: 12
+        dataSource: error-groups
+        height: 360
+
+  - id: slo
+    label: SLO
+    dataSources:
+      - id: slo-sli-insights
+        endpoint: /v1/overview/slo
+        params:
+          interval: "5m"
+    charts:
+      - id: availability
+        title: "Availability Over Time"
+        type: error-rate
+        titleIcon: Target
+        layout:
+          col: 8
+        dataSource: slo-sli-insights
+        dataKey: timeseries
+        valueField: availability_percent
+        targetThreshold: 99.9
+        datasetLabel: "Availability %"
+        color: "#12B76A"
+        height: 220
+      - id: latency-vs-target
+        title: "Latency vs Target"
+        type: latency
+        titleIcon: Clock
+        layout:
+          col: 8
+        dataSource: slo-sli-insights
+        dataKey: timeseries
+        valueField: avg_latency_ms
+        targetThreshold: 300
+        height: 220
+      - id: error-budget-burn
+        title: "Error Budget Burn"
+        type: error-rate
+        titleIcon: Flame
+        layout:
+          col: 8
+        dataSource: slo-sli-insights
+        dataKey: timeseries
+        valueField: _errorBudgetBurn
+        targetThreshold: 0.1
+        height: 220
 `
 
 const defaultMetrics = `page: metrics
@@ -61,8 +190,6 @@ icon: "BarChart3"
 subtitle: "System-wide performance metrics"
 
 dataSources:
-  - id: metrics-summary
-    endpoint: /v1/metrics/summary
   - id: metrics-timeseries
     endpoint: /v1/metrics/timeseries
     params:

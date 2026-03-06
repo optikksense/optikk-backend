@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -16,29 +15,22 @@ type tenantContextKey string
 const tenantKey tenantContextKey = "tenant"
 
 // CORSMiddleware restricts cross-origin requests to explicitly allowed origins.
-// Set ALLOWED_ORIGINS env var to a comma-separated list of origins (e.g. "https://app.example.com,https://dashboard.example.com").
-// Falls back to "http://localhost:5173" only in development when ALLOWED_ORIGINS is not set.
-func CORSMiddleware() gin.HandlerFunc {
-	allowedOrigins := os.Getenv("ALLOWED_ORIGINS")
+// allowedOrigins should be a comma-separated list from configuration
+// (for example: "http://localhost:3000,http://localhost:5173").
+func CORSMiddleware(allowedOrigins string) gin.HandlerFunc {
 	originSet := make(map[string]bool)
-	if allowedOrigins != "" {
-		for _, o := range strings.Split(allowedOrigins, ",") {
-			originSet[strings.TrimSpace(o)] = true
+	for _, o := range strings.Split(allowedOrigins, ",") {
+		origin := strings.TrimSpace(o)
+		if origin == "" {
+			continue
 		}
+		originSet[origin] = true
 	}
 
 	return func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
-		if len(originSet) > 0 {
-			if originSet[origin] {
-				c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
-				c.Writer.Header().Set("Vary", "Origin")
-			}
-			// If origin is not in the allowed set, omit the header entirely.
-		} else {
-			// No ALLOWED_ORIGINS configured — default to strict local development mode.
-			// Prevent wildcard '*' in production if forgot to set env var.
-			c.Writer.Header().Set("Access-Control-Allow-Origin", "http://localhost:5173")
+		if originSet[origin] {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 			c.Writer.Header().Set("Vary", "Origin")
 		}
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")

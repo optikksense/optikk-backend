@@ -100,8 +100,21 @@ func ParseListParam(c *gin.Context, key string) []string {
 }
 
 func ParseRange(c *gin.Context, defaultMs int64) (int64, int64) {
-	end := ParseInt64Param(c, "endTime", time.Now().UnixMilli())
-	start := ParseInt64Param(c, "startTime", end-defaultMs)
+	now := time.Now().UnixMilli()
+	end := ParseInt64Param(c, "endTime", 0)
+	if end <= 0 {
+		end = ParseInt64Param(c, "end", now)
+	}
+	start := ParseInt64Param(c, "startTime", 0)
+	if start <= 0 {
+		start = ParseInt64Param(c, "start", end-defaultMs)
+	}
+	if end <= 0 {
+		end = now
+	}
+	if start <= 0 || start >= end {
+		start = end - defaultMs
+	}
 	return start, end
 }
 

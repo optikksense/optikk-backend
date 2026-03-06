@@ -413,7 +413,9 @@ func (r *ClickHouseRepository) GetLatencyHistogram(ctx context.Context, teamUUID
 }
 
 func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamUUID string, startMs, endMs int64, serviceName string) ([]LatencyHeatmapPoint, error) {
-	bucket := rawTimeBucketExpr(startMs, endMs, "s.timestamp")
+	// The outer SELECT groups rows from a subquery that exposes `timestamp`
+	// (without the `s.` alias), so use that column name for bucket expressions.
+	bucket := rawTimeBucketExpr(startMs, endMs, "timestamp")
 	query := fmt.Sprintf(`
 		SELECT %s as time_bucket,
 		       CASE

@@ -235,16 +235,10 @@ func MapSpans(teamID string, req *tracepb.ExportTraceServiceRequest) []ingest.Ro
 				allAttrs = append(allAttrs, spanAttrs...)
 				attrsJSON := attrsToJSON(allAttrs)
 
-				// Events (simplified - store as JSON array of strings)
-				eventsJSON := "[]"
-				if len(s.Events) > 0 {
-					eventStrs := make([]string, len(s.Events))
-					for i, e := range s.Events {
-						eventStrs[i] = e.Name
-					}
-					if b, err := json.Marshal(eventStrs); err == nil {
-						eventsJSON = string(b)
-					}
+				// Events column is Array(String), so pass native []string values.
+				eventNames := make([]string, 0, len(s.Events))
+				for _, e := range s.Events {
+					eventNames = append(eventNames, e.Name)
 				}
 
 				// Links (simplified - store as JSON string)
@@ -278,7 +272,7 @@ func MapSpans(teamID string, req *tracepb.ExportTraceServiceRequest) []ingest.Ro
 					dbName,
 					dbOperation,
 					attrsJSON,
-					eventsJSON,
+					eventNames,
 					linksJSON,
 					exceptionType,
 					exceptionMessage,

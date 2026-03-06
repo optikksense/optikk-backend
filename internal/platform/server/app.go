@@ -13,13 +13,13 @@ import (
 	"github.com/observability/observability-backend-go/internal/config"
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/ai"
+	"github.com/observability/observability-backend-go/internal/modules/apm"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 	"github.com/observability/observability-backend-go/internal/modules/dashboardconfig"
-	nodes "github.com/observability/observability-backend-go/internal/modules/infrastructure/nodes"
-	"github.com/observability/observability-backend-go/internal/modules/infrastructure/resource_utilisation"
-	"github.com/observability/observability-backend-go/internal/modules/apm"
 	"github.com/observability/observability-backend-go/internal/modules/httpmetrics"
 	kubernetes "github.com/observability/observability-backend-go/internal/modules/infrastructure/kubernetes"
+	nodes "github.com/observability/observability-backend-go/internal/modules/infrastructure/nodes"
+	"github.com/observability/observability-backend-go/internal/modules/infrastructure/resource_utilisation"
 	logsapi "github.com/observability/observability-backend-go/internal/modules/log"
 	overviewerrors "github.com/observability/observability-backend-go/internal/modules/overview/errors"
 	overviewmodule "github.com/observability/observability-backend-go/internal/modules/overview/overview"
@@ -363,7 +363,7 @@ func (a *App) Router() *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(middleware.ErrorRecovery())
-	r.Use(middleware.CORSMiddleware())
+	r.Use(middleware.CORSMiddleware(a.Config.AllowedOrigins))
 
 	// Health check endpoints (unauthenticated, no rate limits).
 	r.GET("/health", a.healthLive)
@@ -389,7 +389,7 @@ func (a *App) OTLPRouter() *gin.Engine {
 	r := gin.New()
 	r.Use(gin.Logger())
 	r.Use(middleware.ErrorRecovery())
-	r.Use(middleware.CORSMiddleware())
+	r.Use(middleware.CORSMiddleware(a.Config.AllowedOrigins))
 
 	// Use the OTLP HTTP handler to register routes
 	// Note: Authentication is handled inside the handler (resolves API key from headers)

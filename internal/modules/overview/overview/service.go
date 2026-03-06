@@ -1,13 +1,12 @@
 package overview
 
-import ()
-
 // Service encapsulates the business logic for the overview module.
 type Service interface {
-	GetSummary(teamUUID string, startMs, endMs int64) (Summary, error)
-	GetTimeSeries(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
+	GetRequestRate(teamUUID string, startMs, endMs int64, serviceName string) ([]RequestRatePoint, error)
+	GetErrorRate(teamUUID string, startMs, endMs int64, serviceName string) ([]ErrorRatePoint, error)
+	GetP95Latency(teamUUID string, startMs, endMs int64, serviceName string) ([]P95LatencyPoint, error)
 	GetServices(teamUUID string, startMs, endMs int64) ([]ServiceMetric, error)
-	GetEndpointMetrics(teamUUID string, startMs, endMs int64, serviceName string) ([]EndpointMetric, error)
+	GetTopEndpoints(teamUUID string, startMs, endMs int64, serviceName string) ([]EndpointMetric, error)
 	GetEndpointTimeSeries(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
 }
 
@@ -21,20 +20,24 @@ func NewService(repo Repository) Service {
 	return &OverviewService{repo: repo}
 }
 
-func (s *OverviewService) GetSummary(teamUUID string, startMs, endMs int64) (Summary, error) {
-	return s.repo.GetSummary(teamUUID, startMs, endMs)
+func (s *OverviewService) GetRequestRate(teamUUID string, startMs, endMs int64, serviceName string) ([]RequestRatePoint, error) {
+	return s.repo.GetRequestRate(teamUUID, startMs, endMs, serviceName)
 }
 
-func (s *OverviewService) GetTimeSeries(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
-	return s.repo.GetTimeSeries(teamUUID, startMs, endMs, serviceName)
+func (s *OverviewService) GetErrorRate(teamUUID string, startMs, endMs int64, serviceName string) ([]ErrorRatePoint, error) {
+	return s.repo.GetErrorRate(teamUUID, startMs, endMs, serviceName)
+}
+
+func (s *OverviewService) GetP95Latency(teamUUID string, startMs, endMs int64, serviceName string) ([]P95LatencyPoint, error) {
+	return s.repo.GetP95Latency(teamUUID, startMs, endMs, serviceName)
 }
 
 func (s *OverviewService) GetServices(teamUUID string, startMs, endMs int64) ([]ServiceMetric, error) {
 	return s.repo.GetServices(teamUUID, startMs, endMs)
 }
 
-func (s *OverviewService) GetEndpointMetrics(teamUUID string, startMs, endMs int64, serviceName string) ([]EndpointMetric, error) {
-	return s.repo.GetEndpointMetrics(teamUUID, startMs, endMs, serviceName)
+func (s *OverviewService) GetTopEndpoints(teamUUID string, startMs, endMs int64, serviceName string) ([]EndpointMetric, error) {
+	return s.repo.GetTopEndpoints(teamUUID, startMs, endMs, serviceName)
 }
 
 func (s *OverviewService) GetEndpointTimeSeries(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {

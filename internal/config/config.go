@@ -84,7 +84,7 @@ func Load() Config {
 		RedisHost:    getEnv("REDIS_HOST", "localhost"),
 		RedisPort:    getEnv("REDIS_PORT", "6379"),
 
-		AllowedOrigins: getEnv("ALLOWED_ORIGINS", ""),
+		AllowedOrigins: getEnv("ALLOWED_ORIGINS", "http://localhost:3000,http://localhost:5173"),
 
 		GRPCPort:             getEnv("GRPC_PORT", "4317"),
 		HTTPPortOTLP:         getEnv("HTTP_PORT_OTLP", "4318"),

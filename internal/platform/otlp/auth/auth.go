@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"github.com/observability/observability-backend-go/internal/helpers"
 )
 
 var (
@@ -35,7 +37,7 @@ func NewAuthenticator(db *sql.DB) *Authenticator {
 	}
 }
 
-// ResolveTeamID returns the stringified team ID for the given API key.
+// ResolveTeamID returns the canonical team UUID string for the given API key.
 // It uses a 5-minute in-memory cache to prevent database thrashing.
 func (a *Authenticator) ResolveTeamID(ctx context.Context, apiKey string) (string, error) {
 	if apiKey == "" {
@@ -63,7 +65,7 @@ func (a *Authenticator) ResolveTeamID(ctx context.Context, apiKey string) (strin
 		return "", fmt.Errorf("%w: %v", ErrResolveFailed, err)
 	}
 
-	resolvedTeamID := fmt.Sprintf("%d", teamID)
+	resolvedTeamID := helpers.ToTeamUUID(teamID)
 
 	// Cache the valid resolution for 5 minutes.
 	a.cacheMutex.Lock()

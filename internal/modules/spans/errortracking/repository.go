@@ -30,7 +30,7 @@ func (r *ClickHouseRepository) GetExceptionRateByType(teamUUID string, startMs, 
 	bucket := timebucket.ExprForColumn(startMs, endMs, "e.timestamp")
 	query := fmt.Sprintf(`
 		SELECT %s AS time_bucket,
-		       JSONExtractString(e.attributes, 'exception.type') AS exception_type,
+		       JSONExtractString(e.attributes, 'exception.type')  AS exception_type,
 		       count()                                            AS event_count
 		FROM observability.span_events e
 		WHERE e.team_id = ? AND e.name = 'exception' AND e.timestamp BETWEEN ? AND ?`, bucket)
@@ -100,7 +100,7 @@ func (r *ClickHouseRepository) GetErrorHotspot(teamUUID string, startMs, endMs i
 // GetHTTP5xxByRoute returns counts of HTTP 5xx responses grouped by http.route.
 func (r *ClickHouseRepository) GetHTTP5xxByRoute(teamUUID string, startMs, endMs int64, serviceName string) ([]HTTP5xxByRoute, error) {
 	query := `
-		SELECT JSONExtractString(s.attributes, 'http.route') AS http_route,
+		SELECT s.attributes.'http.route'::String AS http_route,
 		       r.service_name,
 		       count()                                        AS count_5xx
 		FROM observability.spans s

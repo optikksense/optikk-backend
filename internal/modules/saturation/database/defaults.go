@@ -1,6 +1,8 @@
 package database
 
 import (
+	"math"
+
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/dashboardconfig"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
@@ -97,7 +99,20 @@ func syncAggregateExpr(expr1, expr2 string) string {
 	return "coalesce(" + expr1 + ", " + expr2 + ")"
 }
 
+func finiteOrNil(v *float64) *float64 {
+	if v == nil {
+		return nil
+	}
+	if math.IsNaN(*v) || math.IsInf(*v, 0) {
+		return nil
+	}
+	return v
+}
+
 func mergeNullableFloatPair(val1, val2 *float64) *float64 {
+	val1 = finiteOrNil(val1)
+	val2 = finiteOrNil(val2)
+
 	if val1 != nil && val2 != nil {
 		avg := (*val1 + *val2) / 2
 		return &avg

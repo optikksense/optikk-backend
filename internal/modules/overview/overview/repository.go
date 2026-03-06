@@ -15,10 +15,11 @@ func overviewBucketExpr(startMs, endMs int64) string {
 
 // Repository encapsulates data access logic for overview dashboards.
 type Repository interface {
-	GetSummary(teamUUID string, startMs, endMs int64) (Summary, error)
-	GetTimeSeries(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
+	GetRequestRate(teamUUID string, startMs, endMs int64, serviceName string) ([]RequestRatePoint, error)
+	GetErrorRate(teamUUID string, startMs, endMs int64, serviceName string) ([]ErrorRatePoint, error)
+	GetP95Latency(teamUUID string, startMs, endMs int64, serviceName string) ([]P95LatencyPoint, error)
 	GetServices(teamUUID string, startMs, endMs int64) ([]ServiceMetric, error)
-	GetEndpointMetrics(teamUUID string, startMs, endMs int64, serviceName string) ([]EndpointMetric, error)
+	GetTopEndpoints(teamUUID string, startMs, endMs int64, serviceName string) ([]EndpointMetric, error)
 	GetEndpointTimeSeries(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
 }
 
@@ -32,72 +33,113 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) GetSummary(teamUUID string, startMs, endMs int64) (Summary, error) {
-	row, err := dbutil.QueryMap(r.db, `
-		SELECT total_requests,
-		       error_count,
-		       if(total_requests > 0, error_count*100.0/total_requests, 0) AS error_rate,
-		       avg_latency,
-		       p95_latency,
-		       p99_latency
-		FROM (
-			SELECT count()                         AS total_requests,
-			       countIf(`+ErrorCondition()+`) AS error_count,
-			       avg(`+ColDurationMs+`)                AS avg_latency,
-			       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(`+ColDurationMs+`)     AS p95_latency,
-			       quantile(`+fmt.Sprintf("%.2f", QuantileP99)+`)(`+ColDurationMs+`)     AS p99_latency
-			FROM spans
-			WHERE `+ColTeamID+` = ? AND `+RootSpanCondition()+` AND `+ColStartTime+` BETWEEN ? AND ?
-		)
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
-	if err != nil {
-		return Summary{}, err
-	}
-
-	return Summary{
-		TotalRequests: dbutil.Int64FromAny(row["total_requests"]),
-		ErrorCount:    dbutil.Int64FromAny(row["error_count"]),
-		ErrorRate:     dbutil.Float64FromAny(row["error_rate"]),
-		AvgLatency:    dbutil.Float64FromAny(row["avg_latency"]),
-		P95Latency:    dbutil.Float64FromAny(row["p95_latency"]),
-		P99Latency:    dbutil.Float64FromAny(row["p99_latency"]),
-	}, nil
-}
-
-func (r *ClickHouseRepository) GetTimeSeries(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
+func (r *ClickHouseRepository) GetRequestRate(teamUUID string, startMs, endMs int64, serviceName string) ([]RequestRatePoint, error) {
 	bucket := overviewBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT %s                          AS time_bucket,
-		       count()                         AS request_count,
-		       countIf(`+ErrorCondition()+`) AS error_count,
-		       avg(`+ColDurationMs+`)                AS avg_latency,
-		       quantile(`+fmt.Sprintf("%.1f", QuantileP50)+`)(`+ColDurationMs+`)      AS p50,
-		       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(`+ColDurationMs+`)     AS p95,
-		       quantile(`+fmt.Sprintf("%.2f", QuantileP99)+`)(`+ColDurationMs+`)     AS p99
-		FROM spans
-		WHERE `+ColTeamID+` = ? AND `+RootSpanCondition()+` AND `+ColStartTime+` BETWEEN ? AND ?`, bucket)
+		SELECT time_bucket, service_name, request_count
+		FROM (
+			SELECT %s AS time_bucket,
+			       `+ColServiceName+` AS service_name,
+			       count() AS request_count
+			FROM spans
+			WHERE `+ColTeamID+` = ? AND `+RootSpanCondition()+` AND `+ColStartTime+` BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND ` + ColServiceName + ` = ?`
 		args = append(args, serviceName)
 	}
-	query += fmt.Sprintf(` GROUP BY %s ORDER BY time_bucket ASC`, bucket)
+	query += fmt.Sprintf(` GROUP BY %s, `+ColServiceName+`
+		)
+		ORDER BY time_bucket ASC, service_name ASC`, bucket)
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
 		return nil, err
 	}
 
-	points := make([]TimeSeriesPoint, len(rows))
+	points := make([]RequestRatePoint, len(rows))
 	for i, row := range rows {
-		points[i] = TimeSeriesPoint{
+		points[i] = RequestRatePoint{
 			Timestamp:    dbutil.TimeFromAny(row["time_bucket"]),
+			ServiceName:  dbutil.StringFromAny(row["service_name"]),
+			RequestCount: dbutil.Int64FromAny(row["request_count"]),
+		}
+	}
+	return points, nil
+}
+
+func (r *ClickHouseRepository) GetErrorRate(teamUUID string, startMs, endMs int64, serviceName string) ([]ErrorRatePoint, error) {
+	bucket := overviewBucketExpr(startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT time_bucket,
+		       service_name,
+		       request_count,
+		       error_count,
+		       if(request_count > 0, error_count*100.0/request_count, 0) AS error_rate
+		FROM (
+			SELECT %s AS time_bucket,
+			       `+ColServiceName+` AS service_name,
+			       count() AS request_count,
+			       countIf(`+ErrorCondition()+`) AS error_count
+			FROM spans
+			WHERE `+ColTeamID+` = ? AND `+RootSpanCondition()+` AND `+ColStartTime+` BETWEEN ? AND ?`, bucket)
+	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	if serviceName != "" {
+		query += ` AND ` + ColServiceName + ` = ?`
+		args = append(args, serviceName)
+	}
+	query += fmt.Sprintf(` GROUP BY %s, `+ColServiceName+`
+		)
+		ORDER BY time_bucket ASC, service_name ASC`, bucket)
+
+	rows, err := dbutil.QueryMaps(r.db, query, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	points := make([]ErrorRatePoint, len(rows))
+	for i, row := range rows {
+		points[i] = ErrorRatePoint{
+			Timestamp:    dbutil.TimeFromAny(row["time_bucket"]),
+			ServiceName:  dbutil.StringFromAny(row["service_name"]),
 			RequestCount: dbutil.Int64FromAny(row["request_count"]),
 			ErrorCount:   dbutil.Int64FromAny(row["error_count"]),
-			AvgLatency:   dbutil.Float64FromAny(row["avg_latency"]),
-			P50:          dbutil.Float64FromAny(row["p50"]),
-			P95:          dbutil.Float64FromAny(row["p95"]),
-			P99:          dbutil.Float64FromAny(row["p99"]),
+			ErrorRate:    dbutil.Float64FromAny(row["error_rate"]),
+		}
+	}
+	return points, nil
+}
+
+func (r *ClickHouseRepository) GetP95Latency(teamUUID string, startMs, endMs int64, serviceName string) ([]P95LatencyPoint, error) {
+	bucket := overviewBucketExpr(startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT time_bucket, service_name, p95
+		FROM (
+			SELECT %s AS time_bucket,
+			       `+ColServiceName+` AS service_name,
+			       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(`+ColDurationMs+`) AS p95
+			FROM spans
+			WHERE `+ColTeamID+` = ? AND `+RootSpanCondition()+` AND `+ColStartTime+` BETWEEN ? AND ?`, bucket)
+	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	if serviceName != "" {
+		query += ` AND ` + ColServiceName + ` = ?`
+		args = append(args, serviceName)
+	}
+	query += fmt.Sprintf(` GROUP BY %s, `+ColServiceName+`
+		)
+		ORDER BY time_bucket ASC, service_name ASC`, bucket)
+
+	rows, err := dbutil.QueryMaps(r.db, query, args...)
+	if err != nil {
+		return nil, err
+	}
+
+	points := make([]P95LatencyPoint, len(rows))
+	for i, row := range rows {
+		points[i] = P95LatencyPoint{
+			Timestamp:   dbutil.TimeFromAny(row["time_bucket"]),
+			ServiceName: dbutil.StringFromAny(row["service_name"]),
+			P95:         dbutil.Float64FromAny(row["p95"]),
 		}
 	}
 	return points, nil
@@ -139,17 +181,17 @@ func (r *ClickHouseRepository) GetServices(teamUUID string, startMs, endMs int64
 	return services, nil
 }
 
-func (r *ClickHouseRepository) GetEndpointMetrics(teamUUID string, startMs, endMs int64, serviceName string) ([]EndpointMetric, error) {
+func (r *ClickHouseRepository) GetTopEndpoints(teamUUID string, startMs, endMs int64, serviceName string) ([]EndpointMetric, error) {
 	query := `
 		SELECT service_name, operation_name, http_method, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
 		FROM (
 			SELECT ` + ColServiceName + `, ` + ColOperationName + `, ` + ColHTTPMethod + `,
-			       count()                        AS request_count,
+			       count() AS request_count,
 			       countIf(` + ErrorCondition() + `) AS error_count,
-			       avg(` + ColDurationMs + `)               AS avg_latency,
-			       quantile(` + fmt.Sprintf("%.1f", QuantileP50) + `)(` + ColDurationMs + `)     AS p50_latency,
-			       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(` + ColDurationMs + `)    AS p95_latency,
-			       quantile(` + fmt.Sprintf("%.2f", QuantileP99) + `)(` + ColDurationMs + `)    AS p99_latency
+			       avg(` + ColDurationMs + `) AS avg_latency,
+			       quantile(` + fmt.Sprintf("%.1f", QuantileP50) + `)(` + ColDurationMs + `) AS p50_latency,
+			       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(` + ColDurationMs + `) AS p95_latency,
+			       quantile(` + fmt.Sprintf("%.2f", QuantileP99) + `)(` + ColDurationMs + `) AS p99_latency
 			FROM spans
 			WHERE ` + ColTeamID + ` = ? AND ` + RootSpanCondition() + ` AND ` + ColStartTime + ` BETWEEN ? AND ?`
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
@@ -157,7 +199,8 @@ func (r *ClickHouseRepository) GetEndpointMetrics(teamUUID string, startMs, endM
 		query += ` AND ` + ColServiceName + ` = ?`
 		args = append(args, serviceName)
 	}
-	query += ` GROUP BY ` + ColServiceName + `, ` + ColOperationName + `, ` + ColHTTPMethod + `
+	query += `
+		GROUP BY ` + ColServiceName + `, ` + ColOperationName + `, ` + ColHTTPMethod + `
 		)
 		ORDER BY request_count DESC
 		LIMIT 100`

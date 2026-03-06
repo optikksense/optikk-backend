@@ -14,29 +14,45 @@ type OverviewHandler struct {
 	Service Service
 }
 
-// GetSummary returns the KPI summary for the overview page.
-func (h *OverviewHandler) GetSummary(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 60*60*1000)
-
-	summary, err := h.Service.GetSummary(teamUUID, startMs, endMs)
-	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview summary")
-		return
-	}
-
-	RespondOK(c, summary)
-}
-
-// GetTimeSeries returns overview time-series buckets.
-func (h *OverviewHandler) GetTimeSeries(c *gin.Context) {
+// GetRequestRate returns per-service request-rate buckets for the summary tab.
+func (h *OverviewHandler) GetRequestRate(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	startMs, endMs := ParseRange(c, 60*60*1000)
 	serviceName := c.Query("serviceName")
 
-	points, err := h.Service.GetTimeSeries(teamUUID, startMs, endMs, serviceName)
+	points, err := h.Service.GetRequestRate(teamUUID, startMs, endMs, serviceName)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview time series")
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview request rate")
+		return
+	}
+
+	RespondOK(c, points)
+}
+
+// GetErrorRate returns per-service error-rate buckets for the summary tab.
+func (h *OverviewHandler) GetErrorRate(c *gin.Context) {
+	teamUUID := h.GetTenant(c).TeamUUID()
+	startMs, endMs := ParseRange(c, 60*60*1000)
+	serviceName := c.Query("serviceName")
+
+	points, err := h.Service.GetErrorRate(teamUUID, startMs, endMs, serviceName)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview error rate")
+		return
+	}
+
+	RespondOK(c, points)
+}
+
+// GetP95Latency returns per-service p95 latency buckets for the summary tab.
+func (h *OverviewHandler) GetP95Latency(c *gin.Context) {
+	teamUUID := h.GetTenant(c).TeamUUID()
+	startMs, endMs := ParseRange(c, 60*60*1000)
+	serviceName := c.Query("serviceName")
+
+	points, err := h.Service.GetP95Latency(teamUUID, startMs, endMs, serviceName)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview p95 latency")
 		return
 	}
 
@@ -57,15 +73,15 @@ func (h *OverviewHandler) GetServices(c *gin.Context) {
 	RespondOK(c, rows)
 }
 
-// GetEndpointMetrics returns endpoint aggregates for the overview page.
-func (h *OverviewHandler) GetEndpointMetrics(c *gin.Context) {
+// GetTopEndpoints returns endpoint aggregates for the overview page.
+func (h *OverviewHandler) GetTopEndpoints(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	startMs, endMs := ParseRange(c, 60*60*1000)
 	serviceName := c.Query("serviceName")
 
-	rows, err := h.Service.GetEndpointMetrics(teamUUID, startMs, endMs, serviceName)
+	rows, err := h.Service.GetTopEndpoints(teamUUID, startMs, endMs, serviceName)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview endpoint metrics")
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview top endpoints")
 		return
 	}
 

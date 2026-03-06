@@ -65,7 +65,7 @@ func (r *ClickHouseRepository) GetTopErrorOperations(teamUUID string, startMs, e
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.name                                                       AS operation_name,
 		       r.service_name,
-		       JSONExtractString(s.attributes, 'exception.type')            AS exception_type,
+		       s.attributes.'exception.type'::String                        AS exception_type,
 		       count()                                                       AS total_count,
 		       countIf(s.has_error = true OR s.response_status_code >= '400') AS error_count,
 		       if(count() > 0,

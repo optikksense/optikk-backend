@@ -4,27 +4,6 @@ import (
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
-type SummaryAggregator struct{}
-
-func NewSummaryAggregator() *SummaryAggregator {
-	return &SummaryAggregator{}
-}
-
-func (a *SummaryAggregator) Aggregate(rows []map[string]any) (any, error) {
-	if len(rows) == 0 {
-		return Summary{}, nil
-	}
-	row := rows[0]
-	return Summary{
-		TotalRequests: dbutil.Int64FromAny(row["request_count"]),
-		ErrorCount:    dbutil.Int64FromAny(row["error_count"]),
-		ErrorRate:     dbutil.Float64FromAny(row["error_rate"]),
-		AvgLatency:    dbutil.Float64FromAny(row["http.server.request.duration"]),
-		P95Latency:    dbutil.Float64FromAny(row["p95_latency"]),
-		P99Latency:    dbutil.Float64FromAny(row["p99_latency"]),
-	}, nil
-}
-
 type TimeSeriesAggregator struct{}
 
 func NewTimeSeriesAggregator() *TimeSeriesAggregator {

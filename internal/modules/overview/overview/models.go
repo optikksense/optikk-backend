@@ -2,14 +2,27 @@ package overview
 
 import "time"
 
-// Summary represents the top-level KPI row for the overview page.
-type Summary struct {
-	TotalRequests int64   `json:"total_requests"`
-	ErrorCount    int64   `json:"error_count"`
-	ErrorRate     float64 `json:"error_rate"`
-	AvgLatency    float64 `json:"avg_latency"`
-	P95Latency    float64 `json:"p95_latency"`
-	P99Latency    float64 `json:"p99_latency"`
+// RequestRatePoint represents request-volume for a service at a time bucket.
+type RequestRatePoint struct {
+	Timestamp    time.Time `json:"timestamp"`
+	ServiceName  string    `json:"service_name,omitempty"`
+	RequestCount int64     `json:"request_count"`
+}
+
+// ErrorRatePoint represents request/error counts for a service at a time bucket.
+type ErrorRatePoint struct {
+	Timestamp    time.Time `json:"timestamp"`
+	ServiceName  string    `json:"service_name,omitempty"`
+	RequestCount int64     `json:"request_count"`
+	ErrorCount   int64     `json:"error_count"`
+	ErrorRate    float64   `json:"error_rate"`
+}
+
+// P95LatencyPoint represents p95 latency for a service at a time bucket.
+type P95LatencyPoint struct {
+	Timestamp   time.Time `json:"timestamp"`
+	ServiceName string    `json:"service_name,omitempty"`
+	P95         float64   `json:"p95"`
 }
 
 // ServiceMetric represents aggregate metrics for a service.
