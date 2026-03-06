@@ -1,0 +1,152 @@
+{
+  "id": "apm",
+  "pageId": "metrics",
+  "label": "APM",
+  "order": 30,
+  "components": [
+    {
+      "componentKey": "stat-card",
+      "formatter": "ms",
+      "id": "rpc-p95-duration",
+      "layout": {
+        "col": 6
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/apm/rpc-duration",
+        "method": "GET"
+      },
+      "title": "RPC p95 Duration",
+      "titleIcon": "Clock",
+      "valueField": "p95"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "ms",
+      "id": "rpc-p99-duration",
+      "layout": {
+        "col": 6
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/apm/rpc-duration",
+        "method": "GET"
+      },
+      "title": "RPC p99 Duration",
+      "titleIcon": "Clock",
+      "valueField": "p99"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "bytes",
+      "id": "rss-memory",
+      "layout": {
+        "col": 6
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/apm/process-memory",
+        "method": "GET"
+      },
+      "title": "RSS Memory",
+      "titleIcon": "HardDrive",
+      "valueField": "rss"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "bytes",
+      "id": "virtual-memory",
+      "layout": {
+        "col": 6
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/apm/process-memory",
+        "method": "GET"
+      },
+      "title": "Virtual Memory",
+      "titleIcon": "HardDrive",
+      "valueField": "vms"
+    },
+    {
+      "componentKey": "area",
+      "height": 260,
+      "id": "apm-rpc-request-rate",
+      "layout": {
+        "col": 12
+      },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/apm/rpc-request-rate",
+        "method": "GET"
+      },
+      "title": "RPC Request Rate",
+      "titleIcon": "Activity",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "stat",
+      "height": 120,
+      "id": "apm-messaging-duration",
+      "layout": {
+        "col": 12
+      },
+      "order": 60,
+      "query": {
+        "endpoint": "/v1/apm/messaging-publish-duration",
+        "method": "GET"
+      },
+      "title": "Messaging Publish Duration p50/p95/p99",
+      "titleIcon": "Send"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "state",
+      "height": 260,
+      "id": "apm-process-cpu",
+      "layout": {
+        "col": 12
+      },
+      "order": 70,
+      "query": {
+        "endpoint": "/v1/apm/process-cpu",
+        "method": "GET"
+      },
+      "title": "Process CPU Time by State",
+      "titleIcon": "Cpu",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "area",
+      "height": 260,
+      "id": "apm-open-fds",
+      "layout": {
+        "col": 12
+      },
+      "order": 80,
+      "query": {
+        "endpoint": "/v1/apm/open-fds",
+        "method": "GET"
+      },
+      "title": "Open File Descriptors",
+      "titleIcon": "FileText",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "area",
+      "height": 260,
+      "id": "apm-uptime",
+      "layout": {
+        "col": 24
+      },
+      "order": 90,
+      "query": {
+        "endpoint": "/v1/apm/uptime",
+        "method": "GET"
+      },
+      "title": "Process Uptime",
+      "titleIcon": "Clock",
+      "valueKey": "value"
+    }
+  ]
+}

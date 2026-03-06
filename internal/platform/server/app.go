@@ -12,10 +12,11 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/observability/observability-backend-go/internal/config"
 	dbutil "github.com/observability/observability-backend-go/internal/database"
+	configdefaults "github.com/observability/observability-backend-go/internal/defaultconfig"
 	"github.com/observability/observability-backend-go/internal/modules/ai"
 	"github.com/observability/observability-backend-go/internal/modules/apm"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
-	"github.com/observability/observability-backend-go/internal/modules/dashboardconfig"
+	defaultconfig "github.com/observability/observability-backend-go/internal/modules/defaultconfig"
 	"github.com/observability/observability-backend-go/internal/modules/httpmetrics"
 	kubernetes "github.com/observability/observability-backend-go/internal/modules/infrastructure/kubernetes"
 	nodes "github.com/observability/observability-backend-go/internal/modules/infrastructure/nodes"
@@ -71,7 +72,7 @@ type moduleConfigs struct {
 	REDMetrics          redmetrics.Config
 	ErrorTracking       errortracking.Config
 	AI                  ai.Config
-	DashboardConfig     dashboardconfig.Config
+	DefaultConfig       defaultconfig.Config
 }
 
 func defaultModuleConfigs() moduleConfigs {
@@ -96,7 +97,7 @@ func defaultModuleConfigs() moduleConfigs {
 		REDMetrics:          redmetrics.DefaultConfig(),
 		ErrorTracking:       errortracking.DefaultConfig(),
 		AI:                  ai.DefaultConfig(),
-		DashboardConfig:     dashboardconfig.DefaultConfig(),
+		DefaultConfig:       defaultconfig.DefaultConfig(),
 	}
 }
 
@@ -128,7 +129,7 @@ type App struct {
 	HTTPMetrics         *httpmetrics.HTTPMetricsHandler
 	APM                 *apm.APMHandler
 	AI                  *ai.AIHandler
-	DashboardConfig     *dashboardconfig.DashboardConfigHandler
+	DefaultConfig       *defaultconfig.Handler
 
 	// OTLP ingest handlers & queues.
 	OTLPHTTP     *otlp.Handler
@@ -148,10 +149,15 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 
 	userStore := usermodule.NewStore(db)
 
-	// Ensure dashboard-config storage exists so page config APIs can always
-	// serve defaults/fallbacks even on a freshly reset database.
-	if err := dashboardconfig.NewRepository(db).EnsureTable(); err != nil {
-		log.Printf("WARN: failed to ensure dashboard_chart_configs table: %v", err)
+	registry, err := configdefaults.Load()
+	if err != nil {
+		log.Fatalf("failed to load embedded default config registry: %v", err)
+	}
+
+	// Ensure default-config storage exists so page override APIs can always
+	// serve file defaults even on a freshly reset database.
+	if err := defaultconfig.NewRepository(db).EnsureTable(); err != nil {
+		log.Printf("WARN: failed to ensure default_page_configs table: %v", err)
 	}
 
 	var blacklist *auth.TokenBlacklist
@@ -341,14 +347,13 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				ai.NewRepository(dbutil.NewMySQLWrapper(ch)),
 			),
 		},
-		DashboardConfig: &dashboardconfig.DashboardConfigHandler{
+		DefaultConfig: &defaultconfig.Handler{
 			DBTenant: modulecommon.DBTenant{
 				DB:        db,
 				GetTenant: getTenant,
 			},
-			Service: dashboardconfig.NewService(
-				dashboardconfig.NewRepository(db),
-			),
+			Repo:     defaultconfig.NewRepository(db),
+			Registry: registry,
 		},
 
 		OTLPHTTP:     otlpHTTPHandler,
@@ -421,7 +426,7 @@ func (a *App) registerRoutesToGroup(v1 *gin.RouterGroup) {
 	redmetrics.RegisterRoutes(cfg.REDMetrics, v1, a.REDMetrics)
 	errortracking.RegisterRoutes(cfg.ErrorTracking, v1, a.ErrorTracking)
 	ai.RegisterRoutes(cfg.AI, v1, a.AI)
-	dashboardconfig.RegisterRoutes(cfg.DashboardConfig, v1, a.DashboardConfig)
+	defaultconfig.RegisterRoutes(cfg.DefaultConfig, v1, a.DefaultConfig)
 }
 
 func (a *App) healthLive(c *gin.Context) {

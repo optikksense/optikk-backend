@@ -1,0 +1,391 @@
+{
+  "id": "resource-utilization",
+  "pageId": "infrastructure",
+  "label": "Resource Utilization",
+  "order": 10,
+  "components": [
+    {
+      "componentKey": "stat-card",
+      "formatter": "percent1",
+      "id": "avg-cpu",
+      "layout": {
+        "col": 6
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/infrastructure/resource-utilisation/avg-cpu",
+        "method": "GET"
+      },
+      "title": "Avg CPU",
+      "titleIcon": "Cpu",
+      "valueField": "value"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "percent1",
+      "id": "avg-memory",
+      "layout": {
+        "col": 6
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/infrastructure/resource-utilisation/avg-memory",
+        "method": "GET"
+      },
+      "title": "Avg Memory",
+      "titleIcon": "HardDrive",
+      "valueField": "value"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "percent1",
+      "id": "avg-network",
+      "layout": {
+        "col": 6
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/infrastructure/resource-utilisation/avg-network",
+        "method": "GET"
+      },
+      "title": "Avg Network",
+      "titleIcon": "Network",
+      "valueField": "value"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "percent1",
+      "id": "avg-conn-pool",
+      "layout": {
+        "col": 6
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/infrastructure/resource-utilisation/avg-conn-pool",
+        "method": "GET"
+      },
+      "title": "Avg Conn Pool",
+      "titleIcon": "Database",
+      "valueField": "value"
+    },
+    {
+      "componentKey": "request",
+      "datasetLabel": "CPU Util",
+      "groupByKey": "pod",
+      "height": 260,
+      "id": "cpu-usage",
+      "layout": {
+        "col": 12
+      },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/infrastructure/resource-utilisation/cpu-usage-percentage",
+        "method": "GET"
+      },
+      "title": "CPU Usage Percentage",
+      "titleIcon": "Cpu",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "request",
+      "datasetLabel": "Mem Util",
+      "groupByKey": "pod",
+      "height": 260,
+      "id": "memory-usage",
+      "layout": {
+        "col": 12
+      },
+      "order": 60,
+      "query": {
+        "endpoint": "/v1/infrastructure/resource-utilisation/memory-usage-percentage",
+        "method": "GET"
+      },
+      "title": "Memory Usage Percentage",
+      "titleIcon": "HardDrive",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "table",
+      "height": 320,
+      "id": "by-service",
+      "layout": {
+        "col": 24
+      },
+      "order": 70,
+      "query": {
+        "endpoint": "/v1/infrastructure/resource-utilisation/by-service",
+        "method": "GET"
+      },
+      "title": "Resource Usage by Service",
+      "titleIcon": "Layers"
+    },
+    {
+      "componentKey": "table",
+      "height": 320,
+      "id": "by-instance",
+      "layout": {
+        "col": 24
+      },
+      "order": 80,
+      "query": {
+        "endpoint": "/v1/infrastructure/resource-utilisation/by-instance",
+        "method": "GET"
+      },
+      "title": "Resource Usage by Instance",
+      "titleIcon": "Server"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "state",
+      "height": 260,
+      "id": "infra-cpu-time",
+      "layout": {
+        "col": 12
+      },
+      "order": 90,
+      "query": {
+        "endpoint": "/v1/infrastructure/cpu-time",
+        "method": "GET"
+      },
+      "title": "CPU Time by State",
+      "titleIcon": "Cpu",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "state",
+      "height": 260,
+      "id": "infra-memory-usage",
+      "layout": {
+        "col": 12
+      },
+      "order": 100,
+      "query": {
+        "endpoint": "/v1/infrastructure/memory-usage",
+        "method": "GET"
+      },
+      "title": "Memory Usage by State",
+      "titleIcon": "HardDrive",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "state",
+      "height": 260,
+      "id": "infra-swap-usage",
+      "layout": {
+        "col": 12
+      },
+      "order": 110,
+      "query": {
+        "endpoint": "/v1/infrastructure/swap-usage",
+        "method": "GET"
+      },
+      "title": "Swap Usage by State",
+      "titleIcon": "HardDrive",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "stat",
+      "height": 120,
+      "id": "infra-load-average",
+      "layout": {
+        "col": 12
+      },
+      "order": 120,
+      "query": {
+        "endpoint": "/v1/infrastructure/load-average",
+        "method": "GET"
+      },
+      "title": "Load Average (1m / 5m / 15m)",
+      "titleIcon": "Activity"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "direction",
+      "height": 260,
+      "id": "infra-disk-io",
+      "layout": {
+        "col": 12
+      },
+      "order": 130,
+      "query": {
+        "endpoint": "/v1/infrastructure/disk-io",
+        "method": "GET"
+      },
+      "title": "Disk I/O (Read / Write)",
+      "titleIcon": "HardDrive",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "direction",
+      "height": 260,
+      "id": "infra-disk-operations",
+      "layout": {
+        "col": 12
+      },
+      "order": 140,
+      "query": {
+        "endpoint": "/v1/infrastructure/disk-operations",
+        "method": "GET"
+      },
+      "title": "Disk Operations (Read / Write)",
+      "titleIcon": "HardDrive",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "pod",
+      "height": 260,
+      "id": "infra-disk-io-time",
+      "layout": {
+        "col": 12
+      },
+      "order": 150,
+      "query": {
+        "endpoint": "/v1/infrastructure/disk-io-time",
+        "method": "GET"
+      },
+      "title": "Disk I/O Time",
+      "titleIcon": "Clock",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "mountpoint",
+      "height": 260,
+      "id": "infra-filesystem-usage",
+      "layout": {
+        "col": 12
+      },
+      "order": 160,
+      "query": {
+        "endpoint": "/v1/infrastructure/filesystem-usage",
+        "method": "GET"
+      },
+      "title": "Filesystem Usage by Mountpoint",
+      "titleIcon": "FolderOpen",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "pod",
+      "height": 260,
+      "id": "infra-filesystem-util",
+      "layout": {
+        "col": 12
+      },
+      "order": 170,
+      "query": {
+        "endpoint": "/v1/infrastructure/filesystem-utilization",
+        "method": "GET"
+      },
+      "title": "Filesystem Utilization",
+      "titleIcon": "FolderOpen",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "direction",
+      "height": 260,
+      "id": "infra-network-io",
+      "layout": {
+        "col": 12
+      },
+      "order": 180,
+      "query": {
+        "endpoint": "/v1/infrastructure/network-io",
+        "method": "GET"
+      },
+      "title": "Network I/O (Transmit / Receive)",
+      "titleIcon": "Network",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "direction",
+      "height": 260,
+      "id": "infra-network-packets",
+      "layout": {
+        "col": 12
+      },
+      "order": 190,
+      "query": {
+        "endpoint": "/v1/infrastructure/network-packets",
+        "method": "GET"
+      },
+      "title": "Network Packets (Transmit / Receive)",
+      "titleIcon": "Network",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "state",
+      "height": 260,
+      "id": "infra-network-errors",
+      "layout": {
+        "col": 12
+      },
+      "order": 200,
+      "query": {
+        "endpoint": "/v1/infrastructure/network-errors",
+        "method": "GET"
+      },
+      "title": "Network Errors by State",
+      "titleIcon": "AlertTriangle",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "pod",
+      "height": 260,
+      "id": "infra-network-dropped",
+      "layout": {
+        "col": 12
+      },
+      "order": 210,
+      "query": {
+        "endpoint": "/v1/infrastructure/network-dropped",
+        "method": "GET"
+      },
+      "title": "Dropped Packets",
+      "titleIcon": "AlertTriangle",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "state",
+      "height": 260,
+      "id": "infra-process-count",
+      "layout": {
+        "col": 12
+      },
+      "order": 220,
+      "query": {
+        "endpoint": "/v1/infrastructure/process-count",
+        "method": "GET"
+      },
+      "title": "Process Count by Status",
+      "titleIcon": "Activity",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "state",
+      "height": 260,
+      "id": "infra-network-connections",
+      "layout": {
+        "col": 12
+      },
+      "order": 230,
+      "query": {
+        "endpoint": "/v1/infrastructure/network-connections",
+        "method": "GET"
+      },
+      "title": "Network Connections by State",
+      "titleIcon": "Network",
+      "valueKey": "value"
+    }
+  ]
+}

@@ -28,6 +28,20 @@ func (h *NodeHandler) GetInfrastructureNodes(c *gin.Context) {
 	RespondOK(c, rows)
 }
 
+// GetInfrastructureNodeSummary returns aggregate counts for node dashboard stat cards.
+func (h *NodeHandler) GetInfrastructureNodeSummary(c *gin.Context) {
+	teamUUID := h.GetTenant(c).TeamUUID()
+	startMs, endMs := ParseRange(c, 60*60*1000)
+
+	summary, err := h.Service.GetInfrastructureNodeSummary(teamUUID, startMs, endMs)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query node summary")
+		return
+	}
+
+	RespondOK(c, summary)
+}
+
 // GetInfrastructureNodeServices returns services running on a specific host.
 func (h *NodeHandler) GetInfrastructureNodeServices(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()

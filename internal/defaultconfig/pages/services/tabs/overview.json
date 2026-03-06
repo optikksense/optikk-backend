@@ -1,0 +1,59 @@
+{
+  "id": "overview",
+  "pageId": "services",
+  "label": "Overview",
+  "order": 10,
+  "components": [
+    {
+      "componentKey": "request",
+      "groupByKey": "service",
+      "id": "services-request-rate",
+      "layout": {
+        "col": 12
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/services/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "Service Request Rate"
+    },
+    {
+      "componentKey": "error-rate",
+      "groupByKey": "service",
+      "id": "services-error-rate",
+      "layout": {
+        "col": 12
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/services/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "Service Error Rate"
+    },
+    {
+      "componentKey": "latency",
+      "groupByKey": "service",
+      "id": "services-latency",
+      "layout": {
+        "col": 24
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/services/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "Service Latency"
+    }
+  ]
+}

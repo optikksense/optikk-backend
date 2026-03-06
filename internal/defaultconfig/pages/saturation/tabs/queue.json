@@ -1,0 +1,153 @@
+{
+  "id": "queue",
+  "pageId": "saturation",
+  "label": "Message Queue",
+  "order": 30,
+  "components": [
+    {
+      "componentKey": "stat-card",
+      "formatter": "ms",
+      "id": "operation-p95-duration",
+      "layout": {
+        "col": 6
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/saturation/queue/operation-duration",
+        "method": "GET"
+      },
+      "title": "Operation p95 Duration",
+      "titleIcon": "Clock",
+      "valueField": "p95"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "ms",
+      "id": "operation-p99-duration",
+      "layout": {
+        "col": 6
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/saturation/queue/operation-duration",
+        "method": "GET"
+      },
+      "title": "Operation p99 Duration",
+      "titleIcon": "Clock",
+      "valueField": "p99"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "number",
+      "id": "published-sec",
+      "layout": {
+        "col": 6
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/saturation/queue/message-rates",
+        "method": "GET"
+      },
+      "title": "Published/sec",
+      "titleIcon": "ArrowUp",
+      "valueField": "published_per_sec"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "number",
+      "id": "consumed-sec",
+      "layout": {
+        "col": 6
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/saturation/queue/message-rates",
+        "method": "GET"
+      },
+      "title": "Consumed/sec",
+      "titleIcon": "ArrowDown",
+      "valueField": "consumed_per_sec"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "queue",
+      "height": 260,
+      "id": "queue-consumer-lag",
+      "layout": {
+        "col": 12
+      },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/saturation/queue/consumer-lag",
+        "method": "GET"
+      },
+      "title": "Consumer Lag by Queue",
+      "titleIcon": "Layers",
+      "valueKey": "avg_consumer_lag"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "queue",
+      "height": 260,
+      "id": "queue-topic-lag",
+      "layout": {
+        "col": 12
+      },
+      "order": 60,
+      "query": {
+        "endpoint": "/v1/saturation/queue/topic-lag",
+        "method": "GET"
+      },
+      "title": "Queue Depth by Topic",
+      "titleIcon": "BarChart",
+      "valueKey": "avg_queue_depth"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "topic",
+      "height": 260,
+      "id": "queue-offset-commit-rate",
+      "layout": {
+        "col": 12
+      },
+      "order": 70,
+      "query": {
+        "endpoint": "/v1/saturation/queue/offset-commit-rate",
+        "method": "GET"
+      },
+      "title": "Consumer Offset by Topic",
+      "titleIcon": "Activity",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "table",
+      "height": 320,
+      "id": "queue-lag-detail",
+      "layout": {
+        "col": 12
+      },
+      "order": 80,
+      "query": {
+        "endpoint": "/v1/saturation/queue/consumer-lag-detail",
+        "method": "GET"
+      },
+      "title": "Consumer Lag per Partition",
+      "titleIcon": "Table"
+    },
+    {
+      "componentKey": "table",
+      "height": 320,
+      "id": "queue-top-queues",
+      "layout": {
+        "col": 24
+      },
+      "order": 90,
+      "query": {
+        "endpoint": "/v1/saturation/queue/top-queues",
+        "method": "GET"
+      },
+      "title": "Top Queues",
+      "titleIcon": "List"
+    }
+  ]
+}

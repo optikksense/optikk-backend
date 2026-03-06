@@ -1,0 +1,86 @@
+{
+  "id": "http",
+  "pageId": "metrics",
+  "label": "HTTP",
+  "order": 20,
+  "components": [
+    {
+      "componentKey": "request",
+      "groupByKey": "status_code",
+      "height": 260,
+      "id": "http-request-rate",
+      "layout": {
+        "col": 12
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/http/request-rate",
+        "method": "GET"
+      },
+      "title": "HTTP Request Rate by Status Code",
+      "titleIcon": "Globe",
+      "valueKey": "count"
+    },
+    {
+      "componentKey": "stat",
+      "height": 120,
+      "id": "http-request-duration",
+      "layout": {
+        "col": 12
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/http/request-duration",
+        "method": "GET"
+      },
+      "title": "HTTP Server Request Duration p50/p95/p99",
+      "titleIcon": "Clock"
+    },
+    {
+      "componentKey": "area",
+      "height": 260,
+      "id": "http-active-requests",
+      "layout": {
+        "col": 12
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/http/active-requests",
+        "method": "GET"
+      },
+      "title": "Active HTTP Requests",
+      "titleIcon": "Activity",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "stat",
+      "height": 120,
+      "id": "http-client-duration",
+      "layout": {
+        "col": 12
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/http/client-duration",
+        "method": "GET"
+      },
+      "title": "Outbound HTTP Duration p50/p95/p99",
+      "titleIcon": "ArrowUpRight"
+    },
+    {
+      "componentKey": "stat",
+      "height": 120,
+      "id": "dns-tls-duration",
+      "layout": {
+        "col": 24
+      },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/http/dns-duration",
+        "method": "GET"
+      },
+      "title": "DNS Lookup \u0026 TLS Handshake Duration",
+      "titleIcon": "Shield"
+    }
+  ]
+}

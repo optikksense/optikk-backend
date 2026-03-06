@@ -1,0 +1,91 @@
+{
+  "id": "errors",
+  "pageId": "overview",
+  "label": "Errors",
+  "order": 20,
+  "components": [
+    {
+      "componentKey": "error-rate",
+      "groupByKey": "service",
+      "height": 260,
+      "id": "service-error-rate",
+      "layout": {
+        "col": 12
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/overview/errors/service-error-rate",
+        "method": "GET"
+      },
+      "title": "Service Error Rate",
+      "titleIcon": "AlertCircle"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "exceptionType",
+      "height": 260,
+      "id": "exception-rate-by-type",
+      "layout": {
+        "col": 12
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/spans/exception-rate-by-type",
+        "method": "GET"
+      },
+      "title": "Exception Rate by Type",
+      "titleIcon": "Bug",
+      "valueKey": "count"
+    },
+    {
+      "componentKey": "heatmap",
+      "height": 360,
+      "id": "error-hotspot",
+      "layout": {
+        "col": 24
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/spans/error-hotspot",
+        "method": "GET"
+      },
+      "title": "Error Hotspot (Service × Operation)",
+      "titleIcon": "Crosshair",
+      "valueKey": "errorRate",
+      "xKey": "operationName",
+      "yKey": "serviceName"
+    },
+    {
+      "componentKey": "bar",
+      "groupByKey": "httpRoute",
+      "height": 260,
+      "id": "http-5xx-by-route",
+      "layout": {
+        "col": 12
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/spans/http-5xx-by-route",
+        "method": "GET"
+      },
+      "title": "HTTP 5xx by Route",
+      "titleIcon": "AlertTriangle",
+      "valueKey": "count"
+    },
+    {
+      "componentKey": "table",
+      "height": 360,
+      "id": "error-groups",
+      "layout": {
+        "col": 12
+      },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/errors/groups",
+        "method": "GET"
+      },
+      "title": "Error Groups",
+      "titleIcon": "List"
+    }
+  ]
+}

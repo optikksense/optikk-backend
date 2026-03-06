@@ -24,3 +24,11 @@ type InfrastructureNodeService struct {
 	P95LatencyMs float64 `json:"p95_latency_ms"`
 	PodCount     int64   `json:"pod_count"`
 }
+
+// InfrastructureNodeSummary captures aggregate node counts for dashboard stat cards.
+type InfrastructureNodeSummary struct {
+	HealthyNodes   int64 `json:"healthy_nodes"`
+	DegradedNodes  int64 `json:"degraded_nodes"`
+	UnhealthyNodes int64 `json:"unhealthy_nodes"`
+	TotalPods      int64 `json:"total_pods"`
+}

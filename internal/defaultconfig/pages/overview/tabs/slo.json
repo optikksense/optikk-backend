@@ -1,0 +1,73 @@
+{
+  "id": "slo",
+  "pageId": "overview",
+  "label": "SLO",
+  "order": 30,
+  "components": [
+    {
+      "color": "#12B76A",
+      "componentKey": "error-rate",
+      "dataKey": "timeseries",
+      "datasetLabel": "Availability %",
+      "height": 220,
+      "id": "availability",
+      "layout": {
+        "col": 8
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/overview/slo",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "targetThreshold": 99.9,
+      "title": "Availability Over Time",
+      "titleIcon": "Target",
+      "valueField": "availability_percent"
+    },
+    {
+      "componentKey": "latency",
+      "dataKey": "timeseries",
+      "height": 220,
+      "id": "latency-vs-target",
+      "layout": {
+        "col": 8
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/overview/slo",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "targetThreshold": 300,
+      "title": "Latency vs Target",
+      "titleIcon": "Clock",
+      "valueField": "avg_latency_ms"
+    },
+    {
+      "componentKey": "error-rate",
+      "dataKey": "timeseries",
+      "height": 220,
+      "id": "error-budget-burn",
+      "layout": {
+        "col": 8
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/overview/slo",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "targetThreshold": 0.1,
+      "title": "Error Budget Burn",
+      "titleIcon": "Flame",
+      "valueField": "_errorBudgetBurn"
+    }
+  ]
+}

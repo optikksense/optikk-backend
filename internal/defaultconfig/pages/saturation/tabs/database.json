@@ -1,0 +1,199 @@
+{
+  "id": "database",
+  "pageId": "saturation",
+  "label": "Database",
+  "order": 10,
+  "components": [
+    {
+      "componentKey": "stat-card",
+      "formatter": "ms",
+      "id": "avg-query-latency",
+      "layout": {
+        "col": 6
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/saturation/database/latency-summary",
+        "method": "GET"
+      },
+      "title": "Avg Query Latency",
+      "titleIcon": "Clock",
+      "valueField": "avg_query_latency_ms"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "ms",
+      "id": "p95-query-latency",
+      "layout": {
+        "col": 6
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/saturation/database/latency-summary",
+        "method": "GET"
+      },
+      "title": "p95 Query Latency",
+      "titleIcon": "Clock",
+      "valueField": "p95_query_latency_ms"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "number",
+      "id": "db-span-count",
+      "layout": {
+        "col": 6
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/saturation/database/latency-summary",
+        "method": "GET"
+      },
+      "title": "DB Span Count",
+      "titleIcon": "Activity",
+      "valueField": "db_span_count"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "number",
+      "id": "cache-hit-rate",
+      "layout": {
+        "col": 6
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/saturation/database/latency-summary",
+        "method": "GET"
+      },
+      "title": "Cache Hit Rate",
+      "titleIcon": "Database",
+      "valueField": "cache_hits"
+    },
+    {
+      "componentKey": "latency",
+      "height": 260,
+      "id": "db-avg-latency",
+      "layout": {
+        "col": 12
+      },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/saturation/database/avg-latency",
+        "method": "GET"
+      },
+      "title": "Average Query Latency",
+      "titleIcon": "Clock",
+      "valueKey": "avg_latency_ms"
+    },
+    {
+      "componentKey": "table",
+      "height": 260,
+      "id": "db-systems",
+      "layout": {
+        "col": 12
+      },
+      "order": 60,
+      "query": {
+        "endpoint": "/v1/saturation/database/systems",
+        "method": "GET"
+      },
+      "title": "Database Systems",
+      "titleIcon": "Database"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "state",
+      "height": 260,
+      "id": "db-connection-count",
+      "layout": {
+        "col": 12
+      },
+      "order": 70,
+      "query": {
+        "endpoint": "/v1/saturation/database/connection-count",
+        "method": "GET"
+      },
+      "title": "Connection Count by State",
+      "titleIcon": "Network",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "area",
+      "height": 260,
+      "id": "db-connection-pending",
+      "layout": {
+        "col": 12
+      },
+      "order": 80,
+      "query": {
+        "endpoint": "/v1/saturation/database/connection-pending",
+        "method": "GET"
+      },
+      "title": "Pending Connection Requests",
+      "titleIcon": "Clock",
+      "valueKey": "avg_latency_ms"
+    },
+    {
+      "componentKey": "area",
+      "height": 260,
+      "id": "db-connection-timeouts",
+      "layout": {
+        "col": 12
+      },
+      "order": 90,
+      "query": {
+        "endpoint": "/v1/saturation/database/connection-timeouts",
+        "method": "GET"
+      },
+      "title": "Connection Timeouts",
+      "titleIcon": "AlertTriangle",
+      "valueKey": "avg_latency_ms"
+    },
+    {
+      "componentKey": "stat",
+      "height": 120,
+      "id": "db-query-duration",
+      "layout": {
+        "col": 12
+      },
+      "order": 100,
+      "query": {
+        "endpoint": "/v1/saturation/database/query-duration",
+        "method": "GET"
+      },
+      "title": "Query Duration p50/p95/p99",
+      "titleIcon": "Activity"
+    },
+    {
+      "componentKey": "table",
+      "height": 320,
+      "id": "db-top-tables",
+      "layout": {
+        "col": 24
+      },
+      "order": 110,
+      "query": {
+        "endpoint": "/v1/saturation/database/top-tables",
+        "method": "GET"
+      },
+      "title": "Top Tables by Latency",
+      "titleIcon": "Table"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "table",
+      "height": 280,
+      "id": "db-query-by-table",
+      "layout": {
+        "col": 24
+      },
+      "order": 120,
+      "query": {
+        "endpoint": "/v1/saturation/database/query-by-table",
+        "method": "GET"
+      },
+      "title": "Query Volume by Table",
+      "titleIcon": "BarChart",
+      "valueKey": "avg_latency_ms"
+    }
+  ]
+}

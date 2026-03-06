@@ -1,0 +1,12 @@
+{
+  "id": "service-detail",
+  "path": "/services/:serviceName",
+  "label": "Service Detail",
+  "icon": "Server",
+  "group": "observe",
+  "order": 999,
+  "defaultTabId": "overview",
+  "navigable": false,
+  "title": "Service Detail",
+  "subtitle": "Service endpoint, error, and dependency drill-down"
+}

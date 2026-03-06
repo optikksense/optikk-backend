@@ -1,0 +1,154 @@
+{
+  "id": "overview",
+  "pageId": "ai-observability",
+  "label": "Overview",
+  "order": 10,
+  "components": [
+    {
+      "componentKey": "stat-card",
+      "formatter": "number",
+      "id": "summary-total-requests",
+      "layout": {
+        "col": 6
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/ai/summary",
+        "method": "GET"
+      },
+      "title": "Total Requests",
+      "titleIcon": "Activity",
+      "valueField": "request_count"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "number",
+      "id": "summary-total-cost",
+      "layout": {
+        "col": 6
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/ai/summary",
+        "method": "GET"
+      },
+      "title": "Total Cost",
+      "titleIcon": "DollarSign",
+      "valueField": "total_cost_usd"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "number",
+      "id": "summary-guardrail-blocks",
+      "layout": {
+        "col": 6
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/ai/summary",
+        "method": "GET"
+      },
+      "title": "Guardrail Blocks",
+      "titleIcon": "Shield",
+      "valueField": "guardrail_count"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "number",
+      "id": "summary-pii-detections",
+      "layout": {
+        "col": 6
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/ai/summary",
+        "method": "GET"
+      },
+      "title": "PII Detections",
+      "titleIcon": "Eye",
+      "valueField": "pii_count"
+    },
+    {
+      "componentKey": "ai-line",
+      "groupByKey": "model_name",
+      "height": 220,
+      "id": "qps",
+      "layout": {
+        "col": 12
+      },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/ai/performance/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "QPS per Model",
+      "titleIcon": "TrendingDown",
+      "valueKey": "qps"
+    },
+    {
+      "componentKey": "ai-line",
+      "groupByKey": "model_name",
+      "height": 220,
+      "id": "avg-latency",
+      "layout": {
+        "col": 12
+      },
+      "order": 60,
+      "query": {
+        "endpoint": "/v1/ai/performance/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "Avg Latency ms per Model",
+      "titleIcon": "Clock",
+      "valueKey": "avg_latency_ms"
+    },
+    {
+      "componentKey": "ai-line",
+      "groupByKey": "model_name",
+      "height": 220,
+      "id": "cost-over-time",
+      "layout": {
+        "col": 12
+      },
+      "order": 70,
+      "query": {
+        "endpoint": "/v1/ai/cost/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "Cost per Interval (USD)",
+      "titleIcon": "Activity",
+      "valueKey": "cost_per_interval",
+      "yDecimals": 4,
+      "yPrefix": "$"
+    },
+    {
+      "componentKey": "ai-line",
+      "groupByKey": "model_name",
+      "height": 220,
+      "id": "pii-detections",
+      "layout": {
+        "col": 12
+      },
+      "order": 80,
+      "query": {
+        "endpoint": "/v1/ai/security/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "PII Detections per Model",
+      "titleIcon": "ShieldCheck",
+      "valueKey": "pii_count"
+    }
+  ]
+}

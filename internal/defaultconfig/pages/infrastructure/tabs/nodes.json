@@ -1,0 +1,87 @@
+{
+  "id": "nodes",
+  "pageId": "infrastructure",
+  "label": "Nodes",
+  "order": 40,
+  "components": [
+    {
+      "componentKey": "stat-card",
+      "formatter": "number",
+      "id": "healthy-nodes",
+      "layout": {
+        "col": 6
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/infrastructure/nodes/summary",
+        "method": "GET"
+      },
+      "title": "Healthy Nodes",
+      "titleIcon": "CheckCircle2",
+      "valueField": "healthy_nodes"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "number",
+      "id": "degraded-nodes",
+      "layout": {
+        "col": 6
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/infrastructure/nodes/summary",
+        "method": "GET"
+      },
+      "title": "Degraded Nodes",
+      "titleIcon": "AlertTriangle",
+      "valueField": "degraded_nodes"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "number",
+      "id": "unhealthy-nodes",
+      "layout": {
+        "col": 6
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/infrastructure/nodes/summary",
+        "method": "GET"
+      },
+      "title": "Unhealthy Nodes",
+      "titleIcon": "XCircle",
+      "valueField": "unhealthy_nodes"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "number",
+      "id": "total-pods",
+      "layout": {
+        "col": 6
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/infrastructure/nodes/summary",
+        "method": "GET"
+      },
+      "title": "Total Pods",
+      "titleIcon": "Box",
+      "valueField": "total_pods"
+    },
+    {
+      "componentKey": "table",
+      "height": 420,
+      "id": "nodes-table",
+      "layout": {
+        "col": 24
+      },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/infrastructure/nodes",
+        "method": "GET"
+      },
+      "title": "Nodes",
+      "titleIcon": "Server"
+    }
+  ]
+}

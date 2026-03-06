@@ -19,5 +19,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *NodeHandler) {
 	}
 
 	v1.GET("/infrastructure/nodes", h.GetInfrastructureNodes)
+	v1.GET("/infrastructure/nodes/summary", h.GetInfrastructureNodeSummary)
 	v1.GET("/infrastructure/nodes/:host/services", h.GetInfrastructureNodeServices)
 }

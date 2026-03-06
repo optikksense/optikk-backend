@@ -1,0 +1,83 @@
+{
+  "id": "default",
+  "pageId": "traces",
+  "label": "Traces",
+  "order": 10,
+  "components": [
+    {
+      "componentKey": "request",
+      "datasetLabel": "Request Rate",
+      "groupByKey": "service_name",
+      "height": 260,
+      "id": "request-rate",
+      "layout": {
+        "col": 12
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/metrics/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "Request Rate",
+      "titleIcon": "TrendingUp",
+      "valueKey": "request_count"
+    },
+    {
+      "componentKey": "error-rate",
+      "groupByKey": "service_name",
+      "height": 260,
+      "id": "error-rate",
+      "layout": {
+        "col": 12
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/metrics/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "Error Rate",
+      "titleIcon": "AlertCircle"
+    },
+    {
+      "componentKey": "latency",
+      "groupByKey": "service_name",
+      "height": 260,
+      "id": "p95-latency",
+      "layout": {
+        "col": 12
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/metrics/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "p95 Latency",
+      "titleIcon": "Clock",
+      "valueKey": "p95"
+    },
+    {
+      "componentKey": "latency-histogram",
+      "height": 260,
+      "id": "latency-histogram",
+      "layout": {
+        "col": 12
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/latency/histogram",
+        "method": "GET"
+      },
+      "title": "Latency Histogram",
+      "titleIcon": "BarChart3"
+    }
+  ]
+}

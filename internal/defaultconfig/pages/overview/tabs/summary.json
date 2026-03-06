@@ -1,0 +1,87 @@
+{
+  "id": "summary",
+  "pageId": "overview",
+  "label": "Summary",
+  "order": 10,
+  "components": [
+    {
+      "componentKey": "request",
+      "groupByKey": "service_name",
+      "height": 260,
+      "id": "request-rate",
+      "layout": {
+        "col": 12
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/overview/request-rate",
+        "method": "GET"
+      },
+      "title": "Request Rate",
+      "titleIcon": "TrendingUp"
+    },
+    {
+      "componentKey": "error-rate",
+      "groupByKey": "service_name",
+      "height": 260,
+      "id": "error-rate",
+      "layout": {
+        "col": 12
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/overview/error-rate",
+        "method": "GET"
+      },
+      "title": "Error Rate",
+      "titleIcon": "AlertCircle"
+    },
+    {
+      "componentKey": "latency",
+      "groupByKey": "service_name",
+      "height": 260,
+      "id": "p95-latency",
+      "layout": {
+        "col": 24
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/overview/p95-latency",
+        "method": "GET"
+      },
+      "title": "p95 Latency",
+      "titleIcon": "Clock",
+      "valueKey": "p95"
+    },
+    {
+      "componentKey": "table",
+      "height": 360,
+      "id": "services-table",
+      "layout": {
+        "col": 12
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/overview/services",
+        "method": "GET"
+      },
+      "title": "Services",
+      "titleIcon": "Layers"
+    },
+    {
+      "componentKey": "table",
+      "height": 360,
+      "id": "endpoints-table",
+      "layout": {
+        "col": 12
+      },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/overview/top-endpoints",
+        "method": "GET"
+      },
+      "title": "Top Endpoints",
+      "titleIcon": "List"
+    }
+  ]
+}

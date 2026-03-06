@@ -1,0 +1,155 @@
+{
+  "id": "jvm",
+  "pageId": "infrastructure",
+  "label": "JVM Runtime",
+  "order": 20,
+  "components": [
+    {
+      "componentKey": "stat-card",
+      "formatter": "ms",
+      "id": "gc-p95-duration",
+      "layout": {
+        "col": 6
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/infrastructure/jvm/gc-duration",
+        "method": "GET"
+      },
+      "title": "GC p95 Duration",
+      "titleIcon": "Trash2",
+      "valueField": "p95"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "ms",
+      "id": "gc-p99-duration",
+      "layout": {
+        "col": 6
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/infrastructure/jvm/gc-duration",
+        "method": "GET"
+      },
+      "title": "GC p99 Duration",
+      "titleIcon": "Trash2",
+      "valueField": "p99"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "ns",
+      "id": "jvm-cpu-time",
+      "layout": {
+        "col": 6
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/infrastructure/jvm/cpu",
+        "method": "GET"
+      },
+      "title": "JVM CPU Time",
+      "titleIcon": "Cpu",
+      "valueField": "cpu_time_value"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "percent2",
+      "id": "jvm-cpu-utilization",
+      "layout": {
+        "col": 6
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/infrastructure/jvm/cpu",
+        "method": "GET"
+      },
+      "title": "JVM CPU Utilization",
+      "titleIcon": "Cpu",
+      "valueField": "recent_utilization"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "pool_name",
+      "height": 300,
+      "id": "jvm-memory",
+      "layout": {
+        "col": 24
+      },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/infrastructure/jvm/memory",
+        "method": "GET"
+      },
+      "title": "JVM Memory (Used / Committed / Limit)",
+      "titleIcon": "HardDrive",
+      "valueKey": "used"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "pod",
+      "height": 260,
+      "id": "jvm-gc-collections",
+      "layout": {
+        "col": 12
+      },
+      "order": 60,
+      "query": {
+        "endpoint": "/v1/infrastructure/jvm/gc-collections",
+        "method": "GET"
+      },
+      "title": "GC Collections by Collector",
+      "titleIcon": "Trash2",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "state",
+      "height": 260,
+      "id": "jvm-threads",
+      "layout": {
+        "col": 12
+      },
+      "order": 70,
+      "query": {
+        "endpoint": "/v1/infrastructure/jvm/threads",
+        "method": "GET"
+      },
+      "title": "Thread Count by State",
+      "titleIcon": "Activity",
+      "valueKey": "value"
+    },
+    {
+      "componentKey": "area",
+      "groupByKey": "pool_name",
+      "height": 260,
+      "id": "jvm-buffers",
+      "layout": {
+        "col": 12
+      },
+      "order": 80,
+      "query": {
+        "endpoint": "/v1/infrastructure/jvm/buffers",
+        "method": "GET"
+      },
+      "title": "Buffer Pool Memory Usage",
+      "titleIcon": "Database",
+      "valueKey": "memory_usage"
+    },
+    {
+      "componentKey": "stat",
+      "height": 120,
+      "id": "jvm-classes",
+      "layout": {
+        "col": 12
+      },
+      "order": 90,
+      "query": {
+        "endpoint": "/v1/infrastructure/jvm/classes",
+        "method": "GET"
+      },
+      "title": "Loaded Classes",
+      "titleIcon": "BookOpen"
+    }
+  ]
+}

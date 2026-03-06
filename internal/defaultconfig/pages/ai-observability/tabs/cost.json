@@ -1,0 +1,88 @@
+{
+  "id": "cost",
+  "pageId": "ai-observability",
+  "label": "Cost",
+  "order": 30,
+  "components": [
+    {
+      "componentKey": "ai-line",
+      "groupByKey": "model_name",
+      "height": 220,
+      "id": "cost-over-time",
+      "layout": {
+        "col": 12
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/ai/cost/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "Cost per Interval (USD)",
+      "titleIcon": "Activity",
+      "valueKey": "cost_per_interval",
+      "yDecimals": 4,
+      "yPrefix": "$"
+    },
+    {
+      "color": "#F79009",
+      "componentKey": "ai-bar",
+      "height": 220,
+      "id": "cost-by-model",
+      "labelKey": "model_name",
+      "layout": {
+        "col": 12
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/ai/cost/metrics",
+        "method": "GET"
+      },
+      "title": "Total Cost by Model (USD)",
+      "titleIcon": "Activity",
+      "valueKey": "total_cost_usd",
+      "yDecimals": 4,
+      "yPrefix": "$"
+    },
+    {
+      "componentKey": "ai-bar",
+      "height": 260,
+      "id": "token-breakdown",
+      "labelKey": "model_name",
+      "layout": {
+        "col": 24
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/ai/cost/token-breakdown",
+        "method": "GET"
+      },
+      "stacked": true,
+      "title": "Token Breakdown by Model",
+      "titleIcon": "Zap",
+      "valueKeys": [
+        "prompt_tokens",
+        "completion_tokens",
+        "system_tokens",
+        "cache_tokens"
+      ]
+    },
+    {
+      "componentKey": "table",
+      "height": 300,
+      "id": "cost-metrics",
+      "layout": {
+        "col": 24
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/ai/cost/metrics",
+        "method": "GET"
+      },
+      "title": "Cost Metrics",
+      "titleIcon": "Table"
+    }
+  ]
+}

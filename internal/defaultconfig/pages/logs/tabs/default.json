@@ -1,0 +1,26 @@
+{
+  "id": "default",
+  "pageId": "logs",
+  "label": "Logs",
+  "order": 10,
+  "components": [
+    {
+      "componentKey": "log-histogram",
+      "height": 80,
+      "id": "log-volume",
+      "layout": {
+        "col": 24
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/logs/histogram",
+        "method": "GET",
+        "params": {
+          "interval": "1m"
+        }
+      },
+      "title": "Log Volume by Level",
+      "titleIcon": "Layers"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "id": "saturation",
+  "path": "/saturation",
+  "label": "Saturation",
+  "icon": "Gauge",
+  "group": "operate",
+  "order": 70,
+  "defaultTabId": "database",
+  "navigable": true,
+  "title": "Saturation",
+  "subtitle": "Database, Redis, and messaging queue saturation signals"
+}

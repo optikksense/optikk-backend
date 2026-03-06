@@ -1,0 +1,101 @@
+{
+  "id": "performance",
+  "pageId": "ai-observability",
+  "label": "Performance",
+  "order": 20,
+  "components": [
+    {
+      "componentKey": "ai-line",
+      "groupByKey": "model_name",
+      "height": 220,
+      "id": "qps",
+      "layout": {
+        "col": 12
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/ai/performance/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "QPS per Model",
+      "titleIcon": "TrendingDown",
+      "valueKey": "qps"
+    },
+    {
+      "componentKey": "ai-line",
+      "groupByKey": "model_name",
+      "height": 220,
+      "id": "avg-latency",
+      "layout": {
+        "col": 12
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/ai/performance/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "Avg Latency ms per Model",
+      "titleIcon": "Clock",
+      "valueKey": "avg_latency_ms"
+    },
+    {
+      "componentKey": "ai-line",
+      "groupByKey": "model_name",
+      "height": 220,
+      "id": "tokens-per-sec",
+      "layout": {
+        "col": 12
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/ai/performance/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "Tokens / sec per Model",
+      "titleIcon": "Zap",
+      "valueKey": "tokens_per_sec"
+    },
+    {
+      "bucketKey": "bucket_ms",
+      "componentKey": "ai-bar",
+      "groupByKey": "model_name",
+      "height": 220,
+      "id": "latency-histogram",
+      "layout": {
+        "col": 12
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/ai/performance/latency-histogram",
+        "method": "GET"
+      },
+      "title": "Latency Distribution (100ms buckets)",
+      "titleIcon": "BarChart3",
+      "valueKey": "request_count"
+    },
+    {
+      "componentKey": "table",
+      "height": 300,
+      "id": "performance-metrics",
+      "layout": {
+        "col": 24
+      },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/ai/performance/metrics",
+        "method": "GET"
+      },
+      "title": "Performance Metrics",
+      "titleIcon": "Table"
+    }
+  ]
+}

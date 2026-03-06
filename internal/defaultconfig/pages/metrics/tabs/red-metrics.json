@@ -1,0 +1,188 @@
+{
+  "id": "red-metrics",
+  "pageId": "metrics",
+  "label": "RED Metrics",
+  "order": 10,
+  "components": [
+    {
+      "componentKey": "stat-card",
+      "formatter": "number",
+      "id": "services",
+      "layout": {
+        "col": 6
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/spans/service-scorecard",
+        "method": "GET"
+      },
+      "title": "Services",
+      "titleIcon": "Layers",
+      "valueField": "_count"
+    },
+    {
+      "componentKey": "scorecard",
+      "height": 160,
+      "id": "service-scorecard",
+      "layout": {
+        "col": 24
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/spans/service-scorecard",
+        "method": "GET"
+      },
+      "title": "Service Scorecard",
+      "titleIcon": "Activity"
+    },
+    {
+      "componentKey": "request",
+      "groupByKey": "service_name",
+      "height": 260,
+      "id": "request-rate",
+      "layout": {
+        "col": 12
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/services/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "Request Rate by Service",
+      "titleIcon": "TrendingUp",
+      "valueKey": "request_count"
+    },
+    {
+      "componentKey": "error-rate",
+      "groupByKey": "service_name",
+      "height": 260,
+      "id": "error-rate",
+      "layout": {
+        "col": 12
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/services/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "Error Rate by Service",
+      "titleIcon": "AlertCircle"
+    },
+    {
+      "componentKey": "latency",
+      "groupByKey": "service_name",
+      "height": 260,
+      "id": "p95-latency",
+      "layout": {
+        "col": 12
+      },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/services/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "p95 Latency by Service",
+      "titleIcon": "Clock",
+      "valueKey": "p95"
+    },
+    {
+      "componentKey": "gauge",
+      "groupByKey": "serviceName",
+      "height": 260,
+      "id": "apdex",
+      "layout": {
+        "col": 12
+      },
+      "order": 60,
+      "query": {
+        "endpoint": "/v1/spans/apdex",
+        "method": "GET",
+        "params": {
+          "satisfied_ms": 300,
+          "tolerating_ms": 1200
+        }
+      },
+      "title": "Apdex Score by Service",
+      "titleIcon": "Target",
+      "valueKey": "apdex"
+    },
+    {
+      "componentKey": "bar",
+      "dataKey": "buckets",
+      "groupByKey": "statusCode",
+      "height": 260,
+      "id": "http-status-distribution",
+      "layout": {
+        "col": 12
+      },
+      "order": 70,
+      "query": {
+        "endpoint": "/v1/spans/http-status-distribution",
+        "method": "GET"
+      },
+      "title": "HTTP Status Code Distribution",
+      "titleIcon": "BarChart2",
+      "valueKey": "spanCount"
+    },
+    {
+      "componentKey": "latency-histogram",
+      "height": 260,
+      "id": "latency-histogram",
+      "layout": {
+        "col": 12
+      },
+      "order": 80,
+      "query": {
+        "endpoint": "/v1/latency/histogram",
+        "method": "GET"
+      },
+      "title": "Latency Histogram",
+      "titleIcon": "BarChart3"
+    },
+    {
+      "componentKey": "table",
+      "height": 360,
+      "id": "top-slow-operations",
+      "layout": {
+        "col": 12
+      },
+      "order": 90,
+      "query": {
+        "endpoint": "/v1/spans/top-slow-operations",
+        "method": "GET",
+        "params": {
+          "limit": 20
+        }
+      },
+      "title": "Top Slowest Operations (p99)",
+      "titleIcon": "TrendingDown"
+    },
+    {
+      "componentKey": "table",
+      "height": 360,
+      "id": "top-error-operations",
+      "layout": {
+        "col": 12
+      },
+      "order": 100,
+      "query": {
+        "endpoint": "/v1/spans/top-error-operations",
+        "method": "GET",
+        "params": {
+          "limit": 20
+        }
+      },
+      "title": "Top Error Operations",
+      "titleIcon": "AlertTriangle"
+    }
+  ]
+}

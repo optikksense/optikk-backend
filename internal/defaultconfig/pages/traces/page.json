@@ -1,0 +1,12 @@
+{
+  "id": "traces",
+  "path": "/traces",
+  "label": "Traces",
+  "icon": "GitBranch",
+  "group": "observe",
+  "order": 40,
+  "defaultTabId": "default",
+  "navigable": true,
+  "title": "Traces",
+  "subtitle": "Trace throughput, error rate, and latency distribution"
+}
