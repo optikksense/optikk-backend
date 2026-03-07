@@ -180,15 +180,9 @@ func lookupAttrInt(kvs []KeyValue, key string) int64 {
 
 // ── Spans mapper ──────────────────────────────────────────────────────────────
 
-// TraceIngestRows groups span and resource rows emitted from a trace export.
-type TraceIngestRows struct {
-	Spans     []ingest.Row
-	Resources []ingest.Row
-}
-
 // SpanColumns is the ordered column list for observability.spans inserts (optimized schema).
 var SpanColumns = []string{
-	"ts_bucket_start", "resource_fingerprint", "team_id",
+	"ts_bucket_start", "team_id",
 	"timestamp", "trace_id", "span_id", "parent_span_id", "trace_state", "flags",
 	"name", "kind", "kind_string", "duration_nano", "has_error", "is_remote",
 	"status_code", "status_code_string", "status_message",
@@ -198,34 +192,14 @@ var SpanColumns = []string{
 	"exception_type", "exception_message", "exception_stacktrace", "exception_escaped",
 }
 
-// ResourceColumns is the ordered column list for observability.resources inserts.
-var ResourceColumns = []string{
-	"fingerprint", "team_id", "service_name", "host_name", "k8s_pod_name", "labels",
-}
-
-func resourceRow(teamID, fingerprint string, attrs []KeyValue) ingest.Row {
-	return ingest.Row{Values: []any{
-		fingerprint,
-		teamID,
-		lookupAttr(attrs, "service.name"),
-		lookupAttr(attrs, "host.name"),
-		lookupAttr(attrs, "k8s.pod.name"),
-		attrsToJSON(attrs),
-	}}
-}
-
-// MapTraceRows converts an OTLP trace export request into span and resource ingest rows.
-func MapTraceRows(teamID string, req ExportTraceServiceRequest) TraceIngestRows {
-	result := TraceIngestRows{
-		Spans:     make([]ingest.Row, 0, 64),
-		Resources: make([]ingest.Row, 0, len(req.ResourceSpans)),
-	}
-	resourceIndexes := make(map[string]int, len(req.ResourceSpans))
+// MapSpans converts an OTLP trace export request into span ingest rows.
+// Resource attributes (host.name, k8s.pod.name, service.name, etc.) are merged
+// into the span's attributes JSON column and extracted via materialized columns at query time.
+func MapSpans(teamID string, req ExportTraceServiceRequest) []ingest.Row {
+	result := make([]ingest.Row, 0, 64)
 
 	for _, rs := range req.ResourceSpans {
 		resAttrs := rs.Resource.Attributes
-		resFp := strconv.FormatUint(resourceFingerprint(resAttrs), 16)
-		hasSpan := false
 
 		for _, ss := range rs.ScopeSpans {
 			for _, s := range ss.Spans {
@@ -238,7 +212,6 @@ func MapTraceRows(teamID string, req ExportTraceServiceRequest) TraceIngestRows 
 				}
 
 				tsBucket := uint64(timestamp.Unix() / 300 * 300)
-				hasSpan = true
 
 				// Determine has_error from status code
 				hasError := s.Status.Code == 2 // ERROR = 2
@@ -273,16 +246,14 @@ func MapTraceRows(teamID string, req ExportTraceServiceRequest) TraceIngestRows 
 					externalHTTPMethod = httpMethod
 				}
 
-				// DB attributes
-				dbName := lookupAttr(spanAttrs, "db.name")
-				dbOperation := lookupAttr(spanAttrs, "db.operation")
-
 				// Exception attributes
 				exceptionType := lookupAttr(spanAttrs, "exception.type")
 				exceptionMessage := lookupAttr(spanAttrs, "exception.message")
 				exceptionStacktrace := lookupAttr(spanAttrs, "exception.stacktrace")
 				exceptionEscaped := lookupAttr(spanAttrs, "exception.escaped") == "true"
 
+				// Merge resource + span attributes so materialized columns (service_name,
+				// mat_host_name, mat_k8s_pod_name, etc.) are populated from the JSON column.
 				allAttrs := make([]KeyValue, 0, len(resAttrs)+len(spanAttrs))
 				allAttrs = append(allAttrs, resAttrs...)
 				allAttrs = append(allAttrs, spanAttrs...)
@@ -297,9 +268,8 @@ func MapTraceRows(teamID string, req ExportTraceServiceRequest) TraceIngestRows 
 				// Links (simplified - store as JSON string)
 				linksJSON := "[]"
 
-				result.Spans = append(result.Spans, ingest.Row{Values: []any{
+				result = append(result, ingest.Row{Values: []any{
 					tsBucket,
-					resFp,
 					teamID,
 					timestamp,
 					s.TraceID,
@@ -312,7 +282,7 @@ func MapTraceRows(teamID string, req ExportTraceServiceRequest) TraceIngestRows 
 					spanKindString(s.Kind),
 					durNano,
 					hasError,
-					"", // is_remote
+					false, // is_remote
 					int16(s.Status.Code),
 					statusCodeString(s.Status.Code),
 					s.Status.Message,
@@ -322,8 +292,6 @@ func MapTraceRows(teamID string, req ExportTraceServiceRequest) TraceIngestRows 
 					externalHTTPURL,
 					externalHTTPMethod,
 					httpStatusCode,
-					dbName,
-					dbOperation,
 					attrsJSON,
 					eventNames,
 					linksJSON,
@@ -334,25 +302,9 @@ func MapTraceRows(teamID string, req ExportTraceServiceRequest) TraceIngestRows 
 				}})
 			}
 		}
-
-		if len(resAttrs) == 0 || !hasSpan {
-			continue
-		}
-
-		if _, ok := resourceIndexes[resFp]; ok {
-			continue
-		}
-
-		resourceIndexes[resFp] = len(result.Resources)
-		result.Resources = append(result.Resources, resourceRow(teamID, resFp, resAttrs))
 	}
 
 	return result
-}
-
-// MapSpans converts an OTLP trace export request into span ingest rows.
-func MapSpans(teamID string, req ExportTraceServiceRequest) []ingest.Row {
-	return MapTraceRows(teamID, req).Spans
 }
 
 // ── Logs mapper ───────────────────────────────────────────────────────────────

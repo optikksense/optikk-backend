@@ -17,27 +17,24 @@ import (
 
 // Handler holds the ingest queues and an Authenticator for API keys.
 type Handler struct {
-	auth           *auth.Authenticator
-	resourcesQueue *ingest.Queue
-	spansQueue     *ingest.Queue
-	logsQueue      *ingest.Queue
-	metricsQueue   *ingest.Queue
+	auth         *auth.Authenticator
+	spansQueue   *ingest.Queue
+	logsQueue    *ingest.Queue
+	metricsQueue *ingest.Queue
 }
 
 // NewHandler creates an OTLP HTTP handler.
 func NewHandler(
 	auth *auth.Authenticator,
-	resourcesQueue *ingest.Queue,
 	spansQueue *ingest.Queue,
 	logsQueue *ingest.Queue,
 	metricsQueue *ingest.Queue,
 ) *Handler {
 	return &Handler{
-		auth:           auth,
-		resourcesQueue: resourcesQueue,
-		spansQueue:     spansQueue,
-		logsQueue:      logsQueue,
-		metricsQueue:   metricsQueue,
+		auth:         auth,
+		spansQueue:   spansQueue,
+		logsQueue:    logsQueue,
+		metricsQueue: metricsQueue,
 	}
 }
 
@@ -73,10 +70,7 @@ func (h *Handler) ExportTraces(c *gin.Context) {
 		return
 	}
 
-	var (
-		spanRows     []ingest.Row
-		resourceRows []ingest.Row
-	)
+	var spanRows []ingest.Row
 	contentType := c.ContentType()
 
 	if contentType == "application/x-protobuf" {
@@ -90,35 +84,19 @@ func (h *Handler) ExportTraces(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to decode protobuf traces"})
 			return
 		}
-		mapped := otlpgrpc.MapTraceRows(teamID, &protoReq)
-		spanRows = mapped.Spans
-		resourceRows = mapped.Resources
+		spanRows = otlpgrpc.MapSpans(teamID, &protoReq)
 	} else {
 		var req ExportTraceServiceRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid OTLP traces payload: " + err.Error()})
 			return
 		}
-		mapped := MapTraceRows(teamID, req)
-		spanRows = mapped.Spans
-		resourceRows = mapped.Resources
+		spanRows = MapSpans(teamID, req)
 	}
 
-	if len(resourceRows) == 0 && len(spanRows) == 0 {
+	if len(spanRows) == 0 {
 		c.Status(http.StatusAccepted)
 		return
-	}
-
-	if len(resourceRows) > 0 {
-		if err := h.resourcesQueue.Enqueue(resourceRows); err != nil {
-			if err == ingest.ErrBackpressure {
-				c.Header("Retry-After", "5")
-				c.JSON(http.StatusTooManyRequests, gin.H{"error": "ingest queue full, retry after 5s"})
-				return
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue resources"})
-			return
-		}
 	}
 
 	if len(spanRows) > 0 {

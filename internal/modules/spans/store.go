@@ -147,9 +147,8 @@ func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamUUID, trac
 		       s.duration_nano / 1000000.0 as duration_ms,
 		       s.status_code_string as status, s.status_message,
 		       s.http_method, s.http_url, s.response_status_code as http_status_code,
-		       r.host_name as host, r.k8s_pod_name as pod, toJSONString(s.attributes) as attributes
+		       s.mat_host_name as host, s.mat_k8s_pod_name as pod, toJSONString(s.attributes) as attributes
 		FROM observability.spans s
-		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ? AND s.trace_id = ?
 		ORDER BY s.timestamp ASC
 		LIMIT 10000
@@ -195,9 +194,8 @@ func (r *ClickHouseRepository) GetSpanTree(ctx context.Context, teamUUID, spanID
 		       s.duration_nano / 1000000.0 as duration_ms,
 		       s.status_code_string as status, s.status_message,
 		       s.http_method, s.http_url, s.response_status_code as http_status_code,
-		       r.host_name as host, r.k8s_pod_name as pod, toJSONString(s.attributes) as attributes
+		       s.mat_host_name as host, s.mat_k8s_pod_name as pod, toJSONString(s.attributes) as attributes
 		FROM observability.spans s
-		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ?
 		  AND s.trace_id = (
 		      SELECT trace_id FROM observability.spans WHERE team_id = ? AND span_id = ? LIMIT 1

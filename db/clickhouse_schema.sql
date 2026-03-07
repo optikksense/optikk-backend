@@ -34,7 +34,6 @@ CREATE DATABASE IF NOT EXISTS observability;
 CREATE TABLE IF NOT EXISTS observability.spans (
     -- BUCKETING & ORDERING
     ts_bucket_start                       UInt64          CODEC(DoubleDelta, LZ4),
-    resource_fingerprint                  String          CODEC(ZSTD(1)),
 
     -- MULTI-TENANCY
     team_id                               LowCardinality(String) CODEC(ZSTD(1)),
@@ -153,6 +152,12 @@ CREATE TABLE IF NOT EXISTS observability.spans (
     mat_exception_type        LowCardinality(String)
                                     MATERIALIZED attributes.`exception.type`::String           CODEC(ZSTD(1)),
 
+    -- Resource attributes (host / pod — merged into attributes JSON at ingest)
+    mat_host_name             LowCardinality(String)
+                                    MATERIALIZED attributes.`host.name`::String                CODEC(ZSTD(1)),
+    mat_k8s_pod_name          LowCardinality(String)
+                                    MATERIALIZED attributes.`k8s.pod.name`::String             CODEC(ZSTD(1)),
+
     -- BLOOM FILTER INDEXES
     INDEX idx_service_name          service_name            TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_trace_id              trace_id                TYPE bloom_filter(0.01) GRANULARITY 4,
@@ -163,7 +168,9 @@ CREATE TABLE IF NOT EXISTS observability.spans (
     INDEX idx_mat_db_name           mat_db_name             TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_mat_rpc_service       mat_rpc_service         TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_mat_peer_service      mat_peer_service        TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_mat_exception_type    mat_exception_type      TYPE bloom_filter(0.01) GRANULARITY 4
+    INDEX idx_mat_exception_type    mat_exception_type      TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_mat_host_name         mat_host_name           TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_mat_k8s_pod_name      mat_k8s_pod_name        TYPE bloom_filter(0.01) GRANULARITY 4
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/spans', '{replica}')
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, ts_bucket_start, service_name, name, timestamp)
@@ -173,34 +180,6 @@ SETTINGS
     index_granularity = 8192,
     ttl_only_drop_parts = 1,
     storage_policy = 'tiered_gcs';
-
--- ===========================================================================
--- RESOURCES: resource metadata for spans
--- ===========================================================================
--- Keep this aligned with the live single-node table used by the backend.
--- Queries only rely on service_name, host_name, k8s_pod_name, and labels.
--- ===========================================================================
-CREATE TABLE IF NOT EXISTS observability.resources (
-    fingerprint               String CODEC(ZSTD(1)),
-    team_id                   LowCardinality(String) CODEC(ZSTD(1)),
-    service_name              LowCardinality(String) CODEC(ZSTD(1)),
-    host_name                 LowCardinality(String) CODEC(ZSTD(1)),
-    k8s_pod_name              LowCardinality(String) CODEC(ZSTD(1)),
-    labels                    String CODEC(ZSTD(1)),
-    created_at                DateTime DEFAULT now() CODEC(DoubleDelta, LZ4),
-
-    INDEX idx_service_name      service_name TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_host_name         host_name    TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_k8s_pod_name      k8s_pod_name TYPE bloom_filter(0.01) GRANULARITY 4
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/resources', '{replica}')
-PARTITION BY toYYYYMM(created_at)
-ORDER BY (fingerprint, team_id)
-TTL created_at + INTERVAL 30 DAY DELETE
-SETTINGS
-    index_granularity = 8192,
-    ttl_only_drop_parts = 1,
-    storage_policy = 'tiered_gcs';
-
 
 -- ===========================================================================
 -- LOGS

@@ -132,12 +132,11 @@ type App struct {
 	DefaultConfig       *defaultconfig.Handler
 
 	// OTLP ingest handlers & queues.
-	OTLPHTTP       *otlp.Handler
-	OTLPGRPC       *otlpgrpc.Handler
-	ResourcesQueue *ingest.Queue
-	SpansQueue     *ingest.Queue
-	LogsQueue      *ingest.Queue
-	MetricsQueue   *ingest.Queue
+	OTLPHTTP     *otlp.Handler
+	OTLPGRPC     *otlpgrpc.Handler
+	SpansQueue   *ingest.Queue
+	LogsQueue    *ingest.Queue
+	MetricsQueue *ingest.Queue
 }
 
 func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
@@ -174,14 +173,13 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 		ingest.WithBatchSize(cfg.QueueBatchSize),
 		ingest.WithFlushInterval(int(cfg.QueueFlushIntervalMs)),
 	}
-	resourcesQueue := ingest.NewQueue(ch, "observability.resources", otlp.ResourceColumns, queueOpts...)
 	spansQueue := ingest.NewQueue(ch, "observability.spans", otlp.SpanColumns, queueOpts...)
 	logsQueue := ingest.NewQueue(ch, "observability.logs", otlp.LogColumns, queueOpts...)
 	metricsQueue := ingest.NewQueue(ch, "observability.metrics", otlp.MetricColumns, queueOpts...)
 
 	authResolver := otlpauth.NewAuthenticator(db)
-	otlpHTTPHandler := otlp.NewHandler(authResolver, resourcesQueue, spansQueue, logsQueue, metricsQueue)
-	otlpGRPCHandler := otlpgrpc.NewHandler(authResolver, resourcesQueue, spansQueue, logsQueue, metricsQueue)
+	otlpHTTPHandler := otlp.NewHandler(authResolver, spansQueue, logsQueue, metricsQueue)
+	otlpGRPCHandler := otlpgrpc.NewHandler(authResolver, spansQueue, logsQueue, metricsQueue)
 
 	return &App{
 		DB:             db,
@@ -362,10 +360,9 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 			Registry: registry,
 		},
 
-		OTLPHTTP:       otlpHTTPHandler,
-		OTLPGRPC:       otlpGRPCHandler,
-		ResourcesQueue: resourcesQueue,
-		SpansQueue:     spansQueue,
+		OTLPHTTP:   otlpHTTPHandler,
+		OTLPGRPC:   otlpGRPCHandler,
+		SpansQueue: spansQueue,
 		LogsQueue:      logsQueue,
 		MetricsQueue:   metricsQueue,
 	}
@@ -518,7 +515,7 @@ func (a *App) Start(ctx context.Context) error {
 		}
 
 		// Phase 1: Flush all ingest queues before accepting no more requests.
-		for _, q := range []*ingest.Queue{a.ResourcesQueue, a.SpansQueue, a.LogsQueue, a.MetricsQueue} {
+		for _, q := range []*ingest.Queue{a.SpansQueue, a.LogsQueue, a.MetricsQueue} {
 			if q != nil {
 				if err := q.Close(); err != nil {
 					log.Printf("WARN: error flushing ingest queue on shutdown: %v", err)

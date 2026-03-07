@@ -73,8 +73,9 @@ func (r *ClickHouseRepository) GetUpstreamDownstream(teamUUID, serviceName strin
 	return result, nil
 }
 
-// GetExternalDependencies returns calls to hosts not present in the resources table
+// GetExternalDependencies returns calls to hosts not present among known internal hosts
 // (i.e. external/third-party endpoints) based on http.url or peer.address attributes.
+// Known hosts are derived from mat_host_name on the spans table (resource attrs merged at ingest).
 func (r *ClickHouseRepository) GetExternalDependencies(teamUUID string, startMs, endMs int64) ([]ExternalDependency, error) {
 	externalHostExpr := `coalesce(
 		nullIf(JSONExtractString(toJSONString(s.attributes), 'net.peer.name'), ''),
@@ -85,7 +86,9 @@ func (r *ClickHouseRepository) GetExternalDependencies(teamUUID string, startMs,
 	)`
 	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		WITH known_hosts AS (
-		    SELECT DISTINCT host_name FROM observability.resources WHERE team_id = ?
+		    SELECT DISTINCT mat_host_name AS host_name
+		    FROM observability.spans
+		    WHERE team_id = ? AND ts_bucket_start BETWEEN ? AND ? AND mat_host_name != ''
 		)
 		SELECT s.service_name                              AS source_service,
 		       %s                                         AS external_host,
@@ -101,7 +104,9 @@ func (r *ClickHouseRepository) GetExternalDependencies(teamUUID string, startMs,
 		GROUP BY s.service_name, external_host
 		ORDER BY call_count DESC
 		LIMIT 100
-	`, externalHostExpr, externalHostExpr, externalHostExpr), teamUUID, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, externalHostExpr, externalHostExpr, externalHostExpr),
+		teamUUID, uint64(startMs/1000), uint64(endMs/1000),
+		teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}

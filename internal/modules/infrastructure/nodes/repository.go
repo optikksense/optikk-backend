@@ -26,8 +26,8 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 func (r *ClickHouseRepository) GetInfrastructureNodes(teamUUID string, startMs, endMs int64) ([]InfrastructureNode, error) {
 	const rootSpanCondition = "(s.parent_span_id = '' OR s.parent_span_id = '0000000000000000')"
 	rows, err := dbutil.QueryMaps(r.db, `
-		SELECT if(r.host_name != '', r.host_name, '`+DefaultUnknown+`') as host_name,
-		       uniqExactIf(r.k8s_pod_name, r.k8s_pod_name != '') as pod_count,
+		SELECT if(s.mat_host_name != '', s.mat_host_name, '`+DefaultUnknown+`') as host_name,
+		       uniqExactIf(s.mat_k8s_pod_name, s.mat_k8s_pod_name != '') as pod_count,
 		       toInt64(0) as container_count,
 		       arrayStringConcat(groupUniqArray(s.service_name), ',') as services_csv,
 		       COUNT(*) as request_count,
@@ -37,12 +37,11 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(teamUUID string, startMs, 
 		       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(s.duration_nano / 1000000.0) as p95_latency,
 		       MAX(s.timestamp) as last_seen
 		FROM observability.spans s
-		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
-		WHERE s.team_id = ? AND `+rootSpanCondition+` AND s.timestamp BETWEEN ? AND ?
+		WHERE s.team_id = ? AND `+rootSpanCondition+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?
 		GROUP BY host_name
 		ORDER BY request_count DESC
 		LIMIT `+fmt.Sprintf("%d", MaxNodes)+`
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -75,17 +74,17 @@ func (r *ClickHouseRepository) GetInfrastructureNodeServices(teamUUID, host stri
 		       if(COUNT(*) > 0, countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)*100.0/COUNT(*), 0) as error_rate,
 		       AVG(s.duration_nano / 1000000.0) as avg_latency,
 		       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(s.duration_nano / 1000000.0) as p95_latency,
-		       uniqExactIf(r.k8s_pod_name, r.k8s_pod_name != '') as pod_count
+		       uniqExactIf(s.mat_k8s_pod_name, s.mat_k8s_pod_name != '') as pod_count
 		FROM observability.spans s
-		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ?
-		  AND if(r.host_name != '', r.host_name, '`+DefaultUnknown+`') = ?
+		  AND if(s.mat_host_name != '', s.mat_host_name, '`+DefaultUnknown+`') = ?
 		  AND `+rootSpanCondition+`
+		  AND s.ts_bucket_start BETWEEN ? AND ?
 		  AND s.timestamp BETWEEN ? AND ?
 		GROUP BY service_name
 		ORDER BY request_count DESC
 		LIMIT `+fmt.Sprintf("%d", MaxServices)+`
-	`, teamUUID, host, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, teamUUID, host, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
