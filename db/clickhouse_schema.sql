@@ -217,7 +217,7 @@ CREATE TABLE IF NOT EXISTS observability.resources (
     INDEX idx_k8s_cluster       k8s_cluster_name TYPE bloom_filter(0.01) GRANULARITY 4
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/resources', '{replica}')
 PARTITION BY toYYYYMM(toDateTime(seen_at_ts_bucket_start))
-ORDER BY (fingerprint, seen_at_ts_bucket_start)
+ORDER BY (team_id, fingerprint, seen_at_ts_bucket_start)
 TTL toDate(toDateTime(seen_at_ts_bucket_start)) + INTERVAL 30 DAY
 SETTINGS
     index_granularity = 8192,
@@ -279,11 +279,13 @@ CREATE TABLE IF NOT EXISTS observability.logs (
     INDEX idx_service    service         TYPE set(200) GRANULARITY 1,
     INDEX idx_host       host            TYPE bloom_filter(0.01) GRANULARITY 1
 
-) ENGINE = MergeTree
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/logs', '{replica}')
 PARTITION BY toDate(toDateTime(ts_bucket_start))
 ORDER BY (team_id, ts_bucket_start, service, timestamp)
 TTL toDateTime(ts_bucket_start) + INTERVAL 30 DAY DELETE
-SETTINGS index_granularity = 8192;
+SETTINGS
+    index_granularity = 8192,
+    storage_policy = 'tiered_gcs';
 
 
 -- ===========================================================================

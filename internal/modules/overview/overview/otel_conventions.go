@@ -1,55 +1,28 @@
 package overview
 
-// OpenTelemetry Semantic Conventions for Overview Module
-// Based on OpenTelemetry Semantic Conventions for Traces
-// Reference: https://opentelemetry.io/docs/specs/semconv/
+// Raw ClickHouse column references for observability.spans (aliased as s)
+// and observability.resources (aliased as r). All queries in this module
+// use FROM observability.spans s ANY LEFT JOIN observability.resources r
+// ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint.
 
 const (
-	// Span Table Columns - Standard OpenTelemetry fields
-	ColTeamID            = "team_id"
-	ColServiceName       = "service_name"
-	ColOperationName     = "operation_name"
-	ColStartTime         = "start_time"
-	ColDurationMs        = "duration_ms"
-	ColStatus            = "status"
-	ColHTTPStatusCode    = "http_status_code"
-	ColHTTPMethod        = "http_method"
-	ColIsRoot            = "is_root"
-	ColTraceID           = "trace_id"
-	ColParentServiceName = "parent_service_name"
-
-	// Status Values - OpenTelemetry Span Status
-	StatusOK    = "OK"
-	StatusError = "ERROR"
-
-	// HTTP Status Code Thresholds
-	HTTPErrorThreshold = 400
-
-	// Metric Aggregation Functions
-	AggCount    = "count()"
-	AggCountIf  = "countIf"
-	AggAvg      = "avg"
-	AggQuantile = "quantile"
-	AggMax      = "MAX"
-	AggMin      = "MIN"
+	ColServiceName   = "r.service_name"
+	ColOperationName = "s.name"
+	ColHTTPMethod    = "s.http_method"
+	ColTraceID       = "s.trace_id"
 
 	// Quantile Values
 	QuantileP50 = 0.5
 	QuantileP95 = 0.95
 	QuantileP99 = 0.99
-
-	// Time Bucketing Intervals (in milliseconds)
-	ThreeHours      = 3 * 3_600_000
-	TwentyFourHours = 24 * 3_600_000
-	OneWeek         = 168 * 3_600_000
 )
 
-// ErrorCondition returns the SQL condition for identifying errors based on OpenTelemetry conventions
+// ErrorCondition returns the SQL condition for identifying errors using raw schema columns.
 func ErrorCondition() string {
-	return "status = 'ERROR' OR http_status_code >= 400"
+	return "s.has_error = true OR s.response_status_code >= '400'"
 }
 
-// RootSpanCondition returns the SQL condition for filtering root spans
+// RootSpanCondition returns the SQL condition for filtering root spans.
 func RootSpanCondition() string {
-	return "is_root = 1"
+	return "s.parent_span_id = ''"
 }

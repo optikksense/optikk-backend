@@ -170,10 +170,14 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 	}
 
 	// OTLP ingest queues — batch-write to ClickHouse.
-	resourcesQueue := ingest.NewQueue(ch, "observability.resources", otlp.ResourceColumns)
-	spansQueue := ingest.NewQueue(ch, "observability.spans", otlp.SpanColumns)
-	logsQueue := ingest.NewQueue(ch, "observability.logs", otlp.LogColumns)
-	metricsQueue := ingest.NewQueue(ch, "observability.metrics", otlp.MetricColumns)
+	queueOpts := []ingest.Option{
+		ingest.WithBatchSize(cfg.QueueBatchSize),
+		ingest.WithFlushInterval(int(cfg.QueueFlushIntervalMs)),
+	}
+	resourcesQueue := ingest.NewQueue(ch, "observability.resources", otlp.ResourceColumns, queueOpts...)
+	spansQueue := ingest.NewQueue(ch, "observability.spans", otlp.SpanColumns, queueOpts...)
+	logsQueue := ingest.NewQueue(ch, "observability.logs", otlp.LogColumns, queueOpts...)
+	metricsQueue := ingest.NewQueue(ch, "observability.metrics", otlp.MetricColumns, queueOpts...)
 
 	authResolver := otlpauth.NewAuthenticator(db)
 	otlpHTTPHandler := otlp.NewHandler(authResolver, resourcesQueue, spansQueue, logsQueue, metricsQueue)

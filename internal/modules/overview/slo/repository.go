@@ -8,9 +8,9 @@ import (
 )
 
 // sloBucketExpr returns a ClickHouse time-bucketing expression for adaptive granularity
-// over the spans start_time column.
+// over the spans s.timestamp column.
 func sloBucketExpr(startMs, endMs int64) string {
-	return timebucket.ExprForColumn(startMs, endMs, ColStartTime)
+	return timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
 }
 
 // Repository encapsulates data access logic for the SLO dashboard.
@@ -39,15 +39,16 @@ func (r *ClickHouseRepository) GetSummary(teamUUID string, startMs, endMs int64,
 		       avg_latency_ms,
 		       p95_latency_ms
 		FROM (
-			SELECT count()                         AS total_requests,
-			       countIf(` + ErrorCondition() + `) AS error_count,
-			       avg(` + ColDurationMs + `)                AS avg_latency_ms,
-			       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(` + ColDurationMs + `)     AS p95_latency_ms
-			FROM spans
-			WHERE ` + ColTeamID + ` = ? AND ` + RootSpanCondition() + ` AND ` + ColStartTime + ` BETWEEN ? AND ?`
+			SELECT count()                                                                      AS total_requests,
+			       countIf(` + ErrorCondition() + `)                                           AS error_count,
+			       avg(s.duration_nano / 1000000.0)                                            AS avg_latency_ms,
+			       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency_ms
+			FROM observability.spans s
+			ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
+			WHERE s.team_id = ? AND ` + RootSpanCondition() + ` AND s.timestamp BETWEEN ? AND ?`
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
-		query += ` AND ` + ColServiceName + ` = ?`
+		query += ` AND r.service_name = ?`
 		args = append(args, serviceName)
 	}
 	query += `
@@ -78,15 +79,16 @@ func (r *ClickHouseRepository) GetTimeSeries(teamUUID string, startMs, endMs int
 		          100.0)            AS availability_percent,
 		       avg_latency_ms
 		FROM (
-			SELECT %s                     AS time_bucket,
-			       count()                   AS request_count,
-			       countIf(`+ErrorCondition()+`) AS error_count,
-			       avg(`+ColDurationMs+`)          AS avg_latency_ms
-			FROM spans
-			WHERE `+ColTeamID+` = ? AND `+RootSpanCondition()+` AND `+ColStartTime+` BETWEEN ? AND ?`, bucket)
+			SELECT %s                                   AS time_bucket,
+			       count()                              AS request_count,
+			       countIf(`+ErrorCondition()+`)        AS error_count,
+			       avg(s.duration_nano / 1000000.0)     AS avg_latency_ms
+			FROM observability.spans s
+			ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
+			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.timestamp BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
-		query += ` AND ` + ColServiceName + ` = ?`
+		query += ` AND r.service_name = ?`
 		args = append(args, serviceName)
 	}
 	query += ` GROUP BY 1

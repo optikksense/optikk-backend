@@ -37,11 +37,11 @@ func (r *ClickHouseRepository) GetTopSlowOperations(teamUUID string, startMs, en
 		       count()                                        AS span_count
 		FROM observability.spans s
 		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
-		WHERE s.team_id = ? AND s.timestamp BETWEEN ? AND ?
+		WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?
 		GROUP BY s.name, r.service_name
 		ORDER BY p99_ms DESC
 		LIMIT ?
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), limit)
+	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -73,11 +73,11 @@ func (r *ClickHouseRepository) GetTopErrorOperations(teamUUID string, startMs, e
 		           0) AS error_rate
 		FROM observability.spans s
 		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
-		WHERE s.team_id = ? AND s.timestamp BETWEEN ? AND ?
+		WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?
 		GROUP BY s.name, r.service_name, exception_type
 		ORDER BY error_rate DESC
 		LIMIT ?
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), limit)
+	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -103,11 +103,11 @@ func (r *ClickHouseRepository) GetHTTPStatusDistribution(teamUUID string, startM
 		SELECT toInt64(response_status_code) AS status_code,
 		       count()                        AS span_count
 		FROM observability.spans
-		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
+		WHERE team_id = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ?
 		  AND response_status_code != ''
 		GROUP BY status_code
 		ORDER BY status_code ASC
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -127,13 +127,13 @@ func (r *ClickHouseRepository) GetHTTPStatusDistribution(teamUUID string, startM
 		       toInt64(response_status_code) AS status_code,
 		       count()                        AS span_count
 		FROM observability.spans
-		WHERE team_id = ? AND timestamp BETWEEN ? AND ?
+		WHERE team_id = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ?
 		  AND response_status_code != ''
 		GROUP BY time_bucket, status_code
 		ORDER BY time_bucket ASC, status_code ASC
 	`, bucket)
 
-	tsRows, err := dbutil.QueryMaps(r.db, tsQuery, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	tsRows, err := dbutil.QueryMaps(r.db, tsQuery, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return buckets, nil, err
 	}
@@ -163,10 +163,11 @@ func (r *ClickHouseRepository) GetServiceScorecard(teamUUID string, startMs, end
 		       quantile(0.95)(s.duration_nano / 1000000.0)                    AS p95_ms
 		FROM observability.spans s
 		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
-		WHERE s.team_id = ? AND s.parent_span_id = '' AND s.timestamp BETWEEN ? AND ?
+		WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.parent_span_id = '' AND s.timestamp BETWEEN ? AND ?
 		GROUP BY r.service_name
 		ORDER BY total_count DESC
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+		LIMIT 1000
+	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -201,11 +202,11 @@ func (r *ClickHouseRepository) GetApdex(teamUUID string, startMs, endMs int64, s
 		       count()                                      AS total_count
 		FROM observability.spans s
 		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
-		WHERE s.team_id = ? AND s.parent_span_id = '' AND s.timestamp BETWEEN ? AND ?
+		WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.parent_span_id = '' AND s.timestamp BETWEEN ? AND ?
 		GROUP BY r.service_name
 		ORDER BY total_count DESC
 	`, satisfiedMs, satisfiedMs, toleratingMs, toleratingMs,
-		teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+		teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}

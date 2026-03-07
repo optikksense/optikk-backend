@@ -35,6 +35,10 @@ func OpenClickHouse(dsn string) (*sql.DB, error) {
 		return nil, err
 	}
 
+	conn.SetMaxOpenConns(50)
+	conn.SetMaxIdleConns(25)
+	conn.SetConnMaxLifetime(15 * time.Minute)
+
 	if err := conn.PingContext(context.Background()); err != nil {
 		return nil, err
 	}

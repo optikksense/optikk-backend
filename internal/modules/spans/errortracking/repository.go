@@ -33,8 +33,8 @@ func (r *ClickHouseRepository) GetExceptionRateByType(teamUUID string, startMs, 
 		       count()          AS event_count
 		FROM observability.spans s
 		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
-		WHERE s.team_id = ? AND s.exception_type != '' AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+		WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.exception_type != '' AND s.timestamp BETWEEN ? AND ?`, bucket)
+	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND r.service_name = ?`
 		args = append(args, serviceName)
@@ -69,11 +69,11 @@ func (r *ClickHouseRepository) GetErrorHotspot(teamUUID string, startMs, endMs i
 		           0) AS error_rate
 		FROM observability.spans s
 		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
-		WHERE s.team_id = ? AND s.timestamp BETWEEN ? AND ?
+		WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?
 		GROUP BY r.service_name, s.name
 		ORDER BY error_rate DESC
 		LIMIT 500
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -99,9 +99,9 @@ func (r *ClickHouseRepository) GetHTTP5xxByRoute(teamUUID string, startMs, endMs
 		       count()                                        AS count_5xx
 		FROM observability.spans s
 		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
-		WHERE s.team_id = ? AND s.timestamp BETWEEN ? AND ?
+		WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?
 		  AND s.response_status_code >= '500'`
-	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND r.service_name = ?`
 		args = append(args, serviceName)

@@ -36,8 +36,8 @@ func (r *ClickHouseRepository) buildTraceQueryArgs(f TraceFilters) (string, []an
 		startMs = endMs - maxTimeRangeMs
 	}
 
-	queryFrag := ` WHERE s.team_id = ? AND s.parent_span_id = '' AND s.timestamp BETWEEN ? AND ?`
-	args := []any{f.TeamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	queryFrag := ` WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.parent_span_id = '' AND s.timestamp BETWEEN ? AND ?`
+	args := []any{f.TeamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 
 	if len(f.Services) > 0 {
 		in, vals := dbutil.InClauseFromStrings(f.Services)
