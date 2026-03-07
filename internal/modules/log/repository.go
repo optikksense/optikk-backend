@@ -105,8 +105,8 @@ func buildLogWhere(f LogFilters) (string, []any) {
 		args = append(args, f.SpanID)
 	}
 	if f.Search != "" {
-		where += ` AND body LIKE ?`
-		args = append(args, "%"+f.Search+"%")
+		where += ` AND positionCaseInsensitive(body, ?) > 0`
+		args = append(args, f.Search)
 	}
 	return where, args
 }
@@ -248,7 +248,13 @@ func (r *ClickHouseRepository) GetLogs(ctx context.Context, f LogFilters, limit 
 	}
 
 	logs := mapRowsToLogs(rows)
-	total := dbutil.QueryCount(r.db, `SELECT COUNT(*) FROM logs WHERE`+where, args...)
+	// Only run the count query on the first page to avoid double-scanning on pagination.
+	var total int64
+	if offset == 0 {
+		total = dbutil.QueryCount(r.db, `SELECT COUNT(*) FROM logs WHERE`+where, args...)
+	} else {
+		total = int64(offset + len(logs))
+	}
 
 	return logs, total, nil
 }
@@ -412,30 +418,55 @@ func (r *ClickHouseRepository) GetLogDetail(ctx context.Context, teamUUID, trace
 
 // GetTraceLogs returns logs for a trace, with speculative fallback.
 func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamUUID, traceID string) (TraceLogsResponse, error) {
-	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
-		SELECT %s FROM logs
+	// Fetch span time bounds first so the log query can use partition pruning.
+	traceMeta, metaErr := dbutil.QueryMap(r.db, `
+		SELECT min(timestamp) as trace_start,
+		       max(timestamp) as trace_end,
+		       any(service_name) as service_name,
+		       any(http_method) as http_method,
+		       any(http_url) as http_url,
+		       any(name) as operation_name
+		FROM observability.spans
 		WHERE team_id = ? AND trace_id = ?
-		ORDER BY timestamp ASC LIMIT 500
-	`, logCols), teamUUID, traceID)
-	if err != nil {
-		return TraceLogsResponse{}, err
+	`, teamUUID, traceID)
+
+	var rows []map[string]any
+	var err error
+	if metaErr == nil && len(traceMeta) > 0 {
+		traceStartRaw := dbutil.TimeFromAny(traceMeta["trace_start"])
+		traceEndRaw := dbutil.TimeFromAny(traceMeta["trace_end"])
+		if !traceStartRaw.IsZero() && !traceEndRaw.IsZero() {
+			startNsPruning := uint64(traceStartRaw.Add(-2 * time.Second).UnixNano())
+			endNsPruning := uint64(traceEndRaw.Add(2 * time.Second).UnixNano())
+			bucketLowPruning := uint32(startNsPruning / 1_000_000_000 / 86400 * 86400)
+			bucketHighPruning := uint32(endNsPruning / 1_000_000_000 / 86400 * 86400)
+			rows, err = dbutil.QueryMaps(r.db, fmt.Sprintf(`
+				SELECT %s FROM logs
+				WHERE team_id = ? AND trace_id = ?
+				  AND ts_bucket_start BETWEEN ? AND ?
+				  AND timestamp BETWEEN ? AND ?
+				ORDER BY timestamp ASC LIMIT 500
+			`, logCols), teamUUID, traceID, bucketLowPruning, bucketHighPruning, startNsPruning, endNsPruning)
+		}
 	}
+	if err != nil || rows == nil {
+		// Fall back to unfiltered query if span lookup failed.
+		rows, err = dbutil.QueryMaps(r.db, fmt.Sprintf(`
+			SELECT %s FROM logs
+			WHERE team_id = ? AND trace_id = ?
+			ORDER BY timestamp ASC LIMIT 500
+		`, logCols), teamUUID, traceID)
+		if err != nil {
+			return TraceLogsResponse{}, err
+		}
+	}
+
 	logs := mapRowsToLogs(rows)
 	if len(logs) > 0 {
 		return TraceLogsResponse{Logs: logs, IsSpeculative: false}, nil
 	}
 
 	// Fallback: find related logs by service + HTTP context from span metadata.
-	traceMeta, metaErr := dbutil.QueryMap(r.db, `
-		SELECT min(start_time) as trace_start,
-		       max(end_time) as trace_end,
-		       any(service_name) as service_name,
-		       any(http_method) as http_method,
-		       any(http_url) as http_url,
-		       any(operation_name) as operation_name
-		FROM spans
-		WHERE team_id = ? AND trace_id = ?
-	`, teamUUID, traceID)
 	if metaErr != nil || len(traceMeta) == 0 {
 		return TraceLogsResponse{Logs: []Log{}}, nil
 	}
@@ -493,7 +524,6 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamUUID, trace
 // GetLogFacets returns total count and facet breakdowns for severity, service, host.
 func (r *ClickHouseRepository) GetLogFacets(ctx context.Context, f LogFilters) (LogFacetsResponse, error) {
 	where, args := buildLogWhere(f)
-	total := dbutil.QueryCount(r.db, `SELECT COUNT(*) FROM logs WHERE`+where, args...)
 
 	sevRows, sevErr := dbutil.QueryMaps(r.db, `SELECT severity_text as value, COUNT(*) as count FROM logs WHERE`+where+` GROUP BY severity_text ORDER BY count DESC`, args...)
 	serviceRows, svcErr := dbutil.QueryMaps(r.db, `SELECT service as value, COUNT(*) as count FROM logs WHERE`+where+` GROUP BY service ORDER BY count DESC LIMIT 50`, args...)
@@ -501,6 +531,11 @@ func (r *ClickHouseRepository) GetLogFacets(ctx context.Context, f LogFilters) (
 
 	if sevErr != nil || svcErr != nil || hostErr != nil {
 		fmt.Printf("logs: facet query errors: severity=%v service=%v host=%v\n", sevErr, svcErr, hostErr)
+	}
+
+	total := int64(0)
+	for _, row := range sevRows {
+		total += dbutil.Int64FromAny(row["count"])
 	}
 
 	return LogFacetsResponse{
@@ -516,7 +551,6 @@ func (r *ClickHouseRepository) GetLogFacets(ctx context.Context, f LogFilters) (
 // GetLogStats returns total count and extended facet breakdowns.
 func (r *ClickHouseRepository) GetLogStats(ctx context.Context, f LogFilters) (LogStats, error) {
 	where, args := buildLogWhere(f)
-	total := dbutil.QueryCount(r.db, `SELECT COUNT(*) FROM logs WHERE`+where, args...)
 
 	sevRows, sevErr := dbutil.QueryMaps(r.db, `SELECT severity_text as value, COUNT(*) as count FROM logs WHERE`+where+` GROUP BY severity_text ORDER BY count DESC`, args...)
 	serviceRows, svcErr := dbutil.QueryMaps(r.db, `SELECT service as value, COUNT(*) as count FROM logs WHERE`+where+` GROUP BY service ORDER BY count DESC LIMIT 50`, args...)
@@ -527,6 +561,11 @@ func (r *ClickHouseRepository) GetLogStats(ctx context.Context, f LogFilters) (L
 	if sevErr != nil || svcErr != nil || hostErr != nil || podErr != nil || scopeErr != nil {
 		fmt.Printf("logs: stats facet query errors: severity=%v service=%v host=%v pod=%v scope=%v\n",
 			sevErr, svcErr, hostErr, podErr, scopeErr)
+	}
+
+	total := int64(0)
+	for _, row := range sevRows {
+		total += dbutil.Int64FromAny(row["count"])
 	}
 
 	return LogStats{

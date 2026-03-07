@@ -38,13 +38,12 @@ func (r *ClickHouseRepository) GetTotalServices(teamUUID string, startMs, endMs 
 	row, err := dbutil.QueryMap(r.db, `
 		SELECT COUNT(*) as count
 		FROM (
-			SELECT r.service_name
+			SELECT s.service_name AS service_name
 			FROM observability.spans s
-			ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
-			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.timestamp BETWEEN ? AND ?
-			GROUP BY r.service_name
+			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?
+			GROUP BY s.service_name
 		)
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return 0, err
 	}
@@ -67,7 +66,7 @@ func (r *ClickHouseRepository) GetServiceMetrics(teamUUID string, startMs, endMs
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT service_name, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
 		FROM (
-			SELECT r.service_name AS service_name,
+			SELECT s.service_name AS service_name,
 			       count()                                                                      AS request_count,
 			       countIf(`+ErrorCondition()+`)                                               AS error_count,
 			       avg(s.duration_nano / 1000000.0)                                            AS avg_latency,
@@ -75,12 +74,11 @@ func (r *ClickHouseRepository) GetServiceMetrics(teamUUID string, startMs, endMs
 			       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(s.duration_nano / 1000000.0) AS p95_latency,
 			       quantile(`+fmt.Sprintf("%.2f", QuantileP99)+`)(s.duration_nano / 1000000.0) AS p99_latency
 			FROM observability.spans s
-			ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
-			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.timestamp BETWEEN ? AND ?
-			GROUP BY r.service_name
+			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?
+			GROUP BY s.service_name
 		)
 		ORDER BY request_count DESC
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -105,19 +103,18 @@ func (r *ClickHouseRepository) GetServiceTimeSeries(teamUUID string, startMs, en
 	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT service_name, timestamp, request_count, error_count, avg_latency
 		FROM (
-			SELECT r.service_name AS service_name,
+			SELECT s.service_name AS service_name,
 			       %s AS timestamp,
 			       count()                          AS request_count,
 			       countIf(`+ErrorCondition()+`)    AS error_count,
 			       avg(s.duration_nano / 1000000.0) AS avg_latency
 			FROM observability.spans s
-			ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
-			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.timestamp BETWEEN ? AND ?
-			GROUP BY r.service_name, %s
+			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?
+			GROUP BY s.service_name, %s
 		)
 		ORDER BY timestamp ASC, request_count DESC
 		LIMIT 10000
-	`, bucket, bucket), teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, bucket, bucket), teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +136,7 @@ func (r *ClickHouseRepository) GetServiceEndpoints(teamUUID string, startMs, end
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT service_name, operation_name, http_method, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
 		FROM (
-			SELECT r.service_name AS service_name, s.name AS operation_name, s.http_method AS http_method,
+			SELECT s.service_name AS service_name, s.name AS operation_name, s.http_method AS http_method,
 			       count()                                                                      AS request_count,
 			       countIf(`+ErrorCondition()+`)                                               AS error_count,
 			       avg(s.duration_nano / 1000000.0)                                            AS avg_latency,
@@ -147,13 +144,12 @@ func (r *ClickHouseRepository) GetServiceEndpoints(teamUUID string, startMs, end
 			       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(s.duration_nano / 1000000.0) AS p95_latency,
 			       quantile(`+fmt.Sprintf("%.2f", QuantileP99)+`)(s.duration_nano / 1000000.0) AS p99_latency
 			FROM observability.spans s
-			ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
-			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.timestamp BETWEEN ? AND ? AND r.service_name = ?
-			GROUP BY r.service_name, s.name, s.http_method
+			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ? AND s.service_name = ?
+			GROUP BY s.service_name, s.name, s.http_method
 		)
 		ORDER BY request_count DESC
 		LIMIT 100
-	`, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), serviceName)
+	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), serviceName)
 	if err != nil {
 		return nil, err
 	}
@@ -176,19 +172,18 @@ func (r *ClickHouseRepository) GetServiceEndpoints(teamUUID string, startMs, end
 }
 
 func (r *ClickHouseRepository) countServicesByErrorRate(teamUUID string, startMs, endMs int64, havingClause string, args ...any) (int64, error) {
-	queryArgs := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	queryArgs := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	queryArgs = append(queryArgs, args...)
 
 	row, err := dbutil.QueryMap(r.db, `
 		SELECT COUNT(*) as count
 		FROM (
-			SELECT r.service_name,
+			SELECT s.service_name AS service_name,
 			       if(count() > 0,
 			          countIf(`+ErrorCondition()+`)*100.0/count(), 0) as error_rate
 			FROM observability.spans s
-			ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
-			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.timestamp BETWEEN ? AND ?
-			GROUP BY r.service_name
+			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?
+			GROUP BY s.service_name
 			HAVING `+havingClause+`
 		)
 	`, queryArgs...)

@@ -34,7 +34,7 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 // GetErrorGroups reads raw spans and groups errors by service, operation, and status.
 func (r *ClickHouseRepository) GetErrorGroups(teamUUID string, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error) {
 	query := `
-		SELECT r.service_name AS service_name,
+		SELECT s.service_name AS service_name,
 		       s.name         AS operation_name,
 		       s.status_message,
 		       s.response_status_code AS http_status_code,
@@ -43,14 +43,13 @@ func (r *ClickHouseRepository) GetErrorGroups(teamUUID string, startMs, endMs in
 		       MIN(s.timestamp) as first_occurrence,
 		       (groupArray(s.trace_id) as trace_ids)[1] as sample_trace_id
 		FROM observability.spans s
-		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
-		WHERE s.team_id = ? AND (` + ErrorCondition() + `) AND s.timestamp BETWEEN ? AND ?`
-	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+		WHERE s.team_id = ? AND (` + ErrorCondition() + `) AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`
+	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
-		query += ` AND r.service_name = ?`
+		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
 	}
-	query += ` GROUP BY r.service_name, s.name, s.status_message, s.response_status_code
+	query += ` GROUP BY s.service_name, s.name, s.status_message, s.response_status_code
 	           ORDER BY error_count DESC LIMIT ?`
 	args = append(args, limit)
 
@@ -86,20 +85,19 @@ func (r *ClickHouseRepository) GetServiceErrorRate(teamUUID string, startMs, end
 		       if(request_count > 0, error_count*100.0/request_count, 0) AS error_rate,
 		       avg_latency
 		FROM (
-			SELECT r.service_name AS service_name,
+			SELECT s.service_name AS service_name,
 			       %s AS timestamp,
 			       count()                          AS request_count,
 			       countIf(`+ErrorCondition()+`)    AS error_count,
 			       avg(s.duration_nano / 1000000.0) AS avg_latency
 			FROM observability.spans s
-			ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
-			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
+	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
-		query += ` AND r.service_name = ?`
+		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
 	}
-	query += fmt.Sprintf(` GROUP BY r.service_name, %s
+	query += fmt.Sprintf(` GROUP BY s.service_name, %s
 		)
 		ORDER BY timestamp ASC
 		LIMIT 10000`, bucket)
@@ -129,18 +127,17 @@ func (r *ClickHouseRepository) GetErrorVolume(teamUUID string, startMs, endMs in
 	query := fmt.Sprintf(`
 		SELECT service_name, timestamp, error_count
 		FROM (
-			SELECT r.service_name AS service_name,
+			SELECT s.service_name AS service_name,
 			       %s AS timestamp,
 			       countIf(`+ErrorCondition()+`) AS error_count
 			FROM observability.spans s
-			ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
-			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
+	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
-		query += ` AND r.service_name = ?`
+		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
 	}
-	query += fmt.Sprintf(` GROUP BY r.service_name, %s
+	query += fmt.Sprintf(` GROUP BY s.service_name, %s
 		)
 		WHERE error_count > 0
 		ORDER BY timestamp ASC
@@ -168,20 +165,19 @@ func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(teamUUID string, sta
 	query := fmt.Sprintf(`
 		SELECT service_name, timestamp, request_count, error_count, avg_latency
 		FROM (
-			SELECT r.service_name AS service_name,
+			SELECT s.service_name AS service_name,
 			       %s AS timestamp,
 			       count()                          AS request_count,
 			       countIf(`+ErrorCondition()+`)    AS error_count,
 			       avg(s.duration_nano / 1000000.0) AS avg_latency
 			FROM observability.spans s
-			ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
-			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
+	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
-		query += ` AND r.service_name = ?`
+		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
 	}
-	query += fmt.Sprintf(` GROUP BY r.service_name, %s
+	query += fmt.Sprintf(` GROUP BY s.service_name, %s
 		)
 		WHERE error_count > 0
 		ORDER BY timestamp ASC

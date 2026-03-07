@@ -32,6 +32,8 @@ ERROR_EVENT_NS=$((ERROR_END_NS - 2000000))
 
 ## 2. OTLP gRPC Ingestion Example For Error Data
 
+Expected response: gRPC status `OK` with an empty JSON body like `{}`.
+
 `exception.type` and `exception.message` are added as span attributes because the error-tracking endpoints read them from the stored span row.
 
 ```bash
@@ -92,6 +94,8 @@ EOF
 
 ### 3.1 Service Error Rate
 
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
+
 ```bash
 curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
   --data-urlencode "start=${START_MS}" --data-urlencode "end=${END_MS}" \
@@ -99,6 +103,8 @@ curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
 ```
 
 ### 3.2 Error Volume
+
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
 
 ```bash
 curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
@@ -108,6 +114,8 @@ curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
 
 ### 3.3 Latency During Error Windows
 
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
+
 ```bash
 curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
   --data-urlencode "start=${START_MS}" --data-urlencode "end=${END_MS}" \
@@ -115,6 +123,8 @@ curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
 ```
 
 ### 3.4 Error Groups
+
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
 
 ```bash
 curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
@@ -125,6 +135,8 @@ curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
 
 ### 3.5 Exception Rate By Type
 
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
+
 ```bash
 curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
   --data-urlencode "start=${START_MS}" --data-urlencode "end=${END_MS}" \
@@ -133,6 +145,8 @@ curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
 
 ### 3.6 Error Hotspot
 
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
+
 ```bash
 curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
   --data-urlencode "start=${START_MS}" --data-urlencode "end=${END_MS}" \
@@ -140,6 +154,8 @@ curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
 ```
 
 ### 3.7 HTTP 5xx By Route
+
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
 
 ```bash
 curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \

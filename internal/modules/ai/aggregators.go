@@ -137,7 +137,7 @@ func (a *TimeSeriesAggregator) aggregatePerformanceTimeSeries(rows []map[string]
 	for i, row := range rows {
 		timeseries[i] = AIPerformanceTimeSeries{
 			ModelName:    dbutil.StringFromAny(row["model_name"]),
-			Timestamp:    dbutil.StringFromAny(row["timestamp"]),
+			Timestamp:    dbutil.StringFromAny(firstNonNil(row["time_bucket"], row["timestamp"])),
 			RequestCount: dbutil.Int64FromAny(row["request_count"]),
 			AvgLatencyMs: dbutil.Float64FromAny(row["avg_latency_ms"]),
 			P95LatencyMs: dbutil.Float64FromAny(row["p95_latency_ms"]),
@@ -154,7 +154,7 @@ func (a *TimeSeriesAggregator) aggregateCostTimeSeries(rows []map[string]any) []
 	for i, row := range rows {
 		timeseries[i] = AICostTimeSeries{
 			ModelName:        dbutil.StringFromAny(row["model_name"]),
-			Timestamp:        dbutil.StringFromAny(row["timestamp"]),
+			Timestamp:        dbutil.StringFromAny(firstNonNil(row["time_bucket"], row["timestamp"])),
 			CostPerInterval:  dbutil.Float64FromAny(row["cost_per_interval"]),
 			PromptTokens:     dbutil.Int64FromAny(row["prompt_tokens"]),
 			CompletionTokens: dbutil.Int64FromAny(row["completion_tokens"]),
@@ -169,7 +169,7 @@ func (a *TimeSeriesAggregator) aggregateSecurityTimeSeries(rows []map[string]any
 	for i, row := range rows {
 		timeseries[i] = AISecurityTimeSeries{
 			ModelName:          dbutil.StringFromAny(row["model_name"]),
-			Timestamp:          dbutil.StringFromAny(row["timestamp"]),
+			Timestamp:          dbutil.StringFromAny(firstNonNil(row["time_bucket"], row["timestamp"])),
 			TotalRequests:      dbutil.Int64FromAny(row["total_requests"]),
 			PiiCount:           dbutil.Int64FromAny(row["pii_count"]),
 			GuardrailCount:     dbutil.Int64FromAny(row["guardrail_count"]),
@@ -177,6 +177,15 @@ func (a *TimeSeriesAggregator) aggregateSecurityTimeSeries(rows []map[string]any
 		}
 	}
 	return timeseries
+}
+
+func firstNonNil(values ...any) any {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
 }
 
 // HistogramAggregator aggregates histogram data from query results

@@ -166,23 +166,13 @@ type TraceIngestRows struct {
 	Resources []ingest.Row
 }
 
-func resourceRow(teamID, fingerprint string, seenAtBucket int64, attrs []*commonpb.KeyValue) ingest.Row {
+func resourceRow(teamID, fingerprint string, attrs []*commonpb.KeyValue) ingest.Row {
 	return ingest.Row{Values: []any{
 		fingerprint,
-		seenAtBucket,
 		teamID,
 		lookupAttr(attrs, "service.name"),
-		lookupAttr(attrs, "deployment.environment"),
 		lookupAttr(attrs, "host.name"),
-		lookupAttr(attrs, "host.type"),
-		lookupAttr(attrs, "k8s.namespace.name"),
 		lookupAttr(attrs, "k8s.pod.name"),
-		lookupAttr(attrs, "k8s.deployment.name"),
-		lookupAttr(attrs, "k8s.cluster.name"),
-		lookupAttr(attrs, "cloud.provider"),
-		lookupAttr(attrs, "cloud.region"),
-		lookupAttr(attrs, "telemetry.sdk.language"),
-		lookupAttr(attrs, "telemetry.sdk.version"),
 		attrsToJSON(attrs),
 	}}
 }
@@ -200,10 +190,7 @@ func MapTraceRows(teamID string, req *tracepb.ExportTraceServiceRequest) TraceIn
 			resAttrs = rs.Resource.Attributes
 		}
 		resFp := strconv.FormatUint(resourceFingerprint(resAttrs), 16)
-		var (
-			resourceBucket int64
-			hasSpan        bool
-		)
+		hasSpan := false
 
 		for _, ss := range rs.ScopeSpans {
 			for _, s := range ss.Spans {
@@ -213,12 +200,8 @@ func MapTraceRows(teamID string, req *tracepb.ExportTraceServiceRequest) TraceIn
 					durNano = s.EndTimeUnixNano - s.StartTimeUnixNano
 				}
 
-				// ts_bucket_start: 5-minute bucket in seconds
 				tsBucket := uint64(timestamp.Unix() / 300 * 300)
-				if !hasSpan || int64(tsBucket) < resourceBucket {
-					resourceBucket = int64(tsBucket)
-					hasSpan = true
-				}
+				hasSpan = true
 
 				// Determine has_error from status code
 				statusMsg, statusCode := "", trace.Status_STATUS_CODE_UNSET
@@ -268,7 +251,6 @@ func MapTraceRows(teamID string, req *tracepb.ExportTraceServiceRequest) TraceIn
 				exceptionStacktrace := lookupAttr(spanAttrs, "exception.stacktrace")
 				exceptionEscaped := lookupAttr(spanAttrs, "exception.escaped") == "true"
 
-				// Merge resource and span attributes into JSON
 				allAttrs := make([]*commonpb.KeyValue, 0, len(resAttrs)+len(spanAttrs))
 				allAttrs = append(allAttrs, resAttrs...)
 				allAttrs = append(allAttrs, spanAttrs...)
@@ -325,15 +307,12 @@ func MapTraceRows(teamID string, req *tracepb.ExportTraceServiceRequest) TraceIn
 			continue
 		}
 
-		if idx, ok := resourceIndexes[resFp]; ok {
-			if seenAt, ok := result.Resources[idx].Values[1].(int64); ok && resourceBucket < seenAt {
-				result.Resources[idx].Values[1] = resourceBucket
-			}
+		if _, ok := resourceIndexes[resFp]; ok {
 			continue
 		}
 
 		resourceIndexes[resFp] = len(result.Resources)
-		result.Resources = append(result.Resources, resourceRow(teamID, resFp, resourceBucket, resAttrs))
+		result.Resources = append(result.Resources, resourceRow(teamID, resFp, resAttrs))
 	}
 	return result
 }
@@ -392,7 +371,7 @@ func MapLogs(teamID string, req *logspb.ExportLogsServiceRequest) []ingest.Row {
 		if rl.Resource != nil {
 			resAttrs = rl.Resource.Attributes
 		}
-		resourceMap := attrsToMap(resAttrs)
+		resourceJSON := attrsToJSON(resAttrs)
 		fingerprint := strconv.FormatUint(resourceFingerprint(resAttrs), 16)
 
 		for _, sl := range rl.ScopeLogs {
@@ -448,7 +427,7 @@ func MapLogs(teamID string, req *logspb.ExportLogsServiceRequest) []ingest.Row {
 					attrStr,
 					attrNum,
 					attrBool,
-					resourceMap,
+					resourceJSON,
 					fingerprint,
 					scopeName,
 					scopeVersion,

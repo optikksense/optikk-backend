@@ -24,6 +24,8 @@ DB_CONN_NS=$((NOW_NS - 16 * 60 * 1000000000))
 
 ## 2. OTLP gRPC Ingestion Example For Database Metrics
 
+Expected response: gRPC status `OK` with an empty JSON body like `{}`.
+
 ```bash
 grpcurl -plaintext \
   -H "x-api-key: ${OTLP_API_KEY}" \

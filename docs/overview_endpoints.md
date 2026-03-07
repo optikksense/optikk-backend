@@ -34,6 +34,8 @@ ERROR_END_NS=$((ERROR_START_NS + 120000000))
 
 ## 2. OTLP gRPC Ingestion Example For Overview Data
 
+Expected response: gRPC status `OK` with an empty JSON body like `{}`.
+
 ```bash
 grpcurl -plaintext \
   -H "x-api-key: ${OTLP_API_KEY}" \
@@ -111,6 +113,8 @@ EOF
 
 ### 3.1 Request Rate
 
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
+
 ```bash
 curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
   --data-urlencode "start=${START_MS}" --data-urlencode "end=${END_MS}" \
@@ -118,6 +122,8 @@ curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
 ```
 
 ### 3.2 Error Rate
+
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
 
 ```bash
 curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
@@ -127,6 +133,8 @@ curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
 
 ### 3.3 p95 Latency
 
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
+
 ```bash
 curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
   --data-urlencode "start=${START_MS}" --data-urlencode "end=${END_MS}" \
@@ -134,6 +142,8 @@ curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
 ```
 
 ### 3.4 Services Table
+
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
 
 ```bash
 curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
@@ -143,6 +153,8 @@ curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
 
 ### 3.5 Top Endpoints
 
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
+
 ```bash
 curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
   --data-urlencode "start=${START_MS}" --data-urlencode "end=${END_MS}" \
@@ -150,6 +162,8 @@ curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \
 ```
 
 ### 3.6 Endpoint Time Series Drilldown
+
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
 
 ```bash
 curl -sS -G -H "${AUTH_HEADER}" -H "${TEAM_HEADER}" \

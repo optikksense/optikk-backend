@@ -29,6 +29,8 @@ AI_NS_THREE=$((NOW_NS - 7 * 60 * 1000000000))
 
 ## 2. OTLP gRPC Ingestion Example For AI Dashboards
 
+Expected response: gRPC status `OK` with an empty JSON body like `{}`.
+
 Each data point below represents one AI request-shaped metric row with all dashboard fields carried in attributes.
 
 ```bash

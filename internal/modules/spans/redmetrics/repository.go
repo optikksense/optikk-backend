@@ -30,15 +30,14 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 func (r *ClickHouseRepository) GetTopSlowOperations(teamUUID string, startMs, endMs int64, limit int) ([]SlowOperation, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.name                                          AS operation_name,
-		       r.service_name,
+		       s.service_name                                   AS service_name,
 		       quantile(0.50)(s.duration_nano / 1000000.0)    AS p50_ms,
 		       quantile(0.95)(s.duration_nano / 1000000.0)    AS p95_ms,
 		       quantile(0.99)(s.duration_nano / 1000000.0)    AS p99_ms,
 		       count()                                        AS span_count
 		FROM observability.spans s
-		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?
-		GROUP BY s.name, r.service_name
+		GROUP BY s.name, s.service_name
 		ORDER BY p99_ms DESC
 		LIMIT ?
 	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), limit)
@@ -64,17 +63,16 @@ func (r *ClickHouseRepository) GetTopSlowOperations(teamUUID string, startMs, en
 func (r *ClickHouseRepository) GetTopErrorOperations(teamUUID string, startMs, endMs int64, limit int) ([]ErrorOperation, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.name                                                       AS operation_name,
-		       r.service_name,
-		       s.attributes.'exception.type'::String                        AS exception_type,
+		       s.service_name                                                AS service_name,
+		       s.mat_exception_type                                          AS exception_type,
 		       count()                                                       AS total_count,
-		       countIf(s.has_error = true OR s.response_status_code >= '400') AS error_count,
+		       countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400) AS error_count,
 		       if(count() > 0,
-		           countIf(s.has_error = true OR s.response_status_code >= '400') * 100.0 / count(),
+		           countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400) * 100.0 / count(),
 		           0) AS error_rate
 		FROM observability.spans s
-		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?
-		GROUP BY s.name, r.service_name, exception_type
+		GROUP BY s.name, s.service_name, exception_type
 		ORDER BY error_rate DESC
 		LIMIT ?
 	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), limit)
@@ -157,14 +155,13 @@ func (r *ClickHouseRepository) GetServiceScorecard(teamUUID string, startMs, end
 	}
 
 	rows, err := dbutil.QueryMaps(r.db, `
-		SELECT r.service_name,
+		SELECT s.service_name AS service_name,
 		       count()                                                         AS total_count,
-		       countIf(s.has_error = true OR s.response_status_code >= '400') AS error_count,
+		       countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400) AS error_count,
 		       quantile(0.95)(s.duration_nano / 1000000.0)                    AS p95_ms
 		FROM observability.spans s
-		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.parent_span_id = '' AND s.timestamp BETWEEN ? AND ?
-		GROUP BY r.service_name
+		GROUP BY s.service_name
 		ORDER BY total_count DESC
 		LIMIT 1000
 	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
@@ -195,15 +192,14 @@ func (r *ClickHouseRepository) GetServiceScorecard(teamUUID string, startMs, end
 // toleratingMs: max latency for "tolerating" user (typically 4T).
 func (r *ClickHouseRepository) GetApdex(teamUUID string, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]ApdexScore, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
-		SELECT r.service_name,
+		SELECT s.service_name AS service_name,
 		       countIf(s.duration_nano / 1000000.0 <= ?)   AS satisfied,
 		       countIf(s.duration_nano / 1000000.0 > ? AND s.duration_nano / 1000000.0 <= ?) AS tolerating,
 		       countIf(s.duration_nano / 1000000.0 > ?)    AS frustrated,
 		       count()                                      AS total_count
 		FROM observability.spans s
-		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.parent_span_id = '' AND s.timestamp BETWEEN ? AND ?
-		GROUP BY r.service_name
+		GROUP BY s.service_name
 		ORDER BY total_count DESC
 	`, satisfiedMs, satisfiedMs, toleratingMs, toleratingMs,
 		teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))

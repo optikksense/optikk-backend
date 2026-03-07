@@ -29,10 +29,10 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(teamUUID string, startMs, 
 		SELECT if(r.host_name != '', r.host_name, '`+DefaultUnknown+`') as host_name,
 		       uniqExactIf(r.k8s_pod_name, r.k8s_pod_name != '') as pod_count,
 		       toInt64(0) as container_count,
-		       arrayStringConcat(groupUniqArray(if(r.service_name != '', r.service_name, '`+DefaultUnknown+`')), ',') as services_csv,
+		       arrayStringConcat(groupUniqArray(s.service_name), ',') as services_csv,
 		       COUNT(*) as request_count,
-		       countIf(s.has_error = true OR s.response_status_code >= '400') as error_count,
-		       if(COUNT(*) > 0, countIf(s.has_error = true OR s.response_status_code >= '400')*100.0/COUNT(*), 0) as error_rate,
+		       countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400) as error_count,
+		       if(COUNT(*) > 0, countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)*100.0/COUNT(*), 0) as error_rate,
 		       AVG(s.duration_nano / 1000000.0) as avg_latency,
 		       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(s.duration_nano / 1000000.0) as p95_latency,
 		       MAX(s.timestamp) as last_seen
@@ -69,10 +69,10 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(teamUUID string, startMs, 
 func (r *ClickHouseRepository) GetInfrastructureNodeServices(teamUUID, host string, startMs, endMs int64) ([]InfrastructureNodeService, error) {
 	const rootSpanCondition = "(s.parent_span_id = '' OR s.parent_span_id = '0000000000000000')"
 	rows, err := dbutil.QueryMaps(r.db, `
-		SELECT if(r.service_name != '', r.service_name, '`+DefaultUnknown+`') as service_name,
+		SELECT s.service_name as service_name,
 		       COUNT(*) as request_count,
-		       countIf(s.has_error = true OR s.response_status_code >= '400') as error_count,
-		       if(COUNT(*) > 0, countIf(s.has_error = true OR s.response_status_code >= '400')*100.0/COUNT(*), 0) as error_rate,
+		       countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400) as error_count,
+		       if(COUNT(*) > 0, countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)*100.0/COUNT(*), 0) as error_rate,
 		       AVG(s.duration_nano / 1000000.0) as avg_latency,
 		       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(s.duration_nano / 1000000.0) as p95_latency,
 		       uniqExactIf(r.k8s_pod_name, r.k8s_pod_name != '') as pod_count

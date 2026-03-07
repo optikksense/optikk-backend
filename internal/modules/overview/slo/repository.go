@@ -44,11 +44,10 @@ func (r *ClickHouseRepository) GetSummary(teamUUID string, startMs, endMs int64,
 			       avg(s.duration_nano / 1000000.0)                                            AS avg_latency_ms,
 			       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency_ms
 			FROM observability.spans s
-			ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
-			WHERE s.team_id = ? AND ` + RootSpanCondition() + ` AND s.timestamp BETWEEN ? AND ?`
-	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+			WHERE s.team_id = ? AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`
+	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
-		query += ` AND r.service_name = ?`
+		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
 	}
 	query += `
@@ -84,11 +83,10 @@ func (r *ClickHouseRepository) GetTimeSeries(teamUUID string, startMs, endMs int
 			       countIf(`+ErrorCondition()+`)        AS error_count,
 			       avg(s.duration_nano / 1000000.0)     AS avg_latency_ms
 			FROM observability.spans s
-			ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
-			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
+	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
-		query += ` AND r.service_name = ?`
+		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
 	}
 	query += ` GROUP BY 1

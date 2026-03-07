@@ -259,7 +259,7 @@ func NewTimeSeriesQueryBuilder(teamUUID string, startMs, endMs int64, strategy T
 	return &TimeSeriesQueryBuilder{
 		BaseQueryBuilder: NewBaseQueryBuilder(teamUUID, startMs, endMs),
 		bucketStrategy:   strategy,
-		orderBy:          "timestamp ASC",
+		orderBy:          "time_bucket ASC, model_name ASC",
 	}
 }
 
@@ -289,7 +289,7 @@ func (b *TimeSeriesQueryBuilder) Build() (string, []any) {
 
 	query := fmt.Sprintf(`
 		SELECT %s as model_name,
-		       %s as timestamp,
+		       %s as time_bucket,
 		       %s
 		FROM %s
 		%s

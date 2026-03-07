@@ -4,6 +4,8 @@
 
 #### 1.1 Create Team
 
+Expected response: HTTP `201 Created` with the new team payload.
+
 ```bash
 curl -X POST http://localhost:9090/api/v1/teams \
   -H "Content-Type: application/json" \
@@ -19,6 +21,8 @@ Note: Only `team_name` and `org_name` are required. `slug`, `description`, and `
 
 #### 1.2 Create User
 
+Expected response: HTTP `201 Created` with the new user payload.
+
 ```bash
 curl -X POST http://localhost:9090/api/v1/users \
   -H "Content-Type: application/json" \
@@ -33,6 +37,8 @@ curl -X POST http://localhost:9090/api/v1/users \
 
 
 #### 1.3 Login
+
+Expected response: HTTP `200 OK` with a JWT token and the current team context.
 
 ```bash
 curl -X POST http://localhost:9090/api/v1/auth/login \
@@ -50,6 +56,8 @@ curl -X POST http://localhost:9090/api/v1/auth/login \
 > Replace `<YOUR_API_KEY>` with a valid API key for your team.
 
 #### 2.1 Metrics — gRPC (port 4317)
+
+Expected response: gRPC status `OK` with an empty JSON body like `{}`.
 
 Use [`grpcurl`](https://github.com/fullstorydev/grpcurl) — it transparently transcodes the JSON body → binary protobuf before sending, so the handler receives a fully-populated request.
 
@@ -140,6 +148,8 @@ grpcurl -plaintext \
 
 #### 2.2 Spans — gRPC (port 4317)
 
+Expected response: gRPC status `OK` with an empty JSON body like `{}`.
+
 ```bash
 grpcurl -plaintext \
   -H "x-api-key: <YOUR_API_KEY>" \
@@ -188,6 +198,8 @@ grpcurl -plaintext \
 ---
 
 #### 2.3 Logs — gRPC (port 4317)
+
+Expected response: gRPC status `OK` with an empty JSON body like `{}`.
 
 ```bash
 grpcurl -plaintext \

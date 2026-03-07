@@ -43,6 +43,8 @@ PAYMENTS_END_NS=$((PAYMENTS_START_NS + 340000000))
 
 ## 2. OTLP gRPC Ingestion Example For Services, Topology, And Service Map
 
+Expected response: gRPC status `OK` with an empty JSON body like `{}`.
+
 ```bash
 grpcurl -plaintext \
   -H "x-api-key: ${OTLP_API_KEY}" \

@@ -42,8 +42,8 @@ CREATE TABLE IF NOT EXISTS observability.spans (
     -- CORE IDENTITY
     timestamp                             DateTime64(9)   CODEC(DoubleDelta, LZ4),
     trace_id                              FixedString(32) CODEC(ZSTD(1)),
-    span_id                               String          CODEC(ZSTD(1)),
-    parent_span_id                        String          CODEC(ZSTD(1)),
+    span_id                               FixedString(16) CODEC(ZSTD(1)),
+    parent_span_id                        FixedString(16) CODEC(ZSTD(1)),
     trace_state                           String          CODEC(ZSTD(1)),
     flags                                 UInt32          CODEC(T64, ZSTD(1)),
 
@@ -53,22 +53,21 @@ CREATE TABLE IF NOT EXISTS observability.spans (
     kind_string                           LowCardinality(String) CODEC(ZSTD(1)),
     duration_nano                         UInt64          CODEC(T64, ZSTD(1)),
     has_error                             Bool            CODEC(T64, ZSTD(1)),
-    is_remote                             LowCardinality(String) CODEC(ZSTD(1)),
+    is_remote                             Bool            CODEC(T64, ZSTD(1)),
 
     -- STATUS
     status_code                           Int16           CODEC(T64, ZSTD(1)),
     status_code_string                    LowCardinality(String) CODEC(ZSTD(1)),
     status_message                        String          CODEC(ZSTD(1)),
 
-    -- HTTP / DB SHORTCUTS (derived at ingest)
+    -- HTTP / RESPONSE SHORTCUTS (derived at ingest)
     http_url                              LowCardinality(String) CODEC(ZSTD(1)),
     http_method                           LowCardinality(String) CODEC(ZSTD(1)),
     http_host                             LowCardinality(String) CODEC(ZSTD(1)),
     external_http_url                     LowCardinality(String) CODEC(ZSTD(1)),
     external_http_method                  LowCardinality(String) CODEC(ZSTD(1)),
     response_status_code                  LowCardinality(String) CODEC(ZSTD(1)),
-    db_name                               LowCardinality(String) CODEC(ZSTD(1)),
-    db_operation                          LowCardinality(String) CODEC(ZSTD(1)),
+    -- db_name and db_operation removed: superseded by mat_db_name / mat_db_operation
 
     -- ATTRIBUTES (JSON overflow - replaces Map for better performance)
     attributes                            JSON(max_dynamic_paths = 50) CODEC(ZSTD(1)),
@@ -82,6 +81,26 @@ CREATE TABLE IF NOT EXISTS observability.spans (
     exception_message                     String          CODEC(ZSTD(1)),
     exception_stacktrace                  String          CODEC(ZSTD(1)),
     exception_escaped                     Bool            CODEC(T64, ZSTD(1)),
+
+    -- MATERIALIZED service_name for sort-key pruning and bloom filter indexing
+    service_name                          LowCardinality(String)
+                                    MATERIALIZED attributes.`service.name`::String CODEC(ZSTD(1)),
+    operation_name                        LowCardinality(String)
+                                    ALIAS name,
+    start_time                            DateTime64(9)
+                                    ALIAS timestamp,
+    duration_ms                           Float64
+                                    ALIAS duration_nano / 1000000.0,
+    status                                LowCardinality(String)
+                                    ALIAS status_code_string,
+    http_status_code                      UInt16
+                                    ALIAS toUInt16OrZero(response_status_code),
+    is_root                               UInt8
+                                    ALIAS if((parent_span_id = '') OR (parent_span_id = '0000000000000000'), 1, 0),
+    parent_service_name                   LowCardinality(String)
+                                    ALIAS '',
+    peer_address                          LowCardinality(String)
+                                    ALIAS CAST(attributes.`peer.address`, 'String'),
 
     -- MATERIALIZED HOT ATTRIBUTES (computed at insert from JSON column)
     -- HTTP
@@ -135,6 +154,7 @@ CREATE TABLE IF NOT EXISTS observability.spans (
                                     MATERIALIZED attributes.`exception.type`::String           CODEC(ZSTD(1)),
 
     -- BLOOM FILTER INDEXES
+    INDEX idx_service_name          service_name            TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_trace_id              trace_id                TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_span_name             name                    TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_mat_http_route        mat_http_route          TYPE bloom_filter(0.01) GRANULARITY 4,
@@ -146,51 +166,36 @@ CREATE TABLE IF NOT EXISTS observability.spans (
     INDEX idx_mat_exception_type    mat_exception_type      TYPE bloom_filter(0.01) GRANULARITY 4
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/spans', '{replica}')
 PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, ts_bucket_start, has_error, name, timestamp)
-TTL toDate(timestamp) + INTERVAL 30 DAY
+ORDER BY (team_id, ts_bucket_start, service_name, name, timestamp)
+TTL toDate(timestamp) + INTERVAL 14 DAY TO VOLUME 'warm',
+    toDate(timestamp) + INTERVAL 30 DAY DELETE
 SETTINGS
     index_granularity = 8192,
     ttl_only_drop_parts = 1,
     storage_policy = 'tiered_gcs';
 
 -- ===========================================================================
--- RESOURCES: resource metadata for spans (optimized schema)
+-- RESOURCES: resource metadata for spans
 -- ===========================================================================
--- Stores unique resource fingerprints with top known keys as real columns
--- to avoid JSON parsing at query time. Overflow attributes stored in JSON.
+-- Keep this aligned with the live single-node table used by the backend.
+-- Queries only rely on service_name, host_name, k8s_pod_name, and labels.
 -- ===========================================================================
 CREATE TABLE IF NOT EXISTS observability.resources (
-    fingerprint               String  CODEC(ZSTD(1)),
-    seen_at_ts_bucket_start   Int64   CODEC(Delta(8), ZSTD(1)),
-
-    -- Multi-tenancy
+    fingerprint               String CODEC(ZSTD(1)),
     team_id                   LowCardinality(String) CODEC(ZSTD(1)),
-
-    -- Top known keys as real columns — zero JSON parsing at query time
     service_name              LowCardinality(String) CODEC(ZSTD(1)),
-    environment               LowCardinality(String) CODEC(ZSTD(1)),
     host_name                 LowCardinality(String) CODEC(ZSTD(1)),
-    host_type                 LowCardinality(String) CODEC(ZSTD(1)),
-    k8s_namespace             LowCardinality(String) CODEC(ZSTD(1)),
     k8s_pod_name              LowCardinality(String) CODEC(ZSTD(1)),
-    k8s_deployment_name       LowCardinality(String) CODEC(ZSTD(1)),
-    k8s_cluster_name          LowCardinality(String) CODEC(ZSTD(1)),
-    cloud_provider            LowCardinality(String) CODEC(ZSTD(1)),
-    cloud_region              LowCardinality(String) CODEC(ZSTD(1)),
-    telemetry_sdk_language    LowCardinality(String) CODEC(ZSTD(1)),
-    telemetry_sdk_version     LowCardinality(String) CODEC(ZSTD(1)),
+    labels                    String CODEC(ZSTD(1)),
+    created_at                DateTime DEFAULT now() CODEC(DoubleDelta, LZ4),
 
-    -- Overflow JSON capped at 50 paths
-    labels                    JSON(max_dynamic_paths = 50) CODEC(ZSTD(1)),
-
-    INDEX idx_service_name      service_name    TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_environment       environment     TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_k8s_namespace     k8s_namespace   TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_k8s_cluster       k8s_cluster_name TYPE bloom_filter(0.01) GRANULARITY 4
+    INDEX idx_service_name      service_name TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_host_name         host_name    TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_k8s_pod_name      k8s_pod_name TYPE bloom_filter(0.01) GRANULARITY 4
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/resources', '{replica}')
-PARTITION BY toYYYYMM(toDateTime(seen_at_ts_bucket_start))
-ORDER BY (team_id, fingerprint, seen_at_ts_bucket_start)
-TTL toDate(toDateTime(seen_at_ts_bucket_start)) + INTERVAL 30 DAY
+PARTITION BY toYYYYMM(created_at)
+ORDER BY (fingerprint, team_id)
+TTL created_at + INTERVAL 30 DAY DELETE
 SETTINGS
     index_granularity = 8192,
     ttl_only_drop_parts = 1,
@@ -205,7 +210,7 @@ CREATE TABLE IF NOT EXISTS observability.logs (
     team_id              LowCardinality(String) CODEC(ZSTD(1)),
 
     -- Time columns
-    ts_bucket_start      UInt32 CODEC(DoubleDelta, LZ4),
+    ts_bucket_start      UInt32 CODEC(Delta(4), LZ4),
     timestamp            UInt64 CODEC(DoubleDelta, LZ4),
     observed_timestamp   UInt64 CODEC(DoubleDelta, LZ4),
 
@@ -252,7 +257,7 @@ CREATE TABLE IF NOT EXISTS observability.logs (
     INDEX idx_host       host            TYPE bloom_filter(0.01) GRANULARITY 1
 
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/logs', '{replica}')
-PARTITION BY toDate(toDateTime(ts_bucket_start))
+PARTITION BY toYYYYMM(toDateTime(ts_bucket_start))
 ORDER BY (team_id, ts_bucket_start, service, timestamp)
 TTL toDateTime(ts_bucket_start) + INTERVAL 30 DAY DELETE
 SETTINGS
@@ -284,7 +289,7 @@ CREATE TABLE IF NOT EXISTS observability.metrics (
     is_monotonic         Bool CODEC(T64, ZSTD(1)),
     unit                 LowCardinality(String) DEFAULT '',
     description          LowCardinality(String) DEFAULT '',
-    resource_fingerprint UInt64 CODEC(Delta(8), ZSTD(1)),
+    resource_fingerprint UInt64 CODEC(ZSTD(3)),
     timestamp            DateTime64(3) CODEC(DoubleDelta, LZ4),
     value                Float64 CODEC(Gorilla, ZSTD(1)),
     hist_sum             Float64 CODEC(Gorilla, ZSTD(1)),
@@ -313,7 +318,7 @@ CREATE TABLE IF NOT EXISTS observability.metrics (
     INDEX idx_fingerprint      resource_fingerprint TYPE bloom_filter  GRANULARITY 4
 
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/metrics', '{replica}')
-PARTITION BY toYYYYMMDD(timestamp)
+PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, metric_name, service, environment, temporality, timestamp, resource_fingerprint)
 TTL toDateTime(timestamp) + INTERVAL 30 DAY   TO VOLUME 'warm',
     toDateTime(timestamp) + INTERVAL 90 DAY   TO VOLUME 'cold',
@@ -322,3 +327,37 @@ SETTINGS
     index_granularity = 8192,
     enable_mixed_granularity_parts = 1,
     storage_policy = 'tiered_gcs';
+
+-- ===========================================================================
+-- MATERIALIZED VIEW: spans_red_1m
+-- Pre-aggregates RED metrics (rate, errors, duration) per minute per service/operation.
+-- Used by dashboard queries (GetTopSlowOperations, GetServiceScorecard, etc.)
+-- to avoid full raw-span scans on every request.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS observability.spans_red_1m (
+    team_id        LowCardinality(String),
+    service_name   LowCardinality(String),
+    operation_name LowCardinality(String),
+    ts             DateTime CODEC(DoubleDelta, LZ4),
+    req_count      AggregateFunction(count),
+    err_count      AggregateFunction(countIf, Bool),
+    p95_state      AggregateFunction(quantile(0.95), Float64),
+    p99_state      AggregateFunction(quantile(0.99), Float64)
+) ENGINE = AggregatingMergeTree()
+PARTITION BY toYYYYMM(ts)
+ORDER BY (team_id, service_name, operation_name, ts)
+SETTINGS index_granularity = 8192;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS observability.spans_red_1m_mv
+TO observability.spans_red_1m
+AS SELECT
+    team_id,
+    service_name,
+    name AS operation_name,
+    toStartOfMinute(timestamp) AS ts,
+    countState() AS req_count,
+    countIfState(has_error) AS err_count,
+    quantileState(0.95)(toFloat64(duration_nano) / 1000000.0) AS p95_state,
+    quantileState(0.99)(toFloat64(duration_nano) / 1000000.0) AS p99_state
+FROM observability.spans
+GROUP BY team_id, service_name, name, ts;

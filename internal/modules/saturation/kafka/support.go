@@ -38,6 +38,8 @@ var (
 
 	KafkaConsumerLagMetricsExtended = []string{
 		"kafka.consumer.lag",
+		MetricMessagingConsumerLagOTel,
+		MetricMessagingConsumerLag,
 	}
 
 	KafkaProducerMetrics = []string{

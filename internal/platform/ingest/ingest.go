@@ -222,7 +222,7 @@ func (q *Queue) flush(batch []Row) error {
 	}
 
 	query := fmt.Sprintf(
-		"INSERT INTO %s (%s) SETTINGS async_insert=1, wait_for_async_insert=1 VALUES %s",
+		"INSERT INTO %s (%s) VALUES %s",
 		q.table, colList, strings.Join(rowPlaceholders, ", "),
 	)
 

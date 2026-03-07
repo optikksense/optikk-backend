@@ -34,6 +34,8 @@ PAYMENTS_END_NS=$((PAYMENTS_START_NS + 260000000))
 
 ## 2. OTLP gRPC Ingestion Example For Node Health
 
+Expected response: gRPC status `OK` with an empty JSON body like `{}`.
+
 ```bash
 grpcurl -plaintext \
   -H "x-api-key: ${OTLP_API_KEY}" \

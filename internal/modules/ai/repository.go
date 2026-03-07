@@ -1,6 +1,8 @@
 package ai
 
 import (
+	"fmt"
+
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
@@ -126,16 +128,19 @@ func (r *ClickHouseRepository) GetAIPerformanceMetrics(teamUUID string, startMs,
 func (r *ClickHouseRepository) GetAIPerformanceTimeSeries(teamUUID string, startMs, endMs int64) ([]AIPerformanceTimeSeries, error) {
 	// Create adaptive time bucket strategy
 	strategy := r.bucketFactory.CreateStrategy(startMs, endMs)
+	durationMs := attrFlt("duration_ms")
+	outputTokens := attrInt("gen.ai.usage.output_tokens")
+	timeout := attrInt("ai.timeout")
 
 	// Build query using time series query builder
 	builder := NewTimeSeriesQueryBuilder(teamUUID, startMs, endMs, strategy)
 	builder.WithSelectFields([]string{
 		"COUNT(*) as request_count",
-		"AVG(duration_ms) as avg_latency_ms",
-		"AVG(duration_ms) as p95_latency_ms",
-		"SUM(CASE WHEN timeout=1 THEN 1 ELSE 0 END) as timeout_count",
-		"SUM(CASE WHEN status='ERROR' THEN 1 ELSE 0 END) as error_count",
-		"AVG(CASE WHEN duration_ms>0 THEN COALESCE(tokens_completion,0)/(duration_ms/1000.0) ELSE 0 END) as tokens_per_sec",
+		fmt.Sprintf("AVG(%s) as avg_latency_ms", durationMs),
+		fmt.Sprintf("quantile(0.95)(%s) as p95_latency_ms", durationMs),
+		fmt.Sprintf("SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) as timeout_count", timeout),
+		"countIf(has_error) as error_count",
+		fmt.Sprintf("AVG(CASE WHEN %s > 0 THEN COALESCE(%s, 0) / (%s / 1000.0) ELSE 0 END) as tokens_per_sec", durationMs, outputTokens, durationMs),
 	})
 
 	query, args := builder.Build()
@@ -208,13 +213,16 @@ func (r *ClickHouseRepository) GetAICostMetrics(teamUUID string, startMs, endMs 
 func (r *ClickHouseRepository) GetAICostTimeSeries(teamUUID string, startMs, endMs int64) ([]AICostTimeSeries, error) {
 	// Create adaptive time bucket strategy
 	strategy := r.bucketFactory.CreateStrategy(startMs, endMs)
+	costUSD := attrFlt("ai.cost_usd")
+	inputTokens := attrInt("gen.ai.usage.input_tokens")
+	outputTokens := attrInt("gen.ai.usage.output_tokens")
 
 	// Build query using time series query builder
 	builder := NewTimeSeriesQueryBuilder(teamUUID, startMs, endMs, strategy)
 	builder.WithSelectFields([]string{
-		"SUM(COALESCE(cost_usd,0)) as cost_per_interval",
-		"SUM(COALESCE(tokens_prompt,0)) as prompt_tokens",
-		"SUM(COALESCE(tokens_completion,0)) as completion_tokens",
+		fmt.Sprintf("SUM(COALESCE(%s, 0)) as cost_per_interval", costUSD),
+		fmt.Sprintf("SUM(COALESCE(%s, 0)) as prompt_tokens", inputTokens),
+		fmt.Sprintf("SUM(COALESCE(%s, 0)) as completion_tokens", outputTokens),
 		"COUNT(*) as request_count",
 	})
 
@@ -285,14 +293,17 @@ func (r *ClickHouseRepository) GetAISecurityMetrics(teamUUID string, startMs, en
 func (r *ClickHouseRepository) GetAISecurityTimeSeries(teamUUID string, startMs, endMs int64) ([]AISecurityTimeSeries, error) {
 	// Create adaptive time bucket strategy
 	strategy := r.bucketFactory.CreateStrategy(startMs, endMs)
+	piiDetected := attrInt("ai.security.pii_detected")
+	guardrailBlocked := attrInt("ai.security.guardrail_blocked")
+	contentPolicy := attrInt("ai.security.content_policy")
 
 	// Build query using time series query builder
 	builder := NewTimeSeriesQueryBuilder(teamUUID, startMs, endMs, strategy)
 	builder.WithSelectFields([]string{
 		"COUNT(*) as total_requests",
-		"SUM(CASE WHEN pii_detected=1 THEN 1 ELSE 0 END) as pii_count",
-		"SUM(CASE WHEN guardrail_blocked=1 THEN 1 ELSE 0 END) as guardrail_count",
-		"SUM(CASE WHEN content_policy=1 THEN 1 ELSE 0 END) as content_policy_count",
+		fmt.Sprintf("SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) as pii_count", piiDetected),
+		fmt.Sprintf("SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) as guardrail_count", guardrailBlocked),
+		fmt.Sprintf("SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) as content_policy_count", contentPolicy),
 	})
 
 	query, args := builder.Build()

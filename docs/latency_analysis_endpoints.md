@@ -34,6 +34,8 @@ SLOW_END_NS=$((SLOW_START_NS + 880000000))
 
 ## 2. OTLP gRPC Ingestion Example For Latency Views
 
+Expected response: gRPC status `OK` with an empty JSON body like `{}`.
+
 ```bash
 grpcurl -plaintext \
   -H "x-api-key: ${OTLP_API_KEY}" \

@@ -37,6 +37,8 @@ LOG_TS_MS=$((LOG_TS_NS / 1000000))
 
 ## 2. OTLP gRPC Ingestion Example For Logs
 
+Expected response: gRPC status `OK` with an empty JSON body like `{}`.
+
 ```bash
 grpcurl -plaintext \
   -H "x-api-key: ${OTLP_API_KEY}" \
@@ -118,6 +120,8 @@ EOF
 
 ### 3.1 Logs Histogram
 
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
+
 ```bash
 curl -sS -G \
   -H "${AUTH_HEADER}" \
@@ -130,6 +134,8 @@ curl -sS -G \
 ```
 
 ### 3.2 Logs Search
+
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
 
 ```bash
 curl -sS -G \
@@ -145,6 +151,8 @@ curl -sS -G \
 
 ### 3.3 Logs Stats
 
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
+
 ```bash
 curl -sS -G \
   -H "${AUTH_HEADER}" \
@@ -156,6 +164,8 @@ curl -sS -G \
 ```
 
 ### 3.4 Logs Facets
+
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
 
 ```bash
 curl -sS -G \
@@ -169,6 +179,8 @@ curl -sS -G \
 
 ### 3.5 Trace-Scoped Logs
 
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
+
 ```bash
 curl -sS \
   -H "${AUTH_HEADER}" \
@@ -177,6 +189,8 @@ curl -sS \
 ```
 
 ### 3.6 Log Detail Around A Span
+
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
 
 `timestamp` here is milliseconds, even though the stored log timestamp is nanoseconds.
 

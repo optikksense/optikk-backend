@@ -42,6 +42,8 @@ SERVER_EVENT_NS=$((SERVER_END_NS - 1000000))
 
 ## 2. OTLP gRPC Ingestion Example For Spans
 
+Expected response: gRPC status `OK` with an empty JSON body like `{}`.
+
 This example creates one root server span, one client span, and one downstream server span so that trace search, span tree, and service dependency endpoints all have useful data.
 
 ```bash
@@ -159,6 +161,8 @@ EOF
 
 ### 3.1 Traces Search
 
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
+
 ```bash
 curl -sS -G \
   -H "${AUTH_HEADER}" \
@@ -171,6 +175,8 @@ curl -sS -G \
 ```
 
 ### 3.2 Traces Page Service Time Series
+
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
 
 This powers the request rate, error rate, and p95 latency charts on the traces landing page.
 
@@ -186,6 +192,8 @@ curl -sS -G \
 
 ### 3.3 Trace Spans
 
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
+
 ```bash
 curl -sS \
   -H "${AUTH_HEADER}" \
@@ -195,6 +203,8 @@ curl -sS \
 
 ### 3.4 Span Tree By Root Span ID
 
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
+
 ```bash
 curl -sS \
   -H "${AUTH_HEADER}" \
@@ -203,6 +213,8 @@ curl -sS \
 ```
 
 ### 3.5 Latency Histogram
+
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
 
 ```bash
 curl -sS -G \
@@ -217,6 +229,8 @@ curl -sS -G \
 
 ### 3.6 Service Dependencies
 
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
+
 ```bash
 curl -sS -G \
   -H "${AUTH_HEADER}" \
@@ -228,6 +242,8 @@ curl -sS -G \
 
 ### 3.7 Trace Span Events
 
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
+
 ```bash
 curl -sS \
   -H "${AUTH_HEADER}" \
@@ -236,6 +252,8 @@ curl -sS \
 ```
 
 ### 3.8 Trace Critical Path
+
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
 
 ```bash
 curl -sS \

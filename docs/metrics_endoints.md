@@ -34,6 +34,8 @@ BUFFER_SAMPLE_NS=$((NOW_NS - 10 * 60 * 1000000000))
 
 ## 2. OTLP gRPC Ingestion Example For JVM Metrics
 
+Expected response: gRPC status `OK` with an empty JSON body like `{}`.
+
 ```bash
 grpcurl -plaintext \
   -H "x-api-key: ${OTLP_API_KEY}" \
@@ -240,6 +242,8 @@ These are the endpoints used by the JVM runtime dashboard tab.
 
 ### 3.1 GC Duration
 
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
+
 ```bash
 curl -sS -G \
   -H "${AUTH_HEADER}" \
@@ -250,6 +254,8 @@ curl -sS -G \
 ```
 
 ### 3.2 JVM CPU
+
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
 
 ```bash
 curl -sS -G \
@@ -262,6 +268,8 @@ curl -sS -G \
 
 ### 3.3 JVM Memory
 
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
+
 ```bash
 curl -sS -G \
   -H "${AUTH_HEADER}" \
@@ -272,6 +280,8 @@ curl -sS -G \
 ```
 
 ### 3.4 JVM GC Collections
+
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
 
 ```bash
 curl -sS -G \
@@ -284,6 +294,8 @@ curl -sS -G \
 
 ### 3.5 JVM Threads
 
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
+
 ```bash
 curl -sS -G \
   -H "${AUTH_HEADER}" \
@@ -295,6 +307,8 @@ curl -sS -G \
 
 ### 3.6 JVM Buffers
 
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
+
 ```bash
 curl -sS -G \
   -H "${AUTH_HEADER}" \
@@ -305,6 +319,8 @@ curl -sS -G \
 ```
 
 ### 3.7 JVM Classes
+
+Expected response: HTTP `200 OK` with the JSON payload used by this dashboard view.
 
 ```bash
 curl -sS -G \

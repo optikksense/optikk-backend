@@ -150,9 +150,8 @@ func (r *ClickHouseRepository) GetSpanKindBreakdown(teamUUID, traceID string) ([
 func (r *ClickHouseRepository) GetCriticalPath(teamUUID, traceID string) ([]CriticalPathSpan, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.span_id, s.parent_span_id, s.name AS operation_name,
-		       r.service_name, s.duration_nano / 1000000.0 AS duration_ms
+		       s.service_name AS service_name, s.duration_nano / 1000000.0 AS duration_ms
 		FROM observability.spans s
-		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ? AND s.trace_id = ?
 		ORDER BY s.timestamp ASC
 		LIMIT 10000
@@ -298,10 +297,9 @@ func (r *ClickHouseRepository) GetSpanSelfTimes(teamUUID, traceID string) ([]Spa
 func (r *ClickHouseRepository) GetErrorPath(teamUUID, traceID string) ([]ErrorPathSpan, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.span_id, s.parent_span_id, s.name AS operation_name,
-		       r.service_name, s.status_code_string AS status, s.status_message,
+		       s.service_name AS service_name, s.status_code_string AS status, s.status_message,
 		       s.timestamp AS start_time, s.duration_nano / 1000000.0 AS duration_ms
 		FROM observability.spans s
-		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ? AND s.trace_id = ?
 		  AND (s.has_error = true OR s.status_code_string = 'ERROR')
 		ORDER BY s.timestamp ASC

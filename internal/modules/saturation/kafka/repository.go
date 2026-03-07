@@ -177,7 +177,7 @@ func (r *ClickHouseRepository) GetKafkaProductionRate(teamUUID string, startMs, 
 	out := make([]KafkaProductionRate, len(rows))
 	for i, row := range rows {
 		out[i] = KafkaProductionRate{
-			Topic:          dbutil.StringFromAny(row["topic"]),
+			Topic:          dbutil.StringFromAny(row["queue"]),
 			Timestamp:      dbutil.StringFromAny(row["minute_bucket"]),
 			AvgPublishRate: nullableFloat64FromAny(row["avg_publish_rate"]),
 		}
@@ -221,7 +221,7 @@ func (r *ClickHouseRepository) GetKafkaConsumptionRate(teamUUID string, startMs,
 	out := make([]KafkaConsumptionRate, len(rows))
 	for i, row := range rows {
 		out[i] = KafkaConsumptionRate{
-			Topic:          dbutil.StringFromAny(row["topic"]),
+			Topic:          dbutil.StringFromAny(row["queue"]),
 			Timestamp:      dbutil.StringFromAny(row["minute_bucket"]),
 			AvgReceiveRate: nullableFloat64FromAny(row["avg_receive_rate"]),
 		}
@@ -277,7 +277,7 @@ func (r *ClickHouseRepository) GetQueueConsumerLag(teamUUID string, startMs, end
 			ServiceName:     dbutil.StringFromAny(row["service_name"]),
 			QueueName:       dbutil.StringFromAny(row["queue_name"]),
 			MessagingSystem: dbutil.StringFromAny(row["messaging_system"]),
-			AvgConsumerLag:  nullableFloat64FromAny(row["max_consumer_lag"]),
+			AvgConsumerLag:  nullableFloat64FromAny(row["avg_consumer_lag"]),
 		}
 	}
 	return out, nil
@@ -410,7 +410,7 @@ func (r *ClickHouseRepository) GetQueueTopQueues(teamUUID string, startMs, endMs
 
 // GetConsumerLagPerPartition returns consumer lag grouped by topic, partition, and consumer group.
 func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamUUID string, startMs, endMs int64) ([]PartitionLag, error) {
-	lagMetrics := MetricSetToInClause([]string{MetricMessagingConsumerLagOTel, MetricMessagingConsumerLag})
+	lagMetrics := MetricSetToInClause(KafkaConsumerLagMetricsExtended)
 	topicAttr := attrString(AttrMessagingDestinationName)
 	partitionAttr := attrString(AttrMessagingKafkaDestinationPartition)
 	consumerGroupAttr := attrString(AttrMessagingKafkaConsumerGroup)

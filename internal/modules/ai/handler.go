@@ -1,6 +1,8 @@
 package ai
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -16,7 +18,11 @@ type AIHandler struct {
 func (h *AIHandler) GetAISummary(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	startMs, endMs := ParseRange(c, 60*60*1000)
-	summary, _ := h.Service.GetAISummary(teamUUID, startMs, endMs)
+	summary, err := h.Service.GetAISummary(teamUUID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI summary")
+		return
+	}
 	RespondOK(c, summary)
 }
 
@@ -24,7 +30,11 @@ func (h *AIHandler) GetAISummary(c *gin.Context) {
 func (h *AIHandler) GetAIModels(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	startMs, endMs := ParseRange(c, 60*60*1000)
-	rows, _ := h.Service.GetAIModels(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetAIModels(teamUUID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI models")
+		return
+	}
 	RespondOK(c, rows)
 }
 
@@ -32,7 +42,11 @@ func (h *AIHandler) GetAIModels(c *gin.Context) {
 func (h *AIHandler) GetAIPerformanceMetrics(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	startMs, endMs := ParseRange(c, 60*60*1000)
-	rows, _ := h.Service.GetAIPerformanceMetrics(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetAIPerformanceMetrics(teamUUID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI performance metrics")
+		return
+	}
 	RespondOK(c, rows)
 }
 
@@ -40,7 +54,11 @@ func (h *AIHandler) GetAIPerformanceMetrics(c *gin.Context) {
 func (h *AIHandler) GetAIPerformanceTimeSeries(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	startMs, endMs := ParseRange(c, 60*60*1000)
-	rows, _ := h.Service.GetAIPerformanceTimeSeries(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetAIPerformanceTimeSeries(teamUUID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI performance timeseries")
+		return
+	}
 	RespondOK(c, rows)
 }
 
@@ -49,7 +67,11 @@ func (h *AIHandler) GetAILatencyHistogram(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	modelName := c.Query("modelName")
 	startMs, endMs := ParseRange(c, 60*60*1000)
-	rows, _ := h.Service.GetAILatencyHistogram(teamUUID, modelName, startMs, endMs)
+	rows, err := h.Service.GetAILatencyHistogram(teamUUID, modelName, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI latency histogram")
+		return
+	}
 	RespondOK(c, rows)
 }
 
@@ -57,7 +79,11 @@ func (h *AIHandler) GetAILatencyHistogram(c *gin.Context) {
 func (h *AIHandler) GetAICostMetrics(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	startMs, endMs := ParseRange(c, 60*60*1000)
-	rows, _ := h.Service.GetAICostMetrics(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetAICostMetrics(teamUUID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI cost metrics")
+		return
+	}
 	RespondOK(c, rows)
 }
 
@@ -65,7 +91,11 @@ func (h *AIHandler) GetAICostMetrics(c *gin.Context) {
 func (h *AIHandler) GetAICostTimeSeries(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	startMs, endMs := ParseRange(c, 60*60*1000)
-	rows, _ := h.Service.GetAICostTimeSeries(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetAICostTimeSeries(teamUUID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI cost timeseries")
+		return
+	}
 	RespondOK(c, rows)
 }
 
@@ -73,7 +103,11 @@ func (h *AIHandler) GetAICostTimeSeries(c *gin.Context) {
 func (h *AIHandler) GetAITokenBreakdown(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	startMs, endMs := ParseRange(c, 60*60*1000)
-	rows, _ := h.Service.GetAITokenBreakdown(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetAITokenBreakdown(teamUUID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI token breakdown")
+		return
+	}
 	RespondOK(c, rows)
 }
 
@@ -81,7 +115,11 @@ func (h *AIHandler) GetAITokenBreakdown(c *gin.Context) {
 func (h *AIHandler) GetAISecurityMetrics(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	startMs, endMs := ParseRange(c, 60*60*1000)
-	rows, _ := h.Service.GetAISecurityMetrics(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetAISecurityMetrics(teamUUID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI security metrics")
+		return
+	}
 	RespondOK(c, rows)
 }
 
@@ -89,7 +127,11 @@ func (h *AIHandler) GetAISecurityMetrics(c *gin.Context) {
 func (h *AIHandler) GetAISecurityTimeSeries(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	startMs, endMs := ParseRange(c, 60*60*1000)
-	rows, _ := h.Service.GetAISecurityTimeSeries(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetAISecurityTimeSeries(teamUUID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI security timeseries")
+		return
+	}
 	RespondOK(c, rows)
 }
 
@@ -97,6 +139,10 @@ func (h *AIHandler) GetAISecurityTimeSeries(c *gin.Context) {
 func (h *AIHandler) GetAIPiiCategories(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	startMs, endMs := ParseRange(c, 60*60*1000)
-	rows, _ := h.Service.GetAIPiiCategories(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetAIPiiCategories(teamUUID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI pii categories")
+		return
+	}
 	RespondOK(c, rows)
 }
