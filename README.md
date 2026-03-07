@@ -112,3 +112,7 @@ DROP DATABASE IF EXISTS observability;
 
 # Recreate fresh
 CREATE DATABASE IF NOT EXISTS observability;
+
+## Python Demo Stack
+
+A self-contained Python demo stack lives in `examples/python-observability-demo/README.md`. It adds sample services that communicate over HTTP, gRPC, and Kafka, use MariaDB, MongoDB, and Redis, emit OpenTelemetry data into this backend, and include load/smoke scripts for backend and UI verification.

@@ -36,7 +36,7 @@ func (r *ClickHouseRepository) GetTopSlowOperations(teamUUID string, startMs, en
 		       quantile(0.99)(s.duration_nano / 1000000.0)    AS p99_ms,
 		       count()                                        AS span_count
 		FROM observability.spans s
-		LEFT JOIN observability.resources r ON s.resource_fingerprint = r.fingerprint
+		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ? AND s.timestamp BETWEEN ? AND ?
 		GROUP BY s.name, r.service_name
 		ORDER BY p99_ms DESC
@@ -72,7 +72,7 @@ func (r *ClickHouseRepository) GetTopErrorOperations(teamUUID string, startMs, e
 		           countIf(s.has_error = true OR s.response_status_code >= '400') * 100.0 / count(),
 		           0) AS error_rate
 		FROM observability.spans s
-		LEFT JOIN observability.resources r ON s.resource_fingerprint = r.fingerprint
+		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ? AND s.timestamp BETWEEN ? AND ?
 		GROUP BY s.name, r.service_name, exception_type
 		ORDER BY error_rate DESC
@@ -162,7 +162,7 @@ func (r *ClickHouseRepository) GetServiceScorecard(teamUUID string, startMs, end
 		       countIf(s.has_error = true OR s.response_status_code >= '400') AS error_count,
 		       quantile(0.95)(s.duration_nano / 1000000.0)                    AS p95_ms
 		FROM observability.spans s
-		LEFT JOIN observability.resources r ON s.resource_fingerprint = r.fingerprint
+		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ? AND s.parent_span_id = '' AND s.timestamp BETWEEN ? AND ?
 		GROUP BY r.service_name
 		ORDER BY total_count DESC
@@ -200,7 +200,7 @@ func (r *ClickHouseRepository) GetApdex(teamUUID string, startMs, endMs int64, s
 		       countIf(s.duration_nano / 1000000.0 > ?)    AS frustrated,
 		       count()                                      AS total_count
 		FROM observability.spans s
-		LEFT JOIN observability.resources r ON s.resource_fingerprint = r.fingerprint
+		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ? AND s.parent_span_id = '' AND s.timestamp BETWEEN ? AND ?
 		GROUP BY r.service_name
 		ORDER BY total_count DESC

@@ -180,6 +180,12 @@ func lookupAttrInt(kvs []KeyValue, key string) int64 {
 
 // ── Spans mapper ──────────────────────────────────────────────────────────────
 
+// TraceIngestRows groups span and resource rows emitted from a trace export.
+type TraceIngestRows struct {
+	Spans     []ingest.Row
+	Resources []ingest.Row
+}
+
 // SpanColumns is the ordered column list for observability.spans inserts (optimized schema).
 var SpanColumns = []string{
 	"ts_bucket_start", "resource_fingerprint", "team_id",
@@ -192,13 +198,50 @@ var SpanColumns = []string{
 	"exception_type", "exception_message", "exception_stacktrace", "exception_escaped",
 }
 
-// MapSpans converts an OTLP trace export request into ingest rows (optimized schema).
-func MapSpans(teamID string, req ExportTraceServiceRequest) []ingest.Row {
-	rows := make([]ingest.Row, 0, 64)
+// ResourceColumns is the ordered column list for observability.resources inserts.
+var ResourceColumns = []string{
+	"fingerprint", "seen_at_ts_bucket_start", "team_id", "service_name", "environment",
+	"host_name", "host_type", "k8s_namespace", "k8s_pod_name", "k8s_deployment_name",
+	"k8s_cluster_name", "cloud_provider", "cloud_region", "telemetry_sdk_language",
+	"telemetry_sdk_version", "labels",
+}
+
+func resourceRow(teamID, fingerprint string, seenAtBucket int64, attrs []KeyValue) ingest.Row {
+	return ingest.Row{Values: []any{
+		fingerprint,
+		seenAtBucket,
+		teamID,
+		lookupAttr(attrs, "service.name"),
+		lookupAttr(attrs, "deployment.environment"),
+		lookupAttr(attrs, "host.name"),
+		lookupAttr(attrs, "host.type"),
+		lookupAttr(attrs, "k8s.namespace.name"),
+		lookupAttr(attrs, "k8s.pod.name"),
+		lookupAttr(attrs, "k8s.deployment.name"),
+		lookupAttr(attrs, "k8s.cluster.name"),
+		lookupAttr(attrs, "cloud.provider"),
+		lookupAttr(attrs, "cloud.region"),
+		lookupAttr(attrs, "telemetry.sdk.language"),
+		lookupAttr(attrs, "telemetry.sdk.version"),
+		attrsToJSON(attrs),
+	}}
+}
+
+// MapTraceRows converts an OTLP trace export request into span and resource ingest rows.
+func MapTraceRows(teamID string, req ExportTraceServiceRequest) TraceIngestRows {
+	result := TraceIngestRows{
+		Spans:     make([]ingest.Row, 0, 64),
+		Resources: make([]ingest.Row, 0, len(req.ResourceSpans)),
+	}
+	resourceIndexes := make(map[string]int, len(req.ResourceSpans))
 
 	for _, rs := range req.ResourceSpans {
 		resAttrs := rs.Resource.Attributes
 		resFp := strconv.FormatUint(resourceFingerprint(resAttrs), 16)
+		var (
+			resourceBucket int64
+			hasSpan        bool
+		)
 
 		for _, ss := range rs.ScopeSpans {
 			for _, s := range ss.Spans {
@@ -212,6 +255,10 @@ func MapSpans(teamID string, req ExportTraceServiceRequest) []ingest.Row {
 
 				// ts_bucket_start: 5-minute bucket in seconds
 				tsBucket := uint64(timestamp.Unix() / 300 * 300)
+				if !hasSpan || int64(tsBucket) < resourceBucket {
+					resourceBucket = int64(tsBucket)
+					hasSpan = true
+				}
 
 				// Determine has_error from status code
 				hasError := s.Status.Code == 2 // ERROR = 2
@@ -271,7 +318,7 @@ func MapSpans(teamID string, req ExportTraceServiceRequest) []ingest.Row {
 				// Links (simplified - store as JSON string)
 				linksJSON := "[]"
 
-				rows = append(rows, ingest.Row{Values: []any{
+				result.Spans = append(result.Spans, ingest.Row{Values: []any{
 					tsBucket,
 					resFp,
 					teamID,
@@ -308,9 +355,28 @@ func MapSpans(teamID string, req ExportTraceServiceRequest) []ingest.Row {
 				}})
 			}
 		}
+
+		if len(resAttrs) == 0 || !hasSpan {
+			continue
+		}
+
+		if idx, ok := resourceIndexes[resFp]; ok {
+			if seenAt, ok := result.Resources[idx].Values[1].(int64); ok && resourceBucket < seenAt {
+				result.Resources[idx].Values[1] = resourceBucket
+			}
+			continue
+		}
+
+		resourceIndexes[resFp] = len(result.Resources)
+		result.Resources = append(result.Resources, resourceRow(teamID, resFp, resourceBucket, resAttrs))
 	}
 
-	return rows
+	return result
+}
+
+// MapSpans converts an OTLP trace export request into span ingest rows.
+func MapSpans(teamID string, req ExportTraceServiceRequest) []ingest.Row {
+	return MapTraceRows(teamID, req).Spans
 }
 
 // ── Logs mapper ───────────────────────────────────────────────────────────────

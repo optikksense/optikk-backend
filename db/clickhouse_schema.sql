@@ -146,7 +146,34 @@ CREATE TABLE IF NOT EXISTS observability.spans (
     INDEX idx_mat_exception_type    mat_exception_type      TYPE bloom_filter(0.01) GRANULARITY 4
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/spans', '{replica}')
 PARTITION BY toYYYYMM(timestamp)
-ORDER BY (ts_bucket_start, resource_fingerprint, has_error, name, timestamp)
+ORDER BY (team_id, ts_bucket_start, has_error, name, timestamp)
+TTL toDate(timestamp) + INTERVAL 30 DAY
+SETTINGS
+    index_granularity = 8192,
+    ttl_only_drop_parts = 1,
+    storage_policy = 'tiered_gcs';
+
+
+-- ===========================================================================
+-- SPAN EVENTS: one row per OTel span event (exceptions, logs within spans)
+-- ===========================================================================
+-- Queried by trace detail (waterfall) and error tracking (exception rate).
+-- ORDER BY puts team_id first for multi-tenant partition pruning.
+-- ===========================================================================
+CREATE TABLE IF NOT EXISTS observability.span_events (
+    team_id              LowCardinality(String)     CODEC(ZSTD(1)),
+    trace_id             FixedString(32)            CODEC(ZSTD(1)),
+    span_id              String                     CODEC(ZSTD(1)),
+    timestamp            DateTime64(9)              CODEC(DoubleDelta, LZ4),
+    name                 LowCardinality(String)     CODEC(ZSTD(1)),
+    attributes           JSON(max_dynamic_paths=50) CODEC(ZSTD(1)),
+
+    INDEX idx_trace_id   trace_id  TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_span_id    span_id   TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_name       name      TYPE set(50)            GRANULARITY 1
+) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/span_events', '{replica}')
+PARTITION BY toYYYYMM(timestamp)
+ORDER BY (team_id, trace_id, span_id, timestamp)
 TTL toDate(timestamp) + INTERVAL 30 DAY
 SETTINGS
     index_granularity = 8192,

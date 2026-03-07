@@ -25,25 +25,19 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 }
 
 // GetExceptionRateByType returns time-series exception counts grouped by exception.type.
-// It queries the span_events table for events named "exception".
 func (r *ClickHouseRepository) GetExceptionRateByType(teamUUID string, startMs, endMs int64, serviceName string) ([]ExceptionRatePoint, error) {
-	bucket := timebucket.ExprForColumn(startMs, endMs, "e.timestamp")
+	bucket := timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
 	query := fmt.Sprintf(`
 		SELECT %s AS time_bucket,
-		       JSONExtractString(e.attributes, 'exception.type')  AS exception_type,
-		       count()                                            AS event_count
-		FROM observability.span_events e
-		WHERE e.team_id = ? AND e.name = 'exception' AND e.timestamp BETWEEN ? AND ?`, bucket)
+		       s.exception_type AS exception_type,
+		       count()          AS event_count
+		FROM observability.spans s
+		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
+		WHERE s.team_id = ? AND s.exception_type != '' AND s.timestamp BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
-		query += ` AND e.span_id IN (
-			SELECT span_id FROM observability.spans
-			WHERE team_id = ? AND resource_fingerprint IN (
-				SELECT fingerprint FROM observability.resources WHERE service_name = ?
-			)
-			AND timestamp BETWEEN ? AND ?
-		)`
-		args = append(args, teamUUID, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+		query += ` AND r.service_name = ?`
+		args = append(args, serviceName)
 	}
 	query += ` GROUP BY time_bucket, exception_type ORDER BY time_bucket ASC`
 
@@ -74,7 +68,7 @@ func (r *ClickHouseRepository) GetErrorHotspot(teamUUID string, startMs, endMs i
 		           countIf(s.has_error = true OR s.response_status_code >= '400') * 100.0 / count(),
 		           0) AS error_rate
 		FROM observability.spans s
-		LEFT JOIN observability.resources r ON s.resource_fingerprint = r.fingerprint
+		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ? AND s.timestamp BETWEEN ? AND ?
 		GROUP BY r.service_name, s.name
 		ORDER BY error_rate DESC
@@ -104,7 +98,7 @@ func (r *ClickHouseRepository) GetHTTP5xxByRoute(teamUUID string, startMs, endMs
 		       r.service_name,
 		       count()                                        AS count_5xx
 		FROM observability.spans s
-		LEFT JOIN observability.resources r ON s.resource_fingerprint = r.fingerprint
+		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ? AND s.timestamp BETWEEN ? AND ?
 		  AND s.response_status_code >= '500'`
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}

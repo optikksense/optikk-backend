@@ -36,45 +36,46 @@ func (r *ClickHouseRepository) buildTraceQueryArgs(f TraceFilters) (string, []an
 		startMs = endMs - maxTimeRangeMs
 	}
 
-	queryFrag := ` WHERE team_id = ? AND parent_span_id = '' AND timestamp BETWEEN ? AND ?`
+	queryFrag := ` WHERE s.team_id = ? AND s.parent_span_id = '' AND s.timestamp BETWEEN ? AND ?`
 	args := []any{f.TeamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 
 	if len(f.Services) > 0 {
 		in, vals := dbutil.InClauseFromStrings(f.Services)
 		// Use materialized service_name from resources table via resource_fingerprint join
-		queryFrag += ` AND resource_fingerprint IN (SELECT fingerprint FROM observability.resources WHERE service_name IN ` + in + `)`
+		queryFrag += ` AND s.resource_fingerprint IN (SELECT DISTINCT fingerprint FROM observability.resources WHERE team_id = ? AND service_name IN ` + in + `)`
+		args = append(args, f.TeamUUID)
 		args = append(args, vals...)
 	}
 	if f.Status != "" {
 		if f.Status == "ERROR" {
-			queryFrag += ` AND (has_error = true OR response_status_code >= '400')`
+			queryFrag += ` AND (s.has_error = true OR s.response_status_code >= '400')`
 		} else {
-			queryFrag += ` AND status_code_string = ?`
+			queryFrag += ` AND s.status_code_string = ?`
 			args = append(args, f.Status)
 		}
 	}
 	if f.MinDuration != "" {
-		queryFrag += ` AND duration_nano >= ?`
+		queryFrag += ` AND s.duration_nano >= ?`
 		args = append(args, dbutil.MustAtoi64(f.MinDuration, 0)*1000000) // Convert ms to ns
 	}
 	if f.MaxDuration != "" {
-		queryFrag += ` AND duration_nano <= ?`
+		queryFrag += ` AND s.duration_nano <= ?`
 		args = append(args, dbutil.MustAtoi64(f.MaxDuration, 0)*1000000) // Convert ms to ns
 	}
 	if f.TraceID != "" {
-		queryFrag += ` AND trace_id = ?`
+		queryFrag += ` AND s.trace_id = ?`
 		args = append(args, f.TraceID)
 	}
 	if f.Operation != "" {
-		queryFrag += ` AND name LIKE ?`
+		queryFrag += ` AND s.name LIKE ?`
 		args = append(args, "%"+f.Operation+"%")
 	}
 	if f.HTTPMethod != "" {
-		queryFrag += ` AND upper(http_method) = upper(?)`
+		queryFrag += ` AND upper(s.http_method) = upper(?)`
 		args = append(args, f.HTTPMethod)
 	}
 	if f.HTTPStatus != "" {
-		queryFrag += ` AND response_status_code = ?`
+		queryFrag += ` AND s.response_status_code = ?`
 		args = append(args, f.HTTPStatus)
 	}
 	return queryFrag, args
@@ -89,7 +90,7 @@ func (r *ClickHouseRepository) GetTraces(ctx context.Context, f TraceFilters, li
 		       s.duration_nano / 1000000.0 as duration_ms,
 		       s.status_code_string as status, s.http_method, s.response_status_code as http_status_code
 		FROM observability.spans s
-		LEFT JOIN observability.resources r ON s.resource_fingerprint = r.fingerprint` + queryFrag + ` ORDER BY s.timestamp DESC LIMIT ? OFFSET ?`
+		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint` + queryFrag + ` ORDER BY s.timestamp DESC LIMIT ? OFFSET ?`
 	traceArgs := append(args, limit, offset)
 
 	rows, err := dbutil.QueryMaps(r.db, query, traceArgs...)
@@ -113,16 +114,16 @@ func (r *ClickHouseRepository) GetTraces(ctx context.Context, f TraceFilters, li
 		})
 	}
 
-	total := dbutil.QueryCount(r.db, `SELECT COUNT(*) FROM observability.spans s LEFT JOIN observability.resources r ON s.resource_fingerprint = r.fingerprint`+queryFrag, args...)
+	total := dbutil.QueryCount(r.db, `SELECT COUNT(*) FROM observability.spans s ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint`+queryFrag, args...)
 
 	summaryRow, err := dbutil.QueryMap(r.db, `
 		SELECT COUNT(*) as total_traces,
-		       sum(if(has_error = true OR response_status_code >= '400', 1, 0)) as error_traces,
-		       AVG(duration_nano / 1000000.0) as avg_duration,
-		       quantile(0.5)(duration_nano / 1000000.0) as p50_duration,
-		       quantile(0.95)(duration_nano / 1000000.0) as p95_duration,
-		       quantile(0.99)(duration_nano / 1000000.0) as p99_duration
-		FROM observability.spans s LEFT JOIN observability.resources r ON s.resource_fingerprint = r.fingerprint`+queryFrag, args...)
+		       sum(if(s.has_error = true OR s.response_status_code >= '400', 1, 0)) as error_traces,
+		       AVG(s.duration_nano / 1000000.0) as avg_duration,
+		       quantile(0.5)(s.duration_nano / 1000000.0) as p50_duration,
+		       quantile(0.95)(s.duration_nano / 1000000.0) as p95_duration,
+		       quantile(0.99)(s.duration_nano / 1000000.0) as p99_duration
+		FROM observability.spans s ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint`+queryFrag, args...)
 	if err != nil {
 		return traces, total, TraceSummary{}, err
 	}
@@ -149,7 +150,7 @@ func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamUUID, trac
 		       s.http_method, s.http_url, s.response_status_code as http_status_code,
 		       r.host_name as host, r.k8s_pod_name as pod, s.attributes
 		FROM observability.spans s
-		LEFT JOIN observability.resources r ON s.resource_fingerprint = r.fingerprint
+		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ? AND s.trace_id = ?
 		ORDER BY s.timestamp ASC
 		LIMIT 10000
@@ -195,7 +196,7 @@ func (r *ClickHouseRepository) GetSpanTree(ctx context.Context, teamUUID, spanID
 		       s.http_method, s.http_url, s.response_status_code as http_status_code,
 		       r.host_name as host, r.k8s_pod_name as pod, s.attributes
 		FROM observability.spans s
-		LEFT JOIN observability.resources r ON s.resource_fingerprint = r.fingerprint
+		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ?
 		  AND s.trace_id = (
 		      SELECT trace_id FROM observability.spans WHERE team_id = ? AND span_id = ? LIMIT 1
@@ -242,9 +243,9 @@ func (r *ClickHouseRepository) GetServiceDependencies(ctx context.Context, teamU
 		       r2.service_name AS target,
 		       count()         AS call_count
 		FROM observability.spans s1
-		JOIN observability.resources r1 ON s1.resource_fingerprint = r1.fingerprint
-		JOIN observability.spans s2 ON s1.trace_id = s2.trace_id AND s1.span_id = s2.parent_span_id
-		JOIN observability.resources r2 ON s2.resource_fingerprint = r2.fingerprint
+		ANY INNER JOIN observability.resources r1 ON s1.team_id = r1.team_id AND s1.resource_fingerprint = r1.fingerprint
+		JOIN observability.spans s2 ON s1.team_id = s2.team_id AND s1.trace_id = s2.trace_id AND s1.span_id = s2.parent_span_id
+		ANY INNER JOIN observability.resources r2 ON s2.team_id = r2.team_id AND s2.resource_fingerprint = r2.fingerprint
 		WHERE s1.team_id = ? AND s1.kind = 3 AND s1.timestamp BETWEEN ? AND ?
 		  AND r1.service_name != r2.service_name
 		GROUP BY r1.service_name, r2.service_name
@@ -274,7 +275,7 @@ func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamUUID stri
 		       MIN(s.timestamp) as first_occurrence,
 		       (groupArray(s.trace_id) as trace_ids)[1] as sample_trace_id
 		FROM observability.spans s
-		LEFT JOIN observability.resources r ON s.resource_fingerprint = r.fingerprint
+		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ? AND (s.has_error = true OR s.response_status_code >= '400') AND s.timestamp BETWEEN ? AND ?`
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
@@ -316,7 +317,8 @@ func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamUUID 
 		       error_count,
 		       if(total_count > 0, error_count*100.0/total_count, 0) AS error_rate
 		FROM (
-			SELECT s.resource_fingerprint,
+			SELECT s.team_id,
+			       s.resource_fingerprint,
 			       %s AS timestamp,
 			       count()                   AS total_count,
 			       countIf(s.has_error = true OR s.response_status_code >= '400') AS error_count
@@ -324,12 +326,12 @@ func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamUUID 
 			WHERE s.team_id = ? AND s.parent_span_id = '' AND s.timestamp BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
-		query += ` AND s.resource_fingerprint IN (SELECT fingerprint FROM observability.resources WHERE service_name = ?)`
-		args = append(args, serviceName)
+		query += ` AND s.resource_fingerprint IN (SELECT DISTINCT fingerprint FROM observability.resources WHERE team_id = ? AND service_name = ?)`
+		args = append(args, teamUUID, serviceName)
 	}
-	query += fmt.Sprintf(` GROUP BY s.resource_fingerprint, %s
+	query += fmt.Sprintf(` GROUP BY s.team_id, s.resource_fingerprint, %s
 		) sub
-		LEFT JOIN observability.resources r ON sub.resource_fingerprint = r.fingerprint
+		ANY LEFT JOIN observability.resources r ON sub.team_id = r.team_id AND sub.resource_fingerprint = r.fingerprint
 		ORDER BY timestamp ASC`, bucket)
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
@@ -381,7 +383,7 @@ func (r *ClickHouseRepository) GetLatencyHistogram(ctx context.Context, teamUUID
 		FROM (
 			SELECT s.duration_nano / 1000000.0 as duration_ms
 			FROM observability.spans s
-			LEFT JOIN observability.resources r ON s.resource_fingerprint = r.fingerprint
+			ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 			WHERE s.team_id = ? AND s.parent_span_id = '' AND s.timestamp BETWEEN ? AND ?`
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
@@ -430,7 +432,7 @@ func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamUUID s
 		FROM (
 			SELECT s.timestamp, s.duration_nano / 1000000.0 as duration_ms
 			FROM observability.spans s
-			LEFT JOIN observability.resources r ON s.resource_fingerprint = r.fingerprint
+			ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 			WHERE s.team_id = ? AND s.parent_span_id = '' AND s.timestamp BETWEEN ? AND ?`, bucket)
 	args := []any{teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {

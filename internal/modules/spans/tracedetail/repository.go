@@ -91,7 +91,7 @@ func (r *ClickHouseRepository) GetCriticalPath(teamUUID, traceID string) ([]Crit
 		SELECT s.span_id, s.parent_span_id, s.name AS operation_name,
 		       r.service_name, s.duration_nano / 1000000.0 AS duration_ms
 		FROM observability.spans s
-		LEFT JOIN observability.resources r ON s.resource_fingerprint = r.fingerprint
+		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ? AND s.trace_id = ?
 		ORDER BY s.timestamp ASC
 		LIMIT 10000
@@ -101,12 +101,12 @@ func (r *ClickHouseRepository) GetCriticalPath(teamUUID, traceID string) ([]Crit
 	}
 
 	type node struct {
-		spanID    string
-		parentID  string
-		operation string
-		service   string
+		spanID     string
+		parentID   string
+		operation  string
+		service    string
 		durationMs float64
-		children  []string
+		children   []string
 	}
 
 	nodes := make(map[string]*node, len(rows))
@@ -192,9 +192,9 @@ func (r *ClickHouseRepository) GetSpanSelfTimes(teamUUID, traceID string) ([]Spa
 	}
 
 	type spanRow struct {
-		spanID    string
-		parentID  string
-		operation string
+		spanID     string
+		parentID   string
+		operation  string
 		durationMs float64
 	}
 	spans := make([]spanRow, 0, len(rows))
@@ -240,7 +240,7 @@ func (r *ClickHouseRepository) GetErrorPath(teamUUID, traceID string) ([]ErrorPa
 		       r.service_name, s.status_code_string AS status, s.status_message,
 		       s.timestamp AS start_time, s.duration_nano / 1000000.0 AS duration_ms
 		FROM observability.spans s
-		LEFT JOIN observability.resources r ON s.resource_fingerprint = r.fingerprint
+		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ? AND s.trace_id = ?
 		  AND (s.has_error = true OR s.status_code_string = 'ERROR')
 		ORDER BY s.timestamp ASC
@@ -252,13 +252,13 @@ func (r *ClickHouseRepository) GetErrorPath(teamUUID, traceID string) ([]ErrorPa
 
 	// Build a set of error span IDs
 	type eSpan struct {
-		spanID    string
-		parentID  string
-		operation string
-		service   string
-		status    string
-		message   string
-		startTime interface{}
+		spanID     string
+		parentID   string
+		operation  string
+		service    string
+		status     string
+		message    string
+		startTime  interface{}
 		durationMs float64
 	}
 	errorSpans := make(map[string]*eSpan, len(rows))

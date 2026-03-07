@@ -16,10 +16,11 @@ import (
 
 // Handler implements the three OTel gRPC collector services.
 type Handler struct {
-	auth         *auth.Authenticator
-	spansQueue   *ingest.Queue
-	logsQueue    *ingest.Queue
-	metricsQueue *ingest.Queue
+	auth           *auth.Authenticator
+	resourcesQueue *ingest.Queue
+	spansQueue     *ingest.Queue
+	logsQueue      *ingest.Queue
+	metricsQueue   *ingest.Queue
 
 	TraceServer   *TraceServer
 	LogsServer    *LogsServer
@@ -44,15 +45,17 @@ type MetricsServer struct {
 // NewHandler creates a new gRPC OTLP receiver handler.
 func NewHandler(
 	auth *auth.Authenticator,
+	resourcesQueue *ingest.Queue,
 	spansQueue *ingest.Queue,
 	logsQueue *ingest.Queue,
 	metricsQueue *ingest.Queue,
 ) *Handler {
 	h := &Handler{
-		auth:         auth,
-		spansQueue:   spansQueue,
-		logsQueue:    logsQueue,
-		metricsQueue: metricsQueue,
+		auth:           auth,
+		resourcesQueue: resourcesQueue,
+		spansQueue:     spansQueue,
+		logsQueue:      logsQueue,
+		metricsQueue:   metricsQueue,
 	}
 	h.TraceServer = &TraceServer{h: h}
 	h.LogsServer = &LogsServer{h: h}
@@ -91,16 +94,27 @@ func (s *TraceServer) Export(ctx context.Context, req *tracepb.ExportTraceServic
 		return nil, err
 	}
 
-	rows := MapSpans(teamID, req)
-	if len(rows) == 0 {
+	result := MapTraceRows(teamID, req)
+	if len(result.Resources) == 0 && len(result.Spans) == 0 {
 		return &tracepb.ExportTraceServiceResponse{}, nil
 	}
 
-	if err := s.h.spansQueue.Enqueue(rows); err != nil {
-		if errors.Is(err, ingest.ErrBackpressure) {
-			return nil, status.Error(codes.ResourceExhausted, "ingest queue full")
+	if len(result.Resources) > 0 {
+		if err := s.h.resourcesQueue.Enqueue(result.Resources); err != nil {
+			if errors.Is(err, ingest.ErrBackpressure) {
+				return nil, status.Error(codes.ResourceExhausted, "ingest queue full")
+			}
+			return nil, status.Errorf(codes.Internal, "failed to enqueue resources: %v", err)
 		}
-		return nil, status.Errorf(codes.Internal, "failed to enqueue spans: %v", err)
+	}
+
+	if len(result.Spans) > 0 {
+		if err := s.h.spansQueue.Enqueue(result.Spans); err != nil {
+			if errors.Is(err, ingest.ErrBackpressure) {
+				return nil, status.Error(codes.ResourceExhausted, "ingest queue full")
+			}
+			return nil, status.Errorf(codes.Internal, "failed to enqueue spans: %v", err)
+		}
 	}
 
 	return &tracepb.ExportTraceServiceResponse{}, nil

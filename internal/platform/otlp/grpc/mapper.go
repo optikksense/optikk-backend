@@ -160,15 +160,50 @@ func bytesToHex(b []byte) string {
 	return ""
 }
 
-// MapSpans maps gRPC Traces Request to ingest.Row (optimized schema).
-func MapSpans(teamID string, req *tracepb.ExportTraceServiceRequest) []ingest.Row {
-	var rows []ingest.Row
+// TraceIngestRows groups span and resource rows emitted from a trace export.
+type TraceIngestRows struct {
+	Spans     []ingest.Row
+	Resources []ingest.Row
+}
+
+func resourceRow(teamID, fingerprint string, seenAtBucket int64, attrs []*commonpb.KeyValue) ingest.Row {
+	return ingest.Row{Values: []any{
+		fingerprint,
+		seenAtBucket,
+		teamID,
+		lookupAttr(attrs, "service.name"),
+		lookupAttr(attrs, "deployment.environment"),
+		lookupAttr(attrs, "host.name"),
+		lookupAttr(attrs, "host.type"),
+		lookupAttr(attrs, "k8s.namespace.name"),
+		lookupAttr(attrs, "k8s.pod.name"),
+		lookupAttr(attrs, "k8s.deployment.name"),
+		lookupAttr(attrs, "k8s.cluster.name"),
+		lookupAttr(attrs, "cloud.provider"),
+		lookupAttr(attrs, "cloud.region"),
+		lookupAttr(attrs, "telemetry.sdk.language"),
+		lookupAttr(attrs, "telemetry.sdk.version"),
+		attrsToJSON(attrs),
+	}}
+}
+
+// MapTraceRows maps gRPC trace exports into span and resource ingest rows.
+func MapTraceRows(teamID string, req *tracepb.ExportTraceServiceRequest) TraceIngestRows {
+	result := TraceIngestRows{
+		Spans:     make([]ingest.Row, 0, 64),
+		Resources: make([]ingest.Row, 0, len(req.ResourceSpans)),
+	}
+	resourceIndexes := make(map[string]int, len(req.ResourceSpans))
 	for _, rs := range req.ResourceSpans {
 		var resAttrs []*commonpb.KeyValue
 		if rs.Resource != nil {
 			resAttrs = rs.Resource.Attributes
 		}
 		resFp := strconv.FormatUint(resourceFingerprint(resAttrs), 16)
+		var (
+			resourceBucket int64
+			hasSpan        bool
+		)
 
 		for _, ss := range rs.ScopeSpans {
 			for _, s := range ss.Spans {
@@ -180,6 +215,10 @@ func MapSpans(teamID string, req *tracepb.ExportTraceServiceRequest) []ingest.Ro
 
 				// ts_bucket_start: 5-minute bucket in seconds
 				tsBucket := uint64(timestamp.Unix() / 300 * 300)
+				if !hasSpan || int64(tsBucket) < resourceBucket {
+					resourceBucket = int64(tsBucket)
+					hasSpan = true
+				}
 
 				// Determine has_error from status code
 				statusMsg, statusCode := "", trace.Status_STATUS_CODE_UNSET
@@ -244,7 +283,7 @@ func MapSpans(teamID string, req *tracepb.ExportTraceServiceRequest) []ingest.Ro
 				// Links (simplified - store as JSON string)
 				linksJSON := "[]"
 
-				rows = append(rows, ingest.Row{Values: []any{
+				result.Spans = append(result.Spans, ingest.Row{Values: []any{
 					tsBucket,
 					resFp,
 					teamID,
@@ -281,8 +320,27 @@ func MapSpans(teamID string, req *tracepb.ExportTraceServiceRequest) []ingest.Ro
 				}})
 			}
 		}
+
+		if len(resAttrs) == 0 || !hasSpan {
+			continue
+		}
+
+		if idx, ok := resourceIndexes[resFp]; ok {
+			if seenAt, ok := result.Resources[idx].Values[1].(int64); ok && resourceBucket < seenAt {
+				result.Resources[idx].Values[1] = resourceBucket
+			}
+			continue
+		}
+
+		resourceIndexes[resFp] = len(result.Resources)
+		result.Resources = append(result.Resources, resourceRow(teamID, resFp, resourceBucket, resAttrs))
 	}
-	return rows
+	return result
+}
+
+// MapSpans maps gRPC Traces Request to span ingest rows.
+func MapSpans(teamID string, req *tracepb.ExportTraceServiceRequest) []ingest.Row {
+	return MapTraceRows(teamID, req).Spans
 }
 
 // protoAttrsToTypedMaps splits protobuf KeyValue slice into typed maps.

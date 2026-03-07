@@ -15,26 +15,29 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// Handler holds the three ingest queues and an Authenticator for API keys.
+// Handler holds the ingest queues and an Authenticator for API keys.
 type Handler struct {
-	auth         *auth.Authenticator
-	spansQueue   *ingest.Queue
-	logsQueue    *ingest.Queue
-	metricsQueue *ingest.Queue
+	auth           *auth.Authenticator
+	resourcesQueue *ingest.Queue
+	spansQueue     *ingest.Queue
+	logsQueue      *ingest.Queue
+	metricsQueue   *ingest.Queue
 }
 
 // NewHandler creates an OTLP HTTP handler.
 func NewHandler(
 	auth *auth.Authenticator,
+	resourcesQueue *ingest.Queue,
 	spansQueue *ingest.Queue,
 	logsQueue *ingest.Queue,
 	metricsQueue *ingest.Queue,
 ) *Handler {
 	return &Handler{
-		auth:         auth,
-		spansQueue:   spansQueue,
-		logsQueue:    logsQueue,
-		metricsQueue: metricsQueue,
+		auth:           auth,
+		resourcesQueue: resourcesQueue,
+		spansQueue:     spansQueue,
+		logsQueue:      logsQueue,
+		metricsQueue:   metricsQueue,
 	}
 }
 
@@ -70,7 +73,10 @@ func (h *Handler) ExportTraces(c *gin.Context) {
 		return
 	}
 
-	var rows []ingest.Row
+	var (
+		spanRows     []ingest.Row
+		resourceRows []ingest.Row
+	)
 	contentType := c.ContentType()
 
 	if contentType == "application/x-protobuf" {
@@ -84,29 +90,47 @@ func (h *Handler) ExportTraces(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "failed to decode protobuf traces"})
 			return
 		}
-		rows = otlpgrpc.MapSpans(teamID, &protoReq)
+		mapped := otlpgrpc.MapTraceRows(teamID, &protoReq)
+		spanRows = mapped.Spans
+		resourceRows = mapped.Resources
 	} else {
 		var req ExportTraceServiceRequest
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid OTLP traces payload: " + err.Error()})
 			return
 		}
-		rows = MapSpans(teamID, req)
+		mapped := MapTraceRows(teamID, req)
+		spanRows = mapped.Spans
+		resourceRows = mapped.Resources
 	}
 
-	if len(rows) == 0 {
+	if len(resourceRows) == 0 && len(spanRows) == 0 {
 		c.Status(http.StatusAccepted)
 		return
 	}
 
-	if err := h.spansQueue.Enqueue(rows); err != nil {
-		if err == ingest.ErrBackpressure {
-			c.Header("Retry-After", "5")
-			c.JSON(http.StatusTooManyRequests, gin.H{"error": "ingest queue full, retry after 5s"})
+	if len(resourceRows) > 0 {
+		if err := h.resourcesQueue.Enqueue(resourceRows); err != nil {
+			if err == ingest.ErrBackpressure {
+				c.Header("Retry-After", "5")
+				c.JSON(http.StatusTooManyRequests, gin.H{"error": "ingest queue full, retry after 5s"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue resources"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue spans"})
-		return
+	}
+
+	if len(spanRows) > 0 {
+		if err := h.spansQueue.Enqueue(spanRows); err != nil {
+			if err == ingest.ErrBackpressure {
+				c.Header("Retry-After", "5")
+				c.JSON(http.StatusTooManyRequests, gin.H{"error": "ingest queue full, retry after 5s"})
+				return
+			}
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enqueue spans"})
+			return
+		}
 	}
 
 	c.Status(http.StatusAccepted)
