@@ -86,7 +86,7 @@ func (r *ClickHouseRepository) GetTraces(ctx context.Context, f TraceFilters, li
 
 	query := `
 		SELECT s.span_id, s.trace_id, r.service_name, s.name as operation_name, s.timestamp as start_time,
-		       toDateTime64(toUnixTimestamp64Nano(s.timestamp) + s.duration_nano, 9) as end_time,
+		       s.duration_nano as duration_nano,
 		       s.duration_nano / 1000000.0 as duration_ms,
 		       s.status_code_string as status, s.http_method, s.response_status_code as http_status_code
 		FROM observability.spans s
@@ -100,13 +100,15 @@ func (r *ClickHouseRepository) GetTraces(ctx context.Context, f TraceFilters, li
 
 	traces := make([]Trace, 0, len(rows))
 	for _, row := range rows {
+		startTime := dbutil.TimeFromAny(row["start_time"])
+		durationNano := dbutil.Int64FromAny(row["duration_nano"])
 		traces = append(traces, Trace{
 			SpanID:         dbutil.StringFromAny(row["span_id"]),
 			TraceID:        dbutil.StringFromAny(row["trace_id"]),
 			ServiceName:    dbutil.StringFromAny(row["service_name"]),
 			OperationName:  dbutil.StringFromAny(row["operation_name"]),
-			StartTime:      dbutil.TimeFromAny(row["start_time"]),
-			EndTime:        dbutil.TimeFromAny(row["end_time"]),
+			StartTime:      startTime,
+			EndTime:        startTime.Add(time.Duration(durationNano)),
 			DurationMs:     dbutil.Float64FromAny(row["duration_ms"]),
 			Status:         dbutil.StringFromAny(row["status"]),
 			HTTPMethod:     dbutil.StringFromAny(row["http_method"]),
@@ -144,11 +146,11 @@ func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamUUID, trac
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.span_id, s.parent_span_id, s.trace_id, s.name as operation_name, r.service_name, s.kind_string as span_kind,
 		       s.timestamp as start_time,
-		       toDateTime64(toUnixTimestamp64Nano(s.timestamp) + s.duration_nano, 9) as end_time,
+		       s.duration_nano as duration_nano,
 		       s.duration_nano / 1000000.0 as duration_ms,
 		       s.status_code_string as status, s.status_message,
 		       s.http_method, s.http_url, s.response_status_code as http_status_code,
-		       r.host_name as host, r.k8s_pod_name as pod, s.attributes
+		       r.host_name as host, r.k8s_pod_name as pod, toJSONString(s.attributes) as attributes
 		FROM observability.spans s
 		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ? AND s.trace_id = ?
@@ -161,6 +163,8 @@ func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamUUID, trac
 
 	spans := make([]Span, 0, len(rows))
 	for _, row := range rows {
+		startTime := dbutil.TimeFromAny(row["start_time"])
+		durationNano := dbutil.Int64FromAny(row["duration_nano"])
 		spans = append(spans, Span{
 			SpanID:         dbutil.StringFromAny(row["span_id"]),
 			ParentSpanID:   dbutil.StringFromAny(row["parent_span_id"]),
@@ -168,8 +172,8 @@ func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamUUID, trac
 			OperationName:  dbutil.StringFromAny(row["operation_name"]),
 			ServiceName:    dbutil.StringFromAny(row["service_name"]),
 			SpanKind:       dbutil.StringFromAny(row["span_kind"]),
-			StartTime:      dbutil.TimeFromAny(row["start_time"]),
-			EndTime:        dbutil.TimeFromAny(row["end_time"]),
+			StartTime:      startTime,
+			EndTime:        startTime.Add(time.Duration(durationNano)),
 			DurationMs:     dbutil.Float64FromAny(row["duration_ms"]),
 			Status:         dbutil.StringFromAny(row["status"]),
 			StatusMessage:  dbutil.StringFromAny(row["status_message"]),
@@ -190,11 +194,11 @@ func (r *ClickHouseRepository) GetSpanTree(ctx context.Context, teamUUID, spanID
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.span_id, s.parent_span_id, s.trace_id, s.name as operation_name, r.service_name, s.kind_string as span_kind,
 		       s.timestamp as start_time,
-		       toDateTime64(toUnixTimestamp64Nano(s.timestamp) + s.duration_nano, 9) as end_time,
+		       s.duration_nano as duration_nano,
 		       s.duration_nano / 1000000.0 as duration_ms,
 		       s.status_code_string as status, s.status_message,
 		       s.http_method, s.http_url, s.response_status_code as http_status_code,
-		       r.host_name as host, r.k8s_pod_name as pod, s.attributes
+		       r.host_name as host, r.k8s_pod_name as pod, toJSONString(s.attributes) as attributes
 		FROM observability.spans s
 		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
 		WHERE s.team_id = ?
@@ -210,6 +214,8 @@ func (r *ClickHouseRepository) GetSpanTree(ctx context.Context, teamUUID, spanID
 
 	spans := make([]Span, 0, len(rows))
 	for _, row := range rows {
+		startTime := dbutil.TimeFromAny(row["start_time"])
+		durationNano := dbutil.Int64FromAny(row["duration_nano"])
 		spans = append(spans, Span{
 			SpanID:         dbutil.StringFromAny(row["span_id"]),
 			ParentSpanID:   dbutil.StringFromAny(row["parent_span_id"]),
@@ -217,8 +223,8 @@ func (r *ClickHouseRepository) GetSpanTree(ctx context.Context, teamUUID, spanID
 			OperationName:  dbutil.StringFromAny(row["operation_name"]),
 			ServiceName:    dbutil.StringFromAny(row["service_name"]),
 			SpanKind:       dbutil.StringFromAny(row["span_kind"]),
-			StartTime:      dbutil.TimeFromAny(row["start_time"]),
-			EndTime:        dbutil.TimeFromAny(row["end_time"]),
+			StartTime:      startTime,
+			EndTime:        startTime.Add(time.Duration(durationNano)),
 			DurationMs:     dbutil.Float64FromAny(row["duration_ms"]),
 			Status:         dbutil.StringFromAny(row["status"]),
 			StatusMessage:  dbutil.StringFromAny(row["status_message"]),

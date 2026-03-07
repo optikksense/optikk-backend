@@ -26,7 +26,7 @@ func (r *ClickHouseRepository) GetTopology(teamUUID string, startMs, endMs int64
 	nodesRaw, err := dbutil.QueryMaps(r.db, `
 		SELECT service_name, request_count, error_count, avg_latency
 		FROM (
-			SELECT r.service_name,
+			SELECT r.service_name AS service_name,
 			       count()                          AS request_count,
 			       countIf(`+ErrorCondition()+`)    AS error_count,
 			       avg(s.duration_nano / 1000000.0) AS avg_latency

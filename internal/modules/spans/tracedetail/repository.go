@@ -1,6 +1,9 @@
 package tracedetail
 
 import (
+	"encoding/json"
+	"sort"
+
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
@@ -23,13 +26,14 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-// GetSpanEvents returns all SpanEvents for a trace, querying the span_events table.
+// GetSpanEvents returns span-level events for a trace from observability.spans.
 func (r *ClickHouseRepository) GetSpanEvents(teamUUID, traceID string) ([]SpanEvent, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
-		SELECT e.span_id, e.trace_id, e.name AS event_name, e.timestamp, e.attributes
-		FROM observability.span_events e
-		WHERE e.team_id = ? AND e.trace_id = ?
-		ORDER BY e.timestamp ASC
+		SELECT s.span_id, s.trace_id, s.timestamp, event_name
+		FROM observability.spans s
+		ARRAY JOIN s.events AS event_name
+		WHERE s.team_id = ? AND s.trace_id = ?
+		ORDER BY s.timestamp ASC
 		LIMIT 1000
 	`, teamUUID, traceID)
 	if err != nil {
@@ -37,15 +41,72 @@ func (r *ClickHouseRepository) GetSpanEvents(teamUUID, traceID string) ([]SpanEv
 	}
 
 	events := make([]SpanEvent, 0, len(rows))
+	seenExceptionEvent := make(map[string]bool, len(rows))
 	for _, row := range rows {
+		spanID := dbutil.StringFromAny(row["span_id"])
+		eventName := dbutil.StringFromAny(row["event_name"])
+		if eventName == "exception" {
+			seenExceptionEvent[spanID] = true
+		}
 		events = append(events, SpanEvent{
-			SpanID:     dbutil.StringFromAny(row["span_id"]),
+			SpanID:     spanID,
 			TraceID:    dbutil.StringFromAny(row["trace_id"]),
-			EventName:  dbutil.StringFromAny(row["event_name"]),
+			EventName:  eventName,
 			Timestamp:  dbutil.TimeFromAny(row["timestamp"]),
-			Attributes: dbutil.StringFromAny(row["attributes"]),
+			Attributes: "{}",
 		})
 	}
+
+	exceptionRows, err := dbutil.QueryMaps(r.db, `
+		SELECT s.span_id, s.trace_id, s.timestamp, s.exception_type, s.exception_message, s.exception_stacktrace
+		FROM observability.spans s
+		WHERE s.team_id = ? AND s.trace_id = ?
+		  AND (s.exception_type != '' OR s.exception_message != '' OR s.exception_stacktrace != '')
+		ORDER BY s.timestamp ASC
+		LIMIT 1000
+	`, teamUUID, traceID)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range exceptionRows {
+		spanID := dbutil.StringFromAny(row["span_id"])
+		if seenExceptionEvent[spanID] {
+			continue
+		}
+		attrs := map[string]string{}
+		if v := dbutil.StringFromAny(row["exception_type"]); v != "" {
+			attrs["exception.type"] = v
+		}
+		if v := dbutil.StringFromAny(row["exception_message"]); v != "" {
+			attrs["exception.message"] = v
+		}
+		if v := dbutil.StringFromAny(row["exception_stacktrace"]); v != "" {
+			attrs["exception.stacktrace"] = v
+		}
+		attrJSON := "{}"
+		if len(attrs) > 0 {
+			if b, marshalErr := json.Marshal(attrs); marshalErr == nil {
+				attrJSON = string(b)
+			}
+		}
+		events = append(events, SpanEvent{
+			SpanID:     spanID,
+			TraceID:    dbutil.StringFromAny(row["trace_id"]),
+			EventName:  "exception",
+			Timestamp:  dbutil.TimeFromAny(row["timestamp"]),
+			Attributes: attrJSON,
+		})
+	}
+
+	sort.Slice(events, func(i, j int) bool {
+		if events[i].Timestamp.Equal(events[j].Timestamp) {
+			if events[i].SpanID == events[j].SpanID {
+				return events[i].EventName < events[j].EventName
+			}
+			return events[i].SpanID < events[j].SpanID
+		}
+		return events[i].Timestamp.Before(events[j].Timestamp)
+	})
 	return events, nil
 }
 

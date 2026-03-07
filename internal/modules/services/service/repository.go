@@ -67,7 +67,7 @@ func (r *ClickHouseRepository) GetServiceMetrics(teamUUID string, startMs, endMs
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT service_name, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
 		FROM (
-			SELECT r.service_name,
+			SELECT r.service_name AS service_name,
 			       count()                                                                      AS request_count,
 			       countIf(`+ErrorCondition()+`)                                               AS error_count,
 			       avg(s.duration_nano / 1000000.0)                                            AS avg_latency,
@@ -105,7 +105,7 @@ func (r *ClickHouseRepository) GetServiceTimeSeries(teamUUID string, startMs, en
 	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT service_name, timestamp, request_count, error_count, avg_latency
 		FROM (
-			SELECT r.service_name,
+			SELECT r.service_name AS service_name,
 			       %s AS timestamp,
 			       count()                          AS request_count,
 			       countIf(`+ErrorCondition()+`)    AS error_count,
@@ -139,7 +139,7 @@ func (r *ClickHouseRepository) GetServiceEndpoints(teamUUID string, startMs, end
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT service_name, operation_name, http_method, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
 		FROM (
-			SELECT r.service_name, s.name AS operation_name, s.http_method,
+			SELECT r.service_name AS service_name, s.name AS operation_name, s.http_method AS http_method,
 			       count()                                                                      AS request_count,
 			       countIf(`+ErrorCondition()+`)                                               AS error_count,
 			       avg(s.duration_nano / 1000000.0)                                            AS avg_latency,

@@ -24,19 +24,21 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) GetInfrastructureNodes(teamUUID string, startMs, endMs int64) ([]InfrastructureNode, error) {
+	const rootSpanCondition = "(s.parent_span_id = '' OR s.parent_span_id = '0000000000000000')"
 	rows, err := dbutil.QueryMaps(r.db, `
-		SELECT `+HostNameExpression()+` as host_name,
-		       uniqExactIf(`+ColPod+`, `+ColPod+` != '') as pod_count,
-		       uniqExactIf(`+ColContainer+`, `+ColContainer+` != '') as container_count,
-		       arrayStringConcat(groupUniqArray(if(`+ColServiceName+` != '', `+ColServiceName+`, '`+DefaultUnknown+`')), ',') as services_csv,
+		SELECT if(r.host_name != '', r.host_name, '`+DefaultUnknown+`') as host_name,
+		       uniqExactIf(r.k8s_pod_name, r.k8s_pod_name != '') as pod_count,
+		       toInt64(0) as container_count,
+		       arrayStringConcat(groupUniqArray(if(r.service_name != '', r.service_name, '`+DefaultUnknown+`')), ',') as services_csv,
 		       COUNT(*) as request_count,
-		       sum(if(`+ErrorCondition()+`, 1, 0)) as error_count,
-		       if(COUNT(*) > 0, sum(if(`+ErrorCondition()+`, 1, 0))*100.0/COUNT(*), 0) as error_rate,
-		       AVG(`+ColDurationMs+`) as avg_latency,
-		       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(`+ColDurationMs+`) as p95_latency,
-		       MAX(`+ColStartTime+`) as last_seen
-		FROM spans
-		WHERE `+ColTeamID+` = ? AND `+ColStartTime+` BETWEEN ? AND ?
+		       countIf(s.has_error = true OR s.response_status_code >= '400') as error_count,
+		       if(COUNT(*) > 0, countIf(s.has_error = true OR s.response_status_code >= '400')*100.0/COUNT(*), 0) as error_rate,
+		       AVG(s.duration_nano / 1000000.0) as avg_latency,
+		       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(s.duration_nano / 1000000.0) as p95_latency,
+		       MAX(s.timestamp) as last_seen
+		FROM observability.spans s
+		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
+		WHERE s.team_id = ? AND `+rootSpanCondition+` AND s.timestamp BETWEEN ? AND ?
 		GROUP BY host_name
 		ORDER BY request_count DESC
 		LIMIT `+fmt.Sprintf("%d", MaxNodes)+`
@@ -65,19 +67,21 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(teamUUID string, startMs, 
 }
 
 func (r *ClickHouseRepository) GetInfrastructureNodeServices(teamUUID, host string, startMs, endMs int64) ([]InfrastructureNodeService, error) {
+	const rootSpanCondition = "(s.parent_span_id = '' OR s.parent_span_id = '0000000000000000')"
 	rows, err := dbutil.QueryMaps(r.db, `
-		SELECT if(`+ColServiceName+` != '', `+ColServiceName+`, '`+DefaultUnknown+`') as service_name,
+		SELECT if(r.service_name != '', r.service_name, '`+DefaultUnknown+`') as service_name,
 		       COUNT(*) as request_count,
-		       sum(if(`+ErrorCondition()+`, 1, 0)) as error_count,
-		       if(COUNT(*) > 0, sum(if(`+ErrorCondition()+`, 1, 0))*100.0/COUNT(*), 0) as error_rate,
-		       AVG(`+ColDurationMs+`) as avg_latency,
-		       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(`+ColDurationMs+`) as p95_latency,
-		       uniqExact(`+ColPod+`) as pod_count
-		FROM spans
-		WHERE `+ColTeamID+` = ?
-		  AND `+HostNameExpression()+` = ?
-		  AND `+RootSpanCondition()+`
-		  AND `+ColStartTime+` BETWEEN ? AND ?
+		       countIf(s.has_error = true OR s.response_status_code >= '400') as error_count,
+		       if(COUNT(*) > 0, countIf(s.has_error = true OR s.response_status_code >= '400')*100.0/COUNT(*), 0) as error_rate,
+		       AVG(s.duration_nano / 1000000.0) as avg_latency,
+		       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(s.duration_nano / 1000000.0) as p95_latency,
+		       uniqExactIf(r.k8s_pod_name, r.k8s_pod_name != '') as pod_count
+		FROM observability.spans s
+		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
+		WHERE s.team_id = ?
+		  AND if(r.host_name != '', r.host_name, '`+DefaultUnknown+`') = ?
+		  AND `+rootSpanCondition+`
+		  AND s.timestamp BETWEEN ? AND ?
 		GROUP BY service_name
 		ORDER BY request_count DESC
 		LIMIT `+fmt.Sprintf("%d", MaxServices)+`

@@ -78,12 +78,19 @@ func (r *ClickHouseRepository) GetUpstreamDownstream(teamUUID, serviceName strin
 // GetExternalDependencies returns calls to hosts not present in the resources table
 // (i.e. external/third-party endpoints) based on http.url or peer.address attributes.
 func (r *ClickHouseRepository) GetExternalDependencies(teamUUID string, startMs, endMs int64) ([]ExternalDependency, error) {
-	rows, err := dbutil.QueryMaps(r.db, `
+	externalHostExpr := `coalesce(
+		nullIf(JSONExtractString(toJSONString(s.attributes), 'net.peer.name'), ''),
+		nullIf(JSONExtractString(toJSONString(s.attributes), 'peer.address'), ''),
+		nullIf(s.http_host, ''),
+		nullIf(s.external_http_url, ''),
+		nullIf(s.http_url, '')
+	)`
+	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		WITH known_hosts AS (
 		    SELECT DISTINCT host_name FROM observability.resources WHERE team_id = ?
 		)
 		SELECT r.service_name                             AS source_service,
-		       s.mat_net_peer_name                        AS external_host,
+		       %s                                         AS external_host,
 		       count()                                    AS call_count,
 		       quantile(0.95)(s.duration_nano / 1000000.0) AS p95_latency_ms,
 		       if(count() > 0,
@@ -91,13 +98,13 @@ func (r *ClickHouseRepository) GetExternalDependencies(teamUUID string, startMs,
 		           0) AS error_rate
 		FROM observability.spans s
 		ANY LEFT JOIN observability.resources r ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint
-		LEFT ANTI JOIN known_hosts kh ON s.mat_net_peer_name = kh.host_name
+		LEFT ANTI JOIN known_hosts kh ON %s = kh.host_name
 		WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.kind = 3 AND s.timestamp BETWEEN ? AND ?
-		  AND s.mat_net_peer_name != ''
-		GROUP BY r.service_name, s.mat_net_peer_name
+		  AND %s != ''
+		GROUP BY r.service_name, external_host
 		ORDER BY call_count DESC
 		LIMIT 100
-	`, teamUUID, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, externalHostExpr, externalHostExpr, externalHostExpr), teamUUID, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}

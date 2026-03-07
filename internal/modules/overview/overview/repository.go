@@ -155,7 +155,7 @@ func (r *ClickHouseRepository) GetServices(teamUUID string, startMs, endMs int64
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT service_name, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
 		FROM (
-			SELECT r.service_name,
+			SELECT r.service_name AS service_name,
 			       count()                                                                      AS request_count,
 			       countIf(`+ErrorCondition()+`)                                               AS error_count,
 			       avg(s.duration_nano / 1000000.0)                                            AS avg_latency,
@@ -192,7 +192,7 @@ func (r *ClickHouseRepository) GetTopEndpoints(teamUUID string, startMs, endMs i
 	query := `
 		SELECT service_name, operation_name, http_method, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
 		FROM (
-			SELECT r.service_name, s.name AS operation_name, s.http_method,
+			SELECT r.service_name AS service_name, s.name AS operation_name, s.http_method AS http_method,
 			       count() AS request_count,
 			       countIf(` + ErrorCondition() + `) AS error_count,
 			       avg(s.duration_nano / 1000000.0) AS avg_latency,
@@ -241,9 +241,9 @@ func (r *ClickHouseRepository) GetEndpointTimeSeries(teamUUID string, startMs, e
 		SELECT time_bucket, service_name, operation_name, http_method, request_count, error_count, avg_latency, p50, p95, p99
 		FROM (
 			SELECT %s        AS time_bucket,
-			       r.service_name,
-			       s.name    AS operation_name,
-			       s.http_method,
+			       r.service_name AS service_name,
+			       s.name AS operation_name,
+			       s.http_method AS http_method,
 			       count()                                                                      AS request_count,
 			       countIf(`+ErrorCondition()+`)                                               AS error_count,
 			       avg(s.duration_nano / 1000000.0)                                            AS avg_latency,

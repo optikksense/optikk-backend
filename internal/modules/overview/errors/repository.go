@@ -86,7 +86,7 @@ func (r *ClickHouseRepository) GetServiceErrorRate(teamUUID string, startMs, end
 		       if(request_count > 0, error_count*100.0/request_count, 0) AS error_rate,
 		       avg_latency
 		FROM (
-			SELECT r.service_name,
+			SELECT r.service_name AS service_name,
 			       %s AS timestamp,
 			       count()                          AS request_count,
 			       countIf(`+ErrorCondition()+`)    AS error_count,
@@ -129,7 +129,7 @@ func (r *ClickHouseRepository) GetErrorVolume(teamUUID string, startMs, endMs in
 	query := fmt.Sprintf(`
 		SELECT service_name, timestamp, error_count
 		FROM (
-			SELECT r.service_name,
+			SELECT r.service_name AS service_name,
 			       %s AS timestamp,
 			       countIf(`+ErrorCondition()+`) AS error_count
 			FROM observability.spans s
@@ -168,7 +168,7 @@ func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(teamUUID string, sta
 	query := fmt.Sprintf(`
 		SELECT service_name, timestamp, request_count, error_count, avg_latency
 		FROM (
-			SELECT r.service_name,
+			SELECT r.service_name AS service_name,
 			       %s AS timestamp,
 			       count()                          AS request_count,
 			       countIf(`+ErrorCondition()+`)    AS error_count,

@@ -138,6 +138,11 @@ func StringFromAny(v any) string {
 	switch s := v.(type) {
 	case string:
 		return s
+	case *string:
+		if s == nil {
+			return ""
+		}
+		return *s
 	case []byte:
 		return string(s)
 	case nil:

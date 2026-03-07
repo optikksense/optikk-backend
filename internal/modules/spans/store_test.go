@@ -41,6 +41,8 @@ func TestResourceQueriesAreTenantScoped(t *testing.T) {
 	assertContainsQuery(t, calls, "ANY INNER JOIN observability.resources r2 ON s2.team_id = r2.team_id AND s2.resource_fingerprint = r2.fingerprint")
 	assertContainsQuery(t, calls, "JOIN observability.spans s2 ON s1.team_id = s2.team_id AND s1.trace_id = s2.trace_id AND s1.span_id = s2.parent_span_id")
 	assertContainsQuery(t, calls, "ANY LEFT JOIN observability.resources r ON sub.team_id = r.team_id AND sub.resource_fingerprint = r.fingerprint")
+	assertContainsQuery(t, calls, "toJSONString(s.attributes) as attributes")
+	assertContainsQuery(t, calls, "s.duration_nano as duration_nano")
 }
 
 func assertContainsQuery(t *testing.T, calls []querycapture.CapturedCall, want string) {
