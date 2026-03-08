@@ -7,7 +7,6 @@
     {
       "componentKey": "error-rate",
       "groupByKey": "service",
-      "height": 260,
       "id": "service-error-rate",
       "layout": {
         "col": 12
@@ -23,7 +22,6 @@
     {
       "componentKey": "area",
       "groupByKey": "exceptionType",
-      "height": 260,
       "id": "exception-rate-by-type",
       "layout": {
         "col": 12
@@ -39,7 +37,6 @@
     },
     {
       "componentKey": "heatmap",
-      "height": 360,
       "id": "error-hotspot",
       "layout": {
         "col": 24
@@ -49,7 +46,7 @@
         "endpoint": "/v1/spans/error-hotspot",
         "method": "GET"
       },
-      "title": "Error Hotspot (Service × Operation)",
+      "title": "Error Hotspot (Service \u00d7 Operation)",
       "titleIcon": "Crosshair",
       "valueKey": "errorRate",
       "xKey": "operationName",
@@ -58,7 +55,6 @@
     {
       "componentKey": "bar",
       "groupByKey": "httpRoute",
-      "height": 260,
       "id": "http-5xx-by-route",
       "layout": {
         "col": 12
@@ -74,7 +70,6 @@
     },
     {
       "componentKey": "table",
-      "height": 360,
       "id": "error-groups",
       "layout": {
         "col": 12

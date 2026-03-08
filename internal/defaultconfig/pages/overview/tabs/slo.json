@@ -9,7 +9,6 @@
       "componentKey": "error-rate",
       "dataKey": "timeseries",
       "datasetLabel": "Availability %",
-      "height": 220,
       "id": "availability",
       "layout": {
         "col": 8
@@ -30,7 +29,6 @@
     {
       "componentKey": "latency",
       "dataKey": "timeseries",
-      "height": 220,
       "id": "latency-vs-target",
       "layout": {
         "col": 8
@@ -51,7 +49,6 @@
     {
       "componentKey": "error-rate",
       "dataKey": "timeseries",
-      "height": 220,
       "id": "error-budget-burn",
       "layout": {
         "col": 8

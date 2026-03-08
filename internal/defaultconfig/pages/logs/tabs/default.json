@@ -6,7 +6,6 @@
   "components": [
     {
       "componentKey": "log-histogram",
-      "height": 80,
       "id": "log-volume",
       "layout": {
         "col": 24

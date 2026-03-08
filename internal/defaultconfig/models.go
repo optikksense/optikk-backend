@@ -34,7 +34,7 @@ type Component struct {
 	Title        string         `json:"title,omitempty"`
 	Layout       map[string]any `json:"layout,omitempty"`
 	Order        int            `json:"order"`
-	Query        QuerySpec      `json:"query"`
+	Query        QuerySpec      `json:"query,omitempty"`
 	TitleIcon    string         `json:"titleIcon,omitempty"`
 	Extra        map[string]any `json:"-"`
 }
@@ -109,7 +109,6 @@ func (c *Component) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("component %q: invalid query: %w", c.ID, err)
 		}
 	}
-
 	delete(raw, "id")
 	delete(raw, "componentKey")
 	delete(raw, "title")
@@ -128,8 +127,8 @@ func (c Component) MarshalJSON() ([]byte, error) {
 		"id":           c.ID,
 		"componentKey": c.ComponentKey,
 		"order":        c.Order,
-		"query":        c.Query,
 	}
+	raw["query"] = c.Query
 	if c.Title != "" {
 		raw["title"] = c.Title
 	}

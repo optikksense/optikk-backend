@@ -8,7 +8,6 @@
       "componentKey": "request",
       "datasetLabel": "Request Rate",
       "groupByKey": "service_name",
-      "height": 260,
       "id": "request-rate",
       "layout": {
         "col": 12
@@ -28,7 +27,6 @@
     {
       "componentKey": "error-rate",
       "groupByKey": "service_name",
-      "height": 260,
       "id": "error-rate",
       "layout": {
         "col": 12
@@ -47,7 +45,6 @@
     {
       "componentKey": "latency",
       "groupByKey": "service_name",
-      "height": 260,
       "id": "p95-latency",
       "layout": {
         "col": 12
@@ -66,7 +63,6 @@
     },
     {
       "componentKey": "latency-histogram",
-      "height": 260,
       "id": "latency-histogram",
       "layout": {
         "col": 12

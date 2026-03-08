@@ -71,7 +71,6 @@
     {
       "componentKey": "area",
       "groupByKey": "queue",
-      "height": 260,
       "id": "queue-consumer-lag",
       "layout": {
         "col": 12
@@ -88,7 +87,6 @@
     {
       "componentKey": "area",
       "groupByKey": "queue",
-      "height": 260,
       "id": "queue-topic-lag",
       "layout": {
         "col": 12
@@ -105,7 +103,6 @@
     {
       "componentKey": "area",
       "groupByKey": "topic",
-      "height": 260,
       "id": "queue-offset-commit-rate",
       "layout": {
         "col": 12
@@ -121,7 +118,6 @@
     },
     {
       "componentKey": "table",
-      "height": 320,
       "id": "queue-lag-detail",
       "layout": {
         "col": 12
@@ -136,7 +132,6 @@
     },
     {
       "componentKey": "table",
-      "height": 320,
       "id": "queue-top-queues",
       "layout": {
         "col": 24

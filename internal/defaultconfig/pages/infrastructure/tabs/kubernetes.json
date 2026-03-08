@@ -9,7 +9,7 @@
       "formatter": "number",
       "id": "allocatable-cpu-(cores)",
       "layout": {
-        "col": 6
+        "col": 12
       },
       "order": 10,
       "query": {
@@ -25,7 +25,7 @@
       "formatter": "bytes",
       "id": "allocatable-memory",
       "layout": {
-        "col": 6
+        "col": 12
       },
       "order": 20,
       "query": {
@@ -39,7 +39,6 @@
     {
       "componentKey": "area",
       "groupByKey": "container",
-      "height": 260,
       "id": "k8s-container-cpu",
       "layout": {
         "col": 12
@@ -56,7 +55,6 @@
     {
       "componentKey": "area",
       "groupByKey": "container",
-      "height": 260,
       "id": "k8s-cpu-throttling",
       "layout": {
         "col": 12
@@ -73,7 +71,6 @@
     {
       "componentKey": "area",
       "groupByKey": "container",
-      "height": 260,
       "id": "k8s-container-memory",
       "layout": {
         "col": 12
@@ -90,7 +87,6 @@
     {
       "componentKey": "area",
       "groupByKey": "container",
-      "height": 260,
       "id": "k8s-oom-kills",
       "layout": {
         "col": 12
@@ -107,10 +103,9 @@
     {
       "componentKey": "pie",
       "groupByKey": "phase",
-      "height": 260,
       "id": "k8s-pod-phases",
       "layout": {
-        "col": 12
+        "col": 8
       },
       "order": 70,
       "query": {
@@ -123,10 +118,9 @@
     },
     {
       "componentKey": "table",
-      "height": 260,
       "id": "k8s-replica-status",
       "layout": {
-        "col": 12
+        "col": 8
       },
       "order": 80,
       "query": {
@@ -138,10 +132,9 @@
     },
     {
       "componentKey": "table",
-      "height": 320,
       "id": "k8s-pod-restarts",
       "layout": {
-        "col": 12
+        "col": 8
       },
       "order": 90,
       "query": {
@@ -153,10 +146,9 @@
     },
     {
       "componentKey": "table",
-      "height": 320,
       "id": "k8s-volume-usage",
       "layout": {
-        "col": 12
+        "col": 24
       },
       "order": 100,
       "query": {

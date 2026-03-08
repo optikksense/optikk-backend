@@ -70,7 +70,6 @@
     },
     {
       "componentKey": "area",
-      "height": 260,
       "id": "apm-rpc-request-rate",
       "layout": {
         "col": 12
@@ -86,7 +85,6 @@
     },
     {
       "componentKey": "stat",
-      "height": 120,
       "id": "apm-messaging-duration",
       "layout": {
         "col": 12
@@ -102,7 +100,6 @@
     {
       "componentKey": "area",
       "groupByKey": "state",
-      "height": 260,
       "id": "apm-process-cpu",
       "layout": {
         "col": 12
@@ -118,7 +115,6 @@
     },
     {
       "componentKey": "area",
-      "height": 260,
       "id": "apm-open-fds",
       "layout": {
         "col": 12
@@ -134,7 +130,6 @@
     },
     {
       "componentKey": "area",
-      "height": 260,
       "id": "apm-uptime",
       "layout": {
         "col": 24

@@ -7,7 +7,6 @@
     {
       "componentKey": "ai-line",
       "groupByKey": "model_name",
-      "height": 220,
       "id": "qps",
       "layout": {
         "col": 12
@@ -21,13 +20,12 @@
         }
       },
       "title": "QPS per Model",
-      "titleIcon": "TrendingDown",
+      "titleIcon": "TrendingUp",
       "valueKey": "qps"
     },
     {
       "componentKey": "ai-line",
       "groupByKey": "model_name",
-      "height": 220,
       "id": "avg-latency",
       "layout": {
         "col": 12
@@ -47,7 +45,6 @@
     {
       "componentKey": "ai-line",
       "groupByKey": "model_name",
-      "height": 220,
       "id": "tokens-per-sec",
       "layout": {
         "col": 12
@@ -68,7 +65,6 @@
       "bucketKey": "bucket_ms",
       "componentKey": "ai-bar",
       "groupByKey": "model_name",
-      "height": 220,
       "id": "latency-histogram",
       "layout": {
         "col": 12
@@ -84,7 +80,6 @@
     },
     {
       "componentKey": "table",
-      "height": 300,
       "id": "performance-metrics",
       "layout": {
         "col": 24

@@ -71,7 +71,6 @@
     {
       "componentKey": "area",
       "groupByKey": "pool_name",
-      "height": 300,
       "id": "jvm-memory",
       "layout": {
         "col": 24
@@ -88,7 +87,6 @@
     {
       "componentKey": "area",
       "groupByKey": "pod",
-      "height": 260,
       "id": "jvm-gc-collections",
       "layout": {
         "col": 12
@@ -105,7 +103,6 @@
     {
       "componentKey": "area",
       "groupByKey": "state",
-      "height": 260,
       "id": "jvm-threads",
       "layout": {
         "col": 12
@@ -122,7 +119,6 @@
     {
       "componentKey": "area",
       "groupByKey": "pool_name",
-      "height": 260,
       "id": "jvm-buffers",
       "layout": {
         "col": 12
@@ -138,7 +134,6 @@
     },
     {
       "componentKey": "stat",
-      "height": 120,
       "id": "jvm-classes",
       "layout": {
         "col": 12

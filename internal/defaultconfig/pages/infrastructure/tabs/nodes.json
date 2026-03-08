@@ -70,7 +70,6 @@
     },
     {
       "componentKey": "table",
-      "height": 420,
       "id": "nodes-table",
       "layout": {
         "col": 24

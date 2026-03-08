@@ -71,7 +71,6 @@
     {
       "componentKey": "ai-line",
       "groupByKey": "model_name",
-      "height": 220,
       "id": "qps",
       "layout": {
         "col": 12
@@ -85,13 +84,12 @@
         }
       },
       "title": "QPS per Model",
-      "titleIcon": "TrendingDown",
+      "titleIcon": "TrendingUp",
       "valueKey": "qps"
     },
     {
       "componentKey": "ai-line",
       "groupByKey": "model_name",
-      "height": 220,
       "id": "avg-latency",
       "layout": {
         "col": 12
@@ -111,7 +109,6 @@
     {
       "componentKey": "ai-line",
       "groupByKey": "model_name",
-      "height": 220,
       "id": "cost-over-time",
       "layout": {
         "col": 12
@@ -125,7 +122,7 @@
         }
       },
       "title": "Cost per Interval (USD)",
-      "titleIcon": "Activity",
+      "titleIcon": "DollarSign",
       "valueKey": "cost_per_interval",
       "yDecimals": 4,
       "yPrefix": "$"
@@ -133,7 +130,6 @@
     {
       "componentKey": "ai-line",
       "groupByKey": "model_name",
-      "height": 220,
       "id": "pii-detections",
       "layout": {
         "col": 12

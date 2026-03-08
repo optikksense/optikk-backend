@@ -6,7 +6,6 @@
   "components": [
     {
       "componentKey": "service-map",
-      "height": 560,
       "id": "service-topology",
       "layout": {
         "col": 24
@@ -21,10 +20,9 @@
     },
     {
       "componentKey": "table",
-      "height": 320,
       "id": "external-dependencies",
       "layout": {
-        "col": 24
+        "col": 12
       },
       "order": 20,
       "query": {
@@ -36,10 +34,9 @@
     },
     {
       "componentKey": "latency",
-      "height": 320,
       "id": "client-server-latency",
       "layout": {
-        "col": 24
+        "col": 12
       },
       "order": 30,
       "query": {

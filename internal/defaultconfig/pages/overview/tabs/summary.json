@@ -7,7 +7,6 @@
     {
       "componentKey": "request",
       "groupByKey": "service_name",
-      "height": 260,
       "id": "request-rate",
       "layout": {
         "col": 12
@@ -23,7 +22,6 @@
     {
       "componentKey": "error-rate",
       "groupByKey": "service_name",
-      "height": 260,
       "id": "error-rate",
       "layout": {
         "col": 12
@@ -39,7 +37,6 @@
     {
       "componentKey": "latency",
       "groupByKey": "service_name",
-      "height": 260,
       "id": "p95-latency",
       "layout": {
         "col": 24
@@ -55,7 +52,6 @@
     },
     {
       "componentKey": "table",
-      "height": 360,
       "id": "services-table",
       "layout": {
         "col": 12
@@ -70,7 +66,6 @@
     },
     {
       "componentKey": "table",
-      "height": 360,
       "id": "endpoints-table",
       "layout": {
         "col": 12

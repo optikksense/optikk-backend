@@ -70,7 +70,6 @@
     },
     {
       "componentKey": "area",
-      "height": 260,
       "id": "redis-clients",
       "layout": {
         "col": 12
@@ -86,7 +85,6 @@
     },
     {
       "componentKey": "area",
-      "height": 260,
       "id": "redis-memory",
       "layout": {
         "col": 12
@@ -102,7 +100,6 @@
     },
     {
       "componentKey": "area",
-      "height": 260,
       "id": "redis-memory-frag",
       "layout": {
         "col": 12
@@ -118,7 +115,6 @@
     },
     {
       "componentKey": "area",
-      "height": 260,
       "id": "redis-commands",
       "layout": {
         "col": 12
@@ -134,10 +130,9 @@
     },
     {
       "componentKey": "area",
-      "height": 260,
       "id": "redis-evictions",
       "layout": {
-        "col": 12
+        "col": 8
       },
       "order": 90,
       "query": {
@@ -150,10 +145,9 @@
     },
     {
       "componentKey": "table",
-      "height": 260,
       "id": "redis-keyspace",
       "layout": {
-        "col": 12
+        "col": 8
       },
       "order": 100,
       "query": {
@@ -165,10 +159,9 @@
     },
     {
       "componentKey": "table",
-      "height": 260,
       "id": "redis-key-expiries",
       "layout": {
-        "col": 24
+        "col": 8
       },
       "order": 110,
       "query": {

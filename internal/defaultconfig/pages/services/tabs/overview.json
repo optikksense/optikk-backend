@@ -19,7 +19,8 @@
           "interval": "5m"
         }
       },
-      "title": "Service Request Rate"
+      "title": "Service Request Rate",
+      "titleIcon": "TrendingUp"
     },
     {
       "componentKey": "error-rate",
@@ -36,7 +37,8 @@
           "interval": "5m"
         }
       },
-      "title": "Service Error Rate"
+      "title": "Service Error Rate",
+      "titleIcon": "AlertCircle"
     },
     {
       "componentKey": "latency",
@@ -53,7 +55,8 @@
           "interval": "5m"
         }
       },
-      "title": "Service Latency"
+      "title": "Service Latency",
+      "titleIcon": "Clock"
     }
   ]
 }

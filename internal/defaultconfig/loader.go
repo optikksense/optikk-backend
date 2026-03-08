@@ -256,27 +256,35 @@ func validatePageDocument(doc PageDocument) error {
 
 		componentIDs := map[string]struct{}{}
 		for _, component := range tab.Components {
-			if component.ID == "" {
-				return fmt.Errorf("page %q tab %q: component id is required", doc.Page.ID, tab.ID)
+			if err := validateComponent(doc.Page.ID, tab.ID, component, componentIDs); err != nil {
+				return err
 			}
-			if component.ComponentKey == "" {
-				return fmt.Errorf("page %q tab %q component %q: componentKey is required", doc.Page.ID, tab.ID, component.ID)
-			}
-			if component.Query.Endpoint == "" {
-				return fmt.Errorf("page %q tab %q component %q: query.endpoint is required", doc.Page.ID, tab.ID, component.ID)
-			}
-			if component.Query.Method == "" {
-				return fmt.Errorf("page %q tab %q component %q: query.method is required", doc.Page.ID, tab.ID, component.ID)
-			}
-			if _, exists := componentIDs[component.ID]; exists {
-				return fmt.Errorf("page %q tab %q: duplicate component id %q", doc.Page.ID, tab.ID, component.ID)
-			}
-			componentIDs[component.ID] = struct{}{}
 		}
 	}
 
 	if !tabFound {
 		return fmt.Errorf("page %q: defaultTabId %q not found", doc.Page.ID, doc.Page.DefaultTabID)
+	}
+	return nil
+}
+
+func validateComponent(pageID, tabID string, component Component, seenIDs map[string]struct{}) error {
+	if component.ID == "" {
+		return fmt.Errorf("page %q tab %q: component id is required", pageID, tabID)
+	}
+	if component.ComponentKey == "" {
+		return fmt.Errorf("page %q tab %q component %q: componentKey is required", pageID, tabID, component.ID)
+	}
+	if _, exists := seenIDs[component.ID]; exists {
+		return fmt.Errorf("page %q tab %q: duplicate component id %q", pageID, tabID, component.ID)
+	}
+	seenIDs[component.ID] = struct{}{}
+
+	if component.Query.Endpoint == "" {
+		return fmt.Errorf("page %q tab %q component %q: query.endpoint is required", pageID, tabID, component.ID)
+	}
+	if component.Query.Method == "" {
+		return fmt.Errorf("page %q tab %q component %q: query.method is required", pageID, tabID, component.ID)
 	}
 	return nil
 }

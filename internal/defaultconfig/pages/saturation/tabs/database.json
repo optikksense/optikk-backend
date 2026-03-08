@@ -70,7 +70,6 @@
     },
     {
       "componentKey": "latency",
-      "height": 260,
       "id": "db-avg-latency",
       "layout": {
         "col": 12
@@ -85,27 +84,25 @@
       "valueKey": "avg_latency_ms"
     },
     {
-      "componentKey": "table",
-      "height": 260,
-      "id": "db-systems",
+      "componentKey": "stat",
+      "id": "db-query-duration",
       "layout": {
         "col": 12
       },
       "order": 60,
       "query": {
-        "endpoint": "/v1/saturation/database/systems",
+        "endpoint": "/v1/saturation/database/query-duration",
         "method": "GET"
       },
-      "title": "Database Systems",
-      "titleIcon": "Database"
+      "title": "Query Duration p50/p95/p99",
+      "titleIcon": "Activity"
     },
     {
       "componentKey": "area",
       "groupByKey": "state",
-      "height": 260,
       "id": "db-connection-count",
       "layout": {
-        "col": 12
+        "col": 8
       },
       "order": 70,
       "query": {
@@ -118,10 +115,9 @@
     },
     {
       "componentKey": "area",
-      "height": 260,
       "id": "db-connection-pending",
       "layout": {
-        "col": 12
+        "col": 8
       },
       "order": 80,
       "query": {
@@ -134,10 +130,9 @@
     },
     {
       "componentKey": "area",
-      "height": 260,
       "id": "db-connection-timeouts",
       "layout": {
-        "col": 12
+        "col": 8
       },
       "order": 90,
       "query": {
@@ -149,23 +144,21 @@
       "valueKey": "avg_latency_ms"
     },
     {
-      "componentKey": "stat",
-      "height": 120,
-      "id": "db-query-duration",
+      "componentKey": "table",
+      "id": "db-systems",
       "layout": {
-        "col": 12
+        "col": 24
       },
       "order": 100,
       "query": {
-        "endpoint": "/v1/saturation/database/query-duration",
+        "endpoint": "/v1/saturation/database/systems",
         "method": "GET"
       },
-      "title": "Query Duration p50/p95/p99",
-      "titleIcon": "Activity"
+      "title": "Database Systems",
+      "titleIcon": "Database"
     },
     {
       "componentKey": "table",
-      "height": 320,
       "id": "db-top-tables",
       "layout": {
         "col": 24
@@ -181,7 +174,6 @@
     {
       "componentKey": "area",
       "groupByKey": "table",
-      "height": 280,
       "id": "db-query-by-table",
       "layout": {
         "col": 24

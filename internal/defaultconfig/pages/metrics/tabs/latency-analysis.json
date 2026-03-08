@@ -6,7 +6,6 @@
   "components": [
     {
       "componentKey": "latency-histogram",
-      "height": 200,
       "id": "histogram",
       "layout": {
         "col": 24

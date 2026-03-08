@@ -72,7 +72,6 @@
       "componentKey": "request",
       "datasetLabel": "CPU Util",
       "groupByKey": "pod",
-      "height": 260,
       "id": "cpu-usage",
       "layout": {
         "col": 12
@@ -90,7 +89,6 @@
       "componentKey": "request",
       "datasetLabel": "Mem Util",
       "groupByKey": "pod",
-      "height": 260,
       "id": "memory-usage",
       "layout": {
         "col": 12
@@ -106,10 +104,9 @@
     },
     {
       "componentKey": "table",
-      "height": 320,
       "id": "by-service",
       "layout": {
-        "col": 24
+        "col": 12
       },
       "order": 70,
       "query": {
@@ -121,10 +118,9 @@
     },
     {
       "componentKey": "table",
-      "height": 320,
       "id": "by-instance",
       "layout": {
-        "col": 24
+        "col": 12
       },
       "order": 80,
       "query": {
@@ -137,10 +133,9 @@
     {
       "componentKey": "area",
       "groupByKey": "state",
-      "height": 260,
       "id": "infra-cpu-time",
       "layout": {
-        "col": 12
+        "col": 8
       },
       "order": 90,
       "query": {
@@ -154,10 +149,9 @@
     {
       "componentKey": "area",
       "groupByKey": "state",
-      "height": 260,
       "id": "infra-memory-usage",
       "layout": {
-        "col": 12
+        "col": 8
       },
       "order": 100,
       "query": {
@@ -171,10 +165,9 @@
     {
       "componentKey": "area",
       "groupByKey": "state",
-      "height": 260,
       "id": "infra-swap-usage",
       "layout": {
-        "col": 12
+        "col": 8
       },
       "order": 110,
       "query": {
@@ -187,7 +180,6 @@
     },
     {
       "componentKey": "stat",
-      "height": 120,
       "id": "infra-load-average",
       "layout": {
         "col": 12
@@ -203,7 +195,6 @@
     {
       "componentKey": "area",
       "groupByKey": "direction",
-      "height": 260,
       "id": "infra-disk-io",
       "layout": {
         "col": 12
@@ -220,7 +211,6 @@
     {
       "componentKey": "area",
       "groupByKey": "direction",
-      "height": 260,
       "id": "infra-disk-operations",
       "layout": {
         "col": 12
@@ -237,10 +227,9 @@
     {
       "componentKey": "area",
       "groupByKey": "pod",
-      "height": 260,
       "id": "infra-disk-io-time",
       "layout": {
-        "col": 12
+        "col": 8
       },
       "order": 150,
       "query": {
@@ -254,10 +243,9 @@
     {
       "componentKey": "area",
       "groupByKey": "mountpoint",
-      "height": 260,
       "id": "infra-filesystem-usage",
       "layout": {
-        "col": 12
+        "col": 8
       },
       "order": 160,
       "query": {
@@ -271,10 +259,9 @@
     {
       "componentKey": "area",
       "groupByKey": "pod",
-      "height": 260,
       "id": "infra-filesystem-util",
       "layout": {
-        "col": 12
+        "col": 8
       },
       "order": 170,
       "query": {
@@ -288,7 +275,6 @@
     {
       "componentKey": "area",
       "groupByKey": "direction",
-      "height": 260,
       "id": "infra-network-io",
       "layout": {
         "col": 12
@@ -305,7 +291,6 @@
     {
       "componentKey": "area",
       "groupByKey": "direction",
-      "height": 260,
       "id": "infra-network-packets",
       "layout": {
         "col": 12
@@ -322,7 +307,6 @@
     {
       "componentKey": "area",
       "groupByKey": "state",
-      "height": 260,
       "id": "infra-network-errors",
       "layout": {
         "col": 12
@@ -339,7 +323,6 @@
     {
       "componentKey": "area",
       "groupByKey": "pod",
-      "height": 260,
       "id": "infra-network-dropped",
       "layout": {
         "col": 12
@@ -356,7 +339,6 @@
     {
       "componentKey": "area",
       "groupByKey": "state",
-      "height": 260,
       "id": "infra-process-count",
       "layout": {
         "col": 12
@@ -373,7 +355,6 @@
     {
       "componentKey": "area",
       "groupByKey": "state",
-      "height": 260,
       "id": "infra-network-connections",
       "layout": {
         "col": 12

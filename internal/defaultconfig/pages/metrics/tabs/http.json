@@ -7,7 +7,6 @@
     {
       "componentKey": "request",
       "groupByKey": "status_code",
-      "height": 260,
       "id": "http-request-rate",
       "layout": {
         "col": 12
@@ -23,7 +22,6 @@
     },
     {
       "componentKey": "stat",
-      "height": 120,
       "id": "http-request-duration",
       "layout": {
         "col": 12
@@ -38,7 +36,6 @@
     },
     {
       "componentKey": "area",
-      "height": 260,
       "id": "http-active-requests",
       "layout": {
         "col": 12
@@ -54,7 +51,6 @@
     },
     {
       "componentKey": "stat",
-      "height": 120,
       "id": "http-client-duration",
       "layout": {
         "col": 12
@@ -69,7 +65,6 @@
     },
     {
       "componentKey": "stat",
-      "height": 120,
       "id": "dns-tls-duration",
       "layout": {
         "col": 24
@@ -79,7 +74,7 @@
         "endpoint": "/v1/http/dns-duration",
         "method": "GET"
       },
-      "title": "DNS Lookup \u0026 TLS Handshake Duration",
+      "title": "DNS Lookup & TLS Handshake Duration",
       "titleIcon": "Shield"
     }
   ]
