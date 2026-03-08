@@ -3,10 +3,16 @@
   "pageId": "overview",
   "label": "Summary",
   "order": 10,
+  "groups": [
+    { "id": "golden-signals", "label": "Golden Signals", "order": 10 },
+    { "id": "service-health", "label": "Service Health", "order": 20 },
+    { "id": "top-consumers", "label": "Top Consumers", "order": 30 }
+  ],
   "components": [
     {
       "componentKey": "request",
       "groupByKey": "service_name",
+      "groupId": "golden-signals",
       "id": "request-rate",
       "layout": {
         "col": 12
@@ -22,6 +28,7 @@
     {
       "componentKey": "error-rate",
       "groupByKey": "service_name",
+      "groupId": "golden-signals",
       "id": "error-rate",
       "layout": {
         "col": 12
@@ -37,6 +44,7 @@
     {
       "componentKey": "latency",
       "groupByKey": "service_name",
+      "groupId": "golden-signals",
       "id": "p95-latency",
       "layout": {
         "col": 24
@@ -51,12 +59,67 @@
       "valueKey": "p95"
     },
     {
+      "componentKey": "scorecard",
+      "groupId": "service-health",
+      "id": "service-scorecard",
+      "layout": {
+        "col": 24
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/spans/service-scorecard",
+        "method": "GET"
+      },
+      "title": "Service Scorecard",
+      "titleIcon": "Activity"
+    },
+    {
+      "componentKey": "gauge",
+      "groupByKey": "serviceName",
+      "groupId": "service-health",
+      "id": "apdex-scores",
+      "layout": {
+        "col": 12
+      },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/spans/apdex",
+        "method": "GET",
+        "params": {
+          "satisfied_ms": 300,
+          "tolerating_ms": 1200
+        }
+      },
+      "title": "Apdex Score by Service",
+      "titleIcon": "Target",
+      "valueKey": "apdex"
+    },
+    {
+      "componentKey": "heatmap",
+      "groupId": "service-health",
+      "id": "error-hotspot-summary",
+      "layout": {
+        "col": 12
+      },
+      "order": 60,
+      "query": {
+        "endpoint": "/v1/spans/error-hotspot",
+        "method": "GET"
+      },
+      "title": "Error Hotspot",
+      "titleIcon": "Crosshair",
+      "valueKey": "errorRate",
+      "xKey": "operationName",
+      "yKey": "serviceName"
+    },
+    {
       "componentKey": "table",
+      "groupId": "top-consumers",
       "id": "services-table",
       "layout": {
         "col": 12
       },
-      "order": 40,
+      "order": 70,
       "query": {
         "endpoint": "/v1/overview/services",
         "method": "GET"
@@ -66,11 +129,12 @@
     },
     {
       "componentKey": "table",
+      "groupId": "top-consumers",
       "id": "endpoints-table",
       "layout": {
         "col": 12
       },
-      "order": 50,
+      "order": 80,
       "query": {
         "endpoint": "/v1/overview/top-endpoints",
         "method": "GET"

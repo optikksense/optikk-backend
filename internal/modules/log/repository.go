@@ -105,8 +105,31 @@ func buildLogWhere(f LogFilters) (string, []any) {
 		args = append(args, f.SpanID)
 	}
 	if f.Search != "" {
-		where += ` AND positionCaseInsensitive(body, ?) > 0`
-		args = append(args, f.Search)
+		if f.SearchMode == "exact" {
+			// Exact substring: slower but precise.
+			where += ` AND positionCaseInsensitive(body, ?) > 0`
+			args = append(args, f.Search)
+		} else {
+			// Default: ngramSearch — uses the token_bloom_filter index on body when present.
+			where += ` AND ngramSearch(lower(body), lower(?)) > 0`
+			args = append(args, f.Search)
+		}
+	}
+	for _, af := range f.AttributeFilters {
+		switch af.Op {
+		case "neq":
+			where += ` AND attributes_string[?] != ?`
+			args = append(args, af.Key, af.Value)
+		case "contains":
+			where += ` AND positionCaseInsensitive(attributes_string[?], ?) > 0`
+			args = append(args, af.Key, af.Value)
+		case "regex":
+			where += ` AND match(attributes_string[?], ?)`
+			args = append(args, af.Key, af.Value)
+		default: // "eq"
+			where += ` AND attributes_string[?] = ?`
+			args = append(args, af.Key, af.Value)
+		}
 	}
 	return where, args
 }
@@ -548,36 +571,71 @@ func (r *ClickHouseRepository) GetLogFacets(ctx context.Context, f LogFilters) (
 	}, nil
 }
 
-// GetLogStats returns total count and extended facet breakdowns.
+// GetLogStats returns total count and extended facet breakdowns via a single merged query.
 func (r *ClickHouseRepository) GetLogStats(ctx context.Context, f LogFilters) (LogStats, error) {
 	where, args := buildLogWhere(f)
 
-	sevRows, sevErr := dbutil.QueryMaps(r.db, `SELECT severity_text as value, COUNT(*) as count FROM logs WHERE`+where+` GROUP BY severity_text ORDER BY count DESC`, args...)
-	serviceRows, svcErr := dbutil.QueryMaps(r.db, `SELECT service as value, COUNT(*) as count FROM logs WHERE`+where+` GROUP BY service ORDER BY count DESC LIMIT 50`, args...)
-	hostRows, hostErr := dbutil.QueryMaps(r.db, `SELECT host as value, COUNT(*) as count FROM logs WHERE`+where+` AND host != '' GROUP BY host ORDER BY count DESC LIMIT 50`, args...)
-	podRows, podErr := dbutil.QueryMaps(r.db, `SELECT pod as value, COUNT(*) as count FROM logs WHERE`+where+` AND pod != '' GROUP BY pod ORDER BY count DESC LIMIT 50`, args...)
-	scopeRows, scopeErr := dbutil.QueryMaps(r.db, `SELECT scope_name as value, COUNT(*) as count FROM logs WHERE`+where+` AND scope_name != '' GROUP BY scope_name ORDER BY count DESC LIMIT 50`, args...)
+	// One query: union-all of all five facet dimensions. Each row carries a
+	// "dim" discriminator so we can split them back out in Go.
+	query := fmt.Sprintf(`
+		SELECT 'severity_text' AS dim, severity_text AS value, COUNT(*) AS count
+		FROM logs WHERE%s GROUP BY severity_text
+		UNION ALL
+		SELECT 'service' AS dim, service AS value, COUNT(*) AS count
+		FROM logs WHERE%s GROUP BY service
+		UNION ALL
+		SELECT 'host' AS dim, host AS value, COUNT(*) AS count
+		FROM logs WHERE%s AND host != '' GROUP BY host
+		UNION ALL
+		SELECT 'pod' AS dim, pod AS value, COUNT(*) AS count
+		FROM logs WHERE%s AND pod != '' GROUP BY pod
+		UNION ALL
+		SELECT 'scope_name' AS dim, scope_name AS value, COUNT(*) AS count
+		FROM logs WHERE%s AND scope_name != '' GROUP BY scope_name
+	`, where, where, where, where, where)
 
-	if sevErr != nil || svcErr != nil || hostErr != nil || podErr != nil || scopeErr != nil {
-		fmt.Printf("logs: stats facet query errors: severity=%v service=%v host=%v pod=%v scope=%v\n",
-			sevErr, svcErr, hostErr, podErr, scopeErr)
+	// Each ?-placeholder set must be repeated once per UNION branch.
+	mergedArgs := append(append(append(append(args, args...), args...), args...), args...)
+
+	rows, err := dbutil.QueryMaps(r.db, query, mergedArgs...)
+	if err != nil {
+		return LogStats{}, fmt.Errorf("logs: stats query: %w", err)
+	}
+
+	fields := map[string][]Facet{
+		"severity_text": {},
+		"service":       {},
+		"host":          {},
+		"pod":           {},
+		"scope_name":    {},
+	}
+	// per-dim limits (keep parity with old per-query LIMIT behaviour)
+	limits := map[string]int{
+		"severity_text": 100,
+		"service":       50,
+		"host":          50,
+		"pod":           50,
+		"scope_name":    50,
+	}
+
+	for _, row := range rows {
+		dim := dbutil.StringFromAny(row["dim"])
+		facets := fields[dim]
+		lim := limits[dim]
+		if lim == 0 || len(facets) < lim {
+			fields[dim] = append(facets, Facet{
+				Value: dbutil.StringFromAny(row["value"]),
+				Count: dbutil.Int64FromAny(row["count"]),
+			})
+		}
 	}
 
 	total := int64(0)
-	for _, row := range sevRows {
-		total += dbutil.Int64FromAny(row["count"])
+	for _, f := range fields["severity_text"] {
+		total += f.Count
 	}
 
-	return LogStats{
-		Total: total,
-		Fields: map[string][]Facet{
-			"severity_text": mapRowsToFacets(sevRows),
-			"service":       mapRowsToFacets(serviceRows),
-			"host":          mapRowsToFacets(hostRows),
-			"pod":           mapRowsToFacets(podRows),
-			"scope_name":    mapRowsToFacets(scopeRows),
-		},
-	}, nil
+	return LogStats{Total: total, Fields: fields}, nil
 }
 
 // GetLogFields returns facet values for a single column.
@@ -602,4 +660,97 @@ func (r *ClickHouseRepository) GetLogFields(ctx context.Context, f LogFilters, c
 		return nil, err
 	}
 	return mapRowsToFacets(rows), nil
+}
+
+// allowedGroupByFields defines the safe log fields that can be used as GROUP BY targets.
+var allowedGroupByFields = map[string]string{
+	"severity_text": "severity_text",
+	"service":       "service",
+	"host":          "host",
+	"pod":           "pod",
+	"container":     "container",
+	"scope_name":    "scope_name",
+	"environment":   "environment",
+}
+
+// GetLogAggregate returns a time-series aggregation of log counts grouped by a field.
+// groupBy must be one of the allowed fields. step is a ClickHouse duration string (e.g. "1m", "5m", "1h").
+// topN limits the number of distinct group values returned.
+func (r *ClickHouseRepository) GetLogAggregate(ctx context.Context, f LogFilters, groupBy, step string, topN int) ([]LogAggregateRow, error) {
+	col, ok := allowedGroupByFields[groupBy]
+	if !ok {
+		return nil, fmt.Errorf("invalid groupBy field: %s", groupBy)
+	}
+	if step == "" {
+		step = "5m"
+	}
+	if topN <= 0 || topN > 100 {
+		topN = 20
+	}
+
+	// First: find the top-N groups by total count so we can filter the time-series to them.
+	where, args := buildLogWhere(f)
+	topQuery := fmt.Sprintf(`
+		SELECT %s AS grp, count() AS cnt
+		FROM logs
+		WHERE%s AND %s != ''
+		GROUP BY grp
+		ORDER BY cnt DESC
+		LIMIT %d
+	`, col, where, col, topN)
+
+	topRows, err := dbutil.QueryMaps(r.db, topQuery, args...)
+	if err != nil {
+		return nil, err
+	}
+	if len(topRows) == 0 {
+		return []LogAggregateRow{}, nil
+	}
+
+	topGroups := make([]string, 0, len(topRows))
+	for _, row := range topRows {
+		if v := dbutil.StringFromAny(row["grp"]); v != "" {
+			topGroups = append(topGroups, v)
+		}
+	}
+
+	// Build IN clause args
+	inPlaceholders := strings.Repeat("?,", len(topGroups))
+	inPlaceholders = inPlaceholders[:len(inPlaceholders)-1]
+
+	// Second: time-series query with toStartOfInterval
+	where2, args2 := buildLogWhere(f)
+	tsQuery := fmt.Sprintf(`
+		SELECT toStartOfInterval(fromUnixTimestamp64Nano(timestamp), INTERVAL %s) AS time_bucket,
+		       %s AS grp,
+		       count() AS cnt
+		FROM logs
+		WHERE%s AND %s IN (%s)
+		GROUP BY time_bucket, grp
+		ORDER BY time_bucket ASC, cnt DESC
+	`, step, col, where2, col, inPlaceholders)
+
+	combinedArgs := append(args2, func() []any {
+		a := make([]any, len(topGroups))
+		for i, g := range topGroups {
+			a[i] = g
+		}
+		return a
+	}()...)
+
+	tsRows, err := dbutil.QueryMaps(r.db, tsQuery, combinedArgs...)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]LogAggregateRow, 0, len(tsRows))
+	for _, row := range tsRows {
+		tb := dbutil.TimeFromAny(row["time_bucket"])
+		result = append(result, LogAggregateRow{
+			TimeBucket: tb.UTC().Format(time.RFC3339),
+			GroupValue: dbutil.StringFromAny(row["grp"]),
+			Count:      dbutil.Int64FromAny(row["cnt"]),
+		})
+	}
+	return result, nil
 }

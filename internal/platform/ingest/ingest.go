@@ -10,15 +10,26 @@
 package ingest
 
 import (
+	"bytes"
 	"context"
 	"database/sql"
+	"encoding/gob"
 	"errors"
 	"fmt"
 	"log"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/segmentio/kafka-go"
 )
+
+func init() {
+	gob.Register([]any{})
+	gob.Register(map[string]string{})
+	gob.Register(map[string]any{})
+	gob.Register(time.Time{})
+}
 
 // Defaults — all tuneable via Option functions.
 const (
@@ -51,6 +62,10 @@ type Queue struct {
 	closed bool
 	stopCh chan struct{}
 	doneCh chan struct{}
+
+	useKafka    bool
+	kafkaWriter *kafka.Writer
+	kafkaReader *kafka.Reader
 }
 
 // Option configures a Queue.
@@ -74,7 +89,7 @@ func WithMaxQueueSize(n int) Option {
 // NewQueue creates a new batched insert queue and starts the background worker.
 // The table must be fully qualified (e.g. "observability.spans").
 // Columns must match the column order of the VALUES clause.
-func NewQueue(db *sql.DB, table string, columns []string, opts ...Option) *Queue {
+func NewQueue(db *sql.DB, useKafka bool, brokers []string, table string, columns []string, opts ...Option) *Queue {
 	q := &Queue{
 		db:           db,
 		table:        table,
@@ -85,10 +100,27 @@ func NewQueue(db *sql.DB, table string, columns []string, opts ...Option) *Queue
 		buf:          make([]Row, 0, DefaultBatchSize),
 		stopCh:       make(chan struct{}),
 		doneCh:       make(chan struct{}),
+		useKafka:     useKafka && len(brokers) > 0,
 	}
 	for _, o := range opts {
 		o(q)
 	}
+
+	if q.useKafka {
+		q.kafkaWriter = &kafka.Writer{
+			Addr:     kafka.TCP(brokers...),
+			Topic:    table,
+			Balancer: &kafka.LeastBytes{},
+		}
+		q.kafkaReader = kafka.NewReader(kafka.ReaderConfig{
+			Brokers:  brokers,
+			GroupID:  "ingest-worker-group",
+			Topic:    table,
+			MinBytes: 10e3,
+			MaxBytes: 10e6,
+		})
+	}
+
 	go q.worker()
 	return q
 }
@@ -98,11 +130,32 @@ func NewQueue(db *sql.DB, table string, columns []string, opts ...Option) *Queue
 // include a Retry-After header.
 func (q *Queue) Enqueue(rows []Row) error {
 	q.mu.Lock()
-	defer q.mu.Unlock()
-
 	if q.closed {
+		q.mu.Unlock()
 		return errors.New("ingest: queue closed")
 	}
+	q.mu.Unlock()
+
+	if q.useKafka {
+		msgs := make([]kafka.Message, len(rows))
+		for i, r := range rows {
+			var buf bytes.Buffer
+			enc := gob.NewEncoder(&buf)
+			if err := enc.Encode(r.Values); err != nil {
+				return err
+			}
+			msgs[i] = kafka.Message{
+				Value: buf.Bytes(),
+			}
+		}
+		if err := q.kafkaWriter.WriteMessages(context.Background(), msgs...); err != nil {
+			return fmt.Errorf("ingest: kafka write failed: %v", err)
+		}
+		return nil
+	}
+
+	q.mu.Lock()
+	defer q.mu.Unlock()
 
 	if len(q.buf)+len(rows) > q.maxQueueSize {
 		return ErrBackpressure
@@ -136,6 +189,12 @@ func (q *Queue) Close() error {
 	if len(batch) > 0 {
 		return q.flush(batch)
 	}
+
+	if q.useKafka {
+		q.kafkaWriter.Close()
+		q.kafkaReader.Close()
+	}
+
 	return nil
 }
 
@@ -143,6 +202,11 @@ func (q *Queue) Close() error {
 // fires (500ms), whichever comes first.
 func (q *Queue) worker() {
 	defer close(q.doneCh)
+
+	if q.useKafka {
+		q.kafkaWorker()
+		return
+	}
 
 	ticker := time.NewTicker(time.Duration(q.flushMs) * time.Millisecond)
 	defer ticker.Stop()
@@ -178,6 +242,64 @@ func (q *Queue) worker() {
 				// Avoid busy-spin: sleep a short interval before re-checking.
 				time.Sleep(10 * time.Millisecond)
 			}
+		}
+	}
+}
+
+func (q *Queue) kafkaWorker() {
+	ticker := time.NewTicker(time.Duration(q.flushMs) * time.Millisecond)
+	defer ticker.Stop()
+
+	batch := make([]Row, 0, q.batchSize)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	go func() {
+		<-q.stopCh
+		cancel()
+	}()
+
+	for {
+		m, err := q.kafkaReader.ReadMessage(ctx)
+		if err != nil {
+			if errors.Is(err, context.Canceled) {
+				break
+			}
+			log.Printf("ingest: kafka read error (%s): %v", q.table, err)
+			time.Sleep(1 * time.Second)
+			continue
+		}
+
+		var values []any
+		dec := gob.NewDecoder(bytes.NewReader(m.Value))
+		if err := dec.Decode(&values); err == nil {
+			batch = append(batch, Row{Values: values})
+		} else {
+			log.Printf("ingest: kafka gob decode error: %v", err)
+		}
+
+		if len(batch) >= q.batchSize {
+			if err := q.flush(batch); err != nil {
+				log.Printf("ingest: worker batch flush error (%s): %v", q.table, err)
+			}
+			batch = make([]Row, 0, q.batchSize)
+		}
+
+		select {
+		case <-ticker.C:
+			if len(batch) > 0 {
+				if err := q.flush(batch); err != nil {
+					log.Printf("ingest: worker timer flush error (%s): %v", q.table, err)
+				}
+				batch = make([]Row, 0, q.batchSize)
+			}
+		default:
+		}
+	}
+
+	if len(batch) > 0 {
+		if err := q.flush(batch); err != nil {
+			log.Printf("ingest: worker shutdown flush error (%s): %v", q.table, err)
 		}
 	}
 }

@@ -18,7 +18,10 @@ type ServiceMapHandler struct {
 func (h *ServiceMapHandler) GetUpstreamDownstream(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	serviceName := c.Param("serviceName")
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 
 	deps, err := h.Service.GetUpstreamDownstream(teamUUID, serviceName, startMs, endMs)
 	if err != nil {
@@ -31,7 +34,10 @@ func (h *ServiceMapHandler) GetUpstreamDownstream(c *gin.Context) {
 // GetExternalDependencies returns calls to hosts outside the known service mesh.
 func (h *ServiceMapHandler) GetExternalDependencies(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 
 	deps, err := h.Service.GetExternalDependencies(teamUUID, startMs, endMs)
 	if err != nil {
@@ -44,7 +50,10 @@ func (h *ServiceMapHandler) GetExternalDependencies(c *gin.Context) {
 // GetClientServerLatency returns dual time-series of client vs server p95 latency.
 func (h *ServiceMapHandler) GetClientServerLatency(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	operationName := c.Query("operationName")
 
 	points, err := h.Service.GetClientServerLatency(teamUUID, startMs, endMs, operationName)

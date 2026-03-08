@@ -16,7 +16,10 @@ type KubernetesHandler struct {
 
 func (h *KubernetesHandler) GetContainerCPU(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 24*60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	resp, err := h.Service.GetContainerCPU(teamUUID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query container CPU")
@@ -27,7 +30,10 @@ func (h *KubernetesHandler) GetContainerCPU(c *gin.Context) {
 
 func (h *KubernetesHandler) GetCPUThrottling(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 24*60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	resp, err := h.Service.GetCPUThrottling(teamUUID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query CPU throttling")
@@ -38,7 +44,10 @@ func (h *KubernetesHandler) GetCPUThrottling(c *gin.Context) {
 
 func (h *KubernetesHandler) GetContainerMemory(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 24*60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	resp, err := h.Service.GetContainerMemory(teamUUID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query container memory")
@@ -49,7 +58,10 @@ func (h *KubernetesHandler) GetContainerMemory(c *gin.Context) {
 
 func (h *KubernetesHandler) GetOOMKills(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 24*60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	resp, err := h.Service.GetOOMKills(teamUUID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query OOM kills")
@@ -60,7 +72,10 @@ func (h *KubernetesHandler) GetOOMKills(c *gin.Context) {
 
 func (h *KubernetesHandler) GetPodRestarts(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 24*60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	resp, err := h.Service.GetPodRestarts(teamUUID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query pod restarts")
@@ -71,7 +86,10 @@ func (h *KubernetesHandler) GetPodRestarts(c *gin.Context) {
 
 func (h *KubernetesHandler) GetNodeAllocatable(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 24*60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	resp, err := h.Service.GetNodeAllocatable(teamUUID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query node allocatable resources")
@@ -82,7 +100,10 @@ func (h *KubernetesHandler) GetNodeAllocatable(c *gin.Context) {
 
 func (h *KubernetesHandler) GetPodPhases(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 24*60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	resp, err := h.Service.GetPodPhases(teamUUID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query pod phases")
@@ -93,7 +114,10 @@ func (h *KubernetesHandler) GetPodPhases(c *gin.Context) {
 
 func (h *KubernetesHandler) GetReplicaStatus(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 24*60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	resp, err := h.Service.GetReplicaStatus(teamUUID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query replica status")
@@ -104,7 +128,10 @@ func (h *KubernetesHandler) GetReplicaStatus(c *gin.Context) {
 
 func (h *KubernetesHandler) GetVolumeUsage(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 24*60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	resp, err := h.Service.GetVolumeUsage(teamUUID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query volume usage")

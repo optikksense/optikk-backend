@@ -1,8 +1,11 @@
 package logs
 
 import (
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/observability/observability-backend-go/internal/modules/common"
@@ -21,7 +24,7 @@ func NewHandler(getTenant common.GetTenantFunc, repo *ClickHouseRepository) *Log
 }
 
 func (h *LogHandler) parseFilters(c *gin.Context) LogFilters {
-	return LogFilters{
+	f := LogFilters{
 		Severities:        common.ParseListParam(c, "severities"),
 		Services:          common.ParseListParam(c, "services"),
 		Hosts:             common.ParseListParam(c, "hosts"),
@@ -31,23 +34,65 @@ func (h *LogHandler) parseFilters(c *gin.Context) LogFilters {
 		TraceID:           c.Query("traceId"),
 		SpanID:            c.Query("spanId"),
 		Search:            c.Query("search"),
+		SearchMode:        c.Query("searchMode"), // "exact" or "" (ngram default)
 		ExcludeSeverities: common.ParseListParam(c, "excludeSeverities"),
 		ExcludeServices:   common.ParseListParam(c, "excludeServices"),
 		ExcludeHosts:      common.ParseListParam(c, "excludeHosts"),
 	}
-}
 
-func (h *LogHandler) enrichFilters(c *gin.Context, defaultRangeMs int64) LogFilters {
-	f := h.parseFilters(c)
-	f.TeamUUID = h.getTenant(c).TeamUUID()
-	startMs, endMs := common.ParseRange(c, defaultRangeMs)
-	f.StartMs = startMs
-	f.EndMs = endMs
+	// Parse structured attribute filters from query params.
+	// Format: attr[key]=value or attr[key][op]=value
+	// Simple form: ?attr.user_id=123&attr.env=prod
+	for key, vals := range c.Request.URL.Query() {
+		if after, ok := strings.CutPrefix(key, "attr."); ok && len(vals) > 0 {
+			f.AttributeFilters = append(f.AttributeFilters, LogAttributeFilter{
+				Key:   after,
+				Value: vals[0],
+				Op:    "eq",
+			})
+		}
+		if after, ok := strings.CutPrefix(key, "attr_neq."); ok && len(vals) > 0 {
+			f.AttributeFilters = append(f.AttributeFilters, LogAttributeFilter{
+				Key:   after,
+				Value: vals[0],
+				Op:    "neq",
+			})
+		}
+		if after, ok := strings.CutPrefix(key, "attr_contains."); ok && len(vals) > 0 {
+			f.AttributeFilters = append(f.AttributeFilters, LogAttributeFilter{
+				Key:   after,
+				Value: vals[0],
+				Op:    "contains",
+			})
+		}
+		if after, ok := strings.CutPrefix(key, "attr_regex."); ok && len(vals) > 0 {
+			f.AttributeFilters = append(f.AttributeFilters, LogAttributeFilter{
+				Key:   after,
+				Value: vals[0],
+				Op:    "regex",
+			})
+		}
+	}
 	return f
 }
 
+func (h *LogHandler) enrichFilters(c *gin.Context) (LogFilters, bool) {
+	f := h.parseFilters(c)
+	f.TeamUUID = h.getTenant(c).TeamUUID()
+	startMs, endMs, ok := common.ParseRequiredRange(c)
+	if !ok {
+		return LogFilters{}, false
+	}
+	f.StartMs = startMs
+	f.EndMs = endMs
+	return f, true
+}
+
 func (h *LogHandler) GetLogs(c *gin.Context) {
-	f := h.enrichFilters(c, 60*60*1000)
+	f, ok := h.enrichFilters(c)
+	if !ok {
+		return
+	}
 	limit := common.ParseIntParam(c, "limit", 100)
 	if limit <= 0 || limit > 1000 {
 		limit = 100
@@ -95,7 +140,10 @@ func (h *LogHandler) GetLogs(c *gin.Context) {
 }
 
 func (h *LogHandler) GetLogFacets(c *gin.Context) {
-	f := h.enrichFilters(c, 60*60*1000)
+	f, ok := h.enrichFilters(c)
+	if !ok {
+		return
+	}
 
 	resp, err := h.repo.GetLogFacets(c.Request.Context(), f)
 	if err != nil {
@@ -106,7 +154,10 @@ func (h *LogHandler) GetLogFacets(c *gin.Context) {
 }
 
 func (h *LogHandler) GetLogHistogram(c *gin.Context) {
-	f := h.enrichFilters(c, 60*60*1000)
+	f, ok := h.enrichFilters(c)
+	if !ok {
+		return
+	}
 	step := c.Query("step")
 
 	buckets, err := h.repo.GetLogHistogram(c.Request.Context(), f, step)
@@ -119,7 +170,10 @@ func (h *LogHandler) GetLogHistogram(c *gin.Context) {
 }
 
 func (h *LogHandler) GetLogVolume(c *gin.Context) {
-	f := h.enrichFilters(c, 60*60*1000)
+	f, ok := h.enrichFilters(c)
+	if !ok {
+		return
+	}
 	step := c.Query("step")
 
 	buckets, err := h.repo.GetLogVolume(c.Request.Context(), f, step)
@@ -132,7 +186,10 @@ func (h *LogHandler) GetLogVolume(c *gin.Context) {
 }
 
 func (h *LogHandler) GetLogStats(c *gin.Context) {
-	f := h.enrichFilters(c, 60*60*1000)
+	f, ok := h.enrichFilters(c)
+	if !ok {
+		return
+	}
 
 	resp, err := h.repo.GetLogStats(c.Request.Context(), f)
 	if err != nil {
@@ -143,7 +200,10 @@ func (h *LogHandler) GetLogStats(c *gin.Context) {
 }
 
 func (h *LogHandler) GetLogFields(c *gin.Context) {
-	f := h.enrichFilters(c, 60*60*1000)
+	f, ok := h.enrichFilters(c)
+	if !ok {
+		return
+	}
 	field := c.Query("field")
 
 	allowed := map[string]string{
@@ -241,4 +301,109 @@ func (h *LogHandler) GetTraceLogs(c *gin.Context) {
 		return
 	}
 	common.RespondOK(c, resp.Logs)
+}
+
+// GetLogAggregate returns a time-series aggregation of log counts grouped by a field.
+// GET /api/v1/logs/aggregate?groupBy=service&step=5m&topN=10&startMs=...&endMs=...
+func (h *LogHandler) GetLogAggregate(c *gin.Context) {
+	f, ok := h.enrichFilters(c)
+	if !ok {
+		return
+	}
+
+	groupBy := c.DefaultQuery("groupBy", "service")
+	step := c.DefaultQuery("step", "5m")
+	topN := common.ParseIntParam(c, "topN", 20)
+
+	rows, err := h.repo.GetLogAggregate(c.Request.Context(), f, groupBy, step, topN)
+	if err != nil {
+		common.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
+		return
+	}
+	common.RespondOK(c, map[string]any{
+		"groupBy": groupBy,
+		"step":    step,
+		"rows":    rows,
+	})
+}
+
+// StreamLogs is an SSE endpoint for live log tailing.
+// It polls ClickHouse every pollInterval and streams new log entries as
+// Server-Sent Events. The client should pass the same filter params as
+// GET /logs. The stream stays open until the client disconnects.
+//
+// Event format:
+//
+//	data: <JSON log object>\n\n
+//
+// A special heartbeat event is sent every 15 s to keep the connection alive:
+//
+//	event: heartbeat\ndata: {}\n\n
+func (h *LogHandler) StreamLogs(c *gin.Context) {
+	f, ok := h.enrichFilters(c)
+	if !ok {
+		return
+	}
+
+	const pollInterval = 2 * time.Second
+	const heartbeatInterval = 15 * time.Second
+	const maxLogsPerPoll = 50
+
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("Connection", "keep-alive")
+	c.Header("X-Accel-Buffering", "no") // disable nginx buffering
+
+	ctx := c.Request.Context()
+	flusher, canFlush := c.Writer.(http.Flusher)
+
+	// Track the latest timestamp we have already sent (nanoseconds).
+	// Start from EndMs so we only stream logs newer than the request.
+	latestNs := uint64(f.EndMs) * 1_000_000
+
+	ticker := time.NewTicker(pollInterval)
+	heartbeat := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+	defer heartbeat.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+
+		case <-heartbeat.C:
+			fmt.Fprintf(c.Writer, "event: heartbeat\ndata: {}\n\n")
+			if canFlush {
+				flusher.Flush()
+			}
+
+		case <-ticker.C:
+			// Slide the filter window: [latestNs, now].
+			nowMs := time.Now().UnixMilli()
+			poll := f
+			poll.StartMs = int64(latestNs/1_000_000) + 1 // exclusive lower bound
+			poll.EndMs = nowMs
+
+			// Use cursor-free, ascending, small-limit fetch.
+			logs, _, err := h.repo.GetLogs(ctx, poll, maxLogsPerPoll, "asc", LogCursor{})
+			if err != nil {
+				// Don't close stream on transient error; retry next tick.
+				continue
+			}
+
+			for _, l := range logs {
+				b, err := json.Marshal(l)
+				if err != nil {
+					continue
+				}
+				fmt.Fprintf(c.Writer, "data: %s\n\n", b)
+				if l.Timestamp > latestNs {
+					latestNs = l.Timestamp
+				}
+			}
+			if canFlush && len(logs) > 0 {
+				flusher.Flush()
+			}
+		}
+	}
 }

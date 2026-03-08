@@ -14,5 +14,8 @@ WORKDIR /app
 COPY --from=builder /app/observability-go .
 COPY db ./db
 
+RUN chown -R 1000:1000 /app
+USER 1000:1000
+
 EXPOSE 8080
 ENTRYPOINT ["./observability-go"]

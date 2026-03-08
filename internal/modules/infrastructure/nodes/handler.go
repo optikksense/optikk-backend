@@ -17,7 +17,10 @@ type NodeHandler struct {
 // GetInfrastructureNodes returns host-level aggregation for the nodes view.
 func (h *NodeHandler) GetInfrastructureNodes(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 
 	rows, err := h.Service.GetInfrastructureNodes(teamUUID, startMs, endMs)
 	if err != nil {
@@ -31,7 +34,10 @@ func (h *NodeHandler) GetInfrastructureNodes(c *gin.Context) {
 // GetInfrastructureNodeSummary returns aggregate counts for node dashboard stat cards.
 func (h *NodeHandler) GetInfrastructureNodeSummary(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 
 	summary, err := h.Service.GetInfrastructureNodeSummary(teamUUID, startMs, endMs)
 	if err != nil {
@@ -46,7 +52,10 @@ func (h *NodeHandler) GetInfrastructureNodeSummary(c *gin.Context) {
 func (h *NodeHandler) GetInfrastructureNodeServices(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	host := c.Param("host")
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 
 	rows, err := h.Service.GetInfrastructureNodeServices(teamUUID, host, startMs, endMs)
 	if err != nil {

@@ -99,23 +99,37 @@ func ParseListParam(c *gin.Context, key string) []string {
 	return clean
 }
 
-func ParseRange(c *gin.Context, defaultMs int64) (int64, int64) {
+func ParseRange(c *gin.Context) (int64, int64, error) {
 	now := time.Now().UnixMilli()
 	end := ParseInt64Param(c, "endTime", 0)
 	if end <= 0 {
-		end = ParseInt64Param(c, "end", now)
+		end = ParseInt64Param(c, "end", 0)
 	}
 	start := ParseInt64Param(c, "startTime", 0)
 	if start <= 0 {
-		start = ParseInt64Param(c, "start", end-defaultMs)
+		start = ParseInt64Param(c, "start", 0)
 	}
 	if end <= 0 {
 		end = now
 	}
-	if start <= 0 || start >= end {
-		start = end - defaultMs
+	if start <= 0 {
+		return 0, 0, fmt.Errorf("start time is required")
 	}
-	return start, end
+	if start >= end {
+		return 0, 0, fmt.Errorf("start must be before end")
+	}
+	return start, end, nil
+}
+
+// ParseRequiredRange parses start/end time params and writes a 400 response if missing.
+// Returns false when the caller should abort immediately.
+func ParseRequiredRange(c *gin.Context) (int64, int64, bool) {
+	start, end, err := ParseRange(c)
+	if err != nil {
+		RespondError(c, http.StatusBadRequest, "BAD_REQUEST", "start and end time params are required")
+		return 0, 0, false
+	}
+	return start, end, true
 }
 
 func ExtractIDParam(c *gin.Context, key string) (int64, error) {

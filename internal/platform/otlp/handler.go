@@ -6,6 +6,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
+	"github.com/observability/observability-backend-go/internal/helpers"
 	"github.com/observability/observability-backend-go/internal/platform/ingest"
 	"github.com/observability/observability-backend-go/internal/platform/otlp/auth"
 	otlpgrpc "github.com/observability/observability-backend-go/internal/platform/otlp/grpc"
@@ -21,6 +22,7 @@ type Handler struct {
 	spansQueue   *ingest.Queue
 	logsQueue    *ingest.Queue
 	metricsQueue *ingest.Queue
+	tracker      *ingest.ByteTracker
 }
 
 // NewHandler creates an OTLP HTTP handler.
@@ -29,12 +31,14 @@ func NewHandler(
 	spansQueue *ingest.Queue,
 	logsQueue *ingest.Queue,
 	metricsQueue *ingest.Queue,
+	tracker *ingest.ByteTracker,
 ) *Handler {
 	return &Handler{
 		auth:         auth,
 		spansQueue:   spansQueue,
 		logsQueue:    logsQueue,
 		metricsQueue: metricsQueue,
+		tracker:      tracker,
 	}
 }
 
@@ -60,6 +64,20 @@ func (h *Handler) resolveTeamID(c *gin.Context) (string, bool) {
 	}
 
 	return teamID, true
+}
+
+// recordIngestionSize asynchronously updates the data_ingested_kb column for the team.
+func (h *Handler) recordIngestionSize(teamUUID string, size int64) {
+	if size <= 0 || h.tracker == nil {
+		return
+	}
+	teamID := helpers.FromTeamUUID(teamUUID)
+	if teamID == 0 {
+		return
+	}
+
+	// Memory-based fast update, background flushed externally
+	h.tracker.Track(teamID, size)
 }
 
 // ExportTraces accepts OTLP/HTTP JSON trace payloads.
@@ -111,6 +129,7 @@ func (h *Handler) ExportTraces(c *gin.Context) {
 		}
 	}
 
+	h.recordIngestionSize(teamID, c.Request.ContentLength)
 	c.Status(http.StatusAccepted)
 }
 
@@ -161,6 +180,7 @@ func (h *Handler) ExportLogs(c *gin.Context) {
 		return
 	}
 
+	h.recordIngestionSize(teamID, c.Request.ContentLength)
 	c.Status(http.StatusAccepted)
 }
 
@@ -211,5 +231,6 @@ func (h *Handler) ExportMetrics(c *gin.Context) {
 		return
 	}
 
+	h.recordIngestionSize(teamID, c.Request.ContentLength)
 	c.Status(http.StatusAccepted)
 }

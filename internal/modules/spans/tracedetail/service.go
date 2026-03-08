@@ -7,6 +7,8 @@ type Service interface {
 	GetCriticalPath(teamUUID, traceID string) ([]CriticalPathSpan, error)
 	GetSpanSelfTimes(teamUUID, traceID string) ([]SpanSelfTime, error)
 	GetErrorPath(teamUUID, traceID string) ([]ErrorPathSpan, error)
+	GetSpanAttributes(teamUUID, traceID, spanID string) (*SpanAttributes, error)
+	GetRelatedTraces(teamUUID, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
 }
 
 // TraceDetailService implements Service.
@@ -37,4 +39,12 @@ func (s *TraceDetailService) GetSpanSelfTimes(teamUUID, traceID string) ([]SpanS
 
 func (s *TraceDetailService) GetErrorPath(teamUUID, traceID string) ([]ErrorPathSpan, error) {
 	return s.repo.GetErrorPath(teamUUID, traceID)
+}
+
+func (s *TraceDetailService) GetSpanAttributes(teamUUID, traceID, spanID string) (*SpanAttributes, error) {
+	return s.repo.GetSpanAttributes(teamUUID, traceID, spanID)
+}
+
+func (s *TraceDetailService) GetRelatedTraces(teamUUID, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
+	return s.repo.GetRelatedTraces(teamUUID, serviceName, operationName, startMs, endMs, excludeTraceID, limit)
 }

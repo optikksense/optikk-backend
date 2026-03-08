@@ -27,11 +27,19 @@ type QuerySpec struct {
 	Extra    map[string]any `json:"-"`
 }
 
+// ComponentGroup defines a named collapsible section within a tab.
+type ComponentGroup struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	Order int    `json:"order"`
+}
+
 // Component describes a renderable dashboard component and its query contract.
 type Component struct {
 	ID           string         `json:"id"`
 	ComponentKey string         `json:"componentKey"`
 	Title        string         `json:"title,omitempty"`
+	GroupID      string         `json:"groupId,omitempty"`
 	Layout       map[string]any `json:"layout,omitempty"`
 	Order        int            `json:"order"`
 	Query        QuerySpec      `json:"query,omitempty"`
@@ -41,11 +49,12 @@ type Component struct {
 
 // TabDefinition describes a single tab and its renderable components.
 type TabDefinition struct {
-	ID         string      `json:"id"`
-	PageID     string      `json:"pageId"`
-	Label      string      `json:"label"`
-	Order      int         `json:"order"`
-	Components []Component `json:"components,omitempty"`
+	ID         string           `json:"id"`
+	PageID     string           `json:"pageId"`
+	Label      string           `json:"label"`
+	Order      int              `json:"order"`
+	Groups     []ComponentGroup `json:"groups,omitempty"`
+	Components []Component      `json:"components,omitempty"`
 }
 
 // PageDocument is the canonical stored form for a page override.
@@ -97,6 +106,7 @@ func (c *Component) UnmarshalJSON(data []byte) error {
 	c.ID = stringValue(raw["id"])
 	c.ComponentKey = stringValue(raw["componentKey"])
 	c.Title = stringValue(raw["title"])
+	c.GroupID = stringValue(raw["groupId"])
 	c.Layout = mapValue(raw["layout"])
 	c.Order = intValue(raw["order"])
 	c.TitleIcon = stringValue(raw["titleIcon"])
@@ -112,6 +122,7 @@ func (c *Component) UnmarshalJSON(data []byte) error {
 	delete(raw, "id")
 	delete(raw, "componentKey")
 	delete(raw, "title")
+	delete(raw, "groupId")
 	delete(raw, "layout")
 	delete(raw, "order")
 	delete(raw, "query")
@@ -131,6 +142,9 @@ func (c Component) MarshalJSON() ([]byte, error) {
 	raw["query"] = c.Query
 	if c.Title != "" {
 		raw["title"] = c.Title
+	}
+	if c.GroupID != "" {
+		raw["groupId"] = c.GroupID
 	}
 	if len(c.Layout) > 0 {
 		raw["layout"] = c.Layout

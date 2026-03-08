@@ -17,7 +17,10 @@ type TopologyHandler struct {
 // GetTopology returns the complete service topology graph payload.
 func (h *TopologyHandler) GetTopology(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 
 	resp, err := h.Service.GetTopology(teamUUID, startMs, endMs)
 	if err != nil {

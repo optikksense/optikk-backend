@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 
 	_ "github.com/ClickHouse/clickhouse-go/v2"
@@ -58,6 +59,14 @@ func NewMySQLWrapper(db *sql.DB) *MySQLWrapper {
 	}
 }
 
+func injectMaxExecutionTime(query string) string {
+	qUpper := strings.ToUpper(strings.TrimSpace(query))
+	if (strings.HasPrefix(qUpper, "SELECT") || strings.HasPrefix(qUpper, "WITH")) && !strings.Contains(qUpper, "SETTINGS ") {
+		return query + "\nSETTINGS max_execution_time=30"
+	}
+	return query
+}
+
 func (m *MySQLWrapper) Exec(query string, args ...any) (sql.Result, error) {
 	var res sql.Result
 	err := m.cb.Call(func() error {
@@ -83,6 +92,7 @@ func (m *MySQLWrapper) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.T
 }
 
 func (m *MySQLWrapper) Query(query string, args ...any) (Rows, error) {
+	query = injectMaxExecutionTime(query)
 	var rows *sql.Rows
 	err := m.cb.Call(func() error {
 		var err error
@@ -96,6 +106,7 @@ func (m *MySQLWrapper) Query(query string, args ...any) (Rows, error) {
 }
 
 func (m *MySQLWrapper) QueryRow(query string, args ...any) Row {
+	query = injectMaxExecutionTime(query)
 	var row *sql.Row
 	// We run QueryRow under the circuit breaker, but since it doesn't return an error directly
 	// (errors are deferred to Scan), any immediate errors (like connection drops) might not drop the breaker here.

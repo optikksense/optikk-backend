@@ -8,6 +8,8 @@ import (
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
+const defaultRelatedLimit = 10
+
 // TraceDetailHandler handles trace detail endpoints.
 type TraceDetailHandler struct {
 	modulecommon.DBTenant
@@ -77,4 +79,59 @@ func (h *TraceDetailHandler) GetErrorPath(c *gin.Context) {
 		return
 	}
 	RespondOK(c, path)
+}
+
+// GetSpanAttributes returns the full attribute map for a single span.
+// GET /traces/:traceId/spans/:spanId/attributes
+func (h *TraceDetailHandler) GetSpanAttributes(c *gin.Context) {
+	teamUUID := h.GetTenant(c).TeamUUID()
+	traceID := c.Param("traceId")
+	spanID := c.Param("spanId")
+
+	if spanID == "" {
+		RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "spanId is required")
+		return
+	}
+
+	attrs, err := h.Service.GetSpanAttributes(teamUUID, traceID, spanID)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query span attributes")
+		return
+	}
+	if attrs == nil {
+		RespondError(c, http.StatusNotFound, "NOT_FOUND", "Span not found")
+		return
+	}
+	RespondOK(c, attrs)
+}
+
+// GetRelatedTraces returns other root traces with the same service+operation.
+// GET /traces/:traceId/related
+// Query params: service, operation, startMs, endMs, limit (default 10)
+func (h *TraceDetailHandler) GetRelatedTraces(c *gin.Context) {
+	teamUUID := h.GetTenant(c).TeamUUID()
+	traceID := c.Param("traceId")
+	serviceName := c.Query("service")
+	operationName := c.Query("operation")
+
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+	if serviceName == "" || operationName == "" {
+		RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "service and operation are required")
+		return
+	}
+
+	limit := ParseIntParam(c, "limit", defaultRelatedLimit)
+	if limit <= 0 || limit > 50 {
+		limit = defaultRelatedLimit
+	}
+
+	traces, err := h.Service.GetRelatedTraces(teamUUID, serviceName, operationName, startMs, endMs, traceID, limit)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query related traces")
+		return
+	}
+	RespondOK(c, traces)
 }

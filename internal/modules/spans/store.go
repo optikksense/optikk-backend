@@ -76,7 +76,151 @@ func (r *ClickHouseRepository) buildTraceQueryArgs(f TraceFilters) (string, []an
 		queryFrag += ` AND s.response_status_code = ?`
 		args = append(args, f.HTTPStatus)
 	}
+	for _, af := range f.AttributeFilters {
+		switch af.Op {
+		case "neq":
+			queryFrag += ` AND s.attributes_string[?] != ?`
+			args = append(args, af.Key, af.Value)
+		case "contains":
+			queryFrag += ` AND positionCaseInsensitive(s.attributes_string[?], ?) > 0`
+			args = append(args, af.Key, af.Value)
+		case "regex":
+			queryFrag += ` AND match(s.attributes_string[?], ?)`
+			args = append(args, af.Key, af.Value)
+		default: // "eq"
+			queryFrag += ` AND s.attributes_string[?] = ?`
+			args = append(args, af.Key, af.Value)
+		}
+	}
 	return queryFrag, args
+}
+
+// GetTracesKeyset returns a page of traces using keyset (cursor) pagination instead of OFFSET.
+// cursor is the (timestamp, spanId) of the last row seen; empty cursor returns the first page.
+func (r *ClickHouseRepository) GetTracesKeyset(ctx context.Context, f TraceFilters, limit int, cursor TraceCursor) ([]Trace, TraceSummary, bool, error) {
+	queryFrag, args := r.buildTraceQueryArgs(f)
+
+	// Apply cursor condition for stable keyset pagination
+	if !cursor.Timestamp.IsZero() && cursor.SpanID != "" {
+		queryFrag += ` AND (s.timestamp < ? OR (s.timestamp = ? AND s.span_id < ?))`
+		args = append(args, cursor.Timestamp, cursor.Timestamp, cursor.SpanID)
+	}
+
+	// Fetch limit+1 to determine hasMore
+	query := `
+		SELECT s.span_id, s.trace_id, s.service_name AS service_name, s.name as operation_name,
+		       s.timestamp as start_time, s.duration_nano as duration_nano,
+		       s.duration_nano / 1000000.0 as duration_ms,
+		       s.status_code_string as status, s.http_method, s.response_status_code as http_status_code,
+		       s.status_message
+		FROM observability.spans s` + queryFrag + ` ORDER BY s.timestamp DESC, s.span_id DESC LIMIT ?`
+	rows, err := dbutil.QueryMaps(r.db, query, append(args, limit+1)...)
+	if err != nil {
+		return nil, TraceSummary{}, false, err
+	}
+
+	hasMore := len(rows) > limit
+	if hasMore {
+		rows = rows[:limit]
+	}
+
+	traces := make([]Trace, 0, len(rows))
+	for _, row := range rows {
+		startTime := dbutil.TimeFromAny(row["start_time"])
+		durationNano := dbutil.Int64FromAny(row["duration_nano"])
+		traces = append(traces, Trace{
+			SpanID:         dbutil.StringFromAny(row["span_id"]),
+			TraceID:        dbutil.StringFromAny(row["trace_id"]),
+			ServiceName:    dbutil.StringFromAny(row["service_name"]),
+			OperationName:  dbutil.StringFromAny(row["operation_name"]),
+			StartTime:      startTime,
+			EndTime:        startTime.Add(time.Duration(durationNano)),
+			DurationMs:     dbutil.Float64FromAny(row["duration_ms"]),
+			Status:         dbutil.StringFromAny(row["status"]),
+			StatusMessage:  dbutil.StringFromAny(row["status_message"]),
+			HTTPMethod:     dbutil.StringFromAny(row["http_method"]),
+			HTTPStatusCode: int(dbutil.Int64FromAny(row["http_status_code"])),
+		})
+	}
+
+	// Summary stats use the same filters but without the cursor condition.
+	baseArgs := r.buildTraceQueryArgsArgs(f)
+	summaryRow, err := dbutil.QueryMap(r.db, `
+		SELECT COUNT(*) as total_traces,
+		       sum(if(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400, 1, 0)) as error_traces,
+		       AVG(s.duration_nano / 1000000.0) as avg_duration,
+		       quantile(0.5)(s.duration_nano / 1000000.0) as p50_duration,
+		       quantile(0.95)(s.duration_nano / 1000000.0) as p95_duration,
+		       quantile(0.99)(s.duration_nano / 1000000.0) as p99_duration
+		FROM observability.spans s`+r.buildTraceQueryFrag(f), baseArgs...)
+	if err != nil {
+		return traces, TraceSummary{}, hasMore, nil
+	}
+
+	summary := TraceSummary{
+		TotalTraces: dbutil.Int64FromAny(summaryRow["total_traces"]),
+		ErrorTraces: dbutil.Int64FromAny(summaryRow["error_traces"]),
+		AvgDuration: dbutil.Float64FromAny(summaryRow["avg_duration"]),
+		P50Duration: dbutil.Float64FromAny(summaryRow["p50_duration"]),
+		P95Duration: dbutil.Float64FromAny(summaryRow["p95_duration"]),
+		P99Duration: dbutil.Float64FromAny(summaryRow["p99_duration"]),
+	}
+	return traces, summary, hasMore, nil
+}
+
+// buildTraceQueryFrag and buildTraceQueryArgsArgs are helpers to avoid re-running
+// the cursor-augmented WHERE for the summary query.
+func (r *ClickHouseRepository) buildTraceQueryFrag(f TraceFilters) string {
+	frag, _ := r.buildTraceQueryArgs(f)
+	return frag
+}
+func (r *ClickHouseRepository) buildTraceQueryArgsArgs(f TraceFilters) []any {
+	_, args := r.buildTraceQueryArgs(f)
+	return args
+}
+
+// GetOperationAggregation returns per-operation RED metrics for the given filters.
+// This is the "aggregated traces" view used by the operation-level table on the frontend.
+func (r *ClickHouseRepository) GetOperationAggregation(ctx context.Context, f TraceFilters, limit int) ([]TraceOperationRow, error) {
+	queryFrag, args := r.buildTraceQueryArgs(f)
+
+	query := fmt.Sprintf(`
+		SELECT s.service_name,
+		       s.name AS operation_name,
+		       count() AS span_count,
+		       countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400) AS error_count,
+		       if(count() > 0,
+		          countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400) * 100.0 / count(),
+		          0) AS error_rate,
+		       quantile(0.5)(s.duration_nano / 1000000.0) AS p50_ms,
+		       quantile(0.95)(s.duration_nano / 1000000.0) AS p95_ms,
+		       quantile(0.99)(s.duration_nano / 1000000.0) AS p99_ms,
+		       avg(s.duration_nano / 1000000.0) AS avg_ms
+		FROM observability.spans s%s
+		GROUP BY s.service_name, s.name
+		ORDER BY span_count DESC
+		LIMIT ?`, queryFrag)
+
+	rows, err := dbutil.QueryMaps(r.db, query, append(args, limit)...)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]TraceOperationRow, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, TraceOperationRow{
+			ServiceName:   dbutil.StringFromAny(row["service_name"]),
+			OperationName: dbutil.StringFromAny(row["operation_name"]),
+			SpanCount:     dbutil.Int64FromAny(row["span_count"]),
+			ErrorCount:    dbutil.Int64FromAny(row["error_count"]),
+			ErrorRate:     dbutil.Float64FromAny(row["error_rate"]),
+			P50Ms:         dbutil.Float64FromAny(row["p50_ms"]),
+			P95Ms:         dbutil.Float64FromAny(row["p95_ms"]),
+			P99Ms:         dbutil.Float64FromAny(row["p99_ms"]),
+			AvgMs:         dbutil.Float64FromAny(row["avg_ms"]),
+		})
+	}
+	return result, nil
 }
 
 func (r *ClickHouseRepository) GetTraces(ctx context.Context, f TraceFilters, limit, offset int) ([]Trace, int64, TraceSummary, error) {

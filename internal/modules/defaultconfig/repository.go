@@ -8,12 +8,11 @@ import (
 
 // Repository encapsulates data access for saved page overrides.
 type Repository interface {
-	EnsureTable() error
 	GetPageOverride(teamID int64, pageID string) (string, error)
 	SavePageOverride(teamID int64, pageID, configJSON string) error
 }
 
-// MySQLRepository stores page overrides in MySQL.
+// MySQLRepository stores page overrides in the teams.dashboard_configs JSON column.
 type MySQLRepository struct {
 	db dbutil.Querier
 }
@@ -23,43 +22,27 @@ func NewRepository(db *sql.DB) *MySQLRepository {
 	return &MySQLRepository{db: dbutil.NewMySQLWrapper(db)}
 }
 
-// EnsureTable creates the page override table when needed.
-func (r *MySQLRepository) EnsureTable() error {
-	_, err := r.db.Exec(`
-		CREATE TABLE IF NOT EXISTS default_page_configs (
-			id BIGINT AUTO_INCREMENT PRIMARY KEY,
-			team_id BIGINT NOT NULL,
-			page_id VARCHAR(100) NOT NULL,
-			config_json LONGTEXT NOT NULL,
-			created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-			updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-			UNIQUE KEY uq_team_page (team_id, page_id)
-		)
-	`)
-	return err
-}
-
-// GetPageOverride returns the saved override JSON for a page. Empty string means none.
+// GetPageOverride returns the saved override JSON for a page from the teams table. Empty string means none.
 func (r *MySQLRepository) GetPageOverride(teamID int64, pageID string) (string, error) {
 	row, err := dbutil.QueryMap(r.db, `
-		SELECT config_json FROM default_page_configs
-		WHERE team_id = ? AND page_id = ?
-	`, teamID, pageID)
+		SELECT JSON_UNQUOTE(JSON_EXTRACT(dashboard_configs, CONCAT('$.', ?))) AS config_json
+		FROM teams WHERE id = ?
+	`, pageID, teamID)
 	if err != nil {
 		return "", err
 	}
-	if value, ok := row["config_json"].(string); ok {
+	if value, ok := row["config_json"].(string); ok && value != "null" {
 		return value, nil
 	}
 	return "", nil
 }
 
-// SavePageOverride inserts or updates a page override JSON blob.
+// SavePageOverride inserts or updates a page override JSON blob in the teams table.
 func (r *MySQLRepository) SavePageOverride(teamID int64, pageID, configJSON string) error {
 	_, err := r.db.Exec(`
-		INSERT INTO default_page_configs (team_id, page_id, config_json)
-		VALUES (?, ?, ?)
-		ON DUPLICATE KEY UPDATE config_json = VALUES(config_json), updated_at = CURRENT_TIMESTAMP
-	`, teamID, pageID, configJSON)
+		UPDATE teams
+		SET dashboard_configs = JSON_SET(COALESCE(dashboard_configs, '{}'), CONCAT('$.', ?), CAST(? AS JSON))
+		WHERE id = ?
+	`, pageID, configJSON, teamID)
 	return err
 }

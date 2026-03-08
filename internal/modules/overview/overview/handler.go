@@ -17,7 +17,10 @@ type OverviewHandler struct {
 // GetRequestRate returns per-service request-rate buckets for the summary tab.
 func (h *OverviewHandler) GetRequestRate(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	serviceName := c.Query("serviceName")
 
 	points, err := h.Service.GetRequestRate(teamUUID, startMs, endMs, serviceName)
@@ -32,7 +35,10 @@ func (h *OverviewHandler) GetRequestRate(c *gin.Context) {
 // GetErrorRate returns per-service error-rate buckets for the summary tab.
 func (h *OverviewHandler) GetErrorRate(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	serviceName := c.Query("serviceName")
 
 	points, err := h.Service.GetErrorRate(teamUUID, startMs, endMs, serviceName)
@@ -47,7 +53,10 @@ func (h *OverviewHandler) GetErrorRate(c *gin.Context) {
 // GetP95Latency returns per-service p95 latency buckets for the summary tab.
 func (h *OverviewHandler) GetP95Latency(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	serviceName := c.Query("serviceName")
 
 	points, err := h.Service.GetP95Latency(teamUUID, startMs, endMs, serviceName)
@@ -62,7 +71,10 @@ func (h *OverviewHandler) GetP95Latency(c *gin.Context) {
 // GetServices returns service-level metrics for overview-derived pages.
 func (h *OverviewHandler) GetServices(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 
 	rows, err := h.Service.GetServices(teamUUID, startMs, endMs)
 	if err != nil {
@@ -76,7 +88,10 @@ func (h *OverviewHandler) GetServices(c *gin.Context) {
 // GetTopEndpoints returns endpoint aggregates for the overview page.
 func (h *OverviewHandler) GetTopEndpoints(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	serviceName := c.Query("serviceName")
 
 	rows, err := h.Service.GetTopEndpoints(teamUUID, startMs, endMs, serviceName)
@@ -91,7 +106,10 @@ func (h *OverviewHandler) GetTopEndpoints(c *gin.Context) {
 // GetEndpointTimeSeries returns endpoint-level time-series buckets for charts.
 func (h *OverviewHandler) GetEndpointTimeSeries(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	serviceName := c.Query("serviceName")
 
 	rows, err := h.Service.GetEndpointTimeSeries(teamUUID, startMs, endMs, serviceName)

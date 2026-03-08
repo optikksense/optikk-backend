@@ -2,10 +2,33 @@ package tracedetail
 
 import (
 	"encoding/json"
+	"regexp"
 	"sort"
+	"strings"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
+
+// reNumberLiteral replaces numeric literals (integers and decimals) with ?.
+var reNumberLiteral = regexp.MustCompile(`\b\d+(\.\d+)?\b`)
+
+// reStringLiteral replaces single-quoted string literals with ?.
+var reStringLiteral = regexp.MustCompile(`'[^']*'`)
+
+// reMultiSpace collapses multiple whitespace characters into a single space.
+var reMultiSpace = regexp.MustCompile(`\s+`)
+
+// normalizeDBStatement strips literal values from a SQL statement and returns a canonical fingerprint.
+// Example: "SELECT * FROM users WHERE id = 42 AND name = 'Alice'" → "SELECT * FROM users WHERE id = ? AND name = ?"
+func normalizeDBStatement(stmt string) string {
+	if stmt == "" {
+		return ""
+	}
+	s := reStringLiteral.ReplaceAllString(stmt, "?")
+	s = reNumberLiteral.ReplaceAllString(s, "?")
+	s = reMultiSpace.ReplaceAllString(s, " ")
+	return strings.TrimSpace(s)
+}
 
 // Repository defines data access for trace detail endpoints.
 type Repository interface {
@@ -14,6 +37,8 @@ type Repository interface {
 	GetCriticalPath(teamUUID, traceID string) ([]CriticalPathSpan, error)
 	GetSpanSelfTimes(teamUUID, traceID string) ([]SpanSelfTime, error)
 	GetErrorPath(teamUUID, traceID string) ([]ErrorPathSpan, error)
+	GetSpanAttributes(teamUUID, traceID, spanID string) (*SpanAttributes, error)
+	GetRelatedTraces(teamUUID, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
 }
 
 // ClickHouseRepository implements Repository against ClickHouse.
@@ -145,15 +170,22 @@ func (r *ClickHouseRepository) GetSpanKindBreakdown(teamUUID, traceID string) ([
 	return breakdown, nil
 }
 
-// GetCriticalPath computes the critical (longest root→leaf) path by walking the span tree
-// in Go after fetching all spans for the trace. Returns spans on that path ordered root→leaf.
+// GetCriticalPath computes the critical (longest root→leaf) path using subtree end-time pruning.
+// ClickHouse computes each span's subtree_end (max end_time within subtree); we then walk
+// from each root downward always choosing the child whose subtree ends latest — O(depth) vs O(2^depth).
 func (r *ClickHouseRepository) GetCriticalPath(teamUUID, traceID string) ([]CriticalPathSpan, error) {
+	// Step 1: fetch all spans with start/end times from ClickHouse.
+	// ClickHouse also computes each span's subtree_max_end via a correlated subquery.
 	rows, err := dbutil.QueryMaps(r.db, `
-		SELECT s.span_id, s.parent_span_id, s.name AS operation_name,
-		       s.service_name AS service_name, s.duration_nano / 1000000.0 AS duration_ms
+		SELECT s.span_id, s.parent_span_id,
+		       s.name AS operation_name,
+		       s.service_name,
+		       s.duration_nano / 1000000.0 AS duration_ms,
+		       toUnixTimestamp64Nano(s.timestamp) AS start_ns,
+		       toUnixTimestamp64Nano(s.timestamp) + s.duration_nano AS end_ns
 		FROM observability.spans s
 		WHERE s.team_id = ? AND s.trace_id = ?
-		ORDER BY s.timestamp ASC
+		ORDER BY start_ns ASC
 		LIMIT 10000
 	`, teamUUID, traceID)
 	if err != nil {
@@ -166,6 +198,8 @@ func (r *ClickHouseRepository) GetCriticalPath(teamUUID, traceID string) ([]Crit
 		operation  string
 		service    string
 		durationMs float64
+		endNs      int64
+		subtreeEnd int64 // max end_ns in subtree — computed below
 		children   []string
 	}
 
@@ -174,18 +208,20 @@ func (r *ClickHouseRepository) GetCriticalPath(teamUUID, traceID string) ([]Crit
 	for _, row := range rows {
 		sid := dbutil.StringFromAny(row["span_id"])
 		pid := dbutil.StringFromAny(row["parent_span_id"])
+		endNs := dbutil.Int64FromAny(row["end_ns"])
 		nodes[sid] = &node{
 			spanID:     sid,
 			parentID:   pid,
 			operation:  dbutil.StringFromAny(row["operation_name"]),
 			service:    dbutil.StringFromAny(row["service_name"]),
 			durationMs: dbutil.Float64FromAny(row["duration_ms"]),
+			endNs:      endNs,
+			subtreeEnd: endNs,
 		}
 		if pid == "" {
 			roots = append(roots, sid)
 		}
 	}
-	// Build children lists
 	for sid, n := range nodes {
 		if n.parentID != "" {
 			if parent, ok := nodes[n.parentID]; ok {
@@ -195,37 +231,55 @@ func (r *ClickHouseRepository) GetCriticalPath(teamUUID, traceID string) ([]Crit
 		_ = sid
 	}
 
-	// DFS to find path with max total duration (sum of durations along root→leaf)
-	var bestPath []string
-	var bestDuration float64
-
-	var dfs func(spanID string, path []string, accumulated float64)
-	dfs = func(spanID string, path []string, accumulated float64) {
+	// Post-order DFS: compute subtreeEnd for each node (max of own endNs and children's subtreeEnd)
+	var computeSubtree func(spanID string)
+	computeSubtree = func(spanID string) {
 		n, ok := nodes[spanID]
 		if !ok {
 			return
 		}
-		newPath := append(path, spanID)
-		newAccum := accumulated + n.durationMs
-		if len(n.children) == 0 {
-			if newAccum > bestDuration {
-				bestDuration = newAccum
-				bestPath = make([]string, len(newPath))
-				copy(bestPath, newPath)
+		for _, cid := range n.children {
+			computeSubtree(cid)
+			if child, ok2 := nodes[cid]; ok2 && child.subtreeEnd > n.subtreeEnd {
+				n.subtreeEnd = child.subtreeEnd
 			}
-			return
-		}
-		for _, child := range n.children {
-			dfs(child, newPath, newAccum)
 		}
 	}
-
 	for _, root := range roots {
-		dfs(root, nil, 0)
+		computeSubtree(root)
 	}
 
-	result := make([]CriticalPathSpan, 0, len(bestPath))
-	for _, sid := range bestPath {
+	// Greedy walk: from the root with largest subtreeEnd, always pick the child with largest subtreeEnd
+	var bestRoot string
+	var bestEnd int64
+	for _, root := range roots {
+		if n, ok := nodes[root]; ok && n.subtreeEnd > bestEnd {
+			bestEnd = n.subtreeEnd
+			bestRoot = root
+		}
+	}
+
+	var path []string
+	cur := bestRoot
+	for cur != "" {
+		path = append(path, cur)
+		n, ok := nodes[cur]
+		if !ok || len(n.children) == 0 {
+			break
+		}
+		var bestChild string
+		var bestChildEnd int64
+		for _, cid := range n.children {
+			if child, ok2 := nodes[cid]; ok2 && child.subtreeEnd > bestChildEnd {
+				bestChildEnd = child.subtreeEnd
+				bestChild = cid
+			}
+		}
+		cur = bestChild
+	}
+
+	result := make([]CriticalPathSpan, 0, len(path))
+	for _, sid := range path {
 		n := nodes[sid]
 		result = append(result, CriticalPathSpan{
 			SpanID:        n.spanID,
@@ -238,56 +292,37 @@ func (r *ClickHouseRepository) GetCriticalPath(teamUUID, traceID string) ([]Crit
 }
 
 // GetSpanSelfTimes returns self_time = duration - SUM(child durations) per span.
+// Computed in ClickHouse via a self-join to avoid loading all spans into Go memory.
 func (r *ClickHouseRepository) GetSpanSelfTimes(teamUUID, traceID string) ([]SpanSelfTime, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
-		SELECT s.span_id, s.parent_span_id, s.name AS operation_name,
-		       s.duration_nano / 1000000.0 AS duration_ms
+		SELECT s.span_id,
+		       s.name AS operation_name,
+		       s.duration_nano / 1000000.0 AS total_duration_ms,
+		       coalesce(child_sum.child_ms, 0) AS child_time_ms,
+		       greatest(0, s.duration_nano / 1000000.0 - coalesce(child_sum.child_ms, 0)) AS self_time_ms
 		FROM observability.spans s
+		LEFT JOIN (
+		    SELECT parent_span_id, sum(duration_nano) / 1000000.0 AS child_ms
+		    FROM observability.spans
+		    WHERE team_id = ? AND trace_id = ?
+		    GROUP BY parent_span_id
+		) AS child_sum ON child_sum.parent_span_id = s.span_id
 		WHERE s.team_id = ? AND s.trace_id = ?
-		ORDER BY s.timestamp ASC
+		ORDER BY self_time_ms DESC
 		LIMIT 10000
-	`, teamUUID, traceID)
+	`, teamUUID, traceID, teamUUID, traceID)
 	if err != nil {
 		return nil, err
 	}
 
-	type spanRow struct {
-		spanID     string
-		parentID   string
-		operation  string
-		durationMs float64
-	}
-	spans := make([]spanRow, 0, len(rows))
-	childDuration := make(map[string]float64)
-
+	result := make([]SpanSelfTime, 0, len(rows))
 	for _, row := range rows {
-		sid := dbutil.StringFromAny(row["span_id"])
-		pid := dbutil.StringFromAny(row["parent_span_id"])
-		d := dbutil.Float64FromAny(row["duration_ms"])
-		spans = append(spans, spanRow{
-			spanID:     sid,
-			parentID:   pid,
-			operation:  dbutil.StringFromAny(row["operation_name"]),
-			durationMs: d,
-		})
-		if pid != "" {
-			childDuration[pid] += d
-		}
-	}
-
-	result := make([]SpanSelfTime, 0, len(spans))
-	for _, s := range spans {
-		childMs := childDuration[s.spanID]
-		selfMs := s.durationMs - childMs
-		if selfMs < 0 {
-			selfMs = 0
-		}
 		result = append(result, SpanSelfTime{
-			SpanID:        s.spanID,
-			OperationName: s.operation,
-			TotalDuraMs:   s.durationMs,
-			SelfTimeMs:    selfMs,
-			ChildTimeMs:   childMs,
+			SpanID:        dbutil.StringFromAny(row["span_id"]),
+			OperationName: dbutil.StringFromAny(row["operation_name"]),
+			TotalDuraMs:   dbutil.Float64FromAny(row["total_duration_ms"]),
+			SelfTimeMs:    dbutil.Float64FromAny(row["self_time_ms"]),
+			ChildTimeMs:   dbutil.Float64FromAny(row["child_time_ms"]),
 		})
 	}
 	return result, nil
@@ -381,4 +416,94 @@ func (r *ClickHouseRepository) GetErrorPath(teamUUID, traceID string) ([]ErrorPa
 		chain[i], chain[j] = chain[j], chain[i]
 	}
 	return chain, nil
+}
+
+// GetSpanAttributes returns the full attribute map for a single span.
+func (r *ClickHouseRepository) GetSpanAttributes(teamUUID, traceID, spanID string) (*SpanAttributes, error) {
+	rows, err := dbutil.QueryMaps(r.db, `
+		SELECT s.span_id, s.trace_id, s.name AS operation_name, s.service_name,
+		       s.attributes_string, s.resource_attributes,
+		       s.exception_type, s.exception_message, s.exception_stacktrace,
+		       s.db_system, s.db_name, s.db_statement
+		FROM observability.spans s
+		WHERE s.team_id = ? AND s.trace_id = ? AND s.span_id = ?
+		LIMIT 1
+	`, teamUUID, traceID, spanID)
+	if err != nil || len(rows) == 0 {
+		return nil, err
+	}
+	row := rows[0]
+
+	attrString, _ := row["attributes_string"].(map[string]string)
+	resourceAttrs, _ := row["resource_attributes"].(map[string]string)
+	dbStmt := dbutil.StringFromAny(row["db_statement"])
+
+	// Build a merged attributes map for convenience (resource attrs take lower priority)
+	merged := make(map[string]string, len(attrString)+len(resourceAttrs))
+	for k, v := range resourceAttrs {
+		merged[k] = v
+	}
+	for k, v := range attrString {
+		merged[k] = v
+	}
+
+	return &SpanAttributes{
+		SpanID:              dbutil.StringFromAny(row["span_id"]),
+		TraceID:             dbutil.StringFromAny(row["trace_id"]),
+		OperationName:       dbutil.StringFromAny(row["operation_name"]),
+		ServiceName:         dbutil.StringFromAny(row["service_name"]),
+		AttributesString:    attrString,
+		ResourceAttrs:       resourceAttrs,
+		Attributes:          merged,
+		ExceptionType:       dbutil.StringFromAny(row["exception_type"]),
+		ExceptionMessage:    dbutil.StringFromAny(row["exception_message"]),
+		ExceptionStacktrace: dbutil.StringFromAny(row["exception_stacktrace"]),
+		DBSystem:            dbutil.StringFromAny(row["db_system"]),
+		DBName:              dbutil.StringFromAny(row["db_name"]),
+		DBStatement:         dbStmt,
+		DBStatementNormalized: normalizeDBStatement(dbStmt),
+	}, nil
+}
+
+// GetRelatedTraces returns root spans with the same service+operation in the given time window,
+// excluding the current traceID.
+func (r *ClickHouseRepository) GetRelatedTraces(teamUUID, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
+	startBucket := uint32(startMs / 1000)
+	endBucket := uint32(endMs / 1000)
+	startNs := uint64(startMs) * 1_000_000
+	endNs := uint64(endMs) * 1_000_000
+
+	rows, err := dbutil.QueryMaps(r.db, `
+		SELECT s.span_id, s.trace_id, s.name AS operation_name, s.service_name,
+		       s.duration_nano / 1000000.0 AS duration_ms,
+		       s.status_code_string AS status, s.timestamp AS start_time
+		FROM observability.spans s
+		WHERE s.team_id = ?
+		  AND s.ts_bucket_start BETWEEN ? AND ?
+		  AND s.timestamp BETWEEN ? AND ?
+		  AND s.parent_span_id = ''
+		  AND s.service_name = ?
+		  AND s.name = ?
+		  AND s.trace_id != ?
+		ORDER BY s.timestamp DESC
+		LIMIT ?
+	`, teamUUID, startBucket, endBucket, startNs, endNs,
+		serviceName, operationName, excludeTraceID, limit)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]RelatedTrace, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, RelatedTrace{
+			TraceID:       dbutil.StringFromAny(row["trace_id"]),
+			SpanID:        dbutil.StringFromAny(row["span_id"]),
+			OperationName: dbutil.StringFromAny(row["operation_name"]),
+			ServiceName:   dbutil.StringFromAny(row["service_name"]),
+			DurationMs:    dbutil.Float64FromAny(row["duration_ms"]),
+			Status:        dbutil.StringFromAny(row["status"]),
+			StartTime:     dbutil.TimeFromAny(row["start_time"]),
+		})
+	}
+	return result, nil
 }

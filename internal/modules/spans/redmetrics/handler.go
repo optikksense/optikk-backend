@@ -18,7 +18,10 @@ type REDMetricsHandler struct {
 // GetTopSlowOperations returns operations ranked by p99 latency.
 func (h *REDMetricsHandler) GetTopSlowOperations(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	limit := ParseIntParam(c, "limit", 20)
 
 	ops, err := h.Service.GetTopSlowOperations(teamUUID, startMs, endMs, limit)
@@ -32,7 +35,10 @@ func (h *REDMetricsHandler) GetTopSlowOperations(c *gin.Context) {
 // GetTopErrorOperations returns operations ranked by error rate.
 func (h *REDMetricsHandler) GetTopErrorOperations(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	limit := ParseIntParam(c, "limit", 20)
 
 	ops, err := h.Service.GetTopErrorOperations(teamUUID, startMs, endMs, limit)
@@ -46,7 +52,10 @@ func (h *REDMetricsHandler) GetTopErrorOperations(c *gin.Context) {
 // GetHTTPStatusDistribution returns span counts grouped by HTTP status code.
 func (h *REDMetricsHandler) GetHTTPStatusDistribution(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 
 	buckets, timeseries, err := h.Service.GetHTTPStatusDistribution(teamUUID, startMs, endMs)
 	if err != nil {
@@ -62,7 +71,10 @@ func (h *REDMetricsHandler) GetHTTPStatusDistribution(c *gin.Context) {
 // GetServiceScorecard returns per-service RPS, error%, p95 stat tiles.
 func (h *REDMetricsHandler) GetServiceScorecard(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 
 	scorecard, err := h.Service.GetServiceScorecard(teamUUID, startMs, endMs)
 	if err != nil {
@@ -76,7 +88,10 @@ func (h *REDMetricsHandler) GetServiceScorecard(c *gin.Context) {
 // Query params: satisfied_ms (default 300), tolerating_ms (default 1200).
 func (h *REDMetricsHandler) GetApdex(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 
 	satisfiedMs := parseFloatParam(c, "satisfied_ms", 300.0)
 	toleratingMs := parseFloatParam(c, "tolerating_ms", 1200.0)

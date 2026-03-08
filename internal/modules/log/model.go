@@ -44,10 +44,40 @@ type LogFilters struct {
 	TraceID      string   `json:"traceId"`
 	SpanID       string   `json:"spanId"`
 	Search       string   `json:"search"`
+	// SearchMode: "ngram" (default) uses ngramSearch for fast full-text;
+	// "exact" uses positionCaseInsensitive for precise substring match.
+	SearchMode string `json:"searchMode"`
 
 	ExcludeSeverities []string `json:"excludeSeverities"`
 	ExcludeServices   []string `json:"excludeServices"`
 	ExcludeHosts      []string `json:"excludeHosts"`
+
+	// AttributeFilters allows structured key=value filtering on attributes_string.
+	// Each entry is a key-value pair: {Key: "user_id", Value: "123"}.
+	AttributeFilters []LogAttributeFilter `json:"attributeFilters,omitempty"`
+}
+
+// LogAttributeFilter represents a single structured attribute key=value filter.
+type LogAttributeFilter struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+	// Op: "eq" (default), "neq", "contains", "regex"
+	Op string `json:"op"`
+}
+
+// LogAggregateRequest represents the request body for log aggregation queries.
+type LogAggregateRequest struct {
+	GroupBy  string `json:"groupBy"`  // field name: severity_text, service, host, pod, etc.
+	Step     string `json:"step"`     // time bucket: 1m, 5m, 1h, etc.
+	TopN     int    `json:"topN"`     // return top-N groups (default 20)
+	Metric   string `json:"metric"`   // "count" (default) or "error_rate"
+}
+
+// LogAggregateRow is one row in an aggregation response.
+type LogAggregateRow struct {
+	TimeBucket string `json:"timeBucket"`
+	GroupValue string `json:"groupValue"`
+	Count      int64  `json:"count"`
 }
 
 // LogCursor carries pagination state for deterministic ordering by (timestamp, id).

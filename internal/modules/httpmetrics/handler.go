@@ -16,7 +16,10 @@ type HTTPMetricsHandler struct {
 
 func (h *HTTPMetricsHandler) GetRequestRate(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 24*60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	resp, err := h.Service.GetRequestRate(teamUUID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query HTTP request rate")
@@ -27,7 +30,10 @@ func (h *HTTPMetricsHandler) GetRequestRate(c *gin.Context) {
 
 func (h *HTTPMetricsHandler) GetRequestDuration(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 24*60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	resp, err := h.Service.GetRequestDuration(teamUUID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query HTTP request duration")
@@ -38,7 +44,10 @@ func (h *HTTPMetricsHandler) GetRequestDuration(c *gin.Context) {
 
 func (h *HTTPMetricsHandler) GetActiveRequests(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 24*60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	resp, err := h.Service.GetActiveRequests(teamUUID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query active HTTP requests")
@@ -49,7 +58,10 @@ func (h *HTTPMetricsHandler) GetActiveRequests(c *gin.Context) {
 
 func (h *HTTPMetricsHandler) GetRequestBodySize(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 24*60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	resp, err := h.Service.GetRequestBodySize(teamUUID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query request body size")
@@ -60,7 +72,10 @@ func (h *HTTPMetricsHandler) GetRequestBodySize(c *gin.Context) {
 
 func (h *HTTPMetricsHandler) GetResponseBodySize(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 24*60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	resp, err := h.Service.GetResponseBodySize(teamUUID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query response body size")
@@ -71,7 +86,10 @@ func (h *HTTPMetricsHandler) GetResponseBodySize(c *gin.Context) {
 
 func (h *HTTPMetricsHandler) GetClientDuration(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 24*60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	resp, err := h.Service.GetClientDuration(teamUUID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query HTTP client duration")
@@ -82,7 +100,10 @@ func (h *HTTPMetricsHandler) GetClientDuration(c *gin.Context) {
 
 func (h *HTTPMetricsHandler) GetDNSDuration(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 24*60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	resp, err := h.Service.GetDNSDuration(teamUUID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query DNS duration")
@@ -93,7 +114,10 @@ func (h *HTTPMetricsHandler) GetDNSDuration(c *gin.Context) {
 
 func (h *HTTPMetricsHandler) GetTLSDuration(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 24*60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 	resp, err := h.Service.GetTLSDuration(teamUUID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query TLS duration")

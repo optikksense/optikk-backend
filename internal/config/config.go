@@ -74,7 +74,7 @@ func Load() Config {
 		JWTSecret:          getEnv("JWT_SECRET", "optic-secret-key-for-jwt-token-generation-must-be-at-least-256-bits"),
 		JWTExpirationMs:    getEnvInt64("JWT_EXPIRATION_MS", 86_400_000),
 
-		QueueBatchSize:       int(getEnvInt64("QUEUE_BATCH_SIZE", 500)),
+		QueueBatchSize:       int(getEnvInt64("QUEUE_BATCH_SIZE", 1000)),
 		QueueFlushIntervalMs: getEnvInt64("QUEUE_FLUSH_INTERVAL_MS", 2_000),
 
 		KafkaEnabled: getEnvBool("KAFKA_ENABLED", false),

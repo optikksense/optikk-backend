@@ -8,6 +8,7 @@ require (
 	github.com/go-sql-driver/mysql v1.8.1
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/redis/go-redis/v9 v9.18.0
+	github.com/segmentio/kafka-go v0.4.50
 	go.opentelemetry.io/proto/otlp v1.3.1
 	golang.org/x/crypto v0.48.0
 	google.golang.org/grpc v1.79.1

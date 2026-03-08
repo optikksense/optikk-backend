@@ -88,6 +88,7 @@ func (h *Handler) ListComponents(c *gin.Context) {
 			RespondOK(c, map[string]any{
 				"pageId":     pageID,
 				"tabId":      tabID,
+				"groups":     tab.Groups,
 				"components": tab.Components,
 			})
 			return

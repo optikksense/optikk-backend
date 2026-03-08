@@ -26,5 +26,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *LogHandler) {
 	v1.GET("/logs/fields", h.GetLogFields)
 	v1.GET("/logs/surrounding", h.GetLogSurrounding)
 	v1.GET("/logs/detail", h.GetLogDetail)
+	v1.GET("/logs/aggregate", h.GetLogAggregate)
+	v1.GET("/logs/stream", h.StreamLogs)
 	v1.GET("/traces/:traceId/logs", h.GetTraceLogs)
 }

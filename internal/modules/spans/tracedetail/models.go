@@ -47,3 +47,37 @@ type ErrorPathSpan struct {
 	StartTime     time.Time `json:"startTime"`
 	DurationMs    float64   `json:"durationMs"`
 }
+
+// SpanAttributes is the full attribute map for a single span.
+type SpanAttributes struct {
+	SpanID           string            `json:"spanId"`
+	TraceID          string            `json:"traceId"`
+	OperationName    string            `json:"operationName"`
+	ServiceName      string            `json:"serviceName"`
+	AttributesString map[string]string `json:"attributesString"`
+	// Resource attributes (service.name, host.name, etc.)
+	ResourceAttrs map[string]string `json:"resourceAttributes"`
+	// Exception fields, if any
+	ExceptionType       string `json:"exceptionType,omitempty"`
+	ExceptionMessage    string `json:"exceptionMessage,omitempty"`
+	ExceptionStacktrace string `json:"exceptionStacktrace,omitempty"`
+	// DB fields
+	DBSystem              string `json:"dbSystem,omitempty"`
+	DBName                string `json:"dbName,omitempty"`
+	DBStatement           string `json:"dbStatement,omitempty"`
+	DBStatementNormalized string `json:"dbStatementNormalized,omitempty"`
+
+	// Merged attributes map (attributesString + resourceAttrs merged for convenience)
+	Attributes map[string]string `json:"attributes,omitempty"`
+}
+
+// RelatedTrace is a summary of a trace with the same service+operation.
+type RelatedTrace struct {
+	TraceID       string  `json:"traceId"`
+	SpanID        string  `json:"spanId"`
+	OperationName string  `json:"operationName"`
+	ServiceName   string  `json:"serviceName"`
+	DurationMs    float64 `json:"durationMs"`
+	Status        string  `json:"status"`
+	StartTime     time.Time `json:"startTime"`
+}

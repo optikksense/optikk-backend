@@ -3,17 +3,90 @@
   "pageId": "overview",
   "label": "SLO",
   "order": 30,
+  "groups": [
+    { "id": "slo-at-a-glance", "label": "At a Glance", "order": 10 },
+    { "id": "slo-timeseries", "label": "Over Time", "order": 20 }
+  ],
   "components": [
+    {
+      "componentKey": "stat-card",
+      "formatter": "percent1",
+      "groupId": "slo-at-a-glance",
+      "id": "slo-availability-pct",
+      "layout": {
+        "col": 6
+      },
+      "order": 5,
+      "query": {
+        "endpoint": "/v1/overview/slo/stats",
+        "method": "GET"
+      },
+      "title": "Availability",
+      "titleIcon": "Target",
+      "valueField": "availability_percent"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "ms",
+      "groupId": "slo-at-a-glance",
+      "id": "slo-p95-latency",
+      "layout": {
+        "col": 6
+      },
+      "order": 6,
+      "query": {
+        "endpoint": "/v1/overview/slo/stats",
+        "method": "GET"
+      },
+      "title": "p95 Latency",
+      "titleIcon": "Clock",
+      "valueField": "p95_latency_ms"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "number",
+      "groupId": "slo-at-a-glance",
+      "id": "slo-total-requests",
+      "layout": {
+        "col": 6
+      },
+      "order": 7,
+      "query": {
+        "endpoint": "/v1/overview/slo/stats",
+        "method": "GET"
+      },
+      "title": "Total Requests",
+      "titleIcon": "TrendingUp",
+      "valueField": "total_requests"
+    },
+    {
+      "componentKey": "stat-card",
+      "formatter": "number",
+      "groupId": "slo-at-a-glance",
+      "id": "slo-error-count",
+      "layout": {
+        "col": 6
+      },
+      "order": 8,
+      "query": {
+        "endpoint": "/v1/overview/slo/stats",
+        "method": "GET"
+      },
+      "title": "Error Count",
+      "titleIcon": "AlertCircle",
+      "valueField": "error_count"
+    },
     {
       "color": "#12B76A",
       "componentKey": "error-rate",
       "dataKey": "timeseries",
       "datasetLabel": "Availability %",
+      "groupId": "slo-timeseries",
       "id": "availability",
       "layout": {
         "col": 8
       },
-      "order": 10,
+      "order": 15,
       "query": {
         "endpoint": "/v1/overview/slo",
         "method": "GET",
@@ -29,11 +102,12 @@
     {
       "componentKey": "latency",
       "dataKey": "timeseries",
+      "groupId": "slo-timeseries",
       "id": "latency-vs-target",
       "layout": {
         "col": 8
       },
-      "order": 20,
+      "order": 25,
       "query": {
         "endpoint": "/v1/overview/slo",
         "method": "GET",
@@ -49,11 +123,12 @@
     {
       "componentKey": "error-rate",
       "dataKey": "timeseries",
+      "groupId": "slo-timeseries",
       "id": "error-budget-burn",
       "layout": {
         "col": 8
       },
-      "order": 30,
+      "order": 35,
       "query": {
         "endpoint": "/v1/overview/slo",
         "method": "GET",

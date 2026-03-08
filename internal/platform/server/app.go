@@ -36,6 +36,7 @@ import (
 	redmetrics "github.com/observability/observability-backend-go/internal/modules/spans/redmetrics"
 	tracedetail "github.com/observability/observability-backend-go/internal/modules/spans/tracedetail"
 	usermodule "github.com/observability/observability-backend-go/internal/modules/user"
+	"github.com/observability/observability-backend-go/internal/platform/alerting"
 	"github.com/observability/observability-backend-go/internal/platform/auth"
 	"github.com/observability/observability-backend-go/internal/platform/ingest"
 	"github.com/observability/observability-backend-go/internal/platform/middleware"
@@ -137,6 +138,8 @@ type App struct {
 	SpansQueue   *ingest.Queue
 	LogsQueue    *ingest.Queue
 	MetricsQueue *ingest.Queue
+	Tracker      *ingest.ByteTracker
+	AlertEngine  *alerting.Engine
 }
 
 func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
@@ -154,12 +157,6 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 		log.Fatalf("failed to load embedded default config registry: %v", err)
 	}
 
-	// Ensure default-config storage exists so page override APIs can always
-	// serve file defaults even on a freshly reset database.
-	if err := defaultconfig.NewRepository(db).EnsureTable(); err != nil {
-		log.Printf("WARN: failed to ensure default_page_configs table: %v", err)
-	}
-
 	var blacklist *auth.TokenBlacklist
 
 	if cfg.RedisEnabled {
@@ -173,12 +170,14 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 		ingest.WithBatchSize(cfg.QueueBatchSize),
 		ingest.WithFlushInterval(int(cfg.QueueFlushIntervalMs)),
 	}
-	spansQueue := ingest.NewQueue(ch, "observability.spans", otlp.SpanColumns, queueOpts...)
-	logsQueue := ingest.NewQueue(ch, "observability.logs", otlp.LogColumns, queueOpts...)
-	metricsQueue := ingest.NewQueue(ch, "observability.metrics", otlp.MetricColumns, queueOpts...)
+	brokers := cfg.KafkaBrokerList()
+	spansQueue := ingest.NewQueue(ch, cfg.KafkaEnabled, brokers, "observability.spans", otlp.SpanColumns, queueOpts...)
+	logsQueue := ingest.NewQueue(ch, cfg.KafkaEnabled, brokers, "observability.logs", otlp.LogColumns, queueOpts...)
+	metricsQueue := ingest.NewQueue(ch, cfg.KafkaEnabled, brokers, "observability.metrics", otlp.MetricColumns, queueOpts...)
 
 	authResolver := otlpauth.NewAuthenticator(db)
-	otlpHTTPHandler := otlp.NewHandler(authResolver, spansQueue, logsQueue, metricsQueue)
+	tracker := ingest.NewByteTracker(db, time.Hour)
+	otlpHTTPHandler := otlp.NewHandler(authResolver, spansQueue, logsQueue, metricsQueue, tracker)
 	otlpGRPCHandler := otlpgrpc.NewHandler(authResolver, spansQueue, logsQueue, metricsQueue)
 
 	return &App{
@@ -362,9 +361,11 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 
 		OTLPHTTP:   otlpHTTPHandler,
 		OTLPGRPC:   otlpGRPCHandler,
-		SpansQueue: spansQueue,
+		SpansQueue:     spansQueue,
 		LogsQueue:      logsQueue,
 		MetricsQueue:   metricsQueue,
+		Tracker:        tracker,
+		AlertEngine:    alerting.NewEngine(db, ch),
 	}
 }
 
@@ -399,6 +400,10 @@ func (a *App) OTLPRouter() *gin.Engine {
 	r.Use(gin.Logger())
 	r.Use(middleware.ErrorRecovery())
 	r.Use(middleware.CORSMiddleware(a.Config.AllowedOrigins))
+
+	// Global rate limiting for ingest: 1000 requests per second with burst of 2000.
+	rl := middleware.NewRateLimiter(1000, 2000, time.Second)
+	r.Use(middleware.RateLimitMiddleware(rl))
 
 	// Use the OTLP HTTP handler to register routes
 	// Note: Authentication is handled inside the handler (resolves API key from headers)
@@ -450,6 +455,10 @@ func (a *App) healthReady(c *gin.Context) {
 }
 
 func (a *App) Start(ctx context.Context) error {
+	// Start background metric tracking / alert evaluation
+	a.Tracker.Start()
+	a.AlertEngine.Start()
+
 	// 1. Setup Main API Server (9090)
 	mainRouter := a.Router()
 	mainSrv := &http.Server{

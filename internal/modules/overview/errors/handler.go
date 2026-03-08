@@ -18,7 +18,10 @@ type ErrorHandler struct {
 func (h *ErrorHandler) GetServiceErrorRate(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	serviceName := c.Query("serviceName")
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 
 	points, err := h.Service.GetServiceErrorRate(teamUUID, startMs, endMs, serviceName)
 	if err != nil {
@@ -33,7 +36,10 @@ func (h *ErrorHandler) GetServiceErrorRate(c *gin.Context) {
 func (h *ErrorHandler) GetErrorVolume(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	serviceName := c.Query("serviceName")
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 
 	points, err := h.Service.GetErrorVolume(teamUUID, startMs, endMs, serviceName)
 	if err != nil {
@@ -48,7 +54,10 @@ func (h *ErrorHandler) GetErrorVolume(c *gin.Context) {
 func (h *ErrorHandler) GetLatencyDuringErrorWindows(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	serviceName := c.Query("serviceName")
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 
 	points, err := h.Service.GetLatencyDuringErrorWindows(teamUUID, startMs, endMs, serviceName)
 	if err != nil {
@@ -64,7 +73,10 @@ func (h *ErrorHandler) GetErrorGroups(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	serviceName := c.Query("serviceName")
 	limit := ParseIntParam(c, "limit", 100)
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 
 	groups, err := h.Service.GetErrorGroups(teamUUID, startMs, endMs, serviceName, limit)
 	if err != nil {

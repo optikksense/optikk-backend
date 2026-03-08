@@ -261,3 +261,36 @@ curl -sS \
   -H "${TEAM_HEADER}" \
   "${API_BASE}/api/v1/traces/${TRACE_ID_HEX}/critical-path"
 ```
+
+### 3.9 Span Kind Breakdown
+
+Expected response: HTTP `200 OK` with duration breakdown by span kind.
+
+```bash
+curl -sS \
+  -H "${AUTH_HEADER}" \
+  -H "${TEAM_HEADER}" \
+  "${API_BASE}/api/v1/traces/${TRACE_ID_HEX}/span-kind-breakdown"
+```
+
+### 3.10 Span Self Times
+
+Expected response: HTTP `200 OK` with self-time per span (excluding child span duration).
+
+```bash
+curl -sS \
+  -H "${AUTH_HEADER}" \
+  -H "${TEAM_HEADER}" \
+  "${API_BASE}/api/v1/traces/${TRACE_ID_HEX}/span-self-times"
+```
+
+### 3.11 Error Path
+
+Expected response: HTTP `200 OK` with ERROR span chain from root to leaf.
+
+```bash
+curl -sS \
+  -H "${AUTH_HEADER}" \
+  -H "${TEAM_HEADER}" \
+  "${API_BASE}/api/v1/traces/${TRACE_ID_HEX}/error-path"
+```

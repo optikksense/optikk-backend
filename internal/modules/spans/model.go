@@ -12,6 +12,7 @@ type Trace struct {
 	EndTime        time.Time `json:"endTime"`
 	DurationMs     float64   `json:"durationMs"`
 	Status         string    `json:"status"`
+	StatusMessage  string    `json:"statusMessage"`
 	HTTPMethod     string    `json:"httpMethod"`
 	HTTPStatusCode int       `json:"httpStatusCode"`
 }
@@ -50,6 +51,36 @@ type TraceFilters struct {
 	Operation   string   `json:"operation"`
 	HTTPMethod  string   `json:"httpMethod"`
 	HTTPStatus  string   `json:"httpStatus"`
+	// AttributeFilters allows arbitrary span attribute filtering.
+	// e.g. ?attr.db.name=mydb or ?attr_contains.db.statement=SELECT
+	AttributeFilters []SpanAttributeFilter `json:"attributeFilters,omitempty"`
+}
+
+// SpanAttributeFilter is a single attribute key=value filter on spans.
+type SpanAttributeFilter struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+	// Op: "eq" (default), "neq", "contains", "regex"
+	Op string `json:"op"`
+}
+
+// TraceCursor is a keyset cursor for the trace list (avoids OFFSET scan).
+type TraceCursor struct {
+	Timestamp time.Time `json:"timestamp"`
+	SpanID    string    `json:"spanId"`
+}
+
+// TraceOperationRow is one row from the operation-level aggregation endpoint.
+type TraceOperationRow struct {
+	ServiceName   string  `json:"serviceName"`
+	OperationName string  `json:"operationName"`
+	SpanCount     int64   `json:"spanCount"`
+	ErrorCount    int64   `json:"errorCount"`
+	ErrorRate     float64 `json:"errorRate"`
+	P50Ms         float64 `json:"p50Ms"`
+	P95Ms         float64 `json:"p95Ms"`
+	P99Ms         float64 `json:"p99Ms"`
+	AvgMs         float64 `json:"avgMs"`
 }
 
 // TraceSummary represents aggregate statistics for a set of traces.

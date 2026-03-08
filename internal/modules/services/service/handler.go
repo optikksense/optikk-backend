@@ -37,7 +37,10 @@ func (h *ServiceHandler) GetUnhealthyServices(c *gin.Context) {
 // GetServiceMetrics returns service-level aggregates for the services page table.
 func (h *ServiceHandler) GetServiceMetrics(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 
 	rows, err := h.Service.GetServiceMetrics(teamUUID, startMs, endMs)
 	if err != nil {
@@ -51,7 +54,10 @@ func (h *ServiceHandler) GetServiceMetrics(c *gin.Context) {
 // GetServiceTimeSeries returns service-level time series for services overview charts.
 func (h *ServiceHandler) GetServiceTimeSeries(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 
 	points, err := h.Service.GetServiceTimeSeries(teamUUID, startMs, endMs)
 	if err != nil {
@@ -66,7 +72,10 @@ func (h *ServiceHandler) GetServiceTimeSeries(c *gin.Context) {
 func (h *ServiceHandler) GetServiceEndpoints(c *gin.Context) {
 	teamUUID := h.GetTenant(c).TeamUUID()
 	serviceName := c.Param("serviceName")
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 
 	endpoints, err := h.Service.GetServiceEndpoints(teamUUID, startMs, endMs, serviceName)
 	if err != nil {
@@ -79,7 +88,10 @@ func (h *ServiceHandler) GetServiceEndpoints(c *gin.Context) {
 
 func (h *ServiceHandler) respondWithCount(c *gin.Context, fn func(string, int64, int64) (int64, error), message string) {
 	teamUUID := h.GetTenant(c).TeamUUID()
-	startMs, endMs := ParseRange(c, 60*60*1000)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
 
 	count, err := fn(teamUUID, startMs, endMs)
 	if err != nil {
