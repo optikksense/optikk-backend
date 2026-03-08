@@ -64,6 +64,55 @@ func ClaimsAuthorizedForTeam(claims *TokenClaims, requestedTeamID int64) bool {
 	return false
 }
 
+// PendingOAuthClaims holds data for an OAuth user who hasn't completed signup yet.
+type PendingOAuthClaims struct {
+	PendingOAuth bool   `json:"pending_oauth"`
+	Provider     string `json:"oauth_provider"`
+	OAuthID      string `json:"oauth_id"`
+	Email        string `json:"email"`
+	Name         string `json:"name"`
+	AvatarURL    string `json:"avatar_url"`
+	jwt.RegisteredClaims
+}
+
+// GeneratePendingOAuthToken issues a short-lived (10 min) token for an OAuth user
+// who doesn't have an account yet and needs to complete signup with team/org info.
+func (m JWTManager) GeneratePendingOAuthToken(provider, oauthID, email, name, avatarURL string) (string, error) {
+	now := time.Now().UTC()
+	claims := PendingOAuthClaims{
+		PendingOAuth: true,
+		Provider:     provider,
+		OAuthID:      oauthID,
+		Email:        email,
+		Name:         name,
+		AvatarURL:    avatarURL,
+		RegisteredClaims: jwt.RegisteredClaims{
+			IssuedAt:  jwt.NewNumericDate(now),
+			ExpiresAt: jwt.NewNumericDate(now.Add(10 * time.Minute)),
+		},
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	return token.SignedString(m.Secret)
+}
+
+// ParsePendingOAuthToken validates and extracts claims from a pending OAuth token.
+func (m JWTManager) ParsePendingOAuthToken(token string) (*PendingOAuthClaims, error) {
+	parsed, err := jwt.ParseWithClaims(token, &PendingOAuthClaims{}, func(t *jwt.Token) (any, error) {
+		if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
+			return nil, errors.New("unexpected signing method")
+		}
+		return m.Secret, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	claims, ok := parsed.Claims.(*PendingOAuthClaims)
+	if !ok || !parsed.Valid || !claims.PendingOAuth {
+		return nil, errors.New("invalid pending OAuth token")
+	}
+	return claims, nil
+}
+
 func (m JWTManager) Parse(token string) (*TokenClaims, error) {
 	parsed, err := jwt.ParseWithClaims(token, &TokenClaims{}, func(t *jwt.Token) (any, error) {
 		if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {

@@ -207,6 +207,66 @@ func (r *Store) CreateTeam(orgName, name, slug string, description *string, colo
 	return id, nil
 }
 
+func (r *Store) FindUserByOAuth(provider, oauthID string) (AuthUser, error) {
+	var user AuthUser
+	err := r.DB.QueryRow(`
+		SELECT id, email, COALESCE(password_hash,''), name, COALESCE(avatar_url,''), role, COALESCE(teams, '[]')
+		FROM users
+		WHERE oauth_provider = ? AND oauth_id = ? AND active = 1
+		LIMIT 1
+	`, provider, oauthID).Scan(
+		&user.ID,
+		&user.Email,
+		&user.PasswordHash,
+		&user.Name,
+		&user.AvatarURL,
+		&user.Role,
+		&user.TeamsJSON,
+	)
+	if err != nil {
+		return AuthUser{}, err
+	}
+	return user, nil
+}
+
+func (r *Store) CreateOAuthUser(email, name, avatarURL, role, teamsJSON, provider, oauthID string, createdAt time.Time) (int64, error) {
+	res, err := r.DB.Exec(`
+		INSERT INTO users (email, name, avatar_url, role, teams, oauth_provider, oauth_id, active, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
+	`, email, name, nullableStringPtr(&avatarURL), role, teamsJSON, provider, oauthID, createdAt)
+	if err != nil {
+		return 0, err
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		return 0, err
+	}
+	return id, nil
+}
+
+func (r *Store) UpdateUserOAuth(userID int64, provider, oauthID string, updatedAt time.Time) error {
+	_, err := r.DB.Exec(`
+		UPDATE users SET oauth_provider = ?, oauth_id = ?, updated_at = ? WHERE id = ?
+	`, provider, oauthID, updatedAt, userID)
+	return err
+}
+
+func (r *Store) FindTeamByOrgAndName(orgName, teamName string) (map[string]any, error) {
+	row, err := dbutil.QueryMap(r.DB, `
+		SELECT id, org_name, name, slug, description, active, color, icon, api_key, created_at
+		FROM teams
+		WHERE org_name = ? AND name = ? AND active = 1
+		LIMIT 1
+	`, orgName, teamName)
+	if err != nil {
+		return nil, err
+	}
+	if len(row) == 0 {
+		return nil, sql.ErrNoRows
+	}
+	return row, nil
+}
+
 func nullableStringPtr(v *string) any {
 	if v == nil {
 		return nil

@@ -111,6 +111,7 @@ type App struct {
 
 	Auth                *usermodule.AuthHandler
 	Users               *usermodule.UserHandler
+	OAuth               *usermodule.OAuthHandler
 	Logs                *logsapi.LogHandler
 	Traces              *tracesapi.TraceHandler
 	TraceDetail         *tracedetail.TraceDetailHandler
@@ -189,6 +190,12 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 
 		Auth:  usermodule.NewAuthHandler(getTenant, userStore, jwt, blacklist, cfg.JWTExpirationMs),
 		Users: usermodule.NewUserHandler(getTenant, userStore),
+		OAuth: usermodule.NewOAuthHandler(
+			userStore, jwt, cfg.JWTExpirationMs,
+			cfg.GoogleClientID, cfg.GoogleClientSecret,
+			cfg.GitHubClientID, cfg.GitHubClientSecret,
+			cfg.OAuthRedirectBase,
+		),
 		Logs: logsapi.NewHandler(
 			getTenant,
 			logsapi.NewRepository(dbutil.NewMySQLWrapper(ch)),
@@ -415,7 +422,7 @@ func (a *App) OTLPRouter() *gin.Engine {
 func (a *App) registerRoutesToGroup(v1 *gin.RouterGroup) {
 	cfg := defaultModuleConfigs()
 
-	usermodule.RegisterRoutes(cfg.Identity, v1, a.Auth, a.Users)
+	usermodule.RegisterRoutes(cfg.Identity, v1, a.Auth, a.Users, a.OAuth)
 	overviewmodule.RegisterRoutes(cfg.Overview, v1, a.Overview)
 	overviewslo.RegisterRoutes(cfg.OverviewSLO, v1, a.OverviewSLO)
 	overviewerrors.RegisterRoutes(cfg.OverviewErrors, v1, a.OverviewErrors)

@@ -52,6 +52,16 @@ type Config struct {
 	// Populated from APP_REGION env var (set in the K8s Deployment manifest).
 	// Used to scope ClickHouse queries to the correct shard.
 	AppRegion string
+
+	// OAuth providers (Google + GitHub).
+	// Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET to enable Google sign-in.
+	// Set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET to enable GitHub sign-in.
+	// OAUTH_REDIRECT_BASE is the frontend base URL used to build callback redirect URLs.
+	GoogleClientID     string
+	GoogleClientSecret string
+	GitHubClientID     string
+	GitHubClientSecret string
+	OAuthRedirectBase  string
 }
 
 // Load reads configuration from environment variables.
@@ -96,6 +106,12 @@ func Load() Config {
 		DefaultRetentionDays: int(getEnvInt64("DEFAULT_RETENTION_DAYS", 30)),
 
 		AppRegion: getEnv("APP_REGION", "us-east-1"),
+
+		GoogleClientID:     getEnv("GOOGLE_CLIENT_ID", ""),
+		GoogleClientSecret: getEnv("GOOGLE_CLIENT_SECRET", ""),
+		GitHubClientID:     getEnv("GITHUB_CLIENT_ID", ""),
+		GitHubClientSecret: getEnv("GITHUB_CLIENT_SECRET", ""),
+		OAuthRedirectBase:  getEnv("OAUTH_REDIRECT_BASE", "http://localhost:3000"),
 	}
 
 	cfg.validate()

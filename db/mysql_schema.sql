@@ -7,10 +7,13 @@ CREATE TABLE IF NOT EXISTS users (
   role VARCHAR(20) NOT NULL DEFAULT 'member',
   teams JSON NOT NULL DEFAULT ('[]'),
   active TINYINT(1) NOT NULL DEFAULT 1,
+  oauth_provider VARCHAR(20) NULL,
+  oauth_id VARCHAR(255) NULL,
   last_login_at DATETIME NULL,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   updated_at DATETIME NULL,
-  INDEX idx_user_email (email)
+  INDEX idx_user_email (email),
+  UNIQUE KEY uq_user_oauth (oauth_provider, oauth_id)
 );
 
 CREATE TABLE IF NOT EXISTS teams (

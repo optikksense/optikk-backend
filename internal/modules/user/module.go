@@ -12,7 +12,7 @@ func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, auth *AuthHandler, users *UserHandler) {
+func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, auth *AuthHandler, users *UserHandler, oauth *OAuthHandler) {
 	if !cfg.Enabled || auth == nil || users == nil {
 		return
 	}
@@ -24,6 +24,15 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, auth *AuthHandler, users *U
 		authGroup.GET("/me", auth.AuthMe)
 		authGroup.GET("/context", auth.AuthContext)
 		authGroup.GET("/validate", auth.ValidateToken)
+
+		if oauth != nil {
+			authGroup.GET("/google", oauth.GoogleLogin)
+			authGroup.GET("/google/callback", oauth.GoogleCallback)
+			authGroup.GET("/github", oauth.GithubLogin)
+			authGroup.GET("/github/callback", oauth.GithubCallback)
+			authGroup.POST("/oauth/complete-signup", oauth.CompleteSignup)
+			authGroup.POST("/forgot-password", oauth.ForgotPassword)
+		}
 	}
 
 	usersGroup := v1.Group("/users")

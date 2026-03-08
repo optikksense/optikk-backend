@@ -59,6 +59,22 @@ func isPublicRequest(method, path string) bool {
 		return true
 	}
 
+	// OAuth provider redirects and callbacks.
+	if strings.HasPrefix(path, "/api/v1/auth/google") {
+		return true
+	}
+	if strings.HasPrefix(path, "/api/v1/auth/github") {
+		return true
+	}
+
+	// OAuth complete-signup and forgot-password are public POST endpoints.
+	if method == http.MethodPost && strings.HasPrefix(path, "/api/v1/auth/oauth/complete-signup") {
+		return true
+	}
+	if method == http.MethodPost && strings.HasPrefix(path, "/api/v1/auth/forgot-password") {
+		return true
+	}
+
 	// signup/create user must be public to allow first login.
 	if method == http.MethodPost && (path == "/api/v1/users" || path == "/api/v1/users/") {
 		return true
