@@ -21,7 +21,7 @@ func main() {
 	}
 	defer dbConn.Close()
 
-	chConn, err := database.OpenClickHouse(cfg.ClickHouseDSN())
+	chConn, err := database.OpenClickHouse(cfg.ClickHouseDSN(), cfg.ClickHouseProduction)
 	if err != nil {
 		log.Fatalf("failed to connect clickhouse: %v", err)
 	}

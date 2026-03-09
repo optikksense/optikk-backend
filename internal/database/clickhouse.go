@@ -2,11 +2,12 @@ package database
 
 import (
 	"context"
+	"crypto/tls"
 	"database/sql"
 	"strings"
 	"time"
 
-	_ "github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/ClickHouse/clickhouse-go/v2"
 	circuitbreaker "github.com/observability/observability-backend-go/internal/platform/circuit_breaker"
 )
 
@@ -30,10 +31,25 @@ type Row interface {
 	Scan(dest ...any) error
 }
 
-func OpenClickHouse(dsn string) (*sql.DB, error) {
-	conn, err := sql.Open("clickhouse", dsn)
-	if err != nil {
-		return nil, err
+func OpenClickHouse(dsn string, isProduction bool) (*sql.DB, error) {
+	var conn *sql.DB
+	var err error
+
+	if isProduction {
+		conn = clickhouse.OpenDB(&clickhouse.Options{
+			Addr:     []string{"e4q81bjqva.us-central1.gcp.clickhouse.cloud:9440"},
+			Protocol: clickhouse.Native,
+			TLS:      &tls.Config{},
+			Auth: clickhouse.Auth{
+				Username: "default",
+				Password: "CHZoMiHfX_5vt",
+			},
+		})
+	} else {
+		conn, err = sql.Open("clickhouse", dsn)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	conn.SetMaxOpenConns(50)

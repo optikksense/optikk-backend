@@ -15,5 +15,3 @@ password: clickhouse123
 User Login:
 username: user@example.com
 password: securePassword123
-
-Coding Standards

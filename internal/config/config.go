@@ -17,11 +17,12 @@ type Config struct {
 	MySQLUser     string
 	MySQLPassword string
 
-	ClickHouseHost     string
-	ClickHousePort     string
-	ClickHouseDatabase string
-	ClickHouseUser     string
-	ClickHousePassword string
+	ClickHouseHost       string
+	ClickHousePort       string
+	ClickHouseDatabase   string
+	ClickHouseUser       string
+	ClickHousePassword   string
+	ClickHouseProduction bool
 
 	JWTSecret       string
 	JWTExpirationMs int64
@@ -70,19 +71,20 @@ type Config struct {
 // if they are left at their insecure defaults.
 func Load() Config {
 	cfg := Config{
-		Port:               getEnv("PORT", "9090"),
-		MySQLHost:          getEnv("MYSQL_HOST", "127.0.0.1"),
-		MySQLPort:          getEnv("MYSQL_PORT", "3306"),
-		MySQLDatabase:      getEnv("MYSQL_DATABASE", "observability"),
-		MySQLUser:          getEnv("MYSQL_USERNAME", "root"),
-		MySQLPassword:      getEnv("MYSQL_PASSWORD", "root123"),
-		ClickHouseHost:     getEnv("CLICKHOUSE_HOST", "127.0.0.1"),
-		ClickHousePort:     getEnv("CLICKHOUSE_PORT", "9000"),
-		ClickHouseDatabase: getEnv("CLICKHOUSE_DATABASE", "observability"),
-		ClickHouseUser:     getEnv("CLICKHOUSE_USERNAME", "default"),
-		ClickHousePassword: getEnv("CLICKHOUSE_PASSWORD", "clickhouse123"),
-		JWTSecret:          getEnv("JWT_SECRET", "optic-secret-key-for-jwt-token-generation-must-be-at-least-256-bits"),
-		JWTExpirationMs:    getEnvInt64("JWT_EXPIRATION_MS", 86_400_000),
+		Port:                 getEnv("PORT", "9090"),
+		MySQLHost:            getEnv("MYSQL_HOST", "127.0.0.1"),
+		MySQLPort:            getEnv("MYSQL_PORT", "3306"),
+		MySQLDatabase:        getEnv("MYSQL_DATABASE", "observability"),
+		MySQLUser:            getEnv("MYSQL_USERNAME", "root"),
+		MySQLPassword:        getEnv("MYSQL_PASSWORD", "root123"),
+		ClickHouseHost:       getEnv("CLICKHOUSE_HOST", "127.0.0.1"),
+		ClickHousePort:       getEnv("CLICKHOUSE_PORT", "9000"),
+		ClickHouseDatabase:   getEnv("CLICKHOUSE_DATABASE", "observability"),
+		ClickHouseUser:       getEnv("CLICKHOUSE_USERNAME", "default"),
+		ClickHousePassword:   getEnv("CLICKHOUSE_PASSWORD", "clickhouse123"),
+		ClickHouseProduction: getEnvBool("CLICKHOUSE_PRODUCTION", true),
+		JWTSecret:            getEnv("JWT_SECRET", "optic-secret-key-for-jwt-token-generation-must-be-at-least-256-bits"),
+		JWTExpirationMs:      getEnvInt64("JWT_EXPIRATION_MS", 86_400_000),
 
 		QueueBatchSize:       int(getEnvInt64("QUEUE_BATCH_SIZE", 1000)),
 		QueueFlushIntervalMs: getEnvInt64("QUEUE_FLUSH_INTERVAL_MS", 2_000),
