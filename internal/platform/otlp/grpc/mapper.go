@@ -115,11 +115,45 @@ func attrsToJSON(kvs []*commonpb.KeyValue) string {
 		return "{}"
 	}
 	m := attrsToMap(kvs)
+	return mapToJSON(m)
+}
+
+// mapToJSON serializes a map[string]string to a compact JSON string.
+func mapToJSON(m map[string]string) string {
+	if len(m) == 0 {
+		return "{}"
+	}
 	b, err := json.Marshal(m)
 	if err != nil {
 		return "{}"
 	}
 	return string(b)
+}
+
+// mergeAttrsJSON merges a pre-built resource map with datapoint protobuf attrs
+// and serializes to JSON. Avoids temporary slice allocation from append().
+func mergeAttrsJSON(resMap map[string]string, dpAttrs []*commonpb.KeyValue) string {
+	if len(dpAttrs) == 0 {
+		return mapToJSON(resMap)
+	}
+	merged := make(map[string]string, len(resMap)+len(dpAttrs))
+	for k, v := range resMap {
+		merged[k] = v
+	}
+	for _, kv := range dpAttrs {
+		merged[kv.Key] = anyValueString(kv.Value)
+	}
+	return mapToJSON(merged)
+}
+
+// mapGet returns the value of the first non-empty key from the map (fallback chain).
+func mapGet(m map[string]string, keys ...string) string {
+	for _, k := range keys {
+		if v := m[k]; v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // resourceFingerprint hashes the resource attributes to a single stable UInt64.
@@ -171,6 +205,8 @@ func MapSpans(teamID string, req *tracepb.ExportTraceServiceRequest) []ingest.Ro
 		if rs.Resource != nil {
 			resAttrs = rs.Resource.Attributes
 		}
+		// Build resource attribute map once per resource (shared across all spans).
+		resMap := attrsToMap(resAttrs)
 
 		for _, ss := range rs.ScopeSpans {
 			for _, s := range ss.Spans {
@@ -190,48 +226,39 @@ func MapSpans(teamID string, req *tracepb.ExportTraceServiceRequest) []ingest.Ro
 				}
 				hasError := statusCode == trace.Status_STATUS_CODE_ERROR
 
-				// Extract HTTP attributes
-				spanAttrs := s.Attributes
-				httpMethod := lookupAttr(spanAttrs, "http.method")
-				if httpMethod == "" {
-					httpMethod = lookupAttr(spanAttrs, "http.request.method")
+				// Build a merged attribute map: resource + span attrs.
+				// This single map is used for all O(1) lookups AND JSON serialization.
+				spanMap := attrsToMap(s.Attributes)
+				mergedMap := make(map[string]string, len(resMap)+len(spanMap))
+				for k, v := range resMap {
+					mergedMap[k] = v
 				}
-				httpURL := lookupAttr(spanAttrs, "http.url")
-				if httpURL == "" {
-					httpURL = lookupAttr(spanAttrs, "url.full")
+				for k, v := range spanMap {
+					mergedMap[k] = v // span attrs override resource attrs
 				}
-				httpHost := lookupAttr(spanAttrs, "http.host")
-				if httpHost == "" {
-					httpHost = lookupAttr(spanAttrs, "net.host.name")
-				}
-				httpStatusCode := lookupAttr(spanAttrs, "http.status_code")
-				if httpStatusCode == "" {
-					httpStatusCode = lookupAttr(spanAttrs, "http.response.status_code")
-				}
+
+				// O(1) lookups from the span map
+				httpMethod := mapGet(spanMap, "http.method", "http.request.method")
+				httpURL := mapGet(spanMap, "http.url", "url.full")
+				httpHost := mapGet(spanMap, "http.host", "net.host.name")
+				httpStatusCode := mapGet(spanMap, "http.status_code", "http.response.status_code")
 
 				// External HTTP (for CLIENT spans)
 				externalHTTPURL := ""
 				externalHTTPMethod := ""
 				if s.Kind == trace.Span_SPAN_KIND_CLIENT {
-					externalHTTPURL = lookupAttr(spanAttrs, "http.url")
-					if externalHTTPURL == "" {
-						externalHTTPURL = lookupAttr(spanAttrs, "url.full")
-					}
+					externalHTTPURL = httpURL
 					externalHTTPMethod = httpMethod
 				}
 
 				// Exception attributes
-				exceptionType := lookupAttr(spanAttrs, "exception.type")
-				exceptionMessage := lookupAttr(spanAttrs, "exception.message")
-				exceptionStacktrace := lookupAttr(spanAttrs, "exception.stacktrace")
-				exceptionEscaped := lookupAttr(spanAttrs, "exception.escaped") == "true"
+				exceptionType := spanMap["exception.type"]
+				exceptionMessage := spanMap["exception.message"]
+				exceptionStacktrace := spanMap["exception.stacktrace"]
+				exceptionEscaped := spanMap["exception.escaped"] == "true"
 
-				// Merge resource + span attributes so materialized columns (service_name,
-				// mat_host_name, mat_k8s_pod_name, etc.) are populated from the JSON column.
-				allAttrs := make([]*commonpb.KeyValue, 0, len(resAttrs)+len(spanAttrs))
-				allAttrs = append(allAttrs, resAttrs...)
-				allAttrs = append(allAttrs, spanAttrs...)
-				attrsJSON := attrsToJSON(allAttrs)
+				// Serialize merged map to JSON (single pass, no redundant attrsToMap call).
+				attrsJSON := mapToJSON(mergedMap)
 
 				// Events column is Array(String), so pass native []string values.
 				eventNames := make([]string, 0, len(s.Events))
@@ -407,7 +434,8 @@ func MapMetrics(teamID string, req *metricspb.ExportMetricsServiceRequest) []ing
 			resAttrs = rm.Resource.Attributes
 		}
 
-		env := lookupAttr(resAttrs, "deployment.environment")
+		resMap := attrsToMap(resAttrs)
+		env := resMap["deployment.environment"]
 		if env == "" {
 			env = "default"
 		}
@@ -422,7 +450,7 @@ func MapMetrics(teamID string, req *metricspb.ExportMetricsServiceRequest) []ing
 				case *metricsdatapb.Metric_Gauge:
 					for _, dp := range data.Gauge.DataPoints {
 						val := numberDataPointValue(dp)
-						attrsJSON := attrsToJSON(append(resAttrs, dp.Attributes...))
+						attrsJSON := mergeAttrsJSON(resMap, dp.Attributes)
 
 						rows = append(rows, ingest.Row{Values: []any{
 							teamID, env, m.Name, "Gauge", "Unspecified", false,
@@ -442,7 +470,7 @@ func MapMetrics(teamID string, req *metricspb.ExportMetricsServiceRequest) []ing
 
 					for _, dp := range data.Sum.DataPoints {
 						val := numberDataPointValue(dp)
-						attrsJSON := attrsToJSON(append(resAttrs, dp.Attributes...))
+						attrsJSON := mergeAttrsJSON(resMap, dp.Attributes)
 
 						rows = append(rows, ingest.Row{Values: []any{
 							teamID, env, m.Name, "Sum", temporality, isMonotonic,
@@ -480,7 +508,7 @@ func MapMetrics(teamID string, req *metricspb.ExportMetricsServiceRequest) []ing
 							counts = []uint64{}
 						}
 
-						attrsJSON := attrsToJSON(append(resAttrs, dp.Attributes...))
+						attrsJSON := mergeAttrsJSON(resMap, dp.Attributes)
 
 						rows = append(rows, ingest.Row{Values: []any{
 							teamID, env, m.Name, "Histogram", temporality, false,

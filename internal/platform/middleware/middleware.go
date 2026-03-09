@@ -10,6 +10,33 @@ import (
 	"github.com/observability/observability-backend-go/internal/platform/utils"
 )
 
+// APIDebugLogger logs request and response details for debugging.
+func APIDebugLogger(enabled bool) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !enabled {
+			c.Next()
+			return
+		}
+
+		start := time.Now()
+		path := c.Request.URL.Path
+		raw := c.Request.URL.RawQuery
+
+		c.Next()
+
+		timestamp := time.Now()
+		latency := timestamp.Sub(start)
+		method := c.Request.Method
+		statusCode := c.Writer.Status()
+
+		if raw != "" {
+			path = path + "?" + raw
+		}
+
+		log.Printf("[DEBUG API] %s %s | %d | %v", method, path, statusCode, latency)
+	}
+}
+
 type tenantContextKey string
 
 const tenantKey tenantContextKey = "tenant"

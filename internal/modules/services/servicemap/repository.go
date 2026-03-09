@@ -78,8 +78,8 @@ func (r *ClickHouseRepository) GetUpstreamDownstream(teamUUID, serviceName strin
 // Known hosts are derived from mat_host_name on the spans table (resource attrs merged at ingest).
 func (r *ClickHouseRepository) GetExternalDependencies(teamUUID string, startMs, endMs int64) ([]ExternalDependency, error) {
 	externalHostExpr := `coalesce(
-		nullIf(JSONExtractString(toJSONString(s.attributes), 'net.peer.name'), ''),
-		nullIf(JSONExtractString(toJSONString(s.attributes), 'peer.address'), ''),
+		nullIf(s.mat_host_name, ''),
+		nullIf(s.attributes.'peer.address'::String, ''),
 		nullIf(s.http_host, ''),
 		nullIf(s.external_http_url, ''),
 		nullIf(s.http_url, '')

@@ -3,14 +3,37 @@ package database
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 )
 
+// injectMySQLTimeouts adds connection timeouts to the DSN if not already present.
+// This prevents indefinite hangs on network issues.
+func injectMySQLTimeouts(dsn string) string {
+	timeouts := map[string]string{
+		"timeout":      "5s",
+		"readTimeout":  "30s",
+		"writeTimeout":  "30s",
+	}
+	for param, val := range timeouts {
+		if !strings.Contains(dsn, param+"=") {
+			sep := "&"
+			if !strings.Contains(dsn, "?") {
+				sep = "?"
+			}
+			dsn = dsn + sep + param + "=" + val
+		}
+	}
+	return dsn
+}
+
 // Open creates a MySQL connection pool. maxOpen and maxIdle control pool size;
 // pass 0 to use defaults (50 open, 25 idle).
+// Automatically injects connection timeouts into the DSN if not already present.
 func Open(dsn string, maxOpen, maxIdle int) (*sql.DB, error) {
+	dsn = injectMySQLTimeouts(dsn)
 	db, err := sql.Open("mysql", dsn)
 	if err != nil {
 		return nil, err
@@ -27,7 +50,9 @@ func Open(dsn string, maxOpen, maxIdle int) (*sql.DB, error) {
 	db.SetMaxOpenConns(maxOpen)
 	db.SetMaxIdleConns(maxIdle)
 
-	if err := db.Ping(); err != nil {
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer pingCancel()
+	if err := db.PingContext(pingCtx); err != nil {
 		return nil, err
 	}
 

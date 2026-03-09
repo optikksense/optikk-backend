@@ -3,6 +3,7 @@ package grpc
 import (
 	"context"
 	"errors"
+	"log"
 
 	"github.com/observability/observability-backend-go/internal/platform/ingest"
 	"github.com/observability/observability-backend-go/internal/platform/otlp/auth"
@@ -95,6 +96,7 @@ func (s *TraceServer) Export(ctx context.Context, req *tracepb.ExportTraceServic
 	if len(rows) == 0 {
 		return &tracepb.ExportTraceServiceResponse{}, nil
 	}
+	log.Printf("ingest: received %d spans via gRPC for team %s", len(rows), teamID)
 
 	if err := s.h.spansQueue.Enqueue(rows); err != nil {
 		if errors.Is(err, ingest.ErrBackpressure) {
@@ -117,6 +119,7 @@ func (s *LogsServer) Export(ctx context.Context, req *logspb.ExportLogsServiceRe
 	if len(rows) == 0 {
 		return &logspb.ExportLogsServiceResponse{}, nil
 	}
+	log.Printf("ingest: received %d logs via gRPC for team %s", len(rows), teamID)
 
 	if err := s.h.logsQueue.Enqueue(rows); err != nil {
 		if errors.Is(err, ingest.ErrBackpressure) {
@@ -139,6 +142,7 @@ func (s *MetricsServer) Export(ctx context.Context, req *metricspb.ExportMetrics
 	if len(rows) == 0 {
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
+	log.Printf("ingest: received %d metrics via gRPC for team %s", len(rows), teamID)
 
 	if err := s.h.metricsQueue.Enqueue(rows); err != nil {
 		if errors.Is(err, ingest.ErrBackpressure) {

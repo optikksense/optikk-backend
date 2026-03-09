@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"log"
+	"strings"
 	"sync"
 	"time"
 )
@@ -70,7 +71,7 @@ func (b *ByteTracker) flush() {
 		b.mu.Unlock()
 		return
 	}
-	
+
 	// Copy and clear the map
 	counts := make(map[int64]int64, len(b.ingestedCounts))
 	for k, v := range b.ingestedCounts {
@@ -83,22 +84,47 @@ func (b *ByteTracker) flush() {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	// Update the database.
-	// We run multiple queries, one per team. They can be inside a transaction if desired,
-	// but individual updates are sufficient.
-	for teamID, bytes := range counts {
-		kb := bytes / 1024
+	// Batch all team updates into a single SQL statement using CASE/WHEN.
+	// This reduces N round-trips to 1 for N teams.
+	teamIDs := make([]int64, 0, len(counts))
+	for id := range counts {
+		teamIDs = append(teamIDs, id)
+	}
+
+	// Build: UPDATE teams SET data_ingested_kb = data_ingested_kb + CASE id WHEN ? THEN ? ... END WHERE id IN (?,...)
+	var caseBuilder strings.Builder
+	args := make([]any, 0, len(teamIDs)*2+len(teamIDs))
+	caseBuilder.WriteString("UPDATE teams SET data_ingested_kb = data_ingested_kb + CASE id ")
+	for _, id := range teamIDs {
+		kb := counts[id] / 1024
 		if kb == 0 {
 			kb = 1 // count at least 1 KB for any non-zero payload
 		}
-		_, err := b.db.ExecContext(ctx, "UPDATE teams SET data_ingested_kb = data_ingested_kb + ? WHERE id = ?", kb, teamID)
-		if err != nil {
-			log.Printf("ingest/bytetracker: failed to update bytes for team %d: %v", teamID, err)
-			
-			// Re-add failed counts back to the tracker (in original bytes so rounding is consistent on retry)
-			b.mu.Lock()
-			b.ingestedCounts[teamID] += bytes
-			b.mu.Unlock()
-		}
+		caseBuilder.WriteString("WHEN ? THEN ? ")
+		args = append(args, id, kb)
 	}
+	caseBuilder.WriteString("ELSE 0 END WHERE id IN (")
+	for i, id := range teamIDs {
+		if i > 0 {
+			caseBuilder.WriteString(",")
+		}
+		caseBuilder.WriteString("?")
+		args = append(args, id)
+	}
+	caseBuilder.WriteString(")")
+
+	_, err := b.db.ExecContext(ctx, caseBuilder.String(), args...)
+	if err != nil {
+		log.Printf("ingest/bytetracker: batch update failed for %d teams: %v", len(teamIDs), err)
+
+		// Re-add all failed counts back to the tracker
+		b.mu.Lock()
+		for id, bytes := range counts {
+			b.ingestedCounts[id] += bytes
+		}
+		b.mu.Unlock()
+	} else if len(teamIDs) > 0 {
+		log.Printf("ingest/bytetracker: flushed %d teams in single batch", len(teamIDs))
+	}
+
 }

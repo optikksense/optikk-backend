@@ -3,6 +3,7 @@ package otlp
 import (
 	"errors"
 	"io"
+	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -42,11 +43,19 @@ func NewHandler(
 	}
 }
 
+// maxRequestBodySize is the maximum allowed OTLP payload size (50 MB).
+const maxRequestBodySize = 50 * 1024 * 1024
+
 // RegisterRoutes registers the OTLP/HTTP endpoints on the given router group.
 func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	r.POST("/v1/traces", h.ExportTraces)
 	r.POST("/v1/logs", h.ExportLogs)
 	r.POST("/v1/metrics", h.ExportMetrics)
+}
+
+// limitBody wraps the request body with a size limit to prevent OOM from oversized payloads.
+func limitBody(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxRequestBodySize)
 }
 
 // resolveTeamID looks up team_id from the X-API-Key header sent by the SDK.
@@ -83,6 +92,7 @@ func (h *Handler) recordIngestionSize(teamUUID string, size int64) {
 // ExportTraces accepts OTLP/HTTP JSON trace payloads.
 // POST /otlp/v1/traces
 func (h *Handler) ExportTraces(c *gin.Context) {
+	limitBody(c)
 	teamID, ok := h.resolveTeamID(c)
 	if !ok {
 		return
@@ -118,6 +128,7 @@ func (h *Handler) ExportTraces(c *gin.Context) {
 	}
 
 	if len(spanRows) > 0 {
+		log.Printf("ingest: received %d spans via HTTP for team %s", len(spanRows), teamID)
 		if err := h.spansQueue.Enqueue(spanRows); err != nil {
 			if err == ingest.ErrBackpressure {
 				c.Header("Retry-After", "5")
@@ -136,6 +147,7 @@ func (h *Handler) ExportTraces(c *gin.Context) {
 // ExportLogs accepts OTLP/HTTP JSON log payloads.
 // POST /otlp/v1/logs
 func (h *Handler) ExportLogs(c *gin.Context) {
+	limitBody(c)
 	teamID, ok := h.resolveTeamID(c)
 	if !ok {
 		return
@@ -170,6 +182,7 @@ func (h *Handler) ExportLogs(c *gin.Context) {
 		return
 	}
 
+	log.Printf("ingest: received %d logs via HTTP for team %s", len(rows), teamID)
 	if err := h.logsQueue.Enqueue(rows); err != nil {
 		if err == ingest.ErrBackpressure {
 			c.Header("Retry-After", "5")
@@ -187,6 +200,7 @@ func (h *Handler) ExportLogs(c *gin.Context) {
 // ExportMetrics accepts OTLP/HTTP JSON metric payloads.
 // POST /otlp/v1/metrics
 func (h *Handler) ExportMetrics(c *gin.Context) {
+	limitBody(c)
 	teamID, ok := h.resolveTeamID(c)
 	if !ok {
 		return
@@ -221,6 +235,7 @@ func (h *Handler) ExportMetrics(c *gin.Context) {
 		return
 	}
 
+	log.Printf("ingest: received %d metrics via HTTP for team %s", len(rows), teamID)
 	if err := h.metricsQueue.Enqueue(rows); err != nil {
 		if err == ingest.ErrBackpressure {
 			c.Header("Retry-After", "5")

@@ -31,6 +31,11 @@ func init() {
 	gob.Register(time.Time{})
 }
 
+// gobBufPool reuses bytes.Buffer instances for gob encoding in the Kafka path.
+var gobBufPool = sync.Pool{
+	New: func() any { return new(bytes.Buffer) },
+}
+
 // Defaults — all tuneable via Option functions.
 const (
 	DefaultBatchSize    = 1000
@@ -139,14 +144,18 @@ func (q *Queue) Enqueue(rows []Row) error {
 	if q.useKafka {
 		msgs := make([]kafka.Message, len(rows))
 		for i, r := range rows {
-			var buf bytes.Buffer
-			enc := gob.NewEncoder(&buf)
+			buf := gobBufPool.Get().(*bytes.Buffer)
+			buf.Reset()
+			enc := gob.NewEncoder(buf)
 			if err := enc.Encode(r.Values); err != nil {
+				gobBufPool.Put(buf)
 				return err
 			}
-			msgs[i] = kafka.Message{
-				Value: buf.Bytes(),
-			}
+			// Copy bytes before returning buffer to pool.
+			val := make([]byte, buf.Len())
+			copy(val, buf.Bytes())
+			gobBufPool.Put(buf)
+			msgs[i] = kafka.Message{Value: val}
 		}
 		if err := q.kafkaWriter.WriteMessages(context.Background(), msgs...); err != nil {
 			return fmt.Errorf("ingest: kafka write failed: %v", err)
@@ -315,13 +324,13 @@ func (q *Queue) drainLocked() []Row {
 }
 
 // drainBatchLocked moves at most batchSize rows out. Caller must hold mu.
+// Uses sub-slicing instead of copying to avoid allocation.
 func (q *Queue) drainBatchLocked() []Row {
 	n := q.batchSize
 	if n > len(q.buf) {
 		n = len(q.buf)
 	}
-	batch := make([]Row, n)
-	copy(batch, q.buf[:n])
+	batch := q.buf[:n:n]
 	q.buf = q.buf[n:]
 	return batch
 }
@@ -344,7 +353,7 @@ func (q *Queue) flush(batch []Row) error {
 	}
 
 	query := fmt.Sprintf(
-		"INSERT INTO %s (%s) VALUES %s",
+		"INSERT INTO %s (%s) SETTINGS async_insert=1, wait_for_async_insert=1 VALUES %s",
 		q.table, colList, strings.Join(rowPlaceholders, ", "),
 	)
 
@@ -354,6 +363,8 @@ func (q *Queue) flush(batch []Row) error {
 	_, err := q.db.ExecContext(ctx, query, args...)
 	if err != nil {
 		log.Printf("ERROR: ClickHouse insert failed for table %s: %v", q.table, err)
+	} else {
+		log.Printf("ingest: successfully flushed %d rows to %s", len(batch), q.table)
 	}
 	return err
 }

@@ -92,7 +92,7 @@ func (r *ClickHouseRepository) GetErrorHotspot(teamUUID string, startMs, endMs i
 // GetHTTP5xxByRoute returns counts of HTTP 5xx responses grouped by http.route.
 func (r *ClickHouseRepository) GetHTTP5xxByRoute(teamUUID string, startMs, endMs int64, serviceName string) ([]HTTP5xxByRoute, error) {
 	query := `
-		SELECT s.attributes.'http.route'::String AS http_route,
+		SELECT s.mat_http_route AS http_route,
 		       s.service_name AS service_name,
 		       count()                                        AS count_5xx
 		FROM observability.spans s

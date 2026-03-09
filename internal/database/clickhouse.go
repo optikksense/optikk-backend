@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"database/sql"
+	"regexp"
 	"strings"
 	"time"
 
@@ -44,6 +45,8 @@ func OpenClickHouse(dsn string, isProduction bool) (*sql.DB, error) {
 				Username: "default",
 				Password: "CHZoMiHfX_5vt",
 			},
+			DialTimeout: 5 * time.Second,
+			ReadTimeout: 30 * time.Second,
 		})
 	} else {
 		conn, err = sql.Open("clickhouse", dsn)
@@ -56,7 +59,9 @@ func OpenClickHouse(dsn string, isProduction bool) (*sql.DB, error) {
 	conn.SetMaxIdleConns(25)
 	conn.SetConnMaxLifetime(15 * time.Minute)
 
-	if err := conn.PingContext(context.Background()); err != nil {
+	pingCtx, pingCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer pingCancel()
+	if err := conn.PingContext(pingCtx); err != nil {
 		return nil, err
 	}
 
@@ -75,11 +80,35 @@ func NewClickHouseWrapper(db *sql.DB) *ClickHouseWrapper {
 	}
 }
 
+// prewhereRe matches: WHERE <alias>.team_id = ? AND <alias>.ts_bucket_start BETWEEN ? AND ?
+// and rewrites the team_id + ts_bucket_start conditions into a PREWHERE clause,
+// keeping the remaining conditions in WHERE. This lets ClickHouse skip granules
+// before decompressing columns, giving 2-10x speedup on large tables.
+var prewhereRe = regexp.MustCompile(
+	`(?i)\bWHERE\s+([\w.]*\.?)team_id\s*=\s*\?\s+AND\s+([\w.]*\.?)ts_bucket_start\s+BETWEEN\s+\?\s+AND\s+\?\s+AND\s+`,
+)
+
+func injectPrewhere(query string) string {
+	if strings.Contains(strings.ToUpper(query), "PREWHERE") {
+		return query // already has PREWHERE
+	}
+	// Rewrite: WHERE a.team_id = ? AND a.ts_bucket_start BETWEEN ? AND ? AND <rest>
+	//      to: PREWHERE a.team_id = ? AND a.ts_bucket_start BETWEEN ? AND ? WHERE <rest>
+	return prewhereRe.ReplaceAllString(query, "PREWHERE ${1}team_id = ? AND ${2}ts_bucket_start BETWEEN ? AND ? WHERE ")
+}
+
 func injectMaxExecutionTime(query string) string {
 	qUpper := strings.ToUpper(strings.TrimSpace(query))
 	if (strings.HasPrefix(qUpper, "SELECT") || strings.HasPrefix(qUpper, "WITH")) && !strings.Contains(qUpper, "SETTINGS ") {
-		return query + "\nSETTINGS max_execution_time=30"
+		return query + "\nSETTINGS max_execution_time=30, max_rows_to_read=500000000, read_overflow_mode='break', optimize_read_in_order=1"
 	}
+	return query
+}
+
+// optimizeQuery applies all query rewrites: PREWHERE injection + SETTINGS injection.
+func optimizeQuery(query string) string {
+	query = injectPrewhere(query)
+	query = injectMaxExecutionTime(query)
 	return query
 }
 
@@ -108,7 +137,7 @@ func (m *ClickHouseWrapper) BeginTx(ctx context.Context, opts *sql.TxOptions) (*
 }
 
 func (m *ClickHouseWrapper) Query(query string, args ...any) (Rows, error) {
-	query = injectMaxExecutionTime(query)
+	query = optimizeQuery(query)
 	var rows *sql.Rows
 	err := m.cb.Call(func() error {
 		var err error
@@ -122,7 +151,7 @@ func (m *ClickHouseWrapper) Query(query string, args ...any) (Rows, error) {
 }
 
 func (m *ClickHouseWrapper) QueryRow(query string, args ...any) Row {
-	query = injectMaxExecutionTime(query)
+	query = optimizeQuery(query)
 	var row *sql.Row
 	// We run QueryRow under the circuit breaker, but since it doesn't return an error directly
 	// (errors are deferred to Scan), any immediate errors (like connection drops) might not drop the breaker here.

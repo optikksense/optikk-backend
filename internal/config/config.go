@@ -63,6 +63,8 @@ type Config struct {
 	GitHubClientID     string
 	GitHubClientSecret string
 	OAuthRedirectBase  string
+
+	DebugAPILogs bool
 }
 
 // Load reads configuration from environment variables.
@@ -114,6 +116,8 @@ func Load() Config {
 		GitHubClientID:     getEnv("GITHUB_CLIENT_ID", ""),
 		GitHubClientSecret: getEnv("GITHUB_CLIENT_SECRET", ""),
 		OAuthRedirectBase:  getEnv("OAUTH_REDIRECT_BASE", "http://localhost:3000"),
+
+		DebugAPILogs: getEnvBool("DEBUG_API_LOGS", true),
 	}
 
 	cfg.validate()
