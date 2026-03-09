@@ -379,6 +379,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 
 func (a *App) Router() *gin.Engine {
 	r := gin.New()
+	r.Use(middleware.APIDebugLogger(a.Config.DebugAPILogs))
 	r.Use(gin.Logger())
 	r.Use(middleware.ErrorRecovery())
 	r.Use(middleware.CORSMiddleware(a.Config.AllowedOrigins))
@@ -405,6 +406,7 @@ func (a *App) Router() *gin.Engine {
 
 func (a *App) OTLPRouter() *gin.Engine {
 	r := gin.New()
+	r.Use(middleware.APIDebugLogger(a.Config.DebugAPILogs))
 	r.Use(gin.Logger())
 	r.Use(middleware.ErrorRecovery())
 	r.Use(middleware.CORSMiddleware(a.Config.AllowedOrigins))
