@@ -23,6 +23,8 @@ docker exec -i mariadb mariadb -u root -proot123 observability -e "CREATE TABLE 
 docker exec -i mariadb mariadb -u root -proot123 observability -e "CREATE TABLE IF NOT EXISTS teams (id BIGINT AUTO_INCREMENT PRIMARY KEY, org_name VARCHAR(100) NOT NULL, name VARCHAR(100) NOT NULL, slug VARCHAR(50), description VARCHAR(500), active TINYINT(1) NOT NULL DEFAULT 1, color VARCHAR(50), icon VARCHAR(100), api_key VARCHAR(64) NOT NULL UNIQUE, retention_days INT NOT NULL DEFAULT 30, slack_webhook_url VARCHAR(255), dashboard_configs JSON NULL, data_ingested_kb BIGINT NOT NULL DEFAULT 0, created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, updated_at DATETIME NULL, INDEX idx_team_api_key (api_key), UNIQUE KEY uq_team_org_name (org_name, name));"
 ```
 
+*Note: The `dashboard_configs` JSON column in the `teams` table serves as the primary source of truth for page and dashboard layouts. It is automatically initialized with the full JSON payload of all default system configurations when a new team is created. Legacy `default_page_config` tables are no longer used.*
+
 #### **ClickHouse** (Used for telemetry data: spans, logs, metrics):
 First, create the database, then execute the table creation commands. See `db/clickhouse_schema.sql` for full schemas.
 

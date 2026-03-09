@@ -11,18 +11,21 @@ import (
 
 	types "github.com/observability/observability-backend-go/internal/contracts"
 	dbutil "github.com/observability/observability-backend-go/internal/database"
+	configdefaults "github.com/observability/observability-backend-go/internal/defaultconfig"
 	apphandlers "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
 type UserHandler struct {
 	store     *Store
 	getTenant apphandlers.GetTenantFunc
+	registry  *configdefaults.Registry
 }
 
-func NewUserHandler(getTenant apphandlers.GetTenantFunc, store *Store) *UserHandler {
+func NewUserHandler(getTenant apphandlers.GetTenantFunc, store *Store, registry *configdefaults.Registry) *UserHandler {
 	return &UserHandler{
 		store:     store,
 		getTenant: getTenant,
+		registry:  registry,
 	}
 }
 
@@ -369,7 +372,14 @@ func (h *UserHandler) CreateTeam(c *gin.Context) {
 		descriptionPtr = &desc
 	}
 
-	teamID, err := h.store.CreateTeam(orgName, name, slug, descriptionPtr, color, apiKey, time.Now().UTC())
+	defaultConfigJSON := "{}"
+	if h.registry != nil {
+		if jsonStr, err := h.registry.GenerateDefaultDashboardConfigsJSON(); err == nil {
+			defaultConfigJSON = jsonStr
+		}
+	}
+
+	teamID, err := h.store.CreateTeam(orgName, name, slug, descriptionPtr, color, apiKey, &defaultConfigJSON, time.Now().UTC())
 	if err != nil {
 		log.Printf("ERROR: Failed to create team: %v (orgName=%s, name=%s)", err, orgName, name)
 		if strings.Contains(err.Error(), "1062") || strings.Contains(err.Error(), "Duplicate entry") {

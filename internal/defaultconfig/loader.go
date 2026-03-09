@@ -288,3 +288,18 @@ func validateComponent(pageID, tabID string, component Component, seenIDs map[st
 	}
 	return nil
 }
+
+// GenerateDefaultDashboardConfigsJSON exports the entire registry of default pages as a JSON string.
+// This is used to seed the dashboard_configs column when a new team is created.
+func (r *Registry) GenerateDefaultDashboardConfigsJSON() (string, error) {
+	if r == nil || len(r.pages) == 0 {
+		return "{}", nil
+	}
+
+	bytes, err := json.Marshal(r.pages)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal default configs: %w", err)
+	}
+
+	return string(bytes), nil
+}

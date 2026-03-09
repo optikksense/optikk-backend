@@ -189,7 +189,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 		TokenBlacklist: blacklist,
 
 		Auth:  usermodule.NewAuthHandler(getTenant, userStore, jwt, blacklist, cfg.JWTExpirationMs),
-		Users: usermodule.NewUserHandler(getTenant, userStore),
+		Users: usermodule.NewUserHandler(getTenant, userStore, registry),
 		OAuth: usermodule.NewOAuthHandler(
 			userStore, jwt, cfg.JWTExpirationMs,
 			cfg.GoogleClientID, cfg.GoogleClientSecret,

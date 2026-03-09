@@ -192,11 +192,11 @@ func (r *Store) ListActiveTeamsByIDs(teamIDs []int64) ([]map[string]any, error) 
 	`, inClause), args...)
 }
 
-func (r *Store) CreateTeam(orgName, name, slug string, description *string, color, apiKey string, createdAt time.Time) (int64, error) {
+func (r *Store) CreateTeam(orgName, name, slug string, description *string, color, apiKey string, dashboardConfigsJSON *string, createdAt time.Time) (int64, error) {
 	res, err := r.DB.Exec(`
-		INSERT INTO teams (org_name, name, slug, description, active, color, api_key, created_at)
-		VALUES (?, ?, ?, ?, 1, ?, ?, ?)
-	`, orgName, name, slug, nullableStringPtr(description), color, apiKey, createdAt)
+		INSERT INTO teams (org_name, name, slug, description, active, color, api_key, dashboard_configs, created_at)
+		VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+	`, orgName, name, slug, nullableStringPtr(description), color, apiKey, dashboardConfigsJSON, createdAt)
 	if err != nil {
 		return 0, err
 	}
