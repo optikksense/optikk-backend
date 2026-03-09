@@ -307,36 +307,3 @@ SETTINGS
     enable_mixed_granularity_parts = 1,
     storage_policy = 'tiered_gcs';
 
--- ===========================================================================
--- MATERIALIZED VIEW: spans_red_1m
--- Pre-aggregates RED metrics (rate, errors, duration) per minute per service/operation.
--- Used by dashboard queries (GetTopSlowOperations, GetServiceScorecard, etc.)
--- to avoid full raw-span scans on every request.
--- ===========================================================================
-CREATE TABLE IF NOT EXISTS observability.spans_red_1m (
-    team_id        LowCardinality(String),
-    service_name   LowCardinality(String),
-    operation_name LowCardinality(String),
-    ts             DateTime CODEC(DoubleDelta, LZ4),
-    req_count      AggregateFunction(count),
-    err_count      AggregateFunction(countIf, Bool),
-    p95_state      AggregateFunction(quantile(0.95), Float64),
-    p99_state      AggregateFunction(quantile(0.99), Float64)
-) ENGINE = AggregatingMergeTree()
-PARTITION BY toYYYYMM(ts)
-ORDER BY (team_id, service_name, operation_name, ts)
-SETTINGS index_granularity = 8192;
-
-CREATE MATERIALIZED VIEW IF NOT EXISTS observability.spans_red_1m_mv
-TO observability.spans_red_1m
-AS SELECT
-    team_id,
-    service_name,
-    name AS operation_name,
-    toStartOfMinute(timestamp) AS ts,
-    countState() AS req_count,
-    countIfState(has_error) AS err_count,
-    quantileState(0.95)(toFloat64(duration_nano) / 1000000.0) AS p95_state,
-    quantileState(0.99)(toFloat64(duration_nano) / 1000000.0) AS p99_state
-FROM observability.spans
-GROUP BY team_id, service_name, name, ts;

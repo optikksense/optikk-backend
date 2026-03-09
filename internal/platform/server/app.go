@@ -49,6 +49,7 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
+	_ "google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/reflection"
 )
 
@@ -481,7 +482,7 @@ func (a *App) Start(ctx context.Context) error {
 	}
 
 	// 3. Setup OTLP gRPC Server (4317)
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%s", a.Config.GRPCPort))
+	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%s", a.Config.GRPCPort))
 	if err != nil {
 		return fmt.Errorf("gRPC listen failed: %v", err)
 	}
