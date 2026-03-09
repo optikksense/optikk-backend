@@ -372,6 +372,12 @@ func (h *UserHandler) CreateTeam(c *gin.Context) {
 	teamID, err := h.store.CreateTeam(orgName, name, slug, descriptionPtr, color, apiKey, time.Now().UTC())
 	if err != nil {
 		log.Printf("ERROR: Failed to create team: %v (orgName=%s, name=%s)", err, orgName, name)
+		if strings.Contains(err.Error(), "1062") || strings.Contains(err.Error(), "Duplicate entry") {
+			respondServiceError(c, newValidationError("Team already exists in this organization", err), "Team already exists in this organization")
+			return
+		}
+		respondServiceError(c, newInternalError("Failed to create team", err), "Unable to create team")
+		return
 	}
 
 	team, err := h.store.FindTeamByID(teamID)

@@ -198,11 +198,11 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 		),
 		Logs: logsapi.NewHandler(
 			getTenant,
-			logsapi.NewRepository(dbutil.NewMySQLWrapper(ch)),
+			logsapi.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 		),
 		Traces: tracesapi.NewHandler(
 			getTenant,
-			tracesapi.NewRepository(dbutil.NewMySQLWrapper(ch)),
+			tracesapi.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 		),
 		TraceDetail: &tracedetail.TraceDetailHandler{
 			DBTenant: modulecommon.DBTenant{
@@ -210,7 +210,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				GetTenant: getTenant,
 			},
 			Service: tracedetail.NewService(
-				tracedetail.NewRepository(dbutil.NewMySQLWrapper(ch)),
+				tracedetail.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
 		ServiceMap: &servicemap.ServiceMapHandler{
@@ -219,7 +219,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				GetTenant: getTenant,
 			},
 			Service: servicemap.NewService(
-				servicemap.NewRepository(dbutil.NewMySQLWrapper(ch)),
+				servicemap.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
 		REDMetrics: &redmetrics.REDMetricsHandler{
@@ -228,7 +228,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				GetTenant: getTenant,
 			},
 			Service: redmetrics.NewService(
-				redmetrics.NewRepository(dbutil.NewMySQLWrapper(ch)),
+				redmetrics.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
 		ErrorTracking: &errortracking.ErrorTrackingHandler{
@@ -237,7 +237,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				GetTenant: getTenant,
 			},
 			Service: errortracking.NewService(
-				errortracking.NewRepository(dbutil.NewMySQLWrapper(ch)),
+				errortracking.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
 		Overview: &overviewmodule.OverviewHandler{
@@ -246,7 +246,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				GetTenant: getTenant,
 			},
 			Service: overviewmodule.NewService(
-				overviewmodule.NewRepository(dbutil.NewMySQLWrapper(ch)),
+				overviewmodule.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
 		OverviewSLO: &overviewslo.SLOHandler{
@@ -255,7 +255,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				GetTenant: getTenant,
 			},
 			Service: overviewslo.NewService(
-				overviewslo.NewRepository(dbutil.NewMySQLWrapper(ch)),
+				overviewslo.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
 		OverviewErrors: &overviewerrors.ErrorHandler{
@@ -264,7 +264,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				GetTenant: getTenant,
 			},
 			Service: overviewerrors.NewService(
-				overviewerrors.NewRepository(dbutil.NewMySQLWrapper(ch)),
+				overviewerrors.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
 		ServicesPage: &servicepage.ServiceHandler{
@@ -273,7 +273,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				GetTenant: getTenant,
 			},
 			Service: servicepage.NewService(
-				servicepage.NewRepository(dbutil.NewMySQLWrapper(ch)),
+				servicepage.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
 		ServicesTopology: &servicetopology.TopologyHandler{
@@ -282,7 +282,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				GetTenant: getTenant,
 			},
 			Service: servicetopology.NewService(
-				servicetopology.NewRepository(dbutil.NewMySQLWrapper(ch)),
+				servicetopology.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
 		Nodes: &nodes.NodeHandler{
@@ -291,7 +291,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				GetTenant: getTenant,
 			},
 			Service: nodes.NewService(
-				nodes.NewRepository(dbutil.NewMySQLWrapper(ch)),
+				nodes.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
 		ResourceUtilisation: &resource_utilisation.ResourceUtilisationHandler{
@@ -300,7 +300,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				GetTenant: getTenant,
 			},
 			Service: resource_utilisation.NewService(
-				resource_utilisation.NewRepository(dbutil.NewMySQLWrapper(ch)),
+				resource_utilisation.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
 		SaturationDatabase: &satdatabase.DatabaseHandler{
@@ -309,7 +309,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				GetTenant: getTenant,
 			},
 			Service: satdatabase.NewService(
-				satdatabase.NewRepository(dbutil.NewMySQLWrapper(ch)),
+				satdatabase.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
 		SaturationKafka: &kafka.KafkaHandler{
@@ -318,7 +318,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				GetTenant: getTenant,
 			},
 			Service: kafka.NewService(
-				kafka.NewRepository(dbutil.NewMySQLWrapper(ch)),
+				kafka.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
 		Kubernetes: &kubernetes.KubernetesHandler{
@@ -327,7 +327,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				GetTenant: getTenant,
 			},
 			Service: kubernetes.NewService(
-				kubernetes.NewRepository(dbutil.NewMySQLWrapper(ch)),
+				kubernetes.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
 		HTTPMetrics: &httpmetrics.HTTPMetricsHandler{
@@ -336,7 +336,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				GetTenant: getTenant,
 			},
 			Service: httpmetrics.NewService(
-				httpmetrics.NewRepository(dbutil.NewMySQLWrapper(ch)),
+				httpmetrics.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
 		APM: &apm.APMHandler{
@@ -345,7 +345,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				GetTenant: getTenant,
 			},
 			Service: apm.NewService(
-				apm.NewRepository(dbutil.NewMySQLWrapper(ch)),
+				apm.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
 		AI: &ai.AIHandler{
@@ -354,7 +354,7 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 				GetTenant: getTenant,
 			},
 			Service: ai.NewService(
-				ai.NewRepository(dbutil.NewMySQLWrapper(ch)),
+				ai.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
 		DefaultConfig: &defaultconfig.Handler{

@@ -52,7 +52,7 @@ func (e *Engine) evaluateAlerts() {
             FROM observability.logs
             WHERE team_id = ? AND level IN ('ERROR', 'FATAL') AND timestamp >= now() - INTERVAL 5 MINUTE
         `
-		res, err := database.QueryMap(database.NewMySQLWrapper(e.ch), query, teamID)
+		res, err := database.QueryMap(database.NewClickHouseWrapper(e.ch), query, teamID)
 		if err != nil {
 			log.Printf("alerting: error querying clickhouse for team %d: %v", teamID, err)
 			continue

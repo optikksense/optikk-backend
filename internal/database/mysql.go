@@ -1,6 +1,7 @@
 package database
 
 import (
+	"context"
 	"database/sql"
 	"time"
 
@@ -33,3 +34,41 @@ func Open(dsn string, maxOpen, maxIdle int) (*sql.DB, error) {
 	return db, nil
 }
 
+type MySQLWrapper struct {
+	db *sql.DB
+}
+
+func NewMySQLWrapper(db *sql.DB) *MySQLWrapper {
+	return &MySQLWrapper{
+		db: db,
+	}
+}
+
+func (m *MySQLWrapper) Exec(query string, args ...any) (sql.Result, error) {
+	return m.db.Exec(query, args...)
+}
+
+func (m *MySQLWrapper) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return m.db.ExecContext(ctx, query, args...)
+}
+
+func (m *MySQLWrapper) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+	return m.db.BeginTx(ctx, opts)
+}
+
+func (m *MySQLWrapper) Query(query string, args ...any) (Rows, error) {
+	rows, err := m.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return &sqlRowsAdapter{rows: rows}, nil
+}
+
+func (m *MySQLWrapper) QueryRow(query string, args ...any) Row {
+	row := m.db.QueryRow(query, args...)
+	return &sqlRowAdapter{row: row}
+}
+
+func (m *MySQLWrapper) Close() error {
+	return m.db.Close()
+}

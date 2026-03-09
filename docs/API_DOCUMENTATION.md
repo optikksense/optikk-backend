@@ -27,7 +27,7 @@ Expected response: HTTP `201 Created` with the new user payload.
 curl -X POST http://localhost:9090/api/v1/users \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "user@example.com",
+    "email": "user6@example.com",
     "name": "John Doe",
     "role": "admin",
     "password": "securePassword123",
@@ -44,7 +44,7 @@ Expected response: HTTP `200 OK` with a JWT token and the current team context.
 curl -X POST http://localhost:9090/api/v1/auth/login \
   -H "Content-Type: application/json" \
   -d '{
-    "email": "user@example.com",
+    "email": "user6@example.com",
     "password": "securePassword123"
   }'
 ```

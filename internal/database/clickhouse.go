@@ -47,15 +47,15 @@ func OpenClickHouse(dsn string) (*sql.DB, error) {
 	return conn, nil
 }
 
-type MySQLWrapper struct {
+type ClickHouseWrapper struct {
 	db *sql.DB
 	cb *circuitbreaker.CircuitBreaker
 }
 
-func NewMySQLWrapper(db *sql.DB) *MySQLWrapper {
-	return &MySQLWrapper{
+func NewClickHouseWrapper(db *sql.DB) *ClickHouseWrapper {
+	return &ClickHouseWrapper{
 		db: db,
-		cb: circuitbreaker.NewCircuitBreaker("mysql_wrapper", 5, 30*time.Second),
+		cb: circuitbreaker.NewCircuitBreaker("clickhouse_wrapper", 5, 30*time.Second),
 	}
 }
 
@@ -67,7 +67,7 @@ func injectMaxExecutionTime(query string) string {
 	return query
 }
 
-func (m *MySQLWrapper) Exec(query string, args ...any) (sql.Result, error) {
+func (m *ClickHouseWrapper) Exec(query string, args ...any) (sql.Result, error) {
 	var res sql.Result
 	err := m.cb.Call(func() error {
 		var err error
@@ -77,7 +77,7 @@ func (m *MySQLWrapper) Exec(query string, args ...any) (sql.Result, error) {
 	return res, err
 }
 
-func (m *MySQLWrapper) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+func (m *ClickHouseWrapper) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	var res sql.Result
 	err := m.cb.Call(func() error {
 		var err error
@@ -87,11 +87,11 @@ func (m *MySQLWrapper) ExecContext(ctx context.Context, query string, args ...an
 	return res, err
 }
 
-func (m *MySQLWrapper) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+func (m *ClickHouseWrapper) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
 	return m.db.BeginTx(ctx, opts)
 }
 
-func (m *MySQLWrapper) Query(query string, args ...any) (Rows, error) {
+func (m *ClickHouseWrapper) Query(query string, args ...any) (Rows, error) {
 	query = injectMaxExecutionTime(query)
 	var rows *sql.Rows
 	err := m.cb.Call(func() error {
@@ -105,7 +105,7 @@ func (m *MySQLWrapper) Query(query string, args ...any) (Rows, error) {
 	return &sqlRowsAdapter{rows: rows}, nil
 }
 
-func (m *MySQLWrapper) QueryRow(query string, args ...any) Row {
+func (m *ClickHouseWrapper) QueryRow(query string, args ...any) Row {
 	query = injectMaxExecutionTime(query)
 	var row *sql.Row
 	// We run QueryRow under the circuit breaker, but since it doesn't return an error directly
@@ -158,6 +158,6 @@ func (r *sqlRowAdapter) Scan(dest ...any) error {
 	return r.row.Scan(dest...)
 }
 
-func (m *MySQLWrapper) Close() error {
+func (m *ClickHouseWrapper) Close() error {
 	return m.db.Close()
 }
