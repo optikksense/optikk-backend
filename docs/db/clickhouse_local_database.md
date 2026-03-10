@@ -207,3 +207,13 @@ SETTINGS
     index_granularity = 8192,
     enable_mixed_granularity_parts = 1;
 ```
+
+### Data Dropping
+# Connect to ClickHouse
+docker exec -it clickhouse clickhouse-client
+
+# Drop entire database (drops all tables inside)
+DROP DATABASE IF EXISTS observability;
+
+# Recreate fresh
+CREATE DATABASE IF NOT EXISTS observability;

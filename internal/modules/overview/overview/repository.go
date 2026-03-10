@@ -189,22 +189,22 @@ func (r *ClickHouseRepository) GetTopEndpoints(teamUUID string, startMs, endMs i
 	query := `
 		SELECT service_name, operation_name, http_method, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
 		FROM (
-			SELECT service_name, name AS operation_name, http_method,
+			SELECT s.service_name AS service_name, s.name AS operation_name, s.http_method,
 			       count() AS request_count,
 			       countIf(` + ErrorCondition() + `) AS error_count,
-			       avg(duration_nano / 1000000.0) AS avg_latency,
-			       quantile(` + fmt.Sprintf("%.1f", QuantileP50) + `)(duration_nano / 1000000.0) AS p50_latency,
-			       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(duration_nano / 1000000.0) AS p95_latency,
-			       quantile(` + fmt.Sprintf("%.2f", QuantileP99) + `)(duration_nano / 1000000.0) AS p99_latency
-			FROM observability.spans
-			WHERE team_id = ? AND ` + RootSpanCondition() + ` AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ? AND
-				tuple(service_name, name, http_method) IN (
+			       avg(s.duration_nano / 1000000.0) AS avg_latency,
+			       quantile(` + fmt.Sprintf("%.1f", QuantileP50) + `)(s.duration_nano / 1000000.0) AS p50_latency,
+			       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency,
+			       quantile(` + fmt.Sprintf("%.2f", QuantileP99) + `)(s.duration_nano / 1000000.0) AS p99_latency
+			FROM observability.spans s
+			WHERE s.team_id = ? AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ? AND
+				tuple(s.service_name, s.name, s.http_method) IN (
 					SELECT service_name, name, http_method
-					FROM observability.spans
-					WHERE team_id = ? AND ` + RootSpanCondition() + ` AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ?`
+					FROM observability.spans s
+					WHERE s.team_id = ? AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`
 	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
-		query += ` AND service_name = ?`
+		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
 	}
 	query += `
@@ -213,11 +213,11 @@ func (r *ClickHouseRepository) GetTopEndpoints(teamUUID string, startMs, endMs i
 					LIMIT 100
 				)`
 	if serviceName != "" {
-		query += ` AND service_name = ?`
+		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
 	}
 	query += `
-			GROUP BY service_name, name, http_method
+			GROUP BY s.service_name, s.name, s.http_method
 		)
 		ORDER BY request_count DESC`
 
