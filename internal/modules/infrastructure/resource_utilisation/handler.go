@@ -15,13 +15,13 @@ type ResourceUtilisationHandler struct {
 }
 
 func (h *ResourceUtilisationHandler) GetAvgCPU(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	resp, err := h.Service.GetAvgCPU(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetAvgCPU(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query avg CPU")
 		return
@@ -30,13 +30,13 @@ func (h *ResourceUtilisationHandler) GetAvgCPU(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetAvgMemory(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	resp, err := h.Service.GetAvgMemory(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetAvgMemory(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query avg Memory")
 		return
@@ -45,13 +45,13 @@ func (h *ResourceUtilisationHandler) GetAvgMemory(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetAvgNetwork(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	resp, err := h.Service.GetAvgNetwork(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetAvgNetwork(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query avg Network")
 		return
@@ -60,13 +60,13 @@ func (h *ResourceUtilisationHandler) GetAvgNetwork(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetAvgConnPool(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	resp, err := h.Service.GetAvgConnPool(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetAvgConnPool(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query avg Conn Pool")
 		return
@@ -75,13 +75,13 @@ func (h *ResourceUtilisationHandler) GetAvgConnPool(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetCPUUsagePercentage(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	resp, err := h.Service.GetCPUUsagePercentage(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetCPUUsagePercentage(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query CPU usage percentage")
 		return
@@ -90,13 +90,13 @@ func (h *ResourceUtilisationHandler) GetCPUUsagePercentage(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetMemoryUsagePercentage(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	resp, err := h.Service.GetMemoryUsagePercentage(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetMemoryUsagePercentage(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query Memory usage percentage")
 		return
@@ -105,13 +105,13 @@ func (h *ResourceUtilisationHandler) GetMemoryUsagePercentage(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetByService(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	resp, err := h.Service.GetResourceUsageByService(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetResourceUsageByService(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query resource usage by service")
 		return
@@ -120,13 +120,13 @@ func (h *ResourceUtilisationHandler) GetByService(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetByInstance(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	resp, err := h.Service.GetResourceUsageByInstance(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetResourceUsageByInstance(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query resource usage by instance")
 		return
@@ -137,12 +137,12 @@ func (h *ResourceUtilisationHandler) GetByInstance(c *gin.Context) {
 // ─── System Infrastructure Handlers ──────────────────────────────────────────
 
 func (h *ResourceUtilisationHandler) GetCPUTime(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetCPUTime(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetCPUTime(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query CPU time")
 		return
@@ -151,12 +151,12 @@ func (h *ResourceUtilisationHandler) GetCPUTime(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetMemoryUsage(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetMemoryUsage(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetMemoryUsage(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query memory usage")
 		return
@@ -165,12 +165,12 @@ func (h *ResourceUtilisationHandler) GetMemoryUsage(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetSwapUsage(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetSwapUsage(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetSwapUsage(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query swap usage")
 		return
@@ -179,12 +179,12 @@ func (h *ResourceUtilisationHandler) GetSwapUsage(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetDiskIO(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetDiskIO(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetDiskIO(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query disk I/O")
 		return
@@ -193,12 +193,12 @@ func (h *ResourceUtilisationHandler) GetDiskIO(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetDiskOperations(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetDiskOperations(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetDiskOperations(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query disk operations")
 		return
@@ -207,12 +207,12 @@ func (h *ResourceUtilisationHandler) GetDiskOperations(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetDiskIOTime(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetDiskIOTime(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetDiskIOTime(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query disk I/O time")
 		return
@@ -221,12 +221,12 @@ func (h *ResourceUtilisationHandler) GetDiskIOTime(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetFilesystemUsage(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetFilesystemUsage(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetFilesystemUsage(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query filesystem usage")
 		return
@@ -235,12 +235,12 @@ func (h *ResourceUtilisationHandler) GetFilesystemUsage(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetFilesystemUtilization(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetFilesystemUtilization(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetFilesystemUtilization(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query filesystem utilization")
 		return
@@ -249,12 +249,12 @@ func (h *ResourceUtilisationHandler) GetFilesystemUtilization(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetNetworkIO(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetNetworkIO(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetNetworkIO(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query network I/O")
 		return
@@ -263,12 +263,12 @@ func (h *ResourceUtilisationHandler) GetNetworkIO(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetNetworkPackets(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetNetworkPackets(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetNetworkPackets(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query network packets")
 		return
@@ -277,12 +277,12 @@ func (h *ResourceUtilisationHandler) GetNetworkPackets(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetNetworkErrors(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetNetworkErrors(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetNetworkErrors(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query network errors")
 		return
@@ -291,12 +291,12 @@ func (h *ResourceUtilisationHandler) GetNetworkErrors(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetNetworkDropped(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetNetworkDropped(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetNetworkDropped(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query dropped packets")
 		return
@@ -305,12 +305,12 @@ func (h *ResourceUtilisationHandler) GetNetworkDropped(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetLoadAverage(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetLoadAverage(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetLoadAverage(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query load average")
 		return
@@ -319,12 +319,12 @@ func (h *ResourceUtilisationHandler) GetLoadAverage(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetProcessCount(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetProcessCount(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetProcessCount(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query process count")
 		return
@@ -333,12 +333,12 @@ func (h *ResourceUtilisationHandler) GetProcessCount(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetNetworkConnections(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetNetworkConnections(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetNetworkConnections(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query network connections")
 		return
@@ -349,12 +349,12 @@ func (h *ResourceUtilisationHandler) GetNetworkConnections(c *gin.Context) {
 // ─── JVM Handlers ─────────────────────────────────────────────────────────────
 
 func (h *ResourceUtilisationHandler) GetJVMMemory(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetJVMMemory(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetJVMMemory(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query JVM memory")
 		return
@@ -363,12 +363,12 @@ func (h *ResourceUtilisationHandler) GetJVMMemory(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetJVMGCDuration(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetJVMGCDuration(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetJVMGCDuration(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query JVM GC duration")
 		return
@@ -377,12 +377,12 @@ func (h *ResourceUtilisationHandler) GetJVMGCDuration(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetJVMGCCollections(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetJVMGCCollections(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetJVMGCCollections(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query JVM GC collections")
 		return
@@ -391,12 +391,12 @@ func (h *ResourceUtilisationHandler) GetJVMGCCollections(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetJVMThreadCount(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetJVMThreadCount(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetJVMThreadCount(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query JVM thread count")
 		return
@@ -405,12 +405,12 @@ func (h *ResourceUtilisationHandler) GetJVMThreadCount(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetJVMClasses(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetJVMClasses(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetJVMClasses(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query JVM classes")
 		return
@@ -419,12 +419,12 @@ func (h *ResourceUtilisationHandler) GetJVMClasses(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetJVMCPU(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetJVMCPU(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetJVMCPU(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query JVM CPU")
 		return
@@ -433,12 +433,12 @@ func (h *ResourceUtilisationHandler) GetJVMCPU(c *gin.Context) {
 }
 
 func (h *ResourceUtilisationHandler) GetJVMBuffers(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetJVMBuffers(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetJVMBuffers(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query JVM buffers")
 		return

@@ -97,7 +97,7 @@ func queueRateExpr(metricsClause string) string {
 // ──────────────────────────────────────────────────────────────────────────────
 
 // GetKafkaQueueLag returns average and max consumer lag per queue, bucketed over time.
-func (r *ClickHouseRepository) GetKafkaQueueLag(teamUUID string, startMs, endMs int64) ([]KafkaQueueLag, error) {
+func (r *ClickHouseRepository) GetKafkaQueueLag(teamID int64, startMs, endMs int64) ([]KafkaQueueLag, error) {
 	bucket := TimeBucketExpression(startMs, endMs)
 	lagMetrics := MetricSetToInClause(KafkaConsumerLagMetrics)
 	queueExpr := queueNameExpr()
@@ -124,7 +124,7 @@ func (r *ClickHouseRepository) GetKafkaQueueLag(teamUUID string, startMs, endMs 
 		ColMetricName, lagMetrics,
 	)
 
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, fmt.Errorf("GetKafkaQueueLag: %w", err)
 	}
@@ -142,7 +142,7 @@ func (r *ClickHouseRepository) GetKafkaQueueLag(teamUUID string, startMs, endMs 
 }
 
 // GetKafkaProductionRate returns the per-bucket average publish rate (msg/s) per topic.
-func (r *ClickHouseRepository) GetKafkaProductionRate(teamUUID string, startMs, endMs int64) ([]KafkaProductionRate, error) {
+func (r *ClickHouseRepository) GetKafkaProductionRate(teamID int64, startMs, endMs int64) ([]KafkaProductionRate, error) {
 	bucket := TimeBucketExpression(startMs, endMs)
 	bucketSecs := TimeBucketSeconds(startMs, endMs)
 	producerMetrics := MetricSetToInClause(KafkaProducerMetrics)
@@ -169,7 +169,7 @@ func (r *ClickHouseRepository) GetKafkaProductionRate(teamUUID string, startMs, 
 		ColMetricName, producerMetrics,
 	)
 
-	rows, err := dbutil.QueryMaps(r.db, query, bucketSecs, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, bucketSecs, teamID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, fmt.Errorf("GetKafkaProductionRate: %w", err)
 	}
@@ -186,7 +186,7 @@ func (r *ClickHouseRepository) GetKafkaProductionRate(teamUUID string, startMs, 
 }
 
 // GetKafkaConsumptionRate returns the per-bucket average receive rate (msg/s) per topic.
-func (r *ClickHouseRepository) GetKafkaConsumptionRate(teamUUID string, startMs, endMs int64) ([]KafkaConsumptionRate, error) {
+func (r *ClickHouseRepository) GetKafkaConsumptionRate(teamID int64, startMs, endMs int64) ([]KafkaConsumptionRate, error) {
 	bucket := TimeBucketExpression(startMs, endMs)
 	bucketSecs := TimeBucketSeconds(startMs, endMs)
 	consumerMetrics := MetricSetToInClause(KafkaConsumerMetrics)
@@ -213,7 +213,7 @@ func (r *ClickHouseRepository) GetKafkaConsumptionRate(teamUUID string, startMs,
 		ColMetricName, consumerMetrics,
 	)
 
-	rows, err := dbutil.QueryMaps(r.db, query, bucketSecs, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, bucketSecs, teamID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, fmt.Errorf("GetKafkaConsumptionRate: %w", err)
 	}
@@ -235,7 +235,7 @@ func (r *ClickHouseRepository) GetKafkaConsumptionRate(teamUUID string, startMs,
 
 // GetQueueConsumerLag returns a consumer-lag timeseries keyed by
 // (time_bucket, service, queue, messaging_system).
-func (r *ClickHouseRepository) GetQueueConsumerLag(teamUUID string, startMs, endMs int64) ([]MqBucket, error) {
+func (r *ClickHouseRepository) GetQueueConsumerLag(teamID int64, startMs, endMs int64) ([]MqBucket, error) {
 	bucket := FormattedTimeBucketExpression(startMs, endMs)
 	lagMetrics := MetricSetToInClause(KafkaConsumerLagMetricsExtended)
 	queueExpr := queueNameExpr()
@@ -265,7 +265,7 @@ func (r *ClickHouseRepository) GetQueueConsumerLag(teamUUID string, startMs, end
 		ColMetricName, lagMetrics,
 	)
 
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, fmt.Errorf("GetQueueConsumerLag: %w", err)
 	}
@@ -285,7 +285,7 @@ func (r *ClickHouseRepository) GetQueueConsumerLag(teamUUID string, startMs, end
 
 // GetQueueTopicLag returns a queue-depth timeseries keyed by
 // (time_bucket, service, queue, messaging_system).
-func (r *ClickHouseRepository) GetQueueTopicLag(teamUUID string, startMs, endMs int64) ([]MqBucket, error) {
+func (r *ClickHouseRepository) GetQueueTopicLag(teamID int64, startMs, endMs int64) ([]MqBucket, error) {
 	bucket := FormattedTimeBucketExpression(startMs, endMs)
 	depthMetrics := MetricSetToInClause(QueueDepthMetrics)
 	queueExpr := queueNameExpr()
@@ -315,7 +315,7 @@ func (r *ClickHouseRepository) GetQueueTopicLag(teamUUID string, startMs, endMs 
 		ColMetricName, depthMetrics,
 	)
 
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, fmt.Errorf("GetQueueTopicLag: %w", err)
 	}
@@ -335,7 +335,7 @@ func (r *ClickHouseRepository) GetQueueTopicLag(teamUUID string, startMs, endMs 
 
 // GetQueueTopQueues returns the top queues ranked by depth and lag, with
 // publish/receive rates normalised to msg/s over the requested window.
-func (r *ClickHouseRepository) GetQueueTopQueues(teamUUID string, startMs, endMs int64) ([]MqTopQueue, error) {
+func (r *ClickHouseRepository) GetQueueTopQueues(teamID int64, startMs, endMs int64) ([]MqTopQueue, error) {
 	durationSecs := float64(endMs-startMs) / 1000.0
 	if durationSecs <= 0 {
 		durationSecs = 1.0
@@ -384,7 +384,7 @@ func (r *ClickHouseRepository) GetQueueTopQueues(teamUUID string, startMs, endMs
 
 	rows, err := dbutil.QueryMaps(r.db, query,
 		durationSecs, durationSecs,
-		teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
+		teamID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("GetQueueTopQueues: %w", err)
@@ -409,7 +409,7 @@ func (r *ClickHouseRepository) GetQueueTopQueues(teamUUID string, startMs, endMs
 // ─── OTel messaging.* standard metrics ────────────────────────────────────────
 
 // GetConsumerLagPerPartition returns consumer lag grouped by topic, partition, and consumer group.
-func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamUUID string, startMs, endMs int64) ([]PartitionLag, error) {
+func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamID int64, startMs, endMs int64) ([]PartitionLag, error) {
 	lagMetrics := MetricSetToInClause(KafkaConsumerLagMetricsExtended)
 	topicAttr := attrString(AttrMessagingDestinationName)
 	partitionAttr := attrString(AttrMessagingKafkaDestinationPartition)
@@ -434,7 +434,7 @@ func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamUUID string, start
 		ColTeamID, ColTimestamp,
 		ColMetricName, lagMetrics,
 	)
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -451,7 +451,7 @@ func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamUUID string, start
 }
 
 // GetMessageRates returns total published and consumed message rates over the window.
-func (r *ClickHouseRepository) GetMessageRates(teamUUID string, startMs, endMs int64) (MessageRates, error) {
+func (r *ClickHouseRepository) GetMessageRates(teamID int64, startMs, endMs int64) (MessageRates, error) {
 	durationSecs := float64(endMs-startMs) / 1000.0
 	if durationSecs <= 0 {
 		durationSecs = 1.0
@@ -476,7 +476,7 @@ func (r *ClickHouseRepository) GetMessageRates(teamUUID string, startMs, endMs i
 	)
 	row, err := dbutil.QueryMap(r.db, query,
 		durationSecs, durationSecs,
-		teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
+		teamID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
 	)
 	if err != nil {
 		return MessageRates{}, err
@@ -488,7 +488,7 @@ func (r *ClickHouseRepository) GetMessageRates(teamUUID string, startMs, endMs i
 }
 
 // GetOperationDuration returns histogram summary for messaging.client.operation.duration.
-func (r *ClickHouseRepository) GetOperationDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
+func (r *ClickHouseRepository) GetOperationDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
 	query := fmt.Sprintf(`
 		SELECT
 		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
@@ -504,7 +504,7 @@ func (r *ClickHouseRepository) GetOperationDuration(teamUUID string, startMs, en
 		TableMetrics, ColTeamID, ColTimestamp,
 		ColMetricName, MetricMessagingOperationDuration,
 	)
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return HistogramSummary{}, err
 	}
@@ -517,7 +517,7 @@ func (r *ClickHouseRepository) GetOperationDuration(teamUUID string, startMs, en
 }
 
 // GetOffsetCommitRate returns consumer offset timeseries per topic.
-func (r *ClickHouseRepository) GetOffsetCommitRate(teamUUID string, startMs, endMs int64) ([]OffsetTimeSeries, error) {
+func (r *ClickHouseRepository) GetOffsetCommitRate(teamID int64, startMs, endMs int64) ([]OffsetTimeSeries, error) {
 	bucket := TimeBucketExpression(startMs, endMs)
 	topicAttr := attrString(AttrMessagingDestinationName)
 
@@ -538,7 +538,7 @@ func (r *ClickHouseRepository) GetOffsetCommitRate(teamUUID string, startMs, end
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricMessagingConsumerOffset,
 	)
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}

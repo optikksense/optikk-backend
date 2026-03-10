@@ -32,7 +32,7 @@ type Log struct {
 
 // LogFilters defines the search criteria for logs.
 type LogFilters struct {
-	TeamUUID     string   `json:"teamUuid"`
+	TeamID       int64    `json:"teamId"`
 	StartMs      int64    `json:"startMs"`
 	EndMs        int64    `json:"endMs"`
 	Severities   []string `json:"severities"`

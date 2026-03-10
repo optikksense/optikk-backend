@@ -2,14 +2,14 @@ package httpmetrics
 
 // Service encapsulates the business logic for HTTP metrics.
 type Service interface {
-	GetRequestRate(teamUUID string, startMs, endMs int64) ([]StatusCodeBucket, error)
-	GetRequestDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error)
-	GetActiveRequests(teamUUID string, startMs, endMs int64) ([]TimeBucket, error)
-	GetRequestBodySize(teamUUID string, startMs, endMs int64) (HistogramSummary, error)
-	GetResponseBodySize(teamUUID string, startMs, endMs int64) (HistogramSummary, error)
-	GetClientDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error)
-	GetDNSDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error)
-	GetTLSDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error)
+	GetRequestRate(teamID int64, startMs, endMs int64) ([]StatusCodeBucket, error)
+	GetRequestDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error)
+	GetActiveRequests(teamID int64, startMs, endMs int64) ([]TimeBucket, error)
+	GetRequestBodySize(teamID int64, startMs, endMs int64) (HistogramSummary, error)
+	GetResponseBodySize(teamID int64, startMs, endMs int64) (HistogramSummary, error)
+	GetClientDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error)
+	GetDNSDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error)
+	GetTLSDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error)
 }
 
 // HTTPMetricsService implements Service.
@@ -22,34 +22,34 @@ func NewService(repo Repository) Service {
 	return &HTTPMetricsService{repo: repo}
 }
 
-func (s *HTTPMetricsService) GetRequestRate(teamUUID string, startMs, endMs int64) ([]StatusCodeBucket, error) {
-	return s.repo.GetRequestRate(teamUUID, startMs, endMs)
+func (s *HTTPMetricsService) GetRequestRate(teamID int64, startMs, endMs int64) ([]StatusCodeBucket, error) {
+	return s.repo.GetRequestRate(teamID, startMs, endMs)
 }
 
-func (s *HTTPMetricsService) GetRequestDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
-	return s.repo.GetRequestDuration(teamUUID, startMs, endMs)
+func (s *HTTPMetricsService) GetRequestDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return s.repo.GetRequestDuration(teamID, startMs, endMs)
 }
 
-func (s *HTTPMetricsService) GetActiveRequests(teamUUID string, startMs, endMs int64) ([]TimeBucket, error) {
-	return s.repo.GetActiveRequests(teamUUID, startMs, endMs)
+func (s *HTTPMetricsService) GetActiveRequests(teamID int64, startMs, endMs int64) ([]TimeBucket, error) {
+	return s.repo.GetActiveRequests(teamID, startMs, endMs)
 }
 
-func (s *HTTPMetricsService) GetRequestBodySize(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
-	return s.repo.GetRequestBodySize(teamUUID, startMs, endMs)
+func (s *HTTPMetricsService) GetRequestBodySize(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return s.repo.GetRequestBodySize(teamID, startMs, endMs)
 }
 
-func (s *HTTPMetricsService) GetResponseBodySize(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
-	return s.repo.GetResponseBodySize(teamUUID, startMs, endMs)
+func (s *HTTPMetricsService) GetResponseBodySize(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return s.repo.GetResponseBodySize(teamID, startMs, endMs)
 }
 
-func (s *HTTPMetricsService) GetClientDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
-	return s.repo.GetClientDuration(teamUUID, startMs, endMs)
+func (s *HTTPMetricsService) GetClientDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return s.repo.GetClientDuration(teamID, startMs, endMs)
 }
 
-func (s *HTTPMetricsService) GetDNSDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
-	return s.repo.GetDNSDuration(teamUUID, startMs, endMs)
+func (s *HTTPMetricsService) GetDNSDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return s.repo.GetDNSDuration(teamID, startMs, endMs)
 }
 
-func (s *HTTPMetricsService) GetTLSDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
-	return s.repo.GetTLSDuration(teamUUID, startMs, endMs)
+func (s *HTTPMetricsService) GetTLSDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return s.repo.GetTLSDuration(teamID, startMs, endMs)
 }

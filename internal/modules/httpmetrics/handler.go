@@ -15,12 +15,12 @@ type HTTPMetricsHandler struct {
 }
 
 func (h *HTTPMetricsHandler) GetRequestRate(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetRequestRate(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetRequestRate(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query HTTP request rate")
 		return
@@ -29,12 +29,12 @@ func (h *HTTPMetricsHandler) GetRequestRate(c *gin.Context) {
 }
 
 func (h *HTTPMetricsHandler) GetRequestDuration(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetRequestDuration(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetRequestDuration(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query HTTP request duration")
 		return
@@ -43,12 +43,12 @@ func (h *HTTPMetricsHandler) GetRequestDuration(c *gin.Context) {
 }
 
 func (h *HTTPMetricsHandler) GetActiveRequests(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetActiveRequests(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetActiveRequests(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query active HTTP requests")
 		return
@@ -57,12 +57,12 @@ func (h *HTTPMetricsHandler) GetActiveRequests(c *gin.Context) {
 }
 
 func (h *HTTPMetricsHandler) GetRequestBodySize(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetRequestBodySize(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetRequestBodySize(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query request body size")
 		return
@@ -71,12 +71,12 @@ func (h *HTTPMetricsHandler) GetRequestBodySize(c *gin.Context) {
 }
 
 func (h *HTTPMetricsHandler) GetResponseBodySize(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetResponseBodySize(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetResponseBodySize(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query response body size")
 		return
@@ -85,12 +85,12 @@ func (h *HTTPMetricsHandler) GetResponseBodySize(c *gin.Context) {
 }
 
 func (h *HTTPMetricsHandler) GetClientDuration(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetClientDuration(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetClientDuration(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query HTTP client duration")
 		return
@@ -99,12 +99,12 @@ func (h *HTTPMetricsHandler) GetClientDuration(c *gin.Context) {
 }
 
 func (h *HTTPMetricsHandler) GetDNSDuration(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetDNSDuration(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetDNSDuration(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query DNS duration")
 		return
@@ -113,12 +113,12 @@ func (h *HTTPMetricsHandler) GetDNSDuration(c *gin.Context) {
 }
 
 func (h *HTTPMetricsHandler) GetTLSDuration(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetTLSDuration(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetTLSDuration(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query TLS duration")
 		return

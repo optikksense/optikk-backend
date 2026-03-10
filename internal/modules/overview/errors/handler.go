@@ -16,14 +16,14 @@ type ErrorHandler struct {
 
 // GetServiceErrorRate returns service-level error-rate buckets for the errors dashboard.
 func (h *ErrorHandler) GetServiceErrorRate(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	points, err := h.Service.GetServiceErrorRate(teamUUID, startMs, endMs, serviceName)
+	points, err := h.Service.GetServiceErrorRate(teamID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query service error rate")
 		return
@@ -34,14 +34,14 @@ func (h *ErrorHandler) GetServiceErrorRate(c *gin.Context) {
 
 // GetErrorVolume returns service-level error-volume buckets for the errors dashboard.
 func (h *ErrorHandler) GetErrorVolume(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	points, err := h.Service.GetErrorVolume(teamUUID, startMs, endMs, serviceName)
+	points, err := h.Service.GetErrorVolume(teamID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query error volume")
 		return
@@ -52,14 +52,14 @@ func (h *ErrorHandler) GetErrorVolume(c *gin.Context) {
 
 // GetLatencyDuringErrorWindows returns service latency buckets for windows that saw errors.
 func (h *ErrorHandler) GetLatencyDuringErrorWindows(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	points, err := h.Service.GetLatencyDuringErrorWindows(teamUUID, startMs, endMs, serviceName)
+	points, err := h.Service.GetLatencyDuringErrorWindows(teamID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query latency during error windows")
 		return
@@ -70,7 +70,7 @@ func (h *ErrorHandler) GetLatencyDuringErrorWindows(c *gin.Context) {
 
 // GetErrorGroups returns grouped errors for the errors dashboard.
 func (h *ErrorHandler) GetErrorGroups(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")
 	limit := ParseIntParam(c, "limit", 100)
 	startMs, endMs, ok := ParseRequiredRange(c)
@@ -78,7 +78,7 @@ func (h *ErrorHandler) GetErrorGroups(c *gin.Context) {
 		return
 	}
 
-	groups, err := h.Service.GetErrorGroups(teamUUID, startMs, endMs, serviceName, limit)
+	groups, err := h.Service.GetErrorGroups(teamID, startMs, endMs, serviceName, limit)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview errors")
 		return

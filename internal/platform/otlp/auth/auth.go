@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"sync"
 	"time"
-
-	"github.com/observability/observability-backend-go/internal/helpers"
 )
 
 var (
@@ -25,7 +23,7 @@ type Authenticator struct {
 }
 
 type cachedTeam struct {
-	teamID    string
+	teamID    int64
 	expiresAt time.Time
 }
 
@@ -37,11 +35,11 @@ func NewAuthenticator(db *sql.DB) *Authenticator {
 	}
 }
 
-// ResolveTeamID returns the canonical team UUID string for the given API key.
+// ResolveTeamID returns the numeric team ID for the given API key.
 // It uses a 5-minute in-memory cache to prevent database thrashing.
-func (a *Authenticator) ResolveTeamID(ctx context.Context, apiKey string) (string, error) {
+func (a *Authenticator) ResolveTeamID(ctx context.Context, apiKey string) (int64, error) {
 	if apiKey == "" {
-		return "", ErrMissingAPIKey
+		return 0, ErrMissingAPIKey
 	}
 
 	a.cacheMutex.RLock()
@@ -59,21 +57,19 @@ func (a *Authenticator) ResolveTeamID(ctx context.Context, apiKey string) (strin
 	).Scan(&teamID)
 
 	if err == sql.ErrNoRows {
-		return "", ErrInvalidAPIKey
+		return 0, ErrInvalidAPIKey
 	}
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrResolveFailed, err)
+		return 0, fmt.Errorf("%w: %v", ErrResolveFailed, err)
 	}
-
-	resolvedTeamID := helpers.ToTeamUUID(teamID)
 
 	// Cache the valid resolution for 5 minutes.
 	a.cacheMutex.Lock()
 	a.keyCache[apiKey] = cachedTeam{
-		teamID:    resolvedTeamID,
+		teamID:    teamID,
 		expiresAt: time.Now().Add(5 * time.Minute),
 	}
 	a.cacheMutex.Unlock()
 
-	return resolvedTeamID, nil
+	return teamID, nil
 }

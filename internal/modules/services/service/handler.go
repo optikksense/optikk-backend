@@ -36,13 +36,13 @@ func (h *ServiceHandler) GetUnhealthyServices(c *gin.Context) {
 
 // GetServiceMetrics returns service-level aggregates for the services page table.
 func (h *ServiceHandler) GetServiceMetrics(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	rows, err := h.Service.GetServiceMetrics(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetServiceMetrics(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query service metrics")
 		return
@@ -53,13 +53,13 @@ func (h *ServiceHandler) GetServiceMetrics(c *gin.Context) {
 
 // GetServiceTimeSeries returns service-level time series for services overview charts.
 func (h *ServiceHandler) GetServiceTimeSeries(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	points, err := h.Service.GetServiceTimeSeries(teamUUID, startMs, endMs)
+	points, err := h.Service.GetServiceTimeSeries(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query service timeseries")
 		return
@@ -70,14 +70,14 @@ func (h *ServiceHandler) GetServiceTimeSeries(c *gin.Context) {
 
 // GetServiceEndpoints returns endpoint-level metrics for a specific service.
 func (h *ServiceHandler) GetServiceEndpoints(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Param("serviceName")
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	endpoints, err := h.Service.GetServiceEndpoints(teamUUID, startMs, endMs, serviceName)
+	endpoints, err := h.Service.GetServiceEndpoints(teamID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query endpoint breakdown")
 		return
@@ -86,14 +86,14 @@ func (h *ServiceHandler) GetServiceEndpoints(c *gin.Context) {
 	RespondOK(c, endpoints)
 }
 
-func (h *ServiceHandler) respondWithCount(c *gin.Context, fn func(string, int64, int64) (int64, error), message string) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+func (h *ServiceHandler) respondWithCount(c *gin.Context, fn func(int64, int64, int64) (int64, error), message string) {
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	count, err := fn(teamUUID, startMs, endMs)
+	count, err := fn(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", message)
 		return

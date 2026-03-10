@@ -9,8 +9,8 @@ import (
 
 // Repository encapsulates data access logic for infrastructure node tracking.
 type Repository interface {
-	GetInfrastructureNodes(teamUUID string, startMs, endMs int64) ([]InfrastructureNode, error)
-	GetInfrastructureNodeServices(teamUUID, host string, startMs, endMs int64) ([]InfrastructureNodeService, error)
+	GetInfrastructureNodes(teamID int64, startMs, endMs int64) ([]InfrastructureNode, error)
+	GetInfrastructureNodeServices(teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error)
 }
 
 // ClickHouseRepository encapsulates infrastructure node data access logic.
@@ -23,7 +23,7 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) GetInfrastructureNodes(teamUUID string, startMs, endMs int64) ([]InfrastructureNode, error) {
+func (r *ClickHouseRepository) GetInfrastructureNodes(teamID int64, startMs, endMs int64) ([]InfrastructureNode, error) {
 	const rootSpanCondition = "(s.parent_span_id = '' OR s.parent_span_id = '0000000000000000')"
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT if(s.mat_host_name != '', s.mat_host_name, '`+DefaultUnknown+`') as host_name,
@@ -41,7 +41,7 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(teamUUID string, startMs, 
 		GROUP BY host_name
 		ORDER BY request_count DESC
 		LIMIT `+fmt.Sprintf("%d", MaxNodes)+`
-	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -65,7 +65,7 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(teamUUID string, startMs, 
 	return nodes, nil
 }
 
-func (r *ClickHouseRepository) GetInfrastructureNodeServices(teamUUID, host string, startMs, endMs int64) ([]InfrastructureNodeService, error) {
+func (r *ClickHouseRepository) GetInfrastructureNodeServices(teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error) {
 	const rootSpanCondition = "(s.parent_span_id = '' OR s.parent_span_id = '0000000000000000')"
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.service_name as service_name,
@@ -84,7 +84,7 @@ func (r *ClickHouseRepository) GetInfrastructureNodeServices(teamUUID, host stri
 		GROUP BY service_name
 		ORDER BY request_count DESC
 		LIMIT `+fmt.Sprintf("%d", MaxServices)+`
-	`, teamUUID, host, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, teamID, host, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err

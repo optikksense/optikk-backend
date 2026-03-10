@@ -9,11 +9,11 @@ import (
 
 // Repository defines data access for RED metrics endpoints.
 type Repository interface {
-	GetTopSlowOperations(teamUUID string, startMs, endMs int64, limit int) ([]SlowOperation, error)
-	GetTopErrorOperations(teamUUID string, startMs, endMs int64, limit int) ([]ErrorOperation, error)
-	GetHTTPStatusDistribution(teamUUID string, startMs, endMs int64) ([]HTTPStatusBucket, []HTTPStatusTimePoint, error)
-	GetServiceScorecard(teamUUID string, startMs, endMs int64) ([]ServiceScorecard, error)
-	GetApdex(teamUUID string, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]ApdexScore, error)
+	GetTopSlowOperations(teamID int64, startMs, endMs int64, limit int) ([]SlowOperation, error)
+	GetTopErrorOperations(teamID int64, startMs, endMs int64, limit int) ([]ErrorOperation, error)
+	GetHTTPStatusDistribution(teamID int64, startMs, endMs int64) ([]HTTPStatusBucket, []HTTPStatusTimePoint, error)
+	GetServiceScorecard(teamID int64, startMs, endMs int64) ([]ServiceScorecard, error)
+	GetApdex(teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]ApdexScore, error)
 }
 
 // ClickHouseRepository implements Repository against ClickHouse.
@@ -27,7 +27,7 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 }
 
 // GetTopSlowOperations returns operations ranked by p99 latency descending.
-func (r *ClickHouseRepository) GetTopSlowOperations(teamUUID string, startMs, endMs int64, limit int) ([]SlowOperation, error) {
+func (r *ClickHouseRepository) GetTopSlowOperations(teamID int64, startMs, endMs int64, limit int) ([]SlowOperation, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.name                                          AS operation_name,
 		       s.service_name                                   AS service_name,
@@ -40,7 +40,7 @@ func (r *ClickHouseRepository) GetTopSlowOperations(teamUUID string, startMs, en
 		GROUP BY s.name, s.service_name
 		ORDER BY p99_ms DESC
 		LIMIT ?
-	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), limit)
+	`, teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -60,7 +60,7 @@ func (r *ClickHouseRepository) GetTopSlowOperations(teamUUID string, startMs, en
 }
 
 // GetTopErrorOperations returns operations ranked by error rate descending.
-func (r *ClickHouseRepository) GetTopErrorOperations(teamUUID string, startMs, endMs int64, limit int) ([]ErrorOperation, error) {
+func (r *ClickHouseRepository) GetTopErrorOperations(teamID int64, startMs, endMs int64, limit int) ([]ErrorOperation, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.name                                                       AS operation_name,
 		       s.service_name                                                AS service_name,
@@ -75,7 +75,7 @@ func (r *ClickHouseRepository) GetTopErrorOperations(teamUUID string, startMs, e
 		GROUP BY s.name, s.service_name, exception_type
 		ORDER BY error_rate DESC
 		LIMIT ?
-	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), limit)
+	`, teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), limit)
 	if err != nil {
 		return nil, err
 	}
@@ -95,7 +95,7 @@ func (r *ClickHouseRepository) GetTopErrorOperations(teamUUID string, startMs, e
 }
 
 // GetHTTPStatusDistribution returns span counts per HTTP status code (aggregate + time-series).
-func (r *ClickHouseRepository) GetHTTPStatusDistribution(teamUUID string, startMs, endMs int64) ([]HTTPStatusBucket, []HTTPStatusTimePoint, error) {
+func (r *ClickHouseRepository) GetHTTPStatusDistribution(teamID int64, startMs, endMs int64) ([]HTTPStatusBucket, []HTTPStatusTimePoint, error) {
 	// Aggregate buckets
 	aggRows, err := dbutil.QueryMaps(r.db, `
 		SELECT toInt64(response_status_code) AS status_code,
@@ -105,7 +105,7 @@ func (r *ClickHouseRepository) GetHTTPStatusDistribution(teamUUID string, startM
 		  AND response_status_code != ''
 		GROUP BY status_code
 		ORDER BY status_code ASC
-	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -131,7 +131,7 @@ func (r *ClickHouseRepository) GetHTTPStatusDistribution(teamUUID string, startM
 		ORDER BY time_bucket ASC, status_code ASC
 	`, bucket)
 
-	tsRows, err := dbutil.QueryMaps(r.db, tsQuery, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	tsRows, err := dbutil.QueryMaps(r.db, tsQuery, teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return buckets, nil, err
 	}
@@ -148,7 +148,7 @@ func (r *ClickHouseRepository) GetHTTPStatusDistribution(teamUUID string, startM
 }
 
 // GetServiceScorecard returns per-service {rps, error_pct, p95_ms} over the time window.
-func (r *ClickHouseRepository) GetServiceScorecard(teamUUID string, startMs, endMs int64) ([]ServiceScorecard, error) {
+func (r *ClickHouseRepository) GetServiceScorecard(teamID int64, startMs, endMs int64) ([]ServiceScorecard, error) {
 	durationSec := float64(endMs-startMs) / 1000.0
 	if durationSec <= 0 {
 		durationSec = 1
@@ -164,7 +164,7 @@ func (r *ClickHouseRepository) GetServiceScorecard(teamUUID string, startMs, end
 		GROUP BY s.service_name
 		ORDER BY total_count DESC
 		LIMIT 1000
-	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -190,7 +190,7 @@ func (r *ClickHouseRepository) GetServiceScorecard(teamUUID string, startMs, end
 // GetApdex returns per-service Apdex scores using the provided thresholds.
 // satisfiedMs: max latency for "satisfied" user (T).
 // toleratingMs: max latency for "tolerating" user (typically 4T).
-func (r *ClickHouseRepository) GetApdex(teamUUID string, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]ApdexScore, error) {
+func (r *ClickHouseRepository) GetApdex(teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]ApdexScore, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.service_name AS service_name,
 		       countIf(s.duration_nano / 1000000.0 <= ?)   AS satisfied,
@@ -202,7 +202,7 @@ func (r *ClickHouseRepository) GetApdex(teamUUID string, startMs, endMs int64, s
 		GROUP BY s.service_name
 		ORDER BY total_count DESC
 	`, satisfiedMs, satisfiedMs, toleratingMs, toleratingMs,
-		teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+		teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}

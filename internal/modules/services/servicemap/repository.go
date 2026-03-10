@@ -9,9 +9,9 @@ import (
 
 // Repository defines data access for service map endpoints.
 type Repository interface {
-	GetUpstreamDownstream(teamUUID, serviceName string, startMs, endMs int64) ([]ServiceDependencyDetail, error)
-	GetExternalDependencies(teamUUID string, startMs, endMs int64) ([]ExternalDependency, error)
-	GetClientServerLatency(teamUUID string, startMs, endMs int64, operationName string) ([]ClientServerLatencyPoint, error)
+	GetUpstreamDownstream(teamID int64, serviceName string, startMs, endMs int64) ([]ServiceDependencyDetail, error)
+	GetExternalDependencies(teamID int64, startMs, endMs int64) ([]ExternalDependency, error)
+	GetClientServerLatency(teamID int64, startMs, endMs int64, operationName string) ([]ClientServerLatencyPoint, error)
 }
 
 // ClickHouseRepository implements Repository against ClickHouse.
@@ -26,7 +26,7 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 
 // GetUpstreamDownstream returns all services that call or are called by serviceName,
 // with p95 latency and error rate derived from client spans.
-func (r *ClickHouseRepository) GetUpstreamDownstream(teamUUID, serviceName string, startMs, endMs int64) ([]ServiceDependencyDetail, error) {
+func (r *ClickHouseRepository) GetUpstreamDownstream(teamID int64, serviceName string, startMs, endMs int64) ([]ServiceDependencyDetail, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT source,
 		       target,
@@ -48,7 +48,7 @@ func (r *ClickHouseRepository) GetUpstreamDownstream(teamUUID, serviceName strin
 		)
 		ORDER BY call_count DESC
 		LIMIT 200
-	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), serviceName, serviceName)
+	`, teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), serviceName, serviceName)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +76,7 @@ func (r *ClickHouseRepository) GetUpstreamDownstream(teamUUID, serviceName strin
 // GetExternalDependencies returns calls to hosts not present among known internal hosts
 // (i.e. external/third-party endpoints) based on http.url or peer.address attributes.
 // Known hosts are derived from mat_host_name on the spans table (resource attrs merged at ingest).
-func (r *ClickHouseRepository) GetExternalDependencies(teamUUID string, startMs, endMs int64) ([]ExternalDependency, error) {
+func (r *ClickHouseRepository) GetExternalDependencies(teamID int64, startMs, endMs int64) ([]ExternalDependency, error) {
 	externalHostExpr := `coalesce(
 		nullIf(s.mat_host_name, ''),
 		nullIf(s.attributes.'peer.address'::String, ''),
@@ -105,8 +105,8 @@ func (r *ClickHouseRepository) GetExternalDependencies(teamUUID string, startMs,
 		ORDER BY call_count DESC
 		LIMIT 100
 	`, externalHostExpr, externalHostExpr, externalHostExpr),
-		teamUUID, uint64(startMs/1000), uint64(endMs/1000),
-		teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+		teamID, uint64(startMs/1000), uint64(endMs/1000),
+		teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -126,7 +126,7 @@ func (r *ClickHouseRepository) GetExternalDependencies(teamUUID string, startMs,
 
 // GetClientServerLatency returns a time-series of client vs server p95 latency per operation,
 // computing the network gap as clientP95 - serverP95.
-func (r *ClickHouseRepository) GetClientServerLatency(teamUUID string, startMs, endMs int64, operationName string) ([]ClientServerLatencyPoint, error) {
+func (r *ClickHouseRepository) GetClientServerLatency(teamID int64, startMs, endMs int64, operationName string) ([]ClientServerLatencyPoint, error) {
 	bucket := timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
 	query := fmt.Sprintf(`
 		SELECT %s AS time_bucket,
@@ -136,7 +136,7 @@ func (r *ClickHouseRepository) GetClientServerLatency(teamUUID string, startMs, 
 		FROM observability.spans s
 		WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?
 		  AND s.kind IN (2, 3)`, bucket)
-	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if operationName != "" {
 		query += ` AND s.name = ?`
 		args = append(args, operationName)

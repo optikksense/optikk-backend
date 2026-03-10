@@ -16,12 +16,12 @@ type AIHandler struct {
 
 // GetAISummary — aggregate performance / cost / security summary for all AI models.
 func (h *AIHandler) GetAISummary(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	summary, err := h.Service.GetAISummary(teamUUID, startMs, endMs)
+	summary, err := h.Service.GetAISummary(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI summary")
 		return
@@ -31,12 +31,12 @@ func (h *AIHandler) GetAISummary(c *gin.Context) {
 
 // GetAIModels — distinct AI models active in the time window.
 func (h *AIHandler) GetAIModels(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	rows, err := h.Service.GetAIModels(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetAIModels(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI models")
 		return
@@ -46,12 +46,12 @@ func (h *AIHandler) GetAIModels(c *gin.Context) {
 
 // GetAIPerformanceMetrics — per-model latency, throughput, error and timeout rates.
 func (h *AIHandler) GetAIPerformanceMetrics(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	rows, err := h.Service.GetAIPerformanceMetrics(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetAIPerformanceMetrics(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI performance metrics")
 		return
@@ -61,12 +61,12 @@ func (h *AIHandler) GetAIPerformanceMetrics(c *gin.Context) {
 
 // GetAIPerformanceTimeSeries — per-model latency / throughput time series.
 func (h *AIHandler) GetAIPerformanceTimeSeries(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	rows, err := h.Service.GetAIPerformanceTimeSeries(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetAIPerformanceTimeSeries(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI performance timeseries")
 		return
@@ -76,13 +76,13 @@ func (h *AIHandler) GetAIPerformanceTimeSeries(c *gin.Context) {
 
 // GetAILatencyHistogram — latency distribution (100ms buckets) per model.
 func (h *AIHandler) GetAILatencyHistogram(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	modelName := c.Query("modelName")
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	rows, err := h.Service.GetAILatencyHistogram(teamUUID, modelName, startMs, endMs)
+	rows, err := h.Service.GetAILatencyHistogram(teamID, modelName, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI latency histogram")
 		return
@@ -92,12 +92,12 @@ func (h *AIHandler) GetAILatencyHistogram(c *gin.Context) {
 
 // GetAICostMetrics — per-model token usage and cost breakdown.
 func (h *AIHandler) GetAICostMetrics(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	rows, err := h.Service.GetAICostMetrics(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetAICostMetrics(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI cost metrics")
 		return
@@ -107,12 +107,12 @@ func (h *AIHandler) GetAICostMetrics(c *gin.Context) {
 
 // GetAICostTimeSeries — cost and token usage over time per model.
 func (h *AIHandler) GetAICostTimeSeries(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	rows, err := h.Service.GetAICostTimeSeries(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetAICostTimeSeries(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI cost timeseries")
 		return
@@ -122,12 +122,12 @@ func (h *AIHandler) GetAICostTimeSeries(c *gin.Context) {
 
 // GetAITokenBreakdown — token type breakdown per model.
 func (h *AIHandler) GetAITokenBreakdown(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	rows, err := h.Service.GetAITokenBreakdown(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetAITokenBreakdown(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI token breakdown")
 		return
@@ -137,12 +137,12 @@ func (h *AIHandler) GetAITokenBreakdown(c *gin.Context) {
 
 // GetAISecurityMetrics — PII detection and guardrail block rates per model.
 func (h *AIHandler) GetAISecurityMetrics(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	rows, err := h.Service.GetAISecurityMetrics(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetAISecurityMetrics(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI security metrics")
 		return
@@ -152,12 +152,12 @@ func (h *AIHandler) GetAISecurityMetrics(c *gin.Context) {
 
 // GetAISecurityTimeSeries — security-event time series per model.
 func (h *AIHandler) GetAISecurityTimeSeries(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	rows, err := h.Service.GetAISecurityTimeSeries(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetAISecurityTimeSeries(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI security timeseries")
 		return
@@ -167,12 +167,12 @@ func (h *AIHandler) GetAISecurityTimeSeries(c *gin.Context) {
 
 // GetAIPiiCategories — PII category breakdown for detected events.
 func (h *AIHandler) GetAIPiiCategories(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	rows, err := h.Service.GetAIPiiCategories(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetAIPiiCategories(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI pii categories")
 		return

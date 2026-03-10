@@ -7,7 +7,6 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	"github.com/observability/observability-backend-go/internal/helpers"
 	"github.com/observability/observability-backend-go/internal/platform/ingest"
 	"github.com/observability/observability-backend-go/internal/platform/otlp/auth"
 	otlpgrpc "github.com/observability/observability-backend-go/internal/platform/otlp/grpc"
@@ -59,33 +58,27 @@ func limitBody(c *gin.Context) {
 }
 
 // resolveTeamID looks up team_id from the X-API-Key header sent by the SDK.
-func (h *Handler) resolveTeamID(c *gin.Context) (string, bool) {
+func (h *Handler) resolveTeamID(c *gin.Context) (int64, bool) {
 	apiKey := c.GetHeader("X-API-Key")
 	teamID, err := h.auth.ResolveTeamID(c.Request.Context(), apiKey)
 
 	if err != nil {
 		if errors.Is(err, auth.ErrMissingAPIKey) || errors.Is(err, auth.ErrInvalidAPIKey) {
 			c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})
-			return "", false
+			return 0, false
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-		return "", false
+		return 0, false
 	}
 
 	return teamID, true
 }
 
 // recordIngestionSize asynchronously updates the data_ingested_kb column for the team.
-func (h *Handler) recordIngestionSize(teamUUID string, size int64) {
-	if size <= 0 || h.tracker == nil {
+func (h *Handler) recordIngestionSize(teamID int64, size int64) {
+	if size <= 0 || h.tracker == nil || teamID <= 0 {
 		return
 	}
-	teamID := helpers.FromTeamUUID(teamUUID)
-	if teamID == 0 {
-		return
-	}
-
-	// Memory-based fast update, background flushed externally
 	h.tracker.Track(teamID, size)
 }
 
@@ -128,7 +121,7 @@ func (h *Handler) ExportTraces(c *gin.Context) {
 	}
 
 	if len(spanRows) > 0 {
-		log.Printf("ingest: received %d spans via HTTP for team %s", len(spanRows), teamID)
+		log.Printf("ingest: received %d spans via HTTP for team %d", len(spanRows), teamID)
 		if err := h.spansQueue.Enqueue(spanRows); err != nil {
 			if err == ingest.ErrBackpressure {
 				c.Header("Retry-After", "5")
@@ -182,7 +175,7 @@ func (h *Handler) ExportLogs(c *gin.Context) {
 		return
 	}
 
-	log.Printf("ingest: received %d logs via HTTP for team %s", len(rows), teamID)
+	log.Printf("ingest: received %d logs via HTTP for team %d", len(rows), teamID)
 	if err := h.logsQueue.Enqueue(rows); err != nil {
 		if err == ingest.ErrBackpressure {
 			c.Header("Retry-After", "5")
@@ -235,7 +228,7 @@ func (h *Handler) ExportMetrics(c *gin.Context) {
 		return
 	}
 
-	log.Printf("ingest: received %d metrics via HTTP for team %s", len(rows), teamID)
+	log.Printf("ingest: received %d metrics via HTTP for team %d", len(rows), teamID)
 	if err := h.metricsQueue.Enqueue(rows); err != nil {
 		if err == ingest.ErrBackpressure {
 			c.Header("Retry-After", "5")

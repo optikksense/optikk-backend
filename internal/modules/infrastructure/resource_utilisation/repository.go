@@ -15,40 +15,40 @@ func resBucketExpr(startMs, endMs int64) string {
 
 // Repository encapsulates data access logic for resource utilization.
 type Repository interface {
-	GetAvgCPU(teamUUID string, startMs, endMs int64) (MetricValue, error)
-	GetAvgMemory(teamUUID string, startMs, endMs int64) (MetricValue, error)
-	GetAvgNetwork(teamUUID string, startMs, endMs int64) (MetricValue, error)
-	GetAvgConnPool(teamUUID string, startMs, endMs int64) (MetricValue, error)
-	GetCPUUsagePercentage(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error)
-	GetMemoryUsagePercentage(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error)
-	GetResourceUsageByService(teamUUID string, startMs, endMs int64) ([]ServiceResource, error)
-	GetResourceUsageByInstance(teamUUID string, startMs, endMs int64) ([]InstanceResource, error)
+	GetAvgCPU(teamID int64, startMs, endMs int64) (MetricValue, error)
+	GetAvgMemory(teamID int64, startMs, endMs int64) (MetricValue, error)
+	GetAvgNetwork(teamID int64, startMs, endMs int64) (MetricValue, error)
+	GetAvgConnPool(teamID int64, startMs, endMs int64) (MetricValue, error)
+	GetCPUUsagePercentage(teamID int64, startMs, endMs int64) ([]ResourceBucket, error)
+	GetMemoryUsagePercentage(teamID int64, startMs, endMs int64) ([]ResourceBucket, error)
+	GetResourceUsageByService(teamID int64, startMs, endMs int64) ([]ServiceResource, error)
+	GetResourceUsageByInstance(teamID int64, startMs, endMs int64) ([]InstanceResource, error)
 
 	// System infrastructure metrics
-	GetCPUTime(teamUUID string, startMs, endMs int64) ([]StateBucket, error)
-	GetMemoryUsage(teamUUID string, startMs, endMs int64) ([]StateBucket, error)
-	GetSwapUsage(teamUUID string, startMs, endMs int64) ([]StateBucket, error)
-	GetDiskIO(teamUUID string, startMs, endMs int64) ([]DirectionBucket, error)
-	GetDiskOperations(teamUUID string, startMs, endMs int64) ([]DirectionBucket, error)
-	GetDiskIOTime(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error)
-	GetFilesystemUsage(teamUUID string, startMs, endMs int64) ([]MountpointBucket, error)
-	GetFilesystemUtilization(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error)
-	GetNetworkIO(teamUUID string, startMs, endMs int64) ([]DirectionBucket, error)
-	GetNetworkPackets(teamUUID string, startMs, endMs int64) ([]DirectionBucket, error)
-	GetNetworkErrors(teamUUID string, startMs, endMs int64) ([]StateBucket, error)
-	GetNetworkDropped(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error)
-	GetLoadAverage(teamUUID string, startMs, endMs int64) (LoadAverageResult, error)
-	GetProcessCount(teamUUID string, startMs, endMs int64) ([]StateBucket, error)
-	GetNetworkConnections(teamUUID string, startMs, endMs int64) ([]StateBucket, error)
+	GetCPUTime(teamID int64, startMs, endMs int64) ([]StateBucket, error)
+	GetMemoryUsage(teamID int64, startMs, endMs int64) ([]StateBucket, error)
+	GetSwapUsage(teamID int64, startMs, endMs int64) ([]StateBucket, error)
+	GetDiskIO(teamID int64, startMs, endMs int64) ([]DirectionBucket, error)
+	GetDiskOperations(teamID int64, startMs, endMs int64) ([]DirectionBucket, error)
+	GetDiskIOTime(teamID int64, startMs, endMs int64) ([]ResourceBucket, error)
+	GetFilesystemUsage(teamID int64, startMs, endMs int64) ([]MountpointBucket, error)
+	GetFilesystemUtilization(teamID int64, startMs, endMs int64) ([]ResourceBucket, error)
+	GetNetworkIO(teamID int64, startMs, endMs int64) ([]DirectionBucket, error)
+	GetNetworkPackets(teamID int64, startMs, endMs int64) ([]DirectionBucket, error)
+	GetNetworkErrors(teamID int64, startMs, endMs int64) ([]StateBucket, error)
+	GetNetworkDropped(teamID int64, startMs, endMs int64) ([]ResourceBucket, error)
+	GetLoadAverage(teamID int64, startMs, endMs int64) (LoadAverageResult, error)
+	GetProcessCount(teamID int64, startMs, endMs int64) ([]StateBucket, error)
+	GetNetworkConnections(teamID int64, startMs, endMs int64) ([]StateBucket, error)
 
 	// JVM runtime metrics
-	GetJVMMemory(teamUUID string, startMs, endMs int64) ([]JVMMemoryBucket, error)
-	GetJVMGCDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error)
-	GetJVMGCCollections(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error)
-	GetJVMThreadCount(teamUUID string, startMs, endMs int64) ([]StateBucket, error)
-	GetJVMClasses(teamUUID string, startMs, endMs int64) (JVMClassStats, error)
-	GetJVMCPU(teamUUID string, startMs, endMs int64) (JVMCPUStats, error)
-	GetJVMBuffers(teamUUID string, startMs, endMs int64) ([]JVMBufferBucket, error)
+	GetJVMMemory(teamID int64, startMs, endMs int64) ([]JVMMemoryBucket, error)
+	GetJVMGCDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error)
+	GetJVMGCCollections(teamID int64, startMs, endMs int64) ([]ResourceBucket, error)
+	GetJVMThreadCount(teamID int64, startMs, endMs int64) ([]StateBucket, error)
+	GetJVMClasses(teamID int64, startMs, endMs int64) (JVMClassStats, error)
+	GetJVMCPU(teamID int64, startMs, endMs int64) (JVMCPUStats, error)
+	GetJVMBuffers(teamID int64, startMs, endMs int64) ([]JVMBufferBucket, error)
 }
 
 type ClickHouseRepository struct {
@@ -61,7 +61,7 @@ func NewRepository(db dbutil.Querier) Repository {
 }
 
 // queryDiskMetricByService queries disk utilization metrics for a service
-func (r *ClickHouseRepository) queryDiskMetricByService(teamUUID, serviceName string, startMs, endMs int64) (*float64, error) {
+func (r *ClickHouseRepository) queryDiskMetricByService(teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
 	aDisk := attrFloat(AttrSystemDiskUtilization)
 	query := fmt.Sprintf(`
 		SELECT
@@ -86,7 +86,7 @@ func (r *ClickHouseRepository) queryDiskMetricByService(teamUUID, serviceName st
 		ColMetricName, MetricSystemDiskUtilization, MetricDiskFree, MetricDiskTotal,
 		aDisk)
 
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -100,7 +100,7 @@ func (r *ClickHouseRepository) queryDiskMetricByService(teamUUID, serviceName st
 }
 
 // queryNetworkMetricByService queries network utilization metrics for a service
-func (r *ClickHouseRepository) queryNetworkMetricByService(teamUUID, serviceName string, startMs, endMs int64) (*float64, error) {
+func (r *ClickHouseRepository) queryNetworkMetricByService(teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
 	aNet := attrFloat(AttrSystemNetworkUtilization)
 	query := fmt.Sprintf(`
 		SELECT
@@ -119,7 +119,7 @@ func (r *ClickHouseRepository) queryNetworkMetricByService(teamUUID, serviceName
 		ColMetricName, MetricSystemNetworkUtilization,
 		aNet)
 
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +132,7 @@ func (r *ClickHouseRepository) queryNetworkMetricByService(teamUUID, serviceName
 }
 
 // queryConnectionPoolMetricByService queries connection pool utilization metrics for a service
-func (r *ClickHouseRepository) queryConnectionPoolMetricByService(teamUUID, serviceName string, startMs, endMs int64) (*float64, error) {
+func (r *ClickHouseRepository) queryConnectionPoolMetricByService(teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
 	aConn := attrFloat(AttrDBConnectionPoolUtilization)
 	query := fmt.Sprintf(`
 		SELECT
@@ -163,7 +163,7 @@ func (r *ClickHouseRepository) queryConnectionPoolMetricByService(teamUUID, serv
 		ColMetricName, MetricDBConnectionPoolUtilization, MetricHikariCPConnectionsActive, MetricHikariCPConnectionsMax, MetricJDBCConnectionsActive, MetricJDBCConnectionsMax,
 		aConn)
 
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +206,7 @@ func syncAverageExpr(parts ...string) string {
 }
 
 // queryCPUMetricByService queries CPU utilization metrics for a service
-func (r *ClickHouseRepository) queryCPUMetricByService(teamUUID, serviceName string, startMs, endMs int64) (*float64, error) {
+func (r *ClickHouseRepository) queryCPUMetricByService(teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
 	aCPU := attrFloat(AttrSystemCPUUtilization)
 	query := fmt.Sprintf(`
 		SELECT
@@ -227,7 +227,7 @@ func (r *ClickHouseRepository) queryCPUMetricByService(teamUUID, serviceName str
 		ColMetricName, MetricSystemCPUUtilization, MetricSystemCPUUsage, MetricProcessCPUUsage,
 		aCPU)
 
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -241,7 +241,7 @@ func (r *ClickHouseRepository) queryCPUMetricByService(teamUUID, serviceName str
 }
 
 // queryMemoryMetricByService queries memory utilization metrics for a service
-func (r *ClickHouseRepository) queryMemoryMetricByService(teamUUID, serviceName string, startMs, endMs int64) (*float64, error) {
+func (r *ClickHouseRepository) queryMemoryMetricByService(teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
 	aMem := attrFloat(AttrSystemMemoryUtilization)
 	query := fmt.Sprintf(`
 		SELECT
@@ -266,7 +266,7 @@ func (r *ClickHouseRepository) queryMemoryMetricByService(teamUUID, serviceName 
 		ColMetricName, MetricSystemMemoryUtilization, MetricJVMMemoryUsed, MetricJVMMemoryMax,
 		aMem)
 
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -279,9 +279,9 @@ func (r *ClickHouseRepository) queryMemoryMetricByService(teamUUID, serviceName 
 	return calculateAverage(values), nil
 }
 
-func (r *ClickHouseRepository) GetAvgCPU(teamUUID string, startMs, endMs int64) (MetricValue, error) {
+func (r *ClickHouseRepository) GetAvgCPU(teamID int64, startMs, endMs int64) (MetricValue, error) {
 	// Get list of services
-	services, err := r.getServiceList(teamUUID, startMs, endMs)
+	services, err := r.getServiceList(teamID, startMs, endMs)
 	if err != nil {
 		return MetricValue{Value: 0}, err
 	}
@@ -289,7 +289,7 @@ func (r *ClickHouseRepository) GetAvgCPU(teamUUID string, startMs, endMs int64) 
 	// Query CPU metric for each service and calculate average
 	var values []float64
 	for _, service := range services {
-		cpuVal, err := r.queryCPUMetricByService(teamUUID, service, startMs, endMs)
+		cpuVal, err := r.queryCPUMetricByService(teamID, service, startMs, endMs)
 		if err == nil && cpuVal != nil && *cpuVal >= 0 {
 			values = append(values, *cpuVal)
 		}
@@ -302,9 +302,9 @@ func (r *ClickHouseRepository) GetAvgCPU(teamUUID string, startMs, endMs int64) 
 	return MetricValue{Value: *avg}, nil
 }
 
-func (r *ClickHouseRepository) GetAvgMemory(teamUUID string, startMs, endMs int64) (MetricValue, error) {
+func (r *ClickHouseRepository) GetAvgMemory(teamID int64, startMs, endMs int64) (MetricValue, error) {
 	// Get list of services
-	services, err := r.getServiceList(teamUUID, startMs, endMs)
+	services, err := r.getServiceList(teamID, startMs, endMs)
 	if err != nil {
 		return MetricValue{Value: 0}, err
 	}
@@ -312,7 +312,7 @@ func (r *ClickHouseRepository) GetAvgMemory(teamUUID string, startMs, endMs int6
 	// Query memory metric for each service and calculate average
 	var values []float64
 	for _, service := range services {
-		memVal, err := r.queryMemoryMetricByService(teamUUID, service, startMs, endMs)
+		memVal, err := r.queryMemoryMetricByService(teamID, service, startMs, endMs)
 		if err == nil && memVal != nil && *memVal >= 0 {
 			values = append(values, *memVal)
 		}
@@ -325,9 +325,9 @@ func (r *ClickHouseRepository) GetAvgMemory(teamUUID string, startMs, endMs int6
 	return MetricValue{Value: *avg}, nil
 }
 
-func (r *ClickHouseRepository) GetAvgNetwork(teamUUID string, startMs, endMs int64) (MetricValue, error) {
+func (r *ClickHouseRepository) GetAvgNetwork(teamID int64, startMs, endMs int64) (MetricValue, error) {
 	// Get list of services
-	services, err := r.getServiceList(teamUUID, startMs, endMs)
+	services, err := r.getServiceList(teamID, startMs, endMs)
 	if err != nil {
 		return MetricValue{Value: 0}, err
 	}
@@ -335,7 +335,7 @@ func (r *ClickHouseRepository) GetAvgNetwork(teamUUID string, startMs, endMs int
 	// Query network metric for each service and calculate average
 	var values []float64
 	for _, service := range services {
-		netVal, err := r.queryNetworkMetricByService(teamUUID, service, startMs, endMs)
+		netVal, err := r.queryNetworkMetricByService(teamID, service, startMs, endMs)
 		if err == nil && netVal != nil && *netVal >= 0 {
 			values = append(values, *netVal)
 		}
@@ -348,9 +348,9 @@ func (r *ClickHouseRepository) GetAvgNetwork(teamUUID string, startMs, endMs int
 	return MetricValue{Value: *avg}, nil
 }
 
-func (r *ClickHouseRepository) GetAvgConnPool(teamUUID string, startMs, endMs int64) (MetricValue, error) {
+func (r *ClickHouseRepository) GetAvgConnPool(teamID int64, startMs, endMs int64) (MetricValue, error) {
 	// Get list of services
-	services, err := r.getServiceList(teamUUID, startMs, endMs)
+	services, err := r.getServiceList(teamID, startMs, endMs)
 	if err != nil {
 		return MetricValue{Value: 0}, err
 	}
@@ -358,7 +358,7 @@ func (r *ClickHouseRepository) GetAvgConnPool(teamUUID string, startMs, endMs in
 	// Query connection pool metric for each service and calculate average
 	var values []float64
 	for _, service := range services {
-		connVal, err := r.queryConnectionPoolMetricByService(teamUUID, service, startMs, endMs)
+		connVal, err := r.queryConnectionPoolMetricByService(teamID, service, startMs, endMs)
 		if err == nil && connVal != nil && *connVal >= 0 {
 			values = append(values, *connVal)
 		}
@@ -372,7 +372,7 @@ func (r *ClickHouseRepository) GetAvgConnPool(teamUUID string, startMs, endMs in
 }
 
 // queryCPUMetricByInstance queries CPU utilization metrics for a specific instance
-func (r *ClickHouseRepository) queryCPUMetricByInstance(teamUUID, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
+func (r *ClickHouseRepository) queryCPUMetricByInstance(teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	aCPU := attrFloat(AttrSystemCPUUtilization)
 	query := fmt.Sprintf(`
 		SELECT
@@ -393,7 +393,7 @@ func (r *ClickHouseRepository) queryCPUMetricByInstance(teamUUID, host, pod, con
 		ColMetricName, MetricSystemCPUUtilization, MetricSystemCPUUsage, MetricProcessCPUUsage,
 		aCPU)
 
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -407,7 +407,7 @@ func (r *ClickHouseRepository) queryCPUMetricByInstance(teamUUID, host, pod, con
 }
 
 // queryMemoryMetricByInstance queries memory utilization metrics for a specific instance
-func (r *ClickHouseRepository) queryMemoryMetricByInstance(teamUUID, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
+func (r *ClickHouseRepository) queryMemoryMetricByInstance(teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	aMem := attrFloat(AttrSystemMemoryUtilization)
 	query := fmt.Sprintf(`
 		SELECT
@@ -432,7 +432,7 @@ func (r *ClickHouseRepository) queryMemoryMetricByInstance(teamUUID, host, pod, 
 		ColMetricName, MetricSystemMemoryUtilization, MetricJVMMemoryUsed, MetricJVMMemoryMax,
 		aMem)
 
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -446,7 +446,7 @@ func (r *ClickHouseRepository) queryMemoryMetricByInstance(teamUUID, host, pod, 
 }
 
 // queryDiskMetricByInstance queries disk utilization metrics for a specific instance
-func (r *ClickHouseRepository) queryDiskMetricByInstance(teamUUID, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
+func (r *ClickHouseRepository) queryDiskMetricByInstance(teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	aDisk := attrFloat(AttrSystemDiskUtilization)
 	query := fmt.Sprintf(`
 		SELECT
@@ -471,7 +471,7 @@ func (r *ClickHouseRepository) queryDiskMetricByInstance(teamUUID, host, pod, co
 		ColMetricName, MetricSystemDiskUtilization, MetricDiskFree, MetricDiskTotal,
 		aDisk)
 
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -485,7 +485,7 @@ func (r *ClickHouseRepository) queryDiskMetricByInstance(teamUUID, host, pod, co
 }
 
 // queryNetworkMetricByInstance queries network utilization metrics for a specific instance
-func (r *ClickHouseRepository) queryNetworkMetricByInstance(teamUUID, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
+func (r *ClickHouseRepository) queryNetworkMetricByInstance(teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	aNet := attrFloat(AttrSystemNetworkUtilization)
 	query := fmt.Sprintf(`
 		SELECT
@@ -504,7 +504,7 @@ func (r *ClickHouseRepository) queryNetworkMetricByInstance(teamUUID, host, pod,
 		ColMetricName, MetricSystemNetworkUtilization,
 		aNet)
 
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -517,7 +517,7 @@ func (r *ClickHouseRepository) queryNetworkMetricByInstance(teamUUID, host, pod,
 }
 
 // queryConnectionPoolMetricByInstance queries connection pool utilization metrics for a specific instance
-func (r *ClickHouseRepository) queryConnectionPoolMetricByInstance(teamUUID, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
+func (r *ClickHouseRepository) queryConnectionPoolMetricByInstance(teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	aConn := attrFloat(AttrDBConnectionPoolUtilization)
 	query := fmt.Sprintf(`
 		SELECT
@@ -548,7 +548,7 @@ func (r *ClickHouseRepository) queryConnectionPoolMetricByInstance(teamUUID, hos
 		ColMetricName, MetricDBConnectionPoolUtilization, MetricHikariCPConnectionsActive, MetricHikariCPConnectionsMax, MetricJDBCConnectionsActive, MetricJDBCConnectionsMax,
 		aConn)
 
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -563,7 +563,7 @@ func (r *ClickHouseRepository) queryConnectionPoolMetricByInstance(teamUUID, hos
 }
 
 // getSampleCountByInstance gets the count of metric samples for a specific instance
-func (r *ClickHouseRepository) getSampleCountByInstance(teamUUID, host, pod, container, serviceName string, startMs, endMs int64) (int64, error) {
+func (r *ClickHouseRepository) getSampleCountByInstance(teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (int64, error) {
 	aCPU := attrFloat(AttrSystemCPUUtilization)
 	aMem := attrFloat(AttrSystemMemoryUtilization)
 	aDisk := attrFloat(AttrSystemDiskUtilization)
@@ -593,7 +593,7 @@ func (r *ClickHouseRepository) getSampleCountByInstance(teamUUID, host, pod, con
 		MetricJDBCConnectionsActive, MetricJDBCConnectionsMax,
 		aCPU, aMem, aDisk, aNet, aConn)
 
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return 0, err
 	}
@@ -601,7 +601,7 @@ func (r *ClickHouseRepository) getSampleCountByInstance(teamUUID, host, pod, con
 }
 
 // getServiceList retrieves the list of distinct services that have metrics in the time range
-func (r *ClickHouseRepository) getServiceList(teamUUID string, startMs, endMs int64) ([]string, error) {
+func (r *ClickHouseRepository) getServiceList(teamID int64, startMs, endMs int64) ([]string, error) {
 	aCPU := attrFloat(AttrSystemCPUUtilization)
 	aMem := attrFloat(AttrSystemMemoryUtilization)
 	aDisk := attrFloat(AttrSystemDiskUtilization)
@@ -636,7 +636,7 @@ func (r *ClickHouseRepository) getServiceList(teamUUID string, startMs, endMs in
 		aCPU, aMem, aDisk, aNet, aConn,
 		ColServiceName)
 
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -648,7 +648,7 @@ func (r *ClickHouseRepository) getServiceList(teamUUID string, startMs, endMs in
 	return services, nil
 }
 
-func (r *ClickHouseRepository) GetCPUUsagePercentage(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error) {
+func (r *ClickHouseRepository) GetCPUUsagePercentage(teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
 	aCPU := attrFloat(AttrSystemCPUUtilization)
 
@@ -680,7 +680,7 @@ func (r *ClickHouseRepository) GetCPUUsagePercentage(teamUUID string, startMs, e
 	`, bucket, ColServiceName, cpuCol, TableMetrics, ColTeamID, ColTimestamp,
 		ColMetricName, MetricSystemCPUUtilization, MetricSystemCPUUsage, MetricProcessCPUUsage,
 		aCPU)
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -695,7 +695,7 @@ func (r *ClickHouseRepository) GetCPUUsagePercentage(teamUUID string, startMs, e
 	return buckets, nil
 }
 
-func (r *ClickHouseRepository) GetMemoryUsagePercentage(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error) {
+func (r *ClickHouseRepository) GetMemoryUsagePercentage(teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
 	aMem := attrFloat(AttrSystemMemoryUtilization)
 
@@ -728,7 +728,7 @@ func (r *ClickHouseRepository) GetMemoryUsagePercentage(teamUUID string, startMs
 	`, bucket, ColServiceName, memCol, TableMetrics, ColTeamID, ColTimestamp,
 		ColMetricName, MetricSystemMemoryUtilization, MetricJVMMemoryUsed, MetricJVMMemoryMax,
 		aMem)
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -743,9 +743,9 @@ func (r *ClickHouseRepository) GetMemoryUsagePercentage(teamUUID string, startMs
 	return buckets, nil
 }
 
-func (r *ClickHouseRepository) GetResourceUsageByService(teamUUID string, startMs, endMs int64) ([]ServiceResource, error) {
+func (r *ClickHouseRepository) GetResourceUsageByService(teamID int64, startMs, endMs int64) ([]ServiceResource, error) {
 	// Step 1: Get list of services
-	services, err := r.getServiceList(teamUUID, startMs, endMs)
+	services, err := r.getServiceList(teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -754,22 +754,22 @@ func (r *ClickHouseRepository) GetResourceUsageByService(teamUUID string, startM
 	byService := make([]ServiceResource, len(services))
 	for i, serviceName := range services {
 		// Query CPU metric
-		cpuVal, _ := r.queryCPUMetricByService(teamUUID, serviceName, startMs, endMs)
+		cpuVal, _ := r.queryCPUMetricByService(teamID, serviceName, startMs, endMs)
 
 		// Query Memory metric
-		memVal, _ := r.queryMemoryMetricByService(teamUUID, serviceName, startMs, endMs)
+		memVal, _ := r.queryMemoryMetricByService(teamID, serviceName, startMs, endMs)
 
 		// Query Disk metric
-		diskVal, _ := r.queryDiskMetricByService(teamUUID, serviceName, startMs, endMs)
+		diskVal, _ := r.queryDiskMetricByService(teamID, serviceName, startMs, endMs)
 
 		// Query Network metric
-		netVal, _ := r.queryNetworkMetricByService(teamUUID, serviceName, startMs, endMs)
+		netVal, _ := r.queryNetworkMetricByService(teamID, serviceName, startMs, endMs)
 
 		// Query Connection Pool metric
-		connVal, _ := r.queryConnectionPoolMetricByService(teamUUID, serviceName, startMs, endMs)
+		connVal, _ := r.queryConnectionPoolMetricByService(teamID, serviceName, startMs, endMs)
 
 		// Get sample count for this service
-		sampleCount, _ := r.getSampleCountByService(teamUUID, serviceName, startMs, endMs)
+		sampleCount, _ := r.getSampleCountByService(teamID, serviceName, startMs, endMs)
 
 		byService[i] = ServiceResource{
 			ServiceName:           serviceName,
@@ -786,7 +786,7 @@ func (r *ClickHouseRepository) GetResourceUsageByService(teamUUID string, startM
 }
 
 // getSampleCountByService gets the count of metric samples for a service
-func (r *ClickHouseRepository) getSampleCountByService(teamUUID, serviceName string, startMs, endMs int64) (int64, error) {
+func (r *ClickHouseRepository) getSampleCountByService(teamID int64, serviceName string, startMs, endMs int64) (int64, error) {
 	aCPU := attrFloat(AttrSystemCPUUtilization)
 	aMem := attrFloat(AttrSystemMemoryUtilization)
 	aDisk := attrFloat(AttrSystemDiskUtilization)
@@ -816,16 +816,16 @@ func (r *ClickHouseRepository) getSampleCountByService(teamUUID, serviceName str
 		MetricJDBCConnectionsActive, MetricJDBCConnectionsMax,
 		aCPU, aMem, aDisk, aNet, aConn)
 
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return 0, err
 	}
 	return dbutil.Int64FromAny(row[ColCount]), nil
 }
 
-func (r *ClickHouseRepository) GetResourceUsageByInstance(teamUUID string, startMs, endMs int64) ([]InstanceResource, error) {
+func (r *ClickHouseRepository) GetResourceUsageByInstance(teamID int64, startMs, endMs int64) ([]InstanceResource, error) {
 	// Step 1: Get list of instances (host, pod, container, service combinations)
-	instances, err := r.getInstanceList(teamUUID, startMs, endMs)
+	instances, err := r.getInstanceList(teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -834,22 +834,22 @@ func (r *ClickHouseRepository) GetResourceUsageByInstance(teamUUID string, start
 	byInstance := make([]InstanceResource, len(instances))
 	for i, inst := range instances {
 		// Query CPU metric
-		cpuVal, _ := r.queryCPUMetricByInstance(teamUUID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
+		cpuVal, _ := r.queryCPUMetricByInstance(teamID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
 
 		// Query Memory metric
-		memVal, _ := r.queryMemoryMetricByInstance(teamUUID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
+		memVal, _ := r.queryMemoryMetricByInstance(teamID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
 
 		// Query Disk metric
-		diskVal, _ := r.queryDiskMetricByInstance(teamUUID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
+		diskVal, _ := r.queryDiskMetricByInstance(teamID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
 
 		// Query Network metric
-		netVal, _ := r.queryNetworkMetricByInstance(teamUUID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
+		netVal, _ := r.queryNetworkMetricByInstance(teamID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
 
 		// Query Connection Pool metric
-		connVal, _ := r.queryConnectionPoolMetricByInstance(teamUUID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
+		connVal, _ := r.queryConnectionPoolMetricByInstance(teamID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
 
 		// Get sample count for this instance
-		sampleCount, _ := r.getSampleCountByInstance(teamUUID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
+		sampleCount, _ := r.getSampleCountByInstance(teamID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
 
 		byInstance[i] = InstanceResource{
 			Host:                  inst.Host,
@@ -877,7 +877,7 @@ type Instance struct {
 }
 
 // getInstanceList retrieves the list of distinct instances that have metrics in the time range
-func (r *ClickHouseRepository) getInstanceList(teamUUID string, startMs, endMs int64) ([]Instance, error) {
+func (r *ClickHouseRepository) getInstanceList(teamID int64, startMs, endMs int64) ([]Instance, error) {
 	aCPU := attrFloat(AttrSystemCPUUtilization)
 	aMem := attrFloat(AttrSystemMemoryUtilization)
 	aDisk := attrFloat(AttrSystemDiskUtilization)
@@ -913,7 +913,7 @@ func (r *ClickHouseRepository) getInstanceList(teamUUID string, startMs, endMs i
 		aCPU, aMem, aDisk, aNet, aConn,
 		ColHost, ColPod, ColContainer, ColServiceName)
 
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -932,7 +932,7 @@ func (r *ClickHouseRepository) getInstanceList(teamUUID string, startMs, endMs i
 
 // ─── System Infrastructure Metrics ───────────────────────────────────────────
 
-func (r *ClickHouseRepository) GetCPUTime(teamUUID string, startMs, endMs int64) ([]StateBucket, error) {
+func (r *ClickHouseRepository) GetCPUTime(teamID int64, startMs, endMs int64) ([]StateBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
 	state := fmt.Sprintf("attributes.'%s'::String", AttrSystemCPUState)
 	query := fmt.Sprintf(`
@@ -943,10 +943,10 @@ func (r *ClickHouseRepository) GetCPUTime(teamUUID string, startMs, endMs int64)
 		bucket, state, ColValue,
 		TableMetrics,
 		ColTeamID, ColTimestamp, ColMetricName, MetricSystemCPUTime)
-	return r.queryStateBuckets(query, teamUUID, startMs, endMs)
+	return r.queryStateBuckets(query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetMemoryUsage(teamUUID string, startMs, endMs int64) ([]StateBucket, error) {
+func (r *ClickHouseRepository) GetMemoryUsage(teamID int64, startMs, endMs int64) ([]StateBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
 	state := fmt.Sprintf("attributes.'%s'::String", AttrSystemMemoryState)
 	query := fmt.Sprintf(`
@@ -957,10 +957,10 @@ func (r *ClickHouseRepository) GetMemoryUsage(teamUUID string, startMs, endMs in
 		bucket, state, ColValue,
 		TableMetrics,
 		ColTeamID, ColTimestamp, ColMetricName, MetricSystemMemoryUsage)
-	return r.queryStateBuckets(query, teamUUID, startMs, endMs)
+	return r.queryStateBuckets(query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetSwapUsage(teamUUID string, startMs, endMs int64) ([]StateBucket, error) {
+func (r *ClickHouseRepository) GetSwapUsage(teamID int64, startMs, endMs int64) ([]StateBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
 	state := fmt.Sprintf("attributes.'%s'::String", AttrSystemMemoryState)
 	query := fmt.Sprintf(`
@@ -971,10 +971,10 @@ func (r *ClickHouseRepository) GetSwapUsage(teamUUID string, startMs, endMs int6
 		bucket, state, ColValue,
 		TableMetrics,
 		ColTeamID, ColTimestamp, ColMetricName, MetricSystemPagingUsage)
-	return r.queryStateBuckets(query, teamUUID, startMs, endMs)
+	return r.queryStateBuckets(query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetDiskIO(teamUUID string, startMs, endMs int64) ([]DirectionBucket, error) {
+func (r *ClickHouseRepository) GetDiskIO(teamID int64, startMs, endMs int64) ([]DirectionBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
 	dir := fmt.Sprintf("attributes.'%s'::String", AttrSystemDiskDirection)
 	query := fmt.Sprintf(`
@@ -985,10 +985,10 @@ func (r *ClickHouseRepository) GetDiskIO(teamUUID string, startMs, endMs int64) 
 		bucket, dir, ColValue,
 		TableMetrics,
 		ColTeamID, ColTimestamp, ColMetricName, MetricSystemDiskIO)
-	return r.queryDirectionBuckets(query, teamUUID, startMs, endMs)
+	return r.queryDirectionBuckets(query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetDiskOperations(teamUUID string, startMs, endMs int64) ([]DirectionBucket, error) {
+func (r *ClickHouseRepository) GetDiskOperations(teamID int64, startMs, endMs int64) ([]DirectionBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
 	dir := fmt.Sprintf("attributes.'%s'::String", AttrSystemDiskDirection)
 	query := fmt.Sprintf(`
@@ -999,10 +999,10 @@ func (r *ClickHouseRepository) GetDiskOperations(teamUUID string, startMs, endMs
 		bucket, dir, ColValue,
 		TableMetrics,
 		ColTeamID, ColTimestamp, ColMetricName, MetricSystemDiskOperations)
-	return r.queryDirectionBuckets(query, teamUUID, startMs, endMs)
+	return r.queryDirectionBuckets(query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetDiskIOTime(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error) {
+func (r *ClickHouseRepository) GetDiskIOTime(teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT %s as time_bucket, '' as pod, sum(%s) as metric_val
@@ -1012,10 +1012,10 @@ func (r *ClickHouseRepository) GetDiskIOTime(teamUUID string, startMs, endMs int
 		bucket, ColValue,
 		TableMetrics,
 		ColTeamID, ColTimestamp, ColMetricName, MetricSystemDiskIOTime)
-	return r.queryResourceBuckets(query, teamUUID, startMs, endMs)
+	return r.queryResourceBuckets(query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetFilesystemUsage(teamUUID string, startMs, endMs int64) ([]MountpointBucket, error) {
+func (r *ClickHouseRepository) GetFilesystemUsage(teamID int64, startMs, endMs int64) ([]MountpointBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
 	mp := fmt.Sprintf("attributes.'%s'::String", AttrFilesystemMountpoint)
 	query := fmt.Sprintf(`
@@ -1026,7 +1026,7 @@ func (r *ClickHouseRepository) GetFilesystemUsage(teamUUID string, startMs, endM
 		bucket, mp, ColValue,
 		TableMetrics,
 		ColTeamID, ColTimestamp, ColMetricName, MetricSystemFilesystemUsage)
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -1042,7 +1042,7 @@ func (r *ClickHouseRepository) GetFilesystemUsage(teamUUID string, startMs, endM
 	return buckets, nil
 }
 
-func (r *ClickHouseRepository) GetFilesystemUtilization(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error) {
+func (r *ClickHouseRepository) GetFilesystemUtilization(teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT %s as time_bucket, '' as pod, avg(%s) as metric_val
@@ -1052,10 +1052,10 @@ func (r *ClickHouseRepository) GetFilesystemUtilization(teamUUID string, startMs
 		bucket, ColValue,
 		TableMetrics,
 		ColTeamID, ColTimestamp, ColMetricName, MetricSystemFilesystemUtil)
-	return r.queryResourceBuckets(query, teamUUID, startMs, endMs)
+	return r.queryResourceBuckets(query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetNetworkIO(teamUUID string, startMs, endMs int64) ([]DirectionBucket, error) {
+func (r *ClickHouseRepository) GetNetworkIO(teamID int64, startMs, endMs int64) ([]DirectionBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
 	dir := fmt.Sprintf("attributes.'%s'::String", AttrSystemNetworkDirection)
 	query := fmt.Sprintf(`
@@ -1066,10 +1066,10 @@ func (r *ClickHouseRepository) GetNetworkIO(teamUUID string, startMs, endMs int6
 		bucket, dir, ColValue,
 		TableMetrics,
 		ColTeamID, ColTimestamp, ColMetricName, MetricSystemNetworkIO)
-	return r.queryDirectionBuckets(query, teamUUID, startMs, endMs)
+	return r.queryDirectionBuckets(query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetNetworkPackets(teamUUID string, startMs, endMs int64) ([]DirectionBucket, error) {
+func (r *ClickHouseRepository) GetNetworkPackets(teamID int64, startMs, endMs int64) ([]DirectionBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
 	dir := fmt.Sprintf("attributes.'%s'::String", AttrSystemNetworkDirection)
 	query := fmt.Sprintf(`
@@ -1080,10 +1080,10 @@ func (r *ClickHouseRepository) GetNetworkPackets(teamUUID string, startMs, endMs
 		bucket, dir, ColValue,
 		TableMetrics,
 		ColTeamID, ColTimestamp, ColMetricName, MetricSystemNetworkPackets)
-	return r.queryDirectionBuckets(query, teamUUID, startMs, endMs)
+	return r.queryDirectionBuckets(query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetNetworkErrors(teamUUID string, startMs, endMs int64) ([]StateBucket, error) {
+func (r *ClickHouseRepository) GetNetworkErrors(teamID int64, startMs, endMs int64) ([]StateBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
 	dir := fmt.Sprintf("attributes.'%s'::String", AttrSystemNetworkDirection)
 	query := fmt.Sprintf(`
@@ -1094,10 +1094,10 @@ func (r *ClickHouseRepository) GetNetworkErrors(teamUUID string, startMs, endMs 
 		bucket, dir, ColValue,
 		TableMetrics,
 		ColTeamID, ColTimestamp, ColMetricName, MetricSystemNetworkErrors)
-	return r.queryStateBuckets(query, teamUUID, startMs, endMs)
+	return r.queryStateBuckets(query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetNetworkDropped(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error) {
+func (r *ClickHouseRepository) GetNetworkDropped(teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT %s as time_bucket, '' as pod, sum(%s) as metric_val
@@ -1107,10 +1107,10 @@ func (r *ClickHouseRepository) GetNetworkDropped(teamUUID string, startMs, endMs
 		bucket, ColValue,
 		TableMetrics,
 		ColTeamID, ColTimestamp, ColMetricName, MetricSystemNetworkDropped)
-	return r.queryResourceBuckets(query, teamUUID, startMs, endMs)
+	return r.queryResourceBuckets(query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetLoadAverage(teamUUID string, startMs, endMs int64) (LoadAverageResult, error) {
+func (r *ClickHouseRepository) GetLoadAverage(teamID int64, startMs, endMs int64) (LoadAverageResult, error) {
 	query := fmt.Sprintf(`
 		SELECT
 			avgIf(%s, %s = '%s') as load_1m,
@@ -1125,7 +1125,7 @@ func (r *ClickHouseRepository) GetLoadAverage(teamUUID string, startMs, endMs in
 		TableMetrics,
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricSystemCPULoadAvg1m, MetricSystemCPULoadAvg5m, MetricSystemCPULoadAvg15m)
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return LoadAverageResult{}, err
 	}
@@ -1136,7 +1136,7 @@ func (r *ClickHouseRepository) GetLoadAverage(teamUUID string, startMs, endMs in
 	}, nil
 }
 
-func (r *ClickHouseRepository) GetProcessCount(teamUUID string, startMs, endMs int64) ([]StateBucket, error) {
+func (r *ClickHouseRepository) GetProcessCount(teamID int64, startMs, endMs int64) ([]StateBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
 	status := fmt.Sprintf("attributes.'%s'::String", AttrProcessStatus)
 	query := fmt.Sprintf(`
@@ -1147,10 +1147,10 @@ func (r *ClickHouseRepository) GetProcessCount(teamUUID string, startMs, endMs i
 		bucket, status, ColValue,
 		TableMetrics,
 		ColTeamID, ColTimestamp, ColMetricName, MetricSystemProcessCount)
-	return r.queryStateBuckets(query, teamUUID, startMs, endMs)
+	return r.queryStateBuckets(query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetNetworkConnections(teamUUID string, startMs, endMs int64) ([]StateBucket, error) {
+func (r *ClickHouseRepository) GetNetworkConnections(teamID int64, startMs, endMs int64) ([]StateBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
 	state := fmt.Sprintf("attributes.'%s'::String", AttrSystemNetworkState)
 	query := fmt.Sprintf(`
@@ -1161,12 +1161,12 @@ func (r *ClickHouseRepository) GetNetworkConnections(teamUUID string, startMs, e
 		bucket, state, ColValue,
 		TableMetrics,
 		ColTeamID, ColTimestamp, ColMetricName, MetricSystemNetworkConnections)
-	return r.queryStateBuckets(query, teamUUID, startMs, endMs)
+	return r.queryStateBuckets(query, teamID, startMs, endMs)
 }
 
 // ─── JVM Runtime Metrics ─────────────────────────────────────────────────────
 
-func (r *ClickHouseRepository) GetJVMMemory(teamUUID string, startMs, endMs int64) ([]JVMMemoryBucket, error) {
+func (r *ClickHouseRepository) GetJVMMemory(teamID int64, startMs, endMs int64) ([]JVMMemoryBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
 	pool := fmt.Sprintf("attributes.'%s'::String", AttrJVMMemoryPoolName)
 	memType := fmt.Sprintf("attributes.'%s'::String", AttrJVMMemoryType)
@@ -1189,7 +1189,7 @@ func (r *ClickHouseRepository) GetJVMMemory(teamUUID string, startMs, endMs int6
 		TableMetrics,
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricJVMMemoryUsed, MetricJVMMemoryCommitted, MetricJVMMemoryLimit)
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -1210,7 +1210,7 @@ func (r *ClickHouseRepository) GetJVMMemory(teamUUID string, startMs, endMs int6
 	return buckets, nil
 }
 
-func (r *ClickHouseRepository) GetJVMGCDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
+func (r *ClickHouseRepository) GetJVMGCDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
 	query := fmt.Sprintf(`
 		SELECT
 			quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) as p50,
@@ -1223,10 +1223,10 @@ func (r *ClickHouseRepository) GetJVMGCDuration(teamUUID string, startMs, endMs 
 		TableMetrics,
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricJVMGCDuration)
-	return r.queryHistogramSummary(query, teamUUID, startMs, endMs)
+	return r.queryHistogramSummary(query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetJVMGCCollections(teamUUID string, startMs, endMs int64) ([]ResourceBucket, error) {
+func (r *ClickHouseRepository) GetJVMGCCollections(teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT %s as time_bucket, '' as pod, sum(hist_count) as metric_val
@@ -1238,10 +1238,10 @@ func (r *ClickHouseRepository) GetJVMGCCollections(teamUUID string, startMs, end
 		TableMetrics,
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricJVMGCDuration)
-	return r.queryResourceBuckets(query, teamUUID, startMs, endMs)
+	return r.queryResourceBuckets(query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetJVMThreadCount(teamUUID string, startMs, endMs int64) ([]StateBucket, error) {
+func (r *ClickHouseRepository) GetJVMThreadCount(teamID int64, startMs, endMs int64) ([]StateBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
 	daemon := fmt.Sprintf("attributes.'%s'::String", AttrJVMThreadDaemon)
 	query := fmt.Sprintf(`
@@ -1252,10 +1252,10 @@ func (r *ClickHouseRepository) GetJVMThreadCount(teamUUID string, startMs, endMs
 		bucket, daemon, ColValue,
 		TableMetrics,
 		ColTeamID, ColTimestamp, ColMetricName, MetricJVMThreadCount)
-	return r.queryStateBuckets(query, teamUUID, startMs, endMs)
+	return r.queryStateBuckets(query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetJVMClasses(teamUUID string, startMs, endMs int64) (JVMClassStats, error) {
+func (r *ClickHouseRepository) GetJVMClasses(teamID int64, startMs, endMs int64) (JVMClassStats, error) {
 	query := fmt.Sprintf(`
 		SELECT
 			sumIf(%s, %s = '%s') as loaded,
@@ -1268,7 +1268,7 @@ func (r *ClickHouseRepository) GetJVMClasses(teamUUID string, startMs, endMs int
 		TableMetrics,
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricJVMClassLoaded, MetricJVMClassCount)
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return JVMClassStats{}, err
 	}
@@ -1278,7 +1278,7 @@ func (r *ClickHouseRepository) GetJVMClasses(teamUUID string, startMs, endMs int
 	}, nil
 }
 
-func (r *ClickHouseRepository) GetJVMCPU(teamUUID string, startMs, endMs int64) (JVMCPUStats, error) {
+func (r *ClickHouseRepository) GetJVMCPU(teamID int64, startMs, endMs int64) (JVMCPUStats, error) {
 	query := fmt.Sprintf(`
 		SELECT
 			sumIf(%s, %s = '%s') as cpu_time,
@@ -1291,7 +1291,7 @@ func (r *ClickHouseRepository) GetJVMCPU(teamUUID string, startMs, endMs int64) 
 		TableMetrics,
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricJVMCPUTime, MetricJVMCPUUtilization)
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return JVMCPUStats{}, err
 	}
@@ -1301,7 +1301,7 @@ func (r *ClickHouseRepository) GetJVMCPU(teamUUID string, startMs, endMs int64) 
 	}, nil
 }
 
-func (r *ClickHouseRepository) GetJVMBuffers(teamUUID string, startMs, endMs int64) ([]JVMBufferBucket, error) {
+func (r *ClickHouseRepository) GetJVMBuffers(teamID int64, startMs, endMs int64) ([]JVMBufferBucket, error) {
 	bucket := resBucketExpr(startMs, endMs)
 	pool := fmt.Sprintf("attributes.'%s'::String", AttrJVMBufferPoolName)
 	query := fmt.Sprintf(`
@@ -1320,7 +1320,7 @@ func (r *ClickHouseRepository) GetJVMBuffers(teamUUID string, startMs, endMs int
 		TableMetrics,
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricJVMBufferMemoryUsage, MetricJVMBufferCount)
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -1340,8 +1340,8 @@ func (r *ClickHouseRepository) GetJVMBuffers(teamUUID string, startMs, endMs int
 
 // ─── Shared query helpers ─────────────────────────────────────────────────────
 
-func (r *ClickHouseRepository) queryStateBuckets(query, teamUUID string, startMs, endMs int64) ([]StateBucket, error) {
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+func (r *ClickHouseRepository) queryStateBuckets(query string, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -1356,8 +1356,8 @@ func (r *ClickHouseRepository) queryStateBuckets(query, teamUUID string, startMs
 	return buckets, nil
 }
 
-func (r *ClickHouseRepository) queryDirectionBuckets(query, teamUUID string, startMs, endMs int64) ([]DirectionBucket, error) {
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+func (r *ClickHouseRepository) queryDirectionBuckets(query string, teamID int64, startMs, endMs int64) ([]DirectionBucket, error) {
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -1372,8 +1372,8 @@ func (r *ClickHouseRepository) queryDirectionBuckets(query, teamUUID string, sta
 	return buckets, nil
 }
 
-func (r *ClickHouseRepository) queryResourceBuckets(query, teamUUID string, startMs, endMs int64) ([]ResourceBucket, error) {
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+func (r *ClickHouseRepository) queryResourceBuckets(query string, teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -1388,8 +1388,8 @@ func (r *ClickHouseRepository) queryResourceBuckets(query, teamUUID string, star
 	return buckets, nil
 }
 
-func (r *ClickHouseRepository) queryHistogramSummary(query, teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+func (r *ClickHouseRepository) queryHistogramSummary(query string, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return HistogramSummary{}, err
 	}

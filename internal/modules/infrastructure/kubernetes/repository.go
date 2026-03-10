@@ -9,15 +9,15 @@ import (
 
 // Repository defines the data access interface for Kubernetes metrics.
 type Repository interface {
-	GetContainerCPU(teamUUID string, startMs, endMs int64) ([]ContainerBucket, error)
-	GetCPUThrottling(teamUUID string, startMs, endMs int64) ([]ContainerBucket, error)
-	GetContainerMemory(teamUUID string, startMs, endMs int64) ([]ContainerBucket, error)
-	GetOOMKills(teamUUID string, startMs, endMs int64) ([]ContainerBucket, error)
-	GetPodRestarts(teamUUID string, startMs, endMs int64) ([]PodStat, error)
-	GetNodeAllocatable(teamUUID string, startMs, endMs int64) (NodeAllocatable, error)
-	GetPodPhases(teamUUID string, startMs, endMs int64) ([]PhaseStat, error)
-	GetReplicaStatus(teamUUID string, startMs, endMs int64) ([]ReplicaStat, error)
-	GetVolumeUsage(teamUUID string, startMs, endMs int64) ([]VolumeStat, error)
+	GetContainerCPU(teamID int64, startMs, endMs int64) ([]ContainerBucket, error)
+	GetCPUThrottling(teamID int64, startMs, endMs int64) ([]ContainerBucket, error)
+	GetContainerMemory(teamID int64, startMs, endMs int64) ([]ContainerBucket, error)
+	GetOOMKills(teamID int64, startMs, endMs int64) ([]ContainerBucket, error)
+	GetPodRestarts(teamID int64, startMs, endMs int64) ([]PodStat, error)
+	GetNodeAllocatable(teamID int64, startMs, endMs int64) (NodeAllocatable, error)
+	GetPodPhases(teamID int64, startMs, endMs int64) ([]PhaseStat, error)
+	GetReplicaStatus(teamID int64, startMs, endMs int64) ([]ReplicaStat, error)
+	GetVolumeUsage(teamID int64, startMs, endMs int64) ([]VolumeStat, error)
 }
 
 // ClickHouseRepository implements Repository using ClickHouse.
@@ -31,7 +31,7 @@ func NewRepository(db dbutil.Querier) Repository {
 }
 
 // queryContainerBuckets is a shared helper for timeseries queries grouped by container name.
-func (r *ClickHouseRepository) queryContainerBuckets(teamUUID string, startMs, endMs int64, metricName string) ([]ContainerBucket, error) {
+func (r *ClickHouseRepository) queryContainerBuckets(teamID int64, startMs, endMs int64, metricName string) ([]ContainerBucket, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	containerAttr := attrString(AttrContainerName)
 
@@ -52,7 +52,7 @@ func (r *ClickHouseRepository) queryContainerBuckets(teamUUID string, startMs, e
 		ColTeamID, ColTimestamp,
 		ColMetricName, metricName,
 	)
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -68,23 +68,23 @@ func (r *ClickHouseRepository) queryContainerBuckets(teamUUID string, startMs, e
 	return results, nil
 }
 
-func (r *ClickHouseRepository) GetContainerCPU(teamUUID string, startMs, endMs int64) ([]ContainerBucket, error) {
-	return r.queryContainerBuckets(teamUUID, startMs, endMs, MetricContainerCPUTime)
+func (r *ClickHouseRepository) GetContainerCPU(teamID int64, startMs, endMs int64) ([]ContainerBucket, error) {
+	return r.queryContainerBuckets(teamID, startMs, endMs, MetricContainerCPUTime)
 }
 
-func (r *ClickHouseRepository) GetCPUThrottling(teamUUID string, startMs, endMs int64) ([]ContainerBucket, error) {
-	return r.queryContainerBuckets(teamUUID, startMs, endMs, MetricContainerCPUThrottledTime)
+func (r *ClickHouseRepository) GetCPUThrottling(teamID int64, startMs, endMs int64) ([]ContainerBucket, error) {
+	return r.queryContainerBuckets(teamID, startMs, endMs, MetricContainerCPUThrottledTime)
 }
 
-func (r *ClickHouseRepository) GetContainerMemory(teamUUID string, startMs, endMs int64) ([]ContainerBucket, error) {
-	return r.queryContainerBuckets(teamUUID, startMs, endMs, MetricContainerMemoryUsage)
+func (r *ClickHouseRepository) GetContainerMemory(teamID int64, startMs, endMs int64) ([]ContainerBucket, error) {
+	return r.queryContainerBuckets(teamID, startMs, endMs, MetricContainerMemoryUsage)
 }
 
-func (r *ClickHouseRepository) GetOOMKills(teamUUID string, startMs, endMs int64) ([]ContainerBucket, error) {
-	return r.queryContainerBuckets(teamUUID, startMs, endMs, MetricContainerOOMKillCount)
+func (r *ClickHouseRepository) GetOOMKills(teamID int64, startMs, endMs int64) ([]ContainerBucket, error) {
+	return r.queryContainerBuckets(teamID, startMs, endMs, MetricContainerOOMKillCount)
 }
 
-func (r *ClickHouseRepository) GetPodRestarts(teamUUID string, startMs, endMs int64) ([]PodStat, error) {
+func (r *ClickHouseRepository) GetPodRestarts(teamID int64, startMs, endMs int64) ([]PodStat, error) {
 	podAttr := attrString(AttrK8sPodName)
 	nsAttr := attrString(AttrK8sNamespace)
 
@@ -106,7 +106,7 @@ func (r *ClickHouseRepository) GetPodRestarts(teamUUID string, startMs, endMs in
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricK8sContainerRestarts,
 	)
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +121,7 @@ func (r *ClickHouseRepository) GetPodRestarts(teamUUID string, startMs, endMs in
 	return results, nil
 }
 
-func (r *ClickHouseRepository) GetNodeAllocatable(teamUUID string, startMs, endMs int64) (NodeAllocatable, error) {
+func (r *ClickHouseRepository) GetNodeAllocatable(teamID int64, startMs, endMs int64) (NodeAllocatable, error) {
 	query := fmt.Sprintf(`
 		SELECT
 		    avgIf(value, %s = '%s') AS cpu_cores,
@@ -137,7 +137,7 @@ func (r *ClickHouseRepository) GetNodeAllocatable(teamUUID string, startMs, endM
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricK8sNodeAllocatableCPU, MetricK8sNodeAllocatableMemory,
 	)
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return NodeAllocatable{}, err
 	}
@@ -147,7 +147,7 @@ func (r *ClickHouseRepository) GetNodeAllocatable(teamUUID string, startMs, endM
 	}, nil
 }
 
-func (r *ClickHouseRepository) GetPodPhases(teamUUID string, startMs, endMs int64) ([]PhaseStat, error) {
+func (r *ClickHouseRepository) GetPodPhases(teamID int64, startMs, endMs int64) ([]PhaseStat, error) {
 	phaseAttr := attrString(AttrK8sPodPhase)
 
 	query := fmt.Sprintf(`
@@ -166,7 +166,7 @@ func (r *ClickHouseRepository) GetPodPhases(teamUUID string, startMs, endMs int6
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricK8sPodPhase,
 	)
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -180,7 +180,7 @@ func (r *ClickHouseRepository) GetPodPhases(teamUUID string, startMs, endMs int6
 	return results, nil
 }
 
-func (r *ClickHouseRepository) GetReplicaStatus(teamUUID string, startMs, endMs int64) ([]ReplicaStat, error) {
+func (r *ClickHouseRepository) GetReplicaStatus(teamID int64, startMs, endMs int64) ([]ReplicaStat, error) {
 	rsAttr := attrString(AttrReplicaSetName)
 
 	query := fmt.Sprintf(`
@@ -202,7 +202,7 @@ func (r *ClickHouseRepository) GetReplicaStatus(teamUUID string, startMs, endMs 
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricK8sReplicaSetDesired, MetricK8sReplicaSetAvailable,
 	)
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -217,7 +217,7 @@ func (r *ClickHouseRepository) GetReplicaStatus(teamUUID string, startMs, endMs 
 	return results, nil
 }
 
-func (r *ClickHouseRepository) GetVolumeUsage(teamUUID string, startMs, endMs int64) ([]VolumeStat, error) {
+func (r *ClickHouseRepository) GetVolumeUsage(teamID int64, startMs, endMs int64) ([]VolumeStat, error) {
 	volAttr := attrString(AttrK8sVolumeName)
 
 	query := fmt.Sprintf(`
@@ -239,7 +239,7 @@ func (r *ClickHouseRepository) GetVolumeUsage(teamUUID string, startMs, endMs in
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricK8sVolumeCapacity, MetricK8sVolumeInodes,
 	)
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}

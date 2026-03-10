@@ -15,12 +15,12 @@ type APMHandler struct {
 }
 
 func (h *APMHandler) GetRPCDuration(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetRPCDuration(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetRPCDuration(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query RPC duration")
 		return
@@ -29,12 +29,12 @@ func (h *APMHandler) GetRPCDuration(c *gin.Context) {
 }
 
 func (h *APMHandler) GetRPCRequestRate(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetRPCRequestRate(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetRPCRequestRate(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query RPC request rate")
 		return
@@ -43,12 +43,12 @@ func (h *APMHandler) GetRPCRequestRate(c *gin.Context) {
 }
 
 func (h *APMHandler) GetMessagingPublishDuration(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetMessagingPublishDuration(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetMessagingPublishDuration(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query messaging publish duration")
 		return
@@ -57,12 +57,12 @@ func (h *APMHandler) GetMessagingPublishDuration(c *gin.Context) {
 }
 
 func (h *APMHandler) GetProcessCPU(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetProcessCPU(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetProcessCPU(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query process CPU")
 		return
@@ -71,12 +71,12 @@ func (h *APMHandler) GetProcessCPU(c *gin.Context) {
 }
 
 func (h *APMHandler) GetProcessMemory(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetProcessMemory(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetProcessMemory(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query process memory")
 		return
@@ -85,12 +85,12 @@ func (h *APMHandler) GetProcessMemory(c *gin.Context) {
 }
 
 func (h *APMHandler) GetOpenFDs(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetOpenFDs(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetOpenFDs(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query open file descriptors")
 		return
@@ -99,12 +99,12 @@ func (h *APMHandler) GetOpenFDs(c *gin.Context) {
 }
 
 func (h *APMHandler) GetUptime(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetUptime(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetUptime(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query process uptime")
 		return

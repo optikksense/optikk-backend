@@ -63,7 +63,7 @@ func NewHandler(getTenant common.GetTenantFunc, repo *ClickHouseRepository) *Tra
 	}
 }
 
-func (h *TraceHandler) buildFilters(c *gin.Context, teamUUID string, startMs, endMs int64) TraceFilters {
+func (h *TraceHandler) buildFilters(c *gin.Context, teamID int64, startMs, endMs int64) TraceFilters {
 	services := common.ParseListParam(c, "services")
 	if len(services) == 0 {
 		if singleService := c.Query("service"); singleService != "" {
@@ -79,7 +79,7 @@ func (h *TraceHandler) buildFilters(c *gin.Context, teamUUID string, startMs, en
 		httpStatus = c.Query("http.status_code")
 	}
 	return TraceFilters{
-		TeamUUID:         teamUUID,
+		TeamID:         teamID,
 		StartMs:          startMs,
 		EndMs:            endMs,
 		Services:         services,
@@ -95,14 +95,14 @@ func (h *TraceHandler) buildFilters(c *gin.Context, teamUUID string, startMs, en
 }
 
 func (h *TraceHandler) GetTraces(c *gin.Context) {
-	teamUUID := h.getTenant(c).TeamUUID()
+	teamID := h.getTenant(c).TeamID
 	startMs, endMs, ok := common.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 	limit := common.ParseIntParam(c, "limit", 100)
 	offset := common.ParseIntParam(c, "offset", 0)
-	filters := h.buildFilters(c, teamUUID, startMs, endMs)
+	filters := h.buildFilters(c, teamID, startMs, endMs)
 
 	traces, total, summary, err := h.repo.GetTraces(c.Request.Context(), filters, limit, offset)
 	if err != nil {
@@ -123,7 +123,7 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 // Clients pass ?cursor=<opaque> from the previous response's nextCursor field.
 // GET /traces/keyset
 func (h *TraceHandler) GetTracesKeyset(c *gin.Context) {
-	teamUUID := h.getTenant(c).TeamUUID()
+	teamID := h.getTenant(c).TeamID
 	startMs, endMs, ok := common.ParseRequiredRange(c)
 	if !ok {
 		return
@@ -132,7 +132,7 @@ func (h *TraceHandler) GetTracesKeyset(c *gin.Context) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
-	filters := h.buildFilters(c, teamUUID, startMs, endMs)
+	filters := h.buildFilters(c, teamID, startMs, endMs)
 	cursor := decodeCursor(c.Query("cursor"))
 
 	traces, summary, hasMore, err := h.repo.GetTracesKeyset(c.Request.Context(), filters, limit, cursor)
@@ -159,7 +159,7 @@ func (h *TraceHandler) GetTracesKeyset(c *gin.Context) {
 // GetOperationAggregation returns per-operation RED metrics (aggregated traces view).
 // GET /traces/operations
 func (h *TraceHandler) GetOperationAggregation(c *gin.Context) {
-	teamUUID := h.getTenant(c).TeamUUID()
+	teamID := h.getTenant(c).TeamID
 	startMs, endMs, ok := common.ParseRequiredRange(c)
 	if !ok {
 		return
@@ -168,7 +168,7 @@ func (h *TraceHandler) GetOperationAggregation(c *gin.Context) {
 	if limit <= 0 || limit > 1000 {
 		limit = 200
 	}
-	filters := h.buildFilters(c, teamUUID, startMs, endMs)
+	filters := h.buildFilters(c, teamID, startMs, endMs)
 
 	rows, err := h.repo.GetOperationAggregation(c.Request.Context(), filters, limit)
 	if err != nil {
@@ -182,10 +182,10 @@ func (h *TraceHandler) GetOperationAggregation(c *gin.Context) {
 var _ = time.Time{}
 
 func (h *TraceHandler) GetTraceSpans(c *gin.Context) {
-	teamUUID := h.getTenant(c).TeamUUID()
+	teamID := h.getTenant(c).TeamID
 	traceID := c.Param("traceId")
 
-	spans, err := h.repo.GetTraceSpans(c.Request.Context(), teamUUID, traceID)
+	spans, err := h.repo.GetTraceSpans(c.Request.Context(), teamID, traceID)
 	if err != nil {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query trace spans")
 		return
@@ -197,10 +197,10 @@ func (h *TraceHandler) GetTraceSpans(c *gin.Context) {
 // in that trace, ordered by start_time. This allows the waterfall to be driven
 // by a root span_id rather than a trace_id.
 func (h *TraceHandler) GetSpanTree(c *gin.Context) {
-	teamUUID := h.getTenant(c).TeamUUID()
+	teamID := h.getTenant(c).TeamID
 	spanID := c.Param("spanId")
 
-	spans, err := h.repo.GetSpanTree(c.Request.Context(), teamUUID, spanID)
+	spans, err := h.repo.GetSpanTree(c.Request.Context(), teamID, spanID)
 	if err != nil {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query span tree")
 		return
@@ -209,13 +209,13 @@ func (h *TraceHandler) GetSpanTree(c *gin.Context) {
 }
 
 func (h *TraceHandler) GetServiceDependencies(c *gin.Context) {
-	teamUUID := h.getTenant(c).TeamUUID()
+	teamID := h.getTenant(c).TeamID
 	startMs, endMs, ok := common.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	deps, err := h.repo.GetServiceDependencies(c.Request.Context(), teamUUID, startMs, endMs)
+	deps, err := h.repo.GetServiceDependencies(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query dependencies")
 		return
@@ -235,13 +235,13 @@ func (h *TraceHandler) GetServiceErrors(c *gin.Context) {
 }
 
 func (h *TraceHandler) getErrorGroupsInternal(c *gin.Context, serviceName string, limit int) {
-	teamUUID := h.getTenant(c).TeamUUID()
+	teamID := h.getTenant(c).TeamID
 	startMs, endMs, ok := common.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	groups, err := h.repo.GetErrorGroups(c.Request.Context(), teamUUID, startMs, endMs, serviceName, limit)
+	groups, err := h.repo.GetErrorGroups(c.Request.Context(), teamID, startMs, endMs, serviceName, limit)
 	if err != nil {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query errors")
 		return
@@ -250,14 +250,14 @@ func (h *TraceHandler) getErrorGroupsInternal(c *gin.Context, serviceName string
 }
 
 func (h *TraceHandler) GetErrorTimeSeries(c *gin.Context) {
-	teamUUID := h.getTenant(c).TeamUUID()
+	teamID := h.getTenant(c).TeamID
 	serviceName := c.Query("serviceName")
 	startMs, endMs, ok := common.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	points, err := h.repo.GetErrorTimeSeries(c.Request.Context(), teamUUID, startMs, endMs, serviceName)
+	points, err := h.repo.GetErrorTimeSeries(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query error timeseries")
 		return
@@ -266,7 +266,7 @@ func (h *TraceHandler) GetErrorTimeSeries(c *gin.Context) {
 }
 
 func (h *TraceHandler) GetLatencyHistogram(c *gin.Context) {
-	teamUUID := h.getTenant(c).TeamUUID()
+	teamID := h.getTenant(c).TeamID
 	serviceName := c.Query("serviceName")
 	operationName := c.Query("operationName")
 	startMs, endMs, ok := common.ParseRequiredRange(c)
@@ -274,7 +274,7 @@ func (h *TraceHandler) GetLatencyHistogram(c *gin.Context) {
 		return
 	}
 
-	buckets, err := h.repo.GetLatencyHistogram(c.Request.Context(), teamUUID, startMs, endMs, serviceName, operationName)
+	buckets, err := h.repo.GetLatencyHistogram(c.Request.Context(), teamID, startMs, endMs, serviceName, operationName)
 	if err != nil {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query latency histogram")
 		return
@@ -283,14 +283,14 @@ func (h *TraceHandler) GetLatencyHistogram(c *gin.Context) {
 }
 
 func (h *TraceHandler) GetLatencyHeatmap(c *gin.Context) {
-	teamUUID := h.getTenant(c).TeamUUID()
+	teamID := h.getTenant(c).TeamID
 	serviceName := c.Query("serviceName")
 	startMs, endMs, ok := common.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	points, err := h.repo.GetLatencyHeatmap(c.Request.Context(), teamUUID, startMs, endMs, serviceName)
+	points, err := h.repo.GetLatencyHeatmap(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query latency heatmap")
 		return

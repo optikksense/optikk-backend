@@ -15,13 +15,13 @@ func serviceBucketExpr(startMs, endMs int64) string {
 
 // Repository encapsulates data access logic for the services overview page.
 type Repository interface {
-	GetTotalServices(teamUUID string, startMs, endMs int64) (int64, error)
-	GetHealthyServices(teamUUID string, startMs, endMs int64) (int64, error)
-	GetDegradedServices(teamUUID string, startMs, endMs int64) (int64, error)
-	GetUnhealthyServices(teamUUID string, startMs, endMs int64) (int64, error)
-	GetServiceMetrics(teamUUID string, startMs, endMs int64) ([]ServiceMetric, error)
-	GetServiceTimeSeries(teamUUID string, startMs, endMs int64) ([]TimeSeriesPoint, error)
-	GetServiceEndpoints(teamUUID string, startMs, endMs int64, serviceName string) ([]EndpointMetric, error)
+	GetTotalServices(teamID int64, startMs, endMs int64) (int64, error)
+	GetHealthyServices(teamID int64, startMs, endMs int64) (int64, error)
+	GetDegradedServices(teamID int64, startMs, endMs int64) (int64, error)
+	GetUnhealthyServices(teamID int64, startMs, endMs int64) (int64, error)
+	GetServiceMetrics(teamID int64, startMs, endMs int64) ([]ServiceMetric, error)
+	GetServiceTimeSeries(teamID int64, startMs, endMs int64) ([]TimeSeriesPoint, error)
+	GetServiceEndpoints(teamID int64, startMs, endMs int64, serviceName string) ([]EndpointMetric, error)
 }
 
 // ClickHouseRepository encapsulates services overview data access logic.
@@ -34,7 +34,7 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) GetTotalServices(teamUUID string, startMs, endMs int64) (int64, error) {
+func (r *ClickHouseRepository) GetTotalServices(teamID int64, startMs, endMs int64) (int64, error) {
 	row, err := dbutil.QueryMap(r.db, `
 		SELECT COUNT(*) as count
 		FROM (
@@ -43,26 +43,26 @@ func (r *ClickHouseRepository) GetTotalServices(teamUUID string, startMs, endMs 
 			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?
 			GROUP BY s.service_name
 		)
-	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return 0, err
 	}
 	return dbutil.Int64FromAny(row["count"]), nil
 }
 
-func (r *ClickHouseRepository) GetHealthyServices(teamUUID string, startMs, endMs int64) (int64, error) {
-	return r.countServicesByErrorRate(teamUUID, startMs, endMs, "error_rate <= ?", HealthyMaxErrorRate)
+func (r *ClickHouseRepository) GetHealthyServices(teamID int64, startMs, endMs int64) (int64, error) {
+	return r.countServicesByErrorRate(teamID, startMs, endMs, "error_rate <= ?", HealthyMaxErrorRate)
 }
 
-func (r *ClickHouseRepository) GetDegradedServices(teamUUID string, startMs, endMs int64) (int64, error) {
-	return r.countServicesByErrorRate(teamUUID, startMs, endMs, "error_rate > ? AND error_rate <= ?", HealthyMaxErrorRate, DegradedMaxErrorRate)
+func (r *ClickHouseRepository) GetDegradedServices(teamID int64, startMs, endMs int64) (int64, error) {
+	return r.countServicesByErrorRate(teamID, startMs, endMs, "error_rate > ? AND error_rate <= ?", HealthyMaxErrorRate, DegradedMaxErrorRate)
 }
 
-func (r *ClickHouseRepository) GetUnhealthyServices(teamUUID string, startMs, endMs int64) (int64, error) {
-	return r.countServicesByErrorRate(teamUUID, startMs, endMs, "error_rate > ?", DegradedMaxErrorRate)
+func (r *ClickHouseRepository) GetUnhealthyServices(teamID int64, startMs, endMs int64) (int64, error) {
+	return r.countServicesByErrorRate(teamID, startMs, endMs, "error_rate > ?", DegradedMaxErrorRate)
 }
 
-func (r *ClickHouseRepository) GetServiceMetrics(teamUUID string, startMs, endMs int64) ([]ServiceMetric, error) {
+func (r *ClickHouseRepository) GetServiceMetrics(teamID int64, startMs, endMs int64) ([]ServiceMetric, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT service_name, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
 		FROM (
@@ -78,7 +78,7 @@ func (r *ClickHouseRepository) GetServiceMetrics(teamUUID string, startMs, endMs
 			GROUP BY s.service_name
 		)
 		ORDER BY request_count DESC
-	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +98,7 @@ func (r *ClickHouseRepository) GetServiceMetrics(teamUUID string, startMs, endMs
 	return metrics, nil
 }
 
-func (r *ClickHouseRepository) GetServiceTimeSeries(teamUUID string, startMs, endMs int64) ([]TimeSeriesPoint, error) {
+func (r *ClickHouseRepository) GetServiceTimeSeries(teamID int64, startMs, endMs int64) ([]TimeSeriesPoint, error) {
 	bucket := serviceBucketExpr(startMs, endMs)
 	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT service_name, timestamp, request_count, error_count, avg_latency
@@ -114,7 +114,7 @@ func (r *ClickHouseRepository) GetServiceTimeSeries(teamUUID string, startMs, en
 		)
 		ORDER BY timestamp ASC, request_count DESC
 		LIMIT 10000
-	`, bucket, bucket), teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, bucket, bucket), teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +132,7 @@ func (r *ClickHouseRepository) GetServiceTimeSeries(teamUUID string, startMs, en
 	return points, nil
 }
 
-func (r *ClickHouseRepository) GetServiceEndpoints(teamUUID string, startMs, endMs int64, serviceName string) ([]EndpointMetric, error) {
+func (r *ClickHouseRepository) GetServiceEndpoints(teamID int64, startMs, endMs int64, serviceName string) ([]EndpointMetric, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT service_name, operation_name, http_method, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
 		FROM (
@@ -149,7 +149,7 @@ func (r *ClickHouseRepository) GetServiceEndpoints(teamUUID string, startMs, end
 		)
 		ORDER BY request_count DESC
 		LIMIT 100
-	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), serviceName)
+	`, teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), serviceName)
 	if err != nil {
 		return nil, err
 	}
@@ -171,8 +171,8 @@ func (r *ClickHouseRepository) GetServiceEndpoints(teamUUID string, startMs, end
 	return endpoints, nil
 }
 
-func (r *ClickHouseRepository) countServicesByErrorRate(teamUUID string, startMs, endMs int64, havingClause string, args ...any) (int64, error) {
-	queryArgs := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+func (r *ClickHouseRepository) countServicesByErrorRate(teamID int64, startMs, endMs int64, havingClause string, args ...any) (int64, error) {
+	queryArgs := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	queryArgs = append(queryArgs, args...)
 
 	row, err := dbutil.QueryMap(r.db, `

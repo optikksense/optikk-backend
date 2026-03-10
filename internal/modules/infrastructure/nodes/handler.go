@@ -16,13 +16,13 @@ type NodeHandler struct {
 
 // GetInfrastructureNodes returns host-level aggregation for the nodes view.
 func (h *NodeHandler) GetInfrastructureNodes(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	rows, err := h.Service.GetInfrastructureNodes(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetInfrastructureNodes(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query node health")
 		return
@@ -33,13 +33,13 @@ func (h *NodeHandler) GetInfrastructureNodes(c *gin.Context) {
 
 // GetInfrastructureNodeSummary returns aggregate counts for node dashboard stat cards.
 func (h *NodeHandler) GetInfrastructureNodeSummary(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	summary, err := h.Service.GetInfrastructureNodeSummary(teamUUID, startMs, endMs)
+	summary, err := h.Service.GetInfrastructureNodeSummary(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query node summary")
 		return
@@ -50,14 +50,14 @@ func (h *NodeHandler) GetInfrastructureNodeSummary(c *gin.Context) {
 
 // GetInfrastructureNodeServices returns services running on a specific host.
 func (h *NodeHandler) GetInfrastructureNodeServices(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	host := c.Param("host")
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	rows, err := h.Service.GetInfrastructureNodeServices(teamUUID, host, startMs, endMs)
+	rows, err := h.Service.GetInfrastructureNodeServices(teamID, host, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query node services")
 		return

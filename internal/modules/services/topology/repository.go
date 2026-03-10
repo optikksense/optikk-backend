@@ -8,7 +8,7 @@ import (
 
 // Repository encapsulates data access logic for the services topology page.
 type Repository interface {
-	GetTopology(teamUUID string, startMs, endMs int64) (TopologyData, error)
+	GetTopology(teamID int64, startMs, endMs int64) (TopologyData, error)
 }
 
 // ClickHouseRepository encapsulates services topology data access logic.
@@ -21,7 +21,7 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) GetTopology(teamUUID string, startMs, endMs int64) (TopologyData, error) {
+func (r *ClickHouseRepository) GetTopology(teamID int64, startMs, endMs int64) (TopologyData, error) {
 	// Nodes: one row per service.
 	nodesRaw, err := dbutil.QueryMaps(r.db, `
 		SELECT service_name, request_count, error_count, avg_latency
@@ -35,7 +35,7 @@ func (r *ClickHouseRepository) GetTopology(teamUUID string, startMs, endMs int64
 			GROUP BY s.service_name
 		)
 		ORDER BY request_count DESC
-	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return TopologyData{}, err
 	}
@@ -65,7 +65,7 @@ func (r *ClickHouseRepository) GetTopology(teamUUID string, startMs, endMs int64
 		ORDER BY call_count DESC
 		LIMIT `+fmt.Sprintf("%d", MaxEdges)+`
 	`, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
-		teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+		teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return TopologyData{}, err
 	}

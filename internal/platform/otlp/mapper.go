@@ -219,7 +219,7 @@ var SpanColumns = []string{
 // MapSpans converts an OTLP trace export request into span ingest rows.
 // Resource attributes (host.name, k8s.pod.name, service.name, etc.) are merged
 // into the span's attributes JSON column and extracted via materialized columns at query time.
-func MapSpans(teamID string, req ExportTraceServiceRequest) []ingest.Row {
+func MapSpans(teamID int64, req ExportTraceServiceRequest) []ingest.Row {
 	result := make([]ingest.Row, 0, 64)
 
 	for _, rs := range req.ResourceSpans {
@@ -287,7 +287,7 @@ func MapSpans(teamID string, req ExportTraceServiceRequest) []ingest.Row {
 
 				result = append(result, ingest.Row{Values: []any{
 					tsBucket,
-					teamID,
+					uint32(teamID),
 					timestamp,
 					s.TraceID,
 					s.SpanID,
@@ -378,9 +378,9 @@ func nanoStrToUint64(s string) uint64 {
 }
 
 // logID generates a stable FNV-64a ID for a log record.
-func logID(teamID string, tsNano uint64, lr LogRecord) string {
+func logID(teamID int64, tsNano uint64, lr LogRecord) string {
 	h := fnv.New64a()
-	h.Write([]byte(teamID))
+	h.Write([]byte(strconv.FormatInt(teamID, 10)))
 	h.Write([]byte{0})
 	b := strconv.AppendUint(nil, tsNano, 10)
 	h.Write(b)
@@ -396,7 +396,7 @@ func logID(teamID string, tsNano uint64, lr LogRecord) string {
 }
 
 // MapLogs converts an OTLP logs export request into ingest rows.
-func MapLogs(teamID string, req ExportLogsServiceRequest) []ingest.Row {
+func MapLogs(teamID int64, req ExportLogsServiceRequest) []ingest.Row {
 	rows := make([]ingest.Row, 0, 64)
 
 	for _, rl := range req.ResourceLogs {
@@ -438,7 +438,7 @@ func MapLogs(teamID string, req ExportLogsServiceRequest) []ingest.Row {
 				id := logID(teamID, tsNano, lr)
 
 				rows = append(rows, ingest.Row{Values: []any{
-					teamID,
+					uint32(teamID),
 					tsBucket,
 					tsNano,
 					observedNano,
@@ -476,7 +476,7 @@ var MetricColumns = []string{
 
 // MapMetrics converts an OTLP metrics export request into ingest rows.
 // Each data point emits one row in the metrics_v5 unified schema structure.
-func MapMetrics(teamID string, req ExportMetricsServiceRequest) []ingest.Row {
+func MapMetrics(teamID int64, req ExportMetricsServiceRequest) []ingest.Row {
 	rows := make([]ingest.Row, 0, 128)
 
 	for _, rm := range req.ResourceMetrics {
@@ -501,7 +501,7 @@ func MapMetrics(teamID string, req ExportMetricsServiceRequest) []ingest.Row {
 						attrsJSON := mergeAttrsJSON(resMap, dp.Attributes)
 
 						rows = append(rows, ingest.Row{Values: []any{
-							teamID, env, m.Name, "Gauge", "Unspecified", false,
+							uint32(teamID), env, m.Name, "Gauge", "Unspecified", false,
 							unit, desc, fingerprint, nanoToTime(dp.TimeUnixNano), val,
 							0.0, uint64(0), []float64{}, []uint64{}, attrsJSON,
 						}})
@@ -517,7 +517,7 @@ func MapMetrics(teamID string, req ExportMetricsServiceRequest) []ingest.Row {
 						attrsJSON := mergeAttrsJSON(resMap, dp.Attributes)
 
 						rows = append(rows, ingest.Row{Values: []any{
-							teamID, env, m.Name, "Sum", temporality, isMonotonic,
+							uint32(teamID), env, m.Name, "Sum", temporality, isMonotonic,
 							unit, desc, fingerprint, nanoToTime(dp.TimeUnixNano), val,
 							0.0, uint64(0), []float64{}, []uint64{}, attrsJSON,
 						}})
@@ -551,7 +551,7 @@ func MapMetrics(teamID string, req ExportMetricsServiceRequest) []ingest.Row {
 						attrsJSON := mergeAttrsJSON(resMap, dp.Attributes)
 
 						rows = append(rows, ingest.Row{Values: []any{
-							teamID, env, m.Name, "Histogram", temporality, false,
+							uint32(teamID), env, m.Name, "Histogram", temporality, false,
 							unit, desc, fingerprint, nanoToTime(dp.TimeUnixNano), avg,
 							sum, count, bounds, counts, attrsJSON,
 						}})

@@ -37,7 +37,7 @@ func (r *ClickHouseRepository) buildTraceQueryArgs(f TraceFilters) (string, []an
 	}
 
 	queryFrag := ` WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.parent_span_id = '' AND s.timestamp BETWEEN ? AND ?`
-	args := []any{f.TeamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{uint32(f.TeamID), uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 
 	if len(f.Services) > 0 {
 		in, vals := dbutil.InClauseFromStrings(f.Services)
@@ -283,7 +283,7 @@ func (r *ClickHouseRepository) GetTraces(ctx context.Context, f TraceFilters, li
 	return traces, total, summary, nil
 }
 
-func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamUUID, traceID string) ([]Span, error) {
+func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamID int64, traceID string) ([]Span, error) {
 	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT s.span_id, s.parent_span_id, s.trace_id, s.name as operation_name, s.service_name AS service_name, s.kind_string as span_kind,
 		       s.timestamp as start_time,
@@ -296,7 +296,7 @@ func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamUUID, trac
 		WHERE s.team_id = ? AND s.trace_id = ?
 		ORDER BY s.timestamp ASC
 		LIMIT 10000
-	`), teamUUID, traceID)
+	`), uint32(teamID), traceID)
 	if err != nil {
 		return nil, err
 	}
@@ -330,7 +330,7 @@ func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamUUID, trac
 
 // GetSpanTree resolves the trace_id for the given root spanID and returns all spans
 // belonging to that trace in a single query, ordered by timestamp ascending.
-func (r *ClickHouseRepository) GetSpanTree(ctx context.Context, teamUUID, spanID string) ([]Span, error) {
+func (r *ClickHouseRepository) GetSpanTree(ctx context.Context, teamID int64, spanID string) ([]Span, error) {
 	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT s.span_id, s.parent_span_id, s.trace_id, s.name as operation_name, s.service_name AS service_name, s.kind_string as span_kind,
 		       s.timestamp as start_time,
@@ -346,7 +346,7 @@ func (r *ClickHouseRepository) GetSpanTree(ctx context.Context, teamUUID, spanID
 		  )
 		ORDER BY s.timestamp ASC
 		LIMIT 10000
-	`), teamUUID, teamUUID, spanID)
+	`), uint32(teamID), uint32(teamID), spanID)
 	if err != nil {
 		return nil, err
 	}
@@ -381,7 +381,7 @@ func (r *ClickHouseRepository) GetSpanTree(ctx context.Context, teamUUID, spanID
 // GetServiceDependencies reads from raw spans table.
 // Note: parent_service_name is no longer stored, so this query needs to be reworked
 // to infer dependencies from CLIENT/SERVER span pairs or use a different approach.
-func (r *ClickHouseRepository) GetServiceDependencies(ctx context.Context, teamUUID string, startMs, endMs int64) ([]ServiceDependency, error) {
+func (r *ClickHouseRepository) GetServiceDependencies(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceDependency, error) {
 	// Simplified approach: use CLIENT spans to infer dependencies
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s1.service_name AS source,
@@ -396,7 +396,7 @@ func (r *ClickHouseRepository) GetServiceDependencies(ctx context.Context, teamU
 		ORDER BY call_count DESC
 		LIMIT 100
 	`, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
-		teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+		uint32(teamID), uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -412,7 +412,7 @@ func (r *ClickHouseRepository) GetServiceDependencies(ctx context.Context, teamU
 	return deps, nil
 }
 
-func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamUUID string, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error) {
+func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error) {
 	query := `
 		SELECT s.service_name AS service_name, s.name as operation_name, s.status_message, s.response_status_code as http_status_code,
 		       COUNT(*) as error_count,
@@ -421,7 +421,7 @@ func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamUUID stri
 		       (groupArray(s.trace_id) as trace_ids)[1] as sample_trace_id
 		FROM observability.spans s
 		WHERE s.team_id = ? AND (s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400) AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`
-	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -452,7 +452,7 @@ func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamUUID stri
 }
 
 // GetErrorTimeSeries reads from raw spans with adaptive time bucketing.
-func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamUUID string, startMs, endMs int64, serviceName string) ([]ErrorTimeSeries, error) {
+func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]ErrorTimeSeries, error) {
 	bucket := rawTimeBucketExpr(startMs, endMs, "s.timestamp")
 	query := fmt.Sprintf(`
 		SELECT service_name,
@@ -467,7 +467,7 @@ func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamUUID 
 			       countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400) AS error_count
 			FROM observability.spans s
 			WHERE s.team_id = ? AND s.parent_span_id = '' AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -494,7 +494,7 @@ func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamUUID 
 	return points, nil
 }
 
-func (r *ClickHouseRepository) GetLatencyHistogram(ctx context.Context, teamUUID string, startMs, endMs int64, serviceName, operationName string) ([]LatencyHistogramBucket, error) {
+func (r *ClickHouseRepository) GetLatencyHistogram(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) ([]LatencyHistogramBucket, error) {
 	query := `
 		SELECT
 			CASE
@@ -526,7 +526,7 @@ func (r *ClickHouseRepository) GetLatencyHistogram(ctx context.Context, teamUUID
 			SELECT s.duration_nano / 1000000.0 as duration_ms
 			FROM observability.spans s
 			WHERE s.team_id = ? AND s.parent_span_id = '' AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`
-	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -555,7 +555,7 @@ func (r *ClickHouseRepository) GetLatencyHistogram(ctx context.Context, teamUUID
 	return buckets, nil
 }
 
-func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamUUID string, startMs, endMs int64, serviceName string) ([]LatencyHeatmapPoint, error) {
+func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]LatencyHeatmapPoint, error) {
 	// The outer SELECT groups rows from a subquery that exposes `timestamp`
 	// (without the `s.` alias), so use that column name for bucket expressions.
 	bucket := rawTimeBucketExpr(startMs, endMs, "timestamp")
@@ -574,7 +574,7 @@ func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamUUID s
 			SELECT s.timestamp, s.duration_nano / 1000000.0 as duration_ms
 			FROM observability.spans s
 			WHERE s.team_id = ? AND s.parent_span_id = '' AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)

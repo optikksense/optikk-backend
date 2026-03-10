@@ -78,7 +78,7 @@ func (h *LogHandler) parseFilters(c *gin.Context) LogFilters {
 
 func (h *LogHandler) enrichFilters(c *gin.Context) (LogFilters, bool) {
 	f := h.parseFilters(c)
-	f.TeamUUID = h.getTenant(c).TeamUUID()
+	f.TeamID = h.getTenant(c).TeamID
 	startMs, endMs, ok := common.ParseRequiredRange(c)
 	if !ok {
 		return LogFilters{}, false
@@ -226,7 +226,7 @@ func (h *LogHandler) GetLogFields(c *gin.Context) {
 }
 
 func (h *LogHandler) GetLogSurrounding(c *gin.Context) {
-	teamUUID := h.getTenant(c).TeamUUID()
+	teamID := h.getTenant(c).TeamID
 	logID := strings.TrimSpace(c.Query("id"))
 	if logID == "" {
 		common.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "id is required")
@@ -241,7 +241,7 @@ func (h *LogHandler) GetLogSurrounding(c *gin.Context) {
 		after = 100
 	}
 
-	anchor, beforeLogs, afterLogs, err := h.repo.GetLogSurrounding(c.Request.Context(), teamUUID, logID, before, after)
+	anchor, beforeLogs, afterLogs, err := h.repo.GetLogSurrounding(c.Request.Context(), teamID, logID, before, after)
 	if err != nil {
 		common.RespondError(c, http.StatusNotFound, "RESOURCE_NOT_FOUND", "Log entry not found")
 		return
@@ -254,7 +254,7 @@ func (h *LogHandler) GetLogSurrounding(c *gin.Context) {
 }
 
 func (h *LogHandler) GetLogDetail(c *gin.Context) {
-	teamUUID := h.getTenant(c).TeamUUID()
+	teamID := h.getTenant(c).TeamID
 	traceID := c.Query("traceId")
 	spanID := c.Query("spanId")
 	timestampMs := common.ParseInt64Param(c, "timestamp", 0)
@@ -275,7 +275,7 @@ func (h *LogHandler) GetLogDetail(c *gin.Context) {
 	fromNs := centerNs - windowNs
 	toNs := centerNs + windowNs
 
-	log, contextLogs, err := h.repo.GetLogDetail(c.Request.Context(), teamUUID, traceID, spanID, centerNs, fromNs, toNs)
+	log, contextLogs, err := h.repo.GetLogDetail(c.Request.Context(), teamID, traceID, spanID, centerNs, fromNs, toNs)
 	if err != nil {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query log detail")
 		return
@@ -287,7 +287,7 @@ func (h *LogHandler) GetLogDetail(c *gin.Context) {
 }
 
 func (h *LogHandler) GetTraceLogs(c *gin.Context) {
-	teamUUID := h.getTenant(c).TeamUUID()
+	teamID := h.getTenant(c).TeamID
 	traceID := c.Param("traceId")
 
 	if traceID == "" {
@@ -295,7 +295,7 @@ func (h *LogHandler) GetTraceLogs(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.repo.GetTraceLogs(c.Request.Context(), teamUUID, traceID)
+	resp, err := h.repo.GetTraceLogs(c.Request.Context(), teamID, traceID)
 	if err != nil {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query trace logs")
 		return

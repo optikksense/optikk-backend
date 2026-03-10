@@ -32,13 +32,13 @@ func normalizeDBStatement(stmt string) string {
 
 // Repository defines data access for trace detail endpoints.
 type Repository interface {
-	GetSpanEvents(teamUUID, traceID string) ([]SpanEvent, error)
-	GetSpanKindBreakdown(teamUUID, traceID string) ([]SpanKindDuration, error)
-	GetCriticalPath(teamUUID, traceID string) ([]CriticalPathSpan, error)
-	GetSpanSelfTimes(teamUUID, traceID string) ([]SpanSelfTime, error)
-	GetErrorPath(teamUUID, traceID string) ([]ErrorPathSpan, error)
-	GetSpanAttributes(teamUUID, traceID, spanID string) (*SpanAttributes, error)
-	GetRelatedTraces(teamUUID, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
+	GetSpanEvents(teamID int64, traceID string) ([]SpanEvent, error)
+	GetSpanKindBreakdown(teamID int64, traceID string) ([]SpanKindDuration, error)
+	GetCriticalPath(teamID int64, traceID string) ([]CriticalPathSpan, error)
+	GetSpanSelfTimes(teamID int64, traceID string) ([]SpanSelfTime, error)
+	GetErrorPath(teamID int64, traceID string) ([]ErrorPathSpan, error)
+	GetSpanAttributes(teamID int64, traceID, spanID string) (*SpanAttributes, error)
+	GetRelatedTraces(teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
 }
 
 // ClickHouseRepository implements Repository against ClickHouse.
@@ -52,7 +52,7 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 }
 
 // GetSpanEvents returns span-level events for a trace from observability.spans.
-func (r *ClickHouseRepository) GetSpanEvents(teamUUID, traceID string) ([]SpanEvent, error) {
+func (r *ClickHouseRepository) GetSpanEvents(teamID int64, traceID string) ([]SpanEvent, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.span_id, s.trace_id, s.timestamp, event_name
 		FROM observability.spans s
@@ -60,7 +60,7 @@ func (r *ClickHouseRepository) GetSpanEvents(teamUUID, traceID string) ([]SpanEv
 		WHERE s.team_id = ? AND s.trace_id = ?
 		ORDER BY s.timestamp ASC
 		LIMIT 1000
-	`, teamUUID, traceID)
+	`, uint32(teamID), traceID)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +89,7 @@ func (r *ClickHouseRepository) GetSpanEvents(teamUUID, traceID string) ([]SpanEv
 		  AND (s.exception_type != '' OR s.exception_message != '' OR s.exception_stacktrace != '')
 		ORDER BY s.timestamp ASC
 		LIMIT 1000
-	`, teamUUID, traceID)
+	`, uint32(teamID), traceID)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +136,7 @@ func (r *ClickHouseRepository) GetSpanEvents(teamUUID, traceID string) ([]SpanEv
 }
 
 // GetSpanKindBreakdown returns total duration and count grouped by span.kind for a trace.
-func (r *ClickHouseRepository) GetSpanKindBreakdown(teamUUID, traceID string) ([]SpanKindDuration, error) {
+func (r *ClickHouseRepository) GetSpanKindBreakdown(teamID int64, traceID string) ([]SpanKindDuration, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT kind_string                        AS span_kind,
 		       sum(duration_nano) / 1000000.0     AS total_duration_ms,
@@ -145,7 +145,7 @@ func (r *ClickHouseRepository) GetSpanKindBreakdown(teamUUID, traceID string) ([
 		WHERE team_id = ? AND trace_id = ?
 		GROUP BY kind_string
 		ORDER BY total_duration_ms DESC
-	`, teamUUID, traceID)
+	`, uint32(teamID), traceID)
 	if err != nil {
 		return nil, err
 	}
@@ -173,7 +173,7 @@ func (r *ClickHouseRepository) GetSpanKindBreakdown(teamUUID, traceID string) ([
 // GetCriticalPath computes the critical (longest root→leaf) path using subtree end-time pruning.
 // ClickHouse computes each span's subtree_end (max end_time within subtree); we then walk
 // from each root downward always choosing the child whose subtree ends latest — O(depth) vs O(2^depth).
-func (r *ClickHouseRepository) GetCriticalPath(teamUUID, traceID string) ([]CriticalPathSpan, error) {
+func (r *ClickHouseRepository) GetCriticalPath(teamID int64, traceID string) ([]CriticalPathSpan, error) {
 	// Step 1: fetch all spans with start/end times from ClickHouse.
 	// ClickHouse also computes each span's subtree_max_end via a correlated subquery.
 	rows, err := dbutil.QueryMaps(r.db, `
@@ -187,7 +187,7 @@ func (r *ClickHouseRepository) GetCriticalPath(teamUUID, traceID string) ([]Crit
 		WHERE s.team_id = ? AND s.trace_id = ?
 		ORDER BY start_ns ASC
 		LIMIT 10000
-	`, teamUUID, traceID)
+	`, uint32(teamID), traceID)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +293,7 @@ func (r *ClickHouseRepository) GetCriticalPath(teamUUID, traceID string) ([]Crit
 
 // GetSpanSelfTimes returns self_time = duration - SUM(child durations) per span.
 // Computed in ClickHouse via a self-join to avoid loading all spans into Go memory.
-func (r *ClickHouseRepository) GetSpanSelfTimes(teamUUID, traceID string) ([]SpanSelfTime, error) {
+func (r *ClickHouseRepository) GetSpanSelfTimes(teamID int64, traceID string) ([]SpanSelfTime, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.span_id,
 		       s.name AS operation_name,
@@ -310,7 +310,7 @@ func (r *ClickHouseRepository) GetSpanSelfTimes(teamUUID, traceID string) ([]Spa
 		WHERE s.team_id = ? AND s.trace_id = ?
 		ORDER BY self_time_ms DESC
 		LIMIT 10000
-	`, teamUUID, traceID, teamUUID, traceID)
+	`, uint32(teamID), traceID, uint32(teamID), traceID)
 	if err != nil {
 		return nil, err
 	}
@@ -329,7 +329,7 @@ func (r *ClickHouseRepository) GetSpanSelfTimes(teamUUID, traceID string) ([]Spa
 }
 
 // GetErrorPath returns the ERROR-status span chain from root to the deepest error leaf.
-func (r *ClickHouseRepository) GetErrorPath(teamUUID, traceID string) ([]ErrorPathSpan, error) {
+func (r *ClickHouseRepository) GetErrorPath(teamID int64, traceID string) ([]ErrorPathSpan, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.span_id, s.parent_span_id, s.name AS operation_name,
 		       s.service_name AS service_name, s.status_code_string AS status, s.status_message,
@@ -339,7 +339,7 @@ func (r *ClickHouseRepository) GetErrorPath(teamUUID, traceID string) ([]ErrorPa
 		  AND (s.has_error = true OR s.status_code_string = 'ERROR')
 		ORDER BY s.timestamp ASC
 		LIMIT 1000
-	`, teamUUID, traceID)
+	`, uint32(teamID), traceID)
 	if err != nil {
 		return nil, err
 	}
@@ -419,7 +419,7 @@ func (r *ClickHouseRepository) GetErrorPath(teamUUID, traceID string) ([]ErrorPa
 }
 
 // GetSpanAttributes returns the full attribute map for a single span.
-func (r *ClickHouseRepository) GetSpanAttributes(teamUUID, traceID, spanID string) (*SpanAttributes, error) {
+func (r *ClickHouseRepository) GetSpanAttributes(teamID int64, traceID, spanID string) (*SpanAttributes, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.span_id, s.trace_id, s.name AS operation_name, s.service_name,
 		       s.attributes_string, s.resource_attributes,
@@ -428,7 +428,7 @@ func (r *ClickHouseRepository) GetSpanAttributes(teamUUID, traceID, spanID strin
 		FROM observability.spans s
 		WHERE s.team_id = ? AND s.trace_id = ? AND s.span_id = ?
 		LIMIT 1
-	`, teamUUID, traceID, spanID)
+	`, uint32(teamID), traceID, spanID)
 	if err != nil || len(rows) == 0 {
 		return nil, err
 	}
@@ -467,7 +467,7 @@ func (r *ClickHouseRepository) GetSpanAttributes(teamUUID, traceID, spanID strin
 
 // GetRelatedTraces returns root spans with the same service+operation in the given time window,
 // excluding the current traceID.
-func (r *ClickHouseRepository) GetRelatedTraces(teamUUID, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
+func (r *ClickHouseRepository) GetRelatedTraces(teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
 	startBucket := uint32(startMs / 1000)
 	endBucket := uint32(endMs / 1000)
 	startNs := uint64(startMs) * 1_000_000
@@ -487,7 +487,7 @@ func (r *ClickHouseRepository) GetRelatedTraces(teamUUID, serviceName, operation
 		  AND s.trace_id != ?
 		ORDER BY s.timestamp DESC
 		LIMIT ?
-	`, teamUUID, startBucket, endBucket, startNs, endNs,
+	`, uint32(teamID), startBucket, endBucket, startNs, endNs,
 		serviceName, operationName, excludeTraceID, limit)
 	if err != nil {
 		return nil, err

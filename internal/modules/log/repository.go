@@ -49,7 +49,7 @@ func buildLogWhere(f LogFilters) (string, []any) {
 	endBucket := uint32(endMs / 1000)
 
 	where := ` team_id = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ?`
-	args := []any{f.TeamUUID, startBucket, endBucket, startNs, endNs}
+	args := []any{uint32(f.TeamID), startBucket, endBucket, startNs, endNs}
 
 	if len(f.Severities) > 0 {
 		in, vals := dbutil.InClauseFromStrings(f.Severities)
@@ -369,10 +369,10 @@ func bucketFuncFromStrategy(s timebucket.Strategy) string {
 // ── Context ──────────────────────────────────────────────────────────────────
 
 // GetLogSurrounding returns a log entry and its surrounding context logs.
-func (r *ClickHouseRepository) GetLogSurrounding(ctx context.Context, teamUUID, logID string, before, after int) (Log, []Log, []Log, error) {
+func (r *ClickHouseRepository) GetLogSurrounding(ctx context.Context, teamID int64, logID string, before, after int) (Log, []Log, []Log, error) {
 	anchorRow, err := dbutil.QueryMap(r.db,
 		fmt.Sprintf(`SELECT %s FROM logs WHERE team_id = ? AND id = ? LIMIT 1`, logCols),
-		teamUUID, logID)
+		teamID, logID)
 	if err != nil || len(anchorRow) == 0 {
 		return Log{}, nil, nil, nil
 	}
@@ -391,20 +391,20 @@ func (r *ClickHouseRepository) GetLogSurrounding(ctx context.Context, teamUUID, 
 
 	beforeRows, _ := dbutil.QueryMaps(r.db,
 		fmt.Sprintf(`SELECT %s FROM logs WHERE team_id = ? AND service = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ? AND (timestamp < ? OR (timestamp = ? AND id < ?)) ORDER BY timestamp DESC, id DESC LIMIT ?`, logCols),
-		teamUUID, svc, bucketLow, bucketHigh, tsLow, tsHigh, anchorTs, anchorTs, logID, before)
+		teamID, svc, bucketLow, bucketHigh, tsLow, tsHigh, anchorTs, anchorTs, logID, before)
 	for i, j := 0, len(beforeRows)-1; i < j; i, j = i+1, j-1 {
 		beforeRows[i], beforeRows[j] = beforeRows[j], beforeRows[i]
 	}
 
 	afterRows, _ := dbutil.QueryMaps(r.db,
 		fmt.Sprintf(`SELECT %s FROM logs WHERE team_id = ? AND service = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ? AND (timestamp > ? OR (timestamp = ? AND id > ?)) ORDER BY timestamp ASC, id ASC LIMIT ?`, logCols),
-		teamUUID, svc, bucketLow, bucketHigh, tsLow, tsHigh, anchorTs, anchorTs, logID, after)
+		teamID, svc, bucketLow, bucketHigh, tsLow, tsHigh, anchorTs, anchorTs, logID, after)
 
 	return anchor, mapRowsToLogs(beforeRows), mapRowsToLogs(afterRows), nil
 }
 
 // GetLogDetail returns a single log entry and its service context.
-func (r *ClickHouseRepository) GetLogDetail(ctx context.Context, teamUUID, traceID, spanID string, centerNs uint64, fromNs, toNs uint64) (Log, []Log, error) {
+func (r *ClickHouseRepository) GetLogDetail(ctx context.Context, teamID int64, traceID, spanID string, centerNs uint64, fromNs, toNs uint64) (Log, []Log, error) {
 	// ±1 second around center for anchor lookup.
 	const oneSecNs = uint64(1_000_000_000)
 	cLow := centerNs - oneSecNs
@@ -418,7 +418,7 @@ func (r *ClickHouseRepository) GetLogDetail(ctx context.Context, teamUUID, trace
 		WHERE team_id = ? AND trace_id = ? AND span_id = ?
 		  AND timestamp BETWEEN ? AND ?
 		ORDER BY timestamp DESC LIMIT 1
-	`, logCols), teamUUID, traceID, spanID, cLow, cHigh)
+	`, logCols), teamID, traceID, spanID, cLow, cHigh)
 	if err != nil || len(logRow) == 0 {
 		return Log{}, nil, err
 	}
@@ -432,7 +432,7 @@ func (r *ClickHouseRepository) GetLogDetail(ctx context.Context, teamUUID, trace
 			SELECT %s FROM logs
 			WHERE team_id = ? AND service = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ?
 			ORDER BY timestamp ASC LIMIT 100
-		`, logCols), teamUUID, serviceName, bucketLow, bucketHigh, fromNs, toNs)
+		`, logCols), teamID, serviceName, bucketLow, bucketHigh, fromNs, toNs)
 		contextLogs = mapRowsToLogs(rows)
 	}
 
@@ -440,7 +440,7 @@ func (r *ClickHouseRepository) GetLogDetail(ctx context.Context, teamUUID, trace
 }
 
 // GetTraceLogs returns logs for a trace, with speculative fallback.
-func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamUUID, traceID string) (TraceLogsResponse, error) {
+func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, traceID string) (TraceLogsResponse, error) {
 	// Fetch span time bounds first so the log query can use partition pruning.
 	traceMeta, metaErr := dbutil.QueryMap(r.db, `
 		SELECT min(timestamp) as trace_start,
@@ -451,7 +451,7 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamUUID, trace
 		       any(name) as operation_name
 		FROM observability.spans
 		WHERE team_id = ? AND trace_id = ?
-	`, teamUUID, traceID)
+	`, teamID, traceID)
 
 	var rows []map[string]any
 	var err error
@@ -469,7 +469,7 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamUUID, trace
 				  AND ts_bucket_start BETWEEN ? AND ?
 				  AND timestamp BETWEEN ? AND ?
 				ORDER BY timestamp ASC LIMIT 500
-			`, logCols), teamUUID, traceID, bucketLowPruning, bucketHighPruning, startNsPruning, endNsPruning)
+			`, logCols), teamID, traceID, bucketLowPruning, bucketHighPruning, startNsPruning, endNsPruning)
 		}
 	}
 	if err != nil || rows == nil {
@@ -478,7 +478,7 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamUUID, trace
 			SELECT %s FROM logs
 			WHERE team_id = ? AND trace_id = ?
 			ORDER BY timestamp ASC LIMIT 500
-		`, logCols), teamUUID, traceID)
+		`, logCols), teamID, traceID)
 		if err != nil {
 			return TraceLogsResponse{}, err
 		}
@@ -525,7 +525,7 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamUUID, trace
 		  AND (? = '' OR attributes_string['http.route'] = ? OR body LIKE ?)
 		ORDER BY timestamp ASC LIMIT 500
 	`, logCols),
-		teamUUID,
+		teamID,
 		serviceName,
 		bucketLow,
 		bucketHigh,

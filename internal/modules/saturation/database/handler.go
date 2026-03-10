@@ -15,13 +15,13 @@ type DatabaseHandler struct {
 
 // GetDatabaseQueryByTable returns query counts per database table.
 func (h *DatabaseHandler) GetDatabaseQueryByTable(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	rows, err := h.Service.GetDatabaseQueryByTable(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetDatabaseQueryByTable(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query database query by table")
 		return
@@ -32,13 +32,13 @@ func (h *DatabaseHandler) GetDatabaseQueryByTable(c *gin.Context) {
 
 // GetDatabaseAvgLatency returns latency metrics for the database over time.
 func (h *DatabaseHandler) GetDatabaseAvgLatency(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	rows, err := h.Service.GetDatabaseAvgLatency(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetDatabaseAvgLatency(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query database avg latency")
 		return
@@ -49,13 +49,13 @@ func (h *DatabaseHandler) GetDatabaseAvgLatency(c *gin.Context) {
 
 // GetDatabaseCacheSummary returns DB query latency and cache-hit ratio insights.
 func (h *DatabaseHandler) GetDatabaseCacheSummary(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	resp, err := h.Service.GetDatabaseCacheSummary(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetDatabaseCacheSummary(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query database cache summary")
 		return
@@ -66,13 +66,13 @@ func (h *DatabaseHandler) GetDatabaseCacheSummary(c *gin.Context) {
 
 // GetDatabaseSystems returns query counts and latencies per database system.
 func (h *DatabaseHandler) GetDatabaseSystems(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	resp, err := h.Service.GetDatabaseSystems(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetDatabaseSystems(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query database systems")
 		return
@@ -83,13 +83,13 @@ func (h *DatabaseHandler) GetDatabaseSystems(c *gin.Context) {
 
 // GetDatabaseTopTables returns latency and cache miss metrics per table.
 func (h *DatabaseHandler) GetDatabaseTopTables(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	resp, err := h.Service.GetDatabaseTopTables(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetDatabaseTopTables(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query database top tables")
 		return
@@ -101,12 +101,12 @@ func (h *DatabaseHandler) GetDatabaseTopTables(c *gin.Context) {
 // ─── db.client.* OTel standard metrics ────────────────────────────────────────
 
 func (h *DatabaseHandler) GetConnectionCount(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetConnectionCount(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetConnectionCount(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query connection count")
 		return
@@ -115,12 +115,12 @@ func (h *DatabaseHandler) GetConnectionCount(c *gin.Context) {
 }
 
 func (h *DatabaseHandler) GetConnectionWaitTime(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetConnectionWaitTime(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetConnectionWaitTime(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query connection wait time")
 		return
@@ -129,12 +129,12 @@ func (h *DatabaseHandler) GetConnectionWaitTime(c *gin.Context) {
 }
 
 func (h *DatabaseHandler) GetConnectionPending(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetConnectionPending(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetConnectionPending(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query pending connections")
 		return
@@ -143,12 +143,12 @@ func (h *DatabaseHandler) GetConnectionPending(c *gin.Context) {
 }
 
 func (h *DatabaseHandler) GetConnectionTimeouts(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetConnectionTimeouts(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetConnectionTimeouts(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query connection timeouts")
 		return
@@ -157,12 +157,12 @@ func (h *DatabaseHandler) GetConnectionTimeouts(c *gin.Context) {
 }
 
 func (h *DatabaseHandler) GetQueryDuration(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetQueryDuration(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetQueryDuration(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query operation duration")
 		return
@@ -173,12 +173,12 @@ func (h *DatabaseHandler) GetQueryDuration(c *gin.Context) {
 // ─── Redis metrics ─────────────────────────────────────────────────────────────
 
 func (h *DatabaseHandler) GetRedisCacheHitRate(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetRedisCacheHitRate(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetRedisCacheHitRate(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query Redis cache hit rate")
 		return
@@ -187,12 +187,12 @@ func (h *DatabaseHandler) GetRedisCacheHitRate(c *gin.Context) {
 }
 
 func (h *DatabaseHandler) GetRedisConnectedClients(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetRedisConnectedClients(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetRedisConnectedClients(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query Redis clients")
 		return
@@ -201,12 +201,12 @@ func (h *DatabaseHandler) GetRedisConnectedClients(c *gin.Context) {
 }
 
 func (h *DatabaseHandler) GetRedisMemoryUsed(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetRedisMemoryUsed(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetRedisMemoryUsed(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query Redis memory")
 		return
@@ -215,12 +215,12 @@ func (h *DatabaseHandler) GetRedisMemoryUsed(c *gin.Context) {
 }
 
 func (h *DatabaseHandler) GetRedisMemoryFragmentation(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetRedisMemoryFragmentation(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetRedisMemoryFragmentation(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query Redis memory fragmentation")
 		return
@@ -229,12 +229,12 @@ func (h *DatabaseHandler) GetRedisMemoryFragmentation(c *gin.Context) {
 }
 
 func (h *DatabaseHandler) GetRedisCommandRate(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetRedisCommandRate(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetRedisCommandRate(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query Redis commands")
 		return
@@ -243,12 +243,12 @@ func (h *DatabaseHandler) GetRedisCommandRate(c *gin.Context) {
 }
 
 func (h *DatabaseHandler) GetRedisEvictions(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetRedisEvictions(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetRedisEvictions(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query Redis evictions")
 		return
@@ -257,12 +257,12 @@ func (h *DatabaseHandler) GetRedisEvictions(c *gin.Context) {
 }
 
 func (h *DatabaseHandler) GetRedisKeyspaceSize(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetRedisKeyspaceSize(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetRedisKeyspaceSize(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query Redis keyspace")
 		return
@@ -271,12 +271,12 @@ func (h *DatabaseHandler) GetRedisKeyspaceSize(c *gin.Context) {
 }
 
 func (h *DatabaseHandler) GetRedisKeyExpiries(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetRedisKeyExpiries(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetRedisKeyExpiries(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query Redis key expiries")
 		return
@@ -285,12 +285,12 @@ func (h *DatabaseHandler) GetRedisKeyExpiries(c *gin.Context) {
 }
 
 func (h *DatabaseHandler) GetRedisReplicationLag(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetRedisReplicationLag(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetRedisReplicationLag(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query Redis replication lag")
 		return

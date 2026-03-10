@@ -9,9 +9,9 @@ import (
 
 // Repository defines data access for error tracking endpoints.
 type Repository interface {
-	GetExceptionRateByType(teamUUID string, startMs, endMs int64, serviceName string) ([]ExceptionRatePoint, error)
-	GetErrorHotspot(teamUUID string, startMs, endMs int64) ([]ErrorHotspotCell, error)
-	GetHTTP5xxByRoute(teamUUID string, startMs, endMs int64, serviceName string) ([]HTTP5xxByRoute, error)
+	GetExceptionRateByType(teamID int64, startMs, endMs int64, serviceName string) ([]ExceptionRatePoint, error)
+	GetErrorHotspot(teamID int64, startMs, endMs int64) ([]ErrorHotspotCell, error)
+	GetHTTP5xxByRoute(teamID int64, startMs, endMs int64, serviceName string) ([]HTTP5xxByRoute, error)
 }
 
 // ClickHouseRepository implements Repository against ClickHouse.
@@ -25,7 +25,7 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 }
 
 // GetExceptionRateByType returns time-series exception counts grouped by exception.type.
-func (r *ClickHouseRepository) GetExceptionRateByType(teamUUID string, startMs, endMs int64, serviceName string) ([]ExceptionRatePoint, error) {
+func (r *ClickHouseRepository) GetExceptionRateByType(teamID int64, startMs, endMs int64, serviceName string) ([]ExceptionRatePoint, error) {
 	bucket := timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
 	query := fmt.Sprintf(`
 		SELECT %s AS time_bucket,
@@ -33,7 +33,7 @@ func (r *ClickHouseRepository) GetExceptionRateByType(teamUUID string, startMs, 
 		       count()          AS event_count
 		FROM observability.spans s
 		WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.exception_type != '' AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -57,7 +57,7 @@ func (r *ClickHouseRepository) GetExceptionRateByType(teamUUID string, startMs, 
 }
 
 // GetErrorHotspot returns error_rate per (service × operation) cell for a heatmap.
-func (r *ClickHouseRepository) GetErrorHotspot(teamUUID string, startMs, endMs int64) ([]ErrorHotspotCell, error) {
+func (r *ClickHouseRepository) GetErrorHotspot(teamID int64, startMs, endMs int64) ([]ErrorHotspotCell, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.service_name AS service_name,
 		       s.name AS operation_name,
@@ -71,7 +71,7 @@ func (r *ClickHouseRepository) GetErrorHotspot(teamUUID string, startMs, endMs i
 		GROUP BY s.service_name, s.name
 		ORDER BY error_rate DESC
 		LIMIT 500
-	`, teamUUID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +90,7 @@ func (r *ClickHouseRepository) GetErrorHotspot(teamUUID string, startMs, endMs i
 }
 
 // GetHTTP5xxByRoute returns counts of HTTP 5xx responses grouped by http.route.
-func (r *ClickHouseRepository) GetHTTP5xxByRoute(teamUUID string, startMs, endMs int64, serviceName string) ([]HTTP5xxByRoute, error) {
+func (r *ClickHouseRepository) GetHTTP5xxByRoute(teamID int64, startMs, endMs int64, serviceName string) ([]HTTP5xxByRoute, error) {
 	query := `
 		SELECT s.mat_http_route AS http_route,
 		       s.service_name AS service_name,
@@ -98,7 +98,7 @@ func (r *ClickHouseRepository) GetHTTP5xxByRoute(teamUUID string, startMs, endMs
 		FROM observability.spans s
 		WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?
 		  AND toUInt16OrZero(s.response_status_code) >= 500`
-	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)

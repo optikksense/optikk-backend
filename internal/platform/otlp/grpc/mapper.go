@@ -197,7 +197,7 @@ func bytesToHex(b []byte) string {
 // MapSpans maps gRPC trace exports into span ingest rows.
 // Resource attributes (host.name, k8s.pod.name, service.name, etc.) are merged
 // into the span's attributes JSON column and extracted via materialized columns at query time.
-func MapSpans(teamID string, req *tracepb.ExportTraceServiceRequest) []ingest.Row {
+func MapSpans(teamID int64, req *tracepb.ExportTraceServiceRequest) []ingest.Row {
 	result := make([]ingest.Row, 0, 64)
 
 	for _, rs := range req.ResourceSpans {
@@ -271,7 +271,7 @@ func MapSpans(teamID string, req *tracepb.ExportTraceServiceRequest) []ingest.Ro
 
 				result = append(result, ingest.Row{Values: []any{
 					tsBucket,
-					teamID,
+					uint32(teamID),
 					timestamp,
 					bytesToHex(s.TraceId),
 					bytesToHex(s.SpanId),
@@ -334,9 +334,9 @@ func protoAttrsToTypedMaps(kvs []*commonpb.KeyValue) (map[string]string, map[str
 }
 
 // protoLogID generates a stable FNV-64a ID for a gRPC log record.
-func protoLogID(teamID string, tsNano uint64, traceID, spanID []byte, body string) string {
+func protoLogID(teamID int64, tsNano uint64, traceID, spanID []byte, body string) string {
 	h := fnv.New64a()
-	h.Write([]byte(teamID))
+	h.Write([]byte(strconv.FormatInt(teamID, 10)))
 	h.Write([]byte{0})
 	b := strconv.AppendUint(nil, tsNano, 10)
 	h.Write(b)
@@ -350,7 +350,7 @@ func protoLogID(teamID string, tsNano uint64, traceID, spanID []byte, body strin
 }
 
 // MapLogs maps gRPC Logs Request to ingest.Row.
-func MapLogs(teamID string, req *logspb.ExportLogsServiceRequest) []ingest.Row {
+func MapLogs(teamID int64, req *logspb.ExportLogsServiceRequest) []ingest.Row {
 	var rows []ingest.Row
 	for _, rl := range req.ResourceLogs {
 		var resAttrs []*commonpb.KeyValue
@@ -399,7 +399,7 @@ func MapLogs(teamID string, req *logspb.ExportLogsServiceRequest) []ingest.Row {
 				id := protoLogID(teamID, tsNs, lr.TraceId, lr.SpanId, body)
 
 				rows = append(rows, ingest.Row{Values: []any{
-					teamID,
+					uint32(teamID),
 					tsBucket,
 					tsNs,
 					observedNs,
@@ -426,7 +426,7 @@ func MapLogs(teamID string, req *logspb.ExportLogsServiceRequest) []ingest.Row {
 }
 
 // MapMetrics maps gRPC Metrics Request to ingest.Row.
-func MapMetrics(teamID string, req *metricspb.ExportMetricsServiceRequest) []ingest.Row {
+func MapMetrics(teamID int64, req *metricspb.ExportMetricsServiceRequest) []ingest.Row {
 	var rows []ingest.Row
 	for _, rm := range req.ResourceMetrics {
 		var resAttrs []*commonpb.KeyValue
@@ -453,7 +453,7 @@ func MapMetrics(teamID string, req *metricspb.ExportMetricsServiceRequest) []ing
 						attrsJSON := mergeAttrsJSON(resMap, dp.Attributes)
 
 						rows = append(rows, ingest.Row{Values: []any{
-							teamID, env, m.Name, "Gauge", "Unspecified", false,
+							uint32(teamID), env, m.Name, "Gauge", "Unspecified", false,
 							unit, desc, fingerprint, nanoToTime(dp.TimeUnixNano), val,
 							0.0, uint64(0), []float64{}, []uint64{}, attrsJSON,
 						}})
@@ -473,7 +473,7 @@ func MapMetrics(teamID string, req *metricspb.ExportMetricsServiceRequest) []ing
 						attrsJSON := mergeAttrsJSON(resMap, dp.Attributes)
 
 						rows = append(rows, ingest.Row{Values: []any{
-							teamID, env, m.Name, "Sum", temporality, isMonotonic,
+							uint32(teamID), env, m.Name, "Sum", temporality, isMonotonic,
 							unit, desc, fingerprint, nanoToTime(dp.TimeUnixNano), val,
 							0.0, uint64(0), []float64{}, []uint64{}, attrsJSON,
 						}})
@@ -511,7 +511,7 @@ func MapMetrics(teamID string, req *metricspb.ExportMetricsServiceRequest) []ing
 						attrsJSON := mergeAttrsJSON(resMap, dp.Attributes)
 
 						rows = append(rows, ingest.Row{Values: []any{
-							teamID, env, m.Name, "Histogram", temporality, false,
+							uint32(teamID), env, m.Name, "Histogram", temporality, false,
 							unit, desc, fingerprint, nanoToTime(dp.TimeUnixNano), avg,
 							sum, count, bounds, counts, attrsJSON,
 						}})

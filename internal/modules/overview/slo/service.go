@@ -9,7 +9,7 @@ const (
 
 // Service encapsulates the business logic for the overview SLO module.
 type Service interface {
-	GetSloSli(teamUUID string, startMs, endMs int64, serviceName string) (*Response, error)
+	GetSloSli(teamID int64, startMs, endMs int64, serviceName string) (*Response, error)
 }
 
 // SLOService provides business logic orchestration for overview SLO dashboards.
@@ -22,13 +22,13 @@ func NewService(repo Repository) Service {
 	return &SLOService{repo: repo}
 }
 
-func (s *SLOService) GetSloSli(teamUUID string, startMs, endMs int64, serviceName string) (*Response, error) {
-	summary, err := s.repo.GetSummary(teamUUID, startMs, endMs, serviceName)
+func (s *SLOService) GetSloSli(teamID int64, startMs, endMs int64, serviceName string) (*Response, error) {
+	summary, err := s.repo.GetSummary(teamID, startMs, endMs, serviceName)
 	if err != nil {
 		return nil, err
 	}
 
-	timeseries, err := s.repo.GetTimeSeries(teamUUID, startMs, endMs, serviceName)
+	timeseries, err := s.repo.GetTimeSeries(teamID, startMs, endMs, serviceName)
 	if err != nil {
 		return nil, err
 	}

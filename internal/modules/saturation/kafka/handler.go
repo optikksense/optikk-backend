@@ -15,13 +15,13 @@ type KafkaHandler struct {
 
 // GetKafkaQueueLag returns the lag per Kafka queue.
 func (h *KafkaHandler) GetKafkaQueueLag(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	rows, err := h.Service.GetKafkaQueueLag(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetKafkaQueueLag(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query kafka queue lag")
 		return
@@ -32,13 +32,13 @@ func (h *KafkaHandler) GetKafkaQueueLag(c *gin.Context) {
 
 // GetKafkaProductionRate returns the production rate per Kafka queue.
 func (h *KafkaHandler) GetKafkaProductionRate(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	rows, err := h.Service.GetKafkaProductionRate(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetKafkaProductionRate(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query kafka production rate")
 		return
@@ -49,13 +49,13 @@ func (h *KafkaHandler) GetKafkaProductionRate(c *gin.Context) {
 
 // GetKafkaConsumptionRate returns the consumption rate per Kafka queue.
 func (h *KafkaHandler) GetKafkaConsumptionRate(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	rows, err := h.Service.GetKafkaConsumptionRate(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetKafkaConsumptionRate(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query kafka consumption rate")
 		return
@@ -66,13 +66,13 @@ func (h *KafkaHandler) GetKafkaConsumptionRate(c *gin.Context) {
 
 // GetQueueConsumerLag returns consumer lag timeseries.
 func (h *KafkaHandler) GetQueueConsumerLag(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	resp, err := h.Service.GetQueueConsumerLag(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetQueueConsumerLag(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query queue consumer lag")
 		return
@@ -83,13 +83,13 @@ func (h *KafkaHandler) GetQueueConsumerLag(c *gin.Context) {
 
 // GetQueueTopicLag returns queue depth timeseries.
 func (h *KafkaHandler) GetQueueTopicLag(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	resp, err := h.Service.GetQueueTopicLag(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetQueueTopicLag(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query queue topic lag")
 		return
@@ -100,13 +100,13 @@ func (h *KafkaHandler) GetQueueTopicLag(c *gin.Context) {
 
 // GetQueueTopQueues returns the aggregated queues stats.
 func (h *KafkaHandler) GetQueueTopQueues(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	resp, err := h.Service.GetQueueTopQueues(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetQueueTopQueues(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query top queues")
 		return
@@ -118,12 +118,12 @@ func (h *KafkaHandler) GetQueueTopQueues(c *gin.Context) {
 // ─── OTel messaging.* standard metrics ────────────────────────────────────────
 
 func (h *KafkaHandler) GetConsumerLagPerPartition(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetConsumerLagPerPartition(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetConsumerLagPerPartition(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query consumer lag per partition")
 		return
@@ -132,12 +132,12 @@ func (h *KafkaHandler) GetConsumerLagPerPartition(c *gin.Context) {
 }
 
 func (h *KafkaHandler) GetMessageRates(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetMessageRates(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetMessageRates(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query message rates")
 		return
@@ -146,12 +146,12 @@ func (h *KafkaHandler) GetMessageRates(c *gin.Context) {
 }
 
 func (h *KafkaHandler) GetOperationDuration(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetOperationDuration(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetOperationDuration(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query operation duration")
 		return
@@ -160,12 +160,12 @@ func (h *KafkaHandler) GetOperationDuration(c *gin.Context) {
 }
 
 func (h *KafkaHandler) GetOffsetCommitRate(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetOffsetCommitRate(teamUUID, startMs, endMs)
+	resp, err := h.Service.GetOffsetCommitRate(teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query offset commit rate")
 		return

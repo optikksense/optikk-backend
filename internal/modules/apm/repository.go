@@ -9,13 +9,13 @@ import (
 
 // Repository defines the data access interface for APM metrics.
 type Repository interface {
-	GetRPCDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error)
-	GetRPCRequestRate(teamUUID string, startMs, endMs int64) ([]TimeBucket, error)
-	GetMessagingPublishDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error)
-	GetProcessCPU(teamUUID string, startMs, endMs int64) ([]StateBucket, error)
-	GetProcessMemory(teamUUID string, startMs, endMs int64) (ProcessMemory, error)
-	GetOpenFDs(teamUUID string, startMs, endMs int64) ([]TimeBucket, error)
-	GetUptime(teamUUID string, startMs, endMs int64) ([]TimeBucket, error)
+	GetRPCDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error)
+	GetRPCRequestRate(teamID int64, startMs, endMs int64) ([]TimeBucket, error)
+	GetMessagingPublishDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error)
+	GetProcessCPU(teamID int64, startMs, endMs int64) ([]StateBucket, error)
+	GetProcessMemory(teamID int64, startMs, endMs int64) (ProcessMemory, error)
+	GetOpenFDs(teamID int64, startMs, endMs int64) ([]TimeBucket, error)
+	GetUptime(teamID int64, startMs, endMs int64) ([]TimeBucket, error)
 }
 
 // ClickHouseRepository implements Repository using ClickHouse.
@@ -29,7 +29,7 @@ func NewRepository(db dbutil.Querier) Repository {
 }
 
 // queryHistogramSummary is a shared helper for p50/p95/p99/avg histogram queries.
-func (r *ClickHouseRepository) queryHistogramSummary(teamUUID string, startMs, endMs int64, metricName string) (HistogramSummary, error) {
+func (r *ClickHouseRepository) queryHistogramSummary(teamID int64, startMs, endMs int64, metricName string) (HistogramSummary, error) {
 	query := fmt.Sprintf(`
 		SELECT
 		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
@@ -45,7 +45,7 @@ func (r *ClickHouseRepository) queryHistogramSummary(teamUUID string, startMs, e
 		TableMetrics, ColTeamID, ColTimestamp,
 		ColMetricName, metricName,
 	)
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return HistogramSummary{}, err
 	}
@@ -58,7 +58,7 @@ func (r *ClickHouseRepository) queryHistogramSummary(teamUUID string, startMs, e
 }
 
 // queryTimeBuckets is a shared helper for simple scalar timeseries.
-func (r *ClickHouseRepository) queryTimeBuckets(teamUUID string, startMs, endMs int64, metricName string) ([]TimeBucket, error) {
+func (r *ClickHouseRepository) queryTimeBuckets(teamID int64, startMs, endMs int64, metricName string) ([]TimeBucket, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT
@@ -76,7 +76,7 @@ func (r *ClickHouseRepository) queryTimeBuckets(teamUUID string, startMs, endMs 
 		ColTeamID, ColTimestamp,
 		ColMetricName, metricName,
 	)
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -91,11 +91,11 @@ func (r *ClickHouseRepository) queryTimeBuckets(teamUUID string, startMs, endMs 
 	return results, nil
 }
 
-func (r *ClickHouseRepository) GetRPCDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
-	return r.queryHistogramSummary(teamUUID, startMs, endMs, MetricRPCServerDuration)
+func (r *ClickHouseRepository) GetRPCDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return r.queryHistogramSummary(teamID, startMs, endMs, MetricRPCServerDuration)
 }
 
-func (r *ClickHouseRepository) GetRPCRequestRate(teamUUID string, startMs, endMs int64) ([]TimeBucket, error) {
+func (r *ClickHouseRepository) GetRPCRequestRate(teamID int64, startMs, endMs int64) ([]TimeBucket, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT
@@ -113,7 +113,7 @@ func (r *ClickHouseRepository) GetRPCRequestRate(teamUUID string, startMs, endMs
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricRPCServerDuration,
 	)
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -128,11 +128,11 @@ func (r *ClickHouseRepository) GetRPCRequestRate(teamUUID string, startMs, endMs
 	return results, nil
 }
 
-func (r *ClickHouseRepository) GetMessagingPublishDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
-	return r.queryHistogramSummary(teamUUID, startMs, endMs, MetricMessagingPublishDuration)
+func (r *ClickHouseRepository) GetMessagingPublishDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return r.queryHistogramSummary(teamID, startMs, endMs, MetricMessagingPublishDuration)
 }
 
-func (r *ClickHouseRepository) GetProcessCPU(teamUUID string, startMs, endMs int64) ([]StateBucket, error) {
+func (r *ClickHouseRepository) GetProcessCPU(teamID int64, startMs, endMs int64) ([]StateBucket, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	stateAttr := attrString(AttrProcessCPUState)
 
@@ -153,7 +153,7 @@ func (r *ClickHouseRepository) GetProcessCPU(teamUUID string, startMs, endMs int
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricProcessCPUTime,
 	)
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -169,7 +169,7 @@ func (r *ClickHouseRepository) GetProcessCPU(teamUUID string, startMs, endMs int
 	return results, nil
 }
 
-func (r *ClickHouseRepository) GetProcessMemory(teamUUID string, startMs, endMs int64) (ProcessMemory, error) {
+func (r *ClickHouseRepository) GetProcessMemory(teamID int64, startMs, endMs int64) (ProcessMemory, error) {
 	query := fmt.Sprintf(`
 		SELECT
 		    avgIf(value, %s = '%s') AS rss,
@@ -185,7 +185,7 @@ func (r *ClickHouseRepository) GetProcessMemory(teamUUID string, startMs, endMs 
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricProcessMemoryUsage, MetricProcessMemoryVirtual,
 	)
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return ProcessMemory{}, err
 	}
@@ -195,10 +195,10 @@ func (r *ClickHouseRepository) GetProcessMemory(teamUUID string, startMs, endMs 
 	}, nil
 }
 
-func (r *ClickHouseRepository) GetOpenFDs(teamUUID string, startMs, endMs int64) ([]TimeBucket, error) {
-	return r.queryTimeBuckets(teamUUID, startMs, endMs, MetricProcessOpenFDs)
+func (r *ClickHouseRepository) GetOpenFDs(teamID int64, startMs, endMs int64) ([]TimeBucket, error) {
+	return r.queryTimeBuckets(teamID, startMs, endMs, MetricProcessOpenFDs)
 }
 
-func (r *ClickHouseRepository) GetUptime(teamUUID string, startMs, endMs int64) ([]TimeBucket, error) {
-	return r.queryTimeBuckets(teamUUID, startMs, endMs, MetricProcessUptime)
+func (r *ClickHouseRepository) GetUptime(teamID int64, startMs, endMs int64) ([]TimeBucket, error) {
+	return r.queryTimeBuckets(teamID, startMs, endMs, MetricProcessUptime)
 }

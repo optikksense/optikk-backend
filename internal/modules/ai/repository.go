@@ -12,17 +12,17 @@ import (
 
 // Repository encapsulates data access logic for AI models.
 type Repository interface {
-	GetAISummary(teamUUID string, startMs, endMs int64) (*AISummary, error)
-	GetAIModels(teamUUID string, startMs, endMs int64) ([]AIModel, error)
-	GetAIPerformanceMetrics(teamUUID string, startMs, endMs int64) ([]AIPerformanceMetric, error)
-	GetAIPerformanceTimeSeries(teamUUID string, startMs, endMs int64) ([]AIPerformanceTimeSeries, error)
-	GetAILatencyHistogram(teamUUID string, modelName string, startMs, endMs int64) ([]AILatencyHistogram, error)
-	GetAICostMetrics(teamUUID string, startMs, endMs int64) ([]AICostMetric, error)
-	GetAICostTimeSeries(teamUUID string, startMs, endMs int64) ([]AICostTimeSeries, error)
-	GetAITokenBreakdown(teamUUID string, startMs, endMs int64) ([]AITokenBreakdown, error)
-	GetAISecurityMetrics(teamUUID string, startMs, endMs int64) ([]AISecurityMetric, error)
-	GetAISecurityTimeSeries(teamUUID string, startMs, endMs int64) ([]AISecurityTimeSeries, error)
-	GetAIPiiCategories(teamUUID string, startMs, endMs int64) ([]AIPiiCategory, error)
+	GetAISummary(teamID int64, startMs, endMs int64) (*AISummary, error)
+	GetAIModels(teamID int64, startMs, endMs int64) ([]AIModel, error)
+	GetAIPerformanceMetrics(teamID int64, startMs, endMs int64) ([]AIPerformanceMetric, error)
+	GetAIPerformanceTimeSeries(teamID int64, startMs, endMs int64) ([]AIPerformanceTimeSeries, error)
+	GetAILatencyHistogram(teamID int64, modelName string, startMs, endMs int64) ([]AILatencyHistogram, error)
+	GetAICostMetrics(teamID int64, startMs, endMs int64) ([]AICostMetric, error)
+	GetAICostTimeSeries(teamID int64, startMs, endMs int64) ([]AICostTimeSeries, error)
+	GetAITokenBreakdown(teamID int64, startMs, endMs int64) ([]AITokenBreakdown, error)
+	GetAISecurityMetrics(teamID int64, startMs, endMs int64) ([]AISecurityMetric, error)
+	GetAISecurityTimeSeries(teamID int64, startMs, endMs int64) ([]AISecurityTimeSeries, error)
+	GetAIPiiCategories(teamID int64, startMs, endMs int64) ([]AIPiiCategory, error)
 }
 
 // ClickHouseRepository encapsulates data access logic for AI models.
@@ -59,9 +59,9 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 
 // GetAISummary returns an aggregate performance/cost/security summary for all AI models.
 // Refactored to use SummaryQueryBuilder and SummaryAggregator following Single Responsibility Principle.
-func (r *ClickHouseRepository) GetAISummary(teamUUID string, startMs, endMs int64) (*AISummary, error) {
+func (r *ClickHouseRepository) GetAISummary(teamID int64, startMs, endMs int64) (*AISummary, error) {
 	// Build query using dedicated query builder
-	builder := NewSummaryQueryBuilder(teamUUID, startMs, endMs)
+	builder := NewSummaryQueryBuilder(teamID, startMs, endMs)
 	query, args := builder.Build()
 
 	// Execute query
@@ -81,9 +81,9 @@ func (r *ClickHouseRepository) GetAISummary(teamUUID string, startMs, endMs int6
 
 // GetAIModels returns distinct AI models active in the time window.
 // Refactored to use ModelListQueryBuilder and ModelListAggregator following Single Responsibility Principle.
-func (r *ClickHouseRepository) GetAIModels(teamUUID string, startMs, endMs int64) ([]AIModel, error) {
+func (r *ClickHouseRepository) GetAIModels(teamID int64, startMs, endMs int64) ([]AIModel, error) {
 	// Build query using dedicated query builder
-	builder := NewModelListQueryBuilder(teamUUID, startMs, endMs)
+	builder := NewModelListQueryBuilder(teamID, startMs, endMs)
 	query, args := builder.Build()
 
 	// Execute query
@@ -103,9 +103,9 @@ func (r *ClickHouseRepository) GetAIModels(teamUUID string, startMs, endMs int64
 
 // GetAIPerformanceMetrics returns per-model latency, throughput, error and timeout rates.
 // Refactored to use QueryBuilder and Aggregator following Single Responsibility Principle.
-func (r *ClickHouseRepository) GetAIPerformanceMetrics(teamUUID string, startMs, endMs int64) ([]AIPerformanceMetric, error) {
+func (r *ClickHouseRepository) GetAIPerformanceMetrics(teamID int64, startMs, endMs int64) ([]AIPerformanceMetric, error) {
 	// Build query using dedicated query builder
-	builder := NewPerformanceMetricsQueryBuilder(teamUUID, startMs, endMs)
+	builder := NewPerformanceMetricsQueryBuilder(teamID, startMs, endMs)
 	query, args := builder.Build()
 
 	// Execute query
@@ -125,7 +125,7 @@ func (r *ClickHouseRepository) GetAIPerformanceMetrics(teamUUID string, startMs,
 
 // GetAIPerformanceTimeSeries returns per-model latency / throughput time series with adaptive bucketing.
 // Refactored to use TimeSeriesQueryBuilder and TimeSeriesAggregator following Single Responsibility Principle.
-func (r *ClickHouseRepository) GetAIPerformanceTimeSeries(teamUUID string, startMs, endMs int64) ([]AIPerformanceTimeSeries, error) {
+func (r *ClickHouseRepository) GetAIPerformanceTimeSeries(teamID int64, startMs, endMs int64) ([]AIPerformanceTimeSeries, error) {
 	// Create adaptive time bucket strategy
 	strategy := r.bucketFactory.CreateStrategy(startMs, endMs)
 	durationMs := attrFlt("duration_ms")
@@ -133,7 +133,7 @@ func (r *ClickHouseRepository) GetAIPerformanceTimeSeries(teamUUID string, start
 	timeout := attrInt("ai.timeout")
 
 	// Build query using time series query builder
-	builder := NewTimeSeriesQueryBuilder(teamUUID, startMs, endMs, strategy)
+	builder := NewTimeSeriesQueryBuilder(teamID, startMs, endMs, strategy)
 	builder.WithSelectFields([]string{
 		"COUNT(*) as request_count",
 		fmt.Sprintf("AVG(%s) as avg_latency_ms", durationMs),
@@ -163,9 +163,9 @@ func (r *ClickHouseRepository) GetAIPerformanceTimeSeries(teamUUID string, start
 
 // GetAILatencyHistogram returns latency distribution (100ms buckets) per model.
 // Refactored to use LatencyHistogramQueryBuilder and HistogramAggregator following Single Responsibility Principle.
-func (r *ClickHouseRepository) GetAILatencyHistogram(teamUUID string, modelName string, startMs, endMs int64) ([]AILatencyHistogram, error) {
+func (r *ClickHouseRepository) GetAILatencyHistogram(teamID int64, modelName string, startMs, endMs int64) ([]AILatencyHistogram, error) {
 	// Build query using dedicated query builder
-	builder := NewLatencyHistogramQueryBuilder(teamUUID, startMs, endMs)
+	builder := NewLatencyHistogramQueryBuilder(teamID, startMs, endMs)
 	if modelName != "" {
 		builder.WithModelName(modelName)
 	}
@@ -188,9 +188,9 @@ func (r *ClickHouseRepository) GetAILatencyHistogram(teamUUID string, modelName 
 
 // GetAICostMetrics returns per-model token usage and cost breakdown.
 // Refactored to use CostMetricsQueryBuilder and CostMetricAggregator following Single Responsibility Principle.
-func (r *ClickHouseRepository) GetAICostMetrics(teamUUID string, startMs, endMs int64) ([]AICostMetric, error) {
+func (r *ClickHouseRepository) GetAICostMetrics(teamID int64, startMs, endMs int64) ([]AICostMetric, error) {
 	// Build query using dedicated query builder
-	builder := NewCostMetricsQueryBuilder(teamUUID, startMs, endMs)
+	builder := NewCostMetricsQueryBuilder(teamID, startMs, endMs)
 	query, args := builder.Build()
 
 	// Execute query
@@ -210,7 +210,7 @@ func (r *ClickHouseRepository) GetAICostMetrics(teamUUID string, startMs, endMs 
 
 // GetAICostTimeSeries returns cost and token usage over time per model with adaptive bucketing.
 // Refactored to use TimeSeriesQueryBuilder and TimeSeriesAggregator following Single Responsibility Principle.
-func (r *ClickHouseRepository) GetAICostTimeSeries(teamUUID string, startMs, endMs int64) ([]AICostTimeSeries, error) {
+func (r *ClickHouseRepository) GetAICostTimeSeries(teamID int64, startMs, endMs int64) ([]AICostTimeSeries, error) {
 	// Create adaptive time bucket strategy
 	strategy := r.bucketFactory.CreateStrategy(startMs, endMs)
 	costUSD := attrFlt("ai.cost_usd")
@@ -218,7 +218,7 @@ func (r *ClickHouseRepository) GetAICostTimeSeries(teamUUID string, startMs, end
 	outputTokens := attrInt("gen.ai.usage.output_tokens")
 
 	// Build query using time series query builder
-	builder := NewTimeSeriesQueryBuilder(teamUUID, startMs, endMs, strategy)
+	builder := NewTimeSeriesQueryBuilder(teamID, startMs, endMs, strategy)
 	builder.WithSelectFields([]string{
 		fmt.Sprintf("SUM(COALESCE(%s, 0)) as cost_per_interval", costUSD),
 		fmt.Sprintf("SUM(COALESCE(%s, 0)) as prompt_tokens", inputTokens),
@@ -246,9 +246,9 @@ func (r *ClickHouseRepository) GetAICostTimeSeries(teamUUID string, startMs, end
 
 // GetAITokenBreakdown returns token type breakdown per model.
 // Refactored to use TokenBreakdownQueryBuilder and TokenBreakdownAggregator following Single Responsibility Principle.
-func (r *ClickHouseRepository) GetAITokenBreakdown(teamUUID string, startMs, endMs int64) ([]AITokenBreakdown, error) {
+func (r *ClickHouseRepository) GetAITokenBreakdown(teamID int64, startMs, endMs int64) ([]AITokenBreakdown, error) {
 	// Build query using dedicated query builder
-	builder := NewTokenBreakdownQueryBuilder(teamUUID, startMs, endMs)
+	builder := NewTokenBreakdownQueryBuilder(teamID, startMs, endMs)
 	query, args := builder.Build()
 
 	// Execute query
@@ -268,9 +268,9 @@ func (r *ClickHouseRepository) GetAITokenBreakdown(teamUUID string, startMs, end
 
 // GetAISecurityMetrics returns PII detection and guardrail block rates per model.
 // Refactored to use SecurityMetricsQueryBuilder and SecurityMetricAggregator following Single Responsibility Principle.
-func (r *ClickHouseRepository) GetAISecurityMetrics(teamUUID string, startMs, endMs int64) ([]AISecurityMetric, error) {
+func (r *ClickHouseRepository) GetAISecurityMetrics(teamID int64, startMs, endMs int64) ([]AISecurityMetric, error) {
 	// Build query using dedicated query builder
-	builder := NewSecurityMetricsQueryBuilder(teamUUID, startMs, endMs)
+	builder := NewSecurityMetricsQueryBuilder(teamID, startMs, endMs)
 	query, args := builder.Build()
 
 	// Execute query
@@ -290,7 +290,7 @@ func (r *ClickHouseRepository) GetAISecurityMetrics(teamUUID string, startMs, en
 
 // GetAISecurityTimeSeries returns security-event time series per model with adaptive bucketing.
 // Refactored to use TimeSeriesQueryBuilder and TimeSeriesAggregator following Single Responsibility Principle.
-func (r *ClickHouseRepository) GetAISecurityTimeSeries(teamUUID string, startMs, endMs int64) ([]AISecurityTimeSeries, error) {
+func (r *ClickHouseRepository) GetAISecurityTimeSeries(teamID int64, startMs, endMs int64) ([]AISecurityTimeSeries, error) {
 	// Create adaptive time bucket strategy
 	strategy := r.bucketFactory.CreateStrategy(startMs, endMs)
 	piiDetected := attrInt("ai.security.pii_detected")
@@ -298,7 +298,7 @@ func (r *ClickHouseRepository) GetAISecurityTimeSeries(teamUUID string, startMs,
 	contentPolicy := attrInt("ai.security.content_policy")
 
 	// Build query using time series query builder
-	builder := NewTimeSeriesQueryBuilder(teamUUID, startMs, endMs, strategy)
+	builder := NewTimeSeriesQueryBuilder(teamID, startMs, endMs, strategy)
 	builder.WithSelectFields([]string{
 		"COUNT(*) as total_requests",
 		fmt.Sprintf("SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) as pii_count", piiDetected),
@@ -326,9 +326,9 @@ func (r *ClickHouseRepository) GetAISecurityTimeSeries(teamUUID string, startMs,
 
 // GetAIPiiCategories returns PII category breakdown for detected events.
 // Refactored to use PIICategoryQueryBuilder and PIICategoryAggregator following Single Responsibility Principle.
-func (r *ClickHouseRepository) GetAIPiiCategories(teamUUID string, startMs, endMs int64) ([]AIPiiCategory, error) {
+func (r *ClickHouseRepository) GetAIPiiCategories(teamID int64, startMs, endMs int64) ([]AIPiiCategory, error) {
 	// Build query using dedicated query builder
-	builder := NewPIICategoryQueryBuilder(teamUUID, startMs, endMs)
+	builder := NewPIICategoryQueryBuilder(teamID, startMs, endMs)
 	query, args := builder.Build()
 
 	// Execute query

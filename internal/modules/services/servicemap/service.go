@@ -2,9 +2,9 @@ package servicemap
 
 // Service encapsulates business logic for service map endpoints.
 type Service interface {
-	GetUpstreamDownstream(teamUUID, serviceName string, startMs, endMs int64) ([]ServiceDependencyDetail, error)
-	GetExternalDependencies(teamUUID string, startMs, endMs int64) ([]ExternalDependency, error)
-	GetClientServerLatency(teamUUID string, startMs, endMs int64, operationName string) ([]ClientServerLatencyPoint, error)
+	GetUpstreamDownstream(teamID int64, serviceName string, startMs, endMs int64) ([]ServiceDependencyDetail, error)
+	GetExternalDependencies(teamID int64, startMs, endMs int64) ([]ExternalDependency, error)
+	GetClientServerLatency(teamID int64, startMs, endMs int64, operationName string) ([]ClientServerLatencyPoint, error)
 }
 
 // ServiceMapService implements Service.
@@ -17,14 +17,14 @@ func NewService(repo Repository) Service {
 	return &ServiceMapService{repo: repo}
 }
 
-func (s *ServiceMapService) GetUpstreamDownstream(teamUUID, serviceName string, startMs, endMs int64) ([]ServiceDependencyDetail, error) {
-	return s.repo.GetUpstreamDownstream(teamUUID, serviceName, startMs, endMs)
+func (s *ServiceMapService) GetUpstreamDownstream(teamID int64, serviceName string, startMs, endMs int64) ([]ServiceDependencyDetail, error) {
+	return s.repo.GetUpstreamDownstream(teamID, serviceName, startMs, endMs)
 }
 
-func (s *ServiceMapService) GetExternalDependencies(teamUUID string, startMs, endMs int64) ([]ExternalDependency, error) {
-	return s.repo.GetExternalDependencies(teamUUID, startMs, endMs)
+func (s *ServiceMapService) GetExternalDependencies(teamID int64, startMs, endMs int64) ([]ExternalDependency, error) {
+	return s.repo.GetExternalDependencies(teamID, startMs, endMs)
 }
 
-func (s *ServiceMapService) GetClientServerLatency(teamUUID string, startMs, endMs int64, operationName string) ([]ClientServerLatencyPoint, error) {
-	return s.repo.GetClientServerLatency(teamUUID, startMs, endMs, operationName)
+func (s *ServiceMapService) GetClientServerLatency(teamID int64, startMs, endMs int64, operationName string) ([]ClientServerLatencyPoint, error) {
+	return s.repo.GetClientServerLatency(teamID, startMs, endMs, operationName)
 }

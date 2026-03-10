@@ -10,82 +10,82 @@ func NewService(repo *ClickHouseRepository) *DatabaseService {
 	return &DatabaseService{repo: repo}
 }
 
-func (s *DatabaseService) GetDatabaseQueryByTable(teamUUID string, startMs, endMs int64) ([]DatabaseQueryByTable, error) {
-	return s.repo.GetDatabaseQueryByTable(teamUUID, startMs, endMs)
+func (s *DatabaseService) GetDatabaseQueryByTable(teamID int64, startMs, endMs int64) ([]DatabaseQueryByTable, error) {
+	return s.repo.GetDatabaseQueryByTable(teamID, startMs, endMs)
 }
 
-func (s *DatabaseService) GetDatabaseAvgLatency(teamUUID string, startMs, endMs int64) ([]DatabaseAvgLatency, error) {
-	return s.repo.GetDatabaseAvgLatency(teamUUID, startMs, endMs)
+func (s *DatabaseService) GetDatabaseAvgLatency(teamID int64, startMs, endMs int64) ([]DatabaseAvgLatency, error) {
+	return s.repo.GetDatabaseAvgLatency(teamID, startMs, endMs)
 }
 
-func (s *DatabaseService) GetDatabaseCacheSummary(teamUUID string, startMs, endMs int64) (DbCacheSummary, error) {
-	return s.repo.GetDatabaseCacheSummary(teamUUID, startMs, endMs)
+func (s *DatabaseService) GetDatabaseCacheSummary(teamID int64, startMs, endMs int64) (DbCacheSummary, error) {
+	return s.repo.GetDatabaseCacheSummary(teamID, startMs, endMs)
 }
 
-func (s *DatabaseService) GetDatabaseSystems(teamUUID string, startMs, endMs int64) ([]DbSystemBreakdown, error) {
-	return s.repo.GetDatabaseSystems(teamUUID, startMs, endMs)
+func (s *DatabaseService) GetDatabaseSystems(teamID int64, startMs, endMs int64) ([]DbSystemBreakdown, error) {
+	return s.repo.GetDatabaseSystems(teamID, startMs, endMs)
 }
 
-func (s *DatabaseService) GetDatabaseTopTables(teamUUID string, startMs, endMs int64) ([]DbTableMetric, error) {
-	return s.repo.GetDatabaseTopTables(teamUUID, startMs, endMs)
+func (s *DatabaseService) GetDatabaseTopTables(teamID int64, startMs, endMs int64) ([]DbTableMetric, error) {
+	return s.repo.GetDatabaseTopTables(teamID, startMs, endMs)
 }
 
 // db.client.* OTel standard metrics
 
-func (s *DatabaseService) GetConnectionCount(teamUUID string, startMs, endMs int64) ([]ConnectionStatValue, error) {
-	return s.repo.GetConnectionCount(teamUUID, startMs, endMs)
+func (s *DatabaseService) GetConnectionCount(teamID int64, startMs, endMs int64) ([]ConnectionStatValue, error) {
+	return s.repo.GetConnectionCount(teamID, startMs, endMs)
 }
 
-func (s *DatabaseService) GetConnectionWaitTime(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
-	return s.repo.GetConnectionWaitTime(teamUUID, startMs, endMs)
+func (s *DatabaseService) GetConnectionWaitTime(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return s.repo.GetConnectionWaitTime(teamID, startMs, endMs)
 }
 
-func (s *DatabaseService) GetConnectionPending(teamUUID string, startMs, endMs int64) ([]DatabaseAvgLatency, error) {
-	return s.repo.GetConnectionPending(teamUUID, startMs, endMs)
+func (s *DatabaseService) GetConnectionPending(teamID int64, startMs, endMs int64) ([]DatabaseAvgLatency, error) {
+	return s.repo.GetConnectionPending(teamID, startMs, endMs)
 }
 
-func (s *DatabaseService) GetConnectionTimeouts(teamUUID string, startMs, endMs int64) ([]DatabaseAvgLatency, error) {
-	return s.repo.GetConnectionTimeouts(teamUUID, startMs, endMs)
+func (s *DatabaseService) GetConnectionTimeouts(teamID int64, startMs, endMs int64) ([]DatabaseAvgLatency, error) {
+	return s.repo.GetConnectionTimeouts(teamID, startMs, endMs)
 }
 
-func (s *DatabaseService) GetQueryDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
-	return s.repo.GetQueryDuration(teamUUID, startMs, endMs)
+func (s *DatabaseService) GetQueryDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return s.repo.GetQueryDuration(teamID, startMs, endMs)
 }
 
 // Redis metrics
 
-func (s *DatabaseService) GetRedisCacheHitRate(teamUUID string, startMs, endMs int64) (RedisHitRate, error) {
-	return s.repo.GetRedisCacheHitRate(teamUUID, startMs, endMs)
+func (s *DatabaseService) GetRedisCacheHitRate(teamID int64, startMs, endMs int64) (RedisHitRate, error) {
+	return s.repo.GetRedisCacheHitRate(teamID, startMs, endMs)
 }
 
-func (s *DatabaseService) GetRedisConnectedClients(teamUUID string, startMs, endMs int64) ([]RedisTimeSeries, error) {
-	return s.repo.GetRedisConnectedClients(teamUUID, startMs, endMs)
+func (s *DatabaseService) GetRedisConnectedClients(teamID int64, startMs, endMs int64) ([]RedisTimeSeries, error) {
+	return s.repo.GetRedisConnectedClients(teamID, startMs, endMs)
 }
 
-func (s *DatabaseService) GetRedisMemoryUsed(teamUUID string, startMs, endMs int64) ([]RedisTimeSeries, error) {
-	return s.repo.GetRedisMemoryUsed(teamUUID, startMs, endMs)
+func (s *DatabaseService) GetRedisMemoryUsed(teamID int64, startMs, endMs int64) ([]RedisTimeSeries, error) {
+	return s.repo.GetRedisMemoryUsed(teamID, startMs, endMs)
 }
 
-func (s *DatabaseService) GetRedisMemoryFragmentation(teamUUID string, startMs, endMs int64) ([]RedisTimeSeries, error) {
-	return s.repo.GetRedisMemoryFragmentation(teamUUID, startMs, endMs)
+func (s *DatabaseService) GetRedisMemoryFragmentation(teamID int64, startMs, endMs int64) ([]RedisTimeSeries, error) {
+	return s.repo.GetRedisMemoryFragmentation(teamID, startMs, endMs)
 }
 
-func (s *DatabaseService) GetRedisCommandRate(teamUUID string, startMs, endMs int64) ([]RedisTimeSeries, error) {
-	return s.repo.GetRedisCommandRate(teamUUID, startMs, endMs)
+func (s *DatabaseService) GetRedisCommandRate(teamID int64, startMs, endMs int64) ([]RedisTimeSeries, error) {
+	return s.repo.GetRedisCommandRate(teamID, startMs, endMs)
 }
 
-func (s *DatabaseService) GetRedisEvictions(teamUUID string, startMs, endMs int64) ([]RedisTimeSeries, error) {
-	return s.repo.GetRedisEvictions(teamUUID, startMs, endMs)
+func (s *DatabaseService) GetRedisEvictions(teamID int64, startMs, endMs int64) ([]RedisTimeSeries, error) {
+	return s.repo.GetRedisEvictions(teamID, startMs, endMs)
 }
 
-func (s *DatabaseService) GetRedisKeyspaceSize(teamUUID string, startMs, endMs int64) ([]RedisDBKeyStat, error) {
-	return s.repo.GetRedisKeyspaceSize(teamUUID, startMs, endMs)
+func (s *DatabaseService) GetRedisKeyspaceSize(teamID int64, startMs, endMs int64) ([]RedisDBKeyStat, error) {
+	return s.repo.GetRedisKeyspaceSize(teamID, startMs, endMs)
 }
 
-func (s *DatabaseService) GetRedisKeyExpiries(teamUUID string, startMs, endMs int64) ([]RedisDBKeyStat, error) {
-	return s.repo.GetRedisKeyExpiries(teamUUID, startMs, endMs)
+func (s *DatabaseService) GetRedisKeyExpiries(teamID int64, startMs, endMs int64) ([]RedisDBKeyStat, error) {
+	return s.repo.GetRedisKeyExpiries(teamID, startMs, endMs)
 }
 
-func (s *DatabaseService) GetRedisReplicationLag(teamUUID string, startMs, endMs int64) (RedisReplicationLag, error) {
-	return s.repo.GetRedisReplicationLag(teamUUID, startMs, endMs)
+func (s *DatabaseService) GetRedisReplicationLag(teamID int64, startMs, endMs int64) (RedisReplicationLag, error) {
+	return s.repo.GetRedisReplicationLag(teamID, startMs, endMs)
 }

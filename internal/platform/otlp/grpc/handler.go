@@ -62,24 +62,24 @@ func NewHandler(
 }
 
 // resolveTeamID extracts "x-api-key" from gRPC metadata and validates against the Authenticator.
-func (h *Handler) resolveTeamID(ctx context.Context) (string, error) {
+func (h *Handler) resolveTeamID(ctx context.Context) (int64, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
-		return "", status.Error(codes.Unauthenticated, "missing metadata")
+		return 0, status.Error(codes.Unauthenticated, "missing metadata")
 	}
 
 	keys := md.Get("x-api-key")
 	if len(keys) == 0 {
-		return "", status.Error(codes.Unauthenticated, "missing x-api-key metadata header")
+		return 0, status.Error(codes.Unauthenticated, "missing x-api-key metadata header")
 	}
 	apiKey := keys[0]
 
 	teamID, err := h.auth.ResolveTeamID(ctx, apiKey)
 	if err != nil {
 		if errors.Is(err, auth.ErrMissingAPIKey) || errors.Is(err, auth.ErrInvalidAPIKey) {
-			return "", status.Error(codes.Unauthenticated, err.Error())
+			return 0, status.Error(codes.Unauthenticated, err.Error())
 		}
-		return "", status.Error(codes.Internal, err.Error())
+		return 0, status.Error(codes.Internal, err.Error())
 	}
 
 	return teamID, nil
@@ -96,7 +96,7 @@ func (s *TraceServer) Export(ctx context.Context, req *tracepb.ExportTraceServic
 	if len(rows) == 0 {
 		return &tracepb.ExportTraceServiceResponse{}, nil
 	}
-	log.Printf("ingest: received %d spans via gRPC for team %s", len(rows), teamID)
+	log.Printf("ingest: received %d spans via gRPC for team %d", len(rows), teamID)
 
 	if err := s.h.spansQueue.Enqueue(rows); err != nil {
 		if errors.Is(err, ingest.ErrBackpressure) {
@@ -119,7 +119,7 @@ func (s *LogsServer) Export(ctx context.Context, req *logspb.ExportLogsServiceRe
 	if len(rows) == 0 {
 		return &logspb.ExportLogsServiceResponse{}, nil
 	}
-	log.Printf("ingest: received %d logs via gRPC for team %s", len(rows), teamID)
+	log.Printf("ingest: received %d logs via gRPC for team %d", len(rows), teamID)
 
 	if err := s.h.logsQueue.Enqueue(rows); err != nil {
 		if errors.Is(err, ingest.ErrBackpressure) {
@@ -142,7 +142,7 @@ func (s *MetricsServer) Export(ctx context.Context, req *metricspb.ExportMetrics
 	if len(rows) == 0 {
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
-	log.Printf("ingest: received %d metrics via gRPC for team %s", len(rows), teamID)
+	log.Printf("ingest: received %d metrics via gRPC for team %d", len(rows), teamID)
 
 	if err := s.h.metricsQueue.Enqueue(rows); err != nil {
 		if errors.Is(err, ingest.ErrBackpressure) {

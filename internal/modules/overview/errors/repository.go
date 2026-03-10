@@ -15,10 +15,10 @@ func errorBucketExpr(startMs, endMs int64) string {
 
 // Repository encapsulates data access logic for overview error dashboards.
 type Repository interface {
-	GetServiceErrorRate(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
-	GetErrorVolume(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
-	GetLatencyDuringErrorWindows(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
-	GetErrorGroups(teamUUID string, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error)
+	GetServiceErrorRate(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
+	GetErrorVolume(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
+	GetLatencyDuringErrorWindows(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
+	GetErrorGroups(teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error)
 }
 
 // ClickHouseRepository encapsulates overview error data access logic.
@@ -32,7 +32,7 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 }
 
 // GetErrorGroups reads raw spans and groups errors by service, operation, and status.
-func (r *ClickHouseRepository) GetErrorGroups(teamUUID string, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error) {
+func (r *ClickHouseRepository) GetErrorGroups(teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error) {
 	query := `
 		SELECT s.service_name AS service_name,
 		       s.name         AS operation_name,
@@ -44,7 +44,7 @@ func (r *ClickHouseRepository) GetErrorGroups(teamUUID string, startMs, endMs in
 		       (groupArray(s.trace_id) as trace_ids)[1] as sample_trace_id
 		FROM observability.spans s
 		WHERE s.team_id = ? AND (` + ErrorCondition() + `) AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`
-	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -75,7 +75,7 @@ func (r *ClickHouseRepository) GetErrorGroups(teamUUID string, startMs, endMs in
 }
 
 // GetServiceErrorRate reads from spans with adaptive time bucketing.
-func (r *ClickHouseRepository) GetServiceErrorRate(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
+func (r *ClickHouseRepository) GetServiceErrorRate(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
 	bucket := errorBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT service_name,
@@ -92,7 +92,7 @@ func (r *ClickHouseRepository) GetServiceErrorRate(teamUUID string, startMs, end
 			       avg(s.duration_nano / 1000000.0) AS avg_latency
 			FROM observability.spans s
 			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -122,7 +122,7 @@ func (r *ClickHouseRepository) GetServiceErrorRate(teamUUID string, startMs, end
 }
 
 // GetErrorVolume reads from spans with adaptive time bucketing, filtering minutes with errors.
-func (r *ClickHouseRepository) GetErrorVolume(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
+func (r *ClickHouseRepository) GetErrorVolume(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
 	bucket := errorBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT service_name, timestamp, error_count
@@ -132,7 +132,7 @@ func (r *ClickHouseRepository) GetErrorVolume(teamUUID string, startMs, endMs in
 			       countIf(`+ErrorCondition()+`) AS error_count
 			FROM observability.spans s
 			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -160,7 +160,7 @@ func (r *ClickHouseRepository) GetErrorVolume(teamUUID string, startMs, endMs in
 }
 
 // GetLatencyDuringErrorWindows reads from spans with adaptive time bucketing, filtering minutes with errors.
-func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
+func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
 	bucket := errorBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT service_name, timestamp, request_count, error_count, avg_latency
@@ -172,7 +172,7 @@ func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(teamUUID string, sta
 			       avg(s.duration_nano / 1000000.0) AS avg_latency
 			FROM observability.spans s
 			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)

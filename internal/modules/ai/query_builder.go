@@ -16,7 +16,7 @@ type QueryBuilder interface {
 // BaseQueryBuilder provides common query building functionality
 // Following Single Responsibility Principle - handles base query construction
 type BaseQueryBuilder struct {
-	teamUUID  string
+	teamID    int64
 	startMs   int64
 	endMs     int64
 	modelName string
@@ -24,9 +24,9 @@ type BaseQueryBuilder struct {
 }
 
 // NewBaseQueryBuilder creates a new base query builder
-func NewBaseQueryBuilder(teamUUID string, startMs, endMs int64) *BaseQueryBuilder {
+func NewBaseQueryBuilder(teamID int64, startMs, endMs int64) *BaseQueryBuilder {
 	return &BaseQueryBuilder{
-		teamUUID: teamUUID,
+		teamID: teamID,
 		startMs:  startMs,
 		endMs:    endMs,
 		limit:    100,
@@ -65,7 +65,7 @@ func attrFlt(key string) string {
 func (b *BaseQueryBuilder) baseWhereClause() (string, []any) {
 	modelExpr := attrStr("gen.ai.request.model")
 	where := fmt.Sprintf("WHERE team_id = ? AND timestamp BETWEEN ? AND ? AND %s <> ''", modelExpr)
-	args := []any{b.teamUUID, dbutil.SqlTime(b.startMs), dbutil.SqlTime(b.endMs)}
+	args := []any{b.teamID, dbutil.SqlTime(b.startMs), dbutil.SqlTime(b.endMs)}
 
 	if b.modelName != "" {
 		where += fmt.Sprintf(" AND %s = ?", modelExpr)
@@ -83,9 +83,9 @@ type PerformanceMetricsQueryBuilder struct {
 }
 
 // NewPerformanceMetricsQueryBuilder creates a new performance metrics query builder
-func NewPerformanceMetricsQueryBuilder(teamUUID string, startMs, endMs int64) *PerformanceMetricsQueryBuilder {
+func NewPerformanceMetricsQueryBuilder(teamID int64, startMs, endMs int64) *PerformanceMetricsQueryBuilder {
 	return &PerformanceMetricsQueryBuilder{
-		BaseQueryBuilder:   NewBaseQueryBuilder(teamUUID, startMs, endMs),
+		BaseQueryBuilder:   NewBaseQueryBuilder(teamID, startMs, endMs),
 		includePercentiles: true,
 	}
 }
@@ -146,9 +146,9 @@ type CostMetricsQueryBuilder struct {
 }
 
 // NewCostMetricsQueryBuilder creates a new cost metrics query builder
-func NewCostMetricsQueryBuilder(teamUUID string, startMs, endMs int64) *CostMetricsQueryBuilder {
+func NewCostMetricsQueryBuilder(teamID int64, startMs, endMs int64) *CostMetricsQueryBuilder {
 	return &CostMetricsQueryBuilder{
-		BaseQueryBuilder: NewBaseQueryBuilder(teamUUID, startMs, endMs),
+		BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs),
 	}
 }
 
@@ -204,9 +204,9 @@ type SecurityMetricsQueryBuilder struct {
 }
 
 // NewSecurityMetricsQueryBuilder creates a new security metrics query builder
-func NewSecurityMetricsQueryBuilder(teamUUID string, startMs, endMs int64) *SecurityMetricsQueryBuilder {
+func NewSecurityMetricsQueryBuilder(teamID int64, startMs, endMs int64) *SecurityMetricsQueryBuilder {
 	return &SecurityMetricsQueryBuilder{
-		BaseQueryBuilder: NewBaseQueryBuilder(teamUUID, startMs, endMs),
+		BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs),
 	}
 }
 
@@ -255,9 +255,9 @@ type TimeSeriesQueryBuilder struct {
 }
 
 // NewTimeSeriesQueryBuilder creates a new time series query builder
-func NewTimeSeriesQueryBuilder(teamUUID string, startMs, endMs int64, strategy TimeBucketStrategy) *TimeSeriesQueryBuilder {
+func NewTimeSeriesQueryBuilder(teamID int64, startMs, endMs int64, strategy TimeBucketStrategy) *TimeSeriesQueryBuilder {
 	return &TimeSeriesQueryBuilder{
-		BaseQueryBuilder: NewBaseQueryBuilder(teamUUID, startMs, endMs),
+		BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs),
 		bucketStrategy:   strategy,
 		orderBy:          "time_bucket ASC, model_name ASC",
 	}
@@ -308,9 +308,9 @@ type LatencyHistogramQueryBuilder struct {
 }
 
 // NewLatencyHistogramQueryBuilder creates a new latency histogram query builder
-func NewLatencyHistogramQueryBuilder(teamUUID string, startMs, endMs int64) *LatencyHistogramQueryBuilder {
+func NewLatencyHistogramQueryBuilder(teamID int64, startMs, endMs int64) *LatencyHistogramQueryBuilder {
 	return &LatencyHistogramQueryBuilder{
-		BaseQueryBuilder: NewBaseQueryBuilder(teamUUID, startMs, endMs).WithLimit(200),
+		BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs).WithLimit(200),
 		bucketSizeMs:     100, // 100ms buckets by default
 	}
 }
@@ -348,9 +348,9 @@ type SummaryQueryBuilder struct {
 }
 
 // NewSummaryQueryBuilder creates a new summary query builder
-func NewSummaryQueryBuilder(teamUUID string, startMs, endMs int64) *SummaryQueryBuilder {
+func NewSummaryQueryBuilder(teamID int64, startMs, endMs int64) *SummaryQueryBuilder {
 	return &SummaryQueryBuilder{
-		BaseQueryBuilder: NewBaseQueryBuilder(teamUUID, startMs, endMs),
+		BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs),
 	}
 }
 
@@ -411,9 +411,9 @@ type ModelListQueryBuilder struct {
 }
 
 // NewModelListQueryBuilder creates a new model list query builder
-func NewModelListQueryBuilder(teamUUID string, startMs, endMs int64) *ModelListQueryBuilder {
+func NewModelListQueryBuilder(teamID int64, startMs, endMs int64) *ModelListQueryBuilder {
 	return &ModelListQueryBuilder{
-		BaseQueryBuilder: NewBaseQueryBuilder(teamUUID, startMs, endMs),
+		BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs),
 	}
 }
 
@@ -441,9 +441,9 @@ type TokenBreakdownQueryBuilder struct {
 }
 
 // NewTokenBreakdownQueryBuilder creates a new token breakdown query builder
-func NewTokenBreakdownQueryBuilder(teamUUID string, startMs, endMs int64) *TokenBreakdownQueryBuilder {
+func NewTokenBreakdownQueryBuilder(teamID int64, startMs, endMs int64) *TokenBreakdownQueryBuilder {
 	return &TokenBreakdownQueryBuilder{
-		BaseQueryBuilder: NewBaseQueryBuilder(teamUUID, startMs, endMs).WithLimit(50),
+		BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs).WithLimit(50),
 	}
 }
 
@@ -480,9 +480,9 @@ type PIICategoryQueryBuilder struct {
 }
 
 // NewPIICategoryQueryBuilder creates a new PII category query builder
-func NewPIICategoryQueryBuilder(teamUUID string, startMs, endMs int64) *PIICategoryQueryBuilder {
+func NewPIICategoryQueryBuilder(teamID int64, startMs, endMs int64) *PIICategoryQueryBuilder {
 	return &PIICategoryQueryBuilder{
-		BaseQueryBuilder: NewBaseQueryBuilder(teamUUID, startMs, endMs),
+		BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs),
 	}
 }
 

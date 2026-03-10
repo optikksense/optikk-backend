@@ -4,7 +4,7 @@ import ()
 
 // Service encapsulates the business logic for the services topology module.
 type Service interface {
-	GetTopology(teamUUID string, startMs, endMs int64) (TopologyData, error)
+	GetTopology(teamID int64, startMs, endMs int64) (TopologyData, error)
 }
 
 // TopologyService provides business logic orchestration for services topology.
@@ -17,6 +17,6 @@ func NewService(repo Repository) Service {
 	return &TopologyService{repo: repo}
 }
 
-func (s *TopologyService) GetTopology(teamUUID string, startMs, endMs int64) (TopologyData, error) {
-	return s.repo.GetTopology(teamUUID, startMs, endMs)
+func (s *TopologyService) GetTopology(teamID int64, startMs, endMs int64) (TopologyData, error) {
+	return s.repo.GetTopology(teamID, startMs, endMs)
 }

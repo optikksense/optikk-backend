@@ -15,8 +15,8 @@ func sloBucketExpr(startMs, endMs int64) string {
 
 // Repository encapsulates data access logic for the SLO dashboard.
 type Repository interface {
-	GetSummary(teamUUID string, startMs, endMs int64, serviceName string) (Summary, error)
-	GetTimeSeries(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSlice, error)
+	GetSummary(teamID int64, startMs, endMs int64, serviceName string) (Summary, error)
+	GetTimeSeries(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSlice, error)
 }
 
 // ClickHouseRepository encapsulates overview SLO data access logic.
@@ -29,7 +29,7 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) GetSummary(teamUUID string, startMs, endMs int64, serviceName string) (Summary, error) {
+func (r *ClickHouseRepository) GetSummary(teamID int64, startMs, endMs int64, serviceName string) (Summary, error) {
 	query := `
 		SELECT total_requests,
 		       error_count,
@@ -45,7 +45,7 @@ func (r *ClickHouseRepository) GetSummary(teamUUID string, startMs, endMs int64,
 			       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency_ms
 			FROM observability.spans s
 			WHERE s.team_id = ? AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`
-	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -67,7 +67,7 @@ func (r *ClickHouseRepository) GetSummary(teamUUID string, startMs, endMs int64,
 	}, nil
 }
 
-func (r *ClickHouseRepository) GetTimeSeries(teamUUID string, startMs, endMs int64, serviceName string) ([]TimeSlice, error) {
+func (r *ClickHouseRepository) GetTimeSeries(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSlice, error) {
 	bucket := sloBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT time_bucket,
@@ -84,7 +84,7 @@ func (r *ClickHouseRepository) GetTimeSeries(teamUUID string, startMs, endMs int
 			       avg(s.duration_nano / 1000000.0)     AS avg_latency_ms
 			FROM observability.spans s
 			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamUUID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)

@@ -16,14 +16,14 @@ type OverviewHandler struct {
 
 // GetRequestRate returns per-service request-rate buckets for the summary tab.
 func (h *OverviewHandler) GetRequestRate(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 	serviceName := c.Query("serviceName")
 
-	points, err := h.Service.GetRequestRate(teamUUID, startMs, endMs, serviceName)
+	points, err := h.Service.GetRequestRate(teamID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview request rate")
 		return
@@ -34,14 +34,14 @@ func (h *OverviewHandler) GetRequestRate(c *gin.Context) {
 
 // GetErrorRate returns per-service error-rate buckets for the summary tab.
 func (h *OverviewHandler) GetErrorRate(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 	serviceName := c.Query("serviceName")
 
-	points, err := h.Service.GetErrorRate(teamUUID, startMs, endMs, serviceName)
+	points, err := h.Service.GetErrorRate(teamID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview error rate")
 		return
@@ -52,14 +52,14 @@ func (h *OverviewHandler) GetErrorRate(c *gin.Context) {
 
 // GetP95Latency returns per-service p95 latency buckets for the summary tab.
 func (h *OverviewHandler) GetP95Latency(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 	serviceName := c.Query("serviceName")
 
-	points, err := h.Service.GetP95Latency(teamUUID, startMs, endMs, serviceName)
+	points, err := h.Service.GetP95Latency(teamID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview p95 latency")
 		return
@@ -70,13 +70,13 @@ func (h *OverviewHandler) GetP95Latency(c *gin.Context) {
 
 // GetServices returns service-level metrics for overview-derived pages.
 func (h *OverviewHandler) GetServices(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	rows, err := h.Service.GetServices(teamUUID, startMs, endMs)
+	rows, err := h.Service.GetServices(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview services")
 		return
@@ -87,14 +87,14 @@ func (h *OverviewHandler) GetServices(c *gin.Context) {
 
 // GetTopEndpoints returns endpoint aggregates for the overview page.
 func (h *OverviewHandler) GetTopEndpoints(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 	serviceName := c.Query("serviceName")
 
-	rows, err := h.Service.GetTopEndpoints(teamUUID, startMs, endMs, serviceName)
+	rows, err := h.Service.GetTopEndpoints(teamID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview top endpoints")
 		return
@@ -105,14 +105,14 @@ func (h *OverviewHandler) GetTopEndpoints(c *gin.Context) {
 
 // GetEndpointTimeSeries returns endpoint-level time-series buckets for charts.
 func (h *OverviewHandler) GetEndpointTimeSeries(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 	serviceName := c.Query("serviceName")
 
-	rows, err := h.Service.GetEndpointTimeSeries(teamUUID, startMs, endMs, serviceName)
+	rows, err := h.Service.GetEndpointTimeSeries(teamID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview endpoint time series")
 		return

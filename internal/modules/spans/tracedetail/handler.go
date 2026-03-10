@@ -18,10 +18,10 @@ type TraceDetailHandler struct {
 
 // GetSpanEvents returns all SpanEvents (e.g. exceptions) for a trace.
 func (h *TraceDetailHandler) GetSpanEvents(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")
 
-	events, err := h.Service.GetSpanEvents(teamUUID, traceID)
+	events, err := h.Service.GetSpanEvents(teamID, traceID)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query span events")
 		return
@@ -31,10 +31,10 @@ func (h *TraceDetailHandler) GetSpanEvents(c *gin.Context) {
 
 // GetSpanKindBreakdown returns duration and count grouped by span.kind for a trace.
 func (h *TraceDetailHandler) GetSpanKindBreakdown(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")
 
-	breakdown, err := h.Service.GetSpanKindBreakdown(teamUUID, traceID)
+	breakdown, err := h.Service.GetSpanKindBreakdown(teamID, traceID)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query span kind breakdown")
 		return
@@ -44,10 +44,10 @@ func (h *TraceDetailHandler) GetSpanKindBreakdown(c *gin.Context) {
 
 // GetCriticalPath returns the span_ids on the longest root→leaf path.
 func (h *TraceDetailHandler) GetCriticalPath(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")
 
-	path, err := h.Service.GetCriticalPath(teamUUID, traceID)
+	path, err := h.Service.GetCriticalPath(teamID, traceID)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to compute critical path")
 		return
@@ -57,10 +57,10 @@ func (h *TraceDetailHandler) GetCriticalPath(c *gin.Context) {
 
 // GetSpanSelfTimes returns self_time per span (duration minus child durations).
 func (h *TraceDetailHandler) GetSpanSelfTimes(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")
 
-	times, err := h.Service.GetSpanSelfTimes(teamUUID, traceID)
+	times, err := h.Service.GetSpanSelfTimes(teamID, traceID)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query span self times")
 		return
@@ -70,10 +70,10 @@ func (h *TraceDetailHandler) GetSpanSelfTimes(c *gin.Context) {
 
 // GetErrorPath returns the ERROR span chain from root to the deepest error leaf.
 func (h *TraceDetailHandler) GetErrorPath(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")
 
-	path, err := h.Service.GetErrorPath(teamUUID, traceID)
+	path, err := h.Service.GetErrorPath(teamID, traceID)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query error path")
 		return
@@ -84,7 +84,7 @@ func (h *TraceDetailHandler) GetErrorPath(c *gin.Context) {
 // GetSpanAttributes returns the full attribute map for a single span.
 // GET /traces/:traceId/spans/:spanId/attributes
 func (h *TraceDetailHandler) GetSpanAttributes(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")
 	spanID := c.Param("spanId")
 
@@ -93,7 +93,7 @@ func (h *TraceDetailHandler) GetSpanAttributes(c *gin.Context) {
 		return
 	}
 
-	attrs, err := h.Service.GetSpanAttributes(teamUUID, traceID, spanID)
+	attrs, err := h.Service.GetSpanAttributes(teamID, traceID, spanID)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query span attributes")
 		return
@@ -109,7 +109,7 @@ func (h *TraceDetailHandler) GetSpanAttributes(c *gin.Context) {
 // GET /traces/:traceId/related
 // Query params: service, operation, startMs, endMs, limit (default 10)
 func (h *TraceDetailHandler) GetRelatedTraces(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")
 	serviceName := c.Query("service")
 	operationName := c.Query("operation")
@@ -128,7 +128,7 @@ func (h *TraceDetailHandler) GetRelatedTraces(c *gin.Context) {
 		limit = defaultRelatedLimit
 	}
 
-	traces, err := h.Service.GetRelatedTraces(teamUUID, serviceName, operationName, startMs, endMs, traceID, limit)
+	traces, err := h.Service.GetRelatedTraces(teamID, serviceName, operationName, startMs, endMs, traceID, limit)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query related traces")
 		return

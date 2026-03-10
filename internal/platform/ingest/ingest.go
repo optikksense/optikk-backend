@@ -1,221 +1,192 @@
-// Package ingest provides a batched, backpressure-aware insert pipeline for
-// ClickHouse. Rows are enqueued via Enqueue and flushed by a background worker
-// when either the batch size (1000 rows) or flush interval (500ms) is reached.
-//
-// Backpressure: when the queue exceeds MaxQueueSize (10,000 rows), Enqueue
-// returns ErrBackpressure. HTTP handlers should map this to 429 + Retry-After.
-//
-// All inserts use async_insert=1 on the ClickHouse connection. Never insert
-// from the HTTP hot path — always queue → worker → ClickHouse.
+// Package ingest is a batched, backpressure-aware ClickHouse insert pipeline.
+// Rows are queued via Enqueue and flushed by a background worker.
+// Return ErrBackpressure → HTTP 429 + Retry-After when the ring is full.
 package ingest
 
 import (
-	"bytes"
 	"context"
-	"database/sql"
-	"encoding/gob"
 	"errors"
-	"fmt"
 	"log"
 	"strings"
-	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/segmentio/kafka-go"
+	"github.com/ClickHouse/clickhouse-go/v2"
 )
 
-func init() {
-	gob.Register([]any{})
-	gob.Register(map[string]string{})
-	gob.Register(map[string]any{})
-	gob.Register(time.Time{})
-}
+// RingCapacity is the fixed ring buffer size — must be a power of 2 so index
+// wrapping uses idx & (RingCapacity-1) instead of the slower % operator.
+const RingCapacity = 1 << 17 // 131 072 slots
 
-// gobBufPool reuses bytes.Buffer instances for gob encoding in the Kafka path.
-var gobBufPool = sync.Pool{
-	New: func() any { return new(bytes.Buffer) },
-}
-
-// Defaults — all tuneable via Option functions.
 const (
 	DefaultBatchSize    = 1000
 	DefaultFlushMs      = 500
 	DefaultMaxQueueSize = 10_000
 )
 
-// ErrBackpressure is returned by Enqueue when the internal queue exceeds
-// MaxQueueSize. Callers should respond with HTTP 429 and a Retry-After header.
+// ErrBackpressure is returned by Enqueue when the ring is full.
+// Map to HTTP 429 + Retry-After.
 var ErrBackpressure = errors.New("ingest: backpressure — queue full")
 
-// Row is a generic row to be inserted. The Values slice must match the column
-// order of the target table.
+// Row is a single row to insert. Values must match the target table's column order.
 type Row struct {
 	Values []any
 }
 
-// Queue is a batched insert queue with backpressure support.
+// Queue is a lock-free, batched insert queue with backpressure support.
 type Queue struct {
-	db           *sql.DB
-	table        string
-	columns      []string
-	batchSize    int
-	flushMs      int
-	maxQueueSize int
+	// --- ring buffer ---
+	slots [RingCapacity]atomic.Value // pre-allocated slots; each holds a *Row
+	head  atomic.Uint64              // claimed by producers via CAS
+	tail  atomic.Uint64              // advanced by the single consumer
 
-	mu     sync.Mutex
-	buf    []Row
-	closed bool
+	// --- ClickHouse ---
+	conn        clickhouse.Conn // native driver connection
+	queryPrefix string          // "INSERT INTO table (col, ...)" — built once
+	flushSem    chan struct{}    // limits concurrent flushes to cap(flushSem)
+
+	// --- config ---
+	table     string
+	columns   []string
+	batchSize int
+	flushMs   int
+
+	closed atomic.Bool // set to true in Close(); no mutex needed
+
 	stopCh chan struct{}
 	doneCh chan struct{}
-
-	useKafka    bool
-	kafkaWriter *kafka.Writer
-	kafkaReader *kafka.Reader
 }
 
 // Option configures a Queue.
 type Option func(*Queue)
 
 // WithBatchSize overrides the default batch size (1000).
-func WithBatchSize(n int) Option {
-	return func(q *Queue) { q.batchSize = n }
-}
+func WithBatchSize(n int) Option { return func(q *Queue) { q.batchSize = n } }
 
 // WithFlushInterval overrides the default flush interval (500ms).
-func WithFlushInterval(ms int) Option {
-	return func(q *Queue) { q.flushMs = ms }
-}
+func WithFlushInterval(ms int) Option { return func(q *Queue) { q.flushMs = ms } }
 
-// WithMaxQueueSize overrides the default max queue size (10,000).
-func WithMaxQueueSize(n int) Option {
-	return func(q *Queue) { q.maxQueueSize = n }
-}
+// WithMaxQueueSize is kept for API compatibility; ring size is fixed at RingCapacity.
+func WithMaxQueueSize(_ int) Option { return func(_ *Queue) {} }
 
-// NewQueue creates a new batched insert queue and starts the background worker.
-// The table must be fully qualified (e.g. "observability.spans").
-// Columns must match the column order of the VALUES clause.
-func NewQueue(db *sql.DB, useKafka bool, brokers []string, table string, columns []string, opts ...Option) *Queue {
+// NewQueue creates the queue and starts the background worker.
+// table must be fully qualified (e.g. "observability.spans").
+func NewQueue(conn clickhouse.Conn, table string, columns []string, opts ...Option) *Queue {
 	q := &Queue{
-		db:           db,
-		table:        table,
-		columns:      columns,
-		batchSize:    DefaultBatchSize,
-		flushMs:      DefaultFlushMs,
-		maxQueueSize: DefaultMaxQueueSize,
-		buf:          make([]Row, 0, DefaultBatchSize),
-		stopCh:       make(chan struct{}),
-		doneCh:       make(chan struct{}),
-		useKafka:     useKafka && len(brokers) > 0,
+		conn:      conn,
+		table:     table,
+		columns:   columns,
+		batchSize: DefaultBatchSize,
+		flushMs:   DefaultFlushMs,
+		flushSem:  make(chan struct{}, 4), // at most 4 concurrent flushes
+		stopCh:    make(chan struct{}),
+		doneCh:    make(chan struct{}),
 	}
 	for _, o := range opts {
 		o(q)
 	}
-
-	if q.useKafka {
-		q.kafkaWriter = &kafka.Writer{
-			Addr:     kafka.TCP(brokers...),
-			Topic:    table,
-			Balancer: &kafka.LeastBytes{},
-		}
-		q.kafkaReader = kafka.NewReader(kafka.ReaderConfig{
-			Brokers:  brokers,
-			GroupID:  "ingest-worker-group",
-			Topic:    table,
-			MinBytes: 10e3,
-			MaxBytes: 10e6,
-		})
-	}
-
+	// Build the INSERT prefix once; flush never does string work.
+	q.queryPrefix = "INSERT INTO " + table + " (" + strings.Join(columns, ", ") + ")"
 	go q.worker()
 	return q
 }
 
-// Enqueue adds rows to the internal buffer. Returns ErrBackpressure when the
-// queue exceeds MaxQueueSize — the caller should respond with HTTP 429 and
-// include a Retry-After header.
-func (q *Queue) Enqueue(rows []Row) error {
-	q.mu.Lock()
-	if q.closed {
-		q.mu.Unlock()
-		return errors.New("ingest: queue closed")
-	}
-	q.mu.Unlock()
+// publish claims a ring slot via a CAS loop and stores the row.
+// Many goroutines compete; exactly one wins each slot per iteration.
+func (q *Queue) publish(row Row) error {
+	for {
+		h := q.head.Load()
+		t := q.tail.Load()
 
-	if q.useKafka {
-		msgs := make([]kafka.Message, len(rows))
-		for i, r := range rows {
-			buf := gobBufPool.Get().(*bytes.Buffer)
-			buf.Reset()
-			enc := gob.NewEncoder(buf)
-			if err := enc.Encode(r.Values); err != nil {
-				gobBufPool.Put(buf)
-				return err
-			}
-			// Copy bytes before returning buffer to pool.
-			val := make([]byte, buf.Len())
-			copy(val, buf.Bytes())
-			gobBufPool.Put(buf)
-			msgs[i] = kafka.Message{Value: val}
+		if h-t >= RingCapacity { // every slot occupied → backpressure
+			return ErrBackpressure
 		}
-		if err := q.kafkaWriter.WriteMessages(context.Background(), msgs...); err != nil {
-			return fmt.Errorf("ingest: kafka write failed: %v", err)
+
+		// Race to claim slot h; loop if another producer got there first.
+		if !q.head.CompareAndSwap(h, h+1) {
+			continue
 		}
+
+		// Bitmask wrapping — safe because RingCapacity is a power of 2.
+		idx := h & (RingCapacity - 1)
+		q.slots[idx].Store(&row)
+		return nil
+	}
+}
+
+// consume drains all ready slots from tail to head. Single-reader only.
+func (q *Queue) consume() []Row {
+	t := q.tail.Load()
+	h := q.head.Load()
+	if t == h {
 		return nil
 	}
 
-	q.mu.Lock()
-	defer q.mu.Unlock()
+	batch := make([]Row, 0, h-t)
+	for t < h {
+		idx := t & (RingCapacity - 1)
+		v := q.slots[idx].Load()
 
-	if len(q.buf)+len(rows) > q.maxQueueSize {
-		return ErrBackpressure
+		// Sequence barrier: producer claimed this slot but hasn't stored yet — stop.
+		if v == nil {
+			break
+		}
+
+		batch = append(batch, *v.(*Row))
+		q.slots[idx].Store((*Row)(nil)) // zero slot for future use
+		t++
 	}
 
-	q.buf = append(q.buf, rows...)
+	q.tail.Store(t)
+	return batch
+}
+
+// Enqueue adds rows to the ring. Returns ErrBackpressure when the ring is full.
+func (q *Queue) Enqueue(rows []Row) error {
+	if q.closed.Load() {
+		return errors.New("ingest: queue closed")
+	}
+	for _, row := range rows {
+		if err := q.publish(row); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
-// QueueLen returns the current number of buffered rows.
+// QueueLen returns an approximate count of buffered rows.
 func (q *Queue) QueueLen() int {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-	return len(q.buf)
+	h := q.head.Load()
+	t := q.tail.Load()
+	if h <= t {
+		return 0
+	}
+	return int(h - t)
 }
 
-// Close stops the background worker and flushes any remaining rows.
+// Close stops the worker, waits for all in-flight flushes, then returns.
 func (q *Queue) Close() error {
-	q.mu.Lock()
-	q.closed = true
-	q.mu.Unlock()
-
+	q.closed.Store(true)
 	close(q.stopCh)
-	<-q.doneCh
+	<-q.doneCh // wait for worker to exit
 
-	// Final flush.
-	q.mu.Lock()
-	batch := q.drainLocked()
-	q.mu.Unlock()
-
-	if len(batch) > 0 {
-		return q.flush(batch)
+	// Final drain — no goroutines racing at this point.
+	if batch := q.consume(); len(batch) > 0 {
+		if err := q.flush(batch); err != nil {
+			log.Printf("ingest: Close flush error (%s): %v", q.table, err)
+		}
 	}
 
-	if q.useKafka {
-		q.kafkaWriter.Close()
-		q.kafkaReader.Close()
+	// Acquire all semaphore slots — blocks until every in-flight flush finishes.
+	for i := 0; i < cap(q.flushSem); i++ {
+		q.flushSem <- struct{}{}
 	}
-
 	return nil
 }
 
-// worker runs in a goroutine. It flushes when the batch is full or the timer
-// fires (500ms), whichever comes first.
+// worker is the single consumer. Flushes on timer or when batchSize is reached.
 func (q *Queue) worker() {
 	defer close(q.doneCh)
-
-	if q.useKafka {
-		q.kafkaWorker()
-		return
-	}
 
 	ticker := time.NewTicker(time.Duration(q.flushMs) * time.Millisecond)
 	defer ticker.Stop()
@@ -224,147 +195,63 @@ func (q *Queue) worker() {
 		select {
 		case <-q.stopCh:
 			return
+
 		case <-ticker.C:
-			q.mu.Lock()
-			batch := q.drainLocked()
-			q.mu.Unlock()
-
-			if len(batch) > 0 {
-				if err := q.flush(batch); err != nil {
-					log.Printf("ingest: worker flush error (%s): %v", q.table, err)
-				}
+			if batch := q.consume(); len(batch) > 0 {
+				q.flushAsync(batch)
 			}
+
 		default:
-			q.mu.Lock()
-			ready := len(q.buf) >= q.batchSize
-			var batch []Row
-			if ready {
-				batch = q.drainBatchLocked()
-			}
-			q.mu.Unlock()
-
-			if ready {
-				if err := q.flush(batch); err != nil {
-					log.Printf("ingest: worker batch flush error (%s): %v", q.table, err)
+			if q.QueueLen() >= q.batchSize {
+				if batch := q.consume(); len(batch) > 0 {
+					q.flushAsync(batch)
 				}
 			} else {
-				// Avoid busy-spin: sleep a short interval before re-checking.
-				time.Sleep(10 * time.Millisecond)
+				// Yield 1ms — keeps CPU low; the 500ms ticker is the primary flush trigger.
+				time.Sleep(1 * time.Millisecond)
 			}
 		}
 	}
 }
 
-func (q *Queue) kafkaWorker() {
-	ticker := time.NewTicker(time.Duration(q.flushMs) * time.Millisecond)
-	defer ticker.Stop()
-
-	batch := make([]Row, 0, q.batchSize)
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
+// flushAsync acquires a semaphore slot, then flushes in a goroutine.
+func (q *Queue) flushAsync(batch []Row) {
+	q.flushSem <- struct{}{} // acquire — blocks if 4 flushes already running
 	go func() {
-		<-q.stopCh
-		cancel()
-	}()
-
-	for {
-		m, err := q.kafkaReader.ReadMessage(ctx)
-		if err != nil {
-			if errors.Is(err, context.Canceled) {
-				break
-			}
-			log.Printf("ingest: kafka read error (%s): %v", q.table, err)
-			time.Sleep(1 * time.Second)
-			continue
-		}
-
-		var values []any
-		dec := gob.NewDecoder(bytes.NewReader(m.Value))
-		if err := dec.Decode(&values); err == nil {
-			batch = append(batch, Row{Values: values})
-		} else {
-			log.Printf("ingest: kafka gob decode error: %v", err)
-		}
-
-		if len(batch) >= q.batchSize {
-			if err := q.flush(batch); err != nil {
-				log.Printf("ingest: worker batch flush error (%s): %v", q.table, err)
-			}
-			batch = make([]Row, 0, q.batchSize)
-		}
-
-		select {
-		case <-ticker.C:
-			if len(batch) > 0 {
-				if err := q.flush(batch); err != nil {
-					log.Printf("ingest: worker timer flush error (%s): %v", q.table, err)
-				}
-				batch = make([]Row, 0, q.batchSize)
-			}
-		default:
-		}
-	}
-
-	if len(batch) > 0 {
+		defer func() { <-q.flushSem }() // release when done
 		if err := q.flush(batch); err != nil {
-			log.Printf("ingest: worker shutdown flush error (%s): %v", q.table, err)
+			log.Printf("ingest: flush error (%s): %v", q.table, err)
 		}
-	}
+	}()
 }
 
-// drainLocked moves all buffered rows out. Caller must hold mu.
-func (q *Queue) drainLocked() []Row {
-	if len(q.buf) == 0 {
-		return nil
-	}
-	batch := q.buf
-	q.buf = make([]Row, 0, q.batchSize)
-	return batch
-}
-
-// drainBatchLocked moves at most batchSize rows out. Caller must hold mu.
-// Uses sub-slicing instead of copying to avoid allocation.
-func (q *Queue) drainBatchLocked() []Row {
-	n := q.batchSize
-	if n > len(q.buf) {
-		n = len(q.buf)
-	}
-	batch := q.buf[:n:n]
-	q.buf = q.buf[n:]
-	return batch
-}
-
-// flush writes a batch to ClickHouse in a single INSERT with async_insert=1.
-// Batch inserts only: 1000 rows or 500ms minimum.
+// flush sends a batch to ClickHouse via the native PrepareBatch API.
 func (q *Queue) flush(batch []Row) error {
 	if len(batch) == 0 {
 		return nil
 	}
 
-	colList := strings.Join(q.columns, ", ")
-	placeholders := "(" + strings.Repeat("?, ", len(q.columns)-1) + "?)"
-	rowPlaceholders := make([]string, len(batch))
-	args := make([]any, 0, len(batch)*len(q.columns))
-
-	for i, row := range batch {
-		rowPlaceholders[i] = placeholders
-		args = append(args, row.Values...)
-	}
-
-	query := fmt.Sprintf(
-		"INSERT INTO %s (%s) SETTINGS async_insert=1, wait_for_async_insert=1 VALUES %s",
-		q.table, colList, strings.Join(rowPlaceholders, ", "),
-	)
-
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	_, err := q.db.ExecContext(ctx, query, args...)
+	b, err := q.conn.PrepareBatch(ctx, q.queryPrefix)
 	if err != nil {
-		log.Printf("ERROR: ClickHouse insert failed for table %s: %v", q.table, err)
-	} else {
-		log.Printf("ingest: successfully flushed %d rows to %s", len(batch), q.table)
+		log.Printf("ingest: PrepareBatch error (%s): %v", q.table, err)
+		return err
 	}
-	return err
+
+	for _, row := range batch {
+		if err := b.Append(row.Values...); err != nil {
+			log.Printf("ingest: Append error (%s): %v", q.table, err)
+			return err
+		}
+	}
+
+	if err := b.Send(); err != nil {
+		log.Printf("ERROR: ClickHouse batch send failed for table %s: %v", q.table, err)
+		return err
+	}
+
+	log.Printf("ingest: flushed %d rows to %s", len(batch), q.table)
+	return nil
 }

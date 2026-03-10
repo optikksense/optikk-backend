@@ -16,14 +16,14 @@ type ServiceMapHandler struct {
 
 // GetUpstreamDownstream returns all upstream and downstream dependencies for a service.
 func (h *ServiceMapHandler) GetUpstreamDownstream(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Param("serviceName")
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	deps, err := h.Service.GetUpstreamDownstream(teamUUID, serviceName, startMs, endMs)
+	deps, err := h.Service.GetUpstreamDownstream(teamID, serviceName, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query upstream/downstream dependencies")
 		return
@@ -33,13 +33,13 @@ func (h *ServiceMapHandler) GetUpstreamDownstream(c *gin.Context) {
 
 // GetExternalDependencies returns calls to hosts outside the known service mesh.
 func (h *ServiceMapHandler) GetExternalDependencies(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	deps, err := h.Service.GetExternalDependencies(teamUUID, startMs, endMs)
+	deps, err := h.Service.GetExternalDependencies(teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query external dependencies")
 		return
@@ -49,14 +49,14 @@ func (h *ServiceMapHandler) GetExternalDependencies(c *gin.Context) {
 
 // GetClientServerLatency returns dual time-series of client vs server p95 latency.
 func (h *ServiceMapHandler) GetClientServerLatency(c *gin.Context) {
-	teamUUID := h.GetTenant(c).TeamUUID()
+	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 	operationName := c.Query("operationName")
 
-	points, err := h.Service.GetClientServerLatency(teamUUID, startMs, endMs, operationName)
+	points, err := h.Service.GetClientServerLatency(teamID, startMs, endMs, operationName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query client/server latency")
 		return

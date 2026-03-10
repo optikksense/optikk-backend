@@ -9,14 +9,14 @@ import (
 
 // Repository defines the data access interface for HTTP metrics.
 type Repository interface {
-	GetRequestRate(teamUUID string, startMs, endMs int64) ([]StatusCodeBucket, error)
-	GetRequestDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error)
-	GetActiveRequests(teamUUID string, startMs, endMs int64) ([]TimeBucket, error)
-	GetRequestBodySize(teamUUID string, startMs, endMs int64) (HistogramSummary, error)
-	GetResponseBodySize(teamUUID string, startMs, endMs int64) (HistogramSummary, error)
-	GetClientDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error)
-	GetDNSDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error)
-	GetTLSDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error)
+	GetRequestRate(teamID int64, startMs, endMs int64) ([]StatusCodeBucket, error)
+	GetRequestDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error)
+	GetActiveRequests(teamID int64, startMs, endMs int64) ([]TimeBucket, error)
+	GetRequestBodySize(teamID int64, startMs, endMs int64) (HistogramSummary, error)
+	GetResponseBodySize(teamID int64, startMs, endMs int64) (HistogramSummary, error)
+	GetClientDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error)
+	GetDNSDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error)
+	GetTLSDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error)
 }
 
 // ClickHouseRepository implements Repository using ClickHouse.
@@ -30,7 +30,7 @@ func NewRepository(db dbutil.Querier) Repository {
 }
 
 // queryHistogramSummary is a shared helper for p50/p95/p99/avg histogram queries.
-func (r *ClickHouseRepository) queryHistogramSummary(teamUUID string, startMs, endMs int64, metricName string) (HistogramSummary, error) {
+func (r *ClickHouseRepository) queryHistogramSummary(teamID int64, startMs, endMs int64, metricName string) (HistogramSummary, error) {
 	query := fmt.Sprintf(`
 		SELECT
 		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
@@ -46,7 +46,7 @@ func (r *ClickHouseRepository) queryHistogramSummary(teamUUID string, startMs, e
 		TableMetrics, ColTeamID, ColTimestamp,
 		ColMetricName, metricName,
 	)
-	row, err := dbutil.QueryMap(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return HistogramSummary{}, err
 	}
@@ -58,7 +58,7 @@ func (r *ClickHouseRepository) queryHistogramSummary(teamUUID string, startMs, e
 	}, nil
 }
 
-func (r *ClickHouseRepository) GetRequestRate(teamUUID string, startMs, endMs int64) ([]StatusCodeBucket, error) {
+func (r *ClickHouseRepository) GetRequestRate(teamID int64, startMs, endMs int64) ([]StatusCodeBucket, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	statusAttr := attrString(AttrHTTPStatusCode)
 
@@ -79,7 +79,7 @@ func (r *ClickHouseRepository) GetRequestRate(teamUUID string, startMs, endMs in
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricHTTPServerRequestDuration,
 	)
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -94,11 +94,11 @@ func (r *ClickHouseRepository) GetRequestRate(teamUUID string, startMs, endMs in
 	return results, nil
 }
 
-func (r *ClickHouseRepository) GetRequestDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
-	return r.queryHistogramSummary(teamUUID, startMs, endMs, MetricHTTPServerRequestDuration)
+func (r *ClickHouseRepository) GetRequestDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return r.queryHistogramSummary(teamID, startMs, endMs, MetricHTTPServerRequestDuration)
 }
 
-func (r *ClickHouseRepository) GetActiveRequests(teamUUID string, startMs, endMs int64) ([]TimeBucket, error) {
+func (r *ClickHouseRepository) GetActiveRequests(teamID int64, startMs, endMs int64) ([]TimeBucket, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 
 	query := fmt.Sprintf(`
@@ -117,7 +117,7 @@ func (r *ClickHouseRepository) GetActiveRequests(teamUUID string, startMs, endMs
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricHTTPServerActiveRequests,
 	)
-	rows, err := dbutil.QueryMaps(r.db, query, teamUUID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -132,22 +132,22 @@ func (r *ClickHouseRepository) GetActiveRequests(teamUUID string, startMs, endMs
 	return results, nil
 }
 
-func (r *ClickHouseRepository) GetRequestBodySize(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
-	return r.queryHistogramSummary(teamUUID, startMs, endMs, MetricHTTPServerRequestBodySize)
+func (r *ClickHouseRepository) GetRequestBodySize(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return r.queryHistogramSummary(teamID, startMs, endMs, MetricHTTPServerRequestBodySize)
 }
 
-func (r *ClickHouseRepository) GetResponseBodySize(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
-	return r.queryHistogramSummary(teamUUID, startMs, endMs, MetricHTTPServerResponseBodySize)
+func (r *ClickHouseRepository) GetResponseBodySize(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return r.queryHistogramSummary(teamID, startMs, endMs, MetricHTTPServerResponseBodySize)
 }
 
-func (r *ClickHouseRepository) GetClientDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
-	return r.queryHistogramSummary(teamUUID, startMs, endMs, MetricHTTPClientRequestDuration)
+func (r *ClickHouseRepository) GetClientDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return r.queryHistogramSummary(teamID, startMs, endMs, MetricHTTPClientRequestDuration)
 }
 
-func (r *ClickHouseRepository) GetDNSDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
-	return r.queryHistogramSummary(teamUUID, startMs, endMs, MetricDNSLookupDuration)
+func (r *ClickHouseRepository) GetDNSDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return r.queryHistogramSummary(teamID, startMs, endMs, MetricDNSLookupDuration)
 }
 
-func (r *ClickHouseRepository) GetTLSDuration(teamUUID string, startMs, endMs int64) (HistogramSummary, error) {
-	return r.queryHistogramSummary(teamUUID, startMs, endMs, MetricTLSConnectDuration)
+func (r *ClickHouseRepository) GetTLSDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return r.queryHistogramSummary(teamID, startMs, endMs, MetricTLSConnectDuration)
 }
