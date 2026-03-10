@@ -3,6 +3,7 @@ module github.com/observability/observability-backend-go/internal/platform/serve
 go 1.24.0
 
 require (
+	github.com/ClickHouse/clickhouse-go/v2 v2.22.0
 	github.com/gin-gonic/gin v1.10.0
 	github.com/observability/observability-backend-go v0.0.0
 	go.opentelemetry.io/proto/otlp v1.9.0
@@ -14,7 +15,6 @@ require (
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
 	filippo.io/edwards25519 v1.1.0 // indirect
 	github.com/ClickHouse/ch-go v0.61.5 // indirect
-	github.com/ClickHouse/clickhouse-go/v2 v2.22.0 // indirect
 	github.com/andybalholm/brotli v1.1.0 // indirect
 	github.com/bytedance/sonic v1.11.6 // indirect
 	github.com/bytedance/sonic/loader v0.1.1 // indirect
@@ -49,7 +49,6 @@ require (
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/redis/go-redis/v9 v9.18.0 // indirect
 	github.com/segmentio/asm v1.2.0 // indirect
-	github.com/segmentio/kafka-go v0.4.50 // indirect
 	github.com/shopspring/decimal v1.3.1 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.12 // indirect

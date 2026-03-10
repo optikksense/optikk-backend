@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"database/sql"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -62,6 +63,46 @@ func OpenClickHouse(dsn string, isProduction bool) (*sql.DB, error) {
 	pingCtx, pingCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer pingCancel()
 	if err := conn.PingContext(pingCtx); err != nil {
+		return nil, err
+	}
+
+	return conn, nil
+}
+
+// OpenClickHouseConn opens a native clickhouse.Conn (not database/sql).
+// Used by the ingest queues which need PrepareBatch for batch inserts.
+func OpenClickHouseConn(dsn string, isProduction bool) (clickhouse.Conn, error) {
+	var opts *clickhouse.Options
+
+	if isProduction {
+		opts = &clickhouse.Options{
+			Addr:     []string{"e4q81bjqva.us-central1.gcp.clickhouse.cloud:9440"},
+			Protocol: clickhouse.Native,
+			TLS:      &tls.Config{},
+			Auth: clickhouse.Auth{
+				Username: "default",
+				Password: "CHZoMiHfX_5vt",
+			},
+			DialTimeout: 5 * time.Second,
+			ReadTimeout: 30 * time.Second,
+		}
+	} else {
+		// Parse the DSN into an Options struct for the native driver.
+		var err error
+		opts, err = clickhouse.ParseDSN(dsn)
+		if err != nil {
+			return nil, fmt.Errorf("clickhouse: parse DSN: %w", err)
+		}
+	}
+
+	conn, err := clickhouse.Open(opts)
+	if err != nil {
+		return nil, err
+	}
+
+	pingCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := conn.Ping(pingCtx); err != nil {
 		return nil, err
 	}
 

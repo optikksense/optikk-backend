@@ -27,9 +27,16 @@ func main() {
 	}
 	defer chConn.Close()
 
+	// Native conn for ingest queues (PrepareBatch API).
+	chNative, err := database.OpenClickHouseConn(cfg.ClickHouseDSN(), cfg.ClickHouseProduction)
+	if err != nil {
+		log.Fatalf("failed to open native clickhouse conn: %v", err)
+	}
+	defer chNative.Close()
+
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	app := server.New(dbConn, chConn, cfg)
+	app := server.New(dbConn, chConn, chNative, cfg)
 
 	log.Printf("Server starting on port %s", cfg.Port)
 	if err := app.Start(ctx); err != nil {

@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/observability/observability-backend-go/internal/config"
 	dbutil "github.com/observability/observability-backend-go/internal/database"
@@ -144,7 +145,7 @@ type App struct {
 	AlertEngine  *alerting.Engine
 }
 
-func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
+func New(db *sql.DB, ch *sql.DB, chNative clickhouse.Conn, cfg config.Config) *App {
 	jwt := auth.JWTManager{
 		Secret:     []byte(cfg.JWTSecret),
 		Expiration: cfg.JWTDuration(),
@@ -173,9 +174,10 @@ func New(db *sql.DB, ch *sql.DB, cfg config.Config) *App {
 		ingest.WithFlushInterval(int(cfg.QueueFlushIntervalMs)),
 	}
 	brokers := cfg.KafkaBrokerList()
-	spansQueue := ingest.NewQueue(ch, cfg.KafkaEnabled, brokers, "observability.spans", otlp.SpanColumns, queueOpts...)
-	logsQueue := ingest.NewQueue(ch, cfg.KafkaEnabled, brokers, "observability.logs", otlp.LogColumns, queueOpts...)
-	metricsQueue := ingest.NewQueue(ch, cfg.KafkaEnabled, brokers, "observability.metrics", otlp.MetricColumns, queueOpts...)
+	_ = brokers // Kafka path removed; kept to avoid config breakage
+	spansQueue := ingest.NewQueue(chNative, "observability.spans", otlp.SpanColumns, queueOpts...)
+	logsQueue := ingest.NewQueue(chNative, "observability.logs", otlp.LogColumns, queueOpts...)
+	metricsQueue := ingest.NewQueue(chNative, "observability.metrics", otlp.MetricColumns, queueOpts...)
 
 	authResolver := otlpauth.NewAuthenticator(db)
 	tracker := ingest.NewByteTracker(db, time.Hour)

@@ -9,7 +9,6 @@ require (
 	github.com/golang-jwt/jwt/v5 v5.2.1
 	github.com/google/go-github/v60 v60.0.0
 	github.com/redis/go-redis/v9 v9.18.0
-	github.com/segmentio/kafka-go v0.4.50
 	go.opentelemetry.io/proto/otlp v1.9.0
 	golang.org/x/crypto v0.48.0
 	golang.org/x/oauth2 v0.34.0
