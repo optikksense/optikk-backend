@@ -41,6 +41,7 @@ func (r *ClickHouseRepository) GetUpstreamDownstream(teamID int64, serviceName s
 			       quantile(0.95)(s1.duration_nano / 1000000.0) AS p95_latency_ms
 			FROM observability.spans s1
 			JOIN observability.spans s2 ON s1.team_id = s2.team_id AND s1.trace_id = s2.trace_id AND s1.span_id = s2.parent_span_id
+				AND s2.ts_bucket_start BETWEEN ? AND ? AND s2.timestamp BETWEEN ? AND ?
 			WHERE s1.team_id = ? AND s1.ts_bucket_start BETWEEN ? AND ? AND s1.kind = 3 AND s1.timestamp BETWEEN ? AND ?
 			  AND s1.service_name != s2.service_name
 			  AND (s1.service_name = ? OR s2.service_name = ?)
@@ -48,7 +49,8 @@ func (r *ClickHouseRepository) GetUpstreamDownstream(teamID int64, serviceName s
 		)
 		ORDER BY call_count DESC
 		LIMIT 200
-	`, teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), serviceName, serviceName)
+	`, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
+		teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), serviceName, serviceName)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +143,7 @@ func (r *ClickHouseRepository) GetClientServerLatency(teamID int64, startMs, end
 		query += ` AND s.name = ?`
 		args = append(args, operationName)
 	}
-	query += fmt.Sprintf(` GROUP BY %s, s.name ORDER BY time_bucket ASC LIMIT 10000`, bucket)
+	query += fmt.Sprintf(` GROUP BY %s, s.name ORDER BY time_bucket ASC LIMIT 2000`, bucket)
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {

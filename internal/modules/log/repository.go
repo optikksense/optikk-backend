@@ -45,8 +45,8 @@ func buildLogWhere(f LogFilters) (string, []any) {
 	endNs := uint64(endMs) * 1_000_000
 
 	// ts_bucket_start bounds for partition pruning (seconds, truncated to day).
-	startBucket := uint32(startMs / 1000)
-	endBucket := uint32(endMs / 1000)
+	startBucket := uint32((startMs / 1000) / 86400 * 86400)
+	endBucket := uint32((endMs / 1000) / 86400 * 86400)
 
 	where := ` team_id = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ?`
 	args := []any{uint32(f.TeamID), startBucket, endBucket, startNs, endNs}
@@ -258,7 +258,7 @@ func (r *ClickHouseRepository) GetLogs(ctx context.Context, f LogFilters, limit 
 		}
 	}
 
-	query := fmt.Sprintf(`SELECT %s FROM logs WHERE%s ORDER BY %s LIMIT ?`, logCols, where, orderBy)
+	query := fmt.Sprintf(`SELECT %s FROM observability.logs WHERE%s ORDER BY %s LIMIT ?`, logCols, where, orderBy)
 	queryArgs := append(args, limit)
 	if offset > 0 {
 		query += ` OFFSET ?`
@@ -274,7 +274,7 @@ func (r *ClickHouseRepository) GetLogs(ctx context.Context, f LogFilters, limit 
 	// Only run the count query on the first page to avoid double-scanning on pagination.
 	var total int64
 	if offset == 0 {
-		total = dbutil.QueryCount(r.db, `SELECT COUNT(*) FROM logs WHERE`+where, args...)
+		total = dbutil.QueryCount(r.db, `SELECT COUNT(*) FROM observability.logs WHERE`+where, args...)
 	} else {
 		total = int64(offset + len(logs))
 	}
@@ -297,7 +297,7 @@ func (r *ClickHouseRepository) GetLogHistogram(ctx context.Context, f LogFilters
 	where, args := buildLogWhere(f)
 	query := fmt.Sprintf(`
 		SELECT %s as time_bucket, severity_text as severity, COUNT(*) as count
-		FROM logs WHERE%s
+		FROM observability.logs WHERE%s
 		GROUP BY %s, severity_text
 		ORDER BY time_bucket ASC`, bucketExpr, where, bucketExpr)
 
@@ -329,7 +329,7 @@ func (r *ClickHouseRepository) GetLogVolume(ctx context.Context, f LogFilters, s
 		       sum(if(severity_text='INFO', 1, 0)) as infos,
 		       sum(if(severity_text='DEBUG', 1, 0)) as debugs,
 		       sum(if(severity_text='FATAL', 1, 0)) as fatals
-		FROM logs WHERE%s
+		FROM observability.logs WHERE%s
 		GROUP BY %s
 		ORDER BY time_bucket ASC`, bucketExpr, where, bucketExpr)
 
@@ -371,7 +371,7 @@ func bucketFuncFromStrategy(s timebucket.Strategy) string {
 // GetLogSurrounding returns a log entry and its surrounding context logs.
 func (r *ClickHouseRepository) GetLogSurrounding(ctx context.Context, teamID int64, logID string, before, after int) (Log, []Log, []Log, error) {
 	anchorRow, err := dbutil.QueryMap(r.db,
-		fmt.Sprintf(`SELECT %s FROM logs WHERE team_id = ? AND id = ? LIMIT 1`, logCols),
+		fmt.Sprintf(`SELECT %s FROM observability.logs WHERE team_id = ? AND id = ? LIMIT 1`, logCols),
 		teamID, logID)
 	if err != nil || len(anchorRow) == 0 {
 		return Log{}, nil, nil, nil
@@ -390,14 +390,14 @@ func (r *ClickHouseRepository) GetLogSurrounding(ctx context.Context, teamID int
 	bucketHigh := uint32(tsHigh / 1_000_000_000 / 86400 * 86400)
 
 	beforeRows, _ := dbutil.QueryMaps(r.db,
-		fmt.Sprintf(`SELECT %s FROM logs WHERE team_id = ? AND service = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ? AND (timestamp < ? OR (timestamp = ? AND id < ?)) ORDER BY timestamp DESC, id DESC LIMIT ?`, logCols),
+		fmt.Sprintf(`SELECT %s FROM observability.logs WHERE team_id = ? AND service = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ? AND (timestamp < ? OR (timestamp = ? AND id < ?)) ORDER BY timestamp DESC, id DESC LIMIT ?`, logCols),
 		teamID, svc, bucketLow, bucketHigh, tsLow, tsHigh, anchorTs, anchorTs, logID, before)
 	for i, j := 0, len(beforeRows)-1; i < j; i, j = i+1, j-1 {
 		beforeRows[i], beforeRows[j] = beforeRows[j], beforeRows[i]
 	}
 
 	afterRows, _ := dbutil.QueryMaps(r.db,
-		fmt.Sprintf(`SELECT %s FROM logs WHERE team_id = ? AND service = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ? AND (timestamp > ? OR (timestamp = ? AND id > ?)) ORDER BY timestamp ASC, id ASC LIMIT ?`, logCols),
+		fmt.Sprintf(`SELECT %s FROM observability.logs WHERE team_id = ? AND service = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ? AND (timestamp > ? OR (timestamp = ? AND id > ?)) ORDER BY timestamp ASC, id ASC LIMIT ?`, logCols),
 		teamID, svc, bucketLow, bucketHigh, tsLow, tsHigh, anchorTs, anchorTs, logID, after)
 
 	return anchor, mapRowsToLogs(beforeRows), mapRowsToLogs(afterRows), nil
@@ -414,7 +414,7 @@ func (r *ClickHouseRepository) GetLogDetail(ctx context.Context, teamID int64, t
 	bucketHigh := uint32(toNs / 1_000_000_000 / 86400 * 86400)
 
 	logRow, err := dbutil.QueryMap(r.db, fmt.Sprintf(`
-		SELECT %s FROM logs
+		SELECT %s FROM observability.logs
 		WHERE team_id = ? AND trace_id = ? AND span_id = ?
 		  AND timestamp BETWEEN ? AND ?
 		ORDER BY timestamp DESC LIMIT 1
@@ -429,7 +429,7 @@ func (r *ClickHouseRepository) GetLogDetail(ctx context.Context, teamID int64, t
 	contextLogs := []Log{}
 	if serviceName != "" {
 		rows, _ := dbutil.QueryMaps(r.db, fmt.Sprintf(`
-			SELECT %s FROM logs
+			SELECT %s FROM observability.logs
 			WHERE team_id = ? AND service = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ?
 			ORDER BY timestamp ASC LIMIT 100
 		`, logCols), teamID, serviceName, bucketLow, bucketHigh, fromNs, toNs)
@@ -464,7 +464,7 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, t
 			bucketLowPruning := uint32(startNsPruning / 1_000_000_000 / 86400 * 86400)
 			bucketHighPruning := uint32(endNsPruning / 1_000_000_000 / 86400 * 86400)
 			rows, err = dbutil.QueryMaps(r.db, fmt.Sprintf(`
-				SELECT %s FROM logs
+				SELECT %s FROM observability.logs
 				WHERE team_id = ? AND trace_id = ?
 				  AND ts_bucket_start BETWEEN ? AND ?
 				  AND timestamp BETWEEN ? AND ?
@@ -475,7 +475,7 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, t
 	if err != nil || rows == nil {
 		// Fall back to unfiltered query if span lookup failed.
 		rows, err = dbutil.QueryMaps(r.db, fmt.Sprintf(`
-			SELECT %s FROM logs
+			SELECT %s FROM observability.logs
 			WHERE team_id = ? AND trace_id = ?
 			ORDER BY timestamp ASC LIMIT 500
 		`, logCols), teamID, traceID)
@@ -517,7 +517,7 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, t
 		routeLike = "%" + route + "%"
 	}
 	fallbackRows, fallbackErr := dbutil.QueryMaps(r.db, fmt.Sprintf(`
-		SELECT %s FROM logs
+		SELECT %s FROM observability.logs
 		WHERE team_id = ? AND service = ?
 		  AND ts_bucket_start BETWEEN ? AND ?
 		  AND timestamp BETWEEN ? AND ?
@@ -545,28 +545,59 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, t
 // ── Facets ───────────────────────────────────────────────────────────────────
 
 // GetLogFacets returns total count and facet breakdowns for severity, service, host.
+// Uses a single UNION ALL query instead of 3 separate scans.
 func (r *ClickHouseRepository) GetLogFacets(ctx context.Context, f LogFilters) (LogFacetsResponse, error) {
 	where, args := buildLogWhere(f)
 
-	sevRows, sevErr := dbutil.QueryMaps(r.db, `SELECT severity_text as value, COUNT(*) as count FROM logs WHERE`+where+` GROUP BY severity_text ORDER BY count DESC`, args...)
-	serviceRows, svcErr := dbutil.QueryMaps(r.db, `SELECT service as value, COUNT(*) as count FROM logs WHERE`+where+` GROUP BY service ORDER BY count DESC LIMIT 50`, args...)
-	hostRows, hostErr := dbutil.QueryMaps(r.db, `SELECT host as value, COUNT(*) as count FROM logs WHERE`+where+` AND host != '' GROUP BY host ORDER BY count DESC LIMIT 50`, args...)
+	query := fmt.Sprintf(`
+		SELECT 'severity' AS dim, severity_text AS value, COUNT(*) AS count
+		FROM observability.logs WHERE%s GROUP BY severity_text
+		UNION ALL
+		SELECT 'service' AS dim, service AS value, COUNT(*) AS count
+		FROM observability.logs WHERE%s GROUP BY service
+		UNION ALL
+		SELECT 'host' AS dim, host AS value, COUNT(*) AS count
+		FROM observability.logs WHERE%s AND host != '' GROUP BY host
+	`, where, where, where)
 
-	if sevErr != nil || svcErr != nil || hostErr != nil {
-		fmt.Printf("logs: facet query errors: severity=%v service=%v host=%v\n", sevErr, svcErr, hostErr)
+	mergedArgs := append(append(args, args...), args...)
+	rows, err := dbutil.QueryMaps(r.db, query, mergedArgs...)
+	if err != nil {
+		return LogFacetsResponse{}, fmt.Errorf("logs: facets query: %w", err)
 	}
 
+	severities := make([]Facet, 0)
+	services := make([]Facet, 0)
+	hosts := make([]Facet, 0)
 	total := int64(0)
-	for _, row := range sevRows {
-		total += dbutil.Int64FromAny(row["count"])
+
+	for _, row := range rows {
+		dim := dbutil.StringFromAny(row["dim"])
+		facet := Facet{
+			Value: dbutil.StringFromAny(row["value"]),
+			Count: dbutil.Int64FromAny(row["count"]),
+		}
+		switch dim {
+		case "severity":
+			severities = append(severities, facet)
+			total += facet.Count
+		case "service":
+			if len(services) < 50 {
+				services = append(services, facet)
+			}
+		case "host":
+			if len(hosts) < 50 {
+				hosts = append(hosts, facet)
+			}
+		}
 	}
 
 	return LogFacetsResponse{
 		Total: total,
 		Facets: map[string][]Facet{
-			"severities": mapRowsToFacets(sevRows),
-			"services":   mapRowsToFacets(serviceRows),
-			"hosts":      mapRowsToFacets(hostRows),
+			"severities": severities,
+			"services":   services,
+			"hosts":      hosts,
 		},
 	}, nil
 }
@@ -579,19 +610,19 @@ func (r *ClickHouseRepository) GetLogStats(ctx context.Context, f LogFilters) (L
 	// "dim" discriminator so we can split them back out in Go.
 	query := fmt.Sprintf(`
 		SELECT 'severity_text' AS dim, severity_text AS value, COUNT(*) AS count
-		FROM logs WHERE%s GROUP BY severity_text
+		FROM observability.logs WHERE%s GROUP BY severity_text
 		UNION ALL
 		SELECT 'service' AS dim, service AS value, COUNT(*) AS count
-		FROM logs WHERE%s GROUP BY service
+		FROM observability.logs WHERE%s GROUP BY service
 		UNION ALL
 		SELECT 'host' AS dim, host AS value, COUNT(*) AS count
-		FROM logs WHERE%s AND host != '' GROUP BY host
+		FROM observability.logs WHERE%s AND host != '' GROUP BY host
 		UNION ALL
 		SELECT 'pod' AS dim, pod AS value, COUNT(*) AS count
-		FROM logs WHERE%s AND pod != '' GROUP BY pod
+		FROM observability.logs WHERE%s AND pod != '' GROUP BY pod
 		UNION ALL
 		SELECT 'scope_name' AS dim, scope_name AS value, COUNT(*) AS count
-		FROM logs WHERE%s AND scope_name != '' GROUP BY scope_name
+		FROM observability.logs WHERE%s AND scope_name != '' GROUP BY scope_name
 	`, where, where, where, where, where)
 
 	// Each ?-placeholder set must be repeated once per UNION branch.
@@ -652,7 +683,7 @@ func (r *ClickHouseRepository) GetLogFields(ctx context.Context, f LogFilters, c
 	where, args := buildLogWhere(f)
 	query := fmt.Sprintf(`
 		SELECT %s as value, COUNT(*) as count
-		FROM logs WHERE%s AND %s != ''
+		FROM observability.logs WHERE%s AND %s != ''
 		GROUP BY %s ORDER BY count DESC LIMIT 200`, col, where, col, col)
 
 	rows, err := dbutil.QueryMaps(r.db, query, args...)
@@ -692,7 +723,7 @@ func (r *ClickHouseRepository) GetLogAggregate(ctx context.Context, f LogFilters
 	where, args := buildLogWhere(f)
 	topQuery := fmt.Sprintf(`
 		SELECT %s AS grp, count() AS cnt
-		FROM logs
+		FROM observability.logs
 		WHERE%s AND %s != ''
 		GROUP BY grp
 		ORDER BY cnt DESC
@@ -724,7 +755,7 @@ func (r *ClickHouseRepository) GetLogAggregate(ctx context.Context, f LogFilters
 		SELECT toStartOfInterval(fromUnixTimestamp64Nano(timestamp), INTERVAL %s) AS time_bucket,
 		       %s AS grp,
 		       count() AS cnt
-		FROM logs
+		FROM observability.logs
 		WHERE%s AND %s IN (%s)
 		GROUP BY time_bucket, grp
 		ORDER BY time_bucket ASC, cnt DESC

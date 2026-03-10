@@ -2,6 +2,7 @@ package circuitbreaker
 
 import (
 	"errors"
+	"math/rand"
 	"sync"
 	"time"
 )
@@ -67,7 +68,9 @@ func (cb *CircuitBreaker) Call(fn func() error) error {
 	cb.mu.Lock()
 	switch cb.state {
 	case cbOpen:
-		if time.Since(cb.openedAt) < cb.ResetTimeout {
+		// Add 0-25% jitter to prevent thundering herd on recovery.
+		jitter := time.Duration(rand.Int63n(int64(cb.ResetTimeout / 4)))
+		if time.Since(cb.openedAt) < cb.ResetTimeout+jitter {
 			cb.mu.Unlock()
 			return ErrCircuitOpen
 		}

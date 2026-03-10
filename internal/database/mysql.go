@@ -7,6 +7,7 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
+	circuitbreaker "github.com/observability/observability-backend-go/internal/platform/circuit_breaker"
 )
 
 // injectMySQLTimeouts adds connection timeouts to the DSN if not already present.
@@ -61,20 +62,34 @@ func Open(dsn string, maxOpen, maxIdle int) (*sql.DB, error) {
 
 type MySQLWrapper struct {
 	db *sql.DB
+	cb *circuitbreaker.CircuitBreaker
 }
 
 func NewMySQLWrapper(db *sql.DB) *MySQLWrapper {
 	return &MySQLWrapper{
 		db: db,
+		cb: circuitbreaker.NewCircuitBreaker("mysql_wrapper", 5, 30*time.Second),
 	}
 }
 
 func (m *MySQLWrapper) Exec(query string, args ...any) (sql.Result, error) {
-	return m.db.Exec(query, args...)
+	var res sql.Result
+	err := m.cb.Call(func() error {
+		var err error
+		res, err = m.db.Exec(query, args...)
+		return err
+	})
+	return res, err
 }
 
 func (m *MySQLWrapper) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	return m.db.ExecContext(ctx, query, args...)
+	var res sql.Result
+	err := m.cb.Call(func() error {
+		var err error
+		res, err = m.db.ExecContext(ctx, query, args...)
+		return err
+	})
+	return res, err
 }
 
 func (m *MySQLWrapper) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
@@ -82,7 +97,12 @@ func (m *MySQLWrapper) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.T
 }
 
 func (m *MySQLWrapper) Query(query string, args ...any) (Rows, error) {
-	rows, err := m.db.Query(query, args...)
+	var rows *sql.Rows
+	err := m.cb.Call(func() error {
+		var err error
+		rows, err = m.db.Query(query, args...)
+		return err
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +110,14 @@ func (m *MySQLWrapper) Query(query string, args ...any) (Rows, error) {
 }
 
 func (m *MySQLWrapper) QueryRow(query string, args ...any) Row {
-	row := m.db.QueryRow(query, args...)
+	var row *sql.Row
+	err := m.cb.Call(func() error {
+		row = m.db.QueryRow(query, args...)
+		return nil
+	})
+	if err != nil {
+		return &circuitBreakerRowAdapter{err: err}
+	}
 	return &sqlRowAdapter{row: row}
 }
 

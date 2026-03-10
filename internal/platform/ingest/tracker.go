@@ -6,38 +6,63 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
-// ByteTracker aggregates ingested byte counts per team in memory and flushes them
-// to the MySQL database on a regular interval (e.g. hourly) to reduce DB load.
+const numShards = 64
+
+// ByteTracker aggregates ingested byte counts per team using sharded atomic
+// counters and flushes them to the MySQL database on a regular interval.
+//
+// The Track() hot path is lock-free (atomic.Int64.Add) after the first call
+// per team per shard. Mutexes are only held briefly during flush and during
+// the rare first-time team registration in a shard.
 type ByteTracker struct {
-	db             *sql.DB
-	flushInterval  time.Duration
-	mu             sync.Mutex
-	ingestedCounts map[int64]int64
-	doneCh         chan struct{}
+	db            *sql.DB
+	flushInterval time.Duration
+	shards        [numShards]shard
+	doneCh        chan struct{}
+}
+
+type shard struct {
+	_  [64]byte // cache-line padding to prevent false sharing
+	mu sync.Mutex
+	m  map[int64]*atomic.Int64
 }
 
 // NewByteTracker makes a new data volume aggregator.
 func NewByteTracker(db *sql.DB, flushInterval time.Duration) *ByteTracker {
-	return &ByteTracker{
-		db:             db,
-		flushInterval:  flushInterval,
-		ingestedCounts: make(map[int64]int64),
-		doneCh:         make(chan struct{}),
+	bt := &ByteTracker{
+		db:            db,
+		flushInterval: flushInterval,
+		doneCh:        make(chan struct{}),
 	}
+	for i := range bt.shards {
+		bt.shards[i].m = make(map[int64]*atomic.Int64)
+	}
+	return bt
 }
 
-// Track atomically increments the ingested byte count for a given team.
+// Track increments the ingested byte count for a given team.
+// Hot path is lock-free — only atomic.Int64.Add.
 func (b *ByteTracker) Track(teamID int64, bytes int64) {
 	if bytes <= 0 || teamID <= 0 {
 		return
 	}
 
-	b.mu.Lock()
-	b.ingestedCounts[teamID] += bytes
-	b.mu.Unlock()
+	s := &b.shards[uint64(teamID)%numShards]
+
+	// Fast path: counter already exists (common case after first request).
+	s.mu.Lock()
+	counter, ok := s.m[teamID]
+	if !ok {
+		counter = &atomic.Int64{}
+		s.m[teamID] = counter
+	}
+	s.mu.Unlock()
+
+	counter.Add(bytes)
 }
 
 // Start spawns the background flush worker.
@@ -66,32 +91,35 @@ func (b *ByteTracker) worker() {
 }
 
 func (b *ByteTracker) flush() {
-	b.mu.Lock()
-	if len(b.ingestedCounts) == 0 {
-		b.mu.Unlock()
-		return
+	// Collect counts from all shards. Each shard lock is held only briefly
+	// to swap out the counter and read its value.
+	counts := make(map[int64]int64)
+
+	for i := range b.shards {
+		s := &b.shards[i]
+		s.mu.Lock()
+		for teamID, counter := range s.m {
+			val := counter.Swap(0)
+			if val > 0 {
+				counts[teamID] += val
+			}
+		}
+		s.mu.Unlock()
 	}
 
-	// Copy and clear the map
-	counts := make(map[int64]int64, len(b.ingestedCounts))
-	for k, v := range b.ingestedCounts {
-		counts[k] = v
+	if len(counts) == 0 {
+		return
 	}
-	// Clear the map for the next interval
-	b.ingestedCounts = make(map[int64]int64)
-	b.mu.Unlock()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	// Batch all team updates into a single SQL statement using CASE/WHEN.
-	// This reduces N round-trips to 1 for N teams.
 	teamIDs := make([]int64, 0, len(counts))
 	for id := range counts {
 		teamIDs = append(teamIDs, id)
 	}
 
-	// Build: UPDATE teams SET data_ingested_kb = data_ingested_kb + CASE id WHEN ? THEN ? ... END WHERE id IN (?,...)
 	var caseBuilder strings.Builder
 	args := make([]any, 0, len(teamIDs)*2+len(teamIDs))
 	caseBuilder.WriteString("UPDATE teams SET data_ingested_kb = data_ingested_kb + CASE id ")
@@ -117,14 +145,11 @@ func (b *ByteTracker) flush() {
 	if err != nil {
 		log.Printf("ingest/bytetracker: batch update failed for %d teams: %v", len(teamIDs), err)
 
-		// Re-add all failed counts back to the tracker
-		b.mu.Lock()
+		// Re-add failed counts back — use Track to re-distribute across shards.
 		for id, bytes := range counts {
-			b.ingestedCounts[id] += bytes
+			b.Track(id, bytes)
 		}
-		b.mu.Unlock()
 	} else if len(teamIDs) > 0 {
 		log.Printf("ingest/bytetracker: flushed %d teams in single batch", len(teamIDs))
 	}
-
 }

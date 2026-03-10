@@ -2,6 +2,7 @@ package auth
 
 import (
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -12,6 +13,17 @@ type JWTManager struct {
 	Secret     []byte
 	Expiration time.Duration
 }
+
+type cachedClaims struct {
+	claims    *TokenClaims
+	expiresAt time.Time
+}
+
+const claimsCacheTTL = 10 * time.Second
+
+// Package-level claims cache — safe to use from value-receiver methods
+// since sync.Map must not be copied.
+var jwtClaimsCache sync.Map
 
 type TokenClaims struct {
 	Email  string `json:"email"`
@@ -114,6 +126,18 @@ func (m JWTManager) ParsePendingOAuthToken(token string) (*PendingOAuthClaims, e
 }
 
 func (m JWTManager) Parse(token string) (*TokenClaims, error) {
+	// Fast path: check claims cache (lock-free read).
+	cacheKey := token
+	if len(cacheKey) > 32 {
+		cacheKey = cacheKey[len(cacheKey)-32:]
+	}
+	if val, ok := jwtClaimsCache.Load(cacheKey); ok {
+		cc := val.(*cachedClaims)
+		if time.Now().Before(cc.expiresAt) {
+			return cc.claims, nil
+		}
+	}
+
 	parsed, err := jwt.ParseWithClaims(token, &TokenClaims{}, func(t *jwt.Token) (any, error) {
 		if t.Method.Alg() != jwt.SigningMethodHS256.Alg() {
 			return nil, errors.New("unexpected signing method")
@@ -127,5 +151,10 @@ func (m JWTManager) Parse(token string) (*TokenClaims, error) {
 	if !ok || !parsed.Valid {
 		return nil, errors.New("invalid token")
 	}
+
+	jwtClaimsCache.Store(cacheKey, &cachedClaims{
+		claims:    claims,
+		expiresAt: time.Now().Add(claimsCacheTTL),
+	})
 	return claims, nil
 }

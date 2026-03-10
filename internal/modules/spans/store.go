@@ -295,7 +295,7 @@ func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamID int64, 
 		FROM observability.spans s
 		WHERE s.team_id = ? AND s.trace_id = ?
 		ORDER BY s.timestamp ASC
-		LIMIT 10000
+		LIMIT 5000
 	`), uint32(teamID), traceID)
 	if err != nil {
 		return nil, err
@@ -345,7 +345,7 @@ func (r *ClickHouseRepository) GetSpanTree(ctx context.Context, teamID int64, sp
 		      SELECT trace_id FROM observability.spans WHERE team_id = ? AND span_id = ? LIMIT 1
 		  )
 		ORDER BY s.timestamp ASC
-		LIMIT 10000
+		LIMIT 5000
 	`), uint32(teamID), uint32(teamID), spanID)
 	if err != nil {
 		return nil, err

@@ -15,8 +15,7 @@ CREATE TABLE IF NOT EXISTS observability.spans (
     ts_bucket_start                       UInt64          CODEC(DoubleDelta, LZ4),
 
     -- MULTI-TENANCY
-    team_id                               LowCardinality(String) CODEC(ZSTD(1)),
-
+    team_id                               UInt32 CODEC(T64, ZSTD(1)),
     -- CORE IDENTITY
     timestamp                             DateTime64(9)   CODEC(DoubleDelta, LZ4),
     trace_id                              FixedString(32) CODEC(ZSTD(1)),
@@ -161,7 +160,7 @@ SETTINGS
 -- ===========================================================================
 CREATE TABLE IF NOT EXISTS observability.logs (
     -- Multi-tenancy
-    team_id              LowCardinality(String) CODEC(ZSTD(1)),
+    team_id              UInt32 CODEC(T64, ZSTD(1)),
 
     -- Time columns
     ts_bucket_start      UInt32 CODEC(Delta(4), LZ4),
@@ -223,7 +222,7 @@ SETTINGS
 -- ===========================================================================
 CREATE TABLE IF NOT EXISTS observability.metrics (
 
-    team_id              LowCardinality(String),
+    team_id              UInt32 CODEC(T64, ZSTD(1)),
     env                  LowCardinality(String) DEFAULT 'default',
     metric_name          LowCardinality(String),
     metric_type          LowCardinality(String),

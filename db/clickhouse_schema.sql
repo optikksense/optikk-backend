@@ -260,7 +260,7 @@ SETTINGS
 -- ===========================================================================
 CREATE TABLE IF NOT EXISTS observability.metrics (
 
-    team_id              UInt32,
+    team_id              UInt32 CODEC(T64, ZSTD(1)),
     env                  LowCardinality(String) DEFAULT 'default',
     metric_name          LowCardinality(String),
     metric_type          LowCardinality(String),

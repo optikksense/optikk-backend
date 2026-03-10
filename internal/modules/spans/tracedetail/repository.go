@@ -186,7 +186,7 @@ func (r *ClickHouseRepository) GetCriticalPath(teamID int64, traceID string) ([]
 		FROM observability.spans s
 		WHERE s.team_id = ? AND s.trace_id = ?
 		ORDER BY start_ns ASC
-		LIMIT 10000
+		LIMIT 5000
 	`, uint32(teamID), traceID)
 	if err != nil {
 		return nil, err
@@ -231,22 +231,35 @@ func (r *ClickHouseRepository) GetCriticalPath(teamID int64, traceID string) ([]
 		_ = sid
 	}
 
-	// Post-order DFS: compute subtreeEnd for each node (max of own endNs and children's subtreeEnd)
-	var computeSubtree func(spanID string)
-	computeSubtree = func(spanID string) {
-		n, ok := nodes[spanID]
-		if !ok {
-			return
-		}
-		for _, cid := range n.children {
-			computeSubtree(cid)
-			if child, ok2 := nodes[cid]; ok2 && child.subtreeEnd > n.subtreeEnd {
-				n.subtreeEnd = child.subtreeEnd
-			}
-		}
+	// Iterative post-order traversal to compute subtreeEnd for each node.
+	// Avoids stack overflow on deeply nested traces.
+	type frame struct {
+		spanID  string
+		childIdx int
 	}
 	for _, root := range roots {
-		computeSubtree(root)
+		stack := []frame{{spanID: root, childIdx: 0}}
+		for len(stack) > 0 {
+			top := &stack[len(stack)-1]
+			n, ok := nodes[top.spanID]
+			if !ok {
+				stack = stack[:len(stack)-1]
+				continue
+			}
+			if top.childIdx < len(n.children) {
+				cid := n.children[top.childIdx]
+				top.childIdx++
+				stack = append(stack, frame{spanID: cid, childIdx: 0})
+			} else {
+				// All children processed — propagate subtreeEnd up
+				for _, cid := range n.children {
+					if child, ok2 := nodes[cid]; ok2 && child.subtreeEnd > n.subtreeEnd {
+						n.subtreeEnd = child.subtreeEnd
+					}
+				}
+				stack = stack[:len(stack)-1]
+			}
+		}
 	}
 
 	// Greedy walk: from the root with largest subtreeEnd, always pick the child with largest subtreeEnd
@@ -309,7 +322,7 @@ func (r *ClickHouseRepository) GetSpanSelfTimes(teamID int64, traceID string) ([
 		) AS child_sum ON child_sum.parent_span_id = s.span_id
 		WHERE s.team_id = ? AND s.trace_id = ?
 		ORDER BY self_time_ms DESC
-		LIMIT 10000
+		LIMIT 5000
 	`, uint32(teamID), traceID, uint32(teamID), traceID)
 	if err != nil {
 		return nil, err

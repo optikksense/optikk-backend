@@ -11,7 +11,10 @@ import (
 	"github.com/observability/observability-backend-go/internal/modules/common"
 )
 
+const maxAttributeFilters = 10
+
 // parseAttributeFilters reads ?attr.key=value / ?attr_neq.key=value / etc. from the query string.
+// Caps at maxAttributeFilters to prevent unbounded query complexity.
 func parseAttributeFilters(c *gin.Context) []SpanAttributeFilter {
 	var filters []SpanAttributeFilter
 	for key, vals := range c.Request.URL.Query() {
@@ -26,6 +29,9 @@ func parseAttributeFilters(c *gin.Context) []SpanAttributeFilter {
 			filters = append(filters, SpanAttributeFilter{Key: after, Value: vals[0], Op: "contains"})
 		} else if after, ok := strings.CutPrefix(key, "attr_regex."); ok {
 			filters = append(filters, SpanAttributeFilter{Key: after, Value: vals[0], Op: "regex"})
+		}
+		if len(filters) >= maxAttributeFilters {
+			break
 		}
 	}
 	return filters
@@ -101,9 +107,39 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 		return
 	}
 	limit := common.ParseIntParam(c, "limit", 100)
-	offset := common.ParseIntParam(c, "offset", 0)
+	if limit <= 0 || limit > 500 {
+		limit = 100
+	}
 	filters := h.buildFilters(c, teamID, startMs, endMs)
 
+	// Prefer cursor-based (keyset) pagination when cursor param is present.
+	// Falls back to OFFSET for backward compatibility only when explicitly requested.
+	cursorRaw := c.Query("cursor")
+	offset := common.ParseIntParam(c, "offset", 0)
+
+	if cursorRaw != "" || offset == 0 {
+		cursor := decodeCursor(cursorRaw)
+		traces, summary, hasMore, err := h.repo.GetTracesKeyset(c.Request.Context(), filters, limit, cursor)
+		if err != nil {
+			common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query traces")
+			return
+		}
+		var nextCursor string
+		if hasMore && len(traces) > 0 {
+			last := traces[len(traces)-1]
+			nextCursor = encodeCursor(TraceCursor{Timestamp: last.StartTime, SpanID: last.SpanID})
+		}
+		common.RespondOK(c, map[string]any{
+			"traces":     traces,
+			"hasMore":    hasMore,
+			"nextCursor": nextCursor,
+			"limit":      limit,
+			"summary":    summary,
+		})
+		return
+	}
+
+	// Legacy OFFSET path — only used when offset > 0 and no cursor provided.
 	traces, total, summary, err := h.repo.GetTraces(c.Request.Context(), filters, limit, offset)
 	if err != nil {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query traces")

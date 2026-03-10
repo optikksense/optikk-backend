@@ -56,8 +56,8 @@ func OpenClickHouse(dsn string, isProduction bool) (*sql.DB, error) {
 		}
 	}
 
-	conn.SetMaxOpenConns(50)
-	conn.SetMaxIdleConns(25)
+	conn.SetMaxOpenConns(100)
+	conn.SetMaxIdleConns(50)
 	conn.SetConnMaxLifetime(15 * time.Minute)
 
 	pingCtx, pingCancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -141,7 +141,7 @@ func injectPrewhere(query string) string {
 func injectMaxExecutionTime(query string) string {
 	qUpper := strings.ToUpper(strings.TrimSpace(query))
 	if (strings.HasPrefix(qUpper, "SELECT") || strings.HasPrefix(qUpper, "WITH")) && !strings.Contains(qUpper, "SETTINGS ") {
-		return query + "\nSETTINGS max_execution_time=30, max_rows_to_read=500000000, read_overflow_mode='break', optimize_read_in_order=1"
+		return query + "\nSETTINGS max_execution_time=30, max_rows_to_read=100000000, max_result_rows=100000, result_overflow_mode='break', read_overflow_mode='break', optimize_read_in_order=1"
 	}
 	return query
 }

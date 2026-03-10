@@ -11,6 +11,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 	"github.com/observability/observability-backend-go/internal/config"
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	configdefaults "github.com/observability/observability-backend-go/internal/defaultconfig"
@@ -39,6 +40,7 @@ import (
 	usermodule "github.com/observability/observability-backend-go/internal/modules/user"
 	"github.com/observability/observability-backend-go/internal/platform/alerting"
 	"github.com/observability/observability-backend-go/internal/platform/auth"
+	"github.com/observability/observability-backend-go/internal/platform/cache"
 	"github.com/observability/observability-backend-go/internal/platform/ingest"
 	"github.com/observability/observability-backend-go/internal/platform/middleware"
 	"github.com/observability/observability-backend-go/internal/platform/otlp"
@@ -51,6 +53,7 @@ import (
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
 	_ "google.golang.org/grpc/encoding/gzip"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 )
 
@@ -135,6 +138,9 @@ type App struct {
 	AI                  *ai.AIHandler
 	DefaultConfig       *defaultconfig.Handler
 
+	// Query result cache (Redis-gated, nil-safe).
+	Cache *cache.QueryCache
+
 	// OTLP ingest handlers & queues.
 	OTLPHTTP     *otlp.Handler
 	OTLPGRPC     *otlpgrpc.Handler
@@ -178,6 +184,17 @@ func New(db *sql.DB, ch *sql.DB, chNative clickhouse.Conn, cfg config.Config) *A
 	spansQueue := ingest.NewQueue(chNative, "observability.spans", otlp.SpanColumns, queueOpts...)
 	logsQueue := ingest.NewQueue(chNative, "observability.logs", otlp.LogColumns, queueOpts...)
 	metricsQueue := ingest.NewQueue(chNative, "observability.metrics", otlp.MetricColumns, queueOpts...)
+
+	// Query result cache — only active when Redis is enabled.
+	var queryCache *cache.QueryCache
+	if cfg.RedisEnabled {
+		rc := redis.NewClient(&redis.Options{
+			Addr: fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort),
+		})
+		queryCache = cache.New(rc)
+	} else {
+		queryCache = cache.New(nil)
+	}
 
 	authResolver := otlpauth.NewAuthenticator(db)
 	tracker := ingest.NewByteTracker(db, time.Hour)
@@ -369,6 +386,8 @@ func New(db *sql.DB, ch *sql.DB, chNative clickhouse.Conn, cfg config.Config) *A
 			Registry: registry,
 		},
 
+		Cache:      queryCache,
+
 		OTLPHTTP:   otlpHTTPHandler,
 		OTLPGRPC:   otlpGRPCHandler,
 		SpansQueue:     spansQueue,
@@ -427,25 +446,29 @@ func (a *App) OTLPRouter() *gin.Engine {
 func (a *App) registerRoutesToGroup(v1 *gin.RouterGroup) {
 	cfg := defaultModuleConfigs()
 
+	// Cached route group — applies 30s Redis cache to expensive aggregation endpoints.
+	// When Redis is disabled the middleware is a no-op and requests pass through.
+	cached := v1.Group("", cache.CacheResponse(a.Cache, 30*time.Second))
+
 	usermodule.RegisterRoutes(cfg.Identity, v1, a.Auth, a.Users, a.OAuth)
-	overviewmodule.RegisterRoutes(cfg.Overview, v1, a.Overview)
-	overviewslo.RegisterRoutes(cfg.OverviewSLO, v1, a.OverviewSLO)
-	overviewerrors.RegisterRoutes(cfg.OverviewErrors, v1, a.OverviewErrors)
-	servicepage.RegisterRoutes(cfg.ServicesPage, v1, a.ServicesPage)
-	servicetopology.RegisterRoutes(cfg.ServicesTopology, v1, a.ServicesTopology)
-	nodes.RegisterRoutes(cfg.Nodes, v1, a.Nodes)
-	resource_utilisation.RegisterRoutes(cfg.ResourceUtilisation, v1, a.ResourceUtilisation)
-	database.RegisterRoutes(cfg.SaturationDatabase, v1, a.SaturationDatabase)
-	kafka.RegisterRoutes(cfg.SaturationKafka, v1, a.SaturationKafka)
-	kubernetes.RegisterRoutes(cfg.Kubernetes, v1, a.Kubernetes)
-	httpmetrics.RegisterRoutes(cfg.HTTPMetrics, v1, a.HTTPMetrics)
-	apm.RegisterRoutes(cfg.APM, v1, a.APM)
+	overviewmodule.RegisterRoutes(cfg.Overview, cached, a.Overview)
+	overviewslo.RegisterRoutes(cfg.OverviewSLO, cached, a.OverviewSLO)
+	overviewerrors.RegisterRoutes(cfg.OverviewErrors, cached, a.OverviewErrors)
+	servicepage.RegisterRoutes(cfg.ServicesPage, cached, a.ServicesPage)
+	servicetopology.RegisterRoutes(cfg.ServicesTopology, cached, a.ServicesTopology)
+	nodes.RegisterRoutes(cfg.Nodes, cached, a.Nodes)
+	resource_utilisation.RegisterRoutes(cfg.ResourceUtilisation, cached, a.ResourceUtilisation)
+	database.RegisterRoutes(cfg.SaturationDatabase, cached, a.SaturationDatabase)
+	kafka.RegisterRoutes(cfg.SaturationKafka, cached, a.SaturationKafka)
+	kubernetes.RegisterRoutes(cfg.Kubernetes, cached, a.Kubernetes)
+	httpmetrics.RegisterRoutes(cfg.HTTPMetrics, cached, a.HTTPMetrics)
+	apm.RegisterRoutes(cfg.APM, cached, a.APM)
 	logsapi.RegisterRoutes(cfg.Logs, v1, a.Logs)
 	tracesapi.RegisterRoutes(cfg.Traces, v1, a.Traces)
 	tracedetail.RegisterRoutes(cfg.TraceDetail, v1, a.TraceDetail)
-	servicemap.RegisterRoutes(cfg.ServiceMap, v1, a.ServiceMap)
-	redmetrics.RegisterRoutes(cfg.REDMetrics, v1, a.REDMetrics)
-	errortracking.RegisterRoutes(cfg.ErrorTracking, v1, a.ErrorTracking)
+	servicemap.RegisterRoutes(cfg.ServiceMap, cached, a.ServiceMap)
+	redmetrics.RegisterRoutes(cfg.REDMetrics, cached, a.REDMetrics)
+	errortracking.RegisterRoutes(cfg.ErrorTracking, cached, a.ErrorTracking)
 	ai.RegisterRoutes(cfg.AI, v1, a.AI)
 	defaultconfig.RegisterRoutes(cfg.DefaultConfig, v1, a.DefaultConfig)
 }
@@ -474,15 +497,21 @@ func (a *App) Start(ctx context.Context) error {
 	// 1. Setup Main API Server (9090)
 	mainRouter := a.Router()
 	mainSrv := &http.Server{
-		Addr:    fmt.Sprintf(":%s", a.Config.Port),
-		Handler: h2c.NewHandler(mainRouter, &http2.Server{}),
+		Addr:         fmt.Sprintf(":%s", a.Config.Port),
+		Handler:      h2c.NewHandler(mainRouter, &http2.Server{}),
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 
 	// 2. Setup OTLP HTTP Server (4318)
 	otlpRouter := a.OTLPRouter()
 	otlpSrv := &http.Server{
-		Addr:    fmt.Sprintf(":%s", a.Config.HTTPPortOTLP),
-		Handler: h2c.NewHandler(otlpRouter, &http2.Server{}),
+		Addr:         fmt.Sprintf(":%s", a.Config.HTTPPortOTLP),
+		Handler:      h2c.NewHandler(otlpRouter, &http2.Server{}),
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	// 3. Setup OTLP gRPC Server (4317)
@@ -491,7 +520,17 @@ func (a *App) Start(ctx context.Context) error {
 		return fmt.Errorf("gRPC listen failed: %v", err)
 	}
 	grpcSrv := grpc.NewServer(
-		grpc.MaxRecvMsgSize(a.Config.GRPCMaxRecvMsgSizeMB * 1024 * 1024),
+		grpc.MaxRecvMsgSize(a.Config.GRPCMaxRecvMsgSizeMB*1024*1024),
+		grpc.MaxConcurrentStreams(100),
+		grpc.ConnectionTimeout(30*time.Second),
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			Time:    20 * time.Second,
+			Timeout: 10 * time.Second,
+		}),
+		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
+			MinTime:             10 * time.Second,
+			PermitWithoutStream: true,
+		}),
 	)
 	tracepb.RegisterTraceServiceServer(grpcSrv, a.OTLPGRPC.TraceServer)
 	logspb.RegisterLogsServiceServer(grpcSrv, a.OTLPGRPC.LogsServer)
@@ -548,7 +587,17 @@ func (a *App) Start(ctx context.Context) error {
 		defer cancel()
 
 		// Phase 2: Shutdown HTTP servers and stop gRPC
-		grpcSrv.GracefulStop()
+		grpcDone := make(chan struct{})
+		go func() {
+			grpcSrv.GracefulStop()
+			close(grpcDone)
+		}()
+		select {
+		case <-grpcDone:
+		case <-time.After(10 * time.Second):
+			log.Println("WARN: gRPC graceful stop timed out, forcing stop")
+			grpcSrv.Stop()
+		}
 		if err := mainSrv.Shutdown(shutCtx); err != nil {
 			log.Printf("WARN: main api shutdown error: %v", err)
 		}
