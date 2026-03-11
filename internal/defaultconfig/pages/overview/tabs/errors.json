@@ -20,7 +20,7 @@
       "titleIcon": "AlertCircle"
     },
     {
-      "componentKey": "area",
+      "componentKey": "exception-type-line",
       "groupByKey": "exceptionType",
       "id": "exception-rate-by-type",
       "layout": {
