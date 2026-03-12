@@ -1,6 +1,5 @@
 package kubernetes
 
-// Service encapsulates the business logic for the Kubernetes module.
 type Service interface {
 	GetContainerCPU(teamID int64, startMs, endMs int64) ([]ContainerBucket, error)
 	GetCPUThrottling(teamID int64, startMs, endMs int64) ([]ContainerBucket, error)
@@ -13,12 +12,10 @@ type Service interface {
 	GetVolumeUsage(teamID int64, startMs, endMs int64) ([]VolumeStat, error)
 }
 
-// KubernetesService implements Service.
 type KubernetesService struct {
 	repo Repository
 }
 
-// NewService creates a new KubernetesService.
 func NewService(repo Repository) Service {
 	return &KubernetesService{repo: repo}
 }

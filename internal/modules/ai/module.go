@@ -2,17 +2,14 @@ package ai
 
 import "github.com/gin-gonic/gin"
 
-// Config holds AI-module route configuration.
 type Config struct {
 	Enabled bool
 }
 
-// DefaultConfig returns default AI-module configuration.
 func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-// RegisterRoutes mounts AI routes.
 func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *AIHandler) {
 	if !cfg.Enabled || h == nil {
 		return

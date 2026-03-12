@@ -2,7 +2,6 @@ package tracedetail
 
 import "time"
 
-// SpanEvent represents a single event attached to a span (e.g. an exception).
 type SpanEvent struct {
 	SpanID     string    `json:"spanId"`
 	TraceID    string    `json:"traceId"`
@@ -11,7 +10,6 @@ type SpanEvent struct {
 	Attributes string    `json:"attributes"`
 }
 
-// SpanKindDuration represents the total duration consumed by a span.kind bucket.
 type SpanKindDuration struct {
 	SpanKind    string  `json:"spanKind"`
 	TotalDuraMs float64 `json:"totalDurationMs"`
@@ -19,7 +17,6 @@ type SpanKindDuration struct {
 	PctOfTrace  float64 `json:"pctOfTrace"`
 }
 
-// CriticalPathSpan is a span_id that lies on the critical (longest root→leaf) path.
 type CriticalPathSpan struct {
 	SpanID        string  `json:"spanId"`
 	OperationName string  `json:"operationName"`
@@ -36,7 +33,6 @@ type SpanSelfTime struct {
 	ChildTimeMs   float64 `json:"childTimeMs"`
 }
 
-// ErrorPathSpan is a span on the error propagation chain (root → error leaf).
 type ErrorPathSpan struct {
 	SpanID        string    `json:"spanId"`
 	ParentSpanID  string    `json:"parentSpanId"`
@@ -48,7 +44,6 @@ type ErrorPathSpan struct {
 	DurationMs    float64   `json:"durationMs"`
 }
 
-// SpanAttributes is the full attribute map for a single span.
 type SpanAttributes struct {
 	SpanID           string            `json:"spanId"`
 	TraceID          string            `json:"traceId"`
@@ -71,7 +66,6 @@ type SpanAttributes struct {
 	Attributes map[string]string `json:"attributes,omitempty"`
 }
 
-// RelatedTrace is a summary of a trace with the same service+operation.
 type RelatedTrace struct {
 	TraceID       string  `json:"traceId"`
 	SpanID        string  `json:"spanId"`

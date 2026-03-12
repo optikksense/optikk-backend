@@ -6,34 +6,49 @@ import "fmt"
 // Reference: https://opentelemetry.io/docs/specs/semconv/messaging/
 
 const (
-	// Messaging Attributes
+	// ── Messaging Attributes ──────────────────────────────────────────────
 	AttrMessagingSystem                    = "messaging.system"
 	AttrMessagingDestinationName           = "messaging.destination.name"
-	AttrMessagingOperation                 = "messaging.operation"
-	AttrMessagingKafkaConsumerGroup        = "messaging.kafka.consumer.group"
+	AttrMessagingConsumerGroupName         = "messaging.consumer.group.name"
 	AttrMessagingKafkaDestinationPartition = "messaging.kafka.destination.partition"
-	AttrMessagingError                     = "error"
+	AttrMessagingOperationName             = "messaging.operation.name"
+	AttrErrorType                          = "error.type"
+	AttrServerAddress                      = "server.address"
 
-	// Metric Names
-	MetricMessagingConsumerLag = "messaging.consumer.lag"
-	MetricMessagingPublishSize = "messaging.publish.message.size"
-	MetricMessagingReceiveSize = "messaging.receive.message.size"
+	// ── Produce metrics ───────────────────────────────────────────────────
+	MetricPublishMessages    = "messaging.publish.messages"
+	MetricPublishDuration    = "messaging.publish.duration"
+	MetricClientSentMessages = "messaging.client.sent.messages"
 
-	// OTel messaging.* standard metrics
-	MetricMessagingConsumerLagOTel   = "messaging.kafka.consumer.lag"
-	MetricMessagingPublishedMessages = "messaging.client.published.messages"
-	MetricMessagingConsumedMessages  = "messaging.client.consumed.messages"
-	MetricMessagingOperationDuration = "messaging.client.operation.duration"
-	MetricMessagingConsumerOffset    = "messaging.kafka.consumer.offset"
+	// ── Consume metrics ───────────────────────────────────────────────────
+	MetricReceiveMessages        = "messaging.receive.messages"
+	MetricReceiveDuration        = "messaging.receive.duration"
+	MetricClientReceivedMessages = "messaging.client.received.messages"
 
-	// Operation attribute
-	AttrMessagingOperationName = "messaging.operation.name"
+	// ── Process metrics ───────────────────────────────────────────────────
+	MetricProcessMessages = "messaging.process.messages"
+	MetricProcessDuration = "messaging.process.duration"
 
-	TableMetrics = "metrics"
+	// ── Consumer lag ──────────────────────────────────────────────────────
+	MetricKafkaConsumerLag    = "messaging.kafka.consumer.lag"
+	MetricKafkaConsumerLagSum = "messaging.kafka.consumer.lag_sum"
+
+	// ── Rebalance / health ────────────────────────────────────────────────
+	MetricRebalanceCount       = "messaging.kafka.consumer.rebalance.count"
+	MetricRebalanceDuration    = "messaging.kafka.consumer.rebalance.duration"
+	MetricJoinCount            = "messaging.kafka.consumer.join.count"
+	MetricSyncCount            = "messaging.kafka.consumer.sync.count"
+	MetricHeartbeatCount       = "messaging.kafka.consumer.heartbeat.count"
+	MetricFailedHeartbeatCount = "messaging.kafka.consumer.failed_heartbeat.count"
+	MetricAssignedPartitions   = "messaging.kafka.consumer.assigned_partitions"
+
+	// ── Client / broker ───────────────────────────────────────────────────
+	MetricClientConnections       = "messaging.client.connections"
+	MetricClientOperationDuration = "messaging.client.operation.duration"
+
+	TableMetrics = "observability.metrics"
 )
 
-// attrString returns a CH 26+ native JSON path expression that reads a String
-// from the attributes JSON column. Replaces JSONExtractString(attributes, 'key').
 func attrString(attrName string) string {
 	return fmt.Sprintf("attributes.'%s'::String", attrName)
 }

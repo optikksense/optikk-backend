@@ -1,6 +1,5 @@
 package overview
 
-// Service encapsulates the business logic for the overview module.
 type Service interface {
 	GetRequestRate(teamID int64, startMs, endMs int64, serviceName string) ([]RequestRatePoint, error)
 	GetErrorRate(teamID int64, startMs, endMs int64, serviceName string) ([]ErrorRatePoint, error)
@@ -10,12 +9,10 @@ type Service interface {
 	GetEndpointTimeSeries(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
 }
 
-// OverviewService provides business logic orchestration for overview dashboards.
 type OverviewService struct {
 	repo Repository
 }
 
-// NewService creates a new OverviewService.
 func NewService(repo Repository) Service {
 	return &OverviewService{repo: repo}
 }

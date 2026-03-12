@@ -7,13 +7,10 @@ import (
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
-// serviceBucketExpr returns a ClickHouse expression for adaptive time bucketing
-// over the spans table using s.timestamp.
 func serviceBucketExpr(startMs, endMs int64) string {
 	return timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
 }
 
-// Repository encapsulates data access logic for the services overview page.
 type Repository interface {
 	GetTotalServices(teamID int64, startMs, endMs int64) (int64, error)
 	GetHealthyServices(teamID int64, startMs, endMs int64) (int64, error)
@@ -24,12 +21,10 @@ type Repository interface {
 	GetServiceEndpoints(teamID int64, startMs, endMs int64, serviceName string) ([]EndpointMetric, error)
 }
 
-// ClickHouseRepository encapsulates services overview data access logic.
 type ClickHouseRepository struct {
 	db dbutil.Querier
 }
 
-// NewRepository creates a new services overview repository.
 func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
@@ -43,7 +38,7 @@ func (r *ClickHouseRepository) GetTotalServices(teamID int64, startMs, endMs int
 			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?
 			GROUP BY s.service_name
 		)
-	`, teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, teamID, timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return 0, err
 	}
@@ -78,7 +73,7 @@ func (r *ClickHouseRepository) GetServiceMetrics(teamID int64, startMs, endMs in
 			GROUP BY s.service_name
 		)
 		ORDER BY request_count DESC
-	`, teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, teamID, timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +109,7 @@ func (r *ClickHouseRepository) GetServiceTimeSeries(teamID int64, startMs, endMs
 		)
 		ORDER BY timestamp ASC, request_count DESC
 		LIMIT 10000
-	`, bucket, bucket), teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, bucket, bucket), teamID, timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -149,7 +144,7 @@ func (r *ClickHouseRepository) GetServiceEndpoints(teamID int64, startMs, endMs 
 		)
 		ORDER BY request_count DESC
 		LIMIT 100
-	`, teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), serviceName)
+	`, teamID, timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), serviceName)
 	if err != nil {
 		return nil, err
 	}
@@ -172,7 +167,7 @@ func (r *ClickHouseRepository) GetServiceEndpoints(teamID int64, startMs, endMs 
 }
 
 func (r *ClickHouseRepository) countServicesByErrorRate(teamID int64, startMs, endMs int64, havingClause string, args ...any) (int64, error) {
-	queryArgs := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	queryArgs := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	queryArgs = append(queryArgs, args...)
 
 	row, err := dbutil.QueryMap(r.db, `

@@ -2,32 +2,52 @@ package kafka
 
 import "github.com/gin-gonic/gin"
 
-// Config holds kafka saturation route configuration.
 type Config struct {
 	Enabled bool
 }
 
-// DefaultConfig returns default configuration.
 func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-// RegisterRoutes mounts saturation routes for the kafka module.
 func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *KafkaHandler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}
-	v1.GET("/saturation/kafka/queue-lag", h.GetKafkaQueueLag)
-	v1.GET("/saturation/kafka/production-rate", h.GetKafkaProductionRate)
-	v1.GET("/saturation/kafka/consumption-rate", h.GetKafkaConsumptionRate)
 
-	v1.GET("/saturation/queue/consumer-lag", h.GetQueueConsumerLag)
-	v1.GET("/saturation/queue/topic-lag", h.GetQueueTopicLag)
-	v1.GET("/saturation/queue/top-queues", h.GetQueueTopQueues)
+	// Summary
+	v1.GET("/saturation/kafka/summary-stats", h.GetKafkaSummaryStats)
 
-	// OTel messaging.* standard metrics
-	v1.GET("/saturation/queue/consumer-lag-detail", h.GetConsumerLagPerPartition)
-	v1.GET("/saturation/queue/message-rates", h.GetMessageRates)
-	v1.GET("/saturation/queue/operation-duration", h.GetOperationDuration)
-	v1.GET("/saturation/queue/offset-commit-rate", h.GetOffsetCommitRate)
+	// Dashboard 1: Production Rate
+	v1.GET("/saturation/kafka/produce-rate-by-topic", h.GetProduceRateByTopic)
+	v1.GET("/saturation/kafka/publish-latency-by-topic", h.GetPublishLatencyByTopic)
+
+	// Dashboard 2: Consumption Rate — by Topic
+	v1.GET("/saturation/kafka/consume-rate-by-topic", h.GetConsumeRateByTopic)
+	v1.GET("/saturation/kafka/receive-latency-by-topic", h.GetReceiveLatencyByTopic)
+
+	// Dashboard 3: Consumption Rate — by Consumer Group
+	v1.GET("/saturation/kafka/consume-rate-by-group", h.GetConsumeRateByGroup)
+	v1.GET("/saturation/kafka/process-rate-by-group", h.GetProcessRateByGroup)
+	v1.GET("/saturation/kafka/process-latency-by-group", h.GetProcessLatencyByGroup)
+
+	// Dashboard 4: Consumer Lag
+	v1.GET("/saturation/kafka/lag-by-group", h.GetConsumerLagByGroup)
+	v1.GET("/saturation/kafka/lag-per-partition", h.GetConsumerLagPerPartition)
+
+	// Dashboard 5: Consumer Group Rebalancing
+	v1.GET("/saturation/kafka/rebalance-signals", h.GetRebalanceSignals)
+
+	// Dashboard 6: End-to-End Latency
+	v1.GET("/saturation/kafka/e2e-latency", h.GetE2ELatency)
+
+	// Dashboard 7: Error Rates
+	v1.GET("/saturation/kafka/publish-errors", h.GetPublishErrors)
+	v1.GET("/saturation/kafka/consume-errors", h.GetConsumeErrors)
+	v1.GET("/saturation/kafka/process-errors", h.GetProcessErrors)
+	v1.GET("/saturation/kafka/client-op-errors", h.GetClientOpErrors)
+
+	// Dashboard 8: Broker / Client Connectivity
+	v1.GET("/saturation/kafka/broker-connections", h.GetBrokerConnections)
+	v1.GET("/saturation/kafka/client-op-duration", h.GetClientOperationDuration)
 }

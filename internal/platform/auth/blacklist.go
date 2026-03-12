@@ -20,14 +20,12 @@ type TokenBlacklist struct {
 	mu       sync.RWMutex
 }
 
-// NewInMemoryTokenBlacklist creates a new memory-backed Token Blacklist.
 func NewInMemoryTokenBlacklist() *TokenBlacklist {
 	return &TokenBlacklist{
 		inMemory: make(map[string]time.Time),
 	}
 }
 
-// NewTokenBlacklist creates a new Redis-backed Token Blacklist.
 func NewTokenBlacklist(redisHost, redisPort string) *TokenBlacklist {
 	addr := fmt.Sprintf("%s:%s", redisHost, redisPort)
 	client := redis.NewClient(&redis.Options{
@@ -108,7 +106,6 @@ func (b *TokenBlacklist) IsRevoked(tokenString string) bool {
 	return true
 }
 
-// Stop is a no-op for the Redis implementation, provided for interface compatibility.
 func (b *TokenBlacklist) Stop() {
 	if b.client != nil {
 		if err := b.client.Close(); err != nil {

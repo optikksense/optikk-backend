@@ -2,17 +2,14 @@ package httpmetrics
 
 import "github.com/gin-gonic/gin"
 
-// Config holds HTTP metrics module route configuration.
 type Config struct {
 	Enabled bool
 }
 
-// DefaultConfig returns default configuration.
 func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-// RegisterRoutes mounts HTTP metrics routes.
 func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *HTTPMetricsHandler) {
 	if !cfg.Enabled || h == nil {
 		return

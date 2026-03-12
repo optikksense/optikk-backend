@@ -17,7 +17,6 @@ type MySQLRepository struct {
 	db dbutil.Querier
 }
 
-// NewRepository creates a new default-config repository.
 func NewRepository(db *sql.DB) *MySQLRepository {
 	return &MySQLRepository{db: dbutil.NewMySQLWrapper(db)}
 }

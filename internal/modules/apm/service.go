@@ -1,6 +1,5 @@
 package apm
 
-// Service encapsulates the business logic for APM metrics.
 type Service interface {
 	GetRPCDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error)
 	GetRPCRequestRate(teamID int64, startMs, endMs int64) ([]TimeBucket, error)
@@ -11,12 +10,10 @@ type Service interface {
 	GetUptime(teamID int64, startMs, endMs int64) ([]TimeBucket, error)
 }
 
-// APMService implements Service.
 type APMService struct {
 	repo Repository
 }
 
-// NewService creates a new APMService.
 func NewService(repo Repository) Service {
 	return &APMService{repo: repo}
 }

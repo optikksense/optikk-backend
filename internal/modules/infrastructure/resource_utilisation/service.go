@@ -1,6 +1,5 @@
 package resource_utilisation
 
-// Service encapsulates the business logic for the resource utilisation module.
 type Service interface {
 	GetAvgCPU(teamID int64, startMs, endMs int64) (MetricValue, error)
 	GetAvgMemory(teamID int64, startMs, endMs int64) (MetricValue, error)
@@ -38,12 +37,10 @@ type Service interface {
 	GetJVMBuffers(teamID int64, startMs, endMs int64) ([]JVMBufferBucket, error)
 }
 
-// ResourceUtilisationService provides business logic orchestration.
 type ResourceUtilisationService struct {
 	repo Repository
 }
 
-// NewService creates a new ResourceUtilisationService.
 func NewService(repo Repository) Service {
 	return &ResourceUtilisationService{repo: repo}
 }

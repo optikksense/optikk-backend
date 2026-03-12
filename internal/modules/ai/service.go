@@ -1,6 +1,5 @@
 package ai
 
-// Service encapsulates the business logic for AI models.
 type Service interface {
 	GetAISummary(teamID int64, startMs, endMs int64) (*AISummary, error)
 	GetAIModels(teamID int64, startMs, endMs int64) ([]AIModel, error)
@@ -15,12 +14,10 @@ type Service interface {
 	GetAIPiiCategories(teamID int64, startMs, endMs int64) ([]AIPiiCategory, error)
 }
 
-// AIService provides business logic orchestration for AI models.
 type AIService struct {
 	repo Repository
 }
 
-// NewService creates a new AIService.
 func NewService(repo Repository) *AIService {
 	return &AIService{repo: repo}
 }

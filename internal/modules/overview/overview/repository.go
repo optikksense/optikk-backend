@@ -7,13 +7,10 @@ import (
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
-// overviewBucketExpr returns a ClickHouse expression for adaptive time bucketing
-// over the raw spans table using s.timestamp.
 func overviewBucketExpr(startMs, endMs int64) string {
 	return timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
 }
 
-// Repository encapsulates data access logic for overview dashboards.
 type Repository interface {
 	GetRequestRate(teamID int64, startMs, endMs int64, serviceName string) ([]RequestRatePoint, error)
 	GetErrorRate(teamID int64, startMs, endMs int64, serviceName string) ([]ErrorRatePoint, error)
@@ -23,12 +20,10 @@ type Repository interface {
 	GetEndpointTimeSeries(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
 }
 
-// ClickHouseRepository encapsulates overview data access logic.
 type ClickHouseRepository struct {
 	db dbutil.Querier
 }
 
-// NewRepository creates a new overview repository.
 func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
@@ -43,7 +38,7 @@ func (r *ClickHouseRepository) GetRequestRate(teamID int64, startMs, endMs int64
 			       count() AS request_count
 			FROM observability.spans s
 			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -84,7 +79,7 @@ func (r *ClickHouseRepository) GetErrorRate(teamID int64, startMs, endMs int64, 
 			       countIf(`+ErrorCondition()+`) AS error_count
 			FROM observability.spans s
 			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -122,7 +117,7 @@ func (r *ClickHouseRepository) GetP95Latency(teamID int64, startMs, endMs int64,
 			       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(s.duration_nano / 1000000.0) AS p95
 			FROM observability.spans s
 			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -165,7 +160,7 @@ func (r *ClickHouseRepository) GetServices(teamID int64, startMs, endMs int64) (
 		)
 		ORDER BY request_count DESC
 	`
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -202,7 +197,7 @@ func (r *ClickHouseRepository) GetTopEndpoints(teamID int64, startMs, endMs int6
 					SELECT service_name, name, http_method
 					FROM observability.spans s
 					WHERE s.team_id = ? AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`
-	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -260,7 +255,7 @@ func (r *ClickHouseRepository) GetEndpointTimeSeries(teamID int64, startMs, endM
 			       quantile(`+fmt.Sprintf("%.2f", QuantileP99)+`)(s.duration_nano / 1000000.0) AS p99
 			FROM observability.spans s
 			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)

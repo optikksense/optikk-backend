@@ -7,7 +7,6 @@ import (
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
-// Repository defines the data access interface for APM metrics.
 type Repository interface {
 	GetRPCDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error)
 	GetRPCRequestRate(teamID int64, startMs, endMs int64) ([]TimeBucket, error)
@@ -18,17 +17,14 @@ type Repository interface {
 	GetUptime(teamID int64, startMs, endMs int64) ([]TimeBucket, error)
 }
 
-// ClickHouseRepository implements Repository using ClickHouse.
 type ClickHouseRepository struct {
 	db dbutil.Querier
 }
 
-// NewRepository creates a new ClickHouseRepository.
 func NewRepository(db dbutil.Querier) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-// queryHistogramSummary is a shared helper for p50/p95/p99/avg histogram queries.
 func (r *ClickHouseRepository) queryHistogramSummary(teamID int64, startMs, endMs int64, metricName string) (HistogramSummary, error) {
 	query := fmt.Sprintf(`
 		SELECT
@@ -57,7 +53,6 @@ func (r *ClickHouseRepository) queryHistogramSummary(teamID int64, startMs, endM
 	}, nil
 }
 
-// queryTimeBuckets is a shared helper for simple scalar timeseries.
 func (r *ClickHouseRepository) queryTimeBuckets(teamID int64, startMs, endMs int64, metricName string) ([]TimeBucket, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	query := fmt.Sprintf(`

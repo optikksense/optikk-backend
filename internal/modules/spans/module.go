@@ -2,17 +2,14 @@ package traces
 
 import "github.com/gin-gonic/gin"
 
-// Config holds traces-module route configuration.
 type Config struct {
 	Enabled bool
 }
 
-// DefaultConfig returns default traces-module configuration.
 func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-// RegisterRoutes mounts trace and latency routes.
 func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *TraceHandler) {
 	if !cfg.Enabled || h == nil {
 		return

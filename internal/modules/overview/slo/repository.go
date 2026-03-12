@@ -7,24 +7,19 @@ import (
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
-// sloBucketExpr returns a ClickHouse time-bucketing expression for adaptive granularity
-// over the spans s.timestamp column.
 func sloBucketExpr(startMs, endMs int64) string {
 	return timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
 }
 
-// Repository encapsulates data access logic for the SLO dashboard.
 type Repository interface {
 	GetSummary(teamID int64, startMs, endMs int64, serviceName string) (Summary, error)
 	GetTimeSeries(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSlice, error)
 }
 
-// ClickHouseRepository encapsulates overview SLO data access logic.
 type ClickHouseRepository struct {
 	db dbutil.Querier
 }
 
-// NewRepository creates a new overview SLO repository.
 func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
@@ -45,7 +40,7 @@ func (r *ClickHouseRepository) GetSummary(teamID int64, startMs, endMs int64, se
 			       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency_ms
 			FROM observability.spans s
 			WHERE s.team_id = ? AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`
-	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -84,7 +79,7 @@ func (r *ClickHouseRepository) GetTimeSeries(teamID int64, startMs, endMs int64,
 			       avg(s.duration_nano / 1000000.0)     AS avg_latency_ms
 			FROM observability.spans s
 			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)

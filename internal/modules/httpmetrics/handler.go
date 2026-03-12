@@ -8,7 +8,6 @@ import (
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
-// HTTPMetricsHandler handles API endpoints for HTTP metrics.
 type HTTPMetricsHandler struct {
 	modulecommon.DBTenant
 	Service Service

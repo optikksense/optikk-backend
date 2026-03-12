@@ -6,31 +6,28 @@ import (
 	"strings"
 )
 
-// Log represents a single log entry.
 type Log struct {
 	ID                string             `json:"id"`
 	Timestamp         uint64             `json:"timestamp"`
-	ObservedTimestamp uint64             `json:"observedTimestamp"`
-	SeverityText      string             `json:"severityText"`
-	SeverityNumber    uint8              `json:"severityNumber"`
+	ObservedTimestamp uint64             `json:"observed_timestamp"`
+	SeverityText      string             `json:"severity_text"`
+	SeverityNumber    uint8              `json:"severity_number"`
 	Body              string             `json:"body"`
-	TraceID           string             `json:"traceId"`
-	SpanID            string             `json:"spanId"`
-	TraceFlags        uint32             `json:"traceFlags"`
-	ServiceName       string             `json:"serviceName"`
+	TraceID           string             `json:"trace_id"`
+	SpanID            string             `json:"span_id"`
+	TraceFlags        uint32             `json:"trace_flags"`
+	ServiceName       string             `json:"service_name"`
 	Host              string             `json:"host"`
 	Pod               string             `json:"pod"`
 	Container         string             `json:"container"`
 	Environment       string             `json:"environment"`
-	AttributesString  map[string]string  `json:"attributesString,omitempty"`
-	AttributesNumber  map[string]float64 `json:"attributesNumber,omitempty"`
-	AttributesBool    map[string]bool    `json:"attributesBool,omitempty"`
-	ScopeName         string             `json:"scopeName"`
-	ScopeVersion      string             `json:"scopeVersion"`
-	Resource          map[string]string  `json:"resource,omitempty"`
+	AttributesString  map[string]string  `json:"attributes_string,omitempty"`
+	AttributesNumber  map[string]float64 `json:"attributes_number,omitempty"`
+	AttributesBool    map[string]bool    `json:"attributes_bool,omitempty"`
+	ScopeName         string             `json:"scope_name"`
+	ScopeVersion      string             `json:"scope_version"`
 }
 
-// LogFilters defines the search criteria for logs.
 type LogFilters struct {
 	TeamID       int64    `json:"teamId"`
 	StartMs      int64    `json:"startMs"`
@@ -57,7 +54,6 @@ type LogFilters struct {
 	AttributeFilters []LogAttributeFilter `json:"attributeFilters,omitempty"`
 }
 
-// LogAttributeFilter represents a single structured attribute key=value filter.
 type LogAttributeFilter struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
@@ -65,19 +61,18 @@ type LogAttributeFilter struct {
 	Op string `json:"op"`
 }
 
-// LogAggregateRequest represents the request body for log aggregation queries.
 type LogAggregateRequest struct {
-	GroupBy  string `json:"groupBy"`  // field name: severity_text, service, host, pod, etc.
-	Step     string `json:"step"`     // time bucket: 1m, 5m, 1h, etc.
-	TopN     int    `json:"topN"`     // return top-N groups (default 20)
-	Metric   string `json:"metric"`   // "count" (default) or "error_rate"
+	GroupBy string `json:"group_by" form:"group_by"` // field name: severity_text, service, host, pod, etc.
+	Step    string `json:"step"     form:"step"`      // time bucket: 1m, 5m, 1h, etc.
+	TopN    int    `json:"top_n"    form:"top_n"`     // return top-N groups (default 20)
+	Metric  string `json:"metric"   form:"metric"`    // "count" (default) or "error_rate"
 }
 
-// LogAggregateRow is one row in an aggregation response.
 type LogAggregateRow struct {
-	TimeBucket string `json:"timeBucket"`
-	GroupValue string `json:"groupValue"`
-	Count      int64  `json:"count"`
+	TimeBucket string  `json:"time_bucket"`
+	GroupValue string  `json:"group_value"`
+	Count      int64   `json:"count"`
+	ErrorRate  float64 `json:"error_rate,omitempty"`
 }
 
 // LogCursor carries pagination state for deterministic ordering by (timestamp, id).
@@ -140,22 +135,19 @@ func ParseLogCursor(raw string) (LogCursor, bool) {
 	return LogCursor{}, false
 }
 
-// LogHistogramBucket represents a time-bucketed count of logs by severity.
 type LogHistogramBucket struct {
-	TimeBucket string `json:"timeBucket"`
+	TimeBucket string `json:"time_bucket"`
 	Severity   string `json:"severity"`
 	Count      int64  `json:"count"`
 }
 
-// LogHistogramData represents the complete histogram response.
 type LogHistogramData struct {
 	Buckets []LogHistogramBucket `json:"buckets"`
 	Step    string               `json:"step"`
 }
 
-// LogVolumeBucket represents per-bucket totals with severity breakdown.
 type LogVolumeBucket struct {
-	TimeBucket string `json:"timeBucket"`
+	TimeBucket string `json:"time_bucket"`
 	Total      int64  `json:"total"`
 	Errors     int64  `json:"errors"`
 	Warnings   int64  `json:"warnings"`
@@ -164,54 +156,42 @@ type LogVolumeBucket struct {
 	Fatals     int64  `json:"fatals"`
 }
 
-// LogVolumeData represents the complete log volume response.
 type LogVolumeData struct {
 	Buckets []LogVolumeBucket `json:"buckets"`
 	Step    string            `json:"step"`
 }
 
-// LogStats represents aggregate statistics and facets for logs.
 type LogStats struct {
 	Total  int64              `json:"total"`
 	Fields map[string][]Facet `json:"fields"`
 }
 
-// Facet represents a single facet value and its count.
 type Facet struct {
 	Value string `json:"value"`
 	Count int64  `json:"count"`
 }
 
-// LogSearchResponse represents the result of a log search with pagination and facets.
 type LogSearchResponse struct {
 	Logs       []Log  `json:"logs"`
-	HasMore    bool   `json:"hasMore"`
-	NextCursor string `json:"nextCursor"`
+	HasMore    bool   `json:"has_more"`
+	NextCursor string `json:"next_cursor,omitempty"`
 	Limit      int    `json:"limit"`
 	Total      int64  `json:"total"`
 }
 
-// LogSurroundingResponse represents a log entry with its surrounding context.
 type LogSurroundingResponse struct {
 	Anchor Log   `json:"anchor"`
 	Before []Log `json:"before"`
 	After  []Log `json:"after"`
 }
 
-// LogDetailResponse represents a single log entry and its service context.
 type LogDetailResponse struct {
 	Log         Log   `json:"log"`
 	ContextLogs []Log `json:"contextLogs"`
 }
 
-// TraceLogsResponse represents trace logs, separating direct matches from speculative matches.
 type TraceLogsResponse struct {
 	Logs          []Log `json:"logs"`
 	IsSpeculative bool  `json:"isSpeculative"`
 }
 
-// LogFacetsResponse represents facet breakdowns for facet-only queries.
-type LogFacetsResponse struct {
-	Total  int64              `json:"total"`
-	Facets map[string][]Facet `json:"facets"`
-}

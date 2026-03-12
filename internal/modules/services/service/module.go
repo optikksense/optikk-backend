@@ -2,17 +2,14 @@ package servicepage
 
 import "github.com/gin-gonic/gin"
 
-// Config holds services-overview route configuration.
 type Config struct {
 	Enabled bool
 }
 
-// DefaultConfig returns default services-overview configuration.
 func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-// RegisterRoutes mounts services-overview routes.
 func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ServiceHandler) {
 	if !cfg.Enabled || h == nil {
 		return

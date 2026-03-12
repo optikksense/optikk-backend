@@ -10,14 +10,12 @@ import (
 	"github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
-// logCols is the SELECT column list for raw log queries.
 const logCols = `id, timestamp, observed_timestamp, severity_text, severity_number,
 	body, trace_id, span_id, trace_flags,
 	service, host, pod, container, environment,
 	attributes_string, attributes_number, attributes_bool,
 	scope_name, scope_version`
 
-// ClickHouseRepository is the data access layer for logs.
 type ClickHouseRepository struct {
 	db dbutil.Querier
 }
@@ -26,9 +24,7 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
 
-// buildLogWhere builds a WHERE clause from LogFilters.
 func buildLogWhere(f LogFilters) (string, []any) {
 	const maxTimeRangeMs = 30 * 24 * 60 * 60 * 1000
 	startMs := f.StartMs
@@ -45,8 +41,8 @@ func buildLogWhere(f LogFilters) (string, []any) {
 	endNs := uint64(endMs) * 1_000_000
 
 	// ts_bucket_start bounds for partition pruning (seconds, truncated to day).
-	startBucket := uint32((startMs / 1000) / 86400 * 86400)
-	endBucket := uint32((endMs / 1000) / 86400 * 86400)
+	startBucket := timebucket.LogsBucketStart(startMs / 1000)
+	endBucket := timebucket.LogsBucketStart(endMs / 1000)
 
 	where := ` team_id = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ?`
 	args := []any{uint32(f.TeamID), startBucket, endBucket, startNs, endNs}
@@ -134,7 +130,6 @@ func buildLogWhere(f LogFilters) (string, []any) {
 	return where, args
 }
 
-// mapRowToLog converts a generic map row into a typed Log.
 func mapRowToLog(row map[string]any) Log {
 	return Log{
 		ID:                dbutil.StringFromAny(row["id"]),
@@ -199,8 +194,6 @@ func mapRowsToFacets(rows []map[string]any) []Facet {
 	return facets
 }
 
-// logBucketExpr returns a ClickHouse SQL expression for time bucketing on
-// the UInt64 nanosecond timestamp column.
 func logBucketExpr(startMs, endMs int64) string {
 	tsExpr := "toDateTime(intDiv(timestamp, 1000000000))"
 	return timebucket.ExprForColumn(startMs, endMs, tsExpr)
@@ -221,9 +214,7 @@ func normalizeRoute(raw string) string {
 	return s
 }
 
-// ── Search ───────────────────────────────────────────────────────────────────
 
-// GetLogs returns paginated log entries.
 func (r *ClickHouseRepository) GetLogs(ctx context.Context, f LogFilters, limit int, direction string, cursor LogCursor) ([]Log, int64, error) {
 	where, args := buildLogWhere(f)
 	orderDir := "DESC"
@@ -282,9 +273,7 @@ func (r *ClickHouseRepository) GetLogs(ctx context.Context, f LogFilters, limit 
 	return logs, total, nil
 }
 
-// ── Aggregation ──────────────────────────────────────────────────────────────
 
-// GetLogHistogram returns time-bucketed log counts by severity.
 func (r *ClickHouseRepository) GetLogHistogram(ctx context.Context, f LogFilters, step string) ([]LogHistogramBucket, error) {
 	bucketExpr := logBucketExpr(f.StartMs, f.EndMs)
 	if step != "" {
@@ -317,7 +306,6 @@ func (r *ClickHouseRepository) GetLogHistogram(ctx context.Context, f LogFilters
 	return buckets, nil
 }
 
-// GetLogVolume returns time-bucketed log counts with severity breakdown.
 func (r *ClickHouseRepository) GetLogVolume(ctx context.Context, f LogFilters, step string) ([]LogVolumeBucket, error) {
 	bucketExpr := logBucketExpr(f.StartMs, f.EndMs)
 	where, args := buildLogWhere(f)
@@ -353,8 +341,6 @@ func (r *ClickHouseRepository) GetLogVolume(ctx context.Context, f LogFilters, s
 	return buckets, nil
 }
 
-// bucketFuncFromStrategy extracts the ClickHouse function name from a strategy's expression.
-// Falls back to toStartOfMinute if parsing fails.
 func bucketFuncFromStrategy(s timebucket.Strategy) string {
 	expr := s.GetBucketExpression()
 	// Expression format: formatDateTime(toStartOfXxx(timestamp), ...)
@@ -366,9 +352,7 @@ func bucketFuncFromStrategy(s timebucket.Strategy) string {
 	return "toStartOfMinute"
 }
 
-// ── Context ──────────────────────────────────────────────────────────────────
 
-// GetLogSurrounding returns a log entry and its surrounding context logs.
 func (r *ClickHouseRepository) GetLogSurrounding(ctx context.Context, teamID int64, logID string, before, after int) (Log, []Log, []Log, error) {
 	anchorRow, err := dbutil.QueryMap(r.db,
 		fmt.Sprintf(`SELECT %s FROM observability.logs WHERE team_id = ? AND id = ? LIMIT 1`, logCols),
@@ -386,8 +370,8 @@ func (r *ClickHouseRepository) GetLogSurrounding(ctx context.Context, teamID int
 	tsHigh := anchorTs + oneHourNs
 
 	// Compute ts_bucket_start bounds for partition pruning.
-	bucketLow := uint32(tsLow / 1_000_000_000 / 86400 * 86400)
-	bucketHigh := uint32(tsHigh / 1_000_000_000 / 86400 * 86400)
+	bucketLow := timebucket.LogsBucketStart(int64(tsLow / 1_000_000_000))
+	bucketHigh := timebucket.LogsBucketStart(int64(tsHigh / 1_000_000_000))
 
 	beforeRows, _ := dbutil.QueryMaps(r.db,
 		fmt.Sprintf(`SELECT %s FROM observability.logs WHERE team_id = ? AND service = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ? AND (timestamp < ? OR (timestamp = ? AND id < ?)) ORDER BY timestamp DESC, id DESC LIMIT ?`, logCols),
@@ -403,15 +387,14 @@ func (r *ClickHouseRepository) GetLogSurrounding(ctx context.Context, teamID int
 	return anchor, mapRowsToLogs(beforeRows), mapRowsToLogs(afterRows), nil
 }
 
-// GetLogDetail returns a single log entry and its service context.
 func (r *ClickHouseRepository) GetLogDetail(ctx context.Context, teamID int64, traceID, spanID string, centerNs uint64, fromNs, toNs uint64) (Log, []Log, error) {
 	// ±1 second around center for anchor lookup.
 	const oneSecNs = uint64(1_000_000_000)
 	cLow := centerNs - oneSecNs
 	cHigh := centerNs + oneSecNs
 
-	bucketLow := uint32(fromNs / 1_000_000_000 / 86400 * 86400)
-	bucketHigh := uint32(toNs / 1_000_000_000 / 86400 * 86400)
+	bucketLow := timebucket.LogsBucketStart(int64(fromNs / 1_000_000_000))
+	bucketHigh := timebucket.LogsBucketStart(int64(toNs / 1_000_000_000))
 
 	logRow, err := dbutil.QueryMap(r.db, fmt.Sprintf(`
 		SELECT %s FROM observability.logs
@@ -461,8 +444,8 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, t
 		if !traceStartRaw.IsZero() && !traceEndRaw.IsZero() {
 			startNsPruning := uint64(traceStartRaw.Add(-2 * time.Second).UnixNano())
 			endNsPruning := uint64(traceEndRaw.Add(2 * time.Second).UnixNano())
-			bucketLowPruning := uint32(startNsPruning / 1_000_000_000 / 86400 * 86400)
-			bucketHighPruning := uint32(endNsPruning / 1_000_000_000 / 86400 * 86400)
+			bucketLowPruning := timebucket.LogsBucketStart(int64(startNsPruning / 1_000_000_000))
+			bucketHighPruning := timebucket.LogsBucketStart(int64(endNsPruning / 1_000_000_000))
 			rows, err = dbutil.QueryMaps(r.db, fmt.Sprintf(`
 				SELECT %s FROM observability.logs
 				WHERE team_id = ? AND trace_id = ?
@@ -509,8 +492,8 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, t
 	// Convert trace time bounds to nanoseconds with ±2s padding.
 	startNs := uint64(traceStart.Add(-2 * time.Second).UnixNano())
 	endNs := uint64(traceEnd.Add(2 * time.Second).UnixNano())
-	bucketLow := uint32(startNs / 1_000_000_000 / 86400 * 86400)
-	bucketHigh := uint32(endNs / 1_000_000_000 / 86400 * 86400)
+	bucketLow := timebucket.LogsBucketStart(int64(startNs / 1_000_000_000))
+	bucketHigh := timebucket.LogsBucketStart(int64(endNs / 1_000_000_000))
 
 	routeLike := "%"
 	if route != "" {
@@ -542,67 +525,7 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, t
 	return TraceLogsResponse{Logs: logs, IsSpeculative: true}, nil
 }
 
-// ── Facets ───────────────────────────────────────────────────────────────────
 
-// GetLogFacets returns total count and facet breakdowns for severity, service, host.
-// Uses a single UNION ALL query instead of 3 separate scans.
-func (r *ClickHouseRepository) GetLogFacets(ctx context.Context, f LogFilters) (LogFacetsResponse, error) {
-	where, args := buildLogWhere(f)
-
-	query := fmt.Sprintf(`
-		SELECT 'severity' AS dim, severity_text AS value, COUNT(*) AS count
-		FROM observability.logs WHERE%s GROUP BY severity_text
-		UNION ALL
-		SELECT 'service' AS dim, service AS value, COUNT(*) AS count
-		FROM observability.logs WHERE%s GROUP BY service
-		UNION ALL
-		SELECT 'host' AS dim, host AS value, COUNT(*) AS count
-		FROM observability.logs WHERE%s AND host != '' GROUP BY host
-	`, where, where, where)
-
-	mergedArgs := append(append(args, args...), args...)
-	rows, err := dbutil.QueryMaps(r.db, query, mergedArgs...)
-	if err != nil {
-		return LogFacetsResponse{}, fmt.Errorf("logs: facets query: %w", err)
-	}
-
-	severities := make([]Facet, 0)
-	services := make([]Facet, 0)
-	hosts := make([]Facet, 0)
-	total := int64(0)
-
-	for _, row := range rows {
-		dim := dbutil.StringFromAny(row["dim"])
-		facet := Facet{
-			Value: dbutil.StringFromAny(row["value"]),
-			Count: dbutil.Int64FromAny(row["count"]),
-		}
-		switch dim {
-		case "severity":
-			severities = append(severities, facet)
-			total += facet.Count
-		case "service":
-			if len(services) < 50 {
-				services = append(services, facet)
-			}
-		case "host":
-			if len(hosts) < 50 {
-				hosts = append(hosts, facet)
-			}
-		}
-	}
-
-	return LogFacetsResponse{
-		Total: total,
-		Facets: map[string][]Facet{
-			"severities": severities,
-			"services":   services,
-			"hosts":      hosts,
-		},
-	}, nil
-}
-
-// GetLogStats returns total count and extended facet breakdowns via a single merged query.
 func (r *ClickHouseRepository) GetLogStats(ctx context.Context, f LogFilters) (LogStats, error) {
 	where, args := buildLogWhere(f)
 
@@ -669,7 +592,6 @@ func (r *ClickHouseRepository) GetLogStats(ctx context.Context, f LogFilters) (L
 	return LogStats{Total: total, Fields: fields}, nil
 }
 
-// GetLogFields returns facet values for a single column.
 func (r *ClickHouseRepository) GetLogFields(ctx context.Context, f LogFilters, col string) ([]Facet, error) {
 	// Allowlist columns to prevent SQL injection.
 	allowed := map[string]bool{
@@ -693,7 +615,6 @@ func (r *ClickHouseRepository) GetLogFields(ctx context.Context, f LogFilters, c
 	return mapRowsToFacets(rows), nil
 }
 
-// allowedGroupByFields defines the safe log fields that can be used as GROUP BY targets.
 var allowedGroupByFields = map[string]string{
 	"severity_text": "severity_text",
 	"service":       "service",
@@ -704,31 +625,45 @@ var allowedGroupByFields = map[string]string{
 	"environment":   "environment",
 }
 
-// GetLogAggregate returns a time-series aggregation of log counts grouped by a field.
-// groupBy must be one of the allowed fields. step is a ClickHouse duration string (e.g. "1m", "5m", "1h").
-// topN limits the number of distinct group values returned.
-func (r *ClickHouseRepository) GetLogAggregate(ctx context.Context, f LogFilters, groupBy, step string, topN int) ([]LogAggregateRow, error) {
-	col, ok := allowedGroupByFields[groupBy]
+// GetLogAggregate returns a time-series aggregation grouped by a field.
+// req.Metric controls what is measured: "count" (default) or "error_rate".
+func (r *ClickHouseRepository) GetLogAggregate(ctx context.Context, f LogFilters, req LogAggregateRequest) ([]LogAggregateRow, error) {
+	col, ok := allowedGroupByFields[req.GroupBy]
 	if !ok {
-		return nil, fmt.Errorf("invalid groupBy field: %s", groupBy)
+		return nil, fmt.Errorf("invalid groupBy field: %s", req.GroupBy)
 	}
+	step := req.Step
 	if step == "" {
 		step = "5m"
 	}
+	topN := req.TopN
 	if topN <= 0 || topN > 100 {
 		topN = 20
 	}
 
-	// First: find the top-N groups by total count so we can filter the time-series to them.
 	where, args := buildLogWhere(f)
-	topQuery := fmt.Sprintf(`
-		SELECT %s AS grp, count() AS cnt
-		FROM observability.logs
-		WHERE%s AND %s != ''
-		GROUP BY grp
-		ORDER BY cnt DESC
-		LIMIT %d
-	`, col, where, col, topN)
+
+	// For error_rate, rank top-N groups by error count; for count, by total count.
+	var topQuery string
+	if req.Metric == "error_rate" {
+		topQuery = fmt.Sprintf(`
+			SELECT %s AS grp, countIf(severity_text IN ('ERROR', 'FATAL')) AS err_cnt
+			FROM observability.logs
+			WHERE%s AND %s != ''
+			GROUP BY grp
+			ORDER BY err_cnt DESC
+			LIMIT %d
+		`, col, where, col, topN)
+	} else {
+		topQuery = fmt.Sprintf(`
+			SELECT %s AS grp, count() AS cnt
+			FROM observability.logs
+			WHERE%s AND %s != ''
+			GROUP BY grp
+			ORDER BY cnt DESC
+			LIMIT %d
+		`, col, where, col, topN)
+	}
 
 	topRows, err := dbutil.QueryMaps(r.db, topQuery, args...)
 	if err != nil {
@@ -745,21 +680,35 @@ func (r *ClickHouseRepository) GetLogAggregate(ctx context.Context, f LogFilters
 		}
 	}
 
-	// Build IN clause args
 	inPlaceholders := strings.Repeat("?,", len(topGroups))
 	inPlaceholders = inPlaceholders[:len(inPlaceholders)-1]
 
-	// Second: time-series query with toStartOfInterval
 	where2, args2 := buildLogWhere(f)
-	tsQuery := fmt.Sprintf(`
-		SELECT toStartOfInterval(fromUnixTimestamp64Nano(timestamp), INTERVAL %s) AS time_bucket,
-		       %s AS grp,
-		       count() AS cnt
-		FROM observability.logs
-		WHERE%s AND %s IN (%s)
-		GROUP BY time_bucket, grp
-		ORDER BY time_bucket ASC, cnt DESC
-	`, step, col, where2, col, inPlaceholders)
+
+	var tsQuery string
+	if req.Metric == "error_rate" {
+		tsQuery = fmt.Sprintf(`
+			SELECT toStartOfInterval(fromUnixTimestamp64Nano(timestamp), INTERVAL %s) AS time_bucket,
+			       %s AS grp,
+			       if(count() > 0,
+			          countIf(severity_text IN ('ERROR', 'FATAL')) * 100.0 / count(),
+			          0) AS error_rate
+			FROM observability.logs
+			WHERE%s AND %s IN (%s)
+			GROUP BY time_bucket, grp
+			ORDER BY time_bucket ASC, grp ASC
+		`, step, col, where2, col, inPlaceholders)
+	} else {
+		tsQuery = fmt.Sprintf(`
+			SELECT toStartOfInterval(fromUnixTimestamp64Nano(timestamp), INTERVAL %s) AS time_bucket,
+			       %s AS grp,
+			       count() AS cnt
+			FROM observability.logs
+			WHERE%s AND %s IN (%s)
+			GROUP BY time_bucket, grp
+			ORDER BY time_bucket ASC, cnt DESC
+		`, step, col, where2, col, inPlaceholders)
+	}
 
 	combinedArgs := append(args2, func() []any {
 		a := make([]any, len(topGroups))
@@ -777,11 +726,16 @@ func (r *ClickHouseRepository) GetLogAggregate(ctx context.Context, f LogFilters
 	result := make([]LogAggregateRow, 0, len(tsRows))
 	for _, row := range tsRows {
 		tb := dbutil.TimeFromAny(row["time_bucket"])
-		result = append(result, LogAggregateRow{
+		r := LogAggregateRow{
 			TimeBucket: tb.UTC().Format(time.RFC3339),
 			GroupValue: dbutil.StringFromAny(row["grp"]),
-			Count:      dbutil.Int64FromAny(row["cnt"]),
-		})
+		}
+		if req.Metric == "error_rate" {
+			r.ErrorRate = dbutil.Float64FromAny(row["error_rate"])
+		} else {
+			r.Count = dbutil.Int64FromAny(row["cnt"])
+		}
+		result = append(result, r)
 	}
 	return result, nil
 }

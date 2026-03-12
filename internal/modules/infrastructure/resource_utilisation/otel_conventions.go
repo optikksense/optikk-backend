@@ -12,7 +12,7 @@ import (
 
 const (
 	// Table Names
-	TableMetrics = "metrics"
+	TableMetrics = "observability.metrics"
 
 	// Metrics Table Columns
 	ColTeamID      = "team_id"
@@ -179,20 +179,14 @@ var (
 	}
 )
 
-// TimeBucketExpression returns the appropriate time bucket expression based on time range.
-// Delegates to the shared timebucket package.
 func TimeBucketExpression(startMs, endMs int64) string {
 	return timebucket.Expression(startMs, endMs)
 }
 
-// attrFloat returns a CH 26+ native JSON path expression that reads a Float64
-// from the attributes JSON column. Replaces JSONExtractFloat(attributes, 'key').
 func attrFloat(attrName string) string {
 	return "attributes.'" + attrName + "'::Float64"
 }
 
-// MetricSetToInClause converts a metric set to a SQL IN clause
-// Example: MetricSetToInClause(CPUMetrics) returns "'metric1', 'metric2', 'metric3'"
 func MetricSetToInClause(metrics []string) string {
 	if len(metrics) == 0 {
 		return ""

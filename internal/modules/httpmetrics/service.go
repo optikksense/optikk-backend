@@ -1,6 +1,5 @@
 package httpmetrics
 
-// Service encapsulates the business logic for HTTP metrics.
 type Service interface {
 	GetRequestRate(teamID int64, startMs, endMs int64) ([]StatusCodeBucket, error)
 	GetRequestDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error)
@@ -12,12 +11,10 @@ type Service interface {
 	GetTLSDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error)
 }
 
-// HTTPMetricsService implements Service.
 type HTTPMetricsService struct {
 	repo Repository
 }
 
-// NewService creates a new HTTPMetricsService.
 func NewService(repo Repository) Service {
 	return &HTTPMetricsService{repo: repo}
 }

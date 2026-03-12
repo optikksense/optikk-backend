@@ -2,19 +2,16 @@ package nodes
 
 import ()
 
-// Service encapsulates the business logic for the infrastructure nodes module.
 type Service interface {
 	GetInfrastructureNodes(teamID int64, startMs, endMs int64) ([]InfrastructureNode, error)
 	GetInfrastructureNodeSummary(teamID int64, startMs, endMs int64) (InfrastructureNodeSummary, error)
 	GetInfrastructureNodeServices(teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error)
 }
 
-// NodeService provides business logic orchestration for infrastructure nodes tracking.
 type NodeService struct {
 	repo Repository
 }
 
-// NewService creates a new NodeService.
 func NewService(repo Repository) Service {
 	return &NodeService{repo: repo}
 }

@@ -1,6 +1,5 @@
 package tracedetail
 
-// Service encapsulates business logic for trace detail endpoints.
 type Service interface {
 	GetSpanEvents(teamID int64, traceID string) ([]SpanEvent, error)
 	GetSpanKindBreakdown(teamID int64, traceID string) ([]SpanKindDuration, error)
@@ -11,12 +10,10 @@ type Service interface {
 	GetRelatedTraces(teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
 }
 
-// TraceDetailService implements Service.
 type TraceDetailService struct {
 	repo Repository
 }
 
-// NewService creates a new trace detail service.
 func NewService(repo Repository) Service {
 	return &TraceDetailService{repo: repo}
 }

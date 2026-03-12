@@ -8,13 +8,11 @@ import (
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
-// SLOHandler handles overview SLO endpoints.
 type SLOHandler struct {
 	modulecommon.DBTenant
 	Service Service
 }
 
-// GetSloSli returns the SLO dashboard payload.
 func (h *SLOHandler) GetSloSli(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")
@@ -32,8 +30,6 @@ func (h *SLOHandler) GetSloSli(c *gin.Context) {
 	RespondOK(c, resp)
 }
 
-// GetSloStats returns a flat scalar summary of the current SLO status.
-// Intended for stat-card components that need individual scalar fields.
 func (h *SLOHandler) GetSloStats(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")

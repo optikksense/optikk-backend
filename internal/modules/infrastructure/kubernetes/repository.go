@@ -7,7 +7,6 @@ import (
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
-// Repository defines the data access interface for Kubernetes metrics.
 type Repository interface {
 	GetContainerCPU(teamID int64, startMs, endMs int64) ([]ContainerBucket, error)
 	GetCPUThrottling(teamID int64, startMs, endMs int64) ([]ContainerBucket, error)
@@ -20,17 +19,14 @@ type Repository interface {
 	GetVolumeUsage(teamID int64, startMs, endMs int64) ([]VolumeStat, error)
 }
 
-// ClickHouseRepository implements Repository using ClickHouse.
 type ClickHouseRepository struct {
 	db dbutil.Querier
 }
 
-// NewRepository creates a new ClickHouseRepository.
 func NewRepository(db dbutil.Querier) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-// queryContainerBuckets is a shared helper for timeseries queries grouped by container name.
 func (r *ClickHouseRepository) queryContainerBuckets(teamID int64, startMs, endMs int64, metricName string) ([]ContainerBucket, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	containerAttr := attrString(AttrContainerName)

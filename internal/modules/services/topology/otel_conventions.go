@@ -20,12 +20,10 @@ const (
 	MaxEdges = 100
 )
 
-// ErrorCondition returns the SQL condition for identifying errors using raw schema columns.
 func ErrorCondition() string {
 	return "s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400"
 }
 
-// RootSpanCondition returns the SQL condition for filtering root spans.
 func RootSpanCondition() string {
 	return "s.parent_span_id = ''"
 }

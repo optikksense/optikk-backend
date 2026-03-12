@@ -1,24 +1,22 @@
 package nodes
 
 import (
+	"github.com/observability/observability-backend-go/internal/platform/timebucket"
 	"fmt"
 	"strings"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
-// Repository encapsulates data access logic for infrastructure node tracking.
 type Repository interface {
 	GetInfrastructureNodes(teamID int64, startMs, endMs int64) ([]InfrastructureNode, error)
 	GetInfrastructureNodeServices(teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error)
 }
 
-// ClickHouseRepository encapsulates infrastructure node data access logic.
 type ClickHouseRepository struct {
 	db dbutil.Querier
 }
 
-// NewRepository creates a new node repository.
 func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
@@ -41,7 +39,7 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(teamID int64, startMs, end
 		GROUP BY host_name
 		ORDER BY request_count DESC
 		LIMIT `+fmt.Sprintf("%d", MaxNodes)+`
-	`, teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, teamID, timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err
@@ -84,7 +82,7 @@ func (r *ClickHouseRepository) GetInfrastructureNodeServices(teamID int64, host 
 		GROUP BY service_name
 		ORDER BY request_count DESC
 		LIMIT `+fmt.Sprintf("%d", MaxServices)+`
-	`, teamID, host, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, teamID, host, timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 
 	if err != nil {
 		return nil, err

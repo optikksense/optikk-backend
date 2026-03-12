@@ -3,6 +3,7 @@ package database
 import (
 	"context"
 	"database/sql"
+	"log"
 	"strings"
 	"time"
 
@@ -30,9 +31,6 @@ func injectMySQLTimeouts(dsn string) string {
 	return dsn
 }
 
-// Open creates a MySQL connection pool. maxOpen and maxIdle control pool size;
-// pass 0 to use defaults (50 open, 25 idle).
-// Automatically injects connection timeouts into the DSN if not already present.
 func Open(dsn string, maxOpen, maxIdle int) (*sql.DB, error) {
 	dsn = injectMySQLTimeouts(dsn)
 	db, err := sql.Open("mysql", dsn)
@@ -97,12 +95,16 @@ func (m *MySQLWrapper) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.T
 }
 
 func (m *MySQLWrapper) Query(query string, args ...any) (Rows, error) {
+	start := time.Now()
 	var rows *sql.Rows
 	err := m.cb.Call(func() error {
 		var err error
 		rows, err = m.db.Query(query, args...)
 		return err
 	})
+	if d := time.Since(start); d >= slowQueryThreshold {
+		log.Printf("SLOW_QUERY mysql duration=%v query=%s", d, truncateQuery(query))
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -110,11 +112,15 @@ func (m *MySQLWrapper) Query(query string, args ...any) (Rows, error) {
 }
 
 func (m *MySQLWrapper) QueryRow(query string, args ...any) Row {
+	start := time.Now()
 	var row *sql.Row
 	err := m.cb.Call(func() error {
 		row = m.db.QueryRow(query, args...)
 		return nil
 	})
+	if d := time.Since(start); d >= slowQueryThreshold {
+		log.Printf("SLOW_QUERY mysql duration=%v query=%s", d, truncateQuery(query))
+	}
 	if err != nil {
 		return &circuitBreakerRowAdapter{err: err}
 	}

@@ -7,7 +7,6 @@ import (
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
-// Repository defines the data access interface for HTTP metrics.
 type Repository interface {
 	GetRequestRate(teamID int64, startMs, endMs int64) ([]StatusCodeBucket, error)
 	GetRequestDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error)
@@ -19,17 +18,14 @@ type Repository interface {
 	GetTLSDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error)
 }
 
-// ClickHouseRepository implements Repository using ClickHouse.
 type ClickHouseRepository struct {
 	db dbutil.Querier
 }
 
-// NewRepository creates a new ClickHouseRepository.
 func NewRepository(db dbutil.Querier) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-// queryHistogramSummary is a shared helper for p50/p95/p99/avg histogram queries.
 func (r *ClickHouseRepository) queryHistogramSummary(teamID int64, startMs, endMs int64, metricName string) (HistogramSummary, error) {
 	query := fmt.Sprintf(`
 		SELECT

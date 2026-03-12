@@ -2,7 +2,6 @@ package servicemap
 
 import "time"
 
-// ServiceDependencyDetail is a dependency edge with latency and error metrics.
 type ServiceDependencyDetail struct {
 	Source      string  `json:"source"`
 	Target      string  `json:"target"`
@@ -12,7 +11,6 @@ type ServiceDependencyDetail struct {
 	Direction   string  `json:"direction"` // "upstream" | "downstream"
 }
 
-// ExternalDependency represents a call to a host outside the known service mesh.
 type ExternalDependency struct {
 	SourceService string  `json:"sourceService"`
 	ExternalHost  string  `json:"externalHost"`
@@ -21,7 +19,6 @@ type ExternalDependency struct {
 	ErrorRate     float64 `json:"errorRate"`
 }
 
-// ClientServerLatencyPoint is a time-series point comparing client vs server duration.
 type ClientServerLatencyPoint struct {
 	Timestamp      time.Time `json:"timestamp"`
 	OperationName  string    `json:"operationName"`

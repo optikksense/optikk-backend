@@ -1,18 +1,15 @@
 package servicemap
 
-// Service encapsulates business logic for service map endpoints.
 type Service interface {
 	GetUpstreamDownstream(teamID int64, serviceName string, startMs, endMs int64) ([]ServiceDependencyDetail, error)
 	GetExternalDependencies(teamID int64, startMs, endMs int64) ([]ExternalDependency, error)
 	GetClientServerLatency(teamID int64, startMs, endMs int64, operationName string) ([]ClientServerLatencyPoint, error)
 }
 
-// ServiceMapService implements Service.
 type ServiceMapService struct {
 	repo Repository
 }
 
-// NewService creates a new service map service.
 func NewService(repo Repository) Service {
 	return &ServiceMapService{repo: repo}
 }

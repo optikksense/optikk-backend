@@ -21,8 +21,6 @@ const (
 	cleanupPeriod = 10 * time.Minute
 )
 
-// Authenticator handles resolving an API key to a Team ID with a lock-free cache.
-// Uses sync.Map for contention-free reads on the hot path (cache hit).
 type Authenticator struct {
 	db    *sql.DB
 	cache sync.Map // map[string]*cachedTeam
@@ -34,15 +32,12 @@ type cachedTeam struct {
 	expiresAt time.Time
 }
 
-// NewAuthenticator creates a common auth resolver for both HTTP and gRPC handlers.
 func NewAuthenticator(db *sql.DB) *Authenticator {
 	a := &Authenticator{db: db}
 	go a.cleanupLoop()
 	return a
 }
 
-// ResolveTeamID returns the numeric team ID for the given API key.
-// Hot path (cache hit) is lock-free via sync.Map.Load.
 func (a *Authenticator) ResolveTeamID(ctx context.Context, apiKey string) (int64, error) {
 	if apiKey == "" {
 		return 0, ErrMissingAPIKey

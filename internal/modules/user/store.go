@@ -15,7 +15,6 @@ type AuthUser struct {
 	PasswordHash string
 	Name         string
 	AvatarURL    string
-	Role         string
 	TeamsJSON    string
 }
 
@@ -29,7 +28,7 @@ func NewStore(db *sql.DB) *Store {
 
 func (r *Store) FindUserByID(userID int64) (map[string]any, error) {
 	row, err := dbutil.QueryMap(r.DB, `
-		SELECT id, email, name, avatar_url, role, teams, active, last_login_at, created_at
+		SELECT id, email, name, avatar_url, teams, active, last_login_at, created_at
 		FROM users
 		WHERE id = ?
 		LIMIT 1
@@ -45,7 +44,7 @@ func (r *Store) FindUserByID(userID int64) (map[string]any, error) {
 
 func (r *Store) FindActiveUserByID(userID int64) (map[string]any, error) {
 	row, err := dbutil.QueryMap(r.DB, `
-		SELECT id, email, name, avatar_url, role, teams, active, last_login_at, created_at
+		SELECT id, email, name, avatar_url, teams, active, last_login_at, created_at
 		FROM users
 		WHERE id = ? AND active = 1
 		LIMIT 1
@@ -62,7 +61,7 @@ func (r *Store) FindActiveUserByID(userID int64) (map[string]any, error) {
 func (r *Store) FindActiveUserByEmail(email string) (AuthUser, error) {
 	var user AuthUser
 	err := r.DB.QueryRow(`
-		SELECT id, email, COALESCE(password_hash,''), name, COALESCE(avatar_url,''), role, COALESCE(teams, '[]')
+		SELECT id, email, COALESCE(password_hash,''), name, COALESCE(avatar_url,''), COALESCE(teams, '[]')
 		FROM users
 		WHERE email = ? AND active = 1
 		LIMIT 1
@@ -72,7 +71,6 @@ func (r *Store) FindActiveUserByEmail(email string) (AuthUser, error) {
 		&user.PasswordHash,
 		&user.Name,
 		&user.AvatarURL,
-		&user.Role,
 		&user.TeamsJSON,
 	)
 	if err != nil {
@@ -96,7 +94,7 @@ func (r *Store) ListActiveUsersByTeamIDs(teamIDs []int64, limit, offset int) ([]
 	args = append(args, limit, offset)
 
 	return dbutil.QueryMaps(r.DB, fmt.Sprintf(`
-		SELECT id, email, name, avatar_url, role, teams, active, last_login_at, created_at
+		SELECT id, email, name, avatar_url, teams, active, last_login_at, created_at
 		FROM users
 		WHERE (%s) AND active = 1
 		ORDER BY id
@@ -104,11 +102,11 @@ func (r *Store) ListActiveUsersByTeamIDs(teamIDs []int64, limit, offset int) ([]
 	`, whereClause), args...)
 }
 
-func (r *Store) CreateUser(email, passwordHash, name, role, teamsJSON string, createdAt time.Time) (int64, error) {
+func (r *Store) CreateUser(email, passwordHash, name, teamsJSON string, createdAt time.Time) (int64, error) {
 	res, err := r.DB.Exec(`
-		INSERT INTO users (email, password_hash, name, role, teams, active, created_at)
-		VALUES (?, ?, ?, ?, ?, 1, ?)
-	`, email, nullableStringPtr(&passwordHash), name, role, teamsJSON, createdAt)
+		INSERT INTO users (email, password_hash, name, teams, active, created_at)
+		VALUES (?, ?, ?, ?, 1, ?)
+	`, email, nullableStringPtr(&passwordHash), name, teamsJSON, createdAt)
 	if err != nil {
 		return 0, err
 	}
@@ -124,17 +122,17 @@ func (r *Store) UpdateUserLastLogin(userID int64, at time.Time) error {
 	return err
 }
 
-func (r *Store) UpdateUserProfile(userID int64, name, avatarURL *string, updatedAt time.Time) error {
+func (r *Store) UpdateUserProfile(userID int64, name, avatarURL *string) error {
 	_, err := r.DB.Exec(`
 		UPDATE users
-		SET name = COALESCE(?, name), avatar_url = COALESCE(?, avatar_url), updated_at = ?
+		SET name = COALESCE(?, name), avatar_url = COALESCE(?, avatar_url)
 		WHERE id = ?
-	`, nullableStringPtr(name), nullableStringPtr(avatarURL), updatedAt, userID)
+	`, nullableStringPtr(name), nullableStringPtr(avatarURL), userID)
 	return err
 }
 
-func (r *Store) UpdateUserTeams(userID int64, teamsJSON string, updatedAt time.Time) error {
-	_, err := r.DB.Exec(`UPDATE users SET teams = ?, updated_at = ? WHERE id = ?`, teamsJSON, updatedAt, userID)
+func (r *Store) UpdateUserTeams(userID int64, teamsJSON string) error {
+	_, err := r.DB.Exec(`UPDATE users SET teams = ? WHERE id = ?`, teamsJSON, userID)
 	return err
 }
 
@@ -210,7 +208,7 @@ func (r *Store) CreateTeam(orgName, name, slug string, description *string, colo
 func (r *Store) FindUserByOAuth(provider, oauthID string) (AuthUser, error) {
 	var user AuthUser
 	err := r.DB.QueryRow(`
-		SELECT id, email, COALESCE(password_hash,''), name, COALESCE(avatar_url,''), role, COALESCE(teams, '[]')
+		SELECT id, email, COALESCE(password_hash,''), name, COALESCE(avatar_url,''), COALESCE(teams, '[]')
 		FROM users
 		WHERE oauth_provider = ? AND oauth_id = ? AND active = 1
 		LIMIT 1
@@ -220,7 +218,6 @@ func (r *Store) FindUserByOAuth(provider, oauthID string) (AuthUser, error) {
 		&user.PasswordHash,
 		&user.Name,
 		&user.AvatarURL,
-		&user.Role,
 		&user.TeamsJSON,
 	)
 	if err != nil {
@@ -229,11 +226,11 @@ func (r *Store) FindUserByOAuth(provider, oauthID string) (AuthUser, error) {
 	return user, nil
 }
 
-func (r *Store) CreateOAuthUser(email, name, avatarURL, role, teamsJSON, provider, oauthID string, createdAt time.Time) (int64, error) {
+func (r *Store) CreateOAuthUser(email, name, avatarURL, teamsJSON, provider, oauthID string, createdAt time.Time) (int64, error) {
 	res, err := r.DB.Exec(`
-		INSERT INTO users (email, name, avatar_url, role, teams, oauth_provider, oauth_id, active, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)
-	`, email, name, nullableStringPtr(&avatarURL), role, teamsJSON, provider, oauthID, createdAt)
+		INSERT INTO users (email, name, avatar_url, teams, oauth_provider, oauth_id, active, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, 1, ?)
+	`, email, name, nullableStringPtr(&avatarURL), teamsJSON, provider, oauthID, createdAt)
 	if err != nil {
 		return 0, err
 	}
@@ -244,10 +241,10 @@ func (r *Store) CreateOAuthUser(email, name, avatarURL, role, teamsJSON, provide
 	return id, nil
 }
 
-func (r *Store) UpdateUserOAuth(userID int64, provider, oauthID string, updatedAt time.Time) error {
+func (r *Store) UpdateUserOAuth(userID int64, provider, oauthID string) error {
 	_, err := r.DB.Exec(`
-		UPDATE users SET oauth_provider = ?, oauth_id = ?, updated_at = ? WHERE id = ?
-	`, provider, oauthID, updatedAt, userID)
+		UPDATE users SET oauth_provider = ?, oauth_id = ? WHERE id = ?
+	`, provider, oauthID, userID)
 	return err
 }
 

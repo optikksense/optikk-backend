@@ -8,13 +8,11 @@ import (
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
-// ErrorHandler handles overview error page endpoints.
 type ErrorHandler struct {
 	modulecommon.DBTenant
 	Service Service
 }
 
-// GetServiceErrorRate returns service-level error-rate buckets for the errors dashboard.
 func (h *ErrorHandler) GetServiceErrorRate(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")
@@ -32,7 +30,6 @@ func (h *ErrorHandler) GetServiceErrorRate(c *gin.Context) {
 	RespondOK(c, points)
 }
 
-// GetErrorVolume returns service-level error-volume buckets for the errors dashboard.
 func (h *ErrorHandler) GetErrorVolume(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")
@@ -50,7 +47,6 @@ func (h *ErrorHandler) GetErrorVolume(c *gin.Context) {
 	RespondOK(c, points)
 }
 
-// GetLatencyDuringErrorWindows returns service latency buckets for windows that saw errors.
 func (h *ErrorHandler) GetLatencyDuringErrorWindows(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")
@@ -68,7 +64,6 @@ func (h *ErrorHandler) GetLatencyDuringErrorWindows(c *gin.Context) {
 	RespondOK(c, points)
 }
 
-// GetErrorGroups returns grouped errors for the errors dashboard.
 func (h *ErrorHandler) GetErrorGroups(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")

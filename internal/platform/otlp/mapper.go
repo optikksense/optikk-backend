@@ -7,9 +7,9 @@ import (
 	"time"
 
 	"github.com/observability/observability-backend-go/internal/platform/ingest"
+	"github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
-// spanKindString converts the OTel SpanKind enum to a human-readable string.
 func spanKindString(kind int) string {
 	switch kind {
 	case 1:
@@ -27,7 +27,6 @@ func spanKindString(kind int) string {
 	}
 }
 
-// statusCodeString converts the OTel span status code to a string.
 func statusCodeString(code int) string {
 	switch code {
 	case 1:
@@ -39,7 +38,6 @@ func statusCodeString(code int) string {
 	}
 }
 
-// severityNumberToLevel converts an OTel severity number to a log level string.
 func severityNumberToLevel(n int) string {
 	switch {
 	case n <= 0:
@@ -59,7 +57,6 @@ func severityNumberToLevel(n int) string {
 	}
 }
 
-// nanoToTime converts a Unix nanosecond string to time.Time.
 func nanoToTime(nanoStr string) time.Time {
 	ns, err := strconv.ParseInt(nanoStr, 10, 64)
 	if err != nil || ns == 0 {
@@ -68,7 +65,6 @@ func nanoToTime(nanoStr string) time.Time {
 	return time.Unix(0, ns)
 }
 
-// parseNano converts a Unix nanosecond string to int64.
 func parseNano(nanoStr string) int64 {
 	ns, err := strconv.ParseInt(nanoStr, 10, 64)
 	if err != nil {
@@ -77,7 +73,6 @@ func parseNano(nanoStr string) int64 {
 	return ns
 }
 
-// attrsToMap converts a []KeyValue slice into a map[string]string.
 func attrsToMap(kvs []KeyValue) map[string]string {
 	m := make(map[string]string, len(kvs))
 	for _, kv := range kvs {
@@ -86,7 +81,6 @@ func attrsToMap(kvs []KeyValue) map[string]string {
 	return m
 }
 
-// anyValueString extracts the best string representation from an AnyValue.
 func anyValueString(v AnyValue) string {
 	if v.StringValue != nil {
 		return *v.StringValue
@@ -154,7 +148,6 @@ func resourceFingerprint(kvs []KeyValue) uint64 {
 	return h.Sum64()
 }
 
-// temporalityString parses OTLP aggregation temporality safely from JSON.
 func temporalityString(val any) string {
 	if val == nil {
 		return "Unspecified"
@@ -182,7 +175,6 @@ func temporalityString(val any) string {
 	return "Unspecified"
 }
 
-// lookupAttr returns the string value of a named attribute from a []KeyValue slice.
 func lookupAttr(kvs []KeyValue, key string) string {
 	for _, kv := range kvs {
 		if kv.Key == key {
@@ -192,7 +184,6 @@ func lookupAttr(kvs []KeyValue, key string) string {
 	return ""
 }
 
-// lookupAttrInt returns the int64 value of a named attribute.
 func lookupAttrInt(kvs []KeyValue, key string) int64 {
 	s := lookupAttr(kvs, key)
 	if s == "" {
@@ -202,9 +193,7 @@ func lookupAttrInt(kvs []KeyValue, key string) int64 {
 	return v
 }
 
-// ── Spans mapper ──────────────────────────────────────────────────────────────
 
-// SpanColumns is the ordered column list for observability.spans inserts (optimized schema).
 var SpanColumns = []string{
 	"ts_bucket_start", "team_id",
 	"timestamp", "trace_id", "span_id", "parent_span_id", "trace_state", "flags",
@@ -216,9 +205,6 @@ var SpanColumns = []string{
 	"exception_type", "exception_message", "exception_stacktrace", "exception_escaped",
 }
 
-// MapSpans converts an OTLP trace export request into span ingest rows.
-// Resource attributes (host.name, k8s.pod.name, service.name, etc.) are merged
-// into the span's attributes JSON column and extracted via materialized columns at query time.
 func MapSpans(teamID int64, req ExportTraceServiceRequest) []ingest.Row {
 	result := make([]ingest.Row, 0, 64)
 
@@ -237,7 +223,7 @@ func MapSpans(teamID int64, req ExportTraceServiceRequest) []ingest.Row {
 					durNano = uint64(endNano - startNano)
 				}
 
-				tsBucket := uint64(timestamp.Unix() / 300 * 300)
+				tsBucket := timebucket.SpansBucketStart(timestamp.Unix())
 
 				// Determine has_error from status code
 				hasError := s.Status.Code == 2 // ERROR = 2
@@ -334,9 +320,7 @@ func mapGet(m map[string]string, keys ...string) string {
 	return ""
 }
 
-// ── Logs mapper ───────────────────────────────────────────────────────────────
 
-// LogColumns is the ordered column list for observability.logs inserts.
 var LogColumns = []string{
 	"team_id", "ts_bucket_start", "timestamp", "observed_timestamp",
 	"id", "trace_id", "span_id", "trace_flags",
@@ -368,7 +352,6 @@ func attrsToTypedMaps(kvs []KeyValue) (map[string]string, map[string]float64, ma
 	return sm, nm, bm
 }
 
-// nanoStrToUint64 parses a Unix nanosecond string to uint64, falling back to now.
 func nanoStrToUint64(s string) uint64 {
 	ns, err := strconv.ParseUint(s, 10, 64)
 	if err != nil || ns == 0 {
@@ -377,7 +360,6 @@ func nanoStrToUint64(s string) uint64 {
 	return ns
 }
 
-// logID generates a stable FNV-64a ID for a log record.
 func logID(teamID int64, tsNano uint64, lr LogRecord) string {
 	h := fnv.New64a()
 	h.Write([]byte(strconv.FormatInt(teamID, 10)))
@@ -395,7 +377,6 @@ func logID(teamID int64, tsNano uint64, lr LogRecord) string {
 	return strconv.FormatUint(h.Sum64(), 16)
 }
 
-// MapLogs converts an OTLP logs export request into ingest rows.
 func MapLogs(teamID int64, req ExportLogsServiceRequest) []ingest.Row {
 	rows := make([]ingest.Row, 0, 64)
 
@@ -421,8 +402,7 @@ func MapLogs(teamID int64, req ExportLogsServiceRequest) []ingest.Row {
 				observedNano := nanoStrToUint64(lr.ObservedTimeUnixNano)
 
 				// ts_bucket_start: truncate to day boundary (seconds)
-				tsSec := tsNano / 1_000_000_000
-				tsBucket := uint32(tsSec - tsSec%86400)
+				tsBucket := timebucket.LogsBucketStart(int64(tsNano / 1_000_000_000))
 
 				severityText := lr.SeverityText
 				if severityText == "" {
@@ -465,17 +445,13 @@ func MapLogs(teamID int64, req ExportLogsServiceRequest) []ingest.Row {
 	return rows
 }
 
-// ── Metrics mapper ────────────────────────────────────────────────────────────
 
-// MetricColumns is the ordered column list for observability.metrics inserts.
 var MetricColumns = []string{
 	"team_id", "env", "metric_name", "metric_type", "temporality", "is_monotonic",
 	"unit", "description", "resource_fingerprint", "timestamp", "value",
 	"hist_sum", "hist_count", "hist_buckets", "hist_counts", "attributes",
 }
 
-// MapMetrics converts an OTLP metrics export request into ingest rows.
-// Each data point emits one row in the metrics_v5 unified schema structure.
 func MapMetrics(teamID int64, req ExportMetricsServiceRequest) []ingest.Row {
 	rows := make([]ingest.Row, 0, 128)
 
@@ -564,7 +540,6 @@ func MapMetrics(teamID int64, req ExportMetricsServiceRequest) []ingest.Row {
 	return rows
 }
 
-// numberDataPointValue returns the numeric value of a NumberDataPoint.
 func numberDataPointValue(dp NumberDataPoint) float64 {
 	if dp.AsDouble != nil {
 		return *dp.AsDouble

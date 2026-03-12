@@ -43,7 +43,6 @@ func encodeCursor(cur TraceCursor) string {
 	return base64.RawURLEncoding.EncodeToString(b)
 }
 
-// decodeCursor parses a base64-encoded TraceCursor; returns zero value on error.
 func decodeCursor(raw string) TraceCursor {
 	if raw == "" {
 		return TraceCursor{}
@@ -85,7 +84,7 @@ func (h *TraceHandler) buildFilters(c *gin.Context, teamID int64, startMs, endMs
 		httpStatus = c.Query("http.status_code")
 	}
 	return TraceFilters{
-		TeamID:         teamID,
+		TeamID:           teamID,
 		StartMs:          startMs,
 		EndMs:            endMs,
 		Services:         services,
@@ -155,9 +154,6 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 	})
 }
 
-// GetTracesKeyset is an alternative to GetTraces using cursor-based pagination.
-// Clients pass ?cursor=<opaque> from the previous response's nextCursor field.
-// GET /traces/keyset
 func (h *TraceHandler) GetTracesKeyset(c *gin.Context) {
 	teamID := h.getTenant(c).TeamID
 	startMs, endMs, ok := common.ParseRequiredRange(c)
@@ -192,8 +188,6 @@ func (h *TraceHandler) GetTracesKeyset(c *gin.Context) {
 	})
 }
 
-// GetOperationAggregation returns per-operation RED metrics (aggregated traces view).
-// GET /traces/operations
 func (h *TraceHandler) GetOperationAggregation(c *gin.Context) {
 	teamID := h.getTenant(c).TeamID
 	startMs, endMs, ok := common.ParseRequiredRange(c)
@@ -214,7 +208,7 @@ func (h *TraceHandler) GetOperationAggregation(c *gin.Context) {
 	common.RespondOK(c, rows)
 }
 
-// ensure time is used (TraceCursor embeds time.Time)
+// Keep time imported for TraceCursor's embedded time.Time field.
 var _ = time.Time{}
 
 func (h *TraceHandler) GetTraceSpans(c *gin.Context) {

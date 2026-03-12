@@ -7,28 +7,13 @@ import (
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
-func queueNameExpr() string {
-	a := func(attr string) string { return attrString(attr) }
-	return fmt.Sprintf(
-		"multiIf(%[1]s != '', %[1]s, %[2]s != '', %[2]s, %[3]s != '', %[3]s, %[4]s != '', %[4]s, %[5]s != '', %[5]s, %[6]s != '', %[6]s, '%[7]s')",
-		a(AttrMessagingDestinationName),
-		a(AttrMessagingKafkaDestination),
-		a(AttrMessagingKafkaTopic),
-		a(AttrMessagingDestination),
-		a(AttrKafkaTopic),
-		a(AttrTopic),
-		DefaultUnknown,
-	)
-}
-
-// TimeBucketExpression returns the SQL fragment to bucket timestamps based on the time range.
-// Delegates to the shared timebucket package.
-func TimeBucketExpression(startMs, endMs int64) string {
+// timeBucketExpr returns the adaptive time-bucket expression for the metrics table timestamp column.
+func timeBucketExpr(startMs, endMs int64) string {
 	return timebucket.Expression(startMs, endMs)
 }
 
-// TimeBucketSeconds returns the bucket width in seconds for the given interval.
-func TimeBucketSeconds(startMs, endMs int64) float64 {
+// bucketSecs returns the bucket width in seconds matching the adaptive strategy.
+func bucketSecs(startMs, endMs int64) float64 {
 	durationSecs := (endMs - startMs) / 1000
 	if durationSecs <= 3600 {
 		return 60.0
@@ -38,405 +23,394 @@ func TimeBucketSeconds(startMs, endMs int64) float64 {
 	return 3600.0
 }
 
-// FormattedTimeBucketExpression returns the bucket expression (already formatted as a datetime string).
-func FormattedTimeBucketExpression(startMs, endMs int64) string {
-	// The shared package already wraps in formatDateTime, so no extra wrapping needed.
-	return TimeBucketExpression(startMs, endMs)
-}
+// ── 1. Summary stat cards ─────────────────────────────────────────────────────
 
-// nullableFloat64FromAny converts an interface{} (usually *float64) to a float64.
-func nullableFloat64FromAny(val interface{}) float64 {
-	switch v := val.(type) {
-	case *float64:
-		if v != nil {
-			return *v
-		}
-	case float64:
-		return v
-	case *float32:
-		if v != nil {
-			return float64(*v)
-		}
-	case float32:
-		return float64(v)
-	}
-	return 0
-}
-
-func messagingSystemExpr() string {
-	aSystem := attrString(AttrMessagingSystem)
-	aTopic := attrString(AttrMessagingKafkaTopic)
-	return fmt.Sprintf(
-		"multiIf(%[1]s != '', %[1]s, %[2]s != '', '%[3]s', '%[4]s')",
-		aSystem,
-		aTopic,
-		MessagingSystemKafka,
-		DefaultUnknown,
-	)
-}
-
-func queueRateExpr(metricsClause string) string {
-	return fmt.Sprintf(
-		"maxIf(greatest(toFloat64(%[1]s), toFloat64(%[2]s), 0.0), %[3]s IN (%[4]s) AND (isFinite(toFloat64(%[1]s)) OR isFinite(toFloat64(%[2]s))))",
-		ColCount,
-		ColValue,
-		ColMetricName,
-		metricsClause,
-	)
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Kafka repository methods
-//
-// Design:
-//   - Metric coverage is broad (defined in otel_conventions.go metric sets).
-//   - Attribute extraction is direct: one JSONExtractString per dimension.
-//   - No coalesce chains, no fallback heuristics, no pattern-matching.
-//   - If an SDK omits the standard attribute, the row resolves to 'unknown'.
-//     That is correct — the emitter owns its contract.
-// ──────────────────────────────────────────────────────────────────────────────
-
-// GetKafkaQueueLag returns average and max consumer lag per queue, bucketed over time.
-func (r *ClickHouseRepository) GetKafkaQueueLag(teamID int64, startMs, endMs int64) ([]KafkaQueueLag, error) {
-	bucket := TimeBucketExpression(startMs, endMs)
-	lagMetrics := MetricSetToInClause(KafkaConsumerLagMetrics)
-	queueExpr := queueNameExpr()
-
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                              AS queue,
-		    %s                                              AS minute_bucket,
-		    avgIf(%s, %s IN (%s) AND isFinite(%s))          AS avg_consumer_lag,
-		    maxIf(%s, %s IN (%s) AND isFinite(%s))          AS max_consumer_lag
-		FROM %s
-		WHERE %s = ?
-		  AND %s BETWEEN ? AND ?
-		  AND %s IN (%s)
-		GROUP BY queue, minute_bucket
-		ORDER BY minute_bucket ASC, queue ASC`,
-		queueExpr,
-		bucket,
-		ColValue, ColMetricName, lagMetrics, ColValue,
-		ColValue, ColMetricName, lagMetrics, ColValue,
-		TableMetrics,
-		ColTeamID,
-		ColTimestamp,
-		ColMetricName, lagMetrics,
-	)
-
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
-	if err != nil {
-		return nil, fmt.Errorf("GetKafkaQueueLag: %w", err)
-	}
-
-	out := make([]KafkaQueueLag, len(rows))
-	for i, row := range rows {
-		out[i] = KafkaQueueLag{
-			Queue:          dbutil.StringFromAny(row["queue"]),
-			Timestamp:      dbutil.StringFromAny(row["minute_bucket"]),
-			AvgConsumerLag: dbutil.Float64FromAny(row["avg_consumer_lag"]),
-			MaxConsumerLag: dbutil.Float64FromAny(row["max_consumer_lag"]),
-		}
-	}
-	return out, nil
-}
-
-// GetKafkaProductionRate returns the per-bucket average publish rate (msg/s) per topic.
-func (r *ClickHouseRepository) GetKafkaProductionRate(teamID int64, startMs, endMs int64) ([]KafkaProductionRate, error) {
-	bucket := TimeBucketExpression(startMs, endMs)
-	bucketSecs := TimeBucketSeconds(startMs, endMs)
-	producerMetrics := MetricSetToInClause(KafkaProducerMetrics)
-	queueExpr := queueNameExpr()
-	rateExpr := queueRateExpr(producerMetrics)
-
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                                             AS queue,
-		    %s                                                             AS minute_bucket,
-		    %s / ?                                                         AS avg_publish_rate
-		FROM %s
-		WHERE %s = ?
-		  AND %s BETWEEN ? AND ?
-		  AND %s IN (%s)
-		GROUP BY queue, minute_bucket
-		ORDER BY minute_bucket ASC, queue ASC`,
-		queueExpr,
-		bucket,
-		rateExpr,
-		TableMetrics,
-		ColTeamID,
-		ColTimestamp,
-		ColMetricName, producerMetrics,
-	)
-
-	rows, err := dbutil.QueryMaps(r.db, query, bucketSecs, teamID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
-	if err != nil {
-		return nil, fmt.Errorf("GetKafkaProductionRate: %w", err)
-	}
-
-	out := make([]KafkaProductionRate, len(rows))
-	for i, row := range rows {
-		out[i] = KafkaProductionRate{
-			Topic:          dbutil.StringFromAny(row["queue"]),
-			Timestamp:      dbutil.StringFromAny(row["minute_bucket"]),
-			AvgPublishRate: nullableFloat64FromAny(row["avg_publish_rate"]),
-		}
-	}
-	return out, nil
-}
-
-// GetKafkaConsumptionRate returns the per-bucket average receive rate (msg/s) per topic.
-func (r *ClickHouseRepository) GetKafkaConsumptionRate(teamID int64, startMs, endMs int64) ([]KafkaConsumptionRate, error) {
-	bucket := TimeBucketExpression(startMs, endMs)
-	bucketSecs := TimeBucketSeconds(startMs, endMs)
-	consumerMetrics := MetricSetToInClause(KafkaConsumerMetrics)
-	queueExpr := queueNameExpr()
-	rateExpr := queueRateExpr(consumerMetrics)
-
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                                             AS queue,
-		    %s                                                             AS minute_bucket,
-		    %s / ?                                                         AS avg_receive_rate
-		FROM %s
-		WHERE %s = ?
-		  AND %s BETWEEN ? AND ?
-		  AND %s IN (%s)
-		GROUP BY queue, minute_bucket
-		ORDER BY minute_bucket ASC, queue ASC`,
-		queueExpr,
-		bucket,
-		rateExpr,
-		TableMetrics,
-		ColTeamID,
-		ColTimestamp,
-		ColMetricName, consumerMetrics,
-	)
-
-	rows, err := dbutil.QueryMaps(r.db, query, bucketSecs, teamID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
-	if err != nil {
-		return nil, fmt.Errorf("GetKafkaConsumptionRate: %w", err)
-	}
-
-	out := make([]KafkaConsumptionRate, len(rows))
-	for i, row := range rows {
-		out[i] = KafkaConsumptionRate{
-			Topic:          dbutil.StringFromAny(row["queue"]),
-			Timestamp:      dbutil.StringFromAny(row["minute_bucket"]),
-			AvgReceiveRate: nullableFloat64FromAny(row["avg_receive_rate"]),
-		}
-	}
-	return out, nil
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Messaging-queue repository methods
-// ──────────────────────────────────────────────────────────────────────────────
-
-// GetQueueConsumerLag returns a consumer-lag timeseries keyed by
-// (time_bucket, service, queue, messaging_system).
-func (r *ClickHouseRepository) GetQueueConsumerLag(teamID int64, startMs, endMs int64) ([]MqBucket, error) {
-	bucket := FormattedTimeBucketExpression(startMs, endMs)
-	lagMetrics := MetricSetToInClause(KafkaConsumerLagMetricsExtended)
-	queueExpr := queueNameExpr()
-	systemExpr := messagingSystemExpr()
-
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                                      AS time_bucket,
-		    %s                                                      AS service_name,
-		    %s                                                      AS queue_name,
-		    %s                                                      AS messaging_system,
-		    avgIf(%s, %s IN (%s) AND isFinite(%s))                  AS avg_consumer_lag
-		FROM %s
-		WHERE %s = ?
-		  AND %s BETWEEN ? AND ?
-		  AND %s IN (%s)
-		GROUP BY time_bucket, service_name, queue_name, messaging_system
-		ORDER BY time_bucket ASC, service_name ASC, queue_name ASC`,
-		bucket,
-		ColServiceName,
-		queueExpr,
-		systemExpr,
-		ColValue, ColMetricName, lagMetrics, ColValue,
-		TableMetrics,
-		ColTeamID,
-		ColTimestamp,
-		ColMetricName, lagMetrics,
-	)
-
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
-	if err != nil {
-		return nil, fmt.Errorf("GetQueueConsumerLag: %w", err)
-	}
-
-	out := make([]MqBucket, len(rows))
-	for i, row := range rows {
-		out[i] = MqBucket{
-			Timestamp:       dbutil.StringFromAny(row["time_bucket"]),
-			ServiceName:     dbutil.StringFromAny(row["service_name"]),
-			QueueName:       dbutil.StringFromAny(row["queue_name"]),
-			MessagingSystem: dbutil.StringFromAny(row["messaging_system"]),
-			AvgConsumerLag:  nullableFloat64FromAny(row["avg_consumer_lag"]),
-		}
-	}
-	return out, nil
-}
-
-// GetQueueTopicLag returns a queue-depth timeseries keyed by
-// (time_bucket, service, queue, messaging_system).
-func (r *ClickHouseRepository) GetQueueTopicLag(teamID int64, startMs, endMs int64) ([]MqBucket, error) {
-	bucket := FormattedTimeBucketExpression(startMs, endMs)
-	depthMetrics := MetricSetToInClause(QueueDepthMetrics)
-	queueExpr := queueNameExpr()
-	systemExpr := messagingSystemExpr()
-
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                                      AS time_bucket,
-		    %s                                                      AS service_name,
-		    %s                                                      AS queue_name,
-		    %s                                                      AS messaging_system,
-		    avgIf(%s, %s IN (%s) AND isFinite(%s))                  AS avg_queue_depth
-		FROM %s
-		WHERE %s = ?
-		  AND %s BETWEEN ? AND ?
-		  AND %s IN (%s)
-		GROUP BY time_bucket, service_name, queue_name, messaging_system
-		ORDER BY time_bucket ASC, service_name ASC, queue_name ASC`,
-		bucket,
-		ColServiceName,
-		queueExpr,
-		systemExpr,
-		ColValue, ColMetricName, depthMetrics, ColValue,
-		TableMetrics,
-		ColTeamID,
-		ColTimestamp,
-		ColMetricName, depthMetrics,
-	)
-
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
-	if err != nil {
-		return nil, fmt.Errorf("GetQueueTopicLag: %w", err)
-	}
-
-	out := make([]MqBucket, len(rows))
-	for i, row := range rows {
-		out[i] = MqBucket{
-			Timestamp:       dbutil.StringFromAny(row["time_bucket"]),
-			ServiceName:     dbutil.StringFromAny(row["service_name"]),
-			QueueName:       dbutil.StringFromAny(row["queue_name"]),
-			MessagingSystem: dbutil.StringFromAny(row["messaging_system"]),
-			AvgQueueDepth:   nullableFloat64FromAny(row["avg_queue_depth"]),
-		}
-	}
-	return out, nil
-}
-
-// GetQueueTopQueues returns the top queues ranked by depth and lag, with
-// publish/receive rates normalised to msg/s over the requested window.
-func (r *ClickHouseRepository) GetQueueTopQueues(teamID int64, startMs, endMs int64) ([]MqTopQueue, error) {
+func (r *ClickHouseRepository) GetKafkaSummaryStats(teamID int64, startMs, endMs int64) (KafkaSummaryStats, error) {
 	durationSecs := float64(endMs-startMs) / 1000.0
 	if durationSecs <= 0 {
 		durationSecs = 1.0
 	}
-
-	allMetrics := MetricSetToInClause(AllQueueMetrics)
-	depthMetrics := MetricSetToInClause(QueueDepthMetrics)
-	lagMetrics := MetricSetToInClause(KafkaConsumerLagMetricsExtended)
-	producerMetrics := MetricSetToInClause(KafkaProducerMetrics)
-	consumerMetrics := MetricSetToInClause(KafkaConsumerMetrics)
-	queueExpr := queueNameExpr()
-	systemExpr := messagingSystemExpr()
-	publishRateExpr := queueRateExpr(producerMetrics)
-	receiveRateExpr := queueRateExpr(consumerMetrics)
+	producerClause := MetricSetToInClause(ProducerMetrics)
+	consumerClause := MetricSetToInClause(ConsumerMetrics)
+	lagClause := MetricSetToInClause(ConsumerLagMetrics)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                           AS queue_name,
-		    %s                                                           AS service_name,
-		    %s                                                           AS messaging_system,
-		    avgIf(%s, %s IN (%s) AND isFinite(%s))                       AS avg_queue_depth,
-		    maxIf(%s, %s IN (%s) AND isFinite(%s))                       AS max_consumer_lag,
-		    %s / ?                                                       AS avg_publish_rate,
-		    %s / ?                                                       AS avg_receive_rate,
-		    toInt64(count())                                             AS sample_count
-		FROM %s
-		WHERE %s = ?
-		  AND %s BETWEEN ? AND ?
-		  AND %s IN (%s)
-		GROUP BY queue_name, service_name, messaging_system
-		ORDER BY avg_queue_depth DESC, max_consumer_lag DESC, sample_count DESC
-		LIMIT %d`,
-		queueExpr,
-		ColServiceName,
-		systemExpr,
-		ColValue, ColMetricName, depthMetrics, ColValue,
-		ColValue, ColMetricName, lagMetrics, ColValue,
-		publishRateExpr,
-		receiveRateExpr,
+		    sumIf(%[1]s, %[2]s IN (%[3]s)) / ?  AS publish_rate,
+		    sumIf(%[1]s, %[2]s IN (%[4]s)) / ?  AS receive_rate,
+		    maxIf(%[1]s, %[2]s IN (%[5]s) AND isFinite(%[1]s)) AS max_lag,
+		    quantileExactWeightedIf(0.95)(
+		        hist_sum / nullIf(hist_count, 0),
+		        hist_count,
+		        %[2]s = '%[6]s' AND metric_type = 'Histogram'
+		    ) AS publish_p95,
+		    quantileExactWeightedIf(0.95)(
+		        hist_sum / nullIf(hist_count, 0),
+		        hist_count,
+		        %[2]s = '%[7]s' AND metric_type = 'Histogram'
+		    ) AS receive_p95
+		FROM %[8]s
+		WHERE team_id = ?
+		  AND timestamp BETWEEN ? AND ?
+		  AND %[2]s IN (%[3]s, %[4]s, %[5]s, '%[6]s', '%[7]s')
+	`,
+		ColValue, ColMetricName,
+		producerClause,
+		consumerClause,
+		lagClause,
+		MetricPublishDuration,
+		MetricReceiveDuration,
 		TableMetrics,
-		ColTeamID,
-		ColTimestamp,
-		ColMetricName, allMetrics,
-		MaxTopQueues,
 	)
 
-	rows, err := dbutil.QueryMaps(r.db, query,
+	row, err := dbutil.QueryMap(r.db, query,
 		durationSecs, durationSecs,
-		teamID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
+		uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("GetQueueTopQueues: %w", err)
+		return KafkaSummaryStats{}, fmt.Errorf("GetKafkaSummaryStats: %w", err)
 	}
+	return KafkaSummaryStats{
+		PublishRatePerSec: dbutil.Float64FromAny(row["publish_rate"]),
+		ReceiveRatePerSec: dbutil.Float64FromAny(row["receive_rate"]),
+		MaxLag:            dbutil.Float64FromAny(row["max_lag"]),
+		PublishP95Ms:      dbutil.Float64FromAny(row["publish_p95"]),
+		ReceiveP95Ms:      dbutil.Float64FromAny(row["receive_p95"]),
+	}, nil
+}
 
-	out := make([]MqTopQueue, len(rows))
+// ── 2. Produce rate by topic ──────────────────────────────────────────────────
+
+func (r *ClickHouseRepository) GetProduceRateByTopic(teamID int64, startMs, endMs int64) ([]TopicRatePoint, error) {
+	bucket := timeBucketExpr(startMs, endMs)
+	bs := bucketSecs(startMs, endMs)
+	clause := MetricSetToInClause(ProducerMetrics)
+	topic := attrString(AttrMessagingDestinationName)
+
+	query := fmt.Sprintf(`
+		SELECT
+		    %s AS time_bucket,
+		    %s AS topic,
+		    sum(%s) / ? AS rate_per_sec
+		FROM %s
+		WHERE team_id = ?
+		  AND timestamp BETWEEN ? AND ?
+		  AND %s IN (%s)
+		GROUP BY time_bucket, topic
+		ORDER BY time_bucket ASC, topic ASC
+	`, bucket, topic, ColValue, TableMetrics, ColMetricName, clause)
+
+	rows, err := dbutil.QueryMaps(r.db, query, bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, fmt.Errorf("GetProduceRateByTopic: %w", err)
+	}
+	out := make([]TopicRatePoint, len(rows))
 	for i, row := range rows {
-		out[i] = MqTopQueue{
-			ServiceName:       dbutil.StringFromAny(row["service_name"]),
-			QueueName:         dbutil.StringFromAny(row["queue_name"]),
-			MessagingSystem:   dbutil.StringFromAny(row["messaging_system"]),
-			AvgPublishRate:    nullableFloat64FromAny(row["avg_publish_rate"]),
-			AvgReceiveRate:    nullableFloat64FromAny(row["avg_receive_rate"]),
-			AvgConsumerLag:    nullableFloat64FromAny(row["avg_consumer_lag"]),
-			ActiveConnections: dbutil.Int64FromAny(row["active_connections"]),
-			SampleCount:       dbutil.Int64FromAny(row["sample_count"]),
+		out[i] = TopicRatePoint{
+			Timestamp:  dbutil.StringFromAny(row["time_bucket"]),
+			Topic:      dbutil.StringFromAny(row["topic"]),
+			RatePerSec: dbutil.Float64FromAny(row["rate_per_sec"]),
 		}
 	}
 	return out, nil
 }
 
-// ─── OTel messaging.* standard metrics ────────────────────────────────────────
+// ── 3. Publish latency by topic ───────────────────────────────────────────────
 
-// GetConsumerLagPerPartition returns consumer lag grouped by topic, partition, and consumer group.
-func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamID int64, startMs, endMs int64) ([]PartitionLag, error) {
-	lagMetrics := MetricSetToInClause(KafkaConsumerLagMetricsExtended)
-	topicAttr := attrString(AttrMessagingDestinationName)
-	partitionAttr := attrString(AttrMessagingKafkaDestinationPartition)
-	consumerGroupAttr := attrString(AttrMessagingKafkaConsumerGroup)
+func (r *ClickHouseRepository) GetPublishLatencyByTopic(teamID int64, startMs, endMs int64) ([]TopicLatencyPoint, error) {
+	bucket := timeBucketExpr(startMs, endMs)
+	topic := attrString(AttrMessagingDestinationName)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                AS topic,
-		    toInt64(%s)                       AS partition,
-		    %s                                AS consumer_group,
-		    toInt64(avg(value))               AS lag
+		    %s AS time_bucket,
+		    %s AS topic,
+		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
+		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
+		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99
 		FROM %s
-		WHERE %s = ?
-		  AND %s BETWEEN ? AND ?
+		WHERE team_id = ?
+		  AND timestamp BETWEEN ? AND ?
+		  AND %s = '%s'
+		  AND metric_type = 'Histogram'
+		GROUP BY time_bucket, topic
+		ORDER BY time_bucket ASC, topic ASC
+	`, bucket, topic, TableMetrics, ColMetricName, MetricPublishDuration)
+
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, fmt.Errorf("GetPublishLatencyByTopic: %w", err)
+	}
+	out := make([]TopicLatencyPoint, len(rows))
+	for i, row := range rows {
+		out[i] = TopicLatencyPoint{
+			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
+			Topic:     dbutil.StringFromAny(row["topic"]),
+			P50Ms:     dbutil.Float64FromAny(row["p50"]),
+			P95Ms:     dbutil.Float64FromAny(row["p95"]),
+			P99Ms:     dbutil.Float64FromAny(row["p99"]),
+		}
+	}
+	return out, nil
+}
+
+// ── 4. Consume rate by topic ──────────────────────────────────────────────────
+
+func (r *ClickHouseRepository) GetConsumeRateByTopic(teamID int64, startMs, endMs int64) ([]TopicRatePoint, error) {
+	bucket := timeBucketExpr(startMs, endMs)
+	bs := bucketSecs(startMs, endMs)
+	clause := MetricSetToInClause(ConsumerMetrics)
+	topic := attrString(AttrMessagingDestinationName)
+
+	query := fmt.Sprintf(`
+		SELECT
+		    %s AS time_bucket,
+		    %s AS topic,
+		    sum(%s) / ? AS rate_per_sec
+		FROM %s
+		WHERE team_id = ?
+		  AND timestamp BETWEEN ? AND ?
+		  AND %s IN (%s)
+		GROUP BY time_bucket, topic
+		ORDER BY time_bucket ASC, topic ASC
+	`, bucket, topic, ColValue, TableMetrics, ColMetricName, clause)
+
+	rows, err := dbutil.QueryMaps(r.db, query, bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, fmt.Errorf("GetConsumeRateByTopic: %w", err)
+	}
+	out := make([]TopicRatePoint, len(rows))
+	for i, row := range rows {
+		out[i] = TopicRatePoint{
+			Timestamp:  dbutil.StringFromAny(row["time_bucket"]),
+			Topic:      dbutil.StringFromAny(row["topic"]),
+			RatePerSec: dbutil.Float64FromAny(row["rate_per_sec"]),
+		}
+	}
+	return out, nil
+}
+
+// ── 5. Receive latency by topic ───────────────────────────────────────────────
+
+func (r *ClickHouseRepository) GetReceiveLatencyByTopic(teamID int64, startMs, endMs int64) ([]TopicLatencyPoint, error) {
+	bucket := timeBucketExpr(startMs, endMs)
+	topic := attrString(AttrMessagingDestinationName)
+
+	query := fmt.Sprintf(`
+		SELECT
+		    %s AS time_bucket,
+		    %s AS topic,
+		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
+		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
+		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99
+		FROM %s
+		WHERE team_id = ?
+		  AND timestamp BETWEEN ? AND ?
+		  AND %s = '%s'
+		  AND metric_type = 'Histogram'
+		GROUP BY time_bucket, topic
+		ORDER BY time_bucket ASC, topic ASC
+	`, bucket, topic, TableMetrics, ColMetricName, MetricReceiveDuration)
+
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, fmt.Errorf("GetReceiveLatencyByTopic: %w", err)
+	}
+	out := make([]TopicLatencyPoint, len(rows))
+	for i, row := range rows {
+		out[i] = TopicLatencyPoint{
+			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
+			Topic:     dbutil.StringFromAny(row["topic"]),
+			P50Ms:     dbutil.Float64FromAny(row["p50"]),
+			P95Ms:     dbutil.Float64FromAny(row["p95"]),
+			P99Ms:     dbutil.Float64FromAny(row["p99"]),
+		}
+	}
+	return out, nil
+}
+
+// ── 6. Consume rate by consumer group ────────────────────────────────────────
+
+func (r *ClickHouseRepository) GetConsumeRateByGroup(teamID int64, startMs, endMs int64) ([]GroupRatePoint, error) {
+	bucket := timeBucketExpr(startMs, endMs)
+	bs := bucketSecs(startMs, endMs)
+	clause := MetricSetToInClause(ConsumerMetrics)
+	group := attrString(AttrMessagingConsumerGroupName)
+
+	query := fmt.Sprintf(`
+		SELECT
+		    %s AS time_bucket,
+		    %s AS consumer_group,
+		    sum(%s) / ? AS rate_per_sec
+		FROM %s
+		WHERE team_id = ?
+		  AND timestamp BETWEEN ? AND ?
+		  AND %s IN (%s)
+		GROUP BY time_bucket, consumer_group
+		ORDER BY time_bucket ASC, consumer_group ASC
+	`, bucket, group, ColValue, TableMetrics, ColMetricName, clause)
+
+	rows, err := dbutil.QueryMaps(r.db, query, bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, fmt.Errorf("GetConsumeRateByGroup: %w", err)
+	}
+	out := make([]GroupRatePoint, len(rows))
+	for i, row := range rows {
+		out[i] = GroupRatePoint{
+			Timestamp:     dbutil.StringFromAny(row["time_bucket"]),
+			ConsumerGroup: dbutil.StringFromAny(row["consumer_group"]),
+			RatePerSec:    dbutil.Float64FromAny(row["rate_per_sec"]),
+		}
+	}
+	return out, nil
+}
+
+// ── 7. Process rate by consumer group ────────────────────────────────────────
+
+func (r *ClickHouseRepository) GetProcessRateByGroup(teamID int64, startMs, endMs int64) ([]GroupRatePoint, error) {
+	bucket := timeBucketExpr(startMs, endMs)
+	bs := bucketSecs(startMs, endMs)
+	clause := MetricSetToInClause(ProcessMetrics)
+	group := attrString(AttrMessagingConsumerGroupName)
+
+	query := fmt.Sprintf(`
+		SELECT
+		    %s AS time_bucket,
+		    %s AS consumer_group,
+		    sum(%s) / ? AS rate_per_sec
+		FROM %s
+		WHERE team_id = ?
+		  AND timestamp BETWEEN ? AND ?
+		  AND %s IN (%s)
+		GROUP BY time_bucket, consumer_group
+		ORDER BY time_bucket ASC, consumer_group ASC
+	`, bucket, group, ColValue, TableMetrics, ColMetricName, clause)
+
+	rows, err := dbutil.QueryMaps(r.db, query, bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, fmt.Errorf("GetProcessRateByGroup: %w", err)
+	}
+	out := make([]GroupRatePoint, len(rows))
+	for i, row := range rows {
+		out[i] = GroupRatePoint{
+			Timestamp:     dbutil.StringFromAny(row["time_bucket"]),
+			ConsumerGroup: dbutil.StringFromAny(row["consumer_group"]),
+			RatePerSec:    dbutil.Float64FromAny(row["rate_per_sec"]),
+		}
+	}
+	return out, nil
+}
+
+// ── 8. Process latency by consumer group ─────────────────────────────────────
+
+func (r *ClickHouseRepository) GetProcessLatencyByGroup(teamID int64, startMs, endMs int64) ([]GroupLatencyPoint, error) {
+	bucket := timeBucketExpr(startMs, endMs)
+	group := attrString(AttrMessagingConsumerGroupName)
+
+	query := fmt.Sprintf(`
+		SELECT
+		    %s AS time_bucket,
+		    %s AS consumer_group,
+		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
+		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
+		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99
+		FROM %s
+		WHERE team_id = ?
+		  AND timestamp BETWEEN ? AND ?
+		  AND %s = '%s'
+		  AND metric_type = 'Histogram'
+		GROUP BY time_bucket, consumer_group
+		ORDER BY time_bucket ASC, consumer_group ASC
+	`, bucket, group, TableMetrics, ColMetricName, MetricProcessDuration)
+
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, fmt.Errorf("GetProcessLatencyByGroup: %w", err)
+	}
+	out := make([]GroupLatencyPoint, len(rows))
+	for i, row := range rows {
+		out[i] = GroupLatencyPoint{
+			Timestamp:     dbutil.StringFromAny(row["time_bucket"]),
+			ConsumerGroup: dbutil.StringFromAny(row["consumer_group"]),
+			P50Ms:         dbutil.Float64FromAny(row["p50"]),
+			P95Ms:         dbutil.Float64FromAny(row["p95"]),
+			P99Ms:         dbutil.Float64FromAny(row["p99"]),
+		}
+	}
+	return out, nil
+}
+
+// ── 9. Consumer lag by group ──────────────────────────────────────────────────
+
+func (r *ClickHouseRepository) GetConsumerLagByGroup(teamID int64, startMs, endMs int64) ([]LagPoint, error) {
+	bucket := timeBucketExpr(startMs, endMs)
+	clause := MetricSetToInClause(ConsumerLagMetrics)
+	group := attrString(AttrMessagingConsumerGroupName)
+	topic := attrString(AttrMessagingDestinationName)
+
+	query := fmt.Sprintf(`
+		SELECT
+		    %s AS time_bucket,
+		    %s AS consumer_group,
+		    %s AS topic,
+		    avgIf(%s, %s IN (%s) AND isFinite(%s)) AS lag
+		FROM %s
+		WHERE team_id = ?
+		  AND timestamp BETWEEN ? AND ?
+		  AND %s IN (%s)
+		GROUP BY time_bucket, consumer_group, topic
+		ORDER BY time_bucket ASC, consumer_group ASC
+	`, bucket, group, topic,
+		ColValue, ColMetricName, clause, ColValue,
+		TableMetrics,
+		ColMetricName, clause,
+	)
+
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, fmt.Errorf("GetConsumerLagByGroup: %w", err)
+	}
+	out := make([]LagPoint, len(rows))
+	for i, row := range rows {
+		out[i] = LagPoint{
+			Timestamp:     dbutil.StringFromAny(row["time_bucket"]),
+			ConsumerGroup: dbutil.StringFromAny(row["consumer_group"]),
+			Topic:         dbutil.StringFromAny(row["topic"]),
+			Lag:           dbutil.Float64FromAny(row["lag"]),
+		}
+	}
+	return out, nil
+}
+
+// ── 10. Consumer lag per partition ────────────────────────────────────────────
+
+func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamID int64, startMs, endMs int64) ([]PartitionLag, error) {
+	clause := MetricSetToInClause(ConsumerLagMetrics)
+	topic := attrString(AttrMessagingDestinationName)
+	partition := attrString(AttrMessagingKafkaDestinationPartition)
+	group := attrString(AttrMessagingConsumerGroupName)
+
+	query := fmt.Sprintf(`
+		SELECT
+		    %s AS topic,
+		    toInt64(%s) AS partition,
+		    %s AS consumer_group,
+		    toInt64(avg(value)) AS lag
+		FROM %s
+		WHERE team_id = ?
+		  AND timestamp BETWEEN ? AND ?
 		  AND %s IN (%s)
 		GROUP BY topic, partition, consumer_group
 		ORDER BY lag DESC
 		LIMIT 200
-	`,
-		topicAttr, partitionAttr, consumerGroupAttr,
+	`, topic, partition, group,
 		TableMetrics,
-		ColTeamID, ColTimestamp,
-		ColMetricName, lagMetrics,
+		ColMetricName, clause,
 	)
+
 	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("GetConsumerLagPerPartition: %w", err)
 	}
 	out := make([]PartitionLag, len(rows))
 	for i, row := range rows {
@@ -450,105 +424,333 @@ func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamID int64, startMs,
 	return out, nil
 }
 
-// GetMessageRates returns total published and consumed message rates over the window.
-func (r *ClickHouseRepository) GetMessageRates(teamID int64, startMs, endMs int64) (MessageRates, error) {
-	durationSecs := float64(endMs-startMs) / 1000.0
-	if durationSecs <= 0 {
-		durationSecs = 1.0
-	}
+// ── 11. Rebalance signals by group ────────────────────────────────────────────
+
+func (r *ClickHouseRepository) GetRebalanceSignals(teamID int64, startMs, endMs int64) ([]RebalancePoint, error) {
+	bucket := timeBucketExpr(startMs, endMs)
+	bs := bucketSecs(startMs, endMs)
+	group := attrString(AttrMessagingConsumerGroupName)
+	allClause := MetricSetToInClause(RebalanceMetrics)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    sumIf(value, %s = '%s') / ? AS published_per_sec,
-		    sumIf(value, %s = '%s') / ? AS consumed_per_sec
-		FROM %s
-		WHERE %s = ?
-		  AND %s BETWEEN ? AND ?
-		  AND %s IN ('%s', '%s')
+		    %[1]s AS time_bucket,
+		    %[2]s AS consumer_group,
+		    sumIf(%[3]s, %[4]s = '%[5]s') / ? AS rebalance_rate,
+		    sumIf(%[3]s, %[4]s = '%[6]s') / ? AS join_rate,
+		    sumIf(%[3]s, %[4]s = '%[7]s') / ? AS sync_rate,
+		    sumIf(%[3]s, %[4]s = '%[8]s') / ? AS heartbeat_rate,
+		    sumIf(%[3]s, %[4]s = '%[9]s') / ? AS failed_heartbeat_rate,
+		    avgIf(%[3]s, %[4]s = '%[10]s' AND isFinite(%[3]s)) AS assigned_partitions
+		FROM %[11]s
+		WHERE team_id = ?
+		  AND timestamp BETWEEN ? AND ?
+		  AND %[4]s IN (%[12]s)
+		GROUP BY time_bucket, consumer_group
+		ORDER BY time_bucket ASC, consumer_group ASC
 	`,
-		ColMetricName, MetricMessagingPublishedMessages,
-		ColMetricName, MetricMessagingConsumedMessages,
+		bucket, group, ColValue, ColMetricName,
+		MetricRebalanceCount,
+		MetricJoinCount,
+		MetricSyncCount,
+		MetricHeartbeatCount,
+		MetricFailedHeartbeatCount,
+		MetricAssignedPartitions,
 		TableMetrics,
-		ColTeamID, ColTimestamp,
-		ColMetricName,
-		MetricMessagingPublishedMessages,
-		MetricMessagingConsumedMessages,
+		allClause,
 	)
-	row, err := dbutil.QueryMap(r.db, query,
-		durationSecs, durationSecs,
-		teamID, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
+
+	rows, err := dbutil.QueryMaps(r.db, query,
+		bs, bs, bs, bs, bs,
+		uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
 	)
 	if err != nil {
-		return MessageRates{}, err
+		return nil, fmt.Errorf("GetRebalanceSignals: %w", err)
 	}
-	return MessageRates{
-		PublishedPerSec: dbutil.Float64FromAny(row["published_per_sec"]),
-		ConsumedPerSec:  dbutil.Float64FromAny(row["consumed_per_sec"]),
-	}, nil
+	out := make([]RebalancePoint, len(rows))
+	for i, row := range rows {
+		out[i] = RebalancePoint{
+			Timestamp:           dbutil.StringFromAny(row["time_bucket"]),
+			ConsumerGroup:       dbutil.StringFromAny(row["consumer_group"]),
+			RebalanceRate:       dbutil.Float64FromAny(row["rebalance_rate"]),
+			JoinRate:            dbutil.Float64FromAny(row["join_rate"]),
+			SyncRate:            dbutil.Float64FromAny(row["sync_rate"]),
+			HeartbeatRate:       dbutil.Float64FromAny(row["heartbeat_rate"]),
+			FailedHeartbeatRate: dbutil.Float64FromAny(row["failed_heartbeat_rate"]),
+			AssignedPartitions:  dbutil.Float64FromAny(row["assigned_partitions"]),
+		}
+	}
+	return out, nil
 }
 
-// GetOperationDuration returns histogram summary for messaging.client.operation.duration.
-func (r *ClickHouseRepository) GetOperationDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+// ── 12. End-to-end latency p95 by topic ──────────────────────────────────────
+
+func (r *ClickHouseRepository) GetE2ELatency(teamID int64, startMs, endMs int64) ([]E2ELatencyPoint, error) {
+	bucket := timeBucketExpr(startMs, endMs)
+	topic := attrString(AttrMessagingDestinationName)
+
 	query := fmt.Sprintf(`
 		SELECT
-		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
-		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
-		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99,
-		    avg(hist_sum / nullIf(hist_count, 0))                                     AS avg_val
-		FROM %s
-		WHERE %s = ?
-		  AND %s BETWEEN ? AND ?
-		  AND %s = '%s'
+		    %[1]s AS time_bucket,
+		    %[2]s AS topic,
+		    quantileExactWeightedIf(0.95)(
+		        hist_sum / nullIf(hist_count, 0), hist_count,
+		        %[3]s = '%[4]s' AND metric_type = 'Histogram'
+		    ) AS publish_p95,
+		    quantileExactWeightedIf(0.95)(
+		        hist_sum / nullIf(hist_count, 0), hist_count,
+		        %[3]s = '%[5]s' AND metric_type = 'Histogram'
+		    ) AS receive_p95,
+		    quantileExactWeightedIf(0.95)(
+		        hist_sum / nullIf(hist_count, 0), hist_count,
+		        %[3]s = '%[6]s' AND metric_type = 'Histogram'
+		    ) AS process_p95
+		FROM %[7]s
+		WHERE team_id = ?
+		  AND timestamp BETWEEN ? AND ?
+		  AND %[3]s IN ('%[4]s', '%[5]s', '%[6]s')
 		  AND metric_type = 'Histogram'
-	`,
-		TableMetrics, ColTeamID, ColTimestamp,
-		ColMetricName, MetricMessagingOperationDuration,
-	)
-	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
-	if err != nil {
-		return HistogramSummary{}, err
-	}
-	return HistogramSummary{
-		P50: dbutil.Float64FromAny(row["p50"]),
-		P95: dbutil.Float64FromAny(row["p95"]),
-		P99: dbutil.Float64FromAny(row["p99"]),
-		Avg: dbutil.Float64FromAny(row["avg_val"]),
-	}, nil
-}
-
-// GetOffsetCommitRate returns consumer offset timeseries per topic.
-func (r *ClickHouseRepository) GetOffsetCommitRate(teamID int64, startMs, endMs int64) ([]OffsetTimeSeries, error) {
-	bucket := TimeBucketExpression(startMs, endMs)
-	topicAttr := attrString(AttrMessagingDestinationName)
-
-	query := fmt.Sprintf(`
-		SELECT
-		    %s         AS time_bucket,
-		    %s         AS topic,
-		    avg(value) AS val
-		FROM %s
-		WHERE %s = ?
-		  AND %s BETWEEN ? AND ?
-		  AND %s = '%s'
 		GROUP BY time_bucket, topic
-		ORDER BY time_bucket, topic
+		ORDER BY time_bucket ASC, topic ASC
 	`,
-		bucket, topicAttr,
+		bucket, topic, ColMetricName,
+		MetricPublishDuration,
+		MetricReceiveDuration,
+		MetricProcessDuration,
 		TableMetrics,
-		ColTeamID, ColTimestamp,
-		ColMetricName, MetricMessagingConsumerOffset,
 	)
+
 	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("GetE2ELatency: %w", err)
 	}
-	out := make([]OffsetTimeSeries, len(rows))
+	out := make([]E2ELatencyPoint, len(rows))
 	for i, row := range rows {
-		v := dbutil.NullableFloat64FromAny(row["val"])
-		out[i] = OffsetTimeSeries{
+		out[i] = E2ELatencyPoint{
+			Timestamp:    dbutil.StringFromAny(row["time_bucket"]),
+			Topic:        dbutil.StringFromAny(row["topic"]),
+			PublishP95Ms: dbutil.Float64FromAny(row["publish_p95"]),
+			ReceiveP95Ms: dbutil.Float64FromAny(row["receive_p95"]),
+			ProcessP95Ms: dbutil.Float64FromAny(row["process_p95"]),
+		}
+	}
+	return out, nil
+}
+
+// ── 13. Publish errors by error type ─────────────────────────────────────────
+
+func (r *ClickHouseRepository) GetPublishErrors(teamID int64, startMs, endMs int64) ([]ErrorRatePoint, error) {
+	return r.getErrorRates(teamID, startMs, endMs, MetricPublishMessages, "topic", "GetPublishErrors")
+}
+
+// ── 14. Consume errors by error type ─────────────────────────────────────────
+
+func (r *ClickHouseRepository) GetConsumeErrors(teamID int64, startMs, endMs int64) ([]ErrorRatePoint, error) {
+	return r.getGroupErrorRates(teamID, startMs, endMs, MetricReceiveMessages, "GetConsumeErrors")
+}
+
+// ── 15. Process errors by error type ─────────────────────────────────────────
+
+func (r *ClickHouseRepository) GetProcessErrors(teamID int64, startMs, endMs int64) ([]ErrorRatePoint, error) {
+	return r.getGroupErrorRates(teamID, startMs, endMs, MetricProcessMessages, "GetProcessErrors")
+}
+
+// ── 16. Client operation errors ───────────────────────────────────────────────
+
+func (r *ClickHouseRepository) GetClientOpErrors(teamID int64, startMs, endMs int64) ([]ErrorRatePoint, error) {
+	bucket := timeBucketExpr(startMs, endMs)
+	bs := bucketSecs(startMs, endMs)
+	errType := attrString(AttrErrorType)
+	opName := attrString(AttrMessagingOperationName)
+
+	query := fmt.Sprintf(`
+		SELECT
+		    %s AS time_bucket,
+		    %s AS operation_name,
+		    %s AS error_type,
+		    sum(%s) / ? AS error_rate
+		FROM %s
+		WHERE team_id = ?
+		  AND timestamp BETWEEN ? AND ?
+		  AND %s = '%s'
+		  AND %s != ''
+		GROUP BY time_bucket, operation_name, error_type
+		ORDER BY time_bucket ASC, error_rate DESC
+	`, bucket, opName, errType, ColValue, TableMetrics,
+		ColMetricName, MetricClientOperationDuration,
+		errType,
+	)
+
+	rows, err := dbutil.QueryMaps(r.db, query, bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, fmt.Errorf("GetClientOpErrors: %w", err)
+	}
+	out := make([]ErrorRatePoint, len(rows))
+	for i, row := range rows {
+		out[i] = ErrorRatePoint{
+			Timestamp:     dbutil.StringFromAny(row["time_bucket"]),
+			OperationName: dbutil.StringFromAny(row["operation_name"]),
+			ErrorType:     dbutil.StringFromAny(row["error_type"]),
+			ErrorRate:     dbutil.Float64FromAny(row["error_rate"]),
+		}
+	}
+	return out, nil
+}
+
+// ── 17. Broker connections ────────────────────────────────────────────────────
+
+func (r *ClickHouseRepository) GetBrokerConnections(teamID int64, startMs, endMs int64) ([]BrokerConnectionPoint, error) {
+	bucket := timeBucketExpr(startMs, endMs)
+	broker := attrString(AttrServerAddress)
+
+	query := fmt.Sprintf(`
+		SELECT
+		    %s AS time_bucket,
+		    %s AS broker,
+		    avg(%s) AS connections
+		FROM %s
+		WHERE team_id = ?
+		  AND timestamp BETWEEN ? AND ?
+		  AND %s = '%s'
+		GROUP BY time_bucket, broker
+		ORDER BY time_bucket ASC, broker ASC
+	`, bucket, broker, ColValue, TableMetrics,
+		ColMetricName, MetricClientConnections,
+	)
+
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, fmt.Errorf("GetBrokerConnections: %w", err)
+	}
+	out := make([]BrokerConnectionPoint, len(rows))
+	for i, row := range rows {
+		out[i] = BrokerConnectionPoint{
+			Timestamp:   dbutil.StringFromAny(row["time_bucket"]),
+			Broker:      dbutil.StringFromAny(row["broker"]),
+			Connections: dbutil.Float64FromAny(row["connections"]),
+		}
+	}
+	return out, nil
+}
+
+// ── 18. Client operation duration ─────────────────────────────────────────────
+
+func (r *ClickHouseRepository) GetClientOperationDuration(teamID int64, startMs, endMs int64) ([]ClientOpDurationPoint, error) {
+	bucket := timeBucketExpr(startMs, endMs)
+	opName := attrString(AttrMessagingOperationName)
+
+	query := fmt.Sprintf(`
+		SELECT
+		    %s AS time_bucket,
+		    %s AS operation_name,
+		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
+		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
+		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99
+		FROM %s
+		WHERE team_id = ?
+		  AND timestamp BETWEEN ? AND ?
+		  AND %s = '%s'
+		  AND metric_type = 'Histogram'
+		GROUP BY time_bucket, operation_name
+		ORDER BY time_bucket ASC, operation_name ASC
+	`, bucket, opName, TableMetrics, ColMetricName, MetricClientOperationDuration)
+
+	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, fmt.Errorf("GetClientOperationDuration: %w", err)
+	}
+	out := make([]ClientOpDurationPoint, len(rows))
+	for i, row := range rows {
+		out[i] = ClientOpDurationPoint{
+			Timestamp:     dbutil.StringFromAny(row["time_bucket"]),
+			OperationName: dbutil.StringFromAny(row["operation_name"]),
+			P50Ms:         dbutil.Float64FromAny(row["p50"]),
+			P95Ms:         dbutil.Float64FromAny(row["p95"]),
+			P99Ms:         dbutil.Float64FromAny(row["p99"]),
+		}
+	}
+	return out, nil
+}
+
+// ── Internal helpers ──────────────────────────────────────────────────────────
+
+// getErrorRates returns error rates per topic+error_type for a given counter metric.
+func (r *ClickHouseRepository) getErrorRates(teamID int64, startMs, endMs int64, metricName, _ string, caller string) ([]ErrorRatePoint, error) {
+	bucket := timeBucketExpr(startMs, endMs)
+	bs := bucketSecs(startMs, endMs)
+	errType := attrString(AttrErrorType)
+	topic := attrString(AttrMessagingDestinationName)
+
+	query := fmt.Sprintf(`
+		SELECT
+		    %s AS time_bucket,
+		    %s AS topic,
+		    %s AS error_type,
+		    sum(%s) / ? AS error_rate
+		FROM %s
+		WHERE team_id = ?
+		  AND timestamp BETWEEN ? AND ?
+		  AND %s = '%s'
+		  AND %s != ''
+		GROUP BY time_bucket, topic, error_type
+		ORDER BY time_bucket ASC, error_rate DESC
+	`, bucket, topic, errType, ColValue, TableMetrics,
+		ColMetricName, metricName,
+		errType,
+	)
+
+	rows, err := dbutil.QueryMaps(r.db, query, bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", caller, err)
+	}
+	out := make([]ErrorRatePoint, len(rows))
+	for i, row := range rows {
+		out[i] = ErrorRatePoint{
 			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
 			Topic:     dbutil.StringFromAny(row["topic"]),
-			Value:     v,
+			ErrorType: dbutil.StringFromAny(row["error_type"]),
+			ErrorRate: dbutil.Float64FromAny(row["error_rate"]),
+		}
+	}
+	return out, nil
+}
+
+// getGroupErrorRates returns error rates per consumer_group+error_type for a given counter metric.
+func (r *ClickHouseRepository) getGroupErrorRates(teamID int64, startMs, endMs int64, metricName, caller string) ([]ErrorRatePoint, error) {
+	bucket := timeBucketExpr(startMs, endMs)
+	bs := bucketSecs(startMs, endMs)
+	errType := attrString(AttrErrorType)
+	group := attrString(AttrMessagingConsumerGroupName)
+
+	query := fmt.Sprintf(`
+		SELECT
+		    %s AS time_bucket,
+		    %s AS consumer_group,
+		    %s AS error_type,
+		    sum(%s) / ? AS error_rate
+		FROM %s
+		WHERE team_id = ?
+		  AND timestamp BETWEEN ? AND ?
+		  AND %s = '%s'
+		  AND %s != ''
+		GROUP BY time_bucket, consumer_group, error_type
+		ORDER BY time_bucket ASC, error_rate DESC
+	`, bucket, group, errType, ColValue, TableMetrics,
+		ColMetricName, metricName,
+		errType,
+	)
+
+	rows, err := dbutil.QueryMaps(r.db, query, bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", caller, err)
+	}
+	out := make([]ErrorRatePoint, len(rows))
+	for i, row := range rows {
+		out[i] = ErrorRatePoint{
+			Timestamp:     dbutil.StringFromAny(row["time_bucket"]),
+			ConsumerGroup: dbutil.StringFromAny(row["consumer_group"]),
+			ErrorType:     dbutil.StringFromAny(row["error_type"]),
+			ErrorRate:     dbutil.Float64FromAny(row["error_rate"]),
 		}
 	}
 	return out, nil

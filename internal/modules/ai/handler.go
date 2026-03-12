@@ -8,7 +8,6 @@ import (
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
-// AIHandler handles AI-model observability API endpoints.
 type AIHandler struct {
 	modulecommon.DBTenant
 	Service Service

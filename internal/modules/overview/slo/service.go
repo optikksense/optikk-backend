@@ -7,17 +7,14 @@ const (
 	p95LatencyTargetMs = 300.0
 )
 
-// Service encapsulates the business logic for the overview SLO module.
 type Service interface {
 	GetSloSli(teamID int64, startMs, endMs int64, serviceName string) (*Response, error)
 }
 
-// SLOService provides business logic orchestration for overview SLO dashboards.
 type SLOService struct {
 	repo Repository
 }
 
-// NewService creates a new SLOService.
 func NewService(repo Repository) Service {
 	return &SLOService{repo: repo}
 }

@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"database/sql"
 	"fmt"
+	"log"
 	"regexp"
 	"strings"
 	"time"
@@ -12,6 +13,16 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	circuitbreaker "github.com/observability/observability-backend-go/internal/platform/circuit_breaker"
 )
+
+const slowQueryThreshold = 100 * time.Millisecond
+
+func truncateQuery(q string) string {
+	q = strings.TrimSpace(q)
+	if len(q) > 200 {
+		return q[:200] + "..."
+	}
+	return q
+}
 
 type Querier interface {
 	Exec(query string, args ...any) (sql.Result, error)
@@ -33,18 +44,28 @@ type Row interface {
 	Scan(dest ...any) error
 }
 
-func OpenClickHouse(dsn string, isProduction bool) (*sql.DB, error) {
+type ClickHouseCloudConfig struct {
+	Host     string // host:port, e.g. "abc.us-central1.gcp.clickhouse.cloud:9440"
+	Username string
+	Password string
+}
+
+func OpenClickHouse(dsn string, isProduction bool, cloud ...ClickHouseCloudConfig) (*sql.DB, error) {
 	var conn *sql.DB
 	var err error
 
 	if isProduction {
+		if len(cloud) == 0 {
+			return nil, fmt.Errorf("clickhouse: ClickHouseCloudConfig required for production mode")
+		}
+		cc := cloud[0]
 		conn = clickhouse.OpenDB(&clickhouse.Options{
-			Addr:     []string{"e4q81bjqva.us-central1.gcp.clickhouse.cloud:9440"},
+			Addr:     []string{cc.Host},
 			Protocol: clickhouse.Native,
 			TLS:      &tls.Config{},
 			Auth: clickhouse.Auth{
-				Username: "default",
-				Password: "CHZoMiHfX_5vt",
+				Username: cc.Username,
+				Password: cc.Password,
 			},
 			DialTimeout: 5 * time.Second,
 			ReadTimeout: 30 * time.Second,
@@ -71,17 +92,21 @@ func OpenClickHouse(dsn string, isProduction bool) (*sql.DB, error) {
 
 // OpenClickHouseConn opens a native clickhouse.Conn (not database/sql).
 // Used by the ingest queues which need PrepareBatch for batch inserts.
-func OpenClickHouseConn(dsn string, isProduction bool) (clickhouse.Conn, error) {
+func OpenClickHouseConn(dsn string, isProduction bool, cloud ...ClickHouseCloudConfig) (clickhouse.Conn, error) {
 	var opts *clickhouse.Options
 
 	if isProduction {
+		if len(cloud) == 0 {
+			return nil, fmt.Errorf("clickhouse: ClickHouseCloudConfig required for production mode")
+		}
+		cc := cloud[0]
 		opts = &clickhouse.Options{
-			Addr:     []string{"e4q81bjqva.us-central1.gcp.clickhouse.cloud:9440"},
+			Addr:     []string{cc.Host},
 			Protocol: clickhouse.Native,
 			TLS:      &tls.Config{},
 			Auth: clickhouse.Auth{
-				Username: "default",
-				Password: "CHZoMiHfX_5vt",
+				Username: cc.Username,
+				Password: cc.Password,
 			},
 			DialTimeout: 5 * time.Second,
 			ReadTimeout: 30 * time.Second,
@@ -179,12 +204,16 @@ func (m *ClickHouseWrapper) BeginTx(ctx context.Context, opts *sql.TxOptions) (*
 
 func (m *ClickHouseWrapper) Query(query string, args ...any) (Rows, error) {
 	query = optimizeQuery(query)
+	start := time.Now()
 	var rows *sql.Rows
 	err := m.cb.Call(func() error {
 		var err error
 		rows, err = m.db.Query(query, args...)
 		return err
 	})
+	if d := time.Since(start); d >= slowQueryThreshold {
+		log.Printf("SLOW_QUERY clickhouse duration=%v query=%s", d, truncateQuery(query))
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -193,14 +222,15 @@ func (m *ClickHouseWrapper) Query(query string, args ...any) (Rows, error) {
 
 func (m *ClickHouseWrapper) QueryRow(query string, args ...any) Row {
 	query = optimizeQuery(query)
+	start := time.Now()
 	var row *sql.Row
-	// We run QueryRow under the circuit breaker, but since it doesn't return an error directly
-	// (errors are deferred to Scan), any immediate errors (like connection drops) might not drop the breaker here.
-	// However, if the circuit is currently open, we return a structural dummy that returns ErrCircuitOpen on Scan.
 	err := m.cb.Call(func() error {
 		row = m.db.QueryRow(query, args...)
-		return nil // QueryRow doesn't return an error itself
+		return nil
 	})
+	if d := time.Since(start); d >= slowQueryThreshold {
+		log.Printf("SLOW_QUERY clickhouse duration=%v query=%s", d, truncateQuery(query))
+	}
 	if err != nil {
 		return &circuitBreakerRowAdapter{err: err}
 	}

@@ -30,7 +30,6 @@ func normalizeDBStatement(stmt string) string {
 	return strings.TrimSpace(s)
 }
 
-// Repository defines data access for trace detail endpoints.
 type Repository interface {
 	GetSpanEvents(teamID int64, traceID string) ([]SpanEvent, error)
 	GetSpanKindBreakdown(teamID int64, traceID string) ([]SpanKindDuration, error)
@@ -41,17 +40,14 @@ type Repository interface {
 	GetRelatedTraces(teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
 }
 
-// ClickHouseRepository implements Repository against ClickHouse.
 type ClickHouseRepository struct {
 	db dbutil.Querier
 }
 
-// NewRepository creates a new trace detail repository.
 func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-// GetSpanEvents returns span-level events for a trace from observability.spans.
 func (r *ClickHouseRepository) GetSpanEvents(teamID int64, traceID string) ([]SpanEvent, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.span_id, s.trace_id, s.timestamp, event_name
@@ -135,7 +131,6 @@ func (r *ClickHouseRepository) GetSpanEvents(teamID int64, traceID string) ([]Sp
 	return events, nil
 }
 
-// GetSpanKindBreakdown returns total duration and count grouped by span.kind for a trace.
 func (r *ClickHouseRepository) GetSpanKindBreakdown(teamID int64, traceID string) ([]SpanKindDuration, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT kind_string                        AS span_kind,
@@ -170,9 +165,6 @@ func (r *ClickHouseRepository) GetSpanKindBreakdown(teamID int64, traceID string
 	return breakdown, nil
 }
 
-// GetCriticalPath computes the critical (longest root→leaf) path using subtree end-time pruning.
-// ClickHouse computes each span's subtree_end (max end_time within subtree); we then walk
-// from each root downward always choosing the child whose subtree ends latest — O(depth) vs O(2^depth).
 func (r *ClickHouseRepository) GetCriticalPath(teamID int64, traceID string) ([]CriticalPathSpan, error) {
 	// Step 1: fetch all spans with start/end times from ClickHouse.
 	// ClickHouse also computes each span's subtree_max_end via a correlated subquery.
@@ -304,8 +296,6 @@ func (r *ClickHouseRepository) GetCriticalPath(teamID int64, traceID string) ([]
 	return result, nil
 }
 
-// GetSpanSelfTimes returns self_time = duration - SUM(child durations) per span.
-// Computed in ClickHouse via a self-join to avoid loading all spans into Go memory.
 func (r *ClickHouseRepository) GetSpanSelfTimes(teamID int64, traceID string) ([]SpanSelfTime, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.span_id,
@@ -341,7 +331,6 @@ func (r *ClickHouseRepository) GetSpanSelfTimes(teamID int64, traceID string) ([
 	return result, nil
 }
 
-// GetErrorPath returns the ERROR-status span chain from root to the deepest error leaf.
 func (r *ClickHouseRepository) GetErrorPath(teamID int64, traceID string) ([]ErrorPathSpan, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.span_id, s.parent_span_id, s.name AS operation_name,
@@ -431,7 +420,6 @@ func (r *ClickHouseRepository) GetErrorPath(teamID int64, traceID string) ([]Err
 	return chain, nil
 }
 
-// GetSpanAttributes returns the full attribute map for a single span.
 func (r *ClickHouseRepository) GetSpanAttributes(teamID int64, traceID, spanID string) (*SpanAttributes, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.span_id, s.trace_id, s.name AS operation_name, s.service_name,
@@ -478,8 +466,6 @@ func (r *ClickHouseRepository) GetSpanAttributes(teamID int64, traceID, spanID s
 	}, nil
 }
 
-// GetRelatedTraces returns root spans with the same service+operation in the given time window,
-// excluding the current traceID.
 func (r *ClickHouseRepository) GetRelatedTraces(teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
 	startBucket := uint32(startMs / 1000)
 	endBucket := uint32(endMs / 1000)

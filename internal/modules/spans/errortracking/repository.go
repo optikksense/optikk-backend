@@ -7,24 +7,20 @@ import (
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
-// Repository defines data access for error tracking endpoints.
 type Repository interface {
 	GetExceptionRateByType(teamID int64, startMs, endMs int64, serviceName string) ([]ExceptionRatePoint, error)
 	GetErrorHotspot(teamID int64, startMs, endMs int64) ([]ErrorHotspotCell, error)
 	GetHTTP5xxByRoute(teamID int64, startMs, endMs int64, serviceName string) ([]HTTP5xxByRoute, error)
 }
 
-// ClickHouseRepository implements Repository against ClickHouse.
 type ClickHouseRepository struct {
 	db dbutil.Querier
 }
 
-// NewRepository creates a new error tracking repository.
 func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-// GetExceptionRateByType returns time-series exception counts grouped by exception.type.
 func (r *ClickHouseRepository) GetExceptionRateByType(teamID int64, startMs, endMs int64, serviceName string) ([]ExceptionRatePoint, error) {
 	bucket := timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
 	query := fmt.Sprintf(`
@@ -33,7 +29,7 @@ func (r *ClickHouseRepository) GetExceptionRateByType(teamID int64, startMs, end
 		       count()          AS event_count
 		FROM observability.spans s
 		WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.exception_type != '' AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -56,7 +52,6 @@ func (r *ClickHouseRepository) GetExceptionRateByType(teamID int64, startMs, end
 	return result, nil
 }
 
-// GetErrorHotspot returns error_rate per (service × operation) cell for a heatmap.
 func (r *ClickHouseRepository) GetErrorHotspot(teamID int64, startMs, endMs int64) ([]ErrorHotspotCell, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.service_name AS service_name,
@@ -71,7 +66,7 @@ func (r *ClickHouseRepository) GetErrorHotspot(teamID int64, startMs, endMs int6
 		GROUP BY s.service_name, s.name
 		ORDER BY error_rate DESC
 		LIMIT 500
-	`, teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, teamID, timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +84,6 @@ func (r *ClickHouseRepository) GetErrorHotspot(teamID int64, startMs, endMs int6
 	return result, nil
 }
 
-// GetHTTP5xxByRoute returns counts of HTTP 5xx responses grouped by http.route.
 func (r *ClickHouseRepository) GetHTTP5xxByRoute(teamID int64, startMs, endMs int64, serviceName string) ([]HTTP5xxByRoute, error) {
 	query := `
 		SELECT s.mat_http_route AS http_route,
@@ -98,7 +92,7 @@ func (r *ClickHouseRepository) GetHTTP5xxByRoute(teamID int64, startMs, endMs in
 		FROM observability.spans s
 		WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?
 		  AND toUInt16OrZero(s.response_status_code) >= 500`
-	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)

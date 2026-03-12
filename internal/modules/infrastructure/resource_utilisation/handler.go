@@ -8,7 +8,6 @@ import (
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
-// ResourceUtilisationHandler handles API endpoints for 8 individual metrics.
 type ResourceUtilisationHandler struct {
 	modulecommon.DBTenant
 	Service Service
@@ -134,7 +133,6 @@ func (h *ResourceUtilisationHandler) GetByInstance(c *gin.Context) {
 	RespondOK(c, resp)
 }
 
-// ─── System Infrastructure Handlers ──────────────────────────────────────────
 
 func (h *ResourceUtilisationHandler) GetCPUTime(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
@@ -346,7 +344,6 @@ func (h *ResourceUtilisationHandler) GetNetworkConnections(c *gin.Context) {
 	RespondOK(c, resp)
 }
 
-// ─── JVM Handlers ─────────────────────────────────────────────────────────────
 
 func (h *ResourceUtilisationHandler) GetJVMMemory(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID

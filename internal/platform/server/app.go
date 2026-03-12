@@ -27,8 +27,7 @@ import (
 	overviewerrors "github.com/observability/observability-backend-go/internal/modules/overview/errors"
 	overviewmodule "github.com/observability/observability-backend-go/internal/modules/overview/overview"
 	overviewslo "github.com/observability/observability-backend-go/internal/modules/overview/slo"
-	"github.com/observability/observability-backend-go/internal/modules/saturation/database"
-	satdatabase "github.com/observability/observability-backend-go/internal/modules/saturation/database"
+
 	"github.com/observability/observability-backend-go/internal/modules/saturation/kafka"
 	servicepage "github.com/observability/observability-backend-go/internal/modules/services/service"
 	servicemap "github.com/observability/observability-backend-go/internal/modules/services/servicemap"
@@ -37,6 +36,7 @@ import (
 	errortracking "github.com/observability/observability-backend-go/internal/modules/spans/errortracking"
 	redmetrics "github.com/observability/observability-backend-go/internal/modules/spans/redmetrics"
 	tracedetail "github.com/observability/observability-backend-go/internal/modules/spans/tracedetail"
+	databaseotel "github.com/observability/observability-backend-go/internal/modules/database"
 	usermodule "github.com/observability/observability-backend-go/internal/modules/user"
 	"github.com/observability/observability-backend-go/internal/platform/alerting"
 	"github.com/observability/observability-backend-go/internal/platform/auth"
@@ -66,7 +66,7 @@ type moduleConfigs struct {
 	ServicesTopology    servicetopology.Config
 	Nodes               nodes.Config
 	ResourceUtilisation resource_utilisation.Config
-	SaturationDatabase  database.Config
+
 	SaturationKafka     kafka.Config
 	Kubernetes          kubernetes.Config
 	HTTPMetrics         httpmetrics.Config
@@ -79,6 +79,7 @@ type moduleConfigs struct {
 	ErrorTracking       errortracking.Config
 	AI                  ai.Config
 	DefaultConfig       defaultconfig.Config
+	DatabaseOTel        databaseotel.Config
 }
 
 func defaultModuleConfigs() moduleConfigs {
@@ -91,7 +92,7 @@ func defaultModuleConfigs() moduleConfigs {
 		ServicesTopology:    servicetopology.DefaultConfig(),
 		Nodes:               nodes.DefaultConfig(),
 		ResourceUtilisation: resource_utilisation.DefaultConfig(),
-		SaturationDatabase:  database.DefaultConfig(),
+
 		SaturationKafka:     kafka.DefaultConfig(),
 		Kubernetes:          kubernetes.DefaultConfig(),
 		HTTPMetrics:         httpmetrics.DefaultConfig(),
@@ -104,6 +105,7 @@ func defaultModuleConfigs() moduleConfigs {
 		ErrorTracking:       errortracking.DefaultConfig(),
 		AI:                  ai.DefaultConfig(),
 		DefaultConfig:       defaultconfig.DefaultConfig(),
+		DatabaseOTel:        databaseotel.DefaultConfig(),
 	}
 }
 
@@ -130,13 +132,14 @@ type App struct {
 	ServicesTopology    *servicetopology.TopologyHandler
 	Nodes               *nodes.NodeHandler
 	ResourceUtilisation *resource_utilisation.ResourceUtilisationHandler
-	SaturationDatabase  *satdatabase.DatabaseHandler
+
 	SaturationKafka     *kafka.KafkaHandler
 	Kubernetes          *kubernetes.KubernetesHandler
 	HTTPMetrics         *httpmetrics.HTTPMetricsHandler
 	APM                 *apm.APMHandler
 	AI                  *ai.AIHandler
 	DefaultConfig       *defaultconfig.Handler
+	DatabaseOTel        *databaseotel.Handler
 
 	// Query result cache (Redis-gated, nil-safe).
 	Cache *cache.QueryCache
@@ -323,15 +326,7 @@ func New(db *sql.DB, ch *sql.DB, chNative clickhouse.Conn, cfg config.Config) *A
 				resource_utilisation.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
-		SaturationDatabase: &satdatabase.DatabaseHandler{
-			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
-				GetTenant: getTenant,
-			},
-			Service: satdatabase.NewService(
-				satdatabase.NewRepository(dbutil.NewClickHouseWrapper(ch)),
-			),
-		},
+
 		SaturationKafka: &kafka.KafkaHandler{
 			DBTenant: modulecommon.DBTenant{
 				DB:        ch,
@@ -386,6 +381,16 @@ func New(db *sql.DB, ch *sql.DB, chNative clickhouse.Conn, cfg config.Config) *A
 			Registry: registry,
 		},
 
+		DatabaseOTel: &databaseotel.Handler{
+			DBTenant: modulecommon.DBTenant{
+				DB:        ch,
+				GetTenant: getTenant,
+			},
+			Service: databaseotel.NewService(
+				databaseotel.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+			),
+		},
+
 		Cache:      queryCache,
 
 		OTLPHTTP:   otlpHTTPHandler,
@@ -400,6 +405,7 @@ func New(db *sql.DB, ch *sql.DB, chNative clickhouse.Conn, cfg config.Config) *A
 
 func (a *App) Router() *gin.Engine {
 	r := gin.New()
+	r.Use(middleware.RequestIDMiddleware())
 	r.Use(middleware.APIDebugLogger(a.Config.DebugAPILogs))
 	r.Use(gin.Logger())
 	r.Use(middleware.ErrorRecovery())
@@ -458,7 +464,7 @@ func (a *App) registerRoutesToGroup(v1 *gin.RouterGroup) {
 	servicetopology.RegisterRoutes(cfg.ServicesTopology, cached, a.ServicesTopology)
 	nodes.RegisterRoutes(cfg.Nodes, cached, a.Nodes)
 	resource_utilisation.RegisterRoutes(cfg.ResourceUtilisation, cached, a.ResourceUtilisation)
-	database.RegisterRoutes(cfg.SaturationDatabase, cached, a.SaturationDatabase)
+
 	kafka.RegisterRoutes(cfg.SaturationKafka, cached, a.SaturationKafka)
 	kubernetes.RegisterRoutes(cfg.Kubernetes, cached, a.Kubernetes)
 	httpmetrics.RegisterRoutes(cfg.HTTPMetrics, cached, a.HTTPMetrics)
@@ -471,6 +477,7 @@ func (a *App) registerRoutesToGroup(v1 *gin.RouterGroup) {
 	errortracking.RegisterRoutes(cfg.ErrorTracking, cached, a.ErrorTracking)
 	ai.RegisterRoutes(cfg.AI, v1, a.AI)
 	defaultconfig.RegisterRoutes(cfg.DefaultConfig, v1, a.DefaultConfig)
+	databaseotel.RegisterRoutes(cfg.DatabaseOTel, cached, a.DatabaseOTel)
 }
 
 func (a *App) healthLive(c *gin.Context) {
@@ -486,7 +493,15 @@ func (a *App) healthReady(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "clickhouse": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "ready", "mysql": "ok", "clickhouse": "ok"})
+	result := gin.H{"status": "ready", "mysql": "ok", "clickhouse": "ok"}
+	if a.Cache != nil && a.Cache.Enabled() {
+		if err := a.Cache.Ping(c.Request.Context()); err != nil {
+			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "redis": err.Error()})
+			return
+		}
+		result["redis"] = "ok"
+	}
+	c.JSON(http.StatusOK, result)
 }
 
 func (a *App) Start(ctx context.Context) error {

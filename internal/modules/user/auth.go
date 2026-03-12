@@ -1,6 +1,7 @@
 package user
 
 import (
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -61,10 +62,13 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		}
 	}
 
-	_ = h.store.UpdateUserLastLogin(user.ID, time.Now().UTC())
+	if err := h.store.UpdateUserLastLogin(user.ID, time.Now().UTC()); err != nil {
+		log.Printf("AUTH_EVENT login_update_failed user_id=%d email=%s err=%v", user.ID, user.Email, err)
+	}
 
 	teams, err := listActiveTeamsForUser(h.store, user.ID)
 	if err != nil {
+		log.Printf("AUTH_EVENT team_fetch_failed user_id=%d email=%s err=%v", user.ID, user.Email, err)
 		teams = []map[string]any{}
 	}
 
@@ -83,7 +87,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		teamIDs = append(teamIDs, mapInt64(t, "id"))
 	}
 
-	token, err := h.jwtManager.Generate(user.ID, user.Email, user.Name, user.Role, teamID, teamIDs...)
+	token, err := h.jwtManager.Generate(user.ID, user.Email, user.Name, "", teamID, teamIDs...)
 	if err != nil {
 		respondServiceError(c, newInternalError("Failed to generate token", err), "Failed to login")
 		return
@@ -93,11 +97,12 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		"token":       token,
 		"tokenType":   "Bearer",
 		"expiresIn":   h.jwtExpiresMs,
-		"user":        map[string]any{"id": user.ID, "email": user.Email, "name": user.Name, "avatarUrl": user.AvatarURL, "role": user.Role},
+		"user":        map[string]any{"id": user.ID, "email": user.Email, "name": user.Name, "avatarUrl": user.AvatarURL},
 		"teams":       teams,
 		"currentTeam": currentTeam,
 	}
 
+	log.Printf("AUTH_EVENT login_success user_id=%d email=%s team_id=%d ip=%s", user.ID, user.Email, teamID, c.ClientIP())
 	apphandlers.RespondOK(c, resp)
 }
 
@@ -106,6 +111,7 @@ func (h *AuthHandler) Logout(c *gin.Context) {
 		token := strings.TrimPrefix(header, "Bearer ")
 		if claims, err := h.jwtManager.Parse(token); err == nil && claims.ExpiresAt != nil {
 			h.blacklist.Revoke(token, claims.ExpiresAt.Time)
+			log.Printf("AUTH_EVENT logout user_id=%s email=%s ip=%s", claims.Subject, claims.Email, c.ClientIP())
 		}
 	}
 	apphandlers.RespondOK(c, map[string]string{"message": "Logged out successfully"})

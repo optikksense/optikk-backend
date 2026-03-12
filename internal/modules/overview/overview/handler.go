@@ -8,13 +8,11 @@ import (
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
-// OverviewHandler handles overview page endpoints.
 type OverviewHandler struct {
 	modulecommon.DBTenant
 	Service Service
 }
 
-// GetRequestRate returns per-service request-rate buckets for the summary tab.
 func (h *OverviewHandler) GetRequestRate(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
@@ -32,7 +30,6 @@ func (h *OverviewHandler) GetRequestRate(c *gin.Context) {
 	RespondOK(c, points)
 }
 
-// GetErrorRate returns per-service error-rate buckets for the summary tab.
 func (h *OverviewHandler) GetErrorRate(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
@@ -50,7 +47,6 @@ func (h *OverviewHandler) GetErrorRate(c *gin.Context) {
 	RespondOK(c, points)
 }
 
-// GetP95Latency returns per-service p95 latency buckets for the summary tab.
 func (h *OverviewHandler) GetP95Latency(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
@@ -68,7 +64,6 @@ func (h *OverviewHandler) GetP95Latency(c *gin.Context) {
 	RespondOK(c, points)
 }
 
-// GetServices returns service-level metrics for overview-derived pages.
 func (h *OverviewHandler) GetServices(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
@@ -85,7 +80,6 @@ func (h *OverviewHandler) GetServices(c *gin.Context) {
 	RespondOK(c, rows)
 }
 
-// GetTopEndpoints returns endpoint aggregates for the overview page.
 func (h *OverviewHandler) GetTopEndpoints(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
@@ -103,7 +97,6 @@ func (h *OverviewHandler) GetTopEndpoints(c *gin.Context) {
 	RespondOK(c, rows)
 }
 
-// GetEndpointTimeSeries returns endpoint-level time-series buckets for charts.
 func (h *OverviewHandler) GetEndpointTimeSeries(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)

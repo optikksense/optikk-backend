@@ -13,7 +13,6 @@ type CapturedCall struct {
 	Args  []any
 }
 
-// Querier records SQL calls and returns empty result sets by default.
 type Querier struct {
 	Queries   []CapturedCall
 	QueryRows []CapturedCall

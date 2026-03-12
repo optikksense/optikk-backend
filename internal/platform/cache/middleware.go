@@ -9,8 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// CacheResponse is a Gin middleware that caches JSON responses in Redis.
-// Only GET requests are cached. Responses with non-200 status are not cached.
 func CacheResponse(qc *QueryCache, ttl time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !qc.Enabled() || c.Request.Method != http.MethodGet {
@@ -46,7 +44,6 @@ func cacheKey(c *gin.Context) string {
 	return fmt.Sprintf("qc:%x", h[:16])
 }
 
-// responseCapture wraps gin.ResponseWriter to capture the written body.
 type responseCapture struct {
 	gin.ResponseWriter
 	body []byte

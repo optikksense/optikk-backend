@@ -9,7 +9,6 @@ import (
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
-// ClickHouseRepository is the data access layer for traces.
 type ClickHouseRepository struct {
 	db dbutil.Querier
 }
@@ -18,8 +17,6 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-// rawTimeBucketExpr returns a ClickHouse expression grouping a raw timestamp column.
-// Delegates to the shared timebucket package.
 func rawTimeBucketExpr(startMs, endMs int64, column string) string {
 	return timebucket.ExprForColumn(startMs, endMs, column)
 }
@@ -37,7 +34,7 @@ func (r *ClickHouseRepository) buildTraceQueryArgs(f TraceFilters) (string, []an
 	}
 
 	queryFrag := ` WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.parent_span_id = '' AND s.timestamp BETWEEN ? AND ?`
-	args := []any{uint32(f.TeamID), uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{uint32(f.TeamID), timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 
 	if len(f.Services) > 0 {
 		in, vals := dbutil.InClauseFromStrings(f.Services)
@@ -328,8 +325,6 @@ func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamID int64, 
 	return spans, nil
 }
 
-// GetSpanTree resolves the trace_id for the given root spanID and returns all spans
-// belonging to that trace in a single query, ordered by timestamp ascending.
 func (r *ClickHouseRepository) GetSpanTree(ctx context.Context, teamID int64, spanID string) ([]Span, error) {
 	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
 		SELECT s.span_id, s.parent_span_id, s.trace_id, s.name as operation_name, s.service_name AS service_name, s.kind_string as span_kind,
@@ -378,9 +373,6 @@ func (r *ClickHouseRepository) GetSpanTree(ctx context.Context, teamID int64, sp
 	return spans, nil
 }
 
-// GetServiceDependencies reads from raw spans table.
-// Note: parent_service_name is no longer stored, so this query needs to be reworked
-// to infer dependencies from CLIENT/SERVER span pairs or use a different approach.
 func (r *ClickHouseRepository) GetServiceDependencies(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceDependency, error) {
 	// Simplified approach: use CLIENT spans to infer dependencies
 	rows, err := dbutil.QueryMaps(r.db, `
@@ -395,8 +387,8 @@ func (r *ClickHouseRepository) GetServiceDependencies(ctx context.Context, teamI
 		GROUP BY s1.service_name, s2.service_name
 		ORDER BY call_count DESC
 		LIMIT 100
-	`, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
-		uint32(teamID), uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
+		uint32(teamID), timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -421,7 +413,7 @@ func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64,
 		       (groupArray(s.trace_id) as trace_ids)[1] as sample_trace_id
 		FROM observability.spans s
 		WHERE s.team_id = ? AND (s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400) AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`
-	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -451,7 +443,6 @@ func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64,
 	return groups, nil
 }
 
-// GetErrorTimeSeries reads from raw spans with adaptive time bucketing.
 func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]ErrorTimeSeries, error) {
 	bucket := rawTimeBucketExpr(startMs, endMs, "s.timestamp")
 	query := fmt.Sprintf(`
@@ -467,7 +458,7 @@ func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamID in
 			       countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400) AS error_count
 			FROM observability.spans s
 			WHERE s.team_id = ? AND s.parent_span_id = '' AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -526,7 +517,7 @@ func (r *ClickHouseRepository) GetLatencyHistogram(ctx context.Context, teamID i
 			SELECT s.duration_nano / 1000000.0 as duration_ms
 			FROM observability.spans s
 			WHERE s.team_id = ? AND s.parent_span_id = '' AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`
-	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -574,7 +565,7 @@ func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int
 			SELECT s.timestamp, s.duration_nano / 1000000.0 as duration_ms
 			FROM observability.spans s
 			WHERE s.team_id = ? AND s.parent_span_id = '' AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)

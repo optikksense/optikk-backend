@@ -4,22 +4,16 @@ import (
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
-// MetricAggregator defines the interface for metric aggregation
-// Following Interface Segregation Principle
 type MetricAggregator interface {
 	Aggregate(rows []map[string]any) (any, error)
 }
 
-// PerformanceMetricAggregator aggregates performance metrics from query results
-// Following Single Responsibility Principle - only handles performance metric aggregation
 type PerformanceMetricAggregator struct{}
 
-// NewPerformanceMetricAggregator creates a new performance metric aggregator
 func NewPerformanceMetricAggregator() *PerformanceMetricAggregator {
 	return &PerformanceMetricAggregator{}
 }
 
-// Aggregate converts database rows to AIPerformanceMetric structs
 func (a *PerformanceMetricAggregator) Aggregate(rows []map[string]any) (any, error) {
 	metrics := make([]AIPerformanceMetric, len(rows))
 	for i, row := range rows {
@@ -45,16 +39,12 @@ func (a *PerformanceMetricAggregator) Aggregate(rows []map[string]any) (any, err
 	return metrics, nil
 }
 
-// CostMetricAggregator aggregates cost metrics from query results
-// Following Single Responsibility Principle - only handles cost metric aggregation
 type CostMetricAggregator struct{}
 
-// NewCostMetricAggregator creates a new cost metric aggregator
 func NewCostMetricAggregator() *CostMetricAggregator {
 	return &CostMetricAggregator{}
 }
 
-// Aggregate converts database rows to AICostMetric structs
 func (a *CostMetricAggregator) Aggregate(rows []map[string]any) (any, error) {
 	metrics := make([]AICostMetric, len(rows))
 	for i, row := range rows {
@@ -77,16 +67,12 @@ func (a *CostMetricAggregator) Aggregate(rows []map[string]any) (any, error) {
 	return metrics, nil
 }
 
-// SecurityMetricAggregator aggregates security metrics from query results
-// Following Single Responsibility Principle - only handles security metric aggregation
 type SecurityMetricAggregator struct{}
 
-// NewSecurityMetricAggregator creates a new security metric aggregator
 func NewSecurityMetricAggregator() *SecurityMetricAggregator {
 	return &SecurityMetricAggregator{}
 }
 
-// Aggregate converts database rows to AISecurityMetric structs
 func (a *SecurityMetricAggregator) Aggregate(rows []map[string]any) (any, error) {
 	metrics := make([]AISecurityMetric, len(rows))
 	for i, row := range rows {
@@ -105,20 +91,16 @@ func (a *SecurityMetricAggregator) Aggregate(rows []map[string]any) (any, error)
 	return metrics, nil
 }
 
-// TimeSeriesAggregator aggregates time series data from query results
-// Following Single Responsibility Principle - only handles time series aggregation
 type TimeSeriesAggregator struct {
 	aggregateType string // "performance", "cost", "security"
 }
 
-// NewTimeSeriesAggregator creates a new time series aggregator
 func NewTimeSeriesAggregator(aggregateType string) *TimeSeriesAggregator {
 	return &TimeSeriesAggregator{
 		aggregateType: aggregateType,
 	}
 }
 
-// Aggregate converts database rows to appropriate time series structs
 func (a *TimeSeriesAggregator) Aggregate(rows []map[string]any) (any, error) {
 	switch a.aggregateType {
 	case "performance":
@@ -188,16 +170,12 @@ func firstNonNil(values ...any) any {
 	return nil
 }
 
-// HistogramAggregator aggregates histogram data from query results
-// Following Single Responsibility Principle - only handles histogram aggregation
 type HistogramAggregator struct{}
 
-// NewHistogramAggregator creates a new histogram aggregator
 func NewHistogramAggregator() *HistogramAggregator {
 	return &HistogramAggregator{}
 }
 
-// Aggregate converts database rows to AILatencyHistogram structs
 func (a *HistogramAggregator) Aggregate(rows []map[string]any) (any, error) {
 	histogram := make([]AILatencyHistogram, len(rows))
 	for i, row := range rows {
@@ -210,16 +188,12 @@ func (a *HistogramAggregator) Aggregate(rows []map[string]any) (any, error) {
 	return histogram, nil
 }
 
-// ModelListAggregator aggregates model list from query results
-// Following Single Responsibility Principle - only handles model list aggregation
 type ModelListAggregator struct{}
 
-// NewModelListAggregator creates a new model list aggregator
 func NewModelListAggregator() *ModelListAggregator {
 	return &ModelListAggregator{}
 }
 
-// Aggregate converts database rows to AIModel structs
 func (a *ModelListAggregator) Aggregate(rows []map[string]any) (any, error) {
 	models := make([]AIModel, len(rows))
 	for i, row := range rows {
@@ -231,16 +205,12 @@ func (a *ModelListAggregator) Aggregate(rows []map[string]any) (any, error) {
 	return models, nil
 }
 
-// TokenBreakdownAggregator aggregates token breakdown from query results
-// Following Single Responsibility Principle - only handles token breakdown aggregation
 type TokenBreakdownAggregator struct{}
 
-// NewTokenBreakdownAggregator creates a new token breakdown aggregator
 func NewTokenBreakdownAggregator() *TokenBreakdownAggregator {
 	return &TokenBreakdownAggregator{}
 }
 
-// Aggregate converts database rows to AITokenBreakdown structs
 func (a *TokenBreakdownAggregator) Aggregate(rows []map[string]any) (any, error) {
 	breakdown := make([]AITokenBreakdown, len(rows))
 	for i, row := range rows {
@@ -255,16 +225,12 @@ func (a *TokenBreakdownAggregator) Aggregate(rows []map[string]any) (any, error)
 	return breakdown, nil
 }
 
-// PIICategoryAggregator aggregates PII category data from query results
-// Following Single Responsibility Principle - only handles PII category aggregation
 type PIICategoryAggregator struct{}
 
-// NewPIICategoryAggregator creates a new PII category aggregator
 func NewPIICategoryAggregator() *PIICategoryAggregator {
 	return &PIICategoryAggregator{}
 }
 
-// Aggregate converts database rows to AIPiiCategory structs
 func (a *PIICategoryAggregator) Aggregate(rows []map[string]any) (any, error) {
 	categories := make([]AIPiiCategory, len(rows))
 	for i, row := range rows {
@@ -277,16 +243,12 @@ func (a *PIICategoryAggregator) Aggregate(rows []map[string]any) (any, error) {
 	return categories, nil
 }
 
-// SummaryAggregator aggregates summary data from query results
-// Following Single Responsibility Principle - only handles summary aggregation
 type SummaryAggregator struct{}
 
-// NewSummaryAggregator creates a new summary aggregator
 func NewSummaryAggregator() *SummaryAggregator {
 	return &SummaryAggregator{}
 }
 
-// Aggregate converts database row to AISummary struct
 func (a *SummaryAggregator) Aggregate(rows []map[string]any) (any, error) {
 	if len(rows) == 0 {
 		return nil, nil

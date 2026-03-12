@@ -24,8 +24,6 @@ const (
 	DefaultMaxQueueSize = 10_000
 )
 
-// ErrBackpressure is returned by Enqueue when the ring is full.
-// Map to HTTP 429 + Retry-After.
 var ErrBackpressure = errors.New("ingest: backpressure — queue full")
 
 // Row is a single row to insert. Values must match the target table's column order.
@@ -33,19 +31,15 @@ type Row struct {
 	Values []any
 }
 
-// Queue is a lock-free, batched insert queue with backpressure support.
 type Queue struct {
-	// --- ring buffer ---
 	slots [RingCapacity]atomic.Value // pre-allocated slots; each holds a *Row
 	head  atomic.Uint64              // claimed by producers via CAS
 	tail  atomic.Uint64              // advanced by the single consumer
 
-	// --- ClickHouse ---
 	conn        clickhouse.Conn // native driver connection
 	queryPrefix string          // "INSERT INTO table (col, ...)" — built once
 	flushSem    chan struct{}    // limits concurrent flushes to cap(flushSem)
 
-	// --- config ---
 	table     string
 	columns   []string
 	batchSize int
@@ -66,7 +60,6 @@ func WithBatchSize(n int) Option { return func(q *Queue) { q.batchSize = n } }
 // WithFlushInterval overrides the default flush interval (500ms).
 func WithFlushInterval(ms int) Option { return func(q *Queue) { q.flushMs = ms } }
 
-// WithMaxQueueSize is kept for API compatibility; ring size is fixed at RingCapacity.
 func WithMaxQueueSize(_ int) Option { return func(_ *Queue) {} }
 
 // NewQueue creates the queue and starts the background worker.
@@ -99,6 +92,7 @@ func (q *Queue) publish(row Row) error {
 		t := q.tail.Load()
 
 		if h-t >= RingCapacity { // every slot occupied → backpressure
+			log.Printf("ingest: BACKPRESSURE table=%s depth=%d/%d", q.table, h-t, RingCapacity)
 			return ErrBackpressure
 		}
 
@@ -154,7 +148,6 @@ func (q *Queue) Enqueue(rows []Row) error {
 	return nil
 }
 
-// QueueLen returns an approximate count of buffered rows.
 func (q *Queue) QueueLen() int {
 	h := q.head.Load()
 	t := q.tail.Load()
@@ -184,7 +177,6 @@ func (q *Queue) Close() error {
 	return nil
 }
 
-// worker is the single consumer. Flushes on timer or when batchSize is reached.
 func (q *Queue) worker() {
 	defer close(q.doneCh)
 
@@ -231,6 +223,7 @@ func (q *Queue) flush(batch []Row) error {
 		return nil
 	}
 
+	start := time.Now()
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
@@ -252,6 +245,6 @@ func (q *Queue) flush(batch []Row) error {
 		return err
 	}
 
-	log.Printf("ingest: flushed %d rows to %s", len(batch), q.table)
+	log.Printf("ingest: flushed %d rows to %s (took %v, queue_depth=%d)", len(batch), q.table, time.Since(start), q.QueueLen())
 	return nil
 }

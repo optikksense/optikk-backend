@@ -95,7 +95,6 @@ func (h *OAuthHandler) GoogleLogin(c *gin.Context) {
 	c.Redirect(http.StatusTemporaryRedirect, url)
 }
 
-// GoogleCallback handles the Google OAuth callback after user consent.
 func (h *OAuthHandler) GoogleCallback(c *gin.Context) {
 	if h.googleConfig == nil {
 		apphandlers.RespondError(c, http.StatusServiceUnavailable, "OAUTH_NOT_CONFIGURED", "Google OAuth is not configured")
@@ -157,7 +156,6 @@ func (h *OAuthHandler) GithubLogin(c *gin.Context) {
 	c.Redirect(http.StatusTemporaryRedirect, url)
 }
 
-// GithubCallback handles the GitHub OAuth callback after user consent.
 func (h *OAuthHandler) GithubCallback(c *gin.Context) {
 	if h.githubConfig == nil {
 		apphandlers.RespondError(c, http.StatusServiceUnavailable, "OAUTH_NOT_CONFIGURED", "GitHub OAuth is not configured")
@@ -233,7 +231,7 @@ func (h *OAuthHandler) handleOAuthCallback(c *gin.Context, provider, oauthID, em
 	existingUser, err := h.store.FindActiveUserByEmail(email)
 	if err == nil {
 		// Link OAuth to existing account and log them in.
-		_ = h.store.UpdateUserOAuth(existingUser.ID, provider, oauthID, time.Now().UTC())
+		_ = h.store.UpdateUserOAuth(existingUser.ID, provider, oauthID)
 		jwtToken, redirectURL := h.issueJWTAndRedirect(existingUser)
 		if jwtToken == "" {
 			c.Redirect(http.StatusTemporaryRedirect, h.redirectBase+"/login?error=token_failed")
@@ -279,7 +277,7 @@ func (h *OAuthHandler) issueJWTAndRedirect(user AuthUser) (string, string) {
 
 	_ = h.store.UpdateUserLastLogin(user.ID, time.Now().UTC())
 
-	jwtToken, err := h.jwtManager.Generate(user.ID, user.Email, user.Name, user.Role, teamID, teamIDs...)
+	jwtToken, err := h.jwtManager.Generate(user.ID, user.Email, user.Name, "", teamID, teamIDs...)
 	if err != nil {
 		return "", ""
 	}
@@ -288,8 +286,6 @@ func (h *OAuthHandler) issueJWTAndRedirect(user AuthUser) (string, string) {
 	return jwtToken, redirectURL
 }
 
-// CompleteSignup handles POST /api/v1/auth/oauth/complete-signup.
-// Validates the pending OAuth token, checks the org+team exists, and creates the user.
 func (h *OAuthHandler) CompleteSignup(c *gin.Context) {
 	var req struct {
 		PendingToken string `json:"pendingToken" binding:"required"`
@@ -325,7 +321,7 @@ func (h *OAuthHandler) CompleteSignup(c *gin.Context) {
 	existingUser, err := h.store.FindActiveUserByEmail(claims.Email)
 	if err == nil {
 		// Already exists — just link OAuth and log them in.
-		_ = h.store.UpdateUserOAuth(existingUser.ID, claims.Provider, claims.OAuthID, time.Now().UTC())
+		_ = h.store.UpdateUserOAuth(existingUser.ID, claims.Provider, claims.OAuthID)
 		jwtToken, _ := h.issueJWTAndRedirectJSON(c, existingUser)
 		if jwtToken == "" {
 			return
@@ -342,7 +338,7 @@ func (h *OAuthHandler) CompleteSignup(c *gin.Context) {
 	}
 
 	userID, err := h.store.CreateOAuthUser(
-		claims.Email, claims.Name, claims.AvatarURL, "member",
+		claims.Email, claims.Name, claims.AvatarURL,
 		teamsJSON, claims.Provider, claims.OAuthID, time.Now().UTC(),
 	)
 	if err != nil {
@@ -379,7 +375,7 @@ func (h *OAuthHandler) issueJWTAndRedirectJSON(c *gin.Context, user AuthUser) (s
 
 	_ = h.store.UpdateUserLastLogin(user.ID, time.Now().UTC())
 
-	jwtToken, err := h.jwtManager.Generate(user.ID, user.Email, user.Name, user.Role, teamID, teamIDs...)
+	jwtToken, err := h.jwtManager.Generate(user.ID, user.Email, user.Name, "", teamID, teamIDs...)
 	if err != nil {
 		respondServiceError(c, newInternalError("Failed to generate token", err), "Unable to complete signup")
 		return "", nil
@@ -394,15 +390,13 @@ func (h *OAuthHandler) issueJWTAndRedirectJSON(c *gin.Context, user AuthUser) (s
 		"token":       jwtToken,
 		"tokenType":   "Bearer",
 		"expiresIn":   h.jwtExpiresMs,
-		"user":        map[string]any{"id": user.ID, "email": user.Email, "name": user.Name, "avatarUrl": user.AvatarURL, "role": user.Role},
+		"user":        map[string]any{"id": user.ID, "email": user.Email, "name": user.Name, "avatarUrl": user.AvatarURL},
 		"teams":       teams,
 		"currentTeam": currentTeam,
 	})
 	return jwtToken, teams
 }
 
-// ForgotPassword handles POST /api/v1/auth/forgot-password.
-// Always returns a static message directing the user to contact their IT admin.
 func (h *OAuthHandler) ForgotPassword(c *gin.Context) {
 	apphandlers.RespondOK(c, map[string]string{
 		"message": "Password resets are managed by your IT administrator. Please contact your IT admin for assistance.",

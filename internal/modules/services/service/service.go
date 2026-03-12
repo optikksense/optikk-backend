@@ -2,7 +2,6 @@ package servicepage
 
 import ()
 
-// Service encapsulates the business logic for the services overview module.
 type Service interface {
 	GetTotalServices(teamID int64, startMs, endMs int64) (int64, error)
 	GetHealthyServices(teamID int64, startMs, endMs int64) (int64, error)
@@ -13,12 +12,10 @@ type Service interface {
 	GetServiceEndpoints(teamID int64, startMs, endMs int64, serviceName string) ([]EndpointMetric, error)
 }
 
-// ServicePageService provides business logic orchestration for services overview.
 type ServicePageService struct {
 	repo Repository
 }
 
-// NewService creates a new services overview service.
 func NewService(repo Repository) Service {
 	return &ServicePageService{repo: repo}
 }

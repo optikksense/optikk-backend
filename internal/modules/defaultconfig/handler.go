@@ -18,7 +18,6 @@ type Handler struct {
 	Registry *configdefaults.Registry
 }
 
-// ListPages returns the ordered, navigable pages.
 func (h *Handler) ListPages(c *gin.Context) {
 	tenant := h.GetTenant(c)
 	defaultPages := h.Registry.ListPages(true)
@@ -36,7 +35,6 @@ func (h *Handler) ListPages(c *gin.Context) {
 	RespondOK(c, map[string]any{"pages": pages})
 }
 
-// ListTabs returns ordered tabs for a page.
 func (h *Handler) ListTabs(c *gin.Context) {
 	tenant := h.GetTenant(c)
 	pageID := c.Param("pageId")
@@ -67,7 +65,6 @@ func (h *Handler) ListTabs(c *gin.Context) {
 	})
 }
 
-// ListComponents returns ordered renderable components for a page tab.
 func (h *Handler) ListComponents(c *gin.Context) {
 	tenant := h.GetTenant(c)
 	pageID := c.Param("pageId")
@@ -161,6 +158,12 @@ func (h *Handler) resolvePage(teamID int64, pageID string) (configdefaults.PageD
 
 	overrideJSON, err := h.Repo.GetPageOverride(teamID, pageID)
 	if err != nil || overrideJSON == "" {
+		// Seed the default config for this page so future overrides have a row to update.
+		if seedBytes, marshalErr := json.Marshal(defaultDoc); marshalErr == nil {
+			if saveErr := h.Repo.SavePageOverride(teamID, pageID, string(seedBytes)); saveErr != nil {
+				log.Printf("default-config: failed to seed page=%s for team=%d: %v", pageID, teamID, saveErr)
+			}
+		}
 		return defaultDoc, nil
 	}
 

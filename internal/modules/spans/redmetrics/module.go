@@ -2,24 +2,28 @@ package redmetrics
 
 import "github.com/gin-gonic/gin"
 
-// Config holds RED metrics module route configuration.
 type Config struct {
 	Enabled bool
 }
 
-// DefaultConfig returns default RED metrics module configuration.
 func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-// RegisterRoutes mounts RED metrics routes.
 func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *REDMetricsHandler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}
-	v1.GET("/spans/top-slow-operations", h.GetTopSlowOperations)
-	v1.GET("/spans/top-error-operations", h.GetTopErrorOperations)
-	v1.GET("/spans/http-status-distribution", h.GetHTTPStatusDistribution)
-	v1.GET("/spans/service-scorecard", h.GetServiceScorecard)
-	v1.GET("/spans/apdex", h.GetApdex)
+	red := v1.Group("/spans/red")
+	red.GET("/summary", h.GetSummary)
+	red.GET("/service-scorecard", h.GetServiceScorecard)
+	red.GET("/apdex", h.GetApdex)
+	red.GET("/http-status-distribution", h.GetHTTPStatusDistribution)
+	red.GET("/top-slow-operations", h.GetTopSlowOperations)
+	red.GET("/top-error-operations", h.GetTopErrorOperations)
+	red.GET("/request-rate", h.GetRequestRateTimeSeries)
+	red.GET("/error-rate", h.GetErrorRateTimeSeries)
+	red.GET("/p95-latency", h.GetP95LatencyTimeSeries)
+	red.GET("/span-kind-breakdown", h.GetSpanKindBreakdown)
+	red.GET("/errors-by-route", h.GetErrorsByRoute)
 }

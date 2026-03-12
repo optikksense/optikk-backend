@@ -6,6 +6,7 @@ package common
 import (
 	"database/sql"
 	"fmt"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,21 +18,29 @@ import (
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
-// GetTenantFunc is a function that extracts the tenant context from a request.
-// It is provided by the app package to avoid circular imports.
 type GetTenantFunc func(*gin.Context) types.TenantContext
-
-// ---- Response helpers -------------------------------------------------------
 
 func RespondOK(c *gin.Context, data any) {
 	c.JSON(http.StatusOK, types.Success(data))
 }
 
 func RespondError(c *gin.Context, status int, code, msg string) {
+	if status >= 500 {
+		log.Printf("ERROR [%s %s] %s: %s", c.Request.Method, c.Request.URL.Path, code, msg)
+	}
 	c.JSON(status, types.Failure(code, msg, c.Request.URL.Path))
 }
 
-// ---- Query param helpers ----------------------------------------------------
+// RespondErrorWithCause logs the underlying error server-side before responding.
+// Use this instead of RespondError when you have access to the original error.
+func RespondErrorWithCause(c *gin.Context, status int, code, msg string, err error) {
+	if err != nil {
+		log.Printf("ERROR [%s %s] %s: %s: %v", c.Request.Method, c.Request.URL.Path, code, msg, err)
+	} else if status >= 500 {
+		log.Printf("ERROR [%s %s] %s: %s", c.Request.Method, c.Request.URL.Path, code, msg)
+	}
+	c.JSON(status, types.Failure(code, msg, c.Request.URL.Path))
+}
 
 func ParseInt64Param(c *gin.Context, key string, fallback int64) int64 {
 	if v := c.Query(key); v != "" {
@@ -42,7 +51,6 @@ func ParseInt64Param(c *gin.Context, key string, fallback int64) int64 {
 	return fallback
 }
 
-// MaxPageSize is the hard upper limit for pagination size parameters.
 const MaxPageSize = 200
 
 func ParseIntParam(c *gin.Context, key string, fallback int) int {
@@ -54,7 +62,6 @@ func ParseIntParam(c *gin.Context, key string, fallback int) int {
 	return fallback
 }
 
-// ParsePageSize is like ParseIntParam but caps the value at MaxPageSize.
 func ParsePageSize(c *gin.Context, key string, fallback int) int {
 	size := ParseIntParam(c, key, fallback)
 	if size > MaxPageSize {
@@ -121,8 +128,6 @@ func ParseRange(c *gin.Context) (int64, int64, error) {
 	return start, end, nil
 }
 
-// ParseRequiredRange parses start/end time params and writes a 400 response if missing.
-// Returns false when the caller should abort immediately.
 func ParseRequiredRange(c *gin.Context) (int64, int64, bool) {
 	start, end, err := ParseRange(c)
 	if err != nil {
@@ -139,8 +144,6 @@ func ExtractIDParam(c *gin.Context, key string) (int64, error) {
 	}
 	return id, nil
 }
-
-// ---- SQL helpers ------------------------------------------------------------
 
 func SqlTime(ms int64) time.Time {
 	return dbutil.SqlTime(ms)
@@ -161,8 +164,6 @@ func QueryCount(db *sql.DB, q string, args ...any) int64 {
 func InClauseFromStrings(values []string) (string, []any) {
 	return dbutil.InClauseFromStrings(values)
 }
-
-// ---- Type conversion helpers ------------------------------------------------
 
 func Int64FromAny(v any) int64 {
 	return dbutil.Int64FromAny(v)

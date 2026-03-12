@@ -1,22 +1,20 @@
 package topology
 
 import (
+	"github.com/observability/observability-backend-go/internal/platform/timebucket"
 	"fmt"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
-// Repository encapsulates data access logic for the services topology page.
 type Repository interface {
 	GetTopology(teamID int64, startMs, endMs int64) (TopologyData, error)
 }
 
-// ClickHouseRepository encapsulates services topology data access logic.
 type ClickHouseRepository struct {
 	db dbutil.Querier
 }
 
-// NewRepository creates a new services topology repository.
 func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
@@ -35,7 +33,7 @@ func (r *ClickHouseRepository) GetTopology(teamID int64, startMs, endMs int64) (
 			GROUP BY s.service_name
 		)
 		ORDER BY request_count DESC
-	`, teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, teamID, timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return TopologyData{}, err
 	}
@@ -64,8 +62,8 @@ func (r *ClickHouseRepository) GetTopology(teamID int64, startMs, endMs int64) (
 		)
 		ORDER BY call_count DESC
 		LIMIT `+fmt.Sprintf("%d", MaxEdges)+`
-	`, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
-		teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	`, timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
+		teamID, timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return TopologyData{}, err
 	}

@@ -27,7 +27,6 @@ type QuerySpec struct {
 	Extra    map[string]any `json:"-"`
 }
 
-// ComponentGroup defines a named collapsible section within a tab.
 type ComponentGroup struct {
 	ID    string `json:"id"`
 	Label string `json:"label"`

@@ -8,13 +8,11 @@ import (
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
-// TopologyHandler handles services topology endpoints.
 type TopologyHandler struct {
 	modulecommon.DBTenant
 	Service Service
 }
 
-// GetTopology returns the complete service topology graph payload.
 func (h *TopologyHandler) GetTopology(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)

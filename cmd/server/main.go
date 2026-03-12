@@ -21,14 +21,19 @@ func main() {
 	}
 	defer dbConn.Close()
 
-	chConn, err := database.OpenClickHouse(cfg.ClickHouseDSN(), cfg.ClickHouseProduction)
+	chCloud := database.ClickHouseCloudConfig{
+		Host:     cfg.ClickHouseCloudHost,
+		Username: cfg.ClickHouseUser,
+		Password: cfg.ClickHousePassword,
+	}
+	chConn, err := database.OpenClickHouse(cfg.ClickHouseDSN(), cfg.ClickHouseProduction, chCloud)
 	if err != nil {
 		log.Fatalf("failed to connect clickhouse: %v", err)
 	}
 	defer chConn.Close()
 
 	// Native conn for ingest queues (PrepareBatch API).
-	chNative, err := database.OpenClickHouseConn(cfg.ClickHouseDSN(), cfg.ClickHouseProduction)
+	chNative, err := database.OpenClickHouseConn(cfg.ClickHouseDSN(), cfg.ClickHouseProduction, chCloud)
 	if err != nil {
 		log.Fatalf("failed to open native clickhouse conn: %v", err)
 	}

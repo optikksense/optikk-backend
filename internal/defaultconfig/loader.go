@@ -9,12 +9,10 @@ import (
 	"strings"
 )
 
-// Registry stores all default page and tab definitions loaded from JSON files.
 type Registry struct {
 	pages map[string]PageDocument
 }
 
-// LoadFromFS loads page definitions from a filesystem rooted at internal/defaultconfig.
 func LoadFromFS(fsys fs.FS) (*Registry, error) {
 	pageEntries, err := fs.ReadDir(fsys, "pages")
 	if err != nil {
@@ -109,7 +107,6 @@ func LoadFromFS(fsys fs.FS) (*Registry, error) {
 	return registry, nil
 }
 
-// GetPage returns the loaded page document.
 func (r *Registry) GetPage(pageID string) (PageDocument, bool) {
 	if r == nil {
 		return PageDocument{}, false
@@ -125,7 +122,6 @@ func (r *Registry) GetPage(pageID string) (PageDocument, bool) {
 	return cloned, true
 }
 
-// ListPages returns sorted page metadata. When navigableOnly is true, hidden pages are excluded.
 func (r *Registry) ListPages(navigableOnly bool) []PageMetadata {
 	if r == nil {
 		return nil
@@ -148,7 +144,6 @@ func (r *Registry) ListPages(navigableOnly bool) []PageMetadata {
 	return pages
 }
 
-// ClonePageDocument returns a deep copy safe for mutation.
 func ClonePageDocument(doc PageDocument) (PageDocument, error) {
 	bytes, err := json.Marshal(doc)
 	if err != nil {

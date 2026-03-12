@@ -8,13 +8,11 @@ import (
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
-// ServiceMapHandler handles service map endpoints.
 type ServiceMapHandler struct {
 	modulecommon.DBTenant
 	Service Service
 }
 
-// GetUpstreamDownstream returns all upstream and downstream dependencies for a service.
 func (h *ServiceMapHandler) GetUpstreamDownstream(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Param("serviceName")
@@ -31,7 +29,6 @@ func (h *ServiceMapHandler) GetUpstreamDownstream(c *gin.Context) {
 	RespondOK(c, deps)
 }
 
-// GetExternalDependencies returns calls to hosts outside the known service mesh.
 func (h *ServiceMapHandler) GetExternalDependencies(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
@@ -47,7 +44,6 @@ func (h *ServiceMapHandler) GetExternalDependencies(c *gin.Context) {
 	RespondOK(c, deps)
 }
 
-// GetClientServerLatency returns dual time-series of client vs server p95 latency.
 func (h *ServiceMapHandler) GetClientServerLatency(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)

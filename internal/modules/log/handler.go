@@ -139,20 +139,6 @@ func (h *LogHandler) GetLogs(c *gin.Context) {
 	})
 }
 
-func (h *LogHandler) GetLogFacets(c *gin.Context) {
-	f, ok := h.enrichFilters(c)
-	if !ok {
-		return
-	}
-
-	resp, err := h.repo.GetLogFacets(c.Request.Context(), f)
-	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query log facets")
-		return
-	}
-	common.RespondOK(c, resp)
-}
-
 func (h *LogHandler) GetLogHistogram(c *gin.Context) {
 	f, ok := h.enrichFilters(c)
 	if !ok {
@@ -303,42 +289,40 @@ func (h *LogHandler) GetTraceLogs(c *gin.Context) {
 	common.RespondOK(c, resp.Logs)
 }
 
-// GetLogAggregate returns a time-series aggregation of log counts grouped by a field.
-// GET /api/v1/logs/aggregate?groupBy=service&step=5m&topN=10&startMs=...&endMs=...
 func (h *LogHandler) GetLogAggregate(c *gin.Context) {
 	f, ok := h.enrichFilters(c)
 	if !ok {
 		return
 	}
 
-	groupBy := c.DefaultQuery("groupBy", "service")
-	step := c.DefaultQuery("step", "5m")
-	topN := common.ParseIntParam(c, "topN", 20)
+	var req LogAggregateRequest
+	_ = c.ShouldBindQuery(&req)
+	if req.GroupBy == "" {
+		req.GroupBy = "service"
+	}
+	if req.Step == "" {
+		req.Step = "5m"
+	}
+	if req.TopN <= 0 {
+		req.TopN = 20
+	}
+	if req.Metric == "" {
+		req.Metric = "count"
+	}
 
-	rows, err := h.repo.GetLogAggregate(c.Request.Context(), f, groupBy, step, topN)
+	rows, err := h.repo.GetLogAggregate(c.Request.Context(), f, req)
 	if err != nil {
 		common.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", err.Error())
 		return
 	}
 	common.RespondOK(c, map[string]any{
-		"groupBy": groupBy,
-		"step":    step,
-		"rows":    rows,
+		"group_by": req.GroupBy,
+		"step":     req.Step,
+		"metric":   req.Metric,
+		"rows":     rows,
 	})
 }
 
-// StreamLogs is an SSE endpoint for live log tailing.
-// It polls ClickHouse every pollInterval and streams new log entries as
-// Server-Sent Events. The client should pass the same filter params as
-// GET /logs. The stream stays open until the client disconnects.
-//
-// Event format:
-//
-//	data: <JSON log object>\n\n
-//
-// A special heartbeat event is sent every 15 s to keep the connection alive:
-//
-//	event: heartbeat\ndata: {}\n\n
 func (h *LogHandler) StreamLogs(c *gin.Context) {
 	f, ok := h.enrichFilters(c)
 	if !ok {

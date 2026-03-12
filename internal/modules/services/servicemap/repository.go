@@ -7,25 +7,20 @@ import (
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
-// Repository defines data access for service map endpoints.
 type Repository interface {
 	GetUpstreamDownstream(teamID int64, serviceName string, startMs, endMs int64) ([]ServiceDependencyDetail, error)
 	GetExternalDependencies(teamID int64, startMs, endMs int64) ([]ExternalDependency, error)
 	GetClientServerLatency(teamID int64, startMs, endMs int64, operationName string) ([]ClientServerLatencyPoint, error)
 }
 
-// ClickHouseRepository implements Repository against ClickHouse.
 type ClickHouseRepository struct {
 	db dbutil.Querier
 }
 
-// NewRepository creates a new service map repository.
 func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-// GetUpstreamDownstream returns all services that call or are called by serviceName,
-// with p95 latency and error rate derived from client spans.
 func (r *ClickHouseRepository) GetUpstreamDownstream(teamID int64, serviceName string, startMs, endMs int64) ([]ServiceDependencyDetail, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT source,
@@ -49,8 +44,8 @@ func (r *ClickHouseRepository) GetUpstreamDownstream(teamID int64, serviceName s
 		)
 		ORDER BY call_count DESC
 		LIMIT 200
-	`, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
-		teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), serviceName, serviceName)
+	`, timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
+		teamID, timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs), serviceName, serviceName)
 	if err != nil {
 		return nil, err
 	}
@@ -75,9 +70,6 @@ func (r *ClickHouseRepository) GetUpstreamDownstream(teamID int64, serviceName s
 	return result, nil
 }
 
-// GetExternalDependencies returns calls to hosts not present among known internal hosts
-// (i.e. external/third-party endpoints) based on http.url or peer.address attributes.
-// Known hosts are derived from mat_host_name on the spans table (resource attrs merged at ingest).
 func (r *ClickHouseRepository) GetExternalDependencies(teamID int64, startMs, endMs int64) ([]ExternalDependency, error) {
 	externalHostExpr := `coalesce(
 		nullIf(s.mat_host_name, ''),
@@ -107,8 +99,8 @@ func (r *ClickHouseRepository) GetExternalDependencies(teamID int64, startMs, en
 		ORDER BY call_count DESC
 		LIMIT 100
 	`, externalHostExpr, externalHostExpr, externalHostExpr),
-		teamID, uint64(startMs/1000), uint64(endMs/1000),
-		teamID, uint64(startMs/1000), uint64(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+		teamID, timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000),
+		teamID, timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
 		return nil, err
 	}
@@ -126,8 +118,6 @@ func (r *ClickHouseRepository) GetExternalDependencies(teamID int64, startMs, en
 	return result, nil
 }
 
-// GetClientServerLatency returns a time-series of client vs server p95 latency per operation,
-// computing the network gap as clientP95 - serverP95.
 func (r *ClickHouseRepository) GetClientServerLatency(teamID int64, startMs, endMs int64, operationName string) ([]ClientServerLatencyPoint, error) {
 	bucket := timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
 	query := fmt.Sprintf(`
@@ -138,7 +128,7 @@ func (r *ClickHouseRepository) GetClientServerLatency(teamID int64, startMs, end
 		FROM observability.spans s
 		WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?
 		  AND s.kind IN (2, 3)`, bucket)
-	args := []any{teamID, uint64(startMs / 1000), uint64(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+	args := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
 	if operationName != "" {
 		query += ` AND s.name = ?`
 		args = append(args, operationName)

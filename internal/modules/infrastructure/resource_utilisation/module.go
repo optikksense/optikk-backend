@@ -10,7 +10,6 @@ func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-// RegisterRoutes mounts resource util routes.
 func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ResourceUtilisationHandler) {
 	if !cfg.Enabled || h == nil {
 		return

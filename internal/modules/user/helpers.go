@@ -94,7 +94,6 @@ func buildAuthContextResponse(store *Store, userID int64) (map[string]any, error
 			"email":     dbutil.StringFromAny(user["email"]),
 			"name":      dbutil.StringFromAny(user["name"]),
 			"avatarUrl": dbutil.StringFromAny(user["avatar_url"]),
-			"role":      dbutil.StringFromAny(user["role"]),
 		},
 		"teams":       teams,
 		"currentTeam": currentTeam,
@@ -139,7 +138,6 @@ func buildUserResponseByID(store *Store, userID int64) (map[string]any, error) {
 		"email":       dbutil.StringFromAny(user["email"]),
 		"name":        dbutil.StringFromAny(user["name"]),
 		"avatarUrl":   dbutil.StringFromAny(user["avatar_url"]),
-		"role":        dbutil.StringFromAny(user["role"]),
 		"active":      dbutil.BoolFromAny(user["active"]),
 		"lastLoginAt": user["last_login_at"],
 		"createdAt":   user["created_at"],
@@ -167,7 +165,6 @@ func buildSettingsResponse(store *Store, userID int64) (map[string]any, error) {
 		"name":        dbutil.StringFromAny(row["name"]),
 		"email":       dbutil.StringFromAny(row["email"]),
 		"avatarUrl":   dbutil.StringFromAny(row["avatar_url"]),
-		"role":        dbutil.StringFromAny(row["role"]),
 		"preferences": map[string]any{},
 		"teams":       dbutil.NormalizeRows(teams),
 	}, nil

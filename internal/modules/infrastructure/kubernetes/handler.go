@@ -8,7 +8,6 @@ import (
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
-// KubernetesHandler handles API endpoints for Kubernetes metrics.
 type KubernetesHandler struct {
 	modulecommon.DBTenant
 	Service Service

@@ -8,8 +8,6 @@ import (
 	"time"
 )
 
-// ---- SQL helpers ------------------------------------------------------------
-
 func SqlTime(ms int64) time.Time {
 	return time.UnixMilli(ms).UTC()
 }
@@ -40,8 +38,6 @@ func QueryCount(db Querier, q string, args ...any) int64 {
 func InClauseFromStrings(values []string) (string, []any) {
 	return InClause(values)
 }
-
-// ---- Type conversion helpers ------------------------------------------------
 
 func Int64FromAny(v any) int64 {
 	switch n := v.(type) {
@@ -213,10 +209,12 @@ func sanitizeValue(v any) any {
 		if math.IsNaN(n) || math.IsInf(n, 0) {
 			return 0.0
 		}
+		return math.Round(n*100) / 100
 	case float32:
 		if math.IsNaN(float64(n)) || math.IsInf(float64(n), 0) {
 			return 0.0
 		}
+		return float32(math.Round(float64(n)*100) / 100)
 	}
 	return v
 }

@@ -2,7 +2,6 @@ package errors
 
 import ()
 
-// Service encapsulates the business logic for the overview errors module.
 type Service interface {
 	GetServiceErrorRate(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
 	GetErrorVolume(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
@@ -10,12 +9,10 @@ type Service interface {
 	GetErrorGroups(teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error)
 }
 
-// ErrorService provides business logic orchestration for overview error dashboards.
 type ErrorService struct {
 	repo Repository
 }
 
-// NewService creates a new ErrorService.
 func NewService(repo Repository) Service {
 	return &ErrorService{repo: repo}
 }

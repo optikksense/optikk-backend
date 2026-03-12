@@ -8,7 +8,6 @@ import (
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
-// APMHandler handles API endpoints for APM metrics.
 type APMHandler struct {
 	modulecommon.DBTenant
 	Service Service

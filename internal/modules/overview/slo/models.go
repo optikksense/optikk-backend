@@ -1,6 +1,5 @@
 package slo
 
-// Response is the SLO dashboard payload.
 type Response struct {
 	Objectives Objectives  `json:"objectives"`
 	Status     Status      `json:"status"`

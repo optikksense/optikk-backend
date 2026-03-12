@@ -2,17 +2,14 @@ package tracedetail
 
 import "github.com/gin-gonic/gin"
 
-// Config holds trace detail module route configuration.
 type Config struct {
 	Enabled bool
 }
 
-// DefaultConfig returns default trace detail module configuration.
 func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-// RegisterRoutes mounts trace detail routes.
 func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *TraceDetailHandler) {
 	if !cfg.Enabled || h == nil {
 		return

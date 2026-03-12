@@ -2,33 +2,14 @@ package circuitbreaker
 
 import (
 	"errors"
+	"log"
 	"math/rand"
 	"sync"
 	"time"
 )
 
-// ── Circuit Breaker ────────────────────────────────────────────────────────
-//
-// CircuitBreaker implements the classic three-state pattern (Closed → Open →
-// Half-Open) without any external dependencies. It wraps arbitrary function
-// calls and returns ErrCircuitOpen when the circuit is open.
-//
-// States:
-//   - Closed (normal): requests pass through; failures are counted.
-//   - Open: requests are rejected immediately after consecutiveFailures
-//     exceeds Threshold within the window.
-//   - Half-Open: after resetTimeout the circuit allows a single probe request.
-//     If it succeeds the circuit resets to Closed; if it fails it goes back Open.
-//
-// Usage:
-//
-//	cb := circuitbreaker.NewCircuitBreaker("clickhouse", 5, 30*time.Second)
-//	err := cb.Call(func() error { return doClickHouseQuery() })
-//	if errors.Is(err, circuitbreaker.ErrCircuitOpen) {
-//	    // surface as 503
-//	}
-
-// ErrCircuitOpen is returned when a call is rejected because the circuit is open.
+// CircuitBreaker reopens after a cooldown plus jitter to avoid stampeding
+// retries when a dependency starts recovering.
 var ErrCircuitOpen = errors.New("circuit breaker open")
 
 type cbState int
@@ -39,7 +20,6 @@ const (
 	cbHalfOpen
 )
 
-// CircuitBreaker is safe for concurrent use.
 type CircuitBreaker struct {
 	name     string
 	mu       sync.Mutex
@@ -52,8 +32,6 @@ type CircuitBreaker struct {
 	openedAt     time.Time
 }
 
-// NewCircuitBreaker creates a circuit breaker that opens after `threshold`
-// consecutive failures and resets after `resetTimeout`.
 func NewCircuitBreaker(name string, threshold int, resetTimeout time.Duration) *CircuitBreaker {
 	return &CircuitBreaker{
 		name:         name,
@@ -62,8 +40,6 @@ func NewCircuitBreaker(name string, threshold int, resetTimeout time.Duration) *
 	}
 }
 
-// Call executes fn under the circuit breaker.
-// Returns ErrCircuitOpen without calling fn when the circuit is open.
 func (cb *CircuitBreaker) Call(fn func() error) error {
 	cb.mu.Lock()
 	switch cb.state {
@@ -83,6 +59,7 @@ func (cb *CircuitBreaker) Call(fn func() error) error {
 
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
+	prevState := cb.state
 	if err != nil {
 		cb.failures++
 		if cb.state == cbHalfOpen || cb.failures >= cb.Threshold {
@@ -93,10 +70,24 @@ func (cb *CircuitBreaker) Call(fn func() error) error {
 		cb.failures = 0
 		cb.state = cbClosed
 	}
+	if cb.state != prevState {
+		log.Printf("circuit_breaker: %s transitioned %s -> %s (failures=%d)",
+			cb.name, stateName(prevState), stateName(cb.state), cb.failures)
+	}
 	return err
 }
 
-// State returns a human-readable state string (useful for health endpoints).
+func stateName(s cbState) string {
+	switch s {
+	case cbOpen:
+		return "open"
+	case cbHalfOpen:
+		return "half-open"
+	default:
+		return "closed"
+	}
+}
+
 func (cb *CircuitBreaker) State() string {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()

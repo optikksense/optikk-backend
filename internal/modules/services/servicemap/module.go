@@ -2,17 +2,14 @@ package servicemap
 
 import "github.com/gin-gonic/gin"
 
-// Config holds service map module route configuration.
 type Config struct {
 	Enabled bool
 }
 
-// DefaultConfig returns default service map module configuration.
 func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-// RegisterRoutes mounts service map routes.
 func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ServiceMapHandler) {
 	if !cfg.Enabled || h == nil {
 		return

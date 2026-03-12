@@ -7,14 +7,10 @@ import (
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
-// QueryBuilder defines the interface for building SQL queries
-// Following Interface Segregation Principle - clients depend only on methods they use
 type QueryBuilder interface {
 	Build() (string, []any)
 }
 
-// BaseQueryBuilder provides common query building functionality
-// Following Single Responsibility Principle - handles base query construction
 type BaseQueryBuilder struct {
 	teamID    int64
 	startMs   int64
@@ -23,7 +19,6 @@ type BaseQueryBuilder struct {
 	limit     int
 }
 
-// NewBaseQueryBuilder creates a new base query builder
 func NewBaseQueryBuilder(teamID int64, startMs, endMs int64) *BaseQueryBuilder {
 	return &BaseQueryBuilder{
 		teamID: teamID,
@@ -45,23 +40,18 @@ func (b *BaseQueryBuilder) WithLimit(limit int) *BaseQueryBuilder {
 	return b
 }
 
-// attrStr returns a CH 26+ native JSON path expression reading a String from attributes.
 func attrStr(key string) string {
 	return "attributes.'" + key + "'::String"
 }
 
-// attrInt returns a CH 26+ native JSON path expression reading an Int64 from attributes.
 func attrInt(key string) string {
 	return "attributes.'" + key + "'::Int64"
 }
 
-// attrFlt returns a CH 26+ native JSON path expression reading a Float64 from attributes.
 func attrFlt(key string) string {
 	return "attributes.'" + key + "'::Float64"
 }
 
-// baseWhereClause returns the common WHERE clause and arguments.
-// Filters for metrics that carry a gen.ai.request.model attribute (GenAI metrics).
 func (b *BaseQueryBuilder) baseWhereClause() (string, []any) {
 	modelExpr := attrStr("gen.ai.request.model")
 	where := fmt.Sprintf("WHERE team_id = ? AND timestamp BETWEEN ? AND ? AND %s <> ''", modelExpr)
@@ -75,14 +65,11 @@ func (b *BaseQueryBuilder) baseWhereClause() (string, []any) {
 	return where, args
 }
 
-// PerformanceMetricsQueryBuilder builds queries for performance metrics
-// Following Single Responsibility Principle - only handles performance metric queries
 type PerformanceMetricsQueryBuilder struct {
 	*BaseQueryBuilder
 	includePercentiles bool
 }
 
-// NewPerformanceMetricsQueryBuilder creates a new performance metrics query builder
 func NewPerformanceMetricsQueryBuilder(teamID int64, startMs, endMs int64) *PerformanceMetricsQueryBuilder {
 	return &PerformanceMetricsQueryBuilder{
 		BaseQueryBuilder:   NewBaseQueryBuilder(teamID, startMs, endMs),
@@ -139,13 +126,10 @@ func (b *PerformanceMetricsQueryBuilder) Build() (string, []any) {
 	return query, args
 }
 
-// CostMetricsQueryBuilder builds queries for cost metrics
-// Following Single Responsibility Principle - only handles cost metric queries
 type CostMetricsQueryBuilder struct {
 	*BaseQueryBuilder
 }
 
-// NewCostMetricsQueryBuilder creates a new cost metrics query builder
 func NewCostMetricsQueryBuilder(teamID int64, startMs, endMs int64) *CostMetricsQueryBuilder {
 	return &CostMetricsQueryBuilder{
 		BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs),
@@ -197,13 +181,10 @@ func (b *CostMetricsQueryBuilder) Build() (string, []any) {
 	return query, args
 }
 
-// SecurityMetricsQueryBuilder builds queries for security metrics
-// Following Single Responsibility Principle - only handles security metric queries
 type SecurityMetricsQueryBuilder struct {
 	*BaseQueryBuilder
 }
 
-// NewSecurityMetricsQueryBuilder creates a new security metrics query builder
 func NewSecurityMetricsQueryBuilder(teamID int64, startMs, endMs int64) *SecurityMetricsQueryBuilder {
 	return &SecurityMetricsQueryBuilder{
 		BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs),
@@ -244,8 +225,6 @@ func (b *SecurityMetricsQueryBuilder) Build() (string, []any) {
 	return query, args
 }
 
-// TimeSeriesQueryBuilder builds time series queries with adaptive bucketing
-// Following Single Responsibility Principle - only handles time series queries
 type TimeSeriesQueryBuilder struct {
 	*BaseQueryBuilder
 	bucketStrategy TimeBucketStrategy
@@ -254,7 +233,6 @@ type TimeSeriesQueryBuilder struct {
 	orderBy        string
 }
 
-// NewTimeSeriesQueryBuilder creates a new time series query builder
 func NewTimeSeriesQueryBuilder(teamID int64, startMs, endMs int64, strategy TimeBucketStrategy) *TimeSeriesQueryBuilder {
 	return &TimeSeriesQueryBuilder{
 		BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs),
@@ -300,14 +278,11 @@ func (b *TimeSeriesQueryBuilder) Build() (string, []any) {
 	return query, args
 }
 
-// LatencyHistogramQueryBuilder builds latency histogram queries
-// Following Single Responsibility Principle - only handles histogram queries
 type LatencyHistogramQueryBuilder struct {
 	*BaseQueryBuilder
 	bucketSizeMs int64
 }
 
-// NewLatencyHistogramQueryBuilder creates a new latency histogram query builder
 func NewLatencyHistogramQueryBuilder(teamID int64, startMs, endMs int64) *LatencyHistogramQueryBuilder {
 	return &LatencyHistogramQueryBuilder{
 		BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs).WithLimit(200),
@@ -341,13 +316,10 @@ func (b *LatencyHistogramQueryBuilder) Build() (string, []any) {
 	return query, args
 }
 
-// SummaryQueryBuilder builds queries for AI summary metrics
-// Following Single Responsibility Principle - only handles summary queries
 type SummaryQueryBuilder struct {
 	*BaseQueryBuilder
 }
 
-// NewSummaryQueryBuilder creates a new summary query builder
 func NewSummaryQueryBuilder(teamID int64, startMs, endMs int64) *SummaryQueryBuilder {
 	return &SummaryQueryBuilder{
 		BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs),
@@ -404,13 +376,10 @@ func (b *SummaryQueryBuilder) Build() (string, []any) {
 	return query, args
 }
 
-// ModelListQueryBuilder builds queries for listing AI models
-// Following Single Responsibility Principle - only handles model list queries
 type ModelListQueryBuilder struct {
 	*BaseQueryBuilder
 }
 
-// NewModelListQueryBuilder creates a new model list query builder
 func NewModelListQueryBuilder(teamID int64, startMs, endMs int64) *ModelListQueryBuilder {
 	return &ModelListQueryBuilder{
 		BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs),
@@ -434,13 +403,10 @@ func (b *ModelListQueryBuilder) Build() (string, []any) {
 	return query, args
 }
 
-// TokenBreakdownQueryBuilder builds queries for token breakdown
-// Following Single Responsibility Principle - only handles token breakdown queries
 type TokenBreakdownQueryBuilder struct {
 	*BaseQueryBuilder
 }
 
-// NewTokenBreakdownQueryBuilder creates a new token breakdown query builder
 func NewTokenBreakdownQueryBuilder(teamID int64, startMs, endMs int64) *TokenBreakdownQueryBuilder {
 	return &TokenBreakdownQueryBuilder{
 		BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs).WithLimit(50),
@@ -473,13 +439,10 @@ func (b *TokenBreakdownQueryBuilder) Build() (string, []any) {
 	return query, args
 }
 
-// PIICategoryQueryBuilder builds queries for PII category breakdown
-// Following Single Responsibility Principle - only handles PII category queries
 type PIICategoryQueryBuilder struct {
 	*BaseQueryBuilder
 }
 
-// NewPIICategoryQueryBuilder creates a new PII category query builder
 func NewPIICategoryQueryBuilder(teamID int64, startMs, endMs int64) *PIICategoryQueryBuilder {
 	return &PIICategoryQueryBuilder{
 		BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs),

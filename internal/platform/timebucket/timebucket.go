@@ -7,17 +7,10 @@ import (
 	"fmt"
 )
 
-// Strategy defines the interface for time bucketing strategies.
 type Strategy interface {
 	GetBucketExpression() string
 	GetBucketName() string
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Concrete strategies
-// ─────────────────────────────────────────────────────────────────────────────
-
-// MinuteStrategy buckets data by 1 minute.
 type MinuteStrategy struct{}
 
 func (MinuteStrategy) GetBucketExpression() string {
@@ -25,7 +18,6 @@ func (MinuteStrategy) GetBucketExpression() string {
 }
 func (MinuteStrategy) GetBucketName() string { return "1 minute" }
 
-// FiveMinuteStrategy buckets data by 5 minutes.
 type FiveMinuteStrategy struct{}
 
 func (FiveMinuteStrategy) GetBucketExpression() string {
@@ -33,7 +25,6 @@ func (FiveMinuteStrategy) GetBucketExpression() string {
 }
 func (FiveMinuteStrategy) GetBucketName() string { return "5 minutes" }
 
-// HourStrategy buckets data by 1 hour.
 type HourStrategy struct{}
 
 func (HourStrategy) GetBucketExpression() string {
@@ -41,7 +32,6 @@ func (HourStrategy) GetBucketExpression() string {
 }
 func (HourStrategy) GetBucketName() string { return "1 hour" }
 
-// DayStrategy buckets data by 1 day.
 type DayStrategy struct{}
 
 func (DayStrategy) GetBucketExpression() string {
@@ -49,17 +39,11 @@ func (DayStrategy) GetBucketExpression() string {
 }
 func (DayStrategy) GetBucketName() string { return "1 day" }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Adaptive (auto-selects granularity based on time range)
-// ─────────────────────────────────────────────────────────────────────────────
-
-// AdaptiveStrategy selects the appropriate granularity for a given time range.
 type AdaptiveStrategy struct {
 	startMs int64
 	endMs   int64
 }
 
-// NewAdaptiveStrategy creates an AdaptiveStrategy for the given millisecond range.
 func NewAdaptiveStrategy(startMs, endMs int64) *AdaptiveStrategy {
 	return &AdaptiveStrategy{startMs: startMs, endMs: endMs}
 }
@@ -68,7 +52,6 @@ func (s *AdaptiveStrategy) hours() int64 {
 	return (s.endMs - s.startMs) / 3_600_000
 }
 
-// GetBucketExpression returns the ClickHouse SQL expression for time bucketing.
 func (s *AdaptiveStrategy) GetBucketExpression() string {
 	switch h := s.hours(); {
 	case h <= 3:
@@ -82,7 +65,6 @@ func (s *AdaptiveStrategy) GetBucketExpression() string {
 	}
 }
 
-// GetBucketName returns the human-readable granularity label.
 func (s *AdaptiveStrategy) GetBucketName() string {
 	switch h := s.hours(); {
 	case h <= 3:
@@ -95,20 +77,11 @@ func (s *AdaptiveStrategy) GetBucketName() string {
 		return DayStrategy{}.GetBucketName()
 	}
 }
-
-// ─────────────────────────────────────────────────────────────────────────────
-// Convenience helpers
-// ─────────────────────────────────────────────────────────────────────────────
-
-// Expression is a convenience wrapper that returns the SQL expression for the
-// given millisecond range without needing to instantiate a Strategy explicitly.
-// It uses the standard `timestamp` column name.
 func Expression(startMs, endMs int64) string {
 	return NewAdaptiveStrategy(startMs, endMs).GetBucketExpression()
 }
 
-// ExprForColumn returns the adaptive bucket SQL expression using a custom
-// column name. Useful for span tables that use `start_time` instead of `timestamp`.
+// ExprForColumn applies adaptive bucketing to a non-default timestamp column.
 func ExprForColumn(startMs, endMs int64, column string) string {
 	h := (endMs - startMs) / 3_600_000
 	switch {
@@ -123,8 +96,6 @@ func ExprForColumn(startMs, endMs int64, column string) string {
 	}
 }
 
-// ByName returns a Strategy by short name. Useful when a caller wants to force
-// a specific granularity regardless of the time range.
 func ByName(name string) Strategy {
 	switch name {
 	case "minute", "1m":

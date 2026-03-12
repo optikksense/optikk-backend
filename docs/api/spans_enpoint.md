@@ -40,11 +40,13 @@ SERVER_END_NS=$((TRACE_START_NS + 80000000))
 SERVER_EVENT_NS=$((SERVER_END_NS - 1000000))
 ```
 
-## 2. OTLP gRPC Ingestion Example For Spans
+## 2. OTLP gRPC Ingestion Examples For Spans
 
 Expected response: gRPC status `OK` with an empty JSON body like `{}`.
 
-This example creates one root server span, one client span, and one downstream server span so that trace search, span tree, and service dependency endpoints all have useful data.
+### 2.1 Standard Web Server Request (Root Span)
+
+A single root span representing an incoming HTTP POST request.
 
 ```bash
 grpcurl -plaintext \
@@ -60,8 +62,7 @@ grpcurl -plaintext \
           { "key": "service.name", "value": { "stringValue": "checkout-service" } },
           { "key": "deployment.environment", "value": { "stringValue": "production" } },
           { "key": "host.name", "value": { "stringValue": "checkout-node-01" } },
-          { "key": "k8s.namespace.name", "value": { "stringValue": "payments" } },
-          { "key": "k8s.pod.name", "value": { "stringValue": "checkout-service-74486c9d7d-qzq8l" } }
+          { "key": "k8s.namespace.name", "value": { "stringValue": "payments" } }
         ]
       },
       "scopeSpans": [
@@ -85,7 +86,37 @@ grpcurl -plaintext \
                 { "key": "http.status_code", "value": { "intValue": "201" } }
               ],
               "status": { "code": 1 }
-            },
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+EOF
+```
+
+### 2.2 Client Span and Downstream Server (With Events)
+
+An outgoing HTTP client call from the `checkout-service` to the `inventory-service`, and the corresponding incoming server span on the inventory side containing a database insert event.
+
+```bash
+grpcurl -plaintext \
+  -H "x-api-key: ${OTLP_API_KEY}" \
+  -d @ \
+  "${OTLP_GRPC}" \
+  opentelemetry.proto.collector.trace.v1.TraceService/Export <<EOF
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "checkout-service" } }
+        ]
+      },
+      "scopeSpans": [
+        {
+          "spans": [
             {
               "traceId": "${TRACE_ID_B64}",
               "spanId": "${CLIENT_SPAN_B64}",
@@ -95,9 +126,9 @@ grpcurl -plaintext \
               "startTimeUnixNano": "${CLIENT_START_NS}",
               "endTimeUnixNano": "${CLIENT_END_NS}",
               "attributes": [
+                { "key": "peer.service", "value": { "stringValue": "inventory-service" } },
                 { "key": "http.method", "value": { "stringValue": "POST" } },
                 { "key": "http.url", "value": { "stringValue": "http://inventory-service/internal/reservations" } },
-                { "key": "http.host", "value": { "stringValue": "inventory-service" } },
                 { "key": "http.status_code", "value": { "intValue": "200" } }
               ],
               "status": { "code": 1 }
@@ -110,18 +141,11 @@ grpcurl -plaintext \
       "resource": {
         "attributes": [
           { "key": "service.name", "value": { "stringValue": "inventory-service" } },
-          { "key": "deployment.environment", "value": { "stringValue": "production" } },
-          { "key": "host.name", "value": { "stringValue": "inventory-node-02" } },
-          { "key": "k8s.namespace.name", "value": { "stringValue": "payments" } },
-          { "key": "k8s.pod.name", "value": { "stringValue": "inventory-service-6f7f9d6d9c-k2d3r" } }
+          { "key": "deployment.environment", "value": { "stringValue": "production" } }
         ]
       },
       "scopeSpans": [
         {
-          "scope": {
-            "name": "io.opentelemetry.spring-webmvc-6.0",
-            "version": "2.11.0"
-          },
           "spans": [
             {
               "traceId": "${TRACE_ID_B64}",
@@ -142,11 +166,69 @@ grpcurl -plaintext \
                   "name": "inventory.reservation.persisted",
                   "attributes": [
                     { "key": "db.system", "value": { "stringValue": "postgresql" } },
-                    { "key": "db.operation", "value": { "stringValue": "INSERT" } }
+                    { "key": "db.operation", "value": { "stringValue": "INSERT" } },
+                    { "key": "db.sql.table", "value": { "stringValue": "reservations" } }
                   ]
                 }
               ],
               "status": { "code": 1 }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+EOF
+```
+
+### 2.3 Exception / Error Span
+
+A span representing a failed operation, complete with an `exception` event and an `ERROR` status code.
+
+```bash
+grpcurl -plaintext \
+  -H "x-api-key: ${OTLP_API_KEY}" \
+  -d @ \
+  "${OTLP_GRPC}" \
+  opentelemetry.proto.collector.trace.v1.TraceService/Export <<EOF
+{
+  "resourceSpans": [
+    {
+      "resource": {
+        "attributes": [
+          { "key": "service.name", "value": { "stringValue": "payment-service" } }
+        ]
+      },
+      "scopeSpans": [
+        {
+          "spans": [
+            {
+              "traceId": "${TRACE_ID_B64}",
+              "spanId": "c4d3b2a1f5e6d7c8",
+              "parentSpanId": "${ROOT_SPAN_B64}",
+              "name": "chargeCreditCard",
+              "kind": 1,
+              "startTimeUnixNano": "${CLIENT_START_NS}",
+              "endTimeUnixNano": "${CLIENT_END_NS}",
+              "attributes": [
+                { "key": "payment.gateway", "value": { "stringValue": "stripe" } }
+              ],
+              "events": [
+                {
+                  "timeUnixNano": "${CLIENT_END_NS}",
+                  "name": "exception",
+                  "attributes": [
+                    { "key": "exception.type", "value": { "stringValue": "com.stripe.exception.CardException" } },
+                    { "key": "exception.message", "value": { "stringValue": "Your card was declined." } },
+                    { "key": "exception.stacktrace", "value": { "stringValue": "com.stripe.exception.CardException: Your card was declined.\n\tat... (stacktrace here)" } }
+                  ]
+                }
+              ],
+              "status": { 
+                "code": 2,
+                "message": "com.stripe.exception.CardException: Your card was declined."
+              }
             }
           ]
         }

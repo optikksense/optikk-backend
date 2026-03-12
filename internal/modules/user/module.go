@@ -2,12 +2,10 @@ package user
 
 import "github.com/gin-gonic/gin"
 
-// Config holds identity-module route configuration.
 type Config struct {
 	Enabled bool
 }
 
-// DefaultConfig returns default identity-module configuration.
 func DefaultConfig() Config {
 	return Config{Enabled: true}
 }

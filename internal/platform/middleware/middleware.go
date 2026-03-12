@@ -1,6 +1,8 @@
 package middleware
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"log"
 	"net/http"
 	"strings"
@@ -12,7 +14,29 @@ import (
 	"github.com/observability/observability-backend-go/internal/platform/utils"
 )
 
-// APIDebugLogger logs request and response details for debugging.
+const RequestIDKey = "requestId"
+
+func RequestIDMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		id := c.GetHeader("X-Request-Id")
+		if id == "" {
+			b := make([]byte, 16)
+			_, _ = rand.Read(b)
+			id = hex.EncodeToString(b)
+		}
+		c.Set(RequestIDKey, id)
+		c.Writer.Header().Set("X-Request-Id", id)
+		c.Next()
+	}
+}
+
+func GetRequestID(c *gin.Context) string {
+	if id, ok := c.Get(RequestIDKey); ok {
+		return id.(string)
+	}
+	return ""
+}
+
 func APIDebugLogger(enabled bool) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if !enabled {
@@ -43,9 +67,6 @@ type tenantContextKey string
 
 const tenantKey tenantContextKey = "tenant"
 
-// CORSMiddleware restricts cross-origin requests to explicitly allowed origins.
-// allowedOrigins should be a comma-separated list from configuration
-// (for example: "http://localhost:3000,http://localhost:5173").
 func CORSMiddleware(allowedOrigins string) gin.HandlerFunc {
 	originSet := make(map[string]bool)
 	for _, o := range strings.Split(allowedOrigins, ",") {
@@ -142,18 +163,9 @@ func extractBearerToken(c *gin.Context) string {
 	return ""
 }
 
-// TenantMiddleware extracts the authenticated tenant from the JWT token.
-// Public paths (signup, login, OTLP ingestion) are allowed through without
-// authentication. All other paths require a valid JWT; requests without one
-// are rejected with 401.
-//
-// When a non-nil TokenBlacklist is provided, revoked tokens are rejected
-// with 401 even if they are otherwise valid.
-//
-// Fix 1: Accepts JWT from httpOnly cookie as fallback to Authorization header.
-// Fix 2: Validates X-Team-Id override against the JWT's Teams claim to
-//
-//	prevent cross-tenant data access via forged headers.
+// TenantMiddleware accepts JWTs from the Authorization header or auth cookie.
+// Public routes pass through unauthenticated, but any X-Team-Id override must
+// be authorized by the token claims.
 func TenantMiddleware(jwtManager auth.JWTManager, blacklist ...*auth.TokenBlacklist) gin.HandlerFunc {
 	var bl *auth.TokenBlacklist
 	if len(blacklist) > 0 {
@@ -166,6 +178,7 @@ func TenantMiddleware(jwtManager auth.JWTManager, blacklist ...*auth.TokenBlackl
 		if token != "" {
 			// Reject revoked tokens before spending time on signature verification.
 			if bl != nil && bl.IsRevoked(token) {
+				log.Printf("AUTH_DENIED [%s %s] code=TOKEN_REVOKED ip=%s", c.Request.Method, c.Request.URL.Path, c.ClientIP())
 				c.AbortWithStatusJSON(http.StatusUnauthorized, types.Failure(
 					"TOKEN_REVOKED", "Token has been revoked", c.Request.URL.Path,
 				))
@@ -177,9 +190,10 @@ func TenantMiddleware(jwtManager auth.JWTManager, blacklist ...*auth.TokenBlackl
 
 				// Allow explicit team switching from UI for users that belong to
 				// multiple teams. JWT claim remains the default team.
-				// Fix 2: validate the requested team against the claims before allowing override.
 				if requested := utils.ToInt64(c.GetHeader("X-Team-Id"), 0); requested > 0 {
 					if !auth.ClaimsAuthorizedForTeam(claims, requested) {
+						log.Printf("AUTH_DENIED [%s %s] code=FORBIDDEN_TEAM user=%s requested_team=%d ip=%s",
+							c.Request.Method, c.Request.URL.Path, claims.Email, requested, c.ClientIP())
 						c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
 							"FORBIDDEN_TEAM",
 							"You are not a member of the requested team",
@@ -191,6 +205,8 @@ func TenantMiddleware(jwtManager auth.JWTManager, blacklist ...*auth.TokenBlackl
 				}
 
 				if teamID == 0 {
+					log.Printf("AUTH_DENIED [%s %s] code=MISSING_TEAM user=%s ip=%s",
+						c.Request.Method, c.Request.URL.Path, claims.Email, c.ClientIP())
 					c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
 						"MISSING_TEAM", "JWT does not contain a valid team_id", c.Request.URL.Path,
 					))
@@ -218,14 +234,13 @@ func TenantMiddleware(jwtManager auth.JWTManager, blacklist ...*auth.TokenBlackl
 		}
 
 		// Protected path without valid JWT — reject.
+		log.Printf("AUTH_DENIED [%s %s] code=UNAUTHORIZED ip=%s", c.Request.Method, c.Request.URL.Path, c.ClientIP())
 		c.AbortWithStatusJSON(http.StatusUnauthorized, types.Failure(
 			"UNAUTHORIZED", "Valid authentication is required", c.Request.URL.Path,
 		))
 	}
 }
 
-// GetTenant extracts the TenantContext set by TenantMiddleware.
-// Returns a zero-value context if no tenant was set (e.g. on public routes).
 func GetTenant(c *gin.Context) types.TenantContext {
 	v, ok := c.Get(string(tenantKey))
 	if !ok {

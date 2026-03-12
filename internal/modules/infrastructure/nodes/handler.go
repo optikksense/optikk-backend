@@ -8,13 +8,11 @@ import (
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
-// NodeHandler handles node page endpoints.
 type NodeHandler struct {
 	modulecommon.DBTenant
 	Service Service
 }
 
-// GetInfrastructureNodes returns host-level aggregation for the nodes view.
 func (h *NodeHandler) GetInfrastructureNodes(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
@@ -31,7 +29,6 @@ func (h *NodeHandler) GetInfrastructureNodes(c *gin.Context) {
 	RespondOK(c, rows)
 }
 
-// GetInfrastructureNodeSummary returns aggregate counts for node dashboard stat cards.
 func (h *NodeHandler) GetInfrastructureNodeSummary(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
@@ -48,7 +45,6 @@ func (h *NodeHandler) GetInfrastructureNodeSummary(c *gin.Context) {
 	RespondOK(c, summary)
 }
 
-// GetInfrastructureNodeServices returns services running on a specific host.
 func (h *NodeHandler) GetInfrastructureNodeServices(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	host := c.Param("host")

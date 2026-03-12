@@ -23,6 +23,9 @@ type Config struct {
 	ClickHouseUser       string
 	ClickHousePassword   string
 	ClickHouseProduction bool
+	// ClickHouseCloudHost is the production ClickHouse Cloud address (host:port).
+	// Only used when ClickHouseProduction is true.
+	ClickHouseCloudHost string
 
 	JWTSecret       string
 	JWTExpirationMs int64
@@ -48,7 +51,6 @@ type Config struct {
 
 	DefaultRetentionDays int
 
-	// Fix 22: Multi-region support.
 	// AppRegion is the Kubernetes region/AZ this pod is running in (e.g. "us-east-1").
 	// Populated from APP_REGION env var (set in the K8s Deployment manifest).
 	// Used to scope ClickHouse queries to the correct shard.
@@ -84,7 +86,8 @@ func Load() Config {
 		ClickHouseDatabase:   getEnv("CLICKHOUSE_DATABASE", "observability"),
 		ClickHouseUser:       getEnv("CLICKHOUSE_USERNAME", "default"),
 		ClickHousePassword:   getEnv("CLICKHOUSE_PASSWORD", "clickhouse123"),
-		ClickHouseProduction: getEnvBool("CLICKHOUSE_PRODUCTION", true),
+		ClickHouseProduction: getEnvBool("CLICKHOUSE_PRODUCTION", false),
+		ClickHouseCloudHost:  getEnv("CLICKHOUSE_CLOUD_HOST", ""),
 		JWTSecret:            getEnv("JWT_SECRET", "optic-secret-key-for-jwt-token-generation-must-be-at-least-256-bits"),
 		JWTExpirationMs:      getEnvInt64("JWT_EXPIRATION_MS", 86_400_000),
 
@@ -124,7 +127,6 @@ func Load() Config {
 	return cfg
 }
 
-// validate checks for insecure defaults in production.
 func (c Config) validate() {
 	isProd := strings.EqualFold(os.Getenv("GO_ENV"), "production")
 	if !isProd {
@@ -139,6 +141,9 @@ func (c Config) validate() {
 	}
 	if c.ClickHousePassword == "clickhouse123" {
 		errs = append(errs, "CLICKHOUSE_PASSWORD must be set in production (do not use the default)")
+	}
+	if c.ClickHouseProduction && c.ClickHouseCloudHost == "" {
+		errs = append(errs, "CLICKHOUSE_CLOUD_HOST must be set when CLICKHOUSE_PRODUCTION is true")
 	}
 	if len(errs) > 0 {
 		fmt.Fprintf(os.Stderr, "FATAL: insecure configuration detected:\n")

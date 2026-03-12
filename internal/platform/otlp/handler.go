@@ -16,7 +16,6 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// Handler holds the ingest queues and an Authenticator for API keys.
 type Handler struct {
 	auth         *auth.Authenticator
 	spansQueue   *ingest.Queue
@@ -25,7 +24,6 @@ type Handler struct {
 	tracker      *ingest.ByteTracker
 }
 
-// NewHandler creates an OTLP HTTP handler.
 func NewHandler(
 	auth *auth.Authenticator,
 	spansQueue *ingest.Queue,
@@ -42,10 +40,8 @@ func NewHandler(
 	}
 }
 
-// maxRequestBodySize is the maximum allowed OTLP payload size (50 MB).
 const maxRequestBodySize = 50 * 1024 * 1024
 
-// RegisterRoutes registers the OTLP/HTTP endpoints on the given router group.
 func (h *Handler) RegisterRoutes(r *gin.RouterGroup) {
 	r.POST("/v1/traces", h.ExportTraces)
 	r.POST("/v1/logs", h.ExportLogs)
@@ -83,7 +79,6 @@ func (h *Handler) recordIngestionSize(teamID int64, size int64) {
 }
 
 // ExportTraces accepts OTLP/HTTP JSON trace payloads.
-// POST /otlp/v1/traces
 func (h *Handler) ExportTraces(c *gin.Context) {
 	limitBody(c)
 	teamID, ok := h.resolveTeamID(c)
@@ -138,7 +133,6 @@ func (h *Handler) ExportTraces(c *gin.Context) {
 }
 
 // ExportLogs accepts OTLP/HTTP JSON log payloads.
-// POST /otlp/v1/logs
 func (h *Handler) ExportLogs(c *gin.Context) {
 	limitBody(c)
 	teamID, ok := h.resolveTeamID(c)
@@ -191,7 +185,6 @@ func (h *Handler) ExportLogs(c *gin.Context) {
 }
 
 // ExportMetrics accepts OTLP/HTTP JSON metric payloads.
-// POST /otlp/v1/metrics
 func (h *Handler) ExportMetrics(c *gin.Context) {
 	limitBody(c)
 	teamID, ok := h.resolveTeamID(c)

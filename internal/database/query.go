@@ -17,8 +17,6 @@ func QueryMaps(db Querier, query string, args ...any) ([]map[string]any, error) 
 	return QueryMapsLimit(db, MaxQueryRows, query, args...)
 }
 
-// QueryMapsLimit is like QueryMaps but allows the caller to specify a custom
-// row limit. Pass 0 to use MaxQueryRows.
 func QueryMapsLimit(db Querier, limit int, query string, args ...any) ([]map[string]any, error) {
 	if limit <= 0 {
 		limit = MaxQueryRows

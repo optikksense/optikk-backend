@@ -3,10 +3,7 @@
 // https://opentelemetry.io/docs/specs/otlp/#otlphttp
 package otlp
 
-// ── Shared ────────────────────────────────────────────────────────────────────
 
-// AnyValue holds a single OTel attribute value in JSON form.
-// Only string, int, float, bool, and bytes values are common in practice.
 type AnyValue struct {
 	StringValue *string  `json:"stringValue,omitempty"`
 	IntValue    *int64   `json:"intValue,omitempty,string"`
@@ -15,26 +12,21 @@ type AnyValue struct {
 	BytesValue  *string  `json:"bytesValue,omitempty"` // base64-encoded
 }
 
-// KeyValue is an OTel attribute key-value pair.
 type KeyValue struct {
 	Key   string   `json:"key"`
 	Value AnyValue `json:"value"`
 }
 
-// Resource represents the entity producing telemetry (service, pod, etc.).
 type Resource struct {
 	Attributes []KeyValue `json:"attributes"`
 }
 
-// InstrumentationScope identifies the instrumentation library.
 type InstrumentationScope struct {
 	Name    string `json:"name"`
 	Version string `json:"version"`
 }
 
-// ── Traces ────────────────────────────────────────────────────────────────────
 
-// ExportTraceServiceRequest is the top-level OTLP/HTTP JSON body for traces.
 type ExportTraceServiceRequest struct {
 	ResourceSpans []ResourceSpans `json:"resourceSpans"`
 }
@@ -64,14 +56,12 @@ type OTLPSpan struct {
 	Links             []SpanLink  `json:"links,omitempty"`
 }
 
-// SpanEvent represents an event within a span.
 type SpanEvent struct {
 	TimeUnixNano string     `json:"timeUnixNano"`
 	Name         string     `json:"name"`
 	Attributes   []KeyValue `json:"attributes,omitempty"`
 }
 
-// SpanLink represents a link to another span.
 type SpanLink struct {
 	TraceID    string     `json:"traceId"`
 	SpanID     string     `json:"spanId"`
@@ -84,9 +74,7 @@ type SpanStatus struct {
 	Message string `json:"message"`
 }
 
-// ── Logs ──────────────────────────────────────────────────────────────────────
 
-// ExportLogsServiceRequest is the top-level OTLP/HTTP JSON body for logs.
 type ExportLogsServiceRequest struct {
 	ResourceLogs []ResourceLogs `json:"resourceLogs"`
 }
@@ -114,9 +102,7 @@ type LogRecord struct {
 	Flags                uint32     `json:"flags"`
 }
 
-// ── Metrics ───────────────────────────────────────────────────────────────────
 
-// ExportMetricsServiceRequest is the top-level OTLP/HTTP JSON body for metrics.
 type ExportMetricsServiceRequest struct {
 	ResourceMetrics []ResourceMetrics `json:"resourceMetrics"`
 }
@@ -156,7 +142,6 @@ type MetricHistogram struct {
 	DataPoints             []HistogramDataPoint `json:"dataPoints"`
 }
 
-// NumberDataPoint is a single gauge or sum data point.
 type NumberDataPoint struct {
 	Attributes   []KeyValue `json:"attributes"`
 	TimeUnixNano string     `json:"timeUnixNano"`
@@ -164,7 +149,6 @@ type NumberDataPoint struct {
 	AsInt        *int64     `json:"asInt,omitempty,string"`
 }
 
-// HistogramDataPoint is a single histogram data point.
 type HistogramDataPoint struct {
 	Attributes     []KeyValue `json:"attributes"`
 	TimeUnixNano   string     `json:"timeUnixNano"`

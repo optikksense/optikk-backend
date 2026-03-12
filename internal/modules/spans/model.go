@@ -2,7 +2,6 @@ package traces
 
 import "time"
 
-// Trace represents a root span (trace summary).
 type Trace struct {
 	SpanID         string    `json:"spanId"`
 	TraceID        string    `json:"traceId"`
@@ -17,7 +16,6 @@ type Trace struct {
 	HTTPStatusCode int       `json:"httpStatusCode"`
 }
 
-// Span represents a single span in a trace.
 type Span struct {
 	SpanID         string    `json:"spanId"`
 	ParentSpanID   string    `json:"parentSpanId"`
@@ -38,7 +36,6 @@ type Span struct {
 	Attributes     string    `json:"attributes"`
 }
 
-// TraceFilters defines the search criteria for traces.
 type TraceFilters struct {
 	TeamID      int64    `json:"teamId"`
 	StartMs     int64    `json:"startMs"`
@@ -56,7 +53,6 @@ type TraceFilters struct {
 	AttributeFilters []SpanAttributeFilter `json:"attributeFilters,omitempty"`
 }
 
-// SpanAttributeFilter is a single attribute key=value filter on spans.
 type SpanAttributeFilter struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
@@ -64,13 +60,11 @@ type SpanAttributeFilter struct {
 	Op string `json:"op"`
 }
 
-// TraceCursor is a keyset cursor for the trace list (avoids OFFSET scan).
 type TraceCursor struct {
 	Timestamp time.Time `json:"timestamp"`
 	SpanID    string    `json:"spanId"`
 }
 
-// TraceOperationRow is one row from the operation-level aggregation endpoint.
 type TraceOperationRow struct {
 	ServiceName   string  `json:"serviceName"`
 	OperationName string  `json:"operationName"`
@@ -83,7 +77,6 @@ type TraceOperationRow struct {
 	AvgMs         float64 `json:"avgMs"`
 }
 
-// TraceSummary represents aggregate statistics for a set of traces.
 type TraceSummary struct {
 	TotalTraces int64   `json:"totalTraces"`
 	ErrorTraces int64   `json:"errorTraces"`
@@ -93,7 +86,6 @@ type TraceSummary struct {
 	P99Duration float64 `json:"p99Duration"`
 }
 
-// TraceSearchResponse represents the result of a trace search.
 type TraceSearchResponse struct {
 	Traces  []Trace      `json:"traces"`
 	HasMore bool         `json:"hasMore"`
@@ -103,14 +95,12 @@ type TraceSearchResponse struct {
 	Summary TraceSummary `json:"summary"`
 }
 
-// ServiceDependency represents a call from one service to another.
 type ServiceDependency struct {
 	Source    string `json:"source"`
 	Target    string `json:"target"`
 	CallCount int64  `json:"callCount"`
 }
 
-// ErrorGroup represents an aggregation of similar errors.
 type ErrorGroup struct {
 	ServiceName     string    `json:"serviceName"`
 	OperationName   string    `json:"operationName"`
@@ -122,7 +112,6 @@ type ErrorGroup struct {
 	SampleTraceID   string    `json:"sampleTraceId"`
 }
 
-// ErrorTimeSeries represents the error rate over time for a service.
 type ErrorTimeSeries struct {
 	ServiceName string    `json:"serviceName"`
 	Timestamp   time.Time `json:"timestamp"`
@@ -131,7 +120,6 @@ type ErrorTimeSeries struct {
 	ErrorRate   float64   `json:"errorRate"`
 }
 
-// LatencyHistogramBucket represents a count of spans within a duration range.
 type LatencyHistogramBucket struct {
 	BucketLabel string `json:"bucketLabel"`
 	BucketMin   int64  `json:"bucketMin"`
@@ -139,7 +127,6 @@ type LatencyHistogramBucket struct {
 	SpanCount   int64  `json:"spanCount"`
 }
 
-// LatencyHeatmapPoint represents a counts of spans for a time bucket and latency bucket.
 type LatencyHeatmapPoint struct {
 	TimeBucket    time.Time `json:"timeBucket"`
 	LatencyBucket string    `json:"latencyBucket"`

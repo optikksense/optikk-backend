@@ -1,6 +1,5 @@
 package ai
 
-// AISummary represents an aggregate performance/cost/security summary for all AI models.
 type AISummary struct {
 	TotalRequests      int64   `json:"total_requests"`
 	AvgQps             float64 `json:"avg_qps"`
@@ -18,13 +17,11 @@ type AISummary struct {
 	ActiveModels       int64   `json:"active_models"`
 }
 
-// AIModel represents a distinct AI model active in the time window.
 type AIModel struct {
 	ModelName     string `json:"model_name"`
 	ModelProvider string `json:"model_provider"`
 }
 
-// AIPerformanceMetric represents per-model latency, throughput, error and timeout rates.
 type AIPerformanceMetric struct {
 	ModelName       string  `json:"model_name"`
 	ModelProvider   string  `json:"model_provider"`
@@ -44,7 +41,6 @@ type AIPerformanceMetric struct {
 	AvgRetryCount   float64 `json:"avg_retry_count"`
 }
 
-// AIPerformanceTimeSeries represents per-model latency / throughput time series.
 type AIPerformanceTimeSeries struct {
 	ModelName    string  `json:"model_name"`
 	Timestamp    string  `json:"timestamp"`
@@ -56,14 +52,12 @@ type AIPerformanceTimeSeries struct {
 	TokensPerSec float64 `json:"tokens_per_sec"`
 }
 
-// AILatencyHistogram represents latency distribution (100ms buckets) per model.
 type AILatencyHistogram struct {
 	ModelName    string `json:"model_name"`
 	BucketMs     int64  `json:"bucket_ms"`
 	RequestCount int64  `json:"request_count"`
 }
 
-// AICostMetric represents per-model token usage and cost breakdown.
 type AICostMetric struct {
 	ModelName             string  `json:"model_name"`
 	ModelProvider         string  `json:"model_provider"`
@@ -80,7 +74,6 @@ type AICostMetric struct {
 	TotalCacheTokens      int64   `json:"total_cache_tokens"`
 }
 
-// AICostTimeSeries represents cost and token usage over time per model.
 type AICostTimeSeries struct {
 	ModelName        string  `json:"model_name"`
 	Timestamp        string  `json:"timestamp"`
@@ -90,7 +83,6 @@ type AICostTimeSeries struct {
 	RequestCount     int64   `json:"request_count"`
 }
 
-// AITokenBreakdown represents token type breakdown per model.
 type AITokenBreakdown struct {
 	ModelName        string `json:"model_name"`
 	PromptTokens     int64  `json:"prompt_tokens"`
@@ -99,7 +91,6 @@ type AITokenBreakdown struct {
 	CacheTokens      int64  `json:"cache_tokens"`
 }
 
-// AISecurityMetric represents PII detection and guardrail block rates per model.
 type AISecurityMetric struct {
 	ModelName             string  `json:"model_name"`
 	ModelProvider         string  `json:"model_provider"`
@@ -112,7 +103,6 @@ type AISecurityMetric struct {
 	ContentPolicyRate     float64 `json:"content_policy_rate"`
 }
 
-// AISecurityTimeSeries represents security-event time series per model.
 type AISecurityTimeSeries struct {
 	ModelName          string `json:"model_name"`
 	Timestamp          string `json:"timestamp"`
@@ -122,7 +112,6 @@ type AISecurityTimeSeries struct {
 	ContentPolicyCount int64  `json:"content_policy_count"`
 }
 
-// AIPiiCategory represents PII category breakdown for detected events.
 type AIPiiCategory struct {
 	ModelName      string `json:"model_name"`
 	PiiCategories  string `json:"pii_categories"`

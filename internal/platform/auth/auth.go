@@ -76,7 +76,6 @@ func ClaimsAuthorizedForTeam(claims *TokenClaims, requestedTeamID int64) bool {
 	return false
 }
 
-// PendingOAuthClaims holds data for an OAuth user who hasn't completed signup yet.
 type PendingOAuthClaims struct {
 	PendingOAuth bool   `json:"pending_oauth"`
 	Provider     string `json:"oauth_provider"`

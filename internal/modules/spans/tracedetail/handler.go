@@ -10,13 +10,11 @@ import (
 
 const defaultRelatedLimit = 10
 
-// TraceDetailHandler handles trace detail endpoints.
 type TraceDetailHandler struct {
 	modulecommon.DBTenant
 	Service Service
 }
 
-// GetSpanEvents returns all SpanEvents (e.g. exceptions) for a trace.
 func (h *TraceDetailHandler) GetSpanEvents(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")
@@ -29,7 +27,6 @@ func (h *TraceDetailHandler) GetSpanEvents(c *gin.Context) {
 	RespondOK(c, events)
 }
 
-// GetSpanKindBreakdown returns duration and count grouped by span.kind for a trace.
 func (h *TraceDetailHandler) GetSpanKindBreakdown(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")
@@ -42,7 +39,6 @@ func (h *TraceDetailHandler) GetSpanKindBreakdown(c *gin.Context) {
 	RespondOK(c, breakdown)
 }
 
-// GetCriticalPath returns the span_ids on the longest root→leaf path.
 func (h *TraceDetailHandler) GetCriticalPath(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")
@@ -55,7 +51,6 @@ func (h *TraceDetailHandler) GetCriticalPath(c *gin.Context) {
 	RespondOK(c, path)
 }
 
-// GetSpanSelfTimes returns self_time per span (duration minus child durations).
 func (h *TraceDetailHandler) GetSpanSelfTimes(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")
@@ -68,7 +63,6 @@ func (h *TraceDetailHandler) GetSpanSelfTimes(c *gin.Context) {
 	RespondOK(c, times)
 }
 
-// GetErrorPath returns the ERROR span chain from root to the deepest error leaf.
 func (h *TraceDetailHandler) GetErrorPath(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")
@@ -81,8 +75,6 @@ func (h *TraceDetailHandler) GetErrorPath(c *gin.Context) {
 	RespondOK(c, path)
 }
 
-// GetSpanAttributes returns the full attribute map for a single span.
-// GET /traces/:traceId/spans/:spanId/attributes
 func (h *TraceDetailHandler) GetSpanAttributes(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")
@@ -105,9 +97,6 @@ func (h *TraceDetailHandler) GetSpanAttributes(c *gin.Context) {
 	RespondOK(c, attrs)
 }
 
-// GetRelatedTraces returns other root traces with the same service+operation.
-// GET /traces/:traceId/related
-// Query params: service, operation, startMs, endMs, limit (default 10)
 func (h *TraceDetailHandler) GetRelatedTraces(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")

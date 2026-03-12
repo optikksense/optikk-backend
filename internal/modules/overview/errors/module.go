@@ -2,17 +2,14 @@ package errors
 
 import "github.com/gin-gonic/gin"
 
-// Config holds overview-errors route configuration.
 type Config struct {
 	Enabled bool
 }
 
-// DefaultConfig returns default overview-errors configuration.
 func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-// RegisterRoutes mounts overview error routes.
 func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ErrorHandler) {
 	if !cfg.Enabled || h == nil {
 		return

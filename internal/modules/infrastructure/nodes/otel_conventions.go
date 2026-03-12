@@ -37,7 +37,6 @@ const (
 	AggGroupUniqArray    = "groupUniqArray"
 	AggArrayStringConcat = "arrayStringConcat"
 
-	// Quantile Values
 	QuantileP95 = 0.95
 
 	// Query Limits
@@ -48,17 +47,14 @@ const (
 	DefaultUnknown = "unknown"
 )
 
-// ErrorCondition returns the SQL condition for identifying errors based on OpenTelemetry conventions
 func ErrorCondition() string {
 	return "status='ERROR' OR http_status_code >= 400"
 }
 
-// RootSpanCondition returns the SQL condition for filtering root spans
 func RootSpanCondition() string {
 	return "is_root = 1"
 }
 
-// HostNameExpression returns the SQL expression for extracting host name
 func HostNameExpression() string {
 	return "if(host != '', host, ifNull(nullIf(JSONExtractString(attributes, 'host.name'), ''), 'unknown'))"
 }

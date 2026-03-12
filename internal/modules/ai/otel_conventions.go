@@ -100,10 +100,8 @@ const (
 	ColAISecurityContentPolicy    = "ai_security_content_policy"
 )
 
-// TableMetrics is the ClickHouse table that holds all OTLP metrics.
-const TableMetrics = "metrics"
+const TableMetrics = "observability.metrics"
 
-// OperationType represents the type of GenAI operation
 type OperationType string
 
 const (
@@ -113,7 +111,6 @@ const (
 	OpTypeGenerateContent OperationType = OperationGenerateContent
 )
 
-// TokenType represents different types of tokens in GenAI operations
 type TokenType string
 
 const (
@@ -135,7 +132,6 @@ const (
 	UnitPercent      = "percent"
 )
 
-// StatusCode represents the status of a GenAI operation
 type StatusCode string
 
 const (
@@ -143,8 +139,6 @@ const (
 	StatusError StatusCode = "ERROR"
 )
 
-// IsStandardOTelAttribute checks if an attribute name is part of the standard
-// OpenTelemetry GenAI semantic conventions
 func IsStandardOTelAttribute(attrName string) bool {
 	standardAttrs := map[string]bool{
 		AttrGenAIRequestModel:       true,

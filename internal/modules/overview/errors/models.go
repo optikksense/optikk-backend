@@ -2,7 +2,6 @@ package errors
 
 import "time"
 
-// ErrorGroup represents an aggregation of similar errors.
 type ErrorGroup struct {
 	ServiceName     string    `json:"service_name"`
 	OperationName   string    `json:"operation_name"`
@@ -14,7 +13,6 @@ type ErrorGroup struct {
 	SampleTraceID   string    `json:"sample_trace_id"`
 }
 
-// TimeSeriesPoint represents service-level request and error buckets for the errors dashboard.
 type TimeSeriesPoint struct {
 	ServiceName  string    `json:"service_name"`
 	Timestamp    time.Time `json:"timestamp"`

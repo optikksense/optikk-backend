@@ -67,7 +67,7 @@
       },
       "order": 40,
       "query": {
-        "endpoint": "/v1/spans/service-scorecard",
+        "endpoint": "/v1/spans/red/service-scorecard",
         "method": "GET"
       },
       "title": "Service Scorecard",
@@ -75,7 +75,7 @@
     },
     {
       "componentKey": "gauge",
-      "groupByKey": "serviceName",
+      "groupByKey": "service_name",
       "groupId": "service-health",
       "id": "apdex-scores",
       "layout": {
@@ -83,7 +83,7 @@
       },
       "order": 50,
       "query": {
-        "endpoint": "/v1/spans/apdex",
+        "endpoint": "/v1/spans/red/apdex",
         "method": "GET",
         "params": {
           "satisfied_ms": 300,

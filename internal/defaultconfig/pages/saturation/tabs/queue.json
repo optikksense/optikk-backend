@@ -3,146 +3,290 @@
   "pageId": "saturation",
   "label": "Message Queue",
   "order": 30,
+  "groups": [
+    { "id": "g1", "label": "Production Rate", "order": 10 },
+    { "id": "g2", "label": "Consumption Rate — by Topic", "order": 20 },
+    { "id": "g3", "label": "Consumption Rate — by Consumer Group", "order": 30 },
+    { "id": "g4", "label": "Consumer Lag", "order": 40 },
+    { "id": "g5", "label": "Consumer Group Rebalancing", "order": 50 },
+    { "id": "g6", "label": "End-to-End Latency", "order": 60 },
+    { "id": "g7", "label": "Error Rates", "order": 70 },
+    { "id": "g8", "label": "Broker / Client Connectivity", "order": 80 }
+  ],
   "components": [
     {
+      "id": "stat-publish-rate",
       "componentKey": "stat-card",
-      "formatter": "ms",
-      "id": "operation-p95-duration",
-      "layout": {
-        "col": 6
-      },
-      "order": 10,
-      "query": {
-        "endpoint": "/v1/saturation/queue/operation-duration",
-        "method": "GET"
-      },
-      "title": "Operation p95 Duration",
-      "titleIcon": "Clock",
-      "valueField": "p95"
-    },
-    {
-      "componentKey": "stat-card",
-      "formatter": "ms",
-      "id": "operation-p99-duration",
-      "layout": {
-        "col": 6
-      },
-      "order": 20,
-      "query": {
-        "endpoint": "/v1/saturation/queue/operation-duration",
-        "method": "GET"
-      },
-      "title": "Operation p99 Duration",
-      "titleIcon": "Clock",
-      "valueField": "p99"
-    },
-    {
-      "componentKey": "stat-card",
-      "formatter": "number",
-      "id": "published-sec",
-      "layout": {
-        "col": 6
-      },
-      "order": 30,
-      "query": {
-        "endpoint": "/v1/saturation/queue/message-rates",
-        "method": "GET"
-      },
-      "title": "Published/sec",
+      "groupId": "g1",
+      "title": "Produce Rate",
       "titleIcon": "ArrowUp",
-      "valueField": "published_per_sec"
+      "layout": { "col": 6 },
+      "order": 10,
+      "query": { "endpoint": "/v1/saturation/kafka/summary-stats", "method": "GET" },
+      "valueField": "publish_rate_per_sec",
+      "formatter": "number"
     },
     {
+      "id": "stat-receive-rate",
       "componentKey": "stat-card",
-      "formatter": "number",
-      "id": "consumed-sec",
-      "layout": {
-        "col": 6
-      },
-      "order": 40,
-      "query": {
-        "endpoint": "/v1/saturation/queue/message-rates",
-        "method": "GET"
-      },
-      "title": "Consumed/sec",
+      "groupId": "g1",
+      "title": "Consume Rate",
       "titleIcon": "ArrowDown",
-      "valueField": "consumed_per_sec"
+      "layout": { "col": 6 },
+      "order": 20,
+      "query": { "endpoint": "/v1/saturation/kafka/summary-stats", "method": "GET" },
+      "valueField": "receive_rate_per_sec",
+      "formatter": "number"
     },
     {
-      "componentKey": "area",
-      "groupByKey": "queue",
-      "id": "queue-consumer-lag",
-      "layout": {
-        "col": 12
-      },
-      "order": 50,
-      "query": {
-        "endpoint": "/v1/saturation/queue/consumer-lag",
-        "method": "GET"
-      },
-      "title": "Consumer Lag by Queue",
+      "id": "stat-max-lag",
+      "componentKey": "stat-card",
+      "groupId": "g1",
+      "title": "Max Consumer Lag",
       "titleIcon": "Layers",
-      "valueKey": "avg_consumer_lag"
+      "layout": { "col": 6 },
+      "order": 30,
+      "query": { "endpoint": "/v1/saturation/kafka/summary-stats", "method": "GET" },
+      "valueField": "max_lag",
+      "formatter": "number"
     },
     {
-      "componentKey": "area",
-      "groupByKey": "queue",
-      "id": "queue-topic-lag",
-      "layout": {
-        "col": 12
-      },
-      "order": 60,
-      "query": {
-        "endpoint": "/v1/saturation/queue/topic-lag",
-        "method": "GET"
-      },
-      "title": "Queue Depth by Topic",
-      "titleIcon": "BarChart",
-      "valueKey": "avg_queue_depth"
+      "id": "stat-publish-p95",
+      "componentKey": "stat-card",
+      "groupId": "g1",
+      "title": "Produce p95 Latency",
+      "titleIcon": "Clock",
+      "layout": { "col": 6 },
+      "order": 40,
+      "query": { "endpoint": "/v1/saturation/kafka/summary-stats", "method": "GET" },
+      "valueField": "publish_p95_ms",
+      "formatter": "ms"
     },
     {
+      "id": "produce-rate-by-topic",
       "componentKey": "area",
+      "groupId": "g1",
+      "title": "Message Produce Rate by Topic (msg/s)",
+      "titleIcon": "TrendingUp",
+      "layout": { "col": 12 },
+      "order": 50,
+      "query": { "endpoint": "/v1/saturation/kafka/produce-rate-by-topic", "method": "GET" },
       "groupByKey": "topic",
-      "id": "queue-offset-commit-rate",
-      "layout": {
-        "col": 12
-      },
+      "valueKey": "rate_per_sec"
+    },
+    {
+      "id": "publish-latency-p95-by-topic",
+      "componentKey": "area",
+      "groupId": "g1",
+      "title": "Publish Latency p95 by Topic (ms)",
+      "titleIcon": "Clock",
+      "layout": { "col": 12 },
+      "order": 60,
+      "query": { "endpoint": "/v1/saturation/kafka/publish-latency-by-topic", "method": "GET" },
+      "groupByKey": "topic",
+      "valueKey": "p95_ms"
+    },
+    {
+      "id": "consume-rate-by-topic",
+      "componentKey": "area",
+      "groupId": "g2",
+      "title": "Message Consume Rate by Topic (msg/s)",
+      "titleIcon": "TrendingDown",
+      "layout": { "col": 12 },
       "order": 70,
-      "query": {
-        "endpoint": "/v1/saturation/queue/offset-commit-rate",
-        "method": "GET"
-      },
-      "title": "Consumer Offset by Topic",
-      "titleIcon": "Activity",
-      "valueKey": "value"
+      "query": { "endpoint": "/v1/saturation/kafka/consume-rate-by-topic", "method": "GET" },
+      "groupByKey": "topic",
+      "valueKey": "rate_per_sec"
     },
     {
-      "componentKey": "table",
-      "id": "queue-lag-detail",
-      "layout": {
-        "col": 12
-      },
+      "id": "receive-latency-p95-by-topic",
+      "componentKey": "area",
+      "groupId": "g2",
+      "title": "Receive Latency p95 by Topic (ms)",
+      "titleIcon": "Clock",
+      "layout": { "col": 12 },
       "order": 80,
-      "query": {
-        "endpoint": "/v1/saturation/queue/consumer-lag-detail",
-        "method": "GET"
-      },
-      "title": "Consumer Lag per Partition",
-      "titleIcon": "Table"
+      "query": { "endpoint": "/v1/saturation/kafka/receive-latency-by-topic", "method": "GET" },
+      "groupByKey": "topic",
+      "valueKey": "p95_ms"
     },
     {
-      "componentKey": "table",
-      "id": "queue-top-queues",
-      "layout": {
-        "col": 24
-      },
+      "id": "consume-rate-by-group",
+      "componentKey": "area",
+      "groupId": "g3",
+      "title": "Consume Rate by Consumer Group (msg/s)",
+      "titleIcon": "Users",
+      "layout": { "col": 12 },
       "order": 90,
-      "query": {
-        "endpoint": "/v1/saturation/queue/top-queues",
-        "method": "GET"
-      },
-      "title": "Top Queues",
-      "titleIcon": "List"
+      "query": { "endpoint": "/v1/saturation/kafka/consume-rate-by-group", "method": "GET" },
+      "groupByKey": "consumer_group",
+      "valueKey": "rate_per_sec"
+    },
+    {
+      "id": "process-rate-by-group",
+      "componentKey": "area",
+      "groupId": "g3",
+      "title": "Process Rate by Consumer Group (msg/s)",
+      "titleIcon": "Cpu",
+      "layout": { "col": 12 },
+      "order": 100,
+      "query": { "endpoint": "/v1/saturation/kafka/process-rate-by-group", "method": "GET" },
+      "groupByKey": "consumer_group",
+      "valueKey": "rate_per_sec"
+    },
+    {
+      "id": "lag-by-group",
+      "componentKey": "area",
+      "groupId": "g4",
+      "title": "Consumer Lag by Group",
+      "titleIcon": "AlertTriangle",
+      "layout": { "col": 12 },
+      "order": 110,
+      "query": { "endpoint": "/v1/saturation/kafka/lag-by-group", "method": "GET" },
+      "groupByKey": "consumer_group",
+      "valueKey": "lag"
+    },
+    {
+      "id": "lag-per-partition",
+      "componentKey": "table",
+      "groupId": "g4",
+      "title": "Consumer Lag per Partition",
+      "titleIcon": "Table",
+      "layout": { "col": 12 },
+      "order": 120,
+      "query": { "endpoint": "/v1/saturation/kafka/lag-per-partition", "method": "GET" }
+    },
+    {
+      "id": "rebalance-rate",
+      "componentKey": "area",
+      "groupId": "g5",
+      "title": "Rebalance Rate by Group (rebalances/s)",
+      "titleIcon": "RefreshCw",
+      "layout": { "col": 12 },
+      "order": 130,
+      "query": { "endpoint": "/v1/saturation/kafka/rebalance-signals", "method": "GET" },
+      "groupByKey": "consumer_group",
+      "valueKey": "rebalance_rate"
+    },
+    {
+      "id": "heartbeat-health",
+      "componentKey": "area",
+      "groupId": "g5",
+      "title": "Failed Heartbeat Rate by Group (failures/s)",
+      "titleIcon": "Activity",
+      "layout": { "col": 12 },
+      "order": 140,
+      "query": { "endpoint": "/v1/saturation/kafka/rebalance-signals", "method": "GET" },
+      "groupByKey": "consumer_group",
+      "valueKey": "failed_heartbeat_rate"
+    },
+    {
+      "id": "assigned-partitions",
+      "componentKey": "area",
+      "groupId": "g5",
+      "title": "Assigned Partitions by Group",
+      "titleIcon": "LayoutGrid",
+      "layout": { "col": 24 },
+      "order": 150,
+      "query": { "endpoint": "/v1/saturation/kafka/rebalance-signals", "method": "GET" },
+      "groupByKey": "consumer_group",
+      "valueKey": "assigned_partitions"
+    },
+    {
+      "id": "e2e-publish-p95",
+      "componentKey": "area",
+      "groupId": "g6",
+      "title": "Produce Latency p95 by Topic (ms)",
+      "titleIcon": "Clock",
+      "layout": { "col": 8 },
+      "order": 160,
+      "query": { "endpoint": "/v1/saturation/kafka/e2e-latency", "method": "GET" },
+      "groupByKey": "topic",
+      "valueKey": "publish_p95_ms"
+    },
+    {
+      "id": "e2e-receive-p95",
+      "componentKey": "area",
+      "groupId": "g6",
+      "title": "Receive Latency p95 by Topic (ms)",
+      "titleIcon": "Clock",
+      "layout": { "col": 8 },
+      "order": 170,
+      "query": { "endpoint": "/v1/saturation/kafka/e2e-latency", "method": "GET" },
+      "groupByKey": "topic",
+      "valueKey": "receive_p95_ms"
+    },
+    {
+      "id": "e2e-process-p95",
+      "componentKey": "area",
+      "groupId": "g6",
+      "title": "Process Latency p95 by Topic (ms)",
+      "titleIcon": "Clock",
+      "layout": { "col": 8 },
+      "order": 180,
+      "query": { "endpoint": "/v1/saturation/kafka/e2e-latency", "method": "GET" },
+      "groupByKey": "topic",
+      "valueKey": "process_p95_ms"
+    },
+    {
+      "id": "publish-errors",
+      "componentKey": "area",
+      "groupId": "g7",
+      "title": "Produce Errors by Error Type (errors/s)",
+      "titleIcon": "XCircle",
+      "layout": { "col": 8 },
+      "order": 190,
+      "query": { "endpoint": "/v1/saturation/kafka/publish-errors", "method": "GET" },
+      "groupByKey": "error_type",
+      "valueKey": "error_rate"
+    },
+    {
+      "id": "consume-errors",
+      "componentKey": "area",
+      "groupId": "g7",
+      "title": "Consume Errors by Error Type (errors/s)",
+      "titleIcon": "XCircle",
+      "layout": { "col": 8 },
+      "order": 200,
+      "query": { "endpoint": "/v1/saturation/kafka/consume-errors", "method": "GET" },
+      "groupByKey": "error_type",
+      "valueKey": "error_rate"
+    },
+    {
+      "id": "process-errors",
+      "componentKey": "area",
+      "groupId": "g7",
+      "title": "Process Errors by Error Type (errors/s)",
+      "titleIcon": "XCircle",
+      "layout": { "col": 8 },
+      "order": 210,
+      "query": { "endpoint": "/v1/saturation/kafka/process-errors", "method": "GET" },
+      "groupByKey": "error_type",
+      "valueKey": "error_rate"
+    },
+    {
+      "id": "broker-connections",
+      "componentKey": "area",
+      "groupId": "g8",
+      "title": "Open Connections to Brokers",
+      "titleIcon": "Network",
+      "layout": { "col": 12 },
+      "order": 220,
+      "query": { "endpoint": "/v1/saturation/kafka/broker-connections", "method": "GET" },
+      "groupByKey": "broker",
+      "valueKey": "connections"
+    },
+    {
+      "id": "client-op-duration",
+      "componentKey": "area",
+      "groupId": "g8",
+      "title": "Client Operation Duration p95 by Operation (ms)",
+      "titleIcon": "Activity",
+      "layout": { "col": 12 },
+      "order": 230,
+      "query": { "endpoint": "/v1/saturation/kafka/client-op-duration", "method": "GET" },
+      "groupByKey": "operation_name",
+      "valueKey": "p95_ms"
     }
   ]
 }

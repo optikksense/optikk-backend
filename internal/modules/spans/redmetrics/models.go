@@ -1,54 +1,77 @@
 package redmetrics
 
-import "time"
-
-// SlowOperation represents an operation ranked by p99 latency.
-type SlowOperation struct {
-	OperationName string  `json:"operationName"`
-	ServiceName   string  `json:"serviceName"`
-	P50Ms         float64 `json:"p50Ms"`
-	P95Ms         float64 `json:"p95Ms"`
-	P99Ms         float64 `json:"p99Ms"`
-	SpanCount     int64   `json:"spanCount"`
+type REDSummary struct {
+	ServiceCount int64   `json:"service_count"`
+	TotalRPS     float64 `json:"total_rps"`
+	AvgErrorPct  float64 `json:"avg_error_pct"`
+	AvgP95Ms     float64 `json:"avg_p95_ms"`
 }
 
-// ErrorOperation represents an operation ranked by error rate.
-type ErrorOperation struct {
-	OperationName string  `json:"operationName"`
-	ServiceName   string  `json:"serviceName"`
-	ExceptionType string  `json:"exceptionType"`
-	ErrorRate     float64 `json:"errorRate"`
-	ErrorCount    int64   `json:"errorCount"`
-	TotalCount    int64   `json:"totalCount"`
-}
-
-// HTTPStatusBucket is a count of spans per HTTP status code.
-type HTTPStatusBucket struct {
-	StatusCode int64 `json:"statusCode"`
-	SpanCount  int64 `json:"spanCount"`
-}
-
-// HTTPStatusTimePoint is a single time-series point per HTTP status code.
-type HTTPStatusTimePoint struct {
-	Timestamp  time.Time `json:"timestamp"`
-	StatusCode int64     `json:"statusCode"`
-	SpanCount  int64     `json:"spanCount"`
-}
-
-// ServiceScorecard is a per-service RED summary tile.
 type ServiceScorecard struct {
-	ServiceName string  `json:"serviceName"`
+	ServiceName string  `json:"service_name"`
 	RPS         float64 `json:"rps"`
-	ErrorPct    float64 `json:"errorPct"`
-	P95Ms       float64 `json:"p95Ms"`
+	ErrorPct    float64 `json:"error_pct"`
+	P95Ms       float64 `json:"p95_ms"`
 }
 
-// ApdexScore is a per-service Apdex satisfaction score.
 type ApdexScore struct {
-	ServiceName  string  `json:"serviceName"`
-	Apdex        float64 `json:"apdex"`
-	Satisfied    int64   `json:"satisfied"`
-	Tolerating   int64   `json:"tolerating"`
-	Frustrated   int64   `json:"frustrated"`
-	TotalCount   int64   `json:"totalCount"`
+	ServiceName string  `json:"service_name"`
+	Apdex       float64 `json:"apdex"`
+	Satisfied   int64   `json:"satisfied"`
+	Tolerating  int64   `json:"tolerating"`
+	Frustrated  int64   `json:"frustrated"`
+	TotalCount  int64   `json:"total_count"`
+}
+
+type HTTPStatusBucket struct {
+	StatusCode int64 `json:"status_code"`
+	SpanCount  int64 `json:"span_count"`
+}
+
+type SlowOperation struct {
+	OperationName string  `json:"operation_name"`
+	ServiceName   string  `json:"service_name"`
+	P50Ms         float64 `json:"p50_ms"`
+	P95Ms         float64 `json:"p95_ms"`
+	P99Ms         float64 `json:"p99_ms"`
+	SpanCount     int64   `json:"span_count"`
+}
+
+type ErrorOperation struct {
+	OperationName string  `json:"operation_name"`
+	ServiceName   string  `json:"service_name"`
+	ExceptionType string  `json:"exception_type"`
+	ErrorRate     float64 `json:"error_rate"`
+	ErrorCount    int64   `json:"error_count"`
+	TotalCount    int64   `json:"total_count"`
+}
+
+type ServiceRatePoint struct {
+	Timestamp   string  `json:"timestamp"`
+	ServiceName string  `json:"service_name"`
+	RPS         float64 `json:"rps"`
+}
+
+type ServiceErrorRatePoint struct {
+	Timestamp   string  `json:"timestamp"`
+	ServiceName string  `json:"service_name"`
+	ErrorPct    float64 `json:"error_pct"`
+}
+
+type ServiceLatencyPoint struct {
+	Timestamp   string  `json:"timestamp"`
+	ServiceName string  `json:"service_name"`
+	P95Ms       float64 `json:"p95_ms"`
+}
+
+type SpanKindPoint struct {
+	Timestamp  string `json:"timestamp"`
+	KindString string `json:"kind_string"`
+	SpanCount  int64  `json:"span_count"`
+}
+
+type ErrorByRoutePoint struct {
+	Timestamp  string `json:"timestamp"`
+	HttpRoute  string `json:"http_route"`
+	ErrorCount int64  `json:"error_count"`
 }

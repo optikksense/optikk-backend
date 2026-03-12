@@ -15,7 +15,6 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Handler implements the three OTel gRPC collector services.
 type Handler struct {
 	auth         *auth.Authenticator
 	spansQueue   *ingest.Queue
@@ -42,7 +41,6 @@ type MetricsServer struct {
 	h *Handler
 }
 
-// NewHandler creates a new gRPC OTLP receiver handler.
 func NewHandler(
 	auth *auth.Authenticator,
 	spansQueue *ingest.Queue,
@@ -61,7 +59,6 @@ func NewHandler(
 	return h
 }
 
-// resolveTeamID extracts "x-api-key" from gRPC metadata and validates against the Authenticator.
 func (h *Handler) resolveTeamID(ctx context.Context) (int64, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {

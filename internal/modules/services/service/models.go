@@ -2,12 +2,10 @@ package servicepage
 
 import "time"
 
-// SummaryCount is a lightweight count response for services overview cards.
 type SummaryCount struct {
 	Count int64 `json:"count"`
 }
 
-// ServiceMetric represents aggregate metrics for a service.
 type ServiceMetric struct {
 	ServiceName  string  `json:"service_name"`
 	RequestCount int64   `json:"request_count"`
@@ -18,7 +16,6 @@ type ServiceMetric struct {
 	P99Latency   float64 `json:"p99_latency"`
 }
 
-// EndpointMetric represents aggregate metrics for a single endpoint within a service.
 type EndpointMetric struct {
 	ServiceName   string  `json:"service_name"`
 	OperationName string  `json:"operation_name"`
@@ -31,7 +28,6 @@ type EndpointMetric struct {
 	P99Latency    float64 `json:"p99_latency"`
 }
 
-// TimeSeriesPoint represents a single data point in a service time series.
 type TimeSeriesPoint struct {
 	Timestamp    time.Time `json:"timestamp"`
 	ServiceName  string    `json:"service_name,omitempty"`

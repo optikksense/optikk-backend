@@ -96,7 +96,6 @@ func (h *UserHandler) GetUsers(c *gin.Context) {
 			"email":       dbutil.StringFromAny(u["email"]),
 			"name":        dbutil.StringFromAny(u["name"]),
 			"avatarUrl":   dbutil.StringFromAny(u["avatar_url"]),
-			"role":        dbutil.StringFromAny(u["role"]),
 			"active":      dbutil.BoolFromAny(u["active"]),
 			"lastLoginAt": u["last_login_at"],
 			"createdAt":   u["created_at"],
@@ -161,7 +160,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 		return
 	}
 
-	userID, err := h.store.CreateUser(email, passwordHash, name, role, teamsJSON, time.Now().UTC())
+	userID, err := h.store.CreateUser(email, passwordHash, name, teamsJSON, time.Now().UTC())
 	if err != nil {
 		respondServiceError(c, newValidationError("Unable to create user", err), "Unable to create user")
 		return
@@ -220,7 +219,7 @@ func (h *UserHandler) AddUserToTeam(c *gin.Context) {
 		return
 	}
 
-	if err := h.store.UpdateUserTeams(userID, newJSON, time.Now().UTC()); err != nil {
+	if err := h.store.UpdateUserTeams(userID, newJSON); err != nil {
 		respondServiceError(c, newInternalError("Unable to add user to team", err), "Unable to add user to team")
 		return
 	}
@@ -262,7 +261,7 @@ func (h *UserHandler) RemoveUserFromTeam(c *gin.Context) {
 		return
 	}
 
-	if err := h.store.UpdateUserTeams(userID, newJSON, time.Now().UTC()); err != nil {
+	if err := h.store.UpdateUserTeams(userID, newJSON); err != nil {
 		respondServiceError(c, newInternalError("Unable to remove user from team", err), "Unable to remove user from team")
 		return
 	}
@@ -428,7 +427,7 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 		avatarPtr = &avatarURL
 	}
 
-	if err := h.store.UpdateUserProfile(userID, namePtr, avatarPtr, time.Now().UTC()); err != nil {
+	if err := h.store.UpdateUserProfile(userID, namePtr, avatarPtr); err != nil {
 		respondServiceError(c, newInternalError("Unable to update profile", err), "Unable to update profile")
 		return
 	}

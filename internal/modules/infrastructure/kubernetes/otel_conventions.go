@@ -6,7 +6,6 @@ import "fmt"
 // Reference: https://opentelemetry.io/docs/specs/semconv/k8s/
 
 const (
-	// Metric Names
 	MetricContainerCPUTime          = "container.cpu.time"
 	MetricContainerCPUThrottledTime = "container.cpu.throttling_data.throttled_time"
 	MetricContainerMemoryUsage      = "container.memory.usage"
@@ -20,7 +19,6 @@ const (
 	MetricK8sVolumeCapacity         = "k8s.volume.capacity"
 	MetricK8sVolumeInodes           = "k8s.volume.inodes"
 
-	// Attribute Names
 	AttrContainerName  = "container.name"
 	AttrK8sPodName     = "k8s.pod.name"
 	AttrK8sNamespace   = "k8s.namespace.name"
@@ -29,22 +27,18 @@ const (
 	AttrK8sVolumeName  = "k8s.volume.name"
 	AttrReplicaSetName = "k8s.replicaset.name"
 
-	// Table Name
-	TableMetrics = "metrics"
+	TableMetrics = "observability.metrics"
 
-	// Column Names
 	ColMetricName = "metric_name"
 	ColTeamID     = "team_id"
 	ColTimestamp  = "timestamp"
 	ColValue      = "value"
 )
 
-// attrString returns a CH 26+ native JSON path expression for a String attribute.
 func attrString(attrName string) string {
 	return fmt.Sprintf("attributes.'%s'::String", attrName)
 }
 
-// attrFloat returns a CH 26+ native JSON path expression for a Float64 attribute.
 func attrFloat(attrName string) string {
 	return fmt.Sprintf("attributes.'%s'::Float64", attrName)
 }

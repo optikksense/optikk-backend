@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/observability/observability-backend-go/internal/platform/ingest"
+	"github.com/observability/observability-backend-go/internal/platform/timebucket"
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -17,7 +18,6 @@ import (
 	trace "go.opentelemetry.io/proto/otlp/trace/v1"
 )
 
-// nanoToTime converts a Unix nanosecond uint64 to time.Time.
 func nanoToTime(ns uint64) time.Time {
 	if ns == 0 {
 		return time.Now()
@@ -25,7 +25,6 @@ func nanoToTime(ns uint64) time.Time {
 	return time.Unix(0, int64(ns))
 }
 
-// spanKindString converts the OTel SpanKind enum to a human-readable string.
 func spanKindString(kind trace.Span_SpanKind) string {
 	switch kind {
 	case trace.Span_SPAN_KIND_INTERNAL:
@@ -43,7 +42,6 @@ func spanKindString(kind trace.Span_SpanKind) string {
 	}
 }
 
-// statusCodeString converts the OTel span status code to a string.
 func statusCodeString(code trace.Status_StatusCode) string {
 	switch code {
 	case trace.Status_STATUS_CODE_OK:
@@ -55,7 +53,6 @@ func statusCodeString(code trace.Status_StatusCode) string {
 	}
 }
 
-// severityNumberToLevel converts an OTel severity number to a log level string.
 func severityNumberToLevel(n log.SeverityNumber) string {
 	v := int(n)
 	switch {
@@ -76,7 +73,6 @@ func severityNumberToLevel(n log.SeverityNumber) string {
 	}
 }
 
-// anyValueString extracts the string representation from a protobuf AnyValue.
 func anyValueString(v *commonpb.AnyValue) string {
 	if v == nil {
 		return ""
@@ -100,7 +96,6 @@ func anyValueString(v *commonpb.AnyValue) string {
 	}
 }
 
-// attrsToMap converts a slice of protobuf KeyValue into map[string]string.
 func attrsToMap(kvs []*commonpb.KeyValue) map[string]string {
 	m := make(map[string]string, len(kvs))
 	for _, kv := range kvs {
@@ -166,7 +161,6 @@ func resourceFingerprint(kvs []*commonpb.KeyValue) uint64 {
 	return h.Sum64()
 }
 
-// lookupAttr returns the string value of a named attribute.
 func lookupAttr(kvs []*commonpb.KeyValue, key string) string {
 	for _, kv := range kvs {
 		if kv.Key == key {
@@ -176,7 +170,6 @@ func lookupAttr(kvs []*commonpb.KeyValue, key string) string {
 	return ""
 }
 
-// lookupAttrInt returns the int64 value of a named attribute.
 func lookupAttrInt(kvs []*commonpb.KeyValue, key string) int64 {
 	s := lookupAttr(kvs, key)
 	if s == "" {
@@ -186,7 +179,6 @@ func lookupAttrInt(kvs []*commonpb.KeyValue, key string) int64 {
 	return v
 }
 
-// bytesToHex is a helper to stringify Trace/Span IDs.
 func bytesToHex(b []byte) string {
 	if len(b) > 0 {
 		return fmt.Sprintf("%x", b)
@@ -194,9 +186,6 @@ func bytesToHex(b []byte) string {
 	return ""
 }
 
-// MapSpans maps gRPC trace exports into span ingest rows.
-// Resource attributes (host.name, k8s.pod.name, service.name, etc.) are merged
-// into the span's attributes JSON column and extracted via materialized columns at query time.
 func MapSpans(teamID int64, req *tracepb.ExportTraceServiceRequest) []ingest.Row {
 	result := make([]ingest.Row, 0, 64)
 
@@ -216,7 +205,7 @@ func MapSpans(teamID int64, req *tracepb.ExportTraceServiceRequest) []ingest.Row
 					durNano = s.EndTimeUnixNano - s.StartTimeUnixNano
 				}
 
-				tsBucket := uint64(timestamp.Unix() / 300 * 300)
+				tsBucket := timebucket.SpansBucketStart(timestamp.Unix())
 
 				// Determine has_error from status code
 				statusMsg, statusCode := "", trace.Status_STATUS_CODE_UNSET
@@ -333,7 +322,6 @@ func protoAttrsToTypedMaps(kvs []*commonpb.KeyValue) (map[string]string, map[str
 	return sm, nm, bm
 }
 
-// protoLogID generates a stable FNV-64a ID for a gRPC log record.
 func protoLogID(teamID int64, tsNano uint64, traceID, spanID []byte, body string) string {
 	h := fnv.New64a()
 	h.Write([]byte(strconv.FormatInt(teamID, 10)))
@@ -349,7 +337,6 @@ func protoLogID(teamID int64, tsNano uint64, traceID, spanID []byte, body string
 	return strconv.FormatUint(h.Sum64(), 16)
 }
 
-// MapLogs maps gRPC Logs Request to ingest.Row.
 func MapLogs(teamID int64, req *logspb.ExportLogsServiceRequest) []ingest.Row {
 	var rows []ingest.Row
 	for _, rl := range req.ResourceLogs {
@@ -386,8 +373,7 @@ func MapLogs(teamID int64, req *logspb.ExportLogsServiceRequest) []ingest.Row {
 				}
 
 				// ts_bucket_start: truncate to day boundary (seconds)
-				tsSec := tsNs / 1_000_000_000
-				tsBucket := uint32(tsSec - tsSec%86400)
+				tsBucket := timebucket.LogsBucketStart(int64(tsNs / 1_000_000_000))
 
 				severityText := lr.SeverityText
 				if severityText == "" {
@@ -425,7 +411,6 @@ func MapLogs(teamID int64, req *logspb.ExportLogsServiceRequest) []ingest.Row {
 	return rows
 }
 
-// MapMetrics maps gRPC Metrics Request to ingest.Row.
 func MapMetrics(teamID int64, req *metricspb.ExportMetricsServiceRequest) []ingest.Row {
 	var rows []ingest.Row
 	for _, rm := range req.ResourceMetrics {

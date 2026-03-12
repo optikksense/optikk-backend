@@ -15,6 +15,7 @@ type ErrorDetail struct {
 	Message     string            `json:"message"`
 	Timestamp   time.Time         `json:"timestamp"`
 	Path        string            `json:"path,omitempty"`
+	RequestID   string            `json:"requestId,omitempty"`
 	FieldErrors map[string]string `json:"fieldErrors,omitempty"`
 }
 
@@ -31,15 +32,19 @@ func Success(data any) APIResponse {
 	return APIResponse{Success: true, Data: data, Timestamp: time.Now().UTC()}
 }
 
-func Failure(code, msg, path string) APIResponse {
+func Failure(code, msg, path string, requestID ...string) APIResponse {
+	detail := &ErrorDetail{
+		Code:      code,
+		Message:   msg,
+		Timestamp: time.Now().UTC(),
+		Path:      path,
+	}
+	if len(requestID) > 0 {
+		detail.RequestID = requestID[0]
+	}
 	return APIResponse{
-		Success: false,
-		Error: &ErrorDetail{
-			Code:      code,
-			Message:   msg,
-			Timestamp: time.Now().UTC(),
-			Path:      path,
-		},
+		Success:   false,
+		Error:     detail,
 		Timestamp: time.Now().UTC(),
 	}
 }

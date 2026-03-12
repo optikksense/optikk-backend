@@ -1,18 +1,15 @@
 package errortracking
 
-// Service encapsulates business logic for error tracking endpoints.
 type Service interface {
 	GetExceptionRateByType(teamID int64, startMs, endMs int64, serviceName string) ([]ExceptionRatePoint, error)
 	GetErrorHotspot(teamID int64, startMs, endMs int64) ([]ErrorHotspotCell, error)
 	GetHTTP5xxByRoute(teamID int64, startMs, endMs int64, serviceName string) ([]HTTP5xxByRoute, error)
 }
 
-// ErrorTrackingService implements Service.
 type ErrorTrackingService struct {
 	repo Repository
 }
 
-// NewService creates a new error tracking service.
 func NewService(repo Repository) Service {
 	return &ErrorTrackingService{repo: repo}
 }
