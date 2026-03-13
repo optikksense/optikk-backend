@@ -10,7 +10,8 @@ COPY internal/platform/server/go.mod internal/platform/server/go.sum ./internal/
 RUN go work sync && go mod download
 
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux \
+RUN go work use && \
+    CGO_ENABLED=0 GOOS=linux \
     go build -ldflags="-s -w" -o observability-go ./cmd/server
 
 FROM alpine:3.20
