@@ -1,16 +1,14 @@
-Credentials
+- Dont Go in Docs/Schemas Unless Untill Specifically Mentioned
 
-MySQL -
-user: root
-password: root123
-database: observability
+- Always Plan first, dont make code changes unless stated or asked to do so
 
-ClickHouse -
-host: host.docker.internal
-port: 9000
-database: observability
-username: default
-password: clickhouse123
+- Dont try to get to access any database through shell, ask in mid conversation what you need to fecth or ask if can proceed to access the database through your own 
+
+- Always make sure that files follow SOLID Principles
+- If a file you have to make chnages in has more than 250 lines, in plan suggest a way to break its resposibilities, I will manually tell what to do 
+
+
+- Credentials
 
 User Login:
 username: user@example.com
@@ -81,8 +79,4 @@ internal/
     ├── user/                    # Auth, OAuth, user/team management
     ├── defaultconfig/           # Dashboard config CRUD API
     └── common/                  # Shared handler base (DBTenant, GetTenantFunc)
-
-db/                              # ClickHouse + MySQL schema DDL
-docs/                            # Documentation
-  └── resource_estimation/       # Production scaling plan, load testing guide
 ```

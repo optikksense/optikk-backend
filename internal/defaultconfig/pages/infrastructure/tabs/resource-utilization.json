@@ -78,7 +78,7 @@
       },
       "order": 50,
       "query": {
-        "endpoint": "/v1/infrastructure/resource-utilisation/cpu-usage-percentage",
+        "endpoint": "/v1/infrastructure/cpu/usage-percentage",
         "method": "GET"
       },
       "title": "CPU Usage Percentage",
@@ -95,7 +95,7 @@
       },
       "order": 60,
       "query": {
-        "endpoint": "/v1/infrastructure/resource-utilisation/memory-usage-percentage",
+        "endpoint": "/v1/infrastructure/memory/usage-percentage",
         "method": "GET"
       },
       "title": "Memory Usage Percentage",
@@ -139,7 +139,7 @@
       },
       "order": 90,
       "query": {
-        "endpoint": "/v1/infrastructure/cpu-time",
+        "endpoint": "/v1/infrastructure/cpu/time",
         "method": "GET"
       },
       "title": "CPU Time by State",
@@ -155,7 +155,7 @@
       },
       "order": 100,
       "query": {
-        "endpoint": "/v1/infrastructure/memory-usage",
+        "endpoint": "/v1/infrastructure/memory/usage",
         "method": "GET"
       },
       "title": "Memory Usage by State",
@@ -171,7 +171,7 @@
       },
       "order": 110,
       "query": {
-        "endpoint": "/v1/infrastructure/swap-usage",
+        "endpoint": "/v1/infrastructure/memory/swap",
         "method": "GET"
       },
       "title": "Swap Usage by State",
@@ -186,7 +186,7 @@
       },
       "order": 120,
       "query": {
-        "endpoint": "/v1/infrastructure/load-average",
+        "endpoint": "/v1/infrastructure/cpu/load-average",
         "method": "GET"
       },
       "title": "Load Average (1m / 5m / 15m)",
@@ -201,7 +201,7 @@
       },
       "order": 130,
       "query": {
-        "endpoint": "/v1/infrastructure/disk-io",
+        "endpoint": "/v1/infrastructure/disk/io",
         "method": "GET"
       },
       "title": "Disk I/O (Read / Write)",
@@ -217,7 +217,7 @@
       },
       "order": 140,
       "query": {
-        "endpoint": "/v1/infrastructure/disk-operations",
+        "endpoint": "/v1/infrastructure/disk/operations",
         "method": "GET"
       },
       "title": "Disk Operations (Read / Write)",
@@ -233,7 +233,7 @@
       },
       "order": 150,
       "query": {
-        "endpoint": "/v1/infrastructure/disk-io-time",
+        "endpoint": "/v1/infrastructure/disk/io-time",
         "method": "GET"
       },
       "title": "Disk I/O Time",
@@ -249,7 +249,7 @@
       },
       "order": 160,
       "query": {
-        "endpoint": "/v1/infrastructure/filesystem-usage",
+        "endpoint": "/v1/infrastructure/disk/filesystem-usage",
         "method": "GET"
       },
       "title": "Filesystem Usage by Mountpoint",
@@ -265,7 +265,7 @@
       },
       "order": 170,
       "query": {
-        "endpoint": "/v1/infrastructure/filesystem-utilization",
+        "endpoint": "/v1/infrastructure/disk/filesystem-utilization",
         "method": "GET"
       },
       "title": "Filesystem Utilization",
@@ -281,7 +281,7 @@
       },
       "order": 180,
       "query": {
-        "endpoint": "/v1/infrastructure/network-io",
+        "endpoint": "/v1/infrastructure/network/io",
         "method": "GET"
       },
       "title": "Network I/O (Transmit / Receive)",
@@ -297,7 +297,7 @@
       },
       "order": 190,
       "query": {
-        "endpoint": "/v1/infrastructure/network-packets",
+        "endpoint": "/v1/infrastructure/network/packets",
         "method": "GET"
       },
       "title": "Network Packets (Transmit / Receive)",
@@ -313,7 +313,7 @@
       },
       "order": 200,
       "query": {
-        "endpoint": "/v1/infrastructure/network-errors",
+        "endpoint": "/v1/infrastructure/network/errors",
         "method": "GET"
       },
       "title": "Network Errors by State",
@@ -329,7 +329,7 @@
       },
       "order": 210,
       "query": {
-        "endpoint": "/v1/infrastructure/network-dropped",
+        "endpoint": "/v1/infrastructure/network/dropped",
         "method": "GET"
       },
       "title": "Dropped Packets",
@@ -345,7 +345,7 @@
       },
       "order": 220,
       "query": {
-        "endpoint": "/v1/infrastructure/process-count",
+        "endpoint": "/v1/infrastructure/cpu/process-count",
         "method": "GET"
       },
       "title": "Process Count by Status",
@@ -361,7 +361,7 @@
       },
       "order": 230,
       "query": {
-        "endpoint": "/v1/infrastructure/network-connections",
+        "endpoint": "/v1/infrastructure/network/connections",
         "method": "GET"
       },
       "title": "Network Connections by State",

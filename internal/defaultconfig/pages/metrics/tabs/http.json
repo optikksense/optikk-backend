@@ -3,79 +3,202 @@
   "pageId": "metrics",
   "label": "HTTP",
   "order": 20,
+  "groups": [
+    { "id": "server-overview", "label": "Server Overview", "order": 10 },
+    { "id": "route-breakdown", "label": "Route-Level Breakdown", "order": 20 },
+    { "id": "status-errors", "label": "Status Codes & Errors", "order": 30 },
+    { "id": "outbound", "label": "Outbound / External HTTP", "order": 40 }
+  ],
   "components": [
     {
       "componentKey": "request",
       "groupByKey": "status_code",
+      "groupId": "server-overview",
       "id": "http-request-rate",
-      "layout": {
-        "col": 12
-      },
+      "layout": { "col": 12 },
       "order": 10,
-      "query": {
-        "endpoint": "/v1/http/request-rate",
-        "method": "GET"
-      },
+      "query": { "endpoint": "/v1/http/request-rate", "method": "GET" },
       "title": "HTTP Request Rate by Status Code",
       "titleIcon": "Globe",
       "valueKey": "count"
     },
     {
       "componentKey": "stat",
+      "groupId": "server-overview",
       "id": "http-request-duration",
-      "layout": {
-        "col": 12
-      },
+      "layout": { "col": 6 },
       "order": 20,
-      "query": {
-        "endpoint": "/v1/http/request-duration",
-        "method": "GET"
-      },
-      "title": "HTTP Server Request Duration p50/p95/p99",
+      "query": { "endpoint": "/v1/http/request-duration", "method": "GET" },
+      "title": "Server Request Duration p50/p95/p99",
       "titleIcon": "Clock"
     },
     {
       "componentKey": "area",
+      "groupId": "server-overview",
       "id": "http-active-requests",
-      "layout": {
-        "col": 12
-      },
+      "layout": { "col": 6 },
       "order": 30,
-      "query": {
-        "endpoint": "/v1/http/active-requests",
-        "method": "GET"
-      },
+      "query": { "endpoint": "/v1/http/active-requests", "method": "GET" },
       "title": "Active HTTP Requests",
       "titleIcon": "Activity",
       "valueKey": "value"
     },
     {
       "componentKey": "stat",
-      "id": "http-client-duration",
-      "layout": {
-        "col": 12
-      },
+      "groupId": "server-overview",
+      "id": "http-request-body-size",
+      "layout": { "col": 6 },
       "order": 40,
-      "query": {
-        "endpoint": "/v1/http/client-duration",
-        "method": "GET"
-      },
+      "query": { "endpoint": "/v1/http/request-body-size", "method": "GET" },
+      "title": "Request Body Size p50/p95/p99",
+      "titleIcon": "Upload"
+    },
+    {
+      "componentKey": "stat",
+      "groupId": "server-overview",
+      "id": "http-response-body-size",
+      "layout": { "col": 6 },
+      "order": 50,
+      "query": { "endpoint": "/v1/http/response-body-size", "method": "GET" },
+      "title": "Response Body Size p50/p95/p99",
+      "titleIcon": "Download"
+    },
+    {
+      "componentKey": "bar",
+      "groupByKey": "route",
+      "groupId": "route-breakdown",
+      "id": "top-routes-volume",
+      "layout": { "col": 8 },
+      "order": 10,
+      "query": { "endpoint": "/v1/http/routes/top-by-volume", "method": "GET" },
+      "title": "Top Routes by Request Volume",
+      "titleIcon": "BarChart2",
+      "valueKey": "req_count"
+    },
+    {
+      "componentKey": "bar",
+      "groupByKey": "route",
+      "groupId": "route-breakdown",
+      "id": "top-routes-latency",
+      "layout": { "col": 8 },
+      "order": 20,
+      "query": { "endpoint": "/v1/http/routes/top-by-latency", "method": "GET" },
+      "title": "Top Routes by p95 Latency",
+      "titleIcon": "Clock",
+      "valueKey": "p95_ms"
+    },
+    {
+      "componentKey": "bar",
+      "groupByKey": "route",
+      "groupId": "route-breakdown",
+      "id": "route-error-rate",
+      "layout": { "col": 8 },
+      "order": 30,
+      "query": { "endpoint": "/v1/http/routes/error-rate", "method": "GET" },
+      "title": "Error Rate by Route",
+      "titleIcon": "AlertTriangle",
+      "valueKey": "error_pct"
+    },
+    {
+      "componentKey": "error-rate",
+      "groupByKey": "http_route",
+      "groupId": "route-breakdown",
+      "id": "route-error-timeseries",
+      "layout": { "col": 24 },
+      "order": 40,
+      "query": { "endpoint": "/v1/http/routes/error-timeseries", "method": "GET" },
+      "title": "Route Error Rate Over Time",
+      "titleIcon": "TrendingDown",
+      "valueKey": "error_count"
+    },
+    {
+      "componentKey": "pie",
+      "groupByKey": "status_group",
+      "groupId": "status-errors",
+      "id": "status-distribution",
+      "layout": { "col": 8 },
+      "order": 10,
+      "query": { "endpoint": "/v1/http/status-distribution", "method": "GET" },
+      "title": "HTTP Status Distribution",
+      "titleIcon": "PieChart",
+      "valueKey": "count"
+    },
+    {
+      "componentKey": "table",
+      "groupId": "status-errors",
+      "id": "http-5xx-by-route",
+      "layout": { "col": 16 },
+      "order": 20,
+      "query": { "endpoint": "/v1/spans/http-5xx-by-route", "method": "GET" },
+      "title": "5xx Errors by Route & Service",
+      "titleIcon": "XCircle"
+    },
+    {
+      "componentKey": "error-rate",
+      "groupId": "status-errors",
+      "id": "http-error-timeseries",
+      "layout": { "col": 24 },
+      "order": 30,
+      "query": { "endpoint": "/v1/http/error-timeseries", "method": "GET" },
+      "title": "Overall HTTP Error Rate Over Time",
+      "titleIcon": "AlertCircle",
+      "valueKey": "error_rate"
+    },
+    {
+      "componentKey": "stat",
+      "groupId": "outbound",
+      "id": "http-client-duration",
+      "layout": { "col": 6 },
+      "order": 10,
+      "query": { "endpoint": "/v1/http/client-duration", "method": "GET" },
       "title": "Outbound HTTP Duration p50/p95/p99",
       "titleIcon": "ArrowUpRight"
     },
     {
       "componentKey": "stat",
+      "groupId": "outbound",
       "id": "dns-tls-duration",
-      "layout": {
-        "col": 24
-      },
-      "order": 50,
-      "query": {
-        "endpoint": "/v1/http/dns-duration",
-        "method": "GET"
-      },
+      "layout": { "col": 6 },
+      "order": 20,
+      "query": { "endpoint": "/v1/http/dns-duration", "method": "GET" },
       "title": "DNS Lookup & TLS Handshake Duration",
       "titleIcon": "Shield"
+    },
+    {
+      "componentKey": "bar",
+      "groupByKey": "host",
+      "groupId": "outbound",
+      "id": "external-top-hosts",
+      "layout": { "col": 8 },
+      "order": 30,
+      "query": { "endpoint": "/v1/http/external/top-hosts", "method": "GET" },
+      "title": "Top External Hosts by Volume",
+      "titleIcon": "Globe",
+      "valueKey": "req_count"
+    },
+    {
+      "componentKey": "bar",
+      "groupByKey": "host",
+      "groupId": "outbound",
+      "id": "external-host-latency",
+      "layout": { "col": 8 },
+      "order": 40,
+      "query": { "endpoint": "/v1/http/external/host-latency", "method": "GET" },
+      "title": "External Host p95 Latency",
+      "titleIcon": "Clock",
+      "valueKey": "p95_ms"
+    },
+    {
+      "componentKey": "bar",
+      "groupByKey": "host",
+      "groupId": "outbound",
+      "id": "external-error-rate",
+      "layout": { "col": 8 },
+      "order": 50,
+      "query": { "endpoint": "/v1/http/external/error-rate", "method": "GET" },
+      "title": "External Host Error Rate",
+      "titleIcon": "AlertTriangle",
+      "valueKey": "error_pct"
     }
   ]
 }

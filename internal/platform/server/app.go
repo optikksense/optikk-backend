@@ -23,6 +23,11 @@ import (
 	kubernetes "github.com/observability/observability-backend-go/internal/modules/infrastructure/kubernetes"
 	nodes "github.com/observability/observability-backend-go/internal/modules/infrastructure/nodes"
 	"github.com/observability/observability-backend-go/internal/modules/infrastructure/resource_utilisation"
+	infraCPU "github.com/observability/observability-backend-go/internal/modules/infrastructure/cpu"
+	infraMemory "github.com/observability/observability-backend-go/internal/modules/infrastructure/memory"
+	infraDisk "github.com/observability/observability-backend-go/internal/modules/infrastructure/disk"
+	infraNetwork "github.com/observability/observability-backend-go/internal/modules/infrastructure/network"
+	infraJVM "github.com/observability/observability-backend-go/internal/modules/infrastructure/jvm"
 	logsapi "github.com/observability/observability-backend-go/internal/modules/log"
 	overviewerrors "github.com/observability/observability-backend-go/internal/modules/overview/errors"
 	overviewmodule "github.com/observability/observability-backend-go/internal/modules/overview/overview"
@@ -66,6 +71,11 @@ type moduleConfigs struct {
 	ServicesTopology    servicetopology.Config
 	Nodes               nodes.Config
 	ResourceUtilisation resource_utilisation.Config
+	CPU                 infraCPU.Config
+	Memory              infraMemory.Config
+	Disk                infraDisk.Config
+	Network             infraNetwork.Config
+	JVM                 infraJVM.Config
 
 	SaturationKafka     kafka.Config
 	Kubernetes          kubernetes.Config
@@ -92,6 +102,11 @@ func defaultModuleConfigs() moduleConfigs {
 		ServicesTopology:    servicetopology.DefaultConfig(),
 		Nodes:               nodes.DefaultConfig(),
 		ResourceUtilisation: resource_utilisation.DefaultConfig(),
+		CPU:                 infraCPU.DefaultConfig(),
+		Memory:              infraMemory.DefaultConfig(),
+		Disk:                infraDisk.DefaultConfig(),
+		Network:             infraNetwork.DefaultConfig(),
+		JVM:                 infraJVM.DefaultConfig(),
 
 		SaturationKafka:     kafka.DefaultConfig(),
 		Kubernetes:          kubernetes.DefaultConfig(),
@@ -132,6 +147,11 @@ type App struct {
 	ServicesTopology    *servicetopology.TopologyHandler
 	Nodes               *nodes.NodeHandler
 	ResourceUtilisation *resource_utilisation.ResourceUtilisationHandler
+	CPU                 *infraCPU.CPUHandler
+	Memory              *infraMemory.MemoryHandler
+	Disk                *infraDisk.DiskHandler
+	Network             *infraNetwork.NetworkHandler
+	JVM                 *infraJVM.JVMHandler
 
 	SaturationKafka     *kafka.KafkaHandler
 	Kubernetes          *kubernetes.KubernetesHandler
@@ -326,6 +346,11 @@ func New(db *sql.DB, ch *sql.DB, chNative clickhouse.Conn, cfg config.Config) *A
 				resource_utilisation.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
+		CPU:     infraCPU.NewHandler(dbutil.NewClickHouseWrapper(ch), getTenant),
+		Memory:  infraMemory.NewHandler(dbutil.NewClickHouseWrapper(ch), getTenant),
+		Disk:    infraDisk.NewHandler(dbutil.NewClickHouseWrapper(ch), getTenant),
+		Network: infraNetwork.NewHandler(dbutil.NewClickHouseWrapper(ch), getTenant),
+		JVM:     infraJVM.NewHandler(dbutil.NewClickHouseWrapper(ch), getTenant),
 
 		SaturationKafka: &kafka.KafkaHandler{
 			DBTenant: modulecommon.DBTenant{
@@ -464,6 +489,11 @@ func (a *App) registerRoutesToGroup(v1 *gin.RouterGroup) {
 	servicetopology.RegisterRoutes(cfg.ServicesTopology, cached, a.ServicesTopology)
 	nodes.RegisterRoutes(cfg.Nodes, cached, a.Nodes)
 	resource_utilisation.RegisterRoutes(cfg.ResourceUtilisation, cached, a.ResourceUtilisation)
+	infraCPU.RegisterRoutes(cfg.CPU, cached, a.CPU)
+	infraMemory.RegisterRoutes(cfg.Memory, cached, a.Memory)
+	infraDisk.RegisterRoutes(cfg.Disk, cached, a.Disk)
+	infraNetwork.RegisterRoutes(cfg.Network, cached, a.Network)
+	infraJVM.RegisterRoutes(cfg.JVM, cached, a.JVM)
 
 	kafka.RegisterRoutes(cfg.SaturationKafka, cached, a.SaturationKafka)
 	kubernetes.RegisterRoutes(cfg.Kubernetes, cached, a.Kubernetes)

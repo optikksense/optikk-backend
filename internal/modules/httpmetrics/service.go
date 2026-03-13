@@ -9,6 +9,15 @@ type Service interface {
 	GetClientDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error)
 	GetDNSDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error)
 	GetTLSDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error)
+	GetTopRoutesByVolume(teamID int64, startMs, endMs int64) ([]RouteMetric, error)
+	GetTopRoutesByLatency(teamID int64, startMs, endMs int64) ([]RouteMetric, error)
+	GetRouteErrorRate(teamID int64, startMs, endMs int64) ([]RouteMetric, error)
+	GetRouteErrorTimeseries(teamID int64, startMs, endMs int64) ([]RouteTimeseriesPoint, error)
+	GetStatusDistribution(teamID int64, startMs, endMs int64) ([]StatusGroupBucket, error)
+	GetErrorTimeseries(teamID int64, startMs, endMs int64) ([]ErrorTimeseriesPoint, error)
+	GetTopExternalHosts(teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error)
+	GetExternalHostLatency(teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error)
+	GetExternalHostErrorRate(teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error)
 }
 
 type HTTPMetricsService struct {
@@ -49,4 +58,40 @@ func (s *HTTPMetricsService) GetDNSDuration(teamID int64, startMs, endMs int64) 
 
 func (s *HTTPMetricsService) GetTLSDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
 	return s.repo.GetTLSDuration(teamID, startMs, endMs)
+}
+
+func (s *HTTPMetricsService) GetTopRoutesByVolume(teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
+	return s.repo.GetTopRoutesByVolume(teamID, startMs, endMs)
+}
+
+func (s *HTTPMetricsService) GetTopRoutesByLatency(teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
+	return s.repo.GetTopRoutesByLatency(teamID, startMs, endMs)
+}
+
+func (s *HTTPMetricsService) GetRouteErrorRate(teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
+	return s.repo.GetRouteErrorRate(teamID, startMs, endMs)
+}
+
+func (s *HTTPMetricsService) GetRouteErrorTimeseries(teamID int64, startMs, endMs int64) ([]RouteTimeseriesPoint, error) {
+	return s.repo.GetRouteErrorTimeseries(teamID, startMs, endMs)
+}
+
+func (s *HTTPMetricsService) GetStatusDistribution(teamID int64, startMs, endMs int64) ([]StatusGroupBucket, error) {
+	return s.repo.GetStatusDistribution(teamID, startMs, endMs)
+}
+
+func (s *HTTPMetricsService) GetErrorTimeseries(teamID int64, startMs, endMs int64) ([]ErrorTimeseriesPoint, error) {
+	return s.repo.GetErrorTimeseries(teamID, startMs, endMs)
+}
+
+func (s *HTTPMetricsService) GetTopExternalHosts(teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
+	return s.repo.GetTopExternalHosts(teamID, startMs, endMs)
+}
+
+func (s *HTTPMetricsService) GetExternalHostLatency(teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
+	return s.repo.GetExternalHostLatency(teamID, startMs, endMs)
+}
+
+func (s *HTTPMetricsService) GetExternalHostErrorRate(teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
+	return s.repo.GetExternalHostErrorRate(teamID, startMs, endMs)
 }

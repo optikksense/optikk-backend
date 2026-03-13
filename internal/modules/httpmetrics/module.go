@@ -23,4 +23,17 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *HTTPMetricsHandler) {
 	g.GET("/client-duration", h.GetClientDuration)
 	g.GET("/dns-duration", h.GetDNSDuration)
 	g.GET("/tls-duration", h.GetTLSDuration)
+	g.GET("/status-distribution", h.GetStatusDistribution)
+	g.GET("/error-timeseries", h.GetErrorTimeseries)
+
+	routes := g.Group("/routes")
+	routes.GET("/top-by-volume", h.GetTopRoutesByVolume)
+	routes.GET("/top-by-latency", h.GetTopRoutesByLatency)
+	routes.GET("/error-rate", h.GetRouteErrorRate)
+	routes.GET("/error-timeseries", h.GetRouteErrorTimeseries)
+
+	external := g.Group("/external")
+	external.GET("/top-hosts", h.GetTopExternalHosts)
+	external.GET("/host-latency", h.GetExternalHostLatency)
+	external.GET("/error-rate", h.GetExternalHostErrorRate)
 }

@@ -124,3 +124,129 @@ func (h *HTTPMetricsHandler) GetTLSDuration(c *gin.Context) {
 	}
 	RespondOK(c, resp)
 }
+
+func (h *HTTPMetricsHandler) GetTopRoutesByVolume(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+	resp, err := h.Service.GetTopRoutesByVolume(teamID, startMs, endMs)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query top routes by volume")
+		return
+	}
+	RespondOK(c, resp)
+}
+
+func (h *HTTPMetricsHandler) GetTopRoutesByLatency(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+	resp, err := h.Service.GetTopRoutesByLatency(teamID, startMs, endMs)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query top routes by latency")
+		return
+	}
+	RespondOK(c, resp)
+}
+
+func (h *HTTPMetricsHandler) GetRouteErrorRate(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+	resp, err := h.Service.GetRouteErrorRate(teamID, startMs, endMs)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query route error rate")
+		return
+	}
+	RespondOK(c, resp)
+}
+
+func (h *HTTPMetricsHandler) GetRouteErrorTimeseries(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+	resp, err := h.Service.GetRouteErrorTimeseries(teamID, startMs, endMs)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query route error timeseries")
+		return
+	}
+	RespondOK(c, resp)
+}
+
+func (h *HTTPMetricsHandler) GetStatusDistribution(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+	resp, err := h.Service.GetStatusDistribution(teamID, startMs, endMs)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query HTTP status distribution")
+		return
+	}
+	RespondOK(c, resp)
+}
+
+func (h *HTTPMetricsHandler) GetErrorTimeseries(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+	resp, err := h.Service.GetErrorTimeseries(teamID, startMs, endMs)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query HTTP error timeseries")
+		return
+	}
+	RespondOK(c, resp)
+}
+
+func (h *HTTPMetricsHandler) GetTopExternalHosts(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+	resp, err := h.Service.GetTopExternalHosts(teamID, startMs, endMs)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query top external hosts")
+		return
+	}
+	RespondOK(c, resp)
+}
+
+func (h *HTTPMetricsHandler) GetExternalHostLatency(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+	resp, err := h.Service.GetExternalHostLatency(teamID, startMs, endMs)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query external host latency")
+		return
+	}
+	RespondOK(c, resp)
+}
+
+func (h *HTTPMetricsHandler) GetExternalHostErrorRate(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+	resp, err := h.Service.GetExternalHostErrorRate(teamID, startMs, endMs)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query external host error rate")
+		return
+	}
+	RespondOK(c, resp)
+}
