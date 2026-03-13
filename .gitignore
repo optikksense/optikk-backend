@@ -1,6 +1,6 @@
 # Compiled binaries
 main
-server
+/server
 observability-go
 *.exe
 *.test
