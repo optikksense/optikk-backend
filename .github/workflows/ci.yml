@@ -16,8 +16,11 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.24.1'
           cache: true
+
+      - name: Sync go.work
+        run: go work use
 
       - name: Verify dependencies
         run: go mod verify
