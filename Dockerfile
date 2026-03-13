@@ -1,8 +1,13 @@
 FROM golang:1.24-alpine AS builder
 WORKDIR /app
 
+# Copy workspace and all module manifests first for layer caching
+COPY go.work go.work.sum ./
 COPY go.mod go.sum ./
-RUN go mod download
+COPY cmd/server/go.mod cmd/server/go.sum ./cmd/server/
+COPY internal/platform/server/go.mod internal/platform/server/go.sum ./internal/platform/server/
+
+RUN go work sync && go mod download
 
 COPY . .
 RUN CGO_ENABLED=0 GOOS=linux \
