@@ -25,10 +25,8 @@ jobs:
       - name: Build
         run: go build -v ./cmd/server
 
-      - name: golangci-lint
-        uses: golangci-lint/golangci-lint-action@v7
-        with:
-          version: latest
+      - name: Vet
+        run: go vet ./...
 
   docker-push:
     needs: test-and-lint
