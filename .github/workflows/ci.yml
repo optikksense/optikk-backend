@@ -66,4 +66,3 @@ jobs:
           tags: |
             ghcr.io/optikk-org/optikk-lens:latest
             ghcr.io/optikk-org/optikk-lens:${{ steps.version.outputs.value }}
-          cache-to: type=gha,mode=max
