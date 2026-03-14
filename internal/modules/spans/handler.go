@@ -1,6 +1,7 @@
 package traces
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"net/http"
@@ -13,8 +14,20 @@ import (
 
 const maxAttributeFilters = 10
 
+type traceRepository interface {
+	GetTracesKeyset(ctx context.Context, f TraceFilters, limit int, cursor TraceCursor) ([]Trace, TraceSummary, bool, error)
+	GetTraces(ctx context.Context, f TraceFilters, limit, offset int) ([]Trace, int64, TraceSummary, error)
+	GetTraceSpans(ctx context.Context, teamID int64, traceID string) ([]Span, error)
+	GetSpanTree(ctx context.Context, teamID int64, spanID string) ([]Span, error)
+	GetServiceDependencies(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceDependency, error)
+	GetOperationAggregation(ctx context.Context, f TraceFilters, limit int) ([]TraceOperationRow, error)
+	GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error)
+	GetErrorTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]ErrorTimeSeries, error)
+	GetLatencyHistogram(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) ([]LatencyHistogramBucket, error)
+	GetLatencyHeatmap(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]LatencyHeatmapPoint, error)
+}
+
 // parseAttributeFilters reads ?attr.key=value / ?attr_neq.key=value / etc. from the query string.
-// Caps at maxAttributeFilters to prevent unbounded query complexity.
 func parseAttributeFilters(c *gin.Context) []SpanAttributeFilter {
 	var filters []SpanAttributeFilter
 	for key, vals := range c.Request.URL.Query() {
@@ -37,7 +50,6 @@ func parseAttributeFilters(c *gin.Context) []SpanAttributeFilter {
 	return filters
 }
 
-// encodeCursor base64-encodes a TraceCursor so it's URL-safe.
 func encodeCursor(cur TraceCursor) string {
 	b, _ := json.Marshal(cur)
 	return base64.RawURLEncoding.EncodeToString(b)
@@ -58,10 +70,10 @@ func decodeCursor(raw string) TraceCursor {
 
 type TraceHandler struct {
 	getTenant common.GetTenantFunc
-	repo      *ClickHouseRepository
+	repo      traceRepository
 }
 
-func NewHandler(getTenant common.GetTenantFunc, repo *ClickHouseRepository) *TraceHandler {
+func NewHandler(getTenant common.GetTenantFunc, repo traceRepository) *TraceHandler {
 	return &TraceHandler{
 		getTenant: getTenant,
 		repo:      repo,
@@ -95,9 +107,17 @@ func (h *TraceHandler) buildFilters(c *gin.Context, teamID int64, startMs, endMs
 		Operation:        operation,
 		HTTPMethod:       c.Query("httpMethod"),
 		HTTPStatus:       httpStatus,
+		SearchMode:       c.DefaultQuery("mode", "root"),
+		SpanKind:         c.Query("spanKind"),
+		SpanName:         c.Query("spanName"),
 		AttributeFilters: parseAttributeFilters(c),
 	}
 }
+
+// Keep time imported for TraceCursor's embedded time.Time field.
+var _ = time.Time{}
+
+// --- Trace search handlers ---
 
 func (h *TraceHandler) GetTraces(c *gin.Context) {
 	teamID := h.getTenant(c).TeamID
@@ -111,8 +131,6 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 	}
 	filters := h.buildFilters(c, teamID, startMs, endMs)
 
-	// Prefer cursor-based (keyset) pagination when cursor param is present.
-	// Falls back to OFFSET for backward compatibility only when explicitly requested.
 	cursorRaw := c.Query("cursor")
 	offset := common.ParseIntParam(c, "offset", 0)
 
@@ -133,12 +151,12 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 			"hasMore":    hasMore,
 			"nextCursor": nextCursor,
 			"limit":      limit,
+			"total":      summary.TotalTraces,
 			"summary":    summary,
 		})
 		return
 	}
 
-	// Legacy OFFSET path — only used when offset > 0 and no cursor provided.
 	traces, total, summary, err := h.repo.GetTraces(c.Request.Context(), filters, limit, offset)
 	if err != nil {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query traces")
@@ -188,28 +206,44 @@ func (h *TraceHandler) GetTracesKeyset(c *gin.Context) {
 	})
 }
 
-func (h *TraceHandler) GetOperationAggregation(c *gin.Context) {
+// GetSpanSearch is the span-level search endpoint.
+// It forces SearchMode="all" so all spans (not just root) are searched.
+func (h *TraceHandler) GetSpanSearch(c *gin.Context) {
 	teamID := h.getTenant(c).TeamID
 	startMs, endMs, ok := common.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	limit := common.ParseIntParam(c, "limit", 200)
-	if limit <= 0 || limit > 1000 {
-		limit = 200
+	limit := common.ParseIntParam(c, "limit", 100)
+	if limit <= 0 || limit > 500 {
+		limit = 100
 	}
 	filters := h.buildFilters(c, teamID, startMs, endMs)
+	filters.SearchMode = "all"
+	cursor := decodeCursor(c.Query("cursor"))
 
-	rows, err := h.repo.GetOperationAggregation(c.Request.Context(), filters, limit)
+	traces, summary, hasMore, err := h.repo.GetTracesKeyset(c.Request.Context(), filters, limit, cursor)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query operation aggregation")
+		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query spans")
 		return
 	}
-	common.RespondOK(c, rows)
+
+	var nextCursor string
+	if hasMore && len(traces) > 0 {
+		last := traces[len(traces)-1]
+		nextCursor = encodeCursor(TraceCursor{Timestamp: last.StartTime, SpanID: last.SpanID})
+	}
+
+	common.RespondOK(c, map[string]any{
+		"spans":      traces,
+		"hasMore":    hasMore,
+		"nextCursor": nextCursor,
+		"limit":      limit,
+		"summary":    summary,
+	})
 }
 
-// Keep time imported for TraceCursor's embedded time.Time field.
-var _ = time.Time{}
+// --- Trace detail handlers ---
 
 func (h *TraceHandler) GetTraceSpans(c *gin.Context) {
 	teamID := h.getTenant(c).TeamID
@@ -223,9 +257,6 @@ func (h *TraceHandler) GetTraceSpans(c *gin.Context) {
 	common.RespondOK(c, spans)
 }
 
-// GetSpanTree resolves the trace_id for the given spanId and returns all spans
-// in that trace, ordered by start_time. This allows the waterfall to be driven
-// by a root span_id rather than a trace_id.
 func (h *TraceHandler) GetSpanTree(c *gin.Context) {
 	teamID := h.getTenant(c).TeamID
 	spanID := c.Param("spanId")
@@ -252,6 +283,30 @@ func (h *TraceHandler) GetServiceDependencies(c *gin.Context) {
 	}
 	common.RespondOK(c, deps)
 }
+
+// --- Aggregation handlers ---
+
+func (h *TraceHandler) GetOperationAggregation(c *gin.Context) {
+	teamID := h.getTenant(c).TeamID
+	startMs, endMs, ok := common.ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+	limit := common.ParseIntParam(c, "limit", 200)
+	if limit <= 0 || limit > 1000 {
+		limit = 200
+	}
+	filters := h.buildFilters(c, teamID, startMs, endMs)
+
+	rows, err := h.repo.GetOperationAggregation(c.Request.Context(), filters, limit)
+	if err != nil {
+		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query operation aggregation")
+		return
+	}
+	common.RespondOK(c, rows)
+}
+
+// --- Error handlers ---
 
 func (h *TraceHandler) GetErrorGroups(c *gin.Context) {
 	serviceName := c.Query("serviceName")
@@ -294,6 +349,8 @@ func (h *TraceHandler) GetErrorTimeSeries(c *gin.Context) {
 	}
 	common.RespondOK(c, points)
 }
+
+// --- Latency handlers ---
 
 func (h *TraceHandler) GetLatencyHistogram(c *gin.Context) {
 	teamID := h.getTenant(c).TeamID

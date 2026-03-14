@@ -1,29 +1,40 @@
 package ai
 
-import "github.com/gin-gonic/gin"
+import (
+	"github.com/gin-gonic/gin"
+	"github.com/observability/observability-backend-go/internal/modules/ai/dashboard"
+	"github.com/observability/observability-backend-go/internal/modules/ai/rundetail"
+	"github.com/observability/observability-backend-go/internal/modules/ai/runs"
+)
 
+// Config holds configuration for all AI submodules.
 type Config struct {
-	Enabled bool
+	Dashboard dashboard.Config
+	Runs      runs.Config
+	RunDetail rundetail.Config
 }
 
 func DefaultConfig() Config {
-	return Config{Enabled: true}
+	return Config{
+		Dashboard: dashboard.DefaultConfig(),
+		Runs:      runs.DefaultConfig(),
+		RunDetail: rundetail.DefaultConfig(),
+	}
 }
 
-func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *AIHandler) {
-	if !cfg.Enabled || h == nil {
+// Handlers holds all AI submodule handlers.
+type Handlers struct {
+	Dashboard *dashboard.Handler
+	Runs      *runs.Handler
+	RunDetail *rundetail.Handler
+}
+
+// RegisterRoutes registers all AI submodule routes under v1.
+func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handlers) {
+	if h == nil {
 		return
 	}
-
-	v1.GET("/ai/summary", h.GetAISummary)
-	v1.GET("/ai/models", h.GetAIModels)
-	v1.GET("/ai/performance/metrics", h.GetAIPerformanceMetrics)
-	v1.GET("/ai/performance/timeseries", h.GetAIPerformanceTimeSeries)
-	v1.GET("/ai/performance/latency-histogram", h.GetAILatencyHistogram)
-	v1.GET("/ai/cost/metrics", h.GetAICostMetrics)
-	v1.GET("/ai/cost/timeseries", h.GetAICostTimeSeries)
-	v1.GET("/ai/cost/token-breakdown", h.GetAITokenBreakdown)
-	v1.GET("/ai/security/metrics", h.GetAISecurityMetrics)
-	v1.GET("/ai/security/timeseries", h.GetAISecurityTimeSeries)
-	v1.GET("/ai/security/pii-categories", h.GetAIPiiCategories)
+	dashboard.RegisterRoutes(cfg.Dashboard, v1, h.Dashboard)
+	runs.RegisterRoutes(cfg.Runs, v1, h.Runs)
+	rundetail.RegisterRoutes(cfg.RunDetail, v1, h.RunDetail)
 }

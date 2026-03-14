@@ -1,4 +1,4 @@
-package ai
+package dashboard
 
 type AISummary struct {
 	TotalRequests      int64   `json:"total_requests"`

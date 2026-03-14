@@ -262,11 +262,22 @@ func MapSpans(teamID int64, req ExportTraceServiceRequest) []ingest.Row {
 				// Serialize merged map to JSON (single pass, no redundant attrsToMap call).
 				attrsJSON := mapToJSON(mergedMap)
 
-				// Events column is Array(String), so pass native []string values.
-				eventNames := make([]string, 0, len(s.Events))
-				for _, e := range s.Events {
-					eventNames = append(eventNames, e.Name)
+				// Events column is Array(String). Each element is a JSON object
+			// containing the event name, timestamp, and attributes.
+			eventJSONs := make([]string, 0, len(s.Events))
+			for _, e := range s.Events {
+				ev := map[string]any{"name": e.Name}
+				if e.TimeUnixNano != "" {
+					ev["timeUnixNano"] = e.TimeUnixNano
 				}
+				if len(e.Attributes) > 0 {
+					ev["attributes"] = attrsToMap(e.Attributes)
+				}
+				b, err := json.Marshal(ev)
+				if err == nil {
+					eventJSONs = append(eventJSONs, string(b))
+				}
+			}
 
 				// Links (simplified - store as JSON string)
 				linksJSON := "[]"
@@ -296,7 +307,7 @@ func MapSpans(teamID int64, req ExportTraceServiceRequest) []ingest.Row {
 					externalHTTPMethod,
 					httpStatusCode,
 					attrsJSON,
-					eventNames,
+					eventJSONs,
 					linksJSON,
 					exceptionType,
 					exceptionMessage,

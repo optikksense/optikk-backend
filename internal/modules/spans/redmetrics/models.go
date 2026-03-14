@@ -75,3 +75,11 @@ type ErrorByRoutePoint struct {
 	HttpRoute  string `json:"http_route"`
 	ErrorCount int64  `json:"error_count"`
 }
+
+// LatencyBreakdown shows aggregate time spent per service.
+type LatencyBreakdown struct {
+	ServiceName string  `json:"serviceName"`
+	TotalMs     float64 `json:"totalMs"`
+	SpanCount   int64   `json:"spanCount"`
+	PctOfTotal  float64 `json:"pctOfTotal"`
+}

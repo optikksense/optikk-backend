@@ -20,5 +20,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *TraceDetailHandler) {
 	v1.GET("/traces/:traceId/span-self-times", h.GetSpanSelfTimes)
 	v1.GET("/traces/:traceId/error-path", h.GetErrorPath)
 	v1.GET("/traces/:traceId/spans/:spanId/attributes", h.GetSpanAttributes)
+	v1.GET("/traces/:traceId/flamegraph", h.GetFlamegraphData)
 	v1.GET("/traces/:traceId/related", h.GetRelatedTraces)
 }

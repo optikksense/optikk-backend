@@ -66,6 +66,20 @@ type SpanAttributes struct {
 	Attributes map[string]string `json:"attributes,omitempty"`
 }
 
+// FlamegraphFrame represents a single frame in a flamegraph visualization.
+// Frames are ordered depth-first with self-time computed.
+type FlamegraphFrame struct {
+	SpanID     string  `json:"spanId"`
+	Name       string  `json:"name"`       // "service :: operation"
+	Service    string  `json:"service"`
+	Operation  string  `json:"operation"`
+	DurationMs float64 `json:"durationMs"`
+	SelfTimeMs float64 `json:"selfTimeMs"`
+	Level      int     `json:"level"`
+	SpanKind   string  `json:"spanKind"`
+	HasError   bool    `json:"hasError"`
+}
+
 type RelatedTrace struct {
 	TraceID       string  `json:"traceId"`
 	SpanID        string  `json:"spanId"`

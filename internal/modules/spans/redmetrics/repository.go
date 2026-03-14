@@ -19,6 +19,7 @@ type Repository interface {
 	GetP95LatencyTimeSeries(teamID int64, startMs, endMs int64) ([]ServiceLatencyPoint, error)
 	GetSpanKindBreakdown(teamID int64, startMs, endMs int64) ([]SpanKindPoint, error)
 	GetErrorsByRoute(teamID int64, startMs, endMs int64) ([]ErrorByRoutePoint, error)
+	GetLatencyBreakdown(teamID int64, startMs, endMs int64) ([]LatencyBreakdown, error)
 }
 
 type ClickHouseRepository struct {
@@ -404,4 +405,38 @@ func (r *ClickHouseRepository) GetErrorsByRoute(teamID int64, startMs, endMs int
 		})
 	}
 	return result, nil
+}
+
+func (r *ClickHouseRepository) GetLatencyBreakdown(teamID int64, startMs, endMs int64) ([]LatencyBreakdown, error) {
+	rows, err := dbutil.QueryMaps(r.db, `
+		SELECT s.service_name,
+		       sum(s.duration_nano) / 1000000.0 AS total_ms,
+		       count() AS span_count
+		FROM observability.spans s
+		WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ?
+		  AND s.timestamp BETWEEN ? AND ?
+		GROUP BY s.service_name
+		ORDER BY total_ms DESC
+	`, teamID, timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	if err != nil {
+		return nil, err
+	}
+
+	var grandTotal float64
+	breakdown := make([]LatencyBreakdown, 0, len(rows))
+	for _, row := range rows {
+		ms := dbutil.Float64FromAny(row["total_ms"])
+		grandTotal += ms
+		breakdown = append(breakdown, LatencyBreakdown{
+			ServiceName: dbutil.StringFromAny(row["service_name"]),
+			TotalMs:     ms,
+			SpanCount:   dbutil.Int64FromAny(row["span_count"]),
+		})
+	}
+	if grandTotal > 0 {
+		for i := range breakdown {
+			breakdown[i].PctOfTotal = breakdown[i].TotalMs * 100.0 / grandTotal
+		}
+	}
+	return breakdown, nil
 }

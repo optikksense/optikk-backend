@@ -1,4 +1,4 @@
-package ai
+package dashboard
 
 import (
 	dbutil "github.com/observability/observability-backend-go/internal/database"
@@ -8,11 +8,20 @@ type MetricAggregator interface {
 	Aggregate(rows []map[string]any) (any, error)
 }
 
+func firstNonNil(values ...any) any {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+// --- Performance ---
+
 type PerformanceMetricAggregator struct{}
 
-func NewPerformanceMetricAggregator() *PerformanceMetricAggregator {
-	return &PerformanceMetricAggregator{}
-}
+func NewPerformanceMetricAggregator() *PerformanceMetricAggregator { return &PerformanceMetricAggregator{} }
 
 func (a *PerformanceMetricAggregator) Aggregate(rows []map[string]any) (any, error) {
 	metrics := make([]AIPerformanceMetric, len(rows))
@@ -39,11 +48,11 @@ func (a *PerformanceMetricAggregator) Aggregate(rows []map[string]any) (any, err
 	return metrics, nil
 }
 
+// --- Cost ---
+
 type CostMetricAggregator struct{}
 
-func NewCostMetricAggregator() *CostMetricAggregator {
-	return &CostMetricAggregator{}
-}
+func NewCostMetricAggregator() *CostMetricAggregator { return &CostMetricAggregator{} }
 
 func (a *CostMetricAggregator) Aggregate(rows []map[string]any) (any, error) {
 	metrics := make([]AICostMetric, len(rows))
@@ -67,11 +76,11 @@ func (a *CostMetricAggregator) Aggregate(rows []map[string]any) (any, error) {
 	return metrics, nil
 }
 
+// --- Security ---
+
 type SecurityMetricAggregator struct{}
 
-func NewSecurityMetricAggregator() *SecurityMetricAggregator {
-	return &SecurityMetricAggregator{}
-}
+func NewSecurityMetricAggregator() *SecurityMetricAggregator { return &SecurityMetricAggregator{} }
 
 func (a *SecurityMetricAggregator) Aggregate(rows []map[string]any) (any, error) {
 	metrics := make([]AISecurityMetric, len(rows))
@@ -91,33 +100,31 @@ func (a *SecurityMetricAggregator) Aggregate(rows []map[string]any) (any, error)
 	return metrics, nil
 }
 
-type TimeSeriesAggregator struct {
-	aggregateType string // "performance", "cost", "security"
-}
+// --- Time Series (polymorphic) ---
+
+type TimeSeriesAggregator struct{ aggregateType string }
 
 func NewTimeSeriesAggregator(aggregateType string) *TimeSeriesAggregator {
-	return &TimeSeriesAggregator{
-		aggregateType: aggregateType,
-	}
+	return &TimeSeriesAggregator{aggregateType: aggregateType}
 }
 
 func (a *TimeSeriesAggregator) Aggregate(rows []map[string]any) (any, error) {
 	switch a.aggregateType {
 	case "performance":
-		return a.aggregatePerformanceTimeSeries(rows), nil
+		return a.aggregatePerformance(rows), nil
 	case "cost":
-		return a.aggregateCostTimeSeries(rows), nil
+		return a.aggregateCost(rows), nil
 	case "security":
-		return a.aggregateSecurityTimeSeries(rows), nil
+		return a.aggregateSecurity(rows), nil
 	default:
 		return nil, nil
 	}
 }
 
-func (a *TimeSeriesAggregator) aggregatePerformanceTimeSeries(rows []map[string]any) []AIPerformanceTimeSeries {
-	timeseries := make([]AIPerformanceTimeSeries, len(rows))
+func (a *TimeSeriesAggregator) aggregatePerformance(rows []map[string]any) []AIPerformanceTimeSeries {
+	ts := make([]AIPerformanceTimeSeries, len(rows))
 	for i, row := range rows {
-		timeseries[i] = AIPerformanceTimeSeries{
+		ts[i] = AIPerformanceTimeSeries{
 			ModelName:    dbutil.StringFromAny(row["model_name"]),
 			Timestamp:    dbutil.StringFromAny(firstNonNil(row["time_bucket"], row["timestamp"])),
 			RequestCount: dbutil.Int64FromAny(row["request_count"]),
@@ -128,13 +135,13 @@ func (a *TimeSeriesAggregator) aggregatePerformanceTimeSeries(rows []map[string]
 			TokensPerSec: dbutil.Float64FromAny(row["tokens_per_sec"]),
 		}
 	}
-	return timeseries
+	return ts
 }
 
-func (a *TimeSeriesAggregator) aggregateCostTimeSeries(rows []map[string]any) []AICostTimeSeries {
-	timeseries := make([]AICostTimeSeries, len(rows))
+func (a *TimeSeriesAggregator) aggregateCost(rows []map[string]any) []AICostTimeSeries {
+	ts := make([]AICostTimeSeries, len(rows))
 	for i, row := range rows {
-		timeseries[i] = AICostTimeSeries{
+		ts[i] = AICostTimeSeries{
 			ModelName:        dbutil.StringFromAny(row["model_name"]),
 			Timestamp:        dbutil.StringFromAny(firstNonNil(row["time_bucket"], row["timestamp"])),
 			CostPerInterval:  dbutil.Float64FromAny(row["cost_per_interval"]),
@@ -143,13 +150,13 @@ func (a *TimeSeriesAggregator) aggregateCostTimeSeries(rows []map[string]any) []
 			RequestCount:     dbutil.Int64FromAny(row["request_count"]),
 		}
 	}
-	return timeseries
+	return ts
 }
 
-func (a *TimeSeriesAggregator) aggregateSecurityTimeSeries(rows []map[string]any) []AISecurityTimeSeries {
-	timeseries := make([]AISecurityTimeSeries, len(rows))
+func (a *TimeSeriesAggregator) aggregateSecurity(rows []map[string]any) []AISecurityTimeSeries {
+	ts := make([]AISecurityTimeSeries, len(rows))
 	for i, row := range rows {
-		timeseries[i] = AISecurityTimeSeries{
+		ts[i] = AISecurityTimeSeries{
 			ModelName:          dbutil.StringFromAny(row["model_name"]),
 			Timestamp:          dbutil.StringFromAny(firstNonNil(row["time_bucket"], row["timestamp"])),
 			TotalRequests:      dbutil.Int64FromAny(row["total_requests"]),
@@ -158,41 +165,32 @@ func (a *TimeSeriesAggregator) aggregateSecurityTimeSeries(rows []map[string]any
 			ContentPolicyCount: dbutil.Int64FromAny(row["content_policy_count"]),
 		}
 	}
-	return timeseries
+	return ts
 }
 
-func firstNonNil(values ...any) any {
-	for _, value := range values {
-		if value != nil {
-			return value
-		}
-	}
-	return nil
-}
+// --- Histogram ---
 
 type HistogramAggregator struct{}
 
-func NewHistogramAggregator() *HistogramAggregator {
-	return &HistogramAggregator{}
-}
+func NewHistogramAggregator() *HistogramAggregator { return &HistogramAggregator{} }
 
 func (a *HistogramAggregator) Aggregate(rows []map[string]any) (any, error) {
-	histogram := make([]AILatencyHistogram, len(rows))
+	h := make([]AILatencyHistogram, len(rows))
 	for i, row := range rows {
-		histogram[i] = AILatencyHistogram{
+		h[i] = AILatencyHistogram{
 			ModelName:    dbutil.StringFromAny(row["model_name"]),
 			BucketMs:     dbutil.Int64FromAny(row["bucket_ms"]),
 			RequestCount: dbutil.Int64FromAny(row["request_count"]),
 		}
 	}
-	return histogram, nil
+	return h, nil
 }
+
+// --- Model List ---
 
 type ModelListAggregator struct{}
 
-func NewModelListAggregator() *ModelListAggregator {
-	return &ModelListAggregator{}
-}
+func NewModelListAggregator() *ModelListAggregator { return &ModelListAggregator{} }
 
 func (a *ModelListAggregator) Aggregate(rows []map[string]any) (any, error) {
 	models := make([]AIModel, len(rows))
@@ -205,16 +203,16 @@ func (a *ModelListAggregator) Aggregate(rows []map[string]any) (any, error) {
 	return models, nil
 }
 
+// --- Token Breakdown ---
+
 type TokenBreakdownAggregator struct{}
 
-func NewTokenBreakdownAggregator() *TokenBreakdownAggregator {
-	return &TokenBreakdownAggregator{}
-}
+func NewTokenBreakdownAggregator() *TokenBreakdownAggregator { return &TokenBreakdownAggregator{} }
 
 func (a *TokenBreakdownAggregator) Aggregate(rows []map[string]any) (any, error) {
-	breakdown := make([]AITokenBreakdown, len(rows))
+	bd := make([]AITokenBreakdown, len(rows))
 	for i, row := range rows {
-		breakdown[i] = AITokenBreakdown{
+		bd[i] = AITokenBreakdown{
 			ModelName:        dbutil.StringFromAny(row["model_name"]),
 			PromptTokens:     dbutil.Int64FromAny(row["prompt_tokens"]),
 			CompletionTokens: dbutil.Int64FromAny(row["completion_tokens"]),
@@ -222,38 +220,37 @@ func (a *TokenBreakdownAggregator) Aggregate(rows []map[string]any) (any, error)
 			CacheTokens:      dbutil.Int64FromAny(row["cache_tokens"]),
 		}
 	}
-	return breakdown, nil
+	return bd, nil
 }
+
+// --- PII Category ---
 
 type PIICategoryAggregator struct{}
 
-func NewPIICategoryAggregator() *PIICategoryAggregator {
-	return &PIICategoryAggregator{}
-}
+func NewPIICategoryAggregator() *PIICategoryAggregator { return &PIICategoryAggregator{} }
 
 func (a *PIICategoryAggregator) Aggregate(rows []map[string]any) (any, error) {
-	categories := make([]AIPiiCategory, len(rows))
+	cats := make([]AIPiiCategory, len(rows))
 	for i, row := range rows {
-		categories[i] = AIPiiCategory{
+		cats[i] = AIPiiCategory{
 			ModelName:      dbutil.StringFromAny(row["model_name"]),
 			PiiCategories:  dbutil.StringFromAny(row["pii_categories"]),
 			DetectionCount: dbutil.Int64FromAny(row["detection_count"]),
 		}
 	}
-	return categories, nil
+	return cats, nil
 }
+
+// --- Summary ---
 
 type SummaryAggregator struct{}
 
-func NewSummaryAggregator() *SummaryAggregator {
-	return &SummaryAggregator{}
-}
+func NewSummaryAggregator() *SummaryAggregator { return &SummaryAggregator{} }
 
 func (a *SummaryAggregator) Aggregate(rows []map[string]any) (any, error) {
 	if len(rows) == 0 {
 		return nil, nil
 	}
-
 	row := rows[0]
 	return &AISummary{
 		TotalRequests:      dbutil.Int64FromAny(row["total_requests"]),

@@ -8,6 +8,7 @@ type Service interface {
 	GetErrorPath(teamID int64, traceID string) ([]ErrorPathSpan, error)
 	GetSpanAttributes(teamID int64, traceID, spanID string) (*SpanAttributes, error)
 	GetRelatedTraces(teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
+	GetFlamegraphData(teamID int64, traceID string) ([]FlamegraphFrame, error)
 }
 
 type TraceDetailService struct {
@@ -44,4 +45,8 @@ func (s *TraceDetailService) GetSpanAttributes(teamID int64, traceID, spanID str
 
 func (s *TraceDetailService) GetRelatedTraces(teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
 	return s.repo.GetRelatedTraces(teamID, serviceName, operationName, startMs, endMs, excludeTraceID, limit)
+}
+
+func (s *TraceDetailService) GetFlamegraphData(teamID int64, traceID string) ([]FlamegraphFrame, error) {
+	return s.repo.GetFlamegraphData(teamID, traceID)
 }

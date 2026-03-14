@@ -97,6 +97,18 @@ func (h *TraceDetailHandler) GetSpanAttributes(c *gin.Context) {
 	RespondOK(c, attrs)
 }
 
+func (h *TraceDetailHandler) GetFlamegraphData(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	traceID := c.Param("traceId")
+
+	frames, err := h.Service.GetFlamegraphData(teamID, traceID)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to compute flamegraph data")
+		return
+	}
+	RespondOK(c, frames)
+}
+
 func (h *TraceDetailHandler) GetRelatedTraces(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")

@@ -26,4 +26,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *REDMetricsHandler) {
 	red.GET("/p95-latency", h.GetP95LatencyTimeSeries)
 	red.GET("/span-kind-breakdown", h.GetSpanKindBreakdown)
 	red.GET("/errors-by-route", h.GetErrorsByRoute)
+
+	v1.GET("/spans/latency-breakdown", h.GetLatencyBreakdown)
 }

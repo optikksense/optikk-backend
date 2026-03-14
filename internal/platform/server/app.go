@@ -16,6 +16,9 @@ import (
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	configdefaults "github.com/observability/observability-backend-go/internal/defaultconfig"
 	"github.com/observability/observability-backend-go/internal/modules/ai"
+	aidashboard "github.com/observability/observability-backend-go/internal/modules/ai/dashboard"
+	airundetail "github.com/observability/observability-backend-go/internal/modules/ai/rundetail"
+	airuns "github.com/observability/observability-backend-go/internal/modules/ai/runs"
 	"github.com/observability/observability-backend-go/internal/modules/apm"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 	defaultconfig "github.com/observability/observability-backend-go/internal/modules/defaultconfig"
@@ -38,8 +41,13 @@ import (
 	servicemap "github.com/observability/observability-backend-go/internal/modules/services/servicemap"
 	servicetopology "github.com/observability/observability-backend-go/internal/modules/services/topology"
 	tracesapi "github.com/observability/observability-backend-go/internal/modules/spans"
+	errorfingerprint "github.com/observability/observability-backend-go/internal/modules/spans/errorfingerprint"
 	errortracking "github.com/observability/observability-backend-go/internal/modules/spans/errortracking"
+	livetail "github.com/observability/observability-backend-go/internal/modules/spans/livetail"
 	redmetrics "github.com/observability/observability-backend-go/internal/modules/spans/redmetrics"
+	spananalytics "github.com/observability/observability-backend-go/internal/modules/spans/analytics"
+	savedviews "github.com/observability/observability-backend-go/internal/modules/spans/savedviews"
+	tracecompare "github.com/observability/observability-backend-go/internal/modules/spans/tracecompare"
 	tracedetail "github.com/observability/observability-backend-go/internal/modules/spans/tracedetail"
 	databaseotel "github.com/observability/observability-backend-go/internal/modules/database"
 	usermodule "github.com/observability/observability-backend-go/internal/modules/user"
@@ -87,6 +95,11 @@ type moduleConfigs struct {
 	ServiceMap          servicemap.Config
 	REDMetrics          redmetrics.Config
 	ErrorTracking       errortracking.Config
+	SpanAnalytics       spananalytics.Config
+	TraceCompare        tracecompare.Config
+	SavedViews          savedviews.Config
+	LiveTail            livetail.Config
+	ErrorFingerprint    errorfingerprint.Config
 	AI                  ai.Config
 	DefaultConfig       defaultconfig.Config
 	DatabaseOTel        databaseotel.Config
@@ -118,6 +131,11 @@ func defaultModuleConfigs() moduleConfigs {
 		ServiceMap:          servicemap.DefaultConfig(),
 		REDMetrics:          redmetrics.DefaultConfig(),
 		ErrorTracking:       errortracking.DefaultConfig(),
+		SpanAnalytics:       spananalytics.DefaultConfig(),
+		TraceCompare:        tracecompare.DefaultConfig(),
+		SavedViews:          savedviews.DefaultConfig(),
+		LiveTail:            livetail.DefaultConfig(),
+		ErrorFingerprint:    errorfingerprint.DefaultConfig(),
 		AI:                  ai.DefaultConfig(),
 		DefaultConfig:       defaultconfig.DefaultConfig(),
 		DatabaseOTel:        databaseotel.DefaultConfig(),
@@ -140,6 +158,11 @@ type App struct {
 	ServiceMap          *servicemap.ServiceMapHandler
 	REDMetrics          *redmetrics.REDMetricsHandler
 	ErrorTracking       *errortracking.ErrorTrackingHandler
+	SpanAnalytics       *spananalytics.Handler
+	TraceCompare        *tracecompare.Handler
+	SavedViews          *savedviews.Handler
+	LiveTail            *livetail.Handler
+	ErrorFingerprint    *errorfingerprint.Handler
 	Overview            *overviewmodule.OverviewHandler
 	OverviewSLO         *overviewslo.SLOHandler
 	OverviewErrors      *overviewerrors.ErrorHandler
@@ -157,7 +180,7 @@ type App struct {
 	Kubernetes          *kubernetes.KubernetesHandler
 	HTTPMetrics         *httpmetrics.HTTPMetricsHandler
 	APM                 *apm.APMHandler
-	AI                  *ai.AIHandler
+	AI                  *ai.Handlers
 	DefaultConfig       *defaultconfig.Handler
 	DatabaseOTel        *databaseotel.Handler
 
@@ -246,6 +269,32 @@ func New(db *sql.DB, ch *sql.DB, chNative clickhouse.Conn, cfg config.Config) *A
 		Traces: tracesapi.NewHandler(
 			getTenant,
 			tracesapi.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+		),
+		SpanAnalytics: spananalytics.NewHandler(
+			getTenant,
+			spananalytics.NewService(
+				spananalytics.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+			),
+		),
+		TraceCompare: tracecompare.NewHandler(
+			getTenant,
+			tracecompare.NewService(
+				tracecompare.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+			),
+		),
+		SavedViews: savedviews.NewHandler(
+			getTenant,
+			savedviews.NewService(
+				savedviews.NewRepository(db),
+			),
+		),
+		LiveTail: livetail.NewHandler(
+			getTenant,
+			livetail.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+		),
+		ErrorFingerprint: errorfingerprint.NewHandler(
+			getTenant,
+			errorfingerprint.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 		),
 		TraceDetail: &tracedetail.TraceDetailHandler{
 			DBTenant: modulecommon.DBTenant{
@@ -388,14 +437,34 @@ func New(db *sql.DB, ch *sql.DB, chNative clickhouse.Conn, cfg config.Config) *A
 				apm.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
-		AI: &ai.AIHandler{
-			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
-				GetTenant: getTenant,
+		AI: &ai.Handlers{
+			Dashboard: &aidashboard.Handler{
+				DBTenant: modulecommon.DBTenant{
+					DB:        ch,
+					GetTenant: getTenant,
+				},
+				Service: aidashboard.NewService(
+					aidashboard.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+				),
 			},
-			Service: ai.NewService(
-				ai.NewRepository(dbutil.NewClickHouseWrapper(ch)),
-			),
+			Runs: &airuns.Handler{
+				DBTenant: modulecommon.DBTenant{
+					DB:        ch,
+					GetTenant: getTenant,
+				},
+				Service: airuns.NewService(
+					airuns.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+				),
+			},
+			RunDetail: &airundetail.Handler{
+				DBTenant: modulecommon.DBTenant{
+					DB:        ch,
+					GetTenant: getTenant,
+				},
+				Service: airundetail.NewService(
+					airundetail.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+				),
+			},
 		},
 		DefaultConfig: &defaultconfig.Handler{
 			DBTenant: modulecommon.DBTenant{
@@ -501,6 +570,11 @@ func (a *App) registerRoutesToGroup(v1 *gin.RouterGroup) {
 	apm.RegisterRoutes(cfg.APM, cached, a.APM)
 	logsapi.RegisterRoutes(cfg.Logs, v1, a.Logs)
 	tracesapi.RegisterRoutes(cfg.Traces, v1, a.Traces)
+	spananalytics.RegisterRoutes(cfg.SpanAnalytics, v1, a.SpanAnalytics)
+	tracecompare.RegisterRoutes(cfg.TraceCompare, v1, a.TraceCompare)
+	savedviews.RegisterRoutes(cfg.SavedViews, v1, a.SavedViews)
+	livetail.RegisterRoutes(cfg.LiveTail, v1, a.LiveTail)
+	errorfingerprint.RegisterRoutes(cfg.ErrorFingerprint, v1, a.ErrorFingerprint)
 	tracedetail.RegisterRoutes(cfg.TraceDetail, v1, a.TraceDetail)
 	servicemap.RegisterRoutes(cfg.ServiceMap, cached, a.ServiceMap)
 	redmetrics.RegisterRoutes(cfg.REDMetrics, cached, a.REDMetrics)

@@ -1,14 +1,21 @@
-package ai
+package dashboard
 
 import (
 	"fmt"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
+	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
-// Repository encapsulates data access logic for AI models following OpenTelemetry GenAI semantic conventions.
-// This interface follows the Dependency Inversion Principle - high-level modules depend on abstractions.
-// Implementation details are hidden behind this interface, allowing for easy testing and swapping of implementations.
+type TimeBucketStrategyFactory struct{}
+
+func NewTimeBucketStrategyFactory() *TimeBucketStrategyFactory {
+	return &TimeBucketStrategyFactory{}
+}
+
+func (f *TimeBucketStrategyFactory) CreateStrategy(startMs, endMs int64) timebucket.Strategy {
+	return timebucket.NewAdaptiveStrategy(startMs, endMs)
+}
 
 type Repository interface {
 	GetAISummary(teamID int64, startMs, endMs int64) (*AISummary, error)
@@ -52,74 +59,51 @@ func NewRepository(db dbutil.Querier) *ClickHouseRepository {
 	}
 }
 
+func (r *ClickHouseRepository) queryAndAggregate(builder QueryBuilder, agg MetricAggregator) (any, error) {
+	query, args := builder.Build()
+	rows, err := dbutil.QueryMaps(r.db, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return agg.Aggregate(rows)
+}
+
 func (r *ClickHouseRepository) GetAISummary(teamID int64, startMs, endMs int64) (*AISummary, error) {
-	// Build query using dedicated query builder
 	builder := NewSummaryQueryBuilder(teamID, startMs, endMs)
 	query, args := builder.Build()
-
-	// Execute query
 	row, err := dbutil.QueryMap(r.db, query, args...)
 	if err != nil || len(row) == 0 {
 		return nil, err
 	}
-
-	// Aggregate results using dedicated aggregator
 	result, err := r.summaryAggregator.Aggregate([]map[string]any{row})
 	if err != nil {
 		return nil, err
 	}
-
 	return result.(*AISummary), nil
 }
 
 func (r *ClickHouseRepository) GetAIModels(teamID int64, startMs, endMs int64) ([]AIModel, error) {
-	// Build query using dedicated query builder
-	builder := NewModelListQueryBuilder(teamID, startMs, endMs)
-	query, args := builder.Build()
-
-	// Execute query
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
+	result, err := r.queryAndAggregate(NewModelListQueryBuilder(teamID, startMs, endMs), r.modelListAggregator)
 	if err != nil {
 		return nil, err
 	}
-
-	// Aggregate results using dedicated aggregator
-	result, err := r.modelListAggregator.Aggregate(rows)
-	if err != nil {
-		return nil, err
-	}
-
 	return result.([]AIModel), nil
 }
 
 func (r *ClickHouseRepository) GetAIPerformanceMetrics(teamID int64, startMs, endMs int64) ([]AIPerformanceMetric, error) {
-	// Build query using dedicated query builder
-	builder := NewPerformanceMetricsQueryBuilder(teamID, startMs, endMs)
-	query, args := builder.Build()
-
-	// Execute query
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
+	result, err := r.queryAndAggregate(NewPerformanceMetricsQueryBuilder(teamID, startMs, endMs), r.perfAggregator)
 	if err != nil {
 		return nil, err
 	}
-
-	// Aggregate results using dedicated aggregator
-	result, err := r.perfAggregator.Aggregate(rows)
-	if err != nil {
-		return nil, err
-	}
-
 	return result.([]AIPerformanceMetric), nil
 }
 
 func (r *ClickHouseRepository) GetAIPerformanceTimeSeries(teamID int64, startMs, endMs int64) ([]AIPerformanceTimeSeries, error) {
-	// Create adaptive time bucket strategy
 	strategy := r.bucketFactory.CreateStrategy(startMs, endMs)
 	durationMs := attrFlt("duration_ms")
 	outputTokens := attrInt("gen.ai.usage.output_tokens")
 	timeout := attrInt("ai.timeout")
 
-	// Build query using time series query builder
 	builder := NewTimeSeriesQueryBuilder(teamID, startMs, endMs, strategy)
 	builder.WithSelectFields([]string{
 		"COUNT(*) as request_count",
@@ -130,75 +114,40 @@ func (r *ClickHouseRepository) GetAIPerformanceTimeSeries(teamID int64, startMs,
 		fmt.Sprintf("AVG(CASE WHEN %s > 0 THEN COALESCE(%s, 0) / (%s / 1000.0) ELSE 0 END) as tokens_per_sec", durationMs, outputTokens, durationMs),
 	})
 
-	query, args := builder.Build()
-
-	// Execute query
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
+	agg := NewTimeSeriesAggregator("performance")
+	result, err := r.queryAndAggregate(builder, agg)
 	if err != nil {
 		return nil, err
 	}
-
-	// Aggregate results using time series aggregator
-	aggregator := NewTimeSeriesAggregator("performance")
-	result, err := aggregator.Aggregate(rows)
-	if err != nil {
-		return nil, err
-	}
-
 	return result.([]AIPerformanceTimeSeries), nil
 }
 
 func (r *ClickHouseRepository) GetAILatencyHistogram(teamID int64, modelName string, startMs, endMs int64) ([]AILatencyHistogram, error) {
-	// Build query using dedicated query builder
 	builder := NewLatencyHistogramQueryBuilder(teamID, startMs, endMs)
 	if modelName != "" {
 		builder.WithModelName(modelName)
 	}
-	query, args := builder.Build()
-
-	// Execute query
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
+	result, err := r.queryAndAggregate(builder, r.histogramAggregator)
 	if err != nil {
 		return nil, err
 	}
-
-	// Aggregate results using dedicated aggregator
-	result, err := r.histogramAggregator.Aggregate(rows)
-	if err != nil {
-		return nil, err
-	}
-
 	return result.([]AILatencyHistogram), nil
 }
 
 func (r *ClickHouseRepository) GetAICostMetrics(teamID int64, startMs, endMs int64) ([]AICostMetric, error) {
-	// Build query using dedicated query builder
-	builder := NewCostMetricsQueryBuilder(teamID, startMs, endMs)
-	query, args := builder.Build()
-
-	// Execute query
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
+	result, err := r.queryAndAggregate(NewCostMetricsQueryBuilder(teamID, startMs, endMs), r.costAggregator)
 	if err != nil {
 		return nil, err
 	}
-
-	// Aggregate results using dedicated aggregator
-	result, err := r.costAggregator.Aggregate(rows)
-	if err != nil {
-		return nil, err
-	}
-
 	return result.([]AICostMetric), nil
 }
 
 func (r *ClickHouseRepository) GetAICostTimeSeries(teamID int64, startMs, endMs int64) ([]AICostTimeSeries, error) {
-	// Create adaptive time bucket strategy
 	strategy := r.bucketFactory.CreateStrategy(startMs, endMs)
 	costUSD := attrFlt("ai.cost_usd")
 	inputTokens := attrInt("gen.ai.usage.input_tokens")
 	outputTokens := attrInt("gen.ai.usage.output_tokens")
 
-	// Build query using time series query builder
 	builder := NewTimeSeriesQueryBuilder(teamID, startMs, endMs, strategy)
 	builder.WithSelectFields([]string{
 		fmt.Sprintf("SUM(COALESCE(%s, 0)) as cost_per_interval", costUSD),
@@ -207,72 +156,36 @@ func (r *ClickHouseRepository) GetAICostTimeSeries(teamID int64, startMs, endMs 
 		"COUNT(*) as request_count",
 	})
 
-	query, args := builder.Build()
-
-	// Execute query
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
+	agg := NewTimeSeriesAggregator("cost")
+	result, err := r.queryAndAggregate(builder, agg)
 	if err != nil {
 		return nil, err
 	}
-
-	// Aggregate results using time series aggregator
-	aggregator := NewTimeSeriesAggregator("cost")
-	result, err := aggregator.Aggregate(rows)
-	if err != nil {
-		return nil, err
-	}
-
 	return result.([]AICostTimeSeries), nil
 }
 
 func (r *ClickHouseRepository) GetAITokenBreakdown(teamID int64, startMs, endMs int64) ([]AITokenBreakdown, error) {
-	// Build query using dedicated query builder
-	builder := NewTokenBreakdownQueryBuilder(teamID, startMs, endMs)
-	query, args := builder.Build()
-
-	// Execute query
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
+	result, err := r.queryAndAggregate(NewTokenBreakdownQueryBuilder(teamID, startMs, endMs), r.tokenAggregator)
 	if err != nil {
 		return nil, err
 	}
-
-	// Aggregate results using dedicated aggregator
-	result, err := r.tokenAggregator.Aggregate(rows)
-	if err != nil {
-		return nil, err
-	}
-
 	return result.([]AITokenBreakdown), nil
 }
 
 func (r *ClickHouseRepository) GetAISecurityMetrics(teamID int64, startMs, endMs int64) ([]AISecurityMetric, error) {
-	// Build query using dedicated query builder
-	builder := NewSecurityMetricsQueryBuilder(teamID, startMs, endMs)
-	query, args := builder.Build()
-
-	// Execute query
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
+	result, err := r.queryAndAggregate(NewSecurityMetricsQueryBuilder(teamID, startMs, endMs), r.securityAggregator)
 	if err != nil {
 		return nil, err
 	}
-
-	// Aggregate results using dedicated aggregator
-	result, err := r.securityAggregator.Aggregate(rows)
-	if err != nil {
-		return nil, err
-	}
-
 	return result.([]AISecurityMetric), nil
 }
 
 func (r *ClickHouseRepository) GetAISecurityTimeSeries(teamID int64, startMs, endMs int64) ([]AISecurityTimeSeries, error) {
-	// Create adaptive time bucket strategy
 	strategy := r.bucketFactory.CreateStrategy(startMs, endMs)
 	piiDetected := attrInt("ai.security.pii_detected")
 	guardrailBlocked := attrInt("ai.security.guardrail_blocked")
 	contentPolicy := attrInt("ai.security.content_policy")
 
-	// Build query using time series query builder
 	builder := NewTimeSeriesQueryBuilder(teamID, startMs, endMs, strategy)
 	builder.WithSelectFields([]string{
 		"COUNT(*) as total_requests",
@@ -281,40 +194,18 @@ func (r *ClickHouseRepository) GetAISecurityTimeSeries(teamID int64, startMs, en
 		fmt.Sprintf("SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) as content_policy_count", contentPolicy),
 	})
 
-	query, args := builder.Build()
-
-	// Execute query
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
+	agg := NewTimeSeriesAggregator("security")
+	result, err := r.queryAndAggregate(builder, agg)
 	if err != nil {
 		return nil, err
 	}
-
-	// Aggregate results using time series aggregator
-	aggregator := NewTimeSeriesAggregator("security")
-	result, err := aggregator.Aggregate(rows)
-	if err != nil {
-		return nil, err
-	}
-
 	return result.([]AISecurityTimeSeries), nil
 }
 
 func (r *ClickHouseRepository) GetAIPiiCategories(teamID int64, startMs, endMs int64) ([]AIPiiCategory, error) {
-	// Build query using dedicated query builder
-	builder := NewPIICategoryQueryBuilder(teamID, startMs, endMs)
-	query, args := builder.Build()
-
-	// Execute query
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
+	result, err := r.queryAndAggregate(NewPIICategoryQueryBuilder(teamID, startMs, endMs), r.piiAggregator)
 	if err != nil {
 		return nil, err
 	}
-
-	// Aggregate results using dedicated aggregator
-	result, err := r.piiAggregator.Aggregate(rows)
-	if err != nil {
-		return nil, err
-	}
-
 	return result.([]AIPiiCategory), nil
 }

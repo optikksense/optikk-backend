@@ -172,6 +172,20 @@ func (h *REDMetricsHandler) GetErrorsByRoute(c *gin.Context) {
 	RespondOK(c, resp)
 }
 
+func (h *REDMetricsHandler) GetLatencyBreakdown(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+	resp, err := h.Service.GetLatencyBreakdown(teamID, startMs, endMs)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query latency breakdown")
+		return
+	}
+	RespondOK(c, resp)
+}
+
 func parseFloatParam(c *gin.Context, key string, defaultVal float64) float64 {
 	s := c.Query(key)
 	if s == "" {

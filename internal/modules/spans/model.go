@@ -14,6 +14,9 @@ type Trace struct {
 	StatusMessage  string    `json:"statusMessage"`
 	HTTPMethod     string    `json:"httpMethod"`
 	HTTPStatusCode int       `json:"httpStatusCode"`
+	// ParentSpanID and SpanKind are populated only in span-level search (SearchMode="all").
+	ParentSpanID string `json:"parentSpanId,omitempty"`
+	SpanKind     string `json:"spanKind,omitempty"`
 }
 
 type Span struct {
@@ -48,6 +51,12 @@ type TraceFilters struct {
 	Operation   string   `json:"operation"`
 	HTTPMethod  string   `json:"httpMethod"`
 	HTTPStatus  string   `json:"httpStatus"`
+	// SearchMode: "root" (default) filters to root spans only; "all" searches all spans.
+	SearchMode string `json:"searchMode"`
+	// SpanKind filters by span kind (SERVER, CLIENT, INTERNAL, PRODUCER, CONSUMER).
+	SpanKind string `json:"spanKind"`
+	// SpanName filters by exact span name (vs Operation which uses LIKE).
+	SpanName string `json:"spanName"`
 	// AttributeFilters allows arbitrary span attribute filtering.
 	// e.g. ?attr.db.name=mydb or ?attr_contains.db.statement=SELECT
 	AttributeFilters []SpanAttributeFilter `json:"attributeFilters,omitempty"`

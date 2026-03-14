@@ -12,6 +12,7 @@ type Service interface {
 	GetP95LatencyTimeSeries(teamID int64, startMs, endMs int64) ([]ServiceLatencyPoint, error)
 	GetSpanKindBreakdown(teamID int64, startMs, endMs int64) ([]SpanKindPoint, error)
 	GetErrorsByRoute(teamID int64, startMs, endMs int64) ([]ErrorByRoutePoint, error)
+	GetLatencyBreakdown(teamID int64, startMs, endMs int64) ([]LatencyBreakdown, error)
 }
 
 type REDMetricsService struct {
@@ -64,4 +65,8 @@ func (s *REDMetricsService) GetSpanKindBreakdown(teamID int64, startMs, endMs in
 
 func (s *REDMetricsService) GetErrorsByRoute(teamID int64, startMs, endMs int64) ([]ErrorByRoutePoint, error) {
 	return s.repo.GetErrorsByRoute(teamID, startMs, endMs)
+}
+
+func (s *REDMetricsService) GetLatencyBreakdown(teamID int64, startMs, endMs int64) ([]LatencyBreakdown, error) {
+	return s.repo.GetLatencyBreakdown(teamID, startMs, endMs)
 }
