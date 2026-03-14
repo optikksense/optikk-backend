@@ -38,7 +38,3 @@ const (
 func attrString(attrName string) string {
 	return fmt.Sprintf("attributes.'%s'::String", attrName)
 }
-
-func attrFloat(attrName string) string {
-	return fmt.Sprintf("attributes.'%s'::Float64", attrName)
-}
