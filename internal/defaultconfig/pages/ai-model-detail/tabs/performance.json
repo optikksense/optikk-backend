@@ -1,0 +1,47 @@
+{
+  "id": "performance",
+  "pageId": "ai-model-detail",
+  "label": "Performance",
+  "order": 20,
+  "components": [
+    {
+      "componentKey": "ai-line",
+      "id": "model-avg-latency",
+      "layout": { "col": 12 },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/ai/performance/timeseries",
+        "method": "GET",
+        "params": { "model": "{modelName}", "interval": "5m" }
+      },
+      "title": "Avg Latency",
+      "titleIcon": "Clock"
+    },
+    {
+      "componentKey": "ai-bar",
+      "id": "model-latency-histogram",
+      "layout": { "col": 12 },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/ai/performance/latency-histogram",
+        "method": "GET",
+        "params": { "model": "{modelName}" }
+      },
+      "title": "Latency Histogram",
+      "titleIcon": "BarChart2"
+    },
+    {
+      "componentKey": "table",
+      "id": "model-performance-metrics",
+      "layout": { "col": 24 },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/ai/performance/metrics",
+        "method": "GET",
+        "params": { "model": "{modelName}" }
+      },
+      "title": "Performance Metrics",
+      "titleIcon": "Activity"
+    }
+  ]
+}

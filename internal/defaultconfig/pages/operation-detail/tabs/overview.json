@@ -1,0 +1,85 @@
+{
+  "id": "overview",
+  "pageId": "operation-detail",
+  "label": "Overview",
+  "order": 10,
+  "groups": [
+    { "id": "signals", "label": "Signals", "order": 10 },
+    { "id": "quality", "label": "Quality", "order": 20 }
+  ],
+  "components": [
+    {
+      "componentKey": "request",
+      "groupId": "signals",
+      "id": "op-request-rate",
+      "layout": { "col": 8 },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/spans/red/request-rate",
+        "method": "GET",
+        "params": { "service": "{serviceName}", "operation": "{operationName}" }
+      },
+      "title": "Request Rate",
+      "titleIcon": "TrendingUp"
+    },
+    {
+      "componentKey": "error-rate",
+      "groupId": "signals",
+      "id": "op-error-rate",
+      "layout": { "col": 8 },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/spans/red/error-rate",
+        "method": "GET",
+        "params": { "service": "{serviceName}", "operation": "{operationName}" }
+      },
+      "title": "Error Rate",
+      "titleIcon": "AlertCircle"
+    },
+    {
+      "componentKey": "latency",
+      "groupId": "signals",
+      "id": "op-p95-latency",
+      "layout": { "col": 8 },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/spans/red/p95-latency",
+        "method": "GET",
+        "params": { "service": "{serviceName}", "operation": "{operationName}" }
+      },
+      "title": "p95 Latency",
+      "titleIcon": "Clock",
+      "valueKey": "p95"
+    },
+    {
+      "componentKey": "gauge",
+      "groupId": "quality",
+      "id": "op-apdex",
+      "layout": { "col": 12 },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/spans/red/apdex",
+        "method": "GET",
+        "params": { "service": "{serviceName}", "operation": "{operationName}", "satisfied_ms": 300, "tolerating_ms": 1200 }
+      },
+      "title": "Apdex Score",
+      "titleIcon": "Target",
+      "valueKey": "apdex"
+    },
+    {
+      "componentKey": "bar",
+      "groupId": "quality",
+      "id": "op-http-status",
+      "layout": { "col": 12 },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/spans/red/http-status-distribution",
+        "method": "GET",
+        "params": { "service": "{serviceName}", "operation": "{operationName}" }
+      },
+      "title": "HTTP Status Distribution",
+      "titleIcon": "BarChart2",
+      "valueKey": "count"
+    }
+  ]
+}

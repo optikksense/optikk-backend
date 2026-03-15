@@ -1,12 +1,15 @@
 package errors
 
-import ()
+// no imports needed — types come from the same package
 
 type Service interface {
 	GetServiceErrorRate(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
 	GetErrorVolume(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
 	GetLatencyDuringErrorWindows(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
 	GetErrorGroups(teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error)
+	GetErrorGroupDetail(teamID int64, startMs, endMs int64, groupID string) (*ErrorGroupDetail, error)
+	GetErrorGroupTraces(teamID int64, startMs, endMs int64, groupID string, limit int) ([]ErrorGroupTrace, error)
+	GetErrorGroupTimeseries(teamID int64, startMs, endMs int64, groupID string) ([]TimeSeriesPoint, error)
 }
 
 type ErrorService struct {
@@ -31,4 +34,16 @@ func (s *ErrorService) GetErrorVolume(teamID int64, startMs, endMs int64, servic
 
 func (s *ErrorService) GetLatencyDuringErrorWindows(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
 	return s.repo.GetLatencyDuringErrorWindows(teamID, startMs, endMs, serviceName)
+}
+
+func (s *ErrorService) GetErrorGroupDetail(teamID int64, startMs, endMs int64, groupID string) (*ErrorGroupDetail, error) {
+	return s.repo.GetErrorGroupDetail(teamID, startMs, endMs, groupID)
+}
+
+func (s *ErrorService) GetErrorGroupTraces(teamID int64, startMs, endMs int64, groupID string, limit int) ([]ErrorGroupTrace, error) {
+	return s.repo.GetErrorGroupTraces(teamID, startMs, endMs, groupID, limit)
+}
+
+func (s *ErrorService) GetErrorGroupTimeseries(teamID int64, startMs, endMs int64, groupID string) ([]TimeSeriesPoint, error) {
+	return s.repo.GetErrorGroupTimeseries(teamID, startMs, endMs, groupID)
 }

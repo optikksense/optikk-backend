@@ -1,0 +1,34 @@
+{
+  "id": "operations",
+  "pageId": "database-detail",
+  "label": "Operations",
+  "order": 20,
+  "components": [
+    {
+      "componentKey": "area",
+      "id": "db-ops-by-operation",
+      "layout": { "col": 12 },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/database/ops/by-operation",
+        "method": "GET",
+        "params": { "db_system": "{dbSystem}" }
+      },
+      "title": "Operations by Type",
+      "titleIcon": "BarChart2"
+    },
+    {
+      "componentKey": "pie",
+      "id": "db-read-vs-write",
+      "layout": { "col": 12 },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/database/ops/read-vs-write",
+        "method": "GET",
+        "params": { "db_system": "{dbSystem}" }
+      },
+      "title": "Read vs Write",
+      "titleIcon": "PieChart"
+    }
+  ]
+}

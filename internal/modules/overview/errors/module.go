@@ -19,4 +19,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ErrorHandler) {
 	v1.GET("/overview/errors/error-volume", h.GetErrorVolume)
 	v1.GET("/overview/errors/latency-during-error-windows", h.GetLatencyDuringErrorWindows)
 	v1.GET("/overview/errors/groups", h.GetErrorGroups)
+	v1.GET("/errors/groups/:groupId", h.GetErrorGroupDetail)
+	v1.GET("/errors/groups/:groupId/traces", h.GetErrorGroupTraces)
+	v1.GET("/errors/groups/:groupId/timeseries", h.GetErrorGroupTimeseries)
 }

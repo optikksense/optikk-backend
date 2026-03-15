@@ -18,17 +18,17 @@ func (f *TimeBucketStrategyFactory) CreateStrategy(startMs, endMs int64) timebuc
 }
 
 type Repository interface {
-	GetAISummary(teamID int64, startMs, endMs int64) (*AISummary, error)
-	GetAIModels(teamID int64, startMs, endMs int64) ([]AIModel, error)
-	GetAIPerformanceMetrics(teamID int64, startMs, endMs int64) ([]AIPerformanceMetric, error)
-	GetAIPerformanceTimeSeries(teamID int64, startMs, endMs int64) ([]AIPerformanceTimeSeries, error)
-	GetAILatencyHistogram(teamID int64, modelName string, startMs, endMs int64) ([]AILatencyHistogram, error)
-	GetAICostMetrics(teamID int64, startMs, endMs int64) ([]AICostMetric, error)
-	GetAICostTimeSeries(teamID int64, startMs, endMs int64) ([]AICostTimeSeries, error)
-	GetAITokenBreakdown(teamID int64, startMs, endMs int64) ([]AITokenBreakdown, error)
-	GetAISecurityMetrics(teamID int64, startMs, endMs int64) ([]AISecurityMetric, error)
-	GetAISecurityTimeSeries(teamID int64, startMs, endMs int64) ([]AISecurityTimeSeries, error)
-	GetAIPiiCategories(teamID int64, startMs, endMs int64) ([]AIPiiCategory, error)
+	GetAISummary(teamID int64, model string, startMs, endMs int64) (*AISummary, error)
+	GetAIModels(teamID int64, model string, startMs, endMs int64) ([]AIModel, error)
+	GetAIPerformanceMetrics(teamID int64, model string, startMs, endMs int64) ([]AIPerformanceMetric, error)
+	GetAIPerformanceTimeSeries(teamID int64, model string, startMs, endMs int64) ([]AIPerformanceTimeSeries, error)
+	GetAILatencyHistogram(teamID int64, model string, startMs, endMs int64) ([]AILatencyHistogram, error)
+	GetAICostMetrics(teamID int64, model string, startMs, endMs int64) ([]AICostMetric, error)
+	GetAICostTimeSeries(teamID int64, model string, startMs, endMs int64) ([]AICostTimeSeries, error)
+	GetAITokenBreakdown(teamID int64, model string, startMs, endMs int64) ([]AITokenBreakdown, error)
+	GetAISecurityMetrics(teamID int64, model string, startMs, endMs int64) ([]AISecurityMetric, error)
+	GetAISecurityTimeSeries(teamID int64, model string, startMs, endMs int64) ([]AISecurityTimeSeries, error)
+	GetAIPiiCategories(teamID int64, model string, startMs, endMs int64) ([]AIPiiCategory, error)
 }
 
 type ClickHouseRepository struct {
@@ -68,8 +68,11 @@ func (r *ClickHouseRepository) queryAndAggregate(builder QueryBuilder, agg Metri
 	return agg.Aggregate(rows)
 }
 
-func (r *ClickHouseRepository) GetAISummary(teamID int64, startMs, endMs int64) (*AISummary, error) {
+func (r *ClickHouseRepository) GetAISummary(teamID int64, model string, startMs, endMs int64) (*AISummary, error) {
 	builder := NewSummaryQueryBuilder(teamID, startMs, endMs)
+	if model != "" {
+		builder.WithModelName(model)
+	}
 	query, args := builder.Build()
 	row, err := dbutil.QueryMap(r.db, query, args...)
 	if err != nil || len(row) == 0 {
@@ -82,29 +85,40 @@ func (r *ClickHouseRepository) GetAISummary(teamID int64, startMs, endMs int64) 
 	return result.(*AISummary), nil
 }
 
-func (r *ClickHouseRepository) GetAIModels(teamID int64, startMs, endMs int64) ([]AIModel, error) {
-	result, err := r.queryAndAggregate(NewModelListQueryBuilder(teamID, startMs, endMs), r.modelListAggregator)
+func (r *ClickHouseRepository) GetAIModels(teamID int64, model string, startMs, endMs int64) ([]AIModel, error) {
+	b := NewModelListQueryBuilder(teamID, startMs, endMs)
+	if model != "" {
+		b.WithModelName(model)
+	}
+	result, err := r.queryAndAggregate(b, r.modelListAggregator)
 	if err != nil {
 		return nil, err
 	}
 	return result.([]AIModel), nil
 }
 
-func (r *ClickHouseRepository) GetAIPerformanceMetrics(teamID int64, startMs, endMs int64) ([]AIPerformanceMetric, error) {
-	result, err := r.queryAndAggregate(NewPerformanceMetricsQueryBuilder(teamID, startMs, endMs), r.perfAggregator)
+func (r *ClickHouseRepository) GetAIPerformanceMetrics(teamID int64, model string, startMs, endMs int64) ([]AIPerformanceMetric, error) {
+	b := NewPerformanceMetricsQueryBuilder(teamID, startMs, endMs)
+	if model != "" {
+		b.WithModelName(model)
+	}
+	result, err := r.queryAndAggregate(b, r.perfAggregator)
 	if err != nil {
 		return nil, err
 	}
 	return result.([]AIPerformanceMetric), nil
 }
 
-func (r *ClickHouseRepository) GetAIPerformanceTimeSeries(teamID int64, startMs, endMs int64) ([]AIPerformanceTimeSeries, error) {
+func (r *ClickHouseRepository) GetAIPerformanceTimeSeries(teamID int64, model string, startMs, endMs int64) ([]AIPerformanceTimeSeries, error) {
 	strategy := r.bucketFactory.CreateStrategy(startMs, endMs)
 	durationMs := attrFlt("duration_ms")
 	outputTokens := attrInt("gen.ai.usage.output_tokens")
 	timeout := attrInt("ai.timeout")
 
 	builder := NewTimeSeriesQueryBuilder(teamID, startMs, endMs, strategy)
+	if model != "" {
+		builder.WithModelName(model)
+	}
 	builder.WithSelectFields([]string{
 		"COUNT(*) as request_count",
 		fmt.Sprintf("AVG(%s) as avg_latency_ms", durationMs),
@@ -122,10 +136,10 @@ func (r *ClickHouseRepository) GetAIPerformanceTimeSeries(teamID int64, startMs,
 	return result.([]AIPerformanceTimeSeries), nil
 }
 
-func (r *ClickHouseRepository) GetAILatencyHistogram(teamID int64, modelName string, startMs, endMs int64) ([]AILatencyHistogram, error) {
+func (r *ClickHouseRepository) GetAILatencyHistogram(teamID int64, model string, startMs, endMs int64) ([]AILatencyHistogram, error) {
 	builder := NewLatencyHistogramQueryBuilder(teamID, startMs, endMs)
-	if modelName != "" {
-		builder.WithModelName(modelName)
+	if model != "" {
+		builder.WithModelName(model)
 	}
 	result, err := r.queryAndAggregate(builder, r.histogramAggregator)
 	if err != nil {
@@ -134,21 +148,28 @@ func (r *ClickHouseRepository) GetAILatencyHistogram(teamID int64, modelName str
 	return result.([]AILatencyHistogram), nil
 }
 
-func (r *ClickHouseRepository) GetAICostMetrics(teamID int64, startMs, endMs int64) ([]AICostMetric, error) {
-	result, err := r.queryAndAggregate(NewCostMetricsQueryBuilder(teamID, startMs, endMs), r.costAggregator)
+func (r *ClickHouseRepository) GetAICostMetrics(teamID int64, model string, startMs, endMs int64) ([]AICostMetric, error) {
+	b := NewCostMetricsQueryBuilder(teamID, startMs, endMs)
+	if model != "" {
+		b.WithModelName(model)
+	}
+	result, err := r.queryAndAggregate(b, r.costAggregator)
 	if err != nil {
 		return nil, err
 	}
 	return result.([]AICostMetric), nil
 }
 
-func (r *ClickHouseRepository) GetAICostTimeSeries(teamID int64, startMs, endMs int64) ([]AICostTimeSeries, error) {
+func (r *ClickHouseRepository) GetAICostTimeSeries(teamID int64, model string, startMs, endMs int64) ([]AICostTimeSeries, error) {
 	strategy := r.bucketFactory.CreateStrategy(startMs, endMs)
 	costUSD := attrFlt("ai.cost_usd")
 	inputTokens := attrInt("gen.ai.usage.input_tokens")
 	outputTokens := attrInt("gen.ai.usage.output_tokens")
 
 	builder := NewTimeSeriesQueryBuilder(teamID, startMs, endMs, strategy)
+	if model != "" {
+		builder.WithModelName(model)
+	}
 	builder.WithSelectFields([]string{
 		fmt.Sprintf("SUM(COALESCE(%s, 0)) as cost_per_interval", costUSD),
 		fmt.Sprintf("SUM(COALESCE(%s, 0)) as prompt_tokens", inputTokens),
@@ -164,29 +185,40 @@ func (r *ClickHouseRepository) GetAICostTimeSeries(teamID int64, startMs, endMs 
 	return result.([]AICostTimeSeries), nil
 }
 
-func (r *ClickHouseRepository) GetAITokenBreakdown(teamID int64, startMs, endMs int64) ([]AITokenBreakdown, error) {
-	result, err := r.queryAndAggregate(NewTokenBreakdownQueryBuilder(teamID, startMs, endMs), r.tokenAggregator)
+func (r *ClickHouseRepository) GetAITokenBreakdown(teamID int64, model string, startMs, endMs int64) ([]AITokenBreakdown, error) {
+	b := NewTokenBreakdownQueryBuilder(teamID, startMs, endMs)
+	if model != "" {
+		b.WithModelName(model)
+	}
+	result, err := r.queryAndAggregate(b, r.tokenAggregator)
 	if err != nil {
 		return nil, err
 	}
 	return result.([]AITokenBreakdown), nil
 }
 
-func (r *ClickHouseRepository) GetAISecurityMetrics(teamID int64, startMs, endMs int64) ([]AISecurityMetric, error) {
-	result, err := r.queryAndAggregate(NewSecurityMetricsQueryBuilder(teamID, startMs, endMs), r.securityAggregator)
+func (r *ClickHouseRepository) GetAISecurityMetrics(teamID int64, model string, startMs, endMs int64) ([]AISecurityMetric, error) {
+	b := NewSecurityMetricsQueryBuilder(teamID, startMs, endMs)
+	if model != "" {
+		b.WithModelName(model)
+	}
+	result, err := r.queryAndAggregate(b, r.securityAggregator)
 	if err != nil {
 		return nil, err
 	}
 	return result.([]AISecurityMetric), nil
 }
 
-func (r *ClickHouseRepository) GetAISecurityTimeSeries(teamID int64, startMs, endMs int64) ([]AISecurityTimeSeries, error) {
+func (r *ClickHouseRepository) GetAISecurityTimeSeries(teamID int64, model string, startMs, endMs int64) ([]AISecurityTimeSeries, error) {
 	strategy := r.bucketFactory.CreateStrategy(startMs, endMs)
 	piiDetected := attrInt("ai.security.pii_detected")
 	guardrailBlocked := attrInt("ai.security.guardrail_blocked")
 	contentPolicy := attrInt("ai.security.content_policy")
 
 	builder := NewTimeSeriesQueryBuilder(teamID, startMs, endMs, strategy)
+	if model != "" {
+		builder.WithModelName(model)
+	}
 	builder.WithSelectFields([]string{
 		"COUNT(*) as total_requests",
 		fmt.Sprintf("SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) as pii_count", piiDetected),
@@ -202,8 +234,12 @@ func (r *ClickHouseRepository) GetAISecurityTimeSeries(teamID int64, startMs, en
 	return result.([]AISecurityTimeSeries), nil
 }
 
-func (r *ClickHouseRepository) GetAIPiiCategories(teamID int64, startMs, endMs int64) ([]AIPiiCategory, error) {
-	result, err := r.queryAndAggregate(NewPIICategoryQueryBuilder(teamID, startMs, endMs), r.piiAggregator)
+func (r *ClickHouseRepository) GetAIPiiCategories(teamID int64, model string, startMs, endMs int64) ([]AIPiiCategory, error) {
+	b := NewPIICategoryQueryBuilder(teamID, startMs, endMs)
+	if model != "" {
+		b.WithModelName(model)
+	}
+	result, err := r.queryAndAggregate(b, r.piiAggregator)
 	if err != nil {
 		return nil, err
 	}

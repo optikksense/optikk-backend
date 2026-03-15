@@ -137,6 +137,31 @@ func ParseRequiredRange(c *gin.Context) (int64, int64, bool) {
 	return start, end, true
 }
 
+// ParseComparisonRange returns an optional comparison time range.
+// If compareStart is provided, it returns the comparison window.
+// If only "compareTo" is provided (e.g. "previous_period"), it auto-calculates
+// the comparison range based on the primary range.
+func ParseComparisonRange(c *gin.Context, startMs, endMs int64) (cmpStart, cmpEnd int64, ok bool) {
+	cmpStart = ParseInt64Param(c, "compareStart", 0)
+	cmpEnd = ParseInt64Param(c, "compareEnd", 0)
+	if cmpStart > 0 && cmpEnd > 0 {
+		return cmpStart, cmpEnd, true
+	}
+
+	compareTo := c.Query("compareTo")
+	duration := endMs - startMs
+	switch compareTo {
+	case "previous_period":
+		return startMs - duration, startMs, true
+	case "previous_day":
+		return startMs - 86400000, endMs - 86400000, true
+	case "previous_week":
+		return startMs - 604800000, endMs - 604800000, true
+	default:
+		return 0, 0, false
+	}
+}
+
 func ExtractIDParam(c *gin.Context, key string) (int64, error) {
 	id, err := strconv.ParseInt(c.Param(key), 10, 64)
 	if err != nil {

@@ -9,6 +9,8 @@ const (
 
 type Service interface {
 	GetSloSli(teamID int64, startMs, endMs int64, serviceName string) (*Response, error)
+	GetBurnDown(teamID int64, startMs, endMs int64, serviceName string) ([]BurnDownPoint, error)
+	GetBurnRate(teamID int64, startMs, endMs int64, serviceName string) (*BurnRate, error)
 }
 
 type SLOService struct {
@@ -46,6 +48,14 @@ func (s *SLOService) GetSloSli(teamID int64, startMs, endMs int64, serviceName s
 		Summary:    summary,
 		Timeseries: timeseries,
 	}, nil
+}
+
+func (s *SLOService) GetBurnDown(teamID int64, startMs, endMs int64, serviceName string) ([]BurnDownPoint, error) {
+	return s.repo.GetBurnDown(teamID, startMs, endMs, serviceName)
+}
+
+func (s *SLOService) GetBurnRate(teamID int64, startMs, endMs int64, serviceName string) (*BurnRate, error) {
+	return s.repo.GetBurnRate(teamID, startMs, endMs, serviceName)
 }
 
 func remainingErrorBudgetPercent(availabilityPercent float64) float64 {

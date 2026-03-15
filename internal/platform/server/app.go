@@ -15,6 +15,8 @@ import (
 	"github.com/observability/observability-backend-go/internal/config"
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	configdefaults "github.com/observability/observability-backend-go/internal/defaultconfig"
+	alertingmod "github.com/observability/observability-backend-go/internal/modules/alerting"
+	anomalymod "github.com/observability/observability-backend-go/internal/modules/anomaly"
 	"github.com/observability/observability-backend-go/internal/modules/ai"
 	aidashboard "github.com/observability/observability-backend-go/internal/modules/ai/dashboard"
 	airundetail "github.com/observability/observability-backend-go/internal/modules/ai/rundetail"
@@ -52,6 +54,12 @@ import (
 	savedviews "github.com/observability/observability-backend-go/internal/modules/spans/savedviews"
 	tracecompare "github.com/observability/observability-backend-go/internal/modules/spans/tracecompare"
 	tracedetail "github.com/observability/observability-backend-go/internal/modules/spans/tracedetail"
+	annotationsmod "github.com/observability/observability-backend-go/internal/modules/annotations"
+	dashboardsmod "github.com/observability/observability-backend-go/internal/modules/dashboards"
+	errorsinbox "github.com/observability/observability-backend-go/internal/modules/errorsinbox"
+	explorermod "github.com/observability/observability-backend-go/internal/modules/explorer"
+	sharingmod "github.com/observability/observability-backend-go/internal/modules/sharing"
+	workloadsmod "github.com/observability/observability-backend-go/internal/modules/workloads"
 	databaseotel "github.com/observability/observability-backend-go/internal/modules/database"
 	usermodule "github.com/observability/observability-backend-go/internal/modules/user"
 	"github.com/observability/observability-backend-go/internal/platform/alerting"
@@ -107,6 +115,14 @@ type moduleConfigs struct {
 	AI                  ai.Config
 	DefaultConfig       defaultconfig.Config
 	DatabaseOTel        databaseotel.Config
+	Annotations         annotationsmod.Config
+	Alerting            alertingmod.Config
+	Dashboards          dashboardsmod.Config
+	ErrorsInbox         errorsinbox.Config
+	Explorer            explorermod.Config
+	Sharing             sharingmod.Config
+	Workloads           workloadsmod.Config
+	Anomaly             anomalymod.Config
 }
 
 func defaultModuleConfigs() moduleConfigs {
@@ -144,6 +160,14 @@ func defaultModuleConfigs() moduleConfigs {
 		AI:                  ai.DefaultConfig(),
 		DefaultConfig:       defaultconfig.DefaultConfig(),
 		DatabaseOTel:        databaseotel.DefaultConfig(),
+		Annotations:         annotationsmod.DefaultConfig(),
+		Alerting:            alertingmod.DefaultConfig(),
+		Dashboards:          dashboardsmod.DefaultConfig(),
+		ErrorsInbox:         errorsinbox.DefaultConfig(),
+		Explorer:            explorermod.DefaultConfig(),
+		Sharing:             sharingmod.DefaultConfig(),
+		Workloads:           workloadsmod.DefaultConfig(),
+		Anomaly:             anomalymod.DefaultConfig(),
 	}
 }
 
@@ -189,6 +213,14 @@ type App struct {
 	AI                  *ai.Handlers
 	DefaultConfig       *defaultconfig.Handler
 	DatabaseOTel        *databaseotel.Handler
+	Annotations         *annotationsmod.Handler
+	Alerting            *alertingmod.Handler
+	Dashboards          *dashboardsmod.Handler
+	ErrorsInbox         *errorsinbox.Handler
+	Explorer            *explorermod.Handler
+	Sharing             *sharingmod.Handler
+	Workloads           *workloadsmod.Handler
+	Anomaly             *anomalymod.Handler
 
 	// Query result cache (Redis-gated, nil-safe).
 	Cache *cache.QueryCache
@@ -518,6 +550,68 @@ func New(db *sql.DB, ch *sql.DB, chNative clickhouse.Conn, cfg config.Config) *A
 			),
 		},
 
+		Alerting: alertingmod.NewHandler(
+			getTenant,
+			alertingmod.NewService(
+				alertingmod.NewRepository(db),
+			),
+		),
+
+		Dashboards: dashboardsmod.NewHandler(
+			getTenant,
+			dashboardsmod.NewService(
+				dashboardsmod.NewRepository(db),
+			),
+		),
+
+		ErrorsInbox: errorsinbox.NewHandler(
+			getTenant,
+			errorsinbox.NewService(
+				errorsinbox.NewRepository(db),
+			),
+		),
+
+		Explorer: &explorermod.Handler{
+			DBTenant: modulecommon.DBTenant{
+				DB:        ch,
+				GetTenant: getTenant,
+			},
+			Service: explorermod.NewService(
+				explorermod.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+			),
+		},
+
+		Sharing: sharingmod.NewHandler(
+			getTenant,
+			sharingmod.NewService(
+				sharingmod.NewRepository(db),
+			),
+		),
+
+		Workloads: workloadsmod.NewHandler(
+			getTenant,
+			workloadsmod.NewService(
+				workloadsmod.NewRepository(db),
+			),
+		),
+
+		Anomaly: &anomalymod.Handler{
+			DBTenant: modulecommon.DBTenant{
+				DB:        ch,
+				GetTenant: getTenant,
+			},
+			Service: anomalymod.NewService(
+				anomalymod.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+			),
+		},
+
+		Annotations: annotationsmod.NewHandler(
+			getTenant,
+			annotationsmod.NewService(
+				annotationsmod.NewRepository(db),
+			),
+		),
+
 		Cache:      queryCache,
 
 		OTLPHTTP:   otlpHTTPHandler,
@@ -616,6 +710,14 @@ func (a *App) registerRoutesToGroup(v1 *gin.RouterGroup) {
 	ai.RegisterRoutes(cfg.AI, v1, a.AI)
 	defaultconfig.RegisterRoutes(cfg.DefaultConfig, v1, a.DefaultConfig)
 	databaseotel.RegisterRoutes(cfg.DatabaseOTel, cached, a.DatabaseOTel)
+	annotationsmod.RegisterRoutes(cfg.Annotations, v1, a.Annotations)
+	alertingmod.RegisterRoutes(cfg.Alerting, v1, a.Alerting)
+	dashboardsmod.RegisterRoutes(cfg.Dashboards, v1, a.Dashboards)
+	errorsinbox.RegisterRoutes(cfg.ErrorsInbox, v1, a.ErrorsInbox)
+	explorermod.RegisterRoutes(cfg.Explorer, v1, a.Explorer)
+	sharingmod.RegisterRoutes(cfg.Sharing, v1, a.Sharing)
+	workloadsmod.RegisterRoutes(cfg.Workloads, v1, a.Workloads)
+	anomalymod.RegisterRoutes(cfg.Anomaly, cached, a.Anomaly)
 }
 
 func (a *App) healthLive(c *gin.Context) {

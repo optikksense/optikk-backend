@@ -81,3 +81,52 @@ func (h *ErrorHandler) GetErrorGroups(c *gin.Context) {
 
 	RespondOK(c, groups)
 }
+
+func (h *ErrorHandler) GetErrorGroupDetail(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	groupID := c.Param("groupId")
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+
+	detail, err := h.Service.GetErrorGroupDetail(teamID, startMs, endMs, groupID)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query error group detail")
+		return
+	}
+	RespondOK(c, detail)
+}
+
+func (h *ErrorHandler) GetErrorGroupTraces(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	groupID := c.Param("groupId")
+	limit := ParseIntParam(c, "limit", 50)
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+
+	traces, err := h.Service.GetErrorGroupTraces(teamID, startMs, endMs, groupID, limit)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query error group traces")
+		return
+	}
+	RespondOK(c, traces)
+}
+
+func (h *ErrorHandler) GetErrorGroupTimeseries(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	groupID := c.Param("groupId")
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+
+	points, err := h.Service.GetErrorGroupTimeseries(teamID, startMs, endMs, groupID)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query error group timeseries")
+		return
+	}
+	RespondOK(c, points)
+}

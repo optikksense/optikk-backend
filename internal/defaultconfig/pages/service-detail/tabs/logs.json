@@ -1,0 +1,34 @@
+{
+  "id": "logs",
+  "pageId": "service-detail",
+  "label": "Logs",
+  "order": 50,
+  "components": [
+    {
+      "componentKey": "log-histogram",
+      "id": "log-volume",
+      "layout": { "col": 24 },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/logs/histogram",
+        "method": "GET",
+        "params": { "service": "{serviceName}" }
+      },
+      "title": "Log Volume",
+      "titleIcon": "BarChart2"
+    },
+    {
+      "componentKey": "table",
+      "id": "log-search",
+      "layout": { "col": 24 },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/logs",
+        "method": "GET",
+        "params": { "service": "{serviceName}" }
+      },
+      "title": "Logs",
+      "titleIcon": "FileText"
+    }
+  ]
+}

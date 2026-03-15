@@ -1,0 +1,20 @@
+{
+  "id": "timeline",
+  "pageId": "error-group-detail",
+  "label": "Timeline",
+  "order": 30,
+  "components": [
+    {
+      "componentKey": "area",
+      "id": "error-group-timeseries",
+      "layout": { "col": 24 },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/errors/groups/{errorGroupId}/timeseries",
+        "method": "GET"
+      },
+      "title": "Error Occurrences Over Time",
+      "titleIcon": "TrendingUp"
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "id": "cost",
+  "pageId": "ai-model-detail",
+  "label": "Cost",
+  "order": 30,
+  "components": [
+    {
+      "componentKey": "ai-line",
+      "id": "model-cost-timeseries",
+      "layout": { "col": 12 },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/ai/cost/timeseries",
+        "method": "GET",
+        "params": { "model": "{modelName}", "interval": "5m" }
+      },
+      "title": "Cost Over Time",
+      "titleIcon": "DollarSign"
+    },
+    {
+      "componentKey": "ai-bar",
+      "id": "model-token-breakdown",
+      "layout": { "col": 12 },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/ai/cost/token-breakdown",
+        "method": "GET",
+        "params": { "model": "{modelName}" }
+      },
+      "title": "Token Breakdown",
+      "titleIcon": "PieChart"
+    },
+    {
+      "componentKey": "table",
+      "id": "model-cost-metrics",
+      "layout": { "col": 24 },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/ai/cost/metrics",
+        "method": "GET",
+        "params": { "model": "{modelName}" }
+      },
+      "title": "Cost Metrics",
+      "titleIcon": "DollarSign"
+    }
+  ]
+}

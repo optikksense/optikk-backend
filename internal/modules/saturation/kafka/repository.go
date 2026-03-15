@@ -25,11 +25,12 @@ func bucketSecs(startMs, endMs int64) float64 {
 
 // ── 1. Summary stat cards ─────────────────────────────────────────────────────
 
-func (r *ClickHouseRepository) GetKafkaSummaryStats(teamID int64, startMs, endMs int64) (KafkaSummaryStats, error) {
+func (r *ClickHouseRepository) GetKafkaSummaryStats(teamID int64, startMs, endMs int64, f KafkaFilters) (KafkaSummaryStats, error) {
 	durationSecs := float64(endMs-startMs) / 1000.0
 	if durationSecs <= 0 {
 		durationSecs = 1.0
 	}
+	filterSQL, filterArgs := kafkaFilterClauses(f)
 	producerClause := MetricSetToInClause(ProducerMetrics)
 	consumerClause := MetricSetToInClause(ConsumerMetrics)
 	lagClause := MetricSetToInClause(ConsumerLagMetrics)
@@ -52,6 +53,7 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(teamID int64, startMs, endMs
 		FROM %[8]s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
+		  %[9]s
 		  AND (%[2]s IN (%[3]s, %[4]s, %[5]s) OR %[6]s OR %[7]s)
 	`,
 		ColValue, ColMetricName,
@@ -61,12 +63,11 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(teamID int64, startMs, endMs
 		publishDurationCondition(),
 		receiveDurationCondition(),
 		TableMetrics,
+		filterSQL,
 	)
 
-	row, err := dbutil.QueryMap(r.db, query,
-		durationSecs, durationSecs,
-		uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
-	)
+	args := append([]any{durationSecs, durationSecs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
+	row, err := dbutil.QueryMap(r.db, query, args...)
 	if err != nil {
 		return KafkaSummaryStats{}, fmt.Errorf("GetKafkaSummaryStats: %w", err)
 	}
@@ -81,11 +82,12 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(teamID int64, startMs, endMs
 
 // ── 2. Produce rate by topic ──────────────────────────────────────────────────
 
-func (r *ClickHouseRepository) GetProduceRateByTopic(teamID int64, startMs, endMs int64) ([]TopicRatePoint, error) {
+func (r *ClickHouseRepository) GetProduceRateByTopic(teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	clause := MetricSetToInClause(ProducerMetrics)
 	topic := topicExpr()
+	filterSQL, filterArgs := kafkaFilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -95,12 +97,14 @@ func (r *ClickHouseRepository) GetProduceRateByTopic(teamID int64, startMs, endM
 		FROM %s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
+		  %s
 		  AND %s IN (%s)
 		GROUP BY time_bucket, topic
 		ORDER BY time_bucket ASC, topic ASC
-	`, bucket, topic, ColValue, TableMetrics, ColMetricName, clause)
+	`, bucket, topic, ColValue, TableMetrics, filterSQL, ColMetricName, clause)
 
-	rows, err := dbutil.QueryMaps(r.db, query, bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	args := append([]any{bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
+	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("GetProduceRateByTopic: %w", err)
 	}
@@ -117,9 +121,10 @@ func (r *ClickHouseRepository) GetProduceRateByTopic(teamID int64, startMs, endM
 
 // ── 3. Publish latency by topic ───────────────────────────────────────────────
 
-func (r *ClickHouseRepository) GetPublishLatencyByTopic(teamID int64, startMs, endMs int64) ([]TopicLatencyPoint, error) {
+func (r *ClickHouseRepository) GetPublishLatencyByTopic(teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicLatencyPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	topic := topicExpr()
+	filterSQL, filterArgs := kafkaFilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -131,13 +136,15 @@ func (r *ClickHouseRepository) GetPublishLatencyByTopic(teamID int64, startMs, e
 		FROM %s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
+		  %s
 		  AND %s
 		  AND metric_type = 'Histogram'
 		GROUP BY time_bucket, topic
 		ORDER BY time_bucket ASC, topic ASC
-	`, bucket, topic, TableMetrics, publishDurationCondition())
+	`, bucket, topic, TableMetrics, filterSQL, publishDurationCondition())
 
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	args := append([]any{uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
+	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("GetPublishLatencyByTopic: %w", err)
 	}
@@ -156,11 +163,12 @@ func (r *ClickHouseRepository) GetPublishLatencyByTopic(teamID int64, startMs, e
 
 // ── 4. Consume rate by topic ──────────────────────────────────────────────────
 
-func (r *ClickHouseRepository) GetConsumeRateByTopic(teamID int64, startMs, endMs int64) ([]TopicRatePoint, error) {
+func (r *ClickHouseRepository) GetConsumeRateByTopic(teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	clause := MetricSetToInClause(ConsumerMetrics)
 	topic := topicExpr()
+	filterSQL, filterArgs := kafkaFilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -170,12 +178,14 @@ func (r *ClickHouseRepository) GetConsumeRateByTopic(teamID int64, startMs, endM
 		FROM %s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
+		  %s
 		  AND %s IN (%s)
 		GROUP BY time_bucket, topic
 		ORDER BY time_bucket ASC, topic ASC
-	`, bucket, topic, ColValue, TableMetrics, ColMetricName, clause)
+	`, bucket, topic, ColValue, TableMetrics, filterSQL, ColMetricName, clause)
 
-	rows, err := dbutil.QueryMaps(r.db, query, bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	args := append([]any{bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
+	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("GetConsumeRateByTopic: %w", err)
 	}
@@ -192,9 +202,10 @@ func (r *ClickHouseRepository) GetConsumeRateByTopic(teamID int64, startMs, endM
 
 // ── 5. Receive latency by topic ───────────────────────────────────────────────
 
-func (r *ClickHouseRepository) GetReceiveLatencyByTopic(teamID int64, startMs, endMs int64) ([]TopicLatencyPoint, error) {
+func (r *ClickHouseRepository) GetReceiveLatencyByTopic(teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicLatencyPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	topic := topicExpr()
+	filterSQL, filterArgs := kafkaFilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -206,13 +217,15 @@ func (r *ClickHouseRepository) GetReceiveLatencyByTopic(teamID int64, startMs, e
 		FROM %s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
+		  %s
 		  AND %s
 		  AND metric_type = 'Histogram'
 		GROUP BY time_bucket, topic
 		ORDER BY time_bucket ASC, topic ASC
-	`, bucket, topic, TableMetrics, receiveDurationCondition())
+	`, bucket, topic, TableMetrics, filterSQL, receiveDurationCondition())
 
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	args := append([]any{uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
+	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("GetReceiveLatencyByTopic: %w", err)
 	}
@@ -231,11 +244,12 @@ func (r *ClickHouseRepository) GetReceiveLatencyByTopic(teamID int64, startMs, e
 
 // ── 6. Consume rate by consumer group ────────────────────────────────────────
 
-func (r *ClickHouseRepository) GetConsumeRateByGroup(teamID int64, startMs, endMs int64) ([]GroupRatePoint, error) {
+func (r *ClickHouseRepository) GetConsumeRateByGroup(teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	clause := MetricSetToInClause(ConsumerMetrics)
 	group := consumerGroupExpr()
+	filterSQL, filterArgs := kafkaFilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -245,12 +259,14 @@ func (r *ClickHouseRepository) GetConsumeRateByGroup(teamID int64, startMs, endM
 		FROM %s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
+		  %s
 		  AND %s IN (%s)
 		GROUP BY time_bucket, consumer_group
 		ORDER BY time_bucket ASC, consumer_group ASC
-	`, bucket, group, ColValue, TableMetrics, ColMetricName, clause)
+	`, bucket, group, ColValue, TableMetrics, filterSQL, ColMetricName, clause)
 
-	rows, err := dbutil.QueryMaps(r.db, query, bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	args := append([]any{bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
+	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("GetConsumeRateByGroup: %w", err)
 	}
@@ -267,11 +283,12 @@ func (r *ClickHouseRepository) GetConsumeRateByGroup(teamID int64, startMs, endM
 
 // ── 7. Process rate by consumer group ────────────────────────────────────────
 
-func (r *ClickHouseRepository) GetProcessRateByGroup(teamID int64, startMs, endMs int64) ([]GroupRatePoint, error) {
+func (r *ClickHouseRepository) GetProcessRateByGroup(teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	clause := MetricSetToInClause(ProcessMetrics)
 	group := consumerGroupExpr()
+	filterSQL, filterArgs := kafkaFilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -281,12 +298,14 @@ func (r *ClickHouseRepository) GetProcessRateByGroup(teamID int64, startMs, endM
 		FROM %s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
+		  %s
 		  AND %s IN (%s)
 		GROUP BY time_bucket, consumer_group
 		ORDER BY time_bucket ASC, consumer_group ASC
-	`, bucket, group, ColValue, TableMetrics, ColMetricName, clause)
+	`, bucket, group, ColValue, TableMetrics, filterSQL, ColMetricName, clause)
 
-	rows, err := dbutil.QueryMaps(r.db, query, bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	args := append([]any{bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
+	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("GetProcessRateByGroup: %w", err)
 	}
@@ -303,9 +322,10 @@ func (r *ClickHouseRepository) GetProcessRateByGroup(teamID int64, startMs, endM
 
 // ── 8. Process latency by consumer group ─────────────────────────────────────
 
-func (r *ClickHouseRepository) GetProcessLatencyByGroup(teamID int64, startMs, endMs int64) ([]GroupLatencyPoint, error) {
+func (r *ClickHouseRepository) GetProcessLatencyByGroup(teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupLatencyPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	group := consumerGroupExpr()
+	filterSQL, filterArgs := kafkaFilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -317,13 +337,15 @@ func (r *ClickHouseRepository) GetProcessLatencyByGroup(teamID int64, startMs, e
 		FROM %s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
+		  %s
 		  AND %s
 		  AND metric_type = 'Histogram'
 		GROUP BY time_bucket, consumer_group
 		ORDER BY time_bucket ASC, consumer_group ASC
-	`, bucket, group, TableMetrics, processDurationCondition())
+	`, bucket, group, TableMetrics, filterSQL, processDurationCondition())
 
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	args := append([]any{uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
+	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("GetProcessLatencyByGroup: %w", err)
 	}
@@ -342,11 +364,12 @@ func (r *ClickHouseRepository) GetProcessLatencyByGroup(teamID int64, startMs, e
 
 // ── 9. Consumer lag by group ──────────────────────────────────────────────────
 
-func (r *ClickHouseRepository) GetConsumerLagByGroup(teamID int64, startMs, endMs int64) ([]LagPoint, error) {
+func (r *ClickHouseRepository) GetConsumerLagByGroup(teamID int64, startMs, endMs int64, f KafkaFilters) ([]LagPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	clause := MetricSetToInClause(ConsumerLagMetrics)
 	group := consumerGroupExpr()
 	topic := topicExpr()
+	filterSQL, filterArgs := kafkaFilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -357,16 +380,19 @@ func (r *ClickHouseRepository) GetConsumerLagByGroup(teamID int64, startMs, endM
 		FROM %s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
+		  %s
 		  AND %s IN (%s)
 		GROUP BY time_bucket, consumer_group, topic
 		ORDER BY time_bucket ASC, consumer_group ASC
 	`, bucket, group, topic,
 		ColValue, ColMetricName, clause, ColValue,
 		TableMetrics,
+		filterSQL,
 		ColMetricName, clause,
 	)
 
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	args := append([]any{uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
+	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("GetConsumerLagByGroup: %w", err)
 	}
@@ -384,11 +410,12 @@ func (r *ClickHouseRepository) GetConsumerLagByGroup(teamID int64, startMs, endM
 
 // ── 10. Consumer lag per partition ────────────────────────────────────────────
 
-func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamID int64, startMs, endMs int64) ([]PartitionLag, error) {
+func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamID int64, startMs, endMs int64, f KafkaFilters) ([]PartitionLag, error) {
 	clause := MetricSetToInClause(ConsumerLagMetrics)
 	topic := attrString(AttrMessagingDestinationName)
 	partition := attrString(AttrMessagingKafkaDestinationPartition)
 	group := consumerGroupExpr()
+	filterSQL, filterArgs := kafkaFilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -399,16 +426,19 @@ func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamID int64, startMs,
 		FROM %s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
+		  %s
 		  AND %s IN (%s)
 		GROUP BY topic, partition, consumer_group
 		ORDER BY lag DESC
 		LIMIT 200
 	`, topic, partition, group,
 		TableMetrics,
+		filterSQL,
 		ColMetricName, clause,
 	)
 
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	args := append([]any{uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
+	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("GetConsumerLagPerPartition: %w", err)
 	}
@@ -426,11 +456,12 @@ func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamID int64, startMs,
 
 // ── 11. Rebalance signals by group ────────────────────────────────────────────
 
-func (r *ClickHouseRepository) GetRebalanceSignals(teamID int64, startMs, endMs int64) ([]RebalancePoint, error) {
+func (r *ClickHouseRepository) GetRebalanceSignals(teamID int64, startMs, endMs int64, f KafkaFilters) ([]RebalancePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	group := consumerGroupExpr()
 	allClause := MetricSetToInClause(RebalanceMetrics)
+	filterSQL, filterArgs := kafkaFilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -445,6 +476,7 @@ func (r *ClickHouseRepository) GetRebalanceSignals(teamID int64, startMs, endMs 
 		FROM %[11]s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
+		  %[13]s
 		  AND %[4]s IN (%[12]s)
 		GROUP BY time_bucket, consumer_group
 		ORDER BY time_bucket ASC, consumer_group ASC
@@ -458,12 +490,11 @@ func (r *ClickHouseRepository) GetRebalanceSignals(teamID int64, startMs, endMs 
 		MetricAssignedPartitions,
 		TableMetrics,
 		allClause,
+		filterSQL,
 	)
 
-	rows, err := dbutil.QueryMaps(r.db, query,
-		bs, bs, bs, bs, bs,
-		uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
-	)
+	args := append([]any{bs, bs, bs, bs, bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
+	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("GetRebalanceSignals: %w", err)
 	}
@@ -485,9 +516,10 @@ func (r *ClickHouseRepository) GetRebalanceSignals(teamID int64, startMs, endMs 
 
 // ── 12. End-to-end latency p95 by topic ──────────────────────────────────────
 
-func (r *ClickHouseRepository) GetE2ELatency(teamID int64, startMs, endMs int64) ([]E2ELatencyPoint, error) {
+func (r *ClickHouseRepository) GetE2ELatency(teamID int64, startMs, endMs int64, f KafkaFilters) ([]E2ELatencyPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	topic := topicExpr()
+	filterSQL, filterArgs := kafkaFilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -508,6 +540,7 @@ func (r *ClickHouseRepository) GetE2ELatency(teamID int64, startMs, endMs int64)
 		FROM %[7]s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
+		  %[8]s
 		  AND %[3]s IN ('%[4]s', '%[5]s', '%[6]s')
 		  AND metric_type = 'Histogram'
 		GROUP BY time_bucket, topic
@@ -518,9 +551,11 @@ func (r *ClickHouseRepository) GetE2ELatency(teamID int64, startMs, endMs int64)
 		MetricReceiveDuration,
 		MetricProcessDuration,
 		TableMetrics,
+		filterSQL,
 	)
 
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	args := append([]any{uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
+	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("GetE2ELatency: %w", err)
 	}
@@ -539,29 +574,30 @@ func (r *ClickHouseRepository) GetE2ELatency(teamID int64, startMs, endMs int64)
 
 // ── 13. Publish errors by error type ─────────────────────────────────────────
 
-func (r *ClickHouseRepository) GetPublishErrors(teamID int64, startMs, endMs int64) ([]ErrorRatePoint, error) {
-	return r.getErrorRates(teamID, startMs, endMs, MetricPublishMessages, "topic", "GetPublishErrors")
+func (r *ClickHouseRepository) GetPublishErrors(teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
+	return r.getErrorRates(teamID, startMs, endMs, MetricPublishMessages, "topic", "GetPublishErrors", f)
 }
 
 // ── 14. Consume errors by error type ─────────────────────────────────────────
 
-func (r *ClickHouseRepository) GetConsumeErrors(teamID int64, startMs, endMs int64) ([]ErrorRatePoint, error) {
-	return r.getGroupErrorRates(teamID, startMs, endMs, MetricReceiveMessages, "GetConsumeErrors")
+func (r *ClickHouseRepository) GetConsumeErrors(teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
+	return r.getGroupErrorRates(teamID, startMs, endMs, MetricReceiveMessages, "GetConsumeErrors", f)
 }
 
 // ── 15. Process errors by error type ─────────────────────────────────────────
 
-func (r *ClickHouseRepository) GetProcessErrors(teamID int64, startMs, endMs int64) ([]ErrorRatePoint, error) {
-	return r.getGroupErrorRates(teamID, startMs, endMs, MetricProcessMessages, "GetProcessErrors")
+func (r *ClickHouseRepository) GetProcessErrors(teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
+	return r.getGroupErrorRates(teamID, startMs, endMs, MetricProcessMessages, "GetProcessErrors", f)
 }
 
 // ── 16. Client operation errors ───────────────────────────────────────────────
 
-func (r *ClickHouseRepository) GetClientOpErrors(teamID int64, startMs, endMs int64) ([]ErrorRatePoint, error) {
+func (r *ClickHouseRepository) GetClientOpErrors(teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	errType := attrString(AttrErrorType)
 	opName := operationExpr()
+	filterSQL, filterArgs := kafkaFilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -572,16 +608,19 @@ func (r *ClickHouseRepository) GetClientOpErrors(teamID int64, startMs, endMs in
 		FROM %s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
+		  %s
 		  AND %s = '%s'
 		  AND %s != ''
 		GROUP BY time_bucket, operation_name, error_type
 		ORDER BY time_bucket ASC, error_rate DESC
 	`, bucket, opName, errType, ColValue, TableMetrics,
+		filterSQL,
 		ColMetricName, MetricClientOperationDuration,
 		errType,
 	)
 
-	rows, err := dbutil.QueryMaps(r.db, query, bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	args := append([]any{bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
+	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("GetClientOpErrors: %w", err)
 	}
@@ -599,9 +638,10 @@ func (r *ClickHouseRepository) GetClientOpErrors(teamID int64, startMs, endMs in
 
 // ── 17. Broker connections ────────────────────────────────────────────────────
 
-func (r *ClickHouseRepository) GetBrokerConnections(teamID int64, startMs, endMs int64) ([]BrokerConnectionPoint, error) {
+func (r *ClickHouseRepository) GetBrokerConnections(teamID int64, startMs, endMs int64, f KafkaFilters) ([]BrokerConnectionPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	broker := attrString(AttrServerAddress)
+	filterSQL, filterArgs := kafkaFilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -611,14 +651,17 @@ func (r *ClickHouseRepository) GetBrokerConnections(teamID int64, startMs, endMs
 		FROM %s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
+		  %s
 		  AND %s = '%s'
 		GROUP BY time_bucket, broker
 		ORDER BY time_bucket ASC, broker ASC
 	`, bucket, broker, ColValue, TableMetrics,
+		filterSQL,
 		ColMetricName, MetricClientConnections,
 	)
 
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	args := append([]any{uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
+	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("GetBrokerConnections: %w", err)
 	}
@@ -635,9 +678,10 @@ func (r *ClickHouseRepository) GetBrokerConnections(teamID int64, startMs, endMs
 
 // ── 18. Client operation duration ─────────────────────────────────────────────
 
-func (r *ClickHouseRepository) GetClientOperationDuration(teamID int64, startMs, endMs int64) ([]ClientOpDurationPoint, error) {
+func (r *ClickHouseRepository) GetClientOperationDuration(teamID int64, startMs, endMs int64, f KafkaFilters) ([]ClientOpDurationPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	opName := operationExpr()
+	filterSQL, filterArgs := kafkaFilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -649,13 +693,15 @@ func (r *ClickHouseRepository) GetClientOperationDuration(teamID int64, startMs,
 		FROM %s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
+		  %s
 		  AND %s = '%s'
 		  AND metric_type = 'Histogram'
 		GROUP BY time_bucket, operation_name
 		ORDER BY time_bucket ASC, operation_name ASC
-	`, bucket, opName, TableMetrics, ColMetricName, MetricClientOperationDuration)
+	`, bucket, opName, TableMetrics, filterSQL, ColMetricName, MetricClientOperationDuration)
 
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	args := append([]any{uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
+	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("GetClientOperationDuration: %w", err)
 	}
@@ -675,11 +721,12 @@ func (r *ClickHouseRepository) GetClientOperationDuration(teamID int64, startMs,
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
 // getErrorRates returns error rates per topic+error_type for a given counter metric.
-func (r *ClickHouseRepository) getErrorRates(teamID int64, startMs, endMs int64, metricName, _ string, caller string) ([]ErrorRatePoint, error) {
+func (r *ClickHouseRepository) getErrorRates(teamID int64, startMs, endMs int64, metricName, _ string, caller string, f KafkaFilters) ([]ErrorRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	errType := attrString(AttrErrorType)
 	topic := topicExpr()
+	filterSQL, filterArgs := kafkaFilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -690,16 +737,19 @@ func (r *ClickHouseRepository) getErrorRates(teamID int64, startMs, endMs int64,
 		FROM %s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
+		  %s
 		  AND %s = '%s'
 		  AND %s != ''
 		GROUP BY time_bucket, topic, error_type
 		ORDER BY time_bucket ASC, error_rate DESC
 	`, bucket, topic, errType, ColValue, TableMetrics,
+		filterSQL,
 		ColMetricName, metricName,
 		errType,
 	)
 
-	rows, err := dbutil.QueryMaps(r.db, query, bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	args := append([]any{bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
+	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", caller, err)
 	}
@@ -716,11 +766,12 @@ func (r *ClickHouseRepository) getErrorRates(teamID int64, startMs, endMs int64,
 }
 
 // getGroupErrorRates returns error rates per consumer_group+error_type for a given counter metric.
-func (r *ClickHouseRepository) getGroupErrorRates(teamID int64, startMs, endMs int64, metricName, caller string) ([]ErrorRatePoint, error) {
+func (r *ClickHouseRepository) getGroupErrorRates(teamID int64, startMs, endMs int64, metricName, caller string, f KafkaFilters) ([]ErrorRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	errType := attrString(AttrErrorType)
 	group := consumerGroupExpr()
+	filterSQL, filterArgs := kafkaFilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -731,16 +782,19 @@ func (r *ClickHouseRepository) getGroupErrorRates(teamID int64, startMs, endMs i
 		FROM %s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
+		  %s
 		  AND %s = '%s'
 		  AND %s != ''
 		GROUP BY time_bucket, consumer_group, error_type
 		ORDER BY time_bucket ASC, error_rate DESC
 	`, bucket, group, errType, ColValue, TableMetrics,
+		filterSQL,
 		ColMetricName, metricName,
 		errType,
 	)
 
-	rows, err := dbutil.QueryMaps(r.db, query, bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	args := append([]any{bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
+	rows, err := dbutil.QueryMaps(r.db, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", caller, err)
 	}

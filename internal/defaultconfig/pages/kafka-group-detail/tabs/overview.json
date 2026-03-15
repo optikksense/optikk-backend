@@ -1,0 +1,60 @@
+{
+  "id": "overview",
+  "pageId": "kafka-group-detail",
+  "label": "Overview",
+  "order": 10,
+  "components": [
+    {
+      "componentKey": "area",
+      "id": "group-consume-rate",
+      "layout": { "col": 12 },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/consume-rate-by-group",
+        "method": "GET",
+        "params": { "group": "{groupId}" }
+      },
+      "title": "Consume Rate",
+      "titleIcon": "TrendingDown"
+    },
+    {
+      "componentKey": "area",
+      "id": "group-process-rate",
+      "layout": { "col": 12 },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/process-rate-by-group",
+        "method": "GET",
+        "params": { "group": "{groupId}" }
+      },
+      "title": "Process Rate",
+      "titleIcon": "Activity"
+    },
+    {
+      "componentKey": "area",
+      "id": "group-rebalances",
+      "layout": { "col": 12 },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/rebalance-signals",
+        "method": "GET",
+        "params": { "group": "{groupId}" }
+      },
+      "title": "Rebalance Events",
+      "titleIcon": "RefreshCw"
+    },
+    {
+      "componentKey": "area",
+      "id": "group-assigned-partitions",
+      "layout": { "col": 12 },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/assigned-partitions",
+        "method": "GET",
+        "params": { "group": "{groupId}" }
+      },
+      "title": "Assigned Partitions",
+      "titleIcon": "Grid"
+    }
+  ]
+}

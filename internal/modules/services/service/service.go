@@ -10,6 +10,7 @@ type Service interface {
 	GetServiceMetrics(teamID int64, startMs, endMs int64) ([]ServiceMetric, error)
 	GetServiceTimeSeries(teamID int64, startMs, endMs int64) ([]TimeSeriesPoint, error)
 	GetServiceEndpoints(teamID int64, startMs, endMs int64, serviceName string) ([]EndpointMetric, error)
+	GetServiceHealth(teamID int64, startMs, endMs int64) ([]ServiceHealth, error)
 }
 
 type ServicePageService struct {
@@ -46,4 +47,8 @@ func (s *ServicePageService) GetServiceTimeSeries(teamID int64, startMs, endMs i
 
 func (s *ServicePageService) GetServiceEndpoints(teamID int64, startMs, endMs int64, serviceName string) ([]EndpointMetric, error) {
 	return s.repo.GetServiceEndpoints(teamID, startMs, endMs, serviceName)
+}
+
+func (s *ServicePageService) GetServiceHealth(teamID int64, startMs, endMs int64) ([]ServiceHealth, error) {
+	return s.repo.GetServiceHealth(teamID, startMs, endMs)
 }

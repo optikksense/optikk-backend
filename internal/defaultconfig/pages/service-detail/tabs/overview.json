@@ -3,5 +3,82 @@
   "pageId": "service-detail",
   "label": "Overview",
   "order": 10,
-  "components": []
+  "groups": [
+    { "id": "golden-signals", "label": "Golden Signals", "order": 10 },
+    { "id": "health", "label": "Health", "order": 20 }
+  ],
+  "components": [
+    {
+      "componentKey": "request",
+      "groupId": "golden-signals",
+      "id": "service-request-rate",
+      "layout": { "col": 8 },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/services/timeseries",
+        "method": "GET",
+        "params": { "service": "{serviceName}", "interval": "5m" }
+      },
+      "title": "Request Rate",
+      "titleIcon": "TrendingUp"
+    },
+    {
+      "componentKey": "error-rate",
+      "groupId": "golden-signals",
+      "id": "service-error-rate",
+      "layout": { "col": 8 },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/services/timeseries",
+        "method": "GET",
+        "params": { "service": "{serviceName}", "interval": "5m" }
+      },
+      "title": "Error Rate",
+      "titleIcon": "AlertCircle"
+    },
+    {
+      "componentKey": "latency",
+      "groupId": "golden-signals",
+      "id": "service-p95-latency",
+      "layout": { "col": 8 },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/services/timeseries",
+        "method": "GET",
+        "params": { "service": "{serviceName}", "interval": "5m" }
+      },
+      "title": "p95 Latency",
+      "titleIcon": "Clock",
+      "valueKey": "p95"
+    },
+    {
+      "componentKey": "scorecard",
+      "groupId": "health",
+      "id": "service-scorecard",
+      "layout": { "col": 12 },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/spans/red/service-scorecard",
+        "method": "GET",
+        "params": { "service": "{serviceName}" }
+      },
+      "title": "Service Scorecard",
+      "titleIcon": "Activity"
+    },
+    {
+      "componentKey": "gauge",
+      "groupId": "health",
+      "id": "service-apdex",
+      "layout": { "col": 12 },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/spans/red/apdex",
+        "method": "GET",
+        "params": { "service": "{serviceName}", "satisfied_ms": 300, "tolerating_ms": 1200 }
+      },
+      "title": "Apdex Score",
+      "titleIcon": "Target",
+      "valueKey": "apdex"
+    }
+  ]
 }

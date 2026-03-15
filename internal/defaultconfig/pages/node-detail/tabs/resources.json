@@ -1,0 +1,126 @@
+{
+  "id": "resources",
+  "pageId": "node-detail",
+  "label": "Resources",
+  "order": 20,
+  "groups": [
+    { "id": "cpu", "label": "CPU", "order": 10 },
+    { "id": "memory", "label": "Memory", "order": 20 },
+    { "id": "disk", "label": "Disk", "order": 30 },
+    { "id": "network", "label": "Network", "order": 40 }
+  ],
+  "components": [
+    {
+      "componentKey": "area",
+      "groupId": "cpu",
+      "id": "node-cpu-time",
+      "layout": { "col": 12 },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/infrastructure/cpu/time",
+        "method": "GET",
+        "params": { "host": "{host}" }
+      },
+      "title": "CPU Time",
+      "titleIcon": "Cpu"
+    },
+    {
+      "componentKey": "area",
+      "groupId": "cpu",
+      "id": "node-load-average",
+      "layout": { "col": 12 },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/infrastructure/cpu/load-average",
+        "method": "GET",
+        "params": { "host": "{host}" }
+      },
+      "title": "Load Average",
+      "titleIcon": "Activity"
+    },
+    {
+      "componentKey": "area",
+      "groupId": "memory",
+      "id": "node-mem-usage",
+      "layout": { "col": 12 },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/infrastructure/memory/usage",
+        "method": "GET",
+        "params": { "host": "{host}" }
+      },
+      "title": "Memory Usage",
+      "titleIcon": "HardDrive"
+    },
+    {
+      "componentKey": "area",
+      "groupId": "memory",
+      "id": "node-swap",
+      "layout": { "col": 12 },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/infrastructure/memory/swap",
+        "method": "GET",
+        "params": { "host": "{host}" }
+      },
+      "title": "Swap Usage",
+      "titleIcon": "Repeat"
+    },
+    {
+      "componentKey": "area",
+      "groupId": "disk",
+      "id": "node-disk-io",
+      "layout": { "col": 12 },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/infrastructure/disk/io",
+        "method": "GET",
+        "params": { "host": "{host}" }
+      },
+      "title": "Disk I/O",
+      "titleIcon": "HardDrive"
+    },
+    {
+      "componentKey": "area",
+      "groupId": "disk",
+      "id": "node-disk-ops",
+      "layout": { "col": 12 },
+      "order": 60,
+      "query": {
+        "endpoint": "/v1/infrastructure/disk/operations",
+        "method": "GET",
+        "params": { "host": "{host}" }
+      },
+      "title": "Disk Operations",
+      "titleIcon": "HardDrive"
+    },
+    {
+      "componentKey": "area",
+      "groupId": "network",
+      "id": "node-network-io",
+      "layout": { "col": 12 },
+      "order": 70,
+      "query": {
+        "endpoint": "/v1/infrastructure/network/io",
+        "method": "GET",
+        "params": { "host": "{host}" }
+      },
+      "title": "Network I/O",
+      "titleIcon": "Wifi"
+    },
+    {
+      "componentKey": "area",
+      "groupId": "network",
+      "id": "node-network-errors",
+      "layout": { "col": 12 },
+      "order": 80,
+      "query": {
+        "endpoint": "/v1/infrastructure/network/errors",
+        "method": "GET",
+        "params": { "host": "{host}" }
+      },
+      "title": "Network Errors",
+      "titleIcon": "AlertCircle"
+    }
+  ]
+}

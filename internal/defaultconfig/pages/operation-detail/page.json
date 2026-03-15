@@ -1,0 +1,12 @@
+{
+  "id": "operation-detail",
+  "path": "/services/:serviceName/operations/:operationName",
+  "label": "Operation Detail",
+  "icon": "Zap",
+  "group": "observe",
+  "order": 998,
+  "defaultTabId": "overview",
+  "navigable": false,
+  "title": "Operation Detail",
+  "subtitle": "Operation-level metrics, latency, errors, and traces"
+}

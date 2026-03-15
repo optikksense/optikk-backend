@@ -1,0 +1,12 @@
+{
+  "id": "kafka-topic-detail",
+  "path": "/saturation/kafka/topics/:topic",
+  "label": "Topic Detail",
+  "icon": "Inbox",
+  "group": "operate",
+  "order": 995,
+  "defaultTabId": "overview",
+  "navigable": false,
+  "title": "Topic Detail",
+  "subtitle": "Kafka topic production, consumption, lag, and errors"
+}

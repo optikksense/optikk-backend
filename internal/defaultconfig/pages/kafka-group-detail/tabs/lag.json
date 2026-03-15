@@ -1,0 +1,34 @@
+{
+  "id": "lag",
+  "pageId": "kafka-group-detail",
+  "label": "Lag",
+  "order": 20,
+  "components": [
+    {
+      "componentKey": "area",
+      "id": "group-lag",
+      "layout": { "col": 24 },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/lag-by-group",
+        "method": "GET",
+        "params": { "group": "{groupId}" }
+      },
+      "title": "Consumer Lag",
+      "titleIcon": "Clock"
+    },
+    {
+      "componentKey": "area",
+      "id": "group-lag-per-partition",
+      "layout": { "col": 24 },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/lag-per-partition",
+        "method": "GET",
+        "params": { "group": "{groupId}" }
+      },
+      "title": "Lag per Partition",
+      "titleIcon": "Layers"
+    }
+  ]
+}

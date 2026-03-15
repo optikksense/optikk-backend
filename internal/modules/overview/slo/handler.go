@@ -46,3 +46,35 @@ func (h *SLOHandler) GetSloStats(c *gin.Context) {
 
 	RespondOK(c, resp.Summary)
 }
+
+func (h *SLOHandler) GetBurnDown(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	serviceName := c.Query("serviceName")
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+
+	points, err := h.Service.GetBurnDown(teamID, startMs, endMs, serviceName)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query SLO burn-down")
+		return
+	}
+	RespondOK(c, points)
+}
+
+func (h *SLOHandler) GetBurnRate(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	serviceName := c.Query("serviceName")
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+
+	rate, err := h.Service.GetBurnRate(teamID, startMs, endMs, serviceName)
+	if err != nil {
+		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query SLO burn rate")
+		return
+	}
+	RespondOK(c, rate)
+}

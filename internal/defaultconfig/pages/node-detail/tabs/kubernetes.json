@@ -1,0 +1,60 @@
+{
+  "id": "kubernetes",
+  "pageId": "node-detail",
+  "label": "Kubernetes",
+  "order": 40,
+  "components": [
+    {
+      "componentKey": "area",
+      "id": "node-k8s-container-cpu",
+      "layout": { "col": 12 },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/container-cpu",
+        "method": "GET",
+        "params": { "node": "{host}" }
+      },
+      "title": "Container CPU",
+      "titleIcon": "Cpu"
+    },
+    {
+      "componentKey": "area",
+      "id": "node-k8s-container-memory",
+      "layout": { "col": 12 },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/container-memory",
+        "method": "GET",
+        "params": { "node": "{host}" }
+      },
+      "title": "Container Memory",
+      "titleIcon": "HardDrive"
+    },
+    {
+      "componentKey": "bar",
+      "id": "node-k8s-pod-phases",
+      "layout": { "col": 12 },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/pod-phases",
+        "method": "GET",
+        "params": { "node": "{host}" }
+      },
+      "title": "Pod Phases",
+      "titleIcon": "Box"
+    },
+    {
+      "componentKey": "area",
+      "id": "node-k8s-pod-restarts",
+      "layout": { "col": 12 },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/pod-restarts",
+        "method": "GET",
+        "params": { "node": "{host}" }
+      },
+      "title": "Pod Restarts",
+      "titleIcon": "RefreshCw"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "id": "overview",
+  "pageId": "error-group-detail",
+  "label": "Overview",
+  "order": 10,
+  "components": [
+    {
+      "componentKey": "table",
+      "id": "error-group-info",
+      "layout": { "col": 24 },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/errors/groups/{errorGroupId}",
+        "method": "GET"
+      },
+      "title": "Error Details",
+      "titleIcon": "AlertOctagon"
+    }
+  ]
+}

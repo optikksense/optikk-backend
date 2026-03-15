@@ -149,3 +149,24 @@ func processDurationCondition() string {
 		operationExpr(),
 	)
 }
+
+// KafkaFilters holds optional filter query params for detail pages.
+type KafkaFilters struct {
+	Topic string
+	Group string
+}
+
+// kafkaFilterClauses builds optional WHERE clauses from KafkaFilters.
+func kafkaFilterClauses(f KafkaFilters) (string, []any) {
+	var sb strings.Builder
+	var args []any
+	if f.Topic != "" {
+		sb.WriteString(fmt.Sprintf(" AND %s = ?", topicExpr()))
+		args = append(args, f.Topic)
+	}
+	if f.Group != "" {
+		sb.WriteString(fmt.Sprintf(" AND %s = ?", consumerGroupExpr()))
+		args = append(args, f.Group)
+	}
+	return sb.String(), args
+}

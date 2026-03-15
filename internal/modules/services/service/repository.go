@@ -19,6 +19,7 @@ type Repository interface {
 	GetServiceMetrics(teamID int64, startMs, endMs int64) ([]ServiceMetric, error)
 	GetServiceTimeSeries(teamID int64, startMs, endMs int64) ([]TimeSeriesPoint, error)
 	GetServiceEndpoints(teamID int64, startMs, endMs int64, serviceName string) ([]EndpointMetric, error)
+	GetServiceHealth(teamID, startMs, endMs int64) ([]ServiceHealth, error)
 }
 
 type ClickHouseRepository struct {

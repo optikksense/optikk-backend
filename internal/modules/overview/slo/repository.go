@@ -14,6 +14,8 @@ func sloBucketExpr(startMs, endMs int64) string {
 type Repository interface {
 	GetSummary(teamID int64, startMs, endMs int64, serviceName string) (Summary, error)
 	GetTimeSeries(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSlice, error)
+	GetBurnDown(teamID int64, startMs, endMs int64, serviceName string) ([]BurnDownPoint, error)
+	GetBurnRate(teamID int64, startMs, endMs int64, serviceName string) (*BurnRate, error)
 }
 
 type ClickHouseRepository struct {

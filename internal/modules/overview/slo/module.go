@@ -17,4 +17,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *SLOHandler) {
 
 	v1.GET("/overview/slo", h.GetSloSli)
 	v1.GET("/overview/slo/stats", h.GetSloStats)
+	v1.GET("/overview/slo/burn-down", h.GetBurnDown)
+	v1.GET("/overview/slo/burn-rate", h.GetBurnRate)
 }

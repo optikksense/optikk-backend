@@ -1,0 +1,96 @@
+{
+  "id": "overview",
+  "pageId": "node-detail",
+  "label": "Overview",
+  "order": 10,
+  "groups": [
+    { "id": "summary", "label": "Summary", "order": 10 },
+    { "id": "usage", "label": "Usage", "order": 20 }
+  ],
+  "components": [
+    {
+      "componentKey": "stat-card",
+      "groupId": "summary",
+      "id": "node-cpu",
+      "layout": { "col": 6 },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/infrastructure/resource-utilisation/avg-cpu",
+        "method": "GET",
+        "params": { "host": "{host}" }
+      },
+      "title": "Avg CPU",
+      "titleIcon": "Cpu"
+    },
+    {
+      "componentKey": "stat-card",
+      "groupId": "summary",
+      "id": "node-memory",
+      "layout": { "col": 6 },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/infrastructure/resource-utilisation/avg-memory",
+        "method": "GET",
+        "params": { "host": "{host}" }
+      },
+      "title": "Avg Memory",
+      "titleIcon": "HardDrive"
+    },
+    {
+      "componentKey": "stat-card",
+      "groupId": "summary",
+      "id": "node-network",
+      "layout": { "col": 6 },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/infrastructure/resource-utilisation/avg-network",
+        "method": "GET",
+        "params": { "host": "{host}" }
+      },
+      "title": "Avg Network",
+      "titleIcon": "Wifi"
+    },
+    {
+      "componentKey": "stat-card",
+      "groupId": "summary",
+      "id": "node-conn-pool",
+      "layout": { "col": 6 },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/infrastructure/resource-utilisation/avg-conn-pool",
+        "method": "GET",
+        "params": { "host": "{host}" }
+      },
+      "title": "Avg Conn Pool",
+      "titleIcon": "Link"
+    },
+    {
+      "componentKey": "area",
+      "groupId": "usage",
+      "id": "node-cpu-usage",
+      "layout": { "col": 12 },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/infrastructure/cpu/usage-percentage",
+        "method": "GET",
+        "params": { "host": "{host}" }
+      },
+      "title": "CPU Usage %",
+      "titleIcon": "Cpu"
+    },
+    {
+      "componentKey": "area",
+      "groupId": "usage",
+      "id": "node-memory-usage",
+      "layout": { "col": 12 },
+      "order": 60,
+      "query": {
+        "endpoint": "/v1/infrastructure/memory/usage-percentage",
+        "method": "GET",
+        "params": { "host": "{host}" }
+      },
+      "title": "Memory Usage %",
+      "titleIcon": "HardDrive"
+    }
+  ]
+}

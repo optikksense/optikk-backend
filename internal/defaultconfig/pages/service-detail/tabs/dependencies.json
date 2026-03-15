@@ -1,0 +1,46 @@
+{
+  "id": "dependencies",
+  "pageId": "service-detail",
+  "label": "Dependencies",
+  "order": 40,
+  "components": [
+    {
+      "componentKey": "table",
+      "id": "upstream-downstream",
+      "layout": { "col": 24 },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/services/{serviceName}/upstream-downstream",
+        "method": "GET"
+      },
+      "title": "Upstream & Downstream Dependencies",
+      "titleIcon": "GitBranch"
+    },
+    {
+      "componentKey": "table",
+      "id": "external-dependencies",
+      "layout": { "col": 12 },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/services/external-dependencies",
+        "method": "GET",
+        "params": { "service": "{serviceName}" }
+      },
+      "title": "External Dependencies",
+      "titleIcon": "Globe"
+    },
+    {
+      "componentKey": "latency",
+      "id": "client-server-latency",
+      "layout": { "col": 12 },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/spans/client-server-latency",
+        "method": "GET",
+        "params": { "service": "{serviceName}" }
+      },
+      "title": "Client vs Server Latency (p95)",
+      "titleIcon": "Activity"
+    }
+  ]
+}

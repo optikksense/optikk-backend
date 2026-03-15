@@ -1,0 +1,34 @@
+{
+  "id": "consumption",
+  "pageId": "kafka-topic-detail",
+  "label": "Consumption",
+  "order": 20,
+  "components": [
+    {
+      "componentKey": "area",
+      "id": "topic-consume-by-group",
+      "layout": { "col": 12 },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/consume-rate-by-group",
+        "method": "GET",
+        "params": { "topic": "{topic}" }
+      },
+      "title": "Consume Rate by Group",
+      "titleIcon": "Users"
+    },
+    {
+      "componentKey": "area",
+      "id": "topic-process-by-group",
+      "layout": { "col": 12 },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/process-rate-by-group",
+        "method": "GET",
+        "params": { "topic": "{topic}" }
+      },
+      "title": "Process Rate by Group",
+      "titleIcon": "Activity"
+    }
+  ]
+}
