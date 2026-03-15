@@ -42,24 +42,24 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(teamID int64, startMs, endMs
 		    quantileExactWeightedIf(0.95)(
 		        hist_sum / nullIf(hist_count, 0),
 		        hist_count,
-		        %[2]s = '%[6]s' AND metric_type = 'Histogram'
+		        %[6]s AND metric_type = 'Histogram'
 		    ) AS publish_p95,
 		    quantileExactWeightedIf(0.95)(
 		        hist_sum / nullIf(hist_count, 0),
 		        hist_count,
-		        %[2]s = '%[7]s' AND metric_type = 'Histogram'
+		        %[7]s AND metric_type = 'Histogram'
 		    ) AS receive_p95
 		FROM %[8]s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
-		  AND %[2]s IN (%[3]s, %[4]s, %[5]s, '%[6]s', '%[7]s')
+		  AND (%[2]s IN (%[3]s, %[4]s, %[5]s) OR %[6]s OR %[7]s)
 	`,
 		ColValue, ColMetricName,
 		producerClause,
 		consumerClause,
 		lagClause,
-		MetricPublishDuration,
-		MetricReceiveDuration,
+		publishDurationCondition(),
+		receiveDurationCondition(),
 		TableMetrics,
 	)
 
@@ -85,7 +85,7 @@ func (r *ClickHouseRepository) GetProduceRateByTopic(teamID int64, startMs, endM
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	clause := MetricSetToInClause(ProducerMetrics)
-	topic := attrString(AttrMessagingDestinationName)
+	topic := topicExpr()
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -119,7 +119,7 @@ func (r *ClickHouseRepository) GetProduceRateByTopic(teamID int64, startMs, endM
 
 func (r *ClickHouseRepository) GetPublishLatencyByTopic(teamID int64, startMs, endMs int64) ([]TopicLatencyPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
-	topic := attrString(AttrMessagingDestinationName)
+	topic := topicExpr()
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -131,11 +131,11 @@ func (r *ClickHouseRepository) GetPublishLatencyByTopic(teamID int64, startMs, e
 		FROM %s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
-		  AND %s = '%s'
+		  AND %s
 		  AND metric_type = 'Histogram'
 		GROUP BY time_bucket, topic
 		ORDER BY time_bucket ASC, topic ASC
-	`, bucket, topic, TableMetrics, ColMetricName, MetricPublishDuration)
+	`, bucket, topic, TableMetrics, publishDurationCondition())
 
 	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
@@ -160,7 +160,7 @@ func (r *ClickHouseRepository) GetConsumeRateByTopic(teamID int64, startMs, endM
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	clause := MetricSetToInClause(ConsumerMetrics)
-	topic := attrString(AttrMessagingDestinationName)
+	topic := topicExpr()
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -194,7 +194,7 @@ func (r *ClickHouseRepository) GetConsumeRateByTopic(teamID int64, startMs, endM
 
 func (r *ClickHouseRepository) GetReceiveLatencyByTopic(teamID int64, startMs, endMs int64) ([]TopicLatencyPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
-	topic := attrString(AttrMessagingDestinationName)
+	topic := topicExpr()
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -206,11 +206,11 @@ func (r *ClickHouseRepository) GetReceiveLatencyByTopic(teamID int64, startMs, e
 		FROM %s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
-		  AND %s = '%s'
+		  AND %s
 		  AND metric_type = 'Histogram'
 		GROUP BY time_bucket, topic
 		ORDER BY time_bucket ASC, topic ASC
-	`, bucket, topic, TableMetrics, ColMetricName, MetricReceiveDuration)
+	`, bucket, topic, TableMetrics, receiveDurationCondition())
 
 	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
@@ -235,7 +235,7 @@ func (r *ClickHouseRepository) GetConsumeRateByGroup(teamID int64, startMs, endM
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	clause := MetricSetToInClause(ConsumerMetrics)
-	group := attrString(AttrMessagingConsumerGroupName)
+	group := consumerGroupExpr()
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -271,7 +271,7 @@ func (r *ClickHouseRepository) GetProcessRateByGroup(teamID int64, startMs, endM
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	clause := MetricSetToInClause(ProcessMetrics)
-	group := attrString(AttrMessagingConsumerGroupName)
+	group := consumerGroupExpr()
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -305,7 +305,7 @@ func (r *ClickHouseRepository) GetProcessRateByGroup(teamID int64, startMs, endM
 
 func (r *ClickHouseRepository) GetProcessLatencyByGroup(teamID int64, startMs, endMs int64) ([]GroupLatencyPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
-	group := attrString(AttrMessagingConsumerGroupName)
+	group := consumerGroupExpr()
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -317,11 +317,11 @@ func (r *ClickHouseRepository) GetProcessLatencyByGroup(teamID int64, startMs, e
 		FROM %s
 		WHERE team_id = ?
 		  AND timestamp BETWEEN ? AND ?
-		  AND %s = '%s'
+		  AND %s
 		  AND metric_type = 'Histogram'
 		GROUP BY time_bucket, consumer_group
 		ORDER BY time_bucket ASC, consumer_group ASC
-	`, bucket, group, TableMetrics, ColMetricName, MetricProcessDuration)
+	`, bucket, group, TableMetrics, processDurationCondition())
 
 	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
 	if err != nil {
@@ -345,8 +345,8 @@ func (r *ClickHouseRepository) GetProcessLatencyByGroup(teamID int64, startMs, e
 func (r *ClickHouseRepository) GetConsumerLagByGroup(teamID int64, startMs, endMs int64) ([]LagPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	clause := MetricSetToInClause(ConsumerLagMetrics)
-	group := attrString(AttrMessagingConsumerGroupName)
-	topic := attrString(AttrMessagingDestinationName)
+	group := consumerGroupExpr()
+	topic := topicExpr()
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -388,7 +388,7 @@ func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamID int64, startMs,
 	clause := MetricSetToInClause(ConsumerLagMetrics)
 	topic := attrString(AttrMessagingDestinationName)
 	partition := attrString(AttrMessagingKafkaDestinationPartition)
-	group := attrString(AttrMessagingConsumerGroupName)
+	group := consumerGroupExpr()
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -429,7 +429,7 @@ func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamID int64, startMs,
 func (r *ClickHouseRepository) GetRebalanceSignals(teamID int64, startMs, endMs int64) ([]RebalancePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
-	group := attrString(AttrMessagingConsumerGroupName)
+	group := consumerGroupExpr()
 	allClause := MetricSetToInClause(RebalanceMetrics)
 
 	query := fmt.Sprintf(`
@@ -487,7 +487,7 @@ func (r *ClickHouseRepository) GetRebalanceSignals(teamID int64, startMs, endMs 
 
 func (r *ClickHouseRepository) GetE2ELatency(teamID int64, startMs, endMs int64) ([]E2ELatencyPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
-	topic := attrString(AttrMessagingDestinationName)
+	topic := topicExpr()
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -561,7 +561,7 @@ func (r *ClickHouseRepository) GetClientOpErrors(teamID int64, startMs, endMs in
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	errType := attrString(AttrErrorType)
-	opName := attrString(AttrMessagingOperationName)
+	opName := operationExpr()
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -637,7 +637,7 @@ func (r *ClickHouseRepository) GetBrokerConnections(teamID int64, startMs, endMs
 
 func (r *ClickHouseRepository) GetClientOperationDuration(teamID int64, startMs, endMs int64) ([]ClientOpDurationPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
-	opName := attrString(AttrMessagingOperationName)
+	opName := operationExpr()
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -679,7 +679,7 @@ func (r *ClickHouseRepository) getErrorRates(teamID int64, startMs, endMs int64,
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	errType := attrString(AttrErrorType)
-	topic := attrString(AttrMessagingDestinationName)
+	topic := topicExpr()
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -720,7 +720,7 @@ func (r *ClickHouseRepository) getGroupErrorRates(teamID int64, startMs, endMs i
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	errType := attrString(AttrErrorType)
-	group := attrString(AttrMessagingConsumerGroupName)
+	group := consumerGroupExpr()
 
 	query := fmt.Sprintf(`
 		SELECT

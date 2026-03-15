@@ -131,7 +131,7 @@ func (h *TraceDetailHandler) GetRelatedTraces(c *gin.Context) {
 
 	traces, err := h.Service.GetRelatedTraces(teamID, serviceName, operationName, startMs, endMs, traceID, limit)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query related traces")
+		RespondErrorWithCause(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query related traces", err)
 		return
 	}
 	RespondOK(c, traces)

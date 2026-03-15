@@ -1,8 +1,15 @@
 package tracedetail
 
 import (
+	"strings"
+
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
+
+func isRootParentSpanID(parentID string) bool {
+	trimmed := strings.Trim(parentID, "\x00")
+	return trimmed == "" || trimmed == "0000000000000000"
+}
 
 func (r *ClickHouseRepository) GetSpanKindBreakdown(teamID int64, traceID string) ([]SpanKindDuration, error) {
 	rows, err := dbutil.QueryMaps(r.db, `
@@ -86,12 +93,12 @@ func (r *ClickHouseRepository) GetCriticalPath(teamID int64, traceID string) ([]
 			endNs:      endNs,
 			subtreeEnd: endNs,
 		}
-		if pid == "" {
+		if isRootParentSpanID(pid) {
 			roots = append(roots, sid)
 		}
 	}
 	for sid, n := range nodes {
-		if n.parentID != "" {
+		if !isRootParentSpanID(n.parentID) {
 			if parent, ok := nodes[n.parentID]; ok {
 				parent.children = append(parent.children, sid)
 			}

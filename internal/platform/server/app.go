@@ -19,6 +19,8 @@ import (
 	aidashboard "github.com/observability/observability-backend-go/internal/modules/ai/dashboard"
 	airundetail "github.com/observability/observability-backend-go/internal/modules/ai/rundetail"
 	airuns "github.com/observability/observability-backend-go/internal/modules/ai/runs"
+	aitraces "github.com/observability/observability-backend-go/internal/modules/ai/traces"
+	aiconversations "github.com/observability/observability-backend-go/internal/modules/ai/conversations"
 	"github.com/observability/observability-backend-go/internal/modules/apm"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 	defaultconfig "github.com/observability/observability-backend-go/internal/modules/defaultconfig"
@@ -37,6 +39,7 @@ import (
 	overviewslo "github.com/observability/observability-backend-go/internal/modules/overview/slo"
 
 	"github.com/observability/observability-backend-go/internal/modules/saturation/kafka"
+	redisaturation "github.com/observability/observability-backend-go/internal/modules/saturation/redis"
 	servicepage "github.com/observability/observability-backend-go/internal/modules/services/service"
 	servicemap "github.com/observability/observability-backend-go/internal/modules/services/servicemap"
 	servicetopology "github.com/observability/observability-backend-go/internal/modules/services/topology"
@@ -86,6 +89,7 @@ type moduleConfigs struct {
 	JVM                 infraJVM.Config
 
 	SaturationKafka     kafka.Config
+	SaturationRedis     redisaturation.Config
 	Kubernetes          kubernetes.Config
 	HTTPMetrics         httpmetrics.Config
 	APM                 apm.Config
@@ -122,6 +126,7 @@ func defaultModuleConfigs() moduleConfigs {
 		JVM:                 infraJVM.DefaultConfig(),
 
 		SaturationKafka:     kafka.DefaultConfig(),
+		SaturationRedis:     redisaturation.DefaultConfig(),
 		Kubernetes:          kubernetes.DefaultConfig(),
 		HTTPMetrics:         httpmetrics.DefaultConfig(),
 		APM:                 apm.DefaultConfig(),
@@ -177,6 +182,7 @@ type App struct {
 	JVM                 *infraJVM.JVMHandler
 
 	SaturationKafka     *kafka.KafkaHandler
+	SaturationRedis     *redisaturation.RedisHandler
 	Kubernetes          *kubernetes.KubernetesHandler
 	HTTPMetrics         *httpmetrics.HTTPMetricsHandler
 	APM                 *apm.APMHandler
@@ -410,6 +416,15 @@ func New(db *sql.DB, ch *sql.DB, chNative clickhouse.Conn, cfg config.Config) *A
 				kafka.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 			),
 		},
+		SaturationRedis: &redisaturation.RedisHandler{
+			DBTenant: modulecommon.DBTenant{
+				DB:        ch,
+				GetTenant: getTenant,
+			},
+			Service: redisaturation.NewService(
+				redisaturation.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+			),
+		},
 		Kubernetes: &kubernetes.KubernetesHandler{
 			DBTenant: modulecommon.DBTenant{
 				DB:        ch,
@@ -463,6 +478,24 @@ func New(db *sql.DB, ch *sql.DB, chNative clickhouse.Conn, cfg config.Config) *A
 				},
 				Service: airundetail.NewService(
 					airundetail.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+				),
+			},
+			Traces: &aitraces.Handler{
+				DBTenant: modulecommon.DBTenant{
+					DB:        ch,
+					GetTenant: getTenant,
+				},
+				Service: aitraces.NewService(
+					aitraces.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+				),
+			},
+			Conversations: &aiconversations.Handler{
+				DBTenant: modulecommon.DBTenant{
+					DB:        ch,
+					GetTenant: getTenant,
+				},
+				Service: aiconversations.NewService(
+					aiconversations.NewRepository(dbutil.NewClickHouseWrapper(ch)),
 				),
 			},
 		},
@@ -565,6 +598,7 @@ func (a *App) registerRoutesToGroup(v1 *gin.RouterGroup) {
 	infraJVM.RegisterRoutes(cfg.JVM, cached, a.JVM)
 
 	kafka.RegisterRoutes(cfg.SaturationKafka, cached, a.SaturationKafka)
+	redisaturation.RegisterRoutes(cfg.SaturationRedis, cached, a.SaturationRedis)
 	kubernetes.RegisterRoutes(cfg.Kubernetes, cached, a.Kubernetes)
 	httpmetrics.RegisterRoutes(cfg.HTTPMetrics, cached, a.HTTPMetrics)
 	apm.RegisterRoutes(cfg.APM, cached, a.APM)

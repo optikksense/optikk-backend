@@ -48,13 +48,13 @@
       },
       "title": "Error Hotspot (Service \u00d7 Operation)",
       "titleIcon": "Crosshair",
-      "valueKey": "errorRate",
-      "xKey": "operationName",
-      "yKey": "serviceName"
+      "valueKey": "error_rate",
+      "xKey": "operation_name",
+      "yKey": "service_name"
     },
     {
       "componentKey": "bar",
-      "groupByKey": "httpRoute",
+      "groupByKey": "http_route",
       "id": "http-5xx-by-route",
       "layout": {
         "col": 12

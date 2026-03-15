@@ -8,14 +8,14 @@ type Response struct {
 }
 
 type Objectives struct {
-	AvailabilityTarget float64 `json:"availabilityTarget"`
-	P95LatencyTargetMs float64 `json:"p95LatencyTargetMs"`
+	AvailabilityTarget float64 `json:"availability_target"`
+	P95LatencyTargetMs float64 `json:"p95_latency_target_ms"`
 }
 
 type Status struct {
-	AvailabilityPercent         float64 `json:"availabilityPercent"`
-	P95LatencyMs                float64 `json:"p95LatencyMs"`
-	ErrorBudgetRemainingPercent float64 `json:"errorBudgetRemainingPercent"`
+	AvailabilityPercent         float64 `json:"availability_percent"`
+	P95LatencyMs                float64 `json:"p95_latency_ms"`
+	ErrorBudgetRemainingPercent float64 `json:"error_budget_remaining_percent"`
 	Compliant                   bool    `json:"compliant"`
 }
 

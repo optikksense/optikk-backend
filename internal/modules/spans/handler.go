@@ -147,12 +147,12 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 			nextCursor = encodeCursor(TraceCursor{Timestamp: last.StartTime, SpanID: last.SpanID})
 		}
 		common.RespondOK(c, map[string]any{
-			"traces":     traces,
-			"hasMore":    hasMore,
-			"nextCursor": nextCursor,
-			"limit":      limit,
-			"total":      summary.TotalTraces,
-			"summary":    summary,
+			"traces":      traces,
+			"has_more":    hasMore,
+			"next_cursor": nextCursor,
+			"limit":       limit,
+			"total":       summary.TotalTraces,
+			"summary":     summary,
 		})
 		return
 	}
@@ -198,11 +198,11 @@ func (h *TraceHandler) GetTracesKeyset(c *gin.Context) {
 	}
 
 	common.RespondOK(c, map[string]any{
-		"traces":     traces,
-		"hasMore":    hasMore,
-		"nextCursor": nextCursor,
-		"limit":      limit,
-		"summary":    summary,
+		"traces":      traces,
+		"has_more":    hasMore,
+		"next_cursor": nextCursor,
+		"limit":       limit,
+		"summary":     summary,
 	})
 }
 
@@ -235,11 +235,11 @@ func (h *TraceHandler) GetSpanSearch(c *gin.Context) {
 	}
 
 	common.RespondOK(c, map[string]any{
-		"spans":      traces,
-		"hasMore":    hasMore,
-		"nextCursor": nextCursor,
-		"limit":      limit,
-		"summary":    summary,
+		"spans":       traces,
+		"has_more":    hasMore,
+		"next_cursor": nextCursor,
+		"limit":       limit,
+		"summary":     summary,
 	})
 }
 

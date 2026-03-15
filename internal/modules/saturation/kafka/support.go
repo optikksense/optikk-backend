@@ -1,6 +1,11 @@
 package kafka
 
-import dbutil "github.com/observability/observability-backend-go/internal/database"
+import (
+	"fmt"
+	"strings"
+
+	dbutil "github.com/observability/observability-backend-go/internal/database"
+)
 
 const (
 	DefaultUnknown       = "unknown"
@@ -21,11 +26,15 @@ var (
 	ProducerMetrics = []string{
 		MetricPublishMessages,
 		MetricClientSentMessages,
+		"kafka.producer.message.count",
+		"messaging.client.published.messages",
 	}
 
 	ConsumerMetrics = []string{
 		MetricReceiveMessages,
 		MetricClientReceivedMessages,
+		"kafka.consumer.message.count",
+		"messaging.client.consumed.messages",
 	}
 
 	ProcessMetrics = []string{
@@ -35,6 +44,8 @@ var (
 	ConsumerLagMetrics = []string{
 		MetricKafkaConsumerLag,
 		MetricKafkaConsumerLagSum,
+		"kafka.consumer.lag",
+		"queue.depth",
 	}
 
 	RebalanceMetrics = []string{
@@ -89,4 +100,52 @@ func flatten(slices ...[]string) []string {
 		out = append(out, s...)
 	}
 	return out
+}
+
+func attrStringAny(attrNames ...string) string {
+	if len(attrNames) == 0 {
+		return "''"
+	}
+
+	parts := make([]string, 0, len(attrNames))
+	for _, attrName := range attrNames {
+		parts = append(parts, fmt.Sprintf("nullIf(attributes.'%s'::String, '')", attrName))
+	}
+	return fmt.Sprintf("coalesce(%s, '')", strings.Join(parts, ", "))
+}
+
+func topicExpr() string {
+	return attrStringAny(AttrMessagingDestinationName, "messaging.destination")
+}
+
+func consumerGroupExpr() string {
+	return attrStringAny(AttrMessagingConsumerGroupName, "messaging.kafka.consumer.group")
+}
+
+func operationExpr() string {
+	return attrStringAny(AttrMessagingOperationName, "messaging.operation")
+}
+
+func publishDurationCondition() string {
+	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) IN ('publish', 'produce', 'send')))",
+		ColMetricName, MetricPublishDuration,
+		ColMetricName, MetricClientOperationDuration,
+		operationExpr(),
+	)
+}
+
+func receiveDurationCondition() string {
+	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) IN ('receive', 'consume')))",
+		ColMetricName, MetricReceiveDuration,
+		ColMetricName, MetricClientOperationDuration,
+		operationExpr(),
+	)
+}
+
+func processDurationCondition() string {
+	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) = 'process'))",
+		ColMetricName, MetricProcessDuration,
+		ColMetricName, MetricClientOperationDuration,
+		operationExpr(),
+	)
 }

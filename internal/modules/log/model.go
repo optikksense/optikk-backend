@@ -187,11 +187,10 @@ type LogSurroundingResponse struct {
 
 type LogDetailResponse struct {
 	Log         Log   `json:"log"`
-	ContextLogs []Log `json:"contextLogs"`
+	ContextLogs []Log `json:"context_logs"`
 }
 
 type TraceLogsResponse struct {
 	Logs          []Log `json:"logs"`
-	IsSpeculative bool  `json:"isSpeculative"`
+	IsSpeculative bool  `json:"is_speculative"`
 }
-

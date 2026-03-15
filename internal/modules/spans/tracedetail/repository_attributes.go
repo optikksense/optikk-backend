@@ -2,6 +2,7 @@ package tracedetail
 
 import (
 	dbutil "github.com/observability/observability-backend-go/internal/database"
+	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
 func (r *ClickHouseRepository) GetSpanAttributes(teamID int64, traceID, spanID string) (*SpanAttributes, error) {
@@ -50,11 +51,6 @@ func (r *ClickHouseRepository) GetSpanAttributes(teamID int64, traceID, spanID s
 }
 
 func (r *ClickHouseRepository) GetRelatedTraces(teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
-	startBucket := uint32(startMs / 1000)
-	endBucket := uint32(endMs / 1000)
-	startNs := uint64(startMs) * 1_000_000
-	endNs := uint64(endMs) * 1_000_000
-
 	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT s.span_id, s.trace_id, s.name AS operation_name, s.service_name,
 		       s.duration_nano / 1000000.0 AS duration_ms,
@@ -69,7 +65,7 @@ func (r *ClickHouseRepository) GetRelatedTraces(teamID int64, serviceName, opera
 		  AND s.trace_id != ?
 		ORDER BY s.timestamp DESC
 		LIMIT ?
-	`, uint32(teamID), startBucket, endBucket, startNs, endNs,
+	`, uint32(teamID), timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
 		serviceName, operationName, excludeTraceID, limit)
 	if err != nil {
 		return nil, err

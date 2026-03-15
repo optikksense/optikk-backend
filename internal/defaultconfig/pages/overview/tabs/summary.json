@@ -108,9 +108,9 @@
       },
       "title": "Error Hotspot",
       "titleIcon": "Crosshair",
-      "valueKey": "errorRate",
-      "xKey": "operationName",
-      "yKey": "serviceName"
+      "valueKey": "error_rate",
+      "xKey": "operation_name",
+      "yKey": "service_name"
     },
     {
       "componentKey": "table",

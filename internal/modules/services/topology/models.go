@@ -3,18 +3,18 @@ package topology
 type TopologyNode struct {
 	Name         string  `json:"name"`
 	Status       string  `json:"status"`
-	RequestCount int64   `json:"requestCount"`
-	ErrorRate    float64 `json:"errorRate"`
-	AvgLatency   float64 `json:"avgLatency"`
+	RequestCount int64   `json:"request_count"`
+	ErrorRate    float64 `json:"error_rate"`
+	AvgLatency   float64 `json:"avg_latency"`
 }
 
 type TopologyEdge struct {
 	Source       string  `json:"source"`
 	Target       string  `json:"target"`
-	CallCount    int64   `json:"callCount"`
-	AvgLatency   float64 `json:"avgLatency"`
-	P95LatencyMs float64 `json:"p95LatencyMs"`
-	ErrorRate    float64 `json:"errorRate"`
+	CallCount    int64   `json:"call_count"`
+	AvgLatency   float64 `json:"avg_latency"`
+	P95LatencyMs float64 `json:"p95_latency_ms"`
+	ErrorRate    float64 `json:"error_rate"`
 }
 
 type TopologyData struct {

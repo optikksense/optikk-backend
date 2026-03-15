@@ -199,6 +199,16 @@ func logBucketExpr(startMs, endMs int64) string {
 	return timebucket.ExprForColumn(startMs, endMs, tsExpr)
 }
 
+func logBucketExprForStep(startMs, endMs int64, step string) string {
+	if strings.TrimSpace(step) == "" {
+		return logBucketExpr(startMs, endMs)
+	}
+
+	tsExpr := "toDateTime(intDiv(timestamp, 1000000000))"
+	return fmt.Sprintf("formatDateTime(%s(%s), '%%Y-%%m-%%d %%H:%%i:00')",
+		bucketFuncFromStrategy(timebucket.ByName(step)), tsExpr)
+}
+
 func normalizeRoute(raw string) string {
 	s := strings.TrimSpace(raw)
 	if s == "" {
@@ -532,10 +542,10 @@ func (r *ClickHouseRepository) GetLogStats(ctx context.Context, f LogFilters) (L
 	// One query: union-all of all five facet dimensions. Each row carries a
 	// "dim" discriminator so we can split them back out in Go.
 	query := fmt.Sprintf(`
-		SELECT 'severity_text' AS dim, severity_text AS value, COUNT(*) AS count
+		SELECT 'level' AS dim, severity_text AS value, COUNT(*) AS count
 		FROM observability.logs WHERE%s GROUP BY severity_text
 		UNION ALL
-		SELECT 'service' AS dim, service AS value, COUNT(*) AS count
+		SELECT 'service_name' AS dim, service AS value, COUNT(*) AS count
 		FROM observability.logs WHERE%s GROUP BY service
 		UNION ALL
 		SELECT 'host' AS dim, host AS value, COUNT(*) AS count
@@ -557,19 +567,19 @@ func (r *ClickHouseRepository) GetLogStats(ctx context.Context, f LogFilters) (L
 	}
 
 	fields := map[string][]Facet{
-		"severity_text": {},
-		"service":       {},
-		"host":          {},
-		"pod":           {},
-		"scope_name":    {},
+		"level":        {},
+		"service_name": {},
+		"host":         {},
+		"pod":          {},
+		"scope_name":   {},
 	}
 	// per-dim limits (keep parity with old per-query LIMIT behaviour)
 	limits := map[string]int{
-		"severity_text": 100,
-		"service":       50,
-		"host":          50,
-		"pod":           50,
-		"scope_name":    50,
+		"level":        100,
+		"service_name": 50,
+		"host":         50,
+		"pod":          50,
+		"scope_name":   50,
 	}
 
 	for _, row := range rows {
@@ -585,7 +595,7 @@ func (r *ClickHouseRepository) GetLogStats(ctx context.Context, f LogFilters) (L
 	}
 
 	total := int64(0)
-	for _, f := range fields["severity_text"] {
+	for _, f := range fields["level"] {
 		total += f.Count
 	}
 
@@ -647,7 +657,7 @@ func (r *ClickHouseRepository) GetLogAggregate(ctx context.Context, f LogFilters
 	var topQuery string
 	if req.Metric == "error_rate" {
 		topQuery = fmt.Sprintf(`
-			SELECT %s AS grp, countIf(severity_text IN ('ERROR', 'FATAL')) AS err_cnt
+			SELECT %s AS grp, sum(if(severity_text IN ('ERROR', 'FATAL'), 1, 0)) AS err_cnt
 			FROM observability.logs
 			WHERE%s AND %s != ''
 			GROUP BY grp
@@ -684,30 +694,31 @@ func (r *ClickHouseRepository) GetLogAggregate(ctx context.Context, f LogFilters
 	inPlaceholders = inPlaceholders[:len(inPlaceholders)-1]
 
 	where2, args2 := buildLogWhere(f)
+	bucketExpr := logBucketExprForStep(f.StartMs, f.EndMs, step)
 
 	var tsQuery string
 	if req.Metric == "error_rate" {
 		tsQuery = fmt.Sprintf(`
-			SELECT toStartOfInterval(fromUnixTimestamp64Nano(timestamp), INTERVAL %s) AS time_bucket,
+			SELECT %s AS time_bucket,
 			       %s AS grp,
 			       if(count() > 0,
-			          countIf(severity_text IN ('ERROR', 'FATAL')) * 100.0 / count(),
+			          sum(if(severity_text IN ('ERROR', 'FATAL'), 1, 0)) * 100.0 / count(),
 			          0) AS error_rate
 			FROM observability.logs
 			WHERE%s AND %s IN (%s)
 			GROUP BY time_bucket, grp
 			ORDER BY time_bucket ASC, grp ASC
-		`, step, col, where2, col, inPlaceholders)
+		`, bucketExpr, col, where2, col, inPlaceholders)
 	} else {
 		tsQuery = fmt.Sprintf(`
-			SELECT toStartOfInterval(fromUnixTimestamp64Nano(timestamp), INTERVAL %s) AS time_bucket,
+			SELECT %s AS time_bucket,
 			       %s AS grp,
 			       count() AS cnt
 			FROM observability.logs
 			WHERE%s AND %s IN (%s)
 			GROUP BY time_bucket, grp
 			ORDER BY time_bucket ASC, cnt DESC
-		`, step, col, where2, col, inPlaceholders)
+		`, bucketExpr, col, where2, col, inPlaceholders)
 	}
 
 	combinedArgs := append(args2, func() []any {

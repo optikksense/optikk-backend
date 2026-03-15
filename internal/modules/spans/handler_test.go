@@ -104,7 +104,15 @@ func TestGetTracesKeysetIncludesTotal(t *testing.T) {
 	var response struct {
 		Success bool `json:"success"`
 		Data struct {
-			Total float64 `json:"total"`
+			Total     float64 `json:"total"`
+			HasMore   bool    `json:"has_more"`
+			NextCursor string `json:"next_cursor"`
+			Summary struct {
+				TotalTraces float64 `json:"total_traces"`
+				ErrorTraces float64 `json:"error_traces"`
+				P95Duration float64 `json:"p95_duration"`
+				P99Duration float64 `json:"p99_duration"`
+			} `json:"summary"`
 		} `json:"data"`
 	}
 	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
@@ -115,5 +123,17 @@ func TestGetTracesKeysetIncludesTotal(t *testing.T) {
 	}
 	if response.Data.Total != 2 {
 		t.Fatalf("expected total to be 2, got %v", response.Data.Total)
+	}
+	if response.Data.HasMore {
+		t.Fatalf("expected has_more to be false")
+	}
+	if response.Data.NextCursor != "" {
+		t.Fatalf("expected next_cursor to be empty, got %q", response.Data.NextCursor)
+	}
+	if response.Data.Summary.TotalTraces != 2 {
+		t.Fatalf("expected total_traces to be 2, got %v", response.Data.Summary.TotalTraces)
+	}
+	if response.Data.Summary.P95Duration != 180 {
+		t.Fatalf("expected p95_duration to be 180, got %v", response.Data.Summary.P95Duration)
 	}
 }
