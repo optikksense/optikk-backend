@@ -9,12 +9,12 @@ type TopologyNode struct {
 }
 
 type TopologyEdge struct {
-	Source       string  `json:"source"`
-	Target       string  `json:"target"`
-	CallCount    int64   `json:"call_count"`
-	AvgLatency   float64 `json:"avg_latency"`
-	P95LatencyMs float64 `json:"p95_latency_ms"`
-	ErrorRate    float64 `json:"error_rate"`
+	Source       string  `json:"source"        ch:"source"`
+	Target       string  `json:"target"        ch:"target"`
+	CallCount    int64   `json:"call_count"    ch:"call_count"`
+	AvgLatency   float64 `json:"avg_latency"   ch:"avg_latency"`
+	P95LatencyMs float64 `json:"p95_latency_ms" ch:"p95_latency_ms"`
+	ErrorRate    float64 `json:"error_rate"    ch:"error_rate"`
 }
 
 type TopologyData struct {

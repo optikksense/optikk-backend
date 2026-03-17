@@ -10,7 +10,7 @@ import (
 
 type MemoryHandler struct {
 	modulecommon.DBTenant
-	Service Service
+	Service *Service
 }
 
 func (h *MemoryHandler) GetMemoryUsage(c *gin.Context) {
@@ -19,7 +19,7 @@ func (h *MemoryHandler) GetMemoryUsage(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetMemoryUsage(teamID, startMs, endMs)
+	resp, err := h.Service.GetMemoryUsage(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query memory usage")
 		return
@@ -33,7 +33,7 @@ func (h *MemoryHandler) GetMemoryUsagePercentage(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetMemoryUsagePercentage(teamID, startMs, endMs)
+	resp, err := h.Service.GetMemoryUsagePercentage(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query memory usage percentage")
 		return
@@ -47,7 +47,7 @@ func (h *MemoryHandler) GetSwapUsage(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetSwapUsage(teamID, startMs, endMs)
+	resp, err := h.Service.GetSwapUsage(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query swap usage")
 		return

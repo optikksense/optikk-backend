@@ -1,10 +1,9 @@
 package rundetail
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
-
-	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
 type Service interface {
@@ -22,11 +21,15 @@ func NewService(repo Repository) *RunDetailService {
 }
 
 func (s *RunDetailService) GetRunDetail(teamID int64, spanID string) (*LLMRunDetail, error) {
-	return s.repo.GetRunDetail(teamID, spanID)
+	row, err := s.repo.GetRunDetail(context.Background(), teamID, spanID)
+	if err != nil || row == nil {
+		return nil, err
+	}
+	return row.toModel(), nil
 }
 
 func (s *RunDetailService) GetRunMessages(teamID int64, spanID string) ([]LLMMessage, error) {
-	rows, err := s.repo.GetRunEvents(teamID, spanID)
+	rows, err := s.repo.GetRunEvents(context.Background(), teamID, spanID)
 	if err != nil {
 		return nil, err
 	}
@@ -34,7 +37,7 @@ func (s *RunDetailService) GetRunMessages(teamID int64, spanID string) ([]LLMMes
 }
 
 func (s *RunDetailService) GetRunContext(teamID int64, spanID, traceID string) (*LLMRunContext, error) {
-	rows, err := s.repo.GetTraceSpans(teamID, traceID)
+	rows, err := s.repo.GetTraceSpans(context.Background(), teamID, traceID)
 	if err != nil {
 		return nil, err
 	}
@@ -42,11 +45,10 @@ func (s *RunDetailService) GetRunContext(teamID int64, spanID, traceID string) (
 }
 
 // extractMessages parses span events to extract prompt/completion messages.
-func extractMessages(rows []map[string]any) []LLMMessage {
+func extractMessages(rows []runEventDTO) []LLMMessage {
 	var messages []LLMMessage
 	for _, row := range rows {
-		raw := dbutil.StringFromAny(row["event_json"])
-		raw = strings.TrimSpace(raw)
+		raw := strings.TrimSpace(row.EventJSON)
 		if raw == "" {
 			continue
 		}
@@ -107,24 +109,24 @@ func parseGenAIContent(attrs map[string]string, attrKey, msgType string) []LLMMe
 }
 
 // buildContext constructs the ancestor chain, current span, and children.
-func buildContext(spanID string, rows []map[string]any) *LLMRunContext {
+func buildContext(spanID string, rows []traceContextSpanDTO) *LLMRunContext {
 	spanMap := make(map[string]ChainSpan, len(rows))
 	childrenOf := make(map[string][]string, len(rows))
 
 	for _, row := range rows {
-		sid := dbutil.StringFromAny(row["span_id"])
-		pid := dbutil.StringFromAny(row["parent_span_id"])
-		model := dbutil.StringFromAny(row["model"])
+		sid := row.SpanID
+		pid := row.ParentSpanID
+		model := row.Model
 		cs := ChainSpan{
 			SpanID:        sid,
 			ParentSpanID:  pid,
-			ServiceName:   dbutil.StringFromAny(row["service_name"]),
-			OperationName: dbutil.StringFromAny(row["operation_name"]),
-			StartTime:     dbutil.TimeFromAny(row["timestamp"]),
-			DurationMs:    dbutil.Float64FromAny(row["duration_ms"]),
-			HasError:      dbutil.BoolFromAny(row["has_error"]),
-			SpanKind:      dbutil.StringFromAny(row["kind_string"]),
-			Role:          classifyRole(dbutil.StringFromAny(row["operation_name"]), model),
+			ServiceName:   row.ServiceName,
+			OperationName: row.OperationName,
+			StartTime:     row.Timestamp,
+			DurationMs:    row.DurationMs,
+			HasError:      row.HasError,
+			SpanKind:      row.KindString,
+			Role:          classifyRole(row.OperationName, model),
 			Model:         model,
 		}
 		spanMap[sid] = cs

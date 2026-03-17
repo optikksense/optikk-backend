@@ -1,24 +1,27 @@
 package memory
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
-	dbutil "github.com/observability/observability-backend-go/internal/database"
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/infrastructure/infraconsts"
 )
 
 type Repository interface {
-	GetMemoryUsage(teamID int64, startMs, endMs int64) ([]StateBucket, error)
-	GetMemoryUsagePercentage(teamID int64, startMs, endMs int64) ([]ResourceBucket, error)
-	GetSwapUsage(teamID int64, startMs, endMs int64) ([]StateBucket, error)
+	GetMemoryUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error)
+	GetMemoryUsagePercentage(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error)
+	GetSwapUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error)
 }
 
 type ClickHouseRepository struct {
-	db dbutil.Querier
+	db *database.NativeQuerier
 }
 
-func NewRepository(db dbutil.Querier) Repository {
+func NewRepository(db *database.NativeQuerier) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -35,38 +38,38 @@ func syncAverageExpr(parts ...string) string {
 	)`
 }
 
-func (r *ClickHouseRepository) queryStateBuckets(query string, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
-	if err != nil {
-		return nil, err
+func baseParams(teamID int64, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
-	buckets := make([]StateBucket, len(rows))
-	for i, row := range rows {
-		buckets[i] = StateBucket{
-			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
-			State:     dbutil.StringFromAny(row["state"]),
-			Value:     dbutil.NullableFloat64FromAny(row["metric_val"]),
-		}
-	}
-	return buckets, nil
 }
 
-func (r *ClickHouseRepository) GetMemoryUsage(teamID int64, startMs, endMs int64) ([]StateBucket, error) {
+func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
+	var rows []stateBucketDTO
+	if err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *ClickHouseRepository) GetMemoryUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
 	b := bucket(startMs, endMs)
 	state := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrSystemMemoryState)
 	query := fmt.Sprintf(`
 		SELECT %s as time_bucket, %s as state, avg(%s) as metric_val
 		FROM %s
-		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		WHERE %s = @teamID AND %s BETWEEN @start AND @end AND %s = '%s'
 		GROUP BY 1, 2 ORDER BY 1, 2`,
 		b, state, infraconsts.ColValue,
 		infraconsts.TableMetrics,
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricSystemMemoryUsage)
-	return r.queryStateBuckets(query, teamID, startMs, endMs)
+	return r.queryStateBuckets(ctx, query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetMemoryUsagePercentage(teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
+func (r *ClickHouseRepository) GetMemoryUsagePercentage(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
 	b := bucket(startMs, endMs)
 	aMem := infraconsts.AttrFloat(infraconsts.AttrSystemMemoryUtilization)
 
@@ -88,7 +91,7 @@ func (r *ClickHouseRepository) GetMemoryUsagePercentage(teamID int64, startMs, e
 		       %s as pod,
 		       %s as metric_val
 		FROM %s
-		WHERE %s = ? AND %s BETWEEN ? AND ?
+		WHERE %s = @teamID AND %s BETWEEN @start AND @end
 		  AND (
 		      %s IN ('%s', '%s', '%s')
 		      OR %s > 0
@@ -100,32 +103,24 @@ func (r *ClickHouseRepository) GetMemoryUsagePercentage(teamID int64, startMs, e
 		infraconsts.TableMetrics, infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricSystemMemoryUtilization, infraconsts.MetricJVMMemoryUsed, infraconsts.MetricJVMMemoryMax,
 		aMem)
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
-	if err != nil {
+	var rows []resourceBucketDTO
+	if err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
-	buckets := make([]ResourceBucket, len(rows))
-	for i, row := range rows {
-		buckets[i] = ResourceBucket{
-			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
-			Pod:       dbutil.StringFromAny(row["pod"]),
-			Value:     dbutil.NullableFloat64FromAny(row["metric_val"]),
-		}
-	}
-	return buckets, nil
+	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetSwapUsage(teamID int64, startMs, endMs int64) ([]StateBucket, error) {
+func (r *ClickHouseRepository) GetSwapUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
 	b := bucket(startMs, endMs)
 	state := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrSystemMemoryState)
 	query := fmt.Sprintf(`
 		SELECT %s as time_bucket, %s as state, avg(%s) as metric_val
 		FROM %s
-		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		WHERE %s = @teamID AND %s BETWEEN @start AND @end AND %s = '%s'
 		GROUP BY 1, 2 ORDER BY 1, 2`,
 		b, state, infraconsts.ColValue,
 		infraconsts.TableMetrics,
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricSystemPagingUsage)
-	return r.queryStateBuckets(query, teamID, startMs, endMs)
+	return r.queryStateBuckets(ctx, query, teamID, startMs, endMs)
 }

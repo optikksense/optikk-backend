@@ -1,6 +1,7 @@
 package servicepage
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -10,7 +11,7 @@ import (
 
 type ServiceHandler struct {
 	modulecommon.DBTenant
-	Service Service
+	Service *Service
 }
 
 func (h *ServiceHandler) GetTotalServices(c *gin.Context) {
@@ -36,7 +37,7 @@ func (h *ServiceHandler) GetServiceMetrics(c *gin.Context) {
 		return
 	}
 
-	rows, err := h.Service.GetServiceMetrics(teamID, startMs, endMs)
+	rows, err := h.Service.GetServiceMetrics(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query service metrics")
 		return
@@ -52,7 +53,7 @@ func (h *ServiceHandler) GetServiceTimeSeries(c *gin.Context) {
 		return
 	}
 
-	points, err := h.Service.GetServiceTimeSeries(teamID, startMs, endMs)
+	points, err := h.Service.GetServiceTimeSeries(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query service timeseries")
 		return
@@ -69,7 +70,7 @@ func (h *ServiceHandler) GetServiceEndpoints(c *gin.Context) {
 		return
 	}
 
-	endpoints, err := h.Service.GetServiceEndpoints(teamID, startMs, endMs, serviceName)
+	endpoints, err := h.Service.GetServiceEndpoints(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query endpoint breakdown")
 		return
@@ -78,14 +79,14 @@ func (h *ServiceHandler) GetServiceEndpoints(c *gin.Context) {
 	RespondOK(c, endpoints)
 }
 
-func (h *ServiceHandler) respondWithCount(c *gin.Context, fn func(int64, int64, int64) (int64, error), message string) {
+func (h *ServiceHandler) respondWithCount(c *gin.Context, fn func(context.Context, int64, int64, int64) (int64, error), message string) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
-	count, err := fn(teamID, startMs, endMs)
+	count, err := fn(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", message)
 		return

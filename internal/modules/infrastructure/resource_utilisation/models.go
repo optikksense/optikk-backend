@@ -28,26 +28,25 @@ type InstanceResource struct {
 }
 
 type ResourceBucket struct {
-	Timestamp string   `json:"timestamp"`
-	Pod       string   `json:"pod"`
-	Value     *float64 `json:"value"`
+	Timestamp string   `json:"timestamp" ch:"time_bucket"`
+	Pod       string   `json:"pod" ch:"pod"`
+	Value     *float64 `json:"value" ch:"metric_val"`
 }
 
 type StateBucket struct {
-	Timestamp string   `json:"timestamp"`
-	State     string   `json:"state"`
-	Value     *float64 `json:"value"`
+	Timestamp string   `json:"timestamp" ch:"time_bucket"`
+	State     string   `json:"state" ch:"state"`
+	Value     *float64 `json:"value" ch:"metric_val"`
 }
 
 type DirectionBucket struct {
-	Timestamp string   `json:"timestamp"`
-	Direction string   `json:"direction"`
-	Value     *float64 `json:"value"`
+	Timestamp string   `json:"timestamp" ch:"time_bucket"`
+	Direction string   `json:"direction" ch:"direction"`
+	Value     *float64 `json:"value" ch:"metric_val"`
 }
 
 type MountpointBucket struct {
-	Timestamp  string   `json:"timestamp"`
-	Mountpoint string   `json:"mountpoint"`
-	Value      *float64 `json:"value"`
+	Timestamp  string   `json:"timestamp" ch:"time_bucket"`
+	Mountpoint string   `json:"mountpoint" ch:"mountpoint"`
+	Value      *float64 `json:"value" ch:"metric_val"`
 }
-

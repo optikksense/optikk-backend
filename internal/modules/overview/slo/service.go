@@ -1,6 +1,6 @@
 package slo
 
-import ()
+import "context"
 
 const (
 	availabilityTarget = 99.9
@@ -22,12 +22,14 @@ func NewService(repo Repository) Service {
 }
 
 func (s *SLOService) GetSloSli(teamID int64, startMs, endMs int64, serviceName string) (*Response, error) {
-	summary, err := s.repo.GetSummary(teamID, startMs, endMs, serviceName)
+	ctx := context.Background()
+
+	summary, err := s.repo.GetSummary(ctx, teamID, startMs, endMs, serviceName)
 	if err != nil {
 		return nil, err
 	}
 
-	timeseries, err := s.repo.GetTimeSeries(teamID, startMs, endMs, serviceName)
+	timeseries, err := s.repo.GetTimeSeries(ctx, teamID, startMs, endMs, serviceName)
 	if err != nil {
 		return nil, err
 	}
@@ -51,11 +53,11 @@ func (s *SLOService) GetSloSli(teamID int64, startMs, endMs int64, serviceName s
 }
 
 func (s *SLOService) GetBurnDown(teamID int64, startMs, endMs int64, serviceName string) ([]BurnDownPoint, error) {
-	return s.repo.GetBurnDown(teamID, startMs, endMs, serviceName)
+	return s.repo.GetBurnDown(context.Background(), teamID, startMs, endMs, serviceName)
 }
 
 func (s *SLOService) GetBurnRate(teamID int64, startMs, endMs int64, serviceName string) (*BurnRate, error) {
-	return s.repo.GetBurnRate(teamID, startMs, endMs, serviceName)
+	return s.repo.GetBurnRate(context.Background(), teamID, startMs, endMs, serviceName)
 }
 
 func remainingErrorBudgetPercent(availabilityPercent float64) float64 {

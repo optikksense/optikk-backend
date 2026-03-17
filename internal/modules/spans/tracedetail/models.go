@@ -3,45 +3,45 @@ package tracedetail
 import "time"
 
 type SpanEvent struct {
-	SpanID     string    `json:"span_id"`
-	TraceID    string    `json:"trace_id"`
-	EventName  string    `json:"event_name"`
-	Timestamp  time.Time `json:"timestamp"`
+	SpanID     string    `json:"span_id"     ch:"span_id"`
+	TraceID    string    `json:"trace_id"    ch:"trace_id"`
+	EventName  string    `json:"event_name"  ch:"event_name"`
+	Timestamp  time.Time `json:"timestamp"   ch:"timestamp"`
 	Attributes string    `json:"attributes"`
 }
 
 type SpanKindDuration struct {
-	SpanKind    string  `json:"span_kind"`
-	TotalDuraMs float64 `json:"total_duration_ms"`
-	SpanCount   int64   `json:"span_count"`
+	SpanKind    string  `json:"span_kind"         ch:"span_kind"`
+	TotalDuraMs float64 `json:"total_duration_ms" ch:"total_duration_ms"`
+	SpanCount   int64   `json:"span_count"        ch:"span_count"`
 	PctOfTrace  float64 `json:"pct_of_trace"`
 }
 
 type CriticalPathSpan struct {
-	SpanID        string  `json:"span_id"`
-	OperationName string  `json:"operation_name"`
-	ServiceName   string  `json:"service_name"`
-	DurationMs    float64 `json:"duration_ms"`
+	SpanID        string  `json:"span_id"        ch:"span_id"`
+	OperationName string  `json:"operation_name" ch:"operation_name"`
+	ServiceName   string  `json:"service_name"   ch:"service_name"`
+	DurationMs    float64 `json:"duration_ms"    ch:"duration_ms"`
 }
 
 // SpanSelfTime breaks down a span's self time vs total time.
 type SpanSelfTime struct {
-	SpanID        string  `json:"span_id"`
-	OperationName string  `json:"operation_name"`
-	TotalDuraMs   float64 `json:"total_duration_ms"`
-	SelfTimeMs    float64 `json:"self_time_ms"`
-	ChildTimeMs   float64 `json:"child_time_ms"`
+	SpanID        string  `json:"span_id"           ch:"span_id"`
+	OperationName string  `json:"operation_name"    ch:"operation_name"`
+	TotalDuraMs   float64 `json:"total_duration_ms" ch:"total_duration_ms"`
+	SelfTimeMs    float64 `json:"self_time_ms"      ch:"self_time_ms"`
+	ChildTimeMs   float64 `json:"child_time_ms"     ch:"child_time_ms"`
 }
 
 type ErrorPathSpan struct {
-	SpanID        string    `json:"span_id"`
-	ParentSpanID  string    `json:"parent_span_id"`
-	OperationName string    `json:"operation_name"`
-	ServiceName   string    `json:"service_name"`
-	Status        string    `json:"status"`
-	StatusMessage string    `json:"status_message"`
-	StartTime     time.Time `json:"start_time"`
-	DurationMs    float64   `json:"duration_ms"`
+	SpanID        string    `json:"span_id"        ch:"span_id"`
+	ParentSpanID  string    `json:"parent_span_id" ch:"parent_span_id"`
+	OperationName string    `json:"operation_name" ch:"operation_name"`
+	ServiceName   string    `json:"service_name"   ch:"service_name"`
+	Status        string    `json:"status"         ch:"status"`
+	StatusMessage string    `json:"status_message" ch:"status_message"`
+	StartTime     time.Time `json:"start_time"     ch:"start_time"`
+	DurationMs    float64   `json:"duration_ms"    ch:"duration_ms"`
 }
 
 type SpanAttributes struct {
@@ -81,11 +81,11 @@ type FlamegraphFrame struct {
 }
 
 type RelatedTrace struct {
-	TraceID       string    `json:"trace_id"`
-	SpanID        string    `json:"span_id"`
-	OperationName string    `json:"operation_name"`
-	ServiceName   string    `json:"service_name"`
-	DurationMs    float64   `json:"duration_ms"`
-	Status        string    `json:"status"`
-	StartTime     time.Time `json:"start_time"`
+	TraceID       string    `json:"trace_id"       ch:"trace_id"`
+	SpanID        string    `json:"span_id"        ch:"span_id"`
+	OperationName string    `json:"operation_name" ch:"operation_name"`
+	ServiceName   string    `json:"service_name"   ch:"service_name"`
+	DurationMs    float64   `json:"duration_ms"    ch:"duration_ms"`
+	Status        string    `json:"status"         ch:"status"`
+	StartTime     time.Time `json:"start_time"     ch:"start_time"`
 }

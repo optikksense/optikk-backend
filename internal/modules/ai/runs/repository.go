@@ -1,29 +1,30 @@
 package runs
 
 import (
+	"context"
 	"fmt"
 
-	dbutil "github.com/observability/observability-backend-go/internal/database"
+	"github.com/observability/observability-backend-go/internal/database"
 )
 
 const tableSpans = "observability.spans"
 
 type Repository interface {
-	ListRuns(f LLMRunFilters) ([]LLMRun, error)
-	GetRunsSummary(f LLMRunFilters) (*LLMRunSummary, error)
-	ListModels(f LLMRunFilters) ([]LLMRunModel, error)
-	ListOperations(f LLMRunFilters) ([]LLMRunOperation, error)
+	ListRuns(ctx context.Context, f LLMRunFilters) ([]llmRunRowDTO, error)
+	GetRunsSummary(ctx context.Context, f LLMRunFilters) (*llmRunSummaryRowDTO, error)
+	ListModels(ctx context.Context, f LLMRunFilters) ([]llmRunModelRowDTO, error)
+	ListOperations(ctx context.Context, f LLMRunFilters) ([]llmRunOperationRowDTO, error)
 }
 
 type ClickHouseRepository struct {
-	db dbutil.Querier
+	db *database.NativeQuerier
 }
 
-func NewRepository(db dbutil.Querier) *ClickHouseRepository {
+func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) ListRuns(f LLMRunFilters) ([]LLMRun, error) {
+func (r *ClickHouseRepository) ListRuns(ctx context.Context, f LLMRunFilters) ([]llmRunRowDTO, error) {
 	where, args := buildWhereClause(f)
 	limit := f.Limit
 	if limit <= 0 {
@@ -49,37 +50,14 @@ func (r *ClickHouseRepository) ListRuns(f LLMRunFilters) ([]LLMRun, error) {
 		colFinishReason,
 		tableSpans, where, limit)
 
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
+	var rows []llmRunRowDTO
+	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
-
-	runs := make([]LLMRun, 0, len(rows))
-	for _, row := range rows {
-		runs = append(runs, LLMRun{
-			SpanID:        dbutil.StringFromAny(row["span_id"]),
-			TraceID:       dbutil.StringFromAny(row["trace_id"]),
-			ParentSpanID:  dbutil.StringFromAny(row["parent_span_id"]),
-			ServiceName:   dbutil.StringFromAny(row["service_name"]),
-			OperationName: dbutil.StringFromAny(row["operation_name"]),
-			Model:         dbutil.StringFromAny(row["model"]),
-			Provider:      dbutil.StringFromAny(row["provider"]),
-			OperationType: dbutil.StringFromAny(row["operation_type"]),
-			StartTime:     dbutil.TimeFromAny(row["timestamp"]),
-			DurationMs:    dbutil.Float64FromAny(row["duration_ms"]),
-			InputTokens:   dbutil.Int64FromAny(row["input_tokens"]),
-			OutputTokens:  dbutil.Int64FromAny(row["output_tokens"]),
-			TotalTokens:   dbutil.Int64FromAny(row["total_tokens"]),
-			HasError:      dbutil.BoolFromAny(row["has_error"]),
-			StatusMessage: dbutil.StringFromAny(row["status_message"]),
-			FinishReason:  dbutil.StringFromAny(row["finish_reason"]),
-			SpanKind:      dbutil.StringFromAny(row["kind_string"]),
-		})
-	}
-	return runs, nil
+	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetRunsSummary(f LLMRunFilters) (*LLMRunSummary, error) {
+func (r *ClickHouseRepository) GetRunsSummary(ctx context.Context, f LLMRunFilters) (*llmRunSummaryRowDTO, error) {
 	where, args := buildWhereClause(f)
 
 	query := fmt.Sprintf(`
@@ -94,25 +72,14 @@ func (r *ClickHouseRepository) GetRunsSummary(f LLMRunFilters) (*LLMRunSummary, 
 		%s
 	`, colInputTokens, colOutputTokens, colModel, tableSpans, where)
 
-	row, err := dbutil.QueryMap(r.db, query, args...)
-	if err != nil {
-		return nil, err
+	var row llmRunSummaryRowDTO
+	if err := r.db.QueryRow(ctx, &row, query, args...); err != nil {
+		return &llmRunSummaryRowDTO{}, nil
 	}
-	if len(row) == 0 {
-		return &LLMRunSummary{}, nil
-	}
-	return &LLMRunSummary{
-		TotalRuns:    dbutil.Int64FromAny(row["total_runs"]),
-		ErrorRuns:    dbutil.Int64FromAny(row["error_runs"]),
-		ErrorRate:    dbutil.Float64FromAny(row["error_rate"]),
-		AvgLatencyMs: dbutil.Float64FromAny(row["avg_latency_ms"]),
-		P95LatencyMs: dbutil.Float64FromAny(row["p95_latency_ms"]),
-		TotalTokens:  dbutil.Int64FromAny(row["total_tokens"]),
-		UniqueModels: dbutil.Int64FromAny(row["unique_models"]),
-	}, nil
+	return &row, nil
 }
 
-func (r *ClickHouseRepository) ListModels(f LLMRunFilters) ([]LLMRunModel, error) {
+func (r *ClickHouseRepository) ListModels(ctx context.Context, f LLMRunFilters) ([]llmRunModelRowDTO, error) {
 	where, args := buildWhereClause(f)
 
 	query := fmt.Sprintf(`
@@ -124,21 +91,14 @@ func (r *ClickHouseRepository) ListModels(f LLMRunFilters) ([]LLMRunModel, error
 		LIMIT 100
 	`, colModel, colProvider, tableSpans, where)
 
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
+	var rows []llmRunModelRowDTO
+	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
-	models := make([]LLMRunModel, 0, len(rows))
-	for _, row := range rows {
-		models = append(models, LLMRunModel{
-			Model:    dbutil.StringFromAny(row["model"]),
-			Provider: dbutil.StringFromAny(row["provider"]),
-		})
-	}
-	return models, nil
+	return rows, nil
 }
 
-func (r *ClickHouseRepository) ListOperations(f LLMRunFilters) ([]LLMRunOperation, error) {
+func (r *ClickHouseRepository) ListOperations(ctx context.Context, f LLMRunFilters) ([]llmRunOperationRowDTO, error) {
 	where, args := buildWhereClause(f)
 
 	query := fmt.Sprintf(`
@@ -150,15 +110,9 @@ func (r *ClickHouseRepository) ListOperations(f LLMRunFilters) ([]LLMRunOperatio
 		LIMIT 100
 	`, colOperationType, tableSpans, where)
 
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
+	var rows []llmRunOperationRowDTO
+	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
-	ops := make([]LLMRunOperation, 0, len(rows))
-	for _, row := range rows {
-		ops = append(ops, LLMRunOperation{
-			OperationType: dbutil.StringFromAny(row["operation_type"]),
-		})
-	}
-	return ops, nil
+	return rows, nil
 }

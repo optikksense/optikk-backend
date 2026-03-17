@@ -1,9 +1,11 @@
 package kafka
 
 import (
+	"context"
 	"fmt"
+	"time"
 
-	dbutil "github.com/observability/observability-backend-go/internal/database"
+	"github.com/ClickHouse/clickhouse-go/v2"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
@@ -21,6 +23,15 @@ func bucketSecs(startMs, endMs int64) float64 {
 		return 300.0
 	}
 	return 3600.0
+}
+
+// baseParams returns named ClickHouse parameters for teamID + time range.
+func baseParams(teamID int64, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
 }
 
 // ── 1. Summary stat cards ─────────────────────────────────────────────────────
@@ -51,8 +62,8 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(teamID int64, startMs, endMs
 		        %[7]s AND metric_type = 'Histogram'
 		    ) AS receive_p95
 		FROM %[8]s
-		WHERE team_id = ?
-		  AND timestamp BETWEEN ? AND ?
+		WHERE team_id = @teamID
+		  AND timestamp BETWEEN @start AND @end
 		  %[9]s
 		  AND (%[2]s IN (%[3]s, %[4]s, %[5]s) OR %[6]s OR %[7]s)
 	`,
@@ -66,18 +77,10 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(teamID int64, startMs, endMs
 		filterSQL,
 	)
 
-	args := append([]any{durationSecs, durationSecs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
-	row, err := dbutil.QueryMap(r.db, query, args...)
-	if err != nil {
-		return KafkaSummaryStats{}, fmt.Errorf("GetKafkaSummaryStats: %w", err)
-	}
-	return KafkaSummaryStats{
-		PublishRatePerSec: dbutil.Float64FromAny(row["publish_rate"]),
-		ReceiveRatePerSec: dbutil.Float64FromAny(row["receive_rate"]),
-		MaxLag:            dbutil.Float64FromAny(row["max_lag"]),
-		PublishP95Ms:      dbutil.Float64FromAny(row["publish_p95"]),
-		ReceiveP95Ms:      dbutil.Float64FromAny(row["receive_p95"]),
-	}, nil
+	args := append(baseParams(teamID, startMs, endMs), durationSecs, durationSecs)
+	args = append(args, filterArgs...)
+	var result KafkaSummaryStats
+	return result, r.db.QueryRow(context.Background(), &result, query, args...)
 }
 
 // ── 2. Produce rate by topic ──────────────────────────────────────────────────
@@ -95,28 +98,18 @@ func (r *ClickHouseRepository) GetProduceRateByTopic(teamID int64, startMs, endM
 		    %s AS topic,
 		    sum(%s) / ? AS rate_per_sec
 		FROM %s
-		WHERE team_id = ?
-		  AND timestamp BETWEEN ? AND ?
+		WHERE team_id = @teamID
+		  AND timestamp BETWEEN @start AND @end
 		  %s
 		  AND %s IN (%s)
 		GROUP BY time_bucket, topic
 		ORDER BY time_bucket ASC, topic ASC
 	`, bucket, topic, ColValue, TableMetrics, filterSQL, ColMetricName, clause)
 
-	args := append([]any{bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("GetProduceRateByTopic: %w", err)
-	}
-	out := make([]TopicRatePoint, len(rows))
-	for i, row := range rows {
-		out[i] = TopicRatePoint{
-			Timestamp:  dbutil.StringFromAny(row["time_bucket"]),
-			Topic:      dbutil.StringFromAny(row["topic"]),
-			RatePerSec: dbutil.Float64FromAny(row["rate_per_sec"]),
-		}
-	}
-	return out, nil
+	args := append(baseParams(teamID, startMs, endMs), bs)
+	args = append(args, filterArgs...)
+	var out []TopicRatePoint
+	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
 // ── 3. Publish latency by topic ───────────────────────────────────────────────
@@ -134,8 +127,8 @@ func (r *ClickHouseRepository) GetPublishLatencyByTopic(teamID int64, startMs, e
 		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
 		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99
 		FROM %s
-		WHERE team_id = ?
-		  AND timestamp BETWEEN ? AND ?
+		WHERE team_id = @teamID
+		  AND timestamp BETWEEN @start AND @end
 		  %s
 		  AND %s
 		  AND metric_type = 'Histogram'
@@ -143,22 +136,9 @@ func (r *ClickHouseRepository) GetPublishLatencyByTopic(teamID int64, startMs, e
 		ORDER BY time_bucket ASC, topic ASC
 	`, bucket, topic, TableMetrics, filterSQL, publishDurationCondition())
 
-	args := append([]any{uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("GetPublishLatencyByTopic: %w", err)
-	}
-	out := make([]TopicLatencyPoint, len(rows))
-	for i, row := range rows {
-		out[i] = TopicLatencyPoint{
-			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
-			Topic:     dbutil.StringFromAny(row["topic"]),
-			P50Ms:     dbutil.Float64FromAny(row["p50"]),
-			P95Ms:     dbutil.Float64FromAny(row["p95"]),
-			P99Ms:     dbutil.Float64FromAny(row["p99"]),
-		}
-	}
-	return out, nil
+	args := append(baseParams(teamID, startMs, endMs), filterArgs...)
+	var out []TopicLatencyPoint
+	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
 // ── 4. Consume rate by topic ──────────────────────────────────────────────────
@@ -176,28 +156,18 @@ func (r *ClickHouseRepository) GetConsumeRateByTopic(teamID int64, startMs, endM
 		    %s AS topic,
 		    sum(%s) / ? AS rate_per_sec
 		FROM %s
-		WHERE team_id = ?
-		  AND timestamp BETWEEN ? AND ?
+		WHERE team_id = @teamID
+		  AND timestamp BETWEEN @start AND @end
 		  %s
 		  AND %s IN (%s)
 		GROUP BY time_bucket, topic
 		ORDER BY time_bucket ASC, topic ASC
 	`, bucket, topic, ColValue, TableMetrics, filterSQL, ColMetricName, clause)
 
-	args := append([]any{bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("GetConsumeRateByTopic: %w", err)
-	}
-	out := make([]TopicRatePoint, len(rows))
-	for i, row := range rows {
-		out[i] = TopicRatePoint{
-			Timestamp:  dbutil.StringFromAny(row["time_bucket"]),
-			Topic:      dbutil.StringFromAny(row["topic"]),
-			RatePerSec: dbutil.Float64FromAny(row["rate_per_sec"]),
-		}
-	}
-	return out, nil
+	args := append(baseParams(teamID, startMs, endMs), bs)
+	args = append(args, filterArgs...)
+	var out []TopicRatePoint
+	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
 // ── 5. Receive latency by topic ───────────────────────────────────────────────
@@ -215,8 +185,8 @@ func (r *ClickHouseRepository) GetReceiveLatencyByTopic(teamID int64, startMs, e
 		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
 		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99
 		FROM %s
-		WHERE team_id = ?
-		  AND timestamp BETWEEN ? AND ?
+		WHERE team_id = @teamID
+		  AND timestamp BETWEEN @start AND @end
 		  %s
 		  AND %s
 		  AND metric_type = 'Histogram'
@@ -224,22 +194,9 @@ func (r *ClickHouseRepository) GetReceiveLatencyByTopic(teamID int64, startMs, e
 		ORDER BY time_bucket ASC, topic ASC
 	`, bucket, topic, TableMetrics, filterSQL, receiveDurationCondition())
 
-	args := append([]any{uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("GetReceiveLatencyByTopic: %w", err)
-	}
-	out := make([]TopicLatencyPoint, len(rows))
-	for i, row := range rows {
-		out[i] = TopicLatencyPoint{
-			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
-			Topic:     dbutil.StringFromAny(row["topic"]),
-			P50Ms:     dbutil.Float64FromAny(row["p50"]),
-			P95Ms:     dbutil.Float64FromAny(row["p95"]),
-			P99Ms:     dbutil.Float64FromAny(row["p99"]),
-		}
-	}
-	return out, nil
+	args := append(baseParams(teamID, startMs, endMs), filterArgs...)
+	var out []TopicLatencyPoint
+	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
 // ── 6. Consume rate by consumer group ────────────────────────────────────────
@@ -257,28 +214,18 @@ func (r *ClickHouseRepository) GetConsumeRateByGroup(teamID int64, startMs, endM
 		    %s AS consumer_group,
 		    sum(%s) / ? AS rate_per_sec
 		FROM %s
-		WHERE team_id = ?
-		  AND timestamp BETWEEN ? AND ?
+		WHERE team_id = @teamID
+		  AND timestamp BETWEEN @start AND @end
 		  %s
 		  AND %s IN (%s)
 		GROUP BY time_bucket, consumer_group
 		ORDER BY time_bucket ASC, consumer_group ASC
 	`, bucket, group, ColValue, TableMetrics, filterSQL, ColMetricName, clause)
 
-	args := append([]any{bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("GetConsumeRateByGroup: %w", err)
-	}
-	out := make([]GroupRatePoint, len(rows))
-	for i, row := range rows {
-		out[i] = GroupRatePoint{
-			Timestamp:     dbutil.StringFromAny(row["time_bucket"]),
-			ConsumerGroup: dbutil.StringFromAny(row["consumer_group"]),
-			RatePerSec:    dbutil.Float64FromAny(row["rate_per_sec"]),
-		}
-	}
-	return out, nil
+	args := append(baseParams(teamID, startMs, endMs), bs)
+	args = append(args, filterArgs...)
+	var out []GroupRatePoint
+	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
 // ── 7. Process rate by consumer group ────────────────────────────────────────
@@ -296,28 +243,18 @@ func (r *ClickHouseRepository) GetProcessRateByGroup(teamID int64, startMs, endM
 		    %s AS consumer_group,
 		    sum(%s) / ? AS rate_per_sec
 		FROM %s
-		WHERE team_id = ?
-		  AND timestamp BETWEEN ? AND ?
+		WHERE team_id = @teamID
+		  AND timestamp BETWEEN @start AND @end
 		  %s
 		  AND %s IN (%s)
 		GROUP BY time_bucket, consumer_group
 		ORDER BY time_bucket ASC, consumer_group ASC
 	`, bucket, group, ColValue, TableMetrics, filterSQL, ColMetricName, clause)
 
-	args := append([]any{bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("GetProcessRateByGroup: %w", err)
-	}
-	out := make([]GroupRatePoint, len(rows))
-	for i, row := range rows {
-		out[i] = GroupRatePoint{
-			Timestamp:     dbutil.StringFromAny(row["time_bucket"]),
-			ConsumerGroup: dbutil.StringFromAny(row["consumer_group"]),
-			RatePerSec:    dbutil.Float64FromAny(row["rate_per_sec"]),
-		}
-	}
-	return out, nil
+	args := append(baseParams(teamID, startMs, endMs), bs)
+	args = append(args, filterArgs...)
+	var out []GroupRatePoint
+	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
 // ── 8. Process latency by consumer group ─────────────────────────────────────
@@ -335,8 +272,8 @@ func (r *ClickHouseRepository) GetProcessLatencyByGroup(teamID int64, startMs, e
 		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
 		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99
 		FROM %s
-		WHERE team_id = ?
-		  AND timestamp BETWEEN ? AND ?
+		WHERE team_id = @teamID
+		  AND timestamp BETWEEN @start AND @end
 		  %s
 		  AND %s
 		  AND metric_type = 'Histogram'
@@ -344,22 +281,9 @@ func (r *ClickHouseRepository) GetProcessLatencyByGroup(teamID int64, startMs, e
 		ORDER BY time_bucket ASC, consumer_group ASC
 	`, bucket, group, TableMetrics, filterSQL, processDurationCondition())
 
-	args := append([]any{uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("GetProcessLatencyByGroup: %w", err)
-	}
-	out := make([]GroupLatencyPoint, len(rows))
-	for i, row := range rows {
-		out[i] = GroupLatencyPoint{
-			Timestamp:     dbutil.StringFromAny(row["time_bucket"]),
-			ConsumerGroup: dbutil.StringFromAny(row["consumer_group"]),
-			P50Ms:         dbutil.Float64FromAny(row["p50"]),
-			P95Ms:         dbutil.Float64FromAny(row["p95"]),
-			P99Ms:         dbutil.Float64FromAny(row["p99"]),
-		}
-	}
-	return out, nil
+	args := append(baseParams(teamID, startMs, endMs), filterArgs...)
+	var out []GroupLatencyPoint
+	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
 // ── 9. Consumer lag by group ──────────────────────────────────────────────────
@@ -378,8 +302,8 @@ func (r *ClickHouseRepository) GetConsumerLagByGroup(teamID int64, startMs, endM
 		    %s AS topic,
 		    avgIf(%s, %s IN (%s) AND isFinite(%s)) AS lag
 		FROM %s
-		WHERE team_id = ?
-		  AND timestamp BETWEEN ? AND ?
+		WHERE team_id = @teamID
+		  AND timestamp BETWEEN @start AND @end
 		  %s
 		  AND %s IN (%s)
 		GROUP BY time_bucket, consumer_group, topic
@@ -391,21 +315,9 @@ func (r *ClickHouseRepository) GetConsumerLagByGroup(teamID int64, startMs, endM
 		ColMetricName, clause,
 	)
 
-	args := append([]any{uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("GetConsumerLagByGroup: %w", err)
-	}
-	out := make([]LagPoint, len(rows))
-	for i, row := range rows {
-		out[i] = LagPoint{
-			Timestamp:     dbutil.StringFromAny(row["time_bucket"]),
-			ConsumerGroup: dbutil.StringFromAny(row["consumer_group"]),
-			Topic:         dbutil.StringFromAny(row["topic"]),
-			Lag:           dbutil.Float64FromAny(row["lag"]),
-		}
-	}
-	return out, nil
+	args := append(baseParams(teamID, startMs, endMs), filterArgs...)
+	var out []LagPoint
+	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
 // ── 10. Consumer lag per partition ────────────────────────────────────────────
@@ -424,8 +336,8 @@ func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamID int64, startMs,
 		    %s AS consumer_group,
 		    toInt64(avg(value)) AS lag
 		FROM %s
-		WHERE team_id = ?
-		  AND timestamp BETWEEN ? AND ?
+		WHERE team_id = @teamID
+		  AND timestamp BETWEEN @start AND @end
 		  %s
 		  AND %s IN (%s)
 		GROUP BY topic, partition, consumer_group
@@ -437,21 +349,9 @@ func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamID int64, startMs,
 		ColMetricName, clause,
 	)
 
-	args := append([]any{uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("GetConsumerLagPerPartition: %w", err)
-	}
-	out := make([]PartitionLag, len(rows))
-	for i, row := range rows {
-		out[i] = PartitionLag{
-			Topic:         dbutil.StringFromAny(row["topic"]),
-			Partition:     dbutil.Int64FromAny(row["partition"]),
-			ConsumerGroup: dbutil.StringFromAny(row["consumer_group"]),
-			Lag:           dbutil.Int64FromAny(row["lag"]),
-		}
-	}
-	return out, nil
+	args := append(baseParams(teamID, startMs, endMs), filterArgs...)
+	var out []PartitionLag
+	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
 // ── 11. Rebalance signals by group ────────────────────────────────────────────
@@ -474,8 +374,8 @@ func (r *ClickHouseRepository) GetRebalanceSignals(teamID int64, startMs, endMs 
 		    sumIf(%[3]s, %[4]s = '%[9]s') / ? AS failed_heartbeat_rate,
 		    avgIf(%[3]s, %[4]s = '%[10]s' AND isFinite(%[3]s)) AS assigned_partitions
 		FROM %[11]s
-		WHERE team_id = ?
-		  AND timestamp BETWEEN ? AND ?
+		WHERE team_id = @teamID
+		  AND timestamp BETWEEN @start AND @end
 		  %[13]s
 		  AND %[4]s IN (%[12]s)
 		GROUP BY time_bucket, consumer_group
@@ -493,25 +393,10 @@ func (r *ClickHouseRepository) GetRebalanceSignals(teamID int64, startMs, endMs 
 		filterSQL,
 	)
 
-	args := append([]any{bs, bs, bs, bs, bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("GetRebalanceSignals: %w", err)
-	}
-	out := make([]RebalancePoint, len(rows))
-	for i, row := range rows {
-		out[i] = RebalancePoint{
-			Timestamp:           dbutil.StringFromAny(row["time_bucket"]),
-			ConsumerGroup:       dbutil.StringFromAny(row["consumer_group"]),
-			RebalanceRate:       dbutil.Float64FromAny(row["rebalance_rate"]),
-			JoinRate:            dbutil.Float64FromAny(row["join_rate"]),
-			SyncRate:            dbutil.Float64FromAny(row["sync_rate"]),
-			HeartbeatRate:       dbutil.Float64FromAny(row["heartbeat_rate"]),
-			FailedHeartbeatRate: dbutil.Float64FromAny(row["failed_heartbeat_rate"]),
-			AssignedPartitions:  dbutil.Float64FromAny(row["assigned_partitions"]),
-		}
-	}
-	return out, nil
+	args := append(baseParams(teamID, startMs, endMs), bs, bs, bs, bs, bs)
+	args = append(args, filterArgs...)
+	var out []RebalancePoint
+	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
 // ── 12. End-to-end latency p95 by topic ──────────────────────────────────────
@@ -538,8 +423,8 @@ func (r *ClickHouseRepository) GetE2ELatency(teamID int64, startMs, endMs int64,
 		        %[3]s = '%[6]s' AND metric_type = 'Histogram'
 		    ) AS process_p95
 		FROM %[7]s
-		WHERE team_id = ?
-		  AND timestamp BETWEEN ? AND ?
+		WHERE team_id = @teamID
+		  AND timestamp BETWEEN @start AND @end
 		  %[8]s
 		  AND %[3]s IN ('%[4]s', '%[5]s', '%[6]s')
 		  AND metric_type = 'Histogram'
@@ -554,22 +439,9 @@ func (r *ClickHouseRepository) GetE2ELatency(teamID int64, startMs, endMs int64,
 		filterSQL,
 	)
 
-	args := append([]any{uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("GetE2ELatency: %w", err)
-	}
-	out := make([]E2ELatencyPoint, len(rows))
-	for i, row := range rows {
-		out[i] = E2ELatencyPoint{
-			Timestamp:    dbutil.StringFromAny(row["time_bucket"]),
-			Topic:        dbutil.StringFromAny(row["topic"]),
-			PublishP95Ms: dbutil.Float64FromAny(row["publish_p95"]),
-			ReceiveP95Ms: dbutil.Float64FromAny(row["receive_p95"]),
-			ProcessP95Ms: dbutil.Float64FromAny(row["process_p95"]),
-		}
-	}
-	return out, nil
+	args := append(baseParams(teamID, startMs, endMs), filterArgs...)
+	var out []E2ELatencyPoint
+	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
 // ── 13. Publish errors by error type ─────────────────────────────────────────
@@ -606,8 +478,8 @@ func (r *ClickHouseRepository) GetClientOpErrors(teamID int64, startMs, endMs in
 		    %s AS error_type,
 		    sum(%s) / ? AS error_rate
 		FROM %s
-		WHERE team_id = ?
-		  AND timestamp BETWEEN ? AND ?
+		WHERE team_id = @teamID
+		  AND timestamp BETWEEN @start AND @end
 		  %s
 		  AND %s = '%s'
 		  AND %s != ''
@@ -619,21 +491,10 @@ func (r *ClickHouseRepository) GetClientOpErrors(teamID int64, startMs, endMs in
 		errType,
 	)
 
-	args := append([]any{bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("GetClientOpErrors: %w", err)
-	}
-	out := make([]ErrorRatePoint, len(rows))
-	for i, row := range rows {
-		out[i] = ErrorRatePoint{
-			Timestamp:     dbutil.StringFromAny(row["time_bucket"]),
-			OperationName: dbutil.StringFromAny(row["operation_name"]),
-			ErrorType:     dbutil.StringFromAny(row["error_type"]),
-			ErrorRate:     dbutil.Float64FromAny(row["error_rate"]),
-		}
-	}
-	return out, nil
+	args := append(baseParams(teamID, startMs, endMs), bs)
+	args = append(args, filterArgs...)
+	var out []ErrorRatePoint
+	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
 // ── 17. Broker connections ────────────────────────────────────────────────────
@@ -649,8 +510,8 @@ func (r *ClickHouseRepository) GetBrokerConnections(teamID int64, startMs, endMs
 		    %s AS broker,
 		    avg(%s) AS connections
 		FROM %s
-		WHERE team_id = ?
-		  AND timestamp BETWEEN ? AND ?
+		WHERE team_id = @teamID
+		  AND timestamp BETWEEN @start AND @end
 		  %s
 		  AND %s = '%s'
 		GROUP BY time_bucket, broker
@@ -660,20 +521,9 @@ func (r *ClickHouseRepository) GetBrokerConnections(teamID int64, startMs, endMs
 		ColMetricName, MetricClientConnections,
 	)
 
-	args := append([]any{uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("GetBrokerConnections: %w", err)
-	}
-	out := make([]BrokerConnectionPoint, len(rows))
-	for i, row := range rows {
-		out[i] = BrokerConnectionPoint{
-			Timestamp:   dbutil.StringFromAny(row["time_bucket"]),
-			Broker:      dbutil.StringFromAny(row["broker"]),
-			Connections: dbutil.Float64FromAny(row["connections"]),
-		}
-	}
-	return out, nil
+	args := append(baseParams(teamID, startMs, endMs), filterArgs...)
+	var out []BrokerConnectionPoint
+	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
 // ── 18. Client operation duration ─────────────────────────────────────────────
@@ -691,8 +541,8 @@ func (r *ClickHouseRepository) GetClientOperationDuration(teamID int64, startMs,
 		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
 		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99
 		FROM %s
-		WHERE team_id = ?
-		  AND timestamp BETWEEN ? AND ?
+		WHERE team_id = @teamID
+		  AND timestamp BETWEEN @start AND @end
 		  %s
 		  AND %s = '%s'
 		  AND metric_type = 'Histogram'
@@ -700,27 +550,13 @@ func (r *ClickHouseRepository) GetClientOperationDuration(teamID int64, startMs,
 		ORDER BY time_bucket ASC, operation_name ASC
 	`, bucket, opName, TableMetrics, filterSQL, ColMetricName, MetricClientOperationDuration)
 
-	args := append([]any{uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
-		return nil, fmt.Errorf("GetClientOperationDuration: %w", err)
-	}
-	out := make([]ClientOpDurationPoint, len(rows))
-	for i, row := range rows {
-		out[i] = ClientOpDurationPoint{
-			Timestamp:     dbutil.StringFromAny(row["time_bucket"]),
-			OperationName: dbutil.StringFromAny(row["operation_name"]),
-			P50Ms:         dbutil.Float64FromAny(row["p50"]),
-			P95Ms:         dbutil.Float64FromAny(row["p95"]),
-			P99Ms:         dbutil.Float64FromAny(row["p99"]),
-		}
-	}
-	return out, nil
+	args := append(baseParams(teamID, startMs, endMs), filterArgs...)
+	var out []ClientOpDurationPoint
+	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
-// getErrorRates returns error rates per topic+error_type for a given counter metric.
 func (r *ClickHouseRepository) getErrorRates(teamID int64, startMs, endMs int64, metricName, _ string, caller string, f KafkaFilters) ([]ErrorRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
@@ -735,8 +571,8 @@ func (r *ClickHouseRepository) getErrorRates(teamID int64, startMs, endMs int64,
 		    %s AS error_type,
 		    sum(%s) / ? AS error_rate
 		FROM %s
-		WHERE team_id = ?
-		  AND timestamp BETWEEN ? AND ?
+		WHERE team_id = @teamID
+		  AND timestamp BETWEEN @start AND @end
 		  %s
 		  AND %s = '%s'
 		  AND %s != ''
@@ -748,24 +584,15 @@ func (r *ClickHouseRepository) getErrorRates(teamID int64, startMs, endMs int64,
 		errType,
 	)
 
-	args := append([]any{bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
+	args := append(baseParams(teamID, startMs, endMs), bs)
+	args = append(args, filterArgs...)
+	var out []ErrorRatePoint
+	if err := r.db.Select(context.Background(), &out, query, args...); err != nil {
 		return nil, fmt.Errorf("%s: %w", caller, err)
-	}
-	out := make([]ErrorRatePoint, len(rows))
-	for i, row := range rows {
-		out[i] = ErrorRatePoint{
-			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
-			Topic:     dbutil.StringFromAny(row["topic"]),
-			ErrorType: dbutil.StringFromAny(row["error_type"]),
-			ErrorRate: dbutil.Float64FromAny(row["error_rate"]),
-		}
 	}
 	return out, nil
 }
 
-// getGroupErrorRates returns error rates per consumer_group+error_type for a given counter metric.
 func (r *ClickHouseRepository) getGroupErrorRates(teamID int64, startMs, endMs int64, metricName, caller string, f KafkaFilters) ([]ErrorRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
@@ -780,8 +607,8 @@ func (r *ClickHouseRepository) getGroupErrorRates(teamID int64, startMs, endMs i
 		    %s AS error_type,
 		    sum(%s) / ? AS error_rate
 		FROM %s
-		WHERE team_id = ?
-		  AND timestamp BETWEEN ? AND ?
+		WHERE team_id = @teamID
+		  AND timestamp BETWEEN @start AND @end
 		  %s
 		  AND %s = '%s'
 		  AND %s != ''
@@ -793,19 +620,11 @@ func (r *ClickHouseRepository) getGroupErrorRates(teamID int64, startMs, endMs i
 		errType,
 	)
 
-	args := append([]any{bs, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}, filterArgs...)
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
+	args := append(baseParams(teamID, startMs, endMs), bs)
+	args = append(args, filterArgs...)
+	var out []ErrorRatePoint
+	if err := r.db.Select(context.Background(), &out, query, args...); err != nil {
 		return nil, fmt.Errorf("%s: %w", caller, err)
-	}
-	out := make([]ErrorRatePoint, len(rows))
-	for i, row := range rows {
-		out[i] = ErrorRatePoint{
-			Timestamp:     dbutil.StringFromAny(row["time_bucket"]),
-			ConsumerGroup: dbutil.StringFromAny(row["consumer_group"]),
-			ErrorType:     dbutil.StringFromAny(row["error_type"]),
-			ErrorRate:     dbutil.Float64FromAny(row["error_rate"]),
-		}
 	}
 	return out, nil
 }

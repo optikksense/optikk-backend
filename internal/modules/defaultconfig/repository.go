@@ -8,7 +8,7 @@ import (
 
 // Repository encapsulates data access for saved page overrides.
 type Repository interface {
-	GetPageOverride(teamID int64, pageID string) (string, error)
+	GetPageOverride(teamID int64, pageID string) (pageOverrideDTO, error)
 	SavePageOverride(teamID int64, pageID, configJSON string) error
 }
 
@@ -22,18 +22,18 @@ func NewRepository(db *sql.DB) *MySQLRepository {
 }
 
 // GetPageOverride returns the saved override JSON for a page from the teams table. Empty string means none.
-func (r *MySQLRepository) GetPageOverride(teamID int64, pageID string) (string, error) {
+func (r *MySQLRepository) GetPageOverride(teamID int64, pageID string) (pageOverrideDTO, error) {
 	row, err := dbutil.QueryMap(r.db, `
 		SELECT JSON_UNQUOTE(JSON_EXTRACT(dashboard_configs, CONCAT('$.', ?))) AS config_json
 		FROM teams WHERE id = ?
 	`, pageID, teamID)
 	if err != nil {
-		return "", err
+		return pageOverrideDTO{}, err
 	}
 	if value, ok := row["config_json"].(string); ok && value != "null" {
-		return value, nil
+		return pageOverrideDTO{ConfigJSON: value}, nil
 	}
-	return "", nil
+	return pageOverrideDTO{}, nil
 }
 
 // SavePageOverride inserts or updates a page override JSON blob in the teams table.

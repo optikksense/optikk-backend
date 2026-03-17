@@ -4,17 +4,17 @@ import "time"
 
 // LiveSpan is a simplified span emitted over the SSE stream.
 type LiveSpan struct {
-	SpanID        string    `json:"spanId"`
-	TraceID       string    `json:"traceId"`
-	ServiceName   string    `json:"serviceName"`
-	OperationName string    `json:"operationName"`
-	DurationMs    float64   `json:"durationMs"`
-	Status        string    `json:"status"`
-	HTTPMethod    string    `json:"httpMethod,omitempty"`
-	HTTPStatus    string    `json:"httpStatusCode,omitempty"`
-	SpanKind      string    `json:"spanKind,omitempty"`
-	HasError      bool      `json:"hasError"`
-	Timestamp     time.Time `json:"timestamp"`
+	SpanID        string    `json:"spanId"               ch:"span_id"`
+	TraceID       string    `json:"traceId"              ch:"trace_id"`
+	ServiceName   string    `json:"serviceName"          ch:"service_name"`
+	OperationName string    `json:"operationName"        ch:"operation_name"`
+	DurationMs    float64   `json:"durationMs"           ch:"duration_ms"`
+	Status        string    `json:"status"               ch:"status"`
+	HTTPMethod    string    `json:"httpMethod,omitempty" ch:"http_method"`
+	HTTPStatus    string    `json:"httpStatusCode,omitempty" ch:"http_status_code"`
+	SpanKind      string    `json:"spanKind,omitempty"   ch:"span_kind"`
+	HasError      bool      `json:"hasError"             ch:"has_error"`
+	Timestamp     time.Time `json:"timestamp"            ch:"timestamp"`
 }
 
 // LiveTailFilters are the optional filters applied to the live tail stream.

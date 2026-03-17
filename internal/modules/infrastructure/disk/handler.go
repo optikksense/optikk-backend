@@ -10,7 +10,7 @@ import (
 
 type DiskHandler struct {
 	modulecommon.DBTenant
-	Service Service
+	Service *Service
 }
 
 func (h *DiskHandler) GetDiskIO(c *gin.Context) {
@@ -19,7 +19,7 @@ func (h *DiskHandler) GetDiskIO(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetDiskIO(teamID, startMs, endMs)
+	resp, err := h.Service.GetDiskIO(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query disk I/O")
 		return
@@ -33,7 +33,7 @@ func (h *DiskHandler) GetDiskOperations(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetDiskOperations(teamID, startMs, endMs)
+	resp, err := h.Service.GetDiskOperations(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query disk operations")
 		return
@@ -47,7 +47,7 @@ func (h *DiskHandler) GetDiskIOTime(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetDiskIOTime(teamID, startMs, endMs)
+	resp, err := h.Service.GetDiskIOTime(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query disk I/O time")
 		return
@@ -61,7 +61,7 @@ func (h *DiskHandler) GetFilesystemUsage(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetFilesystemUsage(teamID, startMs, endMs)
+	resp, err := h.Service.GetFilesystemUsage(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query filesystem usage")
 		return
@@ -75,7 +75,7 @@ func (h *DiskHandler) GetFilesystemUtilization(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetFilesystemUtilization(teamID, startMs, endMs)
+	resp, err := h.Service.GetFilesystemUtilization(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query filesystem utilization")
 		return

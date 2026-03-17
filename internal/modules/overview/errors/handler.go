@@ -10,7 +10,7 @@ import (
 
 type ErrorHandler struct {
 	modulecommon.DBTenant
-	Service Service
+	Service *Service
 }
 
 func (h *ErrorHandler) GetServiceErrorRate(c *gin.Context) {
@@ -21,7 +21,7 @@ func (h *ErrorHandler) GetServiceErrorRate(c *gin.Context) {
 		return
 	}
 
-	points, err := h.Service.GetServiceErrorRate(teamID, startMs, endMs, serviceName)
+	points, err := h.Service.GetServiceErrorRate(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query service error rate")
 		return
@@ -38,7 +38,7 @@ func (h *ErrorHandler) GetErrorVolume(c *gin.Context) {
 		return
 	}
 
-	points, err := h.Service.GetErrorVolume(teamID, startMs, endMs, serviceName)
+	points, err := h.Service.GetErrorVolume(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query error volume")
 		return
@@ -55,7 +55,7 @@ func (h *ErrorHandler) GetLatencyDuringErrorWindows(c *gin.Context) {
 		return
 	}
 
-	points, err := h.Service.GetLatencyDuringErrorWindows(teamID, startMs, endMs, serviceName)
+	points, err := h.Service.GetLatencyDuringErrorWindows(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query latency during error windows")
 		return
@@ -73,7 +73,7 @@ func (h *ErrorHandler) GetErrorGroups(c *gin.Context) {
 		return
 	}
 
-	groups, err := h.Service.GetErrorGroups(teamID, startMs, endMs, serviceName, limit)
+	groups, err := h.Service.GetErrorGroups(c.Request.Context(), teamID, startMs, endMs, serviceName, limit)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview errors")
 		return
@@ -90,7 +90,7 @@ func (h *ErrorHandler) GetErrorGroupDetail(c *gin.Context) {
 		return
 	}
 
-	detail, err := h.Service.GetErrorGroupDetail(teamID, startMs, endMs, groupID)
+	detail, err := h.Service.GetErrorGroupDetail(c.Request.Context(), teamID, startMs, endMs, groupID)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query error group detail")
 		return
@@ -107,7 +107,7 @@ func (h *ErrorHandler) GetErrorGroupTraces(c *gin.Context) {
 		return
 	}
 
-	traces, err := h.Service.GetErrorGroupTraces(teamID, startMs, endMs, groupID, limit)
+	traces, err := h.Service.GetErrorGroupTraces(c.Request.Context(), teamID, startMs, endMs, groupID, limit)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query error group traces")
 		return
@@ -123,7 +123,7 @@ func (h *ErrorHandler) GetErrorGroupTimeseries(c *gin.Context) {
 		return
 	}
 
-	points, err := h.Service.GetErrorGroupTimeseries(teamID, startMs, endMs, groupID)
+	points, err := h.Service.GetErrorGroupTimeseries(c.Request.Context(), teamID, startMs, endMs, groupID)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query error group timeseries")
 		return

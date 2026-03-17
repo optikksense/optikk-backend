@@ -27,8 +27,14 @@ type Config struct {
 	// Only used when ClickHouseProduction is true.
 	ClickHouseCloudHost string
 
-	JWTSecret       string
-	JWTExpirationMs int64
+	SessionLifetimeMs     int64
+	SessionIdleTimeoutMs  int64
+	SessionCookieName     string
+	SessionCookieDomain   string
+	SessionCookiePath     string
+	SessionCookieSecure   bool
+	SessionCookieHTTPOnly bool
+	SessionCookieSameSite string
 
 	QueueBatchSize       int
 	QueueFlushIntervalMs int64
@@ -70,26 +76,32 @@ type Config struct {
 }
 
 // Load reads configuration from environment variables.
-// In production (GO_ENV=production), JWT_SECRET, MYSQL_PASSWORD, and
-// CLICKHOUSE_PASSWORD must be set explicitly — the process will exit
-// if they are left at their insecure defaults.
+// In production (GO_ENV=production), MYSQL_PASSWORD and CLICKHOUSE_PASSWORD
+// must be set explicitly — the process will exit if they are left at their
+// insecure defaults.
 func Load() Config {
 	cfg := Config{
-		Port:                 getEnv("PORT", "9090"),
-		MySQLHost:            getEnv("MYSQL_HOST", "127.0.0.1"),
-		MySQLPort:            getEnv("MYSQL_PORT", "3306"),
-		MySQLDatabase:        getEnv("MYSQL_DATABASE", "observability"),
-		MySQLUser:            getEnv("MYSQL_USERNAME", "root"),
-		MySQLPassword:        getEnv("MYSQL_PASSWORD", "root123"),
-		ClickHouseHost:       getEnv("CLICKHOUSE_HOST", "127.0.0.1"),
-		ClickHousePort:       getEnv("CLICKHOUSE_PORT", "9000"),
-		ClickHouseDatabase:   getEnv("CLICKHOUSE_DATABASE", "observability"),
-		ClickHouseUser:       getEnv("CLICKHOUSE_USERNAME", "default"),
-		ClickHousePassword:   getEnv("CLICKHOUSE_PASSWORD", "clickhouse123"),
-		ClickHouseProduction: getEnvBool("CLICKHOUSE_PRODUCTION", false),
-		ClickHouseCloudHost:  getEnv("CLICKHOUSE_CLOUD_HOST", ""),
-		JWTSecret:            getEnv("JWT_SECRET", "optic-secret-key-for-jwt-token-generation-must-be-at-least-256-bits"),
-		JWTExpirationMs:      getEnvInt64("JWT_EXPIRATION_MS", 86_400_000),
+		Port:                  getEnv("PORT", "9090"),
+		MySQLHost:             getEnv("MYSQL_HOST", "127.0.0.1"),
+		MySQLPort:             getEnv("MYSQL_PORT", "3306"),
+		MySQLDatabase:         getEnv("MYSQL_DATABASE", "observability"),
+		MySQLUser:             getEnv("MYSQL_USERNAME", "root"),
+		MySQLPassword:         getEnv("MYSQL_PASSWORD", "root123"),
+		ClickHouseHost:        getEnv("CLICKHOUSE_HOST", "127.0.0.1"),
+		ClickHousePort:        getEnv("CLICKHOUSE_PORT", "9000"),
+		ClickHouseDatabase:    getEnv("CLICKHOUSE_DATABASE", "observability"),
+		ClickHouseUser:        getEnv("CLICKHOUSE_USERNAME", "default"),
+		ClickHousePassword:    getEnv("CLICKHOUSE_PASSWORD", "clickhouse123"),
+		ClickHouseProduction:  getEnvBool("CLICKHOUSE_PRODUCTION", false),
+		ClickHouseCloudHost:   getEnv("CLICKHOUSE_CLOUD_HOST", ""),
+		SessionLifetimeMs:     getEnvInt64("SESSION_LIFETIME_MS", 86_400_000),
+		SessionIdleTimeoutMs:  getEnvInt64("SESSION_IDLE_TIMEOUT_MS", 7_200_000),
+		SessionCookieName:     getEnv("SESSION_COOKIE_NAME", "optikk_session"),
+		SessionCookieDomain:   getEnv("SESSION_COOKIE_DOMAIN", ""),
+		SessionCookiePath:     getEnv("SESSION_COOKIE_PATH", "/"),
+		SessionCookieSecure:   getEnvBool("SESSION_COOKIE_SECURE", false),
+		SessionCookieHTTPOnly: getEnvBool("SESSION_COOKIE_HTTP_ONLY", true),
+		SessionCookieSameSite: getEnv("SESSION_COOKIE_SAME_SITE", "lax"),
 
 		QueueBatchSize:       int(getEnvInt64("QUEUE_BATCH_SIZE", 1000)),
 		QueueFlushIntervalMs: getEnvInt64("QUEUE_FLUSH_INTERVAL_MS", 2_000),
@@ -120,7 +132,7 @@ func Load() Config {
 		GitHubClientSecret: getEnv("GITHUB_CLIENT_SECRET", ""),
 		OAuthRedirectBase:  getEnv("OAUTH_REDIRECT_BASE", "http://localhost:3000"),
 
-		DebugAPILogs: getEnvBool("DEBUG_API_LOGS", true),
+		DebugAPILogs: getEnvBool("DEBUG_API_LOGS", false),
 	}
 
 	cfg.validate()
@@ -133,9 +145,6 @@ func (c Config) validate() {
 		return
 	}
 	var errs []string
-	if c.JWTSecret == "optic-secret-key-for-jwt-token-generation-must-be-at-least-256-bits" {
-		errs = append(errs, "JWT_SECRET must be set in production (do not use the default)")
-	}
 	if c.MySQLPassword == "root123" {
 		errs = append(errs, "MYSQL_PASSWORD must be set in production (do not use the default)")
 	}
@@ -176,8 +185,12 @@ func (c Config) ClickHouseDSN() string {
 	)
 }
 
-func (c Config) JWTDuration() time.Duration {
-	return time.Duration(c.JWTExpirationMs) * time.Millisecond
+func (c Config) SessionLifetime() time.Duration {
+	return time.Duration(c.SessionLifetimeMs) * time.Millisecond
+}
+
+func (c Config) SessionIdleTimeout() time.Duration {
+	return time.Duration(c.SessionIdleTimeoutMs) * time.Millisecond
 }
 
 func (c Config) QueueFlushInterval() time.Duration {

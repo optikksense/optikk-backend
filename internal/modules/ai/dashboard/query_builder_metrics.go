@@ -2,8 +2,6 @@ package dashboard
 
 import (
 	"fmt"
-
-	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
 // --- Performance Metrics ---
@@ -18,8 +16,6 @@ func NewPerformanceMetricsQueryBuilder(teamID int64, startMs, endMs int64) *Perf
 
 func (b *PerformanceMetricsQueryBuilder) Build() (string, []any) {
 	where, args := b.baseWhereClause()
-	timeRangeArgs := []any{dbutil.SqlTime(b.startMs), dbutil.SqlTime(b.endMs)}
-	args = append(timeRangeArgs, args...)
 
 	durationMs := attrFlt("duration_ms")
 	outputTokens := attrInt("gen.ai.usage.output_tokens")
@@ -29,7 +25,7 @@ func (b *PerformanceMetricsQueryBuilder) Build() (string, []any) {
 	query := fmt.Sprintf(`
 		SELECT %s as model_name, %s as model_provider, %s as request_type,
 		       COUNT(*) as total_requests,
-		       COUNT(*) / GREATEST(dateDiff('second', ?, ?), 1) as avg_qps,
+		       COUNT(*) / GREATEST(dateDiff('second', @start, @end), 1) as avg_qps,
 		       AVG(%s) as avg_latency_ms,
 		       AVG(%s) as p50_latency_ms,
 		       AVG(%s) as p95_latency_ms,

@@ -10,7 +10,7 @@ import (
 
 type NetworkHandler struct {
 	modulecommon.DBTenant
-	Service Service
+	Service *Service
 }
 
 func (h *NetworkHandler) GetNetworkIO(c *gin.Context) {
@@ -19,7 +19,7 @@ func (h *NetworkHandler) GetNetworkIO(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetNetworkIO(teamID, startMs, endMs)
+	resp, err := h.Service.GetNetworkIO(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query network I/O")
 		return
@@ -33,7 +33,7 @@ func (h *NetworkHandler) GetNetworkPackets(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetNetworkPackets(teamID, startMs, endMs)
+	resp, err := h.Service.GetNetworkPackets(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query network packets")
 		return
@@ -47,7 +47,7 @@ func (h *NetworkHandler) GetNetworkErrors(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetNetworkErrors(teamID, startMs, endMs)
+	resp, err := h.Service.GetNetworkErrors(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query network errors")
 		return
@@ -61,7 +61,7 @@ func (h *NetworkHandler) GetNetworkDropped(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetNetworkDropped(teamID, startMs, endMs)
+	resp, err := h.Service.GetNetworkDropped(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query dropped packets")
 		return
@@ -75,7 +75,7 @@ func (h *NetworkHandler) GetNetworkConnections(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetNetworkConnections(teamID, startMs, endMs)
+	resp, err := h.Service.GetNetworkConnections(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query network connections")
 		return

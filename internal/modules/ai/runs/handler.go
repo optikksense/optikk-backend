@@ -13,7 +13,7 @@ import (
 
 type Handler struct {
 	modulecommon.DBTenant
-	Service Service
+	Service *Service
 }
 
 func (h *Handler) parseFilters(c *gin.Context) (LLMRunFilters, bool) {
@@ -75,7 +75,7 @@ func (h *Handler) ListRuns(c *gin.Context) {
 	if !ok {
 		return
 	}
-	runs, err := h.Service.ListRuns(f)
+	runs, err := h.Service.ListRuns(c.Request.Context(), f)
 	if err != nil {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to list LLM runs")
 		return
@@ -88,7 +88,7 @@ func (h *Handler) GetRunsSummary(c *gin.Context) {
 	if !ok {
 		return
 	}
-	summary, err := h.Service.GetRunsSummary(f)
+	summary, err := h.Service.GetRunsSummary(c.Request.Context(), f)
 	if err != nil {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get runs summary")
 		return
@@ -101,7 +101,7 @@ func (h *Handler) ListModels(c *gin.Context) {
 	if !ok {
 		return
 	}
-	models, err := h.Service.ListModels(f)
+	models, err := h.Service.ListModels(c.Request.Context(), f)
 	if err != nil {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to list models")
 		return
@@ -114,7 +114,7 @@ func (h *Handler) ListOperations(c *gin.Context) {
 	if !ok {
 		return
 	}
-	ops, err := h.Service.ListOperations(f)
+	ops, err := h.Service.ListOperations(c.Request.Context(), f)
 	if err != nil {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to list operations")
 		return

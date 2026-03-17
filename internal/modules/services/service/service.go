@@ -1,54 +1,70 @@
 package servicepage
 
-import ()
+import "context"
 
-type Service interface {
-	GetTotalServices(teamID int64, startMs, endMs int64) (int64, error)
-	GetHealthyServices(teamID int64, startMs, endMs int64) (int64, error)
-	GetDegradedServices(teamID int64, startMs, endMs int64) (int64, error)
-	GetUnhealthyServices(teamID int64, startMs, endMs int64) (int64, error)
-	GetServiceMetrics(teamID int64, startMs, endMs int64) ([]ServiceMetric, error)
-	GetServiceTimeSeries(teamID int64, startMs, endMs int64) ([]TimeSeriesPoint, error)
-	GetServiceEndpoints(teamID int64, startMs, endMs int64, serviceName string) ([]EndpointMetric, error)
-	GetServiceHealth(teamID int64, startMs, endMs int64) ([]ServiceHealth, error)
-}
-
-type ServicePageService struct {
+type Service struct {
 	repo Repository
 }
 
-func NewService(repo Repository) Service {
-	return &ServicePageService{repo: repo}
+func NewService(repo Repository) *Service {
+	return &Service{repo: repo}
 }
 
-func (s *ServicePageService) GetTotalServices(teamID int64, startMs, endMs int64) (int64, error) {
-	return s.repo.GetTotalServices(teamID, startMs, endMs)
+func (s *Service) GetTotalServices(ctx context.Context, teamID int64, startMs, endMs int64) (int64, error) {
+	return s.repo.GetTotalServices(ctx, teamID, startMs, endMs)
 }
 
-func (s *ServicePageService) GetHealthyServices(teamID int64, startMs, endMs int64) (int64, error) {
-	return s.repo.GetHealthyServices(teamID, startMs, endMs)
+func (s *Service) GetHealthyServices(ctx context.Context, teamID int64, startMs, endMs int64) (int64, error) {
+	return s.repo.GetHealthyServices(ctx, teamID, startMs, endMs)
 }
 
-func (s *ServicePageService) GetDegradedServices(teamID int64, startMs, endMs int64) (int64, error) {
-	return s.repo.GetDegradedServices(teamID, startMs, endMs)
+func (s *Service) GetDegradedServices(ctx context.Context, teamID int64, startMs, endMs int64) (int64, error) {
+	return s.repo.GetDegradedServices(ctx, teamID, startMs, endMs)
 }
 
-func (s *ServicePageService) GetUnhealthyServices(teamID int64, startMs, endMs int64) (int64, error) {
-	return s.repo.GetUnhealthyServices(teamID, startMs, endMs)
+func (s *Service) GetUnhealthyServices(ctx context.Context, teamID int64, startMs, endMs int64) (int64, error) {
+	return s.repo.GetUnhealthyServices(ctx, teamID, startMs, endMs)
 }
 
-func (s *ServicePageService) GetServiceMetrics(teamID int64, startMs, endMs int64) ([]ServiceMetric, error) {
-	return s.repo.GetServiceMetrics(teamID, startMs, endMs)
+func (s *Service) GetServiceMetrics(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceMetric, error) {
+	return s.repo.GetServiceMetrics(ctx, teamID, startMs, endMs)
 }
 
-func (s *ServicePageService) GetServiceTimeSeries(teamID int64, startMs, endMs int64) ([]TimeSeriesPoint, error) {
-	return s.repo.GetServiceTimeSeries(teamID, startMs, endMs)
+func (s *Service) GetServiceTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]TimeSeriesPoint, error) {
+	return s.repo.GetServiceTimeSeries(ctx, teamID, startMs, endMs)
 }
 
-func (s *ServicePageService) GetServiceEndpoints(teamID int64, startMs, endMs int64, serviceName string) ([]EndpointMetric, error) {
-	return s.repo.GetServiceEndpoints(teamID, startMs, endMs, serviceName)
+func (s *Service) GetServiceEndpoints(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]EndpointMetric, error) {
+	return s.repo.GetServiceEndpoints(ctx, teamID, startMs, endMs, serviceName)
 }
 
-func (s *ServicePageService) GetServiceHealth(teamID int64, startMs, endMs int64) ([]ServiceHealth, error) {
-	return s.repo.GetServiceHealth(teamID, startMs, endMs)
+func (s *Service) GetNavigator(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceHealth, error) {
+	rows, err := s.repo.GetServiceHealth(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]ServiceHealth, len(rows))
+	for i, r := range rows {
+		result[i] = ServiceHealth{
+			ServiceName:  r.ServiceName,
+			RequestCount: r.RequestCount,
+			ErrorCount:   r.ErrorCount,
+			ErrorRate:    r.ErrorRate,
+			P95LatencyMs: r.P95LatencyMs,
+			HealthStatus: deriveHealthStatus(r.ErrorRate),
+		}
+	}
+	return result, nil
+}
+
+func deriveHealthStatus(errorRate float64) string {
+	switch {
+	case errorRate <= HealthyMaxErrorRate:
+		return "healthy"
+	case errorRate <= DegradedMaxErrorRate:
+		return "degraded"
+	default:
+		return "critical"
+	}
 }

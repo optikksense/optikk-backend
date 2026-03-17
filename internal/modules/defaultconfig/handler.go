@@ -1,8 +1,6 @@
 package defaultconfig
 
 import (
-	"encoding/json"
-	"log"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -14,24 +12,12 @@ import (
 // Handler serves default-config APIs.
 type Handler struct {
 	modulecommon.DBTenant
-	Repo     Repository
-	Registry *configdefaults.Registry
+	Service *Service
 }
 
 func (h *Handler) ListPages(c *gin.Context) {
 	tenant := h.GetTenant(c)
-	defaultPages := h.Registry.ListPages(true)
-	pages := make([]configdefaults.PageMetadata, 0, len(defaultPages))
-	for _, page := range defaultPages {
-		doc, err := h.resolvePage(tenant.TeamID, page.ID)
-		if err != nil {
-			log.Printf("default-config: failed to resolve page %s for team %d: %v", page.ID, tenant.TeamID, err)
-			continue
-		}
-		if doc.Page.Navigable {
-			pages = append(pages, doc.Page)
-		}
-	}
+	pages := h.Service.ListPages(tenant.TeamID)
 	RespondOK(c, map[string]any{"pages": pages})
 }
 
@@ -43,7 +29,7 @@ func (h *Handler) ListTabs(c *gin.Context) {
 		return
 	}
 
-	doc, err := h.resolvePage(tenant.TeamID, pageID)
+	doc, err := h.Service.ListTabs(tenant.TeamID, pageID)
 	if err != nil {
 		RespondError(c, http.StatusNotFound, "NOT_FOUND", err.Error())
 		return
@@ -74,7 +60,7 @@ func (h *Handler) ListComponents(c *gin.Context) {
 		return
 	}
 
-	doc, err := h.resolvePage(tenant.TeamID, pageID)
+	doc, err := h.Service.ListComponents(tenant.TeamID, pageID)
 	if err != nil {
 		RespondError(c, http.StatusNotFound, "NOT_FOUND", err.Error())
 		return
@@ -104,43 +90,27 @@ func (h *Handler) SavePageOverride(c *gin.Context) {
 		return
 	}
 
-	defaultDoc, ok := h.Registry.GetPage(pageID)
-	if !ok {
-		RespondError(c, http.StatusNotFound, "NOT_FOUND", "No configuration found for page: "+pageID)
-		return
-	}
-
 	var override configdefaults.PageDocument
 	if err := c.ShouldBindJSON(&override); err != nil {
 		RespondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid JSON override")
 		return
 	}
 
-	if override.Page.ID != "" && override.Page.ID != pageID {
-		RespondError(c, http.StatusBadRequest, "BAD_REQUEST", "page.id must match the route pageId")
-		return
-	}
-	if override.Page.ID == "" {
-		override.Page.ID = pageID
-	}
-	for i := range override.Tabs {
-		if override.Tabs[i].PageID == "" {
-			override.Tabs[i].PageID = pageID
+	if err := h.Service.SavePageOverride(tenant.TeamID, pageID, override); err != nil {
+		status := http.StatusInternalServerError
+		code := "INTERNAL_ERROR"
+		if _, ok := err.(httpError); ok {
+			status = http.StatusBadRequest
+			code = "BAD_REQUEST"
+			if pageID != "" && override.Page.ID == "" {
+				// Preserve not-found behavior for unknown pages.
+				if err.Error() == "No configuration found for page: "+pageID {
+					status = http.StatusNotFound
+					code = "NOT_FOUND"
+				}
+			}
 		}
-	}
-
-	if _, err := configdefaults.MergePageDocument(defaultDoc, override); err != nil {
-		RespondError(c, http.StatusBadRequest, "BAD_REQUEST", err.Error())
-		return
-	}
-
-	bytes, err := json.Marshal(override)
-	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to serialize override")
-		return
-	}
-	if err := h.Repo.SavePageOverride(tenant.TeamID, pageID, string(bytes)); err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to save page override")
+		RespondError(c, status, code, err.Error())
 		return
 	}
 
@@ -148,37 +118,6 @@ func (h *Handler) SavePageOverride(c *gin.Context) {
 		"pageId":  pageID,
 		"message": "Default config override saved successfully",
 	})
-}
-
-func (h *Handler) resolvePage(teamID int64, pageID string) (configdefaults.PageDocument, error) {
-	defaultDoc, ok := h.Registry.GetPage(pageID)
-	if !ok {
-		return configdefaults.PageDocument{}, httpError("No configuration found for page: " + pageID)
-	}
-
-	overrideJSON, err := h.Repo.GetPageOverride(teamID, pageID)
-	if err != nil || overrideJSON == "" {
-		// Seed the default config for this page so future overrides have a row to update.
-		if seedBytes, marshalErr := json.Marshal(defaultDoc); marshalErr == nil {
-			if saveErr := h.Repo.SavePageOverride(teamID, pageID, string(seedBytes)); saveErr != nil {
-				log.Printf("default-config: failed to seed page=%s for team=%d: %v", pageID, teamID, saveErr)
-			}
-		}
-		return defaultDoc, nil
-	}
-
-	var override configdefaults.PageDocument
-	if err := json.Unmarshal([]byte(overrideJSON), &override); err != nil {
-		log.Printf("default-config: ignoring invalid override for page=%s team=%d: %v", pageID, teamID, err)
-		return defaultDoc, nil
-	}
-
-	merged, err := configdefaults.MergePageDocument(defaultDoc, override)
-	if err != nil {
-		log.Printf("default-config: ignoring invalid merged override for page=%s team=%d: %v", pageID, teamID, err)
-		return defaultDoc, nil
-	}
-	return merged, nil
 }
 
 type httpError string

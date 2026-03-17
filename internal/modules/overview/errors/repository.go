@@ -1,9 +1,12 @@
 package errors
 
 import (
+	"context"
 	"fmt"
+	"time"
 
-	dbutil "github.com/observability/observability-backend-go/internal/database"
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/observability/observability-backend-go/internal/database"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
@@ -11,25 +14,47 @@ func errorBucketExpr(startMs, endMs int64) string {
 	return timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
 }
 
+// baseParams returns named ClickHouse parameters for teamID + time range.
+func baseParams(teamID int64, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+}
+
 type Repository interface {
-	GetServiceErrorRate(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
-	GetErrorVolume(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
-	GetLatencyDuringErrorWindows(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
-	GetErrorGroups(teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error)
-	GetErrorGroupDetail(teamID int64, startMs, endMs int64, groupID string) (*ErrorGroupDetail, error)
-	GetErrorGroupTraces(teamID int64, startMs, endMs int64, groupID string, limit int) ([]ErrorGroupTrace, error)
-	GetErrorGroupTimeseries(teamID int64, startMs, endMs int64, groupID string) ([]TimeSeriesPoint, error)
+	GetServiceErrorRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]serviceErrorRateRow, error)
+	GetErrorVolume(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]errorVolumeRow, error)
+	GetLatencyDuringErrorWindows(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]latencyErrorRow, error)
+	GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorGroupRow, error)
+	GetErrorGroupDetail(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (*errorGroupDetailRow, error)
+	GetErrorGroupTraces(ctx context.Context, teamID int64, startMs, endMs int64, groupID string, limit int) ([]errorGroupTraceRow, error)
+	GetErrorGroupTimeseries(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) ([]errorGroupTSRow, error)
 }
 
 type ClickHouseRepository struct {
-	db dbutil.Querier
+	db *database.NativeQuerier
 }
 
-func NewRepository(db dbutil.Querier) *ClickHouseRepository {
+func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) GetErrorGroups(teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error) {
+// errorGroupRow is the DTO for scanning error group rows from ClickHouse.
+// GroupID is computed in Go from the other fields, so we use a DTO (Rule B).
+type errorGroupRow struct {
+	ServiceName     string    `ch:"service_name"`
+	OperationName   string    `ch:"operation_name"`
+	StatusMessage   string    `ch:"status_message"`
+	HTTPStatusCode  int64     `ch:"http_status_code"`
+	ErrorCount      int64     `ch:"error_count"`
+	LastOccurrence  time.Time `ch:"last_occurrence"`
+	FirstOccurrence time.Time `ch:"first_occurrence"`
+	SampleTraceID   string    `ch:"sample_trace_id"`
+}
+
+func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorGroupRow, error) {
 	query := `
 		SELECT s.service_name AS service_name,
 		       s.name         AS operation_name,
@@ -40,8 +65,8 @@ func (r *ClickHouseRepository) GetErrorGroups(teamID int64, startMs, endMs int64
 		       MIN(s.timestamp) as first_occurrence,
 		       (groupArray(s.trace_id) as trace_ids)[1] as sample_trace_id
 		FROM observability.spans s
-		WHERE s.team_id = ? AND (` + ErrorCondition() + `) AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`
-	args := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+		WHERE s.team_id = @teamID AND (` + ErrorCondition() + `) AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end`
+	args := append(baseParams(teamID, startMs, endMs), timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000))
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -50,41 +75,24 @@ func (r *ClickHouseRepository) GetErrorGroups(teamID int64, startMs, endMs int64
 	           ORDER BY error_count DESC LIMIT ?`
 	args = append(args, limit)
 
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
+	var rows []errorGroupRow
+	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
 
-	groups := make([]ErrorGroup, len(rows))
-	for i, row := range rows {
-		svc := dbutil.StringFromAny(row["service_name"])
-		op := dbutil.StringFromAny(row["operation_name"])
-		msg := dbutil.StringFromAny(row["status_message"])
-		code := int(dbutil.Int64FromAny(row["http_status_code"]))
-		groups[i] = ErrorGroup{
-			GroupID:         ErrorGroupID(svc, op, msg, code),
-			ServiceName:     svc,
-			OperationName:   op,
-			StatusMessage:   msg,
-			HTTPStatusCode:  code,
-			ErrorCount:      dbutil.Int64FromAny(row["error_count"]),
-			LastOccurrence:  dbutil.TimeFromAny(row["last_occurrence"]),
-			FirstOccurrence: dbutil.TimeFromAny(row["first_occurrence"]),
-			SampleTraceID:   dbutil.StringFromAny(row["sample_trace_id"]),
-		}
-	}
-	return groups, nil
+	return rows, nil
 }
 
 // resolveGroupID finds the error group matching the given groupID hash.
-func (r *ClickHouseRepository) resolveGroupID(teamID int64, startMs, endMs int64, groupID string) (service, operation, statusMessage string, httpCode int, err error) {
-	groups, err := r.GetErrorGroups(teamID, startMs, endMs, "", 500)
+func (r *ClickHouseRepository) resolveGroupID(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (service, operation, statusMessage string, httpCode int, err error) {
+	groups, err := r.GetErrorGroups(ctx, teamID, startMs, endMs, "", 500)
 	if err != nil {
 		return "", "", "", 0, err
 	}
 	for _, g := range groups {
-		if g.GroupID == groupID {
-			return g.ServiceName, g.OperationName, g.StatusMessage, g.HTTPStatusCode, nil
+		code := int(g.HTTPStatusCode)
+		if ErrorGroupID(g.ServiceName, g.OperationName, g.StatusMessage, code) == groupID {
+			return g.ServiceName, g.OperationName, g.StatusMessage, code, nil
 		}
 	}
 	return "", "", "", 0, fmt.Errorf("error group %s not found", groupID)
@@ -95,8 +103,22 @@ func errorGroupCondition() string {
 	return `s.service_name = ? AND s.name = ? AND s.status_message = ? AND s.response_status_code = ?`
 }
 
-func (r *ClickHouseRepository) GetErrorGroupDetail(teamID int64, startMs, endMs int64, groupID string) (*ErrorGroupDetail, error) {
-	svc, op, msg, code, err := r.resolveGroupID(teamID, startMs, endMs, groupID)
+// errorGroupDetailRow is the DTO for GetErrorGroupDetail.
+type errorGroupDetailRow struct {
+	ServiceName     string    `ch:"service_name"`
+	OperationName   string    `ch:"operation_name"`
+	StatusMessage   string    `ch:"status_message"`
+	HTTPStatusCode  int64     `ch:"http_status_code"`
+	ErrorCount      int64     `ch:"error_count"`
+	LastOccurrence  time.Time `ch:"last_occurrence"`
+	FirstOccurrence time.Time `ch:"first_occurrence"`
+	SampleTraceID   string    `ch:"sample_trace_id"`
+	ExceptionType   string    `ch:"exception_type"`
+	StackTrace      string    `ch:"stack_trace"`
+}
+
+func (r *ClickHouseRepository) GetErrorGroupDetail(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (*errorGroupDetailRow, error) {
+	svc, op, msg, code, err := r.resolveGroupID(ctx, teamID, startMs, endMs, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -111,41 +133,36 @@ func (r *ClickHouseRepository) GetErrorGroupDetail(teamID int64, startMs, endMs 
 		       any(s.exception_type) AS exception_type,
 		       any(s.exception_stacktrace) AS stack_trace
 		FROM observability.spans s
-		WHERE s.team_id = ? AND (` + ErrorCondition() + `)
+		WHERE s.team_id = @teamID AND (` + ErrorCondition() + `)
 		  AND s.ts_bucket_start BETWEEN ? AND ?
-		  AND s.timestamp BETWEEN ? AND ?
+		  AND s.timestamp BETWEEN @start AND @end
 		  AND ` + errorGroupCondition() + `
 		GROUP BY s.service_name, s.name, s.status_message, s.response_status_code`
 
-	args := []any{
-		teamID,
-		timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000),
-		dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
+	args := append(baseParams(teamID, startMs, endMs),
+		timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000),
 		svc, op, msg, fmt.Sprintf("%d", code),
-	}
+	)
 
-	row, err := dbutil.QueryMap(r.db, query, args...)
-	if err != nil {
+	var row errorGroupDetailRow
+	if err := r.db.QueryRow(ctx, &row, query, args...); err != nil {
 		return nil, err
 	}
 
-	return &ErrorGroupDetail{
-		GroupID:         groupID,
-		ServiceName:     dbutil.StringFromAny(row["service_name"]),
-		OperationName:   dbutil.StringFromAny(row["operation_name"]),
-		StatusMessage:   dbutil.StringFromAny(row["status_message"]),
-		HTTPStatusCode:  int(dbutil.Int64FromAny(row["http_status_code"])),
-		ErrorCount:      dbutil.Int64FromAny(row["error_count"]),
-		LastOccurrence:  dbutil.TimeFromAny(row["last_occurrence"]),
-		FirstOccurrence: dbutil.TimeFromAny(row["first_occurrence"]),
-		SampleTraceID:   dbutil.StringFromAny(row["sample_trace_id"]),
-		ExceptionType:   dbutil.StringFromAny(row["exception_type"]),
-		StackTrace:      dbutil.StringFromAny(row["stack_trace"]),
-	}, nil
+	return &row, nil
 }
 
-func (r *ClickHouseRepository) GetErrorGroupTraces(teamID int64, startMs, endMs int64, groupID string, limit int) ([]ErrorGroupTrace, error) {
-	svc, op, msg, code, err := r.resolveGroupID(teamID, startMs, endMs, groupID)
+// errorGroupTraceRow is the DTO for GetErrorGroupTraces.
+type errorGroupTraceRow struct {
+	TraceID    string    `ch:"trace_id"`
+	SpanID     string    `ch:"span_id"`
+	Timestamp  time.Time `ch:"timestamp"`
+	DurationMs float64   `ch:"duration_ms"`
+	StatusCode string    `ch:"status_code"`
+}
+
+func (r *ClickHouseRepository) GetErrorGroupTraces(ctx context.Context, teamID int64, startMs, endMs int64, groupID string, limit int) ([]errorGroupTraceRow, error) {
+	svc, op, msg, code, err := r.resolveGroupID(ctx, teamID, startMs, endMs, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -155,41 +172,35 @@ func (r *ClickHouseRepository) GetErrorGroupTraces(teamID int64, startMs, endMs 
 		       s.duration_nano / 1000000.0 AS duration_ms,
 		       s.status_code_string AS status_code
 		FROM observability.spans s
-		WHERE s.team_id = ? AND (` + ErrorCondition() + `)
+		WHERE s.team_id = @teamID AND (` + ErrorCondition() + `)
 		  AND s.ts_bucket_start BETWEEN ? AND ?
-		  AND s.timestamp BETWEEN ? AND ?
+		  AND s.timestamp BETWEEN @start AND @end
 		  AND ` + errorGroupCondition() + `
 		ORDER BY s.timestamp DESC
 		LIMIT ?`
 
-	args := []any{
-		teamID,
-		timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000),
-		dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
+	args := append(baseParams(teamID, startMs, endMs),
+		timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000),
 		svc, op, msg, fmt.Sprintf("%d", code),
 		limit,
-	}
+	)
 
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
+	var rows []errorGroupTraceRow
+	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
 
-	traces := make([]ErrorGroupTrace, len(rows))
-	for i, row := range rows {
-		traces[i] = ErrorGroupTrace{
-			TraceID:    dbutil.StringFromAny(row["trace_id"]),
-			SpanID:     dbutil.StringFromAny(row["span_id"]),
-			Timestamp:  dbutil.TimeFromAny(row["timestamp"]),
-			DurationMs: dbutil.Float64FromAny(row["duration_ms"]),
-			StatusCode: dbutil.StringFromAny(row["status_code"]),
-		}
-	}
-	return traces, nil
+	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetErrorGroupTimeseries(teamID int64, startMs, endMs int64, groupID string) ([]TimeSeriesPoint, error) {
-	svc, op, msg, code, err := r.resolveGroupID(teamID, startMs, endMs, groupID)
+// errorGroupTSRow is the DTO for GetErrorGroupTimeseries.
+type errorGroupTSRow struct {
+	Timestamp  time.Time `ch:"timestamp"`
+	ErrorCount int64     `ch:"error_count"`
+}
+
+func (r *ClickHouseRepository) GetErrorGroupTimeseries(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) ([]errorGroupTSRow, error) {
+	svc, op, msg, code, err := r.resolveGroupID(ctx, teamID, startMs, endMs, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -199,36 +210,37 @@ func (r *ClickHouseRepository) GetErrorGroupTimeseries(teamID int64, startMs, en
 		SELECT %s AS timestamp,
 		       COUNT(*) AS error_count
 		FROM observability.spans s
-		WHERE s.team_id = ? AND (`+ErrorCondition()+`)
+		WHERE s.team_id = @teamID AND (`+ErrorCondition()+`)
 		  AND s.ts_bucket_start BETWEEN ? AND ?
-		  AND s.timestamp BETWEEN ? AND ?
+		  AND s.timestamp BETWEEN @start AND @end
 		  AND `+errorGroupCondition()+`
 		GROUP BY timestamp
 		ORDER BY timestamp ASC`, bucket)
 
-	args := []any{
-		teamID,
-		timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000),
-		dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
+	args := append(baseParams(teamID, startMs, endMs),
+		timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000),
 		svc, op, msg, fmt.Sprintf("%d", code),
-	}
+	)
 
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
+	var rows []errorGroupTSRow
+	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
 
-	points := make([]TimeSeriesPoint, len(rows))
-	for i, row := range rows {
-		points[i] = TimeSeriesPoint{
-			Timestamp:  dbutil.TimeFromAny(row["timestamp"]),
-			ErrorCount: dbutil.Int64FromAny(row["error_count"]),
-		}
-	}
-	return points, nil
+	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetServiceErrorRate(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
+// serviceErrorRateRow is the DTO for GetServiceErrorRate.
+type serviceErrorRateRow struct {
+	ServiceName  string    `ch:"service_name"`
+	Timestamp    time.Time `ch:"timestamp"`
+	RequestCount int64     `ch:"request_count"`
+	ErrorCount   int64     `ch:"error_count"`
+	ErrorRate    float64   `ch:"error_rate"`
+	AvgLatency   float64   `ch:"avg_latency"`
+}
+
+func (r *ClickHouseRepository) GetServiceErrorRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]serviceErrorRateRow, error) {
 	bucket := errorBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT service_name,
@@ -244,8 +256,8 @@ func (r *ClickHouseRepository) GetServiceErrorRate(teamID int64, startMs, endMs 
 			       countIf(`+ErrorCondition()+`)    AS error_count,
 			       avg(s.duration_nano / 1000000.0) AS avg_latency
 			FROM observability.spans s
-			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end`, bucket)
+	args := append(baseParams(teamID, startMs, endMs), timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000))
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -255,26 +267,22 @@ func (r *ClickHouseRepository) GetServiceErrorRate(teamID int64, startMs, endMs 
 		ORDER BY timestamp ASC
 		LIMIT 10000`, bucket)
 
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
+	var rows []serviceErrorRateRow
+	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
 
-	points := make([]TimeSeriesPoint, len(rows))
-	for i, row := range rows {
-		points[i] = TimeSeriesPoint{
-			ServiceName:  dbutil.StringFromAny(row["service_name"]),
-			Timestamp:    dbutil.TimeFromAny(row["timestamp"]),
-			RequestCount: dbutil.Int64FromAny(row["request_count"]),
-			ErrorCount:   dbutil.Int64FromAny(row["error_count"]),
-			ErrorRate:    dbutil.Float64FromAny(row["error_rate"]),
-			AvgLatency:   dbutil.Float64FromAny(row["avg_latency"]),
-		}
-	}
-	return points, nil
+	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetErrorVolume(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
+// errorVolumeRow is the DTO for GetErrorVolume.
+type errorVolumeRow struct {
+	ServiceName string    `ch:"service_name"`
+	Timestamp   time.Time `ch:"timestamp"`
+	ErrorCount  int64     `ch:"error_count"`
+}
+
+func (r *ClickHouseRepository) GetErrorVolume(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]errorVolumeRow, error) {
 	bucket := errorBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT service_name, timestamp, error_count
@@ -283,8 +291,8 @@ func (r *ClickHouseRepository) GetErrorVolume(teamID int64, startMs, endMs int64
 			       %s AS timestamp,
 			       countIf(`+ErrorCondition()+`) AS error_count
 			FROM observability.spans s
-			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end`, bucket)
+	args := append(baseParams(teamID, startMs, endMs), timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000))
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -295,23 +303,24 @@ func (r *ClickHouseRepository) GetErrorVolume(teamID int64, startMs, endMs int64
 		ORDER BY timestamp ASC
 		LIMIT 10000`, bucket)
 
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
+	var rows []errorVolumeRow
+	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
 
-	points := make([]TimeSeriesPoint, len(rows))
-	for i, row := range rows {
-		points[i] = TimeSeriesPoint{
-			ServiceName: dbutil.StringFromAny(row["service_name"]),
-			Timestamp:   dbutil.TimeFromAny(row["timestamp"]),
-			ErrorCount:  dbutil.Int64FromAny(row["error_count"]),
-		}
-	}
-	return points, nil
+	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
+// latencyErrorRow is the DTO for GetLatencyDuringErrorWindows.
+type latencyErrorRow struct {
+	ServiceName  string    `ch:"service_name"`
+	Timestamp    time.Time `ch:"timestamp"`
+	RequestCount int64     `ch:"request_count"`
+	ErrorCount   int64     `ch:"error_count"`
+	AvgLatency   float64   `ch:"avg_latency"`
+}
+
+func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]latencyErrorRow, error) {
 	bucket := errorBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT service_name, timestamp, request_count, error_count, avg_latency
@@ -322,8 +331,8 @@ func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(teamID int64, startM
 			       countIf(`+ErrorCondition()+`)    AS error_count,
 			       avg(s.duration_nano / 1000000.0) AS avg_latency
 			FROM observability.spans s
-			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end`, bucket)
+	args := append(baseParams(teamID, startMs, endMs), timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000))
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -334,20 +343,10 @@ func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(teamID int64, startM
 		ORDER BY timestamp ASC
 		LIMIT 10000`, bucket)
 
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
+	var rows []latencyErrorRow
+	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
 
-	points := make([]TimeSeriesPoint, len(rows))
-	for i, row := range rows {
-		points[i] = TimeSeriesPoint{
-			ServiceName:  dbutil.StringFromAny(row["service_name"]),
-			Timestamp:    dbutil.TimeFromAny(row["timestamp"]),
-			RequestCount: dbutil.Int64FromAny(row["request_count"]),
-			ErrorCount:   dbutil.Int64FromAny(row["error_count"]),
-			AvgLatency:   dbutil.Float64FromAny(row["avg_latency"]),
-		}
-	}
-	return points, nil
+	return rows, nil
 }

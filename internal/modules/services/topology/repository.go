@@ -1,45 +1,62 @@
 package topology
 
 import (
-	"github.com/observability/observability-backend-go/internal/platform/timebucket"
+	"context"
 	"fmt"
+	"time"
 
-	dbutil "github.com/observability/observability-backend-go/internal/database"
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/observability/observability-backend-go/internal/database"
+	"github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
 type Repository interface {
-	GetTopology(teamID int64, startMs, endMs int64) (TopologyData, error)
+	GetTopologyNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]topologyNodeRow, error)
+	GetTopologyEdges(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopologyEdge, error)
 }
 
 type ClickHouseRepository struct {
-	db dbutil.Querier
+	db *database.NativeQuerier
 }
 
-func NewRepository(db dbutil.Querier) *ClickHouseRepository {
+func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) GetTopology(teamID int64, startMs, endMs int64) (TopologyData, error) {
-	// Nodes: one row per service.
-	nodesRaw, err := dbutil.QueryMaps(r.db, `
-		SELECT service_name, request_count, error_count, avg_latency
+func baseParams(teamID int64, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+	}
+}
+
+func (r *ClickHouseRepository) GetTopologyNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]topologyNodeRow, error) {
+	var rows []topologyNodeRow
+	err := r.db.Select(ctx, &rows, `
+		SELECT service_name,
+		       request_count,
+		       error_count,
+		       avg_latency
 		FROM (
 			SELECT s.service_name AS service_name,
 			       count()                          AS request_count,
 			       countIf(`+ErrorCondition()+`)    AS error_count,
 			       avg(s.duration_nano / 1000000.0) AS avg_latency
 			FROM observability.spans s
-			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?
+			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
 			GROUP BY s.service_name
 		)
 		ORDER BY request_count DESC
-	`, teamID, timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
-	if err != nil {
-		return TopologyData{}, err
-	}
+	`, baseParams(teamID, startMs, endMs)...)
+	return rows, err
+}
 
-	// Edges: service-to-service calls derived from client spans (kind=3) joined to their parent spans.
-	edgesRaw, err := dbutil.QueryMaps(r.db, `
+func (r *ClickHouseRepository) GetTopologyEdges(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopologyEdge, error) {
+	var rows []TopologyEdge
+	err := r.db.Select(ctx, &rows, `
 		SELECT source,
 		       target,
 		       call_count,
@@ -55,61 +72,13 @@ func (r *ClickHouseRepository) GetTopology(teamID int64, startMs, endMs int64) (
 			       quantile(0.95)(s1.duration_nano / 1000000.0) AS p95_latency_ms
 			FROM observability.spans s1
 			JOIN observability.spans s2 ON s1.team_id = s2.team_id AND s1.trace_id = s2.trace_id AND s1.span_id = s2.parent_span_id
-				AND s2.ts_bucket_start BETWEEN ? AND ? AND s2.timestamp BETWEEN ? AND ?
-			WHERE s1.team_id = ? AND s1.ts_bucket_start BETWEEN ? AND ? AND s1.kind = 3 AND s1.timestamp BETWEEN ? AND ?
+				AND s2.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s2.timestamp BETWEEN @start AND @end
+			WHERE s1.team_id = @teamID AND s1.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s1.kind = 3 AND s1.timestamp BETWEEN @start AND @end
 			  AND s1.service_name != s2.service_name
 			GROUP BY s1.service_name, s2.service_name
 		)
 		ORDER BY call_count DESC
-		LIMIT `+fmt.Sprintf("%d", MaxEdges)+`
-	`, timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs),
-		teamID, timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
-	if err != nil {
-		return TopologyData{}, err
-	}
-
-	nodes := make([]TopologyNode, len(nodesRaw))
-	for i, row := range nodesRaw {
-		requestCount := dbutil.Int64FromAny(row["request_count"])
-		errorCount := dbutil.Int64FromAny(row["error_count"])
-		errorRate := 0.0
-		if requestCount > 0 {
-			errorRate = float64(errorCount) * 100.0 / float64(requestCount)
-		}
-
-		nodes[i] = TopologyNode{
-			Name:         dbutil.StringFromAny(row["service_name"]),
-			Status:       serviceStatus(errorRate),
-			RequestCount: requestCount,
-			ErrorRate:    errorRate,
-			AvgLatency:   dbutil.Float64FromAny(row["avg_latency"]),
-		}
-	}
-
-	edges := make([]TopologyEdge, len(edgesRaw))
-	for i, row := range edgesRaw {
-		edges[i] = TopologyEdge{
-			Source:       dbutil.StringFromAny(row["source"]),
-			Target:       dbutil.StringFromAny(row["target"]),
-			CallCount:    dbutil.Int64FromAny(row["call_count"]),
-			AvgLatency:   dbutil.Float64FromAny(row["avg_latency"]),
-			P95LatencyMs: dbutil.Float64FromAny(row["p95_latency_ms"]),
-			ErrorRate:    dbutil.Float64FromAny(row["error_rate"]),
-		}
-	}
-
-	return TopologyData{
-		Nodes: nodes,
-		Edges: edges,
-	}, nil
-}
-
-func serviceStatus(errorRate float64) string {
-	if errorRate > UnhealthyMinErrorRate {
-		return StatusUnhealthy
-	}
-	if errorRate > HealthyMaxErrorRate {
-		return StatusDegraded
-	}
-	return StatusHealthy
+		LIMIT `+fmt.Sprintf("%d", MaxEdges),
+		baseParams(teamID, startMs, endMs)...)
+	return rows, err
 }

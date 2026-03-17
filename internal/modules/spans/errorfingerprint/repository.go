@@ -1,24 +1,34 @@
 package errorfingerprint
 
 import (
+	"context"
 	"fmt"
+	"time"
 
-	dbutil "github.com/observability/observability-backend-go/internal/database"
+	"github.com/ClickHouse/clickhouse-go/v2"
+	database "github.com/observability/observability-backend-go/internal/database"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
 type Repository struct {
-	db dbutil.Querier
+	db *database.NativeQuerier
 }
 
-func NewRepository(db dbutil.Querier) *Repository {
+func NewRepository(db *database.NativeQuerier) *Repository {
 	return &Repository{db: db}
+}
+
+func baseParams(teamID int64, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
 }
 
 // ListFingerprints groups errors by (service, operation, exception_type, status_message)
 // and returns them sorted by count descending.
-// The fingerprint is computed at query time using cityHash64.
-func (r *Repository) ListFingerprints(teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorFingerprint, error) {
+func (r *Repository) ListFingerprints(teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorFingerprintDTO, error) {
 	query := `
 		SELECT hex(cityHash64(s.service_name, s.name, s.mat_exception_type, s.status_message)) AS fingerprint,
 		       s.service_name,
@@ -30,16 +40,16 @@ func (r *Repository) ListFingerprints(teamID int64, startMs, endMs int64, servic
 		       count() AS cnt,
 		       any(s.trace_id) AS sample_trace_id
 		FROM observability.spans s
-		WHERE s.team_id = ?
+		WHERE s.team_id = @teamID
 		  AND s.ts_bucket_start BETWEEN ? AND ?
-		  AND s.timestamp BETWEEN ? AND ?
+		  AND s.timestamp BETWEEN @start AND @end
 		  AND (s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)`
 	args := []any{
-		uint32(teamID),
+		clickhouse.Named("teamID", uint32(teamID)),
 		timebucket.SpansBucketStart(startMs / 1000),
 		timebucket.SpansBucketStart(endMs / 1000),
-		dbutil.SqlTime(startMs),
-		dbutil.SqlTime(endMs),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
@@ -51,38 +61,20 @@ func (r *Repository) ListFingerprints(teamID int64, startMs, endMs int64, servic
 		LIMIT ?`
 	args = append(args, limit)
 
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
-		return nil, err
-	}
-
-	fps := make([]ErrorFingerprint, 0, len(rows))
-	for _, row := range rows {
-		fps = append(fps, ErrorFingerprint{
-			Fingerprint:   dbutil.StringFromAny(row["fingerprint"]),
-			ServiceName:   dbutil.StringFromAny(row["service_name"]),
-			OperationName: dbutil.StringFromAny(row["operation_name"]),
-			ExceptionType: dbutil.StringFromAny(row["exception_type"]),
-			StatusMessage: dbutil.StringFromAny(row["status_message"]),
-			FirstSeen:     dbutil.TimeFromAny(row["first_seen"]),
-			LastSeen:      dbutil.TimeFromAny(row["last_seen"]),
-			Count:         dbutil.Int64FromAny(row["cnt"]),
-			SampleTraceID: dbutil.StringFromAny(row["sample_trace_id"]),
-		})
-	}
-	return fps, nil
+	var rows []errorFingerprintDTO
+	return rows, r.db.Select(context.Background(), &rows, query, args...)
 }
 
 // GetFingerprintTrend returns occurrence count over time for a specific error fingerprint.
-func (r *Repository) GetFingerprintTrend(teamID int64, startMs, endMs int64, serviceName, operationName, exceptionType, statusMessage string) ([]FingerprintTrendPoint, error) {
+func (r *Repository) GetFingerprintTrend(teamID int64, startMs, endMs int64, serviceName, operationName, exceptionType, statusMessage string) ([]fingerprintTrendPointDTO, error) {
 	bucket := timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
 	query := fmt.Sprintf(`
 		SELECT %s AS ts,
 		       count() AS cnt
 		FROM observability.spans s
-		WHERE s.team_id = ?
+		WHERE s.team_id = @teamID
 		  AND s.ts_bucket_start BETWEEN ? AND ?
-		  AND s.timestamp BETWEEN ? AND ?
+		  AND s.timestamp BETWEEN @start AND @end
 		  AND (s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)
 		  AND s.service_name = ?
 		  AND s.name = ?
@@ -92,28 +84,17 @@ func (r *Repository) GetFingerprintTrend(teamID int64, startMs, endMs int64, ser
 		ORDER BY ts ASC
 	`, bucket)
 	args := []any{
-		uint32(teamID),
+		clickhouse.Named("teamID", uint32(teamID)),
 		timebucket.SpansBucketStart(startMs / 1000),
 		timebucket.SpansBucketStart(endMs / 1000),
-		dbutil.SqlTime(startMs),
-		dbutil.SqlTime(endMs),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
 		serviceName,
 		operationName,
 		exceptionType,
 		statusMessage,
 	}
 
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
-		return nil, err
-	}
-
-	points := make([]FingerprintTrendPoint, 0, len(rows))
-	for _, row := range rows {
-		points = append(points, FingerprintTrendPoint{
-			Timestamp: dbutil.TimeFromAny(row["ts"]),
-			Count:     dbutil.Int64FromAny(row["cnt"]),
-		})
-	}
-	return points, nil
+	var rows []fingerprintTrendPointDTO
+	return rows, r.db.Select(context.Background(), &rows, query, args...)
 }

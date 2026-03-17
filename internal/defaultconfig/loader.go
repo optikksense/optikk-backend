@@ -36,6 +36,16 @@ func LoadFromFS(fsys fs.FS) (*Registry, error) {
 			return nil, fmt.Errorf("parse %s/page.json: %w", pageDir, err)
 		}
 
+		// Shell-only pages have no tabs directory — skip tab loading.
+		if pageMeta.ShellOnly {
+			doc := PageDocument{Page: pageMeta, Tabs: nil}
+			if err := validatePageDocument(doc); err != nil {
+				return nil, err
+			}
+			registry.pages[doc.Page.ID] = doc
+			continue
+		}
+
 		tabEntries, err := fs.ReadDir(fsys, path.Join(pageDir, "tabs"))
 		if err != nil {
 			return nil, fmt.Errorf("read %s/tabs: %w", pageDir, err)
@@ -218,6 +228,10 @@ func validatePageDocument(doc PageDocument) error {
 	}
 	if doc.Page.Group == "" {
 		return fmt.Errorf("page %q: group is required", doc.Page.ID)
+	}
+	// Shell-only pages are rendered by a custom frontend component — no tabs needed.
+	if doc.Page.ShellOnly {
+		return nil
 	}
 	if doc.Page.DefaultTabID == "" {
 		return fmt.Errorf("page %q: defaultTabId is required", doc.Page.ID)

@@ -1,37 +1,31 @@
 package network
 
-type Service interface {
-	GetNetworkIO(teamID int64, startMs, endMs int64) ([]DirectionBucket, error)
-	GetNetworkPackets(teamID int64, startMs, endMs int64) ([]DirectionBucket, error)
-	GetNetworkErrors(teamID int64, startMs, endMs int64) ([]StateBucket, error)
-	GetNetworkDropped(teamID int64, startMs, endMs int64) ([]ResourceBucket, error)
-	GetNetworkConnections(teamID int64, startMs, endMs int64) ([]StateBucket, error)
-}
+import "context"
 
-type NetworkService struct {
+type Service struct {
 	repo Repository
 }
 
-func NewService(repo Repository) Service {
-	return &NetworkService{repo: repo}
+func NewService(repo Repository) *Service {
+	return &Service{repo: repo}
 }
 
-func (s *NetworkService) GetNetworkIO(teamID int64, startMs, endMs int64) ([]DirectionBucket, error) {
-	return s.repo.GetNetworkIO(teamID, startMs, endMs)
+func (s *Service) GetNetworkIO(ctx context.Context, teamID int64, startMs, endMs int64) ([]DirectionBucket, error) {
+	return s.repo.GetNetworkIO(ctx, teamID, startMs, endMs)
 }
 
-func (s *NetworkService) GetNetworkPackets(teamID int64, startMs, endMs int64) ([]DirectionBucket, error) {
-	return s.repo.GetNetworkPackets(teamID, startMs, endMs)
+func (s *Service) GetNetworkPackets(ctx context.Context, teamID int64, startMs, endMs int64) ([]DirectionBucket, error) {
+	return s.repo.GetNetworkPackets(ctx, teamID, startMs, endMs)
 }
 
-func (s *NetworkService) GetNetworkErrors(teamID int64, startMs, endMs int64) ([]StateBucket, error) {
-	return s.repo.GetNetworkErrors(teamID, startMs, endMs)
+func (s *Service) GetNetworkErrors(ctx context.Context, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
+	return s.repo.GetNetworkErrors(ctx, teamID, startMs, endMs)
 }
 
-func (s *NetworkService) GetNetworkDropped(teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
-	return s.repo.GetNetworkDropped(teamID, startMs, endMs)
+func (s *Service) GetNetworkDropped(ctx context.Context, teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
+	return s.repo.GetNetworkDropped(ctx, teamID, startMs, endMs)
 }
 
-func (s *NetworkService) GetNetworkConnections(teamID int64, startMs, endMs int64) ([]StateBucket, error) {
-	return s.repo.GetNetworkConnections(teamID, startMs, endMs)
+func (s *Service) GetNetworkConnections(ctx context.Context, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
+	return s.repo.GetNetworkConnections(ctx, teamID, startMs, endMs)
 }

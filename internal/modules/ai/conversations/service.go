@@ -1,20 +1,27 @@
 package conversations
 
-type Service interface {
-	ListConversations(teamID, startMs, endMs int64, limit int) ([]Conversation, error)
-	GetConversation(teamID int64, conversationID string, startMs, endMs int64) ([]ConversationTurn, error)
+import "context"
+
+type Service struct {
+	repo Repository
 }
 
-type ConversationService struct{ repo Repository }
-
-func NewService(repo Repository) *ConversationService {
-	return &ConversationService{repo: repo}
+func NewService(repo Repository) *Service {
+	return &Service{repo: repo}
 }
 
-func (s *ConversationService) ListConversations(teamID, startMs, endMs int64, limit int) ([]Conversation, error) {
-	return s.repo.ListConversations(teamID, startMs, endMs, limit)
+func (s *Service) ListConversations(ctx context.Context, teamID, startMs, endMs int64, limit int) ([]Conversation, error) {
+	rows, err := s.repo.ListConversations(ctx, teamID, startMs, endMs, limit)
+	if err != nil {
+		return nil, err
+	}
+	return mapConversationDTOs(rows), nil
 }
 
-func (s *ConversationService) GetConversation(teamID int64, conversationID string, startMs, endMs int64) ([]ConversationTurn, error) {
-	return s.repo.GetConversation(teamID, conversationID, startMs, endMs)
+func (s *Service) GetConversation(ctx context.Context, teamID int64, conversationID string, startMs, endMs int64) ([]ConversationTurn, error) {
+	rows, err := s.repo.GetConversation(ctx, teamID, conversationID, startMs, endMs)
+	if err != nil {
+		return nil, err
+	}
+	return mapConversationTurnDTOs(rows), nil
 }

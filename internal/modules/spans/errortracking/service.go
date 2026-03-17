@@ -1,27 +1,23 @@
 package errortracking
 
-type Service interface {
-	GetExceptionRateByType(teamID int64, startMs, endMs int64, serviceName string) ([]ExceptionRatePoint, error)
-	GetErrorHotspot(teamID int64, startMs, endMs int64) ([]ErrorHotspotCell, error)
-	GetHTTP5xxByRoute(teamID int64, startMs, endMs int64, serviceName string) ([]HTTP5xxByRoute, error)
-}
+import "context"
 
-type ErrorTrackingService struct {
+type Service struct {
 	repo Repository
 }
 
-func NewService(repo Repository) Service {
-	return &ErrorTrackingService{repo: repo}
+func NewService(repo Repository) *Service {
+	return &Service{repo: repo}
 }
 
-func (s *ErrorTrackingService) GetExceptionRateByType(teamID int64, startMs, endMs int64, serviceName string) ([]ExceptionRatePoint, error) {
-	return s.repo.GetExceptionRateByType(teamID, startMs, endMs, serviceName)
+func (s *Service) GetExceptionRateByType(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]ExceptionRatePoint, error) {
+	return s.repo.GetExceptionRateByType(ctx, teamID, startMs, endMs, serviceName)
 }
 
-func (s *ErrorTrackingService) GetErrorHotspot(teamID int64, startMs, endMs int64) ([]ErrorHotspotCell, error) {
-	return s.repo.GetErrorHotspot(teamID, startMs, endMs)
+func (s *Service) GetErrorHotspot(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorHotspotCell, error) {
+	return s.repo.GetErrorHotspot(ctx, teamID, startMs, endMs)
 }
 
-func (s *ErrorTrackingService) GetHTTP5xxByRoute(teamID int64, startMs, endMs int64, serviceName string) ([]HTTP5xxByRoute, error) {
-	return s.repo.GetHTTP5xxByRoute(teamID, startMs, endMs, serviceName)
+func (s *Service) GetHTTP5xxByRoute(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]HTTP5xxByRoute, error) {
+	return s.repo.GetHTTP5xxByRoute(ctx, teamID, startMs, endMs, serviceName)
 }

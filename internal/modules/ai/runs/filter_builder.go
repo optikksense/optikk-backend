@@ -3,8 +3,9 @@ package runs
 import (
 	"fmt"
 	"strings"
+	"time"
 
-	dbutil "github.com/observability/observability-backend-go/internal/database"
+	"github.com/ClickHouse/clickhouse-go/v2"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
@@ -17,27 +18,36 @@ const (
 	colFinishReason  = "attributes.'gen_ai.response.finish_reasons'::String"
 )
 
+func baseParams(teamID int64, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+}
+
 // buildWhereClause constructs the WHERE clause and args for LLM run queries.
 func buildWhereClause(f LLMRunFilters) (string, []any) {
 	clauses := []string{
-		"s.team_id = ?",
-		"s.ts_bucket_start BETWEEN ? AND ?",
-		"s.timestamp BETWEEN ? AND ?",
+		"s.team_id = @teamID",
+		"s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd",
+		"s.timestamp BETWEEN @start AND @end",
 		fmt.Sprintf("%s != ''", colModel),
 	}
 	args := []any{
-		uint32(f.TeamID),
-		timebucket.SpansBucketStart(f.StartMs / 1000),
-		timebucket.SpansBucketStart(f.EndMs / 1000),
-		dbutil.SqlTime(f.StartMs),
-		dbutil.SqlTime(f.EndMs),
+		clickhouse.Named("teamID", uint32(f.TeamID)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(f.StartMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(f.EndMs/1000)),
+		clickhouse.Named("start", time.UnixMilli(f.StartMs)),
+		clickhouse.Named("end", time.UnixMilli(f.EndMs)),
 	}
 
 	if len(f.Models) > 0 {
 		placeholders := make([]string, len(f.Models))
 		for i, m := range f.Models {
-			placeholders[i] = "?"
-			args = append(args, m)
+			name := fmt.Sprintf("model%d", i)
+			placeholders[i] = "@" + name
+			args = append(args, clickhouse.Named(name, m))
 		}
 		clauses = append(clauses, fmt.Sprintf("%s IN (%s)", colModel, strings.Join(placeholders, ",")))
 	}
@@ -45,8 +55,9 @@ func buildWhereClause(f LLMRunFilters) (string, []any) {
 	if len(f.Providers) > 0 {
 		placeholders := make([]string, len(f.Providers))
 		for i, p := range f.Providers {
-			placeholders[i] = "?"
-			args = append(args, p)
+			name := fmt.Sprintf("provider%d", i)
+			placeholders[i] = "@" + name
+			args = append(args, clickhouse.Named(name, p))
 		}
 		clauses = append(clauses, fmt.Sprintf("%s IN (%s)", colProvider, strings.Join(placeholders, ",")))
 	}
@@ -54,8 +65,9 @@ func buildWhereClause(f LLMRunFilters) (string, []any) {
 	if len(f.Operations) > 0 {
 		placeholders := make([]string, len(f.Operations))
 		for i, o := range f.Operations {
-			placeholders[i] = "?"
-			args = append(args, o)
+			name := fmt.Sprintf("op%d", i)
+			placeholders[i] = "@" + name
+			args = append(args, clickhouse.Named(name, o))
 		}
 		clauses = append(clauses, fmt.Sprintf("%s IN (%s)", colOperationType, strings.Join(placeholders, ",")))
 	}
@@ -63,8 +75,9 @@ func buildWhereClause(f LLMRunFilters) (string, []any) {
 	if len(f.Services) > 0 {
 		placeholders := make([]string, len(f.Services))
 		for i, sv := range f.Services {
-			placeholders[i] = "?"
-			args = append(args, sv)
+			name := fmt.Sprintf("svc%d", i)
+			placeholders[i] = "@" + name
+			args = append(args, clickhouse.Named(name, sv))
 		}
 		clauses = append(clauses, fmt.Sprintf("s.service_name IN (%s)", strings.Join(placeholders, ",")))
 	}
@@ -76,32 +89,33 @@ func buildWhereClause(f LLMRunFilters) (string, []any) {
 	}
 
 	if f.MinDurationMs > 0 {
-		clauses = append(clauses, "s.duration_nano / 1000000 >= ?")
-		args = append(args, f.MinDurationMs)
+		clauses = append(clauses, "s.duration_nano / 1000000 >= @minDuration")
+		args = append(args, clickhouse.Named("minDuration", f.MinDurationMs))
 	}
 	if f.MaxDurationMs > 0 {
-		clauses = append(clauses, "s.duration_nano / 1000000 <= ?")
-		args = append(args, f.MaxDurationMs)
+		clauses = append(clauses, "s.duration_nano / 1000000 <= @maxDuration")
+		args = append(args, clickhouse.Named("maxDuration", f.MaxDurationMs))
 	}
 
 	if f.MinTokens > 0 {
-		clauses = append(clauses, fmt.Sprintf("(%s + %s) >= ?", colInputTokens, colOutputTokens))
-		args = append(args, f.MinTokens)
+		clauses = append(clauses, fmt.Sprintf("(%s + %s) >= @minTokens", colInputTokens, colOutputTokens))
+		args = append(args, clickhouse.Named("minTokens", f.MinTokens))
 	}
 	if f.MaxTokens > 0 {
-		clauses = append(clauses, fmt.Sprintf("(%s + %s) <= ?", colInputTokens, colOutputTokens))
-		args = append(args, f.MaxTokens)
+		clauses = append(clauses, fmt.Sprintf("(%s + %s) <= @maxTokens", colInputTokens, colOutputTokens))
+		args = append(args, clickhouse.Named("maxTokens", f.MaxTokens))
 	}
 
 	if f.TraceID != "" {
-		clauses = append(clauses, "s.trace_id = ?")
-		args = append(args, f.TraceID)
+		clauses = append(clauses, "s.trace_id = @traceID")
+		args = append(args, clickhouse.Named("traceID", f.TraceID))
 	}
 
 	// Keyset pagination cursor
 	if f.CursorTimestamp != nil && f.CursorSpanID != "" {
-		clauses = append(clauses, "(s.timestamp < ? OR (s.timestamp = ? AND s.span_id < ?))")
-		args = append(args, *f.CursorTimestamp, *f.CursorTimestamp, f.CursorSpanID)
+		clauses = append(clauses, "(s.timestamp < @cursorTs OR (s.timestamp = @cursorTs AND s.span_id < @cursorSpanID))")
+		args = append(args, clickhouse.Named("cursorTs", *f.CursorTimestamp))
+		args = append(args, clickhouse.Named("cursorSpanID", f.CursorSpanID))
 	}
 
 	return "WHERE " + strings.Join(clauses, " AND "), args

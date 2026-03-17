@@ -2,7 +2,7 @@ package cpu
 
 import (
 	"github.com/gin-gonic/gin"
-	dbutil "github.com/observability/observability-backend-go/internal/database"
+	"github.com/observability/observability-backend-go/internal/database"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
@@ -14,7 +14,7 @@ func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-func NewHandler(db dbutil.Querier, getTenant modulecommon.GetTenantFunc) *CPUHandler {
+func NewHandler(db *database.NativeQuerier, getTenant modulecommon.GetTenantFunc) *CPUHandler {
 	return &CPUHandler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service:  NewService(NewRepository(db)),

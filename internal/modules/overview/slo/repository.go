@@ -1,9 +1,12 @@
 package slo
 
 import (
+	"context"
 	"fmt"
+	"time"
 
-	dbutil "github.com/observability/observability-backend-go/internal/database"
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/observability/observability-backend-go/internal/database"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
@@ -11,22 +14,40 @@ func sloBucketExpr(startMs, endMs int64) string {
 	return timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
 }
 
+// baseParams returns named ClickHouse parameters for teamID + time range.
+func baseParams(teamID int64, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+}
+
 type Repository interface {
-	GetSummary(teamID int64, startMs, endMs int64, serviceName string) (Summary, error)
-	GetTimeSeries(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSlice, error)
-	GetBurnDown(teamID int64, startMs, endMs int64, serviceName string) ([]BurnDownPoint, error)
-	GetBurnRate(teamID int64, startMs, endMs int64, serviceName string) (*BurnRate, error)
+	GetSummary(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (summaryDTO, error)
+	GetTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]timeSliceDTO, error)
+	GetBurnDown(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]BurnDownPoint, error)
+	GetBurnRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (*BurnRate, error)
 }
 
 type ClickHouseRepository struct {
-	db dbutil.Querier
+	db *database.NativeQuerier
 }
 
-func NewRepository(db dbutil.Querier) *ClickHouseRepository {
+func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) GetSummary(teamID int64, startMs, endMs int64, serviceName string) (Summary, error) {
+// summaryRow is the DTO for GetSummary.
+type summaryRow struct {
+	TotalRequests       int64   `ch:"total_requests"`
+	ErrorCount          int64   `ch:"error_count"`
+	AvailabilityPercent float64 `ch:"availability_percent"`
+	AvgLatencyMs        float64 `ch:"avg_latency_ms"`
+	P95LatencyMs        float64 `ch:"p95_latency_ms"`
+}
+
+func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (Summary, error) {
 	query := `
 		SELECT total_requests,
 		       error_count,
@@ -41,8 +62,8 @@ func (r *ClickHouseRepository) GetSummary(teamID int64, startMs, endMs int64, se
 			       avg(s.duration_nano / 1000000.0)                                            AS avg_latency_ms,
 			       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency_ms
 			FROM observability.spans s
-			WHERE s.team_id = ? AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`
-	args := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+			WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end`
+	args := append(baseParams(teamID, startMs, endMs), timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000))
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -50,21 +71,30 @@ func (r *ClickHouseRepository) GetSummary(teamID int64, startMs, endMs int64, se
 	query += `
 		)`
 
-	row, err := dbutil.QueryMap(r.db, query, args...)
-	if err != nil {
+	var row summaryRow
+	if err := r.db.QueryRow(ctx, &row, query, args...); err != nil {
 		return Summary{}, err
 	}
 
 	return Summary{
-		TotalRequests:       dbutil.Int64FromAny(row["total_requests"]),
-		ErrorCount:          dbutil.Int64FromAny(row["error_count"]),
-		AvailabilityPercent: dbutil.Float64FromAny(row["availability_percent"]),
-		AvgLatencyMs:        dbutil.Float64FromAny(row["avg_latency_ms"]),
-		P95LatencyMs:        dbutil.Float64FromAny(row["p95_latency_ms"]),
+		TotalRequests:       row.TotalRequests,
+		ErrorCount:          row.ErrorCount,
+		AvailabilityPercent: row.AvailabilityPercent,
+		AvgLatencyMs:        row.AvgLatencyMs,
+		P95LatencyMs:        row.P95LatencyMs,
 	}, nil
 }
 
-func (r *ClickHouseRepository) GetTimeSeries(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSlice, error) {
+// timeSliceRow is the DTO for GetTimeSeries (AvgLatencyMs is float64 in CH, converted to *float64 in model).
+type timeSliceRow struct {
+	TimeBucket          string  `ch:"time_bucket"`
+	RequestCount        int64   `ch:"request_count"`
+	ErrorCount          int64   `ch:"error_count"`
+	AvailabilityPercent float64 `ch:"availability_percent"`
+	AvgLatencyMs        float64 `ch:"avg_latency_ms"`
+}
+
+func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]TimeSlice, error) {
 	bucket := sloBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT time_bucket,
@@ -80,8 +110,8 @@ func (r *ClickHouseRepository) GetTimeSeries(teamID int64, startMs, endMs int64,
 			       countIf(`+ErrorCondition()+`)        AS error_count,
 			       avg(s.duration_nano / 1000000.0)     AS avg_latency_ms
 			FROM observability.spans s
-			WHERE s.team_id = ? AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`, bucket)
-	args := []any{teamID, timebucket.SpansBucketStart(startMs / 1000), timebucket.SpansBucketStart(endMs / 1000), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs)}
+			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end`, bucket)
+	args := append(baseParams(teamID, startMs, endMs), timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000))
 	if serviceName != "" {
 		query += ` AND s.service_name = ?`
 		args = append(args, serviceName)
@@ -90,19 +120,20 @@ func (r *ClickHouseRepository) GetTimeSeries(teamID int64, startMs, endMs int64,
 		)
 		ORDER BY 1 ASC`
 
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
+	var rows []timeSliceRow
+	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
 
 	slices := make([]TimeSlice, len(rows))
 	for i, row := range rows {
+		avg := row.AvgLatencyMs
 		slices[i] = TimeSlice{
-			Timestamp:           dbutil.StringFromAny(row["time_bucket"]),
-			RequestCount:        dbutil.Int64FromAny(row["request_count"]),
-			ErrorCount:          dbutil.Int64FromAny(row["error_count"]),
-			AvailabilityPercent: dbutil.Float64FromAny(row["availability_percent"]),
-			AvgLatencyMs:        dbutil.NullableFloat64FromAny(row["avg_latency_ms"]),
+			Timestamp:           row.TimeBucket,
+			RequestCount:        row.RequestCount,
+			ErrorCount:          row.ErrorCount,
+			AvailabilityPercent: row.AvailabilityPercent,
+			AvgLatencyMs:        &avg,
 		}
 	}
 	return slices, nil

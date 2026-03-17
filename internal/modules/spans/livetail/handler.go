@@ -18,11 +18,11 @@ const (
 
 type Handler struct {
 	getTenant common.GetTenantFunc
-	repo      *Repository
+	service   *Service
 }
 
-func NewHandler(getTenant common.GetTenantFunc, repo *Repository) *Handler {
-	return &Handler{getTenant: getTenant, repo: repo}
+func NewHandler(getTenant common.GetTenantFunc, service *Service) *Handler {
+	return &Handler{getTenant: getTenant, service: service}
 }
 
 // GetLiveTail handles GET /v1/spans/live-tail as a Server-Sent Events stream.
@@ -58,7 +58,7 @@ func (h *Handler) GetLiveTail(c *gin.Context) {
 		case <-time.After(pollInterval):
 		}
 
-		spans, err := h.repo.Poll(teamID, since, filters)
+		spans, err := h.service.Poll(teamID, since, filters)
 		if err != nil {
 			fmt.Fprintf(w, "event: error\ndata: {\"message\":\"poll error\"}\n\n")
 			return true

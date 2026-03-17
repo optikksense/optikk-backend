@@ -10,7 +10,7 @@ import (
 
 type JVMHandler struct {
 	modulecommon.DBTenant
-	Service Service
+	Service *Service
 }
 
 func (h *JVMHandler) GetJVMMemory(c *gin.Context) {
@@ -19,7 +19,7 @@ func (h *JVMHandler) GetJVMMemory(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetJVMMemory(teamID, startMs, endMs)
+	resp, err := h.Service.GetJVMMemory(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query JVM memory")
 		return
@@ -33,7 +33,7 @@ func (h *JVMHandler) GetJVMGCDuration(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetJVMGCDuration(teamID, startMs, endMs)
+	resp, err := h.Service.GetJVMGCDuration(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query JVM GC duration")
 		return
@@ -47,7 +47,7 @@ func (h *JVMHandler) GetJVMGCCollections(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetJVMGCCollections(teamID, startMs, endMs)
+	resp, err := h.Service.GetJVMGCCollections(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query JVM GC collections")
 		return
@@ -61,7 +61,7 @@ func (h *JVMHandler) GetJVMThreadCount(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetJVMThreadCount(teamID, startMs, endMs)
+	resp, err := h.Service.GetJVMThreadCount(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query JVM thread count")
 		return
@@ -75,7 +75,7 @@ func (h *JVMHandler) GetJVMClasses(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetJVMClasses(teamID, startMs, endMs)
+	resp, err := h.Service.GetJVMClasses(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query JVM classes")
 		return
@@ -89,7 +89,7 @@ func (h *JVMHandler) GetJVMCPU(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetJVMCPU(teamID, startMs, endMs)
+	resp, err := h.Service.GetJVMCPU(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query JVM CPU")
 		return
@@ -103,7 +103,7 @@ func (h *JVMHandler) GetJVMBuffers(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetJVMBuffers(teamID, startMs, endMs)
+	resp, err := h.Service.GetJVMBuffers(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query JVM buffers")
 		return

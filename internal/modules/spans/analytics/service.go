@@ -3,6 +3,10 @@ package analytics
 import (
 	"context"
 	"fmt"
+	"math"
+	"strconv"
+
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
 const (
@@ -24,7 +28,65 @@ func (s *Service) RunQuery(ctx context.Context, teamID int64, q AnalyticsQuery) 
 	if err := validate(q); err != nil {
 		return nil, err
 	}
-	return s.repo.Execute(ctx, teamID, q)
+	result, err := s.repo.Execute(ctx, teamID, q)
+	if err != nil || result == nil {
+		return nil, err
+	}
+	return &AnalyticsResult{
+		Columns: result.Columns,
+		Rows:    rebuildAnalyticsRows(result.Rows, result.GroupBy, result.Aggregations),
+	}, nil
+}
+
+func rebuildAnalyticsRows(rows []analyticsRowDTO, groupBy []string, aggs []Aggregation) []map[string]any {
+	aggByAlias := make(map[string]Aggregation, len(aggs))
+	for _, agg := range aggs {
+		aggByAlias[agg.Alias] = agg
+	}
+
+	out := make([]map[string]any, 0, len(rows))
+	for _, row := range rows {
+		item := make(map[string]any, len(row.DimensionKeys)+len(row.MetricKeys))
+		for i, key := range row.DimensionKeys {
+			if i >= len(row.DimensionValues) {
+				continue
+			}
+			item[key] = normalizeDimensionValue(key, row.DimensionValues[i])
+		}
+		for i, key := range row.MetricKeys {
+			if i >= len(row.MetricValues) {
+				continue
+			}
+			item[key] = normalizeMetricValue(aggByAlias[key], row.MetricValues[i])
+		}
+		out = append(out, item)
+	}
+	return dbutil.NormalizeRows(out)
+}
+
+func normalizeDimensionValue(key, raw string) any {
+	switch key {
+	case "http.status_code", "response_status_code", "rpc.grpc.status_code":
+		if raw == "" {
+			return int64(0)
+		}
+		if v, err := strconv.ParseInt(raw, 10, 64); err == nil {
+			return v
+		}
+	}
+	return raw
+}
+
+func normalizeMetricValue(agg Aggregation, raw float64) any {
+	switch agg.Type {
+	case "count", "countIf", "rate":
+		return int64(math.Round(raw))
+	case "min", "max", "sum":
+		if agg.Field == "duration_nano" {
+			return int64(math.Round(raw))
+		}
+	}
+	return raw
 }
 
 func validate(q AnalyticsQuery) error {

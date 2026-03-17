@@ -1,25 +1,28 @@
 package cpu
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
-	dbutil "github.com/observability/observability-backend-go/internal/database"
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/infrastructure/infraconsts"
 )
 
 type Repository interface {
-	GetCPUTime(teamID int64, startMs, endMs int64) ([]StateBucket, error)
-	GetCPUUsagePercentage(teamID int64, startMs, endMs int64) ([]ResourceBucket, error)
-	GetLoadAverage(teamID int64, startMs, endMs int64) (LoadAverageResult, error)
-	GetProcessCount(teamID int64, startMs, endMs int64) ([]StateBucket, error)
+	GetCPUTime(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error)
+	GetCPUUsagePercentage(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error)
+	GetLoadAverage(ctx context.Context, teamID int64, startMs, endMs int64) (loadAverageResultDTO, error)
+	GetProcessCount(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error)
 }
 
 type ClickHouseRepository struct {
-	db dbutil.Querier
+	db *database.NativeQuerier
 }
 
-func NewRepository(db dbutil.Querier) Repository {
+func NewRepository(db *database.NativeQuerier) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -36,38 +39,38 @@ func syncAverageExpr(parts ...string) string {
 	)`
 }
 
-func (r *ClickHouseRepository) queryStateBuckets(query string, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
-	if err != nil {
-		return nil, err
+func baseParams(teamID int64, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
-	buckets := make([]StateBucket, len(rows))
-	for i, row := range rows {
-		buckets[i] = StateBucket{
-			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
-			State:     dbutil.StringFromAny(row["state"]),
-			Value:     dbutil.NullableFloat64FromAny(row["metric_val"]),
-		}
-	}
-	return buckets, nil
 }
 
-func (r *ClickHouseRepository) GetCPUTime(teamID int64, startMs, endMs int64) ([]StateBucket, error) {
+func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
+	var rows []stateBucketDTO
+	if err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *ClickHouseRepository) GetCPUTime(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
 	b := bucket(startMs, endMs)
 	state := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrSystemCPUState)
 	query := fmt.Sprintf(`
 		SELECT %s as time_bucket, %s as state, sum(%s) as metric_val
 		FROM %s
-		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		WHERE %s = @teamID AND %s BETWEEN @start AND @end AND %s = '%s'
 		GROUP BY 1, 2 ORDER BY 1, 2`,
 		b, state, infraconsts.ColValue,
 		infraconsts.TableMetrics,
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricSystemCPUTime)
-	return r.queryStateBuckets(query, teamID, startMs, endMs)
+	return r.queryStateBuckets(ctx, query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetCPUUsagePercentage(teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
+func (r *ClickHouseRepository) GetCPUUsagePercentage(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
 	b := bucket(startMs, endMs)
 	aCPU := infraconsts.AttrFloat(infraconsts.AttrSystemCPUUtilization)
 
@@ -93,7 +96,7 @@ func (r *ClickHouseRepository) GetCPUUsagePercentage(teamID int64, startMs, endM
 		       %s as pod,
 		       %s as metric_val
 		FROM %s
-		WHERE %s = ? AND %s BETWEEN ? AND ?
+		WHERE %s = @teamID AND %s BETWEEN @start AND @end
 		  AND (
 		      %s IN ('%s', '%s', '%s')
 		      OR %s > 0
@@ -105,29 +108,21 @@ func (r *ClickHouseRepository) GetCPUUsagePercentage(teamID int64, startMs, endM
 		infraconsts.TableMetrics, infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricSystemCPUUtilization, infraconsts.MetricSystemCPUUsage, infraconsts.MetricProcessCPUUsage,
 		aCPU)
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
-	if err != nil {
+	var rows []resourceBucketDTO
+	if err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
-	buckets := make([]ResourceBucket, len(rows))
-	for i, row := range rows {
-		buckets[i] = ResourceBucket{
-			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
-			Pod:       dbutil.StringFromAny(row["pod"]),
-			Value:     dbutil.NullableFloat64FromAny(row["metric_val"]),
-		}
-	}
-	return buckets, nil
+	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetLoadAverage(teamID int64, startMs, endMs int64) (LoadAverageResult, error) {
+func (r *ClickHouseRepository) GetLoadAverage(ctx context.Context, teamID int64, startMs, endMs int64) (loadAverageResultDTO, error) {
 	query := fmt.Sprintf(`
 		SELECT
 			avgIf(%s, %s = '%s') as load_1m,
 			avgIf(%s, %s = '%s') as load_5m,
 			avgIf(%s, %s = '%s') as load_15m
 		FROM %s
-		WHERE %s = ? AND %s BETWEEN ? AND ?
+		WHERE %s = @teamID AND %s BETWEEN @start AND @end
 		  AND %s IN ('%s', '%s', '%s')`,
 		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricSystemCPULoadAvg1m,
 		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricSystemCPULoadAvg5m,
@@ -135,28 +130,24 @@ func (r *ClickHouseRepository) GetLoadAverage(teamID int64, startMs, endMs int64
 		infraconsts.TableMetrics,
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricSystemCPULoadAvg1m, infraconsts.MetricSystemCPULoadAvg5m, infraconsts.MetricSystemCPULoadAvg15m)
-	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
-	if err != nil {
-		return LoadAverageResult{}, err
+	var result loadAverageResultDTO
+	if err := r.db.QueryRow(ctx, &result, query, baseParams(teamID, startMs, endMs)...); err != nil {
+		return loadAverageResultDTO{}, err
 	}
-	return LoadAverageResult{
-		Load1m:  dbutil.Float64FromAny(row["load_1m"]),
-		Load5m:  dbutil.Float64FromAny(row["load_5m"]),
-		Load15m: dbutil.Float64FromAny(row["load_15m"]),
-	}, nil
+	return result, nil
 }
 
-func (r *ClickHouseRepository) GetProcessCount(teamID int64, startMs, endMs int64) ([]StateBucket, error) {
+func (r *ClickHouseRepository) GetProcessCount(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
 	b := bucket(startMs, endMs)
 	status := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrProcessStatus)
 	query := fmt.Sprintf(`
 		SELECT %s as time_bucket, %s as state, avg(%s) as metric_val
 		FROM %s
-		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		WHERE %s = @teamID AND %s BETWEEN @start AND @end AND %s = '%s'
 		GROUP BY 1, 2 ORDER BY 1, 2`,
 		b, status, infraconsts.ColValue,
 		infraconsts.TableMetrics,
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricSystemProcessCount)
-	return r.queryStateBuckets(query, teamID, startMs, endMs)
+	return r.queryStateBuckets(ctx, query, teamID, startMs, endMs)
 }

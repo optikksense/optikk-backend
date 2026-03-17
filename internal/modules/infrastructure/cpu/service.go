@@ -1,32 +1,27 @@
 package cpu
 
-type Service interface {
-	GetCPUTime(teamID int64, startMs, endMs int64) ([]StateBucket, error)
-	GetCPUUsagePercentage(teamID int64, startMs, endMs int64) ([]ResourceBucket, error)
-	GetLoadAverage(teamID int64, startMs, endMs int64) (LoadAverageResult, error)
-	GetProcessCount(teamID int64, startMs, endMs int64) ([]StateBucket, error)
-}
+import "context"
 
-type CPUService struct {
+type Service struct {
 	repo Repository
 }
 
-func NewService(repo Repository) Service {
-	return &CPUService{repo: repo}
+func NewService(repo Repository) *Service {
+	return &Service{repo: repo}
 }
 
-func (s *CPUService) GetCPUTime(teamID int64, startMs, endMs int64) ([]StateBucket, error) {
-	return s.repo.GetCPUTime(teamID, startMs, endMs)
+func (s *Service) GetCPUTime(ctx context.Context, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
+	return s.repo.GetCPUTime(ctx, teamID, startMs, endMs)
 }
 
-func (s *CPUService) GetCPUUsagePercentage(teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
-	return s.repo.GetCPUUsagePercentage(teamID, startMs, endMs)
+func (s *Service) GetCPUUsagePercentage(ctx context.Context, teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
+	return s.repo.GetCPUUsagePercentage(ctx, teamID, startMs, endMs)
 }
 
-func (s *CPUService) GetLoadAverage(teamID int64, startMs, endMs int64) (LoadAverageResult, error) {
-	return s.repo.GetLoadAverage(teamID, startMs, endMs)
+func (s *Service) GetLoadAverage(ctx context.Context, teamID int64, startMs, endMs int64) (LoadAverageResult, error) {
+	return s.repo.GetLoadAverage(ctx, teamID, startMs, endMs)
 }
 
-func (s *CPUService) GetProcessCount(teamID int64, startMs, endMs int64) ([]StateBucket, error) {
-	return s.repo.GetProcessCount(teamID, startMs, endMs)
+func (s *Service) GetProcessCount(ctx context.Context, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
+	return s.repo.GetProcessCount(ctx, teamID, startMs, endMs)
 }

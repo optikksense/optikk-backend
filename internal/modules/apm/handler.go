@@ -10,7 +10,7 @@ import (
 
 type APMHandler struct {
 	modulecommon.DBTenant
-	Service Service
+	Service *Service
 }
 
 func (h *APMHandler) GetRPCDuration(c *gin.Context) {
@@ -19,7 +19,7 @@ func (h *APMHandler) GetRPCDuration(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetRPCDuration(teamID, startMs, endMs)
+	resp, err := h.Service.GetRPCDuration(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query RPC duration")
 		return
@@ -33,7 +33,7 @@ func (h *APMHandler) GetRPCRequestRate(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetRPCRequestRate(teamID, startMs, endMs)
+	resp, err := h.Service.GetRPCRequestRate(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query RPC request rate")
 		return
@@ -47,7 +47,7 @@ func (h *APMHandler) GetMessagingPublishDuration(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetMessagingPublishDuration(teamID, startMs, endMs)
+	resp, err := h.Service.GetMessagingPublishDuration(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query messaging publish duration")
 		return
@@ -61,7 +61,7 @@ func (h *APMHandler) GetProcessCPU(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetProcessCPU(teamID, startMs, endMs)
+	resp, err := h.Service.GetProcessCPU(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query process CPU")
 		return
@@ -75,7 +75,7 @@ func (h *APMHandler) GetProcessMemory(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetProcessMemory(teamID, startMs, endMs)
+	resp, err := h.Service.GetProcessMemory(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query process memory")
 		return
@@ -89,7 +89,7 @@ func (h *APMHandler) GetOpenFDs(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetOpenFDs(teamID, startMs, endMs)
+	resp, err := h.Service.GetOpenFDs(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query open file descriptors")
 		return
@@ -103,7 +103,7 @@ func (h *APMHandler) GetUptime(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetUptime(teamID, startMs, endMs)
+	resp, err := h.Service.GetUptime(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query process uptime")
 		return

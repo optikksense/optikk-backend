@@ -1,42 +1,59 @@
 package overview
 
-type Service interface {
-	GetRequestRate(teamID int64, startMs, endMs int64, serviceName string) ([]RequestRatePoint, error)
-	GetErrorRate(teamID int64, startMs, endMs int64, serviceName string) ([]ErrorRatePoint, error)
-	GetP95Latency(teamID int64, startMs, endMs int64, serviceName string) ([]P95LatencyPoint, error)
-	GetServices(teamID int64, startMs, endMs int64) ([]ServiceMetric, error)
-	GetTopEndpoints(teamID int64, startMs, endMs int64, serviceName string) ([]EndpointMetric, error)
-	GetEndpointTimeSeries(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
-}
+import "context"
 
-type OverviewService struct {
+type Service struct {
 	repo Repository
 }
 
-func NewService(repo Repository) Service {
-	return &OverviewService{repo: repo}
+func NewService(repo Repository) *Service {
+	return &Service{repo: repo}
 }
 
-func (s *OverviewService) GetRequestRate(teamID int64, startMs, endMs int64, serviceName string) ([]RequestRatePoint, error) {
-	return s.repo.GetRequestRate(teamID, startMs, endMs, serviceName)
+func (s *Service) GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]RequestRatePoint, error) {
+	rows, err := s.repo.GetRequestRate(ctx, teamID, startMs, endMs, serviceName)
+	if err != nil {
+		return nil, err
+	}
+	return mapRequestRateRows(rows), nil
 }
 
-func (s *OverviewService) GetErrorRate(teamID int64, startMs, endMs int64, serviceName string) ([]ErrorRatePoint, error) {
-	return s.repo.GetErrorRate(teamID, startMs, endMs, serviceName)
+func (s *Service) GetErrorRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]ErrorRatePoint, error) {
+	rows, err := s.repo.GetErrorRate(ctx, teamID, startMs, endMs, serviceName)
+	if err != nil {
+		return nil, err
+	}
+	return mapErrorRateRows(rows), nil
 }
 
-func (s *OverviewService) GetP95Latency(teamID int64, startMs, endMs int64, serviceName string) ([]P95LatencyPoint, error) {
-	return s.repo.GetP95Latency(teamID, startMs, endMs, serviceName)
+func (s *Service) GetP95Latency(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]P95LatencyPoint, error) {
+	rows, err := s.repo.GetP95Latency(ctx, teamID, startMs, endMs, serviceName)
+	if err != nil {
+		return nil, err
+	}
+	return mapP95LatencyRows(rows), nil
 }
 
-func (s *OverviewService) GetServices(teamID int64, startMs, endMs int64) ([]ServiceMetric, error) {
-	return s.repo.GetServices(teamID, startMs, endMs)
+func (s *Service) GetServices(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceMetric, error) {
+	rows, err := s.repo.GetServices(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return nil, err
+	}
+	return mapServiceMetricRows(rows), nil
 }
 
-func (s *OverviewService) GetTopEndpoints(teamID int64, startMs, endMs int64, serviceName string) ([]EndpointMetric, error) {
-	return s.repo.GetTopEndpoints(teamID, startMs, endMs, serviceName)
+func (s *Service) GetTopEndpoints(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]EndpointMetric, error) {
+	rows, err := s.repo.GetTopEndpoints(ctx, teamID, startMs, endMs, serviceName)
+	if err != nil {
+		return nil, err
+	}
+	return mapEndpointMetricRows(rows), nil
 }
 
-func (s *OverviewService) GetEndpointTimeSeries(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
-	return s.repo.GetEndpointTimeSeries(teamID, startMs, endMs, serviceName)
+func (s *Service) GetEndpointTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
+	rows, err := s.repo.GetEndpointTimeSeries(ctx, teamID, startMs, endMs, serviceName)
+	if err != nil {
+		return nil, err
+	}
+	return mapTimeSeriesRows(rows), nil
 }

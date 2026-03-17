@@ -61,14 +61,15 @@ type ServiceDelta struct {
 }
 
 // internalSpan is used during comparison computation.
+// Depth is computed in the service layer (not from DB).
 type internalSpan struct {
-	SpanID     string
-	ParentID   string
-	Service    string
-	Operation  string
-	SpanKind   string
-	DurationMs float64
-	Status     string
-	HasError   bool
-	Depth      int
+	SpanID     string  `ch:"span_id"`
+	ParentID   string  `ch:"parent_span_id"`
+	Service    string  `ch:"service_name"`
+	Operation  string  `ch:"operation_name"`
+	SpanKind   string  `ch:"span_kind"`
+	DurationMs float64 `ch:"duration_ms"`
+	Status     string  `ch:"status"`
+	HasError   bool    `ch:"has_error"`
+	Depth      int     // computed in service, not from DB
 }

@@ -1,5 +1,7 @@
 package redmetrics
 
+import "context"
+
 type Service interface {
 	GetSummary(teamID int64, startMs, endMs int64) (REDSummary, error)
 	GetServiceScorecard(teamID int64, startMs, endMs int64) ([]ServiceScorecard, error)
@@ -24,49 +26,144 @@ func NewService(repo Repository) Service {
 }
 
 func (s *REDMetricsService) GetSummary(teamID int64, startMs, endMs int64) (REDSummary, error) {
-	return s.repo.GetSummary(teamID, startMs, endMs)
+	rows, err := s.repo.GetSummary(context.Background(), teamID, startMs, endMs)
+	if err != nil {
+		return REDSummary{}, err
+	}
+
+	durationSec := float64(endMs-startMs) / 1000.0
+	if durationSec <= 0 {
+		durationSec = 1
+	}
+
+	var totalCount, totalErrors int64
+	var totalP95 float64
+	for _, row := range rows {
+		totalCount += row.TotalCount
+		totalErrors += row.ErrorCount
+		totalP95 += row.P95Ms
+	}
+	serviceCount := int64(len(rows))
+
+	avgErrorPct := 0.0
+	if totalCount > 0 {
+		avgErrorPct = float64(totalErrors) * 100.0 / float64(totalCount)
+	}
+	avgP95 := 0.0
+	if serviceCount > 0 {
+		avgP95 = totalP95 / float64(serviceCount)
+	}
+	return REDSummary{
+		ServiceCount: serviceCount,
+		TotalRPS:     float64(totalCount) / durationSec,
+		AvgErrorPct:  avgErrorPct,
+		AvgP95Ms:     avgP95,
+	}, nil
 }
 
 func (s *REDMetricsService) GetServiceScorecard(teamID int64, startMs, endMs int64) ([]ServiceScorecard, error) {
-	return s.repo.GetServiceScorecard(teamID, startMs, endMs)
+	rows, err := s.repo.GetServiceScorecard(context.Background(), teamID, startMs, endMs)
+	if err != nil {
+		return nil, err
+	}
+
+	durationSec := float64(endMs-startMs) / 1000.0
+	if durationSec <= 0 {
+		durationSec = 1
+	}
+
+	result := make([]ServiceScorecard, len(rows))
+	for i, row := range rows {
+		errorPct := 0.0
+		if row.TotalCount > 0 {
+			errorPct = float64(row.ErrorCount) * 100.0 / float64(row.TotalCount)
+		}
+		result[i] = ServiceScorecard{
+			ServiceName: row.ServiceName,
+			RPS:         float64(row.TotalCount) / durationSec,
+			ErrorPct:    errorPct,
+			P95Ms:       row.P95Ms,
+		}
+	}
+	return result, nil
 }
 
 func (s *REDMetricsService) GetApdex(teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]ApdexScore, error) {
-	return s.repo.GetApdex(teamID, startMs, endMs, satisfiedMs, toleratingMs)
+	rows, err := s.repo.GetApdex(context.Background(), teamID, startMs, endMs, satisfiedMs, toleratingMs)
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]ApdexScore, len(rows))
+	for i, row := range rows {
+		apdex := 0.0
+		if row.TotalCount > 0 {
+			apdex = (float64(row.Satisfied) + float64(row.Tolerating)*0.5) / float64(row.TotalCount)
+		}
+		result[i] = ApdexScore{
+			ServiceName: row.ServiceName,
+			Apdex:       apdex,
+			Satisfied:   row.Satisfied,
+			Tolerating:  row.Tolerating,
+			Frustrated:  row.Frustrated,
+			TotalCount:  row.TotalCount,
+		}
+	}
+	return result, nil
 }
 
 func (s *REDMetricsService) GetHTTPStatusDistribution(teamID int64, startMs, endMs int64) ([]HTTPStatusBucket, error) {
-	return s.repo.GetHTTPStatusDistribution(teamID, startMs, endMs)
+	return s.repo.GetHTTPStatusDistribution(context.Background(), teamID, startMs, endMs)
 }
 
 func (s *REDMetricsService) GetTopSlowOperations(teamID int64, startMs, endMs int64, limit int) ([]SlowOperation, error) {
-	return s.repo.GetTopSlowOperations(teamID, startMs, endMs, limit)
+	return s.repo.GetTopSlowOperations(context.Background(), teamID, startMs, endMs, limit)
 }
 
 func (s *REDMetricsService) GetTopErrorOperations(teamID int64, startMs, endMs int64, limit int) ([]ErrorOperation, error) {
-	return s.repo.GetTopErrorOperations(teamID, startMs, endMs, limit)
+	return s.repo.GetTopErrorOperations(context.Background(), teamID, startMs, endMs, limit)
 }
 
 func (s *REDMetricsService) GetRequestRateTimeSeries(teamID int64, startMs, endMs int64) ([]ServiceRatePoint, error) {
-	return s.repo.GetRequestRateTimeSeries(teamID, startMs, endMs)
+	return s.repo.GetRequestRateTimeSeries(context.Background(), teamID, startMs, endMs)
 }
 
 func (s *REDMetricsService) GetErrorRateTimeSeries(teamID int64, startMs, endMs int64) ([]ServiceErrorRatePoint, error) {
-	return s.repo.GetErrorRateTimeSeries(teamID, startMs, endMs)
+	return s.repo.GetErrorRateTimeSeries(context.Background(), teamID, startMs, endMs)
 }
 
 func (s *REDMetricsService) GetP95LatencyTimeSeries(teamID int64, startMs, endMs int64) ([]ServiceLatencyPoint, error) {
-	return s.repo.GetP95LatencyTimeSeries(teamID, startMs, endMs)
+	return s.repo.GetP95LatencyTimeSeries(context.Background(), teamID, startMs, endMs)
 }
 
 func (s *REDMetricsService) GetSpanKindBreakdown(teamID int64, startMs, endMs int64) ([]SpanKindPoint, error) {
-	return s.repo.GetSpanKindBreakdown(teamID, startMs, endMs)
+	return s.repo.GetSpanKindBreakdown(context.Background(), teamID, startMs, endMs)
 }
 
 func (s *REDMetricsService) GetErrorsByRoute(teamID int64, startMs, endMs int64) ([]ErrorByRoutePoint, error) {
-	return s.repo.GetErrorsByRoute(teamID, startMs, endMs)
+	return s.repo.GetErrorsByRoute(context.Background(), teamID, startMs, endMs)
 }
 
 func (s *REDMetricsService) GetLatencyBreakdown(teamID int64, startMs, endMs int64) ([]LatencyBreakdown, error) {
-	return s.repo.GetLatencyBreakdown(teamID, startMs, endMs)
+	rows, err := s.repo.GetLatencyBreakdown(context.Background(), teamID, startMs, endMs)
+	if err != nil {
+		return nil, err
+	}
+
+	var grandTotal float64
+	result := make([]LatencyBreakdown, len(rows))
+	for i, row := range rows {
+		grandTotal += row.TotalMs
+		result[i] = LatencyBreakdown{
+			ServiceName: row.ServiceName,
+			TotalMs:     row.TotalMs,
+			SpanCount:   row.SpanCount,
+		}
+	}
+	if grandTotal > 0 {
+		for i := range result {
+			result[i].PctOfTotal = result[i].TotalMs * 100.0 / grandTotal
+		}
+	}
+	return result, nil
 }

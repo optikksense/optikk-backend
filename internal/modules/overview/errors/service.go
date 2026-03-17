@@ -1,49 +1,67 @@
 package errors
 
-// no imports needed — types come from the same package
+import "context"
 
-type Service interface {
-	GetServiceErrorRate(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
-	GetErrorVolume(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
-	GetLatencyDuringErrorWindows(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error)
-	GetErrorGroups(teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error)
-	GetErrorGroupDetail(teamID int64, startMs, endMs int64, groupID string) (*ErrorGroupDetail, error)
-	GetErrorGroupTraces(teamID int64, startMs, endMs int64, groupID string, limit int) ([]ErrorGroupTrace, error)
-	GetErrorGroupTimeseries(teamID int64, startMs, endMs int64, groupID string) ([]TimeSeriesPoint, error)
-}
-
-type ErrorService struct {
+type Service struct {
 	repo Repository
 }
 
-func NewService(repo Repository) Service {
-	return &ErrorService{repo: repo}
+func NewService(repo Repository) *Service {
+	return &Service{repo: repo}
 }
 
-func (s *ErrorService) GetErrorGroups(teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error) {
-	return s.repo.GetErrorGroups(teamID, startMs, endMs, serviceName, limit)
+func (s *Service) GetServiceErrorRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
+	rows, err := s.repo.GetServiceErrorRate(ctx, teamID, startMs, endMs, serviceName)
+	if err != nil {
+		return nil, err
+	}
+	return mapServiceErrorRateRows(rows), nil
 }
 
-func (s *ErrorService) GetServiceErrorRate(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
-	return s.repo.GetServiceErrorRate(teamID, startMs, endMs, serviceName)
+func (s *Service) GetErrorVolume(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
+	rows, err := s.repo.GetErrorVolume(ctx, teamID, startMs, endMs, serviceName)
+	if err != nil {
+		return nil, err
+	}
+	return mapErrorVolumeRows(rows), nil
 }
 
-func (s *ErrorService) GetErrorVolume(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
-	return s.repo.GetErrorVolume(teamID, startMs, endMs, serviceName)
+func (s *Service) GetLatencyDuringErrorWindows(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
+	rows, err := s.repo.GetLatencyDuringErrorWindows(ctx, teamID, startMs, endMs, serviceName)
+	if err != nil {
+		return nil, err
+	}
+	return mapLatencyErrorRows(rows), nil
 }
 
-func (s *ErrorService) GetLatencyDuringErrorWindows(teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
-	return s.repo.GetLatencyDuringErrorWindows(teamID, startMs, endMs, serviceName)
+func (s *Service) GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error) {
+	rows, err := s.repo.GetErrorGroups(ctx, teamID, startMs, endMs, serviceName, limit)
+	if err != nil {
+		return nil, err
+	}
+	return mapErrorGroupRows(rows), nil
 }
 
-func (s *ErrorService) GetErrorGroupDetail(teamID int64, startMs, endMs int64, groupID string) (*ErrorGroupDetail, error) {
-	return s.repo.GetErrorGroupDetail(teamID, startMs, endMs, groupID)
+func (s *Service) GetErrorGroupDetail(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (*ErrorGroupDetail, error) {
+	row, err := s.repo.GetErrorGroupDetail(ctx, teamID, startMs, endMs, groupID)
+	if err != nil {
+		return nil, err
+	}
+	return mapErrorGroupDetailRow(groupID, row), nil
 }
 
-func (s *ErrorService) GetErrorGroupTraces(teamID int64, startMs, endMs int64, groupID string, limit int) ([]ErrorGroupTrace, error) {
-	return s.repo.GetErrorGroupTraces(teamID, startMs, endMs, groupID, limit)
+func (s *Service) GetErrorGroupTraces(ctx context.Context, teamID int64, startMs, endMs int64, groupID string, limit int) ([]ErrorGroupTrace, error) {
+	rows, err := s.repo.GetErrorGroupTraces(ctx, teamID, startMs, endMs, groupID, limit)
+	if err != nil {
+		return nil, err
+	}
+	return mapErrorGroupTraceRows(rows), nil
 }
 
-func (s *ErrorService) GetErrorGroupTimeseries(teamID int64, startMs, endMs int64, groupID string) ([]TimeSeriesPoint, error) {
-	return s.repo.GetErrorGroupTimeseries(teamID, startMs, endMs, groupID)
+func (s *Service) GetErrorGroupTimeseries(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) ([]TimeSeriesPoint, error) {
+	rows, err := s.repo.GetErrorGroupTimeseries(ctx, teamID, startMs, endMs, groupID)
+	if err != nil {
+		return nil, err
+	}
+	return mapErrorGroupTimeseriesRows(rows), nil
 }

@@ -10,7 +10,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	types "github.com/observability/observability-backend-go/internal/contracts"
-	"github.com/observability/observability-backend-go/internal/platform/auth"
+	sessionauth "github.com/observability/observability-backend-go/internal/platform/session"
 	"github.com/observability/observability-backend-go/internal/platform/utils"
 )
 
@@ -84,8 +84,8 @@ func CORSMiddleware(allowedOrigins string) gin.HandlerFunc {
 			c.Writer.Header().Set("Vary", "Origin")
 		}
 		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Authorization, Content-Type, X-Team-Id, X-User-Id, X-User-Email, X-User-Role")
-		c.Writer.Header().Set("Access-Control-Expose-Headers", "Authorization, X-Team-Id")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Team-Id, X-User-Id, X-User-Email, X-User-Role")
+		c.Writer.Header().Set("Access-Control-Expose-Headers", "X-Team-Id")
 		// Allow cookies to be sent cross-origin (required for httpOnly cookie auth).
 		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 		if c.Request.Method == http.MethodOptions {
@@ -102,143 +102,121 @@ func ErrorRecovery() gin.HandlerFunc {
 	})
 }
 
-// isPublicRequest returns true if the request method and path do not require JWT authentication.
+// publicPrefixes are paths that are always public regardless of HTTP method.
+var publicPrefixes = []string{
+	"/api/v1/auth/login",
+	"/api/v1/auth/google",
+	"/api/v1/auth/github",
+	"/otlp/",
+	"/health",
+}
+
+// publicPOSTPrefixes are paths that are public only for POST requests.
+var publicPOSTPrefixes = []string{
+	"/api/v1/auth/oauth/complete-signup",
+	"/api/v1/auth/forgot-password",
+	"/api/v1/users",
+	"/api/v1/teams",
+}
+
+// isPublicRequest returns true if the request method and path do not require authentication.
 func isPublicRequest(method, path string) bool {
-	// auth routes need to be accessible without a token.
-	if strings.HasPrefix(path, "/api/v1/auth/login") {
-		return true
+	for _, p := range publicPrefixes {
+		if strings.HasPrefix(path, p) {
+			return true
+		}
 	}
-
-	// OAuth provider redirects and callbacks.
-	if strings.HasPrefix(path, "/api/v1/auth/google") {
-		return true
+	if method == http.MethodPost {
+		for _, p := range publicPOSTPrefixes {
+			if strings.HasPrefix(path, p) {
+				return true
+			}
+		}
 	}
-	if strings.HasPrefix(path, "/api/v1/auth/github") {
-		return true
-	}
-
-	// OAuth complete-signup and forgot-password are public POST endpoints.
-	if method == http.MethodPost && strings.HasPrefix(path, "/api/v1/auth/oauth/complete-signup") {
-		return true
-	}
-	if method == http.MethodPost && strings.HasPrefix(path, "/api/v1/auth/forgot-password") {
-		return true
-	}
-
-	// signup/create user must be public to allow first login.
-	if method == http.MethodPost && (path == "/api/v1/users" || path == "/api/v1/users/") {
-		return true
-	}
-
-	// create team must be public.
-	if method == http.MethodPost && (path == "/api/v1/teams" || path == "/api/v1/teams/") {
-		return true
-	}
-
-	// OTLP endpoints use API-key auth in their own handler.
-	if strings.HasPrefix(path, "/otlp/") {
-		return true
-	}
-
-	// Health check endpoints are always public.
-	if strings.HasPrefix(path, "/health") {
-		return true
-	}
-
 	return false
 }
 
-// extractBearerToken extracts a JWT token string from the request.
-// Priority: Authorization header → httpOnly cookie "token".
-// This allows browser clients to use the secure cookie flow while
-// SDK/CLI clients continue using the Authorization header.
-func extractBearerToken(c *gin.Context) string {
-	if authHeader := c.GetHeader("Authorization"); strings.HasPrefix(authHeader, "Bearer ") {
-		return strings.TrimPrefix(authHeader, "Bearer ")
-	}
-	// Fall back to the httpOnly cookie set by the login handler.
-	if cookie, err := c.Cookie("token"); err == nil && cookie != "" {
-		return cookie
-	}
-	return ""
+func abortUnauthorized(c *gin.Context) {
+	log.Printf("AUTH_DENIED [%s %s] code=UNAUTHORIZED ip=%s", c.Request.Method, c.Request.URL.Path, c.ClientIP())
+	c.AbortWithStatusJSON(http.StatusUnauthorized, types.Failure(
+		"UNAUTHORIZED", "Valid authentication is required", c.Request.URL.Path,
+	))
 }
 
-// TenantMiddleware accepts JWTs from the Authorization header or auth cookie.
-// Public routes pass through unauthenticated, but any X-Team-Id override must
-// be authorized by the token claims.
-func TenantMiddleware(jwtManager auth.JWTManager, blacklist ...*auth.TokenBlacklist) gin.HandlerFunc {
-	var bl *auth.TokenBlacklist
-	if len(blacklist) > 0 {
-		bl = blacklist[0]
+func abortMissingTeam(c *gin.Context, email string) {
+	log.Printf("AUTH_DENIED [%s %s] code=MISSING_TEAM user=%s ip=%s", c.Request.Method, c.Request.URL.Path, email, c.ClientIP())
+	c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
+		"MISSING_TEAM", "Session does not contain a valid team_id", c.Request.URL.Path,
+	))
+}
+
+func abortForbiddenTeam(c *gin.Context, email string, requestedTeamID int64) {
+	log.Printf("AUTH_DENIED [%s %s] code=FORBIDDEN_TEAM user=%s requested_team=%d ip=%s", c.Request.Method, c.Request.URL.Path, email, requestedTeamID, c.ClientIP())
+	c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
+		"FORBIDDEN_TEAM", "You are not a member of the requested team", c.Request.URL.Path,
+	))
+}
+
+// resolveTeam returns the effective team ID for the request.
+// It aborts c and returns (0, false) on any auth violation.
+func resolveTeam(c *gin.Context, state sessionauth.AuthState) (int64, bool) {
+	requested := utils.ToInt64(c.GetHeader("X-Team-Id"), 0)
+	if requested == 0 {
+		if state.DefaultTeamID == 0 {
+			abortMissingTeam(c, state.Email)
+			return 0, false
+		}
+		return state.DefaultTeamID, true
 	}
+	if !authorizedForTeam(state.TeamIDs, state.DefaultTeamID, requested) {
+		abortForbiddenTeam(c, state.Email, requested)
+		return 0, false
+	}
+	return requested, true
+}
 
+func TenantMiddleware(sessions *sessionauth.Manager) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		token := extractBearerToken(c)
-
-		if token != "" {
-			// Reject revoked tokens before spending time on signature verification.
-			if bl != nil && bl.IsRevoked(token) {
-				log.Printf("AUTH_DENIED [%s %s] code=TOKEN_REVOKED ip=%s", c.Request.Method, c.Request.URL.Path, c.ClientIP())
-				c.AbortWithStatusJSON(http.StatusUnauthorized, types.Failure(
-					"TOKEN_REVOKED", "Token has been revoked", c.Request.URL.Path,
-				))
-				return
-			}
-
-			if claims, err := jwtManager.Parse(token); err == nil {
-				teamID := claims.TeamID
-
-				// Allow explicit team switching from UI for users that belong to
-				// multiple teams. JWT claim remains the default team.
-				if requested := utils.ToInt64(c.GetHeader("X-Team-Id"), 0); requested > 0 {
-					if !auth.ClaimsAuthorizedForTeam(claims, requested) {
-						log.Printf("AUTH_DENIED [%s %s] code=FORBIDDEN_TEAM user=%s requested_team=%d ip=%s",
-							c.Request.Method, c.Request.URL.Path, claims.Email, requested, c.ClientIP())
-						c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
-							"FORBIDDEN_TEAM",
-							"You are not a member of the requested team",
-							c.Request.URL.Path,
-						))
-						return
-					}
-					teamID = requested
-				}
-
-				if teamID == 0 {
-					log.Printf("AUTH_DENIED [%s %s] code=MISSING_TEAM user=%s ip=%s",
-						c.Request.Method, c.Request.URL.Path, claims.Email, c.ClientIP())
-					c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
-						"MISSING_TEAM", "JWT does not contain a valid team_id", c.Request.URL.Path,
-					))
-					return
-				}
-				role := claims.Role
-				if role == "" {
-					role = "member"
-				}
-				c.Set(string(tenantKey), types.TenantContext{
-					TeamID:    teamID,
-					UserID:    utils.ToInt64(claims.Subject, 0),
-					UserEmail: claims.Email,
-					UserRole:  role,
-				})
+		authState, ok := sessions.GetAuthState(c.Request.Context())
+		if !ok {
+			if isPublicRequest(c.Request.Method, c.Request.URL.Path) {
 				c.Next()
 				return
 			}
-		}
-
-		// No valid JWT — allow public paths through without authentication.
-		if isPublicRequest(c.Request.Method, c.Request.URL.Path) {
-			c.Next()
+			abortUnauthorized(c)
 			return
 		}
 
-		// Protected path without valid JWT — reject.
-		log.Printf("AUTH_DENIED [%s %s] code=UNAUTHORIZED ip=%s", c.Request.Method, c.Request.URL.Path, c.ClientIP())
-		c.AbortWithStatusJSON(http.StatusUnauthorized, types.Failure(
-			"UNAUTHORIZED", "Valid authentication is required", c.Request.URL.Path,
-		))
+		teamID, ok := resolveTeam(c, authState)
+		if !ok {
+			return
+		}
+
+		role := authState.Role
+		if role == "" {
+			role = "member"
+		}
+
+		c.Set(string(tenantKey), types.TenantContext{
+			TeamID:    teamID,
+			UserID:    authState.UserID,
+			UserEmail: authState.Email,
+			UserRole:  role,
+		})
+		c.Next()
 	}
+}
+
+func authorizedForTeam(teamIDs []int64, defaultTeamID, requestedTeamID int64) bool {
+	if len(teamIDs) == 0 {
+		return defaultTeamID == requestedTeamID
+	}
+	for _, teamID := range teamIDs {
+		if teamID == requestedTeamID {
+			return true
+		}
+	}
+	return false
 }
 
 func GetTenant(c *gin.Context) types.TenantContext {

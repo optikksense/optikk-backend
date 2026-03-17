@@ -9,7 +9,7 @@ import (
 
 type RedisHandler struct {
 	modulecommon.DBTenant
-	Service *RedisService
+	Service *Service
 }
 
 func (h *RedisHandler) withRange(c *gin.Context, fn func(teamID, startMs, endMs int64, instance string) error) {

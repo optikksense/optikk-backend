@@ -6,64 +6,81 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
+	database "github.com/observability/observability-backend-go/internal/database"
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
-type Repository struct {
-	db dbutil.Querier
+type analyticsRowDTO struct {
+	DimensionKeys   []string  `ch:"dimension_keys"`
+	DimensionValues []string  `ch:"dimension_values"`
+	MetricKeys      []string  `ch:"metric_keys"`
+	MetricValues    []float64 `ch:"metric_values"`
 }
 
-func NewRepository(db dbutil.Querier) *Repository {
+type analyticsQueryResultDTO struct {
+	Columns      []string
+	Rows         []analyticsRowDTO
+	GroupBy      []string
+	Aggregations []Aggregation
+}
+
+type Repository struct {
+	db *database.NativeQuerier
+}
+
+func NewRepository(db *database.NativeQuerier) *Repository {
 	return &Repository{db: db}
 }
 
-// Execute builds and runs a dynamic GROUP BY query against the spans table.
-// All groupBy columns and aggregation fields are validated against allow-lists.
-func (r *Repository) Execute(ctx context.Context, teamID int64, q AnalyticsQuery) (*AnalyticsResult, error) {
+func (r *Repository) Execute(ctx context.Context, teamID int64, q AnalyticsQuery) (*analyticsQueryResultDTO, error) {
 	groupCols, err := resolveGroupBy(q.GroupBy)
 	if err != nil {
 		return nil, err
 	}
 
-	aggExprs, aliases, err := resolveAggregations(q.Aggregations)
+	_, aggRawExprs, aliases, err := resolveAggregations(q.Aggregations)
 	if err != nil {
 		return nil, err
 	}
 
 	whereFrag, args := buildAnalyticsWhere(teamID, q.Filters)
-
-	selectParts := append(groupCols, aggExprs...)
-	groupByParts := make([]string, len(groupCols))
-	copy(groupByParts, groupCols)
-
-	orderBy := resolveOrderBy(q.OrderBy, q.OrderDir, aliases, groupCols)
+	orderBy := resolveOrderBy(q.OrderBy, q.OrderDir, q.GroupBy, aliases, aggRawExprs)
 	limit := q.Limit
 	if limit <= 0 || limit > 1000 {
 		limit = 100
 	}
 
 	query := fmt.Sprintf(
-		`SELECT %s FROM observability.spans s%s GROUP BY %s ORDER BY %s LIMIT %d`,
-		strings.Join(selectParts, ", "),
+		`SELECT %s AS dimension_keys,
+		        %s AS dimension_values,
+		        %s AS metric_keys,
+		        %s AS metric_values
+		FROM observability.spans s%s
+		GROUP BY %s
+		ORDER BY %s
+		LIMIT %d`,
+		stringArrayLiteral(q.GroupBy),
+		stringArrayExpr(groupCols),
+		stringArrayLiteral(aliases),
+		floatArrayExpr(aggRawExprs),
 		whereFrag,
-		strings.Join(groupByParts, ", "),
+		strings.Join(groupCols, ", "),
 		orderBy,
 		limit,
 	)
 
-	rows, err := dbutil.QueryMaps(r.db, query, args...)
-	if err != nil {
+	var rows []analyticsRowDTO
+	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
 
-	columns := make([]string, 0, len(q.GroupBy)+len(aliases))
-	columns = append(columns, q.GroupBy...)
-	columns = append(columns, aliases...)
-
-	return &AnalyticsResult{
-		Columns: columns,
-		Rows:    dbutil.NormalizeRows(rows),
+	return &analyticsQueryResultDTO{
+		Columns:      append(append([]string{}, q.GroupBy...), aliases...),
+		Rows:         rows,
+		GroupBy:      append([]string{}, q.GroupBy...),
+		Aggregations: append([]Aggregation{}, q.Aggregations...),
 	}, nil
 }
 
@@ -79,25 +96,25 @@ func resolveGroupBy(dims []string) ([]string, error) {
 	return cols, nil
 }
 
-// allowedAggFields maps user-facing field names to safe ClickHouse expressions.
 var allowedAggFields = map[string]string{
 	"duration_nano": "s.duration_nano",
 	"duration_ms":   "s.duration_nano / 1000000.0",
 }
 
-func resolveAggregations(aggs []Aggregation) (exprs []string, aliases []string, err error) {
+func resolveAggregations(aggs []Aggregation) (selectExprs []string, rawExprs []string, aliases []string, err error) {
 	for _, a := range aggs {
 		if a.Alias == "" {
-			return nil, nil, fmt.Errorf("aggregation alias is required")
+			return nil, nil, nil, fmt.Errorf("aggregation alias is required")
 		}
 		expr, buildErr := buildAggExpr(a)
 		if buildErr != nil {
-			return nil, nil, buildErr
+			return nil, nil, nil, buildErr
 		}
-		exprs = append(exprs, expr+` AS `+safeAlias(a.Alias))
+		selectExprs = append(selectExprs, expr+` AS `+safeAlias(a.Alias))
+		rawExprs = append(rawExprs, expr)
 		aliases = append(aliases, a.Alias)
 	}
-	return exprs, aliases, nil
+	return selectExprs, rawExprs, aliases, nil
 }
 
 func buildAggExpr(a Aggregation) (string, error) {
@@ -118,7 +135,7 @@ func buildAggExpr(a Aggregation) (string, error) {
 	case "countIf":
 		return "countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)", nil
 	case "rate":
-		return "count()", nil // caller divides by time range client-side
+		return "count()", nil
 	case "avg", "min", "max", "sum":
 		col, err := resolveField()
 		if err != nil {
@@ -159,13 +176,13 @@ func buildAnalyticsWhere(teamID int64, f QueryFilters) (string, []any) {
 		startMs = endMs - maxRange
 	}
 
-	frag := ` WHERE s.team_id = ? AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN ? AND ?`
+	frag := ` WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end`
 	args := []any{
-		uint32(teamID),
+		clickhouse.Named("teamID", uint32(teamID)),
 		timebucket.SpansBucketStart(startMs / 1000),
 		timebucket.SpansBucketStart(endMs / 1000),
-		dbutil.SqlTime(startMs),
-		dbutil.SqlTime(endMs),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
 
 	if f.SearchMode != "all" {
@@ -213,7 +230,7 @@ func buildAnalyticsWhere(teamID int64, f QueryFilters) (string, []any) {
 	return frag, args
 }
 
-func resolveOrderBy(field, dir string, aliases, groupCols []string) string {
+func resolveOrderBy(field, dir string, groupBy []string, aliases, aggExprs []string) string {
 	if dir == "" {
 		dir = "DESC"
 	}
@@ -223,30 +240,56 @@ func resolveOrderBy(field, dir string, aliases, groupCols []string) string {
 	}
 
 	if field != "" {
-		// Check if it matches an alias
-		for _, a := range aliases {
-			if a == field {
-				return safeAlias(field) + " " + dir
+		for i, alias := range aliases {
+			if alias == field {
+				return aggExprs[i] + " " + dir
 			}
 		}
-		// Check if it matches a groupBy column
-		for _, g := range groupCols {
-			if g == field {
-				return g + " " + dir
+		for _, dim := range groupBy {
+			if dim == field {
+				if col, ok := LookupDimension(dim); ok {
+					return col + " " + dir
+				}
 			}
 		}
 	}
 
-	// Default: order by first aggregation
-	if len(aliases) > 0 {
-		return safeAlias(aliases[0]) + " " + dir
+	if len(aggExprs) > 0 {
+		return aggExprs[0] + " " + dir
 	}
-	return groupCols[0] + " " + dir
+	if len(groupBy) > 0 {
+		if col, ok := LookupDimension(groupBy[0]); ok {
+			return col + " " + dir
+		}
+	}
+	return "count() DESC"
 }
 
-// safeAlias backtick-wraps an alias to prevent injection.
 func safeAlias(s string) string {
-	// Strip any backticks from the input to prevent escaping
 	clean := strings.ReplaceAll(s, "`", "")
 	return "`" + clean + "`"
+}
+
+func stringArrayLiteral(values []string) string {
+	quoted := make([]string, len(values))
+	for i, value := range values {
+		quoted[i] = "'" + strings.ReplaceAll(value, "'", "\\'") + "'"
+	}
+	return "[" + strings.Join(quoted, ", ") + "]"
+}
+
+func stringArrayExpr(exprs []string) string {
+	items := make([]string, len(exprs))
+	for i, expr := range exprs {
+		items[i] = fmt.Sprintf("toString(%s)", expr)
+	}
+	return "[" + strings.Join(items, ", ") + "]"
+}
+
+func floatArrayExpr(exprs []string) string {
+	items := make([]string, len(exprs))
+	for i, expr := range exprs {
+		items[i] = fmt.Sprintf("toFloat64(%s)", expr)
+	}
+	return "[" + strings.Join(items, ", ") + "]"
 }

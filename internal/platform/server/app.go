@@ -11,65 +11,67 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/gin-gonic/gin"
-	"github.com/redis/go-redis/v9"
 	"github.com/observability/observability-backend-go/internal/config"
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	configdefaults "github.com/observability/observability-backend-go/internal/defaultconfig"
-	alertingmod "github.com/observability/observability-backend-go/internal/modules/alerting"
-	anomalymod "github.com/observability/observability-backend-go/internal/modules/anomaly"
-	"github.com/observability/observability-backend-go/internal/modules/ai"
+	aiconversations "github.com/observability/observability-backend-go/internal/modules/ai/conversations"
 	aidashboard "github.com/observability/observability-backend-go/internal/modules/ai/dashboard"
 	airundetail "github.com/observability/observability-backend-go/internal/modules/ai/rundetail"
 	airuns "github.com/observability/observability-backend-go/internal/modules/ai/runs"
 	aitraces "github.com/observability/observability-backend-go/internal/modules/ai/traces"
-	aiconversations "github.com/observability/observability-backend-go/internal/modules/ai/conversations"
 	"github.com/observability/observability-backend-go/internal/modules/apm"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
+	dbcollection "github.com/observability/observability-backend-go/internal/modules/database/collection"
+	dbconnections "github.com/observability/observability-backend-go/internal/modules/database/connections"
+	dberrors "github.com/observability/observability-backend-go/internal/modules/database/errors"
+	dblatency "github.com/observability/observability-backend-go/internal/modules/database/latency"
+	dbslowqueries "github.com/observability/observability-backend-go/internal/modules/database/slowqueries"
+	dbsummary "github.com/observability/observability-backend-go/internal/modules/database/summary"
+	dbsystem "github.com/observability/observability-backend-go/internal/modules/database/system"
+	dbsystems "github.com/observability/observability-backend-go/internal/modules/database/systems"
+	dbvolume "github.com/observability/observability-backend-go/internal/modules/database/volume"
 	defaultconfig "github.com/observability/observability-backend-go/internal/modules/defaultconfig"
 	"github.com/observability/observability-backend-go/internal/modules/httpmetrics"
+	infraCPU "github.com/observability/observability-backend-go/internal/modules/infrastructure/cpu"
+	infraDisk "github.com/observability/observability-backend-go/internal/modules/infrastructure/disk"
+	infraJVM "github.com/observability/observability-backend-go/internal/modules/infrastructure/jvm"
 	kubernetes "github.com/observability/observability-backend-go/internal/modules/infrastructure/kubernetes"
+	infraMemory "github.com/observability/observability-backend-go/internal/modules/infrastructure/memory"
+	infraNetwork "github.com/observability/observability-backend-go/internal/modules/infrastructure/network"
 	nodes "github.com/observability/observability-backend-go/internal/modules/infrastructure/nodes"
 	"github.com/observability/observability-backend-go/internal/modules/infrastructure/resource_utilisation"
-	infraCPU "github.com/observability/observability-backend-go/internal/modules/infrastructure/cpu"
-	infraMemory "github.com/observability/observability-backend-go/internal/modules/infrastructure/memory"
-	infraDisk "github.com/observability/observability-backend-go/internal/modules/infrastructure/disk"
-	infraNetwork "github.com/observability/observability-backend-go/internal/modules/infrastructure/network"
-	infraJVM "github.com/observability/observability-backend-go/internal/modules/infrastructure/jvm"
-	logsapi "github.com/observability/observability-backend-go/internal/modules/log"
+	loganalytics "github.com/observability/observability-backend-go/internal/modules/log/analytics"
+	logdetail "github.com/observability/observability-backend-go/internal/modules/log/detail"
+	logsearch "github.com/observability/observability-backend-go/internal/modules/log/search"
+	logtracelogs "github.com/observability/observability-backend-go/internal/modules/log/tracelogs"
 	overviewerrors "github.com/observability/observability-backend-go/internal/modules/overview/errors"
 	overviewmodule "github.com/observability/observability-backend-go/internal/modules/overview/overview"
 	overviewslo "github.com/observability/observability-backend-go/internal/modules/overview/slo"
+	"github.com/redis/go-redis/v9"
 
 	"github.com/observability/observability-backend-go/internal/modules/saturation/kafka"
 	redisaturation "github.com/observability/observability-backend-go/internal/modules/saturation/redis"
 	servicepage "github.com/observability/observability-backend-go/internal/modules/services/service"
 	servicemap "github.com/observability/observability-backend-go/internal/modules/services/servicemap"
 	servicetopology "github.com/observability/observability-backend-go/internal/modules/services/topology"
-	tracesapi "github.com/observability/observability-backend-go/internal/modules/spans"
+	spananalytics "github.com/observability/observability-backend-go/internal/modules/spans/analytics"
 	errorfingerprint "github.com/observability/observability-backend-go/internal/modules/spans/errorfingerprint"
 	errortracking "github.com/observability/observability-backend-go/internal/modules/spans/errortracking"
 	livetail "github.com/observability/observability-backend-go/internal/modules/spans/livetail"
 	redmetrics "github.com/observability/observability-backend-go/internal/modules/spans/redmetrics"
-	spananalytics "github.com/observability/observability-backend-go/internal/modules/spans/analytics"
-	savedviews "github.com/observability/observability-backend-go/internal/modules/spans/savedviews"
 	tracecompare "github.com/observability/observability-backend-go/internal/modules/spans/tracecompare"
 	tracedetail "github.com/observability/observability-backend-go/internal/modules/spans/tracedetail"
-	annotationsmod "github.com/observability/observability-backend-go/internal/modules/annotations"
-	dashboardsmod "github.com/observability/observability-backend-go/internal/modules/dashboards"
-	errorsinbox "github.com/observability/observability-backend-go/internal/modules/errorsinbox"
-	explorermod "github.com/observability/observability-backend-go/internal/modules/explorer"
-	sharingmod "github.com/observability/observability-backend-go/internal/modules/sharing"
-	workloadsmod "github.com/observability/observability-backend-go/internal/modules/workloads"
-	databaseotel "github.com/observability/observability-backend-go/internal/modules/database"
-	usermodule "github.com/observability/observability-backend-go/internal/modules/user"
-	"github.com/observability/observability-backend-go/internal/platform/alerting"
-	"github.com/observability/observability-backend-go/internal/platform/auth"
+	tracesapi "github.com/observability/observability-backend-go/internal/modules/spans/traces"
+	userauth "github.com/observability/observability-backend-go/internal/modules/user/auth"
+	userteam "github.com/observability/observability-backend-go/internal/modules/user/team"
+	userpage "github.com/observability/observability-backend-go/internal/modules/user/user"
 	"github.com/observability/observability-backend-go/internal/platform/cache"
 	"github.com/observability/observability-backend-go/internal/platform/ingest"
 	"github.com/observability/observability-backend-go/internal/platform/middleware"
 	"github.com/observability/observability-backend-go/internal/platform/otlp"
 	otlpauth "github.com/observability/observability-backend-go/internal/platform/otlp/auth"
 	otlpgrpc "github.com/observability/observability-backend-go/internal/platform/otlp/grpc"
+	sessionauth "github.com/observability/observability-backend-go/internal/platform/session"
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -82,7 +84,9 @@ import (
 )
 
 type moduleConfigs struct {
-	Identity            usermodule.Config
+	UserAuth            userauth.Config
+	UserPage            userpage.Config
+	UserTeam            userteam.Config
 	Overview            overviewmodule.Config
 	OverviewSLO         overviewslo.Config
 	OverviewErrors      overviewerrors.Config
@@ -96,38 +100,46 @@ type moduleConfigs struct {
 	Network             infraNetwork.Config
 	JVM                 infraJVM.Config
 
-	SaturationKafka     kafka.Config
-	SaturationRedis     redisaturation.Config
-	Kubernetes          kubernetes.Config
-	HTTPMetrics         httpmetrics.Config
-	APM                 apm.Config
-	Logs                logsapi.Config
-	Traces              tracesapi.Config
-	TraceDetail         tracedetail.Config
-	ServiceMap          servicemap.Config
-	REDMetrics          redmetrics.Config
-	ErrorTracking       errortracking.Config
-	SpanAnalytics       spananalytics.Config
-	TraceCompare        tracecompare.Config
-	SavedViews          savedviews.Config
-	LiveTail            livetail.Config
-	ErrorFingerprint    errorfingerprint.Config
-	AI                  ai.Config
-	DefaultConfig       defaultconfig.Config
-	DatabaseOTel        databaseotel.Config
-	Annotations         annotationsmod.Config
-	Alerting            alertingmod.Config
-	Dashboards          dashboardsmod.Config
-	ErrorsInbox         errorsinbox.Config
-	Explorer            explorermod.Config
-	Sharing             sharingmod.Config
-	Workloads           workloadsmod.Config
-	Anomaly             anomalymod.Config
+	SaturationKafka  kafka.Config
+	SaturationRedis  redisaturation.Config
+	Kubernetes       kubernetes.Config
+	HTTPMetrics      httpmetrics.Config
+	APM              apm.Config
+	LogSearch        logsearch.Config
+	LogAnalytics     loganalytics.Config
+	LogDetail        logdetail.Config
+	LogTraceLogs     logtracelogs.Config
+	Traces           tracesapi.Config
+	TraceDetail      tracedetail.Config
+	ServiceMap       servicemap.Config
+	REDMetrics       redmetrics.Config
+	ErrorTracking    errortracking.Config
+	SpanAnalytics    spananalytics.Config
+	TraceCompare     tracecompare.Config
+	LiveTail         livetail.Config
+	ErrorFingerprint errorfingerprint.Config
+	AIDashboard      aidashboard.Config
+	AIRuns           airuns.Config
+	AIRunDetail      airundetail.Config
+	AITraces         aitraces.Config
+	AIConversations  aiconversations.Config
+	DefaultConfig    defaultconfig.Config
+	DatabaseSummary  dbsummary.Config
+	DatabaseSystems  dbsystems.Config
+	DatabaseLatency  dblatency.Config
+	DatabaseVolume   dbvolume.Config
+	DatabaseSlow     dbslowqueries.Config
+	DatabaseErrors   dberrors.Config
+	DatabaseConn     dbconnections.Config
+	DatabaseCollect  dbcollection.Config
+	DatabaseSystem   dbsystem.Config
 }
 
 func defaultModuleConfigs() moduleConfigs {
 	return moduleConfigs{
-		Identity:            usermodule.DefaultConfig(),
+		UserAuth:            userauth.DefaultConfig(),
+		UserPage:            userpage.DefaultConfig(),
+		UserTeam:            userteam.DefaultConfig(),
 		Overview:            overviewmodule.DefaultConfig(),
 		OverviewSLO:         overviewslo.DefaultConfig(),
 		OverviewErrors:      overviewerrors.DefaultConfig(),
@@ -141,47 +153,56 @@ func defaultModuleConfigs() moduleConfigs {
 		Network:             infraNetwork.DefaultConfig(),
 		JVM:                 infraJVM.DefaultConfig(),
 
-		SaturationKafka:     kafka.DefaultConfig(),
-		SaturationRedis:     redisaturation.DefaultConfig(),
-		Kubernetes:          kubernetes.DefaultConfig(),
-		HTTPMetrics:         httpmetrics.DefaultConfig(),
-		APM:                 apm.DefaultConfig(),
-		Logs:                logsapi.DefaultConfig(),
-		Traces:              tracesapi.DefaultConfig(),
-		TraceDetail:         tracedetail.DefaultConfig(),
-		ServiceMap:          servicemap.DefaultConfig(),
-		REDMetrics:          redmetrics.DefaultConfig(),
-		ErrorTracking:       errortracking.DefaultConfig(),
-		SpanAnalytics:       spananalytics.DefaultConfig(),
-		TraceCompare:        tracecompare.DefaultConfig(),
-		SavedViews:          savedviews.DefaultConfig(),
-		LiveTail:            livetail.DefaultConfig(),
-		ErrorFingerprint:    errorfingerprint.DefaultConfig(),
-		AI:                  ai.DefaultConfig(),
-		DefaultConfig:       defaultconfig.DefaultConfig(),
-		DatabaseOTel:        databaseotel.DefaultConfig(),
-		Annotations:         annotationsmod.DefaultConfig(),
-		Alerting:            alertingmod.DefaultConfig(),
-		Dashboards:          dashboardsmod.DefaultConfig(),
-		ErrorsInbox:         errorsinbox.DefaultConfig(),
-		Explorer:            explorermod.DefaultConfig(),
-		Sharing:             sharingmod.DefaultConfig(),
-		Workloads:           workloadsmod.DefaultConfig(),
-		Anomaly:             anomalymod.DefaultConfig(),
+		SaturationKafka:  kafka.DefaultConfig(),
+		SaturationRedis:  redisaturation.DefaultConfig(),
+		Kubernetes:       kubernetes.DefaultConfig(),
+		HTTPMetrics:      httpmetrics.DefaultConfig(),
+		APM:              apm.DefaultConfig(),
+		LogSearch:        logsearch.DefaultConfig(),
+		LogAnalytics:     loganalytics.DefaultConfig(),
+		LogDetail:        logdetail.DefaultConfig(),
+		LogTraceLogs:     logtracelogs.DefaultConfig(),
+		Traces:           tracesapi.DefaultConfig(),
+		TraceDetail:      tracedetail.DefaultConfig(),
+		ServiceMap:       servicemap.DefaultConfig(),
+		REDMetrics:       redmetrics.DefaultConfig(),
+		ErrorTracking:    errortracking.DefaultConfig(),
+		SpanAnalytics:    spananalytics.DefaultConfig(),
+		TraceCompare:     tracecompare.DefaultConfig(),
+		LiveTail:         livetail.DefaultConfig(),
+		ErrorFingerprint: errorfingerprint.DefaultConfig(),
+		AIDashboard:      aidashboard.DefaultConfig(),
+		AIRuns:           airuns.DefaultConfig(),
+		AIRunDetail:      airundetail.DefaultConfig(),
+		AITraces:         aitraces.DefaultConfig(),
+		AIConversations:  aiconversations.DefaultConfig(),
+		DefaultConfig:    defaultconfig.DefaultConfig(),
+		DatabaseSummary:  dbsummary.DefaultConfig(),
+		DatabaseSystems:  dbsystems.DefaultConfig(),
+		DatabaseLatency:  dblatency.DefaultConfig(),
+		DatabaseVolume:   dbvolume.DefaultConfig(),
+		DatabaseSlow:     dbslowqueries.DefaultConfig(),
+		DatabaseErrors:   dberrors.DefaultConfig(),
+		DatabaseConn:     dbconnections.DefaultConfig(),
+		DatabaseCollect:  dbcollection.DefaultConfig(),
+		DatabaseSystem:   dbsystem.DefaultConfig(),
 	}
 }
 
 type App struct {
 	DB             *sql.DB
-	CH             *sql.DB
+	CH             clickhouse.Conn
+	Redis          *redis.Client
 	Config         config.Config
-	JWTManager     auth.JWTManager
-	TokenBlacklist *auth.TokenBlacklist
+	SessionManager *sessionauth.Manager
 
-	Auth                *usermodule.AuthHandler
-	Users               *usermodule.UserHandler
-	OAuth               *usermodule.OAuthHandler
-	Logs                *logsapi.LogHandler
+	Auth                *userauth.Handler
+	User                *userpage.Handler
+	Team                *userteam.Handler
+	LogSearch           *logsearch.Handler
+	LogAnalytics        *loganalytics.Handler
+	LogDetail           *logdetail.Handler
+	LogTraceLogs        *logtracelogs.Handler
 	Traces              *tracesapi.TraceHandler
 	TraceDetail         *tracedetail.TraceDetailHandler
 	ServiceMap          *servicemap.ServiceMapHandler
@@ -189,7 +210,6 @@ type App struct {
 	ErrorTracking       *errortracking.ErrorTrackingHandler
 	SpanAnalytics       *spananalytics.Handler
 	TraceCompare        *tracecompare.Handler
-	SavedViews          *savedviews.Handler
 	LiveTail            *livetail.Handler
 	ErrorFingerprint    *errorfingerprint.Handler
 	Overview            *overviewmodule.OverviewHandler
@@ -205,22 +225,26 @@ type App struct {
 	Network             *infraNetwork.NetworkHandler
 	JVM                 *infraJVM.JVMHandler
 
-	SaturationKafka     *kafka.KafkaHandler
-	SaturationRedis     *redisaturation.RedisHandler
-	Kubernetes          *kubernetes.KubernetesHandler
-	HTTPMetrics         *httpmetrics.HTTPMetricsHandler
-	APM                 *apm.APMHandler
-	AI                  *ai.Handlers
-	DefaultConfig       *defaultconfig.Handler
-	DatabaseOTel        *databaseotel.Handler
-	Annotations         *annotationsmod.Handler
-	Alerting            *alertingmod.Handler
-	Dashboards          *dashboardsmod.Handler
-	ErrorsInbox         *errorsinbox.Handler
-	Explorer            *explorermod.Handler
-	Sharing             *sharingmod.Handler
-	Workloads           *workloadsmod.Handler
-	Anomaly             *anomalymod.Handler
+	SaturationKafka *kafka.KafkaHandler
+	SaturationRedis *redisaturation.RedisHandler
+	Kubernetes      *kubernetes.KubernetesHandler
+	HTTPMetrics     *httpmetrics.HTTPMetricsHandler
+	APM             *apm.APMHandler
+	AIDashboard     *aidashboard.Handler
+	AIRuns          *airuns.Handler
+	AIRunDetail     *airundetail.Handler
+	AITraces        *aitraces.Handler
+	AIConversations *aiconversations.Handler
+	DefaultConfig   *defaultconfig.Handler
+	DatabaseSummary *dbsummary.Handler
+	DatabaseSystems *dbsystems.Handler
+	DatabaseLatency *dblatency.Handler
+	DatabaseVolume  *dbvolume.Handler
+	DatabaseSlow    *dbslowqueries.Handler
+	DatabaseErrors  *dberrors.Handler
+	DatabaseConn    *dbconnections.Handler
+	DatabaseCollect *dbcollection.Handler
+	DatabaseSystem  *dbsystem.Handler
 
 	// Query result cache (Redis-gated, nil-safe).
 	Cache *cache.QueryCache
@@ -232,30 +256,16 @@ type App struct {
 	LogsQueue    *ingest.Queue
 	MetricsQueue *ingest.Queue
 	Tracker      *ingest.ByteTracker
-	AlertEngine  *alerting.Engine
 }
 
-func New(db *sql.DB, ch *sql.DB, chNative clickhouse.Conn, cfg config.Config) *App {
-	jwt := auth.JWTManager{
-		Secret:     []byte(cfg.JWTSecret),
-		Expiration: cfg.JWTDuration(),
-	}
-
+func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) *App {
 	getTenant := modulecommon.GetTenantFunc(middleware.GetTenant)
 
-	userStore := usermodule.NewStore(db)
+	sessionManager := sessionauth.NewManager(cfg)
 
 	registry, err := configdefaults.Load()
 	if err != nil {
 		log.Fatalf("failed to load embedded default config registry: %v", err)
-	}
-
-	var blacklist *auth.TokenBlacklist
-
-	if cfg.RedisEnabled {
-		blacklist = auth.NewTokenBlacklist(cfg.RedisHost, cfg.RedisPort)
-	} else {
-		blacklist = auth.NewInMemoryTokenBlacklist()
 	}
 
 	// OTLP ingest queues — batch-write to ClickHouse.
@@ -265,17 +275,18 @@ func New(db *sql.DB, ch *sql.DB, chNative clickhouse.Conn, cfg config.Config) *A
 	}
 	brokers := cfg.KafkaBrokerList()
 	_ = brokers // Kafka path removed; kept to avoid config breakage
-	spansQueue := ingest.NewQueue(chNative, "observability.spans", otlp.SpanColumns, queueOpts...)
-	logsQueue := ingest.NewQueue(chNative, "observability.logs", otlp.LogColumns, queueOpts...)
-	metricsQueue := ingest.NewQueue(chNative, "observability.metrics", otlp.MetricColumns, queueOpts...)
+	spansQueue := ingest.NewQueue(ch, "observability.spans", otlp.SpanColumns, queueOpts...)
+	logsQueue := ingest.NewQueue(ch, "observability.logs", otlp.LogColumns, queueOpts...)
+	metricsQueue := ingest.NewQueue(ch, "observability.metrics", otlp.MetricColumns, queueOpts...)
 
 	// Query result cache — only active when Redis is enabled.
+	var redisClient *redis.Client
 	var queryCache *cache.QueryCache
 	if cfg.RedisEnabled {
-		rc := redis.NewClient(&redis.Options{
+		redisClient = redis.NewClient(&redis.Options{
 			Addr: fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort),
 		})
-		queryCache = cache.New(rc)
+		queryCache = cache.New(redisClient)
 	} else {
 		queryCache = cache.New(nil)
 	}
@@ -285,342 +296,297 @@ func New(db *sql.DB, ch *sql.DB, chNative clickhouse.Conn, cfg config.Config) *A
 	otlpHTTPHandler := otlp.NewHandler(authResolver, spansQueue, logsQueue, metricsQueue, tracker)
 	otlpGRPCHandler := otlpgrpc.NewHandler(authResolver, spansQueue, logsQueue, metricsQueue)
 
+	nativeQuerier := dbutil.NewNativeQuerier(ch)
+
 	return &App{
 		DB:             db,
 		CH:             ch,
+		Redis:          redisClient,
 		Config:         cfg,
-		JWTManager:     jwt,
-		TokenBlacklist: blacklist,
+		SessionManager: sessionManager,
 
-		Auth:  usermodule.NewAuthHandler(getTenant, userStore, jwt, blacklist, cfg.JWTExpirationMs),
-		Users: usermodule.NewUserHandler(getTenant, userStore, registry),
-		OAuth: usermodule.NewOAuthHandler(
-			userStore, jwt, cfg.JWTExpirationMs,
-			cfg.GoogleClientID, cfg.GoogleClientSecret,
-			cfg.GitHubClientID, cfg.GitHubClientSecret,
-			cfg.OAuthRedirectBase,
-		),
-		Logs: logsapi.NewHandler(
+		Auth: userauth.NewHandler(
 			getTenant,
-			logsapi.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+			userauth.NewService(
+				userauth.NewRepository(db),
+				sessionManager,
+				cfg.GoogleClientID, cfg.GoogleClientSecret,
+				cfg.GitHubClientID, cfg.GitHubClientSecret,
+				cfg.OAuthRedirectBase,
+			),
 		),
+		User: userpage.NewHandler(
+			getTenant,
+			userpage.NewService(userpage.NewRepository(db)),
+		),
+		Team: userteam.NewHandler(
+			getTenant,
+			userteam.NewService(userteam.NewRepository(db), registry),
+		),
+		LogSearch: &logsearch.Handler{
+			DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+			Service:  logsearch.NewService(logsearch.NewRepository(nativeQuerier)),
+		},
+		LogAnalytics: &loganalytics.Handler{
+			DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+			Service:  loganalytics.NewService(loganalytics.NewRepository(nativeQuerier)),
+		},
+		LogDetail: &logdetail.Handler{
+			DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+			Service:  logdetail.NewService(logdetail.NewRepository(nativeQuerier)),
+		},
+		LogTraceLogs: &logtracelogs.Handler{
+			DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+			Service:  logtracelogs.NewService(logtracelogs.NewRepository(nativeQuerier)),
+		},
 		Traces: tracesapi.NewHandler(
 			getTenant,
-			tracesapi.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+			tracesapi.NewService(tracesapi.NewRepository(nativeQuerier)),
 		),
 		SpanAnalytics: spananalytics.NewHandler(
 			getTenant,
 			spananalytics.NewService(
-				spananalytics.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+				spananalytics.NewRepository(nativeQuerier),
 			),
 		),
 		TraceCompare: tracecompare.NewHandler(
 			getTenant,
 			tracecompare.NewService(
-				tracecompare.NewRepository(dbutil.NewClickHouseWrapper(ch)),
-			),
-		),
-		SavedViews: savedviews.NewHandler(
-			getTenant,
-			savedviews.NewService(
-				savedviews.NewRepository(db),
+				tracecompare.NewRepository(nativeQuerier),
 			),
 		),
 		LiveTail: livetail.NewHandler(
 			getTenant,
-			livetail.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+			livetail.NewService(livetail.NewRepository(nativeQuerier)),
 		),
 		ErrorFingerprint: errorfingerprint.NewHandler(
 			getTenant,
-			errorfingerprint.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+			errorfingerprint.NewService(errorfingerprint.NewRepository(nativeQuerier)),
 		),
 		TraceDetail: &tracedetail.TraceDetailHandler{
 			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
 				GetTenant: getTenant,
 			},
 			Service: tracedetail.NewService(
-				tracedetail.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+				tracedetail.NewRepository(nativeQuerier),
 			),
 		},
 		ServiceMap: &servicemap.ServiceMapHandler{
 			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
 				GetTenant: getTenant,
 			},
 			Service: servicemap.NewService(
-				servicemap.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+				servicemap.NewRepository(nativeQuerier),
 			),
 		},
 		REDMetrics: &redmetrics.REDMetricsHandler{
 			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
 				GetTenant: getTenant,
 			},
 			Service: redmetrics.NewService(
-				redmetrics.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+				redmetrics.NewRepository(nativeQuerier),
 			),
 		},
 		ErrorTracking: &errortracking.ErrorTrackingHandler{
 			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: errortracking.NewService(
-				errortracking.NewRepository(dbutil.NewClickHouseWrapper(ch)),
-			),
+			Service: errortracking.NewService(errortracking.NewRepository(nativeQuerier)),
 		},
 		Overview: &overviewmodule.OverviewHandler{
 			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: overviewmodule.NewService(
-				overviewmodule.NewRepository(dbutil.NewClickHouseWrapper(ch)),
-			),
+			Service: overviewmodule.NewService(overviewmodule.NewRepository(nativeQuerier)),
 		},
 		OverviewSLO: &overviewslo.SLOHandler{
 			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
 				GetTenant: getTenant,
 			},
 			Service: overviewslo.NewService(
-				overviewslo.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+				overviewslo.NewRepository(nativeQuerier),
 			),
 		},
 		OverviewErrors: &overviewerrors.ErrorHandler{
 			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: overviewerrors.NewService(
-				overviewerrors.NewRepository(dbutil.NewClickHouseWrapper(ch)),
-			),
+			Service: overviewerrors.NewService(overviewerrors.NewRepository(nativeQuerier)),
 		},
 		ServicesPage: &servicepage.ServiceHandler{
 			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: servicepage.NewService(
-				servicepage.NewRepository(dbutil.NewClickHouseWrapper(ch)),
-			),
+			Service: servicepage.NewService(servicepage.NewRepository(nativeQuerier)),
 		},
 		ServicesTopology: &servicetopology.TopologyHandler{
 			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
 				GetTenant: getTenant,
 			},
 			Service: servicetopology.NewService(
-				servicetopology.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+				servicetopology.NewRepository(nativeQuerier),
 			),
 		},
 		Nodes: &nodes.NodeHandler{
 			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
 				GetTenant: getTenant,
 			},
 			Service: nodes.NewService(
-				nodes.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+				nodes.NewRepository(nativeQuerier),
 			),
 		},
 		ResourceUtilisation: &resource_utilisation.ResourceUtilisationHandler{
 			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
 				GetTenant: getTenant,
 			},
 			Service: resource_utilisation.NewService(
-				resource_utilisation.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+				resource_utilisation.NewRepository(nativeQuerier),
 			),
 		},
-		CPU:     infraCPU.NewHandler(dbutil.NewClickHouseWrapper(ch), getTenant),
-		Memory:  infraMemory.NewHandler(dbutil.NewClickHouseWrapper(ch), getTenant),
-		Disk:    infraDisk.NewHandler(dbutil.NewClickHouseWrapper(ch), getTenant),
-		Network: infraNetwork.NewHandler(dbutil.NewClickHouseWrapper(ch), getTenant),
-		JVM:     infraJVM.NewHandler(dbutil.NewClickHouseWrapper(ch), getTenant),
+		CPU:     infraCPU.NewHandler(nativeQuerier, getTenant),
+		Memory:  infraMemory.NewHandler(nativeQuerier, getTenant),
+		Disk:    infraDisk.NewHandler(nativeQuerier, getTenant),
+		Network: infraNetwork.NewHandler(nativeQuerier, getTenant),
+		JVM:     infraJVM.NewHandler(nativeQuerier, getTenant),
 
 		SaturationKafka: &kafka.KafkaHandler{
 			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
 				GetTenant: getTenant,
 			},
 			Service: kafka.NewService(
-				kafka.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+				kafka.NewRepository(nativeQuerier),
 			),
 		},
 		SaturationRedis: &redisaturation.RedisHandler{
 			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: redisaturation.NewService(
-				redisaturation.NewRepository(dbutil.NewClickHouseWrapper(ch)),
-			),
+			Service: redisaturation.NewService(redisaturation.NewRepository(nativeQuerier)),
 		},
 		Kubernetes: &kubernetes.KubernetesHandler{
 			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: kubernetes.NewService(
-				kubernetes.NewRepository(dbutil.NewClickHouseWrapper(ch)),
-			),
+			Service: kubernetes.NewService(kubernetes.NewRepository(nativeQuerier)),
 		},
 		HTTPMetrics: &httpmetrics.HTTPMetricsHandler{
 			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
 				GetTenant: getTenant,
 			},
 			Service: httpmetrics.NewService(
-				httpmetrics.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+				httpmetrics.NewRepository(nativeQuerier),
 			),
 		},
 		APM: &apm.APMHandler{
 			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: apm.NewService(
-				apm.NewRepository(dbutil.NewClickHouseWrapper(ch)),
+			Service: apm.NewService(apm.NewRepository(nativeQuerier)),
+		},
+		AIDashboard: &aidashboard.Handler{
+			DBTenant: modulecommon.DBTenant{
+				GetTenant: getTenant,
+			},
+			Service: aidashboard.NewService(aidashboard.NewRepository(nativeQuerier)),
+		},
+		AIRuns: &airuns.Handler{
+			DBTenant: modulecommon.DBTenant{
+				GetTenant: getTenant,
+			},
+			Service: airuns.NewService(airuns.NewRepository(nativeQuerier)),
+		},
+		AIRunDetail: &airundetail.Handler{
+			DBTenant: modulecommon.DBTenant{
+				GetTenant: getTenant,
+			},
+			Service: airundetail.NewService(
+				airundetail.NewRepository(nativeQuerier),
 			),
 		},
-		AI: &ai.Handlers{
-			Dashboard: &aidashboard.Handler{
-				DBTenant: modulecommon.DBTenant{
-					DB:        ch,
-					GetTenant: getTenant,
-				},
-				Service: aidashboard.NewService(
-					aidashboard.NewRepository(dbutil.NewClickHouseWrapper(ch)),
-				),
+		AITraces: &aitraces.Handler{
+			DBTenant: modulecommon.DBTenant{
+				GetTenant: getTenant,
 			},
-			Runs: &airuns.Handler{
-				DBTenant: modulecommon.DBTenant{
-					DB:        ch,
-					GetTenant: getTenant,
-				},
-				Service: airuns.NewService(
-					airuns.NewRepository(dbutil.NewClickHouseWrapper(ch)),
-				),
+			Service: aitraces.NewService(
+				aitraces.NewRepository(nativeQuerier),
+			),
+		},
+		AIConversations: &aiconversations.Handler{
+			DBTenant: modulecommon.DBTenant{
+				GetTenant: getTenant,
 			},
-			RunDetail: &airundetail.Handler{
-				DBTenant: modulecommon.DBTenant{
-					DB:        ch,
-					GetTenant: getTenant,
-				},
-				Service: airundetail.NewService(
-					airundetail.NewRepository(dbutil.NewClickHouseWrapper(ch)),
-				),
-			},
-			Traces: &aitraces.Handler{
-				DBTenant: modulecommon.DBTenant{
-					DB:        ch,
-					GetTenant: getTenant,
-				},
-				Service: aitraces.NewService(
-					aitraces.NewRepository(dbutil.NewClickHouseWrapper(ch)),
-				),
-			},
-			Conversations: &aiconversations.Handler{
-				DBTenant: modulecommon.DBTenant{
-					DB:        ch,
-					GetTenant: getTenant,
-				},
-				Service: aiconversations.NewService(
-					aiconversations.NewRepository(dbutil.NewClickHouseWrapper(ch)),
-				),
-			},
+			Service: aiconversations.NewService(aiconversations.NewRepository(nativeQuerier)),
 		},
 		DefaultConfig: &defaultconfig.Handler{
 			DBTenant: modulecommon.DBTenant{
 				DB:        db,
 				GetTenant: getTenant,
 			},
-			Repo:     defaultconfig.NewRepository(db),
-			Registry: registry,
+			Service: defaultconfig.NewService(defaultconfig.NewRepository(db), registry),
 		},
-
-		DatabaseOTel: &databaseotel.Handler{
+		DatabaseSummary: &dbsummary.Handler{
 			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: databaseotel.NewService(
-				databaseotel.NewRepository(dbutil.NewClickHouseWrapper(ch)),
-			),
+			Service: dbsummary.NewService(dbsummary.NewRepository(nativeQuerier)),
 		},
-
-		Alerting: alertingmod.NewHandler(
-			getTenant,
-			alertingmod.NewService(
-				alertingmod.NewRepository(db),
-			),
-		),
-
-		Dashboards: dashboardsmod.NewHandler(
-			getTenant,
-			dashboardsmod.NewService(
-				dashboardsmod.NewRepository(db),
-			),
-		),
-
-		ErrorsInbox: errorsinbox.NewHandler(
-			getTenant,
-			errorsinbox.NewService(
-				errorsinbox.NewRepository(db),
-			),
-		),
-
-		Explorer: &explorermod.Handler{
+		DatabaseSystems: &dbsystems.Handler{
 			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: explorermod.NewService(
-				explorermod.NewRepository(dbutil.NewClickHouseWrapper(ch)),
-			),
+			Service: dbsystems.NewService(dbsystems.NewRepository(nativeQuerier)),
 		},
-
-		Sharing: sharingmod.NewHandler(
-			getTenant,
-			sharingmod.NewService(
-				sharingmod.NewRepository(db),
-			),
-		),
-
-		Workloads: workloadsmod.NewHandler(
-			getTenant,
-			workloadsmod.NewService(
-				workloadsmod.NewRepository(db),
-			),
-		),
-
-		Anomaly: &anomalymod.Handler{
+		DatabaseLatency: &dblatency.Handler{
 			DBTenant: modulecommon.DBTenant{
-				DB:        ch,
 				GetTenant: getTenant,
 			},
-			Service: anomalymod.NewService(
-				anomalymod.NewRepository(dbutil.NewClickHouseWrapper(ch)),
-			),
+			Service: dblatency.NewService(dblatency.NewRepository(nativeQuerier)),
+		},
+		DatabaseVolume: &dbvolume.Handler{
+			DBTenant: modulecommon.DBTenant{
+				GetTenant: getTenant,
+			},
+			Service: dbvolume.NewService(dbvolume.NewRepository(nativeQuerier)),
+		},
+		DatabaseSlow: &dbslowqueries.Handler{
+			DBTenant: modulecommon.DBTenant{
+				GetTenant: getTenant,
+			},
+			Service: dbslowqueries.NewService(dbslowqueries.NewRepository(nativeQuerier)),
+		},
+		DatabaseErrors: &dberrors.Handler{
+			DBTenant: modulecommon.DBTenant{
+				GetTenant: getTenant,
+			},
+			Service: dberrors.NewService(dberrors.NewRepository(nativeQuerier)),
+		},
+		DatabaseConn: &dbconnections.Handler{
+			DBTenant: modulecommon.DBTenant{
+				GetTenant: getTenant,
+			},
+			Service: dbconnections.NewService(dbconnections.NewRepository(nativeQuerier)),
+		},
+		DatabaseCollect: &dbcollection.Handler{
+			DBTenant: modulecommon.DBTenant{
+				GetTenant: getTenant,
+			},
+			Service: dbcollection.NewService(dbcollection.NewRepository(nativeQuerier)),
+		},
+		DatabaseSystem: &dbsystem.Handler{
+			DBTenant: modulecommon.DBTenant{
+				GetTenant: getTenant,
+			},
+			Service: dbsystem.NewService(dbsystem.NewRepository(nativeQuerier)),
 		},
 
-		Annotations: annotationsmod.NewHandler(
-			getTenant,
-			annotationsmod.NewService(
-				annotationsmod.NewRepository(db),
-			),
-		),
+		Cache: queryCache,
 
-		Cache:      queryCache,
-
-		OTLPHTTP:   otlpHTTPHandler,
-		OTLPGRPC:   otlpGRPCHandler,
-		SpansQueue:     spansQueue,
-		LogsQueue:      logsQueue,
-		MetricsQueue:   metricsQueue,
-		Tracker:        tracker,
-		AlertEngine:    alerting.NewEngine(db, ch),
+		OTLPHTTP:     otlpHTTPHandler,
+		OTLPGRPC:     otlpGRPCHandler,
+		SpansQueue:   spansQueue,
+		LogsQueue:    logsQueue,
+		MetricsQueue: metricsQueue,
+		Tracker:      tracker,
 	}
 }
 
@@ -642,11 +608,16 @@ func (a *App) Router() *gin.Engine {
 
 	// Apply identity and rate limiting middleware ONLY to versioned API routes.
 	// This ensures unversioned legacy paths return 404 instead of 401.
-	v1.Use(middleware.TenantMiddleware(a.JWTManager, a.TokenBlacklist))
+	v1.Use(middleware.TenantMiddleware(a.SessionManager))
 
 	// Rate limiting: 1000 requests per second with burst of 2000.
-	rl := middleware.NewRateLimiter(1000, 2000, time.Second)
-	v1.Use(middleware.RateLimitMiddleware(rl))
+	if a.Redis != nil {
+		rl := middleware.NewRedisRateLimiter(a.Redis, 2000, time.Second)
+		v1.Use(middleware.RedisRateLimitMiddleware(rl))
+	} else {
+		rl := middleware.NewRateLimiter(1000, 2000, time.Second)
+		v1.Use(middleware.RateLimitMiddleware(rl))
+	}
 
 	a.registerRoutesToGroup(v1)
 	return r
@@ -660,8 +631,13 @@ func (a *App) OTLPRouter() *gin.Engine {
 	r.Use(middleware.CORSMiddleware(a.Config.AllowedOrigins))
 
 	// Global rate limiting for ingest: 1000 requests per second with burst of 2000.
-	rl := middleware.NewRateLimiter(1000, 2000, time.Second)
-	r.Use(middleware.RateLimitMiddleware(rl))
+	if a.Redis != nil {
+		rl := middleware.NewRedisRateLimiter(a.Redis, 2000, time.Second)
+		r.Use(middleware.RedisRateLimitMiddleware(rl))
+	} else {
+		rl := middleware.NewRateLimiter(1000, 2000, time.Second)
+		r.Use(middleware.RateLimitMiddleware(rl))
+	}
 
 	// Use the OTLP HTTP handler to register routes
 	// Note: Authentication is handled inside the handler (resolves API key from headers)
@@ -677,7 +653,9 @@ func (a *App) registerRoutesToGroup(v1 *gin.RouterGroup) {
 	// When Redis is disabled the middleware is a no-op and requests pass through.
 	cached := v1.Group("", cache.CacheResponse(a.Cache, 30*time.Second))
 
-	usermodule.RegisterRoutes(cfg.Identity, v1, a.Auth, a.Users, a.OAuth)
+	userauth.RegisterRoutes(cfg.UserAuth, v1, a.Auth)
+	userpage.RegisterRoutes(cfg.UserPage, v1, a.User)
+	userteam.RegisterRoutes(cfg.UserTeam, v1, a.Team)
 	overviewmodule.RegisterRoutes(cfg.Overview, cached, a.Overview)
 	overviewslo.RegisterRoutes(cfg.OverviewSLO, cached, a.OverviewSLO)
 	overviewerrors.RegisterRoutes(cfg.OverviewErrors, cached, a.OverviewErrors)
@@ -696,28 +674,34 @@ func (a *App) registerRoutesToGroup(v1 *gin.RouterGroup) {
 	kubernetes.RegisterRoutes(cfg.Kubernetes, cached, a.Kubernetes)
 	httpmetrics.RegisterRoutes(cfg.HTTPMetrics, cached, a.HTTPMetrics)
 	apm.RegisterRoutes(cfg.APM, cached, a.APM)
-	logsapi.RegisterRoutes(cfg.Logs, v1, a.Logs)
+	logsearch.RegisterRoutes(cfg.LogSearch, v1, a.LogSearch)
+	loganalytics.RegisterRoutes(cfg.LogAnalytics, v1, a.LogAnalytics)
+	logdetail.RegisterRoutes(cfg.LogDetail, v1, a.LogDetail)
+	logtracelogs.RegisterRoutes(cfg.LogTraceLogs, v1, a.LogTraceLogs)
 	tracesapi.RegisterRoutes(cfg.Traces, v1, a.Traces)
 	spananalytics.RegisterRoutes(cfg.SpanAnalytics, v1, a.SpanAnalytics)
 	tracecompare.RegisterRoutes(cfg.TraceCompare, v1, a.TraceCompare)
-	savedviews.RegisterRoutes(cfg.SavedViews, v1, a.SavedViews)
 	livetail.RegisterRoutes(cfg.LiveTail, v1, a.LiveTail)
 	errorfingerprint.RegisterRoutes(cfg.ErrorFingerprint, v1, a.ErrorFingerprint)
 	tracedetail.RegisterRoutes(cfg.TraceDetail, v1, a.TraceDetail)
 	servicemap.RegisterRoutes(cfg.ServiceMap, cached, a.ServiceMap)
 	redmetrics.RegisterRoutes(cfg.REDMetrics, cached, a.REDMetrics)
 	errortracking.RegisterRoutes(cfg.ErrorTracking, cached, a.ErrorTracking)
-	ai.RegisterRoutes(cfg.AI, v1, a.AI)
+	aidashboard.RegisterRoutes(cfg.AIDashboard, v1, a.AIDashboard)
+	airuns.RegisterRoutes(cfg.AIRuns, v1, a.AIRuns)
+	airundetail.RegisterRoutes(cfg.AIRunDetail, v1, a.AIRunDetail)
+	aitraces.RegisterRoutes(cfg.AITraces, v1, a.AITraces)
+	aiconversations.RegisterRoutes(cfg.AIConversations, v1, a.AIConversations)
 	defaultconfig.RegisterRoutes(cfg.DefaultConfig, v1, a.DefaultConfig)
-	databaseotel.RegisterRoutes(cfg.DatabaseOTel, cached, a.DatabaseOTel)
-	annotationsmod.RegisterRoutes(cfg.Annotations, v1, a.Annotations)
-	alertingmod.RegisterRoutes(cfg.Alerting, v1, a.Alerting)
-	dashboardsmod.RegisterRoutes(cfg.Dashboards, v1, a.Dashboards)
-	errorsinbox.RegisterRoutes(cfg.ErrorsInbox, v1, a.ErrorsInbox)
-	explorermod.RegisterRoutes(cfg.Explorer, v1, a.Explorer)
-	sharingmod.RegisterRoutes(cfg.Sharing, v1, a.Sharing)
-	workloadsmod.RegisterRoutes(cfg.Workloads, v1, a.Workloads)
-	anomalymod.RegisterRoutes(cfg.Anomaly, cached, a.Anomaly)
+	dbsummary.RegisterRoutes(cfg.DatabaseSummary, cached, a.DatabaseSummary)
+	dbsystems.RegisterRoutes(cfg.DatabaseSystems, cached, a.DatabaseSystems)
+	dblatency.RegisterRoutes(cfg.DatabaseLatency, cached, a.DatabaseLatency)
+	dbvolume.RegisterRoutes(cfg.DatabaseVolume, cached, a.DatabaseVolume)
+	dbslowqueries.RegisterRoutes(cfg.DatabaseSlow, cached, a.DatabaseSlow)
+	dberrors.RegisterRoutes(cfg.DatabaseErrors, cached, a.DatabaseErrors)
+	dbconnections.RegisterRoutes(cfg.DatabaseConn, cached, a.DatabaseConn)
+	dbcollection.RegisterRoutes(cfg.DatabaseCollect, cached, a.DatabaseCollect)
+	dbsystem.RegisterRoutes(cfg.DatabaseSystem, cached, a.DatabaseSystem)
 }
 
 func (a *App) healthLive(c *gin.Context) {
@@ -729,7 +713,9 @@ func (a *App) healthReady(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "mysql": err.Error()})
 		return
 	}
-	if err := a.CH.Ping(); err != nil {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+	if err := a.CH.Ping(ctx); err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "clickhouse": err.Error()})
 		return
 	}
@@ -747,13 +733,12 @@ func (a *App) healthReady(c *gin.Context) {
 func (a *App) Start(ctx context.Context) error {
 	// Start background metric tracking / alert evaluation
 	a.Tracker.Start()
-	a.AlertEngine.Start()
 
 	// 1. Setup Main API Server (9090)
 	mainRouter := a.Router()
 	mainSrv := &http.Server{
 		Addr:         fmt.Sprintf(":%s", a.Config.Port),
-		Handler:      h2c.NewHandler(mainRouter, &http2.Server{}),
+		Handler:      h2c.NewHandler(a.SessionManager.LoadAndSave(mainRouter), &http2.Server{}),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
@@ -825,9 +810,6 @@ func (a *App) Start(ctx context.Context) error {
 		return err
 	case <-ctx.Done():
 		log.Println("shutdown signal received, draining connections…")
-		if a.TokenBlacklist != nil {
-			a.TokenBlacklist.Stop()
-		}
 
 		// Phase 1: Flush all ingest queues before accepting no more requests.
 		for _, q := range []*ingest.Queue{a.SpansQueue, a.LogsQueue, a.MetricsQueue} {

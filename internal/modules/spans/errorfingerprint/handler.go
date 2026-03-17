@@ -9,11 +9,11 @@ import (
 
 type Handler struct {
 	getTenant common.GetTenantFunc
-	repo      *Repository
+	service   *Service
 }
 
-func NewHandler(getTenant common.GetTenantFunc, repo *Repository) *Handler {
-	return &Handler{getTenant: getTenant, repo: repo}
+func NewHandler(getTenant common.GetTenantFunc, service *Service) *Handler {
+	return &Handler{getTenant: getTenant, service: service}
 }
 
 // ListFingerprints handles GET /v1/errors/fingerprints
@@ -29,7 +29,7 @@ func (h *Handler) ListFingerprints(c *gin.Context) {
 		limit = 100
 	}
 
-	fps, err := h.repo.ListFingerprints(teamID, startMs, endMs, serviceName, limit)
+	fps, err := h.service.ListFingerprints(teamID, startMs, endMs, serviceName, limit)
 	if err != nil {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query error fingerprints")
 		return
@@ -54,7 +54,7 @@ func (h *Handler) GetFingerprintTrend(c *gin.Context) {
 		return
 	}
 
-	points, err := h.repo.GetFingerprintTrend(teamID, startMs, endMs, serviceName, operationName, exceptionType, statusMessage)
+	points, err := h.service.GetFingerprintTrend(teamID, startMs, endMs, serviceName, operationName, exceptionType, statusMessage)
 	if err != nil {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query fingerprint trend")
 		return

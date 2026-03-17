@@ -1,28 +1,44 @@
 package runs
 
-type Service interface {
-	ListRuns(f LLMRunFilters) ([]LLMRun, error)
-	GetRunsSummary(f LLMRunFilters) (*LLMRunSummary, error)
-	ListModels(f LLMRunFilters) ([]LLMRunModel, error)
-	ListOperations(f LLMRunFilters) ([]LLMRunOperation, error)
+import "context"
+
+type Service struct {
+	repo Repository
 }
 
-type RunsService struct{ repo Repository }
-
-func NewService(repo Repository) *RunsService { return &RunsService{repo: repo} }
-
-func (s *RunsService) ListRuns(f LLMRunFilters) ([]LLMRun, error) {
-	return s.repo.ListRuns(f)
+func NewService(repo Repository) *Service {
+	return &Service{repo: repo}
 }
 
-func (s *RunsService) GetRunsSummary(f LLMRunFilters) (*LLMRunSummary, error) {
-	return s.repo.GetRunsSummary(f)
+func (s *Service) ListRuns(ctx context.Context, f LLMRunFilters) ([]LLMRun, error) {
+	rows, err := s.repo.ListRuns(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	return mapLLMRunDTOs(rows), nil
 }
 
-func (s *RunsService) ListModels(f LLMRunFilters) ([]LLMRunModel, error) {
-	return s.repo.ListModels(f)
+func (s *Service) GetRunsSummary(ctx context.Context, f LLMRunFilters) (*LLMRunSummary, error) {
+	row, err := s.repo.GetRunsSummary(ctx, f)
+	if err != nil || row == nil {
+		return nil, err
+	}
+	model := LLMRunSummary(*row)
+	return &model, nil
 }
 
-func (s *RunsService) ListOperations(f LLMRunFilters) ([]LLMRunOperation, error) {
-	return s.repo.ListOperations(f)
+func (s *Service) ListModels(ctx context.Context, f LLMRunFilters) ([]LLMRunModel, error) {
+	rows, err := s.repo.ListModels(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	return mapLLMRunModelDTOs(rows), nil
+}
+
+func (s *Service) ListOperations(ctx context.Context, f LLMRunFilters) ([]LLMRunOperation, error) {
+	rows, err := s.repo.ListOperations(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	return mapLLMRunOperationDTOs(rows), nil
 }

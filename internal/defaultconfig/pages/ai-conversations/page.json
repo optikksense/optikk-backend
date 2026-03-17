@@ -1,0 +1,13 @@
+{
+  "id": "ai-conversations",
+  "path": "/ai-conversations",
+  "label": "Conversations",
+  "icon": "List",
+  "group": "operate",
+  "order": 82,
+  "defaultTabId": "",
+  "navigable": true,
+  "shellOnly": true,
+  "title": "AI Conversations",
+  "subtitle": "Multi-turn conversation threads grouped by conversation ID"
+}

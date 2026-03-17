@@ -3,8 +3,9 @@ package dashboard
 import (
 	"fmt"
 	"strings"
+	"time"
 
-	dbutil "github.com/observability/observability-backend-go/internal/database"
+	"github.com/ClickHouse/clickhouse-go/v2"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
@@ -45,14 +46,26 @@ func attrStr(key string) string { return "attributes.'" + key + "'::String" }
 func attrInt(key string) string { return "attributes.'" + key + "'::Int64" }
 func attrFlt(key string) string { return "attributes.'" + key + "'::Float64" }
 
+func baseParams(teamID int64, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+}
+
 func (b *BaseQueryBuilder) baseWhereClause() (string, []any) {
 	modelExpr := attrStr("gen.ai.request.model")
-	where := fmt.Sprintf("WHERE team_id = ? AND timestamp BETWEEN ? AND ? AND %s <> ''", modelExpr)
-	args := []any{b.teamID, dbutil.SqlTime(b.startMs), dbutil.SqlTime(b.endMs)}
+	where := fmt.Sprintf("WHERE team_id = @teamID AND timestamp BETWEEN @start AND @end AND %s <> ''", modelExpr)
+	args := []any{
+		clickhouse.Named("teamID", uint32(b.teamID)),
+		clickhouse.Named("start", time.UnixMilli(b.startMs)),
+		clickhouse.Named("end", time.UnixMilli(b.endMs)),
+	}
 
 	if b.modelName != "" {
-		where += fmt.Sprintf(" AND %s = ?", modelExpr)
-		args = append(args, b.modelName)
+		where += fmt.Sprintf(" AND %s = @modelName", modelExpr)
+		args = append(args, clickhouse.Named("modelName", b.modelName))
 	}
 
 	return where, args
@@ -68,8 +81,6 @@ func NewSummaryQueryBuilder(teamID int64, startMs, endMs int64) *SummaryQueryBui
 
 func (b *SummaryQueryBuilder) Build() (string, []any) {
 	where, args := b.baseWhereClause()
-	timeRangeArgs := []any{dbutil.SqlTime(b.startMs), dbutil.SqlTime(b.endMs)}
-	args = append(timeRangeArgs, args...)
 
 	durationMs := attrFlt("duration_ms")
 	inputTokens := attrInt("gen.ai.usage.input_tokens")
@@ -82,7 +93,7 @@ func (b *SummaryQueryBuilder) Build() (string, []any) {
 
 	query := fmt.Sprintf(`
 		SELECT COUNT(*) as total_requests,
-		       COUNT(*) / GREATEST(dateDiff('second', ?, ?), 1) as avg_qps,
+		       COUNT(*) / GREATEST(dateDiff('second', @start, @end), 1) as avg_qps,
 		       AVG(%s) as avg_latency_ms,
 		       AVG(%s) as p95_latency_ms,
 		       SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) as timeout_count,

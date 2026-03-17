@@ -3,100 +3,61 @@ package circuitbreaker
 import (
 	"errors"
 	"log"
-	"math/rand"
 	"sync"
 	"time"
+
+	"github.com/sony/gobreaker"
 )
 
-// CircuitBreaker reopens after a cooldown plus jitter to avoid stampeding
-// retries when a dependency starts recovering.
 var ErrCircuitOpen = errors.New("circuit breaker open")
 
-type cbState int
-
-const (
-	cbClosed cbState = iota
-	cbOpen
-	cbHalfOpen
-)
-
 type CircuitBreaker struct {
-	name     string
-	mu       sync.Mutex
-	state    cbState
-	failures int
-	// Threshold is the consecutive failure count that trips the circuit.
-	Threshold int
-	// ResetTimeout is how long the circuit stays open before attempting a probe.
-	ResetTimeout time.Duration
-	openedAt     time.Time
+	cb *gobreaker.CircuitBreaker
 }
 
+var breakerRegistry syncRegistry
+
 func NewCircuitBreaker(name string, threshold int, resetTimeout time.Duration) *CircuitBreaker {
-	return &CircuitBreaker{
-		name:         name,
-		Threshold:    threshold,
-		ResetTimeout: resetTimeout,
-	}
+	return breakerRegistry.getOrCreate(name, threshold, resetTimeout)
 }
 
 func (cb *CircuitBreaker) Call(fn func() error) error {
-	cb.mu.Lock()
-	switch cb.state {
-	case cbOpen:
-		// Add 0-25% jitter to prevent thundering herd on recovery.
-		jitter := time.Duration(rand.Int63n(int64(cb.ResetTimeout / 4)))
-		if time.Since(cb.openedAt) < cb.ResetTimeout+jitter {
-			cb.mu.Unlock()
-			return ErrCircuitOpen
-		}
-		// Transition to half-open and allow a single probe.
-		cb.state = cbHalfOpen
-	}
-	cb.mu.Unlock()
-
-	err := fn()
-
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
-	prevState := cb.state
-	if err != nil {
-		cb.failures++
-		if cb.state == cbHalfOpen || cb.failures >= cb.Threshold {
-			cb.state = cbOpen
-			cb.openedAt = time.Now()
-		}
-	} else {
-		cb.failures = 0
-		cb.state = cbClosed
-	}
-	if cb.state != prevState {
-		log.Printf("circuit_breaker: %s transitioned %s -> %s (failures=%d)",
-			cb.name, stateName(prevState), stateName(cb.state), cb.failures)
+	_, err := cb.cb.Execute(func() (any, error) {
+		return nil, fn()
+	})
+	if errors.Is(err, gobreaker.ErrOpenState) || errors.Is(err, gobreaker.ErrTooManyRequests) {
+		return ErrCircuitOpen
 	}
 	return err
 }
 
-func stateName(s cbState) string {
-	switch s {
-	case cbOpen:
-		return "open"
-	case cbHalfOpen:
-		return "half-open"
-	default:
-		return "closed"
-	}
+func (cb *CircuitBreaker) State() string {
+	return cb.cb.State().String()
 }
 
-func (cb *CircuitBreaker) State() string {
-	cb.mu.Lock()
-	defer cb.mu.Unlock()
-	switch cb.state {
-	case cbOpen:
-		return "open"
-	case cbHalfOpen:
-		return "half-open"
-	default:
-		return "closed"
+type syncRegistry struct {
+	breakers sync.Map
+}
+
+func (r *syncRegistry) getOrCreate(name string, threshold int, resetTimeout time.Duration) *CircuitBreaker {
+	if existing, ok := r.breakers.Load(name); ok {
+		return existing.(*CircuitBreaker)
 	}
+
+	created := &CircuitBreaker{
+		cb: gobreaker.NewCircuitBreaker(gobreaker.Settings{
+			Name:        name,
+			MaxRequests: 1,
+			Timeout:     resetTimeout,
+			ReadyToTrip: func(counts gobreaker.Counts) bool {
+				return counts.ConsecutiveFailures >= uint32(threshold)
+			},
+			OnStateChange: func(name string, from gobreaker.State, to gobreaker.State) {
+				log.Printf("circuit_breaker: %s transitioned %s -> %s", name, from.String(), to.String())
+			},
+		}),
+	}
+
+	actual, _ := r.breakers.LoadOrStore(name, created)
+	return actual.(*CircuitBreaker)
 }

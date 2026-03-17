@@ -1,25 +1,28 @@
 package disk
 
 import (
+	"context"
 	"fmt"
+	"time"
 
-	dbutil "github.com/observability/observability-backend-go/internal/database"
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/infrastructure/infraconsts"
 )
 
 type Repository interface {
-	GetDiskIO(teamID int64, startMs, endMs int64) ([]DirectionBucket, error)
-	GetDiskOperations(teamID int64, startMs, endMs int64) ([]DirectionBucket, error)
-	GetDiskIOTime(teamID int64, startMs, endMs int64) ([]ResourceBucket, error)
-	GetFilesystemUsage(teamID int64, startMs, endMs int64) ([]MountpointBucket, error)
-	GetFilesystemUtilization(teamID int64, startMs, endMs int64) ([]ResourceBucket, error)
+	GetDiskIO(ctx context.Context, teamID int64, startMs, endMs int64) ([]directionBucketDTO, error)
+	GetDiskOperations(ctx context.Context, teamID int64, startMs, endMs int64) ([]directionBucketDTO, error)
+	GetDiskIOTime(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error)
+	GetFilesystemUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]mountpointBucketDTO, error)
+	GetFilesystemUtilization(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error)
 }
 
 type ClickHouseRepository struct {
-	db dbutil.Querier
+	db *database.NativeQuerier
 }
 
-func NewRepository(db dbutil.Querier) Repository {
+func NewRepository(db *database.NativeQuerier) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -27,119 +30,103 @@ func bucket(startMs, endMs int64) string {
 	return infraconsts.TimeBucketExpression(startMs, endMs)
 }
 
-func (r *ClickHouseRepository) queryDirectionBuckets(query string, teamID int64, startMs, endMs int64) ([]DirectionBucket, error) {
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
-	if err != nil {
-		return nil, err
+func baseParams(teamID int64, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
-	buckets := make([]DirectionBucket, len(rows))
-	for i, row := range rows {
-		buckets[i] = DirectionBucket{
-			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
-			Direction: dbutil.StringFromAny(row["direction"]),
-			Value:     dbutil.NullableFloat64FromAny(row["metric_val"]),
-		}
-	}
-	return buckets, nil
 }
 
-func (r *ClickHouseRepository) queryResourceBuckets(query string, teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
-	if err != nil {
+func (r *ClickHouseRepository) queryDirectionBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]directionBucketDTO, error) {
+	var rows []directionBucketDTO
+	if err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
-	buckets := make([]ResourceBucket, len(rows))
-	for i, row := range rows {
-		buckets[i] = ResourceBucket{
-			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
-			Pod:       dbutil.StringFromAny(row["pod"]),
-			Value:     dbutil.NullableFloat64FromAny(row["metric_val"]),
-		}
-	}
-	return buckets, nil
+	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetDiskIO(teamID int64, startMs, endMs int64) ([]DirectionBucket, error) {
+func (r *ClickHouseRepository) queryResourceBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
+	var rows []resourceBucketDTO
+	if err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *ClickHouseRepository) GetDiskIO(ctx context.Context, teamID int64, startMs, endMs int64) ([]directionBucketDTO, error) {
 	b := bucket(startMs, endMs)
 	dir := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrSystemDiskDirection)
 	query := fmt.Sprintf(`
 		SELECT %s as time_bucket, %s as direction, sum(%s) as metric_val
 		FROM %s
-		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		WHERE %s = @teamID AND %s BETWEEN @start AND @end AND %s = '%s'
 		GROUP BY 1, 2 ORDER BY 1, 2`,
 		b, dir, infraconsts.ColValue,
 		infraconsts.TableMetrics,
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricSystemDiskIO)
-	return r.queryDirectionBuckets(query, teamID, startMs, endMs)
+	return r.queryDirectionBuckets(ctx, query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetDiskOperations(teamID int64, startMs, endMs int64) ([]DirectionBucket, error) {
+func (r *ClickHouseRepository) GetDiskOperations(ctx context.Context, teamID int64, startMs, endMs int64) ([]directionBucketDTO, error) {
 	b := bucket(startMs, endMs)
 	dir := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrSystemDiskDirection)
 	query := fmt.Sprintf(`
 		SELECT %s as time_bucket, %s as direction, sum(%s) as metric_val
 		FROM %s
-		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		WHERE %s = @teamID AND %s BETWEEN @start AND @end AND %s = '%s'
 		GROUP BY 1, 2 ORDER BY 1, 2`,
 		b, dir, infraconsts.ColValue,
 		infraconsts.TableMetrics,
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricSystemDiskOperations)
-	return r.queryDirectionBuckets(query, teamID, startMs, endMs)
+	return r.queryDirectionBuckets(ctx, query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetDiskIOTime(teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
+func (r *ClickHouseRepository) GetDiskIOTime(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
 	b := bucket(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT %s as time_bucket, '' as pod, sum(%s) as metric_val
 		FROM %s
-		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		WHERE %s = @teamID AND %s BETWEEN @start AND @end AND %s = '%s'
 		GROUP BY 1 ORDER BY 1`,
 		b, infraconsts.ColValue,
 		infraconsts.TableMetrics,
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricSystemDiskIOTime)
-	return r.queryResourceBuckets(query, teamID, startMs, endMs)
+	return r.queryResourceBuckets(ctx, query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetFilesystemUsage(teamID int64, startMs, endMs int64) ([]MountpointBucket, error) {
+func (r *ClickHouseRepository) GetFilesystemUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]mountpointBucketDTO, error) {
 	b := bucket(startMs, endMs)
 	mp := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrFilesystemMountpoint)
 	query := fmt.Sprintf(`
 		SELECT %s as time_bucket, %s as mountpoint, avg(%s) as metric_val
 		FROM %s
-		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		WHERE %s = @teamID AND %s BETWEEN @start AND @end AND %s = '%s'
 		GROUP BY 1, 2 ORDER BY 1, 2`,
 		b, mp, infraconsts.ColValue,
 		infraconsts.TableMetrics,
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricSystemFilesystemUsage)
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
-	if err != nil {
+	var rows []mountpointBucketDTO
+	if err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
-	buckets := make([]MountpointBucket, len(rows))
-	for i, row := range rows {
-		buckets[i] = MountpointBucket{
-			Timestamp:  dbutil.StringFromAny(row["time_bucket"]),
-			Mountpoint: dbutil.StringFromAny(row["mountpoint"]),
-			Value:      dbutil.NullableFloat64FromAny(row["metric_val"]),
-		}
-	}
-	return buckets, nil
+	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetFilesystemUtilization(teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
+func (r *ClickHouseRepository) GetFilesystemUtilization(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
 	b := bucket(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT %s as time_bucket, '' as pod, avg(%s) as metric_val
 		FROM %s
-		WHERE %s = ? AND %s BETWEEN ? AND ? AND %s = '%s'
+		WHERE %s = @teamID AND %s BETWEEN @start AND @end AND %s = '%s'
 		GROUP BY 1 ORDER BY 1`,
 		b, infraconsts.ColValue,
 		infraconsts.TableMetrics,
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricSystemFilesystemUtil)
-	return r.queryResourceBuckets(query, teamID, startMs, endMs)
+	return r.queryResourceBuckets(ctx, query, teamID, startMs, endMs)
 }

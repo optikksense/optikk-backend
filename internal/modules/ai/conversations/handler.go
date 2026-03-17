@@ -11,7 +11,7 @@ import (
 
 type Handler struct {
 	modulecommon.DBTenant
-	Service Service
+	Service *Service
 }
 
 func (h *Handler) ListConversations(c *gin.Context) {
@@ -26,7 +26,7 @@ func (h *Handler) ListConversations(c *gin.Context) {
 		limit, _ = strconv.Atoi(v)
 	}
 
-	convos, err := h.Service.ListConversations(teamID, startMs, endMs, limit)
+	convos, err := h.Service.ListConversations(c.Request.Context(), teamID, startMs, endMs, limit)
 	if err != nil {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to list conversations")
 		return
@@ -46,7 +46,7 @@ func (h *Handler) GetConversation(c *gin.Context) {
 		return
 	}
 
-	turns, err := h.Service.GetConversation(teamID, conversationID, startMs, endMs)
+	turns, err := h.Service.GetConversation(c.Request.Context(), teamID, conversationID, startMs, endMs)
 	if err != nil {
 		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get conversation")
 		return

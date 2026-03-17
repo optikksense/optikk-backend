@@ -15,6 +15,7 @@ type PageMetadata struct {
 	Order        int    `json:"order"`
 	DefaultTabID string `json:"defaultTabId"`
 	Navigable    bool   `json:"navigable"`
+	ShellOnly    bool   `json:"shellOnly,omitempty"` // page is rendered by a custom frontend shell, no tabs needed
 	Title        string `json:"title,omitempty"`
 	Subtitle     string `json:"subtitle,omitempty"`
 }

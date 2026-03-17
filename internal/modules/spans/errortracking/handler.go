@@ -10,7 +10,7 @@ import (
 
 type ErrorTrackingHandler struct {
 	modulecommon.DBTenant
-	Service Service
+	Service *Service
 }
 
 func (h *ErrorTrackingHandler) GetExceptionRateByType(c *gin.Context) {
@@ -21,7 +21,7 @@ func (h *ErrorTrackingHandler) GetExceptionRateByType(c *gin.Context) {
 	}
 	serviceName := c.Query("serviceName")
 
-	points, err := h.Service.GetExceptionRateByType(teamID, startMs, endMs, serviceName)
+	points, err := h.Service.GetExceptionRateByType(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query exception rate by type")
 		return
@@ -36,7 +36,7 @@ func (h *ErrorTrackingHandler) GetErrorHotspot(c *gin.Context) {
 		return
 	}
 
-	cells, err := h.Service.GetErrorHotspot(teamID, startMs, endMs)
+	cells, err := h.Service.GetErrorHotspot(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query error hotspot")
 		return
@@ -52,7 +52,7 @@ func (h *ErrorTrackingHandler) GetHTTP5xxByRoute(c *gin.Context) {
 	}
 	serviceName := c.Query("serviceName")
 
-	rows, err := h.Service.GetHTTP5xxByRoute(teamID, startMs, endMs, serviceName)
+	rows, err := h.Service.GetHTTP5xxByRoute(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query HTTP 5xx by route")
 		return

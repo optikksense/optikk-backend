@@ -1,0 +1,9 @@
+package validation
+
+import "github.com/go-playground/validator/v10"
+
+var validate = validator.New()
+
+func Struct(value any) error {
+	return validate.Struct(value)
+}

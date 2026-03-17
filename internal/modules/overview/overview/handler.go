@@ -10,7 +10,7 @@ import (
 
 type OverviewHandler struct {
 	modulecommon.DBTenant
-	Service Service
+	Service *Service
 }
 
 func (h *OverviewHandler) GetRequestRate(c *gin.Context) {
@@ -21,7 +21,7 @@ func (h *OverviewHandler) GetRequestRate(c *gin.Context) {
 	}
 	serviceName := c.Query("serviceName")
 
-	points, err := h.Service.GetRequestRate(teamID, startMs, endMs, serviceName)
+	points, err := h.Service.GetRequestRate(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview request rate")
 		return
@@ -38,7 +38,7 @@ func (h *OverviewHandler) GetErrorRate(c *gin.Context) {
 	}
 	serviceName := c.Query("serviceName")
 
-	points, err := h.Service.GetErrorRate(teamID, startMs, endMs, serviceName)
+	points, err := h.Service.GetErrorRate(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview error rate")
 		return
@@ -55,7 +55,7 @@ func (h *OverviewHandler) GetP95Latency(c *gin.Context) {
 	}
 	serviceName := c.Query("serviceName")
 
-	points, err := h.Service.GetP95Latency(teamID, startMs, endMs, serviceName)
+	points, err := h.Service.GetP95Latency(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview p95 latency")
 		return
@@ -71,7 +71,7 @@ func (h *OverviewHandler) GetServices(c *gin.Context) {
 		return
 	}
 
-	rows, err := h.Service.GetServices(teamID, startMs, endMs)
+	rows, err := h.Service.GetServices(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview services")
 		return
@@ -88,7 +88,7 @@ func (h *OverviewHandler) GetTopEndpoints(c *gin.Context) {
 	}
 	serviceName := c.Query("serviceName")
 
-	rows, err := h.Service.GetTopEndpoints(teamID, startMs, endMs, serviceName)
+	rows, err := h.Service.GetTopEndpoints(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview top endpoints")
 		return
@@ -105,7 +105,7 @@ func (h *OverviewHandler) GetEndpointTimeSeries(c *gin.Context) {
 	}
 	serviceName := c.Query("serviceName")
 
-	rows, err := h.Service.GetEndpointTimeSeries(teamID, startMs, endMs, serviceName)
+	rows, err := h.Service.GetEndpointTimeSeries(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview endpoint time series")
 		return

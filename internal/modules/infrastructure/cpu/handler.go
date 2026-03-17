@@ -10,7 +10,7 @@ import (
 
 type CPUHandler struct {
 	modulecommon.DBTenant
-	Service Service
+	Service *Service
 }
 
 func (h *CPUHandler) GetCPUTime(c *gin.Context) {
@@ -19,7 +19,7 @@ func (h *CPUHandler) GetCPUTime(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetCPUTime(teamID, startMs, endMs)
+	resp, err := h.Service.GetCPUTime(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query CPU time")
 		return
@@ -33,7 +33,7 @@ func (h *CPUHandler) GetCPUUsagePercentage(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetCPUUsagePercentage(teamID, startMs, endMs)
+	resp, err := h.Service.GetCPUUsagePercentage(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query CPU usage percentage")
 		return
@@ -47,7 +47,7 @@ func (h *CPUHandler) GetLoadAverage(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetLoadAverage(teamID, startMs, endMs)
+	resp, err := h.Service.GetLoadAverage(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query load average")
 		return
@@ -61,7 +61,7 @@ func (h *CPUHandler) GetProcessCount(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetProcessCount(teamID, startMs, endMs)
+	resp, err := h.Service.GetProcessCount(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query process count")
 		return

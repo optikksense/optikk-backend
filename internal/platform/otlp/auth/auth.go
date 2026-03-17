@@ -5,9 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"sync"
-	"sync/atomic"
 	"time"
+
+	ttlcache "github.com/jellydator/ttlcache/v3"
 )
 
 var (
@@ -17,25 +17,22 @@ var (
 )
 
 const (
-	cacheTTL      = 5 * time.Minute
-	cleanupPeriod = 10 * time.Minute
+	cacheTTL = 5 * time.Minute
 )
 
 type Authenticator struct {
 	db    *sql.DB
-	cache sync.Map // map[string]*cachedTeam
-	size  atomic.Int64
-}
-
-type cachedTeam struct {
-	teamID    int64
-	expiresAt time.Time
+	cache *ttlcache.Cache[string, int64]
 }
 
 func NewAuthenticator(db *sql.DB) *Authenticator {
-	a := &Authenticator{db: db}
-	go a.cleanupLoop()
-	return a
+	cache := ttlcache.New[string, int64](ttlcache.WithTTL[string, int64](cacheTTL))
+	go cache.Start()
+
+	return &Authenticator{
+		db:    db,
+		cache: cache,
+	}
 }
 
 func (a *Authenticator) ResolveTeamID(ctx context.Context, apiKey string) (int64, error) {
@@ -43,13 +40,8 @@ func (a *Authenticator) ResolveTeamID(ctx context.Context, apiKey string) (int64
 		return 0, ErrMissingAPIKey
 	}
 
-	// Lock-free read path
-	if val, ok := a.cache.Load(apiKey); ok {
-		ct := val.(*cachedTeam)
-		if time.Now().Before(ct.expiresAt) {
-			return ct.teamID, nil
-		}
-		// Expired — fall through to DB
+	if item := a.cache.Get(apiKey); item != nil {
+		return item.Value(), nil
 	}
 
 	var teamID int64
@@ -64,36 +56,7 @@ func (a *Authenticator) ResolveTeamID(ctx context.Context, apiKey string) (int64
 		return 0, fmt.Errorf("%w: %v", ErrResolveFailed, err)
 	}
 
-	// Store — sync.Map handles concurrent stores safely
-	if _, loaded := a.cache.LoadOrStore(apiKey, &cachedTeam{
-		teamID:    teamID,
-		expiresAt: time.Now().Add(cacheTTL),
-	}); !loaded {
-		a.size.Add(1)
-	} else {
-		// Key existed (expired entry) — overwrite
-		a.cache.Store(apiKey, &cachedTeam{
-			teamID:    teamID,
-			expiresAt: time.Now().Add(cacheTTL),
-		})
-	}
+	a.cache.Set(apiKey, teamID, ttlcache.DefaultTTL)
 
 	return teamID, nil
-}
-
-// cleanupLoop periodically evicts expired entries to prevent unbounded growth.
-func (a *Authenticator) cleanupLoop() {
-	ticker := time.NewTicker(cleanupPeriod)
-	defer ticker.Stop()
-	for range ticker.C {
-		now := time.Now()
-		a.cache.Range(func(key, val any) bool {
-			ct := val.(*cachedTeam)
-			if now.After(ct.expiresAt) {
-				a.cache.Delete(key)
-				a.size.Add(-1)
-			}
-			return true
-		})
-	}
 }

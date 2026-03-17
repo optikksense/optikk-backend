@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	dbutil "github.com/observability/observability-backend-go/internal/database"
+	database "github.com/observability/observability-backend-go/internal/database"
 )
 
 const (
@@ -76,10 +76,10 @@ var (
 )
 
 type ClickHouseRepository struct {
-	db dbutil.Querier
+	db *database.NativeQuerier
 }
 
-func NewRepository(db dbutil.Querier) *ClickHouseRepository {
+func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 

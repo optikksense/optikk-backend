@@ -1,27 +1,23 @@
 package memory
 
-type Service interface {
-	GetMemoryUsage(teamID int64, startMs, endMs int64) ([]StateBucket, error)
-	GetMemoryUsagePercentage(teamID int64, startMs, endMs int64) ([]ResourceBucket, error)
-	GetSwapUsage(teamID int64, startMs, endMs int64) ([]StateBucket, error)
-}
+import "context"
 
-type MemoryService struct {
+type Service struct {
 	repo Repository
 }
 
-func NewService(repo Repository) Service {
-	return &MemoryService{repo: repo}
+func NewService(repo Repository) *Service {
+	return &Service{repo: repo}
 }
 
-func (s *MemoryService) GetMemoryUsage(teamID int64, startMs, endMs int64) ([]StateBucket, error) {
-	return s.repo.GetMemoryUsage(teamID, startMs, endMs)
+func (s *Service) GetMemoryUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
+	return s.repo.GetMemoryUsage(ctx, teamID, startMs, endMs)
 }
 
-func (s *MemoryService) GetMemoryUsagePercentage(teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
-	return s.repo.GetMemoryUsagePercentage(teamID, startMs, endMs)
+func (s *Service) GetMemoryUsagePercentage(ctx context.Context, teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
+	return s.repo.GetMemoryUsagePercentage(ctx, teamID, startMs, endMs)
 }
 
-func (s *MemoryService) GetSwapUsage(teamID int64, startMs, endMs int64) ([]StateBucket, error) {
-	return s.repo.GetSwapUsage(teamID, startMs, endMs)
+func (s *Service) GetSwapUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
+	return s.repo.GetSwapUsage(ctx, teamID, startMs, endMs)
 }

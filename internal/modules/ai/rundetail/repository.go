@@ -1,9 +1,12 @@
 package rundetail
 
 import (
+	"context"
 	"fmt"
+	"time"
 
-	dbutil "github.com/observability/observability-backend-go/internal/database"
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/observability/observability-backend-go/internal/database"
 )
 
 const (
@@ -17,20 +20,28 @@ const (
 )
 
 type Repository interface {
-	GetRunDetail(teamID int64, spanID string) (*LLMRunDetail, error)
-	GetRunEvents(teamID int64, spanID string) ([]map[string]any, error)
-	GetTraceSpans(teamID int64, traceID string) ([]map[string]any, error)
+	GetRunDetail(ctx context.Context, teamID int64, spanID string) (*runDetailDTO, error)
+	GetRunEvents(ctx context.Context, teamID int64, spanID string) ([]runEventDTO, error)
+	GetTraceSpans(ctx context.Context, teamID int64, traceID string) ([]traceContextSpanDTO, error)
 }
 
 type ClickHouseRepository struct {
-	db dbutil.Querier
+	db *database.NativeQuerier
 }
 
-func NewRepository(db dbutil.Querier) *ClickHouseRepository {
+func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) GetRunDetail(teamID int64, spanID string) (*LLMRunDetail, error) {
+func baseParams(teamID int64, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+}
+
+func (r *ClickHouseRepository) GetRunDetail(ctx context.Context, teamID int64, spanID string) (*runDetailDTO, error) {
 	query := fmt.Sprintf(`
 		SELECT s.span_id, s.trace_id, s.parent_span_id, s.service_name,
 		       s.name AS operation_name,
@@ -41,53 +52,42 @@ func (r *ClickHouseRepository) GetRunDetail(teamID int64, spanID string) (*LLMRu
 		       s.has_error, s.status_message,
 		       %s AS finish_reason, s.kind_string
 		FROM %s s
-		WHERE s.team_id = ? AND s.span_id = ?
+		WHERE s.team_id = @teamID AND s.span_id = @spanID
 		LIMIT 1
 	`, colModel, colProvider, colOperationType,
 		colInputTokens, colOutputTokens,
 		colInputTokens, colOutputTokens,
 		colFinishReason, tableSpans)
 
-	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), spanID)
-	if err != nil {
-		return nil, err
-	}
-	if len(row) == 0 {
+	var row runDetailDTO
+	if err := r.db.QueryRow(ctx, &row, query,
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("spanID", spanID),
+	); err != nil {
 		return nil, nil
 	}
-
-	return &LLMRunDetail{
-		SpanID:        dbutil.StringFromAny(row["span_id"]),
-		TraceID:       dbutil.StringFromAny(row["trace_id"]),
-		ParentSpanID:  dbutil.StringFromAny(row["parent_span_id"]),
-		ServiceName:   dbutil.StringFromAny(row["service_name"]),
-		OperationName: dbutil.StringFromAny(row["operation_name"]),
-		Model:         dbutil.StringFromAny(row["model"]),
-		Provider:      dbutil.StringFromAny(row["provider"]),
-		OperationType: dbutil.StringFromAny(row["operation_type"]),
-		StartTime:     dbutil.TimeFromAny(row["timestamp"]),
-		DurationMs:    dbutil.Float64FromAny(row["duration_ms"]),
-		InputTokens:   dbutil.Int64FromAny(row["input_tokens"]),
-		OutputTokens:  dbutil.Int64FromAny(row["output_tokens"]),
-		TotalTokens:   dbutil.Int64FromAny(row["total_tokens"]),
-		HasError:      dbutil.BoolFromAny(row["has_error"]),
-		StatusMessage: dbutil.StringFromAny(row["status_message"]),
-		FinishReason:  dbutil.StringFromAny(row["finish_reason"]),
-		SpanKind:      dbutil.StringFromAny(row["kind_string"]),
-	}, nil
+	return &row, nil
 }
 
-func (r *ClickHouseRepository) GetRunEvents(teamID int64, spanID string) ([]map[string]any, error) {
-	return dbutil.QueryMaps(r.db, `
+func (r *ClickHouseRepository) GetRunEvents(ctx context.Context, teamID int64, spanID string) ([]runEventDTO, error) {
+	var rows []runEventDTO
+	err := r.db.Select(ctx, &rows, `
 		SELECT s.span_id, event_json
 		FROM observability.spans s
 		ARRAY JOIN s.events AS event_json
-		WHERE s.team_id = ? AND s.span_id = ?
+		WHERE s.team_id = @teamID AND s.span_id = @spanID
 		LIMIT 200
-	`, uint32(teamID), spanID)
+	`,
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("spanID", spanID),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetTraceSpans(teamID int64, traceID string) ([]map[string]any, error) {
+func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamID int64, traceID string) ([]traceContextSpanDTO, error) {
 	query := fmt.Sprintf(`
 		SELECT s.span_id, s.parent_span_id, s.service_name,
 		       s.name AS operation_name, s.timestamp,
@@ -95,9 +95,16 @@ func (r *ClickHouseRepository) GetTraceSpans(teamID int64, traceID string) ([]ma
 		       s.has_error, s.kind_string,
 		       %s AS model
 		FROM %s s
-		WHERE s.team_id = ? AND s.trace_id = ?
+		WHERE s.team_id = @teamID AND s.trace_id = @traceID
 		ORDER BY s.timestamp ASC
 		LIMIT 500
 	`, colModel, tableSpans)
-	return dbutil.QueryMaps(r.db, query, uint32(teamID), traceID)
+	var rows []traceContextSpanDTO
+	if err := r.db.Select(ctx, &rows, query,
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("traceID", traceID),
+	); err != nil {
+		return nil, err
+	}
+	return rows, nil
 }

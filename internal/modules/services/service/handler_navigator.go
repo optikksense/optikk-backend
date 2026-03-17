@@ -14,7 +14,7 @@ func (h *ServiceHandler) GetNavigator(c *gin.Context) {
 		return
 	}
 
-	services, err := h.Service.GetServiceHealth(teamID, startMs, endMs)
+	services, err := h.Service.GetNavigator(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query service health")
 		return

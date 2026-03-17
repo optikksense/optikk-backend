@@ -1,9 +1,8 @@
 package traces
 
 import (
+	"context"
 	"strings"
-
-	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
 type Service interface {
@@ -20,7 +19,7 @@ func NewService(repo Repository) *TraceService {
 }
 
 func (s *TraceService) GetLLMTrace(teamID int64, traceID string) ([]LLMTraceSpan, error) {
-	rows, err := s.repo.GetTraceSpans(teamID, traceID)
+	rows, err := s.repo.GetTraceSpans(context.Background(), teamID, traceID)
 	if err != nil {
 		return nil, err
 	}
@@ -28,7 +27,7 @@ func (s *TraceService) GetLLMTrace(teamID int64, traceID string) ([]LLMTraceSpan
 }
 
 func (s *TraceService) GetLLMTraceSummary(teamID int64, traceID string) (*LLMTraceSummary, error) {
-	rows, err := s.repo.GetTraceSpans(teamID, traceID)
+	rows, err := s.repo.GetTraceSpans(context.Background(), teamID, traceID)
 	if err != nil {
 		return nil, err
 	}
@@ -36,24 +35,24 @@ func (s *TraceService) GetLLMTraceSummary(teamID int64, traceID string) (*LLMTra
 	return buildSummary(spans), nil
 }
 
-func buildTraceSpans(rows []map[string]any) []LLMTraceSpan {
+func buildTraceSpans(rows []traceSpanDTO) []LLMTraceSpan {
 	spans := make([]LLMTraceSpan, 0, len(rows))
 	for _, row := range rows {
-		model := dbutil.StringFromAny(row["model"])
-		name := dbutil.StringFromAny(row["operation_name"])
+		model := row.Model
+		name := row.OperationName
 		spans = append(spans, LLMTraceSpan{
-			SpanID:        dbutil.StringFromAny(row["span_id"]),
-			ParentSpanID:  dbutil.StringFromAny(row["parent_span_id"]),
-			ServiceName:   dbutil.StringFromAny(row["service_name"]),
+			SpanID:        row.SpanID,
+			ParentSpanID:  row.ParentSpanID,
+			ServiceName:   row.ServiceName,
 			OperationName: name,
-			StartTime:     dbutil.TimeFromAny(row["timestamp"]),
-			DurationMs:    dbutil.Float64FromAny(row["duration_ms"]),
-			HasError:      dbutil.BoolFromAny(row["has_error"]),
-			SpanKind:      dbutil.StringFromAny(row["kind_string"]),
+			StartTime:     row.Timestamp,
+			DurationMs:    row.DurationMs,
+			HasError:      row.HasError,
+			SpanKind:      row.KindString,
 			Role:          classifyRole(name, model),
 			Model:         model,
-			InputTokens:   dbutil.Int64FromAny(row["input_tokens"]),
-			OutputTokens:  dbutil.Int64FromAny(row["output_tokens"]),
+			InputTokens:   row.InputTokens,
+			OutputTokens:  row.OutputTokens,
 		})
 	}
 	return spans

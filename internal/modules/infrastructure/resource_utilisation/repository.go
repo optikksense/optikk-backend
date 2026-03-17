@@ -1,10 +1,13 @@
 package resource_utilisation
 
 import (
+	"context"
 	"fmt"
 	"strings"
+	"time"
 
-	dbutil "github.com/observability/observability-backend-go/internal/database"
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/observability/observability-backend-go/internal/database"
 )
 
 func resBucketExpr(startMs, endMs int64) string {
@@ -12,25 +15,100 @@ func resBucketExpr(startMs, endMs int64) string {
 }
 
 type Repository interface {
-	GetAvgCPU(teamID int64, startMs, endMs int64) (MetricValue, error)
-	GetAvgMemory(teamID int64, startMs, endMs int64) (MetricValue, error)
-	GetAvgNetwork(teamID int64, startMs, endMs int64) (MetricValue, error)
-	GetAvgConnPool(teamID int64, startMs, endMs int64) (MetricValue, error)
-	GetCPUUsagePercentage(teamID int64, startMs, endMs int64) ([]ResourceBucket, error)
-	GetMemoryUsagePercentage(teamID int64, startMs, endMs int64) ([]ResourceBucket, error)
-	GetResourceUsageByService(teamID int64, startMs, endMs int64) ([]ServiceResource, error)
-	GetResourceUsageByInstance(teamID int64, startMs, endMs int64) ([]InstanceResource, error)
+	GetAvgCPU(teamID int64, startMs, endMs int64) (metricValueDTO, error)
+	GetAvgMemory(teamID int64, startMs, endMs int64) (metricValueDTO, error)
+	GetAvgNetwork(teamID int64, startMs, endMs int64) (metricValueDTO, error)
+	GetAvgConnPool(teamID int64, startMs, endMs int64) (metricValueDTO, error)
+	GetCPUUsagePercentage(teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error)
+	GetMemoryUsagePercentage(teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error)
+	GetResourceUsageByService(teamID int64, startMs, endMs int64) ([]serviceResourceDTO, error)
+	GetResourceUsageByInstance(teamID int64, startMs, endMs int64) ([]instanceResourceDTO, error)
 }
 
 type ClickHouseRepository struct {
-	db dbutil.Querier
+	db *database.NativeQuerier
 }
 
-func NewRepository(db dbutil.Querier) Repository {
+func NewRepository(db *database.NativeQuerier) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) queryDiskMetricByService(teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
+// DTO for queries returning multiple computed metric columns.
+type cpuMetricRow struct {
+	SystemCPU  *float64 `ch:"system_cpu"`
+	ProcessCPU *float64 `ch:"process_cpu"`
+	AttrCPU    *float64 `ch:"attr_cpu"`
+}
+
+type memMetricRow struct {
+	SystemMem *float64 `ch:"system_mem"`
+	JVMMem    *float64 `ch:"jvm_mem"`
+	AttrMem   *float64 `ch:"attr_mem"`
+}
+
+type diskMetricRow struct {
+	SystemDisk *float64 `ch:"system_disk"`
+	RatioDisk  *float64 `ch:"ratio_disk"`
+	AttrDisk   *float64 `ch:"attr_disk"`
+}
+
+type netMetricRow struct {
+	SystemNet *float64 `ch:"system_net"`
+	AttrNet   *float64 `ch:"attr_net"`
+}
+
+type connMetricRow struct {
+	SystemConn *float64 `ch:"system_conn"`
+	HikariConn *float64 `ch:"hikari_conn"`
+	JDBCConn   *float64 `ch:"jdbc_conn"`
+	AttrConn   *float64 `ch:"attr_conn"`
+}
+
+type countRow struct {
+	Count int64 `ch:"count"`
+}
+
+type serviceNameRow struct {
+	ServiceName string `ch:"service_name"`
+}
+
+type instanceRow struct {
+	Host        string `ch:"host"`
+	Pod         string `ch:"pod"`
+	Container   string `ch:"container"`
+	ServiceName string `ch:"service_name"`
+}
+
+func baseParams(teamID int64, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+}
+
+func serviceParams(teamID int64, serviceName string, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("serviceName", serviceName),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+}
+
+func instanceParams(teamID int64, host, pod, container, serviceName string, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("host", host),
+		clickhouse.Named("pod", pod),
+		clickhouse.Named("container", container),
+		clickhouse.Named("serviceName", serviceName),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+}
+
+func (r *ClickHouseRepository) queryDiskMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
 	aDisk := attrFloat(AttrSystemDiskUtilization)
 	query := fmt.Sprintf(`
 		SELECT
@@ -40,7 +118,7 @@ func (r *ClickHouseRepository) queryDiskMetricByService(teamID int64, serviceNam
 			   NULL) as ratio_disk,
 			avgIf(if(%s <= %s, %s * %s, %s), %s > 0) as attr_disk
 		FROM %s
-		WHERE %s = ? AND %s = ? AND %s BETWEEN ? AND ?
+		WHERE %s = @teamID AND %s = @serviceName AND %s BETWEEN @start AND @end
 		  AND (
 		      %s IN ('%s', '%s', '%s')
 		      OR %s > 0
@@ -55,27 +133,24 @@ func (r *ClickHouseRepository) queryDiskMetricByService(teamID int64, serviceNam
 		ColMetricName, MetricSystemDiskUtilization, MetricDiskFree, MetricDiskTotal,
 		aDisk)
 
-	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	var row diskMetricRow
+	err := r.db.QueryRow(ctx, &row, query, serviceParams(teamID, serviceName, startMs, endMs)...)
 	if err != nil {
 		return nil, err
 	}
 
-	values := []float64{
-		dbutil.Float64FromAny(row["system_disk"]),
-		dbutil.Float64FromAny(row["ratio_disk"]),
-		dbutil.Float64FromAny(row["attr_disk"]),
-	}
+	values := nullableToSlice(row.SystemDisk, row.RatioDisk, row.AttrDisk)
 	return calculateAverage(values), nil
 }
 
-func (r *ClickHouseRepository) queryNetworkMetricByService(teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
+func (r *ClickHouseRepository) queryNetworkMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
 	aNet := attrFloat(AttrSystemNetworkUtilization)
 	query := fmt.Sprintf(`
 		SELECT
 			avgIf(if(%s <= %s, %s * %s, %s), %s = '%s' AND isFinite(%s)) as system_net,
 			avgIf(if(%s <= %s, %s * %s, %s), %s > 0) as attr_net
 		FROM %s
-		WHERE %s = ? AND %s = ? AND %s BETWEEN ? AND ?
+		WHERE %s = @teamID AND %s = @serviceName AND %s BETWEEN @start AND @end
 		  AND (
 		      %s = '%s'
 		      OR %s > 0
@@ -87,19 +162,17 @@ func (r *ClickHouseRepository) queryNetworkMetricByService(teamID int64, service
 		ColMetricName, MetricSystemNetworkUtilization,
 		aNet)
 
-	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	var row netMetricRow
+	err := r.db.QueryRow(ctx, &row, query, serviceParams(teamID, serviceName, startMs, endMs)...)
 	if err != nil {
 		return nil, err
 	}
 
-	values := []float64{
-		dbutil.Float64FromAny(row["system_net"]),
-		dbutil.Float64FromAny(row["attr_net"]),
-	}
+	values := nullableToSlice(row.SystemNet, row.AttrNet)
 	return calculateAverage(values), nil
 }
 
-func (r *ClickHouseRepository) queryConnectionPoolMetricByService(teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
+func (r *ClickHouseRepository) queryConnectionPoolMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
 	aConn := attrFloat(AttrDBConnectionPoolUtilization)
 	query := fmt.Sprintf(`
 		SELECT
@@ -112,7 +185,7 @@ func (r *ClickHouseRepository) queryConnectionPoolMetricByService(teamID int64, 
 			   NULL) as jdbc_conn,
 			avgIf(if(%s <= %s, %s * %s, %s), %s > 0) as attr_conn
 		FROM %s
-		WHERE %s = ? AND %s = ? AND %s BETWEEN ? AND ?
+		WHERE %s = @teamID AND %s = @serviceName AND %s BETWEEN @start AND @end
 		  AND (
 		      %s IN ('%s', '%s', '%s', '%s', '%s')
 		      OR %s > 0
@@ -130,17 +203,13 @@ func (r *ClickHouseRepository) queryConnectionPoolMetricByService(teamID int64, 
 		ColMetricName, MetricDBConnectionPoolUtilization, MetricHikariCPConnectionsActive, MetricHikariCPConnectionsMax, MetricJDBCConnectionsActive, MetricJDBCConnectionsMax,
 		aConn)
 
-	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	var row connMetricRow
+	err := r.db.QueryRow(ctx, &row, query, serviceParams(teamID, serviceName, startMs, endMs)...)
 	if err != nil {
 		return nil, err
 	}
 
-	values := []float64{
-		dbutil.Float64FromAny(row["system_conn"]),
-		dbutil.Float64FromAny(row["hikari_conn"]),
-		dbutil.Float64FromAny(row["jdbc_conn"]),
-		dbutil.Float64FromAny(row["attr_conn"]),
-	}
+	values := nullableToSlice(row.SystemConn, row.HikariConn, row.JDBCConn, row.AttrConn)
 	return calculateAverage(values), nil
 }
 
@@ -161,6 +230,17 @@ func calculateAverage(values []float64) *float64 {
 	return &avg
 }
 
+// nullableToSlice converts nullable float64 pointers to a []float64 of non-nil values.
+func nullableToSlice(ptrs ...*float64) []float64 {
+	out := make([]float64, 0, len(ptrs))
+	for _, p := range ptrs {
+		if p != nil {
+			out = append(out, *p)
+		}
+	}
+	return out
+}
+
 // syncAverageExpr creates a ClickHouse expression that averages non-null values
 // This is still used by getByInstanceQuerySelectFull for complex aggregations
 func syncAverageExpr(parts ...string) string {
@@ -172,7 +252,7 @@ func syncAverageExpr(parts ...string) string {
 	)`
 }
 
-func (r *ClickHouseRepository) queryCPUMetricByService(teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
+func (r *ClickHouseRepository) queryCPUMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
 	aCPU := attrFloat(AttrSystemCPUUtilization)
 	query := fmt.Sprintf(`
 		SELECT
@@ -180,7 +260,7 @@ func (r *ClickHouseRepository) queryCPUMetricByService(teamID int64, serviceName
 			avgIf(%s * %s, %s = '%s' AND isFinite(%s) AND %s >= 0 AND %s <= %s) as process_cpu,
 			avgIf(%s * %s, %s >= 0 AND %s <= %s) as attr_cpu
 		FROM %s
-		WHERE %s = ? AND %s = ? AND %s BETWEEN ? AND ?
+		WHERE %s = @teamID AND %s = @serviceName AND %s BETWEEN @start AND @end
 		  AND (
 		      %s IN ('%s', '%s', '%s')
 		      OR %s > 0
@@ -193,20 +273,17 @@ func (r *ClickHouseRepository) queryCPUMetricByService(teamID int64, serviceName
 		ColMetricName, MetricSystemCPUUtilization, MetricSystemCPUUsage, MetricProcessCPUUsage,
 		aCPU)
 
-	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	var row cpuMetricRow
+	err := r.db.QueryRow(ctx, &row, query, serviceParams(teamID, serviceName, startMs, endMs)...)
 	if err != nil {
 		return nil, err
 	}
 
-	values := []float64{
-		dbutil.Float64FromAny(row["system_cpu"]),
-		dbutil.Float64FromAny(row["process_cpu"]),
-		dbutil.Float64FromAny(row["attr_cpu"]),
-	}
+	values := nullableToSlice(row.SystemCPU, row.ProcessCPU, row.AttrCPU)
 	return calculateAverage(values), nil
 }
 
-func (r *ClickHouseRepository) queryMemoryMetricByService(teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
+func (r *ClickHouseRepository) queryMemoryMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
 	aMem := attrFloat(AttrSystemMemoryUtilization)
 	query := fmt.Sprintf(`
 		SELECT
@@ -216,7 +293,7 @@ func (r *ClickHouseRepository) queryMemoryMetricByService(teamID int64, serviceN
 			   NULL) as jvm_mem,
 			avgIf(if(%s <= %s, %s * %s, %s), %s > 0) as attr_mem
 		FROM %s
-		WHERE %s = ? AND %s = ? AND %s BETWEEN ? AND ?
+		WHERE %s = @teamID AND %s = @serviceName AND %s BETWEEN @start AND @end
 		  AND (
 		      %s IN ('%s', '%s', '%s')
 		      OR %s > 0
@@ -231,30 +308,26 @@ func (r *ClickHouseRepository) queryMemoryMetricByService(teamID int64, serviceN
 		ColMetricName, MetricSystemMemoryUtilization, MetricJVMMemoryUsed, MetricJVMMemoryMax,
 		aMem)
 
-	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	var row memMetricRow
+	err := r.db.QueryRow(ctx, &row, query, serviceParams(teamID, serviceName, startMs, endMs)...)
 	if err != nil {
 		return nil, err
 	}
 
-	values := []float64{
-		dbutil.Float64FromAny(row["system_mem"]),
-		dbutil.Float64FromAny(row["jvm_mem"]),
-		dbutil.Float64FromAny(row["attr_mem"]),
-	}
+	values := nullableToSlice(row.SystemMem, row.JVMMem, row.AttrMem)
 	return calculateAverage(values), nil
 }
 
 func (r *ClickHouseRepository) GetAvgCPU(teamID int64, startMs, endMs int64) (MetricValue, error) {
-	// Get list of services
-	services, err := r.getServiceList(teamID, startMs, endMs)
+	ctx := context.Background()
+	services, err := r.getServiceList(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return MetricValue{Value: 0}, err
 	}
 
-	// Query CPU metric for each service and calculate average
 	var values []float64
 	for _, service := range services {
-		cpuVal, err := r.queryCPUMetricByService(teamID, service, startMs, endMs)
+		cpuVal, err := r.queryCPUMetricByService(ctx, teamID, service, startMs, endMs)
 		if err == nil && cpuVal != nil && *cpuVal >= 0 {
 			values = append(values, *cpuVal)
 		}
@@ -268,16 +341,15 @@ func (r *ClickHouseRepository) GetAvgCPU(teamID int64, startMs, endMs int64) (Me
 }
 
 func (r *ClickHouseRepository) GetAvgMemory(teamID int64, startMs, endMs int64) (MetricValue, error) {
-	// Get list of services
-	services, err := r.getServiceList(teamID, startMs, endMs)
+	ctx := context.Background()
+	services, err := r.getServiceList(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return MetricValue{Value: 0}, err
 	}
 
-	// Query memory metric for each service and calculate average
 	var values []float64
 	for _, service := range services {
-		memVal, err := r.queryMemoryMetricByService(teamID, service, startMs, endMs)
+		memVal, err := r.queryMemoryMetricByService(ctx, teamID, service, startMs, endMs)
 		if err == nil && memVal != nil && *memVal >= 0 {
 			values = append(values, *memVal)
 		}
@@ -291,16 +363,15 @@ func (r *ClickHouseRepository) GetAvgMemory(teamID int64, startMs, endMs int64) 
 }
 
 func (r *ClickHouseRepository) GetAvgNetwork(teamID int64, startMs, endMs int64) (MetricValue, error) {
-	// Get list of services
-	services, err := r.getServiceList(teamID, startMs, endMs)
+	ctx := context.Background()
+	services, err := r.getServiceList(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return MetricValue{Value: 0}, err
 	}
 
-	// Query network metric for each service and calculate average
 	var values []float64
 	for _, service := range services {
-		netVal, err := r.queryNetworkMetricByService(teamID, service, startMs, endMs)
+		netVal, err := r.queryNetworkMetricByService(ctx, teamID, service, startMs, endMs)
 		if err == nil && netVal != nil && *netVal >= 0 {
 			values = append(values, *netVal)
 		}
@@ -314,16 +385,15 @@ func (r *ClickHouseRepository) GetAvgNetwork(teamID int64, startMs, endMs int64)
 }
 
 func (r *ClickHouseRepository) GetAvgConnPool(teamID int64, startMs, endMs int64) (MetricValue, error) {
-	// Get list of services
-	services, err := r.getServiceList(teamID, startMs, endMs)
+	ctx := context.Background()
+	services, err := r.getServiceList(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return MetricValue{Value: 0}, err
 	}
 
-	// Query connection pool metric for each service and calculate average
 	var values []float64
 	for _, service := range services {
-		connVal, err := r.queryConnectionPoolMetricByService(teamID, service, startMs, endMs)
+		connVal, err := r.queryConnectionPoolMetricByService(ctx, teamID, service, startMs, endMs)
 		if err == nil && connVal != nil && *connVal >= 0 {
 			values = append(values, *connVal)
 		}
@@ -336,7 +406,7 @@ func (r *ClickHouseRepository) GetAvgConnPool(teamID int64, startMs, endMs int64
 	return MetricValue{Value: *avg}, nil
 }
 
-func (r *ClickHouseRepository) queryCPUMetricByInstance(teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
+func (r *ClickHouseRepository) queryCPUMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	aCPU := attrFloat(AttrSystemCPUUtilization)
 	query := fmt.Sprintf(`
 		SELECT
@@ -344,7 +414,7 @@ func (r *ClickHouseRepository) queryCPUMetricByInstance(teamID int64, host, pod,
 			avgIf(%s * %s, %s = '%s' AND isFinite(%s) AND %s >= 0 AND %s <= %s) as process_cpu,
 			avgIf(%s * %s, %s >= 0 AND %s <= %s) as attr_cpu
 		FROM %s
-		WHERE %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s BETWEEN ? AND ?
+		WHERE %s = @teamID AND %s = @host AND %s = @pod AND %s = @container AND %s = @serviceName AND %s BETWEEN @start AND @end
 		  AND (
 		      %s IN ('%s', '%s', '%s')
 		      OR %s > 0
@@ -357,20 +427,17 @@ func (r *ClickHouseRepository) queryCPUMetricByInstance(teamID int64, host, pod,
 		ColMetricName, MetricSystemCPUUtilization, MetricSystemCPUUsage, MetricProcessCPUUsage,
 		aCPU)
 
-	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	var row cpuMetricRow
+	err := r.db.QueryRow(ctx, &row, query, instanceParams(teamID, host, pod, container, serviceName, startMs, endMs)...)
 	if err != nil {
 		return nil, err
 	}
 
-	values := []float64{
-		dbutil.Float64FromAny(row["system_cpu"]),
-		dbutil.Float64FromAny(row["process_cpu"]),
-		dbutil.Float64FromAny(row["attr_cpu"]),
-	}
+	values := nullableToSlice(row.SystemCPU, row.ProcessCPU, row.AttrCPU)
 	return calculateAverage(values), nil
 }
 
-func (r *ClickHouseRepository) queryMemoryMetricByInstance(teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
+func (r *ClickHouseRepository) queryMemoryMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	aMem := attrFloat(AttrSystemMemoryUtilization)
 	query := fmt.Sprintf(`
 		SELECT
@@ -380,7 +447,7 @@ func (r *ClickHouseRepository) queryMemoryMetricByInstance(teamID int64, host, p
 			   NULL) as jvm_mem,
 			avgIf(if(%s <= %s, %s * %s, %s), %s > 0) as attr_mem
 		FROM %s
-		WHERE %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s BETWEEN ? AND ?
+		WHERE %s = @teamID AND %s = @host AND %s = @pod AND %s = @container AND %s = @serviceName AND %s BETWEEN @start AND @end
 		  AND (
 		      %s IN ('%s', '%s', '%s')
 		      OR %s > 0
@@ -395,20 +462,17 @@ func (r *ClickHouseRepository) queryMemoryMetricByInstance(teamID int64, host, p
 		ColMetricName, MetricSystemMemoryUtilization, MetricJVMMemoryUsed, MetricJVMMemoryMax,
 		aMem)
 
-	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	var row memMetricRow
+	err := r.db.QueryRow(ctx, &row, query, instanceParams(teamID, host, pod, container, serviceName, startMs, endMs)...)
 	if err != nil {
 		return nil, err
 	}
 
-	values := []float64{
-		dbutil.Float64FromAny(row["system_mem"]),
-		dbutil.Float64FromAny(row["jvm_mem"]),
-		dbutil.Float64FromAny(row["attr_mem"]),
-	}
+	values := nullableToSlice(row.SystemMem, row.JVMMem, row.AttrMem)
 	return calculateAverage(values), nil
 }
 
-func (r *ClickHouseRepository) queryDiskMetricByInstance(teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
+func (r *ClickHouseRepository) queryDiskMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	aDisk := attrFloat(AttrSystemDiskUtilization)
 	query := fmt.Sprintf(`
 		SELECT
@@ -418,7 +482,7 @@ func (r *ClickHouseRepository) queryDiskMetricByInstance(teamID int64, host, pod
 			   NULL) as ratio_disk,
 			avgIf(if(%s <= %s, %s * %s, %s), %s > 0) as attr_disk
 		FROM %s
-		WHERE %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s BETWEEN ? AND ?
+		WHERE %s = @teamID AND %s = @host AND %s = @pod AND %s = @container AND %s = @serviceName AND %s BETWEEN @start AND @end
 		  AND (
 		      %s IN ('%s', '%s', '%s')
 		      OR %s > 0
@@ -433,27 +497,24 @@ func (r *ClickHouseRepository) queryDiskMetricByInstance(teamID int64, host, pod
 		ColMetricName, MetricSystemDiskUtilization, MetricDiskFree, MetricDiskTotal,
 		aDisk)
 
-	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	var row diskMetricRow
+	err := r.db.QueryRow(ctx, &row, query, instanceParams(teamID, host, pod, container, serviceName, startMs, endMs)...)
 	if err != nil {
 		return nil, err
 	}
 
-	values := []float64{
-		dbutil.Float64FromAny(row["system_disk"]),
-		dbutil.Float64FromAny(row["ratio_disk"]),
-		dbutil.Float64FromAny(row["attr_disk"]),
-	}
+	values := nullableToSlice(row.SystemDisk, row.RatioDisk, row.AttrDisk)
 	return calculateAverage(values), nil
 }
 
-func (r *ClickHouseRepository) queryNetworkMetricByInstance(teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
+func (r *ClickHouseRepository) queryNetworkMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	aNet := attrFloat(AttrSystemNetworkUtilization)
 	query := fmt.Sprintf(`
 		SELECT
 			avgIf(if(%s <= %s, %s * %s, %s), %s = '%s' AND isFinite(%s)) as system_net,
 			avgIf(if(%s <= %s, %s * %s, %s), %s > 0) as attr_net
 		FROM %s
-		WHERE %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s BETWEEN ? AND ?
+		WHERE %s = @teamID AND %s = @host AND %s = @pod AND %s = @container AND %s = @serviceName AND %s BETWEEN @start AND @end
 		  AND (
 		      %s = '%s'
 		      OR %s > 0
@@ -465,19 +526,17 @@ func (r *ClickHouseRepository) queryNetworkMetricByInstance(teamID int64, host, 
 		ColMetricName, MetricSystemNetworkUtilization,
 		aNet)
 
-	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	var row netMetricRow
+	err := r.db.QueryRow(ctx, &row, query, instanceParams(teamID, host, pod, container, serviceName, startMs, endMs)...)
 	if err != nil {
 		return nil, err
 	}
 
-	values := []float64{
-		dbutil.Float64FromAny(row["system_net"]),
-		dbutil.Float64FromAny(row["attr_net"]),
-	}
+	values := nullableToSlice(row.SystemNet, row.AttrNet)
 	return calculateAverage(values), nil
 }
 
-func (r *ClickHouseRepository) queryConnectionPoolMetricByInstance(teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
+func (r *ClickHouseRepository) queryConnectionPoolMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	aConn := attrFloat(AttrDBConnectionPoolUtilization)
 	query := fmt.Sprintf(`
 		SELECT
@@ -490,7 +549,7 @@ func (r *ClickHouseRepository) queryConnectionPoolMetricByInstance(teamID int64,
 			   NULL) as jdbc_conn,
 			avgIf(if(%s <= %s, %s * %s, %s), %s > 0) as attr_conn
 		FROM %s
-		WHERE %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s BETWEEN ? AND ?
+		WHERE %s = @teamID AND %s = @host AND %s = @pod AND %s = @container AND %s = @serviceName AND %s BETWEEN @start AND @end
 		  AND (
 		      %s IN ('%s', '%s', '%s', '%s', '%s')
 		      OR %s > 0
@@ -508,22 +567,18 @@ func (r *ClickHouseRepository) queryConnectionPoolMetricByInstance(teamID int64,
 		ColMetricName, MetricDBConnectionPoolUtilization, MetricHikariCPConnectionsActive, MetricHikariCPConnectionsMax, MetricJDBCConnectionsActive, MetricJDBCConnectionsMax,
 		aConn)
 
-	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	var row connMetricRow
+	err := r.db.QueryRow(ctx, &row, query, instanceParams(teamID, host, pod, container, serviceName, startMs, endMs)...)
 	if err != nil {
 		return nil, err
 	}
 
-	values := []float64{
-		dbutil.Float64FromAny(row["system_conn"]),
-		dbutil.Float64FromAny(row["hikari_conn"]),
-		dbutil.Float64FromAny(row["jdbc_conn"]),
-		dbutil.Float64FromAny(row["attr_conn"]),
-	}
+	values := nullableToSlice(row.SystemConn, row.HikariConn, row.JDBCConn, row.AttrConn)
 	return calculateAverage(values), nil
 }
 
 // getSampleCountByInstance gets the count of metric samples for a specific instance
-func (r *ClickHouseRepository) getSampleCountByInstance(teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (int64, error) {
+func (r *ClickHouseRepository) getSampleCountByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (int64, error) {
 	aCPU := attrFloat(AttrSystemCPUUtilization)
 	aMem := attrFloat(AttrSystemMemoryUtilization)
 	aDisk := attrFloat(AttrSystemDiskUtilization)
@@ -532,7 +587,7 @@ func (r *ClickHouseRepository) getSampleCountByInstance(teamID int64, host, pod,
 	query := fmt.Sprintf(`
 		SELECT COUNT(*) as count
 		FROM %s
-		WHERE %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s = ? AND %s BETWEEN ? AND ?
+		WHERE %s = @teamID AND %s = @host AND %s = @pod AND %s = @container AND %s = @serviceName AND %s BETWEEN @start AND @end
 		  AND (
 		      %s IN (
 		          '%s', '%s', '%s', '%s', '%s', '%s',
@@ -553,24 +608,25 @@ func (r *ClickHouseRepository) getSampleCountByInstance(teamID int64, host, pod,
 		MetricJDBCConnectionsActive, MetricJDBCConnectionsMax,
 		aCPU, aMem, aDisk, aNet, aConn)
 
-	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), host, pod, container, serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	var row countRow
+	err := r.db.QueryRow(ctx, &row, query, instanceParams(teamID, host, pod, container, serviceName, startMs, endMs)...)
 	if err != nil {
 		return 0, err
 	}
-	return dbutil.Int64FromAny(row[ColCount]), nil
+	return row.Count, nil
 }
 
 // getServiceList retrieves the list of distinct services that have metrics in the time range
-func (r *ClickHouseRepository) getServiceList(teamID int64, startMs, endMs int64) ([]string, error) {
+func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64, startMs, endMs int64) ([]string, error) {
 	aCPU := attrFloat(AttrSystemCPUUtilization)
 	aMem := attrFloat(AttrSystemMemoryUtilization)
 	aDisk := attrFloat(AttrSystemDiskUtilization)
 	aNet := attrFloat(AttrSystemNetworkUtilization)
 	aConn := attrFloat(AttrDBConnectionPoolUtilization)
 	query := fmt.Sprintf(`
-		SELECT DISTINCT %s
+		SELECT DISTINCT %s as service_name
 		FROM %s
-		WHERE %s = ? AND %s BETWEEN ? AND ?
+		WHERE %s = @teamID AND %s BETWEEN @start AND @end
 		  AND %s != ''
 		  AND (
 		      %s IN (
@@ -583,7 +639,7 @@ func (r *ClickHouseRepository) getServiceList(teamID int64, startMs, endMs int64
 		      OR %s > 0 OR %s > 0
 		      OR %s > 0
 		  )
-		ORDER BY %s`,
+		ORDER BY service_name`,
 		ColServiceName,
 		TableMetrics,
 		ColTeamID, ColTimestamp,
@@ -593,22 +649,23 @@ func (r *ClickHouseRepository) getServiceList(teamID int64, startMs, endMs int64
 		MetricSystemDiskUtilization, MetricDiskFree, MetricDiskTotal, MetricSystemNetworkUtilization,
 		MetricDBConnectionPoolUtilization, MetricHikariCPConnectionsActive, MetricHikariCPConnectionsMax,
 		MetricJDBCConnectionsActive, MetricJDBCConnectionsMax,
-		aCPU, aMem, aDisk, aNet, aConn,
-		ColServiceName)
+		aCPU, aMem, aDisk, aNet, aConn)
 
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	var rows []serviceNameRow
+	err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...)
 	if err != nil {
 		return nil, err
 	}
 
 	services := make([]string, len(rows))
 	for i, row := range rows {
-		services[i] = dbutil.StringFromAny(row[ColServiceName])
+		services[i] = row.ServiceName
 	}
 	return services, nil
 }
 
 func (r *ClickHouseRepository) GetCPUUsagePercentage(teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
+	ctx := context.Background()
 	bucket := resBucketExpr(startMs, endMs)
 	aCPU := attrFloat(AttrSystemCPUUtilization)
 
@@ -629,7 +686,7 @@ func (r *ClickHouseRepository) GetCPUUsagePercentage(teamID int64, startMs, endM
 		       %s as pod,
 		       %s as metric_val
 		FROM %s
-		WHERE %s = ? AND %s BETWEEN ? AND ?
+		WHERE %s = @teamID AND %s BETWEEN @start AND @end
 		  AND (
 		      %s IN ('%s', '%s', '%s')
 		      OR %s > 0
@@ -640,22 +697,13 @@ func (r *ClickHouseRepository) GetCPUUsagePercentage(teamID int64, startMs, endM
 	`, bucket, ColServiceName, cpuCol, TableMetrics, ColTeamID, ColTimestamp,
 		ColMetricName, MetricSystemCPUUtilization, MetricSystemCPUUsage, MetricProcessCPUUsage,
 		aCPU)
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
-	if err != nil {
-		return nil, err
-	}
-	buckets := make([]ResourceBucket, len(rows))
-	for i, row := range rows {
-		buckets[i] = ResourceBucket{
-			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
-			Pod:       dbutil.StringFromAny(row["pod"]),
-			Value:     dbutil.NullableFloat64FromAny(row["metric_val"]),
-		}
-	}
-	return buckets, nil
+	var rows []ResourceBucket
+	err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...)
+	return rows, err
 }
 
 func (r *ClickHouseRepository) GetMemoryUsagePercentage(teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
+	ctx := context.Background()
 	bucket := resBucketExpr(startMs, endMs)
 	aMem := attrFloat(AttrSystemMemoryUtilization)
 
@@ -677,7 +725,7 @@ func (r *ClickHouseRepository) GetMemoryUsagePercentage(teamID int64, startMs, e
 		       %s as pod,
 		       %s as metric_val
 		FROM %s
-		WHERE %s = ? AND %s BETWEEN ? AND ?
+		WHERE %s = @teamID AND %s BETWEEN @start AND @end
 		  AND (
 		      %s IN ('%s', '%s', '%s')
 		      OR %s > 0
@@ -688,48 +736,26 @@ func (r *ClickHouseRepository) GetMemoryUsagePercentage(teamID int64, startMs, e
 	`, bucket, ColServiceName, memCol, TableMetrics, ColTeamID, ColTimestamp,
 		ColMetricName, MetricSystemMemoryUtilization, MetricJVMMemoryUsed, MetricJVMMemoryMax,
 		aMem)
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
-	if err != nil {
-		return nil, err
-	}
-	buckets := make([]ResourceBucket, len(rows))
-	for i, row := range rows {
-		buckets[i] = ResourceBucket{
-			Timestamp: dbutil.StringFromAny(row["time_bucket"]),
-			Pod:       dbutil.StringFromAny(row["pod"]),
-			Value:     dbutil.NullableFloat64FromAny(row["metric_val"]),
-		}
-	}
-	return buckets, nil
+	var rows []ResourceBucket
+	err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...)
+	return rows, err
 }
 
 func (r *ClickHouseRepository) GetResourceUsageByService(teamID int64, startMs, endMs int64) ([]ServiceResource, error) {
-	// Step 1: Get list of services
-	services, err := r.getServiceList(teamID, startMs, endMs)
+	ctx := context.Background()
+	services, err := r.getServiceList(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
 
-	// Step 2: Query each metric for each service separately
 	byService := make([]ServiceResource, len(services))
 	for i, serviceName := range services {
-		// Query CPU metric
-		cpuVal, _ := r.queryCPUMetricByService(teamID, serviceName, startMs, endMs)
-
-		// Query Memory metric
-		memVal, _ := r.queryMemoryMetricByService(teamID, serviceName, startMs, endMs)
-
-		// Query Disk metric
-		diskVal, _ := r.queryDiskMetricByService(teamID, serviceName, startMs, endMs)
-
-		// Query Network metric
-		netVal, _ := r.queryNetworkMetricByService(teamID, serviceName, startMs, endMs)
-
-		// Query Connection Pool metric
-		connVal, _ := r.queryConnectionPoolMetricByService(teamID, serviceName, startMs, endMs)
-
-		// Get sample count for this service
-		sampleCount, _ := r.getSampleCountByService(teamID, serviceName, startMs, endMs)
+		cpuVal, _ := r.queryCPUMetricByService(ctx, teamID, serviceName, startMs, endMs)
+		memVal, _ := r.queryMemoryMetricByService(ctx, teamID, serviceName, startMs, endMs)
+		diskVal, _ := r.queryDiskMetricByService(ctx, teamID, serviceName, startMs, endMs)
+		netVal, _ := r.queryNetworkMetricByService(ctx, teamID, serviceName, startMs, endMs)
+		connVal, _ := r.queryConnectionPoolMetricByService(ctx, teamID, serviceName, startMs, endMs)
+		sampleCount, _ := r.getSampleCountByService(ctx, teamID, serviceName, startMs, endMs)
 
 		byService[i] = ServiceResource{
 			ServiceName:           serviceName,
@@ -746,7 +772,7 @@ func (r *ClickHouseRepository) GetResourceUsageByService(teamID int64, startMs, 
 }
 
 // getSampleCountByService gets the count of metric samples for a service
-func (r *ClickHouseRepository) getSampleCountByService(teamID int64, serviceName string, startMs, endMs int64) (int64, error) {
+func (r *ClickHouseRepository) getSampleCountByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (int64, error) {
 	aCPU := attrFloat(AttrSystemCPUUtilization)
 	aMem := attrFloat(AttrSystemMemoryUtilization)
 	aDisk := attrFloat(AttrSystemDiskUtilization)
@@ -755,7 +781,7 @@ func (r *ClickHouseRepository) getSampleCountByService(teamID int64, serviceName
 	query := fmt.Sprintf(`
 		SELECT COUNT(*) as count
 		FROM %s
-		WHERE %s = ? AND %s = ? AND %s BETWEEN ? AND ?
+		WHERE %s = @teamID AND %s = @serviceName AND %s BETWEEN @start AND @end
 		  AND (
 		      %s IN (
 		          '%s', '%s', '%s', '%s', '%s', '%s',
@@ -776,40 +802,29 @@ func (r *ClickHouseRepository) getSampleCountByService(teamID int64, serviceName
 		MetricJDBCConnectionsActive, MetricJDBCConnectionsMax,
 		aCPU, aMem, aDisk, aNet, aConn)
 
-	row, err := dbutil.QueryMap(r.db, query, uint32(teamID), serviceName, dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
+	var row countRow
+	err := r.db.QueryRow(ctx, &row, query, serviceParams(teamID, serviceName, startMs, endMs)...)
 	if err != nil {
 		return 0, err
 	}
-	return dbutil.Int64FromAny(row[ColCount]), nil
+	return row.Count, nil
 }
 
 func (r *ClickHouseRepository) GetResourceUsageByInstance(teamID int64, startMs, endMs int64) ([]InstanceResource, error) {
-	// Step 1: Get list of instances (host, pod, container, service combinations)
-	instances, err := r.getInstanceList(teamID, startMs, endMs)
+	ctx := context.Background()
+	instances, err := r.getInstanceList(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
 
-	// Step 2: Query each metric for each instance separately
 	byInstance := make([]InstanceResource, len(instances))
 	for i, inst := range instances {
-		// Query CPU metric
-		cpuVal, _ := r.queryCPUMetricByInstance(teamID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
-
-		// Query Memory metric
-		memVal, _ := r.queryMemoryMetricByInstance(teamID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
-
-		// Query Disk metric
-		diskVal, _ := r.queryDiskMetricByInstance(teamID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
-
-		// Query Network metric
-		netVal, _ := r.queryNetworkMetricByInstance(teamID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
-
-		// Query Connection Pool metric
-		connVal, _ := r.queryConnectionPoolMetricByInstance(teamID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
-
-		// Get sample count for this instance
-		sampleCount, _ := r.getSampleCountByInstance(teamID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
+		cpuVal, _ := r.queryCPUMetricByInstance(ctx, teamID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
+		memVal, _ := r.queryMemoryMetricByInstance(ctx, teamID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
+		diskVal, _ := r.queryDiskMetricByInstance(ctx, teamID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
+		netVal, _ := r.queryNetworkMetricByInstance(ctx, teamID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
+		connVal, _ := r.queryConnectionPoolMetricByInstance(ctx, teamID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
+		sampleCount, _ := r.getSampleCountByInstance(ctx, teamID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
 
 		byInstance[i] = InstanceResource{
 			Host:                  inst.Host,
@@ -828,24 +843,25 @@ func (r *ClickHouseRepository) GetResourceUsageByInstance(teamID int64, startMs,
 	return byInstance, nil
 }
 
+// Instance holds distinct host/pod/container/service combinations.
 type Instance struct {
-	Host        string
-	Pod         string
-	Container   string
-	ServiceName string
+	Host        string `ch:"host"`
+	Pod         string `ch:"pod"`
+	Container   string `ch:"container"`
+	ServiceName string `ch:"service_name"`
 }
 
 // getInstanceList retrieves the list of distinct instances that have metrics in the time range
-func (r *ClickHouseRepository) getInstanceList(teamID int64, startMs, endMs int64) ([]Instance, error) {
+func (r *ClickHouseRepository) getInstanceList(ctx context.Context, teamID int64, startMs, endMs int64) ([]Instance, error) {
 	aCPU := attrFloat(AttrSystemCPUUtilization)
 	aMem := attrFloat(AttrSystemMemoryUtilization)
 	aDisk := attrFloat(AttrSystemDiskUtilization)
 	aNet := attrFloat(AttrSystemNetworkUtilization)
 	aConn := attrFloat(AttrDBConnectionPoolUtilization)
 	query := fmt.Sprintf(`
-		SELECT DISTINCT %s, %s, %s, %s
+		SELECT DISTINCT %s as host, %s as pod, %s as container, %s as service_name
 		FROM %s
-		WHERE %s = ? AND %s BETWEEN ? AND ?
+		WHERE %s = @teamID AND %s BETWEEN @start AND @end
 		  AND %s != ''
 		  AND (
 		      %s IN (
@@ -858,7 +874,7 @@ func (r *ClickHouseRepository) getInstanceList(teamID int64, startMs, endMs int6
 		      OR %s > 0 OR %s > 0
 		      OR %s > 0
 		  )
-		ORDER BY %s, %s, %s, %s
+		ORDER BY host, pod, container, service_name
 		LIMIT 200`,
 		ColHost, ColPod, ColContainer, ColServiceName,
 		TableMetrics,
@@ -869,22 +885,9 @@ func (r *ClickHouseRepository) getInstanceList(teamID int64, startMs, endMs int6
 		MetricSystemDiskUtilization, MetricDiskFree, MetricDiskTotal, MetricSystemNetworkUtilization,
 		MetricDBConnectionPoolUtilization, MetricHikariCPConnectionsActive, MetricHikariCPConnectionsMax,
 		MetricJDBCConnectionsActive, MetricJDBCConnectionsMax,
-		aCPU, aMem, aDisk, aNet, aConn,
-		ColHost, ColPod, ColContainer, ColServiceName)
+		aCPU, aMem, aDisk, aNet, aConn)
 
-	rows, err := dbutil.QueryMaps(r.db, query, uint32(teamID), dbutil.SqlTime(startMs), dbutil.SqlTime(endMs))
-	if err != nil {
-		return nil, err
-	}
-
-	instances := make([]Instance, len(rows))
-	for i, row := range rows {
-		instances[i] = Instance{
-			Host:        dbutil.StringFromAny(row[ColHost]),
-			Pod:         dbutil.StringFromAny(row[ColPod]),
-			Container:   dbutil.StringFromAny(row[ColContainer]),
-			ServiceName: dbutil.StringFromAny(row[ColServiceName]),
-		}
-	}
-	return instances, nil
+	var rows []Instance
+	err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...)
+	return rows, err
 }

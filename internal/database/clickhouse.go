@@ -45,53 +45,11 @@ type Row interface {
 }
 
 type ClickHouseCloudConfig struct {
-	Host     string // host:port, e.g. "abc.us-central1.gcp.clickhouse.cloud:9440"
+	Host     string
 	Username string
 	Password string
 }
 
-func OpenClickHouse(dsn string, isProduction bool, cloud ...ClickHouseCloudConfig) (*sql.DB, error) {
-	var conn *sql.DB
-	var err error
-
-	if isProduction {
-		if len(cloud) == 0 {
-			return nil, fmt.Errorf("clickhouse: ClickHouseCloudConfig required for production mode")
-		}
-		cc := cloud[0]
-		conn = clickhouse.OpenDB(&clickhouse.Options{
-			Addr:     []string{cc.Host},
-			Protocol: clickhouse.Native,
-			TLS:      &tls.Config{},
-			Auth: clickhouse.Auth{
-				Username: cc.Username,
-				Password: cc.Password,
-			},
-			DialTimeout: 5 * time.Second,
-			ReadTimeout: 30 * time.Second,
-		})
-	} else {
-		conn, err = sql.Open("clickhouse", dsn)
-		if err != nil {
-			return nil, err
-		}
-	}
-
-	conn.SetMaxOpenConns(100)
-	conn.SetMaxIdleConns(50)
-	conn.SetConnMaxLifetime(15 * time.Minute)
-
-	pingCtx, pingCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer pingCancel()
-	if err := conn.PingContext(pingCtx); err != nil {
-		return nil, err
-	}
-
-	return conn, nil
-}
-
-// OpenClickHouseConn opens a native clickhouse.Conn (not database/sql).
-// Used by the ingest queues which need PrepareBatch for batch inserts.
 func OpenClickHouseConn(dsn string, isProduction bool, cloud ...ClickHouseCloudConfig) (clickhouse.Conn, error) {
 	var opts *clickhouse.Options
 
@@ -112,7 +70,6 @@ func OpenClickHouseConn(dsn string, isProduction bool, cloud ...ClickHouseCloudC
 			ReadTimeout: 30 * time.Second,
 		}
 	} else {
-		// Parse the DSN into an Options struct for the native driver.
 		var err error
 		opts, err = clickhouse.ParseDSN(dsn)
 		if err != nil {
@@ -132,109 +89,6 @@ func OpenClickHouseConn(dsn string, isProduction bool, cloud ...ClickHouseCloudC
 	}
 
 	return conn, nil
-}
-
-type ClickHouseWrapper struct {
-	db *sql.DB
-	cb *circuitbreaker.CircuitBreaker
-}
-
-func NewClickHouseWrapper(db *sql.DB) *ClickHouseWrapper {
-	return &ClickHouseWrapper{
-		db: db,
-		cb: circuitbreaker.NewCircuitBreaker("clickhouse_wrapper", 5, 30*time.Second),
-	}
-}
-
-// prewhereRe matches: WHERE <alias>.team_id = ? AND <alias>.ts_bucket_start BETWEEN ? AND ?
-// and rewrites the team_id + ts_bucket_start conditions into a PREWHERE clause,
-// keeping the remaining conditions in WHERE. This lets ClickHouse skip granules
-// before decompressing columns, giving 2-10x speedup on large tables.
-var prewhereRe = regexp.MustCompile(
-	`(?i)\bWHERE\s+([\w.]*\.?)team_id\s*=\s*\?\s+AND\s+([\w.]*\.?)ts_bucket_start\s+BETWEEN\s+\?\s+AND\s+\?\s+AND\s+`,
-)
-
-func injectPrewhere(query string) string {
-	if strings.Contains(strings.ToUpper(query), "PREWHERE") {
-		return query // already has PREWHERE
-	}
-	// Rewrite: WHERE a.team_id = ? AND a.ts_bucket_start BETWEEN ? AND ? AND <rest>
-	//      to: PREWHERE a.team_id = ? AND a.ts_bucket_start BETWEEN ? AND ? WHERE <rest>
-	return prewhereRe.ReplaceAllString(query, "PREWHERE ${1}team_id = ? AND ${2}ts_bucket_start BETWEEN ? AND ? WHERE ")
-}
-
-func injectMaxExecutionTime(query string) string {
-	qUpper := strings.ToUpper(strings.TrimSpace(query))
-	if (strings.HasPrefix(qUpper, "SELECT") || strings.HasPrefix(qUpper, "WITH")) && !strings.Contains(qUpper, "SETTINGS ") {
-		return query + "\nSETTINGS max_execution_time=30, max_rows_to_read=100000000, max_result_rows=100000, result_overflow_mode='break', read_overflow_mode='break', optimize_read_in_order=1"
-	}
-	return query
-}
-
-// optimizeQuery applies all query rewrites: PREWHERE injection + SETTINGS injection.
-func optimizeQuery(query string) string {
-	query = injectPrewhere(query)
-	query = injectMaxExecutionTime(query)
-	return query
-}
-
-func (m *ClickHouseWrapper) Exec(query string, args ...any) (sql.Result, error) {
-	var res sql.Result
-	err := m.cb.Call(func() error {
-		var err error
-		res, err = m.db.Exec(query, args...)
-		return err
-	})
-	return res, err
-}
-
-func (m *ClickHouseWrapper) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	var res sql.Result
-	err := m.cb.Call(func() error {
-		var err error
-		res, err = m.db.ExecContext(ctx, query, args...)
-		return err
-	})
-	return res, err
-}
-
-func (m *ClickHouseWrapper) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
-	return m.db.BeginTx(ctx, opts)
-}
-
-func (m *ClickHouseWrapper) Query(query string, args ...any) (Rows, error) {
-	query = optimizeQuery(query)
-	start := time.Now()
-	var rows *sql.Rows
-	err := m.cb.Call(func() error {
-		var err error
-		rows, err = m.db.Query(query, args...)
-		return err
-	})
-	if d := time.Since(start); d >= slowQueryThreshold {
-		log.Printf("SLOW_QUERY clickhouse duration=%v query=%s", d, truncateQuery(query))
-	}
-	if err != nil {
-		return nil, err
-	}
-	return &sqlRowsAdapter{rows: rows}, nil
-}
-
-func (m *ClickHouseWrapper) QueryRow(query string, args ...any) Row {
-	query = optimizeQuery(query)
-	start := time.Now()
-	var row *sql.Row
-	err := m.cb.Call(func() error {
-		row = m.db.QueryRow(query, args...)
-		return nil
-	})
-	if d := time.Since(start); d >= slowQueryThreshold {
-		log.Printf("SLOW_QUERY clickhouse duration=%v query=%s", d, truncateQuery(query))
-	}
-	if err != nil {
-		return &circuitBreakerRowAdapter{err: err}
-	}
-	return &sqlRowAdapter{row: row}
 }
 
 type circuitBreakerRowAdapter struct {
@@ -274,6 +128,66 @@ func (r *sqlRowAdapter) Scan(dest ...any) error {
 	return r.row.Scan(dest...)
 }
 
-func (m *ClickHouseWrapper) Close() error {
-	return m.db.Close()
+var prewhereRe = regexp.MustCompile(
+	`(?i)\bWHERE\s+([\w.]*\.?)team_id\s*=\s*\?\s+AND\s+([\w.]*\.?)ts_bucket_start\s+BETWEEN\s+\?\s+AND\s+\?\s+AND\s+`,
+)
+
+func injectPrewhere(query string) string {
+	if strings.Contains(strings.ToUpper(query), "PREWHERE") {
+		return query
+	}
+	return prewhereRe.ReplaceAllString(query, "PREWHERE ${1}team_id = ? AND ${2}ts_bucket_start BETWEEN ? AND ? WHERE ")
+}
+
+func injectMaxExecutionTime(query string) string {
+	qUpper := strings.ToUpper(strings.TrimSpace(query))
+	if (strings.HasPrefix(qUpper, "SELECT") || strings.HasPrefix(qUpper, "WITH")) && !strings.Contains(qUpper, "SETTINGS ") {
+		return query + "\nSETTINGS max_execution_time=30, max_rows_to_read=100000000, max_result_rows=100000, result_overflow_mode='break', read_overflow_mode='break', optimize_read_in_order=1"
+	}
+	return query
+}
+
+func optimizeQuery(query string) string {
+	query = injectPrewhere(query)
+	query = injectMaxExecutionTime(query)
+	return query
+}
+
+// NativeQuerier wraps clickhouse.Conn with shared circuit-breaking, slow query
+// logging, and ClickHouse-specific query rewrites. Repositories should prefer
+// Select/QueryRow with typed structs for ClickHouse access.
+type NativeQuerier struct {
+	conn clickhouse.Conn
+	cb   *circuitbreaker.CircuitBreaker
+}
+
+func NewNativeQuerier(conn clickhouse.Conn) *NativeQuerier {
+	return &NativeQuerier{
+		conn: conn,
+		cb:   circuitbreaker.NewCircuitBreaker("clickhouse_native", 5, 30*time.Second),
+	}
+}
+
+func (n *NativeQuerier) Select(ctx context.Context, dest any, query string, args ...any) error {
+	query = optimizeQuery(query)
+	start := time.Now()
+	err := n.cb.Call(func() error {
+		return n.conn.Select(ctx, dest, query, args...)
+	})
+	if d := time.Since(start); d >= slowQueryThreshold {
+		log.Printf("SLOW_QUERY clickhouse_native duration=%v query=%s", d, truncateQuery(query))
+	}
+	return err
+}
+
+func (n *NativeQuerier) QueryRow(ctx context.Context, dest any, query string, args ...any) error {
+	query = optimizeQuery(query)
+	start := time.Now()
+	err := n.cb.Call(func() error {
+		return n.conn.QueryRow(ctx, query, args...).ScanStruct(dest)
+	})
+	if d := time.Since(start); d >= slowQueryThreshold {
+		log.Printf("SLOW_QUERY clickhouse_native duration=%v query=%s", d, truncateQuery(query))
+	}
+	return err
 }
