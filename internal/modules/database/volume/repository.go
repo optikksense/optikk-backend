@@ -93,8 +93,8 @@ func (r *ClickHouseRepository) GetReadVsWrite(ctx context.Context, teamID int64,
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                            AS time_bucket,
-		    sumIf(hist_count, upper(%s) IN ('SELECT', 'FIND', 'GET'))                    AS read_count,
-		    sumIf(hist_count, upper(%s) IN ('INSERT', 'UPDATE', 'DELETE', 'REPLACE', 'UPSERT', 'SET', 'PUT', 'AGGREGATE')) AS write_count
+		    toInt64(sumIf(hist_count, upper(%s) IN ('SELECT', 'FIND', 'GET')))           AS read_count,
+		    toInt64(sumIf(hist_count, upper(%s) IN ('INSERT', 'UPDATE', 'DELETE', 'REPLACE', 'UPSERT', 'SET', 'PUT', 'AGGREGATE'))) AS write_count
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end

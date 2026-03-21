@@ -9,7 +9,7 @@
   ],
   "components": [
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupId": "summary",
       "id": "redis-clients",
       "layout": { "col": 12 },
@@ -23,7 +23,7 @@
       "titleIcon": "Users"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupId": "summary",
       "id": "redis-commands",
       "layout": { "col": 12 },
@@ -52,7 +52,7 @@
       "valueKey": "hit_rate"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupId": "cache",
       "id": "redis-keyspace",
       "layout": { "col": 8 },
@@ -66,7 +66,7 @@
       "titleIcon": "Key"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupId": "cache",
       "id": "redis-key-expiries",
       "layout": { "col": 8 },

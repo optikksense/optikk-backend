@@ -3,6 +3,8 @@ package servicemap
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -23,7 +25,7 @@ func (h *ServiceMapHandler) GetUpstreamDownstream(c *gin.Context) {
 
 	deps, err := h.Service.GetUpstreamDownstream(teamID, serviceName, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query upstream/downstream dependencies")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query upstream/downstream dependencies", err)
 		return
 	}
 	RespondOK(c, deps)
@@ -38,7 +40,7 @@ func (h *ServiceMapHandler) GetExternalDependencies(c *gin.Context) {
 
 	deps, err := h.Service.GetExternalDependencies(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query external dependencies")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query external dependencies", err)
 		return
 	}
 	RespondOK(c, deps)
@@ -51,10 +53,13 @@ func (h *ServiceMapHandler) GetClientServerLatency(c *gin.Context) {
 		return
 	}
 	operationName := c.Query("operationName")
+	if operationName == "" {
+		operationName = c.Query("operation")
+	}
 
 	points, err := h.Service.GetClientServerLatency(teamID, startMs, endMs, operationName)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query client/server latency")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query client/server latency", err)
 		return
 	}
 	RespondOK(c, points)

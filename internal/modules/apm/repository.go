@@ -88,7 +88,7 @@ func (r *ClickHouseRepository) GetRPCRequestRate(ctx context.Context, teamID int
 	query := fmt.Sprintf(`
 		SELECT
 		    %s               AS time_bucket,
-		    toInt64(count()) AS val
+		    toFloat64(count()) AS val
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end

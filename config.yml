@@ -1,0 +1,65 @@
+environment: development
+
+server:
+  port: "9090"
+  allowed_origins: "http://localhost:3000,http://localhost:5173"
+  debug_api_logs: false
+
+mysql:
+  host: "127.0.0.1"
+  port: "3306"
+  database: observability
+  user: root
+  password: root123
+  max_open_conns: 50
+  max_idle_conns: 25
+
+clickhouse:
+  host: "127.0.0.1"
+  port: "9000"
+  database: observability
+  user: default
+  password: clickhouse123
+  production: false
+  cloud_host: ""
+
+session:
+  lifetime_ms: 86400000
+  idle_timeout_ms: 7200000
+  cookie_name: optikk_session
+  cookie_domain: ""
+  cookie_path: "/"
+  cookie_secure: false
+  cookie_http_only: true
+  cookie_same_site: lax
+
+queue:
+  batch_size: 1000
+  flush_interval_ms: 2000
+
+kafka:
+  enabled: false
+  brokers: "localhost:9092"
+
+redis:
+  enabled: false
+  host: localhost
+  port: "6379"
+
+otlp:
+  grpc_port: "4317"
+  grpc_max_recv_msg_size_mb: 16
+
+oauth:
+  google_client_id: ""
+  google_client_secret: ""
+  github_client_id: ""
+  github_client_secret: ""
+  redirect_base: "http://localhost:3000"
+
+retention:
+  default_days: 30
+
+app:
+  region: us-east-1
+  dashboard_config_use_defaults: true

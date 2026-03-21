@@ -3,6 +3,8 @@ package userpage
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -47,7 +49,7 @@ func (h *Handler) GetUsers(c *gin.Context) {
 func (h *Handler) GetUserByID(c *gin.Context) {
 	userID, err := modulecommon.ExtractIDParam(c, "id")
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid user id")
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Invalid user id")
 		return
 	}
 
@@ -62,11 +64,11 @@ func (h *Handler) GetUserByID(c *gin.Context) {
 func (h *Handler) CreateUser(c *gin.Context) {
 	var req CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		modulecommon.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Invalid request body")
 		return
 	}
 	if err := appvalidation.Struct(req); err != nil {
-		modulecommon.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "email, name, password and teamIDs are mandatory")
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "email, name, password and teamIDs are mandatory")
 		return
 	}
 
@@ -90,7 +92,7 @@ func (h *Handler) GetProfile(c *gin.Context) {
 func (h *Handler) UpdateProfile(c *gin.Context) {
 	var req UpdateProfileRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		modulecommon.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Invalid request body")
 		return
 	}
 

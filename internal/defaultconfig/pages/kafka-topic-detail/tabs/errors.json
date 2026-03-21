@@ -5,7 +5,7 @@
   "order": 40,
   "components": [
     {
-      "componentKey": "area",
+      "componentKey": "error-rate",
       "id": "topic-publish-errors",
       "layout": { "col": 8 },
       "order": 10,
@@ -14,11 +14,13 @@
         "method": "GET",
         "params": { "topic": "{topic}" }
       },
+      "groupByKey": "error_type",
+      "valueKey": "error_rate",
       "title": "Publish Errors",
       "titleIcon": "AlertCircle"
     },
     {
-      "componentKey": "area",
+      "componentKey": "error-rate",
       "id": "topic-consume-errors",
       "layout": { "col": 8 },
       "order": 20,
@@ -27,11 +29,13 @@
         "method": "GET",
         "params": { "topic": "{topic}" }
       },
+      "groupByKey": "error_type",
+      "valueKey": "error_rate",
       "title": "Consume Errors",
       "titleIcon": "AlertCircle"
     },
     {
-      "componentKey": "area",
+      "componentKey": "error-rate",
       "id": "topic-process-errors",
       "layout": { "col": 8 },
       "order": 30,
@@ -40,6 +44,8 @@
         "method": "GET",
         "params": { "topic": "{topic}" }
       },
+      "groupByKey": "error_type",
+      "valueKey": "error_rate",
       "title": "Process Errors",
       "titleIcon": "AlertCircle"
     }

@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	common "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -18,7 +20,7 @@ func (h *Handler) GetLogSurrounding(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	logID := strings.TrimSpace(c.Query("id"))
 	if logID == "" {
-		common.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "id is required")
+		common.RespondError(c, http.StatusBadRequest, errorcode.Validation, "id is required")
 		return
 	}
 
@@ -33,7 +35,7 @@ func (h *Handler) GetLogSurrounding(c *gin.Context) {
 
 	resp, err := h.Service.GetLogSurrounding(c.Request.Context(), teamID, logID, before, after)
 	if err != nil {
-		common.RespondError(c, http.StatusNotFound, "RESOURCE_NOT_FOUND", "Log entry not found")
+		common.RespondErrorWithCause(c, http.StatusNotFound, errorcode.NotFound, "Log entry not found", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -47,11 +49,11 @@ func (h *Handler) GetLogDetail(c *gin.Context) {
 	window := common.ParseIntParam(c, "contextWindow", 30)
 
 	if traceID == "" || spanID == "" {
-		common.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "traceId and spanId are required")
+		common.RespondError(c, http.StatusBadRequest, errorcode.Validation, "traceId and spanId are required")
 		return
 	}
 	if timestampMs == 0 {
-		common.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "timestamp is required")
+		common.RespondError(c, http.StatusBadRequest, errorcode.Validation, "timestamp is required")
 		return
 	}
 
@@ -59,7 +61,7 @@ func (h *Handler) GetLogDetail(c *gin.Context) {
 	windowNs := uint64(window) * 1_000_000_000
 	resp, err := h.Service.GetLogDetail(c.Request.Context(), teamID, traceID, spanID, centerNs, centerNs-windowNs, centerNs+windowNs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query log detail")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query log detail", err)
 		return
 	}
 	common.RespondOK(c, resp)

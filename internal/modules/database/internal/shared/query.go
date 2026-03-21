@@ -20,19 +20,21 @@ func FilterClauses(f Filters) (string, []any) {
 	var sb strings.Builder
 	var args []any
 
-	appendIn := func(attr string, values []string) {
+	appendIn := func(attr string, prefix string, values []string) {
 		if len(values) == 0 {
 			return
 		}
-		clause, a := dbutil.InClause(values)
+		clause, namedArgs := dbutil.NamedInClause(prefix, values)
 		sb.WriteString(fmt.Sprintf(" AND %s IN %s", AttrString(attr), clause))
-		args = append(args, a...)
+		for key, value := range namedArgs {
+			args = append(args, clickhouse.Named(key, value))
+		}
 	}
 
-	appendIn(AttrDBSystem, f.DBSystem)
-	appendIn(AttrDBCollectionName, f.Collection)
-	appendIn(AttrDBNamespace, f.Namespace)
-	appendIn(AttrServerAddress, f.Server)
+	appendIn(AttrDBSystem, "dbSystem", f.DBSystem)
+	appendIn(AttrDBCollectionName, "dbCollection", f.Collection)
+	appendIn(AttrDBNamespace, "dbNamespace", f.Namespace)
+	appendIn(AttrServerAddress, "dbServer", f.Server)
 
 	return sb.String(), args
 }

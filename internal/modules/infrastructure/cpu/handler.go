@@ -3,6 +3,8 @@ package cpu
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -21,7 +23,7 @@ func (h *CPUHandler) GetCPUTime(c *gin.Context) {
 	}
 	resp, err := h.Service.GetCPUTime(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query CPU time")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query CPU time", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -35,7 +37,7 @@ func (h *CPUHandler) GetCPUUsagePercentage(c *gin.Context) {
 	}
 	resp, err := h.Service.GetCPUUsagePercentage(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query CPU usage percentage")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query CPU usage percentage", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -49,7 +51,7 @@ func (h *CPUHandler) GetLoadAverage(c *gin.Context) {
 	}
 	resp, err := h.Service.GetLoadAverage(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query load average")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query load average", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -63,7 +65,7 @@ func (h *CPUHandler) GetProcessCount(c *gin.Context) {
 	}
 	resp, err := h.Service.GetProcessCount(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query process count")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query process count", err)
 		return
 	}
 	RespondOK(c, resp)

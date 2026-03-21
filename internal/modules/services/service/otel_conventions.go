@@ -1,5 +1,7 @@
 package servicepage
 
+import rootspan "github.com/observability/observability-backend-go/internal/modules/spans/shared/rootspan"
+
 // Raw ClickHouse column references for observability.spans (aliased as s)
 // and observability.resources (aliased as r). All queries in this module
 // use FROM observability.spans s ANY LEFT JOIN observability.resources r
@@ -20,5 +22,5 @@ func ErrorCondition() string {
 }
 
 func RootSpanCondition() string {
-	return "s.parent_span_id = ''"
+	return rootspan.Condition("s")
 }

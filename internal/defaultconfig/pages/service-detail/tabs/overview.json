@@ -4,10 +4,24 @@
   "label": "Overview",
   "order": 10,
   "groups": [
+    { "id": "key-metrics", "label": "Key Metrics", "order": 5 },
     { "id": "golden-signals", "label": "Golden Signals", "order": 10 },
     { "id": "health", "label": "Health", "order": 20 }
   ],
   "components": [
+    {
+      "componentKey": "stat-cards-grid",
+      "groupId": "key-metrics",
+      "id": "service-stat-cards",
+      "layout": { "col": 24 },
+      "order": 1,
+      "query": {
+        "endpoint": "/v1/services/stats",
+        "method": "GET",
+        "params": { "service": "{serviceName}" }
+      },
+      "title": "Service Stats"
+    },
     {
       "componentKey": "request",
       "groupId": "golden-signals",

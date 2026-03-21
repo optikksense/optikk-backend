@@ -18,6 +18,7 @@ FROM alpine:3.20
 WORKDIR /app
 
 COPY --from=builder /app/observability-go .
+COPY config.yml .
 
 RUN chown -R 1000:1000 /app
 USER 1000:1000

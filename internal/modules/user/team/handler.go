@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -44,7 +46,7 @@ func (h *Handler) GetMyTeams(c *gin.Context) {
 func (h *Handler) GetTeamByID(c *gin.Context) {
 	teamID, err := modulecommon.ExtractIDParam(c, "id")
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid team id")
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Invalid team id")
 		return
 	}
 
@@ -68,7 +70,7 @@ func (h *Handler) GetTeamBySlug(c *gin.Context) {
 func (h *Handler) CreateTeam(c *gin.Context) {
 	var req CreateTeamRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		modulecommon.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid request body")
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Invalid request body")
 		return
 	}
 
@@ -90,12 +92,12 @@ func (h *Handler) CreateTeam(c *gin.Context) {
 func (h *Handler) AddUserToTeam(c *gin.Context) {
 	userID, err := modulecommon.ExtractIDParam(c, "userId")
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid userId")
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Invalid userId")
 		return
 	}
 	teamID, err := modulecommon.ExtractIDParam(c, "teamId")
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid teamId")
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Invalid teamId")
 		return
 	}
 
@@ -114,12 +116,12 @@ func (h *Handler) AddUserToTeam(c *gin.Context) {
 func (h *Handler) RemoveUserFromTeam(c *gin.Context) {
 	userID, err := modulecommon.ExtractIDParam(c, "userId")
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid userId")
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Invalid userId")
 		return
 	}
 	teamID, err := modulecommon.ExtractIDParam(c, "teamId")
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid teamId")
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Invalid teamId")
 		return
 	}
 

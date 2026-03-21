@@ -55,7 +55,9 @@ func instanceFilter(instance string) (string, []any) {
 	if instance == "" {
 		return "", nil
 	}
-	return fmt.Sprintf(" AND attributes.'%s'::String = ?", attrServerAddress), []any{instance}
+	return fmt.Sprintf(" AND attributes.'%s'::String = @instance", attrServerAddress), []any{
+		clickhouse.Named("instance", instance),
+	}
 }
 
 func redisAttrString(attrName string) string {
@@ -67,17 +69,17 @@ func (r *ClickHouseRepository) QueryMetricSeries(teamID int64, startMs, endMs in
 	bucket := timebucket.Expression(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT
-			%s AS timestamp,
+			%s AS time_bucket,
 			avg(%s) AS value
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
-		  AND %s = ?%s
-		GROUP BY timestamp
-		ORDER BY timestamp ASC
+		  AND %s = @metricName%s
+		GROUP BY time_bucket
+		ORDER BY time_bucket ASC
 	`, bucket, colValue, tableMetrics, colTeamID, colTimestamp, colMetricName, instSQL)
 
-	args := append(baseParams(teamID, startMs, endMs), metricName)
+	args := append(baseParams(teamID, startMs, endMs), clickhouse.Named("metricName", metricName))
 	args = append(args, instArgs...)
 	var points []metricPointDTO
 	return points, r.db.Select(context.Background(), &points, query, args...)

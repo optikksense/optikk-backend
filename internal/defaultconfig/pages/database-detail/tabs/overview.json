@@ -65,7 +65,7 @@
       "titleIcon": "Activity"
     },
     {
-      "componentKey": "area",
+      "componentKey": "latency",
       "groupId": "latency",
       "id": "db-latency-by-operation",
       "layout": { "col": 24 },

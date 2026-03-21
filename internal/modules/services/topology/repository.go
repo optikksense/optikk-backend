@@ -42,8 +42,8 @@ func (r *ClickHouseRepository) GetTopologyNodes(ctx context.Context, teamID int6
 		       avg_latency
 		FROM (
 			SELECT s.service_name AS service_name,
-			       count()                          AS request_count,
-			       countIf(`+ErrorCondition()+`)    AS error_count,
+			       toInt64(count())                 AS request_count,
+			       toInt64(countIf(`+ErrorCondition()+`)) AS error_count,
 			       avg(s.duration_nano / 1000000.0) AS avg_latency
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
@@ -66,8 +66,8 @@ func (r *ClickHouseRepository) GetTopologyEdges(ctx context.Context, teamID int6
 		FROM (
 			SELECT s1.service_name                               AS source,
 			       s2.service_name                               AS target,
-			       count()                                      AS call_count,
-			       countIf(s1.has_error = true OR toUInt16OrZero(s1.response_status_code) >= 400) AS error_count,
+			       toInt64(count())                             AS call_count,
+			       toInt64(countIf(s1.has_error = true OR toUInt16OrZero(s1.response_status_code) >= 400)) AS error_count,
 			       avg(s1.duration_nano / 1000000.0)            AS avg_latency,
 			       quantile(0.95)(s1.duration_nano / 1000000.0) AS p95_latency_ms
 			FROM observability.spans s1

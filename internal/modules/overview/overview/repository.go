@@ -11,13 +11,15 @@ import (
 )
 
 func overviewBucketExpr(startMs, endMs int64) string {
-	return timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
+	return timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 }
 
 // baseParams returns named ClickHouse parameters for teamID + time range.
 func baseParams(teamID int64, startMs, endMs int64) []any {
 	return []any{
 		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
@@ -54,13 +56,13 @@ func (r *ClickHouseRepository) GetRequestRate(ctx context.Context, teamID int64,
 		FROM (
 			SELECT %s AS time_bucket,
 			       s.service_name AS service_name,
-			       count() AS request_count
+			       toInt64(count()) AS request_count
 			FROM observability.spans s
-			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := append(baseParams(teamID, startMs, endMs), timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000))
+			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
+	args := baseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += ` AND s.service_name = ?`
-		args = append(args, serviceName)
+		query += ` AND s.service_name = @serviceName`
+		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += fmt.Sprintf(` GROUP BY %s, s.service_name
 		)
@@ -95,14 +97,14 @@ func (r *ClickHouseRepository) GetErrorRate(ctx context.Context, teamID int64, s
 		FROM (
 			SELECT %s AS time_bucket,
 			       s.service_name AS service_name,
-			       count() AS request_count,
-			       countIf(`+ErrorCondition()+`) AS error_count
+			       toInt64(count()) AS request_count,
+			       toInt64(countIf(`+ErrorCondition()+`)) AS error_count
 			FROM observability.spans s
-			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := append(baseParams(teamID, startMs, endMs), timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000))
+			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
+	args := baseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += ` AND s.service_name = ?`
-		args = append(args, serviceName)
+		query += ` AND s.service_name = @serviceName`
+		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += fmt.Sprintf(` GROUP BY %s, s.service_name
 		)
@@ -133,11 +135,11 @@ func (r *ClickHouseRepository) GetP95Latency(ctx context.Context, teamID int64, 
 			       s.service_name AS service_name,
 			       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(s.duration_nano / 1000000.0) AS p95
 			FROM observability.spans s
-			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := append(baseParams(teamID, startMs, endMs), timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000))
+			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
+	args := baseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += ` AND s.service_name = ?`
-		args = append(args, serviceName)
+		query += ` AND s.service_name = @serviceName`
+		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += fmt.Sprintf(` GROUP BY %s, s.service_name
 		)
@@ -168,20 +170,20 @@ func (r *ClickHouseRepository) GetServices(ctx context.Context, teamID int64, st
 		SELECT service_name, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
 		FROM (
 			SELECT s.service_name AS service_name,
-			       count()                                                                      AS request_count,
-			       countIf(` + ErrorCondition() + `)                                               AS error_count,
+			       toInt64(count())                                                             AS request_count,
+			       toInt64(countIf(` + ErrorCondition() + `))                                   AS error_count,
 			       avg(s.duration_nano / 1000000.0)                                            AS avg_latency,
 			       quantile(` + fmt.Sprintf("%.1f", QuantileP50) + `)(s.duration_nano / 1000000.0) AS p50_latency,
 			       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency,
 			       quantile(` + fmt.Sprintf("%.2f", QuantileP99) + `)(s.duration_nano / 1000000.0) AS p99_latency
 			FROM observability.spans s
-			WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end
+			WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
 			GROUP BY s.service_name
 		)
 		ORDER BY request_count DESC
 	`
 
-	args := append(baseParams(teamID, startMs, endMs), timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000))
+	args := baseParams(teamID, startMs, endMs)
 	var rows []serviceMetricRow
 	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
@@ -208,25 +210,22 @@ func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64
 		SELECT service_name, operation_name, http_method, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
 		FROM (
 			SELECT s.service_name AS service_name, s.name AS operation_name, s.http_method,
-			       count() AS request_count,
-			       countIf(` + ErrorCondition() + `) AS error_count,
+			       toInt64(count()) AS request_count,
+			       toInt64(countIf(` + ErrorCondition() + `)) AS error_count,
 			       avg(s.duration_nano / 1000000.0) AS avg_latency,
 			       quantile(` + fmt.Sprintf("%.1f", QuantileP50) + `)(s.duration_nano / 1000000.0) AS p50_latency,
 			       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency,
 			       quantile(` + fmt.Sprintf("%.2f", QuantileP99) + `)(s.duration_nano / 1000000.0) AS p99_latency
 			FROM observability.spans s
-			WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end AND
+			WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end AND
 				tuple(s.service_name, s.name, s.http_method) IN (
 					SELECT service_name, name, http_method
 					FROM observability.spans s
-					WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end`
-	args := append(baseParams(teamID, startMs, endMs),
-		timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000),
-		timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000),
-	)
+					WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`
+	args := baseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += ` AND s.service_name = ?`
-		args = append(args, serviceName)
+		query += ` AND s.service_name = @serviceName`
+		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += `
 					GROUP BY service_name, name, http_method
@@ -234,8 +233,7 @@ func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64
 					LIMIT 100
 				)`
 	if serviceName != "" {
-		query += ` AND s.service_name = ?`
-		args = append(args, serviceName)
+		query += ` AND s.service_name = @serviceName`
 	}
 	query += `
 			GROUP BY s.service_name, s.name, s.http_method
@@ -273,18 +271,18 @@ func (r *ClickHouseRepository) GetEndpointTimeSeries(ctx context.Context, teamID
 			       s.service_name AS service_name,
 			       s.name AS operation_name,
 			       s.http_method AS http_method,
-			       count()                                                                      AS request_count,
-			       countIf(`+ErrorCondition()+`)                                               AS error_count,
+			       toInt64(count())                                                             AS request_count,
+			       toInt64(countIf(`+ErrorCondition()+`))                                       AS error_count,
 			       avg(s.duration_nano / 1000000.0)                                            AS avg_latency,
 			       quantile(`+fmt.Sprintf("%.1f", QuantileP50)+`)(s.duration_nano / 1000000.0) AS p50,
 			       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(s.duration_nano / 1000000.0) AS p95,
 			       quantile(`+fmt.Sprintf("%.2f", QuantileP99)+`)(s.duration_nano / 1000000.0) AS p99
 			FROM observability.spans s
-			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := append(baseParams(teamID, startMs, endMs), timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000))
+			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
+	args := baseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += ` AND s.service_name = ?`
-		args = append(args, serviceName)
+		query += ` AND s.service_name = @serviceName`
+		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += fmt.Sprintf(` GROUP BY %s, s.service_name, s.name, s.http_method
 		)

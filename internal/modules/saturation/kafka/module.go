@@ -1,6 +1,10 @@
 package kafka
 
-import "github.com/gin-gonic/gin"
+import (
+	"github.com/gin-gonic/gin"
+	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
+	"github.com/observability/observability-backend-go/internal/modules/registry"
+)
 
 type Config struct {
 	Enabled bool
@@ -32,10 +36,12 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *KafkaHandler) {
 	v1.GET("/saturation/kafka/process-latency-by-group", h.GetProcessLatencyByGroup)
 
 	// Dashboard 4: Consumer Lag
+	v1.GET("/saturation/kafka/consumer-lag-by-group", h.GetConsumerLagByGroup)
 	v1.GET("/saturation/kafka/lag-by-group", h.GetConsumerLagByGroup)
 	v1.GET("/saturation/kafka/lag-per-partition", h.GetConsumerLagPerPartition)
 
 	// Dashboard 5: Consumer Group Rebalancing
+	v1.GET("/saturation/kafka/assigned-partitions", h.GetRebalanceSignals)
 	v1.GET("/saturation/kafka/rebalance-signals", h.GetRebalanceSignals)
 
 	// Dashboard 6: End-to-End Latency
@@ -50,4 +56,27 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *KafkaHandler) {
 	// Dashboard 8: Broker / Client Connectivity
 	v1.GET("/saturation/kafka/broker-connections", h.GetBrokerConnections)
 	v1.GET("/saturation/kafka/client-op-duration", h.GetClientOperationDuration)
+}
+
+func init() {
+	registry.Register(&kafkaModule{})
+}
+
+type kafkaModule struct {
+	handler *KafkaHandler
+}
+
+func (m *kafkaModule) Name() string                      { return "kafka" }
+func (m *kafkaModule) RouteTarget() registry.RouteTarget { return registry.Cached }
+
+func (m *kafkaModule) Init(deps registry.Deps) error {
+	m.handler = &KafkaHandler{
+		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
+		Service:  NewService(NewRepository(deps.NativeQuerier)),
+	}
+	return nil
+}
+
+func (m *kafkaModule) RegisterRoutes(group *gin.RouterGroup) {
+	RegisterRoutes(DefaultConfig(), group, m.handler)
 }

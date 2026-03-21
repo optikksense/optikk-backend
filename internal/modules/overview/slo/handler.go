@@ -3,6 +3,8 @@ package slo
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -16,6 +18,9 @@ type SLOHandler struct {
 func (h *SLOHandler) GetSloSli(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")
+	if serviceName == "" {
+		serviceName = c.Query("service")
+	}
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
@@ -23,7 +28,7 @@ func (h *SLOHandler) GetSloSli(c *gin.Context) {
 
 	resp, err := h.Service.GetSloSli(teamID, startMs, endMs, serviceName)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview SLO status")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview SLO status", err)
 		return
 	}
 
@@ -33,6 +38,9 @@ func (h *SLOHandler) GetSloSli(c *gin.Context) {
 func (h *SLOHandler) GetSloStats(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")
+	if serviceName == "" {
+		serviceName = c.Query("service")
+	}
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
@@ -40,7 +48,7 @@ func (h *SLOHandler) GetSloStats(c *gin.Context) {
 
 	resp, err := h.Service.GetSloSli(teamID, startMs, endMs, serviceName)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview SLO status")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview SLO status", err)
 		return
 	}
 
@@ -50,6 +58,9 @@ func (h *SLOHandler) GetSloStats(c *gin.Context) {
 func (h *SLOHandler) GetBurnDown(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")
+	if serviceName == "" {
+		serviceName = c.Query("service")
+	}
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
@@ -57,7 +68,7 @@ func (h *SLOHandler) GetBurnDown(c *gin.Context) {
 
 	points, err := h.Service.GetBurnDown(teamID, startMs, endMs, serviceName)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query SLO burn-down")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query SLO burn-down", err)
 		return
 	}
 	RespondOK(c, points)
@@ -66,6 +77,9 @@ func (h *SLOHandler) GetBurnDown(c *gin.Context) {
 func (h *SLOHandler) GetBurnRate(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")
+	if serviceName == "" {
+		serviceName = c.Query("service")
+	}
 	startMs, endMs, ok := ParseRequiredRange(c)
 	if !ok {
 		return
@@ -73,7 +87,7 @@ func (h *SLOHandler) GetBurnRate(c *gin.Context) {
 
 	rate, err := h.Service.GetBurnRate(teamID, startMs, endMs, serviceName)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query SLO burn rate")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query SLO burn rate", err)
 		return
 	}
 	RespondOK(c, rate)

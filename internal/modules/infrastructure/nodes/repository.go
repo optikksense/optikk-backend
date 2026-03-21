@@ -8,6 +8,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	database "github.com/observability/observability-backend-go/internal/database"
+	rootspan "github.com/observability/observability-backend-go/internal/modules/spans/shared/rootspan"
 	"github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
@@ -48,22 +49,20 @@ type infrastructureNodeServiceDTO struct {
 }
 
 func (r *ClickHouseRepository) GetInfrastructureNodes(teamID int64, startMs, endMs int64) ([]InfrastructureNode, error) {
-	const rootSpanCondition = "(s.parent_span_id = '' OR s.parent_span_id = '0000000000000000')"
-
 	query := `
 		SELECT if(s.mat_host_name != '', s.mat_host_name, '` + DefaultUnknown + `') as host_name,
-		       uniqExactIf(s.mat_k8s_pod_name, s.mat_k8s_pod_name != '') as pod_count,
+		       toInt64(uniqExactIf(s.mat_k8s_pod_name, s.mat_k8s_pod_name != '')) as pod_count,
 		       toInt64(0) as container_count,
 		       arrayStringConcat(groupUniqArray(s.service_name), ',') as services_csv,
-		       COUNT(*) as request_count,
-		       countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400) as error_count,
+		       toInt64(COUNT(*)) as request_count,
+		       toInt64(countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)) as error_count,
 		       if(COUNT(*) > 0, countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)*100.0/COUNT(*), 0) as error_rate,
 		       AVG(s.duration_nano / 1000000.0) as avg_latency,
 		       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) as p95_latency,
 		       MAX(s.timestamp) as last_seen
 		FROM observability.spans s
 		WHERE s.team_id = @teamID
-		  AND ` + rootSpanCondition + `
+		  AND ` + rootspan.Condition("s") + `
 		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND s.timestamp BETWEEN @start AND @end
 		GROUP BY host_name
@@ -102,20 +101,18 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(teamID int64, startMs, end
 }
 
 func (r *ClickHouseRepository) GetInfrastructureNodeServices(teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error) {
-	const rootSpanCondition = "(s.parent_span_id = '' OR s.parent_span_id = '0000000000000000')"
-
 	query := `
 		SELECT s.service_name as service_name,
-		       COUNT(*) as request_count,
-		       countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400) as error_count,
+		       toInt64(COUNT(*)) as request_count,
+		       toInt64(countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)) as error_count,
 		       if(COUNT(*) > 0, countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)*100.0/COUNT(*), 0) as error_rate,
 		       AVG(s.duration_nano / 1000000.0) as avg_latency,
 		       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) as p95_latency,
-		       uniqExactIf(s.mat_k8s_pod_name, s.mat_k8s_pod_name != '') as pod_count
+		       toInt64(uniqExactIf(s.mat_k8s_pod_name, s.mat_k8s_pod_name != '')) as pod_count
 		FROM observability.spans s
 		WHERE s.team_id = @teamID
 		  AND if(s.mat_host_name != '', s.mat_host_name, '` + DefaultUnknown + `') = @host
-		  AND ` + rootSpanCondition + `
+		  AND ` + rootspan.Condition("s") + `
 		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND s.timestamp BETWEEN @start AND @end
 		GROUP BY service_name

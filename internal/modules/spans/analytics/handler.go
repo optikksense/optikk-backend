@@ -3,6 +3,8 @@ package analytics
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	"github.com/observability/observability-backend-go/internal/modules/common"
 )
@@ -22,13 +24,13 @@ func (h *Handler) PostAnalytics(c *gin.Context) {
 
 	var q AnalyticsQuery
 	if err := c.ShouldBindJSON(&q); err != nil {
-		common.RespondError(c, http.StatusBadRequest, "BAD_REQUEST", "Invalid request body: "+err.Error())
+		common.RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "Invalid request body: "+err.Error())
 		return
 	}
 
 	result, err := h.svc.RunQuery(c.Request.Context(), teamID, q)
 	if err != nil {
-		common.RespondError(c, http.StatusBadRequest, "QUERY_ERROR", err.Error())
+		common.RespondError(c, http.StatusBadRequest, errorcode.QueryFailed, err.Error())
 		return
 	}
 	common.RespondOK(c, result)

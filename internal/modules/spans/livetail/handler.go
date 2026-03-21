@@ -31,8 +31,11 @@ func (h *Handler) GetLiveTail(c *gin.Context) {
 	teamID := h.getTenant(c).TeamID
 
 	filters := LiveTailFilters{
-		Status:   c.Query("status"),
-		SpanKind: c.Query("spanKind"),
+		Status:     c.Query("status"),
+		SpanKind:   c.Query("spanKind"),
+		SearchText: c.Query("search"),
+		Operation:  c.Query("operationName"),
+		HTTPMethod: c.Query("httpMethod"),
 	}
 	if svc := c.Query("services"); svc != "" {
 		filters.Services = strings.Split(svc, ",")

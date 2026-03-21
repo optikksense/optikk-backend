@@ -3,6 +3,8 @@ package errorfingerprint
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	"github.com/observability/observability-backend-go/internal/modules/common"
 )
@@ -31,7 +33,7 @@ func (h *Handler) ListFingerprints(c *gin.Context) {
 
 	fps, err := h.service.ListFingerprints(teamID, startMs, endMs, serviceName, limit)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query error fingerprints")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query error fingerprints", err)
 		return
 	}
 	common.RespondOK(c, fps)
@@ -50,13 +52,13 @@ func (h *Handler) GetFingerprintTrend(c *gin.Context) {
 	statusMessage := c.Query("statusMessage")
 
 	if serviceName == "" || operationName == "" {
-		common.RespondError(c, http.StatusBadRequest, "BAD_REQUEST", "serviceName and operationName are required")
+		common.RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "serviceName and operationName are required")
 		return
 	}
 
 	points, err := h.service.GetFingerprintTrend(teamID, startMs, endMs, serviceName, operationName, exceptionType, statusMessage)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query fingerprint trend")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query fingerprint trend", err)
 		return
 	}
 	common.RespondOK(c, points)

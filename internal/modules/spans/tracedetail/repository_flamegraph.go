@@ -15,9 +15,9 @@ func (r *ClickHouseRepository) GetFlamegraphData(ctx context.Context, teamID int
 		       toUnixTimestamp64Nano(s.timestamp) AS start_ns,
 		       s.has_error
 		FROM observability.spans s
-		WHERE s.team_id = @teamID AND s.trace_id = ?
+		WHERE s.team_id = @teamID AND s.trace_id = @traceID
 		ORDER BY start_ns ASC
 		LIMIT 5000
-	`, clickhouse.Named("teamID", uint32(teamID)), traceID)
+	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID))
 	return rows, err
 }

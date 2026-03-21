@@ -1,5 +1,7 @@
 package overview
 
+import rootspan "github.com/observability/observability-backend-go/internal/modules/spans/shared/rootspan"
+
 // Raw ClickHouse column references for observability.spans (aliased as s).
 
 const (
@@ -18,5 +20,5 @@ func ErrorCondition() string {
 }
 
 func RootSpanCondition() string {
-	return "s.parent_span_id = ''"
+	return rootspan.Condition("s")
 }

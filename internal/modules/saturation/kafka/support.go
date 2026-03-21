@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	database "github.com/observability/observability-backend-go/internal/database"
 )
 
@@ -161,12 +162,12 @@ func kafkaFilterClauses(f KafkaFilters) (string, []any) {
 	var sb strings.Builder
 	var args []any
 	if f.Topic != "" {
-		sb.WriteString(fmt.Sprintf(" AND %s = ?", topicExpr()))
-		args = append(args, f.Topic)
+		sb.WriteString(fmt.Sprintf(" AND %s = @topicFilter", topicExpr()))
+		args = append(args, clickhouse.Named("topicFilter", f.Topic))
 	}
 	if f.Group != "" {
-		sb.WriteString(fmt.Sprintf(" AND %s = ?", consumerGroupExpr()))
-		args = append(args, f.Group)
+		sb.WriteString(fmt.Sprintf(" AND %s = @groupFilter", consumerGroupExpr()))
+		args = append(args, clickhouse.Named("groupFilter", f.Group))
 	}
 	return sb.String(), args
 }

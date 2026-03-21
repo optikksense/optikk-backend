@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -26,7 +28,7 @@ func NewHandler(getTenant modulecommon.GetTenantFunc, service *Service) *Handler
 func (h *Handler) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		modulecommon.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Email and password are required")
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Email and password are required")
 		return
 	}
 
@@ -78,7 +80,7 @@ func (h *Handler) ValidateToken(c *gin.Context) {
 
 func (h *Handler) GoogleLogin(c *gin.Context) {
 	if !h.Service.GoogleConfigured() {
-		modulecommon.RespondError(c, http.StatusServiceUnavailable, "OAUTH_NOT_CONFIGURED", "Google OAuth is not configured")
+		modulecommon.RespondError(c, http.StatusServiceUnavailable, errorcode.Unavailable, "Google OAuth is not configured")
 		return
 	}
 	url, err := h.Service.GoogleLoginURL()
@@ -91,7 +93,7 @@ func (h *Handler) GoogleLogin(c *gin.Context) {
 
 func (h *Handler) GoogleCallback(c *gin.Context) {
 	if !h.Service.GoogleConfigured() {
-		modulecommon.RespondError(c, http.StatusServiceUnavailable, "OAUTH_NOT_CONFIGURED", "Google OAuth is not configured")
+		modulecommon.RespondError(c, http.StatusServiceUnavailable, errorcode.Unavailable, "Google OAuth is not configured")
 		return
 	}
 	c.Redirect(http.StatusTemporaryRedirect, h.Service.GoogleCallbackRedirect(c.Query("code")))
@@ -99,7 +101,7 @@ func (h *Handler) GoogleCallback(c *gin.Context) {
 
 func (h *Handler) GithubLogin(c *gin.Context) {
 	if !h.Service.GithubConfigured() {
-		modulecommon.RespondError(c, http.StatusServiceUnavailable, "OAUTH_NOT_CONFIGURED", "GitHub OAuth is not configured")
+		modulecommon.RespondError(c, http.StatusServiceUnavailable, errorcode.Unavailable, "GitHub OAuth is not configured")
 		return
 	}
 	url, err := h.Service.GithubLoginURL()
@@ -112,7 +114,7 @@ func (h *Handler) GithubLogin(c *gin.Context) {
 
 func (h *Handler) GithubCallback(c *gin.Context) {
 	if !h.Service.GithubConfigured() {
-		modulecommon.RespondError(c, http.StatusServiceUnavailable, "OAUTH_NOT_CONFIGURED", "GitHub OAuth is not configured")
+		modulecommon.RespondError(c, http.StatusServiceUnavailable, errorcode.Unavailable, "GitHub OAuth is not configured")
 		return
 	}
 	c.Redirect(http.StatusTemporaryRedirect, h.Service.GithubCallbackRedirect(c.Query("code")))
@@ -121,14 +123,14 @@ func (h *Handler) GithubCallback(c *gin.Context) {
 func (h *Handler) CompleteSignup(c *gin.Context) {
 	var req CompleteSignupRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		modulecommon.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "teamName and orgName are required")
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "teamName and orgName are required")
 		return
 	}
 
 	req.TeamName = strings.TrimSpace(req.TeamName)
 	req.OrgName = strings.TrimSpace(req.OrgName)
 	if err := appvalidation.Struct(req); err != nil {
-		modulecommon.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "teamName and orgName are required")
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "teamName and orgName are required")
 		return
 	}
 

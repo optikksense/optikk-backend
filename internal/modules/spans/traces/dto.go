@@ -33,6 +33,19 @@ type traceCountRow struct {
 	Total int64 `ch:"total"`
 }
 
+type traceFacetRow struct {
+	Key   string `ch:"facet_key"`
+	Value string `ch:"facet_value"`
+	Count int64  `ch:"count"`
+}
+
+type traceTrendRow struct {
+	TimeBucket  string  `ch:"time_bucket"`
+	TotalTraces int64   `ch:"total_traces"`
+	ErrorTraces int64   `ch:"error_traces"`
+	P95Duration float64 `ch:"p95_duration"`
+}
+
 // spanRow is the scan target for GetTraceSpans / GetSpanTree.
 // EndTime is computed by the service (StartTime + DurationNano).
 type spanRow struct {
@@ -65,7 +78,7 @@ type errorGroupRow struct {
 	ServiceName     string    `ch:"service_name"`
 	OperationName   string    `ch:"operation_name"`
 	StatusMessage   string    `ch:"status_message"`
-	HTTPStatusCode  int       `ch:"http_status_code"`
+	HTTPStatusCode  uint16    `ch:"http_status_code"`
 	ErrorCount      int64     `ch:"error_count"`
 	LastOccurrence  time.Time `ch:"last_occurrence"`
 	FirstOccurrence time.Time `ch:"first_occurrence"`

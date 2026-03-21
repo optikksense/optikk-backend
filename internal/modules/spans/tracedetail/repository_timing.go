@@ -18,13 +18,13 @@ func (r *ClickHouseRepository) GetSpanSelfTimes(ctx context.Context, teamID int6
 		LEFT JOIN (
 		    SELECT parent_span_id, sum(duration_nano) / 1000000.0 AS child_ms
 		    FROM observability.spans
-		    WHERE team_id = @teamID AND trace_id = ?
+		    WHERE team_id = @teamID AND trace_id = @traceID
 		    GROUP BY parent_span_id
 		) AS child_sum ON child_sum.parent_span_id = s.span_id
-		WHERE s.team_id = @teamID AND s.trace_id = ?
+		WHERE s.team_id = @teamID AND s.trace_id = @traceID
 		ORDER BY self_time_ms DESC
 		LIMIT 5000
-	`, clickhouse.Named("teamID", uint32(teamID)), traceID, traceID)
+	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID))
 	return rows, err
 }
 
@@ -35,10 +35,10 @@ func (r *ClickHouseRepository) GetErrorPath(ctx context.Context, teamID int64, t
 		       s.service_name AS service_name, s.status_code_string AS status, s.status_message,
 		       s.timestamp AS start_time, s.duration_nano / 1000000.0 AS duration_ms
 		FROM observability.spans s
-		WHERE s.team_id = @teamID AND s.trace_id = ?
+		WHERE s.team_id = @teamID AND s.trace_id = @traceID
 		  AND (s.has_error = true OR s.status_code_string = 'ERROR')
 		ORDER BY s.timestamp ASC
 		LIMIT 1000
-	`, clickhouse.Named("teamID", uint32(teamID)), traceID)
+	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID))
 	return rows, err
 }

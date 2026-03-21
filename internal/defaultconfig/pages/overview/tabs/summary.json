@@ -4,11 +4,48 @@
   "label": "Summary",
   "order": 10,
   "groups": [
+    { "id": "overview-stats", "label": "Key Metrics", "order": 5 },
     { "id": "golden-signals", "label": "Golden Signals", "order": 10 },
     { "id": "service-health", "label": "Service Health", "order": 20 },
     { "id": "top-consumers", "label": "Top Consumers", "order": 30 }
   ],
   "components": [
+    {
+      "componentKey": "stat-cards-grid",
+      "groupId": "overview-stats",
+      "id": "overview-stat-cards",
+      "layout": { "col": 24 },
+      "order": 1,
+      "query": {
+        "endpoint": "/v1/overview/services",
+        "method": "GET"
+      },
+      "title": "Overview Stats"
+    },
+    {
+      "componentKey": "slo-indicators",
+      "groupId": "overview-stats",
+      "id": "slo-indicators",
+      "layout": { "col": 24 },
+      "order": 2,
+      "query": {
+        "endpoint": "/v1/overview/services",
+        "method": "GET"
+      },
+      "title": "SLO Indicators"
+    },
+    {
+      "componentKey": "service-health-grid",
+      "groupId": "overview-stats",
+      "id": "service-health-grid",
+      "layout": { "col": 24 },
+      "order": 3,
+      "query": {
+        "endpoint": "/v1/overview/services",
+        "method": "GET"
+      },
+      "title": "Services Overview"
+    },
     {
       "componentKey": "request",
       "groupByKey": "service_name",

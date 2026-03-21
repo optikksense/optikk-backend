@@ -1,6 +1,9 @@
 package team
 
-import "github.com/gin-gonic/gin"
+import (
+	"github.com/gin-gonic/gin"
+	"github.com/observability/observability-backend-go/internal/modules/registry"
+)
 
 type Config struct {
 	Enabled bool
@@ -29,4 +32,27 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 		teamsGroup.GET("/slug/:slug", h.GetTeamBySlug)
 		teamsGroup.POST("", h.CreateTeam)
 	}
+}
+
+func init() {
+	registry.Register(&teamModule{})
+}
+
+type teamModule struct {
+	handler *Handler
+}
+
+func (m *teamModule) Name() string                      { return "team" }
+func (m *teamModule) RouteTarget() registry.RouteTarget { return registry.V1 }
+
+func (m *teamModule) Init(deps registry.Deps) error {
+	m.handler = NewHandler(
+		deps.GetTenant,
+		NewService(NewRepository(deps.DB), deps.ConfigRegistry),
+	)
+	return nil
+}
+
+func (m *teamModule) RegisterRoutes(group *gin.RouterGroup) {
+	RegisterRoutes(DefaultConfig(), group, m.handler)
 }

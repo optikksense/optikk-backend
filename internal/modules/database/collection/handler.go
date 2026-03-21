@@ -3,6 +3,8 @@ package collection
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	common "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -26,7 +28,7 @@ func (h *Handler) GetCollectionLatency(c *gin.Context) {
 	}
 	resp, err := h.Service.GetCollectionLatency(c.Request.Context(), teamID, startMs, endMs, collection, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query collection latency")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query collection latency", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -44,7 +46,7 @@ func (h *Handler) GetCollectionOps(c *gin.Context) {
 	}
 	resp, err := h.Service.GetCollectionOps(c.Request.Context(), teamID, startMs, endMs, collection, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query collection ops")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query collection ops", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -62,7 +64,7 @@ func (h *Handler) GetCollectionErrors(c *gin.Context) {
 	}
 	resp, err := h.Service.GetCollectionErrors(c.Request.Context(), teamID, startMs, endMs, collection, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query collection errors")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query collection errors", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -80,7 +82,7 @@ func (h *Handler) GetCollectionQueryTexts(c *gin.Context) {
 	}
 	resp, err := h.Service.GetCollectionQueryTexts(c.Request.Context(), teamID, startMs, endMs, collection, shared.ParseFilters(c), shared.ParseLimit(c, 10))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query collection query texts")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query collection query texts", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -98,7 +100,7 @@ func (h *Handler) GetCollectionReadVsWrite(c *gin.Context) {
 	}
 	resp, err := h.Service.GetCollectionReadVsWrite(c.Request.Context(), teamID, startMs, endMs, collection)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query collection read vs write")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query collection read vs write", err)
 		return
 	}
 	common.RespondOK(c, resp)

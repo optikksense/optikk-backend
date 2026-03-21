@@ -18,7 +18,11 @@ type CircuitBreaker struct {
 var breakerRegistry syncRegistry
 
 func NewCircuitBreaker(name string, threshold int, resetTimeout time.Duration) *CircuitBreaker {
-	return breakerRegistry.getOrCreate(name, threshold, resetTimeout)
+	return breakerRegistry.getOrCreate(name, threshold, resetTimeout, nil)
+}
+
+func NewCircuitBreakerWithSuccessDecider(name string, threshold int, resetTimeout time.Duration, isSuccessful func(error) bool) *CircuitBreaker {
+	return breakerRegistry.getOrCreate(name, threshold, resetTimeout, isSuccessful)
 }
 
 func (cb *CircuitBreaker) Call(fn func() error) error {
@@ -39,7 +43,7 @@ type syncRegistry struct {
 	breakers sync.Map
 }
 
-func (r *syncRegistry) getOrCreate(name string, threshold int, resetTimeout time.Duration) *CircuitBreaker {
+func (r *syncRegistry) getOrCreate(name string, threshold int, resetTimeout time.Duration, isSuccessful func(error) bool) *CircuitBreaker {
 	if existing, ok := r.breakers.Load(name); ok {
 		return existing.(*CircuitBreaker)
 	}
@@ -51,6 +55,12 @@ func (r *syncRegistry) getOrCreate(name string, threshold int, resetTimeout time
 			Timeout:     resetTimeout,
 			ReadyToTrip: func(counts gobreaker.Counts) bool {
 				return counts.ConsecutiveFailures >= uint32(threshold)
+			},
+			IsSuccessful: func(err error) bool {
+				if isSuccessful != nil {
+					return isSuccessful(err)
+				}
+				return err == nil
 			},
 			OnStateChange: func(name string, from gobreaker.State, to gobreaker.State) {
 				log.Printf("circuit_breaker: %s transitioned %s -> %s", name, from.String(), to.String())

@@ -3,6 +3,8 @@ package connections
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	common "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -21,7 +23,7 @@ func (h *Handler) GetConnectionCountSeries(c *gin.Context) {
 	}
 	resp, err := h.Service.GetConnectionCountSeries(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query connection count series")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query connection count series", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -35,7 +37,7 @@ func (h *Handler) GetConnectionUtilization(c *gin.Context) {
 	}
 	resp, err := h.Service.GetConnectionUtilization(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query connection utilization")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query connection utilization", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -49,7 +51,7 @@ func (h *Handler) GetConnectionLimits(c *gin.Context) {
 	}
 	resp, err := h.Service.GetConnectionLimits(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query connection limits")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query connection limits", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -63,7 +65,7 @@ func (h *Handler) GetPendingRequests(c *gin.Context) {
 	}
 	resp, err := h.Service.GetPendingRequests(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query pending connection requests")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query pending connection requests", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -77,7 +79,7 @@ func (h *Handler) GetConnectionTimeoutRate(c *gin.Context) {
 	}
 	resp, err := h.Service.GetConnectionTimeoutRate(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query connection timeout rate")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query connection timeout rate", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -91,7 +93,7 @@ func (h *Handler) GetConnectionWaitTime(c *gin.Context) {
 	}
 	resp, err := h.Service.GetConnectionWaitTime(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query connection wait time")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query connection wait time", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -105,7 +107,7 @@ func (h *Handler) GetConnectionCreateTime(c *gin.Context) {
 	}
 	resp, err := h.Service.GetConnectionCreateTime(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query connection create time")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query connection create time", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -119,7 +121,7 @@ func (h *Handler) GetConnectionUseTime(c *gin.Context) {
 	}
 	resp, err := h.Service.GetConnectionUseTime(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query connection use time")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query connection use time", err)
 		return
 	}
 	common.RespondOK(c, resp)

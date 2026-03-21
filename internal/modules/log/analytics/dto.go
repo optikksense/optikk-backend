@@ -29,6 +29,7 @@ type ValueCountRowDTO struct {
 
 type TopGroupRowDTO struct {
 	GroupValue string `ch:"grp"`
+	SortValue  int64  `ch:"sort_value"`
 }
 
 type LogAggregateRowDTO struct {

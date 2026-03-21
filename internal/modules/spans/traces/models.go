@@ -45,6 +45,7 @@ type TraceFilters struct {
 	EndMs       int64    `json:"endMs"`
 	Services    []string `json:"services"`
 	Status      string   `json:"status"`
+	SearchText  string   `json:"searchText"`
 	MinDuration string   `json:"minDuration"`
 	MaxDuration string   `json:"maxDuration"`
 	TraceID     string   `json:"traceId"`
@@ -81,6 +82,19 @@ type TraceSummary struct {
 	P50Duration float64 `json:"p50_duration" ch:"p50_duration"`
 	P95Duration float64 `json:"p95_duration" ch:"p95_duration"`
 	P99Duration float64 `json:"p99_duration" ch:"p99_duration"`
+}
+
+type TraceFacet struct {
+	Key   string `json:"key"`
+	Value string `json:"value"`
+	Count int64  `json:"count"`
+}
+
+type TraceTrendBucket struct {
+	TimeBucket  string  `json:"time_bucket"`
+	TotalTraces int64   `json:"total_traces"`
+	ErrorTraces int64   `json:"error_traces"`
+	P95Duration float64 `json:"p95_duration"`
 }
 
 type TraceSearchResponse struct {

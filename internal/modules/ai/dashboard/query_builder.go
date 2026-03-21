@@ -92,24 +92,24 @@ func (b *SummaryQueryBuilder) Build() (string, []any) {
 	guardrailBlocked := attrInt("ai.security.guardrail_blocked")
 
 	query := fmt.Sprintf(`
-		SELECT COUNT(*) as total_requests,
+		SELECT toInt64(COUNT(*)) as total_requests,
 		       COUNT(*) / GREATEST(dateDiff('second', @start, @end), 1) as avg_qps,
-		       AVG(%s) as avg_latency_ms,
-		       AVG(%s) as p95_latency_ms,
-		       SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) as timeout_count,
-		       countIf(has_error) as error_count,
-		       SUM(COALESCE(%s, 0) + COALESCE(%s, 0)) as total_tokens,
-		       SUM(COALESCE(%s, 0)) as total_cost_usd,
-		       AVG(COALESCE(%s, 0)) as avg_cost_per_query,
+		       if(isNaN(AVG(%s)), 0, COALESCE(AVG(%s), 0)) as avg_latency_ms,
+		       if(isNaN(quantile(0.95)(%s)), 0, COALESCE(quantile(0.95)(%s), 0)) as p95_latency_ms,
+		       toInt64(SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END)) as timeout_count,
+		       toInt64(countIf(has_error)) as error_count,
+		       toInt64(COALESCE(SUM(COALESCE(%s, 0) + COALESCE(%s, 0)), 0)) as total_tokens,
+		       COALESCE(SUM(COALESCE(%s, 0)), 0) as total_cost_usd,
+		       COALESCE(AVG(COALESCE(%s, 0)), 0) as avg_cost_per_query,
 		       IF(COUNT(*) > 0, SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 0) as cache_hit_rate,
 		       IF(COUNT(*) > 0, SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 0) as pii_detection_rate,
 		       IF(COUNT(*) > 0, SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) * 100.0 / COUNT(*), 0) as guardrail_block_rate,
-		       AVG(CASE WHEN %s > 0 THEN COALESCE(%s, 0) / (%s / 1000.0) ELSE 0 END) as avg_tokens_per_sec,
-		       COUNT(DISTINCT %s) as active_models
+		       COALESCE(AVG(CASE WHEN %s > 0 THEN COALESCE(%s, 0) / (%s / 1000.0) ELSE 0 END), 0) as avg_tokens_per_sec,
+		       toInt64(COUNT(DISTINCT %s)) as active_models
 		FROM %s
 		%s
 	`,
-		durationMs, durationMs,
+		durationMs, durationMs, durationMs, durationMs,
 		aiTimeout,
 		inputTokens, outputTokens,
 		costUSD, costUSD,
@@ -201,7 +201,7 @@ func (b *LatencyHistogramQueryBuilder) Build() (string, []any) {
 	where, args := b.baseWhereClause()
 	durationMs := attrFlt("duration_ms")
 	query := fmt.Sprintf(`
-		SELECT %s as model_name, FLOOR(%s / %d) * %d as bucket_ms, COUNT(*) as request_count
+		SELECT %s as model_name, toInt64(FLOOR(%s / %d) * %d) as bucket_ms, toInt64(COUNT(*)) as request_count
 		FROM %s %s
 		GROUP BY model_name, bucket_ms ORDER BY model_name, bucket_ms ASC LIMIT %d
 	`, attrStr("gen.ai.request.model"), durationMs, b.bucketSizeMs, b.bucketSizeMs, tableMetrics, where, b.limit)

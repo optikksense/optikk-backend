@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	rootspan "github.com/observability/observability-backend-go/internal/modules/spans/shared/rootspan"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
@@ -16,9 +17,9 @@ func (r *ClickHouseRepository) GetSpanAttributes(ctx context.Context, teamID int
 		       s.exception_type, s.exception_message, s.exception_stacktrace,
 		       s.db_system, s.db_name, s.db_statement
 		FROM observability.spans s
-		WHERE s.team_id = @teamID AND s.trace_id = ? AND s.span_id = ?
+		WHERE s.team_id = @teamID AND s.trace_id = @traceID AND s.span_id = @spanID
 		LIMIT 1
-	`, clickhouse.Named("teamID", uint32(teamID)), traceID, spanID); err != nil {
+	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID), clickhouse.Named("spanID", spanID)); err != nil {
 		return nil, err
 	}
 	if len(rows) == 0 {
@@ -36,20 +37,24 @@ func (r *ClickHouseRepository) GetRelatedTraces(ctx context.Context, teamID int6
 		       s.status_code_string AS status, s.timestamp AS start_time
 		FROM observability.spans s
 		WHERE s.team_id = @teamID
-		  AND s.ts_bucket_start BETWEEN ? AND ?
+		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND s.timestamp BETWEEN @start AND @end
-		  AND s.parent_span_id = ''
-		  AND s.service_name = ?
-		  AND s.name = ?
-		  AND s.trace_id != ?
+		  AND `+rootspan.Condition("s")+`
+		  AND s.service_name = @serviceName
+		  AND s.name = @operationName
+		  AND s.trace_id != @excludeTraceID
 		ORDER BY s.timestamp DESC
-		LIMIT ?
+		LIMIT @limit
 	`,
 		clickhouse.Named("teamID", uint32(teamID)),
-		timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
-		serviceName, operationName, excludeTraceID, limit,
+		clickhouse.Named("serviceName", serviceName),
+		clickhouse.Named("operationName", operationName),
+		clickhouse.Named("excludeTraceID", excludeTraceID),
+		clickhouse.Named("limit", limit),
 	)
 	return rows, err
 }

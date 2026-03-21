@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -39,7 +41,7 @@ func (h *ServiceHandler) GetServiceMetrics(c *gin.Context) {
 
 	rows, err := h.Service.GetServiceMetrics(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query service metrics")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query service metrics", err)
 		return
 	}
 
@@ -55,7 +57,7 @@ func (h *ServiceHandler) GetServiceTimeSeries(c *gin.Context) {
 
 	points, err := h.Service.GetServiceTimeSeries(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query service timeseries")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query service timeseries", err)
 		return
 	}
 
@@ -72,7 +74,7 @@ func (h *ServiceHandler) GetServiceEndpoints(c *gin.Context) {
 
 	endpoints, err := h.Service.GetServiceEndpoints(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query endpoint breakdown")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query endpoint breakdown", err)
 		return
 	}
 
@@ -88,7 +90,7 @@ func (h *ServiceHandler) respondWithCount(c *gin.Context, fn func(context.Contex
 
 	count, err := fn(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", message)
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, message, err)
 		return
 	}
 

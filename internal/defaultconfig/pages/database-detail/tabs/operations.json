@@ -5,7 +5,7 @@
   "order": 20,
   "components": [
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "db-ops-by-operation",
       "layout": { "col": 12 },
       "order": 10,

@@ -46,8 +46,8 @@ func (r *ClickHouseRepository) GetUpstreamDownstream(ctx context.Context, teamID
 		FROM (
 		    SELECT s1.service_name                        AS source,
 		           s2.service_name                        AS target,
-		           count()                                AS call_count,
-		           countIf(s1.has_error = true OR toUInt16OrZero(s1.response_status_code) >= 400) AS error_count,
+		           toInt64(count())                       AS call_count,
+		           toInt64(countIf(s1.has_error = true OR toUInt16OrZero(s1.response_status_code) >= 400)) AS error_count,
 		           quantile(0.95)(s1.duration_nano / 1000000.0) AS p95_latency_ms
 		    FROM observability.spans s1
 		    JOIN observability.spans s2 ON s1.team_id = s2.team_id AND s1.trace_id = s2.trace_id AND s1.span_id = s2.parent_span_id
@@ -80,7 +80,7 @@ func (r *ClickHouseRepository) GetExternalDependencies(ctx context.Context, team
 		)
 		SELECT s.service_name                               AS source_service,
 		       %s                                           AS external_host,
-		       count()                                      AS call_count,
+		       toInt64(count())                             AS call_count,
 		       quantile(0.95)(s.duration_nano / 1000000.0) AS p95_latency_ms,
 		       if(count() > 0,
 		           countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400) * 100.0 / count(),
@@ -98,7 +98,7 @@ func (r *ClickHouseRepository) GetExternalDependencies(ctx context.Context, team
 }
 
 func (r *ClickHouseRepository) GetClientServerLatency(ctx context.Context, teamID int64, startMs, endMs int64, operationName string) ([]clientServerLatencyRow, error) {
-	bucket := timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
+	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	query := fmt.Sprintf(`
 		SELECT %s AS time_bucket,
 		       s.name AS operation_name,

@@ -61,20 +61,20 @@ func (r *ClickHouseRepository) GetRunsSummary(ctx context.Context, f LLMRunFilte
 	where, args := buildWhereClause(f)
 
 	query := fmt.Sprintf(`
-		SELECT COUNT(*) AS total_runs,
-		       countIf(s.has_error) AS error_runs,
+		SELECT toInt64(COUNT(*)) AS total_runs,
+		       toInt64(countIf(s.has_error)) AS error_runs,
 		       IF(COUNT(*) > 0, countIf(s.has_error) * 100.0 / COUNT(*), 0) AS error_rate,
-		       AVG(s.duration_nano / 1000000.0) AS avg_latency_ms,
-		       quantile(0.95)(s.duration_nano / 1000000.0) AS p95_latency_ms,
-		       SUM(%s + %s) AS total_tokens,
-		       COUNT(DISTINCT %s) AS unique_models
+		       if(isNaN(AVG(s.duration_nano / 1000000.0)), 0, COALESCE(AVG(s.duration_nano / 1000000.0), 0)) AS avg_latency_ms,
+		       if(isNaN(quantile(0.95)(s.duration_nano / 1000000.0)), 0, COALESCE(quantile(0.95)(s.duration_nano / 1000000.0), 0)) AS p95_latency_ms,
+		       toInt64(COALESCE(SUM(%s + %s), 0)) AS total_tokens,
+		       toInt64(COUNT(DISTINCT %s)) AS unique_models
 		FROM %s s
 		%s
 	`, colInputTokens, colOutputTokens, colModel, tableSpans, where)
 
 	var row llmRunSummaryRowDTO
 	if err := r.db.QueryRow(ctx, &row, query, args...); err != nil {
-		return &llmRunSummaryRowDTO{}, nil
+		return nil, err
 	}
 	return &row, nil
 }

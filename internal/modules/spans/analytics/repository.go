@@ -9,6 +9,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	database "github.com/observability/observability-backend-go/internal/database"
 	dbutil "github.com/observability/observability-backend-go/internal/database"
+	rootspan "github.com/observability/observability-backend-go/internal/modules/spans/shared/rootspan"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
@@ -186,7 +187,7 @@ func buildAnalyticsWhere(teamID int64, f QueryFilters) (string, []any) {
 	}
 
 	if f.SearchMode != "all" {
-		frag += ` AND s.parent_span_id = ''`
+		frag += ` AND ` + rootspan.Condition("s")
 	}
 	if f.SpanKind != "" {
 		frag += ` AND s.kind_string = ?`

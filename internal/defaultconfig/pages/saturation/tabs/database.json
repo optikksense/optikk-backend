@@ -58,7 +58,7 @@
       "titleIcon": "Database"
     },
     {
-      "componentKey": "area",
+      "componentKey": "latency",
       "groupByKey": "group_by",
       "id": "db-latency-by-system",
       "layout": { "col": 12 },
@@ -69,7 +69,7 @@
       "valueKey": "p99_ms"
     },
     {
-      "componentKey": "area",
+      "componentKey": "latency",
       "groupByKey": "group_by",
       "id": "db-latency-by-operation",
       "layout": { "col": 12 },
@@ -80,7 +80,7 @@
       "valueKey": "p99_ms"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "group_by",
       "id": "db-ops-by-system",
       "layout": { "col": 12 },
@@ -91,7 +91,7 @@
       "valueKey": "ops_per_sec"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "group_by",
       "id": "db-ops-by-operation",
       "layout": { "col": 12 },
@@ -102,7 +102,7 @@
       "valueKey": "ops_per_sec"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "db-read-vs-write",
       "layout": { "col": 24 },
       "order": 100,
@@ -130,7 +130,7 @@
       "titleIcon": "Table"
     },
     {
-      "componentKey": "area",
+      "componentKey": "error-rate",
       "groupByKey": "group_by",
       "id": "db-errors-by-system",
       "layout": { "col": 12 },
@@ -141,7 +141,7 @@
       "valueKey": "errors_per_sec"
     },
     {
-      "componentKey": "area",
+      "componentKey": "error-rate",
       "groupByKey": "group_by",
       "id": "db-errors-by-type",
       "layout": { "col": 12 },
@@ -152,7 +152,7 @@
       "valueKey": "errors_per_sec"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "state",
       "id": "db-connection-count",
       "layout": { "col": 8 },
@@ -163,7 +163,7 @@
       "valueKey": "count"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "db-connection-pending",
       "layout": { "col": 8 },
       "order": 160,
@@ -173,7 +173,7 @@
       "valueKey": "count"
     },
     {
-      "componentKey": "area",
+      "componentKey": "error-rate",
       "id": "db-connection-timeouts",
       "layout": { "col": 8 },
       "order": 170,

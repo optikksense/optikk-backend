@@ -3,6 +3,8 @@ package disk
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -21,7 +23,7 @@ func (h *DiskHandler) GetDiskIO(c *gin.Context) {
 	}
 	resp, err := h.Service.GetDiskIO(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query disk I/O")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query disk I/O", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -35,7 +37,7 @@ func (h *DiskHandler) GetDiskOperations(c *gin.Context) {
 	}
 	resp, err := h.Service.GetDiskOperations(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query disk operations")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query disk operations", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -49,7 +51,7 @@ func (h *DiskHandler) GetDiskIOTime(c *gin.Context) {
 	}
 	resp, err := h.Service.GetDiskIOTime(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query disk I/O time")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query disk I/O time", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -63,7 +65,7 @@ func (h *DiskHandler) GetFilesystemUsage(c *gin.Context) {
 	}
 	resp, err := h.Service.GetFilesystemUsage(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query filesystem usage")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query filesystem usage", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -77,7 +79,7 @@ func (h *DiskHandler) GetFilesystemUtilization(c *gin.Context) {
 	}
 	resp, err := h.Service.GetFilesystemUtilization(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query filesystem utilization")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query filesystem utilization", err)
 		return
 	}
 	RespondOK(c, resp)

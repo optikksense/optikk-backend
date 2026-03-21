@@ -3,6 +3,8 @@ package overview
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -20,14 +22,19 @@ func (h *OverviewHandler) GetRequestRate(c *gin.Context) {
 		return
 	}
 	serviceName := c.Query("serviceName")
+	if serviceName == "" {
+		serviceName = c.Query("service")
+	}
 
-	points, err := h.Service.GetRequestRate(c.Request.Context(), teamID, startMs, endMs, serviceName)
+	resp, err := WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
+		return h.Service.GetRequestRate(c.Request.Context(), teamID, s, e, serviceName)
+	})
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview request rate")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview request rate", err)
 		return
 	}
 
-	RespondOK(c, points)
+	RespondOK(c, resp)
 }
 
 func (h *OverviewHandler) GetErrorRate(c *gin.Context) {
@@ -37,14 +44,19 @@ func (h *OverviewHandler) GetErrorRate(c *gin.Context) {
 		return
 	}
 	serviceName := c.Query("serviceName")
+	if serviceName == "" {
+		serviceName = c.Query("service")
+	}
 
-	points, err := h.Service.GetErrorRate(c.Request.Context(), teamID, startMs, endMs, serviceName)
+	resp, err := WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
+		return h.Service.GetErrorRate(c.Request.Context(), teamID, s, e, serviceName)
+	})
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview error rate")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview error rate", err)
 		return
 	}
 
-	RespondOK(c, points)
+	RespondOK(c, resp)
 }
 
 func (h *OverviewHandler) GetP95Latency(c *gin.Context) {
@@ -54,14 +66,19 @@ func (h *OverviewHandler) GetP95Latency(c *gin.Context) {
 		return
 	}
 	serviceName := c.Query("serviceName")
+	if serviceName == "" {
+		serviceName = c.Query("service")
+	}
 
-	points, err := h.Service.GetP95Latency(c.Request.Context(), teamID, startMs, endMs, serviceName)
+	resp, err := WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
+		return h.Service.GetP95Latency(c.Request.Context(), teamID, s, e, serviceName)
+	})
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview p95 latency")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview p95 latency", err)
 		return
 	}
 
-	RespondOK(c, points)
+	RespondOK(c, resp)
 }
 
 func (h *OverviewHandler) GetServices(c *gin.Context) {
@@ -73,7 +90,7 @@ func (h *OverviewHandler) GetServices(c *gin.Context) {
 
 	rows, err := h.Service.GetServices(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview services")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview services", err)
 		return
 	}
 
@@ -87,10 +104,13 @@ func (h *OverviewHandler) GetTopEndpoints(c *gin.Context) {
 		return
 	}
 	serviceName := c.Query("serviceName")
+	if serviceName == "" {
+		serviceName = c.Query("service")
+	}
 
 	rows, err := h.Service.GetTopEndpoints(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview top endpoints")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview top endpoints", err)
 		return
 	}
 
@@ -104,10 +124,13 @@ func (h *OverviewHandler) GetEndpointTimeSeries(c *gin.Context) {
 		return
 	}
 	serviceName := c.Query("serviceName")
+	if serviceName == "" {
+		serviceName = c.Query("service")
+	}
 
 	rows, err := h.Service.GetEndpointTimeSeries(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query overview endpoint time series")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview endpoint time series", err)
 		return
 	}
 

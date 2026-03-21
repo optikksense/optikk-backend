@@ -1,0 +1,128 @@
+package search
+
+import (
+	"context"
+	"encoding/json"
+	"log"
+	"time"
+
+	shared "github.com/observability/observability-backend-go/internal/modules/log/internal/shared"
+	sio "github.com/observability/observability-backend-go/internal/platform/socketio"
+)
+
+const (
+	sioPollInterval      = 2 * time.Second
+	sioHeartbeatInterval = 15 * time.Second
+	sioMaxLogsPerPoll    = 50
+)
+
+// SubscribeLogsPayload is the JSON payload sent by the client when
+// emitting the "subscribe:logs" event on the /live namespace.
+type SubscribeLogsPayload struct {
+	TeamID int64 `json:"teamId"`
+
+	StartMs      int64    `json:"startMs"`
+	EndMs        int64    `json:"endMs"`
+	Severities   []string `json:"severities,omitempty"`
+	Services     []string `json:"services,omitempty"`
+	Hosts        []string `json:"hosts,omitempty"`
+	Pods         []string `json:"pods,omitempty"`
+	Containers   []string `json:"containers,omitempty"`
+	Environments []string `json:"environments,omitempty"`
+	TraceID      string   `json:"traceId,omitempty"`
+	SpanID       string   `json:"spanId,omitempty"`
+	Search       string   `json:"search,omitempty"`
+	SearchMode   string   `json:"searchMode,omitempty"`
+
+	ExcludeSeverities []string `json:"excludeSeverities,omitempty"`
+	ExcludeServices   []string `json:"excludeServices,omitempty"`
+	ExcludeHosts      []string `json:"excludeHosts,omitempty"`
+
+	AttributeFilters []shared.LogAttributeFilter `json:"attributeFilters,omitempty"`
+}
+
+// SocketIOHandler creates a SubscriptionHandler that streams logs
+// via Socket.IO instead of SSE.
+func SocketIOHandler(service *Service) sio.SubscriptionHandler {
+	return sio.SubscriptionHandler{
+		Event: "subscribe:logs",
+		Handle: func(payload json.RawMessage, emit sio.EmitFunc, done <-chan struct{}) {
+			var p SubscribeLogsPayload
+			if err := json.Unmarshal(payload, &p); err != nil {
+				log.Printf("Socket.IO [subscribe:logs] bad payload: %v", err)
+				emit("error", map[string]string{"message": "invalid payload"})
+				return
+			}
+
+			if p.TeamID == 0 {
+				emit("error", map[string]string{"message": "teamId is required"})
+				return
+			}
+
+			filters := shared.LogFilters{
+				TeamID:            p.TeamID,
+				StartMs:           p.StartMs,
+				EndMs:             p.EndMs,
+				Severities:        p.Severities,
+				Services:          p.Services,
+				Hosts:             p.Hosts,
+				Pods:              p.Pods,
+				Containers:        p.Containers,
+				Environments:      p.Environments,
+				TraceID:           p.TraceID,
+				SpanID:            p.SpanID,
+				Search:            p.Search,
+				SearchMode:        p.SearchMode,
+				ExcludeSeverities: p.ExcludeSeverities,
+				ExcludeServices:   p.ExcludeServices,
+				ExcludeHosts:      p.ExcludeHosts,
+				AttributeFilters:  p.AttributeFilters,
+			}
+
+			latestNs := uint64(filters.EndMs) * 1_000_000
+
+			ticker := time.NewTicker(sioPollInterval)
+			heartbeat := time.NewTicker(sioHeartbeatInterval)
+			defer ticker.Stop()
+			defer heartbeat.Stop()
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			// Cancel context when done channel closes.
+			go func() {
+				<-done
+				cancel()
+			}()
+
+			for {
+				select {
+				case <-done:
+					return
+				case <-heartbeat.C:
+					emit("heartbeat", map[string]any{})
+				case <-ticker.C:
+					nowMs := time.Now().UnixMilli()
+					pollFilters := filters
+					pollFilters.StartMs = int64(latestNs/1_000_000) + 1
+					pollFilters.EndMs = nowMs
+
+					resp, err := service.GetLogs(ctx, pollFilters, sioMaxLogsPerPoll, "asc", shared.LogCursor{})
+					if err != nil {
+						log.Printf("Socket.IO [subscribe:logs] poll error: %v", err)
+						continue
+					}
+
+					for _, entry := range resp.Logs {
+						emit("log", map[string]any{
+							"item": entry,
+						})
+						if entry.Timestamp > latestNs {
+							latestNs = entry.Timestamp
+						}
+					}
+				}
+			}
+		},
+	}
+}

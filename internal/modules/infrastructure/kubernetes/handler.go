@@ -3,6 +3,8 @@ package kubernetes
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -22,7 +24,7 @@ func (h *KubernetesHandler) GetContainerCPU(c *gin.Context) {
 	node := c.Query("node")
 	resp, err := h.Service.GetContainerCPU(c.Request.Context(), teamID, startMs, endMs, node)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query container CPU")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query container CPU", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -37,7 +39,7 @@ func (h *KubernetesHandler) GetCPUThrottling(c *gin.Context) {
 	node := c.Query("node")
 	resp, err := h.Service.GetCPUThrottling(c.Request.Context(), teamID, startMs, endMs, node)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query CPU throttling")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query CPU throttling", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -52,7 +54,7 @@ func (h *KubernetesHandler) GetContainerMemory(c *gin.Context) {
 	node := c.Query("node")
 	resp, err := h.Service.GetContainerMemory(c.Request.Context(), teamID, startMs, endMs, node)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query container memory")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query container memory", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -67,7 +69,7 @@ func (h *KubernetesHandler) GetOOMKills(c *gin.Context) {
 	node := c.Query("node")
 	resp, err := h.Service.GetOOMKills(c.Request.Context(), teamID, startMs, endMs, node)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query OOM kills")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query OOM kills", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -82,7 +84,7 @@ func (h *KubernetesHandler) GetPodRestarts(c *gin.Context) {
 	node := c.Query("node")
 	resp, err := h.Service.GetPodRestarts(c.Request.Context(), teamID, startMs, endMs, node)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query pod restarts")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query pod restarts", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -97,7 +99,7 @@ func (h *KubernetesHandler) GetNodeAllocatable(c *gin.Context) {
 	node := c.Query("node")
 	resp, err := h.Service.GetNodeAllocatable(c.Request.Context(), teamID, startMs, endMs, node)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query node allocatable resources")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query node allocatable resources", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -112,7 +114,7 @@ func (h *KubernetesHandler) GetPodPhases(c *gin.Context) {
 	node := c.Query("node")
 	resp, err := h.Service.GetPodPhases(c.Request.Context(), teamID, startMs, endMs, node)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query pod phases")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query pod phases", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -127,7 +129,7 @@ func (h *KubernetesHandler) GetReplicaStatus(c *gin.Context) {
 	node := c.Query("node")
 	resp, err := h.Service.GetReplicaStatus(c.Request.Context(), teamID, startMs, endMs, node)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query replica status")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query replica status", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -142,7 +144,7 @@ func (h *KubernetesHandler) GetVolumeUsage(c *gin.Context) {
 	node := c.Query("node")
 	resp, err := h.Service.GetVolumeUsage(c.Request.Context(), teamID, startMs, endMs, node)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query volume usage")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query volume usage", err)
 		return
 	}
 	RespondOK(c, resp)

@@ -174,7 +174,11 @@ func MergePageDocument(base PageDocument, override PageDocument) (PageDocument, 
 	}
 
 	if override.Page.ID != "" {
-		merged.Page = override.Page
+		page, err := mergeJSONStruct(merged.Page, override.Page)
+		if err != nil {
+			return PageDocument{}, err
+		}
+		merged.Page = page
 	}
 
 	if len(override.Tabs) > 0 {
@@ -185,6 +189,14 @@ func MergePageDocument(base PageDocument, override PageDocument) (PageDocument, 
 		for _, tab := range override.Tabs {
 			if tab.PageID == "" {
 				tab.PageID = merged.Page.ID
+			}
+			if existing, ok := tabByID[tab.ID]; ok {
+				mergedTab, err := mergeTabDefinition(existing, tab)
+				if err != nil {
+					return PageDocument{}, err
+				}
+				tabByID[tab.ID] = mergedTab
+				continue
 			}
 			tabByID[tab.ID] = tab
 		}
@@ -211,6 +223,131 @@ func MergePageDocument(base PageDocument, override PageDocument) (PageDocument, 
 		return PageDocument{}, err
 	}
 	return merged, nil
+}
+
+func mergeTabDefinition(base TabDefinition, override TabDefinition) (TabDefinition, error) {
+	merged, err := mergeJSONStruct(base, override)
+	if err != nil {
+		return TabDefinition{}, err
+	}
+
+	if len(override.Groups) > 0 {
+		groupByID := make(map[string]ComponentGroup, len(base.Groups)+len(override.Groups))
+		for _, group := range base.Groups {
+			groupByID[group.ID] = group
+		}
+		for _, group := range override.Groups {
+			if existing, ok := groupByID[group.ID]; ok {
+				mergedGroup, err := mergeJSONStruct(existing, group)
+				if err != nil {
+					return TabDefinition{}, err
+				}
+				groupByID[group.ID] = mergedGroup
+				continue
+			}
+			groupByID[group.ID] = group
+		}
+
+		merged.Groups = merged.Groups[:0]
+		for _, group := range groupByID {
+			merged.Groups = append(merged.Groups, group)
+		}
+		sort.SliceStable(merged.Groups, func(i, j int) bool {
+			if merged.Groups[i].Order == merged.Groups[j].Order {
+				return merged.Groups[i].ID < merged.Groups[j].ID
+			}
+			return merged.Groups[i].Order < merged.Groups[j].Order
+		})
+	}
+
+	if len(override.Components) > 0 {
+		componentByID := make(map[string]Component, len(base.Components)+len(override.Components))
+		for _, component := range base.Components {
+			componentByID[component.ID] = component
+		}
+		for _, component := range override.Components {
+			if existing, ok := componentByID[component.ID]; ok {
+				mergedComponent, err := mergeJSONStruct(existing, component)
+				if err != nil {
+					return TabDefinition{}, err
+				}
+				componentByID[component.ID] = mergedComponent
+				continue
+			}
+			componentByID[component.ID] = component
+		}
+
+		merged.Components = merged.Components[:0]
+		for _, component := range componentByID {
+			merged.Components = append(merged.Components, component)
+		}
+		sort.SliceStable(merged.Components, func(i, j int) bool {
+			if merged.Components[i].Order == merged.Components[j].Order {
+				return merged.Components[i].ID < merged.Components[j].ID
+			}
+			return merged.Components[i].Order < merged.Components[j].Order
+		})
+	}
+
+	return merged, nil
+}
+
+func mergeJSONStruct[T any](base T, override T) (T, error) {
+	baseMap, err := structToMap(base)
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	overrideMap, err := structToMap(override)
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+
+	mergedMap := mergeJSONMaps(baseMap, overrideMap)
+	mergedBytes, err := json.Marshal(mergedMap)
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+
+	var merged T
+	if err := json.Unmarshal(mergedBytes, &merged); err != nil {
+		var zero T
+		return zero, err
+	}
+	return merged, nil
+}
+
+func structToMap(value any) (map[string]any, error) {
+	bytes, err := json.Marshal(value)
+	if err != nil {
+		return nil, err
+	}
+	var mapped map[string]any
+	if err := json.Unmarshal(bytes, &mapped); err != nil {
+		return nil, err
+	}
+	return mapped, nil
+}
+
+func mergeJSONMaps(base map[string]any, override map[string]any) map[string]any {
+	merged := make(map[string]any, len(base)+len(override))
+	for key, value := range base {
+		merged[key] = value
+	}
+	for key, value := range override {
+		if baseValue, ok := merged[key]; ok {
+			baseMap, baseIsMap := baseValue.(map[string]any)
+			overrideMap, overrideIsMap := value.(map[string]any)
+			if baseIsMap && overrideIsMap {
+				merged[key] = mergeJSONMaps(baseMap, overrideMap)
+				continue
+			}
+		}
+		merged[key] = value
+	}
+	return merged
 }
 
 func validatePageDocument(doc PageDocument) error {

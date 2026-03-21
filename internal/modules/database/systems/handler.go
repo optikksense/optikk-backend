@@ -3,6 +3,8 @@ package systems
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	common "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -21,7 +23,7 @@ func (h *Handler) GetDetectedSystems(c *gin.Context) {
 	}
 	resp, err := h.Service.GetDetectedSystems(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query detected database systems")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query detected database systems", err)
 		return
 	}
 	common.RespondOK(c, resp)

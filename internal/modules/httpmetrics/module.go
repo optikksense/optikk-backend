@@ -1,6 +1,10 @@
 package httpmetrics
 
-import "github.com/gin-gonic/gin"
+import (
+	"github.com/gin-gonic/gin"
+	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
+	"github.com/observability/observability-backend-go/internal/modules/registry"
+)
 
 type Config struct {
 	Enabled bool
@@ -36,4 +40,27 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *HTTPMetricsHandler) {
 	external.GET("/top-hosts", h.GetTopExternalHosts)
 	external.GET("/host-latency", h.GetExternalHostLatency)
 	external.GET("/error-rate", h.GetExternalHostErrorRate)
+}
+
+func init() {
+	registry.Register(&httpMetricsModule{})
+}
+
+type httpMetricsModule struct {
+	handler *HTTPMetricsHandler
+}
+
+func (m *httpMetricsModule) Name() string                      { return "httpMetrics" }
+func (m *httpMetricsModule) RouteTarget() registry.RouteTarget { return registry.Cached }
+
+func (m *httpMetricsModule) Init(deps registry.Deps) error {
+	m.handler = &HTTPMetricsHandler{
+		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
+		Service:  NewService(NewRepository(deps.NativeQuerier)),
+	}
+	return nil
+}
+
+func (m *httpMetricsModule) RegisterRoutes(group *gin.RouterGroup) {
+	RegisterRoutes(DefaultConfig(), group, m.handler)
 }

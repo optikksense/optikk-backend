@@ -5,7 +5,7 @@
   "order": 20,
   "components": [
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "redis-memory",
       "layout": { "col": 12 },
       "order": 10,
@@ -18,7 +18,7 @@
       "titleIcon": "HardDrive"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "redis-memory-frag",
       "layout": { "col": 12 },
       "order": 20,
@@ -31,7 +31,7 @@
       "titleIcon": "PieChart"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "redis-evictions",
       "layout": { "col": 24 },
       "order": 30,

@@ -3,6 +3,8 @@ package summary
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	common "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -22,7 +24,7 @@ func (h *Handler) GetSummaryStats(c *gin.Context) {
 	}
 	resp, err := h.Service.GetSummaryStats(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query database summary stats")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query database summary stats", err)
 		return
 	}
 	common.RespondOK(c, resp)

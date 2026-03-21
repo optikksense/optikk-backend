@@ -11,7 +11,7 @@ import (
 )
 
 func serviceBucketExpr(startMs, endMs int64) string {
-	return timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
+	return timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 }
 
 type Repository interface {
@@ -46,7 +46,7 @@ func baseParams(teamID int64, startMs, endMs int64) []any {
 func (r *ClickHouseRepository) GetTotalServices(ctx context.Context, teamID int64, startMs, endMs int64) (int64, error) {
 	var row serviceCountRow
 	err := r.db.QueryRow(ctx, &row, `
-		SELECT COUNT(*) as count
+		SELECT toInt64(COUNT(*)) as count
 		FROM (
 			SELECT s.service_name AS service_name
 			FROM observability.spans s
@@ -77,8 +77,8 @@ func (r *ClickHouseRepository) GetServiceMetrics(ctx context.Context, teamID int
 		SELECT service_name, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
 		FROM (
 			SELECT s.service_name AS service_name,
-			       count()                                                                      AS request_count,
-			       countIf(`+ErrorCondition()+`)                                               AS error_count,
+			       toInt64(count())                                                             AS request_count,
+			       toInt64(countIf(`+ErrorCondition()+`))                                       AS error_count,
 			       avg(s.duration_nano / 1000000.0)                                            AS avg_latency,
 			       quantile(`+fmt.Sprintf("%.1f", QuantileP50)+`)(s.duration_nano / 1000000.0) AS p50_latency,
 			       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(s.duration_nano / 1000000.0) AS p95_latency,
@@ -100,8 +100,8 @@ func (r *ClickHouseRepository) GetServiceTimeSeries(ctx context.Context, teamID 
 		FROM (
 			SELECT s.service_name AS service_name,
 			       %s AS timestamp,
-			       count()                          AS request_count,
-			       countIf(`+ErrorCondition()+`)    AS error_count,
+			       toInt64(count())                 AS request_count,
+			       toInt64(countIf(`+ErrorCondition()+`)) AS error_count,
 			       avg(s.duration_nano / 1000000.0) AS avg_latency
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
@@ -120,8 +120,8 @@ func (r *ClickHouseRepository) GetServiceEndpoints(ctx context.Context, teamID i
 		SELECT service_name, operation_name, http_method, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
 		FROM (
 			SELECT s.service_name AS service_name, s.name AS operation_name, s.http_method AS http_method,
-			       count()                                                                      AS request_count,
-			       countIf(`+ErrorCondition()+`)                                               AS error_count,
+			       toInt64(count())                                                             AS request_count,
+			       toInt64(countIf(`+ErrorCondition()+`))                                       AS error_count,
 			       avg(s.duration_nano / 1000000.0)                                            AS avg_latency,
 			       quantile(`+fmt.Sprintf("%.1f", QuantileP50)+`)(s.duration_nano / 1000000.0) AS p50_latency,
 			       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(s.duration_nano / 1000000.0) AS p95_latency,
@@ -141,7 +141,7 @@ func (r *ClickHouseRepository) countServicesByErrorRate(ctx context.Context, tea
 
 	var row serviceCountRow
 	err := r.db.QueryRow(ctx, &row, `
-		SELECT COUNT(*) as count
+		SELECT toInt64(COUNT(*)) as count
 		FROM (
 			SELECT s.service_name AS service_name,
 			       if(count() > 0,

@@ -19,7 +19,10 @@ type LiveSpan struct {
 
 // LiveTailFilters are the optional filters applied to the live tail stream.
 type LiveTailFilters struct {
-	Services []string `json:"services,omitempty"`
-	Status   string   `json:"status,omitempty"`
-	SpanKind string   `json:"spanKind,omitempty"`
+	Services   []string `json:"services,omitempty"`
+	Status     string   `json:"status,omitempty"`
+	SpanKind   string   `json:"spanKind,omitempty"`
+	SearchText string   `json:"searchText,omitempty"`
+	Operation  string   `json:"operation,omitempty"`
+	HTTPMethod string   `json:"httpMethod,omitempty"`
 }

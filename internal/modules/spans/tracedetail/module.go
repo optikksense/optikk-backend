@@ -1,6 +1,10 @@
 package tracedetail
 
-import "github.com/gin-gonic/gin"
+import (
+	"github.com/gin-gonic/gin"
+	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
+	"github.com/observability/observability-backend-go/internal/modules/registry"
+)
 
 type Config struct {
 	Enabled bool
@@ -22,4 +26,27 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *TraceDetailHandler) {
 	v1.GET("/traces/:traceId/spans/:spanId/attributes", h.GetSpanAttributes)
 	v1.GET("/traces/:traceId/flamegraph", h.GetFlamegraphData)
 	v1.GET("/traces/:traceId/related", h.GetRelatedTraces)
+}
+
+func init() {
+	registry.Register(&traceDetailModule{})
+}
+
+type traceDetailModule struct {
+	handler *TraceDetailHandler
+}
+
+func (m *traceDetailModule) Name() string                      { return "traceDetail" }
+func (m *traceDetailModule) RouteTarget() registry.RouteTarget { return registry.V1 }
+
+func (m *traceDetailModule) Init(deps registry.Deps) error {
+	m.handler = &TraceDetailHandler{
+		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
+		Service:  NewService(NewRepository(deps.NativeQuerier)),
+	}
+	return nil
+}
+
+func (m *traceDetailModule) RegisterRoutes(group *gin.RouterGroup) {
+	RegisterRoutes(DefaultConfig(), group, m.handler)
 }

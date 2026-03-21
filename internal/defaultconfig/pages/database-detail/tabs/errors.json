@@ -5,7 +5,7 @@
   "order": 40,
   "components": [
     {
-      "componentKey": "area",
+      "componentKey": "error-rate",
       "id": "db-errors-by-system",
       "layout": { "col": 12 },
       "order": 10,

@@ -3,6 +3,8 @@ package redis
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
@@ -20,7 +22,7 @@ func (h *RedisHandler) withRange(c *gin.Context, fn func(teamID, startMs, endMs 
 	}
 	instance := c.Query("instance")
 	if err := fn(teamID, startMs, endMs, instance); err != nil {
-		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", err.Error())
+		modulecommon.RespondError(c, http.StatusInternalServerError, errorcode.Internal, err.Error())
 	}
 }
 

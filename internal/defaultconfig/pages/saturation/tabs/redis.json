@@ -69,7 +69,7 @@
       "valueField": "offset"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "redis-clients",
       "layout": {
         "col": 12
@@ -84,7 +84,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "redis-memory",
       "layout": {
         "col": 12
@@ -99,7 +99,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "redis-memory-frag",
       "layout": {
         "col": 12
@@ -114,7 +114,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "redis-commands",
       "layout": {
         "col": 12
@@ -129,7 +129,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "redis-evictions",
       "layout": {
         "col": 8

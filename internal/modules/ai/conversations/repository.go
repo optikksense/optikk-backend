@@ -13,7 +13,7 @@ import (
 const (
 	tableSpans        = "observability.spans"
 	colModel          = "attributes.'gen_ai.request.model'::String"
-	colConversationID = "attributes.'gen_ai.conversation.id'::String"
+	colConversationID = "coalesce(nullIf(attributes.'gen_ai.conversation.id'::String, ''), nullIf(attributes.'ai.conversation.id'::String, ''), '')"
 	colOperationType  = "attributes.'gen_ai.operation.name'::String"
 	colInputTokens    = "attributes.'gen_ai.usage.input_tokens'::Int64"
 	colOutputTokens   = "attributes.'gen_ai.usage.output_tokens'::Int64"
@@ -49,8 +49,8 @@ func (r *ClickHouseRepository) ListConversations(ctx context.Context, teamID, st
 		SELECT %s AS conversation_id,
 		       s.service_name,
 		       %s AS model,
-		       COUNT(*) AS turn_count,
-		       SUM(%s + %s) AS total_tokens,
+		       toInt64(COUNT(*)) AS turn_count,
+		       toInt64(COALESCE(SUM(%s + %s), 0)) AS total_tokens,
 		       MIN(s.timestamp) AS first_turn,
 		       MAX(s.timestamp) AS last_turn,
 		       max(s.has_error) AS has_errors

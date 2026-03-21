@@ -55,6 +55,8 @@ func spanParams(teamID int64, startMs, endMs int64) []any {
 		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 	}
 }
 
@@ -64,7 +66,7 @@ func (r *ClickHouseRepository) queryHistogramSummary(teamID int64, startMs, endM
 		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
 		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
 		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99,
-		    avg(hist_sum / nullIf(hist_count, 0))                                     AS avg_val
+		    avg(hist_sum / nullIf(hist_count, 0))                                     AS avg
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -161,9 +163,9 @@ func (r *ClickHouseRepository) GetTLSDuration(teamID int64, startMs, endMs int64
 
 func (r *ClickHouseRepository) GetTopRoutesByVolume(teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
 	query := fmt.Sprintf(`
-		SELECT mat_http_route AS route, count() AS req_count
+		SELECT mat_http_route AS route, toInt64(count()) AS req_count
 		FROM %s
-		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @start AND @end
+		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
 		  AND mat_http_route != ''
 		GROUP BY route
@@ -180,10 +182,10 @@ func (r *ClickHouseRepository) GetTopRoutesByVolume(teamID int64, startMs, endMs
 func (r *ClickHouseRepository) GetTopRoutesByLatency(teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
 	query := fmt.Sprintf(`
 		SELECT mat_http_route AS route,
-		       count() AS req_count,
-		       quantileExact(0.95)(duration_ns / 1e6) AS p95_ms
+		       toInt64(count()) AS req_count,
+		       quantileExact(0.95)(duration_nano / 1000000.0) AS p95_ms
 		FROM %s
-		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @start AND @end
+		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
 		  AND mat_http_route != ''
 		GROUP BY route
@@ -200,10 +202,10 @@ func (r *ClickHouseRepository) GetTopRoutesByLatency(teamID int64, startMs, endM
 func (r *ClickHouseRepository) GetRouteErrorRate(teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
 	query := fmt.Sprintf(`
 		SELECT mat_http_route AS route,
-		       count() AS req_count,
+		       toInt64(count()) AS req_count,
 		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) * 100.0 / count() AS error_pct
 		FROM %s
-		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @start AND @end
+		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
 		  AND mat_http_route != ''
 		GROUP BY route
@@ -220,15 +222,15 @@ func (r *ClickHouseRepository) GetRouteErrorRate(teamID int64, startMs, endMs in
 func (r *ClickHouseRepository) GetRouteErrorTimeseries(teamID int64, startMs, endMs int64) ([]RouteTimeseriesPoint, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT %s AS timestamp,
+		SELECT %s AS time_bucket,
 		       mat_http_route AS http_route,
-		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) AS error_count
+		       toInt64(countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400)) AS error_count
 		FROM %s
-		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @start AND @end
+		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
 		  AND mat_http_route != ''
-		GROUP BY timestamp, http_route
-		ORDER BY timestamp ASC, error_count DESC
+		GROUP BY time_bucket, http_route
+		ORDER BY time_bucket ASC, error_count DESC
 	`, bucket, TableSpans)
 	var rows []RouteTimeseriesPoint
 	if err := r.db.Select(context.Background(), &rows, query, spanParams(teamID, startMs, endMs)...); err != nil {
@@ -246,9 +248,9 @@ func (r *ClickHouseRepository) GetStatusDistribution(teamID int64, startMs, endM
 			toUInt16OrZero(response_status_code) >= 500, '5xx',
 			'other'
 		) AS status_group,
-		count() AS count
+		toInt64(count()) AS count
 		FROM %s
-		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @start AND @end
+		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
 		  AND response_status_code != ''
 		GROUP BY status_group
@@ -264,16 +266,16 @@ func (r *ClickHouseRepository) GetStatusDistribution(teamID int64, startMs, endM
 func (r *ClickHouseRepository) GetErrorTimeseries(teamID int64, startMs, endMs int64) ([]ErrorTimeseriesPoint, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT %s AS timestamp,
-		       count() AS req_count,
-		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) AS error_count,
+		SELECT %s AS time_bucket,
+		       toInt64(count()) AS req_count,
+		       toInt64(countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400)) AS error_count,
 		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) * 100.0 / count() AS error_rate
 		FROM %s
-		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @start AND @end
+		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
 		  AND response_status_code != ''
-		GROUP BY timestamp
-		ORDER BY timestamp ASC
+		GROUP BY time_bucket
+		ORDER BY time_bucket ASC
 	`, bucket, TableSpans)
 	var rows []ErrorTimeseriesPoint
 	if err := r.db.Select(context.Background(), &rows, query, spanParams(teamID, startMs, endMs)...); err != nil {
@@ -284,11 +286,11 @@ func (r *ClickHouseRepository) GetErrorTimeseries(teamID int64, startMs, endMs i
 
 func (r *ClickHouseRepository) GetTopExternalHosts(teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
 	query := fmt.Sprintf(`
-		SELECT http_host AS host, count() AS req_count
+		SELECT http_host AS host, toInt64(count()) AS req_count
 		FROM %s
-		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @start AND @end
+		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
-		  AND span_kind = 3
+		  AND kind = 3
 		  AND http_host != ''
 		GROUP BY host
 		ORDER BY req_count DESC
@@ -304,12 +306,12 @@ func (r *ClickHouseRepository) GetTopExternalHosts(teamID int64, startMs, endMs 
 func (r *ClickHouseRepository) GetExternalHostLatency(teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
 	query := fmt.Sprintf(`
 		SELECT http_host AS host,
-		       count() AS req_count,
-		       quantileExact(0.95)(duration_ns / 1e6) AS p95_ms
+		       toInt64(count()) AS req_count,
+		       quantileExact(0.95)(duration_nano / 1000000.0) AS p95_ms
 		FROM %s
-		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @start AND @end
+		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
-		  AND span_kind = 3
+		  AND kind = 3
 		  AND http_host != ''
 		GROUP BY host
 		ORDER BY p95_ms DESC
@@ -325,12 +327,12 @@ func (r *ClickHouseRepository) GetExternalHostLatency(teamID int64, startMs, end
 func (r *ClickHouseRepository) GetExternalHostErrorRate(teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
 	query := fmt.Sprintf(`
 		SELECT http_host AS host,
-		       count() AS req_count,
+		       toInt64(count()) AS req_count,
 		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) * 100.0 / count() AS error_pct
 		FROM %s
-		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @start AND @end
+		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
-		  AND span_kind = 3
+		  AND kind = 3
 		  AND http_host != ''
 		GROUP BY host
 		ORDER BY error_pct DESC

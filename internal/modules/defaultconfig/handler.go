@@ -3,6 +3,8 @@ package defaultconfig
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	configdefaults "github.com/observability/observability-backend-go/internal/defaultconfig"
 	. "github.com/observability/observability-backend-go/internal/modules/common"
@@ -25,13 +27,13 @@ func (h *Handler) ListTabs(c *gin.Context) {
 	tenant := h.GetTenant(c)
 	pageID := c.Param("pageId")
 	if pageID == "" {
-		RespondError(c, http.StatusBadRequest, "BAD_REQUEST", "pageId is required")
+		RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "pageId is required")
 		return
 	}
 
 	doc, err := h.Service.ListTabs(tenant.TeamID, pageID)
 	if err != nil {
-		RespondError(c, http.StatusNotFound, "NOT_FOUND", err.Error())
+		RespondError(c, http.StatusNotFound, errorcode.NotFound, err.Error())
 		return
 	}
 
@@ -56,13 +58,13 @@ func (h *Handler) ListComponents(c *gin.Context) {
 	pageID := c.Param("pageId")
 	tabID := c.Param("tabId")
 	if pageID == "" || tabID == "" {
-		RespondError(c, http.StatusBadRequest, "BAD_REQUEST", "pageId and tabId are required")
+		RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "pageId and tabId are required")
 		return
 	}
 
 	doc, err := h.Service.ListComponents(tenant.TeamID, pageID)
 	if err != nil {
-		RespondError(c, http.StatusNotFound, "NOT_FOUND", err.Error())
+		RespondError(c, http.StatusNotFound, errorcode.NotFound, err.Error())
 		return
 	}
 
@@ -78,7 +80,7 @@ func (h *Handler) ListComponents(c *gin.Context) {
 		}
 	}
 
-	RespondError(c, http.StatusNotFound, "NOT_FOUND", "No tab found for page: "+pageID+" tab: "+tabID)
+	RespondError(c, http.StatusNotFound, errorcode.NotFound, "No tab found for page: "+pageID+" tab: "+tabID)
 }
 
 // SavePageOverride saves a page-level override JSON blob.
@@ -86,27 +88,27 @@ func (h *Handler) SavePageOverride(c *gin.Context) {
 	tenant := h.GetTenant(c)
 	pageID := c.Param("pageId")
 	if pageID == "" {
-		RespondError(c, http.StatusBadRequest, "BAD_REQUEST", "pageId is required")
+		RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "pageId is required")
 		return
 	}
 
 	var override configdefaults.PageDocument
 	if err := c.ShouldBindJSON(&override); err != nil {
-		RespondError(c, http.StatusBadRequest, "BAD_REQUEST", "invalid JSON override")
+		RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "invalid JSON override")
 		return
 	}
 
 	if err := h.Service.SavePageOverride(tenant.TeamID, pageID, override); err != nil {
 		status := http.StatusInternalServerError
-		code := "INTERNAL_ERROR"
+		code := errorcode.Internal
 		if _, ok := err.(httpError); ok {
 			status = http.StatusBadRequest
-			code = "BAD_REQUEST"
+			code = errorcode.BadRequest
 			if pageID != "" && override.Page.ID == "" {
 				// Preserve not-found behavior for unknown pages.
 				if err.Error() == "No configuration found for page: "+pageID {
 					status = http.StatusNotFound
-					code = "NOT_FOUND"
+					code = errorcode.NotFound
 				}
 			}
 		}

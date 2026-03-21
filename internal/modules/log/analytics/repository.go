@@ -33,7 +33,7 @@ func (r *ClickHouseRepository) GetLogHistogram(ctx context.Context, f shared.Log
 	}
 	where, args := shared.BuildLogWhere(f)
 	query := fmt.Sprintf(`
-		SELECT %s as time_bucket, severity_text as severity, COUNT(*) as count
+		SELECT %s as time_bucket, severity_text as severity, toInt64(COUNT(*)) as count
 		FROM observability.logs WHERE%s
 		GROUP BY %s, severity_text
 		ORDER BY time_bucket ASC`, bucketExpr, where, bucketExpr)
@@ -53,12 +53,12 @@ func (r *ClickHouseRepository) GetLogVolume(ctx context.Context, f shared.LogFil
 	where, args := shared.BuildLogWhere(f)
 	query := fmt.Sprintf(`
 		SELECT %s as time_bucket,
-		       COUNT(*) as total,
-		       sum(if(severity_text='ERROR', 1, 0)) as errors,
-		       sum(if(severity_text='WARN', 1, 0)) as warnings,
-		       sum(if(severity_text='INFO', 1, 0)) as infos,
-		       sum(if(severity_text='DEBUG', 1, 0)) as debugs,
-		       sum(if(severity_text='FATAL', 1, 0)) as fatals
+		       toInt64(COUNT(*)) as total,
+		       toInt64(sum(if(severity_text='ERROR', 1, 0))) as errors,
+		       toInt64(sum(if(severity_text='WARN', 1, 0))) as warnings,
+		       toInt64(sum(if(severity_text='INFO', 1, 0))) as infos,
+		       toInt64(sum(if(severity_text='DEBUG', 1, 0))) as debugs,
+		       toInt64(sum(if(severity_text='FATAL', 1, 0))) as fatals
 		FROM observability.logs WHERE%s
 		GROUP BY %s
 		ORDER BY time_bucket ASC`, bucketExpr, where, bucketExpr)
@@ -73,19 +73,19 @@ func (r *ClickHouseRepository) GetLogVolume(ctx context.Context, f shared.LogFil
 func (r *ClickHouseRepository) GetLogStats(ctx context.Context, f shared.LogFilters) ([]FacetRowDTO, error) {
 	where, args := shared.BuildLogWhere(f)
 	query := fmt.Sprintf(`
-		SELECT 'level' AS dim, severity_text AS value, COUNT(*) AS count
+		SELECT 'level' AS dim, severity_text AS value, toInt64(COUNT(*)) AS count
 		FROM observability.logs WHERE%s GROUP BY severity_text
 		UNION ALL
-		SELECT 'service_name' AS dim, service AS value, COUNT(*) AS count
+		SELECT 'service_name' AS dim, service AS value, toInt64(COUNT(*)) AS count
 		FROM observability.logs WHERE%s GROUP BY service
 		UNION ALL
-		SELECT 'host' AS dim, host AS value, COUNT(*) AS count
+		SELECT 'host' AS dim, host AS value, toInt64(COUNT(*)) AS count
 		FROM observability.logs WHERE%s AND host != '' GROUP BY host
 		UNION ALL
-		SELECT 'pod' AS dim, pod AS value, COUNT(*) AS count
+		SELECT 'pod' AS dim, pod AS value, toInt64(COUNT(*)) AS count
 		FROM observability.logs WHERE%s AND pod != '' GROUP BY pod
 		UNION ALL
-		SELECT 'scope_name' AS dim, scope_name AS value, COUNT(*) AS count
+		SELECT 'scope_name' AS dim, scope_name AS value, toInt64(COUNT(*)) AS count
 		FROM observability.logs WHERE%s AND scope_name != '' GROUP BY scope_name
 	`, where, where, where, where, where)
 
@@ -100,7 +100,7 @@ func (r *ClickHouseRepository) GetLogStats(ctx context.Context, f shared.LogFilt
 func (r *ClickHouseRepository) GetLogFields(ctx context.Context, f shared.LogFilters, col string) ([]ValueCountRowDTO, error) {
 	where, args := shared.BuildLogWhere(f)
 	query := fmt.Sprintf(`
-		SELECT %s as value, COUNT(*) as count
+		SELECT %s as value, toInt64(COUNT(*)) as count
 		FROM observability.logs WHERE%s AND %s != ''
 		GROUP BY %s ORDER BY count DESC LIMIT 200`, col, where, col, col)
 
@@ -117,20 +117,20 @@ func (r *ClickHouseRepository) GetTopGroups(ctx context.Context, f shared.LogFil
 	var topQuery string
 	if query.Metric == "error_rate" {
 		topQuery = fmt.Sprintf(`
-			SELECT %s AS grp, sum(if(severity_text IN ('ERROR', 'FATAL'), 1, 0)) AS err_cnt
+			SELECT %s AS grp, toInt64(sum(if(severity_text IN ('ERROR', 'FATAL'), 1, 0))) AS sort_value
 			FROM observability.logs
 			WHERE%s AND %s != ''
 			GROUP BY grp
-			ORDER BY err_cnt DESC
+			ORDER BY sort_value DESC
 			LIMIT %d
 		`, query.GroupCol, where, query.GroupCol, query.TopN)
 	} else {
 		topQuery = fmt.Sprintf(`
-			SELECT %s AS grp, count() AS cnt
+			SELECT %s AS grp, toInt64(count()) AS sort_value
 			FROM observability.logs
 			WHERE%s AND %s != ''
 			GROUP BY grp
-			ORDER BY cnt DESC
+			ORDER BY sort_value DESC
 			LIMIT %d
 		`, query.GroupCol, where, query.GroupCol, query.TopN)
 	}
@@ -172,7 +172,7 @@ func (r *ClickHouseRepository) GetAggregateSeries(ctx context.Context, f shared.
 		sql = fmt.Sprintf(`
 			SELECT %s AS time_bucket,
 			       %s AS grp,
-			       count() AS cnt,
+			       toInt64(count()) AS cnt,
 			       toFloat64(0) AS error_rate
 			FROM observability.logs
 			WHERE%s AND %s IN (%s)

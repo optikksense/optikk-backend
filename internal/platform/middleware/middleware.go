@@ -8,6 +8,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	types "github.com/observability/observability-backend-go/internal/contracts"
 	sessionauth "github.com/observability/observability-backend-go/internal/platform/session"
@@ -98,7 +100,7 @@ func CORSMiddleware(allowedOrigins string) gin.HandlerFunc {
 
 func ErrorRecovery() gin.HandlerFunc {
 	return gin.CustomRecovery(func(c *gin.Context, recovered any) {
-		c.JSON(http.StatusInternalServerError, types.Failure("INTERNAL_ERROR", "An unexpected error occurred", c.Request.URL.Path))
+		c.JSON(http.StatusInternalServerError, types.Failure(errorcode.Internal, "An unexpected error occurred", c.Request.URL.Path))
 	})
 }
 
@@ -139,7 +141,7 @@ func isPublicRequest(method, path string) bool {
 func abortUnauthorized(c *gin.Context) {
 	log.Printf("AUTH_DENIED [%s %s] code=UNAUTHORIZED ip=%s", c.Request.Method, c.Request.URL.Path, c.ClientIP())
 	c.AbortWithStatusJSON(http.StatusUnauthorized, types.Failure(
-		"UNAUTHORIZED", "Valid authentication is required", c.Request.URL.Path,
+		errorcode.Unauthorized, "Valid authentication is required", c.Request.URL.Path,
 	))
 }
 

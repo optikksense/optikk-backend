@@ -5,7 +5,7 @@
   "order": 30,
   "components": [
     {
-      "componentKey": "area",
+      "componentKey": "error-rate",
       "id": "error-group-timeseries",
       "layout": { "col": 24 },
       "order": 10,

@@ -1,7 +1,10 @@
 package httpmetrics
 
 import (
+	"log"
 	"net/http"
+
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
 
 	"github.com/gin-gonic/gin"
 	. "github.com/observability/observability-backend-go/internal/modules/common"
@@ -21,7 +24,7 @@ func (h *HTTPMetricsHandler) GetRequestRate(c *gin.Context) {
 	}
 	resp, err := h.Service.GetRequestRate(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query HTTP request rate")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query HTTP request rate", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -35,7 +38,7 @@ func (h *HTTPMetricsHandler) GetRequestDuration(c *gin.Context) {
 	}
 	resp, err := h.Service.GetRequestDuration(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query HTTP request duration")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query HTTP request duration", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -49,7 +52,7 @@ func (h *HTTPMetricsHandler) GetActiveRequests(c *gin.Context) {
 	}
 	resp, err := h.Service.GetActiveRequests(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query active HTTP requests")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query active HTTP requests", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -63,7 +66,7 @@ func (h *HTTPMetricsHandler) GetRequestBodySize(c *gin.Context) {
 	}
 	resp, err := h.Service.GetRequestBodySize(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query request body size")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query request body size", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -77,7 +80,7 @@ func (h *HTTPMetricsHandler) GetResponseBodySize(c *gin.Context) {
 	}
 	resp, err := h.Service.GetResponseBodySize(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query response body size")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query response body size", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -91,7 +94,7 @@ func (h *HTTPMetricsHandler) GetClientDuration(c *gin.Context) {
 	}
 	resp, err := h.Service.GetClientDuration(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query HTTP client duration")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query HTTP client duration", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -105,7 +108,7 @@ func (h *HTTPMetricsHandler) GetDNSDuration(c *gin.Context) {
 	}
 	resp, err := h.Service.GetDNSDuration(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query DNS duration")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query DNS duration", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -119,7 +122,7 @@ func (h *HTTPMetricsHandler) GetTLSDuration(c *gin.Context) {
 	}
 	resp, err := h.Service.GetTLSDuration(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query TLS duration")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query TLS duration", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -133,7 +136,7 @@ func (h *HTTPMetricsHandler) GetTopRoutesByVolume(c *gin.Context) {
 	}
 	resp, err := h.Service.GetTopRoutesByVolume(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query top routes by volume")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query top routes by volume", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -147,7 +150,7 @@ func (h *HTTPMetricsHandler) GetTopRoutesByLatency(c *gin.Context) {
 	}
 	resp, err := h.Service.GetTopRoutesByLatency(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query top routes by latency")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query top routes by latency", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -161,7 +164,7 @@ func (h *HTTPMetricsHandler) GetRouteErrorRate(c *gin.Context) {
 	}
 	resp, err := h.Service.GetRouteErrorRate(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query route error rate")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query route error rate", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -175,7 +178,8 @@ func (h *HTTPMetricsHandler) GetRouteErrorTimeseries(c *gin.Context) {
 	}
 	resp, err := h.Service.GetRouteErrorTimeseries(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query route error timeseries")
+		log.Printf("http route error timeseries query failed: %v", err)
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query route error timeseries", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -189,7 +193,7 @@ func (h *HTTPMetricsHandler) GetStatusDistribution(c *gin.Context) {
 	}
 	resp, err := h.Service.GetStatusDistribution(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query HTTP status distribution")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query HTTP status distribution", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -203,7 +207,8 @@ func (h *HTTPMetricsHandler) GetErrorTimeseries(c *gin.Context) {
 	}
 	resp, err := h.Service.GetErrorTimeseries(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query HTTP error timeseries")
+		log.Printf("http error timeseries query failed: %v", err)
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query HTTP error timeseries", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -217,7 +222,7 @@ func (h *HTTPMetricsHandler) GetTopExternalHosts(c *gin.Context) {
 	}
 	resp, err := h.Service.GetTopExternalHosts(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query top external hosts")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query top external hosts", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -231,7 +236,7 @@ func (h *HTTPMetricsHandler) GetExternalHostLatency(c *gin.Context) {
 	}
 	resp, err := h.Service.GetExternalHostLatency(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query external host latency")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query external host latency", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -245,7 +250,7 @@ func (h *HTTPMetricsHandler) GetExternalHostErrorRate(c *gin.Context) {
 	}
 	resp, err := h.Service.GetExternalHostErrorRate(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query external host error rate")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query external host error rate", err)
 		return
 	}
 	RespondOK(c, resp)

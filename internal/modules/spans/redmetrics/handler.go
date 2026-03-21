@@ -2,7 +2,8 @@ package redmetrics
 
 import (
 	"net/http"
-	"strconv"
+
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
 
 	"github.com/gin-gonic/gin"
 	. "github.com/observability/observability-backend-go/internal/modules/common"
@@ -22,7 +23,7 @@ func (h *REDMetricsHandler) GetSummary(c *gin.Context) {
 	}
 	resp, err := h.Service.GetSummary(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query RED summary")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query RED summary", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -36,7 +37,7 @@ func (h *REDMetricsHandler) GetServiceScorecard(c *gin.Context) {
 	}
 	resp, err := h.Service.GetServiceScorecard(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query service scorecard")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query service scorecard", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -48,11 +49,15 @@ func (h *REDMetricsHandler) GetApdex(c *gin.Context) {
 	if !ok {
 		return
 	}
-	satisfiedMs := parseFloatParam(c, "satisfied_ms", 300.0)
-	toleratingMs := parseFloatParam(c, "tolerating_ms", 1200.0)
+	satisfiedMs := ParseFloatParam(c, "satisfied_ms", 300.0)
+	toleratingMs := ParseFloatParam(c, "tolerating_ms", 1200.0)
+	if satisfiedMs <= 0 || toleratingMs <= 0 || satisfiedMs >= toleratingMs {
+		RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "satisfied_ms must be positive and less than tolerating_ms")
+		return
+	}
 	resp, err := h.Service.GetApdex(teamID, startMs, endMs, satisfiedMs, toleratingMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query Apdex scores")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query Apdex scores", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -66,7 +71,7 @@ func (h *REDMetricsHandler) GetHTTPStatusDistribution(c *gin.Context) {
 	}
 	resp, err := h.Service.GetHTTPStatusDistribution(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query HTTP status distribution")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query HTTP status distribution", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -81,7 +86,7 @@ func (h *REDMetricsHandler) GetTopSlowOperations(c *gin.Context) {
 	limit := ParseIntParam(c, "limit", 20)
 	resp, err := h.Service.GetTopSlowOperations(teamID, startMs, endMs, limit)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query top slow operations")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query top slow operations", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -96,7 +101,7 @@ func (h *REDMetricsHandler) GetTopErrorOperations(c *gin.Context) {
 	limit := ParseIntParam(c, "limit", 20)
 	resp, err := h.Service.GetTopErrorOperations(teamID, startMs, endMs, limit)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query top error operations")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query top error operations", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -108,9 +113,11 @@ func (h *REDMetricsHandler) GetRequestRateTimeSeries(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetRequestRateTimeSeries(teamID, startMs, endMs)
+	resp, err := WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
+		return h.Service.GetRequestRateTimeSeries(teamID, s, e)
+	})
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query request rate time series")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query request rate time series", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -122,9 +129,11 @@ func (h *REDMetricsHandler) GetErrorRateTimeSeries(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetErrorRateTimeSeries(teamID, startMs, endMs)
+	resp, err := WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
+		return h.Service.GetErrorRateTimeSeries(teamID, s, e)
+	})
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query error rate time series")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query error rate time series", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -136,9 +145,11 @@ func (h *REDMetricsHandler) GetP95LatencyTimeSeries(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetP95LatencyTimeSeries(teamID, startMs, endMs)
+	resp, err := WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
+		return h.Service.GetP95LatencyTimeSeries(teamID, s, e)
+	})
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query p95 latency time series")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query p95 latency time series", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -152,7 +163,7 @@ func (h *REDMetricsHandler) GetSpanKindBreakdown(c *gin.Context) {
 	}
 	resp, err := h.Service.GetSpanKindBreakdown(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query span kind breakdown")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query span kind breakdown", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -166,7 +177,7 @@ func (h *REDMetricsHandler) GetErrorsByRoute(c *gin.Context) {
 	}
 	resp, err := h.Service.GetErrorsByRoute(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query errors by route")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query errors by route", err)
 		return
 	}
 	RespondOK(c, resp)
@@ -180,20 +191,8 @@ func (h *REDMetricsHandler) GetLatencyBreakdown(c *gin.Context) {
 	}
 	resp, err := h.Service.GetLatencyBreakdown(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query latency breakdown")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query latency breakdown", err)
 		return
 	}
 	RespondOK(c, resp)
-}
-
-func parseFloatParam(c *gin.Context, key string, defaultVal float64) float64 {
-	s := c.Query(key)
-	if s == "" {
-		return defaultVal
-	}
-	v, err := strconv.ParseFloat(s, 64)
-	if err != nil {
-		return defaultVal
-	}
-	return v
 }

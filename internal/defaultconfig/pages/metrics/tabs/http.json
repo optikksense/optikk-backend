@@ -33,7 +33,7 @@
       "titleIcon": "Clock"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupId": "server-overview",
       "id": "http-active-requests",
       "layout": { "col": 6 },

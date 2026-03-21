@@ -3,6 +3,8 @@ package errors
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	common "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -22,7 +24,7 @@ func (h *Handler) GetErrorsBySystem(c *gin.Context) {
 	}
 	resp, err := h.Service.GetErrorsBySystem(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query errors by system")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query errors by system", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -36,7 +38,7 @@ func (h *Handler) GetErrorsByOperation(c *gin.Context) {
 	}
 	resp, err := h.Service.GetErrorsByOperation(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query errors by operation")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query errors by operation", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -50,7 +52,7 @@ func (h *Handler) GetErrorsByErrorType(c *gin.Context) {
 	}
 	resp, err := h.Service.GetErrorsByErrorType(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query errors by error type")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query errors by error type", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -64,7 +66,7 @@ func (h *Handler) GetErrorsByCollection(c *gin.Context) {
 	}
 	resp, err := h.Service.GetErrorsByCollection(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query errors by collection")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query errors by collection", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -78,7 +80,7 @@ func (h *Handler) GetErrorsByResponseStatus(c *gin.Context) {
 	}
 	resp, err := h.Service.GetErrorsByResponseStatus(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query errors by response status")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query errors by response status", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -92,7 +94,7 @@ func (h *Handler) GetErrorRatio(c *gin.Context) {
 	}
 	resp, err := h.Service.GetErrorRatio(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query error ratio")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query error ratio", err)
 		return
 	}
 	common.RespondOK(c, resp)

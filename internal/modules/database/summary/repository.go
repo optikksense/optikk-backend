@@ -29,8 +29,8 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 		SELECT
 		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count)  AS p50,
 		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count)  AS p95,
-		    sum(hist_count)                                                             AS total_count,
-		    sumIf(hist_count, notEmpty(%s))                                             AS error_count
+		    toInt64(sum(hist_count))                                                    AS total_count,
+		    toInt64(sumIf(hist_count, notEmpty(%s)))                                    AS error_count
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -78,8 +78,8 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 
 	qCache := fmt.Sprintf(`
 		SELECT
-		    countIf(empty(%s)) AS success_count,
-		    count()             AS total_count
+		    toInt64(countIf(empty(%s))) AS success_count,
+		    toInt64(count())            AS total_count
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end

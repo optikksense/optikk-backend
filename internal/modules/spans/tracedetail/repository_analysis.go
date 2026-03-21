@@ -17,12 +17,12 @@ func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID 
 	err := r.db.Select(ctx, &rows, `
 		SELECT kind_string                        AS span_kind,
 		       sum(duration_nano) / 1000000.0     AS total_duration_ms,
-		       count()                            AS span_count
+		       toInt64(count())                   AS span_count
 		FROM observability.spans
-		WHERE team_id = @teamID AND trace_id = ?
+		WHERE team_id = @teamID AND trace_id = @traceID
 		GROUP BY kind_string
 		ORDER BY total_duration_ms DESC
-	`, clickhouse.Named("teamID", uint32(teamID)), traceID)
+	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID))
 	return rows, err
 }
 
@@ -36,9 +36,9 @@ func (r *ClickHouseRepository) GetCriticalPath(ctx context.Context, teamID int64
 		       toUnixTimestamp64Nano(s.timestamp) AS start_ns,
 		       toUnixTimestamp64Nano(s.timestamp) + s.duration_nano AS end_ns
 		FROM observability.spans s
-		WHERE s.team_id = @teamID AND s.trace_id = ?
+		WHERE s.team_id = @teamID AND s.trace_id = @traceID
 		ORDER BY start_ns ASC
 		LIMIT 5000
-	`, clickhouse.Named("teamID", uint32(teamID)), traceID)
+	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID))
 	return rows, err
 }

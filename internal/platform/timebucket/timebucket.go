@@ -96,6 +96,23 @@ func ExprForColumn(startMs, endMs int64, column string) string {
 	}
 }
 
+// ExprForColumnTime applies adaptive bucketing while preserving a native
+// ClickHouse DateTime value. Use this when the destination DTO scans into
+// time.Time instead of a string timestamp.
+func ExprForColumnTime(startMs, endMs int64, column string) string {
+	h := (endMs - startMs) / 3_600_000
+	switch {
+	case h <= 3:
+		return fmt.Sprintf("toStartOfMinute(%s)", column)
+	case h <= 24:
+		return fmt.Sprintf("toStartOfFiveMinutes(%s)", column)
+	case h <= 168:
+		return fmt.Sprintf("toStartOfHour(%s)", column)
+	default:
+		return fmt.Sprintf("toStartOfDay(%s)", column)
+	}
+}
+
 func ByName(name string) Strategy {
 	switch name {
 	case "minute", "1m":

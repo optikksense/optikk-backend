@@ -85,7 +85,7 @@
       "titleIcon": "Activity"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "service_name",
       "groupId": "g2",
       "id": "request-rate",
@@ -97,7 +97,7 @@
       "valueKey": "rps"
     },
     {
-      "componentKey": "area",
+      "componentKey": "error-rate",
       "groupByKey": "service_name",
       "groupId": "g2",
       "id": "error-rate",
@@ -109,7 +109,7 @@
       "valueKey": "error_pct"
     },
     {
-      "componentKey": "area",
+      "componentKey": "latency",
       "groupByKey": "service_name",
       "groupId": "g2",
       "id": "p95-latency",
@@ -121,7 +121,7 @@
       "valueKey": "p95_ms"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "kind_string",
       "groupId": "g2",
       "id": "span-kind-breakdown",
@@ -161,7 +161,7 @@
       "valueKey": "span_count"
     },
     {
-      "componentKey": "area",
+      "componentKey": "error-rate",
       "groupByKey": "http_route",
       "groupId": "g3",
       "id": "errors-by-route",

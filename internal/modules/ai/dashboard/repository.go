@@ -94,11 +94,11 @@ func (r *ClickHouseRepository) GetAIPerformanceTimeSeries(ctx context.Context, t
 		builder.WithModelName(model)
 	}
 	builder.WithSelectFields([]string{
-		"COUNT(*) as request_count",
+		"toInt64(COUNT(*)) as request_count",
 		fmt.Sprintf("AVG(%s) as avg_latency_ms", durationMs),
 		fmt.Sprintf("quantile(0.95)(%s) as p95_latency_ms", durationMs),
-		fmt.Sprintf("SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) as timeout_count", timeout),
-		"countIf(has_error) as error_count",
+		fmt.Sprintf("toInt64(SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END)) as timeout_count", timeout),
+		"toInt64(countIf(has_error)) as error_count",
 		fmt.Sprintf("AVG(CASE WHEN %s > 0 THEN COALESCE(%s, 0) / (%s / 1000.0) ELSE 0 END) as tokens_per_sec", durationMs, outputTokens, durationMs),
 	})
 
@@ -148,9 +148,9 @@ func (r *ClickHouseRepository) GetAICostTimeSeries(ctx context.Context, teamID i
 	}
 	builder.WithSelectFields([]string{
 		fmt.Sprintf("SUM(COALESCE(%s, 0)) as cost_per_interval", costUSD),
-		fmt.Sprintf("SUM(COALESCE(%s, 0)) as prompt_tokens", inputTokens),
-		fmt.Sprintf("SUM(COALESCE(%s, 0)) as completion_tokens", outputTokens),
-		"COUNT(*) as request_count",
+		fmt.Sprintf("toInt64(SUM(COALESCE(%s, 0))) as prompt_tokens", inputTokens),
+		fmt.Sprintf("toInt64(SUM(COALESCE(%s, 0))) as completion_tokens", outputTokens),
+		"toInt64(COUNT(*)) as request_count",
 	})
 
 	query, args := builder.Build()
@@ -198,10 +198,10 @@ func (r *ClickHouseRepository) GetAISecurityTimeSeries(ctx context.Context, team
 		builder.WithModelName(model)
 	}
 	builder.WithSelectFields([]string{
-		"COUNT(*) as total_requests",
-		fmt.Sprintf("SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) as pii_count", piiDetected),
-		fmt.Sprintf("SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) as guardrail_count", guardrailBlocked),
-		fmt.Sprintf("SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END) as content_policy_count", contentPolicy),
+		"toInt64(COUNT(*)) as total_requests",
+		fmt.Sprintf("toInt64(SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END)) as pii_count", piiDetected),
+		fmt.Sprintf("toInt64(SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END)) as guardrail_count", guardrailBlocked),
+		fmt.Sprintf("toInt64(SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END)) as content_policy_count", contentPolicy),
 	})
 
 	query, args := builder.Build()

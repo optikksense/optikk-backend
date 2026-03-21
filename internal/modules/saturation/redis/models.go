@@ -11,7 +11,7 @@ type ReplicationLag struct {
 }
 
 type MetricPoint struct {
-	Timestamp string   `json:"timestamp" ch:"timestamp"`
+	Timestamp string   `json:"timestamp" ch:"time_bucket"`
 	Value     *float64 `json:"value"     ch:"value"`
 }
 

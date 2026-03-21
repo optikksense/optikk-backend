@@ -3,6 +3,8 @@ package topology
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -22,7 +24,7 @@ func (h *TopologyHandler) GetTopology(c *gin.Context) {
 
 	resp, err := h.Service.GetTopology(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query topology")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query topology", err)
 		return
 	}
 

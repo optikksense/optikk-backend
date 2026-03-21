@@ -5,7 +5,7 @@
   "order": 40,
   "components": [
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "node-k8s-container-cpu",
       "layout": { "col": 12 },
       "order": 10,
@@ -18,7 +18,7 @@
       "titleIcon": "Cpu"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "node-k8s-container-memory",
       "layout": { "col": 12 },
       "order": 20,
@@ -44,7 +44,7 @@
       "titleIcon": "Box"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "node-k8s-pod-restarts",
       "layout": { "col": 12 },
       "order": 40,

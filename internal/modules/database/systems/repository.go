@@ -29,10 +29,10 @@ func (r *ClickHouseRepository) GetDetectedSystems(ctx context.Context, teamID in
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                             AS db_system,
-		    sum(hist_count)                                                                AS span_count,
-		    sumIf(hist_count, notEmpty(%s))                                                AS error_count,
+		    toInt64(sum(hist_count))                                                       AS span_count,
+		    toInt64(sumIf(hist_count, notEmpty(%s)))                                       AS error_count,
 		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS avg_latency_ms,
-		    sum(hist_count)                                                                AS query_count,
+		    toInt64(sum(hist_count))                                                       AS query_count,
 		    any(%s)                                                                        AS server_address,
 		    max(timestamp)                                                                 AS last_seen
 		FROM %s

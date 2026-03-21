@@ -4,8 +4,10 @@ import (
 	"context"
 	"crypto/tls"
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
+	"net"
 	"regexp"
 	"strings"
 	"time"
@@ -164,8 +166,51 @@ type NativeQuerier struct {
 func NewNativeQuerier(conn clickhouse.Conn) *NativeQuerier {
 	return &NativeQuerier{
 		conn: conn,
-		cb:   circuitbreaker.NewCircuitBreaker("clickhouse_native", 5, 30*time.Second),
+		cb:   circuitbreaker.NewCircuitBreakerWithSuccessDecider("clickhouse_native", 5, 30*time.Second, isClickHouseQuerySuccessfulForBreaker),
 	}
+}
+
+func isClickHouseQuerySuccessfulForBreaker(err error) bool {
+	if err == nil {
+		return true
+	}
+
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return false
+	}
+
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return false
+	}
+
+	var chErr *clickhouse.Exception
+	if errors.As(err, &chErr) {
+		return true
+	}
+
+	lower := strings.ToLower(err.Error())
+	for _, marker := range []string{
+		"connection refused",
+		"connection reset",
+		"broken pipe",
+		"i/o timeout",
+		"no such host",
+		"timeout exceeded",
+		"connection closed",
+		"unexpected eof",
+	} {
+		if strings.Contains(lower, marker) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (n *NativeQuerier) Select(ctx context.Context, dest any, query string, args ...any) error {

@@ -1,6 +1,10 @@
 package redis
 
-import "github.com/gin-gonic/gin"
+import (
+	"github.com/gin-gonic/gin"
+	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
+	"github.com/observability/observability-backend-go/internal/modules/registry"
+)
 
 type Config struct {
 	Enabled bool
@@ -24,4 +28,27 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *RedisHandler) {
 	v1.GET("/saturation/redis/evictions", h.GetEvictions)
 	v1.GET("/saturation/redis/keyspace", h.GetKeyspace)
 	v1.GET("/saturation/redis/key-expiries", h.GetKeyExpiries)
+}
+
+func init() {
+	registry.Register(&redisModule{})
+}
+
+type redisModule struct {
+	handler *RedisHandler
+}
+
+func (m *redisModule) Name() string                      { return "redis" }
+func (m *redisModule) RouteTarget() registry.RouteTarget { return registry.Cached }
+
+func (m *redisModule) Init(deps registry.Deps) error {
+	m.handler = &RedisHandler{
+		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
+		Service:  NewService(NewRepository(deps.NativeQuerier)),
+	}
+	return nil
+}
+
+func (m *redisModule) RegisterRoutes(group *gin.RouterGroup) {
+	RegisterRoutes(DefaultConfig(), group, m.handler)
 }

@@ -3,6 +3,8 @@ package latency
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	common "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -22,7 +24,7 @@ func (h *Handler) GetLatencyBySystem(c *gin.Context) {
 	}
 	resp, err := h.Service.GetLatencyBySystem(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query latency by system")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query latency by system", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -36,7 +38,7 @@ func (h *Handler) GetLatencyByOperation(c *gin.Context) {
 	}
 	resp, err := h.Service.GetLatencyByOperation(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query latency by operation")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query latency by operation", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -50,7 +52,7 @@ func (h *Handler) GetLatencyByCollection(c *gin.Context) {
 	}
 	resp, err := h.Service.GetLatencyByCollection(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query latency by collection")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query latency by collection", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -64,7 +66,7 @@ func (h *Handler) GetLatencyByNamespace(c *gin.Context) {
 	}
 	resp, err := h.Service.GetLatencyByNamespace(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query latency by namespace")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query latency by namespace", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -78,7 +80,7 @@ func (h *Handler) GetLatencyByServer(c *gin.Context) {
 	}
 	resp, err := h.Service.GetLatencyByServer(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query latency by server")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query latency by server", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -92,7 +94,7 @@ func (h *Handler) GetLatencyHeatmap(c *gin.Context) {
 	}
 	resp, err := h.Service.GetLatencyHeatmap(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query latency heatmap")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query latency heatmap", err)
 		return
 	}
 	common.RespondOK(c, resp)

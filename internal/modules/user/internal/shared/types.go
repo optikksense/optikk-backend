@@ -1,6 +1,10 @@
 package shared
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+)
 
 type TeamMembership struct {
 	TeamID int64  `json:"team_id"`
@@ -43,10 +47,10 @@ type TeamRecord struct {
 type ServiceErrorCode string
 
 const (
-	ServiceErrorValidation   ServiceErrorCode = "VALIDATION_ERROR"
-	ServiceErrorUnauthorized ServiceErrorCode = "UNAUTHORIZED"
-	ServiceErrorNotFound     ServiceErrorCode = "RESOURCE_NOT_FOUND"
-	ServiceErrorInternal     ServiceErrorCode = "INTERNAL_ERROR"
+	ServiceErrorValidation   ServiceErrorCode = errorcode.Validation
+	ServiceErrorUnauthorized ServiceErrorCode = errorcode.Unauthorized
+	ServiceErrorNotFound     ServiceErrorCode = errorcode.NotFound
+	ServiceErrorInternal     ServiceErrorCode = errorcode.Internal
 )
 
 type ServiceError struct {

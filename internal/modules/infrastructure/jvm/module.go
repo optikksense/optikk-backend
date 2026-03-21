@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/observability/observability-backend-go/internal/database"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
+	"github.com/observability/observability-backend-go/internal/modules/registry"
 )
 
 type Config struct {
@@ -33,4 +34,24 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *JVMHandler) {
 	g.GET("/classes", h.GetJVMClasses)
 	g.GET("/cpu", h.GetJVMCPU)
 	g.GET("/buffers", h.GetJVMBuffers)
+}
+
+func init() {
+	registry.Register(&jvmModule{})
+}
+
+type jvmModule struct {
+	handler *JVMHandler
+}
+
+func (m *jvmModule) Name() string                      { return "jvm" }
+func (m *jvmModule) RouteTarget() registry.RouteTarget { return registry.Cached }
+
+func (m *jvmModule) Init(deps registry.Deps) error {
+	m.handler = NewHandler(deps.NativeQuerier, deps.GetTenant)
+	return nil
+}
+
+func (m *jvmModule) RegisterRoutes(group *gin.RouterGroup) {
+	RegisterRoutes(DefaultConfig(), group, m.handler)
 }

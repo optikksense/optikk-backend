@@ -3,6 +3,8 @@ package nodes
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -22,7 +24,7 @@ func (h *NodeHandler) GetInfrastructureNodes(c *gin.Context) {
 
 	rows, err := h.Service.GetInfrastructureNodes(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query node health")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query node health", err)
 		return
 	}
 
@@ -38,7 +40,7 @@ func (h *NodeHandler) GetInfrastructureNodeSummary(c *gin.Context) {
 
 	summary, err := h.Service.GetInfrastructureNodeSummary(teamID, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query node summary")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query node summary", err)
 		return
 	}
 
@@ -55,7 +57,7 @@ func (h *NodeHandler) GetInfrastructureNodeServices(c *gin.Context) {
 
 	rows, err := h.Service.GetInfrastructureNodeServices(teamID, host, startMs, endMs)
 	if err != nil {
-		RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query node services")
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query node services", err)
 		return
 	}
 

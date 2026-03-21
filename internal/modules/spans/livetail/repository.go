@@ -7,6 +7,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	database "github.com/observability/observability-backend-go/internal/database"
 	dbutil "github.com/observability/observability-backend-go/internal/database"
+	rootspan "github.com/observability/observability-backend-go/internal/modules/spans/shared/rootspan"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
@@ -26,7 +27,7 @@ func (r *Repository) Poll(teamID int64, since time.Time, filters LiveTailFilters
 	sinceMs := since.UnixMilli()
 	nowMs := now.UnixMilli()
 
-	frag := ` WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp > ? AND s.parent_span_id = ''`
+	frag := ` WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp > ? AND ` + rootspan.Condition("s")
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)),
 		timebucket.SpansBucketStart(sinceMs / 1000),
@@ -48,6 +49,23 @@ func (r *Repository) Poll(teamID int64, since time.Time, filters LiveTailFilters
 	if filters.SpanKind != "" {
 		frag += ` AND s.kind_string = ?`
 		args = append(args, filters.SpanKind)
+	}
+	if filters.Operation != "" {
+		frag += ` AND positionCaseInsensitive(s.name, ?) > 0`
+		args = append(args, filters.Operation)
+	}
+	if filters.HTTPMethod != "" {
+		frag += ` AND upper(s.http_method) = upper(?)`
+		args = append(args, filters.HTTPMethod)
+	}
+	if filters.SearchText != "" {
+		frag += ` AND (
+			positionCaseInsensitive(s.trace_id, ?) > 0 OR
+			positionCaseInsensitive(s.service_name, ?) > 0 OR
+			positionCaseInsensitive(s.name, ?) > 0 OR
+			positionCaseInsensitive(s.status_message, ?) > 0
+		)`
+		args = append(args, filters.SearchText, filters.SearchText, filters.SearchText, filters.SearchText)
 	}
 
 	query := `

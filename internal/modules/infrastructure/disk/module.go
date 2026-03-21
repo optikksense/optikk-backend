@@ -4,6 +4,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/observability/observability-backend-go/internal/database"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
+	"github.com/observability/observability-backend-go/internal/modules/registry"
 )
 
 type Config struct {
@@ -31,4 +32,24 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *DiskHandler) {
 	g.GET("/io-time", h.GetDiskIOTime)
 	g.GET("/filesystem-usage", h.GetFilesystemUsage)
 	g.GET("/filesystem-utilization", h.GetFilesystemUtilization)
+}
+
+func init() {
+	registry.Register(&diskModule{})
+}
+
+type diskModule struct {
+	handler *DiskHandler
+}
+
+func (m *diskModule) Name() string                      { return "disk" }
+func (m *diskModule) RouteTarget() registry.RouteTarget { return registry.Cached }
+
+func (m *diskModule) Init(deps registry.Deps) error {
+	m.handler = NewHandler(deps.NativeQuerier, deps.GetTenant)
+	return nil
+}
+
+func (m *diskModule) RegisterRoutes(group *gin.RouterGroup) {
+	RegisterRoutes(DefaultConfig(), group, m.handler)
 }

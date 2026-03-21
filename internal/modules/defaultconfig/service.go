@@ -8,12 +8,13 @@ import (
 )
 
 type Service struct {
-	repo     Repository
-	registry *configdefaults.Registry
+	repo        Repository
+	registry    *configdefaults.Registry
+	useDefaults bool
 }
 
-func NewService(repo Repository, registry *configdefaults.Registry) *Service {
-	return &Service{repo: repo, registry: registry}
+func NewService(repo Repository, registry *configdefaults.Registry, useDefaults bool) *Service {
+	return &Service{repo: repo, registry: registry, useDefaults: useDefaults}
 }
 
 func (s *Service) ListPages(teamID int64) []configdefaults.PageMetadata {
@@ -73,6 +74,10 @@ func (s *Service) resolvePage(teamID int64, pageID string) (configdefaults.PageD
 	defaultDoc, ok := s.registry.GetPage(pageID)
 	if !ok {
 		return configdefaults.PageDocument{}, httpError("No configuration found for page: " + pageID)
+	}
+
+	if s.useDefaults {
+		return defaultDoc, nil
 	}
 
 	override, err := s.repo.GetPageOverride(teamID, pageID)

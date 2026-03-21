@@ -6,6 +6,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	"github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -77,7 +79,7 @@ func (h *Handler) ListRuns(c *gin.Context) {
 	}
 	runs, err := h.Service.ListRuns(c.Request.Context(), f)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to list LLM runs")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to list LLM runs", err)
 		return
 	}
 	common.RespondOK(c, runs)
@@ -90,7 +92,7 @@ func (h *Handler) GetRunsSummary(c *gin.Context) {
 	}
 	summary, err := h.Service.GetRunsSummary(c.Request.Context(), f)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get runs summary")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to get runs summary", err)
 		return
 	}
 	common.RespondOK(c, summary)
@@ -103,7 +105,7 @@ func (h *Handler) ListModels(c *gin.Context) {
 	}
 	models, err := h.Service.ListModels(c.Request.Context(), f)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to list models")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to list models", err)
 		return
 	}
 	common.RespondOK(c, models)
@@ -116,7 +118,7 @@ func (h *Handler) ListOperations(c *gin.Context) {
 	}
 	ops, err := h.Service.ListOperations(c.Request.Context(), f)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to list operations")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to list operations", err)
 		return
 	}
 	common.RespondOK(c, ops)

@@ -1,6 +1,10 @@
 package servicepage
 
-import "github.com/gin-gonic/gin"
+import (
+	"github.com/gin-gonic/gin"
+	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
+	"github.com/observability/observability-backend-go/internal/modules/registry"
+)
 
 type Config struct {
 	Enabled bool
@@ -26,4 +30,27 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ServiceHandler) {
 
 	// Legacy path alias for backward compat with the metrics feature page.
 	v1.GET("/metrics/timeseries", h.GetServiceTimeSeries)
+}
+
+func init() {
+	registry.Register(&servicePageModule{})
+}
+
+type servicePageModule struct {
+	handler *ServiceHandler
+}
+
+func (m *servicePageModule) Name() string                      { return "servicePage" }
+func (m *servicePageModule) RouteTarget() registry.RouteTarget { return registry.Cached }
+
+func (m *servicePageModule) Init(deps registry.Deps) error {
+	m.handler = &ServiceHandler{
+		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
+		Service:  NewService(NewRepository(deps.NativeQuerier)),
+	}
+	return nil
+}
+
+func (m *servicePageModule) RegisterRoutes(group *gin.RouterGroup) {
+	RegisterRoutes(DefaultConfig(), group, m.handler)
 }

@@ -6,35 +6,99 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	rootspan "github.com/observability/observability-backend-go/internal/modules/spans/shared/rootspan"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
+func traceBucketExprForStep(startMs, endMs int64, step string) string {
+	if step == "" {
+		return rawTimeBucketExpr(startMs, endMs, "s.timestamp")
+	}
+
+	switch step {
+	case "1m", "minute":
+		return "formatDateTime(toStartOfMinute(s.timestamp), '%Y-%m-%d %H:%i:00')"
+	case "5m", "5minute":
+		return "formatDateTime(toStartOfFiveMinutes(s.timestamp), '%Y-%m-%d %H:%i:00')"
+	case "1h", "hour":
+		return "formatDateTime(toStartOfHour(s.timestamp), '%Y-%m-%d %H:%i:00')"
+	case "1d", "day":
+		return "formatDateTime(toStartOfDay(s.timestamp), '%Y-%m-%d %H:%i:00')"
+	default:
+		return rawTimeBucketExpr(startMs, endMs, "s.timestamp")
+	}
+}
+
 func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorGroupRow, error) {
 	query := `
-		SELECT s.service_name AS service_name, s.name as operation_name, s.status_message, s.response_status_code as http_status_code,
-		       COUNT(*) as error_count,
+		SELECT s.service_name AS service_name, s.name as operation_name, s.status_message, toUInt16OrZero(s.response_status_code) as http_status_code,
+		       toInt64(COUNT(*)) as error_count,
 		       MAX(s.timestamp) as last_occurrence,
 		       MIN(s.timestamp) as first_occurrence,
 		       (groupArray(s.trace_id) as trace_ids)[1] as sample_trace_id
 		FROM observability.spans s
-		WHERE s.team_id = @teamID AND (s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400) AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end`
+		WHERE s.team_id = @teamID AND (s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400) AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)),
-		timebucket.SpansBucketStart(startMs / 1000),
-		timebucket.SpansBucketStart(endMs / 1000),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
 	if serviceName != "" {
-		query += ` AND s.service_name = ?`
-		args = append(args, serviceName)
+		query += ` AND s.service_name = @serviceName`
+		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
-	query += ` GROUP BY s.service_name, s.name, s.status_message, s.response_status_code
-	           ORDER BY error_count DESC LIMIT ?`
-	args = append(args, limit)
+	query += ` GROUP BY s.service_name, s.name, s.status_message, toUInt16OrZero(s.response_status_code)
+	           ORDER BY error_count DESC LIMIT @limit`
+	args = append(args, clickhouse.Named("limit", limit))
 
 	var rows []errorGroupRow
 	return rows, r.db.Select(ctx, &rows, query, args...)
+}
+
+func (r *ClickHouseRepository) GetTraceFacets(ctx context.Context, f TraceFilters) ([]traceFacetRow, error) {
+	frag, args := buildWhereClause(f)
+	query := `
+		SELECT 'service_name' AS facet_key, s.service_name AS facet_value, toInt64(COUNT(*)) AS count
+		FROM observability.spans s` + frag + `
+		GROUP BY s.service_name
+		UNION ALL
+		SELECT 'status' AS facet_key, s.status_code_string AS facet_value, toInt64(COUNT(*)) AS count
+		FROM observability.spans s` + frag + `
+		GROUP BY s.status_code_string
+		UNION ALL
+		SELECT 'operation_name' AS facet_key, s.name AS facet_value, toInt64(COUNT(*)) AS count
+		FROM observability.spans s` + frag + `
+		GROUP BY s.name
+	`
+
+	combinedArgs := append(append(args, args...), args...)
+	var rows []traceFacetRow
+	if err := r.db.Select(ctx, &rows, query, combinedArgs...); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *ClickHouseRepository) GetTraceTrend(ctx context.Context, f TraceFilters, step string) ([]traceTrendRow, error) {
+	bucketExpr := traceBucketExprForStep(f.StartMs, f.EndMs, step)
+	frag, args := buildWhereClause(f)
+	query := fmt.Sprintf(`
+		SELECT %s AS time_bucket,
+		       toInt64(COUNT(*)) AS total_traces,
+		       toInt64(sum(if(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400, 1, 0))) AS error_traces,
+		       quantile(0.95)(s.duration_nano / 1000000.0) AS p95_duration
+		FROM observability.spans s%s
+		GROUP BY %s
+		ORDER BY time_bucket ASC
+	`, bucketExpr, frag, bucketExpr)
+
+	var rows []traceTrendRow
+	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]errorTimeSeriesRow, error) {
@@ -48,20 +112,20 @@ func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamID in
 		FROM (
 			SELECT s.service_name AS service_name,
 			       %s AS timestamp,
-			       count()                   AS total_count,
-			       countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400) AS error_count
+			       toInt64(count())          AS total_count,
+			       toInt64(countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)) AS error_count
 			FROM observability.spans s
-			WHERE s.team_id = @teamID AND s.parent_span_id = '' AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end`, bucket)
+			WHERE s.team_id = @teamID AND `+rootspan.Condition("s")+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)),
-		timebucket.SpansBucketStart(startMs / 1000),
-		timebucket.SpansBucketStart(endMs / 1000),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
 	if serviceName != "" {
-		query += ` AND s.service_name = ?`
-		args = append(args, serviceName)
+		query += ` AND s.service_name = @serviceName`
+		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += fmt.Sprintf(` GROUP BY s.service_name, %s
 		)
@@ -86,7 +150,7 @@ func (r *ClickHouseRepository) GetLatencyHistogram(ctx context.Context, teamID i
 				WHEN duration_ms < 5000 THEN '2.5s-5s'
 				ELSE '>5s'
 			END as bucket_label,
-			CASE
+			toInt64(CASE
 				WHEN duration_ms < 10 THEN 0
 				WHEN duration_ms < 25 THEN 10
 				WHEN duration_ms < 50 THEN 25
@@ -97,26 +161,26 @@ func (r *ClickHouseRepository) GetLatencyHistogram(ctx context.Context, teamID i
 				WHEN duration_ms < 2500 THEN 1000
 				WHEN duration_ms < 5000 THEN 2500
 				ELSE 5000
-			END as bucket_min,
-			COUNT(*) as span_count
+			END) as bucket_min,
+			toInt64(COUNT(*)) as span_count
 		FROM (
 			SELECT s.duration_nano / 1000000.0 as duration_ms
 			FROM observability.spans s
-			WHERE s.team_id = @teamID AND s.parent_span_id = '' AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end`
+			WHERE s.team_id = @teamID AND ` + rootspan.Condition("s") + ` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)),
-		timebucket.SpansBucketStart(startMs / 1000),
-		timebucket.SpansBucketStart(endMs / 1000),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
 	if serviceName != "" {
-		query += ` AND s.service_name = ?`
-		args = append(args, serviceName)
+		query += ` AND s.service_name = @serviceName`
+		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	if operationName != "" {
-		query += ` AND s.name = ?`
-		args = append(args, operationName)
+		query += ` AND s.name = @operationName`
+		args = append(args, clickhouse.Named("operationName", operationName))
 	}
 	query += `) GROUP BY bucket_label, bucket_min ORDER BY bucket_min ASC`
 
@@ -136,21 +200,21 @@ func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int
 				WHEN duration_ms < 1000 THEN '500ms-1s'
 				ELSE '>1s'
 			END as latency_bucket,
-			COUNT(*) as span_count
+			toInt64(COUNT(*)) as span_count
 		FROM (
 			SELECT s.timestamp, s.duration_nano / 1000000.0 as duration_ms
 			FROM observability.spans s
-			WHERE s.team_id = @teamID AND s.parent_span_id = '' AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end`, bucket)
+			WHERE s.team_id = @teamID AND `+rootspan.Condition("s")+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)),
-		timebucket.SpansBucketStart(startMs / 1000),
-		timebucket.SpansBucketStart(endMs / 1000),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
 	if serviceName != "" {
-		query += ` AND s.service_name = ?`
-		args = append(args, serviceName)
+		query += ` AND s.service_name = @serviceName`
+		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += fmt.Sprintf(`) GROUP BY %s, latency_bucket
 	           ORDER BY time_bucket ASC, latency_bucket ASC`, bucket)

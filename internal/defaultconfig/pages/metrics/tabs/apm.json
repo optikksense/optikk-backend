@@ -69,7 +69,7 @@
       "valueField": "vms"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "apm-rpc-request-rate",
       "layout": {
         "col": 12
@@ -98,7 +98,7 @@
       "titleIcon": "Send"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "state",
       "id": "apm-process-cpu",
       "layout": {
@@ -114,7 +114,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "apm-open-fds",
       "layout": {
         "col": 12
@@ -129,7 +129,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "apm-uptime",
       "layout": {
         "col": 24

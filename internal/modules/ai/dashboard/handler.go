@@ -3,6 +3,8 @@ package dashboard
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	"github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -22,7 +24,7 @@ func (h *Handler) GetAISummary(c *gin.Context) {
 	}
 	summary, err := h.Service.GetAISummary(c.Request.Context(), teamID, model, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI summary")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query AI summary", err)
 		return
 	}
 	common.RespondOK(c, summary)
@@ -37,7 +39,7 @@ func (h *Handler) GetAIModels(c *gin.Context) {
 	}
 	rows, err := h.Service.GetAIModels(c.Request.Context(), teamID, model, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI models")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query AI models", err)
 		return
 	}
 	common.RespondOK(c, rows)
@@ -52,7 +54,7 @@ func (h *Handler) GetAIPerformanceMetrics(c *gin.Context) {
 	}
 	rows, err := h.Service.GetAIPerformanceMetrics(c.Request.Context(), teamID, model, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI performance metrics")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query AI performance metrics", err)
 		return
 	}
 	common.RespondOK(c, rows)
@@ -67,7 +69,7 @@ func (h *Handler) GetAIPerformanceTimeSeries(c *gin.Context) {
 	}
 	rows, err := h.Service.GetAIPerformanceTimeSeries(c.Request.Context(), teamID, model, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI performance timeseries")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query AI performance timeseries", err)
 		return
 	}
 	common.RespondOK(c, rows)
@@ -82,7 +84,7 @@ func (h *Handler) GetAILatencyHistogram(c *gin.Context) {
 	}
 	rows, err := h.Service.GetAILatencyHistogram(c.Request.Context(), teamID, model, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI latency histogram")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query AI latency histogram", err)
 		return
 	}
 	common.RespondOK(c, rows)
@@ -97,7 +99,7 @@ func (h *Handler) GetAICostMetrics(c *gin.Context) {
 	}
 	rows, err := h.Service.GetAICostMetrics(c.Request.Context(), teamID, model, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI cost metrics")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query AI cost metrics", err)
 		return
 	}
 	common.RespondOK(c, rows)
@@ -112,7 +114,7 @@ func (h *Handler) GetAICostTimeSeries(c *gin.Context) {
 	}
 	rows, err := h.Service.GetAICostTimeSeries(c.Request.Context(), teamID, model, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI cost timeseries")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query AI cost timeseries", err)
 		return
 	}
 	common.RespondOK(c, rows)
@@ -127,7 +129,7 @@ func (h *Handler) GetAITokenBreakdown(c *gin.Context) {
 	}
 	rows, err := h.Service.GetAITokenBreakdown(c.Request.Context(), teamID, model, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI token breakdown")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query AI token breakdown", err)
 		return
 	}
 	common.RespondOK(c, rows)
@@ -142,7 +144,7 @@ func (h *Handler) GetAISecurityMetrics(c *gin.Context) {
 	}
 	rows, err := h.Service.GetAISecurityMetrics(c.Request.Context(), teamID, model, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI security metrics")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query AI security metrics", err)
 		return
 	}
 	common.RespondOK(c, rows)
@@ -157,7 +159,7 @@ func (h *Handler) GetAISecurityTimeSeries(c *gin.Context) {
 	}
 	rows, err := h.Service.GetAISecurityTimeSeries(c.Request.Context(), teamID, model, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI security timeseries")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query AI security timeseries", err)
 		return
 	}
 	common.RespondOK(c, rows)
@@ -172,7 +174,7 @@ func (h *Handler) GetAIPiiCategories(c *gin.Context) {
 	}
 	rows, err := h.Service.GetAIPiiCategories(c.Request.Context(), teamID, model, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query AI pii categories")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query AI pii categories", err)
 		return
 	}
 	common.RespondOK(c, rows)

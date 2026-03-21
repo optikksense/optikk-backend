@@ -3,6 +3,8 @@ package system
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	common "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -26,7 +28,7 @@ func (h *Handler) GetSystemLatency(c *gin.Context) {
 	}
 	resp, err := h.Service.GetSystemLatency(c.Request.Context(), teamID, startMs, endMs, dbSystem, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query system latency")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query system latency", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -44,7 +46,7 @@ func (h *Handler) GetSystemOps(c *gin.Context) {
 	}
 	resp, err := h.Service.GetSystemOps(c.Request.Context(), teamID, startMs, endMs, dbSystem, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query system ops")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query system ops", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -62,7 +64,7 @@ func (h *Handler) GetSystemTopCollectionsByLatency(c *gin.Context) {
 	}
 	resp, err := h.Service.GetSystemTopCollectionsByLatency(c.Request.Context(), teamID, startMs, endMs, dbSystem)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query top collections by latency")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query top collections by latency", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -80,7 +82,7 @@ func (h *Handler) GetSystemTopCollectionsByVolume(c *gin.Context) {
 	}
 	resp, err := h.Service.GetSystemTopCollectionsByVolume(c.Request.Context(), teamID, startMs, endMs, dbSystem)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query top collections by volume")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query top collections by volume", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -98,7 +100,7 @@ func (h *Handler) GetSystemErrors(c *gin.Context) {
 	}
 	resp, err := h.Service.GetSystemErrors(c.Request.Context(), teamID, startMs, endMs, dbSystem)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query system errors")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query system errors", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -116,7 +118,7 @@ func (h *Handler) GetSystemNamespaces(c *gin.Context) {
 	}
 	resp, err := h.Service.GetSystemNamespaces(c.Request.Context(), teamID, startMs, endMs, dbSystem)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query system namespaces")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query system namespaces", err)
 		return
 	}
 	common.RespondOK(c, resp)

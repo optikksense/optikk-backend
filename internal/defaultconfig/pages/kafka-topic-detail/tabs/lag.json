@@ -14,11 +14,13 @@
         "method": "GET",
         "params": { "topic": "{topic}" }
       },
+      "groupByKey": "consumer_group",
+      "valueKey": "lag",
       "title": "Lag by Consumer Group",
       "titleIcon": "Clock"
     },
     {
-      "componentKey": "area",
+      "componentKey": "table",
       "id": "topic-lag-per-partition",
       "layout": { "col": 12 },
       "order": 20,

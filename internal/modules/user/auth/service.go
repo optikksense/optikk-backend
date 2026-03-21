@@ -95,7 +95,11 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, clientIP string) 
 		log.Printf("AUTH_EVENT login_update_failed user_id=%d email=%s err=%v", user.ID, user.Email, err)
 	}
 
-	response, teamID, teamIDs := s.buildAuthContextResponse(user)
+	response, teamID, teamIDs, err := s.buildAuthContextResponse(user)
+	if err != nil {
+		return AuthContextResponse{}, err
+	}
+
 	if err := s.sessions.CreateAuthSession(ctx, sessionauth.AuthState{
 		UserID:        user.ID,
 		Email:         user.Email,
@@ -137,7 +141,10 @@ func (s *Service) AuthContext(userID int64) (AuthContextResponse, error) {
 		AvatarURL: user.AvatarURL,
 		TeamsJSON: user.TeamsJSON,
 	}
-	response, _, _ := s.buildAuthContextResponse(authUser)
+	response, _, _, err := s.buildAuthContextResponse(authUser)
+	if err != nil {
+		return AuthContextResponse{}, usershared.NewUnauthorizedError("Not authenticated: no teams associated", err)
+	}
 	return response, nil
 }
 
@@ -273,9 +280,12 @@ func (s *Service) CompleteSignup(ctx context.Context, req CompleteSignupRequest)
 			return AuthContextResponse{}, usershared.NewInternalError("Failed to link OAuth account", err)
 		}
 		if err := s.startUserSession(ctx, existingUser); err != nil {
-			return AuthContextResponse{}, usershared.NewInternalError("Failed to create session", err)
+			return AuthContextResponse{}, err
 		}
-		response, _, _ := s.buildAuthContextResponse(existingUser)
+		response, _, _, err := s.buildAuthContextResponse(existingUser)
+		if err != nil {
+			return AuthContextResponse{}, err
+		}
 		return response, nil
 	}
 
@@ -305,9 +315,12 @@ func (s *Service) CompleteSignup(ctx context.Context, req CompleteSignupRequest)
 	createdUser.ID = userID
 
 	if err := s.startUserSession(ctx, createdUser); err != nil {
-		return AuthContextResponse{}, usershared.NewInternalError("Failed to create session", err)
+		return AuthContextResponse{}, err
 	}
-	response, _, _ := s.buildAuthContextResponse(createdUser)
+	response, _, _, err := s.buildAuthContextResponse(createdUser)
+	if err != nil {
+		return AuthContextResponse{}, err
+	}
 	return response, nil
 }
 
@@ -356,7 +369,10 @@ func (s *Service) handleOAuthCallback(ctx context.Context, provider, oauthID, em
 }
 
 func (s *Service) startUserSession(ctx context.Context, user usershared.AuthUser) error {
-	_, teamID, teamIDs := s.buildAuthContextResponse(user)
+	_, teamID, teamIDs, err := s.buildAuthContextResponse(user)
+	if err != nil {
+		return err
+	}
 	_ = s.repo.UpdateUserLastLogin(user.ID, time.Now().UTC())
 	return s.sessions.CreateAuthSession(ctx, sessionauth.AuthState{
 		UserID:        user.ID,
@@ -367,11 +383,15 @@ func (s *Service) startUserSession(ctx context.Context, user usershared.AuthUser
 	})
 }
 
-func (s *Service) buildAuthContextResponse(user usershared.AuthUser) (AuthContextResponse, int64, []int64) {
+func (s *Service) buildAuthContextResponse(user usershared.AuthUser) (AuthContextResponse, int64, []int64, error) {
 	teams, err := s.listTeamsForUser(user.TeamsJSON)
 	if err != nil {
 		log.Printf("AUTH_EVENT team_fetch_failed user_id=%d email=%s err=%v", user.ID, user.Email, err)
 		teams = []AuthTeamSummary{}
+	}
+
+	if len(teams) == 0 {
+		return AuthContextResponse{}, 0, nil, usershared.NewValidationError("Account has no associated teams. Contact your administrator.", nil)
 	}
 
 	var currentTeam *AuthTeamSummary
@@ -379,13 +399,16 @@ func (s *Service) buildAuthContextResponse(user usershared.AuthUser) (AuthContex
 		currentTeam = &teams[0]
 	}
 
-	teamID := int64(1)
+	var teamID int64
 	teamIDs := make([]int64, 0, len(teams))
 	for _, team := range teams {
 		teamIDs = append(teamIDs, team.ID)
 	}
+
 	if currentTeam != nil {
 		teamID = currentTeam.ID
+	} else {
+		teamID = 0
 	}
 
 	return AuthContextResponse{
@@ -397,7 +420,7 @@ func (s *Service) buildAuthContextResponse(user usershared.AuthUser) (AuthContex
 		},
 		Teams:       teams,
 		CurrentTeam: currentTeam,
-	}, teamID, teamIDs
+	}, teamID, teamIDs, nil
 }
 
 func (s *Service) listTeamsForUser(teamsJSON string) ([]AuthTeamSummary, error) {

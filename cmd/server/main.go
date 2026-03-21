@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"log"
 	"os"
 	"os/signal"
@@ -13,20 +14,23 @@ import (
 )
 
 func main() {
-	cfg := config.Load()
+	configPath := flag.String("config", "config.yml", "path to config file")
+	flag.Parse()
 
-	dbConn, err := database.Open(cfg.MySQLDSN(), cfg.MaxMySQLOpenConns, cfg.MaxMySQLIdleConns)
+	cfg := config.Load(*configPath)
+
+	dbConn, err := database.Open(cfg.MySQLDSN(), cfg.MySQL.MaxOpenConns, cfg.MySQL.MaxIdleConns)
 	if err != nil {
 		log.Fatalf("failed to connect mysql: %v", err)
 	}
 	defer dbConn.Close()
 
 	chCloud := database.ClickHouseCloudConfig{
-		Host:     cfg.ClickHouseCloudHost,
-		Username: cfg.ClickHouseUser,
-		Password: cfg.ClickHousePassword,
+		Host:     cfg.ClickHouse.CloudHost,
+		Username: cfg.ClickHouse.User,
+		Password: cfg.ClickHouse.Password,
 	}
-	chConn, err := database.OpenClickHouseConn(cfg.ClickHouseDSN(), cfg.ClickHouseProduction, chCloud)
+	chConn, err := database.OpenClickHouseConn(cfg.ClickHouseDSN(), cfg.ClickHouse.Production, chCloud)
 	if err != nil {
 		log.Fatalf("failed to connect clickhouse: %v", err)
 	}
@@ -36,7 +40,7 @@ func main() {
 	defer cancel()
 	app := server.New(dbConn, chConn, cfg)
 
-	log.Printf("Server starting on port %s", cfg.Port)
+	log.Printf("Server starting on port %s", cfg.Server.Port)
 	if err := app.Start(ctx); err != nil {
 		log.Fatalf("server failed: %v", err)
 	}

@@ -65,7 +65,7 @@
       "titleIcon": "Link"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupId": "usage",
       "id": "node-cpu-usage",
       "layout": { "col": 12 },
@@ -79,7 +79,7 @@
       "titleIcon": "Cpu"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupId": "usage",
       "id": "node-memory-usage",
       "layout": { "col": 12 },

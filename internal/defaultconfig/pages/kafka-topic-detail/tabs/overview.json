@@ -9,7 +9,7 @@
   ],
   "components": [
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupId": "rates",
       "id": "topic-produce-rate",
       "layout": { "col": 12 },
@@ -19,11 +19,12 @@
         "method": "GET",
         "params": { "topic": "{topic}" }
       },
+      "valueKey": "rate_per_sec",
       "title": "Produce Rate",
       "titleIcon": "TrendingUp"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupId": "rates",
       "id": "topic-consume-rate",
       "layout": { "col": 12 },
@@ -33,11 +34,12 @@
         "method": "GET",
         "params": { "topic": "{topic}" }
       },
+      "valueKey": "rate_per_sec",
       "title": "Consume Rate",
       "titleIcon": "TrendingDown"
     },
     {
-      "componentKey": "area",
+      "componentKey": "latency",
       "groupId": "latency",
       "id": "topic-publish-latency",
       "layout": { "col": 12 },
@@ -47,11 +49,12 @@
         "method": "GET",
         "params": { "topic": "{topic}" }
       },
+      "valueKey": "p95_ms",
       "title": "Publish Latency (p95)",
       "titleIcon": "Clock"
     },
     {
-      "componentKey": "area",
+      "componentKey": "latency",
       "groupId": "latency",
       "id": "topic-receive-latency",
       "layout": { "col": 12 },
@@ -61,6 +64,7 @@
         "method": "GET",
         "params": { "topic": "{topic}" }
       },
+      "valueKey": "p95_ms",
       "title": "Receive Latency (p95)",
       "titleIcon": "Clock"
     }

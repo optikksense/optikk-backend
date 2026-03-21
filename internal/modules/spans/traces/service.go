@@ -10,6 +10,8 @@ import (
 type Repository interface {
 	GetTracesKeyset(ctx context.Context, f TraceFilters, limit int, cursor TraceCursor) ([]traceRow, traceSummaryRow, bool, error)
 	GetTraces(ctx context.Context, f TraceFilters, limit, offset int) ([]traceRow, int64, traceSummaryRow, error)
+	GetTraceFacets(ctx context.Context, f TraceFilters) ([]traceFacetRow, error)
+	GetTraceTrend(ctx context.Context, f TraceFilters, step string) ([]traceTrendRow, error)
 	GetTraceSpans(ctx context.Context, teamID int64, traceID string) ([]spanRow, error)
 	GetSpanTree(ctx context.Context, teamID int64, spanID string) ([]spanRow, error)
 	GetServiceDependencies(ctx context.Context, teamID int64, startMs, endMs int64) ([]serviceDependencyRow, error)
@@ -83,6 +85,41 @@ func (s *Service) GetTraceSpans(ctx context.Context, teamID int64, traceID strin
 		return nil, err
 	}
 	return spanRowsToModels(rows), nil
+}
+
+func (s *Service) GetExplorerFacets(ctx context.Context, filters TraceFilters) ([]TraceFacet, error) {
+	rows, err := s.repo.GetTraceFacets(ctx, filters)
+	if err != nil {
+		return nil, err
+	}
+
+	facets := make([]TraceFacet, len(rows))
+	for index, row := range rows {
+		facets[index] = TraceFacet{
+			Key:   row.Key,
+			Value: row.Value,
+			Count: row.Count,
+		}
+	}
+	return facets, nil
+}
+
+func (s *Service) GetExplorerTrend(ctx context.Context, filters TraceFilters, step string) ([]TraceTrendBucket, error) {
+	rows, err := s.repo.GetTraceTrend(ctx, filters, step)
+	if err != nil {
+		return nil, err
+	}
+
+	buckets := make([]TraceTrendBucket, len(rows))
+	for index, row := range rows {
+		buckets[index] = TraceTrendBucket{
+			TimeBucket:  row.TimeBucket,
+			TotalTraces: row.TotalTraces,
+			ErrorTraces: row.ErrorTraces,
+			P95Duration: row.P95Duration,
+		}
+	}
+	return buckets, nil
 }
 
 func (s *Service) GetSpanTree(ctx context.Context, teamID int64, spanID string) ([]Span, error) {
@@ -229,7 +266,7 @@ func errorGroupRowsToModels(rows []errorGroupRow) []ErrorGroup {
 			ServiceName:     row.ServiceName,
 			OperationName:   row.OperationName,
 			StatusMessage:   row.StatusMessage,
-			HTTPStatusCode:  row.HTTPStatusCode,
+			HTTPStatusCode:  int(row.HTTPStatusCode),
 			ErrorCount:      row.ErrorCount,
 			LastOccurrence:  row.LastOccurrence,
 			FirstOccurrence: row.FirstOccurrence,

@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	types "github.com/observability/observability-backend-go/internal/contracts"
 	"github.com/observability/observability-backend-go/internal/database"
@@ -32,10 +34,12 @@ func RespondError(c *gin.Context, status int, code, msg string) {
 }
 
 // RespondErrorWithCause logs the underlying error server-side before responding.
+// The cause is appended to the client-facing message so the caller knows why it failed.
 // Use this instead of RespondError when you have access to the original error.
 func RespondErrorWithCause(c *gin.Context, status int, code, msg string, err error) {
 	if err != nil {
 		log.Printf("ERROR [%s %s] %s: %s: %v", c.Request.Method, c.Request.URL.Path, code, msg, err)
+		msg = fmt.Sprintf("%s: %s", msg, dbutil.SanitizeError(err))
 	} else if status >= 500 {
 		log.Printf("ERROR [%s %s] %s: %s", c.Request.Method, c.Request.URL.Path, code, msg)
 	}
@@ -56,6 +60,15 @@ const MaxPageSize = 200
 func ParseIntParam(c *gin.Context, key string, fallback int) int {
 	if v := c.Query(key); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil {
+			return parsed
+		}
+	}
+	return fallback
+}
+
+func ParseFloatParam(c *gin.Context, key string, fallback float64) float64 {
+	if v := c.Query(key); v != "" {
+		if parsed, err := strconv.ParseFloat(v, 64); err == nil {
 			return parsed
 		}
 	}
@@ -131,7 +144,7 @@ func ParseRange(c *gin.Context) (int64, int64, error) {
 func ParseRequiredRange(c *gin.Context) (int64, int64, bool) {
 	start, end, err := ParseRange(c)
 	if err != nil {
-		RespondError(c, http.StatusBadRequest, "BAD_REQUEST", "start and end time params are required")
+		RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "start and end time params are required")
 		return 0, 0, false
 	}
 	return start, end, true
@@ -160,6 +173,35 @@ func ParseComparisonRange(c *gin.Context, startMs, endMs int64) (cmpStart, cmpEn
 	default:
 		return 0, 0, false
 	}
+}
+
+// ComparisonResponse wraps a primary result with an optional comparison result.
+type ComparisonResponse struct {
+	Data       any `json:"data"`
+	Comparison any `json:"comparison,omitempty"`
+}
+
+// WithComparison executes a query for the primary range and optionally for the comparison range.
+// Returns a ComparisonResponse containing both results.
+func WithComparison(c *gin.Context, startMs, endMs int64, queryFn func(s, e int64) (any, error)) (ComparisonResponse, error) {
+	primary, err := queryFn(startMs, endMs)
+	if err != nil {
+		return ComparisonResponse{}, err
+	}
+
+	resp := ComparisonResponse{Data: primary}
+
+	cmpStart, cmpEnd, hasCmp := ParseComparisonRange(c, startMs, endMs)
+	if hasCmp {
+		comparison, err := queryFn(cmpStart, cmpEnd)
+		if err != nil {
+			// Non-fatal: return primary without comparison
+			return resp, nil
+		}
+		resp.Comparison = comparison
+	}
+
+	return resp, nil
 }
 
 func ExtractIDParam(c *gin.Context, key string) (int64, error) {

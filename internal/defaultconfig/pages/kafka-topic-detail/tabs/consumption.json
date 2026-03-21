@@ -5,7 +5,7 @@
   "order": 20,
   "components": [
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "topic-consume-by-group",
       "layout": { "col": 12 },
       "order": 10,
@@ -18,7 +18,7 @@
       "titleIcon": "Users"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "topic-process-by-group",
       "layout": { "col": 12 },
       "order": 20,

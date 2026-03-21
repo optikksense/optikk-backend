@@ -3,6 +3,8 @@ package kafka
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
@@ -28,7 +30,7 @@ func (h *KafkaHandler) GetKafkaSummaryStats(c *gin.Context) {
 	f := parseKafkaFilters(c)
 	resp, err := h.Service.GetKafkaSummaryStats(teamID, startMs, endMs, f)
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query kafka summary stats")
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query kafka summary stats", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)
@@ -43,7 +45,7 @@ func (h *KafkaHandler) GetProduceRateByTopic(c *gin.Context) {
 	f := parseKafkaFilters(c)
 	resp, err := h.Service.GetProduceRateByTopic(teamID, startMs, endMs, f)
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query produce rate by topic")
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query produce rate by topic", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)
@@ -58,7 +60,7 @@ func (h *KafkaHandler) GetPublishLatencyByTopic(c *gin.Context) {
 	f := parseKafkaFilters(c)
 	resp, err := h.Service.GetPublishLatencyByTopic(teamID, startMs, endMs, f)
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query publish latency by topic")
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query publish latency by topic", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)
@@ -73,7 +75,7 @@ func (h *KafkaHandler) GetConsumeRateByTopic(c *gin.Context) {
 	f := parseKafkaFilters(c)
 	resp, err := h.Service.GetConsumeRateByTopic(teamID, startMs, endMs, f)
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query consume rate by topic")
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query consume rate by topic", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)
@@ -88,7 +90,7 @@ func (h *KafkaHandler) GetReceiveLatencyByTopic(c *gin.Context) {
 	f := parseKafkaFilters(c)
 	resp, err := h.Service.GetReceiveLatencyByTopic(teamID, startMs, endMs, f)
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query receive latency by topic")
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query receive latency by topic", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)
@@ -103,7 +105,7 @@ func (h *KafkaHandler) GetConsumeRateByGroup(c *gin.Context) {
 	f := parseKafkaFilters(c)
 	resp, err := h.Service.GetConsumeRateByGroup(teamID, startMs, endMs, f)
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query consume rate by group")
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query consume rate by group", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)
@@ -118,7 +120,7 @@ func (h *KafkaHandler) GetProcessRateByGroup(c *gin.Context) {
 	f := parseKafkaFilters(c)
 	resp, err := h.Service.GetProcessRateByGroup(teamID, startMs, endMs, f)
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query process rate by group")
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query process rate by group", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)
@@ -133,7 +135,7 @@ func (h *KafkaHandler) GetProcessLatencyByGroup(c *gin.Context) {
 	f := parseKafkaFilters(c)
 	resp, err := h.Service.GetProcessLatencyByGroup(teamID, startMs, endMs, f)
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query process latency by group")
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query process latency by group", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)
@@ -148,7 +150,7 @@ func (h *KafkaHandler) GetConsumerLagByGroup(c *gin.Context) {
 	f := parseKafkaFilters(c)
 	resp, err := h.Service.GetConsumerLagByGroup(teamID, startMs, endMs, f)
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query consumer lag by group")
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query consumer lag by group", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)
@@ -163,7 +165,7 @@ func (h *KafkaHandler) GetConsumerLagPerPartition(c *gin.Context) {
 	f := parseKafkaFilters(c)
 	resp, err := h.Service.GetConsumerLagPerPartition(teamID, startMs, endMs, f)
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query consumer lag per partition")
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query consumer lag per partition", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)
@@ -178,7 +180,7 @@ func (h *KafkaHandler) GetRebalanceSignals(c *gin.Context) {
 	f := parseKafkaFilters(c)
 	resp, err := h.Service.GetRebalanceSignals(teamID, startMs, endMs, f)
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query rebalance signals")
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query rebalance signals", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)
@@ -193,7 +195,7 @@ func (h *KafkaHandler) GetE2ELatency(c *gin.Context) {
 	f := parseKafkaFilters(c)
 	resp, err := h.Service.GetE2ELatency(teamID, startMs, endMs, f)
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query end-to-end latency")
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query end-to-end latency", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)
@@ -208,7 +210,7 @@ func (h *KafkaHandler) GetPublishErrors(c *gin.Context) {
 	f := parseKafkaFilters(c)
 	resp, err := h.Service.GetPublishErrors(teamID, startMs, endMs, f)
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query publish errors")
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query publish errors", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)
@@ -223,7 +225,7 @@ func (h *KafkaHandler) GetConsumeErrors(c *gin.Context) {
 	f := parseKafkaFilters(c)
 	resp, err := h.Service.GetConsumeErrors(teamID, startMs, endMs, f)
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query consume errors")
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query consume errors", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)
@@ -238,7 +240,7 @@ func (h *KafkaHandler) GetProcessErrors(c *gin.Context) {
 	f := parseKafkaFilters(c)
 	resp, err := h.Service.GetProcessErrors(teamID, startMs, endMs, f)
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query process errors")
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query process errors", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)
@@ -253,7 +255,7 @@ func (h *KafkaHandler) GetClientOpErrors(c *gin.Context) {
 	f := parseKafkaFilters(c)
 	resp, err := h.Service.GetClientOpErrors(teamID, startMs, endMs, f)
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query client operation errors")
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query client operation errors", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)
@@ -268,7 +270,7 @@ func (h *KafkaHandler) GetBrokerConnections(c *gin.Context) {
 	f := parseKafkaFilters(c)
 	resp, err := h.Service.GetBrokerConnections(teamID, startMs, endMs, f)
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query broker connections")
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query broker connections", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)
@@ -283,7 +285,7 @@ func (h *KafkaHandler) GetClientOperationDuration(c *gin.Context) {
 	f := parseKafkaFilters(c)
 	resp, err := h.Service.GetClientOperationDuration(teamID, startMs, endMs, f)
 	if err != nil {
-		modulecommon.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query client operation duration")
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query client operation duration", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)

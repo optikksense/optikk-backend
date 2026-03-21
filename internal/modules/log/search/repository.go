@@ -44,7 +44,7 @@ func (r *ClickHouseRepository) GetLogs(ctx context.Context, f shared.LogFilters,
 
 	var total int64
 	if offset == 0 {
-		total = shared.QueryCount(ctx, r.db, `SELECT COUNT(*) AS count FROM observability.logs WHERE`+where, args...)
+		total = shared.QueryCount(ctx, r.db, `SELECT toInt64(COUNT(*)) AS count FROM observability.logs WHERE`+where, args...)
 	} else {
 		total = int64(offset + len(rows))
 	}

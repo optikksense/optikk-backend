@@ -11,7 +11,7 @@
   ],
   "components": [
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupId": "cpu",
       "id": "node-cpu-time",
       "layout": { "col": 12 },
@@ -25,7 +25,7 @@
       "titleIcon": "Cpu"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupId": "cpu",
       "id": "node-load-average",
       "layout": { "col": 12 },
@@ -39,7 +39,7 @@
       "titleIcon": "Activity"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupId": "memory",
       "id": "node-mem-usage",
       "layout": { "col": 12 },
@@ -53,7 +53,7 @@
       "titleIcon": "HardDrive"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupId": "memory",
       "id": "node-swap",
       "layout": { "col": 12 },
@@ -67,7 +67,7 @@
       "titleIcon": "Repeat"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupId": "disk",
       "id": "node-disk-io",
       "layout": { "col": 12 },
@@ -81,7 +81,7 @@
       "titleIcon": "HardDrive"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupId": "disk",
       "id": "node-disk-ops",
       "layout": { "col": 12 },
@@ -95,7 +95,7 @@
       "titleIcon": "HardDrive"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupId": "network",
       "id": "node-network-io",
       "layout": { "col": 12 },
@@ -109,7 +109,7 @@
       "titleIcon": "Wifi"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupId": "network",
       "id": "node-network-errors",
       "layout": { "col": 12 },

@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	"github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -28,7 +30,7 @@ func (h *Handler) ListConversations(c *gin.Context) {
 
 	convos, err := h.Service.ListConversations(c.Request.Context(), teamID, startMs, endMs, limit)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to list conversations")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to list conversations", err)
 		return
 	}
 	common.RespondOK(c, convos)
@@ -38,7 +40,7 @@ func (h *Handler) GetConversation(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	conversationID := c.Param("conversationId")
 	if conversationID == "" {
-		common.RespondError(c, http.StatusBadRequest, "BAD_REQUEST", "conversationId is required")
+		common.RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "conversationId is required")
 		return
 	}
 	startMs, endMs, ok := common.ParseRequiredRange(c)
@@ -48,7 +50,7 @@ func (h *Handler) GetConversation(c *gin.Context) {
 
 	turns, err := h.Service.GetConversation(c.Request.Context(), teamID, conversationID, startMs, endMs)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to get conversation")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to get conversation", err)
 		return
 	}
 	common.RespondOK(c, turns)

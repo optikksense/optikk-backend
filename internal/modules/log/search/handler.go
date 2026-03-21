@@ -3,9 +3,12 @@ package search
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
 
 	"github.com/gin-gonic/gin"
 	"github.com/observability/observability-backend-go/internal/modules/common"
@@ -38,7 +41,7 @@ func (h *Handler) GetLogs(c *gin.Context) {
 	if raw := strings.TrimSpace(c.Query("cursor")); raw != "" {
 		parsed, ok := shared.ParseLogCursor(raw)
 		if !ok {
-			common.RespondError(c, http.StatusBadRequest, "VALIDATION_ERROR", "Invalid cursor")
+			common.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Invalid cursor")
 			return
 		}
 		cursor = parsed
@@ -46,7 +49,7 @@ func (h *Handler) GetLogs(c *gin.Context) {
 
 	resp, err := h.Service.GetLogs(c.Request.Context(), filters, limit, direction, cursor)
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query logs")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query logs", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -93,17 +96,19 @@ func (h *Handler) StreamLogs(c *gin.Context) {
 
 			resp, err := h.Service.GetLogs(ctx, pollFilters, maxLogsPerPoll, "asc", shared.LogCursor{})
 			if err != nil {
+				log.Printf("WARN [StreamLogs] poll error: %v", err)
 				continue
 			}
 
-			for _, log := range resp.Logs {
-				b, err := json.Marshal(log)
+			for _, entry := range resp.Logs {
+				b, err := json.Marshal(entry)
 				if err != nil {
+					log.Printf("WARN [StreamLogs] marshal error: %v", err)
 					continue
 				}
 				fmt.Fprintf(c.Writer, "data: %s\n\n", b)
-				if log.Timestamp > latestNs {
-					latestNs = log.Timestamp
+				if entry.Timestamp > latestNs {
+					latestNs = entry.Timestamp
 				}
 			}
 			if canFlush && len(resp.Logs) > 0 {

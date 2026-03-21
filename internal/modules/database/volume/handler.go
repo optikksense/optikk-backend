@@ -3,6 +3,8 @@ package volume
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	common "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -22,7 +24,7 @@ func (h *Handler) GetOpsBySystem(c *gin.Context) {
 	}
 	resp, err := h.Service.GetOpsBySystem(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query ops by system")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query ops by system", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -36,7 +38,7 @@ func (h *Handler) GetOpsByOperation(c *gin.Context) {
 	}
 	resp, err := h.Service.GetOpsByOperation(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query ops by operation")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query ops by operation", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -50,7 +52,7 @@ func (h *Handler) GetOpsByCollection(c *gin.Context) {
 	}
 	resp, err := h.Service.GetOpsByCollection(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query ops by collection")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query ops by collection", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -64,7 +66,7 @@ func (h *Handler) GetReadVsWrite(c *gin.Context) {
 	}
 	resp, err := h.Service.GetReadVsWrite(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query read vs write ratio")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query read vs write ratio", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -78,7 +80,7 @@ func (h *Handler) GetOpsByNamespace(c *gin.Context) {
 	}
 	resp, err := h.Service.GetOpsByNamespace(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query ops by namespace")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query ops by namespace", err)
 		return
 	}
 	common.RespondOK(c, resp)

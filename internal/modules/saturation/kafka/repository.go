@@ -48,8 +48,8 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(teamID int64, startMs, endMs
 
 	query := fmt.Sprintf(`
 		SELECT
-		    sumIf(%[1]s, %[2]s IN (%[3]s)) / ?  AS publish_rate,
-		    sumIf(%[1]s, %[2]s IN (%[4]s)) / ?  AS receive_rate,
+		    sumIf(%[1]s, %[2]s IN (%[3]s)) / @durationSecs  AS publish_rate,
+		    sumIf(%[1]s, %[2]s IN (%[4]s)) / @durationSecs  AS receive_rate,
 		    maxIf(%[1]s, %[2]s IN (%[5]s) AND isFinite(%[1]s)) AS max_lag,
 		    quantileExactWeightedIf(0.95)(
 		        hist_sum / nullIf(hist_count, 0),
@@ -77,7 +77,7 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(teamID int64, startMs, endMs
 		filterSQL,
 	)
 
-	args := append(baseParams(teamID, startMs, endMs), durationSecs, durationSecs)
+	args := append(baseParams(teamID, startMs, endMs), clickhouse.Named("durationSecs", durationSecs))
 	args = append(args, filterArgs...)
 	var result KafkaSummaryStats
 	return result, r.db.QueryRow(context.Background(), &result, query, args...)
@@ -96,7 +96,7 @@ func (r *ClickHouseRepository) GetProduceRateByTopic(teamID int64, startMs, endM
 		SELECT
 		    %s AS time_bucket,
 		    %s AS topic,
-		    sum(%s) / ? AS rate_per_sec
+		    sum(%s) / @bucketSecs AS rate_per_sec
 		FROM %s
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
@@ -106,7 +106,7 @@ func (r *ClickHouseRepository) GetProduceRateByTopic(teamID int64, startMs, endM
 		ORDER BY time_bucket ASC, topic ASC
 	`, bucket, topic, ColValue, TableMetrics, filterSQL, ColMetricName, clause)
 
-	args := append(baseParams(teamID, startMs, endMs), bs)
+	args := append(baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []TopicRatePoint
 	return out, r.db.Select(context.Background(), &out, query, args...)
@@ -154,7 +154,7 @@ func (r *ClickHouseRepository) GetConsumeRateByTopic(teamID int64, startMs, endM
 		SELECT
 		    %s AS time_bucket,
 		    %s AS topic,
-		    sum(%s) / ? AS rate_per_sec
+		    sum(%s) / @bucketSecs AS rate_per_sec
 		FROM %s
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
@@ -164,7 +164,7 @@ func (r *ClickHouseRepository) GetConsumeRateByTopic(teamID int64, startMs, endM
 		ORDER BY time_bucket ASC, topic ASC
 	`, bucket, topic, ColValue, TableMetrics, filterSQL, ColMetricName, clause)
 
-	args := append(baseParams(teamID, startMs, endMs), bs)
+	args := append(baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []TopicRatePoint
 	return out, r.db.Select(context.Background(), &out, query, args...)
@@ -212,7 +212,7 @@ func (r *ClickHouseRepository) GetConsumeRateByGroup(teamID int64, startMs, endM
 		SELECT
 		    %s AS time_bucket,
 		    %s AS consumer_group,
-		    sum(%s) / ? AS rate_per_sec
+		    sum(%s) / @bucketSecs AS rate_per_sec
 		FROM %s
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
@@ -222,7 +222,7 @@ func (r *ClickHouseRepository) GetConsumeRateByGroup(teamID int64, startMs, endM
 		ORDER BY time_bucket ASC, consumer_group ASC
 	`, bucket, group, ColValue, TableMetrics, filterSQL, ColMetricName, clause)
 
-	args := append(baseParams(teamID, startMs, endMs), bs)
+	args := append(baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []GroupRatePoint
 	return out, r.db.Select(context.Background(), &out, query, args...)
@@ -241,7 +241,7 @@ func (r *ClickHouseRepository) GetProcessRateByGroup(teamID int64, startMs, endM
 		SELECT
 		    %s AS time_bucket,
 		    %s AS consumer_group,
-		    sum(%s) / ? AS rate_per_sec
+		    sum(%s) / @bucketSecs AS rate_per_sec
 		FROM %s
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
@@ -251,7 +251,7 @@ func (r *ClickHouseRepository) GetProcessRateByGroup(teamID int64, startMs, endM
 		ORDER BY time_bucket ASC, consumer_group ASC
 	`, bucket, group, ColValue, TableMetrics, filterSQL, ColMetricName, clause)
 
-	args := append(baseParams(teamID, startMs, endMs), bs)
+	args := append(baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []GroupRatePoint
 	return out, r.db.Select(context.Background(), &out, query, args...)
@@ -328,13 +328,14 @@ func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamID int64, startMs,
 	partition := attrString(AttrMessagingKafkaDestinationPartition)
 	group := consumerGroupExpr()
 	filterSQL, filterArgs := kafkaFilterClauses(f)
+	lagExpr := "avgIf(value, isFinite(value))"
 
 	query := fmt.Sprintf(`
 		SELECT
 		    %s AS topic,
-		    toInt64(%s) AS partition,
+		    toInt64OrZero(%s) AS partition,
 		    %s AS consumer_group,
-		    toInt64(avg(value)) AS lag
+		    toInt64(if(isFinite(%s), round(%s), 0)) AS lag
 		FROM %s
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
@@ -343,7 +344,7 @@ func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamID int64, startMs,
 		GROUP BY topic, partition, consumer_group
 		ORDER BY lag DESC
 		LIMIT 200
-	`, topic, partition, group,
+	`, topic, partition, group, lagExpr, lagExpr,
 		TableMetrics,
 		filterSQL,
 		ColMetricName, clause,
@@ -367,11 +368,11 @@ func (r *ClickHouseRepository) GetRebalanceSignals(teamID int64, startMs, endMs 
 		SELECT
 		    %[1]s AS time_bucket,
 		    %[2]s AS consumer_group,
-		    sumIf(%[3]s, %[4]s = '%[5]s') / ? AS rebalance_rate,
-		    sumIf(%[3]s, %[4]s = '%[6]s') / ? AS join_rate,
-		    sumIf(%[3]s, %[4]s = '%[7]s') / ? AS sync_rate,
-		    sumIf(%[3]s, %[4]s = '%[8]s') / ? AS heartbeat_rate,
-		    sumIf(%[3]s, %[4]s = '%[9]s') / ? AS failed_heartbeat_rate,
+		    sumIf(%[3]s, %[4]s = '%[5]s') / @bucketSecs AS rebalance_rate,
+		    sumIf(%[3]s, %[4]s = '%[6]s') / @bucketSecs AS join_rate,
+		    sumIf(%[3]s, %[4]s = '%[7]s') / @bucketSecs AS sync_rate,
+		    sumIf(%[3]s, %[4]s = '%[8]s') / @bucketSecs AS heartbeat_rate,
+		    sumIf(%[3]s, %[4]s = '%[9]s') / @bucketSecs AS failed_heartbeat_rate,
 		    avgIf(%[3]s, %[4]s = '%[10]s' AND isFinite(%[3]s)) AS assigned_partitions
 		FROM %[11]s
 		WHERE team_id = @teamID
@@ -393,7 +394,7 @@ func (r *ClickHouseRepository) GetRebalanceSignals(teamID int64, startMs, endMs 
 		filterSQL,
 	)
 
-	args := append(baseParams(teamID, startMs, endMs), bs, bs, bs, bs, bs)
+	args := append(baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []RebalancePoint
 	return out, r.db.Select(context.Background(), &out, query, args...)
@@ -476,7 +477,7 @@ func (r *ClickHouseRepository) GetClientOpErrors(teamID int64, startMs, endMs in
 		    %s AS time_bucket,
 		    %s AS operation_name,
 		    %s AS error_type,
-		    sum(%s) / ? AS error_rate
+		    sum(%s) / @bucketSecs AS error_rate
 		FROM %s
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
@@ -491,7 +492,7 @@ func (r *ClickHouseRepository) GetClientOpErrors(teamID int64, startMs, endMs in
 		errType,
 	)
 
-	args := append(baseParams(teamID, startMs, endMs), bs)
+	args := append(baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []ErrorRatePoint
 	return out, r.db.Select(context.Background(), &out, query, args...)
@@ -569,7 +570,7 @@ func (r *ClickHouseRepository) getErrorRates(teamID int64, startMs, endMs int64,
 		    %s AS time_bucket,
 		    %s AS topic,
 		    %s AS error_type,
-		    sum(%s) / ? AS error_rate
+		    sum(%s) / @bucketSecs AS error_rate
 		FROM %s
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
@@ -584,7 +585,7 @@ func (r *ClickHouseRepository) getErrorRates(teamID int64, startMs, endMs int64,
 		errType,
 	)
 
-	args := append(baseParams(teamID, startMs, endMs), bs)
+	args := append(baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []ErrorRatePoint
 	if err := r.db.Select(context.Background(), &out, query, args...); err != nil {
@@ -605,7 +606,7 @@ func (r *ClickHouseRepository) getGroupErrorRates(teamID int64, startMs, endMs i
 		    %s AS time_bucket,
 		    %s AS consumer_group,
 		    %s AS error_type,
-		    sum(%s) / ? AS error_rate
+		    sum(%s) / @bucketSecs AS error_rate
 		FROM %s
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
@@ -620,7 +621,7 @@ func (r *ClickHouseRepository) getGroupErrorRates(teamID int64, startMs, endMs i
 		errType,
 	)
 
-	args := append(baseParams(teamID, startMs, endMs), bs)
+	args := append(baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []ErrorRatePoint
 	if err := r.db.Select(context.Background(), &out, query, args...); err != nil {

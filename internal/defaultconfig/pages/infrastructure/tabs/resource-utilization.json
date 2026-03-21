@@ -131,7 +131,7 @@
       "titleIcon": "Server"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "state",
       "id": "infra-cpu-time",
       "layout": {
@@ -147,7 +147,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "state",
       "id": "infra-memory-usage",
       "layout": {
@@ -163,7 +163,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "state",
       "id": "infra-swap-usage",
       "layout": {
@@ -193,7 +193,7 @@
       "titleIcon": "Activity"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "direction",
       "id": "infra-disk-io",
       "layout": {
@@ -209,7 +209,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "direction",
       "id": "infra-disk-operations",
       "layout": {
@@ -225,7 +225,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "pod",
       "id": "infra-disk-io-time",
       "layout": {
@@ -241,7 +241,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "mountpoint",
       "id": "infra-filesystem-usage",
       "layout": {
@@ -257,7 +257,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "pod",
       "id": "infra-filesystem-util",
       "layout": {
@@ -273,7 +273,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "direction",
       "id": "infra-network-io",
       "layout": {
@@ -289,7 +289,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "direction",
       "id": "infra-network-packets",
       "layout": {
@@ -305,7 +305,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "state",
       "id": "infra-network-errors",
       "layout": {
@@ -321,7 +321,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "pod",
       "id": "infra-network-dropped",
       "layout": {
@@ -337,7 +337,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "state",
       "id": "infra-process-count",
       "layout": {
@@ -353,7 +353,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "state",
       "id": "infra-network-connections",
       "layout": {

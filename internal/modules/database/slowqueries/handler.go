@@ -3,6 +3,8 @@ package slowqueries
 import (
 	"net/http"
 
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+
 	"github.com/gin-gonic/gin"
 	common "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
@@ -22,7 +24,7 @@ func (h *Handler) GetSlowQueryPatterns(c *gin.Context) {
 	}
 	resp, err := h.Service.GetSlowQueryPatterns(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c), shared.ParseLimit(c, 20))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query slow query patterns")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query slow query patterns", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -36,7 +38,7 @@ func (h *Handler) GetSlowestCollections(c *gin.Context) {
 	}
 	resp, err := h.Service.GetSlowestCollections(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query slowest collections")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query slowest collections", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -50,7 +52,7 @@ func (h *Handler) GetSlowQueryRate(c *gin.Context) {
 	}
 	resp, err := h.Service.GetSlowQueryRate(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c), shared.ParseThreshold(c, 100))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query slow query rate")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query slow query rate", err)
 		return
 	}
 	common.RespondOK(c, resp)
@@ -64,7 +66,7 @@ func (h *Handler) GetP99ByQueryText(c *gin.Context) {
 	}
 	resp, err := h.Service.GetP99ByQueryText(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c), shared.ParseLimit(c, 10))
 	if err != nil {
-		common.RespondError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to query p99 by query text")
+		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query p99 by query text", err)
 		return
 	}
 	common.RespondOK(c, resp)

@@ -53,20 +53,20 @@ func NewManager(cfg config.Config) *Manager {
 	sessionManager.Lifetime = cfg.SessionLifetime()
 	sessionManager.IdleTimeout = cfg.SessionIdleTimeout()
 	sessionManager.HashTokenInStore = true
-	sessionManager.Cookie.Name = cfg.SessionCookieName
-	sessionManager.Cookie.Domain = cfg.SessionCookieDomain
-	sessionManager.Cookie.Path = cfg.SessionCookiePath
-	sessionManager.Cookie.HttpOnly = cfg.SessionCookieHTTPOnly
-	sessionManager.Cookie.Secure = cfg.SessionCookieSecure
-	sessionManager.Cookie.SameSite = parseSameSite(cfg.SessionCookieSameSite)
+	sessionManager.Cookie.Name = cfg.Session.CookieName
+	sessionManager.Cookie.Domain = cfg.Session.CookieDomain
+	sessionManager.Cookie.Path = cfg.Session.CookiePath
+	sessionManager.Cookie.HttpOnly = cfg.Session.CookieHTTPOnly
+	sessionManager.Cookie.Secure = cfg.Session.CookieSecure
+	sessionManager.Cookie.SameSite = parseSameSite(cfg.Session.CookieSameSite)
 	sessionManager.Cookie.Persist = true
 
-	if cfg.RedisEnabled {
+	if cfg.Redis.Enabled {
 		pool := &redis.Pool{
 			MaxIdle:     4,
 			IdleTimeout: 5 * time.Minute,
 			Dial: func() (redis.Conn, error) {
-				return redis.Dial("tcp", fmt.Sprintf("%s:%s", cfg.RedisHost, cfg.RedisPort))
+				return redis.Dial("tcp", fmt.Sprintf("%s:%s", cfg.Redis.Host, cfg.Redis.Port))
 			},
 		}
 		sessionManager.Store = redisstore.New(pool)

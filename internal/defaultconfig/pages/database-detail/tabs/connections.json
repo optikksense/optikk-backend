@@ -5,7 +5,7 @@
   "order": 50,
   "components": [
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "db-connection-count",
       "layout": { "col": 8 },
       "order": 10,
@@ -18,7 +18,7 @@
       "titleIcon": "Link"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "db-connection-pending",
       "layout": { "col": 8 },
       "order": 20,
@@ -31,7 +31,7 @@
       "titleIcon": "Clock"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "id": "db-connection-timeouts",
       "layout": { "col": 8 },
       "order": 30,

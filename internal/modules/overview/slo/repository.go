@@ -20,6 +20,8 @@ func baseParams(teamID int64, startMs, endMs int64) []any {
 		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 	}
 }
 
@@ -57,16 +59,16 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		       avg_latency_ms,
 		       p95_latency_ms
 		FROM (
-			SELECT count()                                                                      AS total_requests,
-			       countIf(` + ErrorCondition() + `)                                           AS error_count,
+			SELECT toInt64(count())                                                             AS total_requests,
+			       toInt64(countIf(` + ErrorCondition() + `))                                  AS error_count,
 			       avg(s.duration_nano / 1000000.0)                                            AS avg_latency_ms,
 			       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency_ms
 			FROM observability.spans s
-			WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end`
-	args := append(baseParams(teamID, startMs, endMs), timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000))
+			WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`
+	args := baseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += ` AND s.service_name = ?`
-		args = append(args, serviceName)
+		query += ` AND s.service_name = @serviceName`
+		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += `
 		)`
@@ -106,15 +108,15 @@ func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, 
 		       avg_latency_ms
 		FROM (
 			SELECT %s                                   AS time_bucket,
-			       count()                              AS request_count,
-			       countIf(`+ErrorCondition()+`)        AS error_count,
+			       toInt64(count())                     AS request_count,
+			       toInt64(countIf(`+ErrorCondition()+`)) AS error_count,
 			       avg(s.duration_nano / 1000000.0)     AS avg_latency_ms
 			FROM observability.spans s
-			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := append(baseParams(teamID, startMs, endMs), timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000))
+			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
+	args := baseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += ` AND s.service_name = ?`
-		args = append(args, serviceName)
+		query += ` AND s.service_name = @serviceName`
+		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += ` GROUP BY 1
 		)

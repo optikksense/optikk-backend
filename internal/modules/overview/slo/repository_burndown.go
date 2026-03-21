@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
 // BurnDownPoint represents a single point on the error budget burn-down chart.
@@ -36,16 +35,16 @@ func (r *ClickHouseRepository) GetBurnDown(ctx context.Context, teamID int64, st
 	bucket := sloBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT %s AS time_bucket,
-		       count()                       AS request_count,
-		       countIf(`+ErrorCondition()+`) AS error_count
+		       toInt64(count())              AS request_count,
+		       toInt64(countIf(`+ErrorCondition()+`)) AS error_count
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND `+RootSpanCondition()+`
-		  AND s.ts_bucket_start BETWEEN ? AND ?
+		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := append(baseParams(teamID, startMs, endMs), timebucket.SpansBucketStart(startMs/1000), timebucket.SpansBucketStart(endMs/1000))
+	args := baseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += ` AND s.service_name = ?`
-		args = append(args, serviceName)
+		query += ` AND s.service_name = @serviceName`
+		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += ` GROUP BY time_bucket ORDER BY time_bucket ASC`
 
@@ -125,8 +124,8 @@ func (r *ClickHouseRepository) errorRateForWindow(ctx context.Context, teamID in
 		  AND s.timestamp >= now() - INTERVAL %d MINUTE`, minutes)
 	args := []any{clickhouse.Named("teamID", uint32(teamID))}
 	if serviceName != "" {
-		query += ` AND s.service_name = ?`
-		args = append(args, serviceName)
+		query += ` AND s.service_name = @serviceName`
+		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 
 	var row errorRateRow

@@ -37,7 +37,7 @@
       "valueField": "memory_bytes"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "container",
       "id": "k8s-container-cpu",
       "layout": {
@@ -53,7 +53,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "container",
       "id": "k8s-cpu-throttling",
       "layout": {
@@ -69,7 +69,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "container",
       "id": "k8s-container-memory",
       "layout": {
@@ -85,7 +85,7 @@
       "valueKey": "value"
     },
     {
-      "componentKey": "area",
+      "componentKey": "request",
       "groupByKey": "container",
       "id": "k8s-oom-kills",
       "layout": {

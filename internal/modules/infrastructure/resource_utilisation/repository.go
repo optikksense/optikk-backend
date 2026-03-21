@@ -3,6 +3,7 @@ package resource_utilisation
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -218,7 +219,7 @@ func calculateAverage(values []float64) *float64 {
 	var sum float64
 	count := 0
 	for _, v := range values {
-		if v >= 0 { // Only count valid values
+		if !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 {
 			sum += v
 			count++
 		}
@@ -234,7 +235,7 @@ func calculateAverage(values []float64) *float64 {
 func nullableToSlice(ptrs ...*float64) []float64 {
 	out := make([]float64, 0, len(ptrs))
 	for _, p := range ptrs {
-		if p != nil {
+		if p != nil && !math.IsNaN(*p) && !math.IsInf(*p, 0) {
 			out = append(out, *p)
 		}
 	}
@@ -585,7 +586,7 @@ func (r *ClickHouseRepository) getSampleCountByInstance(ctx context.Context, tea
 	aNet := attrFloat(AttrSystemNetworkUtilization)
 	aConn := attrFloat(AttrDBConnectionPoolUtilization)
 	query := fmt.Sprintf(`
-		SELECT COUNT(*) as count
+		SELECT toInt64(COUNT(*)) as count
 		FROM %s
 		WHERE %s = @teamID AND %s = @host AND %s = @pod AND %s = @container AND %s = @serviceName AND %s BETWEEN @start AND @end
 		  AND (
@@ -779,7 +780,7 @@ func (r *ClickHouseRepository) getSampleCountByService(ctx context.Context, team
 	aNet := attrFloat(AttrSystemNetworkUtilization)
 	aConn := attrFloat(AttrDBConnectionPoolUtilization)
 	query := fmt.Sprintf(`
-		SELECT COUNT(*) as count
+		SELECT toInt64(COUNT(*)) as count
 		FROM %s
 		WHERE %s = @teamID AND %s = @serviceName AND %s BETWEEN @start AND @end
 		  AND (
@@ -874,7 +875,6 @@ func (r *ClickHouseRepository) getInstanceList(ctx context.Context, teamID int64
 		      OR %s > 0 OR %s > 0
 		      OR %s > 0
 		  )
-		ORDER BY host, pod, container, service_name
 		LIMIT 200`,
 		ColHost, ColPod, ColContainer, ColServiceName,
 		TableMetrics,
