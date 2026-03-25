@@ -9,8 +9,8 @@ import (
 	database "github.com/observability/observability-backend-go/internal/database"
 	configdefaults "github.com/observability/observability-backend-go/internal/defaultconfig"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
-	sio "github.com/observability/observability-backend-go/internal/platform/socketio"
 	sessionauth "github.com/observability/observability-backend-go/internal/platform/session"
+	sio "github.com/observability/observability-backend-go/internal/platform/socketio"
 	"google.golang.org/grpc"
 )
 
@@ -24,22 +24,18 @@ const (
 	Cached
 )
 
-// Deps holds shared dependencies injected into every module during Init.
-type Deps struct {
-	NativeQuerier  *database.NativeQuerier
-	DB             *sql.DB
-	ClickHouseConn clickhouse.Conn
-	GetTenant      modulecommon.GetTenantFunc
-	SessionManager *sessionauth.Manager
-	Config         config.Config
-	ConfigRegistry *configdefaults.Registry
-}
+type SQLDB = sql.DB
+type ClickHouseConn = clickhouse.Conn
+type NativeQuerier = database.NativeQuerier
+type GetTenantFunc = modulecommon.GetTenantFunc
+type SessionManager = sessionauth.Manager
+type AppConfig = config.Config
+type ConfigRegistry = configdefaults.Registry
 
-// Module is the interface every feature module implements to self-register.
+// Module is the interface every feature module implements.
 type Module interface {
 	Name() string
 	RouteTarget() RouteTarget
-	Init(deps Deps) error
 	RegisterRoutes(group *gin.RouterGroup)
 }
 
@@ -57,16 +53,4 @@ type BackgroundRunner interface {
 // SocketIORegistrar is implemented by modules that register Socket.IO handlers.
 type SocketIORegistrar interface {
 	RegisterSocketIO(srv *sio.Server)
-}
-
-var modules []Module
-
-// Register adds a module to the global registry. Called from init() in each module.
-func Register(m Module) {
-	modules = append(modules, m)
-}
-
-// All returns all registered modules.
-func All() []Module {
-	return modules
 }

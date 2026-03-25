@@ -1,8 +1,10 @@
 package defaultconfig
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/fs"
 	"path"
 	"sort"
@@ -32,81 +34,52 @@ func LoadFromFS(fsys fs.FS) (*Registry, error) {
 		}
 
 		var pageMeta PageMetadata
-		if err := json.Unmarshal(pageBytes, &pageMeta); err != nil {
+		if err := strictUnmarshal(pageBytes, &pageMeta); err != nil {
 			return nil, fmt.Errorf("parse %s/page.json: %w", pageDir, err)
 		}
 
-		// Shell-only pages have no tabs directory — skip tab loading.
-		if pageMeta.ShellOnly {
-			doc := PageDocument{Page: pageMeta, Tabs: nil}
-			if err := validatePageDocument(doc); err != nil {
-				return nil, err
-			}
-			registry.pages[doc.Page.ID] = doc
-			continue
-		}
-
-		tabEntries, err := fs.ReadDir(fsys, path.Join(pageDir, "tabs"))
-		if err != nil {
-			return nil, fmt.Errorf("read %s/tabs: %w", pageDir, err)
-		}
-
-		doc := PageDocument{
-			Page: pageMeta,
-			Tabs: make([]TabDefinition, 0, len(tabEntries)),
-		}
-		seenTabs := map[string]struct{}{}
-
-		for _, tabEntry := range tabEntries {
-			if tabEntry.IsDir() || !strings.HasSuffix(tabEntry.Name(), ".json") {
-				continue
-			}
-
-			tabPath := path.Join(pageDir, "tabs", tabEntry.Name())
-			tabBytes, err := fs.ReadFile(fsys, tabPath)
+		doc := PageDocument{Page: pageMeta}
+		if pageMeta.RenderMode == RenderModeDashboard {
+			tabEntries, err := fs.ReadDir(fsys, path.Join(pageDir, "tabs"))
 			if err != nil {
-				return nil, fmt.Errorf("read %s: %w", tabPath, err)
+				return nil, fmt.Errorf("read %s/tabs: %w", pageDir, err)
 			}
 
-			var tab TabDefinition
-			if err := json.Unmarshal(tabBytes, &tab); err != nil {
-				return nil, fmt.Errorf("parse %s: %w", tabPath, err)
-			}
-			if tab.PageID == "" {
-				tab.PageID = pageMeta.ID
-			}
-			if _, exists := seenTabs[tab.ID]; exists {
-				return nil, fmt.Errorf("duplicate tab id %q for page %q", tab.ID, pageMeta.ID)
-			}
-			seenTabs[tab.ID] = struct{}{}
-
-			seenComponents := map[string]struct{}{}
-			for _, component := range tab.Components {
-				if _, exists := seenComponents[component.ID]; exists {
-					return nil, fmt.Errorf("duplicate component id %q for page %q tab %q", component.ID, pageMeta.ID, tab.ID)
+			doc.Tabs = make([]TabDefinition, 0, len(tabEntries))
+			seenTabs := map[string]struct{}{}
+			for _, tabEntry := range tabEntries {
+				if tabEntry.IsDir() || !strings.HasSuffix(tabEntry.Name(), ".json") {
+					continue
 				}
-				seenComponents[component.ID] = struct{}{}
-			}
 
-			sort.SliceStable(tab.Components, func(i, j int) bool {
-				if tab.Components[i].Order == tab.Components[j].Order {
-					return tab.Components[i].ID < tab.Components[j].ID
+				tabPath := path.Join(pageDir, "tabs", tabEntry.Name())
+				tabBytes, err := fs.ReadFile(fsys, tabPath)
+				if err != nil {
+					return nil, fmt.Errorf("read %s: %w", tabPath, err)
 				}
-				return tab.Components[i].Order < tab.Components[j].Order
-			})
-			doc.Tabs = append(doc.Tabs, tab)
+
+				var tab TabDefinition
+				if err := strictUnmarshal(tabBytes, &tab); err != nil {
+					return nil, fmt.Errorf("parse %s: %w", tabPath, err)
+				}
+				if tab.PageID == "" {
+					tab.PageID = pageMeta.ID
+				}
+				if _, exists := seenTabs[tab.ID]; exists {
+					return nil, fmt.Errorf("duplicate tab id %q for page %q", tab.ID, pageMeta.ID)
+				}
+				seenTabs[tab.ID] = struct{}{}
+
+				sortSections(tab.Sections)
+				sortPanels(tab.Panels)
+				doc.Tabs = append(doc.Tabs, tab)
+			}
+			sortTabs(doc.Tabs)
 		}
 
 		if err := validatePageDocument(doc); err != nil {
 			return nil, err
 		}
-
-		sort.SliceStable(doc.Tabs, func(i, j int) bool {
-			if doc.Tabs[i].Order == doc.Tabs[j].Order {
-				return doc.Tabs[i].ID < doc.Tabs[j].ID
-			}
-			return doc.Tabs[i].Order < doc.Tabs[j].Order
-		})
 
 		if _, exists := registry.pages[doc.Page.ID]; exists {
 			return nil, fmt.Errorf("duplicate page id %q", doc.Page.ID)
@@ -166,191 +139,26 @@ func ClonePageDocument(doc PageDocument) (PageDocument, error) {
 	return cloned, nil
 }
 
-// MergePageDocument overlays saved page-level overrides on top of defaults.
-func MergePageDocument(base PageDocument, override PageDocument) (PageDocument, error) {
-	merged, err := ClonePageDocument(base)
-	if err != nil {
+func ValidatePageDocument(doc PageDocument) error {
+	return validatePageDocument(doc)
+}
+
+func DecodePageDocument(data []byte) (PageDocument, error) {
+	var doc PageDocument
+	if err := strictUnmarshal(data, &doc); err != nil {
 		return PageDocument{}, err
 	}
-
-	if override.Page.ID != "" {
-		page, err := mergeJSONStruct(merged.Page, override.Page)
-		if err != nil {
-			return PageDocument{}, err
-		}
-		merged.Page = page
-	}
-
-	if len(override.Tabs) > 0 {
-		tabByID := make(map[string]TabDefinition, len(merged.Tabs)+len(override.Tabs))
-		for _, tab := range merged.Tabs {
-			tabByID[tab.ID] = tab
-		}
-		for _, tab := range override.Tabs {
-			if tab.PageID == "" {
-				tab.PageID = merged.Page.ID
-			}
-			if existing, ok := tabByID[tab.ID]; ok {
-				mergedTab, err := mergeTabDefinition(existing, tab)
-				if err != nil {
-					return PageDocument{}, err
-				}
-				tabByID[tab.ID] = mergedTab
-				continue
-			}
-			tabByID[tab.ID] = tab
-		}
-
-		merged.Tabs = merged.Tabs[:0]
-		for _, tab := range tabByID {
-			sort.SliceStable(tab.Components, func(i, j int) bool {
-				if tab.Components[i].Order == tab.Components[j].Order {
-					return tab.Components[i].ID < tab.Components[j].ID
-				}
-				return tab.Components[i].Order < tab.Components[j].Order
-			})
-			merged.Tabs = append(merged.Tabs, tab)
-		}
-		sort.SliceStable(merged.Tabs, func(i, j int) bool {
-			if merged.Tabs[i].Order == merged.Tabs[j].Order {
-				return merged.Tabs[i].ID < merged.Tabs[j].ID
-			}
-			return merged.Tabs[i].Order < merged.Tabs[j].Order
-		})
-	}
-
-	if err := validatePageDocument(merged); err != nil {
-		return PageDocument{}, err
-	}
-	return merged, nil
-}
-
-func mergeTabDefinition(base TabDefinition, override TabDefinition) (TabDefinition, error) {
-	merged, err := mergeJSONStruct(base, override)
-	if err != nil {
-		return TabDefinition{}, err
-	}
-
-	if len(override.Groups) > 0 {
-		groupByID := make(map[string]ComponentGroup, len(base.Groups)+len(override.Groups))
-		for _, group := range base.Groups {
-			groupByID[group.ID] = group
-		}
-		for _, group := range override.Groups {
-			if existing, ok := groupByID[group.ID]; ok {
-				mergedGroup, err := mergeJSONStruct(existing, group)
-				if err != nil {
-					return TabDefinition{}, err
-				}
-				groupByID[group.ID] = mergedGroup
-				continue
-			}
-			groupByID[group.ID] = group
-		}
-
-		merged.Groups = merged.Groups[:0]
-		for _, group := range groupByID {
-			merged.Groups = append(merged.Groups, group)
-		}
-		sort.SliceStable(merged.Groups, func(i, j int) bool {
-			if merged.Groups[i].Order == merged.Groups[j].Order {
-				return merged.Groups[i].ID < merged.Groups[j].ID
-			}
-			return merged.Groups[i].Order < merged.Groups[j].Order
-		})
-	}
-
-	if len(override.Components) > 0 {
-		componentByID := make(map[string]Component, len(base.Components)+len(override.Components))
-		for _, component := range base.Components {
-			componentByID[component.ID] = component
-		}
-		for _, component := range override.Components {
-			if existing, ok := componentByID[component.ID]; ok {
-				mergedComponent, err := mergeJSONStruct(existing, component)
-				if err != nil {
-					return TabDefinition{}, err
-				}
-				componentByID[component.ID] = mergedComponent
-				continue
-			}
-			componentByID[component.ID] = component
-		}
-
-		merged.Components = merged.Components[:0]
-		for _, component := range componentByID {
-			merged.Components = append(merged.Components, component)
-		}
-		sort.SliceStable(merged.Components, func(i, j int) bool {
-			if merged.Components[i].Order == merged.Components[j].Order {
-				return merged.Components[i].ID < merged.Components[j].ID
-			}
-			return merged.Components[i].Order < merged.Components[j].Order
-		})
-	}
-
-	return merged, nil
-}
-
-func mergeJSONStruct[T any](base T, override T) (T, error) {
-	baseMap, err := structToMap(base)
-	if err != nil {
-		var zero T
-		return zero, err
-	}
-	overrideMap, err := structToMap(override)
-	if err != nil {
-		var zero T
-		return zero, err
-	}
-
-	mergedMap := mergeJSONMaps(baseMap, overrideMap)
-	mergedBytes, err := json.Marshal(mergedMap)
-	if err != nil {
-		var zero T
-		return zero, err
-	}
-
-	var merged T
-	if err := json.Unmarshal(mergedBytes, &merged); err != nil {
-		var zero T
-		return zero, err
-	}
-	return merged, nil
-}
-
-func structToMap(value any) (map[string]any, error) {
-	bytes, err := json.Marshal(value)
-	if err != nil {
-		return nil, err
-	}
-	var mapped map[string]any
-	if err := json.Unmarshal(bytes, &mapped); err != nil {
-		return nil, err
-	}
-	return mapped, nil
-}
-
-func mergeJSONMaps(base map[string]any, override map[string]any) map[string]any {
-	merged := make(map[string]any, len(base)+len(override))
-	for key, value := range base {
-		merged[key] = value
-	}
-	for key, value := range override {
-		if baseValue, ok := merged[key]; ok {
-			baseMap, baseIsMap := baseValue.(map[string]any)
-			overrideMap, overrideIsMap := value.(map[string]any)
-			if baseIsMap && overrideIsMap {
-				merged[key] = mergeJSONMaps(baseMap, overrideMap)
-				continue
-			}
-		}
-		merged[key] = value
-	}
-	return merged
+	return doc, nil
 }
 
 func validatePageDocument(doc PageDocument) error {
+	if doc.Page.SchemaVersion != CurrentSchemaVersion {
+		return fmt.Errorf(
+			"page %q: schemaVersion must be %d",
+			doc.Page.ID,
+			CurrentSchemaVersion,
+		)
+	}
 	if doc.Page.ID == "" {
 		return fmt.Errorf("page id is required")
 	}
@@ -366,8 +174,13 @@ func validatePageDocument(doc PageDocument) error {
 	if doc.Page.Group == "" {
 		return fmt.Errorf("page %q: group is required", doc.Page.ID)
 	}
-	// Shell-only pages are rendered by a custom frontend component — no tabs needed.
-	if doc.Page.ShellOnly {
+	if doc.Page.RenderMode != RenderModeDashboard && doc.Page.RenderMode != RenderModeExplorer {
+		return fmt.Errorf("page %q: renderMode must be %q or %q", doc.Page.ID, RenderModeDashboard, RenderModeExplorer)
+	}
+	if doc.Page.RenderMode == RenderModeExplorer {
+		if len(doc.Tabs) > 0 {
+			return fmt.Errorf("page %q: explorer pages must not define tabs", doc.Page.ID)
+		}
 		return nil
 	}
 	if doc.Page.DefaultTabID == "" {
@@ -399,10 +212,38 @@ func validatePageDocument(doc PageDocument) error {
 		if tab.ID == doc.Page.DefaultTabID {
 			tabFound = true
 		}
+		if len(tab.Sections) == 0 {
+			return fmt.Errorf("page %q tab %q: at least one section is required", doc.Page.ID, tab.ID)
+		}
+		if len(tab.Panels) == 0 {
+			return fmt.Errorf("page %q tab %q: at least one panel is required", doc.Page.ID, tab.ID)
+		}
 
-		componentIDs := map[string]struct{}{}
-		for _, component := range tab.Components {
-			if err := validateComponent(doc.Page.ID, tab.ID, component, componentIDs); err != nil {
+		sectionIDs := map[string]struct{}{}
+		sectionsByID := make(map[string]SectionDefinition, len(tab.Sections))
+		for _, section := range tab.Sections {
+			if err := validateSection(doc.Page.ID, tab.ID, section, sectionIDs); err != nil {
+				return err
+			}
+			sectionsByID[section.ID] = section
+		}
+
+		panelIDs := map[string]struct{}{}
+		sectionUsage := make(map[string]int, len(tab.Sections))
+		panelsBySection := make(map[string][]PanelDefinition, len(tab.Sections))
+		for _, panel := range tab.Panels {
+			if err := validatePanel(doc.Page.ID, tab.ID, panel, panelIDs, sectionIDs); err != nil {
+				return err
+			}
+			sectionUsage[panel.SectionID]++
+			panelsBySection[panel.SectionID] = append(panelsBySection[panel.SectionID], panel)
+		}
+
+		for _, section := range tab.Sections {
+			if sectionUsage[section.ID] == 0 {
+				return fmt.Errorf("page %q tab %q section %q: must contain at least one panel", doc.Page.ID, tab.ID, section.ID)
+			}
+			if err := validateSectionComposition(doc.Page.ID, tab.ID, sectionsByID[section.ID], panelsBySection[section.ID]); err != nil {
 				return err
 			}
 		}
@@ -414,25 +255,156 @@ func validatePageDocument(doc PageDocument) error {
 	return nil
 }
 
-func validateComponent(pageID, tabID string, component Component, seenIDs map[string]struct{}) error {
-	if component.ID == "" {
-		return fmt.Errorf("page %q tab %q: component id is required", pageID, tabID)
+func validateSection(pageID, tabID string, section SectionDefinition, seenIDs map[string]struct{}) error {
+	if section.ID == "" {
+		return fmt.Errorf("page %q tab %q: section id is required", pageID, tabID)
 	}
-	if component.ComponentKey == "" {
-		return fmt.Errorf("page %q tab %q component %q: componentKey is required", pageID, tabID, component.ID)
+	if section.Title == "" {
+		return fmt.Errorf("page %q tab %q section %q: title is required", pageID, tabID, section.ID)
 	}
-	if _, exists := seenIDs[component.ID]; exists {
-		return fmt.Errorf("page %q tab %q: duplicate component id %q", pageID, tabID, component.ID)
+	if section.Kind != SectionKindSummary &&
+		section.Kind != SectionKindTrends &&
+		section.Kind != SectionKindBreakdowns &&
+		section.Kind != SectionKindDetails {
+		return fmt.Errorf("page %q tab %q section %q: invalid kind %q", pageID, tabID, section.ID, section.Kind)
 	}
-	seenIDs[component.ID] = struct{}{}
+	if section.LayoutMode != SectionLayoutModeKPIStrip &&
+		section.LayoutMode != SectionLayoutModeTwoUp &&
+		section.LayoutMode != SectionLayoutModeThreeUp &&
+		section.LayoutMode != SectionLayoutModeStack {
+		return fmt.Errorf("page %q tab %q section %q: invalid layoutMode %q", pageID, tabID, section.ID, section.LayoutMode)
+	}
+	if _, exists := seenIDs[section.ID]; exists {
+		return fmt.Errorf("page %q tab %q: duplicate section id %q", pageID, tabID, section.ID)
+	}
+	seenIDs[section.ID] = struct{}{}
+	return nil
+}
 
-	if component.Query.Endpoint == "" {
-		return fmt.Errorf("page %q tab %q component %q: query.endpoint is required", pageID, tabID, component.ID)
+func validatePanel(pageID, tabID string, panel PanelDefinition, seenIDs map[string]struct{}, sections map[string]struct{}) error {
+	if panel.ID == "" {
+		return fmt.Errorf("page %q tab %q: panel id is required", pageID, tabID)
 	}
-	if component.Query.Method == "" {
-		return fmt.Errorf("page %q tab %q component %q: query.method is required", pageID, tabID, component.ID)
+	if panel.PanelType == "" {
+		return fmt.Errorf("page %q tab %q panel %q: panelType is required", pageID, tabID, panel.ID)
+	}
+	if _, allowed := allowedPanelTypes[panel.PanelType]; !allowed {
+		return fmt.Errorf("page %q tab %q panel %q: unsupported panelType %q", pageID, tabID, panel.ID, panel.PanelType)
+	}
+	if panel.SectionID == "" {
+		return fmt.Errorf("page %q tab %q panel %q: sectionId is required", pageID, tabID, panel.ID)
+	}
+	if _, exists := sections[panel.SectionID]; !exists {
+		return fmt.Errorf("page %q tab %q panel %q: unknown sectionId %q", pageID, tabID, panel.ID, panel.SectionID)
+	}
+	if _, exists := seenIDs[panel.ID]; exists {
+		return fmt.Errorf("page %q tab %q: duplicate panel id %q", pageID, tabID, panel.ID)
+	}
+	seenIDs[panel.ID] = struct{}{}
+
+	if panel.Query.Endpoint == "" {
+		return fmt.Errorf("page %q tab %q panel %q: query.endpoint is required", pageID, tabID, panel.ID)
+	}
+	if panel.Query.Method == "" {
+		return fmt.Errorf("page %q tab %q panel %q: query.method is required", pageID, tabID, panel.ID)
+	}
+	if panel.Layout.Preset != PanelPresetKPI &&
+		panel.Layout.Preset != PanelPresetTrend &&
+		panel.Layout.Preset != PanelPresetHero &&
+		panel.Layout.Preset != PanelPresetBreakdown &&
+		panel.Layout.Preset != PanelPresetDetail {
+		return fmt.Errorf("page %q tab %q panel %q: invalid layout.preset %q", pageID, tabID, panel.ID, panel.Layout.Preset)
+	}
+	if panel.Layout.X != nil || panel.Layout.Y != nil || panel.Layout.W != nil {
+		return fmt.Errorf("page %q tab %q panel %q: manual layout coordinates are not supported", pageID, tabID, panel.ID)
+	}
+	if panel.Layout.H != nil && *panel.Layout.H <= 0 {
+		return fmt.Errorf("page %q tab %q panel %q: layout.h must be > 0", pageID, tabID, panel.ID)
 	}
 	return nil
+}
+
+func validateSectionComposition(
+	pageID, tabID string,
+	section SectionDefinition,
+	panels []PanelDefinition,
+) error {
+	if section.Kind == SectionKindSummary && section.LayoutMode != SectionLayoutModeKPIStrip {
+		return fmt.Errorf(
+			"page %q tab %q section %q: summary sections must use layoutMode %q",
+			pageID,
+			tabID,
+			section.ID,
+			SectionLayoutModeKPIStrip,
+		)
+	}
+
+	if section.Kind == SectionKindDetails &&
+		section.LayoutMode != SectionLayoutModeStack &&
+		section.LayoutMode != SectionLayoutModeTwoUp {
+		return fmt.Errorf(
+			"page %q tab %q section %q: details sections must use layoutMode %q or %q",
+			pageID,
+			tabID,
+			section.ID,
+			SectionLayoutModeStack,
+			SectionLayoutModeTwoUp,
+		)
+	}
+
+	if section.LayoutMode == SectionLayoutModeKPIStrip {
+		for _, panel := range panels {
+			if panel.PanelType != "stat-card" && panel.PanelType != "stat-summary" {
+				return fmt.Errorf(
+					"page %q tab %q section %q: kpi-strip sections only allow stat-card or stat-summary panels",
+					pageID,
+					tabID,
+					section.ID,
+				)
+			}
+		}
+		return nil
+	}
+
+	for _, panel := range panels {
+		if panel.PanelType == "stat-card" || panel.PanelType == "stat-summary" {
+			return fmt.Errorf(
+				"page %q tab %q section %q: KPI panels must live in kpi-strip sections",
+				pageID,
+				tabID,
+				section.ID,
+			)
+		}
+	}
+
+	return nil
+}
+
+func sortTabs(tabs []TabDefinition) {
+	sort.SliceStable(tabs, func(i, j int) bool {
+		if tabs[i].Order == tabs[j].Order {
+			return tabs[i].ID < tabs[j].ID
+		}
+		return tabs[i].Order < tabs[j].Order
+	})
+}
+
+func sortSections(sections []SectionDefinition) {
+	sort.SliceStable(sections, func(i, j int) bool {
+		if sections[i].Order == sections[j].Order {
+			return sections[i].ID < sections[j].ID
+		}
+		return sections[i].Order < sections[j].Order
+	})
+}
+
+func sortPanels(panels []PanelDefinition) {
+	sort.SliceStable(panels, func(i, j int) bool {
+		if panels[i].Order == panels[j].Order {
+			return panels[i].ID < panels[j].ID
+		}
+		return panels[i].Order < panels[j].Order
+	})
 }
 
 // GenerateDefaultDashboardConfigsJSON exports the entire registry of default pages as a JSON string.
@@ -448,4 +420,20 @@ func (r *Registry) GenerateDefaultDashboardConfigsJSON() (string, error) {
 	}
 
 	return string(bytes), nil
+}
+
+func strictUnmarshal(data []byte, dest any) error {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+
+	if err := decoder.Decode(dest); err != nil {
+		return err
+	}
+
+	var trailing any
+	if err := decoder.Decode(&trailing); err != io.EOF {
+		return fmt.Errorf("unexpected trailing JSON content")
+	}
+
+	return nil
 }

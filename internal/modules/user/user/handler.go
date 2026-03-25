@@ -103,3 +103,19 @@ func (h *Handler) UpdateProfile(c *gin.Context) {
 	}
 	modulecommon.RespondOK(c, profile)
 }
+
+func (h *Handler) UpdatePreferences(c *gin.Context) {
+	var req UpdatePreferencesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Invalid request body")
+		return
+	}
+
+	response, err := h.Service.UpdatePreferences(h.GetTenant(c).UserID, req)
+	if err != nil {
+		usershared.RespondServiceError(c, err, "Unable to update preferences")
+		return
+	}
+
+	modulecommon.RespondOK(c, response)
+}

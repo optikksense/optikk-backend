@@ -34,8 +34,14 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	}
 }
 
-func init() {
-	registry.Register(&teamModule{})
+func NewModule(
+	sqlDB *registry.SQLDB,
+	getTenant registry.GetTenantFunc,
+	configRegistry *registry.ConfigRegistry,
+) registry.Module {
+	module := &teamModule{}
+	module.configure(sqlDB, getTenant, configRegistry)
+	return module
 }
 
 type teamModule struct {
@@ -45,12 +51,15 @@ type teamModule struct {
 func (m *teamModule) Name() string                      { return "team" }
 func (m *teamModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *teamModule) Init(deps registry.Deps) error {
+func (m *teamModule) configure(
+	sqlDB *registry.SQLDB,
+	getTenant registry.GetTenantFunc,
+	configRegistry *registry.ConfigRegistry,
+) {
 	m.handler = NewHandler(
-		deps.GetTenant,
-		NewService(NewRepository(deps.DB), deps.ConfigRegistry),
+		getTenant,
+		NewService(NewRepository(sqlDB), configRegistry),
 	)
-	return nil
 }
 
 func (m *teamModule) RegisterRoutes(group *gin.RouterGroup) {

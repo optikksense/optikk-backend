@@ -36,8 +36,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *JVMHandler) {
 	g.GET("/buffers", h.GetJVMBuffers)
 }
 
-func init() {
-	registry.Register(&jvmModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &jvmModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type jvmModule struct {
@@ -47,9 +49,8 @@ type jvmModule struct {
 func (m *jvmModule) Name() string                      { return "jvm" }
 func (m *jvmModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *jvmModule) Init(deps registry.Deps) error {
-	m.handler = NewHandler(deps.NativeQuerier, deps.GetTenant)
-	return nil
+func (m *jvmModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+	m.handler = NewHandler(nativeQuerier, getTenant)
 }
 
 func (m *jvmModule) RegisterRoutes(group *gin.RouterGroup) {

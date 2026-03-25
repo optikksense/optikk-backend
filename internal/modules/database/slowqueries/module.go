@@ -25,8 +25,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	g.GET("/p99-by-text", h.GetP99ByQueryText)
 }
 
-func init() {
-	registry.Register(&dbSlowModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &dbSlowModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type dbSlowModule struct {
@@ -36,12 +38,11 @@ type dbSlowModule struct {
 func (m *dbSlowModule) Name() string                      { return "dbSlow" }
 func (m *dbSlowModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *dbSlowModule) Init(deps registry.Deps) error {
+func (m *dbSlowModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *dbSlowModule) RegisterRoutes(group *gin.RouterGroup) {

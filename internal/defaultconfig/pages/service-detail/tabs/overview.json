@@ -3,96 +3,146 @@
   "pageId": "service-detail",
   "label": "Overview",
   "order": 10,
-  "groups": [
-    { "id": "key-metrics", "label": "Key Metrics", "order": 5 },
-    { "id": "golden-signals", "label": "Golden Signals", "order": 10 },
-    { "id": "health", "label": "Health", "order": 20 }
-  ],
-  "components": [
+  "sections": [
     {
-      "componentKey": "stat-cards-grid",
-      "groupId": "key-metrics",
+      "id": "key-metrics",
+      "title": "Key Metrics",
+      "order": 5,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "stack"
+    },
+    {
+      "id": "golden-signals",
+      "title": "Golden Signals",
+      "order": 10,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "three-up"
+    },
+    {
+      "id": "health",
+      "title": "Health",
+      "order": 20,
+      "kind": "breakdowns",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
       "id": "service-stat-cards",
-      "layout": { "col": 24 },
+      "layout": {
+        "preset": "detail"
+      },
       "order": 1,
       "query": {
         "endpoint": "/v1/services/stats",
         "method": "GET",
-        "params": { "service": "{serviceName}" }
+        "params": {
+          "service": "{serviceName}"
+        }
       },
-      "title": "Service Stats"
+      "title": "Service Stats",
+      "panelType": "stat-cards-grid",
+      "sectionId": "key-metrics"
     },
     {
-      "componentKey": "request",
-      "groupId": "golden-signals",
       "id": "service-request-rate",
-      "layout": { "col": 8 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 10,
       "query": {
         "endpoint": "/v1/services/timeseries",
         "method": "GET",
-        "params": { "service": "{serviceName}", "interval": "5m" }
+        "params": {
+          "service": "{serviceName}",
+          "interval": "5m"
+        }
       },
       "title": "Request Rate",
-      "titleIcon": "TrendingUp"
+      "titleIcon": "TrendingUp",
+      "panelType": "request",
+      "sectionId": "golden-signals"
     },
     {
-      "componentKey": "error-rate",
-      "groupId": "golden-signals",
       "id": "service-error-rate",
-      "layout": { "col": 8 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 20,
       "query": {
         "endpoint": "/v1/services/timeseries",
         "method": "GET",
-        "params": { "service": "{serviceName}", "interval": "5m" }
+        "params": {
+          "service": "{serviceName}",
+          "interval": "5m"
+        }
       },
       "title": "Error Rate",
-      "titleIcon": "AlertCircle"
+      "titleIcon": "AlertCircle",
+      "panelType": "error-rate",
+      "sectionId": "golden-signals"
     },
     {
-      "componentKey": "latency",
-      "groupId": "golden-signals",
       "id": "service-p95-latency",
-      "layout": { "col": 8 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 30,
       "query": {
         "endpoint": "/v1/services/timeseries",
         "method": "GET",
-        "params": { "service": "{serviceName}", "interval": "5m" }
+        "params": {
+          "service": "{serviceName}",
+          "interval": "5m"
+        }
       },
       "title": "p95 Latency",
       "titleIcon": "Clock",
-      "valueKey": "p95"
+      "valueKey": "p95",
+      "panelType": "latency",
+      "sectionId": "golden-signals"
     },
     {
-      "componentKey": "scorecard",
-      "groupId": "health",
       "id": "service-scorecard",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "breakdown"
+      },
       "order": 40,
       "query": {
         "endpoint": "/v1/spans/red/service-scorecard",
         "method": "GET",
-        "params": { "service": "{serviceName}" }
+        "params": {
+          "service": "{serviceName}"
+        }
       },
       "title": "Service Scorecard",
-      "titleIcon": "Activity"
+      "titleIcon": "Activity",
+      "panelType": "scorecard",
+      "sectionId": "health"
     },
     {
-      "componentKey": "gauge",
-      "groupId": "health",
       "id": "service-apdex",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "breakdown"
+      },
       "order": 50,
       "query": {
         "endpoint": "/v1/spans/red/apdex",
         "method": "GET",
-        "params": { "service": "{serviceName}", "satisfied_ms": 300, "tolerating_ms": 1200 }
+        "params": {
+          "service": "{serviceName}",
+          "satisfied_ms": 300,
+          "tolerating_ms": 1200
+        }
       },
       "title": "Apdex Score",
       "titleIcon": "Target",
-      "valueKey": "apdex"
+      "valueKey": "apdex",
+      "panelType": "gauge",
+      "sectionId": "health"
     }
   ]
 }

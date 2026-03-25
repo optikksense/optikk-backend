@@ -23,8 +23,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	v1.GET("/ai/conversations/:conversationId", h.GetConversation)
 }
 
-func init() {
-	registry.Register(&aiConversationsModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &aiConversationsModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type aiConversationsModule struct {
@@ -34,12 +36,11 @@ type aiConversationsModule struct {
 func (m *aiConversationsModule) Name() string                      { return "aiConversations" }
 func (m *aiConversationsModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *aiConversationsModule) Init(deps registry.Deps) error {
+func (m *aiConversationsModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *aiConversationsModule) RegisterRoutes(group *gin.RouterGroup) {

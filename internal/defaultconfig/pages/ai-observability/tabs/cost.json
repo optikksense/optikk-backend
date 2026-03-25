@@ -3,13 +3,38 @@
   "pageId": "ai-observability",
   "label": "Cost",
   "order": 30,
-  "components": [
+  "sections": [
     {
-      "componentKey": "ai-line",
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "stack"
+    },
+    {
+      "id": "breakdowns",
+      "title": "Breakdowns",
+      "order": 30,
+      "kind": "breakdowns",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "stack"
+    }
+  ],
+  "panels": [
+    {
       "groupByKey": "model_name",
       "id": "cost-over-time",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 10,
       "query": {
@@ -23,15 +48,16 @@
       "titleIcon": "DollarSign",
       "valueKey": "cost_per_interval",
       "yDecimals": 4,
-      "yPrefix": "$"
+      "yPrefix": "$",
+      "panelType": "ai-line",
+      "sectionId": "trends"
     },
     {
       "color": "#F79009",
-      "componentKey": "ai-bar",
       "id": "cost-by-model",
       "labelKey": "model_name",
       "layout": {
-        "col": 12
+        "preset": "breakdown"
       },
       "order": 20,
       "query": {
@@ -42,14 +68,15 @@
       "titleIcon": "BarChart2",
       "valueKey": "total_cost_usd",
       "yDecimals": 4,
-      "yPrefix": "$"
+      "yPrefix": "$",
+      "panelType": "ai-bar",
+      "sectionId": "breakdowns"
     },
     {
-      "componentKey": "ai-bar",
       "id": "token-breakdown",
       "labelKey": "model_name",
       "layout": {
-        "col": 24
+        "preset": "breakdown"
       },
       "order": 30,
       "query": {
@@ -64,13 +91,14 @@
         "completion_tokens",
         "system_tokens",
         "cache_tokens"
-      ]
+      ],
+      "panelType": "ai-bar",
+      "sectionId": "breakdowns"
     },
     {
-      "componentKey": "table",
       "id": "cost-metrics",
       "layout": {
-        "col": 24
+        "preset": "detail"
       },
       "order": 40,
       "query": {
@@ -78,7 +106,9 @@
         "method": "GET"
       },
       "title": "Cost Metrics",
-      "titleIcon": "Table"
+      "titleIcon": "Table",
+      "panelType": "table",
+      "sectionId": "details"
     }
   ]
 }

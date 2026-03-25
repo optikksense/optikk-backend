@@ -3,13 +3,30 @@
   "pageId": "ai-observability",
   "label": "Overview",
   "order": 10,
-  "components": [
+  "sections": [
     {
-      "componentKey": "stat-card",
+      "id": "summary",
+      "title": "Key Metrics",
+      "order": 10,
+      "kind": "summary",
+      "collapsible": true,
+      "layoutMode": "kpi-strip"
+    },
+    {
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
       "formatter": "number",
       "id": "summary-total-requests",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 10,
       "query": {
@@ -18,14 +35,15 @@
       },
       "title": "Total Requests",
       "titleIcon": "Activity",
-      "valueField": "request_count"
+      "valueField": "request_count",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "number",
       "id": "summary-total-cost",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 20,
       "query": {
@@ -34,14 +52,15 @@
       },
       "title": "Total Cost",
       "titleIcon": "DollarSign",
-      "valueField": "total_cost_usd"
+      "valueField": "total_cost_usd",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "number",
       "id": "summary-guardrail-blocks",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 30,
       "query": {
@@ -50,14 +69,15 @@
       },
       "title": "Guardrail Blocks",
       "titleIcon": "Shield",
-      "valueField": "guardrail_count"
+      "valueField": "guardrail_count",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "number",
       "id": "summary-pii-detections",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 40,
       "query": {
@@ -66,14 +86,15 @@
       },
       "title": "PII Detections",
       "titleIcon": "Eye",
-      "valueField": "pii_count"
+      "valueField": "pii_count",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "ai-line",
       "groupByKey": "model_name",
       "id": "qps",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 50,
       "query": {
@@ -85,14 +106,15 @@
       },
       "title": "QPS per Model",
       "titleIcon": "TrendingUp",
-      "valueKey": "qps"
+      "valueKey": "qps",
+      "panelType": "ai-line",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "ai-line",
       "groupByKey": "model_name",
       "id": "avg-latency",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 60,
       "query": {
@@ -104,14 +126,15 @@
       },
       "title": "Avg Latency ms per Model",
       "titleIcon": "Clock",
-      "valueKey": "avg_latency_ms"
+      "valueKey": "avg_latency_ms",
+      "panelType": "ai-line",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "ai-line",
       "groupByKey": "model_name",
       "id": "cost-over-time",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 70,
       "query": {
@@ -125,14 +148,15 @@
       "titleIcon": "DollarSign",
       "valueKey": "cost_per_interval",
       "yDecimals": 4,
-      "yPrefix": "$"
+      "yPrefix": "$",
+      "panelType": "ai-line",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "ai-line",
       "groupByKey": "model_name",
       "id": "pii-detections",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 80,
       "query": {
@@ -144,7 +168,9 @@
       },
       "title": "PII Detections per Model",
       "titleIcon": "ShieldCheck",
-      "valueKey": "pii_count"
+      "valueKey": "pii_count",
+      "panelType": "ai-line",
+      "sectionId": "trends"
     }
   ]
 }

@@ -41,6 +41,16 @@ type SubscribeLogsPayload struct {
 	AttributeFilters []shared.LogAttributeFilter `json:"attributeFilters,omitempty"`
 }
 
+type socketErrorPayload struct {
+	Message string `json:"message"`
+}
+
+type socketHeartbeatPayload struct{}
+
+type socketLogEventPayload struct {
+	Item shared.Log `json:"item"`
+}
+
 // SocketIOHandler creates a SubscriptionHandler that streams logs
 // via Socket.IO instead of SSE.
 func SocketIOHandler(service *Service) sio.SubscriptionHandler {
@@ -50,12 +60,12 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 			var p SubscribeLogsPayload
 			if err := json.Unmarshal(payload, &p); err != nil {
 				log.Printf("Socket.IO [subscribe:logs] bad payload: %v", err)
-				emit("error", map[string]string{"message": "invalid payload"})
+				emit("error", socketErrorPayload{Message: "invalid payload"})
 				return
 			}
 
 			if p.TeamID == 0 {
-				emit("error", map[string]string{"message": "teamId is required"})
+				emit("error", socketErrorPayload{Message: "teamId is required"})
 				return
 			}
 
@@ -100,7 +110,7 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 				case <-done:
 					return
 				case <-heartbeat.C:
-					emit("heartbeat", map[string]any{})
+					emit("heartbeat", socketHeartbeatPayload{})
 				case <-ticker.C:
 					nowMs := time.Now().UnixMilli()
 					pollFilters := filters
@@ -114,9 +124,7 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 					}
 
 					for _, entry := range resp.Logs {
-						emit("log", map[string]any{
-							"item": entry,
-						})
+						emit("log", socketLogEventPayload{Item: entry})
 						if entry.Timestamp > latestNs {
 							latestNs = entry.Timestamp
 						}

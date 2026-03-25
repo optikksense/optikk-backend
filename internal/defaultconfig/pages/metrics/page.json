@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 1,
   "id": "metrics",
   "path": "/metrics",
   "label": "Metrics",
@@ -8,5 +9,6 @@
   "defaultTabId": "red-metrics",
   "navigable": true,
   "title": "Metrics",
-  "subtitle": "RED, HTTP, APM, and latency analysis"
+  "subtitle": "RED, HTTP, APM, and latency analysis",
+  "renderMode": "dashboard"
 }

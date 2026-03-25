@@ -27,8 +27,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	g.GET("/namespaces", h.GetSystemNamespaces)
 }
 
-func init() {
-	registry.Register(&dbSystemModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &dbSystemModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type dbSystemModule struct {
@@ -38,12 +40,11 @@ type dbSystemModule struct {
 func (m *dbSystemModule) Name() string                      { return "dbSystem" }
 func (m *dbSystemModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *dbSystemModule) Init(deps registry.Deps) error {
+func (m *dbSystemModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *dbSystemModule) RegisterRoutes(group *gin.RouterGroup) {

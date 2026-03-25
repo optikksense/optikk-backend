@@ -3,202 +3,282 @@
   "pageId": "metrics",
   "label": "RED Metrics",
   "order": 10,
-  "groups": [
+  "sections": [
     {
       "id": "g1",
-      "label": "Overview",
-      "order": 10
+      "title": "Overview",
+      "order": 10,
+      "kind": "summary",
+      "collapsible": true,
+      "layoutMode": "kpi-strip"
     },
     {
       "id": "g2",
-      "label": "Rate, Error & Latency",
-      "order": 20
+      "title": "Rate, Error & Latency",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
     },
     {
       "id": "g3",
-      "label": "Quality Signals",
-      "order": 30
+      "title": "Quality Signals",
+      "order": 30,
+      "kind": "breakdowns",
+      "collapsible": true,
+      "layoutMode": "three-up"
     },
     {
       "id": "g4",
-      "label": "Top Offenders",
-      "order": 40
+      "title": "Top Offenders",
+      "order": 40,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "two-up"
     }
   ],
-  "components": [
+  "panels": [
     {
-      "componentKey": "stat-card",
       "formatter": "number",
-      "groupId": "g1",
       "id": "stat-service-count",
-      "layout": { "col": 6 },
+      "layout": {
+        "preset": "kpi"
+      },
       "order": 10,
-      "query": { "endpoint": "/v1/spans/red/summary", "method": "GET" },
+      "query": {
+        "endpoint": "/v1/spans/red/summary",
+        "method": "GET"
+      },
       "title": "Services",
       "titleIcon": "Layers",
-      "valueField": "service_count"
+      "valueField": "service_count",
+      "panelType": "stat-card",
+      "sectionId": "g1"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "number",
-      "groupId": "g1",
       "id": "stat-total-rps",
-      "layout": { "col": 6 },
+      "layout": {
+        "preset": "kpi"
+      },
       "order": 20,
-      "query": { "endpoint": "/v1/spans/red/summary", "method": "GET" },
+      "query": {
+        "endpoint": "/v1/spans/red/summary",
+        "method": "GET"
+      },
       "title": "Total RPS",
       "titleIcon": "TrendingUp",
-      "valueField": "total_rps"
+      "valueField": "total_rps",
+      "panelType": "stat-card",
+      "sectionId": "g1"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "percent",
-      "groupId": "g1",
       "id": "stat-avg-error-pct",
-      "layout": { "col": 6 },
+      "layout": {
+        "preset": "kpi"
+      },
       "order": 30,
-      "query": { "endpoint": "/v1/spans/red/summary", "method": "GET" },
+      "query": {
+        "endpoint": "/v1/spans/red/summary",
+        "method": "GET"
+      },
       "title": "Avg Error Rate",
       "titleIcon": "AlertCircle",
-      "valueField": "avg_error_pct"
+      "valueField": "avg_error_pct",
+      "panelType": "stat-card",
+      "sectionId": "g1"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "ms",
-      "groupId": "g1",
       "id": "stat-avg-p95",
-      "layout": { "col": 6 },
+      "layout": {
+        "preset": "kpi"
+      },
       "order": 40,
-      "query": { "endpoint": "/v1/spans/red/summary", "method": "GET" },
+      "query": {
+        "endpoint": "/v1/spans/red/summary",
+        "method": "GET"
+      },
       "title": "Avg p95 Latency",
       "titleIcon": "Clock",
-      "valueField": "avg_p95_ms"
+      "valueField": "avg_p95_ms",
+      "panelType": "stat-card",
+      "sectionId": "g1"
     },
     {
-      "componentKey": "scorecard",
-      "groupId": "g1",
-      "id": "service-scorecard",
-      "layout": { "col": 24 },
-      "order": 50,
-      "query": { "endpoint": "/v1/spans/red/service-scorecard", "method": "GET" },
-      "title": "Service Scorecard",
-      "titleIcon": "Activity"
-    },
-    {
-      "componentKey": "request",
       "groupByKey": "service_name",
-      "groupId": "g2",
       "id": "request-rate",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 60,
-      "query": { "endpoint": "/v1/spans/red/request-rate", "method": "GET" },
+      "query": {
+        "endpoint": "/v1/spans/red/request-rate",
+        "method": "GET"
+      },
       "title": "Request Rate by Service",
       "titleIcon": "TrendingUp",
-      "valueKey": "rps"
+      "valueKey": "rps",
+      "panelType": "request",
+      "sectionId": "g2"
     },
     {
-      "componentKey": "error-rate",
       "groupByKey": "service_name",
-      "groupId": "g2",
       "id": "error-rate",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 70,
-      "query": { "endpoint": "/v1/spans/red/error-rate", "method": "GET" },
+      "query": {
+        "endpoint": "/v1/spans/red/error-rate",
+        "method": "GET"
+      },
       "title": "Error Rate by Service",
       "titleIcon": "AlertCircle",
-      "valueKey": "error_pct"
+      "valueKey": "error_pct",
+      "panelType": "error-rate",
+      "sectionId": "g2"
     },
     {
-      "componentKey": "latency",
       "groupByKey": "service_name",
-      "groupId": "g2",
       "id": "p95-latency",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 80,
-      "query": { "endpoint": "/v1/spans/red/p95-latency", "method": "GET" },
+      "query": {
+        "endpoint": "/v1/spans/red/p95-latency",
+        "method": "GET"
+      },
       "title": "p95 Latency by Service",
       "titleIcon": "Clock",
-      "valueKey": "p95_ms"
+      "valueKey": "p95_ms",
+      "panelType": "latency",
+      "sectionId": "g2"
     },
     {
-      "componentKey": "request",
       "groupByKey": "kind_string",
-      "groupId": "g2",
       "id": "span-kind-breakdown",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 90,
-      "query": { "endpoint": "/v1/spans/red/span-kind-breakdown", "method": "GET" },
+      "query": {
+        "endpoint": "/v1/spans/red/span-kind-breakdown",
+        "method": "GET"
+      },
       "title": "Throughput by Span Kind",
       "titleIcon": "GitBranch",
-      "valueKey": "span_count"
+      "valueKey": "span_count",
+      "panelType": "request",
+      "sectionId": "g2"
     },
     {
-      "componentKey": "gauge",
+      "id": "service-scorecard",
+      "layout": {
+        "preset": "breakdown"
+      },
+      "order": 95,
+      "query": {
+        "endpoint": "/v1/spans/red/service-scorecard",
+        "method": "GET"
+      },
+      "title": "Service Scorecard",
+      "titleIcon": "Activity",
+      "panelType": "scorecard",
+      "sectionId": "g3"
+    },
+    {
       "groupByKey": "service_name",
-      "groupId": "g3",
       "id": "apdex",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "breakdown"
+      },
       "order": 100,
       "query": {
         "endpoint": "/v1/spans/red/apdex",
         "method": "GET",
-        "params": { "satisfied_ms": 300, "tolerating_ms": 1200 }
+        "params": {
+          "satisfied_ms": 300,
+          "tolerating_ms": 1200
+        }
       },
       "title": "Apdex Score by Service",
       "titleIcon": "Target",
-      "valueKey": "apdex"
+      "valueKey": "apdex",
+      "panelType": "gauge",
+      "sectionId": "g3"
     },
     {
-      "componentKey": "bar",
       "groupByKey": "status_code",
-      "groupId": "g3",
       "id": "http-status-distribution",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "breakdown"
+      },
       "order": 110,
-      "query": { "endpoint": "/v1/spans/red/http-status-distribution", "method": "GET" },
+      "query": {
+        "endpoint": "/v1/spans/red/http-status-distribution",
+        "method": "GET"
+      },
       "title": "HTTP Status Code Distribution",
       "titleIcon": "BarChart2",
-      "valueKey": "span_count"
+      "valueKey": "span_count",
+      "panelType": "bar",
+      "sectionId": "g3"
     },
     {
-      "componentKey": "error-rate",
       "groupByKey": "http_route",
-      "groupId": "g3",
       "id": "errors-by-route",
-      "layout": { "col": 24 },
+      "layout": {
+        "preset": "hero"
+      },
       "order": 120,
-      "query": { "endpoint": "/v1/spans/red/errors-by-route", "method": "GET" },
+      "query": {
+        "endpoint": "/v1/spans/red/errors-by-route",
+        "method": "GET"
+      },
       "title": "Errors by HTTP Route",
       "titleIcon": "AlertTriangle",
-      "valueKey": "error_count"
+      "valueKey": "error_count",
+      "panelType": "error-rate",
+      "sectionId": "g3"
     },
     {
-      "componentKey": "table",
-      "groupId": "g4",
       "id": "top-slow-operations",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "detail"
+      },
       "order": 130,
       "query": {
         "endpoint": "/v1/spans/red/top-slow-operations",
         "method": "GET",
-        "params": { "limit": 20 }
+        "params": {
+          "limit": 20
+        }
       },
       "title": "Top Slowest Operations (p99)",
-      "titleIcon": "TrendingDown"
+      "titleIcon": "TrendingDown",
+      "panelType": "table",
+      "sectionId": "g4"
     },
     {
-      "componentKey": "table",
-      "groupId": "g4",
       "id": "top-error-operations",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "detail"
+      },
       "order": 140,
       "query": {
         "endpoint": "/v1/spans/red/top-error-operations",
         "method": "GET",
-        "params": { "limit": 20 }
+        "params": {
+          "limit": 20
+        }
       },
       "title": "Top Error Operations",
-      "titleIcon": "AlertTriangle"
+      "titleIcon": "AlertTriangle",
+      "panelType": "table",
+      "sectionId": "g4"
     }
   ]
 }

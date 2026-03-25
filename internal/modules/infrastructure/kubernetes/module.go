@@ -30,8 +30,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *KubernetesHandler) {
 	k8s.GET("/volume-usage", h.GetVolumeUsage)
 }
 
-func init() {
-	registry.Register(&kubernetesModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &kubernetesModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type kubernetesModule struct {
@@ -41,12 +43,11 @@ type kubernetesModule struct {
 func (m *kubernetesModule) Name() string                      { return "kubernetes" }
 func (m *kubernetesModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *kubernetesModule) Init(deps registry.Deps) error {
+func (m *kubernetesModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &KubernetesHandler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *kubernetesModule) RegisterRoutes(group *gin.RouterGroup) {

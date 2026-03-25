@@ -14,68 +14,37 @@ func mapToTraceFilters(req QueryRequest, teamID int64) spantraces.TraceFilters {
 		TeamID:      teamID,
 		StartMs:     req.StartTime,
 		EndMs:       req.EndTime,
-		Services:    mapToStringSlice(params["services"]),
-		Status:      mapToString(params["status"]),
-		SearchText:  strings.TrimSpace(mapToString(params["search"])),
-		MinDuration: mapToString(params["minDuration"]),
-		MaxDuration: mapToString(params["maxDuration"]),
-		TraceID:     mapToString(params["traceId"]),
-		Operation:   mapToString(params["operationName"]),
-		HTTPMethod:  mapToString(params["httpMethod"]),
-		HTTPStatus:  mapToString(params["httpStatusCode"]),
-		SearchMode:  defaultString(mapToString(params["mode"]), "all"),
-		SpanKind:    mapToString(params["spanKind"]),
-		SpanName:    mapToString(params["spanName"]),
+		Services:    params.Services,
+		Status:      params.Status,
+		SearchText:  strings.TrimSpace(params.Search),
+		MinDuration: formatOptionalNumber(params.MinDurationMs),
+		MaxDuration: formatOptionalNumber(params.MaxDurationMs),
+		TraceID:     params.TraceID,
+		Operation:   params.OperationName,
+		HTTPMethod:  params.HTTPMethod,
+		HTTPStatus:  params.HTTPStatusCode,
+		SearchMode:  defaultString(params.Mode, "all"),
+		SpanKind:    params.SpanKind,
+		SpanName:    params.SpanName,
 	}
 }
 
-func mapToLiveTailFilters(params map[string]any) spanlivetail.LiveTailFilters {
+func mapToLiveTailFilters(params TraceExplorerParams) spanlivetail.LiveTailFilters {
 	return spanlivetail.LiveTailFilters{
-		Services:   mapToStringSlice(params["services"]),
-		Status:     mapToString(params["status"]),
-		SpanKind:   mapToString(params["spanKind"]),
-		SearchText: strings.TrimSpace(mapToString(params["search"])),
-		Operation:  mapToString(params["operationName"]),
-		HTTPMethod: mapToString(params["httpMethod"]),
+		Services:   params.Services,
+		Status:     params.Status,
+		SpanKind:   params.SpanKind,
+		SearchText: strings.TrimSpace(params.Search),
+		Operation:  params.OperationName,
+		HTTPMethod: params.HTTPMethod,
 	}
 }
 
-func mapToString(value any) string {
-	switch typed := value.(type) {
-	case string:
-		return typed
-	case fmt.Stringer:
-		return typed.String()
-	case float64:
-		return fmt.Sprintf("%.0f", typed)
-	case nil:
+func formatOptionalNumber(value *float64) string {
+	if value == nil {
 		return ""
-	default:
-		return fmt.Sprint(value)
 	}
-}
-
-func mapToStringSlice(value any) []string {
-	switch typed := value.(type) {
-	case []string:
-		return typed
-	case []any:
-		items := make([]string, 0, len(typed))
-		for _, entry := range typed {
-			next := strings.TrimSpace(mapToString(entry))
-			if next != "" {
-				items = append(items, next)
-			}
-		}
-		return items
-	case string:
-		if strings.TrimSpace(typed) == "" {
-			return nil
-		}
-		return []string{strings.TrimSpace(typed)}
-	default:
-		return nil
-	}
+	return fmt.Sprintf("%.0f", *value)
 }
 
 func defaultString(value, fallback string) string {

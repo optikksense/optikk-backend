@@ -26,8 +26,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	g.GET("/by-namespace", h.GetOpsByNamespace)
 }
 
-func init() {
-	registry.Register(&dbVolumeModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &dbVolumeModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type dbVolumeModule struct {
@@ -37,12 +39,11 @@ type dbVolumeModule struct {
 func (m *dbVolumeModule) Name() string                      { return "dbVolume" }
 func (m *dbVolumeModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *dbVolumeModule) Init(deps registry.Deps) error {
+func (m *dbVolumeModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *dbVolumeModule) RegisterRoutes(group *gin.RouterGroup) {

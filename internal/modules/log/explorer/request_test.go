@@ -1,17 +1,27 @@
 package explorer
 
-import "testing"
+import (
+	"testing"
+
+	logshared "github.com/observability/observability-backend-go/internal/modules/log/internal/shared"
+)
 
 func TestMapToLogFiltersUsesParamsSearchAndAttributes(t *testing.T) {
 	req := QueryRequest{
 		StartTime: 100,
 		EndTime:   200,
-		Params: map[string]any{
-			"search":            "timeout",
-			"services":          []any{"checkout-service"},
-			"excludeSeverities": []any{"INFO"},
-			"traceId":           "trace-1",
-			"attr.user_id":      "42",
+		Params: LogExplorerParams{
+			Search:            "timeout",
+			Services:          []string{"checkout-service"},
+			ExcludeSeverities: []string{"INFO"},
+			TraceID:           "trace-1",
+			AttributeFilters: []logshared.LogAttributeFilter{
+				{
+					Key:   "user_id",
+					Value: "42",
+					Op:    "eq",
+				},
+			},
 		},
 	}
 

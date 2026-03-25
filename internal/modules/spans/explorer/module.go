@@ -2,9 +2,9 @@ package explorer
 
 import (
 	"github.com/gin-gonic/gin"
+	"github.com/observability/observability-backend-go/internal/modules/registry"
 	spanlivetail "github.com/observability/observability-backend-go/internal/modules/spans/livetail"
 	spantraces "github.com/observability/observability-backend-go/internal/modules/spans/traces"
-	"github.com/observability/observability-backend-go/internal/modules/registry"
 )
 
 type Config struct {
@@ -23,8 +23,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	v1.GET("/traces/explorer/stream", h.Stream)
 }
 
-func init() {
-	registry.Register(&tracesExplorerModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &tracesExplorerModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type tracesExplorerModule struct {
@@ -34,15 +36,14 @@ type tracesExplorerModule struct {
 func (m *tracesExplorerModule) Name() string                      { return "tracesExplorer" }
 func (m *tracesExplorerModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *tracesExplorerModule) Init(deps registry.Deps) error {
-	traceService := spantraces.NewService(spantraces.NewRepository(deps.NativeQuerier))
-	liveTailService := spanlivetail.NewService(spanlivetail.NewRepository(deps.NativeQuerier))
+func (m *tracesExplorerModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+	traceService := spantraces.NewService(spantraces.NewRepository(nativeQuerier))
+	liveTailService := spanlivetail.NewService(spanlivetail.NewRepository(nativeQuerier))
 	m.handler = NewHandler(
-		deps.GetTenant,
+		getTenant,
 		NewService(traceService, liveTailService),
 		liveTailService,
 	)
-	return nil
 }
 
 func (m *tracesExplorerModule) RegisterRoutes(group *gin.RouterGroup) {

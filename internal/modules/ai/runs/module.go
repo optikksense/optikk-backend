@@ -25,8 +25,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	v1.GET("/ai/runs/operations", h.ListOperations)
 }
 
-func init() {
-	registry.Register(&aiRunsModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &aiRunsModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type aiRunsModule struct {
@@ -36,12 +38,11 @@ type aiRunsModule struct {
 func (m *aiRunsModule) Name() string                      { return "aiRuns" }
 func (m *aiRunsModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *aiRunsModule) Init(deps registry.Deps) error {
+func (m *aiRunsModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *aiRunsModule) RegisterRoutes(group *gin.RouterGroup) {

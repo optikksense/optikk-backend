@@ -30,8 +30,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ResourceUtilisationHandl
 	g.GET("/by-instance", h.GetByInstance)
 }
 
-func init() {
-	registry.Register(&resourceUtilisationModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &resourceUtilisationModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type resourceUtilisationModule struct {
@@ -41,12 +43,11 @@ type resourceUtilisationModule struct {
 func (m *resourceUtilisationModule) Name() string                      { return "resourceUtilisation" }
 func (m *resourceUtilisationModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *resourceUtilisationModule) Init(deps registry.Deps) error {
+func (m *resourceUtilisationModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &ResourceUtilisationHandler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *resourceUtilisationModule) RegisterRoutes(group *gin.RouterGroup) {

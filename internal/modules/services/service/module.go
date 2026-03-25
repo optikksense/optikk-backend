@@ -32,8 +32,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ServiceHandler) {
 	v1.GET("/metrics/timeseries", h.GetServiceTimeSeries)
 }
 
-func init() {
-	registry.Register(&servicePageModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &servicePageModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type servicePageModule struct {
@@ -43,12 +45,11 @@ type servicePageModule struct {
 func (m *servicePageModule) Name() string                      { return "servicePage" }
 func (m *servicePageModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *servicePageModule) Init(deps registry.Deps) error {
+func (m *servicePageModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &ServiceHandler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *servicePageModule) RegisterRoutes(group *gin.RouterGroup) {

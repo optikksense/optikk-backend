@@ -115,13 +115,13 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 		return
 	}
 	if result.UsesKeyset {
-		common.RespondOK(c, map[string]any{
-			"traces":      result.Traces,
-			"has_more":    result.HasMore,
-			"next_cursor": result.NextCursor,
-			"limit":       result.Limit,
-			"total":       result.Total,
-			"summary":     result.Summary,
+		common.RespondOK(c, TraceCursorResponse{
+			Traces:     result.Traces,
+			HasMore:    result.HasMore,
+			NextCursor: result.NextCursor,
+			Limit:      result.Limit,
+			Total:      result.Total,
+			Summary:    result.Summary,
 		})
 		return
 	}
@@ -151,12 +151,12 @@ func (h *TraceHandler) GetTracesKeyset(c *gin.Context) {
 		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query traces", err)
 		return
 	}
-	common.RespondOK(c, map[string]any{
-		"traces":      result.Traces,
-		"has_more":    result.HasMore,
-		"next_cursor": result.NextCursor,
-		"limit":       result.Limit,
-		"summary":     result.Summary,
+	common.RespondOK(c, TraceCursorResponse{
+		Traces:     result.Traces,
+		HasMore:    result.HasMore,
+		NextCursor: result.NextCursor,
+		Limit:      result.Limit,
+		Summary:    result.Summary,
 	})
 }
 
@@ -179,12 +179,12 @@ func (h *TraceHandler) GetSpanSearch(c *gin.Context) {
 		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query spans", err)
 		return
 	}
-	common.RespondOK(c, map[string]any{
-		"spans":       result.Traces,
-		"has_more":    result.HasMore,
-		"next_cursor": result.NextCursor,
-		"limit":       result.Limit,
-		"summary":     result.Summary,
+	common.RespondOK(c, SpanSearchResponse{
+		Spans:      result.Traces,
+		HasMore:    result.HasMore,
+		NextCursor: result.NextCursor,
+		Limit:      result.Limit,
+		Summary:    result.Summary,
 	})
 }
 

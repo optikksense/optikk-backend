@@ -3,18 +3,31 @@
   "pageId": "error-group-detail",
   "label": "Overview",
   "order": 10,
-  "components": [
+  "sections": [
     {
-      "componentKey": "table",
+      "id": "details",
+      "title": "Overview",
+      "order": 40,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "stack"
+    }
+  ],
+  "panels": [
+    {
       "id": "error-group-info",
-      "layout": { "col": 24 },
+      "layout": {
+        "preset": "detail"
+      },
       "order": 10,
       "query": {
         "endpoint": "/v1/errors/groups/{errorGroupId}",
         "method": "GET"
       },
       "title": "Error Details",
-      "titleIcon": "AlertOctagon"
+      "titleIcon": "AlertOctagon",
+      "panelType": "table",
+      "sectionId": "details"
     }
   ]
 }

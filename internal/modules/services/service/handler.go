@@ -16,6 +16,10 @@ type ServiceHandler struct {
 	Service *Service
 }
 
+type CountResponse struct {
+	Count int64 `json:"count"`
+}
+
 func (h *ServiceHandler) GetTotalServices(c *gin.Context) {
 	h.respondWithCount(c, h.Service.GetTotalServices, "Failed to query total services")
 }
@@ -94,5 +98,5 @@ func (h *ServiceHandler) respondWithCount(c *gin.Context, fn func(context.Contex
 		return
 	}
 
-	RespondOK(c, map[string]any{"count": count})
+	RespondOK(c, CountResponse{Count: count})
 }

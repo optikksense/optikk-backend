@@ -21,8 +21,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	v1.GET("/database/summary", h.GetSummaryStats)
 }
 
-func init() {
-	registry.Register(&dbSummaryModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &dbSummaryModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type dbSummaryModule struct {
@@ -32,12 +34,11 @@ type dbSummaryModule struct {
 func (m *dbSummaryModule) Name() string                      { return "dbSummary" }
 func (m *dbSummaryModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *dbSummaryModule) Init(deps registry.Deps) error {
+func (m *dbSummaryModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *dbSummaryModule) RegisterRoutes(group *gin.RouterGroup) {

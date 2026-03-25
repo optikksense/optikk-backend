@@ -3,13 +3,22 @@
   "pageId": "services",
   "label": "Overview",
   "order": 10,
-  "components": [
+  "sections": [
     {
-      "componentKey": "request",
+      "id": "trends",
+      "title": "Overview",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
       "groupByKey": "service",
       "id": "services-request-rate",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 10,
       "query": {
@@ -20,14 +29,15 @@
         }
       },
       "title": "Service Request Rate",
-      "titleIcon": "TrendingUp"
+      "titleIcon": "TrendingUp",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "error-rate",
       "groupByKey": "service",
       "id": "services-error-rate",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 20,
       "query": {
@@ -38,14 +48,15 @@
         }
       },
       "title": "Service Error Rate",
-      "titleIcon": "AlertCircle"
+      "titleIcon": "AlertCircle",
+      "panelType": "error-rate",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "latency",
       "groupByKey": "service",
       "id": "services-latency",
       "layout": {
-        "col": 24
+        "preset": "hero"
       },
       "order": 30,
       "query": {
@@ -56,7 +67,9 @@
         }
       },
       "title": "Service Latency",
-      "titleIcon": "Clock"
+      "titleIcon": "Clock",
+      "panelType": "latency",
+      "sectionId": "trends"
     }
   ]
 }

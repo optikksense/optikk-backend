@@ -3,81 +3,115 @@
   "pageId": "redis-detail",
   "label": "Overview",
   "order": 10,
-  "groups": [
-    { "id": "summary", "label": "Summary", "order": 10 },
-    { "id": "cache", "label": "Cache", "order": 20 }
-  ],
-  "components": [
+  "sections": [
     {
-      "componentKey": "request",
-      "groupId": "summary",
+      "id": "summary",
+      "title": "Traffic Overview",
+      "order": 10,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    },
+    {
+      "id": "cache",
+      "title": "Cache",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "three-up"
+    }
+  ],
+  "panels": [
+    {
       "id": "redis-clients",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 10,
       "query": {
         "endpoint": "/v1/saturation/redis/clients",
         "method": "GET",
-        "params": { "instance": "{instance}" }
+        "params": {
+          "instance": "{instance}"
+        }
       },
       "title": "Connected Clients",
-      "titleIcon": "Users"
+      "titleIcon": "Users",
+      "panelType": "request",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "request",
-      "groupId": "summary",
       "id": "redis-commands",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 20,
       "query": {
         "endpoint": "/v1/saturation/redis/commands",
         "method": "GET",
-        "params": { "instance": "{instance}" }
+        "params": {
+          "instance": "{instance}"
+        }
       },
       "title": "Commands/sec",
-      "titleIcon": "Zap"
+      "titleIcon": "Zap",
+      "panelType": "request",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "gauge",
-      "groupId": "cache",
       "id": "redis-hit-rate",
-      "layout": { "col": 8 },
+      "layout": {
+        "preset": "breakdown"
+      },
       "order": 30,
       "query": {
         "endpoint": "/v1/saturation/redis/cache-hit-rate",
         "method": "GET",
-        "params": { "instance": "{instance}" }
+        "params": {
+          "instance": "{instance}"
+        }
       },
       "title": "Cache Hit Rate",
       "titleIcon": "Target",
-      "valueKey": "hit_rate"
+      "valueKey": "hit_rate",
+      "panelType": "gauge",
+      "sectionId": "cache"
     },
     {
-      "componentKey": "request",
-      "groupId": "cache",
       "id": "redis-keyspace",
-      "layout": { "col": 8 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 40,
       "query": {
         "endpoint": "/v1/saturation/redis/keyspace",
         "method": "GET",
-        "params": { "instance": "{instance}" }
+        "params": {
+          "instance": "{instance}"
+        }
       },
       "title": "Keyspace",
-      "titleIcon": "Key"
+      "titleIcon": "Key",
+      "panelType": "request",
+      "sectionId": "cache"
     },
     {
-      "componentKey": "request",
-      "groupId": "cache",
       "id": "redis-key-expiries",
-      "layout": { "col": 8 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 50,
       "query": {
         "endpoint": "/v1/saturation/redis/key-expiries",
         "method": "GET",
-        "params": { "instance": "{instance}" }
+        "params": {
+          "instance": "{instance}"
+        }
       },
       "title": "Key Expiries",
-      "titleIcon": "Clock"
+      "titleIcon": "Clock",
+      "panelType": "request",
+      "sectionId": "cache"
     }
   ]
 }

@@ -21,12 +21,19 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 
 	v1.GET("/default-config/pages", h.ListPages)
 	v1.GET("/default-config/pages/:pageId/tabs", h.ListTabs)
-	v1.GET("/default-config/pages/:pageId/tabs/:tabId/components", h.ListComponents)
+	v1.GET("/default-config/pages/:pageId/tabs/:tabId", h.GetTabDocument)
 	v1.PUT("/default-config/pages/:pageId", h.SavePageOverride)
 }
 
-func init() {
-	registry.Register(&defaultConfigModule{})
+func NewModule(
+	sqlDB *registry.SQLDB,
+	getTenant registry.GetTenantFunc,
+	appConfig registry.AppConfig,
+	configRegistry *registry.ConfigRegistry,
+) registry.Module {
+	module := &defaultConfigModule{}
+	module.configure(sqlDB, getTenant, appConfig, configRegistry)
+	return module
 }
 
 type defaultConfigModule struct {
@@ -36,15 +43,19 @@ type defaultConfigModule struct {
 func (m *defaultConfigModule) Name() string                      { return "defaultConfig" }
 func (m *defaultConfigModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *defaultConfigModule) Init(deps registry.Deps) error {
+func (m *defaultConfigModule) configure(
+	sqlDB *registry.SQLDB,
+	getTenant registry.GetTenantFunc,
+	appConfig registry.AppConfig,
+	configRegistry *registry.ConfigRegistry,
+) {
 	m.handler = &Handler{
 		DBTenant: modulecommon.DBTenant{
-			DB:        deps.DB,
-			GetTenant: deps.GetTenant,
+			DB:        sqlDB,
+			GetTenant: getTenant,
 		},
-		Service: NewService(NewRepository(deps.DB), deps.ConfigRegistry, deps.Config.App.DashboardConfigUseDefaults),
+		Service: NewService(NewRepository(sqlDB), configRegistry, appConfig.App.DashboardConfigUseDefaults),
 	}
-	return nil
 }
 
 func (m *defaultConfigModule) RegisterRoutes(group *gin.RouterGroup) {

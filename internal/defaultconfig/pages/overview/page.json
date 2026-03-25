@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 1,
   "id": "overview",
   "path": "/overview",
   "label": "Overview",
@@ -8,5 +9,6 @@
   "defaultTabId": "summary",
   "navigable": true,
   "title": "Overview",
-  "subtitle": "Service health, error tracking, and SLO compliance"
+  "subtitle": "Service health, error tracking, and SLO compliance",
+  "renderMode": "dashboard"
 }

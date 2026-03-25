@@ -32,8 +32,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	v1.GET("/ai/security/pii-categories", h.GetAIPiiCategories)
 }
 
-func init() {
-	registry.Register(&aiDashboardModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &aiDashboardModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type aiDashboardModule struct {
@@ -43,12 +45,11 @@ type aiDashboardModule struct {
 func (m *aiDashboardModule) Name() string                      { return "aiDashboard" }
 func (m *aiDashboardModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *aiDashboardModule) Init(deps registry.Deps) error {
+func (m *aiDashboardModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *aiDashboardModule) RegisterRoutes(group *gin.RouterGroup) {

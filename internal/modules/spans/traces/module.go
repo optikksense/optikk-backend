@@ -30,8 +30,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *TraceHandler) {
 	v1.GET("/errors/timeseries", h.GetErrorTimeSeries)
 }
 
-func init() {
-	registry.Register(&tracesModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &tracesModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type tracesModule struct {
@@ -41,12 +43,11 @@ type tracesModule struct {
 func (m *tracesModule) Name() string                      { return "traces" }
 func (m *tracesModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *tracesModule) Init(deps registry.Deps) error {
+func (m *tracesModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = NewHandler(
-		deps.GetTenant,
-		NewService(NewRepository(deps.NativeQuerier)),
+		getTenant,
+		NewService(NewRepository(nativeQuerier)),
 	)
-	return nil
 }
 
 func (m *tracesModule) RegisterRoutes(group *gin.RouterGroup) {

@@ -2,7 +2,7 @@ package analytics
 
 // AnalyticsQuery is the request body for POST /v1/spans/analytics.
 type AnalyticsQuery struct {
-	GroupBy      []string       `json:"groupBy"`
+	GroupBy      []string      `json:"groupBy"`
 	Aggregations []Aggregation `json:"aggregations"`
 	Filters      QueryFilters  `json:"filters"`
 	OrderBy      string        `json:"orderBy"`
@@ -33,10 +33,32 @@ type Aggregation struct {
 	Alias string `json:"alias"`           // output column name
 }
 
+type AnalyticsValueType string
+
+const (
+	AnalyticsValueString  AnalyticsValueType = "string"
+	AnalyticsValueInteger AnalyticsValueType = "integer"
+	AnalyticsValueNumber  AnalyticsValueType = "number"
+	AnalyticsValueBoolean AnalyticsValueType = "boolean"
+)
+
+type AnalyticsCell struct {
+	Key          string             `json:"key"`
+	Type         AnalyticsValueType `json:"type"`
+	StringValue  *string            `json:"stringValue,omitempty"`
+	IntegerValue *int64             `json:"integerValue,omitempty"`
+	NumberValue  *float64           `json:"numberValue,omitempty"`
+	BooleanValue *bool              `json:"booleanValue,omitempty"`
+}
+
+type AnalyticsRow struct {
+	Cells []AnalyticsCell `json:"cells"`
+}
+
 // AnalyticsResult wraps the analytics response.
 type AnalyticsResult struct {
-	Columns []string         `json:"columns"`
-	Rows    []map[string]any `json:"rows"`
+	Columns []string       `json:"columns"`
+	Rows    []AnalyticsRow `json:"rows"`
 }
 
 // Dimension describes an available groupBy dimension.

@@ -34,8 +34,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *NetworkHandler) {
 	g.GET("/connections", h.GetNetworkConnections)
 }
 
-func init() {
-	registry.Register(&networkModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &networkModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type networkModule struct {
@@ -45,9 +47,8 @@ type networkModule struct {
 func (m *networkModule) Name() string                      { return "network" }
 func (m *networkModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *networkModule) Init(deps registry.Deps) error {
-	m.handler = NewHandler(deps.NativeQuerier, deps.GetTenant)
-	return nil
+func (m *networkModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+	m.handler = NewHandler(nativeQuerier, getTenant)
 }
 
 func (m *networkModule) RegisterRoutes(group *gin.RouterGroup) {

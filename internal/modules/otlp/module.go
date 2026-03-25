@@ -16,8 +16,14 @@ import (
 	"google.golang.org/grpc/reflection"
 )
 
-func init() {
-	registry.Register(&Module{})
+func NewModule(
+	sqlDB *registry.SQLDB,
+	clickHouseConn registry.ClickHouseConn,
+	appConfig registry.AppConfig,
+) registry.Module {
+	module := &Module{}
+	module.configure(sqlDB, clickHouseConn, appConfig)
+	return module
 }
 
 type Module struct {
@@ -32,26 +38,29 @@ type Module struct {
 func (m *Module) Name() string                      { return "otlp" }
 func (m *Module) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *Module) Init(deps registry.Deps) error {
-	cfg := deps.Config
+func (m *Module) configure(
+	sqlDB *registry.SQLDB,
+	clickHouseConn registry.ClickHouseConn,
+	appConfig registry.AppConfig,
+) {
+	cfg := appConfig
 
 	queueOpts := []ingest.Option{
 		ingest.WithBatchSize(cfg.Queue.BatchSize),
 		ingest.WithFlushInterval(int(cfg.Queue.FlushIntervalMs)),
 	}
 
-	m.spansQueue = ingest.NewQueue(deps.ClickHouseConn, "observability.spans", mapper.SpanColumns, queueOpts...)
-	m.logsQueue = ingest.NewQueue(deps.ClickHouseConn, "observability.logs", mapper.LogColumns, queueOpts...)
-	m.metricsQueue = ingest.NewQueue(deps.ClickHouseConn, "observability.metrics", mapper.MetricColumns, queueOpts...)
+	m.spansQueue = ingest.NewQueue(clickHouseConn, "observability.spans", mapper.SpanColumns, queueOpts...)
+	m.logsQueue = ingest.NewQueue(clickHouseConn, "observability.logs", mapper.LogColumns, queueOpts...)
+	m.metricsQueue = ingest.NewQueue(clickHouseConn, "observability.metrics", mapper.MetricColumns, queueOpts...)
 
-	authenticator := auth.NewAuthenticator(deps.DB)
-	m.tracker = ingest.NewByteTracker(deps.DB, time.Hour)
+	authenticator := auth.NewAuthenticator(sqlDB)
+	m.tracker = ingest.NewByteTracker(sqlDB, time.Hour)
 	limiter := ingest.NewTeamLimiter(ingest.DefaultTeamRatePerSec, ingest.DefaultTeamBurstRows)
 
 	m.service = NewService(authenticator, m.spansQueue, m.logsQueue, m.metricsQueue, m.tracker, limiter)
 	m.handler = NewHandler(m.service)
 
-	return nil
 }
 
 // RegisterRoutes is a no-op — OTLP ingest is exposed only over gRPC.
@@ -82,5 +91,6 @@ func (m *Module) Stop() error {
 	if m.tracker != nil {
 		m.tracker.Stop()
 	}
+
 	return nil
 }

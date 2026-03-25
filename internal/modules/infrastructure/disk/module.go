@@ -34,8 +34,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *DiskHandler) {
 	g.GET("/filesystem-utilization", h.GetFilesystemUtilization)
 }
 
-func init() {
-	registry.Register(&diskModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &diskModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type diskModule struct {
@@ -45,9 +47,8 @@ type diskModule struct {
 func (m *diskModule) Name() string                      { return "disk" }
 func (m *diskModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *diskModule) Init(deps registry.Deps) error {
-	m.handler = NewHandler(deps.NativeQuerier, deps.GetTenant)
-	return nil
+func (m *diskModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+	m.handler = NewHandler(nativeQuerier, getTenant)
 }
 
 func (m *diskModule) RegisterRoutes(group *gin.RouterGroup) {

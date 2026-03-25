@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 1,
   "id": "kafka-group-detail",
   "path": "/saturation/kafka/groups/:groupId",
   "label": "Consumer Group Detail",
@@ -8,5 +9,6 @@
   "defaultTabId": "overview",
   "navigable": false,
   "title": "Consumer Group Detail",
-  "subtitle": "Consumer group lag, partitions, and processing metrics"
+  "subtitle": "Consumer group lag, partitions, and processing metrics",
+  "renderMode": "dashboard"
 }

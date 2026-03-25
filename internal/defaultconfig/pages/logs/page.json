@@ -1,12 +1,13 @@
 {
+  "schemaVersion": 1,
   "id": "logs",
   "path": "/logs",
   "label": "Logs",
   "icon": "FileText",
   "group": "observe",
   "order": 30,
-  "defaultTabId": "default",
   "navigable": true,
   "title": "Logs",
-  "subtitle": "Log volume and level distribution over time"
+  "subtitle": "Log volume and level distribution over time",
+  "renderMode": "explorer"
 }

@@ -3,12 +3,21 @@
   "pageId": "metrics",
   "label": "Latency Analysis",
   "order": 40,
-  "components": [
+  "sections": [
     {
-      "componentKey": "latency-histogram",
+      "id": "breakdowns",
+      "title": "Latency Analysis",
+      "order": 30,
+      "kind": "breakdowns",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
       "id": "histogram",
       "layout": {
-        "col": 24
+        "preset": "breakdown"
       },
       "order": 10,
       "query": {
@@ -16,13 +25,14 @@
         "method": "GET"
       },
       "title": "Latency Histogram",
-      "titleIcon": "BarChart3"
+      "titleIcon": "BarChart3",
+      "panelType": "latency-histogram",
+      "sectionId": "breakdowns"
     },
     {
-      "componentKey": "latency-heatmap",
       "id": "heatmap",
       "layout": {
-        "col": 24
+        "preset": "breakdown"
       },
       "order": 20,
       "query": {
@@ -33,7 +43,9 @@
         }
       },
       "title": "Latency Heatmap",
-      "titleIcon": "Activity"
+      "titleIcon": "Activity",
+      "panelType": "latency-heatmap",
+      "sectionId": "breakdowns"
     }
   ]
 }

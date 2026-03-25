@@ -3,94 +3,134 @@
   "pageId": "ai-model-detail",
   "label": "Overview",
   "order": 10,
-  "groups": [
-    { "id": "summary", "label": "Summary", "order": 10 },
-    { "id": "trends", "label": "Trends", "order": 20 }
-  ],
-  "components": [
+  "sections": [
     {
-      "componentKey": "stat-card",
-      "groupId": "summary",
+      "id": "summary",
+      "title": "Summary",
+      "order": 10,
+      "kind": "summary",
+      "collapsible": true,
+      "layoutMode": "kpi-strip"
+    },
+    {
+      "id": "trends",
+      "title": "Trends",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
       "id": "model-total-requests",
-      "layout": { "col": 6 },
+      "layout": {
+        "preset": "kpi"
+      },
       "order": 10,
       "query": {
         "endpoint": "/v1/ai/summary",
         "method": "GET",
-        "params": { "model": "{modelName}" }
+        "params": {
+          "model": "{modelName}"
+        }
       },
       "title": "Total Requests",
-      "titleIcon": "Activity"
+      "titleIcon": "Activity",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
-      "groupId": "summary",
       "id": "model-total-cost",
-      "layout": { "col": 6 },
+      "layout": {
+        "preset": "kpi"
+      },
       "order": 20,
       "query": {
         "endpoint": "/v1/ai/summary",
         "method": "GET",
-        "params": { "model": "{modelName}" }
+        "params": {
+          "model": "{modelName}"
+        }
       },
       "title": "Total Cost",
-      "titleIcon": "DollarSign"
+      "titleIcon": "DollarSign",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
-      "groupId": "summary",
       "id": "model-guardrail-blocks",
-      "layout": { "col": 6 },
+      "layout": {
+        "preset": "kpi"
+      },
       "order": 30,
       "query": {
         "endpoint": "/v1/ai/summary",
         "method": "GET",
-        "params": { "model": "{modelName}" }
+        "params": {
+          "model": "{modelName}"
+        }
       },
       "title": "Guardrail Blocks",
-      "titleIcon": "Shield"
+      "titleIcon": "Shield",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
-      "groupId": "summary",
       "id": "model-pii-detections",
-      "layout": { "col": 6 },
+      "layout": {
+        "preset": "kpi"
+      },
       "order": 40,
       "query": {
         "endpoint": "/v1/ai/summary",
         "method": "GET",
-        "params": { "model": "{modelName}" }
+        "params": {
+          "model": "{modelName}"
+        }
       },
       "title": "PII Detections",
-      "titleIcon": "Eye"
+      "titleIcon": "Eye",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "ai-line",
-      "groupId": "trends",
       "id": "model-qps",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 50,
       "query": {
         "endpoint": "/v1/ai/performance/timeseries",
         "method": "GET",
-        "params": { "model": "{modelName}", "interval": "5m" }
+        "params": {
+          "model": "{modelName}",
+          "interval": "5m"
+        }
       },
       "title": "QPS",
-      "titleIcon": "TrendingUp"
+      "titleIcon": "TrendingUp",
+      "panelType": "ai-line",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "ai-line",
-      "groupId": "trends",
       "id": "model-cost-over-time",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 60,
       "query": {
         "endpoint": "/v1/ai/cost/timeseries",
         "method": "GET",
-        "params": { "model": "{modelName}", "interval": "5m" }
+        "params": {
+          "model": "{modelName}",
+          "interval": "5m"
+        }
       },
       "title": "Cost Over Time",
-      "titleIcon": "DollarSign"
+      "titleIcon": "DollarSign",
+      "panelType": "ai-line",
+      "sectionId": "trends"
     }
   ]
 }

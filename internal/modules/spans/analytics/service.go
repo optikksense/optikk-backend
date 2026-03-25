@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"math"
 	"strconv"
-
-	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
 const (
@@ -38,30 +36,30 @@ func (s *Service) RunQuery(ctx context.Context, teamID int64, q AnalyticsQuery) 
 	}, nil
 }
 
-func rebuildAnalyticsRows(rows []analyticsRowDTO, groupBy []string, aggs []Aggregation) []map[string]any {
+func rebuildAnalyticsRows(rows []analyticsRowDTO, groupBy []string, aggs []Aggregation) []AnalyticsRow {
 	aggByAlias := make(map[string]Aggregation, len(aggs))
 	for _, agg := range aggs {
 		aggByAlias[agg.Alias] = agg
 	}
 
-	out := make([]map[string]any, 0, len(rows))
+	out := make([]AnalyticsRow, 0, len(rows))
 	for _, row := range rows {
-		item := make(map[string]any, len(row.DimensionKeys)+len(row.MetricKeys))
+		cells := make([]AnalyticsCell, 0, len(row.DimensionKeys)+len(row.MetricKeys))
 		for i, key := range row.DimensionKeys {
 			if i >= len(row.DimensionValues) {
 				continue
 			}
-			item[key] = normalizeDimensionValue(key, row.DimensionValues[i])
+			cells = append(cells, analyticsCellFromValue(key, normalizeDimensionValue(key, row.DimensionValues[i])))
 		}
 		for i, key := range row.MetricKeys {
 			if i >= len(row.MetricValues) {
 				continue
 			}
-			item[key] = normalizeMetricValue(aggByAlias[key], row.MetricValues[i])
+			cells = append(cells, analyticsCellFromValue(key, normalizeMetricValue(aggByAlias[key], row.MetricValues[i])))
 		}
-		out = append(out, item)
+		out = append(out, AnalyticsRow{Cells: cells})
 	}
-	return dbutil.NormalizeRows(out)
+	return out
 }
 
 func normalizeDimensionValue(key, raw string) any {
@@ -87,6 +85,26 @@ func normalizeMetricValue(agg Aggregation, raw float64) any {
 		}
 	}
 	return raw
+}
+
+func analyticsCellFromValue(key string, value any) AnalyticsCell {
+	switch typed := value.(type) {
+	case int64:
+		v := typed
+		return AnalyticsCell{Key: key, Type: AnalyticsValueInteger, IntegerValue: &v}
+	case float64:
+		if math.IsNaN(typed) || math.IsInf(typed, 0) {
+			typed = 0
+		}
+		v := math.Round(typed*100) / 100
+		return AnalyticsCell{Key: key, Type: AnalyticsValueNumber, NumberValue: &v}
+	case bool:
+		v := typed
+		return AnalyticsCell{Key: key, Type: AnalyticsValueBoolean, BooleanValue: &v}
+	default:
+		v := fmt.Sprint(value)
+		return AnalyticsCell{Key: key, Type: AnalyticsValueString, StringValue: &v}
+	}
 }
 
 func validate(q AnalyticsQuery) error {

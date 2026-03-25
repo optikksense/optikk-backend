@@ -3,94 +3,132 @@
   "pageId": "node-detail",
   "label": "Overview",
   "order": 10,
-  "groups": [
-    { "id": "summary", "label": "Summary", "order": 10 },
-    { "id": "usage", "label": "Usage", "order": 20 }
-  ],
-  "components": [
+  "sections": [
     {
-      "componentKey": "stat-card",
-      "groupId": "summary",
+      "id": "summary",
+      "title": "Summary",
+      "order": 10,
+      "kind": "summary",
+      "collapsible": true,
+      "layoutMode": "kpi-strip"
+    },
+    {
+      "id": "usage",
+      "title": "Usage",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
       "id": "node-cpu",
-      "layout": { "col": 6 },
+      "layout": {
+        "preset": "kpi"
+      },
       "order": 10,
       "query": {
         "endpoint": "/v1/infrastructure/resource-utilisation/avg-cpu",
         "method": "GET",
-        "params": { "host": "{host}" }
+        "params": {
+          "host": "{host}"
+        }
       },
       "title": "Avg CPU",
-      "titleIcon": "Cpu"
+      "titleIcon": "Cpu",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
-      "groupId": "summary",
       "id": "node-memory",
-      "layout": { "col": 6 },
+      "layout": {
+        "preset": "kpi"
+      },
       "order": 20,
       "query": {
         "endpoint": "/v1/infrastructure/resource-utilisation/avg-memory",
         "method": "GET",
-        "params": { "host": "{host}" }
+        "params": {
+          "host": "{host}"
+        }
       },
       "title": "Avg Memory",
-      "titleIcon": "HardDrive"
+      "titleIcon": "HardDrive",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
-      "groupId": "summary",
       "id": "node-network",
-      "layout": { "col": 6 },
+      "layout": {
+        "preset": "kpi"
+      },
       "order": 30,
       "query": {
         "endpoint": "/v1/infrastructure/resource-utilisation/avg-network",
         "method": "GET",
-        "params": { "host": "{host}" }
+        "params": {
+          "host": "{host}"
+        }
       },
       "title": "Avg Network",
-      "titleIcon": "Wifi"
+      "titleIcon": "Wifi",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
-      "groupId": "summary",
       "id": "node-conn-pool",
-      "layout": { "col": 6 },
+      "layout": {
+        "preset": "kpi"
+      },
       "order": 40,
       "query": {
         "endpoint": "/v1/infrastructure/resource-utilisation/avg-conn-pool",
         "method": "GET",
-        "params": { "host": "{host}" }
+        "params": {
+          "host": "{host}"
+        }
       },
       "title": "Avg Conn Pool",
-      "titleIcon": "Link"
+      "titleIcon": "Link",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "request",
-      "groupId": "usage",
       "id": "node-cpu-usage",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 50,
       "query": {
         "endpoint": "/v1/infrastructure/cpu/usage-percentage",
         "method": "GET",
-        "params": { "host": "{host}" }
+        "params": {
+          "host": "{host}"
+        }
       },
       "title": "CPU Usage %",
-      "titleIcon": "Cpu"
+      "titleIcon": "Cpu",
+      "panelType": "request",
+      "sectionId": "usage"
     },
     {
-      "componentKey": "request",
-      "groupId": "usage",
       "id": "node-memory-usage",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 60,
       "query": {
         "endpoint": "/v1/infrastructure/memory/usage-percentage",
         "method": "GET",
-        "params": { "host": "{host}" }
+        "params": {
+          "host": "{host}"
+        }
       },
       "title": "Memory Usage %",
-      "titleIcon": "HardDrive"
+      "titleIcon": "HardDrive",
+      "panelType": "request",
+      "sectionId": "usage"
     }
   ]
 }

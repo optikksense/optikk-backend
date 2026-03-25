@@ -24,8 +24,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *NodeHandler) {
 	v1.GET("/infrastructure/nodes/:host/services", h.GetInfrastructureNodeServices)
 }
 
-func init() {
-	registry.Register(&nodesModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &nodesModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type nodesModule struct {
@@ -35,12 +37,11 @@ type nodesModule struct {
 func (m *nodesModule) Name() string                      { return "nodes" }
 func (m *nodesModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *nodesModule) Init(deps registry.Deps) error {
+func (m *nodesModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &NodeHandler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *nodesModule) RegisterRoutes(group *gin.RouterGroup) {

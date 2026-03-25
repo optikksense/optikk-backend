@@ -3,13 +3,30 @@
   "pageId": "metrics",
   "label": "APM",
   "order": 30,
-  "components": [
+  "sections": [
     {
-      "componentKey": "stat-card",
+      "id": "summary",
+      "title": "Key Metrics",
+      "order": 10,
+      "kind": "summary",
+      "collapsible": true,
+      "layoutMode": "kpi-strip"
+    },
+    {
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
       "formatter": "ms",
       "id": "rpc-p95-duration",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 10,
       "query": {
@@ -18,14 +35,15 @@
       },
       "title": "RPC p95 Duration",
       "titleIcon": "Clock",
-      "valueField": "p95"
+      "valueField": "p95",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "ms",
       "id": "rpc-p99-duration",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 20,
       "query": {
@@ -34,14 +52,15 @@
       },
       "title": "RPC p99 Duration",
       "titleIcon": "Clock",
-      "valueField": "p99"
+      "valueField": "p99",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "bytes",
       "id": "rss-memory",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 30,
       "query": {
@@ -50,14 +69,15 @@
       },
       "title": "RSS Memory",
       "titleIcon": "HardDrive",
-      "valueField": "rss"
+      "valueField": "rss",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "bytes",
       "id": "virtual-memory",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 40,
       "query": {
@@ -66,13 +86,14 @@
       },
       "title": "Virtual Memory",
       "titleIcon": "HardDrive",
-      "valueField": "vms"
+      "valueField": "vms",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "request",
       "id": "apm-rpc-request-rate",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 50,
       "query": {
@@ -81,13 +102,14 @@
       },
       "title": "RPC Request Rate",
       "titleIcon": "Activity",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "stat",
       "id": "apm-messaging-duration",
       "layout": {
-        "col": 12
+        "preset": "kpi"
       },
       "order": 60,
       "query": {
@@ -95,14 +117,15 @@
         "method": "GET"
       },
       "title": "Messaging Publish Duration p50/p95/p99",
-      "titleIcon": "Send"
+      "titleIcon": "Send",
+      "panelType": "stat-summary",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "request",
       "groupByKey": "state",
       "id": "apm-process-cpu",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 70,
       "query": {
@@ -111,13 +134,14 @@
       },
       "title": "Process CPU Time by State",
       "titleIcon": "Cpu",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "id": "apm-open-fds",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 80,
       "query": {
@@ -126,13 +150,14 @@
       },
       "title": "Open File Descriptors",
       "titleIcon": "FileText",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "id": "apm-uptime",
       "layout": {
-        "col": 24
+        "preset": "hero"
       },
       "order": 90,
       "query": {
@@ -141,7 +166,9 @@
       },
       "title": "Process Uptime",
       "titleIcon": "Clock",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     }
   ]
 }

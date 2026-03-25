@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 1,
   "id": "ai-observability",
   "path": "/ai-observability",
   "label": "AI Observability",
@@ -8,5 +9,6 @@
   "defaultTabId": "overview",
   "navigable": true,
   "title": "AI Observability",
-  "subtitle": "Performance, cost, and security visibility for LLM / AI model calls"
+  "subtitle": "Performance, cost, and security visibility for LLM / AI model calls",
+  "renderMode": "dashboard"
 }

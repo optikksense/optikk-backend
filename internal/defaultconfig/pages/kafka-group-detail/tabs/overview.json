@@ -3,62 +3,92 @@
   "pageId": "kafka-group-detail",
   "label": "Overview",
   "order": 10,
-  "components": [
+  "sections": [
     {
-      "componentKey": "request",
+      "id": "trends",
+      "title": "Overview",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
       "id": "group-consume-rate",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 10,
       "query": {
         "endpoint": "/v1/saturation/kafka/consume-rate-by-group",
         "method": "GET",
-        "params": { "group": "{groupId}" }
+        "params": {
+          "group": "{groupId}"
+        }
       },
       "valueKey": "rate_per_sec",
       "title": "Consume Rate",
-      "titleIcon": "TrendingDown"
+      "titleIcon": "TrendingDown",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "id": "group-process-rate",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 20,
       "query": {
         "endpoint": "/v1/saturation/kafka/process-rate-by-group",
         "method": "GET",
-        "params": { "group": "{groupId}" }
+        "params": {
+          "group": "{groupId}"
+        }
       },
       "valueKey": "rate_per_sec",
       "title": "Process Rate",
-      "titleIcon": "Activity"
+      "titleIcon": "Activity",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "id": "group-rebalances",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 30,
       "query": {
         "endpoint": "/v1/saturation/kafka/rebalance-signals",
         "method": "GET",
-        "params": { "group": "{groupId}" }
+        "params": {
+          "group": "{groupId}"
+        }
       },
       "valueKey": "rebalance_rate",
       "title": "Rebalance Events",
-      "titleIcon": "RefreshCw"
+      "titleIcon": "RefreshCw",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "id": "group-assigned-partitions",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 40,
       "query": {
         "endpoint": "/v1/saturation/kafka/assigned-partitions",
         "method": "GET",
-        "params": { "group": "{groupId}" }
+        "params": {
+          "group": "{groupId}"
+        }
       },
       "valueKey": "assigned_partitions",
       "title": "Assigned Partitions",
-      "titleIcon": "Grid"
+      "titleIcon": "Grid",
+      "panelType": "request",
+      "sectionId": "trends"
     }
   ]
 }

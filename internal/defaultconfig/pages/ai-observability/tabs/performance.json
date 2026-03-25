@@ -3,13 +3,38 @@
   "pageId": "ai-observability",
   "label": "Performance",
   "order": 20,
-  "components": [
+  "sections": [
     {
-      "componentKey": "ai-line",
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "three-up"
+    },
+    {
+      "id": "breakdowns",
+      "title": "Breakdowns",
+      "order": 30,
+      "kind": "breakdowns",
+      "collapsible": true,
+      "layoutMode": "stack"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "stack"
+    }
+  ],
+  "panels": [
+    {
       "groupByKey": "model_name",
       "id": "qps",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 10,
       "query": {
@@ -21,14 +46,15 @@
       },
       "title": "QPS per Model",
       "titleIcon": "TrendingUp",
-      "valueKey": "qps"
+      "valueKey": "qps",
+      "panelType": "ai-line",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "ai-line",
       "groupByKey": "model_name",
       "id": "avg-latency",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 20,
       "query": {
@@ -40,14 +66,15 @@
       },
       "title": "Avg Latency ms per Model",
       "titleIcon": "Clock",
-      "valueKey": "avg_latency_ms"
+      "valueKey": "avg_latency_ms",
+      "panelType": "ai-line",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "ai-line",
       "groupByKey": "model_name",
       "id": "tokens-per-sec",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 30,
       "query": {
@@ -59,15 +86,16 @@
       },
       "title": "Tokens / sec per Model",
       "titleIcon": "Zap",
-      "valueKey": "tokens_per_sec"
+      "valueKey": "tokens_per_sec",
+      "panelType": "ai-line",
+      "sectionId": "trends"
     },
     {
       "bucketKey": "bucket_ms",
-      "componentKey": "ai-bar",
       "groupByKey": "model_name",
       "id": "latency-histogram",
       "layout": {
-        "col": 12
+        "preset": "breakdown"
       },
       "order": 40,
       "query": {
@@ -76,13 +104,14 @@
       },
       "title": "Latency Distribution (100ms buckets)",
       "titleIcon": "BarChart3",
-      "valueKey": "request_count"
+      "valueKey": "request_count",
+      "panelType": "ai-bar",
+      "sectionId": "breakdowns"
     },
     {
-      "componentKey": "table",
       "id": "performance-metrics",
       "layout": {
-        "col": 24
+        "preset": "detail"
       },
       "order": 50,
       "query": {
@@ -90,7 +119,9 @@
         "method": "GET"
       },
       "title": "Performance Metrics",
-      "titleIcon": "Table"
+      "titleIcon": "Table",
+      "panelType": "table",
+      "sectionId": "details"
     }
   ]
 }

@@ -3,56 +3,88 @@
   "pageId": "overview",
   "label": "Summary",
   "order": 10,
-  "groups": [
-    { "id": "overview-stats", "label": "Key Metrics", "order": 5 },
-    { "id": "golden-signals", "label": "Golden Signals", "order": 10 },
-    { "id": "service-health", "label": "Service Health", "order": 20 },
-    { "id": "top-consumers", "label": "Top Consumers", "order": 30 }
-  ],
-  "components": [
+  "sections": [
     {
-      "componentKey": "stat-cards-grid",
-      "groupId": "overview-stats",
+      "id": "overview-stats",
+      "title": "Key Metrics",
+      "order": 5,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "stack"
+    },
+    {
+      "id": "golden-signals",
+      "title": "Golden Signals",
+      "order": 10,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    },
+    {
+      "id": "service-health",
+      "title": "Service Health",
+      "order": 20,
+      "kind": "breakdowns",
+      "collapsible": true,
+      "layoutMode": "three-up"
+    },
+    {
+      "id": "top-consumers",
+      "title": "Top Consumers",
+      "order": 30,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
       "id": "overview-stat-cards",
-      "layout": { "col": 24 },
+      "layout": {
+        "preset": "detail"
+      },
       "order": 1,
       "query": {
         "endpoint": "/v1/overview/services",
         "method": "GET"
       },
-      "title": "Overview Stats"
+      "title": "Overview Stats",
+      "panelType": "stat-cards-grid",
+      "sectionId": "overview-stats"
     },
     {
-      "componentKey": "slo-indicators",
-      "groupId": "overview-stats",
       "id": "slo-indicators",
-      "layout": { "col": 24 },
+      "layout": {
+        "preset": "detail"
+      },
       "order": 2,
       "query": {
         "endpoint": "/v1/overview/services",
         "method": "GET"
       },
-      "title": "SLO Indicators"
+      "title": "SLO Indicators",
+      "panelType": "slo-indicators",
+      "sectionId": "overview-stats"
     },
     {
-      "componentKey": "service-health-grid",
-      "groupId": "overview-stats",
       "id": "service-health-grid",
-      "layout": { "col": 24 },
+      "layout": {
+        "preset": "detail"
+      },
       "order": 3,
       "query": {
         "endpoint": "/v1/overview/services",
         "method": "GET"
       },
-      "title": "Services Overview"
+      "title": "Services Overview",
+      "panelType": "service-health-grid",
+      "sectionId": "overview-stats"
     },
     {
-      "componentKey": "request",
       "groupByKey": "service_name",
-      "groupId": "golden-signals",
       "id": "request-rate",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 10,
       "query": {
@@ -60,15 +92,15 @@
         "method": "GET"
       },
       "title": "Request Rate",
-      "titleIcon": "TrendingUp"
+      "titleIcon": "TrendingUp",
+      "panelType": "request",
+      "sectionId": "golden-signals"
     },
     {
-      "componentKey": "error-rate",
       "groupByKey": "service_name",
-      "groupId": "golden-signals",
       "id": "error-rate",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 20,
       "query": {
@@ -76,15 +108,15 @@
         "method": "GET"
       },
       "title": "Error Rate",
-      "titleIcon": "AlertCircle"
+      "titleIcon": "AlertCircle",
+      "panelType": "error-rate",
+      "sectionId": "golden-signals"
     },
     {
-      "componentKey": "latency",
       "groupByKey": "service_name",
-      "groupId": "golden-signals",
       "id": "p95-latency",
       "layout": {
-        "col": 24
+        "preset": "hero"
       },
       "order": 30,
       "query": {
@@ -93,14 +125,14 @@
       },
       "title": "p95 Latency",
       "titleIcon": "Clock",
-      "valueKey": "p95"
+      "valueKey": "p95",
+      "panelType": "latency",
+      "sectionId": "golden-signals"
     },
     {
-      "componentKey": "scorecard",
-      "groupId": "service-health",
       "id": "service-scorecard",
       "layout": {
-        "col": 24
+        "preset": "breakdown"
       },
       "order": 40,
       "query": {
@@ -108,15 +140,15 @@
         "method": "GET"
       },
       "title": "Service Scorecard",
-      "titleIcon": "Activity"
+      "titleIcon": "Activity",
+      "panelType": "scorecard",
+      "sectionId": "service-health"
     },
     {
-      "componentKey": "gauge",
       "groupByKey": "service_name",
-      "groupId": "service-health",
       "id": "apdex-scores",
       "layout": {
-        "col": 12
+        "preset": "breakdown"
       },
       "order": 50,
       "query": {
@@ -129,14 +161,14 @@
       },
       "title": "Apdex Score by Service",
       "titleIcon": "Target",
-      "valueKey": "apdex"
+      "valueKey": "apdex",
+      "panelType": "gauge",
+      "sectionId": "service-health"
     },
     {
-      "componentKey": "heatmap",
-      "groupId": "service-health",
       "id": "error-hotspot-summary",
       "layout": {
-        "col": 12
+        "preset": "breakdown"
       },
       "order": 60,
       "query": {
@@ -147,14 +179,14 @@
       "titleIcon": "Crosshair",
       "valueKey": "error_rate",
       "xKey": "operation_name",
-      "yKey": "service_name"
+      "yKey": "service_name",
+      "panelType": "heatmap",
+      "sectionId": "service-health"
     },
     {
-      "componentKey": "table",
-      "groupId": "top-consumers",
       "id": "services-table",
       "layout": {
-        "col": 12
+        "preset": "detail"
       },
       "order": 70,
       "query": {
@@ -162,14 +194,14 @@
         "method": "GET"
       },
       "title": "Services",
-      "titleIcon": "Layers"
+      "titleIcon": "Layers",
+      "panelType": "table",
+      "sectionId": "top-consumers"
     },
     {
-      "componentKey": "table",
-      "groupId": "top-consumers",
       "id": "endpoints-table",
       "layout": {
-        "col": 12
+        "preset": "detail"
       },
       "order": 80,
       "query": {
@@ -177,7 +209,9 @@
         "method": "GET"
       },
       "title": "Top Endpoints",
-      "titleIcon": "List"
+      "titleIcon": "List",
+      "panelType": "table",
+      "sectionId": "top-consumers"
     }
   ]
 }

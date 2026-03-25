@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 1,
   "id": "service-detail",
   "path": "/services/:serviceName",
   "label": "Service Detail",
@@ -8,5 +9,6 @@
   "defaultTabId": "overview",
   "navigable": false,
   "title": "Service Detail",
-  "subtitle": "Service endpoint, error, and dependency drill-down"
+  "subtitle": "Service endpoint, error, and dependency drill-down",
+  "renderMode": "dashboard"
 }

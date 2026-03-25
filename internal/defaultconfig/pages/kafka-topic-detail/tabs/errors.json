@@ -3,51 +3,76 @@
   "pageId": "kafka-topic-detail",
   "label": "Errors",
   "order": 40,
-  "components": [
+  "sections": [
     {
-      "componentKey": "error-rate",
+      "id": "trends",
+      "title": "Errors",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "three-up"
+    }
+  ],
+  "panels": [
+    {
       "id": "topic-publish-errors",
-      "layout": { "col": 8 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 10,
       "query": {
         "endpoint": "/v1/saturation/kafka/publish-errors",
         "method": "GET",
-        "params": { "topic": "{topic}" }
+        "params": {
+          "topic": "{topic}"
+        }
       },
       "groupByKey": "error_type",
       "valueKey": "error_rate",
       "title": "Publish Errors",
-      "titleIcon": "AlertCircle"
+      "titleIcon": "AlertCircle",
+      "panelType": "error-rate",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "error-rate",
       "id": "topic-consume-errors",
-      "layout": { "col": 8 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 20,
       "query": {
         "endpoint": "/v1/saturation/kafka/consume-errors",
         "method": "GET",
-        "params": { "topic": "{topic}" }
+        "params": {
+          "topic": "{topic}"
+        }
       },
       "groupByKey": "error_type",
       "valueKey": "error_rate",
       "title": "Consume Errors",
-      "titleIcon": "AlertCircle"
+      "titleIcon": "AlertCircle",
+      "panelType": "error-rate",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "error-rate",
       "id": "topic-process-errors",
-      "layout": { "col": 8 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 30,
       "query": {
         "endpoint": "/v1/saturation/kafka/process-errors",
         "method": "GET",
-        "params": { "topic": "{topic}" }
+        "params": {
+          "topic": "{topic}"
+        }
       },
       "groupByKey": "error_type",
       "valueKey": "error_rate",
       "title": "Process Errors",
-      "titleIcon": "AlertCircle"
+      "titleIcon": "AlertCircle",
+      "panelType": "error-rate",
+      "sectionId": "trends"
     }
   ]
 }

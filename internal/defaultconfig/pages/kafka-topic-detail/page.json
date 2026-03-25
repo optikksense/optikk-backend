@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 1,
   "id": "kafka-topic-detail",
   "path": "/saturation/kafka/topics/:topic",
   "label": "Topic Detail",
@@ -8,5 +9,6 @@
   "defaultTabId": "overview",
   "navigable": false,
   "title": "Topic Detail",
-  "subtitle": "Kafka topic production, consumption, lag, and errors"
+  "subtitle": "Kafka topic production, consumption, lag, and errors",
+  "renderMode": "dashboard"
 }

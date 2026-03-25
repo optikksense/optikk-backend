@@ -33,8 +33,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *CPUHandler) {
 	g.GET("/process-count", h.GetProcessCount)
 }
 
-func init() {
-	registry.Register(&cpuModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &cpuModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type cpuModule struct {
@@ -44,9 +46,8 @@ type cpuModule struct {
 func (m *cpuModule) Name() string                      { return "cpu" }
 func (m *cpuModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *cpuModule) Init(deps registry.Deps) error {
-	m.handler = NewHandler(deps.NativeQuerier, deps.GetTenant)
-	return nil
+func (m *cpuModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+	m.handler = NewHandler(nativeQuerier, getTenant)
 }
 
 func (m *cpuModule) RegisterRoutes(group *gin.RouterGroup) {

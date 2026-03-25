@@ -23,8 +23,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ErrorTrackingHandler) {
 	v1.GET("/spans/http-5xx-by-route", h.GetHTTP5xxByRoute)
 }
 
-func init() {
-	registry.Register(&errorTrackingModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &errorTrackingModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type errorTrackingModule struct {
@@ -34,12 +36,11 @@ type errorTrackingModule struct {
 func (m *errorTrackingModule) Name() string                      { return "errorTracking" }
 func (m *errorTrackingModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *errorTrackingModule) Init(deps registry.Deps) error {
+func (m *errorTrackingModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &ErrorTrackingHandler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *errorTrackingModule) RegisterRoutes(group *gin.RouterGroup) {

@@ -3,13 +3,38 @@
   "pageId": "overview",
   "label": "Errors",
   "order": 20,
-  "components": [
+  "sections": [
     {
-      "componentKey": "error-rate",
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    },
+    {
+      "id": "breakdowns",
+      "title": "Breakdowns",
+      "order": 30,
+      "kind": "breakdowns",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "stack"
+    }
+  ],
+  "panels": [
+    {
       "groupByKey": "service",
       "id": "service-error-rate",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 10,
       "query": {
@@ -17,14 +42,15 @@
         "method": "GET"
       },
       "title": "Service Error Rate",
-      "titleIcon": "AlertCircle"
+      "titleIcon": "AlertCircle",
+      "panelType": "error-rate",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "exception-type-line",
       "groupByKey": "exceptionType",
       "id": "exception-rate-by-type",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 20,
       "query": {
@@ -33,13 +59,14 @@
       },
       "title": "Exception Rate by Type",
       "titleIcon": "Bug",
-      "valueKey": "count"
+      "valueKey": "count",
+      "panelType": "exception-type-line",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "heatmap",
       "id": "error-hotspot",
       "layout": {
-        "col": 24
+        "preset": "breakdown"
       },
       "order": 30,
       "query": {
@@ -50,14 +77,15 @@
       "titleIcon": "Crosshair",
       "valueKey": "error_rate",
       "xKey": "operation_name",
-      "yKey": "service_name"
+      "yKey": "service_name",
+      "panelType": "heatmap",
+      "sectionId": "breakdowns"
     },
     {
-      "componentKey": "bar",
       "groupByKey": "http_route",
       "id": "http-5xx-by-route",
       "layout": {
-        "col": 12
+        "preset": "breakdown"
       },
       "order": 40,
       "query": {
@@ -66,13 +94,14 @@
       },
       "title": "HTTP 5xx by Route",
       "titleIcon": "AlertTriangle",
-      "valueKey": "count"
+      "valueKey": "count",
+      "panelType": "bar",
+      "sectionId": "breakdowns"
     },
     {
-      "componentKey": "table",
       "id": "error-groups",
       "layout": {
-        "col": 12
+        "preset": "detail"
       },
       "order": 50,
       "query": {
@@ -80,7 +109,9 @@
         "method": "GET"
       },
       "title": "Error Groups",
-      "titleIcon": "List"
+      "titleIcon": "List",
+      "panelType": "table",
+      "sectionId": "details"
     }
   ]
 }

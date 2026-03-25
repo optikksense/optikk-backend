@@ -36,6 +36,7 @@ type App struct {
 	Redis          *redis.Client
 	Config         config.Config
 	SessionManager *sessionauth.Manager
+	Modules        []registry.Module
 
 	// Query result cache (Redis-gated, nil-safe).
 	Cache *cache.QueryCache
@@ -66,27 +67,14 @@ func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) *App {
 
 	nativeQuerier := dbutil.NewNativeQuerier(ch)
 
-	deps := registry.Deps{
-		NativeQuerier:  nativeQuerier,
-		DB:             db,
-		ClickHouseConn: ch,
-		GetTenant:      getTenant,
-		SessionManager: sessionManager,
-		Config:         cfg,
-		ConfigRegistry: reg,
-	}
-	for _, mod := range registry.All() {
-		if err := mod.Init(deps); err != nil {
-			log.Fatalf("failed to init module %s: %v", mod.Name(), err)
-		}
-	}
+	modules := configuredModules(nativeQuerier, db, ch, getTenant, sessionManager, cfg, reg)
 
 	// Create Socket.IO server and register handlers from modules.
 	socketIOServer, err := sio.NewServer(strings.Split(cfg.Server.AllowedOrigins, ","))
 	if err != nil {
 		log.Fatalf("failed to create Socket.IO server: %v", err)
 	}
-	for _, mod := range registry.All() {
+	for _, mod := range modules {
 		if r, ok := mod.(registry.SocketIORegistrar); ok {
 			r.RegisterSocketIO(socketIOServer)
 		}
@@ -98,13 +86,14 @@ func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) *App {
 		Redis:          redisClient,
 		Config:         cfg,
 		SessionManager: sessionManager,
+		Modules:        modules,
 		Cache:          queryCache,
 		SocketIO:       socketIOServer,
 	}
 }
 
 func (a *App) Start(ctx context.Context) error {
-	for _, mod := range registry.All() {
+	for _, mod := range a.Modules {
 		if r, ok := mod.(registry.BackgroundRunner); ok {
 			r.Start()
 		}
@@ -160,7 +149,7 @@ func (a *App) Start(ctx context.Context) error {
 				PermitWithoutStream: true,
 			}),
 		)
-		for _, mod := range registry.All() {
+		for _, mod := range a.Modules {
 			if r, ok := mod.(registry.GRPCRegistrar); ok {
 				r.RegisterGRPC(grpcSrv)
 			}
@@ -180,7 +169,7 @@ func (a *App) Start(ctx context.Context) error {
 		log.Printf("WARN: error closing Socket.IO server: %v", closeErr)
 	}
 
-	for _, mod := range registry.All() {
+	for _, mod := range a.Modules {
 		if r, ok := mod.(registry.BackgroundRunner); ok {
 			if stopErr := r.Stop(); stopErr != nil {
 				log.Printf("WARN: error stopping module %s: %v", mod.Name(), stopErr)

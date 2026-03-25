@@ -32,8 +32,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *MemoryHandler) {
 	g.GET("/swap", h.GetSwapUsage)
 }
 
-func init() {
-	registry.Register(&memoryModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &memoryModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type memoryModule struct {
@@ -43,9 +45,8 @@ type memoryModule struct {
 func (m *memoryModule) Name() string                      { return "memory" }
 func (m *memoryModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *memoryModule) Init(deps registry.Deps) error {
-	m.handler = NewHandler(deps.NativeQuerier, deps.GetTenant)
-	return nil
+func (m *memoryModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+	m.handler = NewHandler(nativeQuerier, getTenant)
 }
 
 func (m *memoryModule) RegisterRoutes(group *gin.RouterGroup) {

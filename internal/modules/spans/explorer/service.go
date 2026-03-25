@@ -7,12 +7,18 @@ import (
 	spantraces "github.com/observability/observability-backend-go/internal/modules/spans/traces"
 )
 
+type tracesQueryService interface {
+	SearchTraces(ctx context.Context, filters spantraces.TraceFilters, limit int, cursorRaw string, offset int) (spantraces.TraceSearchResult, error)
+	GetExplorerFacets(ctx context.Context, filters spantraces.TraceFilters) ([]spantraces.TraceFacet, error)
+	GetExplorerTrend(ctx context.Context, filters spantraces.TraceFilters, step string) ([]spantraces.TraceTrendBucket, error)
+}
+
 type Service struct {
-	tracesService   *spantraces.Service
+	tracesService   tracesQueryService
 	liveTailService *spanlivetail.Service
 }
 
-func NewService(tracesService *spantraces.Service, liveTailService *spanlivetail.Service) *Service {
+func NewService(tracesService tracesQueryService, liveTailService *spanlivetail.Service) *Service {
 	return &Service{
 		tracesService:   tracesService,
 		liveTailService: liveTailService,
@@ -35,12 +41,24 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Re
 	if err != nil {
 		return Response{}, err
 	}
-	groupedFacets := make(map[string][]FacetBucket)
+	groupedFacets := ExplorerFacets{
+		ServiceName: []FacetBucket{},
+		Status: []FacetBucket{},
+		OperationName: []FacetBucket{},
+	}
 	for _, facet := range facets {
-		groupedFacets[facet.Key] = append(groupedFacets[facet.Key], FacetBucket{
+		bucket := FacetBucket{
 			Value: facet.Value,
 			Count: facet.Count,
-		})
+		}
+		switch facet.Key {
+		case "service_name":
+			groupedFacets.ServiceName = append(groupedFacets.ServiceName, bucket)
+		case "status":
+			groupedFacets.Status = append(groupedFacets.Status, bucket)
+		case "operation_name":
+			groupedFacets.OperationName = append(groupedFacets.OperationName, bucket)
+		}
 	}
 
 	trend, err := s.tracesService.GetExplorerTrend(ctx, filters, req.Step)
@@ -54,9 +72,9 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Re
 		Facets:   groupedFacets,
 		Trend:    trend,
 		PageInfo: PageInfo{Total: result.Total, HasMore: result.HasMore, NextCursor: result.NextCursor, Offset: result.Offset, Limit: limit},
-		Correlations: map[string]any{
-			"topServices":   groupedFacets["service_name"],
-			"topOperations": groupedFacets["operation_name"],
+		Correlations: Correlations{
+			TopServices:   groupedFacets.ServiceName,
+			TopOperations: groupedFacets.OperationName,
 		},
 	}, nil
 }

@@ -25,6 +25,19 @@ type SubscribeSpansPayload struct {
 	HTTPMethod string   `json:"httpMethod,omitempty"`
 }
 
+type socketErrorPayload struct {
+	Message string `json:"message"`
+}
+
+type socketDonePayload struct {
+	Reason string `json:"reason"`
+}
+
+type socketSpanEventPayload struct {
+	Item  LiveSpan `json:"item"`
+	LagMs int64    `json:"lagMs"`
+}
+
 // SocketIOHandler creates a SubscriptionHandler that streams live spans
 // via Socket.IO instead of SSE.
 func SocketIOHandler(service *Service) sio.SubscriptionHandler {
@@ -34,12 +47,12 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 			var p SubscribeSpansPayload
 			if err := json.Unmarshal(payload, &p); err != nil {
 				log.Printf("Socket.IO [subscribe:spans] bad payload: %v", err)
-				emit("error", map[string]string{"message": "invalid payload"})
+				emit("error", socketErrorPayload{Message: "invalid payload"})
 				return
 			}
 
 			if p.TeamID == 0 {
-				emit("error", map[string]string{"message": "teamId is required"})
+				emit("error", socketErrorPayload{Message: "teamId is required"})
 				return
 			}
 
@@ -63,22 +76,22 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 					return
 				case <-ticker.C:
 					if time.Now().After(deadline) {
-						emit("done", map[string]string{"reason": "session_timeout"})
+						emit("done", socketDonePayload{Reason: "session_timeout"})
 						return
 					}
 
 					spans, err := service.Poll(p.TeamID, since, filters)
 					if err != nil {
 						log.Printf("Socket.IO [subscribe:spans] poll error: %v", err)
-						emit("error", map[string]string{"message": "poll error"})
+						emit("error", socketErrorPayload{Message: "poll error"})
 						continue
 					}
 
 					for _, s := range spans {
 						since = s.Timestamp
-						emit("span", map[string]any{
-							"item":  s,
-							"lagMs": time.Since(s.Timestamp).Milliseconds(),
+						emit("span", socketSpanEventPayload{
+							Item:  s,
+							LagMs: time.Since(s.Timestamp).Milliseconds(),
 						})
 					}
 				}

@@ -106,6 +106,23 @@ type TraceSearchResponse struct {
 	Summary TraceSummary `json:"summary"`
 }
 
+type TraceCursorResponse struct {
+	Traces     []Trace      `json:"traces"`
+	HasMore    bool         `json:"has_more"`
+	NextCursor string       `json:"next_cursor,omitempty"`
+	Limit      int          `json:"limit"`
+	Total      int64        `json:"total,omitempty"`
+	Summary    TraceSummary `json:"summary"`
+}
+
+type SpanSearchResponse struct {
+	Spans      []Trace      `json:"spans"`
+	HasMore    bool         `json:"has_more"`
+	NextCursor string       `json:"next_cursor,omitempty"`
+	Limit      int          `json:"limit"`
+	Summary    TraceSummary `json:"summary"`
+}
+
 type ServiceDependency struct {
 	Source    string `json:"source"     ch:"source"`
 	Target    string `json:"target"     ch:"target"`

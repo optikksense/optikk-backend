@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 1,
   "id": "saturation",
   "path": "/saturation",
   "label": "Saturation",
@@ -8,5 +9,6 @@
   "defaultTabId": "database",
   "navigable": true,
   "title": "Saturation",
-  "subtitle": "Database, Redis, and messaging queue saturation signals"
+  "subtitle": "Database, Redis, and messaging queue saturation signals",
+  "renderMode": "dashboard"
 }

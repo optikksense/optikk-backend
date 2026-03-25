@@ -3,36 +3,66 @@
   "pageId": "operation-detail",
   "label": "Errors",
   "order": 30,
-  "components": [
+  "sections": [
     {
-      "componentKey": "exception-type-line",
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "stack"
+    },
+    {
+      "id": "breakdowns",
+      "title": "Breakdowns",
+      "order": 30,
+      "kind": "breakdowns",
+      "collapsible": true,
+      "layoutMode": "stack"
+    }
+  ],
+  "panels": [
+    {
       "groupByKey": "exceptionType",
       "id": "op-exception-rate",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 10,
       "query": {
         "endpoint": "/v1/spans/exception-rate-by-type",
         "method": "GET",
-        "params": { "service": "{serviceName}", "operation": "{operationName}" }
+        "params": {
+          "service": "{serviceName}",
+          "operation": "{operationName}"
+        }
       },
       "title": "Exception Rate by Type",
       "titleIcon": "Bug",
-      "valueKey": "count"
+      "valueKey": "count",
+      "panelType": "exception-type-line",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "bar",
       "groupByKey": "http_route",
       "id": "op-5xx-by-route",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "breakdown"
+      },
       "order": 20,
       "query": {
         "endpoint": "/v1/spans/http-5xx-by-route",
         "method": "GET",
-        "params": { "service": "{serviceName}", "operation": "{operationName}" }
+        "params": {
+          "service": "{serviceName}",
+          "operation": "{operationName}"
+        }
       },
       "title": "HTTP 5xx by Route",
       "titleIcon": "AlertTriangle",
-      "valueKey": "count"
+      "valueKey": "count",
+      "panelType": "bar",
+      "sectionId": "breakdowns"
     }
   ]
 }

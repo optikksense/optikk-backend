@@ -23,8 +23,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	v1.GET("/logs/stream", h.StreamLogs)
 }
 
-func init() {
-	registry.Register(&logSearchModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &logSearchModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type logSearchModule struct {
@@ -35,13 +37,12 @@ type logSearchModule struct {
 func (m *logSearchModule) Name() string                      { return "logSearch" }
 func (m *logSearchModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *logSearchModule) Init(deps registry.Deps) error {
-	m.service = NewService(NewRepository(deps.NativeQuerier))
+func (m *logSearchModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+	m.service = NewService(NewRepository(nativeQuerier))
 	m.handler = &Handler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service:  m.service,
 	}
-	return nil
 }
 
 func (m *logSearchModule) RegisterRoutes(group *gin.RouterGroup) {

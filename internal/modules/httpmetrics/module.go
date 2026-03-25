@@ -42,8 +42,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *HTTPMetricsHandler) {
 	external.GET("/error-rate", h.GetExternalHostErrorRate)
 }
 
-func init() {
-	registry.Register(&httpMetricsModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &httpMetricsModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type httpMetricsModule struct {
@@ -53,12 +55,11 @@ type httpMetricsModule struct {
 func (m *httpMetricsModule) Name() string                      { return "httpMetrics" }
 func (m *httpMetricsModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *httpMetricsModule) Init(deps registry.Deps) error {
+func (m *httpMetricsModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &HTTPMetricsHandler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *httpMetricsModule) RegisterRoutes(group *gin.RouterGroup) {

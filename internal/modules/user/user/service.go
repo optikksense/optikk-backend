@@ -155,6 +155,16 @@ func (s *Service) UpdateProfile(userID int64, req UpdateProfileRequest) (Profile
 	return s.buildProfileResponse(user)
 }
 
+func (s *Service) UpdatePreferences(userID int64, req UpdatePreferencesRequest) (PreferencesResponse, error) {
+	if _, err := s.repo.FindActiveUserByID(userID); err != nil {
+		return PreferencesResponse{}, usershared.NewNotFoundError("User not found", err)
+	}
+
+	return PreferencesResponse{
+		Preferences: req.Preferences,
+	}, nil
+}
+
 func (s *Service) buildUserResponse(user usershared.UserRecord) (UserResponse, error) {
 	memberships, _ := usershared.ParseTeamMemberships(user.TeamsJSON)
 	teamIDs := usershared.TeamIDsFromMemberships(memberships)
@@ -224,7 +234,7 @@ func (s *Service) buildProfileResponse(user usershared.UserRecord) (ProfileRespo
 		Name:        user.Name,
 		Email:       user.Email,
 		AvatarURL:   user.AvatarURL,
-		Preferences: map[string]any{},
+		Preferences: defaultUserPreferences(),
 		Teams:       teams,
 	}, nil
 }

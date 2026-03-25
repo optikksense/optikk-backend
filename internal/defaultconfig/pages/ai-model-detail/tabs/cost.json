@@ -3,45 +3,87 @@
   "pageId": "ai-model-detail",
   "label": "Cost",
   "order": 30,
-  "components": [
+  "sections": [
     {
-      "componentKey": "ai-line",
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "stack"
+    },
+    {
+      "id": "breakdowns",
+      "title": "Breakdowns",
+      "order": 30,
+      "kind": "breakdowns",
+      "collapsible": true,
+      "layoutMode": "stack"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "stack"
+    }
+  ],
+  "panels": [
+    {
       "id": "model-cost-timeseries",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "trend"
+      },
       "order": 10,
       "query": {
         "endpoint": "/v1/ai/cost/timeseries",
         "method": "GET",
-        "params": { "model": "{modelName}", "interval": "5m" }
+        "params": {
+          "model": "{modelName}",
+          "interval": "5m"
+        }
       },
       "title": "Cost Over Time",
-      "titleIcon": "DollarSign"
+      "titleIcon": "DollarSign",
+      "panelType": "ai-line",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "ai-bar",
       "id": "model-token-breakdown",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "breakdown"
+      },
       "order": 20,
       "query": {
         "endpoint": "/v1/ai/cost/token-breakdown",
         "method": "GET",
-        "params": { "model": "{modelName}" }
+        "params": {
+          "model": "{modelName}"
+        }
       },
       "title": "Token Breakdown",
-      "titleIcon": "PieChart"
+      "titleIcon": "PieChart",
+      "panelType": "ai-bar",
+      "sectionId": "breakdowns"
     },
     {
-      "componentKey": "table",
       "id": "model-cost-metrics",
-      "layout": { "col": 24 },
+      "layout": {
+        "preset": "detail"
+      },
       "order": 30,
       "query": {
         "endpoint": "/v1/ai/cost/metrics",
         "method": "GET",
-        "params": { "model": "{modelName}" }
+        "params": {
+          "model": "{modelName}"
+        }
       },
       "title": "Cost Metrics",
-      "titleIcon": "DollarSign"
+      "titleIcon": "DollarSign",
+      "panelType": "table",
+      "sectionId": "details"
     }
   ]
 }

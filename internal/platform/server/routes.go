@@ -38,7 +38,7 @@ func (a *App) Router() *gin.Engine {
 func (a *App) registerRoutesToGroup(v1 *gin.RouterGroup) {
 	cached := v1.Group("", cache.CacheResponse(a.Cache, 30*time.Second))
 
-	for _, mod := range registry.All() {
+	for _, mod := range a.Modules {
 		switch mod.RouteTarget() {
 		case registry.Cached:
 			mod.RegisterRoutes(cached)

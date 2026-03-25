@@ -1,6 +1,7 @@
 package defaultconfig
 
 import (
+	"io"
 	"net/http"
 
 	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
@@ -17,10 +18,41 @@ type Handler struct {
 	Service *Service
 }
 
+type listPagesResponse struct {
+	Pages []configdefaults.PageMetadata `json:"pages"`
+}
+
+type listTabsResponse struct {
+	PageID string          `json:"pageId"`
+	Tabs   []tabSummaryDTO `json:"tabs"`
+}
+
+type tabSummaryDTO struct {
+	ID     string `json:"id"`
+	PageID string `json:"pageId"`
+	Label  string `json:"label"`
+	Order  int    `json:"order"`
+}
+
+type getTabDocumentResponse struct {
+	PageID   string                             `json:"pageId"`
+	TabID    string                             `json:"tabId"`
+	ID       string                             `json:"id"`
+	Label    string                             `json:"label"`
+	Order    int                                `json:"order"`
+	Sections []configdefaults.SectionDefinition `json:"sections"`
+	Panels   []configdefaults.PanelDefinition   `json:"panels"`
+}
+
+type savePageOverrideResponse struct {
+	PageID  string `json:"pageId"`
+	Message string `json:"message"`
+}
+
 func (h *Handler) ListPages(c *gin.Context) {
 	tenant := h.GetTenant(c)
 	pages := h.Service.ListPages(tenant.TeamID)
-	RespondOK(c, map[string]any{"pages": pages})
+	RespondOK(c, listPagesResponse{Pages: pages})
 }
 
 func (h *Handler) ListTabs(c *gin.Context) {
@@ -37,23 +69,20 @@ func (h *Handler) ListTabs(c *gin.Context) {
 		return
 	}
 
-	tabs := make([]map[string]any, 0, len(doc.Tabs))
+	tabs := make([]tabSummaryDTO, 0, len(doc.Tabs))
 	for _, tab := range doc.Tabs {
-		tabs = append(tabs, map[string]any{
-			"id":     tab.ID,
-			"pageId": tab.PageID,
-			"label":  tab.Label,
-			"order":  tab.Order,
+		tabs = append(tabs, tabSummaryDTO{
+			ID:     tab.ID,
+			PageID: tab.PageID,
+			Label:  tab.Label,
+			Order:  tab.Order,
 		})
 	}
 
-	RespondOK(c, map[string]any{
-		"pageId": pageID,
-		"tabs":   tabs,
-	})
+	RespondOK(c, listTabsResponse{PageID: pageID, Tabs: tabs})
 }
 
-func (h *Handler) ListComponents(c *gin.Context) {
+func (h *Handler) GetTabDocument(c *gin.Context) {
 	tenant := h.GetTenant(c)
 	pageID := c.Param("pageId")
 	tabID := c.Param("tabId")
@@ -62,25 +91,21 @@ func (h *Handler) ListComponents(c *gin.Context) {
 		return
 	}
 
-	doc, err := h.Service.ListComponents(tenant.TeamID, pageID)
+	tab, err := h.Service.GetTabDocument(tenant.TeamID, pageID, tabID)
 	if err != nil {
 		RespondError(c, http.StatusNotFound, errorcode.NotFound, err.Error())
 		return
 	}
 
-	for _, tab := range doc.Tabs {
-		if tab.ID == tabID {
-			RespondOK(c, map[string]any{
-				"pageId":     pageID,
-				"tabId":      tabID,
-				"groups":     tab.Groups,
-				"components": tab.Components,
-			})
-			return
-		}
-	}
-
-	RespondError(c, http.StatusNotFound, errorcode.NotFound, "No tab found for page: "+pageID+" tab: "+tabID)
+	RespondOK(c, getTabDocumentResponse{
+		PageID:   pageID,
+		TabID:    tabID,
+		ID:       tab.ID,
+		Label:    tab.Label,
+		Order:    tab.Order,
+		Sections: tab.Sections,
+		Panels:   tab.Panels,
+	})
 }
 
 // SavePageOverride saves a page-level override JSON blob.
@@ -92,8 +117,14 @@ func (h *Handler) SavePageOverride(c *gin.Context) {
 		return
 	}
 
-	var override configdefaults.PageDocument
-	if err := c.ShouldBindJSON(&override); err != nil {
+	payload, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "invalid JSON override")
+		return
+	}
+
+	override, err := configdefaults.DecodePageDocument(payload)
+	if err != nil {
 		RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "invalid JSON override")
 		return
 	}
@@ -116,9 +147,9 @@ func (h *Handler) SavePageOverride(c *gin.Context) {
 		return
 	}
 
-	RespondOK(c, map[string]any{
-		"pageId":  pageID,
-		"message": "Default config override saved successfully",
+	RespondOK(c, savePageOverrideResponse{
+		PageID:  pageID,
+		Message: "Default config override saved successfully",
 	})
 }
 

@@ -26,8 +26,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	g.GET("/read-vs-write", h.GetCollectionReadVsWrite)
 }
 
-func init() {
-	registry.Register(&dbCollectionModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &dbCollectionModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type dbCollectionModule struct {
@@ -37,12 +39,11 @@ type dbCollectionModule struct {
 func (m *dbCollectionModule) Name() string                      { return "dbCollection" }
 func (m *dbCollectionModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *dbCollectionModule) Init(deps registry.Deps) error {
+func (m *dbCollectionModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *dbCollectionModule) RegisterRoutes(group *gin.RouterGroup) {

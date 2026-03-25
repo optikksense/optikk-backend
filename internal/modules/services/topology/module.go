@@ -22,8 +22,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *TopologyHandler) {
 	v1.GET("/services/topology", h.GetTopology)
 }
 
-func init() {
-	registry.Register(&topologyModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &topologyModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type topologyModule struct {
@@ -33,12 +35,11 @@ type topologyModule struct {
 func (m *topologyModule) Name() string                      { return "topology" }
 func (m *topologyModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *topologyModule) Init(deps registry.Deps) error {
+func (m *topologyModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &TopologyHandler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *topologyModule) RegisterRoutes(group *gin.RouterGroup) {

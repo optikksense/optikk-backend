@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 1,
   "id": "redis-detail",
   "path": "/saturation/redis/:instance",
   "label": "Redis Detail",
@@ -8,5 +9,6 @@
   "defaultTabId": "overview",
   "navigable": false,
   "title": "Redis Detail",
-  "subtitle": "Redis instance cache, memory, and operation metrics"
+  "subtitle": "Redis instance cache, memory, and operation metrics",
+  "renderMode": "dashboard"
 }

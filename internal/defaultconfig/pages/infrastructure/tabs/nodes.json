@@ -3,13 +3,30 @@
   "pageId": "infrastructure",
   "label": "Nodes",
   "order": 40,
-  "components": [
+  "sections": [
     {
-      "componentKey": "stat-card",
+      "id": "summary",
+      "title": "Key Metrics",
+      "order": 10,
+      "kind": "summary",
+      "collapsible": true,
+      "layoutMode": "kpi-strip"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "stack"
+    }
+  ],
+  "panels": [
+    {
       "formatter": "number",
       "id": "healthy-nodes",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 10,
       "query": {
@@ -18,14 +35,15 @@
       },
       "title": "Healthy Nodes",
       "titleIcon": "CheckCircle2",
-      "valueField": "healthy_nodes"
+      "valueField": "healthy_nodes",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "number",
       "id": "degraded-nodes",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 20,
       "query": {
@@ -34,14 +52,15 @@
       },
       "title": "Degraded Nodes",
       "titleIcon": "AlertTriangle",
-      "valueField": "degraded_nodes"
+      "valueField": "degraded_nodes",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "number",
       "id": "unhealthy-nodes",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 30,
       "query": {
@@ -50,14 +69,15 @@
       },
       "title": "Unhealthy Nodes",
       "titleIcon": "XCircle",
-      "valueField": "unhealthy_nodes"
+      "valueField": "unhealthy_nodes",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "number",
       "id": "total-pods",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 40,
       "query": {
@@ -66,13 +86,14 @@
       },
       "title": "Total Pods",
       "titleIcon": "Box",
-      "valueField": "total_pods"
+      "valueField": "total_pods",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "table",
       "id": "nodes-table",
       "layout": {
-        "col": 24
+        "preset": "detail"
       },
       "order": 50,
       "query": {
@@ -80,7 +101,9 @@
         "method": "GET"
       },
       "title": "Nodes",
-      "titleIcon": "Server"
+      "titleIcon": "Server",
+      "panelType": "table",
+      "sectionId": "details"
     }
   ]
 }

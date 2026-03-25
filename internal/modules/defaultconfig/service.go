@@ -37,8 +37,19 @@ func (s *Service) ListTabs(teamID int64, pageID string) (configdefaults.PageDocu
 	return s.resolvePage(teamID, pageID)
 }
 
-func (s *Service) ListComponents(teamID int64, pageID string) (configdefaults.PageDocument, error) {
-	return s.resolvePage(teamID, pageID)
+func (s *Service) GetTabDocument(teamID int64, pageID, tabID string) (configdefaults.TabDefinition, error) {
+	doc, err := s.resolvePage(teamID, pageID)
+	if err != nil {
+		return configdefaults.TabDefinition{}, err
+	}
+
+	for _, tab := range doc.Tabs {
+		if tab.ID == tabID {
+			return tab, nil
+		}
+	}
+
+	return configdefaults.TabDefinition{}, httpError("No tab found for page: " + pageID + " tab: " + tabID)
 }
 
 func (s *Service) SavePageOverride(teamID int64, pageID string, override configdefaults.PageDocument) error {
@@ -47,19 +58,10 @@ func (s *Service) SavePageOverride(teamID int64, pageID string, override configd
 		return httpError("No configuration found for page: " + pageID)
 	}
 
-	if override.Page.ID != "" && override.Page.ID != pageID {
-		return httpError("page.id must match the route pageId")
+	if err := normalizeOverridePageDocument(&override, defaultDoc); err != nil {
+		return err
 	}
-	if override.Page.ID == "" {
-		override.Page.ID = pageID
-	}
-	for i := range override.Tabs {
-		if override.Tabs[i].PageID == "" {
-			override.Tabs[i].PageID = pageID
-		}
-	}
-
-	if _, err := configdefaults.MergePageDocument(defaultDoc, override); err != nil {
+	if err := configdefaults.ValidatePageDocument(override); err != nil {
 		return err
 	}
 
@@ -82,24 +84,67 @@ func (s *Service) resolvePage(teamID int64, pageID string) (configdefaults.PageD
 
 	override, err := s.repo.GetPageOverride(teamID, pageID)
 	if err != nil || override.ConfigJSON == "" {
-		if seedBytes, marshalErr := json.Marshal(defaultDoc); marshalErr == nil {
-			if saveErr := s.repo.SavePageOverride(teamID, pageID, string(seedBytes)); saveErr != nil {
-				log.Printf("default-config: failed to seed page=%s for team=%d: %v", pageID, teamID, saveErr)
-			}
-		}
+		s.seedDefaultDoc(teamID, pageID, defaultDoc)
 		return defaultDoc, nil
 	}
 
-	var pageOverride configdefaults.PageDocument
-	if err := json.Unmarshal([]byte(override.ConfigJSON), &pageOverride); err != nil {
-		log.Printf("default-config: ignoring invalid override for page=%s team=%d: %v", pageID, teamID, err)
-		return defaultDoc, nil
-	}
-
-	merged, err := configdefaults.MergePageDocument(defaultDoc, pageOverride)
+	pageOverride, err := configdefaults.DecodePageDocument([]byte(override.ConfigJSON))
 	if err != nil {
-		log.Printf("default-config: ignoring invalid merged override for page=%s team=%d: %v", pageID, teamID, err)
+		log.Printf("default-config: ignoring invalid override for page=%s team=%d: %v", pageID, teamID, err)
+		s.seedDefaultDoc(teamID, pageID, defaultDoc)
 		return defaultDoc, nil
 	}
-	return merged, nil
+
+	if err := normalizeOverridePageDocument(&pageOverride, defaultDoc); err != nil {
+		log.Printf("default-config: ignoring invalid override metadata for page=%s team=%d: %v", pageID, teamID, err)
+		s.seedDefaultDoc(teamID, pageID, defaultDoc)
+		return defaultDoc, nil
+	}
+
+	if err := configdefaults.ValidatePageDocument(pageOverride); err != nil {
+		log.Printf("default-config: ignoring invalid override document for page=%s team=%d: %v", pageID, teamID, err)
+		s.seedDefaultDoc(teamID, pageID, defaultDoc)
+		return defaultDoc, nil
+	}
+	return pageOverride, nil
+}
+
+func (s *Service) seedDefaultDoc(teamID int64, pageID string, defaultDoc configdefaults.PageDocument) {
+	seedBytes, marshalErr := json.Marshal(defaultDoc)
+	if marshalErr != nil {
+		return
+	}
+	if saveErr := s.repo.SavePageOverride(teamID, pageID, string(seedBytes)); saveErr != nil {
+		log.Printf("default-config: failed to seed page=%s for team=%d: %v", pageID, teamID, saveErr)
+	}
+}
+
+func normalizeOverridePageDocument(
+	override *configdefaults.PageDocument,
+	defaultDoc configdefaults.PageDocument,
+) error {
+	if override == nil {
+		return httpError("page override payload is required")
+	}
+
+	if override.Page.SchemaVersion == 0 {
+		override.Page.SchemaVersion = defaultDoc.Page.SchemaVersion
+	}
+	if override.Page.ID != "" && override.Page.ID != defaultDoc.Page.ID {
+		return httpError("page.id must match the route pageId")
+	}
+	if override.Page.ID == "" {
+		override.Page.ID = defaultDoc.Page.ID
+	}
+	if override.Page.Path == "" {
+		override.Page.Path = defaultDoc.Page.Path
+	}
+
+	for i := range override.Tabs {
+		if override.Tabs[i].PageID == "" {
+			override.Tabs[i].PageID = defaultDoc.Page.ID
+		}
+	}
+
+	return nil
 }

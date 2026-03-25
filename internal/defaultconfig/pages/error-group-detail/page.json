@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 1,
   "id": "error-group-detail",
   "path": "/errors/:errorGroupId",
   "label": "Error Group Detail",
@@ -8,5 +9,6 @@
   "defaultTabId": "overview",
   "navigable": false,
   "title": "Error Group Detail",
-  "subtitle": "Error group occurrences, sample traces, and timeline"
+  "subtitle": "Error group occurrences, sample traces, and timeline",
+  "renderMode": "dashboard"
 }

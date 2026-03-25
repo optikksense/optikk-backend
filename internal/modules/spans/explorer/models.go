@@ -1,6 +1,24 @@
 package explorer
 
-import spanlivetail "github.com/observability/observability-backend-go/internal/modules/spans/livetail"
+import (
+	spanlivetail "github.com/observability/observability-backend-go/internal/modules/spans/livetail"
+	spantraces "github.com/observability/observability-backend-go/internal/modules/spans/traces"
+)
+
+type TraceExplorerParams struct {
+	Services       []string `json:"services,omitempty"`
+	Status         string   `json:"status,omitempty"`
+	Search         string   `json:"search,omitempty"`
+	MinDurationMs  *float64 `json:"minDuration,omitempty"`
+	MaxDurationMs  *float64 `json:"maxDuration,omitempty"`
+	TraceID        string   `json:"traceId,omitempty"`
+	OperationName  string   `json:"operationName,omitempty"`
+	HTTPMethod     string   `json:"httpMethod,omitempty"`
+	HTTPStatusCode string   `json:"httpStatusCode,omitempty"`
+	Mode           string   `json:"mode,omitempty"`
+	SpanKind       string   `json:"spanKind,omitempty"`
+	SpanName       string   `json:"spanName,omitempty"`
+}
 
 type QueryRequest struct {
 	StartTime int64          `json:"startTime"`
@@ -9,7 +27,7 @@ type QueryRequest struct {
 	Offset    int            `json:"offset"`
 	Cursor    string         `json:"cursor"`
 	Step      string         `json:"step"`
-	Params    map[string]any `json:"params"`
+	Params    TraceExplorerParams `json:"params"`
 }
 
 type FacetBucket struct {
@@ -25,13 +43,24 @@ type PageInfo struct {
 	Limit      int    `json:"limit"`
 }
 
+type Correlations struct {
+	TopServices   []FacetBucket `json:"topServices,omitempty"`
+	TopOperations []FacetBucket `json:"topOperations,omitempty"`
+}
+
 type Response struct {
-	Results      any            `json:"results"`
-	Summary      any            `json:"summary"`
-	Facets       map[string][]FacetBucket `json:"facets"`
-	Trend        any            `json:"trend"`
-	PageInfo     PageInfo       `json:"pageInfo"`
-	Correlations map[string]any `json:"correlations,omitempty"`
+	Results      []spantraces.Trace            `json:"results"`
+	Summary      spantraces.TraceSummary       `json:"summary"`
+	Facets       ExplorerFacets                `json:"facets"`
+	Trend        []spantraces.TraceTrendBucket `json:"trend"`
+	PageInfo     PageInfo                      `json:"pageInfo"`
+	Correlations Correlations                  `json:"correlations,omitempty"`
+}
+
+type ExplorerFacets struct {
+	ServiceName   []FacetBucket `json:"service_name"`
+	Status        []FacetBucket `json:"status"`
+	OperationName []FacetBucket `json:"operation_name"`
 }
 
 type StreamItem struct {

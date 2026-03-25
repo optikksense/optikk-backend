@@ -34,8 +34,15 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	}
 }
 
-func init() {
-	registry.Register(&authModule{})
+func NewModule(
+	sqlDB *registry.SQLDB,
+	getTenant registry.GetTenantFunc,
+	sessionManager *registry.SessionManager,
+	appConfig registry.AppConfig,
+) registry.Module {
+	module := &authModule{}
+	module.configure(sqlDB, getTenant, sessionManager, appConfig)
+	return module
 }
 
 type authModule struct {
@@ -45,18 +52,22 @@ type authModule struct {
 func (m *authModule) Name() string                      { return "auth" }
 func (m *authModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *authModule) Init(deps registry.Deps) error {
+func (m *authModule) configure(
+	sqlDB *registry.SQLDB,
+	getTenant registry.GetTenantFunc,
+	sessionManager *registry.SessionManager,
+	appConfig registry.AppConfig,
+) {
 	m.handler = NewHandler(
-		deps.GetTenant,
+		getTenant,
 		NewService(
-			NewRepository(deps.DB),
-			deps.SessionManager,
-			deps.Config.OAuth.GoogleClientID, deps.Config.OAuth.GoogleClientSecret,
-			deps.Config.OAuth.GitHubClientID, deps.Config.OAuth.GitHubClientSecret,
-			deps.Config.OAuth.RedirectBase,
+			NewRepository(sqlDB),
+			sessionManager,
+			appConfig.OAuth.GoogleClientID, appConfig.OAuth.GoogleClientSecret,
+			appConfig.OAuth.GitHubClientID, appConfig.OAuth.GitHubClientSecret,
+			appConfig.OAuth.RedirectBase,
 		),
 	)
-	return nil
 }
 
 func (m *authModule) RegisterRoutes(group *gin.RouterGroup) {

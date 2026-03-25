@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 1,
   "id": "database-detail",
   "path": "/saturation/database/:dbSystem",
   "label": "Database Detail",
@@ -8,5 +9,6 @@
   "defaultTabId": "overview",
   "navigable": false,
   "title": "Database Detail",
-  "subtitle": "Database system latency, operations, slow queries, and errors"
+  "subtitle": "Database system latency, operations, slow queries, and errors",
+  "renderMode": "dashboard"
 }

@@ -9,7 +9,10 @@ type CreateUserRequest struct {
 }
 
 type UpdateProfileRequest struct {
-	Name        string         `json:"name"`
-	AvatarURL   string         `json:"avatarUrl"`
-	Preferences map[string]any `json:"preferences"`
+	Name      string `json:"name"`
+	AvatarURL string `json:"avatarUrl"`
+}
+
+type UpdatePreferencesRequest struct {
+	Preferences UserPreferences `json:"preferences"`
 }

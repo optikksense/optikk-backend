@@ -3,13 +3,30 @@
   "pageId": "infrastructure",
   "label": "JVM Runtime",
   "order": 20,
-  "components": [
+  "sections": [
     {
-      "componentKey": "stat-card",
+      "id": "summary",
+      "title": "Key Metrics",
+      "order": 10,
+      "kind": "summary",
+      "collapsible": true,
+      "layoutMode": "kpi-strip"
+    },
+    {
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
       "formatter": "ms",
       "id": "gc-p95-duration",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 10,
       "query": {
@@ -18,14 +35,15 @@
       },
       "title": "GC p95 Duration",
       "titleIcon": "Trash2",
-      "valueField": "p95"
+      "valueField": "p95",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "ms",
       "id": "gc-p99-duration",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 20,
       "query": {
@@ -34,14 +52,15 @@
       },
       "title": "GC p99 Duration",
       "titleIcon": "Trash2",
-      "valueField": "p99"
+      "valueField": "p99",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "ns",
       "id": "jvm-cpu-time",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 30,
       "query": {
@@ -50,14 +69,15 @@
       },
       "title": "JVM CPU Time",
       "titleIcon": "Cpu",
-      "valueField": "cpu_time_value"
+      "valueField": "cpu_time_value",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "percent2",
       "id": "jvm-cpu-utilization",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 40,
       "query": {
@@ -66,14 +86,15 @@
       },
       "title": "JVM CPU Utilization",
       "titleIcon": "Cpu",
-      "valueField": "recent_utilization"
+      "valueField": "recent_utilization",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "request",
       "groupByKey": "pool_name",
       "id": "jvm-memory",
       "layout": {
-        "col": 24
+        "preset": "hero"
       },
       "order": 50,
       "query": {
@@ -82,14 +103,15 @@
       },
       "title": "JVM Memory (Used / Committed / Limit)",
       "titleIcon": "HardDrive",
-      "valueKey": "used"
+      "valueKey": "used",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "groupByKey": "pod",
       "id": "jvm-gc-collections",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 60,
       "query": {
@@ -98,14 +120,15 @@
       },
       "title": "GC Collections by Collector",
       "titleIcon": "Trash2",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "groupByKey": "state",
       "id": "jvm-threads",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 70,
       "query": {
@@ -114,14 +137,15 @@
       },
       "title": "Thread Count by State",
       "titleIcon": "Activity",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "groupByKey": "pool_name",
       "id": "jvm-buffers",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 80,
       "query": {
@@ -130,13 +154,14 @@
       },
       "title": "Buffer Pool Memory Usage",
       "titleIcon": "Database",
-      "valueKey": "memory_usage"
+      "valueKey": "memory_usage",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "stat",
       "id": "jvm-classes",
       "layout": {
-        "col": 12
+        "preset": "kpi"
       },
       "order": 90,
       "query": {
@@ -144,7 +169,9 @@
         "method": "GET"
       },
       "title": "Loaded Classes",
-      "titleIcon": "BookOpen"
+      "titleIcon": "BookOpen",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     }
   ]
 }

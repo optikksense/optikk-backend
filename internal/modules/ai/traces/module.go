@@ -23,8 +23,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	v1.GET("/ai/traces/:traceId/summary", h.GetLLMTraceSummary)
 }
 
-func init() {
-	registry.Register(&aiTracesModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &aiTracesModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type aiTracesModule struct {
@@ -34,12 +36,11 @@ type aiTracesModule struct {
 func (m *aiTracesModule) Name() string                      { return "aiTraces" }
 func (m *aiTracesModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *aiTracesModule) Init(deps registry.Deps) error {
+func (m *aiTracesModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *aiTracesModule) RegisterRoutes(group *gin.RouterGroup) {

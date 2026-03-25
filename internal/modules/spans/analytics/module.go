@@ -22,8 +22,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	v1.GET("/spans/analytics/dimensions", h.GetDimensions)
 }
 
-func init() {
-	registry.Register(&spanAnalyticsModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &spanAnalyticsModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type spanAnalyticsModule struct {
@@ -33,12 +35,11 @@ type spanAnalyticsModule struct {
 func (m *spanAnalyticsModule) Name() string                      { return "spanAnalytics" }
 func (m *spanAnalyticsModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *spanAnalyticsModule) Init(deps registry.Deps) error {
+func (m *spanAnalyticsModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = NewHandler(
-		deps.GetTenant,
-		NewService(NewRepository(deps.NativeQuerier)),
+		getTenant,
+		NewService(NewRepository(nativeQuerier)),
 	)
-	return nil
 }
 
 func (m *spanAnalyticsModule) RegisterRoutes(group *gin.RouterGroup) {

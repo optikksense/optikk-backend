@@ -3,18 +3,30 @@
   "pageId": "overview",
   "label": "SLO",
   "order": 30,
-  "groups": [
-    { "id": "slo-at-a-glance", "label": "At a Glance", "order": 10 },
-    { "id": "slo-timeseries", "label": "Over Time", "order": 20 }
-  ],
-  "components": [
+  "sections": [
     {
-      "componentKey": "stat-card",
+      "id": "slo-at-a-glance",
+      "title": "At a Glance",
+      "order": 10,
+      "kind": "summary",
+      "collapsible": true,
+      "layoutMode": "kpi-strip"
+    },
+    {
+      "id": "slo-timeseries",
+      "title": "Over Time",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "three-up"
+    }
+  ],
+  "panels": [
+    {
       "formatter": "percent1",
-      "groupId": "slo-at-a-glance",
       "id": "slo-availability-pct",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 5,
       "query": {
@@ -23,15 +35,15 @@
       },
       "title": "Availability",
       "titleIcon": "Target",
-      "valueField": "availability_percent"
+      "valueField": "availability_percent",
+      "panelType": "stat-card",
+      "sectionId": "slo-at-a-glance"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "ms",
-      "groupId": "slo-at-a-glance",
       "id": "slo-p95-latency",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 6,
       "query": {
@@ -40,15 +52,15 @@
       },
       "title": "p95 Latency",
       "titleIcon": "Clock",
-      "valueField": "p95_latency_ms"
+      "valueField": "p95_latency_ms",
+      "panelType": "stat-card",
+      "sectionId": "slo-at-a-glance"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "number",
-      "groupId": "slo-at-a-glance",
       "id": "slo-total-requests",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 7,
       "query": {
@@ -57,15 +69,15 @@
       },
       "title": "Total Requests",
       "titleIcon": "TrendingUp",
-      "valueField": "total_requests"
+      "valueField": "total_requests",
+      "panelType": "stat-card",
+      "sectionId": "slo-at-a-glance"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "number",
-      "groupId": "slo-at-a-glance",
       "id": "slo-error-count",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 8,
       "query": {
@@ -74,17 +86,17 @@
       },
       "title": "Error Count",
       "titleIcon": "AlertCircle",
-      "valueField": "error_count"
+      "valueField": "error_count",
+      "panelType": "stat-card",
+      "sectionId": "slo-at-a-glance"
     },
     {
       "color": "#12B76A",
-      "componentKey": "error-rate",
       "dataKey": "timeseries",
       "datasetLabel": "Availability %",
-      "groupId": "slo-timeseries",
       "id": "availability",
       "layout": {
-        "col": 8
+        "preset": "trend"
       },
       "order": 15,
       "query": {
@@ -97,15 +109,15 @@
       "targetThreshold": 99.9,
       "title": "Availability Over Time",
       "titleIcon": "Target",
-      "valueField": "availability_percent"
+      "valueField": "availability_percent",
+      "panelType": "error-rate",
+      "sectionId": "slo-timeseries"
     },
     {
-      "componentKey": "latency",
       "dataKey": "timeseries",
-      "groupId": "slo-timeseries",
       "id": "latency-vs-target",
       "layout": {
-        "col": 8
+        "preset": "trend"
       },
       "order": 25,
       "query": {
@@ -118,15 +130,15 @@
       "targetThreshold": 300,
       "title": "Latency vs Target",
       "titleIcon": "Clock",
-      "valueField": "avg_latency_ms"
+      "valueField": "avg_latency_ms",
+      "panelType": "latency",
+      "sectionId": "slo-timeseries"
     },
     {
-      "componentKey": "error-rate",
       "dataKey": "timeseries",
-      "groupId": "slo-timeseries",
       "id": "error-budget-burn",
       "layout": {
-        "col": 8
+        "preset": "trend"
       },
       "order": 35,
       "query": {
@@ -139,7 +151,9 @@
       "targetThreshold": 0.1,
       "title": "Error Budget Burn",
       "titleIcon": "Flame",
-      "valueField": "_errorBudgetBurn"
+      "valueField": "_errorBudgetBurn",
+      "panelType": "error-rate",
+      "sectionId": "slo-timeseries"
     }
   ]
 }

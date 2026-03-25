@@ -22,8 +22,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	v1.GET("/spans/live-tail", h.GetLiveTail)
 }
 
-func init() {
-	registry.Register(&liveTailModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &liveTailModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type liveTailModule struct {
@@ -34,10 +36,9 @@ type liveTailModule struct {
 func (m *liveTailModule) Name() string                      { return "liveTail" }
 func (m *liveTailModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *liveTailModule) Init(deps registry.Deps) error {
-	m.service = NewService(NewRepository(deps.NativeQuerier))
-	m.handler = NewHandler(deps.GetTenant, m.service)
-	return nil
+func (m *liveTailModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+	m.service = NewService(NewRepository(nativeQuerier))
+	m.handler = NewHandler(getTenant, m.service)
 }
 
 func (m *liveTailModule) RegisterRoutes(group *gin.RouterGroup) {

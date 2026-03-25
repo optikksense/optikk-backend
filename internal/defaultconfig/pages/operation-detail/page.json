@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 1,
   "id": "operation-detail",
   "path": "/services/:serviceName/operations/:operationName",
   "label": "Operation Detail",
@@ -8,5 +9,6 @@
   "defaultTabId": "overview",
   "navigable": false,
   "title": "Operation Detail",
-  "subtitle": "Operation-level metrics, latency, errors, and traces"
+  "subtitle": "Operation-level metrics, latency, errors, and traces",
+  "renderMode": "dashboard"
 }

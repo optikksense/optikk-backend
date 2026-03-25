@@ -23,8 +23,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ServiceMapHandler) {
 	v1.GET("/spans/client-server-latency", h.GetClientServerLatency)
 }
 
-func init() {
-	registry.Register(&serviceMapModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &serviceMapModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type serviceMapModule struct {
@@ -34,12 +36,11 @@ type serviceMapModule struct {
 func (m *serviceMapModule) Name() string                      { return "serviceMap" }
 func (m *serviceMapModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *serviceMapModule) Init(deps registry.Deps) error {
+func (m *serviceMapModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &ServiceMapHandler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *serviceMapModule) RegisterRoutes(group *gin.RouterGroup) {

@@ -22,8 +22,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	v1.GET("/logs/detail", h.GetLogDetail)
 }
 
-func init() {
-	registry.Register(&logDetailModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &logDetailModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type logDetailModule struct {
@@ -33,12 +35,11 @@ type logDetailModule struct {
 func (m *logDetailModule) Name() string                      { return "logDetail" }
 func (m *logDetailModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *logDetailModule) Init(deps registry.Deps) error {
+func (m *logDetailModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *logDetailModule) RegisterRoutes(group *gin.RouterGroup) {

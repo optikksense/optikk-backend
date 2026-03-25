@@ -3,13 +3,38 @@
   "pageId": "saturation",
   "label": "Redis",
   "order": 20,
-  "components": [
+  "sections": [
     {
-      "componentKey": "stat-card",
+      "id": "summary",
+      "title": "Key Metrics",
+      "order": 10,
+      "kind": "summary",
+      "collapsible": true,
+      "layoutMode": "kpi-strip"
+    },
+    {
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
       "formatter": "percent1",
       "id": "cache-hit-rate",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 10,
       "query": {
@@ -18,14 +43,15 @@
       },
       "title": "Cache Hit Rate",
       "titleIcon": "Target",
-      "valueField": "hit_rate_pct"
+      "valueField": "hit_rate_pct",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "number",
       "id": "cache-hits",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 20,
       "query": {
@@ -34,14 +60,15 @@
       },
       "title": "Cache Hits",
       "titleIcon": "CheckCircle",
-      "valueField": "hits"
+      "valueField": "hits",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "number",
       "id": "cache-misses",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 30,
       "query": {
@@ -50,14 +77,15 @@
       },
       "title": "Cache Misses",
       "titleIcon": "XCircle",
-      "valueField": "misses"
+      "valueField": "misses",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "number",
       "id": "replication-offset",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 40,
       "query": {
@@ -66,13 +94,14 @@
       },
       "title": "Replication Offset",
       "titleIcon": "GitBranch",
-      "valueField": "offset"
+      "valueField": "offset",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "request",
       "id": "redis-clients",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 50,
       "query": {
@@ -81,13 +110,14 @@
       },
       "title": "Connected Clients",
       "titleIcon": "Users",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "id": "redis-memory",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 60,
       "query": {
@@ -96,13 +126,14 @@
       },
       "title": "Memory Used",
       "titleIcon": "HardDrive",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "id": "redis-memory-frag",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 70,
       "query": {
@@ -111,13 +142,14 @@
       },
       "title": "Memory Fragmentation Ratio",
       "titleIcon": "AlertTriangle",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "id": "redis-commands",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 80,
       "query": {
@@ -126,13 +158,14 @@
       },
       "title": "Commands Processed",
       "titleIcon": "Terminal",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "id": "redis-evictions",
       "layout": {
-        "col": 8
+        "preset": "trend"
       },
       "order": 90,
       "query": {
@@ -141,13 +174,14 @@
       },
       "title": "Key Evictions",
       "titleIcon": "Trash2",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "table",
       "id": "redis-keyspace",
       "layout": {
-        "col": 8
+        "preset": "detail"
       },
       "order": 100,
       "query": {
@@ -155,13 +189,14 @@
         "method": "GET"
       },
       "title": "Keyspace Size by DB",
-      "titleIcon": "Database"
+      "titleIcon": "Database",
+      "panelType": "table",
+      "sectionId": "details"
     },
     {
-      "componentKey": "table",
       "id": "redis-key-expiries",
       "layout": {
-        "col": 8
+        "preset": "detail"
       },
       "order": 110,
       "query": {
@@ -169,7 +204,9 @@
         "method": "GET"
       },
       "title": "Key Expiries by DB",
-      "titleIcon": "Clock"
+      "titleIcon": "Clock",
+      "panelType": "table",
+      "sectionId": "details"
     }
   ]
 }

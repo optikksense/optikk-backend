@@ -3,32 +3,55 @@
   "pageId": "operation-detail",
   "label": "Latency",
   "order": 20,
-  "components": [
+  "sections": [
     {
-      "componentKey": "latency-histogram",
+      "id": "breakdowns",
+      "title": "Latency",
+      "order": 30,
+      "kind": "breakdowns",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
       "id": "op-latency-histogram",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "breakdown"
+      },
       "order": 10,
       "query": {
         "endpoint": "/v1/latency/histogram",
         "method": "GET",
-        "params": { "service": "{serviceName}", "operation": "{operationName}" }
+        "params": {
+          "service": "{serviceName}",
+          "operation": "{operationName}"
+        }
       },
       "title": "Latency Histogram",
-      "titleIcon": "BarChart2"
+      "titleIcon": "BarChart2",
+      "panelType": "latency-histogram",
+      "sectionId": "breakdowns"
     },
     {
-      "componentKey": "latency-heatmap",
       "id": "op-latency-heatmap",
-      "layout": { "col": 12 },
+      "layout": {
+        "preset": "breakdown"
+      },
       "order": 20,
       "query": {
         "endpoint": "/v1/latency/heatmap",
         "method": "GET",
-        "params": { "service": "{serviceName}", "operation": "{operationName}", "interval": "5m" }
+        "params": {
+          "service": "{serviceName}",
+          "operation": "{operationName}",
+          "interval": "5m"
+        }
       },
       "title": "Latency Heatmap",
-      "titleIcon": "Grid"
+      "titleIcon": "Grid",
+      "panelType": "latency-heatmap",
+      "sectionId": "breakdowns"
     }
   ]
 }

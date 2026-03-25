@@ -3,18 +3,31 @@
   "pageId": "node-detail",
   "label": "Services",
   "order": 30,
-  "components": [
+  "sections": [
     {
-      "componentKey": "table",
+      "id": "details",
+      "title": "Services",
+      "order": 40,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "stack"
+    }
+  ],
+  "panels": [
+    {
       "id": "node-services",
-      "layout": { "col": 24 },
+      "layout": {
+        "preset": "detail"
+      },
       "order": 10,
       "query": {
         "endpoint": "/v1/infrastructure/nodes/{host}/services",
         "method": "GET"
       },
       "title": "Services on this Host",
-      "titleIcon": "Layers"
+      "titleIcon": "Layers",
+      "panelType": "table",
+      "sectionId": "details"
     }
   ]
 }

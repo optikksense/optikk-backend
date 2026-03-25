@@ -30,8 +30,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *RedisHandler) {
 	v1.GET("/saturation/redis/key-expiries", h.GetKeyExpiries)
 }
 
-func init() {
-	registry.Register(&redisModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &redisModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type redisModule struct {
@@ -41,12 +43,11 @@ type redisModule struct {
 func (m *redisModule) Name() string                      { return "redis" }
 func (m *redisModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *redisModule) Init(deps registry.Deps) error {
+func (m *redisModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &RedisHandler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *redisModule) RegisterRoutes(group *gin.RouterGroup) {

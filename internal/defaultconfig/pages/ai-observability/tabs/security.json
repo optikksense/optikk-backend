@@ -3,13 +3,30 @@
   "pageId": "ai-observability",
   "label": "Security",
   "order": 40,
-  "components": [
+  "sections": [
     {
-      "componentKey": "ai-line",
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
       "groupByKey": "model_name",
       "id": "pii-detections",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 10,
       "query": {
@@ -21,14 +38,15 @@
       },
       "title": "PII Detections per Model",
       "titleIcon": "ShieldCheck",
-      "valueKey": "pii_count"
+      "valueKey": "pii_count",
+      "panelType": "ai-line",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "ai-line",
       "groupByKey": "model_name",
       "id": "guardrail-blocks",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 20,
       "query": {
@@ -40,13 +58,14 @@
       },
       "title": "Guardrail Blocks per Model",
       "titleIcon": "AlertCircle",
-      "valueKey": "guardrail_count"
+      "valueKey": "guardrail_count",
+      "panelType": "ai-line",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "table",
       "id": "security-metrics",
       "layout": {
-        "col": 12
+        "preset": "detail"
       },
       "order": 30,
       "query": {
@@ -54,13 +73,14 @@
         "method": "GET"
       },
       "title": "Security Metrics",
-      "titleIcon": "Shield"
+      "titleIcon": "Shield",
+      "panelType": "table",
+      "sectionId": "details"
     },
     {
-      "componentKey": "table",
       "id": "pii-categories",
       "layout": {
-        "col": 12
+        "preset": "detail"
       },
       "order": 40,
       "query": {
@@ -68,7 +88,9 @@
         "method": "GET"
       },
       "title": "PII Categories",
-      "titleIcon": "Eye"
+      "titleIcon": "Eye",
+      "panelType": "table",
+      "sectionId": "details"
     }
   ]
 }

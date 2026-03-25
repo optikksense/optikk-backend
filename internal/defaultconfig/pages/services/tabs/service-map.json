@@ -3,12 +3,29 @@
   "pageId": "services",
   "label": "Service Map",
   "order": 30,
-  "components": [
+  "sections": [
     {
-      "componentKey": "service-map",
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "stack"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
       "id": "service-topology",
       "layout": {
-        "col": 24
+        "preset": "detail"
       },
       "order": 10,
       "query": {
@@ -16,13 +33,14 @@
         "method": "GET"
       },
       "title": "Service Dependency Graph",
-      "titleIcon": "Share2"
+      "titleIcon": "Share2",
+      "panelType": "service-map",
+      "sectionId": "details"
     },
     {
-      "componentKey": "table",
       "id": "external-dependencies",
       "layout": {
-        "col": 12
+        "preset": "detail"
       },
       "order": 20,
       "query": {
@@ -30,13 +48,14 @@
         "method": "GET"
       },
       "title": "External Dependencies",
-      "titleIcon": "Globe"
+      "titleIcon": "Globe",
+      "panelType": "table",
+      "sectionId": "details"
     },
     {
-      "componentKey": "latency",
       "id": "client-server-latency",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 30,
       "query": {
@@ -44,7 +63,9 @@
         "method": "GET"
       },
       "title": "Client vs Server Latency (p95)",
-      "titleIcon": "Activity"
+      "titleIcon": "Activity",
+      "panelType": "latency",
+      "sectionId": "trends"
     }
   ]
 }

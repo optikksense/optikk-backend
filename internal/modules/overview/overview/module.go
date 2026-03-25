@@ -28,8 +28,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *OverviewHandler) {
 	v1.GET("/overview/endpoints/timeseries", h.GetEndpointTimeSeries)
 }
 
-func init() {
-	registry.Register(&overviewModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &overviewModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type overviewModule struct {
@@ -39,12 +41,11 @@ type overviewModule struct {
 func (m *overviewModule) Name() string                      { return "overview" }
 func (m *overviewModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *overviewModule) Init(deps registry.Deps) error {
+func (m *overviewModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &OverviewHandler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *overviewModule) RegisterRoutes(group *gin.RouterGroup) {

@@ -3,13 +3,38 @@
   "pageId": "infrastructure",
   "label": "Resource Utilization",
   "order": 10,
-  "components": [
+  "sections": [
     {
-      "componentKey": "stat-card",
+      "id": "summary",
+      "title": "Key Metrics",
+      "order": 10,
+      "kind": "summary",
+      "collapsible": true,
+      "layoutMode": "kpi-strip"
+    },
+    {
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
       "formatter": "percent1",
       "id": "avg-cpu",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 10,
       "query": {
@@ -18,14 +43,15 @@
       },
       "title": "Avg CPU",
       "titleIcon": "Cpu",
-      "valueField": "value"
+      "valueField": "value",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "percent1",
       "id": "avg-memory",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 20,
       "query": {
@@ -34,14 +60,15 @@
       },
       "title": "Avg Memory",
       "titleIcon": "HardDrive",
-      "valueField": "value"
+      "valueField": "value",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "percent1",
       "id": "avg-network",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 30,
       "query": {
@@ -50,14 +77,15 @@
       },
       "title": "Avg Network",
       "titleIcon": "Network",
-      "valueField": "value"
+      "valueField": "value",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "stat-card",
       "formatter": "percent1",
       "id": "avg-conn-pool",
       "layout": {
-        "col": 6
+        "preset": "kpi"
       },
       "order": 40,
       "query": {
@@ -66,15 +94,16 @@
       },
       "title": "Avg Conn Pool",
       "titleIcon": "Database",
-      "valueField": "value"
+      "valueField": "value",
+      "panelType": "stat-card",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "request",
       "datasetLabel": "CPU Util",
       "groupByKey": "pod",
       "id": "cpu-usage",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 50,
       "query": {
@@ -83,15 +112,16 @@
       },
       "title": "CPU Usage Percentage",
       "titleIcon": "Cpu",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "datasetLabel": "Mem Util",
       "groupByKey": "pod",
       "id": "memory-usage",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 60,
       "query": {
@@ -100,13 +130,14 @@
       },
       "title": "Memory Usage Percentage",
       "titleIcon": "HardDrive",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "table",
       "id": "by-service",
       "layout": {
-        "col": 12
+        "preset": "detail"
       },
       "order": 70,
       "query": {
@@ -114,13 +145,14 @@
         "method": "GET"
       },
       "title": "Resource Usage by Service",
-      "titleIcon": "Layers"
+      "titleIcon": "Layers",
+      "panelType": "table",
+      "sectionId": "details"
     },
     {
-      "componentKey": "table",
       "id": "by-instance",
       "layout": {
-        "col": 12
+        "preset": "detail"
       },
       "order": 80,
       "query": {
@@ -128,14 +160,15 @@
         "method": "GET"
       },
       "title": "Resource Usage by Instance",
-      "titleIcon": "Server"
+      "titleIcon": "Server",
+      "panelType": "table",
+      "sectionId": "details"
     },
     {
-      "componentKey": "request",
       "groupByKey": "state",
       "id": "infra-cpu-time",
       "layout": {
-        "col": 8
+        "preset": "trend"
       },
       "order": 90,
       "query": {
@@ -144,14 +177,15 @@
       },
       "title": "CPU Time by State",
       "titleIcon": "Cpu",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "groupByKey": "state",
       "id": "infra-memory-usage",
       "layout": {
-        "col": 8
+        "preset": "trend"
       },
       "order": 100,
       "query": {
@@ -160,14 +194,15 @@
       },
       "title": "Memory Usage by State",
       "titleIcon": "HardDrive",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "groupByKey": "state",
       "id": "infra-swap-usage",
       "layout": {
-        "col": 8
+        "preset": "trend"
       },
       "order": 110,
       "query": {
@@ -176,13 +211,14 @@
       },
       "title": "Swap Usage by State",
       "titleIcon": "HardDrive",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "stat",
       "id": "infra-load-average",
       "layout": {
-        "col": 12
+        "preset": "kpi"
       },
       "order": 120,
       "query": {
@@ -190,14 +226,30 @@
         "method": "GET"
       },
       "title": "Load Average (1m / 5m / 15m)",
-      "titleIcon": "Activity"
+      "titleIcon": "Activity",
+      "summaryFields": [
+        {
+          "label": "1m",
+          "field": "load_1m"
+        },
+        {
+          "label": "5m",
+          "field": "load_5m"
+        },
+        {
+          "label": "15m",
+          "field": "load_15m"
+        }
+      ],
+      "formatter": "number",
+      "panelType": "stat-summary",
+      "sectionId": "summary"
     },
     {
-      "componentKey": "request",
       "groupByKey": "direction",
       "id": "infra-disk-io",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 130,
       "query": {
@@ -206,14 +258,15 @@
       },
       "title": "Disk I/O (Read / Write)",
       "titleIcon": "HardDrive",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "groupByKey": "direction",
       "id": "infra-disk-operations",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 140,
       "query": {
@@ -222,14 +275,15 @@
       },
       "title": "Disk Operations (Read / Write)",
       "titleIcon": "HardDrive",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "groupByKey": "pod",
       "id": "infra-disk-io-time",
       "layout": {
-        "col": 8
+        "preset": "trend"
       },
       "order": 150,
       "query": {
@@ -238,14 +292,15 @@
       },
       "title": "Disk I/O Time",
       "titleIcon": "Clock",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "groupByKey": "mountpoint",
       "id": "infra-filesystem-usage",
       "layout": {
-        "col": 8
+        "preset": "trend"
       },
       "order": 160,
       "query": {
@@ -254,14 +309,15 @@
       },
       "title": "Filesystem Usage by Mountpoint",
       "titleIcon": "FolderOpen",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "groupByKey": "pod",
       "id": "infra-filesystem-util",
       "layout": {
-        "col": 8
+        "preset": "trend"
       },
       "order": 170,
       "query": {
@@ -270,14 +326,15 @@
       },
       "title": "Filesystem Utilization",
       "titleIcon": "FolderOpen",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "groupByKey": "direction",
       "id": "infra-network-io",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 180,
       "query": {
@@ -286,14 +343,15 @@
       },
       "title": "Network I/O (Transmit / Receive)",
       "titleIcon": "Network",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "groupByKey": "direction",
       "id": "infra-network-packets",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 190,
       "query": {
@@ -302,14 +360,15 @@
       },
       "title": "Network Packets (Transmit / Receive)",
       "titleIcon": "Network",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "groupByKey": "state",
       "id": "infra-network-errors",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 200,
       "query": {
@@ -318,14 +377,15 @@
       },
       "title": "Network Errors by State",
       "titleIcon": "AlertTriangle",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "groupByKey": "pod",
       "id": "infra-network-dropped",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 210,
       "query": {
@@ -334,14 +394,15 @@
       },
       "title": "Dropped Packets",
       "titleIcon": "AlertTriangle",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "groupByKey": "state",
       "id": "infra-process-count",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 220,
       "query": {
@@ -350,14 +411,15 @@
       },
       "title": "Process Count by Status",
       "titleIcon": "Activity",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     },
     {
-      "componentKey": "request",
       "groupByKey": "state",
       "id": "infra-network-connections",
       "layout": {
-        "col": 12
+        "preset": "trend"
       },
       "order": 230,
       "query": {
@@ -366,7 +428,9 @@
       },
       "title": "Network Connections by State",
       "titleIcon": "Network",
-      "valueKey": "value"
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
     }
   ]
 }

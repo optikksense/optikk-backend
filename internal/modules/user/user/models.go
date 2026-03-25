@@ -48,10 +48,10 @@ type ProfileTeam struct {
 }
 
 type ProfileResponse struct {
-	UserID      int64          `json:"userId"`
-	Name        string         `json:"name"`
-	Email       string         `json:"email"`
-	AvatarURL   string         `json:"avatarUrl"`
-	Preferences map[string]any `json:"preferences"`
-	Teams       []ProfileTeam  `json:"teams"`
+	UserID      int64           `json:"userId"`
+	Name        string          `json:"name"`
+	Email       string          `json:"email"`
+	AvatarURL   string          `json:"avatarUrl"`
+	Preferences UserPreferences `json:"preferences"`
+	Teams       []ProfileTeam   `json:"teams"`
 }

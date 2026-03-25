@@ -72,11 +72,17 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Re
 	return Response{
 		Results:  searchResult.Logs,
 		Summary:  summary,
-		Facets:   stats.Fields,
+		Facets: ExplorerFacets{
+			Level:       stats.Fields["level"],
+			ServiceName: stats.Fields["service_name"],
+			Host:        stats.Fields["host"],
+			Pod:         stats.Fields["pod"],
+			ScopeName:   stats.Fields["scope_name"],
+		},
 		Trend:    volume,
 		PageInfo: PageInfo{Total: searchResult.Total, HasMore: searchResult.HasMore, NextCursor: searchResult.NextCursor, Offset: cursor.Offset, Limit: limit},
-		Correlations: map[string]any{
-			"serviceErrorRate": aggregate,
+		Correlations: ExplorerCorrelations{
+			ServiceErrorRate: aggregate,
 		},
 	}, nil
 }

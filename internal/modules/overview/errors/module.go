@@ -28,8 +28,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ErrorHandler) {
 	v1.GET("/errors/groups/:groupId/timeseries", h.GetErrorGroupTimeseries)
 }
 
-func init() {
-	registry.Register(&overviewErrorsModule{})
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &overviewErrorsModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
 }
 
 type overviewErrorsModule struct {
@@ -39,12 +41,11 @@ type overviewErrorsModule struct {
 func (m *overviewErrorsModule) Name() string                      { return "overviewErrors" }
 func (m *overviewErrorsModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *overviewErrorsModule) Init(deps registry.Deps) error {
+func (m *overviewErrorsModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &ErrorHandler{
-		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
-		Service:  NewService(NewRepository(deps.NativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
-	return nil
 }
 
 func (m *overviewErrorsModule) RegisterRoutes(group *gin.RouterGroup) {

@@ -3,18 +3,31 @@
   "pageId": "error-group-detail",
   "label": "Timeline",
   "order": 30,
-  "components": [
+  "sections": [
     {
-      "componentKey": "error-rate",
+      "id": "trends",
+      "title": "Timeline",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "stack"
+    }
+  ],
+  "panels": [
+    {
       "id": "error-group-timeseries",
-      "layout": { "col": 24 },
+      "layout": {
+        "preset": "hero"
+      },
       "order": 10,
       "query": {
         "endpoint": "/v1/errors/groups/{errorGroupId}/timeseries",
         "method": "GET"
       },
       "title": "Error Occurrences Over Time",
-      "titleIcon": "TrendingUp"
+      "titleIcon": "TrendingUp",
+      "panelType": "error-rate",
+      "sectionId": "trends"
     }
   ]
 }

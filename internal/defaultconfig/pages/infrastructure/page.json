@@ -1,4 +1,5 @@
 {
+  "schemaVersion": 1,
   "id": "infrastructure",
   "path": "/infrastructure",
   "label": "Infrastructure",
@@ -8,5 +9,6 @@
   "defaultTabId": "resource-utilization",
   "navigable": true,
   "title": "Infrastructure",
-  "subtitle": "Host, JVM, Kubernetes, and node health telemetry"
+  "subtitle": "Host, JVM, Kubernetes, and node health telemetry",
+  "renderMode": "dashboard"
 }
