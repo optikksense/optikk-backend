@@ -3,9 +3,6 @@ package network
 import (
 	"context"
 	"fmt"
-	"time"
-
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/infrastructure/infraconsts"
 )
@@ -30,17 +27,10 @@ func bucket(startMs, endMs int64) string {
 	return infraconsts.TimeBucketExpression(startMs, endMs)
 }
 
-func baseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
 
 func (r *ClickHouseRepository) queryDirectionBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]directionBucketDTO, error) {
 	var rows []directionBucketDTO
-	if err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -48,7 +38,7 @@ func (r *ClickHouseRepository) queryDirectionBuckets(ctx context.Context, query 
 
 func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
 	var rows []stateBucketDTO
-	if err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -56,7 +46,7 @@ func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query stri
 
 func (r *ClickHouseRepository) queryResourceBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
 	var rows []resourceBucketDTO
-	if err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil

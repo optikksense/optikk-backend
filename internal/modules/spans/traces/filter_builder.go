@@ -2,24 +2,12 @@ package traces
 
 import (
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	rootspan "github.com/observability/observability-backend-go/internal/modules/spans/shared/rootspan"
-	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
-
-func baseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
 
 const maxTimeRangeMs = 30 * 24 * 60 * 60 * 1000 // 30 days
 
@@ -41,7 +29,7 @@ func buildWhereClause(f TraceFilters) (string, []any) {
 	startMs, endMs := normalizeTimeRange(f.StartMs, f.EndMs)
 
 	frag := ` WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`
-	args := baseParams(f.TeamID, startMs, endMs)
+	args := dbutil.SpanBaseParams(f.TeamID, startMs, endMs)
 
 	if f.SearchMode != "all" {
 		frag += ` AND ` + rootspan.Condition("s")
@@ -57,13 +45,9 @@ func buildWhereClause(f TraceFilters) (string, []any) {
 	}
 
 	if len(f.Services) > 0 {
-		placeholders := make([]string, len(f.Services))
-		for i, service := range f.Services {
-			name := fmt.Sprintf("service%d", i)
-			placeholders[i] = "@" + name
-			args = append(args, clickhouse.Named(name, service))
-		}
-		frag += ` AND s.service_name IN (` + strings.Join(placeholders, ",") + `)`
+		inFrag, inArgs := dbutil.NamedInArgs("s.service_name", "service", f.Services)
+		frag += ` AND ` + inFrag
+		args = append(args, inArgs...)
 	}
 	if f.Status != "" {
 		if f.Status == "ERROR" {

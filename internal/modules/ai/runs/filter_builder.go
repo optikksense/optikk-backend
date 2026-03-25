@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
@@ -17,14 +18,6 @@ const (
 	colOutputTokens  = "attributes.'gen_ai.usage.output_tokens'::Int64"
 	colFinishReason  = "attributes.'gen_ai.response.finish_reasons'::String"
 )
-
-func baseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
 
 // buildWhereClause constructs the WHERE clause and args for LLM run queries.
 func buildWhereClause(f LLMRunFilters) (string, []any) {
@@ -42,45 +35,18 @@ func buildWhereClause(f LLMRunFilters) (string, []any) {
 		clickhouse.Named("end", time.UnixMilli(f.EndMs)),
 	}
 
-	if len(f.Models) > 0 {
-		placeholders := make([]string, len(f.Models))
-		for i, m := range f.Models {
-			name := fmt.Sprintf("model%d", i)
-			placeholders[i] = "@" + name
-			args = append(args, clickhouse.Named(name, m))
+	appendIn := func(col, prefix string, values []string) {
+		if len(values) == 0 {
+			return
 		}
-		clauses = append(clauses, fmt.Sprintf("%s IN (%s)", colModel, strings.Join(placeholders, ",")))
+		frag, inArgs := dbutil.NamedInArgs(col, prefix, values)
+		clauses = append(clauses, frag)
+		args = append(args, inArgs...)
 	}
-
-	if len(f.Providers) > 0 {
-		placeholders := make([]string, len(f.Providers))
-		for i, p := range f.Providers {
-			name := fmt.Sprintf("provider%d", i)
-			placeholders[i] = "@" + name
-			args = append(args, clickhouse.Named(name, p))
-		}
-		clauses = append(clauses, fmt.Sprintf("%s IN (%s)", colProvider, strings.Join(placeholders, ",")))
-	}
-
-	if len(f.Operations) > 0 {
-		placeholders := make([]string, len(f.Operations))
-		for i, o := range f.Operations {
-			name := fmt.Sprintf("op%d", i)
-			placeholders[i] = "@" + name
-			args = append(args, clickhouse.Named(name, o))
-		}
-		clauses = append(clauses, fmt.Sprintf("%s IN (%s)", colOperationType, strings.Join(placeholders, ",")))
-	}
-
-	if len(f.Services) > 0 {
-		placeholders := make([]string, len(f.Services))
-		for i, sv := range f.Services {
-			name := fmt.Sprintf("svc%d", i)
-			placeholders[i] = "@" + name
-			args = append(args, clickhouse.Named(name, sv))
-		}
-		clauses = append(clauses, fmt.Sprintf("s.service_name IN (%s)", strings.Join(placeholders, ",")))
-	}
+	appendIn(colModel, "model", f.Models)
+	appendIn(colProvider, "provider", f.Providers)
+	appendIn(colOperationType, "op", f.Operations)
+	appendIn("s.service_name", "svc", f.Services)
 
 	if f.Status == "error" {
 		clauses = append(clauses, "s.has_error = true")

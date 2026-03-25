@@ -12,6 +12,13 @@ type serviceDependencyRow struct {
 	ErrorRate    float64 `ch:"error_rate"`
 }
 
+type topologyNodeRow struct {
+	Name         string  `ch:"service_name"`
+	RequestCount int64   `ch:"request_count"`
+	ErrorCount   int64   `ch:"error_count"`
+	AvgLatency   float64 `ch:"avg_latency"`
+}
+
 // clientServerLatencyRow is the scan target for GetClientServerLatency.
 // NetworkGapMs = ClientP95Ms - ServerP95Ms is computed in the service layer.
 type clientServerLatencyRow struct {

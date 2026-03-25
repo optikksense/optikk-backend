@@ -4,7 +4,6 @@ package socketio
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -16,6 +15,8 @@ import (
 	"github.com/googollee/go-socket.io/engineio/transport/websocket"
 
 	"github.com/gin-gonic/gin"
+	"github.com/observability/observability-backend-go/internal/platform/logger"
+	"go.uber.org/zap"
 )
 
 const (
@@ -82,7 +83,7 @@ func NewServer(allowedOrigins []string) (*Server, error) {
 	}
 
 	srv.OnConnect(Namespace, func(conn socketio.Conn) error {
-		log.Printf("Socket.IO [%s] connected: %s", Namespace, conn.ID())
+		logger.L().Info("Socket.IO connected", zap.String("namespace", Namespace), zap.String("conn_id", conn.ID()))
 		s.mu.Lock()
 		s.connDone[conn.ID()] = make(chan struct{})
 		s.mu.Unlock()
@@ -90,7 +91,7 @@ func NewServer(allowedOrigins []string) (*Server, error) {
 	})
 
 	srv.OnDisconnect(Namespace, func(conn socketio.Conn, reason string) {
-		log.Printf("Socket.IO [%s] disconnected: %s reason=%s", Namespace, conn.ID(), reason)
+		logger.L().Info("Socket.IO disconnected", zap.String("namespace", Namespace), zap.String("conn_id", conn.ID()), zap.String("reason", reason))
 		s.mu.Lock()
 		if ch, ok := s.connDone[conn.ID()]; ok {
 			close(ch)
@@ -101,9 +102,9 @@ func NewServer(allowedOrigins []string) (*Server, error) {
 
 	srv.OnError(Namespace, func(conn socketio.Conn, err error) {
 		if conn != nil {
-			log.Printf("Socket.IO [%s] error on %s: %v", Namespace, conn.ID(), err)
+			logger.L().Error("Socket.IO error", zap.String("namespace", Namespace), zap.String("conn_id", conn.ID()), zap.Error(err))
 		} else {
-			log.Printf("Socket.IO [%s] error: %v", Namespace, err)
+			logger.L().Error("Socket.IO error", zap.String("namespace", Namespace), zap.Error(err))
 		}
 	})
 
@@ -145,7 +146,7 @@ func (s *Server) RegisterHandler(h SubscriptionHandler) {
 func (s *Server) Serve() {
 	go func() {
 		if err := s.IO.Serve(); err != nil {
-			log.Printf("Socket.IO serve error: %v", err)
+			logger.L().Error("Socket.IO serve error", zap.Error(err))
 		}
 	}()
 }

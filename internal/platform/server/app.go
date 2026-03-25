@@ -5,19 +5,22 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"go.uber.org/zap"
+
 	"github.com/observability/observability-backend-go/internal/config"
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	configdefaults "github.com/observability/observability-backend-go/internal/defaultconfig"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 	"github.com/observability/observability-backend-go/internal/modules/registry"
 	"github.com/observability/observability-backend-go/internal/platform/cache"
+	"github.com/observability/observability-backend-go/internal/platform/events"
+	"github.com/observability/observability-backend-go/internal/platform/logger"
 	"github.com/observability/observability-backend-go/internal/platform/middleware"
 	sessionauth "github.com/observability/observability-backend-go/internal/platform/session"
 	sio "github.com/observability/observability-backend-go/internal/platform/socketio"
@@ -43,6 +46,9 @@ type App struct {
 
 	// SocketIO is the Socket.IO server for real-time streaming.
 	SocketIO *sio.Server
+
+	// EventBus enables cross-module event communication.
+	EventBus *events.Bus
 }
 
 func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) *App {
@@ -51,7 +57,7 @@ func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) *App {
 
 	reg, err := configdefaults.Load()
 	if err != nil {
-		log.Fatalf("failed to load embedded default config registry: %v", err)
+		logger.L().Fatal("failed to load embedded default config registry", zap.Error(err))
 	}
 
 	var redisClient *redis.Client
@@ -72,11 +78,15 @@ func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) *App {
 	// Create Socket.IO server and register handlers from modules.
 	socketIOServer, err := sio.NewServer(strings.Split(cfg.Server.AllowedOrigins, ","))
 	if err != nil {
-		log.Fatalf("failed to create Socket.IO server: %v", err)
+		logger.L().Fatal("failed to create Socket.IO server", zap.Error(err))
 	}
+	eventBus := events.NewBus()
 	for _, mod := range modules {
 		if r, ok := mod.(registry.SocketIORegistrar); ok {
 			r.RegisterSocketIO(socketIOServer)
+		}
+		if r, ok := mod.(registry.EventSubscriber); ok {
+			r.SubscribeEvents(eventBus)
 		}
 	}
 
@@ -89,6 +99,7 @@ func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) *App {
 		Modules:        modules,
 		Cache:          queryCache,
 		SocketIO:       socketIOServer,
+		EventBus:       eventBus,
 	}
 }
 
@@ -121,7 +132,7 @@ func (a *App) Start(ctx context.Context) error {
 			IdleTimeout:  120 * time.Second,
 		}
 		g.Add(func() error {
-			log.Printf("Main API server starting on %s", srv.Addr)
+			logger.L().Info("main API server starting", zap.String("addr", srv.Addr))
 			return srv.ListenAndServe()
 		}, func(error) {
 			shutCtx, c := context.WithTimeout(context.Background(), 10*time.Second)
@@ -155,7 +166,7 @@ func (a *App) Start(ctx context.Context) error {
 			}
 		}
 		g.Add(func() error {
-			log.Printf("gRPC server starting on %s", a.Config.OTLP.GRPCPort)
+			logger.L().Info("gRPC server starting", zap.String("port", a.Config.OTLP.GRPCPort))
 			return grpcSrv.Serve(lis)
 		}, func(error) {
 			grpcSrv.GracefulStop()
@@ -166,13 +177,13 @@ func (a *App) Start(ctx context.Context) error {
 
 	// Shut down Socket.IO server.
 	if closeErr := a.SocketIO.Close(); closeErr != nil {
-		log.Printf("WARN: error closing Socket.IO server: %v", closeErr)
+		logger.L().Warn("error closing Socket.IO server", zap.Error(closeErr))
 	}
 
 	for _, mod := range a.Modules {
 		if r, ok := mod.(registry.BackgroundRunner); ok {
 			if stopErr := r.Stop(); stopErr != nil {
-				log.Printf("WARN: error stopping module %s: %v", mod.Name(), stopErr)
+				logger.L().Warn("error stopping module", zap.String("module", mod.Name()), zap.Error(stopErr))
 			}
 		}
 	}

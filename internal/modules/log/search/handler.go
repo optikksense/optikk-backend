@@ -3,7 +3,6 @@ package search
 import (
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -14,6 +13,8 @@ import (
 	"github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 	shared "github.com/observability/observability-backend-go/internal/modules/log/internal/shared"
+	"github.com/observability/observability-backend-go/internal/platform/logger"
+	"go.uber.org/zap"
 )
 
 type Handler struct {
@@ -96,14 +97,14 @@ func (h *Handler) StreamLogs(c *gin.Context) {
 
 			resp, err := h.Service.GetLogs(ctx, pollFilters, maxLogsPerPoll, "asc", shared.LogCursor{})
 			if err != nil {
-				log.Printf("WARN [StreamLogs] poll error: %v", err)
+				logger.L().Warn("StreamLogs poll error", zap.Error(err))
 				continue
 			}
 
 			for _, entry := range resp.Logs {
 				b, err := json.Marshal(entry)
 				if err != nil {
-					log.Printf("WARN [StreamLogs] marshal error: %v", err)
+					logger.L().Warn("StreamLogs marshal error", zap.Error(err))
 					continue
 				}
 				fmt.Fprintf(c.Writer, "data: %s\n\n", b)

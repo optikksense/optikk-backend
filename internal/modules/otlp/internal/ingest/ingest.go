@@ -6,12 +6,13 @@ package ingest
 import (
 	"context"
 	"errors"
-	"log"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/observability/observability-backend-go/internal/platform/logger"
+	"go.uber.org/zap"
 )
 
 // RingCapacity is the fixed ring buffer size — must be a power of 2 so index
@@ -92,7 +93,7 @@ func (q *Queue) publish(row Row) error {
 		t := q.tail.Load()
 
 		if h-t >= RingCapacity { // every slot occupied → backpressure
-			log.Printf("ingest: BACKPRESSURE table=%s depth=%d/%d", q.table, h-t, RingCapacity)
+			logger.L().Warn("ingest: BACKPRESSURE", zap.String("table", q.table), zap.Uint64("depth", h-t), zap.Int("capacity", RingCapacity))
 			return ErrBackpressure
 		}
 
@@ -166,7 +167,7 @@ func (q *Queue) Close() error {
 	// Final drain — no goroutines racing at this point.
 	if batch := q.consume(); len(batch) > 0 {
 		if err := q.flush(batch); err != nil {
-			log.Printf("ingest: Close flush error (%s): %v", q.table, err)
+			logger.L().Error("ingest: Close flush error", zap.String("table", q.table), zap.Error(err))
 		}
 	}
 
@@ -212,7 +213,7 @@ func (q *Queue) flushAsync(batch []Row) {
 	go func() {
 		defer func() { <-q.flushSem }() // release when done
 		if err := q.flush(batch); err != nil {
-			log.Printf("ingest: flush error (%s): %v", q.table, err)
+			logger.L().Error("ingest: flush error", zap.String("table", q.table), zap.Error(err))
 		}
 	}()
 }
@@ -229,22 +230,22 @@ func (q *Queue) flush(batch []Row) error {
 
 	b, err := q.conn.PrepareBatch(ctx, q.queryPrefix)
 	if err != nil {
-		log.Printf("ingest: PrepareBatch error (%s): %v", q.table, err)
+		logger.L().Error("ingest: PrepareBatch error", zap.String("table", q.table), zap.Error(err))
 		return err
 	}
 
 	for i, row := range batch {
 		if err := b.Append(row.Values...); err != nil {
-			log.Printf("ingest: Append error (%s) row=%d cols=%d: %v", q.table, i, len(row.Values), err)
+			logger.L().Error("ingest: Append error", zap.String("table", q.table), zap.Int("row", i), zap.Int("cols", len(row.Values)), zap.Error(err))
 			return err
 		}
 	}
 
 	if err := b.Send(); err != nil {
-		log.Printf("ERROR: ClickHouse batch send failed for table %s: %v", q.table, err)
+		logger.L().Error("ClickHouse batch send failed", zap.String("table", q.table), zap.Error(err))
 		return err
 	}
 
-	log.Printf("ingest: flushed %d rows to %s (took %v, queue_depth=%d)", len(batch), q.table, time.Since(start), q.QueueLen())
+	logger.L().Info("ingest: flushed rows", zap.Int("rows", len(batch)), zap.String("table", q.table), zap.Duration("took", time.Since(start)), zap.Int("queue_depth", q.QueueLen()))
 	return nil
 }

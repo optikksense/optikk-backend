@@ -2,6 +2,7 @@ package explorer
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	loganalytics "github.com/observability/observability-backend-go/internal/modules/log/analytics"
@@ -39,17 +40,17 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Re
 
 	searchResult, err := s.searchService.GetLogs(ctx, filters, limit, direction, cursor)
 	if err != nil {
-		return Response{}, err
+		return Response{}, fmt.Errorf("logExplorer.Query.GetLogs: %w", err)
 	}
 
 	stats, err := s.analyticsService.GetLogStats(ctx, filters)
 	if err != nil {
-		return Response{}, err
+		return Response{}, fmt.Errorf("logExplorer.Query.GetStats: %w", err)
 	}
 
 	volume, err := s.analyticsService.GetLogVolume(ctx, filters, req.Step)
 	if err != nil {
-		return Response{}, err
+		return Response{}, fmt.Errorf("logExplorer.Query.GetVolume: %w", err)
 	}
 
 	aggregate, err := s.analyticsService.GetLogAggregate(ctx, filters, loganalytics.LogAggregateRequest{

@@ -3,12 +3,13 @@ package database
 import (
 	"context"
 	"database/sql"
-	"log"
 	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
 	circuitbreaker "github.com/observability/observability-backend-go/internal/platform/circuit_breaker"
+	"github.com/observability/observability-backend-go/internal/platform/logger"
+	"go.uber.org/zap"
 )
 
 // injectMySQLTimeouts adds connection timeouts to the DSN if not already present.
@@ -103,7 +104,7 @@ func (m *MySQLWrapper) Query(query string, args ...any) (Rows, error) {
 		return err
 	})
 	if d := time.Since(start); d >= slowQueryThreshold {
-		log.Printf("SLOW_QUERY mysql duration=%v query=%s", d, truncateQuery(query))
+		logger.L().Warn("SLOW_QUERY mysql", zap.Duration("duration", d), zap.String("query", truncateQuery(query)))
 	}
 	if err != nil {
 		return nil, err
@@ -119,7 +120,7 @@ func (m *MySQLWrapper) QueryRow(query string, args ...any) Row {
 		return nil
 	})
 	if d := time.Since(start); d >= slowQueryThreshold {
-		log.Printf("SLOW_QUERY mysql duration=%v query=%s", d, truncateQuery(query))
+		logger.L().Warn("SLOW_QUERY mysql", zap.Duration("duration", d), zap.String("query", truncateQuery(query)))
 	}
 	if err != nil {
 		return &circuitBreakerRowAdapter{err: err}

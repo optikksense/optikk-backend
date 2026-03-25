@@ -2,6 +2,7 @@ package explorer
 
 import (
 	"context"
+	"fmt"
 
 	spanlivetail "github.com/observability/observability-backend-go/internal/modules/spans/livetail"
 	spantraces "github.com/observability/observability-backend-go/internal/modules/spans/traces"
@@ -34,12 +35,12 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Re
 
 	result, err := s.tracesService.SearchTraces(ctx, filters, limit, req.Cursor, req.Offset)
 	if err != nil {
-		return Response{}, err
+		return Response{}, fmt.Errorf("explorer.Query.SearchTraces: %w", err)
 	}
 
 	facets, err := s.tracesService.GetExplorerFacets(ctx, filters)
 	if err != nil {
-		return Response{}, err
+		return Response{}, fmt.Errorf("explorer.Query.GetFacets: %w", err)
 	}
 	groupedFacets := ExplorerFacets{
 		ServiceName: []FacetBucket{},
@@ -63,7 +64,7 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Re
 
 	trend, err := s.tracesService.GetExplorerTrend(ctx, filters, req.Step)
 	if err != nil {
-		return Response{}, err
+		return Response{}, fmt.Errorf("explorer.Query.GetTrend: %w", err)
 	}
 
 	return Response{

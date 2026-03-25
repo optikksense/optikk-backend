@@ -1,8 +1,12 @@
 package servicemap
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 type Service interface {
+	GetTopology(teamID int64, startMs, endMs int64) (TopologyData, error)
 	GetUpstreamDownstream(teamID int64, serviceName string, startMs, endMs int64) ([]ServiceDependencyDetail, error)
 	GetExternalDependencies(teamID int64, startMs, endMs int64) ([]ExternalDependency, error)
 	GetClientServerLatency(teamID int64, startMs, endMs int64, operationName string) ([]ClientServerLatencyPoint, error)
@@ -14,6 +18,38 @@ type ServiceMapService struct {
 
 func NewService(repo Repository) Service {
 	return &ServiceMapService{repo: repo}
+}
+
+func (s *ServiceMapService) GetTopology(teamID int64, startMs, endMs int64) (TopologyData, error) {
+	ctx := context.Background()
+
+	nodeRows, err := s.repo.GetTopologyNodes(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return TopologyData{}, fmt.Errorf("servicemap.GetTopologyNodes: %w", err)
+	}
+
+	edges, err := s.repo.GetTopologyEdges(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return TopologyData{}, fmt.Errorf("servicemap.GetTopologyEdges: %w", err)
+	}
+
+	nodes := make([]TopologyNode, len(nodeRows))
+	for i, r := range nodeRows {
+		errorRate := 0.0
+		if r.RequestCount > 0 {
+			errorRate = float64(r.ErrorCount) * 100.0 / float64(r.RequestCount)
+		}
+
+		nodes[i] = TopologyNode{
+			Name:         r.Name,
+			Status:       serviceStatus(errorRate),
+			RequestCount: r.RequestCount,
+			ErrorRate:    errorRate,
+			AvgLatency:   r.AvgLatency,
+		}
+	}
+
+	return TopologyData{Nodes: nodes, Edges: edges}, nil
 }
 
 func (s *ServiceMapService) GetUpstreamDownstream(teamID int64, serviceName string, startMs, endMs int64) ([]ServiceDependencyDetail, error) {
@@ -37,6 +73,16 @@ func (s *ServiceMapService) GetUpstreamDownstream(teamID int64, serviceName stri
 		}
 	}
 	return result, nil
+}
+
+func serviceStatus(errorRate float64) string {
+	if errorRate > UnhealthyMinErrorRate {
+		return StatusUnhealthy
+	}
+	if errorRate > HealthyMaxErrorRate {
+		return StatusDegraded
+	}
+	return StatusHealthy
 }
 
 func (s *ServiceMapService) GetExternalDependencies(teamID int64, startMs, endMs int64) ([]ExternalDependency, error) {

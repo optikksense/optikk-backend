@@ -3,8 +3,6 @@ package kubernetes
 import (
 	"context"
 	"fmt"
-	"time"
-
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/observability/observability-backend-go/internal/database"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
@@ -30,13 +28,6 @@ func NewRepository(db *database.NativeQuerier) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-func baseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
 
 func nodeFilter(node string) (string, []any) {
 	if node == "" {
@@ -67,7 +58,7 @@ func (r *ClickHouseRepository) queryContainerBuckets(ctx context.Context, teamID
 		ColTeamID, ColTimestamp,
 		ColMetricName, metricName, nf,
 	)
-	args := append(baseParams(teamID, startMs, endMs), nfArgs...)
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), nfArgs...)
 	var rows []containerBucketDTO
 	err := r.db.Select(ctx, &rows, query, args...)
 	return rows, err
@@ -112,7 +103,7 @@ func (r *ClickHouseRepository) GetPodRestarts(ctx context.Context, teamID int64,
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricK8sContainerRestarts, nf,
 	)
-	args := append(baseParams(teamID, startMs, endMs), nfArgs...)
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), nfArgs...)
 	var rows []podStatDTO
 	err := r.db.Select(ctx, &rows, query, args...)
 	return rows, err
@@ -136,7 +127,7 @@ func (r *ClickHouseRepository) GetNodeAllocatable(ctx context.Context, teamID in
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricK8sNodeAllocatableCPU, MetricK8sNodeAllocatableMemory, nf,
 	)
-	args := append(baseParams(teamID, startMs, endMs), nfArgs...)
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), nfArgs...)
 	var row nodeAllocatableDTO
 	err := r.db.QueryRow(ctx, &row, query, args...)
 	return row, err
@@ -162,7 +153,7 @@ func (r *ClickHouseRepository) GetPodPhases(ctx context.Context, teamID int64, s
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricK8sPodPhase, nf,
 	)
-	args := append(baseParams(teamID, startMs, endMs), nfArgs...)
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), nfArgs...)
 	var rows []phaseStatDTO
 	err := r.db.Select(ctx, &rows, query, args...)
 	return rows, err
@@ -191,7 +182,7 @@ func (r *ClickHouseRepository) GetReplicaStatus(ctx context.Context, teamID int6
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricK8sReplicaSetDesired, MetricK8sReplicaSetAvailable, nf,
 	)
-	args := append(baseParams(teamID, startMs, endMs), nfArgs...)
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), nfArgs...)
 	var rows []ReplicaStat
 	err := r.db.Select(ctx, &rows, query, args...)
 	return rows, err
@@ -220,7 +211,7 @@ func (r *ClickHouseRepository) GetVolumeUsage(ctx context.Context, teamID int64,
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricK8sVolumeCapacity, MetricK8sVolumeInodes, nf,
 	)
-	args := append(baseParams(teamID, startMs, endMs), nfArgs...)
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), nfArgs...)
 	var rows []VolumeStat
 	err := r.db.Select(ctx, &rows, query, args...)
 	return rows, err

@@ -4,12 +4,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
-	stdlog "log"
 	"strconv"
 	"time"
 
 	"github.com/observability/observability-backend-go/internal/modules/otlp/internal/ingest"
+	"github.com/observability/observability-backend-go/internal/platform/logger"
 	"github.com/observability/observability-backend-go/internal/platform/timebucket"
+	"go.uber.org/zap"
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -256,7 +257,7 @@ func MapSpans(teamID int64, req *tracepb.ExportTraceServiceRequest) []ingest.Row
 
 				// Cardinality cap: drop attributes beyond 128 to protect ClickHouse JSON columns.
 				if len(mergedMap) > 128 {
-					stdlog.Printf("ingest: span attributes truncated from %d to 128 for team %d span %s", len(mergedMap), teamID, bytesToHex(s.SpanId))
+					logger.L().Warn("ingest: span attributes truncated", zap.Int("from", len(mergedMap)), zap.Int("to", 128), zap.Int64("team_id", teamID), zap.String("span_id", bytesToHex(s.SpanId)))
 					trimmed := make(map[string]string, 128)
 					i := 0
 					for k, v := range mergedMap {
@@ -450,7 +451,7 @@ func MapLogs(teamID int64, req *logspb.ExportLogsServiceRequest) []ingest.Row {
 
 				// Cardinality cap on string attributes.
 				if len(attrStr) > 128 {
-					stdlog.Printf("ingest: log attributes truncated from %d to 128 for team %d", len(attrStr), teamID)
+					logger.L().Warn("ingest: log attributes truncated", zap.Int("from", len(attrStr)), zap.Int("to", 128), zap.Int64("team_id", teamID))
 					trimmed := make(map[string]string, 128)
 					i := 0
 					for k, v := range attrStr {

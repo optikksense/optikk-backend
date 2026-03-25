@@ -2,10 +2,11 @@ package livetail
 
 import (
 	"encoding/json"
-	"log"
 	"time"
 
+	"github.com/observability/observability-backend-go/internal/platform/logger"
 	sio "github.com/observability/observability-backend-go/internal/platform/socketio"
+	"go.uber.org/zap"
 )
 
 const (
@@ -46,7 +47,7 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 		Handle: func(payload json.RawMessage, emit sio.EmitFunc, done <-chan struct{}) {
 			var p SubscribeSpansPayload
 			if err := json.Unmarshal(payload, &p); err != nil {
-				log.Printf("Socket.IO [subscribe:spans] bad payload: %v", err)
+				logger.L().Warn("Socket.IO [subscribe:spans] bad payload", zap.Error(err))
 				emit("error", socketErrorPayload{Message: "invalid payload"})
 				return
 			}
@@ -82,7 +83,7 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 
 					spans, err := service.Poll(p.TeamID, since, filters)
 					if err != nil {
-						log.Printf("Socket.IO [subscribe:spans] poll error: %v", err)
+						logger.L().Warn("Socket.IO [subscribe:spans] poll error", zap.Error(err))
 						emit("error", socketErrorPayload{Message: "poll error"})
 						continue
 					}

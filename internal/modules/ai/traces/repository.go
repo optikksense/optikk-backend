@@ -3,7 +3,6 @@ package traces
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/observability/observability-backend-go/internal/database"
@@ -26,14 +25,6 @@ type ClickHouseRepository struct {
 
 func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
-}
-
-func baseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
 }
 
 func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamID int64, traceID string) ([]traceSpanDTO, error) {

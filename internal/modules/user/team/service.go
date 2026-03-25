@@ -1,12 +1,13 @@
 package team
 
 import (
-	"log"
 	"strings"
 	"time"
 
 	configdefaults "github.com/observability/observability-backend-go/internal/defaultconfig"
 	usershared "github.com/observability/observability-backend-go/internal/modules/user/internal/shared"
+	"github.com/observability/observability-backend-go/internal/platform/logger"
+	"go.uber.org/zap"
 )
 
 type Service struct {
@@ -128,7 +129,7 @@ func (s *Service) CreateTeam(req CreateTeamRequest) (TeamResponse, error) {
 
 	teamID, err := s.repo.CreateTeam(orgName, name, slug, descriptionPtr, color, apiKey, &defaultConfigJSON, time.Now().UTC())
 	if err != nil {
-		log.Printf("ERROR: Failed to create team: %v (orgName=%s, name=%s)", err, orgName, name)
+		logger.L().Error("Failed to create team", zap.Error(err), zap.String("org_name", orgName), zap.String("name", name))
 		if strings.Contains(err.Error(), "1062") || strings.Contains(err.Error(), "Duplicate entry") {
 			return TeamResponse{}, usershared.NewValidationError("Team already exists in this organization", err)
 		}

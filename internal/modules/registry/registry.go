@@ -9,6 +9,7 @@ import (
 	database "github.com/observability/observability-backend-go/internal/database"
 	configdefaults "github.com/observability/observability-backend-go/internal/defaultconfig"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
+	"github.com/observability/observability-backend-go/internal/platform/events"
 	sessionauth "github.com/observability/observability-backend-go/internal/platform/session"
 	sio "github.com/observability/observability-backend-go/internal/platform/socketio"
 	"google.golang.org/grpc"
@@ -53,4 +54,9 @@ type BackgroundRunner interface {
 // SocketIORegistrar is implemented by modules that register Socket.IO handlers.
 type SocketIORegistrar interface {
 	RegisterSocketIO(srv *sio.Server)
+}
+
+// EventSubscriber is implemented by modules that subscribe to internal events.
+type EventSubscriber interface {
+	SubscribeEvents(bus *events.Bus)
 }

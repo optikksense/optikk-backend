@@ -3,9 +3,7 @@ package httpmetrics
 import (
 	"context"
 	"fmt"
-	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
 	database "github.com/observability/observability-backend-go/internal/database"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
@@ -41,24 +39,6 @@ func NewRepository(db *database.NativeQuerier) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-func baseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
-
-// spanParams returns named params for span table queries (uses both ts_bucket_start and timestamp ranges).
-func spanParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
-	}
-}
 
 func (r *ClickHouseRepository) queryHistogramSummary(teamID int64, startMs, endMs int64, metricName string) (HistogramSummary, error) {
 	query := fmt.Sprintf(`
@@ -77,7 +57,7 @@ func (r *ClickHouseRepository) queryHistogramSummary(teamID int64, startMs, endM
 		ColMetricName, metricName,
 	)
 	var row HistogramSummary
-	if err := r.db.QueryRow(context.Background(), &row, query, baseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.QueryRow(context.Background(), &row, query, database.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return HistogramSummary{}, err
 	}
 	return row, nil
@@ -105,7 +85,7 @@ func (r *ClickHouseRepository) GetRequestRate(teamID int64, startMs, endMs int64
 		ColMetricName, MetricHTTPServerRequestDuration,
 	)
 	var rows []StatusCodeBucket
-	if err := r.db.Select(context.Background(), &rows, query, baseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(context.Background(), &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -135,7 +115,7 @@ func (r *ClickHouseRepository) GetActiveRequests(teamID int64, startMs, endMs in
 		ColMetricName, MetricHTTPServerActiveRequests,
 	)
 	var rows []TimeBucket
-	if err := r.db.Select(context.Background(), &rows, query, baseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(context.Background(), &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -173,7 +153,7 @@ func (r *ClickHouseRepository) GetTopRoutesByVolume(teamID int64, startMs, endMs
 		LIMIT 20
 	`, TableSpans)
 	var rows []RouteMetric
-	if err := r.db.Select(context.Background(), &rows, query, spanParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(context.Background(), &rows, query, database.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -193,7 +173,7 @@ func (r *ClickHouseRepository) GetTopRoutesByLatency(teamID int64, startMs, endM
 		LIMIT 20
 	`, TableSpans)
 	var rows []RouteMetric
-	if err := r.db.Select(context.Background(), &rows, query, spanParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(context.Background(), &rows, query, database.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -213,7 +193,7 @@ func (r *ClickHouseRepository) GetRouteErrorRate(teamID int64, startMs, endMs in
 		LIMIT 20
 	`, TableSpans)
 	var rows []RouteMetric
-	if err := r.db.Select(context.Background(), &rows, query, spanParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(context.Background(), &rows, query, database.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -233,7 +213,7 @@ func (r *ClickHouseRepository) GetRouteErrorTimeseries(teamID int64, startMs, en
 		ORDER BY time_bucket ASC, error_count DESC
 	`, bucket, TableSpans)
 	var rows []RouteTimeseriesPoint
-	if err := r.db.Select(context.Background(), &rows, query, spanParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(context.Background(), &rows, query, database.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -257,7 +237,7 @@ func (r *ClickHouseRepository) GetStatusDistribution(teamID int64, startMs, endM
 		ORDER BY status_group ASC
 	`, TableSpans)
 	var rows []StatusGroupBucket
-	if err := r.db.Select(context.Background(), &rows, query, spanParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(context.Background(), &rows, query, database.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -278,7 +258,7 @@ func (r *ClickHouseRepository) GetErrorTimeseries(teamID int64, startMs, endMs i
 		ORDER BY time_bucket ASC
 	`, bucket, TableSpans)
 	var rows []ErrorTimeseriesPoint
-	if err := r.db.Select(context.Background(), &rows, query, spanParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(context.Background(), &rows, query, database.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -297,7 +277,7 @@ func (r *ClickHouseRepository) GetTopExternalHosts(teamID int64, startMs, endMs 
 		LIMIT 20
 	`, TableSpans)
 	var rows []ExternalHostMetric
-	if err := r.db.Select(context.Background(), &rows, query, spanParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(context.Background(), &rows, query, database.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -318,7 +298,7 @@ func (r *ClickHouseRepository) GetExternalHostLatency(teamID int64, startMs, end
 		LIMIT 20
 	`, TableSpans)
 	var rows []ExternalHostMetric
-	if err := r.db.Select(context.Background(), &rows, query, spanParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(context.Background(), &rows, query, database.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -339,7 +319,7 @@ func (r *ClickHouseRepository) GetExternalHostErrorRate(teamID int64, startMs, e
 		LIMIT 20
 	`, TableSpans)
 	var rows []ExternalHostMetric
-	if err := r.db.Select(context.Background(), &rows, query, spanParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(context.Background(), &rows, query, database.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil

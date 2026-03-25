@@ -2,11 +2,12 @@ package circuitbreaker
 
 import (
 	"errors"
-	"log"
 	"sync"
 	"time"
 
+	"github.com/observability/observability-backend-go/internal/platform/logger"
 	"github.com/sony/gobreaker"
+	"go.uber.org/zap"
 )
 
 var ErrCircuitOpen = errors.New("circuit breaker open")
@@ -63,7 +64,7 @@ func (r *syncRegistry) getOrCreate(name string, threshold int, resetTimeout time
 				return err == nil
 			},
 			OnStateChange: func(name string, from gobreaker.State, to gobreaker.State) {
-				log.Printf("circuit_breaker: %s transitioned %s -> %s", name, from.String(), to.String())
+				logger.L().Warn("circuit_breaker state change", zap.String("name", name), zap.String("from", from.String()), zap.String("to", to.String()))
 			},
 		}),
 	}

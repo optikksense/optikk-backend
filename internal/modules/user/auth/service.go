@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -17,7 +16,9 @@ import (
 	"github.com/google/go-github/v60/github"
 	contracts "github.com/observability/observability-backend-go/internal/contracts"
 	usershared "github.com/observability/observability-backend-go/internal/modules/user/internal/shared"
+	"github.com/observability/observability-backend-go/internal/platform/logger"
 	sessionauth "github.com/observability/observability-backend-go/internal/platform/session"
+	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/oauth2"
 	googleOAuth2 "golang.org/x/oauth2/google"
@@ -92,7 +93,7 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, clientIP string) 
 	}
 
 	if err := s.repo.UpdateUserLastLogin(user.ID, time.Now().UTC()); err != nil {
-		log.Printf("AUTH_EVENT login_update_failed user_id=%d email=%s err=%v", user.ID, user.Email, err)
+		logger.L().Warn("AUTH_EVENT login_update_failed", zap.Int64("user_id", user.ID), zap.String("email", user.Email), zap.Error(err))
 	}
 
 	response, teamID, teamIDs, err := s.buildAuthContextResponse(user)
@@ -110,7 +111,7 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, clientIP string) 
 		return AuthContextResponse{}, usershared.NewInternalError("Failed to create session", err)
 	}
 
-	log.Printf("AUTH_EVENT login_success user_id=%d email=%s team_id=%d ip=%s", user.ID, user.Email, teamID, clientIP)
+	logger.L().Info("AUTH_EVENT login_success", zap.Int64("user_id", user.ID), zap.String("email", user.Email), zap.Int64("team_id", teamID), zap.String("ip", clientIP))
 	return response, nil
 }
 
@@ -119,7 +120,7 @@ func (s *Service) Logout(ctx context.Context, tenant contracts.TenantContext, cl
 		return MessageResponse{}, usershared.NewInternalError("Failed to end session", err)
 	}
 	if tenant.UserID > 0 {
-		log.Printf("AUTH_EVENT logout user_id=%d email=%s ip=%s", tenant.UserID, tenant.UserEmail, clientIP)
+		logger.L().Info("AUTH_EVENT logout", zap.Int64("user_id", tenant.UserID), zap.String("email", tenant.UserEmail), zap.String("ip", clientIP))
 	}
 	return MessageResponse{Message: "Logged out successfully"}, nil
 }
@@ -386,7 +387,7 @@ func (s *Service) startUserSession(ctx context.Context, user usershared.AuthUser
 func (s *Service) buildAuthContextResponse(user usershared.AuthUser) (AuthContextResponse, int64, []int64, error) {
 	teams, err := s.listTeamsForUser(user.TeamsJSON)
 	if err != nil {
-		log.Printf("AUTH_EVENT team_fetch_failed user_id=%d email=%s err=%v", user.ID, user.Email, err)
+		logger.L().Warn("AUTH_EVENT team_fetch_failed", zap.Int64("user_id", user.ID), zap.String("email", user.Email), zap.Error(err))
 		teams = []AuthTeamSummary{}
 	}
 

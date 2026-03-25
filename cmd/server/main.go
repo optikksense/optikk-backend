@@ -3,13 +3,15 @@ package main
 import (
 	"context"
 	"flag"
-	"log"
 	"os"
 	"os/signal"
 	"syscall"
 
+	"go.uber.org/zap"
+
 	"github.com/observability/observability-backend-go/internal/config"
 	"github.com/observability/observability-backend-go/internal/database"
+	"github.com/observability/observability-backend-go/internal/platform/logger"
 	"github.com/observability/observability-backend-go/internal/platform/server"
 )
 
@@ -19,9 +21,17 @@ func main() {
 
 	cfg := config.Load(*configPath)
 
+	mode := "production"
+	if os.Getenv("ENV") == "development" {
+		mode = "development"
+	}
+	logger.Init(mode)
+	defer logger.Sync()
+	log := logger.L()
+
 	dbConn, err := database.Open(cfg.MySQLDSN(), cfg.MySQL.MaxOpenConns, cfg.MySQL.MaxIdleConns)
 	if err != nil {
-		log.Fatalf("failed to connect mysql: %v", err)
+		log.Fatal("failed to connect mysql", zap.Error(err))
 	}
 	defer dbConn.Close()
 
@@ -32,7 +42,7 @@ func main() {
 	}
 	chConn, err := database.OpenClickHouseConn(cfg.ClickHouseDSN(), cfg.ClickHouse.Production, chCloud)
 	if err != nil {
-		log.Fatalf("failed to connect clickhouse: %v", err)
+		log.Fatal("failed to connect clickhouse", zap.Error(err))
 	}
 	defer chConn.Close()
 
@@ -40,8 +50,8 @@ func main() {
 	defer cancel()
 	app := server.New(dbConn, chConn, cfg)
 
-	log.Printf("Server starting on port %s", cfg.Server.Port)
+	log.Info("server starting", zap.String("port", cfg.Server.Port))
 	if err := app.Start(ctx); err != nil {
-		log.Fatalf("server failed: %v", err)
+		log.Fatal("server failed", zap.Error(err))
 	}
 }

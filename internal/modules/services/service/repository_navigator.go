@@ -3,6 +3,8 @@ package servicepage
 import (
 	"context"
 	"fmt"
+
+	"github.com/observability/observability-backend-go/internal/database"
 )
 
 func (r *ClickHouseRepository) GetServiceHealth(ctx context.Context, teamID, startMs, endMs int64) ([]serviceHealthRow, error) {
@@ -23,6 +25,6 @@ func (r *ClickHouseRepository) GetServiceHealth(ctx context.Context, teamID, sta
 			GROUP BY s.service_name
 		)
 		ORDER BY request_count DESC
-	`, baseParams(teamID, startMs, endMs)...)
+	`, database.SpanBaseParams(teamID, startMs, endMs)...)
 	return rows, err
 }

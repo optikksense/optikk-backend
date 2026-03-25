@@ -14,17 +14,6 @@ func errorBucketExpr(startMs, endMs int64) string {
 	return timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 }
 
-// baseParams returns named ClickHouse parameters for teamID + time range.
-func baseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
-
 type Repository interface {
 	GetServiceErrorRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]serviceErrorRateRow, error)
 	GetErrorVolume(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]errorVolumeRow, error)
@@ -68,7 +57,7 @@ func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64,
 		       (groupArray(s.trace_id) as trace_ids)[1] as sample_trace_id
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND (` + ErrorCondition() + `) AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`
-	args := baseParams(teamID, startMs, endMs)
+	args := database.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
 		query += ` AND s.service_name = @serviceName`
 		args = append(args, clickhouse.Named("serviceName", serviceName))
@@ -144,7 +133,7 @@ func (r *ClickHouseRepository) GetErrorGroupDetail(ctx context.Context, teamID i
 		  AND toUInt16OrZero(s.response_status_code) = @groupHTTPStatusCode
 		GROUP BY s.service_name, s.name, s.status_message, toUInt16OrZero(s.response_status_code)`
 
-	args := append(baseParams(teamID, startMs, endMs),
+	args := append(database.SpanBaseParams(teamID, startMs, endMs),
 		clickhouse.Named("groupServiceName", svc),
 		clickhouse.Named("groupOperationName", op),
 		clickhouse.Named("groupStatusMessage", msg),
@@ -189,7 +178,7 @@ func (r *ClickHouseRepository) GetErrorGroupTraces(ctx context.Context, teamID i
 		ORDER BY s.timestamp DESC
 		LIMIT @limit`
 
-	args := append(baseParams(teamID, startMs, endMs),
+	args := append(database.SpanBaseParams(teamID, startMs, endMs),
 		clickhouse.Named("groupServiceName", svc),
 		clickhouse.Named("groupOperationName", op),
 		clickhouse.Named("groupStatusMessage", msg),
@@ -232,7 +221,7 @@ func (r *ClickHouseRepository) GetErrorGroupTimeseries(ctx context.Context, team
 		GROUP BY timestamp
 		ORDER BY timestamp ASC`, bucket)
 
-	args := append(baseParams(teamID, startMs, endMs),
+	args := append(database.SpanBaseParams(teamID, startMs, endMs),
 		clickhouse.Named("groupServiceName", svc),
 		clickhouse.Named("groupOperationName", op),
 		clickhouse.Named("groupStatusMessage", msg),
@@ -274,7 +263,7 @@ func (r *ClickHouseRepository) GetServiceErrorRate(ctx context.Context, teamID i
 			       avg(s.duration_nano / 1000000.0) AS avg_latency
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := baseParams(teamID, startMs, endMs)
+	args := database.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
 		query += ` AND s.service_name = @serviceName`
 		args = append(args, clickhouse.Named("serviceName", serviceName))
@@ -309,7 +298,7 @@ func (r *ClickHouseRepository) GetErrorVolume(ctx context.Context, teamID int64,
 			       toInt64(countIf(`+ErrorCondition()+`)) AS error_count
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := baseParams(teamID, startMs, endMs)
+	args := database.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
 		query += ` AND s.service_name = @serviceName`
 		args = append(args, clickhouse.Named("serviceName", serviceName))
@@ -349,7 +338,7 @@ func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(ctx context.Context,
 			       avg(s.duration_nano / 1000000.0) AS avg_latency
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := baseParams(teamID, startMs, endMs)
+	args := database.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
 		query += ` AND s.service_name = @serviceName`
 		args = append(args, clickhouse.Named("serviceName", serviceName))

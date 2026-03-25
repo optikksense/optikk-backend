@@ -1,7 +1,6 @@
 package jvm
 
 import (
-	"log"
 	"net/http"
 
 	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
@@ -9,6 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
+	"github.com/observability/observability-backend-go/internal/platform/logger"
+	"go.uber.org/zap"
 )
 
 type JVMHandler struct {
@@ -80,7 +81,7 @@ func (h *JVMHandler) GetJVMClasses(c *gin.Context) {
 	}
 	resp, err := h.Service.GetJVMClasses(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		log.Printf("jvm classes query failed: %v", err)
+		logger.L().Error("jvm classes query failed", zap.Error(err))
 		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query JVM classes", err)
 		return
 	}

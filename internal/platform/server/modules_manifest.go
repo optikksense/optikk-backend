@@ -40,7 +40,6 @@ import (
 	saturation_redis "github.com/observability/observability-backend-go/internal/modules/saturation/redis"
 	services_service "github.com/observability/observability-backend-go/internal/modules/services/service"
 	services_servicemap "github.com/observability/observability-backend-go/internal/modules/services/servicemap"
-	services_topology "github.com/observability/observability-backend-go/internal/modules/services/topology"
 	spans_analytics "github.com/observability/observability-backend-go/internal/modules/spans/analytics"
 	spans_errorfingerprint "github.com/observability/observability-backend-go/internal/modules/spans/errorfingerprint"
 	spans_errortracking "github.com/observability/observability-backend-go/internal/modules/spans/errortracking"
@@ -103,7 +102,6 @@ func configuredModules(
 		saturation_redis.NewModule(nativeQuerier, getTenant),
 		services_service.NewModule(nativeQuerier, getTenant),
 		services_servicemap.NewModule(nativeQuerier, getTenant),
-		services_topology.NewModule(nativeQuerier, getTenant),
 		spans_analytics.NewModule(nativeQuerier, getTenant),
 		spans_errorfingerprint.NewModule(nativeQuerier, getTenant),
 		spans_errortracking.NewModule(nativeQuerier, getTenant),

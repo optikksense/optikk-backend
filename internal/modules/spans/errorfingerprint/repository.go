@@ -18,14 +18,6 @@ func NewRepository(db *database.NativeQuerier) *Repository {
 	return &Repository{db: db}
 }
 
-func baseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
-
 // ListFingerprints groups errors by (service, operation, exception_type, status_message)
 // and returns them sorted by count descending.
 func (r *Repository) ListFingerprints(teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorFingerprintDTO, error) {

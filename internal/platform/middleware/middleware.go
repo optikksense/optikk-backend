@@ -3,7 +3,6 @@ package middleware
 import (
 	"crypto/rand"
 	"encoding/hex"
-	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -12,8 +11,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 	types "github.com/observability/observability-backend-go/internal/contracts"
+	"github.com/observability/observability-backend-go/internal/platform/logger"
 	sessionauth "github.com/observability/observability-backend-go/internal/platform/session"
 	"github.com/observability/observability-backend-go/internal/platform/utils"
+	"go.uber.org/zap"
 )
 
 const RequestIDKey = "requestId"
@@ -61,7 +62,7 @@ func APIDebugLogger(enabled bool) gin.HandlerFunc {
 			path = path + "?" + raw
 		}
 
-		log.Printf("[DEBUG API] %s %s | %d | %v", method, path, statusCode, latency)
+		logger.L().Debug("API request", zap.String("method", method), zap.String("path", path), zap.Int("status", statusCode), zap.Duration("latency", latency))
 	}
 }
 
@@ -139,21 +140,21 @@ func isPublicRequest(method, path string) bool {
 }
 
 func abortUnauthorized(c *gin.Context) {
-	log.Printf("AUTH_DENIED [%s %s] code=UNAUTHORIZED ip=%s", c.Request.Method, c.Request.URL.Path, c.ClientIP())
+	logger.L().Warn("AUTH_DENIED", zap.String("method", c.Request.Method), zap.String("path", c.Request.URL.Path), zap.String("code", "UNAUTHORIZED"), zap.String("ip", c.ClientIP()))
 	c.AbortWithStatusJSON(http.StatusUnauthorized, types.Failure(
 		errorcode.Unauthorized, "Valid authentication is required", c.Request.URL.Path,
 	))
 }
 
 func abortMissingTeam(c *gin.Context, email string) {
-	log.Printf("AUTH_DENIED [%s %s] code=MISSING_TEAM user=%s ip=%s", c.Request.Method, c.Request.URL.Path, email, c.ClientIP())
+	logger.L().Warn("AUTH_DENIED", zap.String("method", c.Request.Method), zap.String("path", c.Request.URL.Path), zap.String("code", "MISSING_TEAM"), zap.String("user", email), zap.String("ip", c.ClientIP()))
 	c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
 		"MISSING_TEAM", "Session does not contain a valid team_id", c.Request.URL.Path,
 	))
 }
 
 func abortForbiddenTeam(c *gin.Context, email string, requestedTeamID int64) {
-	log.Printf("AUTH_DENIED [%s %s] code=FORBIDDEN_TEAM user=%s requested_team=%d ip=%s", c.Request.Method, c.Request.URL.Path, email, requestedTeamID, c.ClientIP())
+	logger.L().Warn("AUTH_DENIED", zap.String("method", c.Request.Method), zap.String("path", c.Request.URL.Path), zap.String("code", "FORBIDDEN_TEAM"), zap.String("user", email), zap.Int64("requested_team", requestedTeamID), zap.String("ip", c.ClientIP()))
 	c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
 		"FORBIDDEN_TEAM", "You are not a member of the requested team", c.Request.URL.Path,
 	))

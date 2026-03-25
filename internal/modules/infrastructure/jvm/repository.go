@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"time"
-
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/infrastructure/infraconsts"
 )
@@ -33,13 +30,6 @@ func bucketExpr(startMs, endMs int64) string {
 	return infraconsts.TimeBucketExpression(startMs, endMs)
 }
 
-func baseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
 
 func (r *ClickHouseRepository) GetJVMMemory(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmMemoryBucketDTO, error) {
 	bucket := bucketExpr(startMs, endMs)
@@ -65,7 +55,7 @@ func (r *ClickHouseRepository) GetJVMMemory(ctx context.Context, teamID int64, s
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricJVMMemoryUsed, infraconsts.MetricJVMMemoryCommitted, infraconsts.MetricJVMMemoryLimit)
 	var rows []jvmMemoryBucketDTO
-	err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...)
+	err := r.db.Select(ctx, &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...)
 	for i := range rows {
 		rows[i].Used = sanitizeFloatPtr(rows[i].Used)
 		rows[i].Committed = sanitizeFloatPtr(rows[i].Committed)
@@ -135,7 +125,7 @@ func (r *ClickHouseRepository) GetJVMClasses(ctx context.Context, teamID int64, 
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricJVMClassLoaded, infraconsts.MetricJVMClassCount)
 	var row jvmClassStatsDTO
-	err := r.db.QueryRow(ctx, &row, query, baseParams(teamID, startMs, endMs)...)
+	err := r.db.QueryRow(ctx, &row, query, database.SimpleBaseParams(teamID, startMs, endMs)...)
 	return row, err
 }
 
@@ -153,7 +143,7 @@ func (r *ClickHouseRepository) GetJVMCPU(ctx context.Context, teamID int64, star
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricJVMCPUTime, infraconsts.MetricJVMCPUUtilization)
 	var row jvmCPUStatsDTO
-	err := r.db.QueryRow(ctx, &row, query, baseParams(teamID, startMs, endMs)...)
+	err := r.db.QueryRow(ctx, &row, query, database.SimpleBaseParams(teamID, startMs, endMs)...)
 	row.CPUTimeValue = sanitizeFloat(row.CPUTimeValue)
 	row.RecentUtilization = sanitizeFloat(row.RecentUtilization)
 	return row, err
@@ -179,7 +169,7 @@ func (r *ClickHouseRepository) GetJVMBuffers(ctx context.Context, teamID int64, 
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricJVMBufferMemoryUsage, infraconsts.MetricJVMBufferCount)
 	var rows []JVMBufferBucket
-	err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...)
+	err := r.db.Select(ctx, &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...)
 	for i := range rows {
 		rows[i].MemoryUsage = sanitizeFloatPtr(rows[i].MemoryUsage)
 		rows[i].Count = sanitizeFloatPtr(rows[i].Count)
@@ -189,7 +179,7 @@ func (r *ClickHouseRepository) GetJVMBuffers(ctx context.Context, teamID int64, 
 
 func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
 	var rows []StateBucket
-	err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...)
+	err := r.db.Select(ctx, &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...)
 	for i := range rows {
 		rows[i].Value = sanitizeFloatPtr(rows[i].Value)
 	}
@@ -198,7 +188,7 @@ func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query stri
 
 func (r *ClickHouseRepository) queryResourceBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
 	var rows []ResourceBucket
-	err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...)
+	err := r.db.Select(ctx, &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...)
 	for i := range rows {
 		rows[i].Value = sanitizeFloatPtr(rows[i].Value)
 	}
@@ -207,7 +197,7 @@ func (r *ClickHouseRepository) queryResourceBuckets(ctx context.Context, query s
 
 func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, query string, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
 	var row HistogramSummary
-	err := r.db.QueryRow(ctx, &row, query, baseParams(teamID, startMs, endMs)...)
+	err := r.db.QueryRow(ctx, &row, query, database.SimpleBaseParams(teamID, startMs, endMs)...)
 	row.P50 = sanitizeFloat(row.P50)
 	row.P95 = sanitizeFloat(row.P95)
 	row.P99 = sanitizeFloat(row.P99)

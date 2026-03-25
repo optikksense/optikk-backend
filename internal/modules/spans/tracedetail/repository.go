@@ -4,9 +4,7 @@ import (
 	"context"
 	"regexp"
 	"strings"
-	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
 	database "github.com/observability/observability-backend-go/internal/database"
 )
 
@@ -22,14 +20,6 @@ func normalizeDBStatement(stmt string) string {
 	s = reNumberLiteral.ReplaceAllString(s, "?")
 	s = reMultiSpace.ReplaceAllString(s, " ")
 	return strings.TrimSpace(s)
-}
-
-func baseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
 }
 
 type Repository interface {

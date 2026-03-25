@@ -1,7 +1,6 @@
 package otlp
 
 import (
-	"log"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -9,6 +8,8 @@ import (
 	"github.com/observability/observability-backend-go/internal/modules/otlp/internal/ingest"
 	"github.com/observability/observability-backend-go/internal/modules/otlp/internal/mapper"
 	"github.com/observability/observability-backend-go/internal/modules/registry"
+	"github.com/observability/observability-backend-go/internal/platform/logger"
+	"go.uber.org/zap"
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -84,7 +85,7 @@ func (m *Module) Stop() error {
 	for _, q := range []*ingest.Queue{m.spansQueue, m.logsQueue, m.metricsQueue} {
 		if q != nil {
 			if err := q.Close(); err != nil {
-				log.Printf("WARN: error flushing ingest queue: %v", err)
+				logger.L().Warn("error flushing ingest queue", zap.Error(err))
 			}
 		}
 	}

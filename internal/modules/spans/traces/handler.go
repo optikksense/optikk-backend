@@ -2,7 +2,6 @@ package traces
 
 import (
 	"context"
-	"log"
 	"net/http"
 	"strings"
 
@@ -11,6 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
+	"github.com/observability/observability-backend-go/internal/platform/logger"
+	"go.uber.org/zap"
 )
 
 const maxAttributeFilters = 10
@@ -292,7 +293,7 @@ func (h *TraceHandler) GetLatencyHistogram(c *gin.Context) {
 
 	buckets, err := h.Service.GetLatencyHistogram(c.Request.Context(), teamID, startMs, endMs, serviceName, operationName)
 	if err != nil {
-		log.Printf("latency histogram query failed: %v", err)
+		logger.L().Error("latency histogram query failed", zap.Error(err))
 		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query latency histogram", err)
 		return
 	}

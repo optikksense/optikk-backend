@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -45,7 +46,7 @@ func (s *Service) SearchTraces(ctx context.Context, filters TraceFilters, limit 
 		cursor := decodeCursor(cursorRaw)
 		rows, summaryRow, hasMore, err := s.repo.GetTracesKeyset(ctx, filters, limit, cursor)
 		if err != nil {
-			return TraceSearchResult{}, err
+			return TraceSearchResult{}, fmt.Errorf("traces.SearchTraces.Keyset: %w", err)
 		}
 		traces := traceRowsToModels(rows)
 		summary := mapTraceSummary(summaryRow)
@@ -66,7 +67,7 @@ func (s *Service) SearchTraces(ctx context.Context, filters TraceFilters, limit 
 
 	rows, total, summaryRow, err := s.repo.GetTraces(ctx, filters, limit, offset)
 	if err != nil {
-		return TraceSearchResult{}, err
+		return TraceSearchResult{}, fmt.Errorf("traces.SearchTraces.Offset: %w", err)
 	}
 	traces := traceRowsToModels(rows)
 	return TraceSearchResult{
@@ -82,7 +83,7 @@ func (s *Service) SearchTraces(ctx context.Context, filters TraceFilters, limit 
 func (s *Service) GetTraceSpans(ctx context.Context, teamID int64, traceID string) ([]Span, error) {
 	rows, err := s.repo.GetTraceSpans(ctx, teamID, traceID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("traces.GetTraceSpans: %w", err)
 	}
 	return spanRowsToModels(rows), nil
 }
@@ -90,7 +91,7 @@ func (s *Service) GetTraceSpans(ctx context.Context, teamID int64, traceID strin
 func (s *Service) GetExplorerFacets(ctx context.Context, filters TraceFilters) ([]TraceFacet, error) {
 	rows, err := s.repo.GetTraceFacets(ctx, filters)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("traces.GetFacets: %w", err)
 	}
 
 	facets := make([]TraceFacet, len(rows))
@@ -107,7 +108,7 @@ func (s *Service) GetExplorerFacets(ctx context.Context, filters TraceFilters) (
 func (s *Service) GetExplorerTrend(ctx context.Context, filters TraceFilters, step string) ([]TraceTrendBucket, error) {
 	rows, err := s.repo.GetTraceTrend(ctx, filters, step)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("traces.GetTrend: %w", err)
 	}
 
 	buckets := make([]TraceTrendBucket, len(rows))
@@ -125,7 +126,7 @@ func (s *Service) GetExplorerTrend(ctx context.Context, filters TraceFilters, st
 func (s *Service) GetSpanTree(ctx context.Context, teamID int64, spanID string) ([]Span, error) {
 	rows, err := s.repo.GetSpanTree(ctx, teamID, spanID)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("traces.GetSpanTree: %w", err)
 	}
 	return spanRowsToModels(rows), nil
 }
@@ -133,7 +134,7 @@ func (s *Service) GetSpanTree(ctx context.Context, teamID int64, spanID string) 
 func (s *Service) GetServiceDependencies(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceDependency, error) {
 	rows, err := s.repo.GetServiceDependencies(ctx, teamID, startMs, endMs)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("traces.GetServiceDependencies: %w", err)
 	}
 	return serviceDependencyRowsToModels(rows), nil
 }
@@ -141,7 +142,7 @@ func (s *Service) GetServiceDependencies(ctx context.Context, teamID int64, star
 func (s *Service) GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error) {
 	rows, err := s.repo.GetErrorGroups(ctx, teamID, startMs, endMs, serviceName, limit)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("traces.GetErrorGroups: %w", err)
 	}
 	return errorGroupRowsToModels(rows), nil
 }
@@ -149,7 +150,7 @@ func (s *Service) GetErrorGroups(ctx context.Context, teamID int64, startMs, end
 func (s *Service) GetErrorTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]ErrorTimeSeries, error) {
 	rows, err := s.repo.GetErrorTimeSeries(ctx, teamID, startMs, endMs, serviceName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("traces.GetErrorTimeSeries: %w", err)
 	}
 	return errorTimeSeriesRowsToModels(rows), nil
 }
@@ -157,7 +158,7 @@ func (s *Service) GetErrorTimeSeries(ctx context.Context, teamID int64, startMs,
 func (s *Service) GetLatencyHistogram(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) ([]LatencyHistogramBucket, error) {
 	rows, err := s.repo.GetLatencyHistogram(ctx, teamID, startMs, endMs, serviceName, operationName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("traces.GetLatencyHistogram: %w", err)
 	}
 	return latencyHistogramRowsToModels(rows), nil
 }
@@ -165,7 +166,7 @@ func (s *Service) GetLatencyHistogram(ctx context.Context, teamID int64, startMs
 func (s *Service) GetLatencyHeatmap(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]LatencyHeatmapPoint, error) {
 	rows, err := s.repo.GetLatencyHeatmap(ctx, teamID, startMs, endMs, serviceName)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("traces.GetLatencyHeatmap: %w", err)
 	}
 	return latencyHeatmapRowsToModels(rows), nil
 }

@@ -24,14 +24,6 @@ func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-func baseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
-
 func (r *ClickHouseRepository) GetExceptionRateByType(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]exceptionRatePointDTO, error) {
 	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	query := fmt.Sprintf(`

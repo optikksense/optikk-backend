@@ -3,11 +3,12 @@ package search
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"time"
 
 	shared "github.com/observability/observability-backend-go/internal/modules/log/internal/shared"
+	"github.com/observability/observability-backend-go/internal/platform/logger"
 	sio "github.com/observability/observability-backend-go/internal/platform/socketio"
+	"go.uber.org/zap"
 )
 
 const (
@@ -59,7 +60,7 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 		Handle: func(payload json.RawMessage, emit sio.EmitFunc, done <-chan struct{}) {
 			var p SubscribeLogsPayload
 			if err := json.Unmarshal(payload, &p); err != nil {
-				log.Printf("Socket.IO [subscribe:logs] bad payload: %v", err)
+				logger.L().Warn("Socket.IO [subscribe:logs] bad payload", zap.Error(err))
 				emit("error", socketErrorPayload{Message: "invalid payload"})
 				return
 			}
@@ -119,7 +120,7 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 
 					resp, err := service.GetLogs(ctx, pollFilters, sioMaxLogsPerPoll, "asc", shared.LogCursor{})
 					if err != nil {
-						log.Printf("Socket.IO [subscribe:logs] poll error: %v", err)
+						logger.L().Warn("Socket.IO [subscribe:logs] poll error", zap.Error(err))
 						continue
 					}
 

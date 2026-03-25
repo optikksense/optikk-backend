@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/observability/observability-backend-go/internal/modules/registry"
 	"github.com/observability/observability-backend-go/internal/platform/cache"
+	"github.com/observability/observability-backend-go/internal/platform/logger"
 	"github.com/observability/observability-backend-go/internal/platform/middleware"
 )
 
@@ -15,7 +16,7 @@ func (a *App) Router() *gin.Engine {
 	r := gin.New()
 	r.Use(middleware.RequestIDMiddleware())
 	r.Use(middleware.APIDebugLogger(a.Config.Server.DebugAPILogs))
-	r.Use(gin.Logger())
+	r.Use(logger.GinMiddleware())
 	r.Use(middleware.ErrorRecovery())
 	r.Use(middleware.CORSMiddleware(a.Config.Server.AllowedOrigins))
 

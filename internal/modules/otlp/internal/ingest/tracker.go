@@ -3,11 +3,13 @@ package ingest
 import (
 	"context"
 	"database/sql"
-	"log"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/observability/observability-backend-go/internal/platform/logger"
+	"go.uber.org/zap"
 )
 
 const numShards = 64
@@ -143,13 +145,13 @@ func (b *ByteTracker) flush() {
 
 	_, err := b.db.ExecContext(ctx, caseBuilder.String(), args...)
 	if err != nil {
-		log.Printf("ingest/bytetracker: batch update failed for %d teams: %v", len(teamIDs), err)
+		logger.L().Error("ingest/bytetracker: batch update failed", zap.Int("teams", len(teamIDs)), zap.Error(err))
 
 		// Re-add failed counts back — use Track to re-distribute across shards.
 		for id, bytes := range counts {
 			b.Track(id, bytes)
 		}
 	} else if len(teamIDs) > 0 {
-		log.Printf("ingest/bytetracker: flushed %d teams in single batch", len(teamIDs))
+		logger.L().Info("ingest/bytetracker: flushed teams in single batch", zap.Int("teams", len(teamIDs)))
 	}
 }

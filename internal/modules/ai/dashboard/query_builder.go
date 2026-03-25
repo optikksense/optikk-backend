@@ -46,14 +46,6 @@ func attrStr(key string) string { return "attributes.'" + key + "'::String" }
 func attrInt(key string) string { return "attributes.'" + key + "'::Int64" }
 func attrFlt(key string) string { return "attributes.'" + key + "'::Float64" }
 
-func baseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
-
 func (b *BaseQueryBuilder) baseWhereClause() (string, []any) {
 	modelExpr := attrStr("gen.ai.request.model")
 	where := fmt.Sprintf("WHERE team_id = @teamID AND timestamp BETWEEN @start AND @end AND %s <> ''", modelExpr)

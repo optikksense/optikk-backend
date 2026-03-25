@@ -14,17 +14,6 @@ func overviewBucketExpr(startMs, endMs int64) string {
 	return timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 }
 
-// baseParams returns named ClickHouse parameters for teamID + time range.
-func baseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
-
 type Repository interface {
 	GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]requestRateRow, error)
 	GetErrorRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]errorRateRow, error)
@@ -59,7 +48,7 @@ func (r *ClickHouseRepository) GetRequestRate(ctx context.Context, teamID int64,
 			       toInt64(count()) AS request_count
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := baseParams(teamID, startMs, endMs)
+	args := database.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
 		query += ` AND s.service_name = @serviceName`
 		args = append(args, clickhouse.Named("serviceName", serviceName))
@@ -101,7 +90,7 @@ func (r *ClickHouseRepository) GetErrorRate(ctx context.Context, teamID int64, s
 			       toInt64(countIf(`+ErrorCondition()+`)) AS error_count
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := baseParams(teamID, startMs, endMs)
+	args := database.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
 		query += ` AND s.service_name = @serviceName`
 		args = append(args, clickhouse.Named("serviceName", serviceName))
@@ -136,7 +125,7 @@ func (r *ClickHouseRepository) GetP95Latency(ctx context.Context, teamID int64, 
 			       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(s.duration_nano / 1000000.0) AS p95
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := baseParams(teamID, startMs, endMs)
+	args := database.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
 		query += ` AND s.service_name = @serviceName`
 		args = append(args, clickhouse.Named("serviceName", serviceName))
@@ -183,7 +172,7 @@ func (r *ClickHouseRepository) GetServices(ctx context.Context, teamID int64, st
 		ORDER BY request_count DESC
 	`
 
-	args := baseParams(teamID, startMs, endMs)
+	args := database.SpanBaseParams(teamID, startMs, endMs)
 	var rows []serviceMetricRow
 	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
@@ -222,7 +211,7 @@ func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64
 					SELECT service_name, name, http_method
 					FROM observability.spans s
 					WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`
-	args := baseParams(teamID, startMs, endMs)
+	args := database.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
 		query += ` AND s.service_name = @serviceName`
 		args = append(args, clickhouse.Named("serviceName", serviceName))
@@ -279,7 +268,7 @@ func (r *ClickHouseRepository) GetEndpointTimeSeries(ctx context.Context, teamID
 			       quantile(`+fmt.Sprintf("%.2f", QuantileP99)+`)(s.duration_nano / 1000000.0) AS p99
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := baseParams(teamID, startMs, endMs)
+	args := database.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
 		query += ` AND s.service_name = @serviceName`
 		args = append(args, clickhouse.Named("serviceName", serviceName))

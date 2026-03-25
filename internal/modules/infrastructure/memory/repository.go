@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
-
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/infrastructure/infraconsts"
 )
@@ -38,17 +35,10 @@ func syncAverageExpr(parts ...string) string {
 	)`
 }
 
-func baseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
 
 func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
 	var rows []stateBucketDTO
-	if err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -104,7 +94,7 @@ func (r *ClickHouseRepository) GetMemoryUsagePercentage(ctx context.Context, tea
 		infraconsts.ColMetricName, infraconsts.MetricSystemMemoryUtilization, infraconsts.MetricJVMMemoryUsed, infraconsts.MetricJVMMemoryMax,
 		aMem)
 	var rows []resourceBucketDTO
-	if err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil

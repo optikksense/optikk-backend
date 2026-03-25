@@ -3,9 +3,7 @@ package apm
 import (
 	"context"
 	"fmt"
-	"time"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/observability/observability-backend-go/internal/database"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
@@ -28,14 +26,6 @@ func NewRepository(db *database.NativeQuerier) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-// baseParams returns named ClickHouse parameters for teamID + time range.
-func baseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
 
 func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (histogramSummaryDTO, error) {
 	query := fmt.Sprintf(`
@@ -54,7 +44,7 @@ func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID
 		ColMetricName, metricName,
 	)
 	var result histogramSummaryDTO
-	return result, r.db.QueryRow(ctx, &result, query, baseParams(teamID, startMs, endMs)...)
+	return result, r.db.QueryRow(ctx, &result, query, database.SimpleBaseParams(teamID, startMs, endMs)...)
 }
 
 func (r *ClickHouseRepository) queryTimeBuckets(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]timeBucketDTO, error) {
@@ -76,7 +66,7 @@ func (r *ClickHouseRepository) queryTimeBuckets(ctx context.Context, teamID int6
 		ColMetricName, metricName,
 	)
 	var rows []timeBucketDTO
-	return rows, r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...)
+	return rows, r.db.Select(ctx, &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...)
 }
 
 func (r *ClickHouseRepository) GetRPCDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error) {
@@ -102,7 +92,7 @@ func (r *ClickHouseRepository) GetRPCRequestRate(ctx context.Context, teamID int
 		ColMetricName, MetricRPCServerDuration,
 	)
 	var rows []timeBucketDTO
-	return rows, r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...)
+	return rows, r.db.Select(ctx, &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...)
 }
 
 func (r *ClickHouseRepository) GetMessagingPublishDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error) {
@@ -131,7 +121,7 @@ func (r *ClickHouseRepository) GetProcessCPU(ctx context.Context, teamID int64, 
 		ColMetricName, MetricProcessCPUTime,
 	)
 	var rows []StateBucket
-	return rows, r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...)
+	return rows, r.db.Select(ctx, &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...)
 }
 
 func (r *ClickHouseRepository) GetProcessMemory(ctx context.Context, teamID int64, startMs, endMs int64) (processMemoryDTO, error) {
@@ -151,7 +141,7 @@ func (r *ClickHouseRepository) GetProcessMemory(ctx context.Context, teamID int6
 		ColMetricName, MetricProcessMemoryUsage, MetricProcessMemoryVirtual,
 	)
 	var result processMemoryDTO
-	return result, r.db.QueryRow(ctx, &result, query, baseParams(teamID, startMs, endMs)...)
+	return result, r.db.QueryRow(ctx, &result, query, database.SimpleBaseParams(teamID, startMs, endMs)...)
 }
 
 func (r *ClickHouseRepository) GetOpenFDs(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketDTO, error) {

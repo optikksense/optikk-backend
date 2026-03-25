@@ -1,10 +1,12 @@
 package ingest
 
 import (
-	"log"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/observability/observability-backend-go/internal/platform/logger"
+	"go.uber.org/zap"
 )
 
 const (
@@ -41,7 +43,7 @@ func (l *TeamLimiter) Allow(teamID int64, n int64) bool {
 	for {
 		cur := b.tokens.Load()
 		if cur < n {
-			log.Printf("ingest: rate limit exceeded for team %d (tokens=%d want=%d)", teamID, cur, n)
+			logger.L().Warn("ingest: rate limit exceeded", zap.Int64("team_id", teamID), zap.Int64("tokens", cur), zap.Int64("want", n))
 			return false
 		}
 		if b.tokens.CompareAndSwap(cur, cur-n) {

@@ -3,9 +3,9 @@ package kafka
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/observability/observability-backend-go/internal/database"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
@@ -25,14 +25,6 @@ func bucketSecs(startMs, endMs int64) float64 {
 	return 3600.0
 }
 
-// baseParams returns named ClickHouse parameters for teamID + time range.
-func baseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
 
 // ── 1. Summary stat cards ─────────────────────────────────────────────────────
 
@@ -77,7 +69,7 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(teamID int64, startMs, endMs
 		filterSQL,
 	)
 
-	args := append(baseParams(teamID, startMs, endMs), clickhouse.Named("durationSecs", durationSecs))
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("durationSecs", durationSecs))
 	args = append(args, filterArgs...)
 	var result KafkaSummaryStats
 	return result, r.db.QueryRow(context.Background(), &result, query, args...)
@@ -106,7 +98,7 @@ func (r *ClickHouseRepository) GetProduceRateByTopic(teamID int64, startMs, endM
 		ORDER BY time_bucket ASC, topic ASC
 	`, bucket, topic, ColValue, TableMetrics, filterSQL, ColMetricName, clause)
 
-	args := append(baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []TopicRatePoint
 	return out, r.db.Select(context.Background(), &out, query, args...)
@@ -136,7 +128,7 @@ func (r *ClickHouseRepository) GetPublishLatencyByTopic(teamID int64, startMs, e
 		ORDER BY time_bucket ASC, topic ASC
 	`, bucket, topic, TableMetrics, filterSQL, publishDurationCondition())
 
-	args := append(baseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
 	var out []TopicLatencyPoint
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
@@ -164,7 +156,7 @@ func (r *ClickHouseRepository) GetConsumeRateByTopic(teamID int64, startMs, endM
 		ORDER BY time_bucket ASC, topic ASC
 	`, bucket, topic, ColValue, TableMetrics, filterSQL, ColMetricName, clause)
 
-	args := append(baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []TopicRatePoint
 	return out, r.db.Select(context.Background(), &out, query, args...)
@@ -194,7 +186,7 @@ func (r *ClickHouseRepository) GetReceiveLatencyByTopic(teamID int64, startMs, e
 		ORDER BY time_bucket ASC, topic ASC
 	`, bucket, topic, TableMetrics, filterSQL, receiveDurationCondition())
 
-	args := append(baseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
 	var out []TopicLatencyPoint
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
@@ -222,7 +214,7 @@ func (r *ClickHouseRepository) GetConsumeRateByGroup(teamID int64, startMs, endM
 		ORDER BY time_bucket ASC, consumer_group ASC
 	`, bucket, group, ColValue, TableMetrics, filterSQL, ColMetricName, clause)
 
-	args := append(baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []GroupRatePoint
 	return out, r.db.Select(context.Background(), &out, query, args...)
@@ -251,7 +243,7 @@ func (r *ClickHouseRepository) GetProcessRateByGroup(teamID int64, startMs, endM
 		ORDER BY time_bucket ASC, consumer_group ASC
 	`, bucket, group, ColValue, TableMetrics, filterSQL, ColMetricName, clause)
 
-	args := append(baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []GroupRatePoint
 	return out, r.db.Select(context.Background(), &out, query, args...)
@@ -281,7 +273,7 @@ func (r *ClickHouseRepository) GetProcessLatencyByGroup(teamID int64, startMs, e
 		ORDER BY time_bucket ASC, consumer_group ASC
 	`, bucket, group, TableMetrics, filterSQL, processDurationCondition())
 
-	args := append(baseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
 	var out []GroupLatencyPoint
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
@@ -315,7 +307,7 @@ func (r *ClickHouseRepository) GetConsumerLagByGroup(teamID int64, startMs, endM
 		ColMetricName, clause,
 	)
 
-	args := append(baseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
 	var out []LagPoint
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
@@ -350,7 +342,7 @@ func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamID int64, startMs,
 		ColMetricName, clause,
 	)
 
-	args := append(baseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
 	var out []PartitionLag
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
@@ -394,7 +386,7 @@ func (r *ClickHouseRepository) GetRebalanceSignals(teamID int64, startMs, endMs 
 		filterSQL,
 	)
 
-	args := append(baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []RebalancePoint
 	return out, r.db.Select(context.Background(), &out, query, args...)
@@ -440,7 +432,7 @@ func (r *ClickHouseRepository) GetE2ELatency(teamID int64, startMs, endMs int64,
 		filterSQL,
 	)
 
-	args := append(baseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
 	var out []E2ELatencyPoint
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
@@ -492,7 +484,7 @@ func (r *ClickHouseRepository) GetClientOpErrors(teamID int64, startMs, endMs in
 		errType,
 	)
 
-	args := append(baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []ErrorRatePoint
 	return out, r.db.Select(context.Background(), &out, query, args...)
@@ -522,7 +514,7 @@ func (r *ClickHouseRepository) GetBrokerConnections(teamID int64, startMs, endMs
 		ColMetricName, MetricClientConnections,
 	)
 
-	args := append(baseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
 	var out []BrokerConnectionPoint
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
@@ -551,7 +543,7 @@ func (r *ClickHouseRepository) GetClientOperationDuration(teamID int64, startMs,
 		ORDER BY time_bucket ASC, operation_name ASC
 	`, bucket, opName, TableMetrics, filterSQL, ColMetricName, MetricClientOperationDuration)
 
-	args := append(baseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
 	var out []ClientOpDurationPoint
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
@@ -585,7 +577,7 @@ func (r *ClickHouseRepository) getErrorRates(teamID int64, startMs, endMs int64,
 		errType,
 	)
 
-	args := append(baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []ErrorRatePoint
 	if err := r.db.Select(context.Background(), &out, query, args...); err != nil {
@@ -621,7 +613,7 @@ func (r *ClickHouseRepository) getGroupErrorRates(teamID int64, startMs, endMs i
 		errType,
 	)
 
-	args := append(baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []ErrorRatePoint
 	if err := r.db.Select(context.Background(), &out, query, args...); err != nil {

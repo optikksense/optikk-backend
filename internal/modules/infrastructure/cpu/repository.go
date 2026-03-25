@@ -4,9 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
-
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/infrastructure/infraconsts"
 )
@@ -39,17 +36,10 @@ func syncAverageExpr(parts ...string) string {
 	)`
 }
 
-func baseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
 
 func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
 	var rows []stateBucketDTO
-	if err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -109,7 +99,7 @@ func (r *ClickHouseRepository) GetCPUUsagePercentage(ctx context.Context, teamID
 		infraconsts.ColMetricName, infraconsts.MetricSystemCPUUtilization, infraconsts.MetricSystemCPUUsage, infraconsts.MetricProcessCPUUsage,
 		aCPU)
 	var rows []resourceBucketDTO
-	if err := r.db.Select(ctx, &rows, query, baseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -131,7 +121,7 @@ func (r *ClickHouseRepository) GetLoadAverage(ctx context.Context, teamID int64,
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricSystemCPULoadAvg1m, infraconsts.MetricSystemCPULoadAvg5m, infraconsts.MetricSystemCPULoadAvg15m)
 	var result loadAverageResultDTO
-	if err := r.db.QueryRow(ctx, &result, query, baseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.QueryRow(ctx, &result, query, database.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return loadAverageResultDTO{}, err
 	}
 	return result, nil

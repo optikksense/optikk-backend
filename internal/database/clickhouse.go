@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"log"
 	"net"
 	"regexp"
 	"strings"
@@ -14,6 +13,8 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	circuitbreaker "github.com/observability/observability-backend-go/internal/platform/circuit_breaker"
+	"github.com/observability/observability-backend-go/internal/platform/logger"
+	"go.uber.org/zap"
 )
 
 const slowQueryThreshold = 100 * time.Millisecond
@@ -220,7 +221,7 @@ func (n *NativeQuerier) Select(ctx context.Context, dest any, query string, args
 		return n.conn.Select(ctx, dest, query, args...)
 	})
 	if d := time.Since(start); d >= slowQueryThreshold {
-		log.Printf("SLOW_QUERY clickhouse_native duration=%v query=%s", d, truncateQuery(query))
+		logger.L().Warn("SLOW_QUERY clickhouse_native", zap.Duration("duration", d), zap.String("query", truncateQuery(query)))
 	}
 	return err
 }
@@ -232,7 +233,22 @@ func (n *NativeQuerier) QueryRow(ctx context.Context, dest any, query string, ar
 		return n.conn.QueryRow(ctx, query, args...).ScanStruct(dest)
 	})
 	if d := time.Since(start); d >= slowQueryThreshold {
-		log.Printf("SLOW_QUERY clickhouse_native duration=%v query=%s", d, truncateQuery(query))
+		logger.L().Warn("SLOW_QUERY clickhouse_native", zap.Duration("duration", d), zap.String("query", truncateQuery(query)))
 	}
 	return err
+}
+
+// SelectTyped executes a SELECT query and scans results into a typed slice.
+// Eliminates the common three-line pattern: var rows []T; err := db.Select(...); return rows, err
+func SelectTyped[T any](db *NativeQuerier, ctx context.Context, query string, args ...any) ([]T, error) {
+	var rows []T
+	err := db.Select(ctx, &rows, query, args...)
+	return rows, err
+}
+
+// QueryRowTyped executes a single-row query and scans into a typed struct.
+func QueryRowTyped[T any](db *NativeQuerier, ctx context.Context, query string, args ...any) (T, error) {
+	var row T
+	err := db.QueryRow(ctx, &row, query, args...)
+	return row, err
 }

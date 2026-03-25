@@ -1,7 +1,6 @@
 package httpmetrics
 
 import (
-	"log"
 	"net/http"
 
 	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
@@ -9,6 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
+	"github.com/observability/observability-backend-go/internal/platform/logger"
+	"go.uber.org/zap"
 )
 
 type HTTPMetricsHandler struct {
@@ -178,7 +179,7 @@ func (h *HTTPMetricsHandler) GetRouteErrorTimeseries(c *gin.Context) {
 	}
 	resp, err := h.Service.GetRouteErrorTimeseries(teamID, startMs, endMs)
 	if err != nil {
-		log.Printf("http route error timeseries query failed: %v", err)
+		logger.L().Error("http route error timeseries query failed", zap.Error(err))
 		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query route error timeseries", err)
 		return
 	}
@@ -207,7 +208,7 @@ func (h *HTTPMetricsHandler) GetErrorTimeseries(c *gin.Context) {
 	}
 	resp, err := h.Service.GetErrorTimeseries(teamID, startMs, endMs)
 	if err != nil {
-		log.Printf("http error timeseries query failed: %v", err)
+		logger.L().Error("http error timeseries query failed", zap.Error(err))
 		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query HTTP error timeseries", err)
 		return
 	}

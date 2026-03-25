@@ -1,11 +1,6 @@
 package shared
 
 import (
-	"fmt"
-	"strings"
-	"time"
-
-	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
@@ -17,18 +12,16 @@ type Filters struct {
 }
 
 func FilterClauses(f Filters) (string, []any) {
-	var sb strings.Builder
+	var frag string
 	var args []any
 
 	appendIn := func(attr string, prefix string, values []string) {
 		if len(values) == 0 {
 			return
 		}
-		clause, namedArgs := dbutil.NamedInClause(prefix, values)
-		sb.WriteString(fmt.Sprintf(" AND %s IN %s", AttrString(attr), clause))
-		for key, value := range namedArgs {
-			args = append(args, clickhouse.Named(key, value))
-		}
+		inFrag, inArgs := dbutil.NamedInArgs(AttrString(attr), prefix, values)
+		frag += " AND " + inFrag
+		args = append(args, inArgs...)
 	}
 
 	appendIn(AttrDBSystem, "dbSystem", f.DBSystem)
@@ -36,15 +29,11 @@ func FilterClauses(f Filters) (string, []any) {
 	appendIn(AttrDBNamespace, "dbNamespace", f.Namespace)
 	appendIn(AttrServerAddress, "dbServer", f.Server)
 
-	return sb.String(), args
+	return frag, args
 }
 
 func BaseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
+	return dbutil.SimpleBaseParams(teamID, startMs, endMs)
 }
 
 func ScaleToMs(v *float64) *float64 {

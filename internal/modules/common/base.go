@@ -4,20 +4,19 @@
 package common
 
 import (
-	"database/sql"
 	"fmt"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
-	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
-
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
+
 	types "github.com/observability/observability-backend-go/internal/contracts"
-	"github.com/observability/observability-backend-go/internal/database"
+	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
 	dbutil "github.com/observability/observability-backend-go/internal/database"
+	"github.com/observability/observability-backend-go/internal/platform/logger"
 )
 
 type GetTenantFunc func(*gin.Context) types.TenantContext
@@ -28,7 +27,9 @@ func RespondOK(c *gin.Context, data any) {
 
 func RespondError(c *gin.Context, status int, code, msg string) {
 	if status >= 500 {
-		log.Printf("ERROR [%s %s] %s: %s", c.Request.Method, c.Request.URL.Path, code, msg)
+		logger.FromCtx(c.Request.Context()).Error("request error",
+			zap.String("code", code), zap.String("msg", msg),
+			zap.String("method", c.Request.Method), zap.String("path", c.Request.URL.Path))
 	}
 	c.JSON(status, types.Failure(code, msg, c.Request.URL.Path))
 }
@@ -37,11 +38,17 @@ func RespondError(c *gin.Context, status int, code, msg string) {
 // The cause is appended to the client-facing message so the caller knows why it failed.
 // Use this instead of RespondError when you have access to the original error.
 func RespondErrorWithCause(c *gin.Context, status int, code, msg string, err error) {
+	log := logger.FromCtx(c.Request.Context())
 	if err != nil {
-		log.Printf("ERROR [%s %s] %s: %s: %v", c.Request.Method, c.Request.URL.Path, code, msg, err)
+		log.Error("request error",
+			zap.String("code", code), zap.String("msg", msg),
+			zap.String("method", c.Request.Method), zap.String("path", c.Request.URL.Path),
+			zap.Error(err))
 		msg = fmt.Sprintf("%s: %s", msg, dbutil.SanitizeError(err))
 	} else if status >= 500 {
-		log.Printf("ERROR [%s %s] %s: %s", c.Request.Method, c.Request.URL.Path, code, msg)
+		log.Error("request error",
+			zap.String("code", code), zap.String("msg", msg),
+			zap.String("method", c.Request.Method), zap.String("path", c.Request.URL.Path))
 	}
 	c.JSON(status, types.Failure(code, msg, c.Request.URL.Path))
 }
@@ -212,50 +219,3 @@ func ExtractIDParam(c *gin.Context, key string) (int64, error) {
 	return id, nil
 }
 
-func SqlTime(ms int64) time.Time {
-	return dbutil.SqlTime(ms)
-}
-
-func NullableString(v string) any {
-	return dbutil.NullableString(v)
-}
-
-func DefaultString(v, fallback string) string {
-	return dbutil.DefaultString(v, fallback)
-}
-
-func QueryCount(db *sql.DB, q string, args ...any) int64 {
-	return dbutil.QueryCount(database.NewMySQLWrapper(db), q, args...)
-}
-
-func InClauseFromStrings(values []string) (string, []any) {
-	return dbutil.InClauseFromStrings(values)
-}
-
-func Int64FromAny(v any) int64 {
-	return dbutil.Int64FromAny(v)
-}
-
-func Float64FromAny(v any) float64 {
-	return dbutil.Float64FromAny(v)
-}
-
-func StringFromAny(v any) string {
-	return dbutil.StringFromAny(v)
-}
-
-func BoolFromAny(v any) bool {
-	return dbutil.BoolFromAny(v)
-}
-
-func ToInt64Slice(v any) []int64 {
-	return dbutil.ToInt64Slice(v)
-}
-
-func NormalizeRows(rows []map[string]any) []map[string]any {
-	return dbutil.NormalizeRows(rows)
-}
-
-func NormalizeMap(m map[string]any) map[string]any {
-	return dbutil.NormalizeMap(m)
-}

@@ -2,8 +2,8 @@ package otlp
 
 import (
 	"context"
-	"log"
 
+	"github.com/observability/observability-backend-go/internal/platform/logger"
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -41,7 +41,7 @@ func NewHandler(service *Service) *Handler {
 func (s *TraceServer) Export(ctx context.Context, req *tracepb.ExportTraceServiceRequest) (*tracepb.ExportTraceServiceResponse, error) {
 	resp, err := s.service.ExportTraces(ctx, req)
 	if err == nil {
-		log.Printf("ingest: processed traces via gRPC")
+		logger.L().Info("ingest: processed traces via gRPC")
 	}
 	return resp, err
 }
@@ -49,7 +49,7 @@ func (s *TraceServer) Export(ctx context.Context, req *tracepb.ExportTraceServic
 func (s *LogsServer) Export(ctx context.Context, req *logspb.ExportLogsServiceRequest) (*logspb.ExportLogsServiceResponse, error) {
 	resp, err := s.service.ExportLogs(ctx, req)
 	if err == nil {
-		log.Printf("ingest: processed logs via gRPC")
+		logger.L().Info("ingest: processed logs via gRPC")
 	}
 	return resp, err
 }
@@ -57,7 +57,7 @@ func (s *LogsServer) Export(ctx context.Context, req *logspb.ExportLogsServiceRe
 func (s *MetricsServer) Export(ctx context.Context, req *metricspb.ExportMetricsServiceRequest) (*metricspb.ExportMetricsServiceResponse, error) {
 	resp, err := s.service.ExportMetrics(ctx, req)
 	if err == nil {
-		log.Printf("ingest: processed metrics via gRPC")
+		logger.L().Info("ingest: processed metrics via gRPC")
 	}
 	return resp, err
 }

@@ -3,7 +3,6 @@ package slo
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/observability/observability-backend-go/internal/database"
@@ -12,17 +11,6 @@ import (
 
 func sloBucketExpr(startMs, endMs int64) string {
 	return timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
-}
-
-// baseParams returns named ClickHouse parameters for teamID + time range.
-func baseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
-	}
 }
 
 type Repository interface {
@@ -65,7 +53,7 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 			       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency_ms
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`
-	args := baseParams(teamID, startMs, endMs)
+	args := database.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
 		query += ` AND s.service_name = @serviceName`
 		args = append(args, clickhouse.Named("serviceName", serviceName))
@@ -113,7 +101,7 @@ func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, 
 			       avg(s.duration_nano / 1000000.0)     AS avg_latency_ms
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := baseParams(teamID, startMs, endMs)
+	args := database.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
 		query += ` AND s.service_name = @serviceName`
 		args = append(args, clickhouse.Named("serviceName", serviceName))

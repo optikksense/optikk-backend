@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/observability/observability-backend-go/internal/database"
 )
 
 // BurnDownPoint represents a single point on the error budget burn-down chart.
@@ -41,7 +42,7 @@ func (r *ClickHouseRepository) GetBurnDown(ctx context.Context, teamID int64, st
 		WHERE s.team_id = @teamID AND `+RootSpanCondition()+`
 		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := baseParams(teamID, startMs, endMs)
+	args := database.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
 		query += ` AND s.service_name = @serviceName`
 		args = append(args, clickhouse.Named("serviceName", serviceName))

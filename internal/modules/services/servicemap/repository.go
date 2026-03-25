@@ -3,7 +3,6 @@ package servicemap
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/observability/observability-backend-go/internal/database"
@@ -11,6 +10,8 @@ import (
 )
 
 type Repository interface {
+	GetTopologyNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]topologyNodeRow, error)
+	GetTopologyEdges(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopologyEdge, error)
 	GetUpstreamDownstream(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) ([]serviceDependencyRow, error)
 	GetExternalDependencies(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalDependency, error)
 	GetClientServerLatency(ctx context.Context, teamID int64, startMs, endMs int64, operationName string) ([]clientServerLatencyRow, error)
@@ -24,19 +25,59 @@ func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-func baseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
-	}
+func (r *ClickHouseRepository) GetTopologyNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]topologyNodeRow, error) {
+	var rows []topologyNodeRow
+	err := r.db.Select(ctx, &rows, `
+		SELECT service_name,
+		       request_count,
+		       error_count,
+		       avg_latency
+		FROM (
+			SELECT s.service_name AS service_name,
+			       toInt64(count())                       AS request_count,
+			       toInt64(countIf(`+ErrorCondition()+`)) AS error_count,
+			       avg(s.duration_nano / 1000000.0)       AS avg_latency
+			FROM observability.spans s
+			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
+			GROUP BY s.service_name
+		)
+		ORDER BY request_count DESC
+	`, database.SpanBaseParams(teamID, startMs, endMs)...)
+	return rows, err
+}
+
+func (r *ClickHouseRepository) GetTopologyEdges(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopologyEdge, error) {
+	var rows []TopologyEdge
+	err := r.db.Select(ctx, &rows, `
+		SELECT source,
+		       target,
+		       call_count,
+		       avg_latency,
+		       p95_latency_ms,
+		       if(call_count > 0, error_count*100.0/call_count, 0) AS error_rate
+		FROM (
+			SELECT s1.service_name                                                   AS source,
+			       s2.service_name                                                   AS target,
+			       toInt64(count())                                                 AS call_count,
+			       toInt64(countIf(s1.has_error = true OR toUInt16OrZero(s1.response_status_code) >= 400)) AS error_count,
+			       avg(s1.duration_nano / 1000000.0)                                AS avg_latency,
+			       quantile(0.95)(s1.duration_nano / 1000000.0)                     AS p95_latency_ms
+			FROM observability.spans s1
+			JOIN observability.spans s2 ON s1.team_id = s2.team_id AND s1.trace_id = s2.trace_id AND s1.span_id = s2.parent_span_id
+				AND s2.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s2.timestamp BETWEEN @start AND @end
+			WHERE s1.team_id = @teamID AND s1.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s1.kind = 3 AND s1.timestamp BETWEEN @start AND @end
+			  AND s1.service_name != s2.service_name
+			GROUP BY s1.service_name, s2.service_name
+		)
+		ORDER BY call_count DESC
+		LIMIT `+fmt.Sprintf("%d", MaxEdges),
+		database.SpanBaseParams(teamID, startMs, endMs)...)
+	return rows, err
 }
 
 func (r *ClickHouseRepository) GetUpstreamDownstream(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) ([]serviceDependencyRow, error) {
 	var rows []serviceDependencyRow
-	params := append(baseParams(teamID, startMs, endMs), clickhouse.Named("serviceName", serviceName))
+	params := append(database.SpanBaseParams(teamID, startMs, endMs), clickhouse.Named("serviceName", serviceName))
 	err := r.db.Select(ctx, &rows, `
 		SELECT source,
 		       target,
@@ -93,7 +134,7 @@ func (r *ClickHouseRepository) GetExternalDependencies(ctx context.Context, team
 		ORDER BY call_count DESC
 		LIMIT 100
 	`, externalHostExpr, externalHostExpr, externalHostExpr),
-		baseParams(teamID, startMs, endMs)...)
+		database.SpanBaseParams(teamID, startMs, endMs)...)
 	return rows, err
 }
 
@@ -107,7 +148,7 @@ func (r *ClickHouseRepository) GetClientServerLatency(ctx context.Context, teamI
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
 		  AND s.kind IN (2, 3)`, bucket)
-	args := baseParams(teamID, startMs, endMs)
+	args := database.SpanBaseParams(teamID, startMs, endMs)
 	if operationName != "" {
 		query += ` AND s.name = @operationName`
 		args = append(args, clickhouse.Named("operationName", operationName))

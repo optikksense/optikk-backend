@@ -15,6 +15,22 @@ type ServiceMapHandler struct {
 	Service Service
 }
 
+func (h *ServiceMapHandler) GetTopology(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+
+	resp, err := h.Service.GetTopology(teamID, startMs, endMs)
+	if err != nil {
+		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query topology", err)
+		return
+	}
+
+	RespondOK(c, resp)
+}
+
 func (h *ServiceMapHandler) GetUpstreamDownstream(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Param("serviceName")

@@ -1,6 +1,10 @@
 name: CI/CD Pipeline
 
 on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -26,6 +30,14 @@ jobs:
 
       - name: Vet
         run: go vet ./...
+
+      - name: Lint
+        uses: golangci/golangci-lint-action@v6
+        with:
+          version: latest
+
+      - name: Test
+        run: go test ./... -race -count=1
 
   docker-push:
     needs: test-and-lint

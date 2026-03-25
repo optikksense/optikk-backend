@@ -1,7 +1,6 @@
 package resource_utilisation
 
 import (
-	"log"
 	"net/http"
 
 	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
@@ -9,6 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
+	"github.com/observability/observability-backend-go/internal/platform/logger"
+	"go.uber.org/zap"
 )
 
 type ResourceUtilisationHandler struct {
@@ -130,7 +131,7 @@ func (h *ResourceUtilisationHandler) GetByInstance(c *gin.Context) {
 
 	resp, err := h.Service.GetResourceUsageByInstance(teamID, startMs, endMs)
 	if err != nil {
-		log.Printf("resource usage by instance query failed: %v", err)
+		logger.L().Error("resource usage by instance query failed", zap.Error(err))
 		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query resource usage by instance", err)
 		return
 	}
