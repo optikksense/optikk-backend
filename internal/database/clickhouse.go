@@ -64,7 +64,9 @@ func OpenClickHouseConn(dsn string, isProduction bool, cloud ...ClickHouseCloudC
 		opts = &clickhouse.Options{
 			Addr:     []string{cc.Host},
 			Protocol: clickhouse.Native,
-			TLS:      &tls.Config{},
+			TLS: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+			},
 			Auth: clickhouse.Auth{
 				Username: cc.Username,
 				Password: cc.Password,

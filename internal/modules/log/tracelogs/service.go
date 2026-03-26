@@ -24,8 +24,8 @@ func (s *Service) GetTraceLogs(ctx context.Context, teamID int64, traceID string
 		traceStartRaw := dbutil.TimeFromAny(meta.TraceStart)
 		traceEndRaw := dbutil.TimeFromAny(meta.TraceEnd)
 		if !traceStartRaw.IsZero() && !traceEndRaw.IsZero() {
-			startNs := uint64(traceStartRaw.Add(-2 * time.Second).UnixNano())
-			endNs := uint64(traceEndRaw.Add(2 * time.Second).UnixNano())
+			startNs := uint64(traceStartRaw.Add(-2 * time.Second).UnixNano()) //nolint:gosec // G115 - domain-constrained value
+			endNs := uint64(traceEndRaw.Add(2 * time.Second).UnixNano())     //nolint:gosec // G115 - domain-constrained value
 			rows, err := s.repo.GetLogsByTraceWindow(ctx, teamID, traceID, startNs, endNs)
 			if err == nil && len(rows) > 0 {
 				return TraceLogsResponse{Logs: shared.MapLogRows(rows), IsSpeculative: false}, nil
@@ -58,8 +58,8 @@ func (s *Service) GetTraceLogs(ctx context.Context, teamID int64, traceID string
 		return TraceLogsResponse{Logs: []shared.Log{}}, nil
 	}
 
-	startNs := uint64(traceStart.Add(-2 * time.Second).UnixNano())
-	endNs := uint64(traceEnd.Add(2 * time.Second).UnixNano())
+	startNs := uint64(traceStart.Add(-2 * time.Second).UnixNano()) //nolint:gosec // G115 - domain-constrained value
+	endNs := uint64(traceEnd.Add(2 * time.Second).UnixNano())     //nolint:gosec // G115 - domain-constrained value
 	routeLike := "%"
 	if route != "" {
 		routeLike = "%" + route + "%"
