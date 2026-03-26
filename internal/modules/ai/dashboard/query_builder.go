@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 )
 
 type QueryBuilder interface {

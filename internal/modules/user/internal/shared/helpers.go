@@ -5,7 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 
-	dbutil "github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 )
 
 func ParseTeamMemberships(raw string) ([]TeamMembership, error) {

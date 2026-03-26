@@ -1,8 +1,8 @@
 package auth
 
 import (
+	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/gin-gonic/gin"
-	"github.com/observability/observability-backend-go/internal/modules/registry"
 )
 
 type Config struct {

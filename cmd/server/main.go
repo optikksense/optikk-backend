@@ -9,11 +9,11 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/observability/observability-backend-go/internal/config"
-	"github.com/observability/observability-backend-go/internal/database"
-	"github.com/observability/observability-backend-go/internal/migrate"
-	"github.com/observability/observability-backend-go/internal/platform/logger"
-	"github.com/observability/observability-backend-go/internal/platform/server"
+	"github.com/Optikk-Org/optikk-backend/internal/app/server"
+	"github.com/Optikk-Org/optikk-backend/internal/config"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/migrate"
 )
 
 func main() {

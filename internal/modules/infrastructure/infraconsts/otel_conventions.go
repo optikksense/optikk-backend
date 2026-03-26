@@ -3,7 +3,7 @@ package infraconsts
 import (
 	"strings"
 
-	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 )
 
 // OpenTelemetry Semantic Conventions for Infrastructure / Resource Utilization Metrics

@@ -1,10 +1,10 @@
 package jvm
 
 import (
+	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
-	dbutil "github.com/observability/observability-backend-go/internal/database"
-	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
-	"github.com/observability/observability-backend-go/internal/modules/registry"
 )
 
 type Config struct {

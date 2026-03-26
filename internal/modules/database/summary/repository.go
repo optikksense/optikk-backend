@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	dbutil "github.com/observability/observability-backend-go/internal/database"
-	shared "github.com/observability/observability-backend-go/internal/modules/database/internal/shared"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	shared "github.com/Optikk-Org/optikk-backend/internal/modules/database/internal/shared"
 )
 
 type Repository interface {

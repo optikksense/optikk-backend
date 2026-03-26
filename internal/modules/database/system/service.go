@@ -3,7 +3,7 @@ package system
 import (
 	"context"
 
-	shared "github.com/observability/observability-backend-go/internal/modules/database/internal/shared"
+	shared "github.com/Optikk-Org/optikk-backend/internal/modules/database/internal/shared"
 )
 
 type Service struct {

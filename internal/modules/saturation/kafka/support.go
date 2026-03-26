@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	dbutil "github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 )
 
 const (

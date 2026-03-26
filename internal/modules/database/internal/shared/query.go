@@ -1,7 +1,7 @@
 package shared
 
 import (
-	dbutil "github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 )
 
 type Filters struct {

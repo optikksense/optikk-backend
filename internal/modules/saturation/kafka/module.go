@@ -1,9 +1,9 @@
 package kafka
 
 import (
+	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
+	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
-	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
-	"github.com/observability/observability-backend-go/internal/modules/registry"
 )
 
 type Config struct {

@@ -1,4 +1,4 @@
-module github.com/observability/observability-backend-go
+module github.com/Optikk-Org/optikk-backend
 
 go 1.25.0
 

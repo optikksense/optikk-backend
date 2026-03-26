@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"time"
 
-	dbutil "github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 
-	shared "github.com/observability/observability-backend-go/internal/modules/database/internal/shared"
+	shared "github.com/Optikk-Org/optikk-backend/internal/modules/database/internal/shared"
 )
 
 type Repository interface {

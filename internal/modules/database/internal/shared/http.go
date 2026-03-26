@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
+	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
-	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
 func ParseFilters(c *gin.Context) Filters {

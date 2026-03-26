@@ -3,5 +3,5 @@ go 1.25.0
 use (
 	.
 	./cmd/server
-	./internal/platform/server
+	./internal/app/server
 )

@@ -3,7 +3,7 @@ package shared
 import (
 	"fmt"
 
-	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
 )
 
 type TeamMembership struct {

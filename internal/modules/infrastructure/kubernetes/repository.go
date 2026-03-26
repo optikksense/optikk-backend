@@ -5,8 +5,8 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	dbutil "github.com/observability/observability-backend-go/internal/database"
-	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 )
 
 type Repository interface {

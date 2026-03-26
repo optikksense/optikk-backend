@@ -6,7 +6,7 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	usershared "github.com/observability/observability-backend-go/internal/modules/user/internal/shared"
+	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
 )
 
 type Service struct {

@@ -4,8 +4,8 @@ import (
 	"errors"
 	"net/http"
 
+	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
-	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
 func RespondServiceError(c *gin.Context, err error, fallbackMessage string) {

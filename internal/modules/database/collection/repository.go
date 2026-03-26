@@ -5,9 +5,9 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/observability/observability-backend-go/internal/database"
-	shared "github.com/observability/observability-backend-go/internal/modules/database/internal/shared"
-	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	shared "github.com/Optikk-Org/optikk-backend/internal/modules/database/internal/shared"
 )
 
 type Repository interface {

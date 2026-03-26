@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	dbutil "github.com/observability/observability-backend-go/internal/database"
-	rootspan "github.com/observability/observability-backend-go/internal/modules/spans/shared/rootspan"
-	"github.com/observability/observability-backend-go/internal/platform/timebucket"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	rootspan "github.com/Optikk-Org/optikk-backend/internal/modules/traces/shared/rootspan"
 )
 
 type Repository interface {

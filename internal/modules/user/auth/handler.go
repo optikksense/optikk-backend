@@ -4,13 +4,13 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
 
+	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
-	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 
-	usershared "github.com/observability/observability-backend-go/internal/modules/user/internal/shared"
-	appvalidation "github.com/observability/observability-backend-go/internal/platform/validation"
+	appvalidation "github.com/Optikk-Org/optikk-backend/internal/infra/validation"
+	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
 )
 
 type Handler struct {

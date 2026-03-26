@@ -6,8 +6,8 @@ import (
 	"strings"
 	"time"
 
-	dbutil "github.com/observability/observability-backend-go/internal/database"
-	usershared "github.com/observability/observability-backend-go/internal/modules/user/internal/shared"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
 )
 
 type Repository interface {

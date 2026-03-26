@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	dbutil "github.com/observability/observability-backend-go/internal/database"
-	"github.com/observability/observability-backend-go/internal/modules/infrastructure/infraconsts"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
 type Repository interface {

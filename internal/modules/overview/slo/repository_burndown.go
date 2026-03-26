@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/observability/observability-backend-go/internal/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
 )
 
 // BurnDownPoint represents a single point on the error budget burn-down chart.

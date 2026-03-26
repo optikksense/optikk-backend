@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/observability/observability-backend-go/internal/database"
-	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 )
 
 const serviceNameFilter = " AND s.service_name = @serviceName"

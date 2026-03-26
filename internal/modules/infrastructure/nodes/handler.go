@@ -3,10 +3,10 @@ package nodes
 import (
 	"net/http"
 
-	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
 
+	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
-	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
 type NodeHandler struct {

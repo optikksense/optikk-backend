@@ -3,11 +3,11 @@ package httpmetrics
 import (
 	"net/http"
 
-	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
+	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
-	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
-	"github.com/observability/observability-backend-go/internal/platform/logger"
 	"go.uber.org/zap"
 )
 

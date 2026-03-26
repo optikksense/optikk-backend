@@ -1,6 +1,6 @@
 package overview
 
-import rootspan "github.com/observability/observability-backend-go/internal/modules/spans/shared/rootspan"
+import rootspan "github.com/Optikk-Org/optikk-backend/internal/modules/traces/shared/rootspan"
 
 // Raw ClickHouse column references for observability.spans (aliased as s).
 

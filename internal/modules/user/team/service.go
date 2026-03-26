@@ -4,9 +4,9 @@ import (
 	"strings"
 	"time"
 
-	configdefaults "github.com/observability/observability-backend-go/internal/defaultconfig"
-	usershared "github.com/observability/observability-backend-go/internal/modules/user/internal/shared"
-	"github.com/observability/observability-backend-go/internal/platform/logger"
+	configdefaults "github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
+	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
 	"go.uber.org/zap"
 )
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/observability/observability-backend-go/internal/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
 )
 
 func (r *ClickHouseRepository) GetServiceHealth(ctx context.Context, teamID, startMs, endMs int64) ([]serviceHealthRow, error) {

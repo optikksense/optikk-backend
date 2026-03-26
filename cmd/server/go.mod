@@ -1,10 +1,10 @@
-module github.com/observability/observability-backend-go/cmd/server
+module github.com/Optikk-Org/optikk-backend/cmd/server
 
 go 1.25.0
 
 require (
-	github.com/observability/observability-backend-go v0.0.0
-	github.com/observability/observability-backend-go/internal/platform/server v0.0.0
+	github.com/Optikk-Org/optikk-backend v0.0.0
+	github.com/Optikk-Org/optikk-backend/internal/app/server v0.0.0
 	go.uber.org/zap v1.27.1
 )
 
@@ -88,6 +88,6 @@ require (
 )
 
 replace (
-	github.com/observability/observability-backend-go => ../..
-	github.com/observability/observability-backend-go/internal/platform/server => ../../internal/platform/server
+	github.com/Optikk-Org/optikk-backend => ../..
+	github.com/Optikk-Org/optikk-backend/internal/app/server => ../../internal/app/server
 )
