@@ -3,7 +3,8 @@ package network
 import (
 	"context"
 	"fmt"
-	"github.com/observability/observability-backend-go/internal/database"
+
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/infrastructure/infraconsts"
 )
 
@@ -16,10 +17,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) Repository {
+func NewRepository(db *dbutil.NativeQuerier) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -27,10 +28,9 @@ func bucket(startMs, endMs int64) string {
 	return infraconsts.TimeBucketExpression(startMs, endMs)
 }
 
-
 func (r *ClickHouseRepository) queryDirectionBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]directionBucketDTO, error) {
 	var rows []directionBucketDTO
-	if err := r.db.Select(ctx, &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -38,7 +38,7 @@ func (r *ClickHouseRepository) queryDirectionBuckets(ctx context.Context, query 
 
 func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
 	var rows []stateBucketDTO
-	if err := r.db.Select(ctx, &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -46,7 +46,7 @@ func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query stri
 
 func (r *ClickHouseRepository) queryResourceBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
 	var rows []resourceBucketDTO
-	if err := r.db.Select(ctx, &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil

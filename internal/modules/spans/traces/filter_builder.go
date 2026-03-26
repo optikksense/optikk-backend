@@ -9,10 +9,15 @@ import (
 	rootspan "github.com/observability/observability-backend-go/internal/modules/spans/shared/rootspan"
 )
 
-const maxTimeRangeMs = 30 * 24 * 60 * 60 * 1000 // 30 days
+const (
+	maxTimeRangeMs = 30 * 24 * 60 * 60 * 1000 // 30 days
+
+	// SearchModeAll searches all spans (not just root spans).
+	SearchModeAll = "all"
+)
 
 // normalizeTimeRange clamps start/end to a valid window.
-func normalizeTimeRange(startMs, endMs int64) (int64, int64) {
+func normalizeTimeRange(startMs, endMs int64) (normalizedStart int64, normalizedEnd int64) {
 	if endMs <= 0 {
 		endMs = time.Now().UnixMilli()
 	}
@@ -25,13 +30,13 @@ func normalizeTimeRange(startMs, endMs int64) (int64, int64) {
 // buildWhereClause constructs the WHERE fragment and named args for span queries.
 // When f.SearchMode is "all", the root-span restriction is skipped so span-level
 // search can cover the whole trace tree.
-func buildWhereClause(f TraceFilters) (string, []any) {
+func buildWhereClause(f TraceFilters) (frag string, args []any) {
 	startMs, endMs := normalizeTimeRange(f.StartMs, f.EndMs)
 
-	frag := ` WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`
-	args := dbutil.SpanBaseParams(f.TeamID, startMs, endMs)
+	frag = ` WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`
+	args = dbutil.SpanBaseParams(f.TeamID, startMs, endMs)
 
-	if f.SearchMode != "all" {
+	if f.SearchMode != SearchModeAll {
 		frag += ` AND ` + rootspan.Condition("s")
 	}
 
@@ -108,10 +113,4 @@ func buildWhereClause(f TraceFilters) (string, []any) {
 	}
 
 	return frag, args
-}
-
-// splitWhereClause returns the fragment string and args separately.
-// Useful when the summary query must reuse the same WHERE without cursor conditions.
-func splitWhereClause(f TraceFilters) (frag string, args []any) {
-	return buildWhereClause(f)
 }

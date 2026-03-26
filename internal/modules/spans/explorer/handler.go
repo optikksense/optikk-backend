@@ -76,7 +76,7 @@ func (h *Handler) Stream(c *gin.Context) {
 	since := time.Now().Add(-traceStreamPollInterval)
 	deadline := time.Now().Add(traceStreamMaxSession)
 
-	fmt.Fprintf(c.Writer, "event: state\ndata: {\"status\":\"connected\"}\n\n")
+	_, _ = fmt.Fprintf(c.Writer, "event: state\ndata: {\"status\":\"connected\"}\n\n")
 	if canFlush {
 		flusher.Flush()
 	}
@@ -91,13 +91,13 @@ func (h *Handler) Stream(c *gin.Context) {
 		case <-ctx.Done():
 			return
 		case <-heartbeat.C:
-			fmt.Fprintf(c.Writer, "event: heartbeat\ndata: {\"status\":\"alive\"}\n\n")
+			_, _ = fmt.Fprintf(c.Writer, "event: heartbeat\ndata: {\"status\":\"alive\"}\n\n")
 			if canFlush {
 				flusher.Flush()
 			}
 		case <-ticker.C:
 			if time.Now().After(deadline) {
-				fmt.Fprintf(c.Writer, "event: done\ndata: {\"reason\":\"session_timeout\"}\n\n")
+				_, _ = fmt.Fprintf(c.Writer, "event: done\ndata: {\"reason\":\"session_timeout\"}\n\n")
 				if canFlush {
 					flusher.Flush()
 				}
@@ -106,7 +106,7 @@ func (h *Handler) Stream(c *gin.Context) {
 
 			spans, err := h.LiveTailService.Poll(tenant.TeamID, since, filters)
 			if err != nil {
-				fmt.Fprintf(c.Writer, "event: error\ndata: {\"message\":\"poll failed\"}\n\n")
+				_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: {\"message\":\"poll failed\"}\n\n")
 				if canFlush {
 					flusher.Flush()
 				}
@@ -122,7 +122,7 @@ func (h *Handler) Stream(c *gin.Context) {
 				if err != nil {
 					continue
 				}
-				fmt.Fprintf(c.Writer, "event: item\ndata: %s\n\n", payload)
+				_, _ = fmt.Fprintf(c.Writer, "event: item\ndata: %s\n\n", payload)
 			}
 			if len(spans) > 0 {
 				since = spans[0].Timestamp

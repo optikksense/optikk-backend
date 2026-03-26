@@ -90,7 +90,7 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 				AttributeFilters:  p.AttributeFilters,
 			}
 
-			latestNs := uint64(filters.EndMs) * 1_000_000
+			latestNs := uint64(filters.EndMs) * 1_000_000 //nolint:gosec // G115 - domain-constrained value
 
 			ticker := time.NewTicker(sioPollInterval)
 			heartbeat := time.NewTicker(sioHeartbeatInterval)
@@ -115,7 +115,7 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 				case <-ticker.C:
 					nowMs := time.Now().UnixMilli()
 					pollFilters := filters
-					pollFilters.StartMs = int64(latestNs/1_000_000) + 1
+					pollFilters.StartMs = int64(latestNs/1_000_000) + 1 //nolint:gosec // G115
 					pollFilters.EndMs = nowMs
 
 					resp, err := service.GetLogs(ctx, pollFilters, sioMaxLogsPerPoll, "asc", shared.LogCursor{})

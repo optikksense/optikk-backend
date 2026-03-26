@@ -96,11 +96,7 @@ func (s *Service) GetExplorerFacets(ctx context.Context, filters TraceFilters) (
 
 	facets := make([]TraceFacet, len(rows))
 	for index, row := range rows {
-		facets[index] = TraceFacet{
-			Key:   row.Key,
-			Value: row.Value,
-			Count: row.Count,
-		}
+		facets[index] = TraceFacet(row)
 	}
 	return facets, nil
 }
@@ -113,12 +109,7 @@ func (s *Service) GetExplorerTrend(ctx context.Context, filters TraceFilters, st
 
 	buckets := make([]TraceTrendBucket, len(rows))
 	for index, row := range rows {
-		buckets[index] = TraceTrendBucket{
-			TimeBucket:  row.TimeBucket,
-			TotalTraces: row.TotalTraces,
-			ErrorTraces: row.ErrorTraces,
-			P95Duration: row.P95Duration,
-		}
+		buckets[index] = TraceTrendBucket(row)
 	}
 	return buckets, nil
 }
@@ -238,24 +229,13 @@ func spanRowsToModels(rows []spanRow) []Span {
 }
 
 func mapTraceSummary(row traceSummaryRow) TraceSummary {
-	return TraceSummary{
-		TotalTraces: row.TotalTraces,
-		ErrorTraces: row.ErrorTraces,
-		AvgDuration: row.AvgDuration,
-		P50Duration: row.P50Duration,
-		P95Duration: row.P95Duration,
-		P99Duration: row.P99Duration,
-	}
+	return TraceSummary(row)
 }
 
 func serviceDependencyRowsToModels(rows []serviceDependencyRow) []ServiceDependency {
 	result := make([]ServiceDependency, len(rows))
 	for i, row := range rows {
-		result[i] = ServiceDependency{
-			Source:    row.Source,
-			Target:    row.Target,
-			CallCount: row.CallCount,
-		}
+		result[i] = ServiceDependency(row)
 	}
 	return result
 }
@@ -263,16 +243,7 @@ func serviceDependencyRowsToModels(rows []serviceDependencyRow) []ServiceDepende
 func errorGroupRowsToModels(rows []errorGroupRow) []ErrorGroup {
 	result := make([]ErrorGroup, len(rows))
 	for i, row := range rows {
-		result[i] = ErrorGroup{
-			ServiceName:     row.ServiceName,
-			OperationName:   row.OperationName,
-			StatusMessage:   row.StatusMessage,
-			HTTPStatusCode:  int(row.HTTPStatusCode),
-			ErrorCount:      row.ErrorCount,
-			LastOccurrence:  row.LastOccurrence,
-			FirstOccurrence: row.FirstOccurrence,
-			SampleTraceID:   row.SampleTraceID,
-		}
+		result[i] = ErrorGroup(row)
 	}
 	return result
 }
@@ -280,13 +251,7 @@ func errorGroupRowsToModels(rows []errorGroupRow) []ErrorGroup {
 func errorTimeSeriesRowsToModels(rows []errorTimeSeriesRow) []ErrorTimeSeries {
 	result := make([]ErrorTimeSeries, len(rows))
 	for i, row := range rows {
-		result[i] = ErrorTimeSeries{
-			ServiceName: row.ServiceName,
-			Timestamp:   row.Timestamp,
-			TotalCount:  row.TotalCount,
-			ErrorCount:  row.ErrorCount,
-			ErrorRate:   row.ErrorRate,
-		}
+		result[i] = ErrorTimeSeries(row)
 	}
 	return result
 }
@@ -307,11 +272,7 @@ func latencyHistogramRowsToModels(rows []latencyHistogramRow) []LatencyHistogram
 func latencyHeatmapRowsToModels(rows []latencyHeatmapRow) []LatencyHeatmapPoint {
 	result := make([]LatencyHeatmapPoint, len(rows))
 	for i, row := range rows {
-		result[i] = LatencyHeatmapPoint{
-			TimeBucket:    row.TimeBucket,
-			LatencyBucket: row.LatencyBucket,
-			SpanCount:     row.SpanCount,
-		}
+		result[i] = LatencyHeatmapPoint(row)
 	}
 	return result
 }

@@ -4,24 +4,24 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	"github.com/observability/observability-backend-go/internal/modules/common"
+	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
 func ParseFilters(c *gin.Context) LogFilters {
 	f := LogFilters{
-		Severities:        common.ParseListParam(c, "severities"),
-		Services:          common.ParseListParam(c, "services"),
-		Hosts:             common.ParseListParam(c, "hosts"),
-		Pods:              common.ParseListParam(c, "pods"),
-		Containers:        common.ParseListParam(c, "containers"),
-		Environments:      common.ParseListParam(c, "environments"),
+		Severities:        modulecommon.ParseListParam(c, "severities"),
+		Services:          modulecommon.ParseListParam(c, "services"),
+		Hosts:             modulecommon.ParseListParam(c, "hosts"),
+		Pods:              modulecommon.ParseListParam(c, "pods"),
+		Containers:        modulecommon.ParseListParam(c, "containers"),
+		Environments:      modulecommon.ParseListParam(c, "environments"),
 		TraceID:           c.Query("traceId"),
 		SpanID:            c.Query("spanId"),
 		Search:            c.Query("search"),
 		SearchMode:        c.Query("searchMode"),
-		ExcludeSeverities: common.ParseListParam(c, "excludeSeverities"),
-		ExcludeServices:   common.ParseListParam(c, "excludeServices"),
-		ExcludeHosts:      common.ParseListParam(c, "excludeHosts"),
+		ExcludeSeverities: modulecommon.ParseListParam(c, "excludeSeverities"),
+		ExcludeServices:   modulecommon.ParseListParam(c, "excludeServices"),
+		ExcludeHosts:      modulecommon.ParseListParam(c, "excludeHosts"),
 	}
 
 	for key, vals := range c.Request.URL.Query() {
@@ -47,7 +47,7 @@ func ParseFilters(c *gin.Context) LogFilters {
 
 func EnrichFilters(c *gin.Context, teamID int64) (LogFilters, bool) {
 	f := ParseFilters(c)
-	startMs, endMs, ok := common.ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return LogFilters{}, false
 	}

@@ -3,9 +3,10 @@ package servicemap
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
@@ -18,10 +19,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -42,7 +43,7 @@ func (r *ClickHouseRepository) GetTopologyNodes(ctx context.Context, teamID int6
 			GROUP BY s.service_name
 		)
 		ORDER BY request_count DESC
-	`, database.SpanBaseParams(teamID, startMs, endMs)...)
+	`, dbutil.SpanBaseParams(teamID, startMs, endMs)...)
 	return rows, err
 }
 
@@ -70,14 +71,14 @@ func (r *ClickHouseRepository) GetTopologyEdges(ctx context.Context, teamID int6
 			GROUP BY s1.service_name, s2.service_name
 		)
 		ORDER BY call_count DESC
-		LIMIT `+fmt.Sprintf("%d", MaxEdges),
-		database.SpanBaseParams(teamID, startMs, endMs)...)
+		LIMIT `+strconv.Itoa(MaxEdges),
+		dbutil.SpanBaseParams(teamID, startMs, endMs)...)
 	return rows, err
 }
 
 func (r *ClickHouseRepository) GetUpstreamDownstream(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) ([]serviceDependencyRow, error) {
 	var rows []serviceDependencyRow
-	params := append(database.SpanBaseParams(teamID, startMs, endMs), clickhouse.Named("serviceName", serviceName))
+	params := append(dbutil.SpanBaseParams(teamID, startMs, endMs), clickhouse.Named("serviceName", serviceName))
 	err := r.db.Select(ctx, &rows, `
 		SELECT source,
 		       target,
@@ -134,7 +135,7 @@ func (r *ClickHouseRepository) GetExternalDependencies(ctx context.Context, team
 		ORDER BY call_count DESC
 		LIMIT 100
 	`, externalHostExpr, externalHostExpr, externalHostExpr),
-		database.SpanBaseParams(teamID, startMs, endMs)...)
+		dbutil.SpanBaseParams(teamID, startMs, endMs)...)
 	return rows, err
 }
 
@@ -148,7 +149,7 @@ func (r *ClickHouseRepository) GetClientServerLatency(ctx context.Context, teamI
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
 		  AND s.kind IN (2, 3)`, bucket)
-	args := database.SpanBaseParams(teamID, startMs, endMs)
+	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
 	if operationName != "" {
 		query += ` AND s.name = @operationName`
 		args = append(args, clickhouse.Named("operationName", operationName))

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	database "github.com/observability/observability-backend-go/internal/database"
+	"github.com/observability/observability-backend-go/internal/database"
 	shared "github.com/observability/observability-backend-go/internal/modules/log/internal/shared"
 	"github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
@@ -41,7 +41,7 @@ func (r *ClickHouseRepository) GetSurroundingBefore(ctx context.Context, teamID 
 	var rows []shared.LogRowDTO
 	err := r.db.Select(ctx, &rows,
 		fmt.Sprintf(`SELECT %s FROM observability.logs WHERE team_id = ? AND service = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ? AND (timestamp < ? OR (timestamp = ? AND id < ?)) ORDER BY timestamp DESC, id DESC LIMIT ?`, shared.LogColumns),
-		teamID, service, timebucket.LogsBucketStart(int64(tsLow/1_000_000_000)), timebucket.LogsBucketStart(int64(tsHigh/1_000_000_000)), tsLow, tsHigh, anchorTs, anchorTs, logID, limit,
+		teamID, service, timebucket.LogsBucketStart(int64(tsLow/1_000_000_000)), timebucket.LogsBucketStart(int64(tsHigh/1_000_000_000)), tsLow, tsHigh, anchorTs, anchorTs, logID, limit, //nolint:gosec // G115
 	)
 	return rows, err
 }
@@ -50,7 +50,7 @@ func (r *ClickHouseRepository) GetSurroundingAfter(ctx context.Context, teamID i
 	var rows []shared.LogRowDTO
 	err := r.db.Select(ctx, &rows,
 		fmt.Sprintf(`SELECT %s FROM observability.logs WHERE team_id = ? AND service = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ? AND (timestamp > ? OR (timestamp = ? AND id > ?)) ORDER BY timestamp ASC, id ASC LIMIT ?`, shared.LogColumns),
-		teamID, service, timebucket.LogsBucketStart(int64(tsLow/1_000_000_000)), timebucket.LogsBucketStart(int64(tsHigh/1_000_000_000)), tsLow, tsHigh, anchorTs, anchorTs, logID, limit,
+		teamID, service, timebucket.LogsBucketStart(int64(tsLow/1_000_000_000)), timebucket.LogsBucketStart(int64(tsHigh/1_000_000_000)), tsLow, tsHigh, anchorTs, anchorTs, logID, limit, //nolint:gosec // G115
 	)
 	return rows, err
 }
@@ -70,8 +70,8 @@ func (r *ClickHouseRepository) GetLogByTraceSpanWindow(ctx context.Context, team
 }
 
 func (r *ClickHouseRepository) GetContextLogs(ctx context.Context, teamID int64, service string, fromNs, toNs uint64) ([]shared.LogRowDTO, error) {
-	bucketLow := timebucket.LogsBucketStart(int64(fromNs / 1_000_000_000))
-	bucketHigh := timebucket.LogsBucketStart(int64(toNs / 1_000_000_000))
+	bucketLow := timebucket.LogsBucketStart(int64(fromNs / 1_000_000_000)) //nolint:gosec // G115
+	bucketHigh := timebucket.LogsBucketStart(int64(toNs / 1_000_000_000))  //nolint:gosec // G115
 	var rows []shared.LogRowDTO
 	err := r.db.Select(ctx, &rows, fmt.Sprintf(`
 		SELECT %s FROM observability.logs

@@ -1,4 +1,4 @@
-package resource_utilisation
+package resource_utilisation //nolint:misspell
 
 import (
 	"github.com/gin-gonic/gin"
@@ -19,7 +19,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ResourceUtilisationHandl
 		return
 	}
 
-	g := v1.Group("/infrastructure/resource-utilisation")
+	g := v1.Group("/infrastructure/resource-utilization")
 	g.GET("/avg-cpu", h.GetAvgCPU)
 	g.GET("/avg-memory", h.GetAvgMemory)
 	g.GET("/avg-network", h.GetAvgNetwork)

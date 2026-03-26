@@ -51,7 +51,7 @@ func (h *Handler) GetLiveTail(c *gin.Context) {
 
 	c.Stream(func(w io.Writer) bool {
 		if time.Now().After(deadline) {
-			fmt.Fprintf(w, "event: done\ndata: {\"reason\":\"session_timeout\"}\n\n")
+			_, _ = fmt.Fprintf(w, "event: done\ndata: {\"reason\":\"session_timeout\"}\n\n")
 			return false
 		}
 
@@ -63,14 +63,14 @@ func (h *Handler) GetLiveTail(c *gin.Context) {
 
 		spans, err := h.service.Poll(teamID, since, filters)
 		if err != nil {
-			fmt.Fprintf(w, "event: error\ndata: {\"message\":\"poll error\"}\n\n")
+			_, _ = fmt.Fprintf(w, "event: error\ndata: {\"message\":\"poll error\"}\n\n")
 			return true
 		}
 
 		if len(spans) > 0 {
 			since = spans[0].Timestamp
 			data, _ := json.Marshal(spans)
-			fmt.Fprintf(w, "event: spans\ndata: %s\n\n", data)
+			_, _ = fmt.Fprintf(w, "event: spans\ndata: %s\n\n", data)
 		}
 
 		return true

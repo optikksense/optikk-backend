@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	database "github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
+
 	shared "github.com/observability/observability-backend-go/internal/modules/log/internal/shared"
 )
 
@@ -13,10 +14,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -31,7 +32,9 @@ func (r *ClickHouseRepository) GetLogs(ctx context.Context, f shared.LogFilters,
 	offset := cursor.Offset
 
 	query := fmt.Sprintf(`SELECT %s FROM observability.logs WHERE%s ORDER BY %s LIMIT ?`, shared.LogColumns, where, orderBy)
-	queryArgs := append(args, limit)
+	queryArgs := make([]any, 0, len(args)+2)
+	queryArgs = append(queryArgs, args...)
+	queryArgs = append(queryArgs, limit)
 	if offset > 0 {
 		query += ` OFFSET ?`
 		queryArgs = append(queryArgs, offset)

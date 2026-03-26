@@ -6,7 +6,6 @@ import (
 	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
 
 	"github.com/gin-gonic/gin"
-	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
@@ -17,54 +16,54 @@ type ServiceMapHandler struct {
 
 func (h *ServiceMapHandler) GetTopology(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
 	resp, err := h.Service.GetTopology(teamID, startMs, endMs)
 	if err != nil {
-		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query topology", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query topology", err)
 		return
 	}
 
-	RespondOK(c, resp)
+	modulecommon.RespondOK(c, resp)
 }
 
 func (h *ServiceMapHandler) GetUpstreamDownstream(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Param("serviceName")
-	startMs, endMs, ok := ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
 	deps, err := h.Service.GetUpstreamDownstream(teamID, serviceName, startMs, endMs)
 	if err != nil {
-		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query upstream/downstream dependencies", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query upstream/downstream dependencies", err)
 		return
 	}
-	RespondOK(c, deps)
+	modulecommon.RespondOK(c, deps)
 }
 
 func (h *ServiceMapHandler) GetExternalDependencies(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
 	deps, err := h.Service.GetExternalDependencies(teamID, startMs, endMs)
 	if err != nil {
-		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query external dependencies", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query external dependencies", err)
 		return
 	}
-	RespondOK(c, deps)
+	modulecommon.RespondOK(c, deps)
 }
 
 func (h *ServiceMapHandler) GetClientServerLatency(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
@@ -75,8 +74,8 @@ func (h *ServiceMapHandler) GetClientServerLatency(c *gin.Context) {
 
 	points, err := h.Service.GetClientServerLatency(teamID, startMs, endMs, operationName)
 	if err != nil {
-		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query client/server latency", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query client/server latency", err)
 		return
 	}
-	RespondOK(c, points)
+	modulecommon.RespondOK(c, points)
 }

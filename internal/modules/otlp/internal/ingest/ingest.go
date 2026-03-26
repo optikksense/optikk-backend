@@ -127,8 +127,8 @@ func (q *Queue) consume() []Row {
 			break
 		}
 
-		batch = append(batch, *v.(*Row))
-		q.slots[idx].Store((*Row)(nil)) // zero slot for future use
+		batch = append(batch, *v.(*Row)) //nolint:errcheck // sync.Pool guarantees *Row type
+		q.slots[idx].Store((*Row)(nil))  // zero slot for future use
 		t++
 	}
 
@@ -155,7 +155,7 @@ func (q *Queue) QueueLen() int {
 	if h <= t {
 		return 0
 	}
-	return int(h - t)
+	return int(h - t) //nolint:gosec // G115 - domain-constrained value
 }
 
 // Close stops the worker, waits for all in-flight flushes, then returns.
@@ -172,7 +172,7 @@ func (q *Queue) Close() error {
 	}
 
 	// Acquire all semaphore slots — blocks until every in-flight flush finishes.
-	for i := 0; i < cap(q.flushSem); i++ {
+	for range cap(q.flushSem) {
 		q.flushSem <- struct{}{}
 	}
 	return nil

@@ -21,12 +21,12 @@ type TraceExplorerParams struct {
 }
 
 type QueryRequest struct {
-	StartTime int64          `json:"startTime"`
-	EndTime   int64          `json:"endTime"`
-	Limit     int            `json:"limit"`
-	Offset    int            `json:"offset"`
-	Cursor    string         `json:"cursor"`
-	Step      string         `json:"step"`
+	StartTime int64               `json:"startTime"`
+	EndTime   int64               `json:"endTime"`
+	Limit     int                 `json:"limit"`
+	Offset    int                 `json:"offset"`
+	Cursor    string              `json:"cursor"`
+	Step      string              `json:"step"`
 	Params    TraceExplorerParams `json:"params"`
 }
 

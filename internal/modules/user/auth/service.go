@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -61,7 +62,7 @@ func NewService(
 			ClientSecret: githubClientSecret,
 			RedirectURL:  redirectBase + "/api/v1/auth/github/callback",
 			Scopes:       []string{"user:email", "read:user"},
-			Endpoint: oauth2.Endpoint{
+			Endpoint: oauth2.Endpoint{ //nolint:gosec // G101 - OAuth URLs, not credentials
 				AuthURL:  "https://github.com/login/oauth/authorize",
 				TokenURL: "https://github.com/login/oauth/access_token",
 			},
@@ -174,7 +175,7 @@ func (s *Service) GoogleLoginURL() (string, error) {
 
 func (s *Service) GoogleCallbackRedirect(code string) string {
 	if code == "" {
-		return s.redirectBase + "/login?error=oauth_cancelled"
+		return s.redirectBase + "/login?error=oauth_canceled"
 	}
 
 	token, err := s.googleConfig.Exchange(context.Background(), code)
@@ -183,11 +184,15 @@ func (s *Service) GoogleCallbackRedirect(code string) string {
 	}
 
 	client := s.googleConfig.Client(context.Background(), token)
-	resp, err := client.Get("https://www.googleapis.com/oauth2/v2/userinfo")
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://www.googleapis.com/oauth2/v2/userinfo", nil)
+	if err != nil {
+		return s.redirectBase + "/login?error=oauth_failed"
+	}
+	resp, err := client.Do(req)
 	if err != nil || resp.StatusCode != http.StatusOK {
 		return s.redirectBase + "/login?error=oauth_failed"
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -220,7 +225,7 @@ func (s *Service) GithubLoginURL() (string, error) {
 
 func (s *Service) GithubCallbackRedirect(code string) string {
 	if code == "" {
-		return s.redirectBase + "/login?error=oauth_cancelled"
+		return s.redirectBase + "/login?error=oauth_canceled"
 	}
 
 	token, err := s.githubConfig.Exchange(context.Background(), code)
@@ -268,7 +273,7 @@ func (s *Service) CompleteSignup(ctx context.Context, req CompleteSignupRequest)
 	}
 
 	team, err := s.repo.FindTeamByOrgAndName(strings.TrimSpace(req.OrgName), strings.TrimSpace(req.TeamName))
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return AuthContextResponse{}, usershared.NewValidationError("No team found with that name and org. Contact your IT admin.", err)
 	}
 	if err != nil {
@@ -384,7 +389,7 @@ func (s *Service) startUserSession(ctx context.Context, user usershared.AuthUser
 	})
 }
 
-func (s *Service) buildAuthContextResponse(user usershared.AuthUser) (AuthContextResponse, int64, []int64, error) {
+func (s *Service) buildAuthContextResponse(user usershared.AuthUser) (resp AuthContextResponse, teamID int64, teamIDs []int64, err error) {
 	teams, err := s.listTeamsForUser(user.TeamsJSON)
 	if err != nil {
 		logger.L().Warn("AUTH_EVENT team_fetch_failed", zap.Int64("user_id", user.ID), zap.String("email", user.Email), zap.Error(err))
@@ -400,8 +405,7 @@ func (s *Service) buildAuthContextResponse(user usershared.AuthUser) (AuthContex
 		currentTeam = &teams[0]
 	}
 
-	var teamID int64
-	teamIDs := make([]int64, 0, len(teams))
+	teamIDs = make([]int64, 0, len(teams))
 	for _, team := range teams {
 		teamIDs = append(teamIDs, team.ID)
 	}

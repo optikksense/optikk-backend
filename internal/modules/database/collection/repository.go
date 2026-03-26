@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	database "github.com/observability/observability-backend-go/internal/database"
+	"github.com/observability/observability-backend-go/internal/database"
 	shared "github.com/observability/observability-backend-go/internal/modules/database/internal/shared"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )

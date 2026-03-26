@@ -42,6 +42,7 @@ func (s *Service) GetTraceLogs(ctx context.Context, teamID int64, traceID string
 	}
 
 	if metaErr != nil || meta == nil {
+		//nolint:nilerr // trace metadata unavailable; return empty logs rather than propagating error
 		return TraceLogsResponse{Logs: []shared.Log{}}, nil
 	}
 
@@ -66,6 +67,7 @@ func (s *Service) GetTraceLogs(ctx context.Context, teamID int64, traceID string
 
 	fallbackRows, err := s.repo.GetFallbackLogs(ctx, teamID, serviceName, startNs, endNs, httpMethod, route, routeLike)
 	if err != nil {
+		//nolint:nilerr // fallback log search is best-effort; return empty on failure
 		return TraceLogsResponse{Logs: []shared.Log{}}, nil
 	}
 

@@ -11,7 +11,7 @@ import (
 // Includes team_id, ts_bucket_start range, and timestamp range.
 func SpanBaseParams(teamID int64, startMs, endMs int64) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 - domain-constrained value
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -23,7 +23,7 @@ func SpanBaseParams(teamID int64, startMs, endMs int64) []any {
 // do not need bucket range pruning (metrics, infrastructure, saturation, etc.).
 func SimpleBaseParams(teamID int64, startMs, endMs int64) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 - domain-constrained value
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}

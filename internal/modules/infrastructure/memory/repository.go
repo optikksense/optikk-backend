@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"github.com/observability/observability-backend-go/internal/database"
+
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/modules/infrastructure/infraconsts"
 )
 
@@ -15,10 +16,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) Repository {
+func NewRepository(db *dbutil.NativeQuerier) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -35,10 +36,9 @@ func syncAverageExpr(parts ...string) string {
 	)`
 }
 
-
 func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
 	var rows []stateBucketDTO
-	if err := r.db.Select(ctx, &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -94,7 +94,7 @@ func (r *ClickHouseRepository) GetMemoryUsagePercentage(ctx context.Context, tea
 		infraconsts.ColMetricName, infraconsts.MetricSystemMemoryUtilization, infraconsts.MetricJVMMemoryUsed, infraconsts.MetricJVMMemoryMax,
 		aMem)
 	var rows []resourceBucketDTO
-	if err := r.db.Select(ctx, &rows, query, database.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil

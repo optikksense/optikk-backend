@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	database "github.com/observability/observability-backend-go/internal/database"
+	"github.com/observability/observability-backend-go/internal/database"
 	shared "github.com/observability/observability-backend-go/internal/modules/database/internal/shared"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )

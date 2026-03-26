@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
 const (
@@ -13,8 +13,8 @@ const (
 	colModel         = "attributes.'gen_ai.request.model'::String"
 	colProvider      = "attributes.'server.address'::String"
 	colOperationType = "attributes.'gen_ai.operation.name'::String"
-	colInputTokens   = "attributes.'gen_ai.usage.input_tokens'::Int64"
-	colOutputTokens  = "attributes.'gen_ai.usage.output_tokens'::Int64"
+	colInputTokens   = "attributes.'gen_ai.usage.input_tokens'::Int64"  //nolint:gosec // G101 - column expressions, not credentials
+	colOutputTokens  = "attributes.'gen_ai.usage.output_tokens'::Int64" //nolint:gosec // G101 - column expressions, not credentials
 	colFinishReason  = "attributes.'gen_ai.response.finish_reasons'::String"
 )
 
@@ -25,10 +25,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -52,9 +52,10 @@ func (r *ClickHouseRepository) GetRunDetail(ctx context.Context, teamID int64, s
 
 	var row runDetailDTO
 	if err := r.db.QueryRow(ctx, &row, query,
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("spanID", spanID),
 	); err != nil {
+		//nolint:nilerr // no row found is not an error; return nil to signal "not found"
 		return nil, nil
 	}
 	return &row, nil
@@ -69,7 +70,7 @@ func (r *ClickHouseRepository) GetRunEvents(ctx context.Context, teamID int64, s
 		WHERE s.team_id = @teamID AND s.span_id = @spanID
 		LIMIT 200
 	`,
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("spanID", spanID),
 	)
 	if err != nil {
@@ -92,7 +93,7 @@ func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamID int64, 
 	`, colModel, tableSpans)
 	var rows []traceContextSpanDTO
 	if err := r.db.Select(ctx, &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("traceID", traceID),
 	); err != nil {
 		return nil, err

@@ -7,8 +7,8 @@ import (
 	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
 
 	"github.com/gin-gonic/gin"
-
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
+
 	usershared "github.com/observability/observability-backend-go/internal/modules/user/internal/shared"
 	appvalidation "github.com/observability/observability-backend-go/internal/platform/validation"
 )

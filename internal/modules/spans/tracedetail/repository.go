@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	database "github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
 var reNumberLiteral = regexp.MustCompile(`\b\d+(\.\d+)?\b`)
@@ -34,9 +34,9 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }

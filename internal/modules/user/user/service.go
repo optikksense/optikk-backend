@@ -160,9 +160,7 @@ func (s *Service) UpdatePreferences(userID int64, req UpdatePreferencesRequest) 
 		return PreferencesResponse{}, usershared.NewNotFoundError("User not found", err)
 	}
 
-	return PreferencesResponse{
-		Preferences: req.Preferences,
-	}, nil
+	return PreferencesResponse(req), nil
 }
 
 func (s *Service) buildUserResponse(user usershared.UserRecord) (UserResponse, error) {

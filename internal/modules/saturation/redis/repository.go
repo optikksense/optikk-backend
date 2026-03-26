@@ -3,8 +3,9 @@ package redis
 import (
 	"context"
 	"fmt"
+
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
@@ -19,29 +20,28 @@ const (
 	attrRedisDB       = "redis.db"
 	attrServerAddress = "server.address"
 
-	metricRedisKeyspaceHits            = "redis.keyspace.hits"
-	metricRedisKeyspaceMisses          = "redis.keyspace.misses"
+	metricRedisKeyspaceHits            = "redis.keyspace.hits"   //nolint:gosec // G101 - metric names, not credentials
+	metricRedisKeyspaceMisses          = "redis.keyspace.misses" //nolint:gosec // G101 - metric names, not credentials
 	metricRedisClientsConnected        = "redis.clients.connected"
 	metricRedisMemoryUsed              = "redis.memory.used"
-	metricRedisMemoryFragmentation     = "redis.memory.fragmentation_ratio"
+	metricRedisMemoryFragmentation     = "redis.memory.fragmentation_ratio" //nolint:gosec // G101 - metric names, not credentials
 	metricRedisCommandsProcessed       = "redis.commands.processed"
-	metricRedisKeysEvicted             = "redis.keys.evicted"
-	metricRedisDBKeys                  = "redis.db.keys"
-	metricRedisDBExpires               = "redis.db.expires"
+	metricRedisKeysEvicted             = "redis.keys.evicted" //nolint:gosec // G101 - metric names, not credentials
+	metricRedisDBKeys                  = "redis.db.keys"      //nolint:gosec // G101 - metric names, not credentials
+	metricRedisDBExpires               = "redis.db.expires"   //nolint:gosec // G101 - metric names, not credentials
 	metricRedisReplicationOffset       = "redis.replication.offset"
 	metricRedisReplicationBacklogFirst = "redis.replication.backlog_first_byte_offset"
 )
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-
-func instanceFilter(instance string) (string, []any) {
+func instanceFilter(instance string) (clause string, args []any) {
 	if instance == "" {
 		return "", nil
 	}
@@ -69,7 +69,7 @@ func (r *ClickHouseRepository) QueryMetricSeries(teamID int64, startMs, endMs in
 		ORDER BY time_bucket ASC
 	`, bucket, colValue, tableMetrics, colTeamID, colTimestamp, colMetricName, instSQL)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("metricName", metricName))
+	args := append(dbutil.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("metricName", metricName))
 	args = append(args, instArgs...)
 	var points []metricPointDTO
 	return points, r.db.Select(context.Background(), &points, query, args...)
@@ -90,7 +90,7 @@ func (r *ClickHouseRepository) GetCacheHitRate(teamID int64, startMs, endMs int6
 		tableMetrics, colTeamID, colTimestamp, colMetricName,
 		metricRedisKeyspaceHits, metricRedisKeyspaceMisses, instSQL)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), instArgs...)
+	args := append(dbutil.SimpleBaseParams(teamID, startMs, endMs), instArgs...)
 	var row cacheHitRateRow
 	if err := r.db.QueryRow(context.Background(), &row, query, args...); err != nil {
 		return cacheHitRateDTO{}, err
@@ -118,7 +118,7 @@ func (r *ClickHouseRepository) GetReplicationLag(teamID int64, startMs, endMs in
 		tableMetrics, colTeamID, colTimestamp, colMetricName,
 		metricRedisReplicationOffset, metricRedisReplicationBacklogFirst, instSQL)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), instArgs...)
+	args := append(dbutil.SimpleBaseParams(teamID, startMs, endMs), instArgs...)
 	var row replicationLagRow
 	if err := r.db.QueryRow(context.Background(), &row, query, args...); err != nil {
 		return replicationLagDTO{}, err
@@ -144,7 +144,7 @@ func (r *ClickHouseRepository) GetKeyspace(teamID int64, startMs, endMs int64, i
 		ORDER BY key_count DESC, redis_db ASC
 	`, redisAttrString(attrRedisDB), colValue, tableMetrics, colTeamID, colTimestamp, colMetricName, metricRedisDBKeys, instSQL)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), instArgs...)
+	args := append(dbutil.SimpleBaseParams(teamID, startMs, endMs), instArgs...)
 	var rows []keyspaceRowDTO
 	return rows, r.db.Select(context.Background(), &rows, query, args...)
 }
@@ -163,7 +163,7 @@ func (r *ClickHouseRepository) GetKeyExpiries(teamID int64, startMs, endMs int64
 		ORDER BY expiry_count DESC, redis_db ASC
 	`, redisAttrString(attrRedisDB), colValue, tableMetrics, colTeamID, colTimestamp, colMetricName, metricRedisDBExpires, instSQL)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), instArgs...)
+	args := append(dbutil.SimpleBaseParams(teamID, startMs, endMs), instArgs...)
 	var rows []keyExpiryRowDTO
 	return rows, r.db.Select(context.Background(), &rows, query, args...)
 }

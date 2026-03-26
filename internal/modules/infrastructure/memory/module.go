@@ -2,7 +2,7 @@ package memory
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 	"github.com/observability/observability-backend-go/internal/modules/registry"
 )
@@ -15,7 +15,7 @@ func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-func NewHandler(db *database.NativeQuerier, getTenant modulecommon.GetTenantFunc) *MemoryHandler {
+func NewHandler(db *dbutil.NativeQuerier, getTenant modulecommon.GetTenantFunc) *MemoryHandler {
 	return &MemoryHandler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service:  NewService(NewRepository(db)),

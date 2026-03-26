@@ -43,7 +43,7 @@ type LLMRunFilters struct {
 	Limit         int
 	// Keyset pagination cursor
 	CursorTimestamp *time.Time
-	CursorSpanID   string
+	CursorSpanID    string
 }
 
 // LLMRunSummary provides aggregate stats for the current filter set.

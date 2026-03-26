@@ -4,6 +4,7 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -126,7 +127,7 @@ func ParseListParam(c *gin.Context, key string) []string {
 	return clean
 }
 
-func ParseRange(c *gin.Context) (int64, int64, error) {
+func ParseRange(c *gin.Context) (startMs, endMs int64, err error) {
 	now := time.Now().UnixMilli()
 	end := ParseInt64Param(c, "endTime", 0)
 	if end <= 0 {
@@ -140,15 +141,15 @@ func ParseRange(c *gin.Context) (int64, int64, error) {
 		end = now
 	}
 	if start <= 0 {
-		return 0, 0, fmt.Errorf("start time is required")
+		return 0, 0, errors.New("start time is required")
 	}
 	if start >= end {
-		return 0, 0, fmt.Errorf("start must be before end")
+		return 0, 0, errors.New("start must be before end")
 	}
 	return start, end, nil
 }
 
-func ParseRequiredRange(c *gin.Context) (int64, int64, bool) {
+func ParseRequiredRange(c *gin.Context) (startMs, endMs int64, ok bool) {
 	start, end, err := ParseRange(c)
 	if err != nil {
 		RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "start and end time params are required")
@@ -202,7 +203,7 @@ func WithComparison(c *gin.Context, startMs, endMs int64, queryFn func(s, e int6
 	if hasCmp {
 		comparison, err := queryFn(cmpStart, cmpEnd)
 		if err != nil {
-			// Non-fatal: return primary without comparison
+			//nolint:nilerr // non-fatal: return primary result without comparison data
 			return resp, nil
 		}
 		resp.Comparison = comparison
@@ -214,8 +215,7 @@ func WithComparison(c *gin.Context, startMs, endMs int64, queryFn func(s, e int6
 func ExtractIDParam(c *gin.Context, key string) (int64, error) {
 	id, err := strconv.ParseInt(c.Param(key), 10, 64)
 	if err != nil {
-		return 0, fmt.Errorf("invalid id")
+		return 0, errors.New("invalid id")
 	}
 	return id, nil
 }
-

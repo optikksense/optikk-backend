@@ -46,7 +46,8 @@ type syncRegistry struct {
 
 func (r *syncRegistry) getOrCreate(name string, threshold int, resetTimeout time.Duration, isSuccessful func(error) bool) *CircuitBreaker {
 	if existing, ok := r.breakers.Load(name); ok {
-		return existing.(*CircuitBreaker)
+		cb, _ := existing.(*CircuitBreaker)
+		return cb
 	}
 
 	created := &CircuitBreaker{
@@ -55,7 +56,7 @@ func (r *syncRegistry) getOrCreate(name string, threshold int, resetTimeout time
 			MaxRequests: 1,
 			Timeout:     resetTimeout,
 			ReadyToTrip: func(counts gobreaker.Counts) bool {
-				return counts.ConsecutiveFailures >= uint32(threshold)
+				return counts.ConsecutiveFailures >= uint32(threshold) //nolint:gosec // G115 - domain-constrained value
 			},
 			IsSuccessful: func(err error) bool {
 				if isSuccessful != nil {
@@ -70,5 +71,6 @@ func (r *syncRegistry) getOrCreate(name string, threshold int, resetTimeout time
 	}
 
 	actual, _ := r.breakers.LoadOrStore(name, created)
-	return actual.(*CircuitBreaker)
+	cb, _ := actual.(*CircuitBreaker)
+	return cb
 }

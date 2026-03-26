@@ -10,7 +10,7 @@ import (
 )
 
 type QueryBuilder interface {
-	Build() (string, []any)
+	Build() (query string, args []any)
 }
 
 type BaseQueryBuilder struct {
@@ -46,11 +46,11 @@ func attrStr(key string) string { return "attributes.'" + key + "'::String" }
 func attrInt(key string) string { return "attributes.'" + key + "'::Int64" }
 func attrFlt(key string) string { return "attributes.'" + key + "'::Float64" }
 
-func (b *BaseQueryBuilder) baseWhereClause() (string, []any) {
+func (b *BaseQueryBuilder) baseWhereClause() (where string, args []any) {
 	modelExpr := attrStr("gen.ai.request.model")
-	where := fmt.Sprintf("WHERE team_id = @teamID AND timestamp BETWEEN @start AND @end AND %s <> ''", modelExpr)
-	args := []any{
-		clickhouse.Named("teamID", uint32(b.teamID)),
+	where = fmt.Sprintf("WHERE team_id = @teamID AND timestamp BETWEEN @start AND @end AND %s <> ''", modelExpr)
+	args = []any{
+		clickhouse.Named("teamID", uint32(b.teamID)), //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(b.startMs)),
 		clickhouse.Named("end", time.UnixMilli(b.endMs)),
 	}
@@ -71,8 +71,9 @@ func NewSummaryQueryBuilder(teamID int64, startMs, endMs int64) *SummaryQueryBui
 	return &SummaryQueryBuilder{BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs)}
 }
 
-func (b *SummaryQueryBuilder) Build() (string, []any) {
-	where, args := b.baseWhereClause()
+func (b *SummaryQueryBuilder) Build() (query string, args []any) {
+	var where string
+	where, args = b.baseWhereClause()
 
 	durationMs := attrFlt("duration_ms")
 	inputTokens := attrInt("gen.ai.usage.input_tokens")
@@ -83,7 +84,7 @@ func (b *SummaryQueryBuilder) Build() (string, []any) {
 	piiDetected := attrInt("ai.security.pii_detected")
 	guardrailBlocked := attrInt("ai.security.guardrail_blocked")
 
-	query := fmt.Sprintf(`
+	query = fmt.Sprintf(`
 		SELECT toInt64(COUNT(*)) as total_requests,
 		       COUNT(*) / GREATEST(dateDiff('second', @start, @end), 1) as avg_qps,
 		       if(isNaN(AVG(%s)), 0, COALESCE(AVG(%s), 0)) as avg_latency_ms,
@@ -121,9 +122,10 @@ func NewModelListQueryBuilder(teamID int64, startMs, endMs int64) *ModelListQuer
 	return &ModelListQueryBuilder{BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs)}
 }
 
-func (b *ModelListQueryBuilder) Build() (string, []any) {
-	where, args := b.baseWhereClause()
-	query := fmt.Sprintf(`
+func (b *ModelListQueryBuilder) Build() (query string, args []any) {
+	var where string
+	where, args = b.baseWhereClause()
+	query = fmt.Sprintf(`
 		SELECT %s as model_name, %s as model_provider
 		FROM %s %s
 		GROUP BY model_name, model_provider ORDER BY model_name ASC LIMIT %d
@@ -159,15 +161,16 @@ func (b *TimeSeriesQueryBuilder) WithGroupByFields(fields []string) *TimeSeriesQ
 	return b
 }
 
-func (b *TimeSeriesQueryBuilder) Build() (string, []any) {
-	where, args := b.baseWhereClause()
+func (b *TimeSeriesQueryBuilder) Build() (query string, args []any) {
+	var where string
+	where, args = b.baseWhereClause()
 	bucketExpr := b.bucketStrategy.GetBucketExpression()
 	selectClause := strings.Join(b.selectFields, ",\n       ")
 	groupByClause := "model_name, " + bucketExpr
 	if len(b.groupByFields) > 0 {
 		groupByClause = strings.Join(append([]string{"model_name", bucketExpr}, b.groupByFields...), ", ")
 	}
-	query := fmt.Sprintf(`
+	query = fmt.Sprintf(`
 		SELECT %s as model_name, %s as time_bucket, %s
 		FROM %s %s
 		GROUP BY %s ORDER BY %s
@@ -189,10 +192,11 @@ func NewLatencyHistogramQueryBuilder(teamID int64, startMs, endMs int64) *Latenc
 	}
 }
 
-func (b *LatencyHistogramQueryBuilder) Build() (string, []any) {
-	where, args := b.baseWhereClause()
+func (b *LatencyHistogramQueryBuilder) Build() (query string, args []any) {
+	var where string
+	where, args = b.baseWhereClause()
 	durationMs := attrFlt("duration_ms")
-	query := fmt.Sprintf(`
+	query = fmt.Sprintf(`
 		SELECT %s as model_name, toInt64(FLOOR(%s / %d) * %d) as bucket_ms, toInt64(COUNT(*)) as request_count
 		FROM %s %s
 		GROUP BY model_name, bucket_ms ORDER BY model_name, bucket_ms ASC LIMIT %d

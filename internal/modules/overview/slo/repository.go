@@ -5,9 +5,11 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
+
+const serviceNameFilter = " AND s.service_name = @serviceName"
 
 func sloBucketExpr(startMs, endMs int64) string {
 	return timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
@@ -21,10 +23,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -53,9 +55,9 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 			       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency_ms
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`
-	args := database.SpanBaseParams(teamID, startMs, endMs)
+	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += ` AND s.service_name = @serviceName`
+		query += serviceNameFilter
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += `
@@ -66,13 +68,7 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		return Summary{}, err
 	}
 
-	return Summary{
-		TotalRequests:       row.TotalRequests,
-		ErrorCount:          row.ErrorCount,
-		AvailabilityPercent: row.AvailabilityPercent,
-		AvgLatencyMs:        row.AvgLatencyMs,
-		P95LatencyMs:        row.P95LatencyMs,
-	}, nil
+	return Summary(row), nil
 }
 
 // timeSliceRow is the DTO for GetTimeSeries (AvgLatencyMs is float64 in CH, converted to *float64 in model).
@@ -101,9 +97,9 @@ func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, 
 			       avg(s.duration_nano / 1000000.0)     AS avg_latency_ms
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := database.SpanBaseParams(teamID, startMs, endMs)
+	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += ` AND s.service_name = @serviceName`
+		query += serviceNameFilter
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += ` GROUP BY 1

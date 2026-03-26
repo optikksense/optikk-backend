@@ -1,7 +1,5 @@
 package nodes
 
-import ()
-
 type Service interface {
 	GetInfrastructureNodes(teamID int64, startMs, endMs int64) ([]InfrastructureNode, error)
 	GetInfrastructureNodeSummary(teamID int64, startMs, endMs int64) (InfrastructureNodeSummary, error)

@@ -43,8 +43,8 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Re
 		return Response{}, fmt.Errorf("explorer.Query.GetFacets: %w", err)
 	}
 	groupedFacets := ExplorerFacets{
-		ServiceName: []FacetBucket{},
-		Status: []FacetBucket{},
+		ServiceName:   []FacetBucket{},
+		Status:        []FacetBucket{},
 		OperationName: []FacetBucket{},
 	}
 	for _, facet := range facets {

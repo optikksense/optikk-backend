@@ -25,7 +25,6 @@ func bucketSecs(startMs, endMs int64) float64 {
 	return 3600.0
 }
 
-
 // ── 1. Summary stat cards ─────────────────────────────────────────────────────
 
 func (r *ClickHouseRepository) GetKafkaSummaryStats(teamID int64, startMs, endMs int64, f KafkaFilters) (KafkaSummaryStats, error) {

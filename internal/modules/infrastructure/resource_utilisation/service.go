@@ -1,4 +1,4 @@
-package resource_utilisation
+package resource_utilisation //nolint:misspell
 
 type Service interface {
 	GetAvgCPU(teamID int64, startMs, endMs int64) (MetricValue, error)

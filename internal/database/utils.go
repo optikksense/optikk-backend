@@ -35,7 +35,7 @@ func QueryCount(db Querier, q string, args ...any) int64 {
 	return total
 }
 
-func InClauseFromStrings(values []string) (string, []any) {
+func InClauseFromStrings(values []string) (clause string, args []any) {
 	return InClause(values)
 }
 
@@ -48,7 +48,7 @@ func Int64FromAny(v any) int64 {
 	case int:
 		return int64(n)
 	case uint64:
-		return int64(n)
+		return int64(n) //nolint:gosec // G115 - domain-constrained value
 	case uint32:
 		return int64(n)
 	case float64:
@@ -282,7 +282,7 @@ func TimeFromAny(v any) time.Time {
 	if n, ok := v.(float64); ok {
 		return TimeFromAny(int64(n))
 	}
-	if s, ok := v.(string); ok {
+	if s, ok := v.(string); ok { //nolint:nestif
 		s = strings.TrimSpace(s)
 		if s == "" {
 			return time.Time{}

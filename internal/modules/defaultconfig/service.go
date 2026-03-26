@@ -86,7 +86,7 @@ func (s *Service) resolvePage(teamID int64, pageID string) (configdefaults.PageD
 	override, err := s.repo.GetPageOverride(teamID, pageID)
 	if err != nil || override.ConfigJSON == "" {
 		s.seedDefaultDoc(teamID, pageID, defaultDoc)
-		return defaultDoc, nil
+		return defaultDoc, nil //nolint:nilerr // missing override is expected; fall back to defaults
 	}
 
 	pageOverride, err := configdefaults.DecodePageDocument([]byte(override.ConfigJSON))

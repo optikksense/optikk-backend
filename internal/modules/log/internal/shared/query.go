@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	database "github.com/observability/observability-backend-go/internal/database"
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
@@ -17,7 +16,7 @@ const LogColumns = `id, timestamp, observed_timestamp, severity_text, severity_n
 	attributes_string, attributes_number, attributes_bool,
 	scope_name, scope_version`
 
-func QueryCount(ctx context.Context, db *database.NativeQuerier, query string, args ...any) int64 {
+func QueryCount(ctx context.Context, db *dbutil.NativeQuerier, query string, args ...any) int64 {
 	var row CountRow
 	if err := db.QueryRow(ctx, &row, query, args...); err != nil {
 		return 0
@@ -25,7 +24,7 @@ func QueryCount(ctx context.Context, db *database.NativeQuerier, query string, a
 	return row.Count
 }
 
-func BuildLogWhere(f LogFilters) (string, []any) {
+func BuildLogWhere(f LogFilters) (where string, args []any) {
 	const maxTimeRangeMs = 30 * 24 * 60 * 60 * 1000
 
 	startMs := f.StartMs
@@ -37,13 +36,13 @@ func BuildLogWhere(f LogFilters) (string, []any) {
 		startMs = endMs - maxTimeRangeMs
 	}
 
-	startNs := uint64(startMs) * 1_000_000
-	endNs := uint64(endMs) * 1_000_000
+	startNs := uint64(startMs) * 1_000_000 //nolint:gosec // G115 - domain-constrained value
+	endNs := uint64(endMs) * 1_000_000     //nolint:gosec // G115 - domain-constrained value
 	startBucket := timebucket.LogsBucketStart(startMs / 1000)
 	endBucket := timebucket.LogsBucketStart(endMs / 1000)
 
-	where := ` team_id = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ?`
-	args := []any{uint32(f.TeamID), startBucket, endBucket, startNs, endNs}
+	where = ` team_id = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ?`
+	args = []any{uint32(f.TeamID), startBucket, endBucket, startNs, endNs} //nolint:gosec // G115
 
 	appendInClause := func(column string, values []string, negated bool) {
 		if len(values) == 0 {

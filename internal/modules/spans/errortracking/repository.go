@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	database "github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
@@ -17,10 +17,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -33,7 +33,7 @@ func (r *ClickHouseRepository) GetExceptionRateByType(ctx context.Context, teamI
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.exception_type != '' AND s.timestamp BETWEEN @start AND @end`, bucket)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -65,7 +65,7 @@ func (r *ClickHouseRepository) GetErrorHotspot(ctx context.Context, teamID int64
 		ORDER BY error_rate DESC
 		LIMIT 500
 	`,
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -83,7 +83,7 @@ func (r *ClickHouseRepository) GetHTTP5xxByRoute(ctx context.Context, teamID int
 		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
 		  AND toUInt16OrZero(s.response_status_code) >= 500`
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),

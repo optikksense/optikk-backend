@@ -10,6 +10,8 @@ import (
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
+const serviceNameFilter = " AND s.service_name = @serviceName"
+
 func errorBucketExpr(startMs, endMs int64) string {
 	return timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 }
@@ -59,7 +61,7 @@ func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64,
 		WHERE s.team_id = @teamID AND (` + ErrorCondition() + `) AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`
 	args := database.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += ` AND s.service_name = @serviceName`
+		query += serviceNameFilter
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += ` GROUP BY s.service_name, s.name, s.status_message, toUInt16OrZero(s.response_status_code)
@@ -87,11 +89,6 @@ func (r *ClickHouseRepository) resolveGroupID(ctx context.Context, teamID int64,
 		}
 	}
 	return "", "", "", 0, fmt.Errorf("error group %s not found", groupID)
-}
-
-// errorGroupCondition returns a WHERE fragment matching a specific error group.
-func errorGroupCondition() string {
-	return `s.service_name = @groupServiceName AND s.name = @groupOperationName AND s.status_message = @groupStatusMessage AND toUInt16OrZero(s.response_status_code) = @groupHTTPStatusCode`
 }
 
 // errorGroupDetailRow is the DTO for GetErrorGroupDetail.
@@ -265,7 +262,7 @@ func (r *ClickHouseRepository) GetServiceErrorRate(ctx context.Context, teamID i
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
 	args := database.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += ` AND s.service_name = @serviceName`
+		query += serviceNameFilter
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += fmt.Sprintf(` GROUP BY s.service_name, %s
@@ -300,7 +297,7 @@ func (r *ClickHouseRepository) GetErrorVolume(ctx context.Context, teamID int64,
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
 	args := database.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += ` AND s.service_name = @serviceName`
+		query += serviceNameFilter
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += fmt.Sprintf(` GROUP BY s.service_name, %s
@@ -340,7 +337,7 @@ func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(ctx context.Context,
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
 	args := database.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += ` AND s.service_name = @serviceName`
+		query += serviceNameFilter
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += fmt.Sprintf(` GROUP BY s.service_name, %s

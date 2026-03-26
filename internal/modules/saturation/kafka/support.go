@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	database "github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
 const (
@@ -77,22 +77,24 @@ var (
 )
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
 func MetricSetToInClause(metrics []string) string {
-	res := ""
+	var b strings.Builder
 	for i, metric := range metrics {
 		if i > 0 {
-			res += ", "
+			b.WriteString(", ")
 		}
-		res += "'" + metric + "'"
+		b.WriteByte('\'')
+		b.WriteString(metric)
+		b.WriteByte('\'')
 	}
-	return res
+	return b.String()
 }
 
 func flatten(slices ...[]string) []string {
@@ -158,15 +160,14 @@ type KafkaFilters struct {
 }
 
 // kafkaFilterClauses builds optional WHERE clauses from KafkaFilters.
-func kafkaFilterClauses(f KafkaFilters) (string, []any) {
+func kafkaFilterClauses(f KafkaFilters) (frag string, args []any) {
 	var sb strings.Builder
-	var args []any
 	if f.Topic != "" {
-		sb.WriteString(fmt.Sprintf(" AND %s = @topicFilter", topicExpr()))
+		fmt.Fprintf(&sb, " AND %s = @topicFilter", topicExpr())
 		args = append(args, clickhouse.Named("topicFilter", f.Topic))
 	}
 	if f.Group != "" {
-		sb.WriteString(fmt.Sprintf(" AND %s = @groupFilter", consumerGroupExpr()))
+		fmt.Fprintf(&sb, " AND %s = @groupFilter", consumerGroupExpr())
 		args = append(args, clickhouse.Named("groupFilter", f.Group))
 	}
 	return sb.String(), args

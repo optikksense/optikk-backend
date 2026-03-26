@@ -6,7 +6,6 @@ import (
 	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
 
 	"github.com/gin-gonic/gin"
-	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
@@ -17,7 +16,7 @@ type OverviewHandler struct {
 
 func (h *OverviewHandler) GetRequestRate(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
@@ -26,20 +25,20 @@ func (h *OverviewHandler) GetRequestRate(c *gin.Context) {
 		serviceName = c.Query("service")
 	}
 
-	resp, err := WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
+	resp, err := modulecommon.WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
 		return h.Service.GetRequestRate(c.Request.Context(), teamID, s, e, serviceName)
 	})
 	if err != nil {
-		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview request rate", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview request rate", err)
 		return
 	}
 
-	RespondOK(c, resp)
+	modulecommon.RespondOK(c, resp)
 }
 
 func (h *OverviewHandler) GetErrorRate(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
@@ -48,20 +47,20 @@ func (h *OverviewHandler) GetErrorRate(c *gin.Context) {
 		serviceName = c.Query("service")
 	}
 
-	resp, err := WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
+	resp, err := modulecommon.WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
 		return h.Service.GetErrorRate(c.Request.Context(), teamID, s, e, serviceName)
 	})
 	if err != nil {
-		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview error rate", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview error rate", err)
 		return
 	}
 
-	RespondOK(c, resp)
+	modulecommon.RespondOK(c, resp)
 }
 
 func (h *OverviewHandler) GetP95Latency(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
@@ -70,36 +69,36 @@ func (h *OverviewHandler) GetP95Latency(c *gin.Context) {
 		serviceName = c.Query("service")
 	}
 
-	resp, err := WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
+	resp, err := modulecommon.WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
 		return h.Service.GetP95Latency(c.Request.Context(), teamID, s, e, serviceName)
 	})
 	if err != nil {
-		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview p95 latency", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview p95 latency", err)
 		return
 	}
 
-	RespondOK(c, resp)
+	modulecommon.RespondOK(c, resp)
 }
 
 func (h *OverviewHandler) GetServices(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
 	rows, err := h.Service.GetServices(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview services", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview services", err)
 		return
 	}
 
-	RespondOK(c, rows)
+	modulecommon.RespondOK(c, rows)
 }
 
 func (h *OverviewHandler) GetTopEndpoints(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
@@ -110,16 +109,16 @@ func (h *OverviewHandler) GetTopEndpoints(c *gin.Context) {
 
 	rows, err := h.Service.GetTopEndpoints(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
-		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview top endpoints", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview top endpoints", err)
 		return
 	}
 
-	RespondOK(c, rows)
+	modulecommon.RespondOK(c, rows)
 }
 
 func (h *OverviewHandler) GetEndpointTimeSeries(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
@@ -130,9 +129,9 @@ func (h *OverviewHandler) GetEndpointTimeSeries(c *gin.Context) {
 
 	rows, err := h.Service.GetEndpointTimeSeries(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
-		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview endpoint time series", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview endpoint time series", err)
 		return
 	}
 
-	RespondOK(c, rows)
+	modulecommon.RespondOK(c, rows)
 }

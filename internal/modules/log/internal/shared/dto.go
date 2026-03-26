@@ -23,27 +23,7 @@ type LogRowDTO struct {
 }
 
 func (d LogRowDTO) ToLog() Log {
-	return Log{
-		ID:                d.ID,
-		Timestamp:         d.Timestamp,
-		ObservedTimestamp: d.ObservedTimestamp,
-		SeverityText:      d.SeverityText,
-		SeverityNumber:    d.SeverityNumber,
-		Body:              d.Body,
-		TraceID:           d.TraceID,
-		SpanID:            d.SpanID,
-		TraceFlags:        d.TraceFlags,
-		ServiceName:       d.ServiceName,
-		Host:              d.Host,
-		Pod:               d.Pod,
-		Container:         d.Container,
-		Environment:       d.Environment,
-		AttributesString:  d.AttributesString,
-		AttributesNumber:  d.AttributesNumber,
-		AttributesBool:    d.AttributesBool,
-		ScopeName:         d.ScopeName,
-		ScopeVersion:      d.ScopeVersion,
-	}
+	return Log(d)
 }
 
 func MapLogRows(rows []LogRowDTO) []Log {

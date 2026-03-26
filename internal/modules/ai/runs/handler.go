@@ -9,7 +9,6 @@ import (
 	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
 
 	"github.com/gin-gonic/gin"
-	"github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
@@ -20,7 +19,7 @@ type Handler struct {
 
 func (h *Handler) parseFilters(c *gin.Context) (LLMRunFilters, bool) {
 	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := common.ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return LLMRunFilters{}, false
 	}
@@ -79,10 +78,10 @@ func (h *Handler) ListRuns(c *gin.Context) {
 	}
 	runs, err := h.Service.ListRuns(c.Request.Context(), f)
 	if err != nil {
-		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to list LLM runs", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to list LLM runs", err)
 		return
 	}
-	common.RespondOK(c, runs)
+	modulecommon.RespondOK(c, runs)
 }
 
 func (h *Handler) GetRunsSummary(c *gin.Context) {
@@ -92,10 +91,10 @@ func (h *Handler) GetRunsSummary(c *gin.Context) {
 	}
 	summary, err := h.Service.GetRunsSummary(c.Request.Context(), f)
 	if err != nil {
-		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to get runs summary", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to get runs summary", err)
 		return
 	}
-	common.RespondOK(c, summary)
+	modulecommon.RespondOK(c, summary)
 }
 
 func (h *Handler) ListModels(c *gin.Context) {
@@ -105,10 +104,10 @@ func (h *Handler) ListModels(c *gin.Context) {
 	}
 	models, err := h.Service.ListModels(c.Request.Context(), f)
 	if err != nil {
-		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to list models", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to list models", err)
 		return
 	}
-	common.RespondOK(c, models)
+	modulecommon.RespondOK(c, models)
 }
 
 func (h *Handler) ListOperations(c *gin.Context) {
@@ -118,8 +117,8 @@ func (h *Handler) ListOperations(c *gin.Context) {
 	}
 	ops, err := h.Service.ListOperations(c.Request.Context(), f)
 	if err != nil {
-		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to list operations", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to list operations", err)
 		return
 	}
-	common.RespondOK(c, ops)
+	modulecommon.RespondOK(c, ops)
 }

@@ -2,6 +2,7 @@ package analytics
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math"
 	"strconv"
@@ -109,13 +110,13 @@ func analyticsCellFromValue(key string, value any) AnalyticsCell {
 
 func validate(q AnalyticsQuery) error {
 	if len(q.GroupBy) == 0 {
-		return fmt.Errorf("at least one groupBy dimension is required")
+		return errors.New("at least one groupBy dimension is required")
 	}
 	if len(q.GroupBy) > maxGroupByDimensions {
 		return fmt.Errorf("maximum %d groupBy dimensions allowed", maxGroupByDimensions)
 	}
 	if len(q.Aggregations) == 0 {
-		return fmt.Errorf("at least one aggregation is required")
+		return errors.New("at least one aggregation is required")
 	}
 	if len(q.Aggregations) > maxAggregations {
 		return fmt.Errorf("maximum %d aggregations allowed", maxAggregations)
@@ -128,22 +129,22 @@ func validate(q AnalyticsQuery) error {
 	}
 
 	if q.Filters.StartMs <= 0 {
-		return fmt.Errorf("filters.startMs is required")
+		return errors.New("filters.startMs is required")
 	}
 	if q.Filters.EndMs <= 0 {
-		return fmt.Errorf("filters.endMs is required")
+		return errors.New("filters.endMs is required")
 	}
 	if q.Filters.EndMs <= q.Filters.StartMs {
-		return fmt.Errorf("filters.endMs must be after filters.startMs")
+		return errors.New("filters.endMs must be after filters.startMs")
 	}
 	if (q.Filters.EndMs - q.Filters.StartMs) > maxTimeRangeMs {
-		return fmt.Errorf("time range cannot exceed 30 days")
+		return errors.New("time range cannot exceed 30 days")
 	}
 
 	seen := make(map[string]bool, len(q.Aggregations))
 	for _, a := range q.Aggregations {
 		if a.Alias == "" {
-			return fmt.Errorf("aggregation alias is required")
+			return errors.New("aggregation alias is required")
 		}
 		if seen[a.Alias] {
 			return fmt.Errorf("duplicate aggregation alias: %q", a.Alias)

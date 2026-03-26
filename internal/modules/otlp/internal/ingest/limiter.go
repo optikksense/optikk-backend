@@ -38,7 +38,7 @@ func NewTeamLimiter(ratePerSec, burst int64) *TeamLimiter {
 // Returns false (deny) if the team has exceeded its rate.
 func (l *TeamLimiter) Allow(teamID int64, n int64) bool {
 	v, _ := l.buckets.LoadOrStore(teamID, &teamBucket{})
-	b := v.(*teamBucket)
+	b := v.(*teamBucket) //nolint:errcheck // LoadOrStore always stores *teamBucket
 	l.refill(b)
 	for {
 		cur := b.tokens.Load()
@@ -84,7 +84,7 @@ func (l *TeamLimiter) refillLoop() {
 	defer ticker.Stop()
 	for range ticker.C {
 		l.buckets.Range(func(_, v any) bool {
-			l.refill(v.(*teamBucket))
+			l.refill(v.(*teamBucket)) //nolint:errcheck // Range callback always yields *teamBucket
 			return true
 		})
 	}

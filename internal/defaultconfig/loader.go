@@ -3,6 +3,7 @@ package defaultconfig
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -39,7 +40,7 @@ func LoadFromFS(fsys fs.FS) (*Registry, error) {
 		}
 
 		doc := PageDocument{Page: pageMeta}
-		if pageMeta.RenderMode == RenderModeDashboard {
+		if pageMeta.RenderMode == RenderModeDashboard { //nolint:nestif
 			tabEntries, err := fs.ReadDir(fsys, path.Join(pageDir, "tabs"))
 			if err != nil {
 				return nil, fmt.Errorf("read %s/tabs: %w", pageDir, err)
@@ -128,12 +129,12 @@ func (r *Registry) ListPages(navigableOnly bool) []PageMetadata {
 }
 
 func ClonePageDocument(doc PageDocument) (PageDocument, error) {
-	bytes, err := json.Marshal(doc)
+	data, err := json.Marshal(doc)
 	if err != nil {
 		return PageDocument{}, err
 	}
 	var cloned PageDocument
-	if err := json.Unmarshal(bytes, &cloned); err != nil {
+	if err := json.Unmarshal(data, &cloned); err != nil {
 		return PageDocument{}, err
 	}
 	return cloned, nil
@@ -160,7 +161,7 @@ func validatePageDocument(doc PageDocument) error {
 		)
 	}
 	if doc.Page.ID == "" {
-		return fmt.Errorf("page id is required")
+		return errors.New("page id is required")
 	}
 	if doc.Page.Path == "" {
 		return fmt.Errorf("page %q: path is required", doc.Page.ID)
@@ -414,12 +415,12 @@ func (r *Registry) GenerateDefaultDashboardConfigsJSON() (string, error) {
 		return "{}", nil
 	}
 
-	bytes, err := json.Marshal(r.pages)
+	data, err := json.Marshal(r.pages)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal default configs: %w", err)
 	}
 
-	return string(bytes), nil
+	return string(data), nil
 }
 
 func strictUnmarshal(data []byte, dest any) error {
@@ -432,7 +433,7 @@ func strictUnmarshal(data []byte, dest any) error {
 
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
-		return fmt.Errorf("unexpected trailing JSON content")
+		return errors.New("unexpected trailing JSON content")
 	}
 
 	return nil

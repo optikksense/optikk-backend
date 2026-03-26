@@ -1,8 +1,8 @@
 package mapper
 
 import (
+	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"hash/fnv"
 	"strconv"
 	"time"
@@ -10,7 +10,6 @@ import (
 	"github.com/observability/observability-backend-go/internal/modules/otlp/internal/ingest"
 	"github.com/observability/observability-backend-go/internal/platform/logger"
 	"github.com/observability/observability-backend-go/internal/platform/timebucket"
-	"go.uber.org/zap"
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -18,13 +17,14 @@ import (
 	log "go.opentelemetry.io/proto/otlp/logs/v1"
 	metricsdatapb "go.opentelemetry.io/proto/otlp/metrics/v1"
 	trace "go.opentelemetry.io/proto/otlp/trace/v1"
+	"go.uber.org/zap"
 )
 
 func nanoToTime(ns uint64) time.Time {
 	if ns == 0 {
 		return time.Now()
 	}
-	return time.Unix(0, int64(ns))
+	return time.Unix(0, int64(ns)) //nolint:gosec // G115 - domain-constrained value
 }
 
 func spanKindString(kind trace.Span_SpanKind) string {
@@ -106,43 +106,6 @@ func attrsToMap(kvs []*commonpb.KeyValue) map[string]string {
 	return m
 }
 
-// attrsToJSON serializes protobuf attributes into a JSON string map.
-func attrsToJSON(kvs []*commonpb.KeyValue) string {
-	if len(kvs) == 0 {
-		return "{}"
-	}
-	m := attrsToMap(kvs)
-	return mapToJSON(m)
-}
-
-// mapToJSON serializes a map[string]string to a compact JSON string.
-func mapToJSON(m map[string]string) string {
-	if len(m) == 0 {
-		return "{}"
-	}
-	b, err := json.Marshal(m)
-	if err != nil {
-		return "{}"
-	}
-	return string(b)
-}
-
-// mergeAttrsJSON merges a pre-built resource map with datapoint protobuf attrs
-// and serializes to JSON. Avoids temporary slice allocation from append().
-func mergeAttrsJSON(resMap map[string]string, dpAttrs []*commonpb.KeyValue) string {
-	if len(dpAttrs) == 0 {
-		return mapToJSON(resMap)
-	}
-	merged := make(map[string]string, len(resMap)+len(dpAttrs))
-	for k, v := range resMap {
-		merged[k] = v
-	}
-	for _, kv := range dpAttrs {
-		merged[kv.Key] = anyValueString(kv.Value)
-	}
-	return mapToJSON(merged)
-}
-
 // mergeAttrsMap merges resource map with datapoint protobuf attrs, returning a map
 // suitable for ClickHouse JSON columns via the native driver.
 func mergeAttrsMap(resMap map[string]string, dpAttrs []*commonpb.KeyValue) map[string]string {
@@ -173,33 +136,15 @@ func mapGet(m map[string]string, keys ...string) string {
 func resourceFingerprint(kvs []*commonpb.KeyValue) uint64 {
 	h := fnv.New64a()
 	for _, kv := range kvs {
-		h.Write([]byte(kv.Key))
-		h.Write([]byte(anyValueString(kv.Value)))
+		_, _ = h.Write([]byte(kv.Key))
+		_, _ = h.Write([]byte(anyValueString(kv.Value)))
 	}
 	return h.Sum64()
 }
 
-func lookupAttr(kvs []*commonpb.KeyValue, key string) string {
-	for _, kv := range kvs {
-		if kv.Key == key {
-			return anyValueString(kv.Value)
-		}
-	}
-	return ""
-}
-
-func lookupAttrInt(kvs []*commonpb.KeyValue, key string) int64 {
-	s := lookupAttr(kvs, key)
-	if s == "" {
-		return 0
-	}
-	v, _ := strconv.ParseInt(s, 10, 64)
-	return v
-}
-
 func bytesToHex(b []byte) string {
 	if len(b) > 0 {
-		return fmt.Sprintf("%x", b)
+		return hex.EncodeToString(b)
 	}
 	return ""
 }
@@ -326,7 +271,7 @@ func MapSpans(teamID int64, req *tracepb.ExportTraceServiceRequest) []ingest.Row
 
 				result = append(result, ingest.Row{Values: []any{
 					tsBucket,
-					uint32(teamID),
+					uint32(teamID), //nolint:gosec // G115 - domain-constrained value
 					timestamp,
 					bytesToHex(s.TraceId),
 					bytesToHex(s.SpanId),
@@ -334,7 +279,7 @@ func MapSpans(teamID int64, req *tracepb.ExportTraceServiceRequest) []ingest.Row
 					s.TraceState,
 					s.Flags,
 					s.Name,
-					int8(s.Kind),
+					int8(s.Kind), //nolint:gosec // G115 - domain-constrained value
 					spanKindString(s.Kind),
 					durNano,
 					hasError,
@@ -364,7 +309,7 @@ func MapSpans(teamID int64, req *tracepb.ExportTraceServiceRequest) []ingest.Row
 }
 
 // protoAttrsToTypedMaps splits protobuf KeyValue slice into typed maps.
-func protoAttrsToTypedMaps(kvs []*commonpb.KeyValue) (map[string]string, map[string]float64, map[string]bool) {
+func protoAttrsToTypedMaps(kvs []*commonpb.KeyValue) (strMap map[string]string, numMap map[string]float64, boolMap map[string]bool) {
 	sm := make(map[string]string, len(kvs))
 	nm := make(map[string]float64)
 	bm := make(map[string]bool)
@@ -390,16 +335,16 @@ func protoAttrsToTypedMaps(kvs []*commonpb.KeyValue) (map[string]string, map[str
 
 func protoLogID(teamID int64, tsNano uint64, traceID, spanID []byte, body string) string {
 	h := fnv.New64a()
-	h.Write([]byte(strconv.FormatInt(teamID, 10)))
-	h.Write([]byte{0})
+	_, _ = h.Write([]byte(strconv.FormatInt(teamID, 10)))
+	_, _ = h.Write([]byte{0})
 	b := strconv.AppendUint(nil, tsNano, 10)
-	h.Write(b)
-	h.Write([]byte{0})
-	h.Write(traceID)
-	h.Write([]byte{0})
-	h.Write(spanID)
-	h.Write([]byte{0})
-	h.Write([]byte(body))
+	_, _ = h.Write(b)
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write(traceID)
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write(spanID)
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(body))
 	return strconv.FormatUint(h.Sum64(), 16)
 }
 
@@ -431,15 +376,15 @@ func MapLogs(teamID int64, req *logspb.ExportLogsServiceRequest) []ingest.Row {
 					tsNs = lr.ObservedTimeUnixNano
 				}
 				if tsNs == 0 {
-					tsNs = uint64(time.Now().UnixNano())
+					tsNs = uint64(time.Now().UnixNano()) //nolint:gosec // G115 - domain-constrained value
 				}
 				observedNs := lr.ObservedTimeUnixNano
 				if observedNs == 0 {
-					observedNs = uint64(time.Now().UnixNano())
+					observedNs = uint64(time.Now().UnixNano()) //nolint:gosec // G115 - domain-constrained value
 				}
 
 				// ts_bucket_start: truncate to day boundary (seconds)
-				tsBucket := timebucket.LogsBucketStart(int64(tsNs / 1_000_000_000))
+				tsBucket := timebucket.LogsBucketStart(int64(tsNs / 1_000_000_000)) //nolint:gosec // G115 - domain-constrained value
 
 				severityText := lr.SeverityText
 				if severityText == "" {
@@ -467,7 +412,7 @@ func MapLogs(teamID int64, req *logspb.ExportLogsServiceRequest) []ingest.Row {
 				id := protoLogID(teamID, tsNs, lr.TraceId, lr.SpanId, body)
 
 				rows = append(rows, ingest.Row{Values: []any{
-					uint32(teamID),
+					uint32(teamID), //nolint:gosec // G115 - domain-constrained value
 					tsBucket,
 					tsNs,
 					observedNs,
@@ -476,7 +421,7 @@ func MapLogs(teamID int64, req *logspb.ExportLogsServiceRequest) []ingest.Row {
 					bytesToHex(lr.SpanId),
 					lr.Flags,
 					severityText,
-					uint8(lr.SeverityNumber),
+					uint8(lr.SeverityNumber), //nolint:gosec // G115 - domain-constrained value
 					body,
 					attrStr,
 					attrNum,
@@ -529,7 +474,7 @@ func MapMetrics(teamID int64, req *metricspb.ExportMetricsServiceRequest) []inge
 						attrs := mergeAttrsMap(resMap, dp.Attributes)
 
 						rows = append(rows, ingest.Row{Values: []any{
-							uint32(teamID), env, m.Name, "Gauge", "Unspecified", false,
+							uint32(teamID), env, m.Name, "Gauge", "Unspecified", false, //nolint:gosec // G115 - domain-constrained value
 							unit, desc, fingerprint, nanoToTime(dp.TimeUnixNano), val,
 							0.0, uint64(0), []float64{}, []uint64{}, attrs,
 						}})
@@ -541,6 +486,8 @@ func MapMetrics(teamID int64, req *metricspb.ExportMetricsServiceRequest) []inge
 						temporality = "Delta"
 					case metricsdatapb.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE:
 						temporality = "Cumulative"
+					default:
+						// AGGREGATION_TEMPORALITY_UNSPECIFIED — keep default "Unspecified"
 					}
 					isMonotonic := data.Sum.IsMonotonic
 
@@ -549,7 +496,7 @@ func MapMetrics(teamID int64, req *metricspb.ExportMetricsServiceRequest) []inge
 						attrs := mergeAttrsMap(resMap, dp.Attributes)
 
 						rows = append(rows, ingest.Row{Values: []any{
-							uint32(teamID), env, m.Name, "Sum", temporality, isMonotonic,
+							uint32(teamID), env, m.Name, "Sum", temporality, isMonotonic, //nolint:gosec // G115 - domain-constrained value
 							unit, desc, fingerprint, nanoToTime(dp.TimeUnixNano), val,
 							0.0, uint64(0), []float64{}, []uint64{}, attrs,
 						}})
@@ -561,6 +508,8 @@ func MapMetrics(teamID int64, req *metricspb.ExportMetricsServiceRequest) []inge
 						temporality = "Delta"
 					case metricsdatapb.AggregationTemporality_AGGREGATION_TEMPORALITY_CUMULATIVE:
 						temporality = "Cumulative"
+					default:
+						// AGGREGATION_TEMPORALITY_UNSPECIFIED — keep default "Unspecified"
 					}
 
 					for _, dp := range data.Histogram.DataPoints {
@@ -587,7 +536,7 @@ func MapMetrics(teamID int64, req *metricspb.ExportMetricsServiceRequest) []inge
 						attrs := mergeAttrsMap(resMap, dp.Attributes)
 
 						rows = append(rows, ingest.Row{Values: []any{
-							uint32(teamID), env, m.Name, "Histogram", temporality, false,
+							uint32(teamID), env, m.Name, "Histogram", temporality, false, //nolint:gosec // G115 - domain-constrained value
 							unit, desc, fingerprint, nanoToTime(dp.TimeUnixNano), avg,
 							sum, count, bounds, counts, attrs,
 						}})

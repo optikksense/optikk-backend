@@ -26,7 +26,7 @@ func QueryMapsLimit(db Querier, limit int, query string, args ...any) ([]map[str
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 
 	cols := rows.Columns()
 
@@ -64,12 +64,12 @@ func QueryMap(db Querier, query string, args ...any) (map[string]any, error) {
 	return items[0], nil
 }
 
-func InClause(values []string) (string, []any) {
+func InClause(values []string) (clause string, args []any) {
 	if len(values) == 0 {
 		return "", nil
 	}
 	parts := make([]string, len(values))
-	args := make([]any, len(values))
+	args = make([]any, len(values))
 	for i, v := range values {
 		parts[i] = "?"
 		args[i] = v
@@ -77,12 +77,12 @@ func InClause(values []string) (string, []any) {
 	return "(" + strings.Join(parts, ",") + ")", args
 }
 
-func InClauseInt64(values []int64) (string, []any) {
+func InClauseInt64(values []int64) (clause string, args []any) {
 	if len(values) == 0 {
 		return "", nil
 	}
 	parts := make([]string, len(values))
-	args := make([]any, len(values))
+	args = make([]any, len(values))
 	for i, v := range values {
 		parts[i] = "?"
 		args[i] = v
@@ -90,12 +90,12 @@ func InClauseInt64(values []int64) (string, []any) {
 	return "(" + strings.Join(parts, ",") + ")", args
 }
 
-func NamedInClause(prefix string, values []string) (string, map[string]any) {
+func NamedInClause(prefix string, values []string) (clause string, args map[string]any) {
 	if len(values) == 0 {
 		return "", nil
 	}
 	parts := make([]string, len(values))
-	args := make(map[string]any, len(values))
+	args = make(map[string]any, len(values))
 	for i, v := range values {
 		name := prefix + strconv.Itoa(i)
 		parts[i] = "@" + name
@@ -104,12 +104,12 @@ func NamedInClause(prefix string, values []string) (string, map[string]any) {
 	return "(" + strings.Join(parts, ",") + ")", args
 }
 
-func NamedInClauseInt64(prefix string, values []int64) (string, map[string]any) {
+func NamedInClauseInt64(prefix string, values []int64) (clause string, args map[string]any) {
 	if len(values) == 0 {
 		return "", nil
 	}
 	parts := make([]string, len(values))
-	args := make(map[string]any, len(values))
+	args = make(map[string]any, len(values))
 	for i, v := range values {
 		name := prefix + strconv.Itoa(i)
 		parts[i] = "@" + name

@@ -23,7 +23,7 @@ func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID 
 		ORDER BY p99_ms DESC
 		LIMIT @limit
 	`,
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -50,7 +50,7 @@ func (r *ClickHouseRepository) GetTopErrorOperations(ctx context.Context, teamID
 		ORDER BY error_rate DESC
 		LIMIT @limit
 	`,
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -72,7 +72,7 @@ func (r *ClickHouseRepository) GetLatencyBreakdown(ctx context.Context, teamID i
 		GROUP BY s.service_name
 		ORDER BY total_ms DESC
 	`,
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),

@@ -22,7 +22,7 @@ func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID 
 		WHERE team_id = @teamID AND trace_id = @traceID
 		GROUP BY kind_string
 		ORDER BY total_duration_ms DESC
-	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID))
+	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)) //nolint:gosec // G115
 	return rows, err
 }
 
@@ -39,6 +39,6 @@ func (r *ClickHouseRepository) GetCriticalPath(ctx context.Context, teamID int64
 		WHERE s.team_id = @teamID AND s.trace_id = @traceID
 		ORDER BY start_ns ASC
 		LIMIT 5000
-	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID))
+	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)) //nolint:gosec // G115
 	return rows, err
 }

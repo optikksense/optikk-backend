@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 	"github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
@@ -25,10 +25,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -42,7 +42,7 @@ func (r *ClickHouseRepository) GetTotalServices(ctx context.Context, teamID int6
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
 			GROUP BY s.service_name
 		)
-	`, database.SpanBaseParams(teamID, startMs, endMs)...)
+	`, dbutil.SpanBaseParams(teamID, startMs, endMs)...)
 	return row.Count, err
 }
 
@@ -77,7 +77,7 @@ func (r *ClickHouseRepository) GetServiceMetrics(ctx context.Context, teamID int
 			GROUP BY s.service_name
 		)
 		ORDER BY request_count DESC
-	`, database.SpanBaseParams(teamID, startMs, endMs)...)
+	`, dbutil.SpanBaseParams(teamID, startMs, endMs)...)
 	return rows, err
 }
 
@@ -98,13 +98,13 @@ func (r *ClickHouseRepository) GetServiceTimeSeries(ctx context.Context, teamID 
 		)
 		ORDER BY timestamp ASC, request_count DESC
 		LIMIT 10000
-	`, bucket, bucket), database.SpanBaseParams(teamID, startMs, endMs)...)
+	`, bucket, bucket), dbutil.SpanBaseParams(teamID, startMs, endMs)...)
 	return rows, err
 }
 
 func (r *ClickHouseRepository) GetServiceEndpoints(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]endpointMetricDTO, error) {
 	var rows []endpointMetricDTO
-	params := append(database.SpanBaseParams(teamID, startMs, endMs), clickhouse.Named("serviceName", serviceName))
+	params := append(dbutil.SpanBaseParams(teamID, startMs, endMs), clickhouse.Named("serviceName", serviceName))
 	err := r.db.Select(ctx, &rows, `
 		SELECT service_name, operation_name, http_method, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
 		FROM (
@@ -126,7 +126,7 @@ func (r *ClickHouseRepository) GetServiceEndpoints(ctx context.Context, teamID i
 }
 
 func (r *ClickHouseRepository) countServicesByErrorRate(ctx context.Context, teamID int64, startMs, endMs int64, havingClause string, extraArgs ...any) (int64, error) {
-	queryArgs := append(database.SpanBaseParams(teamID, startMs, endMs), extraArgs...)
+	queryArgs := append(dbutil.SpanBaseParams(teamID, startMs, endMs), extraArgs...)
 
 	var row serviceCountRow
 	err := r.db.QueryRow(ctx, &row, `

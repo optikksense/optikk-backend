@@ -6,15 +6,15 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	database "github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
 type Repository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) *Repository {
+func NewRepository(db *dbutil.NativeQuerier) *Repository {
 	return &Repository{db: db}
 }
 
@@ -37,7 +37,7 @@ func (r *Repository) ListFingerprints(teamID int64, startMs, endMs int64, servic
 		  AND s.timestamp BETWEEN @start AND @end
 		  AND (s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)`
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		timebucket.SpansBucketStart(startMs / 1000),
 		timebucket.SpansBucketStart(endMs / 1000),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -76,7 +76,7 @@ func (r *Repository) GetFingerprintTrend(teamID int64, startMs, endMs int64, ser
 		ORDER BY ts ASC
 	`, bucket)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		timebucket.SpansBucketStart(startMs / 1000),
 		timebucket.SpansBucketStart(endMs / 1000),
 		clickhouse.Named("start", time.UnixMilli(startMs)),

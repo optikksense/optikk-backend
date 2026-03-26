@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
-	common "github.com/observability/observability-backend-go/internal/modules/common"
+	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
 func ParseFilters(c *gin.Context) Filters {
@@ -39,7 +39,7 @@ func ParseThreshold(c *gin.Context, def float64) float64 {
 func RequireCollection(c *gin.Context) (string, bool) {
 	v := c.Query("collection")
 	if v == "" {
-		common.RespondError(c, http.StatusBadRequest, "MISSING_PARAM", "collection query param is required")
+		modulecommon.RespondError(c, http.StatusBadRequest, "MISSING_PARAM", "collection query param is required")
 		return "", false
 	}
 	return v, true
@@ -48,7 +48,7 @@ func RequireCollection(c *gin.Context) (string, bool) {
 func RequireDBSystem(c *gin.Context) (string, bool) {
 	v := c.Query("db_system")
 	if v == "" {
-		common.RespondError(c, http.StatusBadRequest, "MISSING_PARAM", "db_system query param is required")
+		modulecommon.RespondError(c, http.StatusBadRequest, "MISSING_PARAM", "db_system query param is required")
 		return "", false
 	}
 	return v, true

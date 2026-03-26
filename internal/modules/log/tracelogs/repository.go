@@ -4,7 +4,8 @@ import (
 	"context"
 	"fmt"
 
-	database "github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
+
 	shared "github.com/observability/observability-backend-go/internal/modules/log/internal/shared"
 	"github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
@@ -17,10 +18,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -53,8 +54,8 @@ func (r *ClickHouseRepository) GetLogsByTraceID(ctx context.Context, teamID int6
 }
 
 func (r *ClickHouseRepository) GetLogsByTraceWindow(ctx context.Context, teamID int64, traceID string, startNs, endNs uint64) ([]shared.LogRowDTO, error) {
-	bucketLow := timebucket.LogsBucketStart(int64(startNs / 1_000_000_000))
-	bucketHigh := timebucket.LogsBucketStart(int64(endNs / 1_000_000_000))
+	bucketLow := timebucket.LogsBucketStart(int64(startNs / 1_000_000_000)) //nolint:gosec // G115
+	bucketHigh := timebucket.LogsBucketStart(int64(endNs / 1_000_000_000))  //nolint:gosec // G115
 	var rows []shared.LogRowDTO
 	err := r.db.Select(ctx, &rows, fmt.Sprintf(`
 		SELECT %s FROM observability.logs
@@ -67,8 +68,8 @@ func (r *ClickHouseRepository) GetLogsByTraceWindow(ctx context.Context, teamID 
 }
 
 func (r *ClickHouseRepository) GetFallbackLogs(ctx context.Context, teamID int64, serviceName string, startNs, endNs uint64, httpMethod, route, routeLike string) ([]shared.LogRowDTO, error) {
-	bucketLow := timebucket.LogsBucketStart(int64(startNs / 1_000_000_000))
-	bucketHigh := timebucket.LogsBucketStart(int64(endNs / 1_000_000_000))
+	bucketLow := timebucket.LogsBucketStart(int64(startNs / 1_000_000_000)) //nolint:gosec // G115
+	bucketHigh := timebucket.LogsBucketStart(int64(endNs / 1_000_000_000))  //nolint:gosec // G115
 	var rows []shared.LogRowDTO
 	err := r.db.Select(ctx, &rows, fmt.Sprintf(`
 		SELECT %s FROM observability.logs

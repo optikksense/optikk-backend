@@ -8,7 +8,6 @@ import (
 	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
 
 	"github.com/gin-gonic/gin"
-	"github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 	"github.com/observability/observability-backend-go/internal/platform/logger"
 	"go.uber.org/zap"
@@ -55,7 +54,7 @@ type TraceHandler struct {
 	Service TraceService
 }
 
-func NewHandler(getTenant common.GetTenantFunc, service TraceService) *TraceHandler {
+func NewHandler(getTenant modulecommon.GetTenantFunc, service TraceService) *TraceHandler {
 	return &TraceHandler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service:  service,
@@ -63,7 +62,7 @@ func NewHandler(getTenant common.GetTenantFunc, service TraceService) *TraceHand
 }
 
 func (h *TraceHandler) buildFilters(c *gin.Context, teamID int64, startMs, endMs int64) TraceFilters {
-	services := common.ParseListParam(c, "services")
+	services := modulecommon.ParseListParam(c, "services")
 	if len(services) == 0 {
 		if singleService := c.Query("service"); singleService != "" {
 			services = []string{singleService}
@@ -90,7 +89,7 @@ func (h *TraceHandler) buildFilters(c *gin.Context, teamID int64, startMs, endMs
 		Operation:        operation,
 		HTTPMethod:       c.Query("httpMethod"),
 		HTTPStatus:       httpStatus,
-		SearchMode:       c.DefaultQuery("mode", "all"),
+		SearchMode:       c.DefaultQuery("mode", SearchModeAll),
 		SpanKind:         c.Query("spanKind"),
 		SpanName:         c.Query("spanName"),
 		AttributeFilters: parseAttributeFilters(c),
@@ -101,22 +100,22 @@ func (h *TraceHandler) buildFilters(c *gin.Context, teamID int64, startMs, endMs
 
 func (h *TraceHandler) GetTraces(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := common.ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	limit := common.ParseIntParam(c, "limit", 100)
+	limit := modulecommon.ParseIntParam(c, "limit", 100)
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
 	filters := h.buildFilters(c, teamID, startMs, endMs)
-	result, err := h.Service.SearchTraces(c.Request.Context(), filters, limit, c.Query("cursor"), common.ParseIntParam(c, "offset", 0))
+	result, err := h.Service.SearchTraces(c.Request.Context(), filters, limit, c.Query("cursor"), modulecommon.ParseIntParam(c, "offset", 0))
 	if err != nil {
-		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query traces", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query traces", err)
 		return
 	}
 	if result.UsesKeyset {
-		common.RespondOK(c, TraceCursorResponse{
+		modulecommon.RespondOK(c, TraceCursorResponse{
 			Traces:     result.Traces,
 			HasMore:    result.HasMore,
 			NextCursor: result.NextCursor,
@@ -126,7 +125,7 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 		})
 		return
 	}
-	common.RespondOK(c, TraceSearchResponse{
+	modulecommon.RespondOK(c, TraceSearchResponse{
 		Traces:  result.Traces,
 		HasMore: result.HasMore,
 		Offset:  result.Offset,
@@ -138,21 +137,21 @@ func (h *TraceHandler) GetTraces(c *gin.Context) {
 
 func (h *TraceHandler) GetTracesKeyset(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := common.ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	limit := common.ParseIntParam(c, "limit", 100)
+	limit := modulecommon.ParseIntParam(c, "limit", 100)
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
 	filters := h.buildFilters(c, teamID, startMs, endMs)
 	result, err := h.Service.SearchTraces(c.Request.Context(), filters, limit, c.Query("cursor"), 0)
 	if err != nil {
-		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query traces", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query traces", err)
 		return
 	}
-	common.RespondOK(c, TraceCursorResponse{
+	modulecommon.RespondOK(c, TraceCursorResponse{
 		Traces:     result.Traces,
 		HasMore:    result.HasMore,
 		NextCursor: result.NextCursor,
@@ -165,22 +164,22 @@ func (h *TraceHandler) GetTracesKeyset(c *gin.Context) {
 // It forces SearchMode="all" so all spans (not just root) are searched.
 func (h *TraceHandler) GetSpanSearch(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := common.ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
-	limit := common.ParseIntParam(c, "limit", 100)
+	limit := modulecommon.ParseIntParam(c, "limit", 100)
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
 	filters := h.buildFilters(c, teamID, startMs, endMs)
-	filters.SearchMode = "all"
+	filters.SearchMode = SearchModeAll
 	result, err := h.Service.SearchTraces(c.Request.Context(), filters, limit, c.Query("cursor"), 0)
 	if err != nil {
-		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query spans", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query spans", err)
 		return
 	}
-	common.RespondOK(c, SpanSearchResponse{
+	modulecommon.RespondOK(c, SpanSearchResponse{
 		Spans:      result.Traces,
 		HasMore:    result.HasMore,
 		NextCursor: result.NextCursor,
@@ -197,10 +196,10 @@ func (h *TraceHandler) GetTraceSpans(c *gin.Context) {
 
 	spans, err := h.Service.GetTraceSpans(c.Request.Context(), teamID, traceID)
 	if err != nil {
-		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query trace spans", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query trace spans", err)
 		return
 	}
-	common.RespondOK(c, spans)
+	modulecommon.RespondOK(c, spans)
 }
 
 func (h *TraceHandler) GetSpanTree(c *gin.Context) {
@@ -209,32 +208,32 @@ func (h *TraceHandler) GetSpanTree(c *gin.Context) {
 
 	spans, err := h.Service.GetSpanTree(c.Request.Context(), teamID, spanID)
 	if err != nil {
-		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query span tree", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query span tree", err)
 		return
 	}
-	common.RespondOK(c, spans)
+	modulecommon.RespondOK(c, spans)
 }
 
 func (h *TraceHandler) GetServiceDependencies(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := common.ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
 	deps, err := h.Service.GetServiceDependencies(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query dependencies", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query dependencies", err)
 		return
 	}
-	common.RespondOK(c, deps)
+	modulecommon.RespondOK(c, deps)
 }
 
 // --- Error handlers ---
 
 func (h *TraceHandler) GetErrorGroups(c *gin.Context) {
 	serviceName := c.Query("serviceName")
-	limit := common.ParseIntParam(c, "limit", 100)
+	limit := modulecommon.ParseIntParam(c, "limit", 100)
 	h.getErrorGroupsInternal(c, serviceName, limit)
 }
 
@@ -245,33 +244,33 @@ func (h *TraceHandler) GetServiceErrors(c *gin.Context) {
 
 func (h *TraceHandler) getErrorGroupsInternal(c *gin.Context, serviceName string, limit int) {
 	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := common.ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
 	groups, err := h.Service.GetErrorGroups(c.Request.Context(), teamID, startMs, endMs, serviceName, limit)
 	if err != nil {
-		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query errors", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query errors", err)
 		return
 	}
-	common.RespondOK(c, groups)
+	modulecommon.RespondOK(c, groups)
 }
 
 func (h *TraceHandler) GetErrorTimeSeries(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")
-	startMs, endMs, ok := common.ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
 	points, err := h.Service.GetErrorTimeSeries(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
-		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query error timeseries", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query error timeseries", err)
 		return
 	}
-	common.RespondOK(c, points)
+	modulecommon.RespondOK(c, points)
 }
 
 // --- Latency handlers ---
@@ -286,7 +285,7 @@ func (h *TraceHandler) GetLatencyHistogram(c *gin.Context) {
 	if operationName == "" {
 		operationName = c.Query("operation")
 	}
-	startMs, endMs, ok := common.ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
@@ -294,10 +293,10 @@ func (h *TraceHandler) GetLatencyHistogram(c *gin.Context) {
 	buckets, err := h.Service.GetLatencyHistogram(c.Request.Context(), teamID, startMs, endMs, serviceName, operationName)
 	if err != nil {
 		logger.L().Error("latency histogram query failed", zap.Error(err))
-		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query latency histogram", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query latency histogram", err)
 		return
 	}
-	common.RespondOK(c, buckets)
+	modulecommon.RespondOK(c, buckets)
 }
 
 func (h *TraceHandler) GetLatencyHeatmap(c *gin.Context) {
@@ -306,15 +305,15 @@ func (h *TraceHandler) GetLatencyHeatmap(c *gin.Context) {
 	if serviceName == "" {
 		serviceName = c.Query("service")
 	}
-	startMs, endMs, ok := common.ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
 	points, err := h.Service.GetLatencyHeatmap(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
-		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query latency heatmap", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query latency heatmap", err)
 		return
 	}
-	common.RespondOK(c, points)
+	modulecommon.RespondOK(c, points)
 }

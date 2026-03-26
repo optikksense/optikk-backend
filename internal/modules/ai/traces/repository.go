@@ -5,14 +5,14 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
 const (
 	tableSpans      = "observability.spans"
 	colModel        = "attributes.'gen_ai.request.model'::String"
-	colInputTokens  = "attributes.'gen_ai.usage.input_tokens'::Int64"
-	colOutputTokens = "attributes.'gen_ai.usage.output_tokens'::Int64"
+	colInputTokens  = "attributes.'gen_ai.usage.input_tokens'::Int64"  //nolint:gosec // G101 - column expressions, not credentials
+	colOutputTokens = "attributes.'gen_ai.usage.output_tokens'::Int64" //nolint:gosec // G101 - column expressions, not credentials
 )
 
 type Repository interface {
@@ -20,10 +20,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -43,7 +43,7 @@ func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamID int64, 
 	`, colModel, colInputTokens, colOutputTokens, tableSpans)
 	var rows []traceSpanDTO
 	if err := r.db.Select(ctx, &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("traceID", traceID),
 	); err != nil {
 		return nil, err

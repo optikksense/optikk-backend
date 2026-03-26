@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	database "github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 	rootspan "github.com/observability/observability-backend-go/internal/modules/spans/shared/rootspan"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
@@ -26,13 +26,12 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
-
 
 func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) ([]redSummaryServiceRow, error) {
 	var rows []redSummaryServiceRow
@@ -45,7 +44,7 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND `+rootspan.Condition("s")+` AND s.timestamp BETWEEN @start AND @end
 		GROUP BY service_name
 	`,
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -67,7 +66,7 @@ func (r *ClickHouseRepository) GetServiceScorecard(ctx context.Context, teamID i
 		ORDER BY total_count DESC
 		LIMIT 1000
 	`,
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -91,7 +90,7 @@ func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, start
 	`,
 		clickhouse.Named("satisfiedMs", satisfiedMs),
 		clickhouse.Named("toleratingMs", toleratingMs),
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -111,7 +110,7 @@ func (r *ClickHouseRepository) GetHTTPStatusDistribution(ctx context.Context, te
 		GROUP BY status_code
 		ORDER BY status_code ASC
 	`,
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),

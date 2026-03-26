@@ -5,7 +5,7 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	apphandlers "github.com/observability/observability-backend-go/internal/modules/common"
+	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
 func RespondServiceError(c *gin.Context, err error, fallbackMessage string) {
@@ -35,12 +35,12 @@ func RespondServiceError(c *gin.Context, err error, fallbackMessage string) {
 		if code == "" {
 			code = string(ServiceErrorInternal)
 		}
-		apphandlers.RespondError(c, status, code, message)
+		modulecommon.RespondError(c, status, code, message)
 		return
 	}
 
 	if fallbackMessage == "" {
 		fallbackMessage = "Internal error"
 	}
-	apphandlers.RespondError(c, http.StatusInternalServerError, string(ServiceErrorInternal), fallbackMessage)
+	modulecommon.RespondError(c, http.StatusInternalServerError, string(ServiceErrorInternal), fallbackMessage)
 }

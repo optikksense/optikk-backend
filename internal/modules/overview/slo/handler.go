@@ -4,10 +4,9 @@ import (
 	"net/http"
 
 	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
+	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 
 	"github.com/gin-gonic/gin"
-	. "github.com/observability/observability-backend-go/internal/modules/common"
-	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
 type SLOHandler struct {
@@ -21,18 +20,18 @@ func (h *SLOHandler) GetSloSli(c *gin.Context) {
 	if serviceName == "" {
 		serviceName = c.Query("service")
 	}
-	startMs, endMs, ok := ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
 	resp, err := h.Service.GetSloSli(teamID, startMs, endMs, serviceName)
 	if err != nil {
-		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview SLO status", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview SLO status", err)
 		return
 	}
 
-	RespondOK(c, resp)
+	modulecommon.RespondOK(c, resp)
 }
 
 func (h *SLOHandler) GetSloStats(c *gin.Context) {
@@ -41,18 +40,18 @@ func (h *SLOHandler) GetSloStats(c *gin.Context) {
 	if serviceName == "" {
 		serviceName = c.Query("service")
 	}
-	startMs, endMs, ok := ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
 	resp, err := h.Service.GetSloSli(teamID, startMs, endMs, serviceName)
 	if err != nil {
-		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview SLO status", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview SLO status", err)
 		return
 	}
 
-	RespondOK(c, resp.Summary)
+	modulecommon.RespondOK(c, resp.Summary)
 }
 
 func (h *SLOHandler) GetBurnDown(c *gin.Context) {
@@ -61,17 +60,17 @@ func (h *SLOHandler) GetBurnDown(c *gin.Context) {
 	if serviceName == "" {
 		serviceName = c.Query("service")
 	}
-	startMs, endMs, ok := ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
 	points, err := h.Service.GetBurnDown(teamID, startMs, endMs, serviceName)
 	if err != nil {
-		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query SLO burn-down", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query SLO burn-down", err)
 		return
 	}
-	RespondOK(c, points)
+	modulecommon.RespondOK(c, points)
 }
 
 func (h *SLOHandler) GetBurnRate(c *gin.Context) {
@@ -80,15 +79,15 @@ func (h *SLOHandler) GetBurnRate(c *gin.Context) {
 	if serviceName == "" {
 		serviceName = c.Query("service")
 	}
-	startMs, endMs, ok := ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
 	rate, err := h.Service.GetBurnRate(teamID, startMs, endMs, serviceName)
 	if err != nil {
-		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query SLO burn rate", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query SLO burn rate", err)
 		return
 	}
-	RespondOK(c, rate)
+	modulecommon.RespondOK(c, rate)
 }

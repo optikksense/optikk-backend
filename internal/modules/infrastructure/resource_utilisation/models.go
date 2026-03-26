@@ -1,4 +1,4 @@
-package resource_utilisation
+package resource_utilisation //nolint:misspell
 
 type MetricValue struct {
 	Value float64 `json:"value"`

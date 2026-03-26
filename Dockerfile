@@ -19,6 +19,7 @@ WORKDIR /app
 
 COPY --from=builder /app/observability-go .
 COPY config.yml .
+COPY migrations/ ./migrations/
 
 RUN chown -R 1000:1000 /app
 USER 1000:1000

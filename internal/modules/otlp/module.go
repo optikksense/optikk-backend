@@ -9,10 +9,10 @@ import (
 	"github.com/observability/observability-backend-go/internal/modules/otlp/internal/mapper"
 	"github.com/observability/observability-backend-go/internal/modules/registry"
 	"github.com/observability/observability-backend-go/internal/platform/logger"
-	"go.uber.org/zap"
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	"go.uber.org/zap"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/reflection"
 )

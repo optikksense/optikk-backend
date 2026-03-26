@@ -35,7 +35,8 @@ func RequestIDMiddleware() gin.HandlerFunc {
 
 func GetRequestID(c *gin.Context) string {
 	if id, ok := c.Get(RequestIDKey); ok {
-		return id.(string)
+		s, _ := id.(string)
+		return s
 	}
 	return ""
 }

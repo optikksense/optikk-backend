@@ -2,12 +2,15 @@ package analytics
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	shared "github.com/observability/observability-backend-go/internal/modules/log/internal/shared"
 )
+
+const metricErrorRate = "error_rate"
 
 var allowedFieldColumns = map[string]string{
 	"severity_text": "severity_text",
@@ -34,7 +37,7 @@ func (s *Service) GetLogHistogram(ctx context.Context, f shared.LogFilters, step
 	}
 	buckets := make([]LogHistogramBucket, len(rows))
 	for i, row := range rows {
-		buckets[i] = LogHistogramBucket{TimeBucket: row.TimeBucket, Severity: row.Severity, Count: row.Count}
+		buckets[i] = LogHistogramBucket(row)
 	}
 	return LogHistogramData{Buckets: buckets, Step: step}, nil
 }
@@ -46,15 +49,7 @@ func (s *Service) GetLogVolume(ctx context.Context, f shared.LogFilters, step st
 	}
 	buckets := make([]LogVolumeBucket, len(rows))
 	for i, row := range rows {
-		buckets[i] = LogVolumeBucket{
-			TimeBucket: row.TimeBucket,
-			Total:      row.Total,
-			Errors:     row.Errors,
-			Warnings:   row.Warnings,
-			Infos:      row.Infos,
-			Debugs:     row.Debugs,
-			Fatals:     row.Fatals,
-		}
+		buckets[i] = LogVolumeBucket(row)
 	}
 	return LogVolumeData{Buckets: buckets, Step: step}, nil
 }
@@ -98,7 +93,7 @@ func (s *Service) GetLogStats(ctx context.Context, f shared.LogFilters) (LogStat
 func (s *Service) GetLogFields(ctx context.Context, f shared.LogFilters, field string) (FieldValuesResponse, error) {
 	col, ok := allowedFieldColumns[field]
 	if !ok {
-		return FieldValuesResponse{}, fmt.Errorf("field is required and must be one of: severity_text, service, host, pod, container, scope_name, environment")
+		return FieldValuesResponse{}, errors.New("field is required and must be one of: severity_text, service, host, pod, container, scope_name, environment")
 	}
 	rows, err := s.repo.GetLogFields(ctx, f, col)
 	if err != nil {
@@ -106,7 +101,7 @@ func (s *Service) GetLogFields(ctx context.Context, f shared.LogFilters, field s
 	}
 	values := make([]Facet, len(rows))
 	for i, row := range rows {
-		values[i] = Facet{Value: row.Value, Count: row.Count}
+		values[i] = Facet(row)
 	}
 	return FieldValuesResponse{Field: field, Values: values}, nil
 }
@@ -171,7 +166,7 @@ func buildAggregateQuery(req LogAggregateRequest) (LogAggregateQuery, error) {
 	if metric == "" {
 		metric = "count"
 	}
-	if metric != "count" && metric != "error_rate" {
+	if metric != "count" && metric != metricErrorRate {
 		return LogAggregateQuery{}, fmt.Errorf("invalid metric: %s", req.Metric)
 	}
 

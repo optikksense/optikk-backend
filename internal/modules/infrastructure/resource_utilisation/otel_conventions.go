@@ -1,4 +1,4 @@
-package resource_utilisation
+package resource_utilisation //nolint:misspell
 
 import (
 	"strings"

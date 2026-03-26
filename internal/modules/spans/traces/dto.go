@@ -78,7 +78,7 @@ type errorGroupRow struct {
 	ServiceName     string    `ch:"service_name"`
 	OperationName   string    `ch:"operation_name"`
 	StatusMessage   string    `ch:"status_message"`
-	HTTPStatusCode  uint16    `ch:"http_status_code"`
+	HTTPStatusCode  int       `ch:"http_status_code"`
 	ErrorCount      int64     `ch:"error_count"`
 	LastOccurrence  time.Time `ch:"last_occurrence"`
 	FirstOccurrence time.Time `ch:"first_occurrence"`

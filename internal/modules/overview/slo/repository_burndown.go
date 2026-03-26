@@ -123,7 +123,7 @@ func (r *ClickHouseRepository) errorRateForWindow(ctx context.Context, teamID in
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND `+RootSpanCondition()+`
 		  AND s.timestamp >= now() - INTERVAL %d MINUTE`, minutes)
-	args := []any{clickhouse.Named("teamID", uint32(teamID))}
+	args := []any{clickhouse.Named("teamID", uint32(teamID))} //nolint:gosec // G115
 	if serviceName != "" {
 		query += ` AND s.service_name = @serviceName`
 		args = append(args, clickhouse.Named("serviceName", serviceName))

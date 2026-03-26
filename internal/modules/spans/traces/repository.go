@@ -56,6 +56,7 @@ func (r *ClickHouseRepository) GetTracesKeyset(ctx context.Context, f TraceFilte
 		       quantile(0.95)(s.duration_nano / 1000000.0) as p95_duration,
 		       quantile(0.99)(s.duration_nano / 1000000.0) as p99_duration
 		FROM observability.spans s`+summaryFrag, summaryArgs...); err != nil {
+		//nolint:nilerr // summary is supplementary; return traces with empty summary on failure
 		return rows, traceSummaryRow{}, hasMore, nil
 	}
 
@@ -114,7 +115,7 @@ func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamID int64, 
 		WHERE s.team_id = @teamID AND s.trace_id = @traceID
 		ORDER BY s.timestamp ASC
 		LIMIT 5000
-	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID))
+	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)) //nolint:gosec // G115
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +139,7 @@ func (r *ClickHouseRepository) GetSpanTree(ctx context.Context, teamID int64, sp
 		  )
 		ORDER BY s.timestamp ASC
 		LIMIT 5000
-	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("spanID", spanID))
+	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("spanID", spanID)) //nolint:gosec // G115
 	if err != nil {
 		return nil, err
 	}
@@ -160,7 +161,7 @@ func (r *ClickHouseRepository) GetServiceDependencies(ctx context.Context, teamI
 		ORDER BY call_count DESC
 		LIMIT 100
 	`,
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -177,7 +178,7 @@ func traceSelectColumns(searchMode string) string {
 		       s.duration_nano / 1000000.0 as duration_ms,
 		       s.status_code_string as status, s.http_method, toUInt16OrZero(s.response_status_code) as http_status_code,
 		       s.status_message`
-	if searchMode == "all" {
+	if searchMode == SearchModeAll {
 		base += `, s.parent_span_id, s.kind_string as span_kind`
 	}
 	return base

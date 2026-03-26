@@ -15,7 +15,7 @@ func (r *ClickHouseRepository) GetSpanEvents(ctx context.Context, teamID int64, 
 		WHERE s.team_id = @teamID AND s.trace_id = @traceID
 		ORDER BY s.timestamp ASC
 		LIMIT 1000
-	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)); err != nil {
+	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)); err != nil { //nolint:gosec // G115
 		return nil, nil, err
 	}
 
@@ -28,7 +28,7 @@ func (r *ClickHouseRepository) GetSpanEvents(ctx context.Context, teamID int64, 
 		  AND (s.exception_type != '' OR s.exception_message != '' OR s.exception_stacktrace != '')
 		ORDER BY s.timestamp ASC
 		LIMIT 1000
-	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)); err != nil {
+	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)); err != nil { //nolint:gosec // G115
 		return nil, nil, err
 	}
 

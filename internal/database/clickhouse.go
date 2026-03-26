@@ -58,7 +58,7 @@ func OpenClickHouseConn(dsn string, isProduction bool, cloud ...ClickHouseCloudC
 
 	if isProduction {
 		if len(cloud) == 0 {
-			return nil, fmt.Errorf("clickhouse: ClickHouseCloudConfig required for production mode")
+			return nil, errors.New("clickhouse: ClickHouseCloudConfig required for production mode")
 		}
 		cc := cloud[0]
 		opts = &clickhouse.Options{
@@ -120,7 +120,7 @@ func (r *sqlRowsAdapter) Next() bool {
 }
 
 func (r *sqlRowsAdapter) Scan(dest ...any) {
-	r.rows.Scan(dest...)
+	_ = r.rows.Scan(dest...)
 }
 
 type sqlRowAdapter struct {
@@ -240,14 +240,14 @@ func (n *NativeQuerier) QueryRow(ctx context.Context, dest any, query string, ar
 
 // SelectTyped executes a SELECT query and scans results into a typed slice.
 // Eliminates the common three-line pattern: var rows []T; err := db.Select(...); return rows, err
-func SelectTyped[T any](db *NativeQuerier, ctx context.Context, query string, args ...any) ([]T, error) {
+func SelectTyped[T any](ctx context.Context, db *NativeQuerier, query string, args ...any) ([]T, error) {
 	var rows []T
 	err := db.Select(ctx, &rows, query, args...)
 	return rows, err
 }
 
 // QueryRowTyped executes a single-row query and scans into a typed struct.
-func QueryRowTyped[T any](db *NativeQuerier, ctx context.Context, query string, args ...any) (T, error) {
+func QueryRowTyped[T any](ctx context.Context, db *NativeQuerier, query string, args ...any) (T, error) {
 	var row T
 	err := db.QueryRow(ctx, &row, query, args...)
 	return row, err

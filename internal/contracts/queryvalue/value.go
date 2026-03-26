@@ -3,7 +3,7 @@ package queryvalue
 import (
 	"bytes"
 	"encoding/json"
-	"fmt"
+	"errors"
 )
 
 type Kind string
@@ -52,7 +52,7 @@ func (v *Value) UnmarshalJSON(data []byte) error {
 	case []any:
 		return v.fromSlice(typed)
 	default:
-		return fmt.Errorf("query param values must be scalar or homogeneous primitive arrays")
+		return errors.New("query param values must be scalar or homogeneous primitive arrays")
 	}
 }
 
@@ -68,7 +68,7 @@ func (v *Value) fromSlice(items []any) error {
 		for _, item := range items {
 			next, ok := item.(string)
 			if !ok {
-				return fmt.Errorf("query param arrays must contain only strings")
+				return errors.New("query param arrays must contain only strings")
 			}
 			values = append(values, next)
 		}
@@ -79,7 +79,7 @@ func (v *Value) fromSlice(items []any) error {
 		for _, item := range items {
 			next, ok := item.(float64)
 			if !ok {
-				return fmt.Errorf("query param arrays must contain only numbers")
+				return errors.New("query param arrays must contain only numbers")
 			}
 			values = append(values, next)
 		}
@@ -90,14 +90,14 @@ func (v *Value) fromSlice(items []any) error {
 		for _, item := range items {
 			next, ok := item.(bool)
 			if !ok {
-				return fmt.Errorf("query param arrays must contain only booleans")
+				return errors.New("query param arrays must contain only booleans")
 			}
 			values = append(values, next)
 		}
 		*v = Value{kind: KindBoolList, boolValues: values}
 		return nil
 	default:
-		return fmt.Errorf("query param arrays must contain only primitive values")
+		return errors.New("query param arrays must contain only primitive values")
 	}
 }
 
@@ -134,7 +134,7 @@ func (v Value) Number() (float64, bool) {
 	return v.numberValue, v.kind == KindNumber
 }
 
-func (v Value) Boolean() (bool, bool) {
+func (v Value) Boolean() (val bool, ok bool) {
 	return v.boolValue, v.kind == KindBoolean
 }
 

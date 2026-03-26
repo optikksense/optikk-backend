@@ -6,9 +6,11 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
+
+const serviceNameFilter = " AND s.service_name = @serviceName"
 
 func overviewBucketExpr(startMs, endMs int64) string {
 	return timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
@@ -24,16 +26,16 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
 // requestRateRow is the DTO for GetRequestRate.
 type requestRateRow struct {
-	TimeBucket   time.Time `ch:"time_bucket"`
+	Timestamp    time.Time `ch:"time_bucket"`
 	ServiceName  string    `ch:"service_name"`
 	RequestCount int64     `ch:"request_count"`
 }
@@ -48,9 +50,9 @@ func (r *ClickHouseRepository) GetRequestRate(ctx context.Context, teamID int64,
 			       toInt64(count()) AS request_count
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := database.SpanBaseParams(teamID, startMs, endMs)
+	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += ` AND s.service_name = @serviceName`
+		query += serviceNameFilter
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += fmt.Sprintf(` GROUP BY %s, s.service_name
@@ -68,7 +70,7 @@ func (r *ClickHouseRepository) GetRequestRate(ctx context.Context, teamID int64,
 
 // errorRateRow is the DTO for GetErrorRate.
 type errorRateRow struct {
-	TimeBucket   time.Time `ch:"time_bucket"`
+	Timestamp    time.Time `ch:"time_bucket"`
 	ServiceName  string    `ch:"service_name"`
 	RequestCount int64     `ch:"request_count"`
 	ErrorCount   int64     `ch:"error_count"`
@@ -90,9 +92,9 @@ func (r *ClickHouseRepository) GetErrorRate(ctx context.Context, teamID int64, s
 			       toInt64(countIf(`+ErrorCondition()+`)) AS error_count
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := database.SpanBaseParams(teamID, startMs, endMs)
+	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += ` AND s.service_name = @serviceName`
+		query += serviceNameFilter
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += fmt.Sprintf(` GROUP BY %s, s.service_name
@@ -110,7 +112,7 @@ func (r *ClickHouseRepository) GetErrorRate(ctx context.Context, teamID int64, s
 
 // p95LatencyRow is the DTO for GetP95Latency.
 type p95LatencyRow struct {
-	TimeBucket  time.Time `ch:"time_bucket"`
+	Timestamp   time.Time `ch:"time_bucket"`
 	ServiceName string    `ch:"service_name"`
 	P95         float64   `ch:"p95"`
 }
@@ -125,9 +127,9 @@ func (r *ClickHouseRepository) GetP95Latency(ctx context.Context, teamID int64, 
 			       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(s.duration_nano / 1000000.0) AS p95
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := database.SpanBaseParams(teamID, startMs, endMs)
+	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += ` AND s.service_name = @serviceName`
+		query += serviceNameFilter
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += fmt.Sprintf(` GROUP BY %s, s.service_name
@@ -172,7 +174,7 @@ func (r *ClickHouseRepository) GetServices(ctx context.Context, teamID int64, st
 		ORDER BY request_count DESC
 	`
 
-	args := database.SpanBaseParams(teamID, startMs, endMs)
+	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
 	var rows []serviceMetricRow
 	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
@@ -211,9 +213,9 @@ func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64
 					SELECT service_name, name, http_method
 					FROM observability.spans s
 					WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`
-	args := database.SpanBaseParams(teamID, startMs, endMs)
+	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += ` AND s.service_name = @serviceName`
+		query += serviceNameFilter
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += `
@@ -222,7 +224,7 @@ func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64
 					LIMIT 100
 				)`
 	if serviceName != "" {
-		query += ` AND s.service_name = @serviceName`
+		query += serviceNameFilter
 	}
 	query += `
 			GROUP BY s.service_name, s.name, s.http_method
@@ -239,7 +241,7 @@ func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64
 
 // timeSeriesRow is the DTO for GetEndpointTimeSeries.
 type timeSeriesRow struct {
-	TimeBucket    time.Time `ch:"time_bucket"`
+	Timestamp     time.Time `ch:"time_bucket"`
 	ServiceName   string    `ch:"service_name"`
 	OperationName string    `ch:"operation_name"`
 	HTTPMethod    string    `ch:"http_method"`
@@ -268,9 +270,9 @@ func (r *ClickHouseRepository) GetEndpointTimeSeries(ctx context.Context, teamID
 			       quantile(`+fmt.Sprintf("%.2f", QuantileP99)+`)(s.duration_nano / 1000000.0) AS p99
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := database.SpanBaseParams(teamID, startMs, endMs)
+	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += ` AND s.service_name = @serviceName`
+		query += serviceNameFilter
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += fmt.Sprintf(` GROUP BY %s, s.service_name, s.name, s.http_method

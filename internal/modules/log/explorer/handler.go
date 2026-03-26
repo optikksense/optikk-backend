@@ -74,7 +74,7 @@ func (h *Handler) Stream(c *gin.Context) {
 	defer ticker.Stop()
 	defer heartbeat.Stop()
 
-	fmt.Fprintf(c.Writer, "event: state\ndata: {\"status\":\"connected\"}\n\n")
+	_, _ = fmt.Fprintf(c.Writer, "event: state\ndata: {\"status\":\"connected\"}\n\n")
 	if canFlush {
 		flusher.Flush()
 	}
@@ -84,19 +84,19 @@ func (h *Handler) Stream(c *gin.Context) {
 		case <-ctx.Done():
 			return
 		case <-heartbeat.C:
-			fmt.Fprintf(c.Writer, "event: heartbeat\ndata: {\"status\":\"alive\"}\n\n")
+			_, _ = fmt.Fprintf(c.Writer, "event: heartbeat\ndata: {\"status\":\"alive\"}\n\n")
 			if canFlush {
 				flusher.Flush()
 			}
 		case <-ticker.C:
 			nowMs := time.Now().UnixMilli()
 			pollFilters := filters
-			pollFilters.StartMs = int64(latestNs/1_000_000) + 1
+			pollFilters.StartMs = int64(latestNs/1_000_000) + 1 //nolint:gosec // G115
 			pollFilters.EndMs = nowMs
 
 			resp, err := h.SearchService.GetLogs(ctx, pollFilters, streamMaxLogsPerPoll, "asc", logshared.LogCursor{})
 			if err != nil {
-				fmt.Fprintf(c.Writer, "event: error\ndata: {\"message\":\"poll failed\"}\n\n")
+				_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: {\"message\":\"poll failed\"}\n\n")
 				if canFlush {
 					flusher.Flush()
 				}
@@ -106,13 +106,13 @@ func (h *Handler) Stream(c *gin.Context) {
 			for _, log := range resp.Logs {
 				payload, err := json.Marshal(gin.H{
 					"item":         log,
-					"lagMs":        maxInt64(0, nowMs-int64(log.Timestamp/1_000_000)),
+					"lagMs":        maxInt64(0, nowMs-int64(log.Timestamp/1_000_000)), //nolint:gosec // G115
 					"droppedCount": 0,
 				})
 				if err != nil {
 					continue
 				}
-				fmt.Fprintf(c.Writer, "event: item\ndata: %s\n\n", payload)
+				_, _ = fmt.Fprintf(c.Writer, "event: item\ndata: %s\n\n", payload)
 				if log.Timestamp > latestNs {
 					latestNs = log.Timestamp
 				}

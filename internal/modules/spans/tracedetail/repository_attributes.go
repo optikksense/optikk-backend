@@ -19,7 +19,7 @@ func (r *ClickHouseRepository) GetSpanAttributes(ctx context.Context, teamID int
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND s.trace_id = @traceID AND s.span_id = @spanID
 		LIMIT 1
-	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID), clickhouse.Named("spanID", spanID)); err != nil {
+	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID), clickhouse.Named("spanID", spanID)); err != nil { //nolint:gosec // G115
 		return nil, err
 	}
 	if len(rows) == 0 {
@@ -46,7 +46,7 @@ func (r *ClickHouseRepository) GetRelatedTraces(ctx context.Context, teamID int6
 		ORDER BY s.timestamp DESC
 		LIMIT @limit
 	`,
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),

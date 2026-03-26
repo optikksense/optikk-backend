@@ -14,15 +14,16 @@ func NewPerformanceMetricsQueryBuilder(teamID int64, startMs, endMs int64) *Perf
 	return &PerformanceMetricsQueryBuilder{BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs)}
 }
 
-func (b *PerformanceMetricsQueryBuilder) Build() (string, []any) {
-	where, args := b.baseWhereClause()
+func (b *PerformanceMetricsQueryBuilder) Build() (query string, args []any) {
+	var where string
+	where, args = b.baseWhereClause()
 
 	durationMs := attrFlt("duration_ms")
 	outputTokens := attrInt("gen.ai.usage.output_tokens")
 	retryCount := attrInt("ai.retry_count")
 	aiTimeout := attrInt("ai.timeout")
 
-	query := fmt.Sprintf(`
+	query = fmt.Sprintf(`
 		SELECT %s as model_name, %s as model_provider, %s as request_type,
 		       toInt64(COUNT(*)) as total_requests,
 		       COUNT(*) / GREATEST(dateDiff('second', @start, @end), 1) as avg_qps,
@@ -59,15 +60,16 @@ func NewCostMetricsQueryBuilder(teamID int64, startMs, endMs int64) *CostMetrics
 	return &CostMetricsQueryBuilder{BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs)}
 }
 
-func (b *CostMetricsQueryBuilder) Build() (string, []any) {
-	where, args := b.baseWhereClause()
+func (b *CostMetricsQueryBuilder) Build() (query string, args []any) {
+	var where string
+	where, args = b.baseWhereClause()
 	costUSD := attrFlt("ai.cost_usd")
 	inputTokens := attrInt("gen.ai.usage.input_tokens")
 	outputTokens := attrInt("gen.ai.usage.output_tokens")
 	cacheReadTokens := attrInt("gen.ai.usage.cache_read_input_tokens")
 	cacheHit := attrInt("ai.cache_hit")
 
-	query := fmt.Sprintf(`
+	query = fmt.Sprintf(`
 		SELECT %s as model_name, %s as model_provider,
 		       toInt64(COUNT(*)) as total_requests,
 		       SUM(COALESCE(%s, 0)) as total_cost_usd,
@@ -100,13 +102,14 @@ func NewSecurityMetricsQueryBuilder(teamID int64, startMs, endMs int64) *Securit
 	return &SecurityMetricsQueryBuilder{BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs)}
 }
 
-func (b *SecurityMetricsQueryBuilder) Build() (string, []any) {
-	where, args := b.baseWhereClause()
+func (b *SecurityMetricsQueryBuilder) Build() (query string, args []any) {
+	var where string
+	where, args = b.baseWhereClause()
 	piiDetected := attrInt("ai.security.pii_detected")
 	guardrailBlocked := attrInt("ai.security.guardrail_blocked")
 	contentPolicy := attrInt("ai.security.content_policy")
 
-	query := fmt.Sprintf(`
+	query = fmt.Sprintf(`
 		SELECT %s as model_name, %s as model_provider,
 		       toInt64(COUNT(*)) as total_requests,
 		       toInt64(SUM(CASE WHEN %s = 1 THEN 1 ELSE 0 END)) as pii_detected_count,
@@ -135,9 +138,10 @@ func NewTokenBreakdownQueryBuilder(teamID int64, startMs, endMs int64) *TokenBre
 	return &TokenBreakdownQueryBuilder{BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs).WithLimit(50)}
 }
 
-func (b *TokenBreakdownQueryBuilder) Build() (string, []any) {
-	where, args := b.baseWhereClause()
-	query := fmt.Sprintf(`
+func (b *TokenBreakdownQueryBuilder) Build() (query string, args []any) {
+	var where string
+	where, args = b.baseWhereClause()
+	query = fmt.Sprintf(`
 		SELECT %s as model_name,
 		       toInt64(SUM(COALESCE(%s, 0))) as prompt_tokens,
 		       toInt64(SUM(COALESCE(%s, 0))) as completion_tokens,
@@ -163,11 +167,12 @@ func NewPIICategoryQueryBuilder(teamID int64, startMs, endMs int64) *PIICategory
 	return &PIICategoryQueryBuilder{BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs)}
 }
 
-func (b *PIICategoryQueryBuilder) Build() (string, []any) {
-	where, args := b.baseWhereClause()
+func (b *PIICategoryQueryBuilder) Build() (query string, args []any) {
+	var where string
+	where, args = b.baseWhereClause()
 	piiDetected := attrInt("ai.security.pii_detected")
 
-	query := fmt.Sprintf(`
+	query = fmt.Sprintf(`
 		SELECT %s as model_name, %s as pii_categories, toInt64(COUNT(*)) as detection_count
 		FROM %s %s AND %s = 1
 		GROUP BY model_name, pii_categories ORDER BY detection_count DESC LIMIT %d

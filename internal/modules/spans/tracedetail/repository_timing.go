@@ -24,7 +24,7 @@ func (r *ClickHouseRepository) GetSpanSelfTimes(ctx context.Context, teamID int6
 		WHERE s.team_id = @teamID AND s.trace_id = @traceID
 		ORDER BY self_time_ms DESC
 		LIMIT 5000
-	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID))
+	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)) //nolint:gosec // G115
 	return rows, err
 }
 
@@ -39,6 +39,6 @@ func (r *ClickHouseRepository) GetErrorPath(ctx context.Context, teamID int64, t
 		  AND (s.has_error = true OR s.status_code_string = 'ERROR')
 		ORDER BY s.timestamp ASC
 		LIMIT 1000
-	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID))
+	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)) //nolint:gosec // G115
 	return rows, err
 }

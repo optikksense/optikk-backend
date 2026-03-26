@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	database "github.com/observability/observability-backend-go/internal/database"
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	rootspan "github.com/observability/observability-backend-go/internal/modules/spans/shared/rootspan"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
@@ -14,10 +13,10 @@ import (
 const maxSpansPerPoll = 100
 
 type Repository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) *Repository {
+func NewRepository(db *dbutil.NativeQuerier) *Repository {
 	return &Repository{db: db}
 }
 
@@ -29,7 +28,7 @@ func (r *Repository) Poll(teamID int64, since time.Time, filters LiveTailFilters
 
 	frag := ` WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp > ? AND ` + rootspan.Condition("s")
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		timebucket.SpansBucketStart(sinceMs / 1000),
 		timebucket.SpansBucketStart(nowMs / 1000),
 		since,

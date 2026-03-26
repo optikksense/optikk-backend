@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
@@ -15,8 +15,8 @@ const (
 	colModel          = "attributes.'gen_ai.request.model'::String"
 	colConversationID = "coalesce(nullIf(attributes.'gen_ai.conversation.id'::String, ''), nullIf(attributes.'ai.conversation.id'::String, ''), '')"
 	colOperationType  = "attributes.'gen_ai.operation.name'::String"
-	colInputTokens    = "attributes.'gen_ai.usage.input_tokens'::Int64"
-	colOutputTokens   = "attributes.'gen_ai.usage.output_tokens'::Int64"
+	colInputTokens    = "attributes.'gen_ai.usage.input_tokens'::Int64"  //nolint:gosec // G101 - column expressions, not credentials
+	colOutputTokens   = "attributes.'gen_ai.usage.output_tokens'::Int64" //nolint:gosec // G101 - column expressions, not credentials
 )
 
 type Repository interface {
@@ -25,10 +25,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -62,7 +62,7 @@ func (r *ClickHouseRepository) ListConversations(ctx context.Context, teamID, st
 		limit)
 
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -98,7 +98,7 @@ func (r *ClickHouseRepository) GetConversation(ctx context.Context, teamID int64
 		tableSpans, colConversationID)
 
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),

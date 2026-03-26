@@ -2,6 +2,7 @@ package errors
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"time"
 )
@@ -21,7 +22,7 @@ type ErrorGroup struct {
 // ErrorGroupID computes a deterministic hash from the group's identity fields.
 func ErrorGroupID(service, operation, statusMessage string, httpCode int) string {
 	h := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%d", service, operation, statusMessage, httpCode)))
-	return fmt.Sprintf("%x", h[:8])
+	return hex.EncodeToString(h[:8])
 }
 
 type ErrorGroupDetail struct {
@@ -39,11 +40,11 @@ type ErrorGroupDetail struct {
 }
 
 type ErrorGroupTrace struct {
-	TraceID      string    `json:"trace_id"`
-	SpanID       string    `json:"span_id"`
-	Timestamp    time.Time `json:"timestamp"`
-	DurationMs   float64   `json:"duration_ms"`
-	StatusCode   string    `json:"status_code"`
+	TraceID    string    `json:"trace_id"`
+	SpanID     string    `json:"span_id"`
+	Timestamp  time.Time `json:"timestamp"`
+	DurationMs float64   `json:"duration_ms"`
+	StatusCode string    `json:"status_code"`
 }
 
 type TimeSeriesPoint struct {

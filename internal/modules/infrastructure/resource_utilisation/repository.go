@@ -1,4 +1,4 @@
-package resource_utilisation
+package resource_utilisation //nolint:misspell
 
 import (
 	"context"
@@ -73,16 +73,9 @@ type serviceNameRow struct {
 	ServiceName string `ch:"service_name"`
 }
 
-type instanceRow struct {
-	Host        string `ch:"host"`
-	Pod         string `ch:"pod"`
-	Container   string `ch:"container"`
-	ServiceName string `ch:"service_name"`
-}
-
 func serviceParams(teamID int64, serviceName string, startMs, endMs int64) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
@@ -91,7 +84,7 @@ func serviceParams(teamID int64, serviceName string, startMs, endMs int64) []any
 
 func instanceParams(teamID int64, host, pod, container, serviceName string, startMs, endMs int64) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("host", host),
 		clickhouse.Named("pod", pod),
 		clickhouse.Named("container", container),

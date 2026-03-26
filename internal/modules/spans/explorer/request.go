@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"strings"
 
-	spanlivetail "github.com/observability/observability-backend-go/internal/modules/spans/livetail"
 	spantraces "github.com/observability/observability-backend-go/internal/modules/spans/traces"
 )
 
@@ -26,17 +25,6 @@ func mapToTraceFilters(req QueryRequest, teamID int64) spantraces.TraceFilters {
 		SearchMode:  defaultString(params.Mode, "all"),
 		SpanKind:    params.SpanKind,
 		SpanName:    params.SpanName,
-	}
-}
-
-func mapToLiveTailFilters(params TraceExplorerParams) spanlivetail.LiveTailFilters {
-	return spanlivetail.LiveTailFilters{
-		Services:   params.Services,
-		Status:     params.Status,
-		SpanKind:   params.SpanKind,
-		SearchText: strings.TrimSpace(params.Search),
-		Operation:  params.OperationName,
-		HTTPMethod: params.HTTPMethod,
 	}
 }
 

@@ -2,13 +2,13 @@ package tracecompare
 
 // ComparisonResult is the response for a trace-vs-trace comparison.
 type ComparisonResult struct {
-	TraceA         TraceSummary       `json:"traceA"`
-	TraceB         TraceSummary       `json:"traceB"`
-	MatchedSpans   []SpanPairDiff     `json:"matchedSpans"`
-	OnlyInA        []SpanSummary      `json:"onlyInA"`
-	OnlyInB        []SpanSummary      `json:"onlyInB"`
-	ServiceDeltas  []ServiceDelta     `json:"serviceDeltas"`
-	TotalDeltaMs   float64            `json:"totalDeltaMs"`
+	TraceA        TraceSummary   `json:"traceA"`
+	TraceB        TraceSummary   `json:"traceB"`
+	MatchedSpans  []SpanPairDiff `json:"matchedSpans"`
+	OnlyInA       []SpanSummary  `json:"onlyInA"`
+	OnlyInB       []SpanSummary  `json:"onlyInB"`
+	ServiceDeltas []ServiceDelta `json:"serviceDeltas"`
+	TotalDeltaMs  float64        `json:"totalDeltaMs"`
 }
 
 type TraceSummary struct {
@@ -52,12 +52,12 @@ type SpanSummary struct {
 
 // ServiceDelta shows aggregate latency change per service.
 type ServiceDelta struct {
-	Service      string  `json:"service"`
-	TotalMsA     float64 `json:"totalMsA"`
-	TotalMsB     float64 `json:"totalMsB"`
-	DeltaMs      float64 `json:"deltaMs"`
-	SpanCountA   int     `json:"spanCountA"`
-	SpanCountB   int     `json:"spanCountB"`
+	Service    string  `json:"service"`
+	TotalMsA   float64 `json:"totalMsA"`
+	TotalMsB   float64 `json:"totalMsB"`
+	DeltaMs    float64 `json:"deltaMs"`
+	SpanCountA int     `json:"spanCountA"`
+	SpanCountB int     `json:"spanCountB"`
 }
 
 // internalSpan is used during comparison computation.

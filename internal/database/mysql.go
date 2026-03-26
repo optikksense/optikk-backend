@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/go-sql-driver/mysql" // MySQL driver registration
 	circuitbreaker "github.com/observability/observability-backend-go/internal/platform/circuit_breaker"
 	"github.com/observability/observability-backend-go/internal/platform/logger"
 	"go.uber.org/zap"
@@ -18,7 +18,7 @@ func injectMySQLTimeouts(dsn string) string {
 	timeouts := map[string]string{
 		"timeout":      "5s",
 		"readTimeout":  "30s",
-		"writeTimeout":  "30s",
+		"writeTimeout": "30s",
 	}
 	for param, val := range timeouts {
 		if !strings.Contains(dsn, param+"=") {
@@ -75,7 +75,7 @@ func (m *MySQLWrapper) Exec(query string, args ...any) (sql.Result, error) {
 	var res sql.Result
 	err := m.cb.Call(func() error {
 		var err error
-		res, err = m.db.Exec(query, args...)
+		res, err = m.db.ExecContext(context.Background(), query, args...)
 		return err
 	})
 	return res, err
@@ -100,7 +100,7 @@ func (m *MySQLWrapper) Query(query string, args ...any) (Rows, error) {
 	var rows *sql.Rows
 	err := m.cb.Call(func() error {
 		var err error
-		rows, err = m.db.Query(query, args...)
+		rows, err = m.db.QueryContext(context.Background(), query, args...) //nolint:rowserrcheck,sqlclosecheck // rows returned to caller via adapter
 		return err
 	})
 	if d := time.Since(start); d >= slowQueryThreshold {
@@ -116,7 +116,7 @@ func (m *MySQLWrapper) QueryRow(query string, args ...any) Row {
 	start := time.Now()
 	var row *sql.Row
 	err := m.cb.Call(func() error {
-		row = m.db.QueryRow(query, args...)
+		row = m.db.QueryRowContext(context.Background(), query, args...)
 		return nil
 	})
 	if d := time.Since(start); d >= slowQueryThreshold {

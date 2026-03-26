@@ -41,11 +41,12 @@ func GinMiddleware() gin.HandlerFunc {
 			zap.Duration("latency", latency),
 		}
 
-		if status >= 500 {
+		switch {
+		case status >= 500:
 			reqLogger.Error("request completed", fields...)
-		} else if status >= 400 {
+		case status >= 400:
 			reqLogger.Warn("request completed", fields...)
-		} else {
+		default:
 			reqLogger.Info("request completed", fields...)
 		}
 	}

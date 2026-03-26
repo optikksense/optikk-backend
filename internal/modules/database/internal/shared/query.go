@@ -11,9 +11,7 @@ type Filters struct {
 	Server     []string
 }
 
-func FilterClauses(f Filters) (string, []any) {
-	var frag string
-	var args []any
+func FilterClauses(f Filters) (frag string, args []any) {
 
 	appendIn := func(attr string, prefix string, values []string) {
 		if len(values) == 0 {

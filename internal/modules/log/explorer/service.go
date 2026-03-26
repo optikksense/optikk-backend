@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	loganalytics "github.com/observability/observability-backend-go/internal/modules/log/analytics"
-	logsearch "github.com/observability/observability-backend-go/internal/modules/log/search"
 	logshared "github.com/observability/observability-backend-go/internal/modules/log/internal/shared"
+	logsearch "github.com/observability/observability-backend-go/internal/modules/log/search"
 )
 
 type Service struct {
@@ -71,8 +71,8 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Re
 	}
 
 	return Response{
-		Results:  searchResult.Logs,
-		Summary:  summary,
+		Results: searchResult.Logs,
+		Summary: summary,
 		Facets: ExplorerFacets{
 			Level:       stats.Fields["level"],
 			ServiceName: stats.Fields["service_name"],

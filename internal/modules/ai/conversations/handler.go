@@ -7,7 +7,6 @@ import (
 	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
 
 	"github.com/gin-gonic/gin"
-	"github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
@@ -18,7 +17,7 @@ type Handler struct {
 
 func (h *Handler) ListConversations(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := common.ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
@@ -30,28 +29,28 @@ func (h *Handler) ListConversations(c *gin.Context) {
 
 	convos, err := h.Service.ListConversations(c.Request.Context(), teamID, startMs, endMs, limit)
 	if err != nil {
-		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to list conversations", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to list conversations", err)
 		return
 	}
-	common.RespondOK(c, convos)
+	modulecommon.RespondOK(c, convos)
 }
 
 func (h *Handler) GetConversation(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	conversationID := c.Param("conversationId")
 	if conversationID == "" {
-		common.RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "conversationId is required")
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "conversationId is required")
 		return
 	}
-	startMs, endMs, ok := common.ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
 	turns, err := h.Service.GetConversation(c.Request.Context(), teamID, conversationID, startMs, endMs)
 	if err != nil {
-		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to get conversation", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to get conversation", err)
 		return
 	}
-	common.RespondOK(c, turns)
+	modulecommon.RespondOK(c, turns)
 }

@@ -4,14 +4,14 @@ import (
 	"context"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	database "github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 )
 
 type Repository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) *Repository {
+func NewRepository(db *dbutil.NativeQuerier) *Repository {
 	return &Repository{db: db}
 }
 
@@ -28,6 +28,6 @@ func (r *Repository) FetchTraceSpans(teamID int64, traceID string) ([]internalSp
 		WHERE s.team_id = @teamID AND s.trace_id = ?
 		ORDER BY s.timestamp ASC
 		LIMIT 5000
-	`, clickhouse.Named("teamID", uint32(teamID)), traceID)
+	`, clickhouse.Named("teamID", uint32(teamID)), traceID) //nolint:gosec // G115
 	return rows, err
 }

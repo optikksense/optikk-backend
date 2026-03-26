@@ -11,6 +11,7 @@ import (
 
 	"github.com/observability/observability-backend-go/internal/config"
 	"github.com/observability/observability-backend-go/internal/database"
+	"github.com/observability/observability-backend-go/internal/migrate"
 	"github.com/observability/observability-backend-go/internal/platform/logger"
 	"github.com/observability/observability-backend-go/internal/platform/server"
 )
@@ -45,6 +46,12 @@ func main() {
 		log.Fatal("failed to connect clickhouse", zap.Error(err))
 	}
 	defer chConn.Close()
+
+	// Auto-apply pending database migrations before serving traffic.
+	log.Info("running database migrations")
+	if err := migrate.Run(cfg); err != nil {
+		log.Fatal("migration failed", zap.Error(err))
+	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()

@@ -14,21 +14,21 @@ const (
 	colModel         = "attributes.'gen_ai.request.model'::String"
 	colProvider      = "attributes.'server.address'::String"
 	colOperationType = "attributes.'gen_ai.operation.name'::String"
-	colInputTokens   = "attributes.'gen_ai.usage.input_tokens'::Int64"
-	colOutputTokens  = "attributes.'gen_ai.usage.output_tokens'::Int64"
+	colInputTokens   = "attributes.'gen_ai.usage.input_tokens'::Int64"  //nolint:gosec // G101 - column expressions, not credentials
+	colOutputTokens  = "attributes.'gen_ai.usage.output_tokens'::Int64" //nolint:gosec // G101 - column expressions, not credentials
 	colFinishReason  = "attributes.'gen_ai.response.finish_reasons'::String"
 )
 
 // buildWhereClause constructs the WHERE clause and args for LLM run queries.
-func buildWhereClause(f LLMRunFilters) (string, []any) {
+func buildWhereClause(f LLMRunFilters) (where string, args []any) {
 	clauses := []string{
 		"s.team_id = @teamID",
 		"s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd",
 		"s.timestamp BETWEEN @start AND @end",
-		fmt.Sprintf("%s != ''", colModel),
+		colModel + " != ''",
 	}
-	args := []any{
-		clickhouse.Named("teamID", uint32(f.TeamID)),
+	args = []any{
+		clickhouse.Named("teamID", uint32(f.TeamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(f.StartMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(f.EndMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(f.StartMs)),
@@ -48,9 +48,10 @@ func buildWhereClause(f LLMRunFilters) (string, []any) {
 	appendIn(colOperationType, "op", f.Operations)
 	appendIn("s.service_name", "svc", f.Services)
 
-	if f.Status == "error" {
+	switch f.Status {
+	case "error":
 		clauses = append(clauses, "s.has_error = true")
-	} else if f.Status == "ok" {
+	case "ok":
 		clauses = append(clauses, "s.has_error = false")
 	}
 
@@ -84,5 +85,6 @@ func buildWhereClause(f LLMRunFilters) (string, []any) {
 		args = append(args, clickhouse.Named("cursorSpanID", f.CursorSpanID))
 	}
 
-	return "WHERE " + strings.Join(clauses, " AND "), args
+	where = "WHERE " + strings.Join(clauses, " AND ")
+	return where, args
 }

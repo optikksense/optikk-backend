@@ -6,15 +6,15 @@ import (
 	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
 
 	"github.com/gin-gonic/gin"
-	"github.com/observability/observability-backend-go/internal/modules/common"
+	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
 type Handler struct {
-	getTenant common.GetTenantFunc
+	getTenant modulecommon.GetTenantFunc
 	svc       *Service
 }
 
-func NewHandler(getTenant common.GetTenantFunc, svc *Service) *Handler {
+func NewHandler(getTenant modulecommon.GetTenantFunc, svc *Service) *Handler {
 	return &Handler{getTenant: getTenant, svc: svc}
 }
 
@@ -24,19 +24,19 @@ func (h *Handler) PostAnalytics(c *gin.Context) {
 
 	var q AnalyticsQuery
 	if err := c.ShouldBindJSON(&q); err != nil {
-		common.RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "Invalid request body: "+err.Error())
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "Invalid request body: "+err.Error())
 		return
 	}
 
 	result, err := h.svc.RunQuery(c.Request.Context(), teamID, q)
 	if err != nil {
-		common.RespondError(c, http.StatusBadRequest, errorcode.QueryFailed, err.Error())
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.QueryFailed, err.Error())
 		return
 	}
-	common.RespondOK(c, result)
+	modulecommon.RespondOK(c, result)
 }
 
 // GetDimensions handles GET /v1/spans/analytics/dimensions.
 func (h *Handler) GetDimensions(c *gin.Context) {
-	common.RespondOK(c, AllDimensions())
+	modulecommon.RespondOK(c, AllDimensions())
 }

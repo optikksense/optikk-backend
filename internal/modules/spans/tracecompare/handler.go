@@ -6,15 +6,15 @@ import (
 	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
 
 	"github.com/gin-gonic/gin"
-	"github.com/observability/observability-backend-go/internal/modules/common"
+	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
 type Handler struct {
-	getTenant common.GetTenantFunc
+	getTenant modulecommon.GetTenantFunc
 	svc       *Service
 }
 
-func NewHandler(getTenant common.GetTenantFunc, svc *Service) *Handler {
+func NewHandler(getTenant modulecommon.GetTenantFunc, svc *Service) *Handler {
 	return &Handler{getTenant: getTenant, svc: svc}
 }
 
@@ -25,14 +25,14 @@ func (h *Handler) GetTraceComparison(c *gin.Context) {
 	traceB := c.Query("traceB")
 
 	if traceA == "" || traceB == "" {
-		common.RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "traceA and traceB query params are required")
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "traceA and traceB query params are required")
 		return
 	}
 
 	result, err := h.svc.Compare(teamID, traceA, traceB)
 	if err != nil {
-		common.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to compare traces: "+err.Error(), err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to compare traces: "+err.Error(), err)
 		return
 	}
-	common.RespondOK(c, result)
+	modulecommon.RespondOK(c, result)
 }

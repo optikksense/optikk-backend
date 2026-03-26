@@ -41,13 +41,7 @@ func mapErrorGroupDetailRow(groupID string, row *errorGroupDetailRow) *ErrorGrou
 func mapErrorGroupTraceRows(rows []errorGroupTraceRow) []ErrorGroupTrace {
 	traces := make([]ErrorGroupTrace, len(rows))
 	for i, row := range rows {
-		traces[i] = ErrorGroupTrace{
-			TraceID:    row.TraceID,
-			SpanID:     row.SpanID,
-			Timestamp:  row.Timestamp,
-			DurationMs: row.DurationMs,
-			StatusCode: row.StatusCode,
-		}
+		traces[i] = ErrorGroupTrace(row)
 	}
 	return traces
 }
@@ -66,14 +60,7 @@ func mapErrorGroupTimeseriesRows(rows []errorGroupTSRow) []TimeSeriesPoint {
 func mapServiceErrorRateRows(rows []serviceErrorRateRow) []TimeSeriesPoint {
 	points := make([]TimeSeriesPoint, len(rows))
 	for i, row := range rows {
-		points[i] = TimeSeriesPoint{
-			ServiceName:  row.ServiceName,
-			Timestamp:    row.Timestamp,
-			RequestCount: row.RequestCount,
-			ErrorCount:   row.ErrorCount,
-			ErrorRate:    row.ErrorRate,
-			AvgLatency:   row.AvgLatency,
-		}
+		points[i] = TimeSeriesPoint(row)
 	}
 	return points
 }

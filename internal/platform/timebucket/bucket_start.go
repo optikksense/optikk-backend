@@ -11,28 +11,28 @@ const (
 )
 
 func SpansBucketStart(unixSeconds int64) uint64 {
-	return uint64(unixSeconds / SpansBucketSeconds * SpansBucketSeconds)
+	return uint64(unixSeconds / SpansBucketSeconds * SpansBucketSeconds) //nolint:gosec // G115 - domain-constrained value
 }
 
-func SpansBucketQueryBounds(startMs, endMs int64) (uint64, uint64) {
+func SpansBucketQueryBounds(startMs, endMs int64) (startBucket, endBucket uint64) {
 	startSec := startMs / millisecondsPerSecond
 	endSec := endMs / millisecondsPerSecond
 
-	startBucket := SpansBucketStart(startSec)
-	endBucket := SpansBucketStart(endSec)
+	startBucket = SpansBucketStart(startSec)
+	endBucket = SpansBucketStart(endSec)
 
 	return startBucket, endBucket
 }
 func LogsBucketStart(unixSeconds int64) uint32 {
-	return uint32(unixSeconds / LogsBucketSeconds * LogsBucketSeconds)
+	return uint32(unixSeconds / LogsBucketSeconds * LogsBucketSeconds) //nolint:gosec // G115 - domain-constrained value
 }
 
-func LogsBucketQueryBounds(startMs, endMs int64) (uint32, uint32) {
+func LogsBucketQueryBounds(startMs, endMs int64) (startBucket, endBucket uint32) {
 	startSec := startMs / millisecondsPerSecond
 	endSec := endMs / millisecondsPerSecond
 
-	startBucket := LogsBucketStart(startSec)
-	endBucket := LogsBucketStart(endSec)
+	startBucket = LogsBucketStart(startSec)
+	endBucket = LogsBucketStart(endSec)
 
 	return startBucket, endBucket
 }

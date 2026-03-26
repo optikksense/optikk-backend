@@ -3,11 +3,12 @@ package nodes
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	database "github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 	rootspan "github.com/observability/observability-backend-go/internal/modules/spans/shared/rootspan"
 	"github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
@@ -18,10 +19,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -67,12 +68,12 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(teamID int64, startMs, end
 		  AND s.timestamp BETWEEN @start AND @end
 		GROUP BY host_name
 		ORDER BY request_count DESC
-		LIMIT ` + fmt.Sprintf("%d", MaxNodes)
+		LIMIT ` + strconv.Itoa(MaxNodes)
 
 	params := []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("bucketStart", time.Unix(int64(timebucket.SpansBucketStart(startMs/1000)), 0)),
-		clickhouse.Named("bucketEnd", time.Unix(int64(timebucket.SpansBucketStart(endMs/1000)), 0)),
+		clickhouse.Named("teamID", uint32(teamID)),                                                      //nolint:gosec // G115 - domain-constrained value
+		clickhouse.Named("bucketStart", time.Unix(int64(timebucket.SpansBucketStart(startMs/1000)), 0)), //nolint:gosec // G115 - domain-constrained value
+		clickhouse.Named("bucketEnd", time.Unix(int64(timebucket.SpansBucketStart(endMs/1000)), 0)),     //nolint:gosec // G115 - domain-constrained value
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
@@ -117,13 +118,13 @@ func (r *ClickHouseRepository) GetInfrastructureNodeServices(teamID int64, host 
 		  AND s.timestamp BETWEEN @start AND @end
 		GROUP BY service_name
 		ORDER BY request_count DESC
-		LIMIT ` + fmt.Sprintf("%d", MaxServices)
+		LIMIT ` + strconv.Itoa(MaxServices)
 
 	params := []any{
-		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("host", host),
-		clickhouse.Named("bucketStart", time.Unix(int64(timebucket.SpansBucketStart(startMs/1000)), 0)),
-		clickhouse.Named("bucketEnd", time.Unix(int64(timebucket.SpansBucketStart(endMs/1000)), 0)),
+		clickhouse.Named("bucketStart", time.Unix(int64(timebucket.SpansBucketStart(startMs/1000)), 0)), //nolint:gosec // G115
+		clickhouse.Named("bucketEnd", time.Unix(int64(timebucket.SpansBucketStart(endMs/1000)), 0)),     //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}

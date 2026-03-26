@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"strings"
 
-	database "github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
+
 	shared "github.com/observability/observability-backend-go/internal/modules/log/internal/shared"
 )
 
@@ -19,10 +20,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -115,7 +116,7 @@ func (r *ClickHouseRepository) GetTopGroups(ctx context.Context, f shared.LogFil
 	where, args := shared.BuildLogWhere(f)
 
 	var topQuery string
-	if query.Metric == "error_rate" {
+	if query.Metric == metricErrorRate {
 		topQuery = fmt.Sprintf(`
 			SELECT %s AS grp, toInt64(sum(if(severity_text IN ('ERROR', 'FATAL'), 1, 0))) AS sort_value
 			FROM observability.logs
@@ -152,10 +153,12 @@ func (r *ClickHouseRepository) GetAggregateSeries(ctx context.Context, f shared.
 	where, args := shared.BuildLogWhere(f)
 	bucketExpr := shared.LogBucketExprForStep(f.StartMs, f.EndMs, query.Step)
 
-	combinedArgs := append(args, stringSliceToAny(groups)...)
+	combinedArgs := make([]any, 0, len(args)+len(groups))
+	combinedArgs = append(combinedArgs, args...)
+	combinedArgs = append(combinedArgs, stringSliceToAny(groups)...)
 
 	var sql string
-	if query.Metric == "error_rate" {
+	if query.Metric == metricErrorRate {
 		sql = fmt.Sprintf(`
 			SELECT %s AS time_bucket,
 			       %s AS grp,

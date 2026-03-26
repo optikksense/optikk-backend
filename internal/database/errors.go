@@ -40,7 +40,7 @@ var networkErrorPatterns = []struct {
 	{"connection closed", "Database connection closed"},
 	{"unexpected eof", "Database connection interrupted"},
 	{"context deadline exceeded", "Request timed out"},
-	{"context canceled", "Request was cancelled"},
+	{"context canceled", "Request was canceled"},
 }
 
 // sqlStripPattern matches SQL keywords and everything after them.
@@ -61,7 +61,7 @@ func SanitizeError(err error) string {
 			return friendly
 		}
 		if chErr.Name != "" {
-			return fmt.Sprintf("Database error: %s", chErr.Name)
+			return "Database error: " + chErr.Name
 		}
 		return fmt.Sprintf("Database error (code %d)", chErr.Code)
 	}

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/observability/observability-backend-go/internal/database"
+	dbutil "github.com/observability/observability-backend-go/internal/database"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
 
@@ -33,11 +33,11 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db            *database.NativeQuerier
+	db            *dbutil.NativeQuerier
 	bucketFactory *TimeBucketStrategyFactory
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{
 		db:            db,
 		bucketFactory: NewTimeBucketStrategyFactory(),

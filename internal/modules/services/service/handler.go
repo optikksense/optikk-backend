@@ -7,7 +7,6 @@ import (
 	"github.com/observability/observability-backend-go/internal/contracts/errorcode"
 
 	"github.com/gin-gonic/gin"
-	. "github.com/observability/observability-backend-go/internal/modules/common"
 	modulecommon "github.com/observability/observability-backend-go/internal/modules/common"
 )
 
@@ -38,65 +37,65 @@ func (h *ServiceHandler) GetUnhealthyServices(c *gin.Context) {
 
 func (h *ServiceHandler) GetServiceMetrics(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
 	rows, err := h.Service.GetServiceMetrics(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query service metrics", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query service metrics", err)
 		return
 	}
 
-	RespondOK(c, rows)
+	modulecommon.RespondOK(c, rows)
 }
 
 func (h *ServiceHandler) GetServiceTimeSeries(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
 	points, err := h.Service.GetServiceTimeSeries(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query service timeseries", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query service timeseries", err)
 		return
 	}
 
-	RespondOK(c, points)
+	modulecommon.RespondOK(c, points)
 }
 
 func (h *ServiceHandler) GetServiceEndpoints(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Param("serviceName")
-	startMs, endMs, ok := ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
 	endpoints, err := h.Service.GetServiceEndpoints(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
-		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query endpoint breakdown", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query endpoint breakdown", err)
 		return
 	}
 
-	RespondOK(c, endpoints)
+	modulecommon.RespondOK(c, endpoints)
 }
 
 func (h *ServiceHandler) respondWithCount(c *gin.Context, fn func(context.Context, int64, int64, int64) (int64, error), message string) {
 	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := ParseRequiredRange(c)
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 
 	count, err := fn(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, message, err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, message, err)
 		return
 	}
 
-	RespondOK(c, CountResponse{Count: count})
+	modulecommon.RespondOK(c, CountResponse{Count: count})
 }

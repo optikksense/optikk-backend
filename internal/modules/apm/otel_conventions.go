@@ -14,12 +14,12 @@ const (
 	MetricProcessOpenFDs           = "process.open_file_descriptor.count"
 	MetricProcessUptime            = "process.uptime"
 
-	AttrRPCSystem      = "rpc.system"
-	AttrRPCService     = "rpc.service"
-	AttrRPCMethod      = "rpc.method"
-	AttrRPCGRPCStatus  = "rpc.grpc.status_code"
+	AttrRPCSystem       = "rpc.system"
+	AttrRPCService      = "rpc.service"
+	AttrRPCMethod       = "rpc.method"
+	AttrRPCGRPCStatus   = "rpc.grpc.status_code"
 	AttrProcessCPUState = "process.cpu.state"
-	AttrMessagingOp    = "messaging.operation.name"
+	AttrMessagingOp     = "messaging.operation.name"
 
 	TableMetrics = "observability.metrics"
 

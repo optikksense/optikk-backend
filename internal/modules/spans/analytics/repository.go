@@ -2,16 +2,18 @@ package analytics
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	database "github.com/observability/observability-backend-go/internal/database"
 	dbutil "github.com/observability/observability-backend-go/internal/database"
 	rootspan "github.com/observability/observability-backend-go/internal/modules/spans/shared/rootspan"
 	timebucket "github.com/observability/observability-backend-go/internal/platform/timebucket"
 )
+
+const orderDESC = "DESC"
 
 type analyticsRowDTO struct {
 	DimensionKeys   []string  `ch:"dimension_keys"`
@@ -28,10 +30,10 @@ type analyticsQueryResultDTO struct {
 }
 
 type Repository struct {
-	db *database.NativeQuerier
+	db *dbutil.NativeQuerier
 }
 
-func NewRepository(db *database.NativeQuerier) *Repository {
+func NewRepository(db *dbutil.NativeQuerier) *Repository {
 	return &Repository{db: db}
 }
 
@@ -105,7 +107,7 @@ var allowedAggFields = map[string]string{
 func resolveAggregations(aggs []Aggregation) (selectExprs []string, rawExprs []string, aliases []string, err error) {
 	for _, a := range aggs {
 		if a.Alias == "" {
-			return nil, nil, nil, fmt.Errorf("aggregation alias is required")
+			return nil, nil, nil, errors.New("aggregation alias is required")
 		}
 		expr, buildErr := buildAggExpr(a)
 		if buildErr != nil {
@@ -166,7 +168,7 @@ func buildAggExpr(a Aggregation) (string, error) {
 	}
 }
 
-func buildAnalyticsWhere(teamID int64, f QueryFilters) (string, []any) {
+func buildAnalyticsWhere(teamID int64, f QueryFilters) (frag string, args []any) {
 	startMs := f.StartMs
 	endMs := f.EndMs
 	if endMs <= 0 {
@@ -177,9 +179,9 @@ func buildAnalyticsWhere(teamID int64, f QueryFilters) (string, []any) {
 		startMs = endMs - maxRange
 	}
 
-	frag := ` WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end`
-	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)),
+	frag = ` WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp BETWEEN @start AND @end`
+	args = []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		timebucket.SpansBucketStart(startMs / 1000),
 		timebucket.SpansBucketStart(endMs / 1000),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -233,11 +235,11 @@ func buildAnalyticsWhere(teamID int64, f QueryFilters) (string, []any) {
 
 func resolveOrderBy(field, dir string, groupBy []string, aliases, aggExprs []string) string {
 	if dir == "" {
-		dir = "DESC"
+		dir = orderDESC
 	}
 	dir = strings.ToUpper(dir)
-	if dir != "ASC" && dir != "DESC" {
-		dir = "DESC"
+	if dir != "ASC" && dir != orderDESC {
+		dir = orderDESC
 	}
 
 	if field != "" {
