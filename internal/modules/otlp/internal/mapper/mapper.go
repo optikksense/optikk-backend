@@ -283,7 +283,7 @@ func MapSpans(teamID int64, req *tracepb.ExportTraceServiceRequest) []ingest.Row
 					spanKindString(s.Kind),
 					durNano,
 					hasError,
-					false, // is_remote
+					false,             // is_remote
 					int16(statusCode), //nolint:gosec // G115 - domain-constrained value
 					statusCodeString(statusCode),
 					statusMsg,

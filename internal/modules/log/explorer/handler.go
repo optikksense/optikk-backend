@@ -67,7 +67,7 @@ func (h *Handler) Stream(c *gin.Context) {
 
 	ctx := c.Request.Context()
 	flusher, canFlush := c.Writer.(http.Flusher)
-	latestNs := uint64(time.Now().Add(-streamPollInterval).UnixMilli()) * 1_000_000
+	latestNs := uint64(time.Now().Add(-streamPollInterval).UnixMilli()) * 1_000_000 //nolint:gosec // G115 - domain-constrained value
 
 	ticker := time.NewTicker(streamPollInterval)
 	heartbeat := time.NewTicker(streamHeartbeatInterval)
