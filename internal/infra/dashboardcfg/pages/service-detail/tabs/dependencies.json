@@ -1,0 +1,77 @@
+{
+  "id": "dependencies",
+  "pageId": "service-detail",
+  "label": "Dependencies",
+  "order": 40,
+  "sections": [
+    {
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "stack"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
+      "id": "upstream-downstream",
+      "layout": {
+        "preset": "detail"
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/services/{serviceName}/upstream-downstream",
+        "method": "GET"
+      },
+      "title": "Upstream & Downstream Dependencies",
+      "titleIcon": "GitBranch",
+      "panelType": "table",
+      "sectionId": "details"
+    },
+    {
+      "id": "external-dependencies",
+      "layout": {
+        "preset": "detail"
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/services/external-dependencies",
+        "method": "GET",
+        "params": {
+          "service": "{serviceName}"
+        }
+      },
+      "title": "External Dependencies",
+      "titleIcon": "Globe",
+      "panelType": "table",
+      "sectionId": "details"
+    },
+    {
+      "id": "client-server-latency",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/spans/client-server-latency",
+        "method": "GET",
+        "params": {
+          "service": "{serviceName}"
+        }
+      },
+      "title": "Client vs Server Latency (p95)",
+      "titleIcon": "Activity",
+      "panelType": "latency",
+      "sectionId": "trends"
+    }
+  ]
+}

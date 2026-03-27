@@ -1,0 +1,110 @@
+{
+  "id": "nodes",
+  "pageId": "infrastructure",
+  "label": "Nodes",
+  "order": 40,
+  "sections": [
+    {
+      "id": "summary",
+      "title": "Key Metrics",
+      "order": 10,
+      "kind": "summary",
+      "collapsible": true,
+      "layoutMode": "kpi-strip"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "stack"
+    }
+  ],
+  "panels": [
+    {
+      "formatter": "number",
+      "id": "healthy-nodes",
+      "layout": {
+        "preset": "kpi"
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/infrastructure/nodes/summary",
+        "method": "GET"
+      },
+      "title": "Healthy Nodes",
+      "titleIcon": "CheckCircle2",
+      "valueField": "healthy_nodes",
+      "panelType": "stat-card",
+      "sectionId": "summary"
+    },
+    {
+      "formatter": "number",
+      "id": "degraded-nodes",
+      "layout": {
+        "preset": "kpi"
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/infrastructure/nodes/summary",
+        "method": "GET"
+      },
+      "title": "Degraded Nodes",
+      "titleIcon": "AlertTriangle",
+      "valueField": "degraded_nodes",
+      "panelType": "stat-card",
+      "sectionId": "summary"
+    },
+    {
+      "formatter": "number",
+      "id": "unhealthy-nodes",
+      "layout": {
+        "preset": "kpi"
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/infrastructure/nodes/summary",
+        "method": "GET"
+      },
+      "title": "Unhealthy Nodes",
+      "titleIcon": "XCircle",
+      "valueField": "unhealthy_nodes",
+      "panelType": "stat-card",
+      "sectionId": "summary"
+    },
+    {
+      "formatter": "number",
+      "id": "total-pods",
+      "layout": {
+        "preset": "kpi"
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/infrastructure/nodes/summary",
+        "method": "GET"
+      },
+      "title": "Total Pods",
+      "titleIcon": "Box",
+      "valueField": "total_pods",
+      "panelType": "stat-card",
+      "sectionId": "summary"
+    },
+    {
+      "id": "nodes-table",
+      "layout": {
+        "preset": "detail"
+      },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/infrastructure/nodes",
+        "method": "GET"
+      },
+      "drilldownRoute": "/infrastructure/nodes/{host}",
+      "title": "Nodes",
+      "titleIcon": "Server",
+      "panelType": "table",
+      "sectionId": "details"
+    }
+  ]
+}

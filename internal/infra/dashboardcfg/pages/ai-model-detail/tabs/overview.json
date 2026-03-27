@@ -1,0 +1,136 @@
+{
+  "id": "overview",
+  "pageId": "ai-model-detail",
+  "label": "Overview",
+  "order": 10,
+  "sections": [
+    {
+      "id": "summary",
+      "title": "Summary",
+      "order": 10,
+      "kind": "summary",
+      "collapsible": true,
+      "layoutMode": "kpi-strip"
+    },
+    {
+      "id": "trends",
+      "title": "Trends",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
+      "id": "model-total-requests",
+      "layout": {
+        "preset": "kpi"
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/ai/summary",
+        "method": "GET",
+        "params": {
+          "model": "{modelName}"
+        }
+      },
+      "title": "Total Requests",
+      "titleIcon": "Activity",
+      "panelType": "stat-card",
+      "sectionId": "summary"
+    },
+    {
+      "id": "model-total-cost",
+      "layout": {
+        "preset": "kpi"
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/ai/summary",
+        "method": "GET",
+        "params": {
+          "model": "{modelName}"
+        }
+      },
+      "title": "Total Cost",
+      "titleIcon": "DollarSign",
+      "panelType": "stat-card",
+      "sectionId": "summary"
+    },
+    {
+      "id": "model-guardrail-blocks",
+      "layout": {
+        "preset": "kpi"
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/ai/summary",
+        "method": "GET",
+        "params": {
+          "model": "{modelName}"
+        }
+      },
+      "title": "Guardrail Blocks",
+      "titleIcon": "Shield",
+      "panelType": "stat-card",
+      "sectionId": "summary"
+    },
+    {
+      "id": "model-pii-detections",
+      "layout": {
+        "preset": "kpi"
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/ai/summary",
+        "method": "GET",
+        "params": {
+          "model": "{modelName}"
+        }
+      },
+      "title": "PII Detections",
+      "titleIcon": "Eye",
+      "panelType": "stat-card",
+      "sectionId": "summary"
+    },
+    {
+      "id": "model-qps",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/ai/performance/timeseries",
+        "method": "GET",
+        "params": {
+          "model": "{modelName}",
+          "interval": "5m"
+        }
+      },
+      "title": "QPS",
+      "titleIcon": "TrendingUp",
+      "panelType": "ai-line",
+      "sectionId": "trends"
+    },
+    {
+      "id": "model-cost-over-time",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 60,
+      "query": {
+        "endpoint": "/v1/ai/cost/timeseries",
+        "method": "GET",
+        "params": {
+          "model": "{modelName}",
+          "interval": "5m"
+        }
+      },
+      "title": "Cost Over Time",
+      "titleIcon": "DollarSign",
+      "panelType": "ai-line",
+      "sectionId": "trends"
+    }
+  ]
+}

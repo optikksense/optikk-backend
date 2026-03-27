@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "ai-runs",
+  "path": "/ai-runs",
+  "label": "LLM Runs",
+  "icon": "Zap",
+  "group": "operate",
+  "order": 81,
+  "navigable": true,
+  "title": "LLM Runs",
+  "subtitle": "Explore individual LLM inference calls with token usage and latency",
+  "renderMode": "explorer"
+}

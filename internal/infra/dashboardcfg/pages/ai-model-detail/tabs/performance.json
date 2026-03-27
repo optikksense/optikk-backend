@@ -1,0 +1,89 @@
+{
+  "id": "performance",
+  "pageId": "ai-model-detail",
+  "label": "Performance",
+  "order": 20,
+  "sections": [
+    {
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "stack"
+    },
+    {
+      "id": "breakdowns",
+      "title": "Breakdowns",
+      "order": 30,
+      "kind": "breakdowns",
+      "collapsible": true,
+      "layoutMode": "stack"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "stack"
+    }
+  ],
+  "panels": [
+    {
+      "id": "model-avg-latency",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/ai/performance/timeseries",
+        "method": "GET",
+        "params": {
+          "model": "{modelName}",
+          "interval": "5m"
+        }
+      },
+      "title": "Avg Latency",
+      "titleIcon": "Clock",
+      "panelType": "ai-line",
+      "sectionId": "trends"
+    },
+    {
+      "id": "model-latency-histogram",
+      "layout": {
+        "preset": "breakdown"
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/ai/performance/latency-histogram",
+        "method": "GET",
+        "params": {
+          "model": "{modelName}"
+        }
+      },
+      "title": "Latency Histogram",
+      "titleIcon": "BarChart2",
+      "panelType": "ai-bar",
+      "sectionId": "breakdowns"
+    },
+    {
+      "id": "model-performance-metrics",
+      "layout": {
+        "preset": "detail"
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/ai/performance/metrics",
+        "method": "GET",
+        "params": {
+          "model": "{modelName}"
+        }
+      },
+      "title": "Performance Metrics",
+      "titleIcon": "Activity",
+      "panelType": "table",
+      "sectionId": "details"
+    }
+  ]
+}

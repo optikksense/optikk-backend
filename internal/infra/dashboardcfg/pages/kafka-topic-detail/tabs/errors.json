@@ -1,0 +1,78 @@
+{
+  "id": "errors",
+  "pageId": "kafka-topic-detail",
+  "label": "Errors",
+  "order": 40,
+  "sections": [
+    {
+      "id": "trends",
+      "title": "Errors",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "three-up"
+    }
+  ],
+  "panels": [
+    {
+      "id": "topic-publish-errors",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/publish-errors",
+        "method": "GET",
+        "params": {
+          "topic": "{topic}"
+        }
+      },
+      "groupByKey": "error_type",
+      "valueKey": "error_rate",
+      "title": "Publish Errors",
+      "titleIcon": "AlertCircle",
+      "panelType": "error-rate",
+      "sectionId": "trends"
+    },
+    {
+      "id": "topic-consume-errors",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/consume-errors",
+        "method": "GET",
+        "params": {
+          "topic": "{topic}"
+        }
+      },
+      "groupByKey": "error_type",
+      "valueKey": "error_rate",
+      "title": "Consume Errors",
+      "titleIcon": "AlertCircle",
+      "panelType": "error-rate",
+      "sectionId": "trends"
+    },
+    {
+      "id": "topic-process-errors",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/process-errors",
+        "method": "GET",
+        "params": {
+          "topic": "{topic}"
+        }
+      },
+      "groupByKey": "error_type",
+      "valueKey": "error_rate",
+      "title": "Process Errors",
+      "titleIcon": "AlertCircle",
+      "panelType": "error-rate",
+      "sectionId": "trends"
+    }
+  ]
+}

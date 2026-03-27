@@ -1,0 +1,89 @@
+{
+  "id": "security",
+  "pageId": "ai-model-detail",
+  "label": "Security",
+  "order": 40,
+  "sections": [
+    {
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "stack"
+    },
+    {
+      "id": "breakdowns",
+      "title": "Breakdowns",
+      "order": 30,
+      "kind": "breakdowns",
+      "collapsible": true,
+      "layoutMode": "stack"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "stack"
+    }
+  ],
+  "panels": [
+    {
+      "id": "model-pii-timeseries",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/ai/security/timeseries",
+        "method": "GET",
+        "params": {
+          "model": "{modelName}",
+          "interval": "5m"
+        }
+      },
+      "title": "PII Detections Over Time",
+      "titleIcon": "Eye",
+      "panelType": "ai-line",
+      "sectionId": "trends"
+    },
+    {
+      "id": "model-pii-categories",
+      "layout": {
+        "preset": "breakdown"
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/ai/security/pii-categories",
+        "method": "GET",
+        "params": {
+          "model": "{modelName}"
+        }
+      },
+      "title": "PII Categories",
+      "titleIcon": "Shield",
+      "panelType": "ai-bar",
+      "sectionId": "breakdowns"
+    },
+    {
+      "id": "model-security-metrics",
+      "layout": {
+        "preset": "detail"
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/ai/security/metrics",
+        "method": "GET",
+        "params": {
+          "model": "{modelName}"
+        }
+      },
+      "title": "Security Metrics",
+      "titleIcon": "Shield",
+      "panelType": "table",
+      "sectionId": "details"
+    }
+  ]
+}

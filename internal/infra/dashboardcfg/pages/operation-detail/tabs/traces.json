@@ -1,0 +1,37 @@
+{
+  "id": "traces",
+  "pageId": "operation-detail",
+  "label": "Traces",
+  "order": 40,
+  "sections": [
+    {
+      "id": "details",
+      "title": "Traces",
+      "order": 40,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "stack"
+    }
+  ],
+  "panels": [
+    {
+      "id": "op-recent-traces",
+      "layout": {
+        "preset": "detail"
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/traces",
+        "method": "GET",
+        "params": {
+          "service": "{serviceName}",
+          "operation": "{operationName}"
+        }
+      },
+      "title": "Recent Traces",
+      "titleIcon": "List",
+      "panelType": "table",
+      "sectionId": "details"
+    }
+  ]
+}

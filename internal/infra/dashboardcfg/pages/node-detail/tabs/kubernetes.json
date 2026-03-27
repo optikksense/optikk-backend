@@ -1,0 +1,98 @@
+{
+  "id": "kubernetes",
+  "pageId": "node-detail",
+  "label": "Kubernetes",
+  "order": 40,
+  "sections": [
+    {
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "three-up"
+    },
+    {
+      "id": "breakdowns",
+      "title": "Breakdowns",
+      "order": 30,
+      "kind": "breakdowns",
+      "collapsible": true,
+      "layoutMode": "stack"
+    }
+  ],
+  "panels": [
+    {
+      "id": "node-k8s-container-cpu",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/container-cpu",
+        "method": "GET",
+        "params": {
+          "node": "{host}"
+        }
+      },
+      "title": "Container CPU",
+      "titleIcon": "Cpu",
+      "panelType": "request",
+      "sectionId": "trends"
+    },
+    {
+      "id": "node-k8s-container-memory",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/container-memory",
+        "method": "GET",
+        "params": {
+          "node": "{host}"
+        }
+      },
+      "title": "Container Memory",
+      "titleIcon": "HardDrive",
+      "panelType": "request",
+      "sectionId": "trends"
+    },
+    {
+      "id": "node-k8s-pod-phases",
+      "layout": {
+        "preset": "breakdown"
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/pod-phases",
+        "method": "GET",
+        "params": {
+          "node": "{host}"
+        }
+      },
+      "title": "Pod Phases",
+      "titleIcon": "Box",
+      "panelType": "bar",
+      "sectionId": "breakdowns"
+    },
+    {
+      "id": "node-k8s-pod-restarts",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/pod-restarts",
+        "method": "GET",
+        "params": {
+          "node": "{host}"
+        }
+      },
+      "title": "Pod Restarts",
+      "titleIcon": "RefreshCw",
+      "panelType": "request",
+      "sectionId": "trends"
+    }
+  ]
+}

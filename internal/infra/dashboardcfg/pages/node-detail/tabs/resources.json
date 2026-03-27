@@ -1,0 +1,186 @@
+{
+  "id": "resources",
+  "pageId": "node-detail",
+  "label": "Resources",
+  "order": 20,
+  "sections": [
+    {
+      "id": "cpu",
+      "title": "CPU",
+      "order": 10,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    },
+    {
+      "id": "memory",
+      "title": "Memory",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    },
+    {
+      "id": "disk",
+      "title": "Disk",
+      "order": 30,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    },
+    {
+      "id": "network",
+      "title": "Network",
+      "order": 40,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
+      "id": "node-cpu-time",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/infrastructure/cpu/time",
+        "method": "GET",
+        "params": {
+          "host": "{host}"
+        }
+      },
+      "title": "CPU Time",
+      "titleIcon": "Cpu",
+      "panelType": "request",
+      "sectionId": "cpu"
+    },
+    {
+      "id": "node-load-average",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/infrastructure/cpu/load-average",
+        "method": "GET",
+        "params": {
+          "host": "{host}"
+        }
+      },
+      "title": "Load Average",
+      "titleIcon": "Activity",
+      "panelType": "request",
+      "sectionId": "cpu"
+    },
+    {
+      "id": "node-mem-usage",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/infrastructure/memory/usage",
+        "method": "GET",
+        "params": {
+          "host": "{host}"
+        }
+      },
+      "title": "Memory Usage",
+      "titleIcon": "HardDrive",
+      "panelType": "request",
+      "sectionId": "memory"
+    },
+    {
+      "id": "node-swap",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/infrastructure/memory/swap",
+        "method": "GET",
+        "params": {
+          "host": "{host}"
+        }
+      },
+      "title": "Swap Usage",
+      "titleIcon": "Repeat",
+      "panelType": "request",
+      "sectionId": "memory"
+    },
+    {
+      "id": "node-disk-io",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/infrastructure/disk/io",
+        "method": "GET",
+        "params": {
+          "host": "{host}"
+        }
+      },
+      "title": "Disk I/O",
+      "titleIcon": "HardDrive",
+      "panelType": "request",
+      "sectionId": "disk"
+    },
+    {
+      "id": "node-disk-ops",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 60,
+      "query": {
+        "endpoint": "/v1/infrastructure/disk/operations",
+        "method": "GET",
+        "params": {
+          "host": "{host}"
+        }
+      },
+      "title": "Disk Operations",
+      "titleIcon": "HardDrive",
+      "panelType": "request",
+      "sectionId": "disk"
+    },
+    {
+      "id": "node-network-io",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 70,
+      "query": {
+        "endpoint": "/v1/infrastructure/network/io",
+        "method": "GET",
+        "params": {
+          "host": "{host}"
+        }
+      },
+      "title": "Network I/O",
+      "titleIcon": "Wifi",
+      "panelType": "request",
+      "sectionId": "network"
+    },
+    {
+      "id": "node-network-errors",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 80,
+      "query": {
+        "endpoint": "/v1/infrastructure/network/errors",
+        "method": "GET",
+        "params": {
+          "host": "{host}"
+        }
+      },
+      "title": "Network Errors",
+      "titleIcon": "AlertCircle",
+      "panelType": "request",
+      "sectionId": "network"
+    }
+  ]
+}

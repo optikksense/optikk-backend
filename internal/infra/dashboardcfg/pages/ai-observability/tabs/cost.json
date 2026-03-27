@@ -1,0 +1,115 @@
+{
+  "id": "cost",
+  "pageId": "ai-observability",
+  "label": "Cost",
+  "order": 30,
+  "sections": [
+    {
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "stack"
+    },
+    {
+      "id": "breakdowns",
+      "title": "Breakdowns",
+      "order": 30,
+      "kind": "breakdowns",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "stack"
+    }
+  ],
+  "panels": [
+    {
+      "groupByKey": "model_name",
+      "id": "cost-over-time",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/ai/cost/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "Cost per Interval (USD)",
+      "titleIcon": "DollarSign",
+      "valueKey": "cost_per_interval",
+      "yDecimals": 4,
+      "yPrefix": "$",
+      "panelType": "ai-line",
+      "sectionId": "trends"
+    },
+    {
+      "color": "#F79009",
+      "id": "cost-by-model",
+      "labelKey": "model_name",
+      "layout": {
+        "preset": "breakdown"
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/ai/cost/metrics",
+        "method": "GET"
+      },
+      "title": "Total Cost by Model (USD)",
+      "titleIcon": "BarChart2",
+      "valueKey": "total_cost_usd",
+      "yDecimals": 4,
+      "yPrefix": "$",
+      "panelType": "ai-bar",
+      "sectionId": "breakdowns"
+    },
+    {
+      "id": "token-breakdown",
+      "labelKey": "model_name",
+      "layout": {
+        "preset": "breakdown"
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/ai/cost/token-breakdown",
+        "method": "GET"
+      },
+      "stacked": true,
+      "title": "Token Breakdown by Model",
+      "titleIcon": "Zap",
+      "valueKeys": [
+        "prompt_tokens",
+        "completion_tokens",
+        "system_tokens",
+        "cache_tokens"
+      ],
+      "panelType": "ai-bar",
+      "sectionId": "breakdowns"
+    },
+    {
+      "id": "cost-metrics",
+      "layout": {
+        "preset": "detail"
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/ai/cost/metrics",
+        "method": "GET"
+      },
+      "drilldownRoute": "/ai-observability/models/{model_name}",
+      "title": "Cost Metrics",
+      "titleIcon": "Table",
+      "panelType": "table",
+      "sectionId": "details"
+    }
+  ]
+}

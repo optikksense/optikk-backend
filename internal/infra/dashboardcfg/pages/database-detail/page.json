@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "database-detail",
+  "path": "/saturation/database/:dbSystem",
+  "label": "Database Detail",
+  "icon": "Database",
+  "group": "operate",
+  "order": 996,
+  "defaultTabId": "overview",
+  "navigable": false,
+  "title": "Database Detail",
+  "subtitle": "Database system latency, operations, slow queries, and errors",
+  "renderMode": "dashboard"
+}

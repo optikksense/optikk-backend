@@ -1,0 +1,206 @@
+{
+  "id": "kubernetes",
+  "pageId": "infrastructure",
+  "label": "Kubernetes",
+  "order": 30,
+  "sections": [
+    {
+      "id": "summary",
+      "title": "Key Metrics",
+      "order": 10,
+      "kind": "summary",
+      "collapsible": true,
+      "layoutMode": "kpi-strip"
+    },
+    {
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    },
+    {
+      "id": "breakdowns",
+      "title": "Breakdowns",
+      "order": 30,
+      "kind": "breakdowns",
+      "collapsible": true,
+      "layoutMode": "stack"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "stack"
+    }
+  ],
+  "panels": [
+    {
+      "formatter": "number",
+      "id": "allocatable-cpu-(cores)",
+      "layout": {
+        "preset": "kpi"
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/node-allocatable",
+        "method": "GET"
+      },
+      "title": "Allocatable CPU (cores)",
+      "titleIcon": "Cpu",
+      "valueField": "cpu_cores",
+      "panelType": "stat-card",
+      "sectionId": "summary"
+    },
+    {
+      "formatter": "bytes",
+      "id": "allocatable-memory",
+      "layout": {
+        "preset": "kpi"
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/node-allocatable",
+        "method": "GET"
+      },
+      "title": "Allocatable Memory",
+      "titleIcon": "HardDrive",
+      "valueField": "memory_bytes",
+      "panelType": "stat-card",
+      "sectionId": "summary"
+    },
+    {
+      "groupByKey": "container",
+      "id": "k8s-container-cpu",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/container-cpu",
+        "method": "GET"
+      },
+      "title": "Container CPU Time",
+      "titleIcon": "Cpu",
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
+    },
+    {
+      "groupByKey": "container",
+      "id": "k8s-cpu-throttling",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/cpu-throttling",
+        "method": "GET"
+      },
+      "title": "CPU Throttling Time",
+      "titleIcon": "AlertTriangle",
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
+    },
+    {
+      "groupByKey": "container",
+      "id": "k8s-container-memory",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/container-memory",
+        "method": "GET"
+      },
+      "title": "Container Memory Usage",
+      "titleIcon": "HardDrive",
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
+    },
+    {
+      "groupByKey": "container",
+      "id": "k8s-oom-kills",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 60,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/oom-kills",
+        "method": "GET"
+      },
+      "title": "OOM Kill Count",
+      "titleIcon": "AlertTriangle",
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends"
+    },
+    {
+      "groupByKey": "phase",
+      "id": "k8s-pod-phases",
+      "layout": {
+        "preset": "breakdown"
+      },
+      "order": 70,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/pod-phases",
+        "method": "GET"
+      },
+      "title": "Pod Phase Distribution",
+      "titleIcon": "Circle",
+      "valueKey": "count",
+      "panelType": "pie",
+      "sectionId": "breakdowns"
+    },
+    {
+      "id": "k8s-replica-status",
+      "layout": {
+        "preset": "detail"
+      },
+      "order": 80,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/replica-status",
+        "method": "GET"
+      },
+      "title": "ReplicaSet Status (Desired vs Available)",
+      "titleIcon": "Layers",
+      "panelType": "table",
+      "sectionId": "details"
+    },
+    {
+      "id": "k8s-pod-restarts",
+      "layout": {
+        "preset": "detail"
+      },
+      "order": 90,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/pod-restarts",
+        "method": "GET"
+      },
+      "title": "Pod Restarts",
+      "titleIcon": "RefreshCw",
+      "panelType": "table",
+      "sectionId": "details"
+    },
+    {
+      "id": "k8s-volume-usage",
+      "layout": {
+        "preset": "detail"
+      },
+      "order": 100,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/volume-usage",
+        "method": "GET"
+      },
+      "title": "Volume Usage",
+      "titleIcon": "FolderOpen",
+      "panelType": "table",
+      "sectionId": "details"
+    }
+  ]
+}

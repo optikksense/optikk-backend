@@ -1,0 +1,54 @@
+{
+  "id": "lag",
+  "pageId": "kafka-group-detail",
+  "label": "Lag",
+  "order": 20,
+  "sections": [
+    {
+      "id": "trends",
+      "title": "Lag",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
+      "id": "group-lag",
+      "layout": {
+        "preset": "hero"
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/lag-by-group",
+        "method": "GET",
+        "params": {
+          "group": "{groupId}"
+        }
+      },
+      "title": "Consumer Lag",
+      "titleIcon": "Clock",
+      "panelType": "request",
+      "sectionId": "trends"
+    },
+    {
+      "id": "group-lag-per-partition",
+      "layout": {
+        "preset": "hero"
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/lag-per-partition",
+        "method": "GET",
+        "params": {
+          "group": "{groupId}"
+        }
+      },
+      "title": "Lag per Partition",
+      "titleIcon": "Layers",
+      "panelType": "request",
+      "sectionId": "trends"
+    }
+  ]
+}

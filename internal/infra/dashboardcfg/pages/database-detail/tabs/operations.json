@@ -1,0 +1,62 @@
+{
+  "id": "operations",
+  "pageId": "database-detail",
+  "label": "Operations",
+  "order": 20,
+  "sections": [
+    {
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "stack"
+    },
+    {
+      "id": "breakdowns",
+      "title": "Breakdowns",
+      "order": 30,
+      "kind": "breakdowns",
+      "collapsible": true,
+      "layoutMode": "stack"
+    }
+  ],
+  "panels": [
+    {
+      "id": "db-ops-by-operation",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/database/ops/by-operation",
+        "method": "GET",
+        "params": {
+          "db_system": "{dbSystem}"
+        }
+      },
+      "title": "Operations by Type",
+      "titleIcon": "BarChart2",
+      "panelType": "request",
+      "sectionId": "trends"
+    },
+    {
+      "id": "db-read-vs-write",
+      "layout": {
+        "preset": "breakdown"
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/database/ops/read-vs-write",
+        "method": "GET",
+        "params": {
+          "db_system": "{dbSystem}"
+        }
+      },
+      "title": "Read vs Write",
+      "titleIcon": "PieChart",
+      "panelType": "pie",
+      "sectionId": "breakdowns"
+    }
+  ]
+}

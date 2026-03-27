@@ -1,0 +1,116 @@
+{
+  "id": "overview",
+  "pageId": "database-detail",
+  "label": "Overview",
+  "order": 10,
+  "sections": [
+    {
+      "id": "summary",
+      "title": "Summary",
+      "order": 10,
+      "kind": "summary",
+      "collapsible": true,
+      "layoutMode": "kpi-strip"
+    },
+    {
+      "id": "latency",
+      "title": "Latency",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "stack"
+    }
+  ],
+  "panels": [
+    {
+      "id": "db-avg-latency",
+      "layout": {
+        "preset": "kpi"
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/database/summary",
+        "method": "GET",
+        "params": {
+          "db_system": "{dbSystem}"
+        }
+      },
+      "title": "Avg Latency",
+      "titleIcon": "Clock",
+      "panelType": "stat-card",
+      "sectionId": "summary"
+    },
+    {
+      "id": "db-p95-latency",
+      "layout": {
+        "preset": "kpi"
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/database/summary",
+        "method": "GET",
+        "params": {
+          "db_system": "{dbSystem}"
+        }
+      },
+      "title": "p95 Latency",
+      "titleIcon": "Clock",
+      "panelType": "stat-card",
+      "sectionId": "summary"
+    },
+    {
+      "id": "db-p99-latency",
+      "layout": {
+        "preset": "kpi"
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/database/summary",
+        "method": "GET",
+        "params": {
+          "db_system": "{dbSystem}"
+        }
+      },
+      "title": "p99 Latency",
+      "titleIcon": "Clock",
+      "panelType": "stat-card",
+      "sectionId": "summary"
+    },
+    {
+      "id": "db-span-count",
+      "layout": {
+        "preset": "kpi"
+      },
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/database/summary",
+        "method": "GET",
+        "params": {
+          "db_system": "{dbSystem}"
+        }
+      },
+      "title": "Total Operations",
+      "titleIcon": "Activity",
+      "panelType": "stat-card",
+      "sectionId": "summary"
+    },
+    {
+      "id": "db-latency-by-operation",
+      "layout": {
+        "preset": "hero"
+      },
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/database/latency/by-operation",
+        "method": "GET",
+        "params": {
+          "db_system": "{dbSystem}"
+        }
+      },
+      "title": "Latency by Operation",
+      "titleIcon": "BarChart2",
+      "panelType": "latency",
+      "sectionId": "latency"
+    }
+  ]
+}

@@ -1,0 +1,72 @@
+{
+  "id": "memory",
+  "pageId": "redis-detail",
+  "label": "Memory",
+  "order": 20,
+  "sections": [
+    {
+      "id": "trends",
+      "title": "Memory",
+      "order": 20,
+      "kind": "trends",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
+      "id": "redis-memory",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/saturation/redis/memory",
+        "method": "GET",
+        "params": {
+          "instance": "{instance}"
+        }
+      },
+      "title": "Memory Usage",
+      "titleIcon": "HardDrive",
+      "panelType": "request",
+      "sectionId": "trends"
+    },
+    {
+      "id": "redis-memory-frag",
+      "layout": {
+        "preset": "trend"
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/saturation/redis/memory-fragmentation",
+        "method": "GET",
+        "params": {
+          "instance": "{instance}"
+        }
+      },
+      "title": "Memory Fragmentation Ratio",
+      "titleIcon": "PieChart",
+      "panelType": "request",
+      "sectionId": "trends"
+    },
+    {
+      "id": "redis-evictions",
+      "layout": {
+        "preset": "hero"
+      },
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/saturation/redis/evictions",
+        "method": "GET",
+        "params": {
+          "instance": "{instance}"
+        }
+      },
+      "title": "Evictions",
+      "titleIcon": "Trash2",
+      "panelType": "request",
+      "sectionId": "trends"
+    }
+  ]
+}

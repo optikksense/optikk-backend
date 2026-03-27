@@ -1,0 +1,54 @@
+{
+  "id": "slow-queries",
+  "pageId": "database-detail",
+  "label": "Slow Queries",
+  "order": 30,
+  "sections": [
+    {
+      "id": "details",
+      "title": "Slow Queries",
+      "order": 40,
+      "kind": "details",
+      "collapsible": true,
+      "layoutMode": "two-up"
+    }
+  ],
+  "panels": [
+    {
+      "id": "db-slow-query-patterns",
+      "layout": {
+        "preset": "detail"
+      },
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/database/slow-queries/patterns",
+        "method": "GET",
+        "params": {
+          "db_system": "{dbSystem}"
+        }
+      },
+      "title": "Slow Query Patterns",
+      "titleIcon": "Clock",
+      "panelType": "table",
+      "sectionId": "details"
+    },
+    {
+      "id": "db-slowest-collections",
+      "layout": {
+        "preset": "detail"
+      },
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/database/slow-queries/collections",
+        "method": "GET",
+        "params": {
+          "db_system": "{dbSystem}"
+        }
+      },
+      "title": "Slowest Collections",
+      "titleIcon": "Database",
+      "panelType": "table",
+      "sectionId": "details"
+    }
+  ]
+}

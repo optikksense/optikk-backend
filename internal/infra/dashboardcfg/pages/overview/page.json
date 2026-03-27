@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 1,
+  "id": "overview",
+  "path": "/overview",
+  "label": "Overview",
+  "icon": "LayoutDashboard",
+  "group": "observe",
+  "order": 10,
+  "defaultTabId": "summary",
+  "navigable": true,
+  "title": "Overview",
+  "subtitle": "Service health, error tracking, and SLO compliance",
+  "renderMode": "dashboard"
+}
