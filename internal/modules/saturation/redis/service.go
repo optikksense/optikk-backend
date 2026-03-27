@@ -36,6 +36,10 @@ func (s *Service) GetEvictions(teamID, startMs, endMs int64, instance string) ([
 	return s.repo.QueryMetricSeries(teamID, startMs, endMs, metricRedisKeysEvicted, instance)
 }
 
+func (s *Service) GetInstances(teamID, startMs, endMs int64) ([]RedisInstanceSummary, error) {
+	return s.repo.GetInstances(teamID, startMs, endMs)
+}
+
 func (s *Service) GetKeyspace(teamID, startMs, endMs int64, instance string) ([]KeyspaceRow, error) {
 	return s.repo.GetKeyspace(teamID, startMs, endMs, instance)
 }

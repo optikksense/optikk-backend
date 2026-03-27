@@ -96,6 +96,22 @@ func (h *RedisHandler) GetEvictions(c *gin.Context) {
 	})
 }
 
+func (h *RedisHandler) GetInstances(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+
+	resp, err := h.Service.GetInstances(teamID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondError(c, http.StatusInternalServerError, errorcode.Internal, err.Error())
+		return
+	}
+
+	modulecommon.RespondOK(c, resp)
+}
+
 func (h *RedisHandler) GetKeyspace(c *gin.Context) {
 	h.withRange(c, func(teamID, startMs, endMs int64, instance string) error {
 		resp, err := h.Service.GetKeyspace(teamID, startMs, endMs, instance)

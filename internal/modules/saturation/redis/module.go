@@ -26,6 +26,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *RedisHandler) {
 	v1.GET("/saturation/redis/memory-fragmentation", h.GetMemoryFragmentation)
 	v1.GET("/saturation/redis/commands", h.GetCommands)
 	v1.GET("/saturation/redis/evictions", h.GetEvictions)
+	v1.GET("/saturation/redis/instances", h.GetInstances)
 	v1.GET("/saturation/redis/keyspace", h.GetKeyspace)
 	v1.GET("/saturation/redis/key-expiries", h.GetKeyExpiries)
 }

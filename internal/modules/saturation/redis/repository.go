@@ -130,6 +130,45 @@ func (r *ClickHouseRepository) GetReplicationLag(teamID int64, startMs, endMs in
 	return replicationLagDTO{Offset: offset}, nil
 }
 
+func (r *ClickHouseRepository) GetInstances(teamID int64, startMs, endMs int64) ([]redisInstanceSummaryDTO, error) {
+	query := fmt.Sprintf(`
+		SELECT
+			%s AS instance,
+			avgIf(%s, %s = '%s') AS avg_connected_clients,
+			avgIf(%s, %s = '%s') AS avg_memory_used,
+			avgIf(%s, %s = '%s') AS avg_memory_fragmentation_ratio,
+			avgIf(%s, %s = '%s') AS avg_commands_processed,
+			maxIf(%s, %s = '%s') AS evicted_keys
+		FROM %s
+		WHERE %s = @teamID
+		  AND %s BETWEEN @start AND @end
+		  AND %s IN ('%s', '%s', '%s', '%s', '%s')
+		  AND nullIf(%s, '') IS NOT NULL
+		GROUP BY instance
+		ORDER BY avg_memory_used DESC, instance ASC
+	`, redisAttrString(attrServerAddress),
+		colValue, colMetricName, metricRedisClientsConnected,
+		colValue, colMetricName, metricRedisMemoryUsed,
+		colValue, colMetricName, metricRedisMemoryFragmentation,
+		colValue, colMetricName, metricRedisCommandsProcessed,
+		colValue, colMetricName, metricRedisKeysEvicted,
+		tableMetrics,
+		colTeamID,
+		colTimestamp,
+		colMetricName,
+		metricRedisClientsConnected,
+		metricRedisMemoryUsed,
+		metricRedisMemoryFragmentation,
+		metricRedisCommandsProcessed,
+		metricRedisKeysEvicted,
+		redisAttrString(attrServerAddress),
+	)
+
+	args := dbutil.SimpleBaseParams(teamID, startMs, endMs)
+	var rows []redisInstanceSummaryDTO
+	return rows, r.db.Select(context.Background(), &rows, query, args...)
+}
+
 func (r *ClickHouseRepository) GetKeyspace(teamID int64, startMs, endMs int64, instance string) ([]keyspaceRowDTO, error) {
 	instSQL, instArgs := instanceFilter(instance)
 	query := fmt.Sprintf(`

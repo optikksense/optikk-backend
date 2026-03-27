@@ -49,6 +49,7 @@ type SessionConfig struct {
 type QueueConfig struct {
 	BatchSize       int   `yaml:"batch_size"`
 	FlushIntervalMs int64 `yaml:"flush_interval_ms"`
+	Capacity        int   `yaml:"capacity"`
 }
 
 type KafkaConfig struct {

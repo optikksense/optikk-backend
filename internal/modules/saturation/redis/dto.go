@@ -3,6 +3,7 @@ package redis
 type cacheHitRateDTO = CacheHitRate
 type replicationLagDTO = ReplicationLag
 type metricPointDTO = MetricPoint
+type redisInstanceSummaryDTO = RedisInstanceSummary
 type keyspaceRowDTO = KeyspaceRow
 type keyExpiryRowDTO = KeyExpiryRow
 
