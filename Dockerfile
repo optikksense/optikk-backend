@@ -5,7 +5,7 @@ WORKDIR /app
 COPY go.work go.work.sum ./
 COPY go.mod go.sum ./
 COPY cmd/server/go.mod cmd/server/go.sum ./cmd/server/
-COPY internal/platform/server/go.mod internal/platform/server/go.sum ./internal/platform/server/
+COPY internal/app/server/go.mod internal/app/server/go.sum ./internal/app/server/
 
 RUN go work sync && go mod download
 
