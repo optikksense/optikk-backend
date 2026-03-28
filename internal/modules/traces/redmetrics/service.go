@@ -83,7 +83,6 @@ func (s *REDMetricsService) GetApdex(teamID int64, startMs, endMs int64, satisfi
 	return result, nil
 }
 
-
 func (s *REDMetricsService) GetTopSlowOperations(teamID int64, startMs, endMs int64, limit int) ([]SlowOperation, error) {
 	return s.repo.GetTopSlowOperations(context.Background(), teamID, startMs, endMs, limit)
 }

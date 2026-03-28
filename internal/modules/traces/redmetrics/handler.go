@@ -48,7 +48,6 @@ func (h *REDMetricsHandler) GetApdex(c *gin.Context) {
 	modulecommon.RespondOK(c, resp)
 }
 
-
 func (h *REDMetricsHandler) GetTopSlowOperations(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)

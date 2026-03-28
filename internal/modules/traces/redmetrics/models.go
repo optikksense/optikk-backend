@@ -18,7 +18,6 @@ type ApdexScore struct {
 	TotalCount  int64   `json:"total_count"`
 }
 
-
 type SlowOperation struct {
 	OperationName string  `json:"operation_name" ch:"operation_name"`
 	ServiceName   string  `json:"service_name"   ch:"service_name"`

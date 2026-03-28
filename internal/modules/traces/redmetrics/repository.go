@@ -74,4 +74,3 @@ func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, start
 	)
 	return rows, err
 }
-
