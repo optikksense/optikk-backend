@@ -36,6 +36,7 @@
         }
       },
       "title": "Container CPU",
+      "description": "Tracks aggregate container CPU usage on this node over time. Compare against node capacity to assess scheduling headroom.",
       "titleIcon": "Cpu",
       "panelType": "request",
       "sectionId": "trends"
@@ -54,6 +55,7 @@
         }
       },
       "title": "Container Memory",
+      "description": "Tracks aggregate container memory usage on this node over time. Watch for containers approaching their memory limits, which can trigger OOM kills.",
       "titleIcon": "HardDrive",
       "panelType": "request",
       "sectionId": "trends"
@@ -72,6 +74,7 @@
         }
       },
       "title": "Pod Phases",
+      "description": "Breaks down pods on this node by their current phase (Running, Pending, Failed, etc.). A high count of non-Running pods signals scheduling or health-check issues.",
       "titleIcon": "Box",
       "panelType": "bar",
       "sectionId": "breakdowns"
@@ -90,6 +93,7 @@
         }
       },
       "title": "Pod Restarts",
+      "description": "Tracks the rate of pod restarts on this node over time. Frequent restarts often indicate crashlooping containers or failing liveness probes.",
       "titleIcon": "RefreshCw",
       "panelType": "request",
       "sectionId": "trends"

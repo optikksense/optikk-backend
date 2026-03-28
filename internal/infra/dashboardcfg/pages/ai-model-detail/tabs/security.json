@@ -45,6 +45,7 @@
         }
       },
       "title": "PII Detections Over Time",
+      "description": "Tracks PII detection events for this model over time. Correlate spikes with specific callers or prompt templates to identify the source.",
       "titleIcon": "Eye",
       "panelType": "ai-line",
       "sectionId": "trends"
@@ -63,6 +64,7 @@
         }
       },
       "title": "PII Categories",
+      "description": "Breaks down detected PII by category for this model. Focus remediation on the most frequently leaked data types.",
       "titleIcon": "Shield",
       "panelType": "ai-bar",
       "sectionId": "breakdowns"
@@ -81,6 +83,7 @@
         }
       },
       "title": "Security Metrics",
+      "description": "Lists security event details for this model including PII counts, guardrail blocks, and detection rates.",
       "titleIcon": "Shield",
       "panelType": "table",
       "sectionId": "details"

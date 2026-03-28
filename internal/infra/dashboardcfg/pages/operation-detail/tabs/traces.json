@@ -29,6 +29,7 @@
         }
       },
       "title": "Recent Traces",
+      "description": "Lists the most recent traces that include this operation, showing trace ID, duration, and status. Use these to jump directly into the trace-detail view for root-cause analysis.",
       "titleIcon": "List",
       "panelType": "table",
       "sectionId": "details"

@@ -37,6 +37,7 @@
       },
       "valueKey": "rate_per_sec",
       "title": "Produce Rate",
+      "description": "Tracks the message produce throughput for this topic over time. A sudden drop may indicate producer failures or upstream service issues.",
       "titleIcon": "TrendingUp",
       "panelType": "request",
       "sectionId": "rates"
@@ -56,6 +57,7 @@
       },
       "valueKey": "rate_per_sec",
       "title": "Consume Rate",
+      "description": "Tracks the message consume throughput for this topic over time. Compare with produce rate to detect whether consumers are keeping pace.",
       "titleIcon": "TrendingDown",
       "panelType": "request",
       "sectionId": "rates"
@@ -75,6 +77,7 @@
       },
       "valueKey": "p95_ms",
       "title": "Publish Latency (p95)",
+      "description": "Tracks the 95th percentile publish latency for this topic over time. Sustained increases may indicate broker back-pressure or partition leader elections.",
       "titleIcon": "Clock",
       "panelType": "latency",
       "sectionId": "latency"
@@ -94,6 +97,7 @@
       },
       "valueKey": "p95_ms",
       "title": "Receive Latency (p95)",
+      "description": "Tracks the 95th percentile receive latency for this topic over time. Elevated values suggest slow consumer polling or network latency between consumers and brokers.",
       "titleIcon": "Clock",
       "panelType": "latency",
       "sectionId": "latency"

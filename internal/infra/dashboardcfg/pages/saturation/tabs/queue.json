@@ -22,7 +22,7 @@
     },
     {
       "id": "g2",
-      "title": "Consumption Rate \u2014 by Topic",
+      "title": "Consumption Rate — by Topic",
       "order": 30,
       "kind": "trends",
       "collapsible": true,
@@ -30,7 +30,7 @@
     },
     {
       "id": "g3",
-      "title": "Consumption Rate \u2014 by Consumer Group",
+      "title": "Consumption Rate — by Consumer Group",
       "order": 40,
       "kind": "trends",
       "collapsible": true,
@@ -89,6 +89,7 @@
     {
       "id": "stat-publish-rate",
       "title": "Produce Rate",
+      "description": "Shows the current aggregate message produce rate across all Kafka topics in messages per second. A sudden drop may indicate producer failures or broker unavailability.",
       "titleIcon": "ArrowUp",
       "layout": {
         "preset": "kpi"
@@ -106,6 +107,7 @@
     {
       "id": "stat-receive-rate",
       "title": "Consume Rate",
+      "description": "Shows the current aggregate message consume rate across all consumer groups in messages per second. Compare with produce rate to detect growing lag.",
       "titleIcon": "ArrowDown",
       "layout": {
         "preset": "kpi"
@@ -123,6 +125,7 @@
     {
       "id": "stat-max-lag",
       "title": "Max Consumer Lag",
+      "description": "Shows the highest consumer lag across all consumer groups and partitions. A rising value signals that consumers are falling behind producers.",
       "titleIcon": "Layers",
       "layout": {
         "preset": "kpi"
@@ -140,6 +143,7 @@
     {
       "id": "stat-publish-p95",
       "title": "Produce p95 Latency",
+      "description": "Shows the 95th percentile latency for producing messages to Kafka. Watch for spikes that may indicate broker back-pressure or network issues.",
       "titleIcon": "Clock",
       "layout": {
         "preset": "kpi"
@@ -157,6 +161,7 @@
     {
       "id": "produce-rate-by-topic",
       "title": "Message Produce Rate by Topic (msg/s)",
+      "description": "Tracks the per-topic message produce throughput over time. Look for uneven distribution or sudden drops that may signal producer issues on specific topics.",
       "titleIcon": "TrendingUp",
       "layout": {
         "preset": "trend"
@@ -175,6 +180,7 @@
     {
       "id": "publish-latency-p95-by-topic",
       "title": "Publish Latency p95 by Topic (ms)",
+      "description": "Tracks the 95th percentile publish latency for each topic over time. Spikes on individual topics may indicate partition hotspots or slow broker acknowledgements.",
       "titleIcon": "Clock",
       "layout": {
         "preset": "trend"
@@ -193,6 +199,7 @@
     {
       "id": "consume-rate-by-topic",
       "title": "Message Consume Rate by Topic (msg/s)",
+      "description": "Tracks the per-topic message consume throughput over time. Compare with produce rate to identify topics where consumers are not keeping up.",
       "titleIcon": "TrendingDown",
       "layout": {
         "preset": "trend"
@@ -211,6 +218,7 @@
     {
       "id": "receive-latency-p95-by-topic",
       "title": "Receive Latency p95 by Topic (ms)",
+      "description": "Tracks the 95th percentile receive latency for each topic over time. Elevated values may point to slow consumer polling or network congestion.",
       "titleIcon": "Clock",
       "layout": {
         "preset": "trend"
@@ -229,6 +237,7 @@
     {
       "id": "consume-rate-by-group",
       "title": "Consume Rate by Consumer Group (msg/s)",
+      "description": "Tracks message consumption throughput for each consumer group over time. Uneven rates across groups may indicate processing bottlenecks in specific consumers.",
       "titleIcon": "Users",
       "layout": {
         "preset": "trend"
@@ -247,6 +256,7 @@
     {
       "id": "process-rate-by-group",
       "title": "Process Rate by Consumer Group (msg/s)",
+      "description": "Tracks the rate at which each consumer group processes messages after receiving them. A gap between consume and process rates suggests slow message handling logic.",
       "titleIcon": "Cpu",
       "layout": {
         "preset": "trend"
@@ -265,6 +275,7 @@
     {
       "id": "lag-by-group",
       "title": "Consumer Lag by Group",
+      "description": "Tracks the total consumer lag for each consumer group over time. Steadily increasing lag indicates consumers cannot keep pace with incoming messages.",
       "titleIcon": "AlertTriangle",
       "layout": {
         "preset": "trend"
@@ -283,6 +294,7 @@
     {
       "id": "lag-per-partition",
       "title": "Consumer Lag per Partition",
+      "description": "Shows lag broken down by topic, partition, and consumer group. Use this to identify hot partitions where a single partition drives the majority of lag.",
       "titleIcon": "Table",
       "layout": {
         "preset": "detail"
@@ -299,6 +311,7 @@
     {
       "id": "rebalance-rate",
       "title": "Rebalance Rate by Group (rebalances/s)",
+      "description": "Tracks consumer group rebalance frequency over time. Frequent rebalances cause processing pauses and may indicate unstable consumers or aggressive session timeouts.",
       "titleIcon": "RefreshCw",
       "layout": {
         "preset": "trend"
@@ -317,6 +330,7 @@
     {
       "id": "heartbeat-health",
       "title": "Failed Heartbeat Rate by Group (failures/s)",
+      "description": "Tracks the rate of failed consumer heartbeats per group. Rising failures typically precede rebalances and may indicate network issues or overloaded consumers.",
       "titleIcon": "Activity",
       "layout": {
         "preset": "trend"
@@ -335,6 +349,7 @@
     {
       "id": "assigned-partitions",
       "title": "Assigned Partitions by Group",
+      "description": "Tracks the number of partitions assigned to each consumer group over time. Sudden changes indicate rebalances; uneven distribution may cause processing skew.",
       "titleIcon": "LayoutGrid",
       "layout": {
         "preset": "hero"
@@ -353,6 +368,7 @@
     {
       "id": "e2e-publish-p95",
       "title": "Produce Latency p95 by Topic (ms)",
+      "description": "Tracks end-to-end produce latency at the 95th percentile for each topic. Sustained increases may signal broker disk pressure or replication delays.",
       "titleIcon": "Clock",
       "layout": {
         "preset": "trend"
@@ -371,6 +387,7 @@
     {
       "id": "e2e-receive-p95",
       "title": "Receive Latency p95 by Topic (ms)",
+      "description": "Tracks end-to-end receive latency at the 95th percentile for each topic. Watch for divergence across topics that may reveal consumer-side bottlenecks.",
       "titleIcon": "Clock",
       "layout": {
         "preset": "trend"
@@ -389,6 +406,7 @@
     {
       "id": "e2e-process-p95",
       "title": "Process Latency p95 by Topic (ms)",
+      "description": "Tracks end-to-end message processing latency at the 95th percentile for each topic. High values point to slow downstream processing logic after message consumption.",
       "titleIcon": "Clock",
       "layout": {
         "preset": "trend"
@@ -407,6 +425,7 @@
     {
       "id": "publish-errors",
       "title": "Produce Errors by Error Type (errors/s)",
+      "description": "Tracks producer-side error rates grouped by error type over time. Spikes in specific error types help pinpoint issues like serialization failures or authorization errors.",
       "titleIcon": "XCircle",
       "layout": {
         "preset": "trend"
@@ -424,6 +443,7 @@
     {
       "id": "consume-errors",
       "title": "Consume Errors by Error Type (errors/s)",
+      "description": "Tracks consumer-side error rates grouped by error type over time. Watch for deserialization or offset commit failures that may cause message reprocessing.",
       "titleIcon": "XCircle",
       "layout": {
         "preset": "trend"
@@ -441,6 +461,7 @@
     {
       "id": "process-errors",
       "title": "Process Errors by Error Type (errors/s)",
+      "description": "Tracks message processing error rates grouped by error type over time. Persistent errors suggest bugs in consumer business logic or downstream dependency failures.",
       "titleIcon": "XCircle",
       "layout": {
         "preset": "trend"
@@ -458,6 +479,7 @@
     {
       "id": "broker-connections",
       "title": "Open Connections to Brokers",
+      "description": "Tracks the number of active client connections to each Kafka broker over time. A sudden drop may indicate broker unavailability or client connectivity issues.",
       "titleIcon": "Network",
       "layout": {
         "preset": "trend"
@@ -475,6 +497,7 @@
     {
       "id": "client-op-duration",
       "title": "Client Operation Duration p95 by Operation (ms)",
+      "description": "Tracks the 95th percentile duration for Kafka client operations such as poll, commit, and send. Elevated durations reveal which client operations are contributing to overall latency.",
       "titleIcon": "Activity",
       "layout": {
         "preset": "trend"

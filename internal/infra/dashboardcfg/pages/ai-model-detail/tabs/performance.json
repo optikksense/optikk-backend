@@ -45,6 +45,7 @@
         }
       },
       "title": "Avg Latency",
+      "description": "Tracks the average inference latency for this model over time. Watch for upward trends that may indicate provider-side degradation.",
       "titleIcon": "Clock",
       "panelType": "ai-line",
       "sectionId": "trends"
@@ -63,6 +64,7 @@
         }
       },
       "title": "Latency Histogram",
+      "description": "Displays the latency distribution of inference requests for this model. A bimodal shape may indicate different prompt complexities hitting the same model.",
       "titleIcon": "BarChart2",
       "panelType": "ai-bar",
       "sectionId": "breakdowns"
@@ -81,6 +83,7 @@
         }
       },
       "title": "Performance Metrics",
+      "description": "Lists detailed performance statistics for this model including QPS, latency percentiles, and token throughput.",
       "titleIcon": "Activity",
       "panelType": "table",
       "sectionId": "details"

@@ -33,6 +33,7 @@
         "method": "GET"
       },
       "title": "Service Dependency Graph",
+      "description": "Visualizes the call graph between services with edge metrics. Identify critical paths and single points of failure in the service mesh.",
       "titleIcon": "Share2",
       "panelType": "service-map",
       "sectionId": "details"
@@ -48,6 +49,7 @@
         "method": "GET"
       },
       "title": "External Dependencies",
+      "description": "Lists outbound calls to hosts outside the service mesh. Watch for high error rates or latency on external APIs that may degrade your services.",
       "titleIcon": "Globe",
       "panelType": "table",
       "sectionId": "details"
@@ -63,6 +65,7 @@
         "method": "GET"
       },
       "title": "Client vs Server Latency (p95)",
+      "description": "Compares p95 latency measured at the client span versus the server span. A large gap indicates network overhead or queuing between services.",
       "titleIcon": "Activity",
       "panelType": "latency",
       "sectionId": "trends"

@@ -36,6 +36,7 @@
         }
       },
       "title": "Avg CPU",
+      "description": "Shows the average CPU utilization percentage for this node. Sustained values above 80% may indicate the need to scale or redistribute workloads.",
       "titleIcon": "Cpu",
       "panelType": "stat-card",
       "sectionId": "summary"
@@ -54,6 +55,7 @@
         }
       },
       "title": "Avg Memory",
+      "description": "Shows the average memory utilization percentage for this node. High values with low headroom increase the risk of OOM kills.",
       "titleIcon": "HardDrive",
       "panelType": "stat-card",
       "sectionId": "summary"
@@ -72,6 +74,7 @@
         }
       },
       "title": "Avg Network",
+      "description": "Shows the average network throughput for this node. Watch for values approaching interface bandwidth limits.",
       "titleIcon": "Wifi",
       "panelType": "stat-card",
       "sectionId": "summary"
@@ -90,6 +93,7 @@
         }
       },
       "title": "Avg Conn Pool",
+      "description": "Shows the average connection pool utilization for services on this node. High pool usage can lead to connection queuing and increased latency.",
       "titleIcon": "Link",
       "panelType": "stat-card",
       "sectionId": "summary"
@@ -108,6 +112,7 @@
         }
       },
       "title": "CPU Usage %",
+      "description": "Tracks CPU utilization percentage for this node over time. Look for periodic spikes that may correlate with cron jobs or batch processing.",
       "titleIcon": "Cpu",
       "panelType": "request",
       "sectionId": "usage"
@@ -126,6 +131,7 @@
         }
       },
       "title": "Memory Usage %",
+      "description": "Tracks memory utilization percentage for this node over time. A steadily rising trend may indicate a memory leak in one of the hosted services.",
       "titleIcon": "HardDrive",
       "panelType": "request",
       "sectionId": "usage"

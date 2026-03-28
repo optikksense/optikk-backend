@@ -42,6 +42,7 @@
         "method": "GET"
       },
       "title": "Avg Query Latency",
+      "description": "Shows the average latency across all database queries in the selected time range. A rising average often signals connection pool saturation or increasing query complexity.",
       "titleIcon": "Clock",
       "valueField": "avg_latency_ms",
       "panelType": "stat-card",
@@ -59,6 +60,7 @@
         "method": "GET"
       },
       "title": "p95 Query Latency",
+      "description": "Shows the 95th percentile database query latency. This represents the worst-case experience for most users and is more sensitive to slow queries than the average.",
       "titleIcon": "Clock",
       "valueField": "p95_latency_ms",
       "panelType": "stat-card",
@@ -76,6 +78,7 @@
         "method": "GET"
       },
       "title": "p99 Query Latency",
+      "description": "Shows the 99th percentile database query latency. Outlier queries captured here often point to missing indexes or lock contention.",
       "titleIcon": "Activity",
       "valueField": "p99_latency_ms",
       "panelType": "stat-card",
@@ -93,6 +96,7 @@
         "method": "GET"
       },
       "title": "Total DB Spans",
+      "description": "Shows the total number of database spans observed in the selected time range. Use this to gauge overall database call volume.",
       "titleIcon": "Database",
       "valueField": "span_count",
       "panelType": "stat-card",
@@ -110,6 +114,7 @@
       },
       "drilldownRoute": "/saturation/database/{db_system}",
       "title": "Detected Database Systems",
+      "description": "Lists all database systems detected from span attributes, with key metrics for each. Drill down into a system to see its detailed performance breakdown.",
       "titleIcon": "Database",
       "panelType": "db-systems-overview",
       "sectionId": "details"
@@ -126,6 +131,7 @@
         "method": "GET"
       },
       "title": "p99 Latency by System",
+      "description": "Tracks the 99th percentile query latency for each database system over time. Compare systems to identify which one contributes the most tail latency.",
       "titleIcon": "Clock",
       "valueKey": "p99_ms",
       "panelType": "latency",
@@ -143,6 +149,7 @@
         "method": "GET"
       },
       "title": "p99 Latency by Operation",
+      "description": "Tracks the 99th percentile query latency grouped by operation type (SELECT, INSERT, UPDATE, etc.). Watch for specific operations whose latency diverges from the baseline.",
       "titleIcon": "Activity",
       "valueKey": "p99_ms",
       "panelType": "latency",
@@ -160,6 +167,7 @@
         "method": "GET"
       },
       "title": "Ops/sec by System",
+      "description": "Tracks the query throughput for each database system over time. Correlate throughput changes with latency shifts to distinguish load-driven slowdowns from efficiency regressions.",
       "titleIcon": "BarChart",
       "valueKey": "ops_per_sec",
       "panelType": "request",
@@ -177,6 +185,7 @@
         "method": "GET"
       },
       "title": "Ops/sec by Operation",
+      "description": "Tracks query throughput grouped by operation type over time. Helps identify unexpected spikes in write operations or unusual read patterns.",
       "titleIcon": "BarChart",
       "valueKey": "ops_per_sec",
       "panelType": "request",
@@ -193,6 +202,7 @@
         "method": "GET"
       },
       "title": "Read vs Write Ops/sec",
+      "description": "Compares read and write operation throughput over time. Shifts in the read/write ratio can reveal caching issues or unexpected write amplification.",
       "titleIcon": "GitPullRequest",
       "valueKey": "read_ops_per_sec",
       "panelType": "request",
@@ -209,6 +219,7 @@
         "method": "GET"
       },
       "title": "Top Slow Query Patterns",
+      "description": "Lists the slowest query patterns ranked by latency. Each row represents a normalized query signature with its p99 latency and call count for optimization prioritization.",
       "titleIcon": "AlertTriangle",
       "panelType": "table",
       "sectionId": "details"
@@ -224,6 +235,7 @@
         "method": "GET"
       },
       "title": "Slowest Collections",
+      "description": "Lists database collections or tables ranked by query latency. Use this to identify which data stores need indexing or schema optimization.",
       "titleIcon": "Table",
       "panelType": "table",
       "sectionId": "details"
@@ -240,6 +252,7 @@
         "method": "GET"
       },
       "title": "Errors/sec by System",
+      "description": "Tracks database error rates for each system over time. Spikes correlating with deployment events may indicate schema migration issues or incompatible queries.",
       "titleIcon": "AlertTriangle",
       "valueKey": "errors_per_sec",
       "panelType": "error-rate",
@@ -257,6 +270,7 @@
         "method": "GET"
       },
       "title": "Errors/sec by Error Type",
+      "description": "Tracks database error rates grouped by error type over time. Helps distinguish transient connection errors from persistent query failures.",
       "titleIcon": "AlertCircle",
       "valueKey": "errors_per_sec",
       "panelType": "error-rate",
@@ -274,6 +288,7 @@
         "method": "GET"
       },
       "title": "Connection Count by State",
+      "description": "Tracks the number of database connections grouped by state (active, idle, waiting). A high ratio of waiting connections signals connection pool exhaustion.",
       "titleIcon": "Network",
       "valueKey": "count",
       "panelType": "request",
@@ -290,6 +305,7 @@
         "method": "GET"
       },
       "title": "Pending Connection Requests",
+      "description": "Tracks the number of requests waiting for an available database connection over time. Non-zero values indicate the connection pool is fully utilized.",
       "titleIcon": "Clock",
       "valueKey": "count",
       "panelType": "request",
@@ -306,6 +322,7 @@
         "method": "GET"
       },
       "title": "Connection Timeout Rate",
+      "description": "Tracks the rate of connection acquisition timeouts over time. Any non-zero value means requests are failing because no database connection became available in time.",
       "titleIcon": "AlertTriangle",
       "valueKey": "timeout_rate",
       "panelType": "error-rate",

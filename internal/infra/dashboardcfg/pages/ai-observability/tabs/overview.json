@@ -34,6 +34,7 @@
         "method": "GET"
       },
       "title": "Total Requests",
+      "description": "Shows the total number of inference requests across all LLM models. Use this to gauge overall AI workload volume.",
       "titleIcon": "Activity",
       "valueField": "request_count",
       "panelType": "stat-card",
@@ -51,6 +52,7 @@
         "method": "GET"
       },
       "title": "Total Cost",
+      "description": "Shows the cumulative cost in USD across all models for the selected period. Watch for sudden increases driven by token-heavy prompts or new model adoption.",
       "titleIcon": "DollarSign",
       "valueField": "total_cost_usd",
       "panelType": "stat-card",
@@ -68,6 +70,7 @@
         "method": "GET"
       },
       "title": "Guardrail Blocks",
+      "description": "Shows the number of inference requests blocked by safety guardrails. A rising count may indicate prompt injection attempts or policy violations.",
       "titleIcon": "Shield",
       "valueField": "guardrail_count",
       "panelType": "stat-card",
@@ -85,6 +88,7 @@
         "method": "GET"
       },
       "title": "PII Detections",
+      "description": "Shows the number of personally identifiable information instances detected in prompts or completions. Any non-zero value requires review for data compliance.",
       "titleIcon": "Eye",
       "valueField": "pii_count",
       "panelType": "stat-card",
@@ -105,6 +109,7 @@
         }
       },
       "title": "QPS per Model",
+      "description": "Tracks inference queries per second for each model over time. Identify which models handle the most traffic and spot load spikes.",
       "titleIcon": "TrendingUp",
       "valueKey": "qps",
       "panelType": "ai-line",
@@ -125,6 +130,7 @@
         }
       },
       "title": "Avg Latency ms per Model",
+      "description": "Shows average inference latency per model in milliseconds. Higher latency on completion-heavy requests is expected; watch for regressions.",
       "titleIcon": "Clock",
       "valueKey": "avg_latency_ms",
       "panelType": "ai-line",
@@ -145,6 +151,7 @@
         }
       },
       "title": "Cost per Interval (USD)",
+      "description": "Tracks the dollar cost of token consumption per time interval for each model. Use this to detect cost anomalies early.",
       "titleIcon": "DollarSign",
       "valueKey": "cost_per_interval",
       "yDecimals": 4,
@@ -167,6 +174,7 @@
         }
       },
       "title": "PII Detections per Model",
+      "description": "Tracks PII detection events over time for each model. Correlate spikes with specific prompt patterns or upstream integrations.",
       "titleIcon": "ShieldCheck",
       "valueKey": "pii_count",
       "panelType": "ai-line",

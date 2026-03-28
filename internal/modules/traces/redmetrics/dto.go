@@ -7,13 +7,6 @@ type redSummaryServiceRow struct {
 	P95Ms       float64 `ch:"p95_ms"`
 }
 
-type scorecardRow struct {
-	ServiceName string  `ch:"service_name"`
-	TotalCount  int64   `ch:"total_count"`
-	ErrorCount  int64   `ch:"error_count"`
-	P95Ms       float64 `ch:"p95_ms"`
-}
-
 type apdexRow struct {
 	ServiceName string `ch:"service_name"`
 	Satisfied   int64  `ch:"satisfied"`
@@ -28,7 +21,6 @@ type latencyBreakdownRow struct {
 	SpanCount   int64   `ch:"span_count"`
 }
 
-type httpStatusBucketDTO = HTTPStatusBucket
 type slowOperationDTO = SlowOperation
 type errorOperationDTO = ErrorOperation
 type serviceRatePointDTO = ServiceRatePoint

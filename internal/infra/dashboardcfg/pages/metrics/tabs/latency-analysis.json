@@ -25,6 +25,7 @@
         "method": "GET"
       },
       "title": "Latency Histogram",
+      "description": "Shows the distribution of request durations across latency buckets. A long right tail indicates outlier requests that may disproportionately affect user experience.",
       "titleIcon": "BarChart3",
       "panelType": "latency-histogram",
       "sectionId": "breakdowns"
@@ -43,6 +44,7 @@
         }
       },
       "title": "Latency Heatmap",
+      "description": "Visualizes request latency over time with color intensity representing request density at each duration band. Hot bands shifting upward over time indicate progressive latency degradation.",
       "titleIcon": "Activity",
       "panelType": "latency-heatmap",
       "sectionId": "breakdowns"

@@ -45,6 +45,7 @@
         }
       },
       "title": "QPS per Model",
+      "description": "Tracks inference queries per second for each model. Look for correlation between QPS spikes and latency degradation.",
       "titleIcon": "TrendingUp",
       "valueKey": "qps",
       "panelType": "ai-line",
@@ -65,6 +66,7 @@
         }
       },
       "title": "Avg Latency ms per Model",
+      "description": "Shows the average end-to-end inference latency per model. Compare across models to identify which are slowest for your workloads.",
       "titleIcon": "Clock",
       "valueKey": "avg_latency_ms",
       "panelType": "ai-line",
@@ -85,6 +87,7 @@
         }
       },
       "title": "Tokens / sec per Model",
+      "description": "Tracks token generation throughput for each model over time. A drop in tokens per second may indicate provider-side throttling or degradation.",
       "titleIcon": "Zap",
       "valueKey": "tokens_per_sec",
       "panelType": "ai-line",
@@ -103,6 +106,7 @@
         "method": "GET"
       },
       "title": "Latency Distribution (100ms buckets)",
+      "description": "Displays inference latency spread across 100ms histogram buckets per model. A long tail indicates inconsistent response times worth investigating.",
       "titleIcon": "BarChart3",
       "valueKey": "request_count",
       "panelType": "ai-bar",
@@ -120,6 +124,7 @@
       },
       "drilldownRoute": "/ai-observability/models/{model_name}",
       "title": "Performance Metrics",
+      "description": "Lists per-model performance stats including QPS, latency percentiles, and token throughput. Click a row to drill into model-specific details.",
       "titleIcon": "Table",
       "panelType": "table",
       "sectionId": "details"

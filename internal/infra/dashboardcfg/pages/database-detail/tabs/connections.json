@@ -28,6 +28,7 @@
         }
       },
       "title": "Connection Count",
+      "description": "Tracks the number of active connections to this database over time. Watch for sustained growth that may approach the connection limit.",
       "titleIcon": "Link",
       "panelType": "request",
       "sectionId": "trends"
@@ -46,6 +47,7 @@
         }
       },
       "title": "Pending Connections",
+      "description": "Shows connections waiting to be established to this database. A rising count indicates pool exhaustion or slow handshake times.",
       "titleIcon": "Clock",
       "panelType": "request",
       "sectionId": "trends"
@@ -64,6 +66,7 @@
         }
       },
       "title": "Connection Timeouts",
+      "description": "Tracks the rate of connection timeouts for this database. Any non-zero value warrants investigation into pool sizing or network issues.",
       "titleIcon": "AlertCircle",
       "panelType": "request",
       "sectionId": "trends"

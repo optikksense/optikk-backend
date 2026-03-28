@@ -52,6 +52,7 @@
         }
       },
       "title": "CPU Time",
+      "description": "Tracks cumulative CPU time consumed on this node, broken down by mode (user, system, iowait). High iowait values suggest disk or network bottlenecks.",
       "titleIcon": "Cpu",
       "panelType": "request",
       "sectionId": "cpu"
@@ -70,6 +71,7 @@
         }
       },
       "title": "Load Average",
+      "description": "Shows the system load average for this node over time. Values exceeding the CPU core count indicate processes are queuing for execution.",
       "titleIcon": "Activity",
       "panelType": "request",
       "sectionId": "cpu"
@@ -88,6 +90,7 @@
         }
       },
       "title": "Memory Usage",
+      "description": "Tracks absolute memory consumption on this node over time. Compare used versus available memory to assess remaining headroom.",
       "titleIcon": "HardDrive",
       "panelType": "request",
       "sectionId": "memory"
@@ -106,6 +109,7 @@
         }
       },
       "title": "Swap Usage",
+      "description": "Tracks swap space utilization on this node over time. Active swapping degrades performance significantly and often signals insufficient physical memory.",
       "titleIcon": "Repeat",
       "panelType": "request",
       "sectionId": "memory"
@@ -124,6 +128,7 @@
         }
       },
       "title": "Disk I/O",
+      "description": "Tracks disk read and write throughput on this node over time. Sudden increases may correlate with log rotation, backups, or compaction jobs.",
       "titleIcon": "HardDrive",
       "panelType": "request",
       "sectionId": "disk"
@@ -142,6 +147,7 @@
         }
       },
       "title": "Disk Operations",
+      "description": "Tracks the rate of disk read and write operations (IOPS) on this node. High IOPS with increased latency can indicate disk saturation.",
       "titleIcon": "HardDrive",
       "panelType": "request",
       "sectionId": "disk"
@@ -160,6 +166,7 @@
         }
       },
       "title": "Network I/O",
+      "description": "Tracks inbound and outbound network throughput on this node over time. Watch for asymmetric traffic patterns that may indicate misconfigured load balancing.",
       "titleIcon": "Wifi",
       "panelType": "request",
       "sectionId": "network"
@@ -178,6 +185,7 @@
         }
       },
       "title": "Network Errors",
+      "description": "Tracks network-level errors (drops, retransmits) on this node over time. Any sustained error rate warrants investigation into NIC or switch health.",
       "titleIcon": "AlertCircle",
       "panelType": "request",
       "sectionId": "network"

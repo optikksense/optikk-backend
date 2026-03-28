@@ -25,6 +25,7 @@
         "method": "GET"
       },
       "title": "Sample Traces",
+      "description": "Lists representative traces where this error group was observed. Each row links to a full trace detail view for deeper investigation.",
       "titleIcon": "List",
       "panelType": "table",
       "sectionId": "details"

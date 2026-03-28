@@ -36,6 +36,7 @@
         }
       },
       "title": "Log Volume",
+      "description": "Shows the volume of log entries emitted by this service over time, grouped by severity level. Sudden spikes in error or warn logs often precede or coincide with incidents.",
       "titleIcon": "BarChart2",
       "panelType": "log-histogram",
       "sectionId": "breakdowns"
@@ -54,6 +55,7 @@
         }
       },
       "title": "Logs",
+      "description": "Displays individual log lines produced by this service in reverse-chronological order. Each row includes timestamp, severity, and message body for detailed investigation.",
       "titleIcon": "FileText",
       "panelType": "table",
       "sectionId": "details"

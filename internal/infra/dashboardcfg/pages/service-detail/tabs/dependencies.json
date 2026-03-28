@@ -33,6 +33,7 @@
         "method": "GET"
       },
       "title": "Upstream & Downstream Dependencies",
+      "description": "Lists every service that calls this service (upstream) and every service this service calls (downstream), along with p95 latency and error rate. Use it to trace where failures or slowness originate.",
       "titleIcon": "GitBranch",
       "panelType": "table",
       "sectionId": "details"
@@ -51,6 +52,7 @@
         }
       },
       "title": "External Dependencies",
+      "description": "Shows hosts outside the service mesh that this service communicates with, such as third-party APIs or managed databases. Watch for high latency or error rates on external calls that could bottleneck this service.",
       "titleIcon": "Globe",
       "panelType": "table",
       "sectionId": "details"
@@ -69,6 +71,7 @@
         }
       },
       "title": "Client vs Server Latency (p95)",
+      "description": "Compares the p95 latency as seen by callers (client spans) versus this service's own processing time (server spans). A widening gap indicates network overhead or queuing between the two.",
       "titleIcon": "Activity",
       "panelType": "latency",
       "sectionId": "trends"

@@ -45,6 +45,7 @@
         }
       },
       "title": "Exception Rate by Type",
+      "description": "Tracks the occurrence rate of each exception type thrown by this service over time. A rising line for a specific type signals a regression or new failure mode worth investigating.",
       "titleIcon": "Bug",
       "valueKey": "count",
       "panelType": "exception-type-line",
@@ -65,6 +66,7 @@
         }
       },
       "title": "HTTP 5xx by Route",
+      "description": "Breaks down server-error counts by HTTP route for this service. Compare bar heights to identify which endpoints contribute the most 5xx responses.",
       "titleIcon": "AlertTriangle",
       "valueKey": "count",
       "panelType": "bar",
@@ -84,6 +86,7 @@
         }
       },
       "title": "Error Hotspot (Operation)",
+      "description": "Displays a heatmap of error rates across operations within this service. Darker cells indicate higher error concentration, helping pinpoint the most problematic operation paths.",
       "titleIcon": "Crosshair",
       "valueKey": "error_rate",
       "xKey": "operation_name",
@@ -106,6 +109,7 @@
       },
       "drilldownRoute": "/errors/{group_id}",
       "title": "Error Groups",
+      "description": "Lists distinct error groups observed in this service, aggregated by fingerprint. Each row represents a unique error pattern -- click through to see individual occurrences and stack traces.",
       "titleIcon": "List",
       "panelType": "table",
       "sectionId": "details"

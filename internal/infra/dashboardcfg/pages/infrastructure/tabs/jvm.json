@@ -34,6 +34,7 @@
         "method": "GET"
       },
       "title": "GC p95 Duration",
+      "description": "Shows the 95th-percentile garbage collection pause duration. Elevated values indicate GC pressure that may cause application latency spikes.",
       "titleIcon": "Trash2",
       "valueField": "p95",
       "panelType": "stat-card",
@@ -51,6 +52,7 @@
         "method": "GET"
       },
       "title": "GC p99 Duration",
+      "description": "Shows the 99th-percentile garbage collection pause duration. Tail-latency GC pauses here directly impact worst-case response times.",
       "titleIcon": "Trash2",
       "valueField": "p99",
       "panelType": "stat-card",
@@ -68,6 +70,7 @@
         "method": "GET"
       },
       "title": "JVM CPU Time",
+      "description": "Shows the total CPU time consumed by the JVM process. Compare against host CPU capacity to gauge JVM overhead.",
       "titleIcon": "Cpu",
       "valueField": "cpu_time_value",
       "panelType": "stat-card",
@@ -85,6 +88,7 @@
         "method": "GET"
       },
       "title": "JVM CPU Utilization",
+      "description": "Shows the recent CPU utilization of the JVM process as a percentage. Sustained high values may require scaling or code optimization.",
       "titleIcon": "Cpu",
       "valueField": "recent_utilization",
       "panelType": "stat-card",
@@ -102,6 +106,7 @@
         "method": "GET"
       },
       "title": "JVM Memory (Used / Committed / Limit)",
+      "description": "Tracks heap and non-heap memory pools showing used, committed, and max limits. Watch for used memory approaching the limit, which triggers aggressive GC.",
       "titleIcon": "HardDrive",
       "valueKey": "used",
       "panelType": "request",
@@ -119,6 +124,7 @@
         "method": "GET"
       },
       "title": "GC Collections by Collector",
+      "description": "Shows garbage collection invocation counts grouped by collector type. Frequent full GC cycles suggest heap sizing or memory leak issues.",
       "titleIcon": "Trash2",
       "valueKey": "value",
       "panelType": "request",
@@ -136,6 +142,7 @@
         "method": "GET"
       },
       "title": "Thread Count by State",
+      "description": "Tracks JVM thread counts grouped by state such as runnable, waiting, and blocked. A growing blocked thread count signals contention on shared resources.",
       "titleIcon": "Activity",
       "valueKey": "value",
       "panelType": "request",
@@ -153,6 +160,7 @@
         "method": "GET"
       },
       "title": "Buffer Pool Memory Usage",
+      "description": "Shows direct and mapped buffer pool memory consumption. Rising buffer usage without release may indicate NIO resource leaks.",
       "titleIcon": "Database",
       "valueKey": "memory_usage",
       "panelType": "request",
@@ -169,6 +177,7 @@
         "method": "GET"
       },
       "title": "Loaded Classes",
+      "description": "Shows the number of classes currently loaded in the JVM. A continuously increasing count may indicate a classloader leak.",
       "titleIcon": "BookOpen",
       "panelType": "stat-card",
       "sectionId": "summary"

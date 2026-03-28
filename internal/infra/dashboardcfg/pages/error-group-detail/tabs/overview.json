@@ -25,6 +25,7 @@
         "method": "GET"
       },
       "title": "Error Details",
+      "description": "Shows the key attributes of this error group, including exception type, message, and affected service. Use this to understand the root cause at a glance.",
       "titleIcon": "AlertOctagon",
       "panelType": "table",
       "sectionId": "details"

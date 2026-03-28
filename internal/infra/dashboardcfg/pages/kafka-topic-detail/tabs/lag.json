@@ -38,6 +38,7 @@
       "groupByKey": "consumer_group",
       "valueKey": "lag",
       "title": "Lag by Consumer Group",
+      "description": "Compares consumer lag across all consumer groups subscribed to this topic. Groups with significantly higher lag are falling behind and may need scaling or optimization.",
       "titleIcon": "Clock",
       "panelType": "request",
       "sectionId": "breakdowns"
@@ -56,6 +57,7 @@
         }
       },
       "title": "Lag per Partition",
+      "description": "Shows consumer lag for each partition of this topic. Uneven lag across partitions may indicate a hot partition or a stuck consumer assignment.",
       "titleIcon": "Layers",
       "panelType": "table",
       "sectionId": "details"

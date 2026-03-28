@@ -74,6 +74,7 @@
         "method": "GET"
       },
       "title": "Top External Hosts by Volume",
+      "description": "Ranks external hosts by outbound request count. Dominance by a single host may indicate tight coupling or a candidate for caching.",
       "titleIcon": "Globe",
       "valueKey": "req_count",
       "panelType": "bar",
@@ -90,6 +91,7 @@
         "method": "GET"
       },
       "title": "5xx Errors by Route & Service",
+      "description": "Lists each route-service pair with its 5xx error count, sorted by volume. Rows near the top are the highest-impact targets for reliability fixes.",
       "titleIcon": "XCircle",
       "panelType": "table",
       "sectionId": "status-errors"
@@ -105,6 +107,7 @@
         "method": "GET"
       },
       "title": "Outbound HTTP Duration p50/p95/p99",
+      "description": "Shows median, 95th, and 99th percentile durations for outbound HTTP calls. A widening gap between p50 and p99 signals growing tail-latency variance in external dependencies.",
       "titleIcon": "ArrowUpRight",
       "panelType": "stat-summary",
       "sectionId": "outbound-summary"
@@ -120,6 +123,7 @@
         "method": "GET"
       },
       "title": "Server Request Duration p50/p95/p99",
+      "description": "Shows median, 95th, and 99th percentile server-side request durations. Rising percentiles indicate backend processing slowdowns that may degrade user experience.",
       "titleIcon": "Clock",
       "panelType": "stat-summary",
       "sectionId": "server-summary"
@@ -136,6 +140,7 @@
         "method": "GET"
       },
       "title": "HTTP Request Rate by Status Code",
+      "description": "Plots inbound request rate over time, split by HTTP status code. Watch for growing non-2xx lines that diverge from the success baseline.",
       "titleIcon": "Globe",
       "valueKey": "count",
       "panelType": "request",
@@ -153,6 +158,7 @@
         "method": "GET"
       },
       "title": "HTTP Status Distribution",
+      "description": "Compares the share of 2xx, 3xx, 4xx, and 5xx responses as a proportion of total traffic. A healthy distribution is dominated by the 2xx segment.",
       "titleIcon": "PieChart",
       "valueKey": "count",
       "panelType": "pie",
@@ -170,6 +176,7 @@
         "method": "GET"
       },
       "title": "Top Routes by Request Volume",
+      "description": "Ranks HTTP routes by total request count to highlight the busiest endpoints. Use this to identify hot paths that benefit most from optimization.",
       "titleIcon": "BarChart2",
       "valueKey": "req_count",
       "panelType": "bar",
@@ -186,6 +193,7 @@
         "method": "GET"
       },
       "title": "DNS Lookup & TLS Handshake Duration",
+      "description": "Shows time spent on DNS resolution and TLS handshakes for outbound calls. Elevated values may point to DNS infrastructure issues or certificate negotiation overhead.",
       "titleIcon": "Shield",
       "panelType": "stat-summary",
       "sectionId": "outbound-summary"
@@ -202,6 +210,7 @@
         "method": "GET"
       },
       "title": "External Host p95 Latency",
+      "description": "Compares 95th-percentile response time across external hosts. Hosts with disproportionately high latency may be bottlenecking end-to-end request flow.",
       "titleIcon": "Clock",
       "valueKey": "p95_ms",
       "panelType": "bar",
@@ -218,6 +227,7 @@
         "method": "GET"
       },
       "title": "Active HTTP Requests",
+      "description": "Tracks the number of in-flight HTTP requests over time. Sustained climbs without a corresponding RPS increase suggest requests are queuing or stalling.",
       "titleIcon": "Activity",
       "valueKey": "value",
       "panelType": "request",
@@ -234,6 +244,7 @@
         "method": "GET"
       },
       "title": "Overall HTTP Error Rate Over Time",
+      "description": "Plots the aggregate HTTP error rate as a time series. Spikes that correlate with deployments or traffic changes help pinpoint the root cause of failures.",
       "titleIcon": "AlertCircle",
       "valueKey": "error_rate",
       "panelType": "error-rate",
@@ -250,6 +261,7 @@
         "method": "GET"
       },
       "title": "Request Body Size p50/p95/p99",
+      "description": "Shows median, 95th, and 99th percentile inbound request payload sizes. Unexpectedly large payloads can increase serialization cost and memory pressure.",
       "titleIcon": "Upload",
       "formatter": "bytes",
       "panelType": "stat-summary",
@@ -267,6 +279,7 @@
         "method": "GET"
       },
       "title": "Top Routes by p95 Latency",
+      "description": "Ranks HTTP routes by their 95th-percentile response time. Routes at the top are the slowest and may need query optimization or caching.",
       "titleIcon": "Clock",
       "valueKey": "p95_ms",
       "panelType": "bar",
@@ -284,6 +297,7 @@
         "method": "GET"
       },
       "title": "External Host Error Rate",
+      "description": "Compares error percentages across external hosts. A host with a disproportionately high error rate may need circuit-breaking or fallback logic.",
       "titleIcon": "AlertTriangle",
       "valueKey": "error_pct",
       "panelType": "bar",
@@ -300,6 +314,7 @@
         "method": "GET"
       },
       "title": "Response Body Size p50/p95/p99",
+      "description": "Shows median, 95th, and 99th percentile outbound response payload sizes. Growing response sizes can increase network egress cost and client rendering time.",
       "titleIcon": "Download",
       "formatter": "bytes",
       "panelType": "stat-summary",
@@ -317,6 +332,7 @@
         "method": "GET"
       },
       "title": "Error Rate by Route",
+      "description": "Compares error percentages across HTTP routes. Routes with elevated error rates relative to peers signal localized reliability problems.",
       "titleIcon": "AlertTriangle",
       "valueKey": "error_pct",
       "panelType": "bar",
@@ -334,6 +350,7 @@
         "method": "GET"
       },
       "title": "Route Error Rate Over Time",
+      "description": "Plots per-route error counts over time to reveal which routes are contributing to error spikes. Diverging lines help isolate the offending endpoint.",
       "titleIcon": "TrendingDown",
       "valueKey": "error_count",
       "panelType": "error-rate",

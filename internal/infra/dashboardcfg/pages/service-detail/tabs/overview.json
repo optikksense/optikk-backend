@@ -44,6 +44,7 @@
         }
       },
       "title": "Service Stats",
+      "description": "Shows aggregate KPIs for this service including throughput, error percentage, and latency percentiles. Use these numbers as a quick health check before diving into trends.",
       "panelType": "stat-cards-grid",
       "sectionId": "key-metrics"
     },
@@ -62,6 +63,7 @@
         }
       },
       "title": "Request Rate",
+      "description": "Tracks the number of requests per second handled by this service over time. Watch for unexpected drops that may indicate upstream issues or sudden spikes signaling traffic surges.",
       "titleIcon": "TrendingUp",
       "panelType": "request",
       "sectionId": "golden-signals"
@@ -81,6 +83,7 @@
         }
       },
       "title": "Error Rate",
+      "description": "Shows the percentage of failed requests for this service over time. Look for sustained increases or sharp spikes that correlate with deployments or dependency failures.",
       "titleIcon": "AlertCircle",
       "panelType": "error-rate",
       "sectionId": "golden-signals"
@@ -100,28 +103,11 @@
         }
       },
       "title": "p95 Latency",
+      "description": "Tracks the 95th-percentile response time for this service over time. Rising p95 values often indicate resource contention, slow dependencies, or degraded downstream performance.",
       "titleIcon": "Clock",
       "valueKey": "p95",
       "panelType": "latency",
       "sectionId": "golden-signals"
-    },
-    {
-      "id": "service-scorecard",
-      "layout": {
-        "preset": "breakdown"
-      },
-      "order": 40,
-      "query": {
-        "endpoint": "/v1/spans/red/service-scorecard",
-        "method": "GET",
-        "params": {
-          "service": "{serviceName}"
-        }
-      },
-      "title": "Service Scorecard",
-      "titleIcon": "Activity",
-      "panelType": "scorecard",
-      "sectionId": "health"
     },
     {
       "id": "service-apdex",
@@ -139,6 +125,7 @@
         }
       },
       "title": "Apdex Score",
+      "description": "Represents user satisfaction for this service on a 0-to-1 scale based on response-time thresholds. Scores below 0.85 suggest a meaningful portion of requests are too slow for users.",
       "titleIcon": "Target",
       "valueKey": "apdex",
       "panelType": "gauge",

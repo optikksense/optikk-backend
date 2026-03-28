@@ -29,6 +29,7 @@
         }
       },
       "title": "Service Request Rate",
+      "description": "Shows the request rate over time for each service. Look for unexpected drops that may indicate upstream failures or traffic shifts.",
       "titleIcon": "TrendingUp",
       "panelType": "request",
       "sectionId": "trends"
@@ -48,6 +49,7 @@
         }
       },
       "title": "Service Error Rate",
+      "description": "Tracks the error rate across all services over time. Spikes in a single service often propagate to its downstream dependents.",
       "titleIcon": "AlertCircle",
       "panelType": "error-rate",
       "sectionId": "trends"
@@ -67,6 +69,7 @@
         }
       },
       "title": "Service Latency",
+      "description": "Compares latency trends across all services. Identify which services contribute most to end-to-end response time.",
       "titleIcon": "Clock",
       "panelType": "latency",
       "sectionId": "trends"

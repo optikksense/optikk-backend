@@ -45,6 +45,7 @@
         }
       },
       "title": "Cost Over Time",
+      "description": "Tracks the dollar cost of this model's token usage per time interval. Look for cost anomalies that diverge from normal traffic patterns.",
       "titleIcon": "DollarSign",
       "panelType": "ai-line",
       "sectionId": "trends"
@@ -63,6 +64,7 @@
         }
       },
       "title": "Token Breakdown",
+      "description": "Shows the split of prompt, completion, system, and cache tokens for this model. Reducing prompt token volume is often the fastest path to cost savings.",
       "titleIcon": "PieChart",
       "panelType": "ai-bar",
       "sectionId": "breakdowns"
@@ -81,6 +83,7 @@
         }
       },
       "title": "Cost Metrics",
+      "description": "Lists detailed cost statistics for this model including total spend, cost per token, and token counts by type.",
       "titleIcon": "DollarSign",
       "panelType": "table",
       "sectionId": "details"

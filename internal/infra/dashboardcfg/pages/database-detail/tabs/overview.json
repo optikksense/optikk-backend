@@ -36,6 +36,7 @@
         }
       },
       "title": "Avg Latency",
+      "description": "Shows the mean query latency for this database over the selected time range. A rising value may indicate lock contention or growing dataset size.",
       "titleIcon": "Clock",
       "panelType": "stat-card",
       "sectionId": "summary"
@@ -54,6 +55,7 @@
         }
       },
       "title": "p95 Latency",
+      "description": "Represents the 95th-percentile query duration for this database. Watch for sudden jumps that signal slow-query regressions affecting most users.",
       "titleIcon": "Clock",
       "panelType": "stat-card",
       "sectionId": "summary"
@@ -72,6 +74,7 @@
         }
       },
       "title": "p99 Latency",
+      "description": "Represents the 99th-percentile query duration for this database. Spikes here reveal tail-latency issues that impact a small but significant fraction of queries.",
       "titleIcon": "Clock",
       "panelType": "stat-card",
       "sectionId": "summary"
@@ -90,6 +93,7 @@
         }
       },
       "title": "Total Operations",
+      "description": "Shows the total number of database operations observed for this database. Use this to gauge overall query volume and detect unexpected traffic changes.",
       "titleIcon": "Activity",
       "panelType": "stat-card",
       "sectionId": "summary"
@@ -108,6 +112,7 @@
         }
       },
       "title": "Latency by Operation",
+      "description": "Tracks query latency over time, grouped by operation type for this database. Look for operations whose latency diverges from the baseline.",
       "titleIcon": "BarChart2",
       "panelType": "latency",
       "sectionId": "latency"

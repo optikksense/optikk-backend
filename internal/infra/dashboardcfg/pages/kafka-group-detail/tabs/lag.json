@@ -28,6 +28,7 @@
         }
       },
       "title": "Consumer Lag",
+      "description": "Tracks the total consumer lag for this consumer group over time. Steadily increasing lag means consumers cannot keep pace with incoming message volume.",
       "titleIcon": "Clock",
       "panelType": "request",
       "sectionId": "trends"
@@ -46,6 +47,7 @@
         }
       },
       "title": "Lag per Partition",
+      "description": "Tracks consumer lag broken down by partition for this consumer group. Uneven lag across partitions may indicate a hot partition or an imbalanced consumer assignment.",
       "titleIcon": "Layers",
       "panelType": "request",
       "sectionId": "trends"

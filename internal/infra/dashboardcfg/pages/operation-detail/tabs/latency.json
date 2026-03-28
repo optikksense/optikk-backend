@@ -29,6 +29,7 @@
         }
       },
       "title": "Latency Histogram",
+      "description": "Shows the distribution of response times for this operation across latency buckets. Look for bimodal shapes or long tails that reveal slow outlier requests.",
       "titleIcon": "BarChart2",
       "panelType": "latency-histogram",
       "sectionId": "breakdowns"
@@ -49,6 +50,7 @@
         }
       },
       "title": "Latency Heatmap",
+      "description": "Visualizes response-time density for this operation over time, with darker bands indicating more requests at that latency. Watch for new hot bands appearing at higher latencies, which signal performance degradation.",
       "titleIcon": "Grid",
       "panelType": "latency-heatmap",
       "sectionId": "breakdowns"

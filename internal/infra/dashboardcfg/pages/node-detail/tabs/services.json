@@ -25,6 +25,7 @@
         "method": "GET"
       },
       "title": "Services on this Host",
+      "description": "Lists all services currently deployed on this node along with their resource consumption. Use this to identify noisy neighbors that may be starving other workloads.",
       "titleIcon": "Layers",
       "panelType": "table",
       "sectionId": "details"

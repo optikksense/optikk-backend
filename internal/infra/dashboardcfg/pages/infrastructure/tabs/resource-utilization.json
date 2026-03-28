@@ -42,6 +42,7 @@
         "method": "GET"
       },
       "title": "Avg CPU",
+      "description": "Shows the average CPU utilization across all hosts. Look for sustained values above 80% that may indicate capacity pressure.",
       "titleIcon": "Cpu",
       "valueField": "value",
       "panelType": "stat-card",
@@ -59,6 +60,7 @@
         "method": "GET"
       },
       "title": "Avg Memory",
+      "description": "Shows the average memory utilization across all hosts. Watch for values approaching 90% which may lead to OOM conditions.",
       "titleIcon": "HardDrive",
       "valueField": "value",
       "panelType": "stat-card",
@@ -76,6 +78,7 @@
         "method": "GET"
       },
       "title": "Avg Network",
+      "description": "Shows the average network bandwidth utilization across all hosts. Spikes may correlate with increased traffic or data-intensive workloads.",
       "titleIcon": "Network",
       "valueField": "value",
       "panelType": "stat-card",
@@ -93,6 +96,7 @@
         "method": "GET"
       },
       "title": "Avg Conn Pool",
+      "description": "Shows the average connection pool utilization across database connections. High values indicate potential connection exhaustion.",
       "titleIcon": "Database",
       "valueField": "value",
       "panelType": "stat-card",
@@ -111,6 +115,7 @@
         "method": "GET"
       },
       "title": "CPU Usage Percentage",
+      "description": "Tracks host-level CPU usage over time broken down by pod. Look for upward trends or periodic spikes that align with workload patterns.",
       "titleIcon": "Cpu",
       "valueKey": "value",
       "panelType": "request",
@@ -129,6 +134,7 @@
         "method": "GET"
       },
       "title": "Memory Usage Percentage",
+      "description": "Tracks host-level memory usage over time broken down by pod. A steady upward climb may indicate a memory leak.",
       "titleIcon": "HardDrive",
       "valueKey": "value",
       "panelType": "request",
@@ -145,6 +151,7 @@
         "method": "GET"
       },
       "title": "Resource Usage by Service",
+      "description": "Breaks down CPU, memory, and network consumption per service. Identify which services are the heaviest resource consumers.",
       "titleIcon": "Layers",
       "panelType": "table",
       "sectionId": "details"
@@ -160,6 +167,7 @@
         "method": "GET"
       },
       "title": "Resource Usage by Instance",
+      "description": "Breaks down CPU, memory, and network consumption per host instance. Use this to spot hot instances that need rebalancing.",
       "titleIcon": "Server",
       "panelType": "table",
       "sectionId": "details"
@@ -176,6 +184,7 @@
         "method": "GET"
       },
       "title": "CPU Time by State",
+      "description": "Shows CPU time split across states such as user, system, and iowait. High iowait signals disk or network bottlenecks.",
       "titleIcon": "Cpu",
       "valueKey": "value",
       "panelType": "request",
@@ -193,6 +202,7 @@
         "method": "GET"
       },
       "title": "Memory Usage by State",
+      "description": "Shows host memory broken down by state such as used, cached, and buffered. Watch for shrinking free memory over time.",
       "titleIcon": "HardDrive",
       "valueKey": "value",
       "panelType": "request",
@@ -210,6 +220,7 @@
         "method": "GET"
       },
       "title": "Swap Usage by State",
+      "description": "Tracks swap memory usage over time. Any significant swap activity indicates memory pressure on the host.",
       "titleIcon": "HardDrive",
       "valueKey": "value",
       "panelType": "request",
@@ -226,6 +237,7 @@
         "method": "GET"
       },
       "title": "Load Average (1m / 5m / 15m)",
+      "description": "Shows the 1-minute, 5-minute, and 15-minute host load averages. Values exceeding the CPU core count suggest saturation.",
       "titleIcon": "Activity",
       "summaryFields": [
         {
@@ -257,6 +269,7 @@
         "method": "GET"
       },
       "title": "Disk I/O (Read / Write)",
+      "description": "Tracks disk read and write throughput in bytes over time. Sudden spikes may indicate heavy logging or database flushes.",
       "titleIcon": "HardDrive",
       "valueKey": "value",
       "panelType": "request",
@@ -274,6 +287,7 @@
         "method": "GET"
       },
       "title": "Disk Operations (Read / Write)",
+      "description": "Tracks the number of disk read and write IOPS over time. High operation counts with low throughput suggest small random I/O.",
       "titleIcon": "HardDrive",
       "valueKey": "value",
       "panelType": "request",
@@ -291,6 +305,7 @@
         "method": "GET"
       },
       "title": "Disk I/O Time",
+      "description": "Shows the cumulative time the disk spent on I/O operations. Rising values indicate increasing disk latency on the host.",
       "titleIcon": "Clock",
       "valueKey": "value",
       "panelType": "request",
@@ -308,6 +323,7 @@
         "method": "GET"
       },
       "title": "Filesystem Usage by Mountpoint",
+      "description": "Shows disk space consumed per filesystem mountpoint. Watch for mountpoints approaching capacity to prevent write failures.",
       "titleIcon": "FolderOpen",
       "valueKey": "value",
       "panelType": "request",
@@ -325,6 +341,7 @@
         "method": "GET"
       },
       "title": "Filesystem Utilization",
+      "description": "Tracks the percentage of disk capacity in use across hosts. Values above 85% warrant immediate attention.",
       "titleIcon": "FolderOpen",
       "valueKey": "value",
       "panelType": "request",
@@ -342,6 +359,7 @@
         "method": "GET"
       },
       "title": "Network I/O (Transmit / Receive)",
+      "description": "Shows network throughput split by transmit and receive directions. Look for asymmetric patterns that may indicate unusual traffic flows.",
       "titleIcon": "Network",
       "valueKey": "value",
       "panelType": "request",
@@ -359,6 +377,7 @@
         "method": "GET"
       },
       "title": "Network Packets (Transmit / Receive)",
+      "description": "Tracks the packet rate for transmitted and received traffic. High packet rates with low throughput suggest many small requests.",
       "titleIcon": "Network",
       "valueKey": "value",
       "panelType": "request",
@@ -376,6 +395,7 @@
         "method": "GET"
       },
       "title": "Network Errors by State",
+      "description": "Shows network-level errors categorized by state. Any non-zero values warrant investigation into host NIC or network issues.",
       "titleIcon": "AlertTriangle",
       "valueKey": "value",
       "panelType": "request",
@@ -393,6 +413,7 @@
         "method": "GET"
       },
       "title": "Dropped Packets",
+      "description": "Tracks the number of packets dropped at the host network interface. Dropped packets often indicate buffer exhaustion or rate limiting.",
       "titleIcon": "AlertTriangle",
       "valueKey": "value",
       "panelType": "request",
@@ -410,6 +431,7 @@
         "method": "GET"
       },
       "title": "Process Count by Status",
+      "description": "Shows the number of host processes grouped by status such as running, sleeping, or blocked. A rising blocked count signals resource contention.",
       "titleIcon": "Activity",
       "valueKey": "value",
       "panelType": "request",
@@ -427,6 +449,7 @@
         "method": "GET"
       },
       "title": "Network Connections by State",
+      "description": "Tracks TCP connections by state such as established, time_wait, and close_wait. A buildup of time_wait connections may indicate connection churn.",
       "titleIcon": "Network",
       "valueKey": "value",
       "panelType": "request",

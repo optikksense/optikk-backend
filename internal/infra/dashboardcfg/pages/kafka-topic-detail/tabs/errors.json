@@ -30,6 +30,7 @@
       "groupByKey": "error_type",
       "valueKey": "error_rate",
       "title": "Publish Errors",
+      "description": "Tracks producer-side error rates for this topic grouped by error type. Spikes may indicate serialization failures, authorization issues, or broker rejections.",
       "titleIcon": "AlertCircle",
       "panelType": "error-rate",
       "sectionId": "trends"
@@ -50,6 +51,7 @@
       "groupByKey": "error_type",
       "valueKey": "error_rate",
       "title": "Consume Errors",
+      "description": "Tracks consumer-side error rates for this topic grouped by error type. Watch for deserialization or offset commit failures that could cause duplicate processing.",
       "titleIcon": "AlertCircle",
       "panelType": "error-rate",
       "sectionId": "trends"
@@ -70,6 +72,7 @@
       "groupByKey": "error_type",
       "valueKey": "error_rate",
       "title": "Process Errors",
+      "description": "Tracks message processing error rates for this topic grouped by error type. Persistent errors suggest bugs in consumer business logic or downstream dependency failures.",
       "titleIcon": "AlertCircle",
       "panelType": "error-rate",
       "sectionId": "trends"

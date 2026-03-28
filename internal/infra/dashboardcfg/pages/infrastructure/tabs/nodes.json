@@ -34,6 +34,7 @@
         "method": "GET"
       },
       "title": "Healthy Nodes",
+      "description": "Shows the count of nodes reporting a Ready condition. All nodes should ideally be in this state.",
       "titleIcon": "CheckCircle2",
       "valueField": "healthy_nodes",
       "panelType": "stat-card",
@@ -51,6 +52,7 @@
         "method": "GET"
       },
       "title": "Degraded Nodes",
+      "description": "Shows nodes with partial failures such as disk pressure or network unavailability. Investigate before they become fully unhealthy.",
       "titleIcon": "AlertTriangle",
       "valueField": "degraded_nodes",
       "panelType": "stat-card",
@@ -68,6 +70,7 @@
         "method": "GET"
       },
       "title": "Unhealthy Nodes",
+      "description": "Shows nodes that are NotReady or unreachable. Pods on these nodes will be rescheduled and may cause service disruption.",
       "titleIcon": "XCircle",
       "valueField": "unhealthy_nodes",
       "panelType": "stat-card",
@@ -85,6 +88,7 @@
         "method": "GET"
       },
       "title": "Total Pods",
+      "description": "Shows the total number of pods scheduled across all nodes. Compare against node pod capacity limits to assess scheduling headroom.",
       "titleIcon": "Box",
       "valueField": "total_pods",
       "panelType": "stat-card",
@@ -102,6 +106,7 @@
       },
       "drilldownRoute": "/infrastructure/nodes/{host}",
       "title": "Nodes",
+      "description": "Lists all nodes with their CPU, memory, pod count, and health status. Click a row to drill into per-node resource details.",
       "titleIcon": "Server",
       "panelType": "table",
       "sectionId": "details"

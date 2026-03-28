@@ -322,6 +322,12 @@ func validatePanel(pageID, tabID string, panel PanelDefinition, seenIDs map[stri
 	if panel.Layout.H != nil && *panel.Layout.H <= 0 {
 		return fmt.Errorf("page %q tab %q panel %q: layout.h must be > 0", pageID, tabID, panel.ID)
 	}
+	if panel.Layout.ColSpan != nil {
+		cs := *panel.Layout.ColSpan
+		if cs < 1 || cs > 4 {
+			return fmt.Errorf("page %q tab %q panel %q: layout.colSpan must be between 1 and 4", pageID, tabID, panel.ID)
+		}
+	}
 	return nil
 }
 
@@ -342,14 +348,16 @@ func validateSectionComposition(
 
 	if section.Kind == SectionKindDetails &&
 		section.LayoutMode != SectionLayoutModeStack &&
-		section.LayoutMode != SectionLayoutModeTwoUp {
+		section.LayoutMode != SectionLayoutModeTwoUp &&
+		section.LayoutMode != SectionLayoutModeThreeUp {
 		return fmt.Errorf(
-			"page %q tab %q section %q: details sections must use layoutMode %q or %q",
+			"page %q tab %q section %q: details sections must use layoutMode %q, %q, or %q",
 			pageID,
 			tabID,
 			section.ID,
 			SectionLayoutModeStack,
 			SectionLayoutModeTwoUp,
+			SectionLayoutModeThreeUp,
 		)
 	}
 

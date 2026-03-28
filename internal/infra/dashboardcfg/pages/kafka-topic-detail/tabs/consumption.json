@@ -28,6 +28,7 @@
         }
       },
       "title": "Consume Rate by Group",
+      "description": "Tracks message consumption throughput for each consumer group subscribed to this topic. Uneven rates across groups may indicate processing bottlenecks in specific consumers.",
       "titleIcon": "Users",
       "panelType": "request",
       "sectionId": "trends"
@@ -46,6 +47,7 @@
         }
       },
       "title": "Process Rate by Group",
+      "description": "Tracks the rate at which each consumer group processes messages from this topic after receiving them. A gap between consume and process rates signals slow message handling.",
       "titleIcon": "Activity",
       "panelType": "request",
       "sectionId": "trends"

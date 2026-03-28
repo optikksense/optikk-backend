@@ -38,6 +38,7 @@
         }
       },
       "title": "Exception Rate by Type",
+      "description": "Tracks the count of exceptions thrown by this operation over time, broken down by exception type. A new or rapidly growing line indicates a regression introduced by a recent change.",
       "titleIcon": "Bug",
       "valueKey": "count",
       "panelType": "exception-type-line",
@@ -59,6 +60,7 @@
         }
       },
       "title": "HTTP 5xx by Route",
+      "description": "Shows server-error counts for this operation split by HTTP route. Use the comparison to determine whether 5xx errors are isolated to a single route or spread across multiple paths.",
       "titleIcon": "AlertTriangle",
       "valueKey": "count",
       "panelType": "bar",

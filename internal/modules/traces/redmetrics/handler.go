@@ -28,20 +28,6 @@ func (h *REDMetricsHandler) GetSummary(c *gin.Context) {
 	modulecommon.RespondOK(c, resp)
 }
 
-func (h *REDMetricsHandler) GetServiceScorecard(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
-	resp, err := h.Service.GetServiceScorecard(teamID, startMs, endMs)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query service scorecard", err)
-		return
-	}
-	modulecommon.RespondOK(c, resp)
-}
-
 func (h *REDMetricsHandler) GetApdex(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
@@ -62,19 +48,6 @@ func (h *REDMetricsHandler) GetApdex(c *gin.Context) {
 	modulecommon.RespondOK(c, resp)
 }
 
-func (h *REDMetricsHandler) GetHTTPStatusDistribution(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
-	resp, err := h.Service.GetHTTPStatusDistribution(teamID, startMs, endMs)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query HTTP status distribution", err)
-		return
-	}
-	modulecommon.RespondOK(c, resp)
-}
 
 func (h *REDMetricsHandler) GetTopSlowOperations(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID

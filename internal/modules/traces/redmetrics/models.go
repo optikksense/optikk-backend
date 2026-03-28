@@ -9,13 +9,6 @@ type REDSummary struct {
 	AvgP95Ms     float64 `json:"avg_p95_ms"`
 }
 
-type ServiceScorecard struct {
-	ServiceName string  `json:"service_name"`
-	RPS         float64 `json:"rps"`
-	ErrorPct    float64 `json:"error_pct"`
-	P95Ms       float64 `json:"p95_ms"`
-}
-
 type ApdexScore struct {
 	ServiceName string  `json:"service_name"`
 	Apdex       float64 `json:"apdex"`
@@ -25,10 +18,6 @@ type ApdexScore struct {
 	TotalCount  int64   `json:"total_count"`
 }
 
-type HTTPStatusBucket struct {
-	StatusCode int64 `json:"status_code" ch:"status_code"`
-	SpanCount  int64 `json:"span_count"  ch:"span_count"`
-}
 
 type SlowOperation struct {
 	OperationName string  `json:"operation_name" ch:"operation_name"`
@@ -55,9 +44,11 @@ type ServiceRatePoint struct {
 }
 
 type ServiceErrorRatePoint struct {
-	Timestamp   time.Time `json:"timestamp"    ch:"timestamp"`
-	ServiceName string    `json:"service_name" ch:"service_name"`
-	ErrorPct    float64   `json:"error_pct"    ch:"error_pct"`
+	Timestamp    time.Time `json:"timestamp"     ch:"timestamp"`
+	ServiceName  string    `json:"service_name"  ch:"service_name"`
+	RequestCount int64     `json:"request_count" ch:"request_count"`
+	ErrorCount   int64     `json:"error_count"   ch:"error_count"`
+	ErrorPct     float64   `json:"error_pct"     ch:"error_pct"`
 }
 
 type ServiceLatencyPoint struct {
@@ -73,9 +64,10 @@ type SpanKindPoint struct {
 }
 
 type ErrorByRoutePoint struct {
-	Timestamp  time.Time `json:"timestamp"   ch:"timestamp"`
-	HttpRoute  string    `json:"http_route"  ch:"http_route"`
-	ErrorCount int64     `json:"error_count" ch:"error_count"`
+	Timestamp    time.Time `json:"timestamp"     ch:"timestamp"`
+	HttpRoute    string    `json:"http_route"    ch:"http_route"`
+	RequestCount int64     `json:"request_count" ch:"request_count"`
+	ErrorCount   int64     `json:"error_count"   ch:"error_count"`
 }
 
 // LatencyBreakdown shows aggregate time spent per service.

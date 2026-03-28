@@ -28,6 +28,7 @@
         }
       },
       "title": "Slow Query Patterns",
+      "description": "Lists the slowest normalized query patterns for this database, ranked by duration. Each row represents a distinct query shape to help identify optimization targets.",
       "titleIcon": "Clock",
       "panelType": "table",
       "sectionId": "details"
@@ -46,6 +47,7 @@
         }
       },
       "title": "Slowest Collections",
+      "description": "Lists the collections or tables in this database with the highest query latency. Use this to prioritize indexing or schema improvements.",
       "titleIcon": "Database",
       "panelType": "table",
       "sectionId": "details"

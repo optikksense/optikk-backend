@@ -4,9 +4,7 @@ import "context"
 
 type Service interface {
 	GetSummary(teamID int64, startMs, endMs int64) (REDSummary, error)
-	GetServiceScorecard(teamID int64, startMs, endMs int64) ([]ServiceScorecard, error)
 	GetApdex(teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]ApdexScore, error)
-	GetHTTPStatusDistribution(teamID int64, startMs, endMs int64) ([]HTTPStatusBucket, error)
 	GetTopSlowOperations(teamID int64, startMs, endMs int64, limit int) ([]SlowOperation, error)
 	GetTopErrorOperations(teamID int64, startMs, endMs int64, limit int) ([]ErrorOperation, error)
 	GetRequestRateTimeSeries(teamID int64, startMs, endMs int64) ([]ServiceRatePoint, error)
@@ -61,33 +59,6 @@ func (s *REDMetricsService) GetSummary(teamID int64, startMs, endMs int64) (REDS
 	}, nil
 }
 
-func (s *REDMetricsService) GetServiceScorecard(teamID int64, startMs, endMs int64) ([]ServiceScorecard, error) {
-	rows, err := s.repo.GetServiceScorecard(context.Background(), teamID, startMs, endMs)
-	if err != nil {
-		return nil, err
-	}
-
-	durationSec := float64(endMs-startMs) / 1000.0
-	if durationSec <= 0 {
-		durationSec = 1
-	}
-
-	result := make([]ServiceScorecard, len(rows))
-	for i, row := range rows {
-		errorPct := 0.0
-		if row.TotalCount > 0 {
-			errorPct = float64(row.ErrorCount) * 100.0 / float64(row.TotalCount)
-		}
-		result[i] = ServiceScorecard{
-			ServiceName: row.ServiceName,
-			RPS:         float64(row.TotalCount) / durationSec,
-			ErrorPct:    errorPct,
-			P95Ms:       row.P95Ms,
-		}
-	}
-	return result, nil
-}
-
 func (s *REDMetricsService) GetApdex(teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]ApdexScore, error) {
 	rows, err := s.repo.GetApdex(context.Background(), teamID, startMs, endMs, satisfiedMs, toleratingMs)
 	if err != nil {
@@ -112,9 +83,6 @@ func (s *REDMetricsService) GetApdex(teamID int64, startMs, endMs int64, satisfi
 	return result, nil
 }
 
-func (s *REDMetricsService) GetHTTPStatusDistribution(teamID int64, startMs, endMs int64) ([]HTTPStatusBucket, error) {
-	return s.repo.GetHTTPStatusDistribution(context.Background(), teamID, startMs, endMs)
-}
 
 func (s *REDMetricsService) GetTopSlowOperations(teamID int64, startMs, endMs int64, limit int) ([]SlowOperation, error) {
 	return s.repo.GetTopSlowOperations(context.Background(), teamID, startMs, endMs, limit)

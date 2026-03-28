@@ -5,14 +5,6 @@
   "order": 20,
   "sections": [
     {
-      "id": "breakdowns",
-      "title": "Breakdowns",
-      "order": 30,
-      "kind": "breakdowns",
-      "collapsible": true,
-      "layoutMode": "stack"
-    },
-    {
       "id": "details",
       "title": "Details",
       "order": 40,
@@ -34,28 +26,10 @@
       },
       "drilldownRoute": "/services/{service_name}/operations/{operation_name}",
       "title": "Endpoints",
+      "description": "Lists all discovered endpoints for this service with their throughput, error rate, and latency. Click any row to drill down into the operation-level detail view.",
       "titleIcon": "List",
       "panelType": "table",
       "sectionId": "details"
-    },
-    {
-      "id": "http-status-distribution",
-      "layout": {
-        "preset": "breakdown"
-      },
-      "order": 20,
-      "query": {
-        "endpoint": "/v1/spans/red/http-status-distribution",
-        "method": "GET",
-        "params": {
-          "service": "{serviceName}"
-        }
-      },
-      "title": "HTTP Status Distribution",
-      "titleIcon": "BarChart2",
-      "valueKey": "count",
-      "panelType": "bar",
-      "sectionId": "breakdowns"
     },
     {
       "id": "top-slow-operations",
@@ -72,6 +46,7 @@
       },
       "drilldownRoute": "/services/{service_name}/operations/{operation_name}",
       "title": "Slowest Operations",
+      "description": "Ranks operations within this service by p99 latency in descending order. Focus optimization efforts on the top entries, as they represent the worst-case response times users experience.",
       "titleIcon": "Clock",
       "panelType": "table",
       "sectionId": "details"

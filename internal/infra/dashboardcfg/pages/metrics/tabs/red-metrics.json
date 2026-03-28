@@ -50,6 +50,7 @@
         "method": "GET"
       },
       "title": "Services",
+      "description": "Shows the total number of distinct services reporting spans in the selected time range. A sudden drop may indicate instrumentation gaps or service outages.",
       "titleIcon": "Layers",
       "valueField": "service_count",
       "panelType": "stat-card",
@@ -67,13 +68,14 @@
         "method": "GET"
       },
       "title": "Total RPS",
+      "description": "Shows the aggregate requests per second across all services. A rising value indicates increased traffic; a sudden drop may signal an upstream failure or routing change.",
       "titleIcon": "TrendingUp",
       "valueField": "total_rps",
       "panelType": "stat-card",
       "sectionId": "g1"
     },
     {
-      "formatter": "percent",
+      "formatter": "percent2",
       "id": "stat-avg-error-pct",
       "layout": {
         "preset": "kpi"
@@ -84,6 +86,7 @@
         "method": "GET"
       },
       "title": "Avg Error Rate",
+      "description": "Shows the mean error percentage averaged across all services. An increase signals degraded reliability and warrants drilling into per-service error rates.",
       "titleIcon": "AlertCircle",
       "valueField": "avg_error_pct",
       "panelType": "stat-card",
@@ -101,6 +104,7 @@
         "method": "GET"
       },
       "title": "Avg p95 Latency",
+      "description": "Shows the average 95th-percentile latency across all services in milliseconds. Rising values indicate that tail latency is worsening fleet-wide.",
       "titleIcon": "Clock",
       "valueField": "avg_p95_ms",
       "panelType": "stat-card",
@@ -118,6 +122,7 @@
         "method": "GET"
       },
       "title": "Request Rate by Service",
+      "description": "Plots requests per second over time, grouped by service. Watch for sudden spikes that may indicate retry storms or traffic shifts between services.",
       "titleIcon": "TrendingUp",
       "valueKey": "rps",
       "panelType": "request",
@@ -135,26 +140,10 @@
         "method": "GET"
       },
       "title": "Error Rate by Service",
+      "description": "Tracks error percentage over time for each service. Diverging lines help isolate which service is the source of a reliability regression.",
       "titleIcon": "AlertCircle",
       "valueKey": "error_pct",
       "panelType": "error-rate",
-      "sectionId": "g2"
-    },
-    {
-      "groupByKey": "service_name",
-      "id": "p95-latency",
-      "layout": {
-        "preset": "trend"
-      },
-      "order": 80,
-      "query": {
-        "endpoint": "/v1/spans/red/p95-latency",
-        "method": "GET"
-      },
-      "title": "p95 Latency by Service",
-      "titleIcon": "Clock",
-      "valueKey": "p95_ms",
-      "panelType": "latency",
       "sectionId": "g2"
     },
     {
@@ -169,69 +158,17 @@
         "method": "GET"
       },
       "title": "Throughput by Span Kind",
+      "description": "Shows span volume over time grouped by kind (SERVER, CLIENT, INTERNAL, etc.). Useful for understanding whether traffic growth originates from inbound requests or internal fan-out.",
       "titleIcon": "GitBranch",
       "valueKey": "span_count",
       "panelType": "request",
       "sectionId": "g2"
     },
     {
-      "id": "service-scorecard",
-      "layout": {
-        "preset": "breakdown"
-      },
-      "order": 95,
-      "query": {
-        "endpoint": "/v1/spans/red/service-scorecard",
-        "method": "GET"
-      },
-      "title": "Service Scorecard",
-      "titleIcon": "Activity",
-      "panelType": "scorecard",
-      "sectionId": "g3"
-    },
-    {
-      "groupByKey": "service_name",
-      "id": "apdex",
-      "layout": {
-        "preset": "breakdown"
-      },
-      "order": 100,
-      "query": {
-        "endpoint": "/v1/spans/red/apdex",
-        "method": "GET",
-        "params": {
-          "satisfied_ms": 300,
-          "tolerating_ms": 1200
-        }
-      },
-      "title": "Apdex Score by Service",
-      "titleIcon": "Target",
-      "valueKey": "apdex",
-      "panelType": "gauge",
-      "sectionId": "g3"
-    },
-    {
-      "groupByKey": "status_code",
-      "id": "http-status-distribution",
-      "layout": {
-        "preset": "breakdown"
-      },
-      "order": 110,
-      "query": {
-        "endpoint": "/v1/spans/red/http-status-distribution",
-        "method": "GET"
-      },
-      "title": "HTTP Status Code Distribution",
-      "titleIcon": "BarChart2",
-      "valueKey": "span_count",
-      "panelType": "bar",
-      "sectionId": "g3"
-    },
-    {
       "groupByKey": "http_route",
       "id": "errors-by-route",
       "layout": {
-        "preset": "hero"
+        "preset": "trend"
       },
       "order": 120,
       "query": {
@@ -239,6 +176,7 @@
         "method": "GET"
       },
       "title": "Errors by HTTP Route",
+      "description": "Ranks HTTP routes by total error count to surface the noisiest endpoints. Use this to prioritize which routes need immediate attention.",
       "titleIcon": "AlertTriangle",
       "valueKey": "error_count",
       "panelType": "error-rate",
@@ -258,6 +196,7 @@
         }
       },
       "title": "Top Slowest Operations (p99)",
+      "description": "Lists operations ranked by 99th-percentile duration, showing the worst tail-latency offenders. Focus optimization efforts on the top entries for maximum user-impact improvement.",
       "titleIcon": "TrendingDown",
       "panelType": "table",
       "sectionId": "g4"
@@ -276,6 +215,7 @@
         }
       },
       "title": "Top Error Operations",
+      "description": "Lists operations ranked by error rate descending. Rows at the top represent the most unreliable operations and are prime candidates for bug fixes or retry tuning.",
       "titleIcon": "AlertTriangle",
       "panelType": "table",
       "sectionId": "g4"

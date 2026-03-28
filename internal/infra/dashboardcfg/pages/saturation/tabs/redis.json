@@ -42,6 +42,7 @@
         "method": "GET"
       },
       "title": "Cache Hit Rate",
+      "description": "Shows the percentage of key lookups that returned a cached value across all Redis instances. A declining hit rate may indicate key evictions or a shift in access patterns.",
       "titleIcon": "Target",
       "valueField": "hit_rate_pct",
       "panelType": "stat-card",
@@ -59,6 +60,7 @@
         "method": "GET"
       },
       "title": "Cache Hits",
+      "description": "Shows the total number of successful cache lookups in the selected time range. Use alongside cache misses to assess overall cache effectiveness.",
       "titleIcon": "CheckCircle",
       "valueField": "hits",
       "panelType": "stat-card",
@@ -76,6 +78,7 @@
         "method": "GET"
       },
       "title": "Cache Misses",
+      "description": "Shows the total number of cache lookups that did not find a key. A spike in misses can increase load on downstream databases.",
       "titleIcon": "XCircle",
       "valueField": "misses",
       "panelType": "stat-card",
@@ -93,6 +96,7 @@
         "method": "GET"
       },
       "title": "Replication Offset",
+      "description": "Shows the current replication offset between primary and replica Redis instances. A growing offset indicates replicas are falling behind the primary.",
       "titleIcon": "GitBranch",
       "valueField": "offset",
       "panelType": "stat-card",
@@ -109,6 +113,7 @@
         "method": "GET"
       },
       "title": "Connected Clients",
+      "description": "Tracks the number of client connections to Redis over time. A sudden increase may indicate connection leaks; a drop may signal connectivity problems.",
       "titleIcon": "Users",
       "valueKey": "value",
       "panelType": "request",
@@ -125,6 +130,7 @@
         "method": "GET"
       },
       "title": "Memory Used",
+      "description": "Tracks total memory consumed by Redis over time. Watch for steady growth approaching the maxmemory limit, which triggers evictions.",
       "titleIcon": "HardDrive",
       "valueKey": "value",
       "panelType": "request",
@@ -141,6 +147,7 @@
         "method": "GET"
       },
       "title": "Memory Fragmentation Ratio",
+      "description": "Tracks the ratio of OS-allocated memory to Redis-used memory over time. Values significantly above 1.0 indicate memory fragmentation; values below 1.0 suggest swapping.",
       "titleIcon": "AlertTriangle",
       "valueKey": "value",
       "panelType": "request",
@@ -157,6 +164,7 @@
         "method": "GET"
       },
       "title": "Commands Processed",
+      "description": "Tracks the total Redis command throughput over time. Correlate command volume with latency to distinguish load-driven slowdowns from infrastructure issues.",
       "titleIcon": "Terminal",
       "valueKey": "value",
       "panelType": "request",
@@ -173,6 +181,7 @@
         "method": "GET"
       },
       "title": "Key Evictions",
+      "description": "Tracks the number of keys evicted due to memory pressure over time. Non-zero evictions indicate Redis has reached its maxmemory limit and is discarding keys.",
       "titleIcon": "Trash2",
       "valueKey": "value",
       "panelType": "request",
@@ -190,6 +199,7 @@
       },
       "drilldownRoute": "/saturation/redis/{instance}",
       "title": "Redis Instances",
+      "description": "Lists all detected Redis instances with summary metrics for each. Drill down into an instance to see its detailed performance and memory breakdown.",
       "titleIcon": "Server",
       "panelType": "table",
       "sectionId": "details"
@@ -205,6 +215,7 @@
         "method": "GET"
       },
       "title": "Keyspace Size by DB",
+      "description": "Shows the number of keys stored in each Redis logical database. Helps identify which databases consume the most memory and drive eviction pressure.",
       "titleIcon": "Database",
       "panelType": "table",
       "sectionId": "details"
@@ -220,6 +231,7 @@
         "method": "GET"
       },
       "title": "Key Expiries by DB",
+      "description": "Shows the number of expired keys per Redis logical database. A low expiry count relative to keyspace size may mean TTLs are not set, leading to unbounded memory growth.",
       "titleIcon": "Clock",
       "panelType": "table",
       "sectionId": "details"

@@ -25,6 +25,7 @@
         "method": "GET"
       },
       "title": "Error Occurrences Over Time",
+      "description": "Tracks how frequently this error group occurs over the selected time range. Look for correlation with deployments or traffic spikes to identify triggers.",
       "titleIcon": "TrendingUp",
       "panelType": "error-rate",
       "sectionId": "trends"

@@ -36,6 +36,7 @@
         }
       },
       "title": "Operations by Type",
+      "description": "Tracks the volume of database operations over time, grouped by operation type (e.g., SELECT, INSERT, UPDATE). Watch for unexpected shifts in the operation mix.",
       "titleIcon": "BarChart2",
       "panelType": "request",
       "sectionId": "trends"
@@ -54,6 +55,7 @@
         }
       },
       "title": "Read vs Write",
+      "description": "Compares the proportion of read operations to write operations for this database. A shift in this ratio can signal new workload patterns or caching changes.",
       "titleIcon": "PieChart",
       "panelType": "pie",
       "sectionId": "breakdowns"

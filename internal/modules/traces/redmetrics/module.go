@@ -20,9 +20,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *REDMetricsHandler) {
 	}
 	red := v1.Group("/spans/red")
 	red.GET("/summary", h.GetSummary)
-	red.GET("/service-scorecard", h.GetServiceScorecard)
 	red.GET("/apdex", h.GetApdex)
-	red.GET("/http-status-distribution", h.GetHTTPStatusDistribution)
 	red.GET("/top-slow-operations", h.GetTopSlowOperations)
 	red.GET("/top-error-operations", h.GetTopErrorOperations)
 	red.GET("/request-rate", h.GetRequestRateTimeSeries)

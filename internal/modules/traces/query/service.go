@@ -244,11 +244,11 @@ func errorGroupRowsToModels(rows []errorGroupRow) []ErrorGroup {
 	result := make([]ErrorGroup, len(rows))
 	for i, row := range rows {
 		result[i] = ErrorGroup{
-			GroupID:         ErrorGroupID(row.ServiceName, row.OperationName, row.StatusMessage, row.HTTPStatusCode),
+			GroupID:         ErrorGroupID(row.ServiceName, row.OperationName, row.StatusMessage, int(row.HTTPStatusCode)),
 			ServiceName:     row.ServiceName,
 			OperationName:   row.OperationName,
 			StatusMessage:   row.StatusMessage,
-			HTTPStatusCode:  row.HTTPStatusCode,
+			HTTPStatusCode:  int(row.HTTPStatusCode),
 			ErrorCount:      row.ErrorCount,
 			LastOccurrence:  row.LastOccurrence,
 			FirstOccurrence: row.FirstOccurrence,

@@ -45,6 +45,7 @@
         }
       },
       "title": "Cost per Interval (USD)",
+      "description": "Tracks the dollar cost of token consumption per time interval for each model. Sudden increases may signal runaway prompts or unexpected traffic.",
       "titleIcon": "DollarSign",
       "valueKey": "cost_per_interval",
       "yDecimals": 4,
@@ -65,6 +66,7 @@
         "method": "GET"
       },
       "title": "Total Cost by Model (USD)",
+      "description": "Compares the total spend across all models for the selected period. Identify which models drive the most cost to optimize spend.",
       "titleIcon": "BarChart2",
       "valueKey": "total_cost_usd",
       "yDecimals": 4,
@@ -85,6 +87,7 @@
       },
       "stacked": true,
       "title": "Token Breakdown by Model",
+      "description": "Shows prompt, completion, system, and cache token volumes stacked per model. High prompt-to-completion ratios may indicate optimization opportunities.",
       "titleIcon": "Zap",
       "valueKeys": [
         "prompt_tokens",
@@ -107,6 +110,7 @@
       },
       "drilldownRoute": "/ai-observability/models/{model_name}",
       "title": "Cost Metrics",
+      "description": "Lists per-model cost details including total spend, cost per token, and token counts. Click a row to drill into model-level cost analysis.",
       "titleIcon": "Table",
       "panelType": "table",
       "sectionId": "details"

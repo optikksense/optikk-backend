@@ -53,6 +53,8 @@ func (r *ClickHouseRepository) GetErrorRateTimeSeries(ctx context.Context, teamI
 	query := fmt.Sprintf(`
 		SELECT %s AS timestamp,
 		       s.service_name,
+		       toInt64(count())                                                                      AS request_count,
+		       toInt64(countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400))  AS error_count,
 		       if(count() > 0,
 		          countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400) * 100.0 / count(),
 		          0) AS error_pct
@@ -124,6 +126,7 @@ func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int6
 	query := fmt.Sprintf(`
 		SELECT %s AS timestamp,
 		       s.mat_http_route AS http_route,
+		       toInt64(count()) AS request_count,
 		       toInt64(countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)) AS error_count
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end

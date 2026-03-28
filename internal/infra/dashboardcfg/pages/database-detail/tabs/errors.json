@@ -36,6 +36,7 @@
         }
       },
       "title": "Errors Over Time",
+      "description": "Tracks the error count for this database over time. Look for spikes that correlate with deployments or traffic changes.",
       "titleIcon": "AlertCircle",
       "panelType": "error-rate",
       "sectionId": "trends"
@@ -54,6 +55,7 @@
         }
       },
       "title": "Errors by Type",
+      "description": "Breaks down database errors by their error type classification. Compare relative proportions to identify the most impactful failure mode.",
       "titleIcon": "AlertTriangle",
       "panelType": "bar",
       "sectionId": "breakdowns"

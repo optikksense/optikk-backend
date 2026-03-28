@@ -48,6 +48,7 @@ const (
 	PanelTypeAILine            PanelType = "ai-line"
 	PanelTypeBar               PanelType = "bar"
 	PanelTypeDBSystemsOverview PanelType = "db-systems-overview"
+	PanelTypeErrorHotspotRank  PanelType = "error-hotspot-ranking"
 	PanelTypeErrorRate         PanelType = "error-rate"
 	PanelTypeExceptionTypeLine PanelType = "exception-type-line"
 	PanelTypeGauge             PanelType = "gauge"
@@ -58,7 +59,6 @@ const (
 	PanelTypeLogHistogram      PanelType = "log-histogram"
 	PanelTypePie               PanelType = "pie"
 	PanelTypeRequest           PanelType = "request"
-	PanelTypeScorecard         PanelType = "scorecard"
 	PanelTypeServiceHealthGrid PanelType = "service-health-grid"
 	PanelTypeServiceMap        PanelType = "service-map"
 	PanelTypeSLOIndicators     PanelType = "slo-indicators"
@@ -73,6 +73,7 @@ var allowedPanelTypes = map[PanelType]struct{}{
 	PanelTypeAILine:            {},
 	PanelTypeBar:               {},
 	PanelTypeDBSystemsOverview: {},
+	PanelTypeErrorHotspotRank:  {},
 	PanelTypeErrorRate:         {},
 	PanelTypeExceptionTypeLine: {},
 	PanelTypeGauge:             {},
@@ -83,7 +84,6 @@ var allowedPanelTypes = map[PanelType]struct{}{
 	PanelTypeLogHistogram:      {},
 	PanelTypePie:               {},
 	PanelTypeRequest:           {},
-	PanelTypeScorecard:         {},
 	PanelTypeServiceHealthGrid: {},
 	PanelTypeServiceMap:        {},
 	PanelTypeSLOIndicators:     {},
@@ -117,11 +117,12 @@ type QuerySpec struct {
 }
 
 type PanelLayout struct {
-	Preset PanelPreset `json:"preset"`
-	X      *int        `json:"x,omitempty"`
-	Y      *int        `json:"y,omitempty"`
-	W      *int        `json:"w,omitempty"`
-	H      *int        `json:"h,omitempty"`
+	Preset  PanelPreset `json:"preset"`
+	X       *int        `json:"x,omitempty"`
+	Y       *int        `json:"y,omitempty"`
+	W       *int        `json:"w,omitempty"`
+	H       *int        `json:"h,omitempty"`
+	ColSpan *int        `json:"colSpan,omitempty"`
 }
 
 type SectionDefinition struct {
@@ -144,6 +145,7 @@ type PanelDefinition struct {
 	ID                    string             `json:"id"`
 	PanelType             PanelType          `json:"panelType"`
 	Title                 string             `json:"title,omitempty"`
+	Description           string             `json:"description,omitempty"`
 	TitleIcon             string             `json:"titleIcon,omitempty"`
 	Icon                  string             `json:"icon,omitempty"`
 	SectionID             string             `json:"sectionId"`

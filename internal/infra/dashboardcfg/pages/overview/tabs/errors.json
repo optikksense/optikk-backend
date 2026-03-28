@@ -42,6 +42,7 @@
         "method": "GET"
       },
       "title": "Service Error Rate",
+      "description": "Percentage of failed requests over time, broken down by service. Helps pinpoint which service is driving error spikes.",
       "titleIcon": "AlertCircle",
       "panelType": "error-rate",
       "sectionId": "trends"
@@ -58,6 +59,7 @@
         "method": "GET"
       },
       "title": "Exception Rate by Type",
+      "description": "Span event count over time grouped by exception type. Reveals whether errors stem from a single root cause or multiple independent issues.",
       "titleIcon": "Bug",
       "valueKey": "count",
       "panelType": "exception-type-line",
@@ -74,11 +76,12 @@
         "method": "GET"
       },
       "title": "Error Hotspot (Service \u00d7 Operation)",
+      "description": "Ranks service-operation pairs by error rate so the worst hotspots stay readable even with long operation names.",
       "titleIcon": "Crosshair",
       "valueKey": "error_rate",
       "xKey": "operation_name",
       "yKey": "service_name",
-      "panelType": "heatmap",
+      "panelType": "error-hotspot-ranking",
       "sectionId": "breakdowns"
     },
     {
@@ -93,9 +96,10 @@
         "method": "GET"
       },
       "title": "HTTP 5xx by Route",
+      "description": "Lists routes and services with their 5xx totals in a readable table so long endpoint names do not collide on the axis.",
       "titleIcon": "AlertTriangle",
       "valueKey": "count",
-      "panelType": "bar",
+      "panelType": "table",
       "sectionId": "breakdowns"
     },
     {
@@ -110,6 +114,7 @@
       },
       "drilldownRoute": "/errors/{group_id}",
       "title": "Error Groups",
+      "description": "Errors aggregated by fingerprint showing occurrence count and affected services. Click a group to see individual traces.",
       "titleIcon": "List",
       "panelType": "table",
       "sectionId": "details"

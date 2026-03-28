@@ -37,6 +37,7 @@
         }
       },
       "title": "PII Detections per Model",
+      "description": "Tracks personally identifiable information found in prompts and completions over time. Spikes may indicate a new integration sending sensitive data.",
       "titleIcon": "ShieldCheck",
       "valueKey": "pii_count",
       "panelType": "ai-line",
@@ -57,6 +58,7 @@
         }
       },
       "title": "Guardrail Blocks per Model",
+      "description": "Shows the count of requests blocked by safety guardrails per model. Correlate with specific prompt patterns to identify abuse vectors.",
       "titleIcon": "AlertCircle",
       "valueKey": "guardrail_count",
       "panelType": "ai-line",
@@ -74,6 +76,7 @@
       },
       "drilldownRoute": "/ai-observability/models/{model_name}",
       "title": "Security Metrics",
+      "description": "Lists per-model security event counts including PII detections and guardrail blocks. Click a row to drill into model-specific security details.",
       "titleIcon": "Shield",
       "panelType": "table",
       "sectionId": "details"
@@ -90,6 +93,7 @@
       },
       "drilldownRoute": "/ai-observability/models/{model_name}",
       "title": "PII Categories",
+      "description": "Breaks down detected PII by category such as email, phone, and SSN. Focus remediation efforts on the most frequently leaked data types.",
       "titleIcon": "Eye",
       "panelType": "table",
       "sectionId": "details"
