@@ -26,9 +26,11 @@ type RouteMetric struct {
 }
 
 type RouteTimeseriesPoint struct {
-	Timestamp  string `json:"timestamp"   ch:"time_bucket"`
-	HttpRoute  string `json:"http_route"  ch:"http_route"`
-	ErrorCount int64  `json:"error_count" ch:"error_count"`
+	Timestamp  string  `json:"timestamp"   ch:"time_bucket"`
+	HttpRoute  string  `json:"http_route"  ch:"http_route"`
+	ReqCount   int64   `json:"req_count"   ch:"req_count"`
+	ErrorCount int64   `json:"error_count" ch:"error_count"`
+	ErrorRate  float64 `json:"error_rate"  ch:"error_rate"`
 }
 
 type StatusGroupBucket struct {

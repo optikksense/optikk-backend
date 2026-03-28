@@ -165,7 +165,7 @@
     {
       "id": "apm-uptime",
       "layout": {
-        "preset": "hero"
+        "preset": "trend"
       },
       "order": 90,
       "query": {

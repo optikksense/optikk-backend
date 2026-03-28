@@ -26,7 +26,7 @@
       "order": 30,
       "kind": "breakdowns",
       "collapsible": true,
-      "layoutMode": "three-up"
+      "layoutMode": "two-up"
     },
     {
       "id": "status-overview",
@@ -34,7 +34,7 @@
       "order": 40,
       "kind": "breakdowns",
       "collapsible": true,
-      "layoutMode": "stack"
+      "layoutMode": "three-up"
     },
     {
       "id": "status-errors",
@@ -77,7 +77,7 @@
       "description": "Ranks external hosts by outbound request count. Dominance by a single host may indicate tight coupling or a candidate for caching.",
       "titleIcon": "Globe",
       "valueKey": "req_count",
-      "panelType": "bar",
+      "panelType": "table",
       "sectionId": "outbound-breakdowns"
     },
     {
@@ -179,7 +179,7 @@
       "description": "Ranks HTTP routes by total request count to highlight the busiest endpoints. Use this to identify hot paths that benefit most from optimization.",
       "titleIcon": "BarChart2",
       "valueKey": "req_count",
-      "panelType": "bar",
+      "panelType": "table",
       "sectionId": "route-breakdown"
     },
     {
@@ -213,7 +213,7 @@
       "description": "Compares 95th-percentile response time across external hosts. Hosts with disproportionately high latency may be bottlenecking end-to-end request flow.",
       "titleIcon": "Clock",
       "valueKey": "p95_ms",
-      "panelType": "bar",
+      "panelType": "table",
       "sectionId": "outbound-breakdowns"
     },
     {
@@ -282,7 +282,7 @@
       "description": "Ranks HTTP routes by their 95th-percentile response time. Routes at the top are the slowest and may need query optimization or caching.",
       "titleIcon": "Clock",
       "valueKey": "p95_ms",
-      "panelType": "bar",
+      "panelType": "table",
       "sectionId": "route-breakdown"
     },
     {
@@ -300,7 +300,7 @@
       "description": "Compares error percentages across external hosts. A host with a disproportionately high error rate may need circuit-breaking or fallback logic.",
       "titleIcon": "AlertTriangle",
       "valueKey": "error_pct",
-      "panelType": "bar",
+      "panelType": "table",
       "sectionId": "outbound-breakdowns"
     },
     {
@@ -335,14 +335,14 @@
       "description": "Compares error percentages across HTTP routes. Routes with elevated error rates relative to peers signal localized reliability problems.",
       "titleIcon": "AlertTriangle",
       "valueKey": "error_pct",
-      "panelType": "bar",
+      "panelType": "table",
       "sectionId": "route-breakdown"
     },
     {
       "groupByKey": "http_route",
       "id": "route-error-timeseries",
       "layout": {
-        "preset": "hero"
+        "preset": "trend"
       },
       "order": 40,
       "query": {

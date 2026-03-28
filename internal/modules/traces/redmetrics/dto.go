@@ -4,7 +4,9 @@ type redSummaryServiceRow struct {
 	ServiceName string  `ch:"service_name"`
 	TotalCount  int64   `ch:"total_count"`
 	ErrorCount  int64   `ch:"error_count"`
+	P50Ms       float64 `ch:"p50_ms"`
 	P95Ms       float64 `ch:"p95_ms"`
+	P99Ms       float64 `ch:"p99_ms"`
 }
 
 type apdexRow struct {

@@ -3,10 +3,13 @@ package redmetrics
 import "time"
 
 type REDSummary struct {
-	ServiceCount int64   `json:"service_count"`
-	TotalRPS     float64 `json:"total_rps"`
-	AvgErrorPct  float64 `json:"avg_error_pct"`
-	AvgP95Ms     float64 `json:"avg_p95_ms"`
+	ServiceCount   int64   `json:"service_count"`
+	TotalSpanCount int64   `json:"total_span_count"`
+	TotalRPS       float64 `json:"total_rps"`
+	AvgErrorPct    float64 `json:"avg_error_pct"`
+	AvgP50Ms       float64 `json:"avg_p50_ms"`
+	AvgP95Ms       float64 `json:"avg_p95_ms"`
+	AvgP99Ms       float64 `json:"avg_p99_ms"`
 }
 
 type ApdexScore struct {

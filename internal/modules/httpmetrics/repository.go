@@ -204,7 +204,9 @@ func (r *ClickHouseRepository) GetRouteErrorTimeseries(teamID int64, startMs, en
 	query := fmt.Sprintf(`
 		SELECT %s AS time_bucket,
 		       mat_http_route AS http_route,
-		       toInt64(countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400)) AS error_count
+		       toInt64(count()) AS req_count,
+		       toInt64(countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400)) AS error_count,
+		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) * 100.0 / count() AS error_rate
 		FROM %s
 		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end

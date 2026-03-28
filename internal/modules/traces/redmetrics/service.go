@@ -35,11 +35,13 @@ func (s *REDMetricsService) GetSummary(teamID int64, startMs, endMs int64) (REDS
 	}
 
 	var totalCount, totalErrors int64
-	var totalP95 float64
+	var totalP50, totalP95, totalP99 float64
 	for _, row := range rows {
 		totalCount += row.TotalCount
 		totalErrors += row.ErrorCount
+		totalP50 += row.P50Ms
 		totalP95 += row.P95Ms
+		totalP99 += row.P99Ms
 	}
 	serviceCount := int64(len(rows))
 
@@ -47,15 +49,22 @@ func (s *REDMetricsService) GetSummary(teamID int64, startMs, endMs int64) (REDS
 	if totalCount > 0 {
 		avgErrorPct = float64(totalErrors) * 100.0 / float64(totalCount)
 	}
+	avgP50 := 0.0
 	avgP95 := 0.0
+	avgP99 := 0.0
 	if serviceCount > 0 {
+		avgP50 = totalP50 / float64(serviceCount)
 		avgP95 = totalP95 / float64(serviceCount)
+		avgP99 = totalP99 / float64(serviceCount)
 	}
 	return REDSummary{
-		ServiceCount: serviceCount,
-		TotalRPS:     float64(totalCount) / durationSec,
-		AvgErrorPct:  avgErrorPct,
-		AvgP95Ms:     avgP95,
+		ServiceCount:   serviceCount,
+		TotalSpanCount: totalCount,
+		TotalRPS:       float64(totalCount) / durationSec,
+		AvgErrorPct:    avgErrorPct,
+		AvgP50Ms:       avgP50,
+		AvgP95Ms:       avgP95,
+		AvgP99Ms:       avgP99,
 	}, nil
 }
 
