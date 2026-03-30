@@ -8,17 +8,13 @@
       "id": "trends",
       "title": "Errors",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "three-up"
+      "sectionTemplate": "two-up"
     }
   ],
   "panels": [
     {
       "id": "topic-publish-errors",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/saturation/kafka/publish-errors",
@@ -33,13 +29,11 @@
       "description": "Tracks producer-side error rates for this topic grouped by error type. Spikes may indicate serialization failures, authorization issues, or broker rejections.",
       "titleIcon": "AlertCircle",
       "panelType": "error-rate",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "topic-consume-errors",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/saturation/kafka/consume-errors",
@@ -54,13 +48,11 @@
       "description": "Tracks consumer-side error rates for this topic grouped by error type. Watch for deserialization or offset commit failures that could cause duplicate processing.",
       "titleIcon": "AlertCircle",
       "panelType": "error-rate",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "topic-process-errors",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/saturation/kafka/process-errors",
@@ -75,7 +67,8 @@
       "description": "Tracks message processing error rates for this topic grouped by error type. Persistent errors suggest bugs in consumer business logic or downstream dependency failures.",
       "titleIcon": "AlertCircle",
       "panelType": "error-rate",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     }
   ]
 }

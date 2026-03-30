@@ -8,9 +8,21 @@ import (
 	"io"
 	"io/fs"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
 )
+
+var allowedFormatters = map[string]struct{}{
+	"ms":       {},
+	"ns":       {},
+	"bytes":    {},
+	"percent1": {},
+	"percent2": {},
+	"number":   {},
+}
+
+var drilldownPlaceholderPattern = regexp.MustCompile(`\{([^}]+)\}`)
 
 type Registry struct {
 	pages map[string]PageDocument
@@ -73,6 +85,9 @@ func LoadFromFS(fsys fs.FS) (*Registry, error) {
 
 				sortSections(tab.Sections)
 				sortPanels(tab.Panels)
+				if err := compileTabLayouts(&tab); err != nil {
+					return nil, fmt.Errorf("compile %s: %w", tabPath, err)
+				}
 				doc.Tabs = append(doc.Tabs, tab)
 			}
 			sortTabs(doc.Tabs)
@@ -153,10 +168,11 @@ func DecodePageDocument(data []byte) (PageDocument, error) {
 }
 
 func validatePageDocument(doc PageDocument) error {
-	if doc.Page.SchemaVersion != CurrentSchemaVersion {
+	if doc.Page.SchemaVersion < MinSupportedSchemaVersion || doc.Page.SchemaVersion > CurrentSchemaVersion {
 		return fmt.Errorf(
-			"page %q: schemaVersion must be %d",
+			"page %q: schemaVersion must be between %d and %d",
 			doc.Page.ID,
+			MinSupportedSchemaVersion,
 			CurrentSchemaVersion,
 		)
 	}
@@ -220,13 +236,15 @@ func validatePageDocument(doc PageDocument) error {
 			return fmt.Errorf("page %q tab %q: at least one panel is required", doc.Page.ID, tab.ID)
 		}
 
+		if err := hydrateTabPanelLayouts(tab.ID, &tab.Panels); err != nil {
+			return err
+		}
+
 		sectionIDs := map[string]struct{}{}
-		sectionsByID := make(map[string]SectionDefinition, len(tab.Sections))
 		for _, section := range tab.Sections {
 			if err := validateSection(doc.Page.ID, tab.ID, section, sectionIDs); err != nil {
 				return err
 			}
-			sectionsByID[section.ID] = section
 		}
 
 		panelIDs := map[string]struct{}{}
@@ -244,7 +262,7 @@ func validatePageDocument(doc PageDocument) error {
 			if sectionUsage[section.ID] == 0 {
 				return fmt.Errorf("page %q tab %q section %q: must contain at least one panel", doc.Page.ID, tab.ID, section.ID)
 			}
-			if err := validateSectionComposition(doc.Page.ID, tab.ID, sectionsByID[section.ID], panelsBySection[section.ID]); err != nil {
+			if err := validateSectionPanelLayouts(doc.Page.ID, tab.ID, section, panelsBySection[section.ID]); err != nil {
 				return err
 			}
 		}
@@ -263,17 +281,11 @@ func validateSection(pageID, tabID string, section SectionDefinition, seenIDs ma
 	if section.Title == "" {
 		return fmt.Errorf("page %q tab %q section %q: title is required", pageID, tabID, section.ID)
 	}
-	if section.Kind != SectionKindSummary &&
-		section.Kind != SectionKindTrends &&
-		section.Kind != SectionKindBreakdowns &&
-		section.Kind != SectionKindDetails {
-		return fmt.Errorf("page %q tab %q section %q: invalid kind %q", pageID, tabID, section.ID, section.Kind)
+	if section.SectionTemplate == "" {
+		return fmt.Errorf("page %q tab %q section %q: sectionTemplate is required", pageID, tabID, section.ID)
 	}
-	if section.LayoutMode != SectionLayoutModeKPIStrip &&
-		section.LayoutMode != SectionLayoutModeTwoUp &&
-		section.LayoutMode != SectionLayoutModeThreeUp &&
-		section.LayoutMode != SectionLayoutModeStack {
-		return fmt.Errorf("page %q tab %q section %q: invalid layoutMode %q", pageID, tabID, section.ID, section.LayoutMode)
+	if _, allowed := allowedSectionTemplates[section.SectionTemplate]; !allowed {
+		return fmt.Errorf("page %q tab %q section %q: unsupported sectionTemplate %q", pageID, tabID, section.ID, section.SectionTemplate)
 	}
 	if _, exists := seenIDs[section.ID]; exists {
 		return fmt.Errorf("page %q tab %q: duplicate section id %q", pageID, tabID, section.ID)
@@ -289,8 +301,24 @@ func validatePanel(pageID, tabID string, panel PanelDefinition, seenIDs map[stri
 	if panel.PanelType == "" {
 		return fmt.Errorf("page %q tab %q panel %q: panelType is required", pageID, tabID, panel.ID)
 	}
+	if panel.LayoutVariant == "" {
+		return fmt.Errorf("page %q tab %q panel %q: layoutVariant is required", pageID, tabID, panel.ID)
+	}
 	if _, allowed := allowedPanelTypes[panel.PanelType]; !allowed {
 		return fmt.Errorf("page %q tab %q panel %q: unsupported panelType %q", pageID, tabID, panel.ID, panel.PanelType)
+	}
+	if _, allowed := allowedLayoutVariants[panel.LayoutVariant]; !allowed {
+		return fmt.Errorf("page %q tab %q panel %q: unsupported layoutVariant %q", pageID, tabID, panel.ID, panel.LayoutVariant)
+	}
+	if !isLayoutVariantAllowed(panel.PanelType, panel.LayoutVariant) {
+		return fmt.Errorf(
+			"page %q tab %q panel %q: layoutVariant %q is not allowed for panelType %q",
+			pageID,
+			tabID,
+			panel.ID,
+			panel.LayoutVariant,
+			panel.PanelType,
+		)
 	}
 	if panel.SectionID == "" {
 		return fmt.Errorf("page %q tab %q panel %q: sectionId is required", pageID, tabID, panel.ID)
@@ -309,83 +337,157 @@ func validatePanel(pageID, tabID string, panel PanelDefinition, seenIDs map[stri
 	if panel.Query.Method == "" {
 		return fmt.Errorf("page %q tab %q panel %q: query.method is required", pageID, tabID, panel.ID)
 	}
-	if panel.Layout.Preset != PanelPresetKPI &&
-		panel.Layout.Preset != PanelPresetTrend &&
-		panel.Layout.Preset != PanelPresetHero &&
-		panel.Layout.Preset != PanelPresetBreakdown &&
-		panel.Layout.Preset != PanelPresetDetail {
-		return fmt.Errorf("page %q tab %q panel %q: invalid layout.preset %q", pageID, tabID, panel.ID, panel.Layout.Preset)
+	if panel.Layout.X < 0 {
+		return fmt.Errorf("page %q tab %q panel %q: layout.x must be >= 0", pageID, tabID, panel.ID)
 	}
-	if panel.Layout.X != nil || panel.Layout.Y != nil || panel.Layout.W != nil {
-		return fmt.Errorf("page %q tab %q panel %q: manual layout coordinates are not supported", pageID, tabID, panel.ID)
+	if panel.Layout.Y < 0 {
+		return fmt.Errorf("page %q tab %q panel %q: layout.y must be >= 0", pageID, tabID, panel.ID)
 	}
-	if panel.Layout.H != nil && *panel.Layout.H <= 0 {
+	if panel.Layout.W <= 0 {
+		return fmt.Errorf("page %q tab %q panel %q: layout.w must be > 0", pageID, tabID, panel.ID)
+	}
+	if panel.Layout.H <= 0 {
 		return fmt.Errorf("page %q tab %q panel %q: layout.h must be > 0", pageID, tabID, panel.ID)
 	}
-	if panel.Layout.ColSpan != nil {
-		cs := *panel.Layout.ColSpan
-		if cs < 1 || cs > 4 {
-			return fmt.Errorf("page %q tab %q panel %q: layout.colSpan must be between 1 and 4", pageID, tabID, panel.ID)
+	if err := ValidateLayoutMatchesVariant(panel.LayoutVariant, panel.Layout.W, panel.Layout.H); err != nil {
+		return fmt.Errorf("page %q tab %q panel %q: %w", pageID, tabID, panel.ID, err)
+	}
+	if panel.Layout.X+panel.Layout.W > gridCols {
+		return fmt.Errorf("page %q tab %q panel %q: layout.x + layout.w must be <= %d", pageID, tabID, panel.ID, gridCols)
+	}
+	if panel.Formatter != "" {
+		if _, ok := allowedFormatters[panel.Formatter]; !ok {
+			return fmt.Errorf("page %q tab %q panel %q: unsupported formatter %q", pageID, tabID, panel.ID, panel.Formatter)
+		}
+	}
+	return validatePanelDataContract(pageID, tabID, panel)
+}
+
+func validatePanelDataContract(pageID, tabID string, panel PanelDefinition) error {
+	if _, ok := dashboardEndpointFieldContracts[panel.Query.Endpoint]; !ok {
+		return fmt.Errorf(
+			"page %q tab %q panel %q: endpoint %q has no declared dashboard field contract",
+			pageID,
+			tabID,
+			panel.ID,
+			panel.Query.Endpoint,
+		)
+	}
+
+	checkField := func(fieldName, fieldValue string) error {
+		if fieldValue == "" {
+			return nil
+		}
+		if endpointContractHasField(panel.Query.Endpoint, fieldValue) {
+			return nil
+		}
+		return fmt.Errorf(
+			"page %q tab %q panel %q: %s %q is not declared for endpoint %q",
+			pageID,
+			tabID,
+			panel.ID,
+			fieldName,
+			fieldValue,
+			panel.Query.Endpoint,
+		)
+	}
+
+	fields := []struct {
+		name  string
+		value string
+	}{
+		{name: "groupByKey", value: panel.GroupByKey},
+		{name: "labelKey", value: panel.LabelKey},
+		{name: "valueField", value: panel.ValueField},
+		{name: "valueKey", value: panel.ValueKey},
+		{name: "bucketKey", value: panel.BucketKey},
+		{name: "xKey", value: panel.XKey},
+		{name: "yKey", value: panel.YKey},
+		{name: "listSortField", value: panel.ListSortField},
+	}
+	for _, field := range fields {
+		if err := checkField(field.name, field.value); err != nil {
+			return err
+		}
+	}
+	for _, valueKey := range panel.ValueKeys {
+		if err := checkField("valueKeys", valueKey); err != nil {
+			return err
+		}
+	}
+	for _, summaryField := range panel.SummaryFields {
+		if err := checkField("summaryFields.field", summaryField.Field); err != nil {
+			return err
+		}
+		for _, key := range summaryField.Keys {
+			if err := checkField("summaryFields.keys", key); err != nil {
+				return err
+			}
+		}
+	}
+	for _, match := range drilldownPlaceholderPattern.FindAllStringSubmatch(panel.DrilldownRoute, -1) {
+		if len(match) < 2 {
+			continue
+		}
+		if err := checkField("drilldownRoute placeholder", match[1]); err != nil {
+			return err
 		}
 	}
 	return nil
 }
 
-func validateSectionComposition(
+func validateSectionPanelLayouts(
 	pageID, tabID string,
 	section SectionDefinition,
 	panels []PanelDefinition,
 ) error {
-	if section.Kind == SectionKindSummary && section.LayoutMode != SectionLayoutModeKPIStrip {
-		return fmt.Errorf(
-			"page %q tab %q section %q: summary sections must use layoutMode %q",
-			pageID,
-			tabID,
-			section.ID,
-			SectionLayoutModeKPIStrip,
-		)
+	hydrated := append([]PanelDefinition(nil), panels...)
+	if err := hydrateTabPanelLayouts(tabID, &hydrated); err != nil {
+		return fmt.Errorf("page %q tab %q section %q: %w", pageID, tabID, section.ID, err)
 	}
 
-	if section.Kind == SectionKindDetails &&
-		section.LayoutMode != SectionLayoutModeStack &&
-		section.LayoutMode != SectionLayoutModeTwoUp &&
-		section.LayoutMode != SectionLayoutModeThreeUp {
-		return fmt.Errorf(
-			"page %q tab %q section %q: details sections must use layoutMode %q, %q, or %q",
-			pageID,
-			tabID,
-			section.ID,
-			SectionLayoutModeStack,
-			SectionLayoutModeTwoUp,
-			SectionLayoutModeThreeUp,
-		)
+	canonicalLayouts, err := canonicalSectionLayout(section, hydrated)
+	if err != nil {
+		return fmt.Errorf("page %q tab %q section %q: %w", pageID, tabID, section.ID, err)
 	}
 
-	if section.LayoutMode == SectionLayoutModeKPIStrip {
-		for _, panel := range panels {
-			if panel.PanelType != "stat-card" && panel.PanelType != "stat-summary" {
-				return fmt.Errorf(
-					"page %q tab %q section %q: kpi-strip sections only allow stat-card or stat-summary panels",
-					pageID,
-					tabID,
-					section.ID,
-				)
-			}
-		}
-		return nil
-	}
-
-	for _, panel := range panels {
-		if panel.PanelType == "stat-card" || panel.PanelType == "stat-summary" {
+	for _, panel := range hydrated {
+		want := canonicalLayouts[panel.ID]
+		if panel.Layout != want {
 			return fmt.Errorf(
-				"page %q tab %q section %q: KPI panels must live in kpi-strip sections",
+				"page %q tab %q section %q panel %q: layout must match canonical section packing; got layout=%+v, want layout=%+v for pattern %q",
 				pageID,
 				tabID,
 				section.ID,
+				panel.ID,
+				panel.Layout,
+				want,
+				sectionLayoutPattern(section, hydrated),
 			)
 		}
 	}
 
+	occupied := make(map[string]string)
+	for _, panel := range hydrated {
+		for x := panel.Layout.X; x < panel.Layout.X+panel.Layout.W; x++ {
+			for y := panel.Layout.Y; y < panel.Layout.Y+panel.Layout.H; y++ {
+				key := fmt.Sprintf("%d:%d", x, y)
+				if existing, exists := occupied[key]; exists {
+					return fmt.Errorf(
+						"page %q tab %q section %q: panels %q and %q overlap at (%d,%d)",
+						pageID,
+						tabID,
+						section.ID,
+						existing,
+						panel.ID,
+						x,
+						y,
+					)
+				}
+				occupied[key] = panel.ID
+			}
+		}
+	}
 	return nil
 }
 
@@ -442,6 +544,66 @@ func strictUnmarshal(data []byte, dest any) error {
 	var trailing any
 	if err := decoder.Decode(&trailing); err != io.EOF {
 		return errors.New("unexpected trailing JSON content")
+	}
+
+	return nil
+}
+
+// hydrateTabPanelLayouts sets layout.w and layout.h from the layoutVariant footprint when either
+// dimension is missing (legacy JSON without layout dimensions).
+func hydrateTabPanelLayouts(tabID string, panels *[]PanelDefinition) error {
+	if panels == nil {
+		return nil
+	}
+	s := *panels
+	for i := range s {
+		p := &s[i]
+		if p.Layout.W <= 0 || p.Layout.H <= 0 {
+			size, err := panelSizeForVariant(p.LayoutVariant)
+			if err != nil {
+				return fmt.Errorf("tab %q panel %q: %w", tabID, p.ID, err)
+			}
+			p.Layout.W = size.W
+			p.Layout.H = size.H
+		}
+	}
+	return nil
+}
+
+func compileTabLayouts(tab *TabDefinition) error {
+	if err := hydrateTabPanelLayouts(tab.ID, &tab.Panels); err != nil {
+		return err
+	}
+
+	sectionsByID := make(map[string]SectionDefinition, len(tab.Sections))
+	for _, section := range tab.Sections {
+		sectionsByID[section.ID] = section
+	}
+
+	panelsBySection := make(map[string][]*PanelDefinition, len(tab.Sections))
+	for index := range tab.Panels {
+		panel := &tab.Panels[index]
+		panelsBySection[panel.SectionID] = append(panelsBySection[panel.SectionID], panel)
+	}
+
+	for _, section := range tab.Sections {
+		panelRefs := panelsBySection[section.ID]
+		if len(panelRefs) == 0 {
+			continue
+		}
+
+		panels := make([]PanelDefinition, 0, len(panelRefs))
+		for _, panelRef := range panelRefs {
+			panels = append(panels, *panelRef)
+		}
+
+		layouts, err := canonicalSectionLayout(section, panels)
+		if err != nil {
+			return fmt.Errorf("tab %q section %q: %w", tab.ID, section.ID, err)
+		}
+		for _, panelRef := range panelRefs {
+			panelRef.Layout = layouts[panelRef.ID]
+		}
 	}
 
 	return nil

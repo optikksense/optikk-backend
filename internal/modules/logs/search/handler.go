@@ -1,19 +1,14 @@
 package search
 
 import (
-	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/logs/internal/shared"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 )
 
 type Handler struct {
@@ -53,67 +48,4 @@ func (h *Handler) GetLogs(c *gin.Context) {
 		return
 	}
 	modulecommon.RespondOK(c, resp)
-}
-
-func (h *Handler) StreamLogs(c *gin.Context) {
-	filters, ok := shared.EnrichFilters(c, h.GetTenant(c).TeamID)
-	if !ok {
-		return
-	}
-
-	const pollInterval = 2 * time.Second
-	const heartbeatInterval = 15 * time.Second
-	const maxLogsPerPoll = 50
-
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
-
-	ctx := c.Request.Context()
-	flusher, canFlush := c.Writer.(http.Flusher)
-	latestNs := uint64(filters.EndMs) * 1_000_000 //nolint:gosec // G115 - domain-constrained value
-
-	ticker := time.NewTicker(pollInterval)
-	heartbeat := time.NewTicker(heartbeatInterval)
-	defer ticker.Stop()
-	defer heartbeat.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-heartbeat.C:
-			_, _ = fmt.Fprintf(c.Writer, "event: heartbeat\ndata: {}\n\n")
-			if canFlush {
-				flusher.Flush()
-			}
-		case <-ticker.C:
-			nowMs := time.Now().UnixMilli()
-			pollFilters := filters
-			pollFilters.StartMs = int64(latestNs/1_000_000) + 1 //nolint:gosec // G115
-			pollFilters.EndMs = nowMs
-
-			resp, err := h.Service.GetLogs(ctx, pollFilters, maxLogsPerPoll, "asc", shared.LogCursor{})
-			if err != nil {
-				logger.L().Warn("StreamLogs poll error", zap.Error(err))
-				continue
-			}
-
-			for _, entry := range resp.Logs {
-				b, err := json.Marshal(entry)
-				if err != nil {
-					logger.L().Warn("StreamLogs marshal error", zap.Error(err))
-					continue
-				}
-				_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", b)
-				if entry.Timestamp > latestNs {
-					latestNs = entry.Timestamp
-				}
-			}
-			if canFlush && len(resp.Logs) > 0 {
-				flusher.Flush()
-			}
-		}
-	}
 }

@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "kafka-group-detail",
   "path": "/saturation/kafka/groups/:groupId",
   "label": "Consumer Group Detail",

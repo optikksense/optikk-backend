@@ -8,25 +8,20 @@
       "id": "rates",
       "title": "Rates",
       "order": 10,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "latency",
       "title": "Latency",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     }
   ],
   "panels": [
     {
       "id": "topic-produce-rate",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/saturation/kafka/produce-rate-by-topic",
@@ -40,13 +35,11 @@
       "description": "Tracks the message produce throughput for this topic over time. A sudden drop may indicate producer failures or upstream service issues.",
       "titleIcon": "TrendingUp",
       "panelType": "request",
-      "sectionId": "rates"
+      "sectionId": "rates",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "topic-consume-rate",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/saturation/kafka/consume-rate-by-topic",
@@ -60,13 +53,11 @@
       "description": "Tracks the message consume throughput for this topic over time. Compare with produce rate to detect whether consumers are keeping pace.",
       "titleIcon": "TrendingDown",
       "panelType": "request",
-      "sectionId": "rates"
+      "sectionId": "rates",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "topic-publish-latency",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/saturation/kafka/publish-latency-by-topic",
@@ -80,13 +71,11 @@
       "description": "Tracks the 95th percentile publish latency for this topic over time. Sustained increases may indicate broker back-pressure or partition leader elections.",
       "titleIcon": "Clock",
       "panelType": "latency",
-      "sectionId": "latency"
+      "sectionId": "latency",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "topic-receive-latency",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 40,
       "query": {
         "endpoint": "/v1/saturation/kafka/receive-latency-by-topic",
@@ -100,7 +89,8 @@
       "description": "Tracks the 95th percentile receive latency for this topic over time. Elevated values suggest slow consumer polling or network latency between consumers and brokers.",
       "titleIcon": "Clock",
       "panelType": "latency",
-      "sectionId": "latency"
+      "sectionId": "latency",
+      "layoutVariant": "standard-chart"
     }
   ]
 }

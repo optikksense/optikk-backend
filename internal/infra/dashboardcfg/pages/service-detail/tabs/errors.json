@@ -8,34 +8,28 @@
       "id": "trends",
       "title": "Golden Signals",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "breakdowns",
       "title": "Breakdowns",
       "order": 30,
-      "kind": "breakdowns",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "details",
       "title": "Details",
       "order": 40,
-      "kind": "details",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "table-stack"
     }
   ],
   "panels": [
     {
       "groupByKey": "exceptionType",
       "id": "exception-rate-by-type",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/spans/exception-rate-by-type",
@@ -49,14 +43,12 @@
       "titleIcon": "Bug",
       "valueKey": "count",
       "panelType": "exception-type-line",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "wide-chart"
     },
     {
       "groupByKey": "http_route",
       "id": "http-5xx-by-route",
-      "layout": {
-        "preset": "breakdown"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/spans/http-5xx-by-route",
@@ -70,13 +62,11 @@
       "titleIcon": "AlertTriangle",
       "valueKey": "count",
       "panelType": "bar",
-      "sectionId": "breakdowns"
+      "sectionId": "breakdowns",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "error-hotspot",
-      "layout": {
-        "preset": "breakdown"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/spans/error-hotspot",
@@ -92,13 +82,11 @@
       "xKey": "operation_name",
       "yKey": "service_name",
       "panelType": "heatmap",
-      "sectionId": "breakdowns"
+      "sectionId": "breakdowns",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "error-groups",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 40,
       "query": {
         "endpoint": "/v1/errors/groups",
@@ -112,7 +100,8 @@
       "description": "Lists distinct error groups observed in this service, aggregated by fingerprint. Each row represents a unique error pattern -- click through to see individual occurrences and stack traces.",
       "titleIcon": "List",
       "panelType": "table",
-      "sectionId": "details"
+      "sectionId": "details",
+      "layoutVariant": "detail-table"
     }
   ]
 }

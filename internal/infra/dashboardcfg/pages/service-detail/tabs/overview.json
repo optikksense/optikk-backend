@@ -8,33 +8,27 @@
       "id": "key-metrics",
       "title": "Key Metrics",
       "order": 5,
-      "kind": "details",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "three-up"
     },
     {
       "id": "golden-signals",
       "title": "Golden Signals",
       "order": 10,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "three-up"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "health",
       "title": "Health",
       "order": 20,
-      "kind": "breakdowns",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "summary-plus-health"
     }
   ],
   "panels": [
     {
       "id": "service-stat-cards",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 1,
       "query": {
         "endpoint": "/v1/services/stats",
@@ -46,13 +40,11 @@
       "title": "Service Stats",
       "description": "Shows aggregate KPIs for this service including throughput, error percentage, and latency percentiles. Use these numbers as a quick health check before diving into trends.",
       "panelType": "stat-cards-grid",
-      "sectionId": "key-metrics"
+      "sectionId": "key-metrics",
+      "layoutVariant": "summary"
     },
     {
       "id": "service-request-rate",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/services/timeseries",
@@ -66,13 +58,11 @@
       "description": "Tracks the number of requests per second handled by this service over time. Watch for unexpected drops that may indicate upstream issues or sudden spikes signaling traffic surges.",
       "titleIcon": "TrendingUp",
       "panelType": "request",
-      "sectionId": "golden-signals"
+      "sectionId": "golden-signals",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "service-error-rate",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/services/timeseries",
@@ -86,13 +76,11 @@
       "description": "Shows the percentage of failed requests for this service over time. Look for sustained increases or sharp spikes that correlate with deployments or dependency failures.",
       "titleIcon": "AlertCircle",
       "panelType": "error-rate",
-      "sectionId": "golden-signals"
+      "sectionId": "golden-signals",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "service-p95-latency",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/services/timeseries",
@@ -107,13 +95,11 @@
       "titleIcon": "Clock",
       "valueKey": "p95",
       "panelType": "latency",
-      "sectionId": "golden-signals"
+      "sectionId": "golden-signals",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "service-apdex",
-      "layout": {
-        "preset": "breakdown"
-      },
       "order": 50,
       "query": {
         "endpoint": "/v1/spans/red/apdex",
@@ -129,7 +115,8 @@
       "titleIcon": "Target",
       "valueKey": "apdex",
       "panelType": "gauge",
-      "sectionId": "health"
+      "sectionId": "health",
+      "layoutVariant": "summary"
     }
   ]
 }

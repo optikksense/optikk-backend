@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	spanlivetail "github.com/Optikk-Org/optikk-backend/internal/modules/traces/livetail"
 	spantraces "github.com/Optikk-Org/optikk-backend/internal/modules/traces/query"
 )
 
@@ -15,15 +14,11 @@ type tracesQueryService interface {
 }
 
 type Service struct {
-	tracesService   tracesQueryService
-	liveTailService *spanlivetail.Service
+	tracesService tracesQueryService
 }
 
-func NewService(tracesService tracesQueryService, liveTailService *spanlivetail.Service) *Service {
-	return &Service{
-		tracesService:   tracesService,
-		liveTailService: liveTailService,
-	}
+func NewService(tracesService tracesQueryService) *Service {
+	return &Service{tracesService: tracesService}
 }
 
 func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Response, error) {
@@ -78,8 +73,4 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Re
 			TopOperations: groupedFacets.OperationName,
 		},
 	}, nil
-}
-
-func (s *Service) Poll(ctx context.Context, teamID int64, filters spanlivetail.LiveTailFilters, sinceTime any) ([]spanlivetail.LiveSpan, error) {
-	return nil, nil
 }

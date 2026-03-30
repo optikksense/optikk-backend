@@ -12,8 +12,8 @@ import (
 type Repository interface {
 	GetJVMMemory(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmMemoryBucketDTO, error)
 	GetJVMGCDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
-	GetJVMGCCollections(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error)
-	GetJVMThreadCount(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error)
+	GetJVMGCCollections(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmGCCollectionBucketDTO, error)
+	GetJVMThreadCount(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmThreadBucketDTO, error)
 	GetJVMClasses(ctx context.Context, teamID int64, startMs, endMs int64) (jvmClassStatsDTO, error)
 	GetJVMCPU(ctx context.Context, teamID int64, startMs, endMs int64) (jvmCPUStatsDTO, error)
 	GetJVMBuffers(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmBufferBucketDTO, error)
@@ -80,33 +80,34 @@ func (r *ClickHouseRepository) GetJVMGCDuration(ctx context.Context, teamID int6
 	return r.queryHistogramSummary(ctx, query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetJVMGCCollections(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
+func (r *ClickHouseRepository) GetJVMGCCollections(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmGCCollectionBucketDTO, error) {
 	bucket := bucketExpr(startMs, endMs)
+	collector := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrJVMGCName)
 	query := fmt.Sprintf(`
-		SELECT %s as time_bucket, '' as pod, toFloat64(sum(hist_count)) as metric_val
+		SELECT %s as time_bucket, %s as collector, toFloat64(sum(hist_count)) as metric_val
 		FROM %s
 		WHERE %s = @teamID AND %s BETWEEN @start AND @end
 		  AND %s = '%s' AND metric_type = 'Histogram'
-		GROUP BY 1 ORDER BY 1`,
-		bucket,
+		GROUP BY 1, 2 ORDER BY 1, 2`,
+		bucket, collector,
 		infraconsts.TableMetrics,
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricJVMGCDuration)
-	return r.queryResourceBuckets(ctx, query, teamID, startMs, endMs)
+	return r.queryJVMGCCollectionBuckets(ctx, query, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetJVMThreadCount(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
+func (r *ClickHouseRepository) GetJVMThreadCount(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmThreadBucketDTO, error) {
 	bucket := bucketExpr(startMs, endMs)
 	daemon := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrJVMThreadDaemon)
 	query := fmt.Sprintf(`
-		SELECT %s as time_bucket, %s as state, avg(%s) as metric_val
+		SELECT %s as time_bucket, %s as daemon, avg(%s) as metric_val
 		FROM %s
 		WHERE %s = @teamID AND %s BETWEEN @start AND @end AND %s = '%s'
 		GROUP BY 1, 2 ORDER BY 1, 2`,
 		bucket, daemon, infraconsts.ColValue,
 		infraconsts.TableMetrics,
 		infraconsts.ColTeamID, infraconsts.ColTimestamp, infraconsts.ColMetricName, infraconsts.MetricJVMThreadCount)
-	return r.queryStateBuckets(ctx, query, teamID, startMs, endMs)
+	return r.queryJVMThreadBuckets(ctx, query, teamID, startMs, endMs)
 }
 
 func (r *ClickHouseRepository) GetJVMClasses(ctx context.Context, teamID int64, startMs, endMs int64) (jvmClassStatsDTO, error) {
@@ -177,8 +178,8 @@ func (r *ClickHouseRepository) GetJVMBuffers(ctx context.Context, teamID int64, 
 	return rows, err
 }
 
-func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
-	var rows []StateBucket
+func (r *ClickHouseRepository) queryJVMThreadBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]JVMThreadBucket, error) {
+	var rows []JVMThreadBucket
 	err := r.db.Select(ctx, &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
 	for i := range rows {
 		rows[i].Value = sanitizeFloatPtr(rows[i].Value)
@@ -186,8 +187,8 @@ func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query stri
 	return rows, err
 }
 
-func (r *ClickHouseRepository) queryResourceBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
-	var rows []ResourceBucket
+func (r *ClickHouseRepository) queryJVMGCCollectionBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]JVMGCCollectionBucket, error) {
+	var rows []JVMGCCollectionBucket
 	err := r.db.Select(ctx, &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
 	for i := range rows {
 		rows[i].Value = sanitizeFloatPtr(rows[i].Value)

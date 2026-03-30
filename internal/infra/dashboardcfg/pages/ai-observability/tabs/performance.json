@@ -8,34 +8,28 @@
       "id": "trends",
       "title": "Golden Signals",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "three-up"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "breakdowns",
       "title": "Breakdowns",
       "order": 30,
-      "kind": "breakdowns",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "details",
       "title": "Details",
       "order": 40,
-      "kind": "details",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "table-stack"
     }
   ],
   "panels": [
     {
       "groupByKey": "model_name",
       "id": "qps",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/ai/performance/timeseries",
@@ -49,14 +43,12 @@
       "titleIcon": "TrendingUp",
       "valueKey": "qps",
       "panelType": "ai-line",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "model_name",
       "id": "avg-latency",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/ai/performance/timeseries",
@@ -70,14 +62,12 @@
       "titleIcon": "Clock",
       "valueKey": "avg_latency_ms",
       "panelType": "ai-line",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "model_name",
       "id": "tokens-per-sec",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/ai/performance/timeseries",
@@ -91,15 +81,13 @@
       "titleIcon": "Zap",
       "valueKey": "tokens_per_sec",
       "panelType": "ai-line",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "bucketKey": "bucket_ms",
       "groupByKey": "model_name",
       "id": "latency-histogram",
-      "layout": {
-        "preset": "breakdown"
-      },
       "order": 40,
       "query": {
         "endpoint": "/v1/ai/performance/latency-histogram",
@@ -110,13 +98,11 @@
       "titleIcon": "BarChart3",
       "valueKey": "request_count",
       "panelType": "ai-bar",
-      "sectionId": "breakdowns"
+      "sectionId": "breakdowns",
+      "layoutVariant": "wide-chart"
     },
     {
       "id": "performance-metrics",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 50,
       "query": {
         "endpoint": "/v1/ai/performance/metrics",
@@ -127,7 +113,8 @@
       "description": "Lists per-model performance stats including QPS, latency percentiles, and token throughput. Click a row to drill into model-specific details.",
       "titleIcon": "Table",
       "panelType": "table",
-      "sectionId": "details"
+      "sectionId": "details",
+      "layoutVariant": "detail-table"
     }
   ]
 }

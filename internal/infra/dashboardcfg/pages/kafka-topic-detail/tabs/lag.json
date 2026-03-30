@@ -8,25 +8,20 @@
       "id": "breakdowns",
       "title": "Breakdowns",
       "order": 30,
-      "kind": "breakdowns",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "details",
       "title": "Details",
       "order": 40,
-      "kind": "details",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "table-stack"
     }
   ],
   "panels": [
     {
       "id": "topic-lag-by-group",
-      "layout": {
-        "preset": "breakdown"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/saturation/kafka/lag-by-group",
@@ -41,13 +36,11 @@
       "description": "Compares consumer lag across all consumer groups subscribed to this topic. Groups with significantly higher lag are falling behind and may need scaling or optimization.",
       "titleIcon": "Clock",
       "panelType": "request",
-      "sectionId": "breakdowns"
+      "sectionId": "breakdowns",
+      "layoutVariant": "wide-chart"
     },
     {
       "id": "topic-lag-per-partition",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/saturation/kafka/lag-per-partition",
@@ -60,7 +53,8 @@
       "description": "Shows consumer lag for each partition of this topic. Uneven lag across partitions may indicate a hot partition or a stuck consumer assignment.",
       "titleIcon": "Layers",
       "panelType": "table",
-      "sectionId": "details"
+      "sectionId": "details",
+      "layoutVariant": "detail-table"
     }
   ]
 }

@@ -52,8 +52,7 @@ type socketLogEventPayload struct {
 	Item shared.Log `json:"item"`
 }
 
-// SocketIOHandler creates a SubscriptionHandler that streams logs
-// via Socket.IO instead of SSE.
+// SocketIOHandler creates a SubscriptionHandler that streams logs via Socket.IO.
 func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 	return sio.SubscriptionHandler{
 		Event: "subscribe:logs",

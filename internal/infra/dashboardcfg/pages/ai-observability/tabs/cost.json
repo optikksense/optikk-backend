@@ -8,34 +8,28 @@
       "id": "trends",
       "title": "Golden Signals",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "breakdowns",
       "title": "Breakdowns",
       "order": 30,
-      "kind": "breakdowns",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "details",
       "title": "Details",
       "order": 40,
-      "kind": "details",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "table-stack"
     }
   ],
   "panels": [
     {
       "groupByKey": "model_name",
       "id": "cost-over-time",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/ai/cost/timeseries",
@@ -51,15 +45,13 @@
       "yDecimals": 4,
       "yPrefix": "$",
       "panelType": "ai-line",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "wide-chart"
     },
     {
       "color": "#F79009",
       "id": "cost-by-model",
       "labelKey": "model_name",
-      "layout": {
-        "preset": "breakdown"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/ai/cost/metrics",
@@ -72,14 +64,12 @@
       "yDecimals": 4,
       "yPrefix": "$",
       "panelType": "ai-bar",
-      "sectionId": "breakdowns"
+      "sectionId": "breakdowns",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "token-breakdown",
       "labelKey": "model_name",
-      "layout": {
-        "preset": "breakdown"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/ai/cost/token-breakdown",
@@ -96,13 +86,11 @@
         "cache_tokens"
       ],
       "panelType": "ai-bar",
-      "sectionId": "breakdowns"
+      "sectionId": "breakdowns",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "cost-metrics",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 40,
       "query": {
         "endpoint": "/v1/ai/cost/metrics",
@@ -113,7 +101,8 @@
       "description": "Lists per-model cost details including total spend, cost per token, and token counts. Click a row to drill into model-level cost analysis.",
       "titleIcon": "Table",
       "panelType": "table",
-      "sectionId": "details"
+      "sectionId": "details",
+      "layoutVariant": "detail-table"
     }
   ]
 }

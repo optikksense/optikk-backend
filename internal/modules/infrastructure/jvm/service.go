@@ -18,11 +18,11 @@ func (s *Service) GetJVMGCDuration(ctx context.Context, teamID int64, startMs, e
 	return s.repo.GetJVMGCDuration(ctx, teamID, startMs, endMs)
 }
 
-func (s *Service) GetJVMGCCollections(ctx context.Context, teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
+func (s *Service) GetJVMGCCollections(ctx context.Context, teamID int64, startMs, endMs int64) ([]JVMGCCollectionBucket, error) {
 	return s.repo.GetJVMGCCollections(ctx, teamID, startMs, endMs)
 }
 
-func (s *Service) GetJVMThreadCount(ctx context.Context, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
+func (s *Service) GetJVMThreadCount(ctx context.Context, teamID int64, startMs, endMs int64) ([]JVMThreadBucket, error) {
 	return s.repo.GetJVMThreadCount(ctx, teamID, startMs, endMs)
 }
 

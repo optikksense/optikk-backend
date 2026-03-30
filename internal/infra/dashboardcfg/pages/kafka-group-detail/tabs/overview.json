@@ -8,17 +8,13 @@
       "id": "trends",
       "title": "Overview",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     }
   ],
   "panels": [
     {
       "id": "group-consume-rate",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/saturation/kafka/consume-rate-by-group",
@@ -32,13 +28,11 @@
       "description": "Tracks the message consumption throughput for this consumer group over time. A drop in consume rate often precedes a rise in consumer lag.",
       "titleIcon": "TrendingDown",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "group-process-rate",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/saturation/kafka/process-rate-by-group",
@@ -52,13 +46,11 @@
       "description": "Tracks the rate at which this consumer group processes messages after receiving them. A widening gap between consume and process rates signals slow message handling logic.",
       "titleIcon": "Activity",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "group-rebalances",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/saturation/kafka/rebalance-signals",
@@ -72,13 +64,11 @@
       "description": "Tracks rebalance frequency for this consumer group over time. Each rebalance pauses consumption, so frequent events degrade overall throughput.",
       "titleIcon": "RefreshCw",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "group-assigned-partitions",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 40,
       "query": {
         "endpoint": "/v1/saturation/kafka/assigned-partitions",
@@ -92,7 +82,8 @@
       "description": "Tracks the number of partitions assigned to this consumer group over time. Drops indicate members leaving the group; increases follow new member joins or topic partition expansion.",
       "titleIcon": "Grid",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     }
   ]
 }

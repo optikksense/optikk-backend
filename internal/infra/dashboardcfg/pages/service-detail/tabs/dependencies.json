@@ -8,60 +8,20 @@
       "id": "trends",
       "title": "Golden Signals",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "details",
       "title": "Details",
       "order": 40,
-      "kind": "details",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "table-stack"
     }
   ],
   "panels": [
     {
-      "id": "upstream-downstream",
-      "layout": {
-        "preset": "detail"
-      },
-      "order": 10,
-      "query": {
-        "endpoint": "/v1/services/{serviceName}/upstream-downstream",
-        "method": "GET"
-      },
-      "title": "Upstream & Downstream Dependencies",
-      "description": "Lists every service that calls this service (upstream) and every service this service calls (downstream), along with p95 latency and error rate. Use it to trace where failures or slowness originate.",
-      "titleIcon": "GitBranch",
-      "panelType": "table",
-      "sectionId": "details"
-    },
-    {
-      "id": "external-dependencies",
-      "layout": {
-        "preset": "detail"
-      },
-      "order": 20,
-      "query": {
-        "endpoint": "/v1/services/external-dependencies",
-        "method": "GET",
-        "params": {
-          "service": "{serviceName}"
-        }
-      },
-      "title": "External Dependencies",
-      "description": "Shows hosts outside the service mesh that this service communicates with, such as third-party APIs or managed databases. Watch for high latency or error rates on external calls that could bottleneck this service.",
-      "titleIcon": "Globe",
-      "panelType": "table",
-      "sectionId": "details"
-    },
-    {
       "id": "client-server-latency",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/spans/client-server-latency",
@@ -74,7 +34,39 @@
       "description": "Compares the p95 latency as seen by callers (client spans) versus this service's own processing time (server spans). A widening gap indicates network overhead or queuing between the two.",
       "titleIcon": "Activity",
       "panelType": "latency",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "wide-chart"
+    },
+    {
+      "id": "upstream-downstream",
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/services/{serviceName}/upstream-downstream",
+        "method": "GET"
+      },
+      "title": "Upstream & Downstream Dependencies",
+      "description": "Lists every service that calls this service (upstream) and every service this service calls (downstream), along with p95 latency and error rate. Use it to trace where failures or slowness originate.",
+      "titleIcon": "GitBranch",
+      "panelType": "table",
+      "sectionId": "details",
+      "layoutVariant": "summary-table"
+    },
+    {
+      "id": "external-dependencies",
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/services/external-dependencies",
+        "method": "GET",
+        "params": {
+          "service": "{serviceName}"
+        }
+      },
+      "title": "External Dependencies",
+      "description": "Shows hosts outside the service mesh that this service communicates with, such as third-party APIs or managed databases. Watch for high latency or error rates on external calls that could bottleneck this service.",
+      "titleIcon": "Globe",
+      "panelType": "table",
+      "sectionId": "details",
+      "layoutVariant": "summary-table"
     }
   ]
 }

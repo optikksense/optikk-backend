@@ -8,42 +8,35 @@
       "id": "summary",
       "title": "Key Metrics",
       "order": 10,
-      "kind": "summary",
       "collapsible": true,
-      "layoutMode": "kpi-strip"
+      "sectionTemplate": "kpi-band"
     },
     {
       "id": "trends",
       "title": "Golden Signals",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "breakdowns",
       "title": "Breakdowns",
       "order": 30,
-      "kind": "breakdowns",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "three-up"
     },
     {
       "id": "details",
       "title": "Details",
       "order": 40,
-      "kind": "details",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "table-stack"
     }
   ],
   "panels": [
     {
       "formatter": "number",
       "id": "allocatable-cpu-(cores)",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/infrastructure/kubernetes/node-allocatable",
@@ -54,14 +47,12 @@
       "titleIcon": "Cpu",
       "valueField": "cpu_cores",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "bytes",
       "id": "allocatable-memory",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/infrastructure/kubernetes/node-allocatable",
@@ -72,14 +63,12 @@
       "titleIcon": "HardDrive",
       "valueField": "memory_bytes",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "groupByKey": "container",
       "id": "k8s-container-cpu",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/infrastructure/kubernetes/container-cpu",
@@ -90,14 +79,12 @@
       "titleIcon": "Cpu",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "container",
       "id": "k8s-cpu-throttling",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 40,
       "query": {
         "endpoint": "/v1/infrastructure/kubernetes/cpu-throttling",
@@ -108,14 +95,12 @@
       "titleIcon": "AlertTriangle",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "container",
       "id": "k8s-container-memory",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 50,
       "query": {
         "endpoint": "/v1/infrastructure/kubernetes/container-memory",
@@ -126,14 +111,12 @@
       "titleIcon": "HardDrive",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "container",
       "id": "k8s-oom-kills",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 60,
       "query": {
         "endpoint": "/v1/infrastructure/kubernetes/oom-kills",
@@ -144,14 +127,12 @@
       "titleIcon": "AlertTriangle",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "phase",
       "id": "k8s-pod-phases",
-      "layout": {
-        "preset": "breakdown"
-      },
       "order": 70,
       "query": {
         "endpoint": "/v1/infrastructure/kubernetes/pod-phases",
@@ -162,13 +143,11 @@
       "titleIcon": "Circle",
       "valueKey": "count",
       "panelType": "pie",
-      "sectionId": "breakdowns"
+      "sectionId": "breakdowns",
+      "layoutVariant": "summary"
     },
     {
       "id": "k8s-replica-status",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 80,
       "query": {
         "endpoint": "/v1/infrastructure/kubernetes/replica-status",
@@ -178,13 +157,11 @@
       "description": "Compares desired versus available replicas for each deployment. A mismatch indicates pods that failed to schedule or start.",
       "titleIcon": "Layers",
       "panelType": "table",
-      "sectionId": "details"
+      "sectionId": "details",
+      "layoutVariant": "summary-table"
     },
     {
       "id": "k8s-pod-restarts",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 90,
       "query": {
         "endpoint": "/v1/infrastructure/kubernetes/pod-restarts",
@@ -194,13 +171,11 @@
       "description": "Lists pods ranked by restart count. Frequent restarts point to crash loops, health-check failures, or resource limits being exceeded.",
       "titleIcon": "RefreshCw",
       "panelType": "table",
-      "sectionId": "details"
+      "sectionId": "details",
+      "layoutVariant": "summary-table"
     },
     {
       "id": "k8s-volume-usage",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 100,
       "query": {
         "endpoint": "/v1/infrastructure/kubernetes/volume-usage",
@@ -210,7 +185,8 @@
       "description": "Shows persistent volume capacity and current usage per claim. Volumes nearing full capacity may cause application write failures.",
       "titleIcon": "FolderOpen",
       "panelType": "table",
-      "sectionId": "details"
+      "sectionId": "details",
+      "layoutVariant": "detail-table"
     }
   ]
 }

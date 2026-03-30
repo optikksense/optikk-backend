@@ -1,8 +1,6 @@
 package dashboard
 
 import (
-	"errors"
-	"io"
 	"net/http"
 
 	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
@@ -42,11 +40,6 @@ type getTabDocumentResponse struct {
 	Order    int                                `json:"order"`
 	Sections []configdefaults.SectionDefinition `json:"sections"`
 	Panels   []configdefaults.PanelDefinition   `json:"panels"`
-}
-
-type savePageOverrideResponse struct {
-	PageID  string `json:"pageId"`
-	Message string `json:"message"`
 }
 
 func (h *Handler) ListPages(c *gin.Context) {
@@ -107,53 +100,3 @@ func (h *Handler) GetTabDocument(c *gin.Context) {
 		Panels:   tab.Panels,
 	})
 }
-
-// SavePageOverride saves a page-level override JSON blob.
-func (h *Handler) SavePageOverride(c *gin.Context) {
-	tenant := h.GetTenant(c)
-	pageID := c.Param("pageId")
-	if pageID == "" {
-		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "pageId is required")
-		return
-	}
-
-	payload, err := io.ReadAll(c.Request.Body)
-	if err != nil {
-		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "invalid JSON override")
-		return
-	}
-
-	override, err := configdefaults.DecodePageDocument(payload)
-	if err != nil {
-		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "invalid JSON override")
-		return
-	}
-
-	if err := h.Service.SavePageOverride(tenant.TeamID, pageID, override); err != nil { //nolint:nestif
-		status := http.StatusInternalServerError
-		code := errorcode.Internal
-		var httpErr httpError
-		if errors.As(err, &httpErr) {
-			status = http.StatusBadRequest
-			code = errorcode.BadRequest
-			if pageID != "" && override.Page.ID == "" {
-				// Preserve not-found behavior for unknown pages.
-				if err.Error() == "No configuration found for page: "+pageID {
-					status = http.StatusNotFound
-					code = errorcode.NotFound
-				}
-			}
-		}
-		modulecommon.RespondError(c, status, code, err.Error())
-		return
-	}
-
-	modulecommon.RespondOK(c, savePageOverrideResponse{
-		PageID:  pageID,
-		Message: "Default config override saved successfully",
-	})
-}
-
-type httpError string
-
-func (e httpError) Error() string { return string(e) }

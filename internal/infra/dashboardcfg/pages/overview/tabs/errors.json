@@ -8,34 +8,28 @@
       "id": "trends",
       "title": "Golden Signals",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "breakdowns",
       "title": "Breakdowns",
       "order": 30,
-      "kind": "breakdowns",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "chart-grid-plus-details"
     },
     {
       "id": "details",
       "title": "Details",
       "order": 40,
-      "kind": "details",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "table-stack"
     }
   ],
   "panels": [
     {
       "groupByKey": "service",
       "id": "service-error-rate",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/overview/errors/service-error-rate",
@@ -45,14 +39,12 @@
       "description": "Percentage of failed requests over time, broken down by service. Helps pinpoint which service is driving error spikes.",
       "titleIcon": "AlertCircle",
       "panelType": "error-rate",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "exceptionType",
       "id": "exception-rate-by-type",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/spans/exception-rate-by-type",
@@ -63,13 +55,11 @@
       "titleIcon": "Bug",
       "valueKey": "count",
       "panelType": "exception-type-line",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "error-hotspot",
-      "layout": {
-        "preset": "breakdown"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/spans/error-hotspot",
@@ -82,31 +72,11 @@
       "xKey": "operation_name",
       "yKey": "service_name",
       "panelType": "error-hotspot-ranking",
-      "sectionId": "breakdowns"
-    },
-    {
-      "groupByKey": "http_route",
-      "id": "http-5xx-by-route",
-      "layout": {
-        "preset": "breakdown"
-      },
-      "order": 40,
-      "query": {
-        "endpoint": "/v1/spans/http-5xx-by-route",
-        "method": "GET"
-      },
-      "title": "HTTP 5xx by Route",
-      "description": "Lists routes and services with their 5xx totals in a readable table so long endpoint names do not collide on the axis.",
-      "titleIcon": "AlertTriangle",
-      "valueKey": "count",
-      "panelType": "table",
-      "sectionId": "breakdowns"
+      "sectionId": "breakdowns",
+      "layoutVariant": "ranking"
     },
     {
       "id": "error-groups",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 50,
       "query": {
         "endpoint": "/v1/errors/groups",
@@ -117,7 +87,24 @@
       "description": "Errors aggregated by fingerprint showing occurrence count and affected services. Click a group to see individual traces.",
       "titleIcon": "List",
       "panelType": "table",
-      "sectionId": "details"
+      "sectionId": "details",
+      "layoutVariant": "summary-table"
+    },
+    {
+      "groupByKey": "http_route",
+      "id": "http-5xx-by-route",
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/spans/http-5xx-by-route",
+        "method": "GET"
+      },
+      "title": "HTTP 5xx by Route",
+      "description": "Lists routes and services with their 5xx totals in a readable table so long endpoint names do not collide on the axis.",
+      "titleIcon": "AlertTriangle",
+      "valueKey": "count",
+      "panelType": "table",
+      "sectionId": "details",
+      "layoutVariant": "summary-table"
     }
   ]
 }

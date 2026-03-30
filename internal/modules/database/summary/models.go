@@ -3,6 +3,7 @@ package summary
 type SummaryStats struct {
 	AvgLatencyMs      *float64 `json:"avg_latency_ms"`
 	P95LatencyMs      *float64 `json:"p95_latency_ms"`
+	P99LatencyMs      *float64 `json:"p99_latency_ms"`
 	SpanCount         int64    `json:"span_count"`
 	ActiveConnections int64    `json:"active_connections"`
 	ErrorRate         *float64 `json:"error_rate"`
@@ -12,6 +13,7 @@ type SummaryStats struct {
 type summaryMainDTO struct {
 	P50        *float64 `ch:"p50"`
 	P95        *float64 `ch:"p95"`
+	P99        *float64 `ch:"p99"`
 	TotalCount int64    `ch:"total_count"`
 	ErrorCount int64    `ch:"error_count"`
 }

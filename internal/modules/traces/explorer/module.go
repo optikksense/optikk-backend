@@ -2,7 +2,6 @@ package explorer
 
 import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	spanlivetail "github.com/Optikk-Org/optikk-backend/internal/modules/traces/livetail"
 	spantraces "github.com/Optikk-Org/optikk-backend/internal/modules/traces/query"
 	"github.com/gin-gonic/gin"
 )
@@ -20,7 +19,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 		return
 	}
 	v1.POST("/traces/explorer/query", h.Query)
-	v1.GET("/traces/explorer/stream", h.Stream)
 }
 
 func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
@@ -38,12 +36,7 @@ func (m *tracesExplorerModule) RouteTarget() registry.RouteTarget { return regis
 
 func (m *tracesExplorerModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	traceService := spantraces.NewService(spantraces.NewRepository(nativeQuerier))
-	liveTailService := spanlivetail.NewService(spanlivetail.NewRepository(nativeQuerier))
-	m.handler = NewHandler(
-		getTenant,
-		NewService(traceService, liveTailService),
-		liveTailService,
-	)
+	m.handler = NewHandler(getTenant, NewService(traceService))
 }
 
 func (m *tracesExplorerModule) RegisterRoutes(group *gin.RouterGroup) {

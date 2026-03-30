@@ -20,7 +20,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 		return
 	}
 	v1.GET("/logs", h.GetLogs)
-	v1.GET("/logs/stream", h.StreamLogs)
 }
 
 func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {

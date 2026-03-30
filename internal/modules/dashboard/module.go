@@ -22,7 +22,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	v1.GET("/default-config/pages", h.ListPages)
 	v1.GET("/default-config/pages/:pageId/tabs", h.ListTabs)
 	v1.GET("/default-config/pages/:pageId/tabs/:tabId", h.GetTabDocument)
-	v1.PUT("/default-config/pages/:pageId", h.SavePageOverride)
 }
 
 func NewModule(

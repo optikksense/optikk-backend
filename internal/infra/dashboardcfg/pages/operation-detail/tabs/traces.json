@@ -8,17 +8,13 @@
       "id": "details",
       "title": "Traces",
       "order": 40,
-      "kind": "details",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "table-stack"
     }
   ],
   "panels": [
     {
       "id": "op-recent-traces",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/traces",
@@ -32,7 +28,8 @@
       "description": "Lists the most recent traces that include this operation, showing trace ID, duration, and status. Use these to jump directly into the trace-detail view for root-cause analysis.",
       "titleIcon": "List",
       "panelType": "table",
-      "sectionId": "details"
+      "sectionId": "details",
+      "layoutVariant": "detail-table"
     }
   ]
 }

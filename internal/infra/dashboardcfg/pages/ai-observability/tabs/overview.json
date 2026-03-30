@@ -8,26 +8,21 @@
       "id": "summary",
       "title": "Key Metrics",
       "order": 10,
-      "kind": "summary",
       "collapsible": true,
-      "layoutMode": "kpi-strip"
+      "sectionTemplate": "kpi-band"
     },
     {
       "id": "trends",
       "title": "Golden Signals",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     }
   ],
   "panels": [
     {
       "formatter": "number",
       "id": "summary-total-requests",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/ai/summary",
@@ -38,14 +33,12 @@
       "titleIcon": "Activity",
       "valueField": "request_count",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "number",
       "id": "summary-total-cost",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/ai/summary",
@@ -56,14 +49,12 @@
       "titleIcon": "DollarSign",
       "valueField": "total_cost_usd",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "number",
       "id": "summary-guardrail-blocks",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/ai/summary",
@@ -74,14 +65,12 @@
       "titleIcon": "Shield",
       "valueField": "guardrail_count",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "number",
       "id": "summary-pii-detections",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 40,
       "query": {
         "endpoint": "/v1/ai/summary",
@@ -92,14 +81,12 @@
       "titleIcon": "Eye",
       "valueField": "pii_count",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "groupByKey": "model_name",
       "id": "qps",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 50,
       "query": {
         "endpoint": "/v1/ai/performance/timeseries",
@@ -113,14 +100,12 @@
       "titleIcon": "TrendingUp",
       "valueKey": "qps",
       "panelType": "ai-line",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "model_name",
       "id": "avg-latency",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 60,
       "query": {
         "endpoint": "/v1/ai/performance/timeseries",
@@ -134,14 +119,12 @@
       "titleIcon": "Clock",
       "valueKey": "avg_latency_ms",
       "panelType": "ai-line",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "model_name",
       "id": "cost-over-time",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 70,
       "query": {
         "endpoint": "/v1/ai/cost/timeseries",
@@ -157,14 +140,12 @@
       "yDecimals": 4,
       "yPrefix": "$",
       "panelType": "ai-line",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "model_name",
       "id": "pii-detections",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 80,
       "query": {
         "endpoint": "/v1/ai/security/timeseries",
@@ -178,7 +159,8 @@
       "titleIcon": "ShieldCheck",
       "valueKey": "pii_count",
       "panelType": "ai-line",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     }
   ]
 }

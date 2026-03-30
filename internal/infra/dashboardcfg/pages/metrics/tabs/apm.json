@@ -8,26 +8,21 @@
       "id": "summary",
       "title": "Key Metrics",
       "order": 10,
-      "kind": "summary",
       "collapsible": true,
-      "layoutMode": "kpi-strip"
+      "sectionTemplate": "kpi-band"
     },
     {
       "id": "trends",
       "title": "Golden Signals",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     }
   ],
   "panels": [
     {
       "formatter": "ms",
       "id": "rpc-p95-duration",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/apm/rpc-duration",
@@ -38,14 +33,12 @@
       "titleIcon": "Clock",
       "valueField": "p95",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "ms",
       "id": "rpc-p99-duration",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/apm/rpc-duration",
@@ -56,14 +49,12 @@
       "titleIcon": "Clock",
       "valueField": "p99",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "bytes",
       "id": "rss-memory",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/apm/process-memory",
@@ -74,14 +65,12 @@
       "titleIcon": "HardDrive",
       "valueField": "rss",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "bytes",
       "id": "virtual-memory",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 40,
       "query": {
         "endpoint": "/v1/apm/process-memory",
@@ -92,13 +81,25 @@
       "titleIcon": "HardDrive",
       "valueField": "vms",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
+    },
+    {
+      "id": "apm-messaging-duration",
+      "order": 60,
+      "query": {
+        "endpoint": "/v1/apm/messaging-publish-duration",
+        "method": "GET"
+      },
+      "title": "Messaging Publish Duration p50/p95/p99",
+      "description": "Shows median, 95th, and 99th percentile durations for publishing messages to queues. Rising values suggest broker back-pressure or network congestion.",
+      "titleIcon": "Send",
+      "panelType": "stat-summary",
+      "sectionId": "summary",
+      "layoutVariant": "wide-chart"
     },
     {
       "id": "apm-rpc-request-rate",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 50,
       "query": {
         "endpoint": "/v1/apm/rpc-request-rate",
@@ -109,30 +110,12 @@
       "titleIcon": "Activity",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
-    },
-    {
-      "id": "apm-messaging-duration",
-      "layout": {
-        "preset": "kpi"
-      },
-      "order": 60,
-      "query": {
-        "endpoint": "/v1/apm/messaging-publish-duration",
-        "method": "GET"
-      },
-      "title": "Messaging Publish Duration p50/p95/p99",
-      "description": "Shows median, 95th, and 99th percentile durations for publishing messages to queues. Rising values suggest broker back-pressure or network congestion.",
-      "titleIcon": "Send",
-      "panelType": "stat-summary",
-      "sectionId": "summary"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "state",
       "id": "apm-process-cpu",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 70,
       "query": {
         "endpoint": "/v1/apm/process-cpu",
@@ -143,13 +126,11 @@
       "titleIcon": "Cpu",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "apm-open-fds",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 80,
       "query": {
         "endpoint": "/v1/apm/open-fds",
@@ -160,13 +141,11 @@
       "titleIcon": "FileText",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "apm-uptime",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 90,
       "query": {
         "endpoint": "/v1/apm/uptime",
@@ -177,7 +156,8 @@
       "titleIcon": "Clock",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     }
   ]
 }

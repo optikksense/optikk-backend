@@ -8,26 +8,21 @@
       "id": "slo-at-a-glance",
       "title": "At a Glance",
       "order": 10,
-      "kind": "summary",
       "collapsible": true,
-      "layoutMode": "kpi-strip"
+      "sectionTemplate": "kpi-band"
     },
     {
       "id": "slo-timeseries",
       "title": "Over Time",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "three-up"
+      "sectionTemplate": "two-up"
     }
   ],
   "panels": [
     {
       "formatter": "percent1",
       "id": "slo-availability-pct",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 5,
       "query": {
         "endpoint": "/v1/overview/slo/stats",
@@ -38,14 +33,12 @@
       "titleIcon": "Target",
       "valueField": "availability_percent",
       "panelType": "stat-card",
-      "sectionId": "slo-at-a-glance"
+      "sectionId": "slo-at-a-glance",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "ms",
       "id": "slo-p95-latency",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 6,
       "query": {
         "endpoint": "/v1/overview/slo/stats",
@@ -56,14 +49,12 @@
       "titleIcon": "Clock",
       "valueField": "p95_latency_ms",
       "panelType": "stat-card",
-      "sectionId": "slo-at-a-glance"
+      "sectionId": "slo-at-a-glance",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "number",
       "id": "slo-total-requests",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 7,
       "query": {
         "endpoint": "/v1/overview/slo/stats",
@@ -74,14 +65,12 @@
       "titleIcon": "TrendingUp",
       "valueField": "total_requests",
       "panelType": "stat-card",
-      "sectionId": "slo-at-a-glance"
+      "sectionId": "slo-at-a-glance",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "number",
       "id": "slo-error-count",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 8,
       "query": {
         "endpoint": "/v1/overview/slo/stats",
@@ -92,16 +81,14 @@
       "titleIcon": "AlertCircle",
       "valueField": "error_count",
       "panelType": "stat-card",
-      "sectionId": "slo-at-a-glance"
+      "sectionId": "slo-at-a-glance",
+      "layoutVariant": "kpi"
     },
     {
       "color": "#12B76A",
       "dataKey": "timeseries",
       "datasetLabel": "Availability %",
       "id": "availability",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 15,
       "query": {
         "endpoint": "/v1/overview/slo",
@@ -116,14 +103,12 @@
       "titleIcon": "Target",
       "valueField": "availability_percent",
       "panelType": "error-rate",
-      "sectionId": "slo-timeseries"
+      "sectionId": "slo-timeseries",
+      "layoutVariant": "standard-chart"
     },
     {
       "dataKey": "timeseries",
       "id": "latency-vs-target",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 25,
       "query": {
         "endpoint": "/v1/overview/slo",
@@ -138,14 +123,12 @@
       "titleIcon": "Clock",
       "valueField": "avg_latency_ms",
       "panelType": "latency",
-      "sectionId": "slo-timeseries"
+      "sectionId": "slo-timeseries",
+      "layoutVariant": "standard-chart"
     },
     {
       "dataKey": "timeseries",
       "id": "error-budget-burn",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 35,
       "query": {
         "endpoint": "/v1/overview/slo",
@@ -160,7 +143,8 @@
       "titleIcon": "Flame",
       "valueField": "_errorBudgetBurn",
       "panelType": "error-rate",
-      "sectionId": "slo-timeseries"
+      "sectionId": "slo-timeseries",
+      "layoutVariant": "standard-chart"
     }
   ]
 }

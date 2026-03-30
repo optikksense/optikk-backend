@@ -2,8 +2,8 @@ package jvm
 
 type jvmMemoryBucketDTO = JVMMemoryBucket
 type histogramSummaryDTO = HistogramSummary
-type resourceBucketDTO = ResourceBucket
-type stateBucketDTO = StateBucket
+type jvmGCCollectionBucketDTO = JVMGCCollectionBucket
+type jvmThreadBucketDTO = JVMThreadBucket
 type jvmClassStatsDTO = JVMClassStats
 type jvmCPUStatsDTO = JVMCPUStats
 type jvmBufferBucketDTO = JVMBufferBucket

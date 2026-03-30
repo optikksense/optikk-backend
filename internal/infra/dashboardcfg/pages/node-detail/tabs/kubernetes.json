@@ -8,25 +8,20 @@
       "id": "trends",
       "title": "Golden Signals",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "three-up"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "breakdowns",
       "title": "Breakdowns",
       "order": 30,
-      "kind": "breakdowns",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "two-up"
     }
   ],
   "panels": [
     {
       "id": "node-k8s-container-cpu",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/infrastructure/kubernetes/container-cpu",
@@ -39,13 +34,11 @@
       "description": "Tracks aggregate container CPU usage on this node over time. Compare against node capacity to assess scheduling headroom.",
       "titleIcon": "Cpu",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "node-k8s-container-memory",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/infrastructure/kubernetes/container-memory",
@@ -58,32 +51,11 @@
       "description": "Tracks aggregate container memory usage on this node over time. Watch for containers approaching their memory limits, which can trigger OOM kills.",
       "titleIcon": "HardDrive",
       "panelType": "request",
-      "sectionId": "trends"
-    },
-    {
-      "id": "node-k8s-pod-phases",
-      "layout": {
-        "preset": "breakdown"
-      },
-      "order": 30,
-      "query": {
-        "endpoint": "/v1/infrastructure/kubernetes/pod-phases",
-        "method": "GET",
-        "params": {
-          "node": "{host}"
-        }
-      },
-      "title": "Pod Phases",
-      "description": "Breaks down pods on this node by their current phase (Running, Pending, Failed, etc.). A high count of non-Running pods signals scheduling or health-check issues.",
-      "titleIcon": "Box",
-      "panelType": "bar",
-      "sectionId": "breakdowns"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "node-k8s-pod-restarts",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 40,
       "query": {
         "endpoint": "/v1/infrastructure/kubernetes/pod-restarts",
@@ -96,7 +68,25 @@
       "description": "Tracks the rate of pod restarts on this node over time. Frequent restarts often indicate crashlooping containers or failing liveness probes.",
       "titleIcon": "RefreshCw",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "id": "node-k8s-pod-phases",
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/pod-phases",
+        "method": "GET",
+        "params": {
+          "node": "{host}"
+        }
+      },
+      "title": "Pod Phases",
+      "description": "Breaks down pods on this node by their current phase (Running, Pending, Failed, etc.). A high count of non-Running pods signals scheduling or health-check issues.",
+      "titleIcon": "Box",
+      "panelType": "bar",
+      "sectionId": "breakdowns",
+      "layoutVariant": "wide-chart"
     }
   ]
 }

@@ -8,33 +8,27 @@
       "id": "trends",
       "title": "Golden Signals",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "breakdowns",
       "title": "Breakdowns",
       "order": 30,
-      "kind": "breakdowns",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "details",
       "title": "Details",
       "order": 40,
-      "kind": "details",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "table-stack"
     }
   ],
   "panels": [
     {
       "id": "model-avg-latency",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/ai/performance/timeseries",
@@ -48,13 +42,11 @@
       "description": "Tracks the average inference latency for this model over time. Watch for upward trends that may indicate provider-side degradation.",
       "titleIcon": "Clock",
       "panelType": "ai-line",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "wide-chart"
     },
     {
       "id": "model-latency-histogram",
-      "layout": {
-        "preset": "breakdown"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/ai/performance/latency-histogram",
@@ -67,13 +59,11 @@
       "description": "Displays the latency distribution of inference requests for this model. A bimodal shape may indicate different prompt complexities hitting the same model.",
       "titleIcon": "BarChart2",
       "panelType": "ai-bar",
-      "sectionId": "breakdowns"
+      "sectionId": "breakdowns",
+      "layoutVariant": "wide-chart"
     },
     {
       "id": "model-performance-metrics",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/ai/performance/metrics",
@@ -86,7 +76,8 @@
       "description": "Lists detailed performance statistics for this model including QPS, latency percentiles, and token throughput.",
       "titleIcon": "Activity",
       "panelType": "table",
-      "sectionId": "details"
+      "sectionId": "details",
+      "layoutVariant": "detail-table"
     }
   ]
 }

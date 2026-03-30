@@ -8,42 +8,35 @@
       "id": "summary",
       "title": "Latency Overview",
       "order": 10,
-      "kind": "summary",
       "collapsible": true,
-      "layoutMode": "kpi-strip"
+      "sectionTemplate": "kpi-band"
     },
     {
       "id": "trends",
       "title": "Latency Trends",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "distribution",
       "title": "Distribution Analysis",
       "order": 30,
-      "kind": "breakdowns",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "offenders",
       "title": "Top Offenders",
       "order": 40,
-      "kind": "details",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "table-stack"
     }
   ],
   "panels": [
     {
       "formatter": "ms",
       "id": "stat-p50",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/spans/red/summary",
@@ -54,14 +47,12 @@
       "titleIcon": "Clock",
       "valueField": "avg_p50_ms",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "ms",
       "id": "stat-p95",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/spans/red/summary",
@@ -72,14 +63,12 @@
       "titleIcon": "Clock",
       "valueField": "avg_p95_ms",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "ms",
       "id": "stat-p99",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/spans/red/summary",
@@ -90,14 +79,12 @@
       "titleIcon": "AlertCircle",
       "valueField": "avg_p99_ms",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "number",
       "id": "stat-total-spans",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 40,
       "query": {
         "endpoint": "/v1/spans/red/summary",
@@ -108,14 +95,12 @@
       "titleIcon": "Layers",
       "valueField": "total_span_count",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "groupByKey": "service_name",
       "id": "p95-latency-timeseries",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/spans/red/p95-latency",
@@ -126,14 +111,12 @@
       "titleIcon": "TrendingUp",
       "valueKey": "p95_ms",
       "panelType": "latency",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "bucket_label",
       "id": "histogram",
-      "layout": {
-        "preset": "breakdown"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/latency/histogram",
@@ -145,13 +128,11 @@
       "labelKey": "bucket_label",
       "valueKey": "span_count",
       "panelType": "bar",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "heatmap",
-      "layout": {
-        "preset": "breakdown"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/latency/heatmap",
@@ -167,14 +148,12 @@
       "yKey": "latency_bucket",
       "valueKey": "span_count",
       "panelType": "heatmap",
-      "sectionId": "distribution"
+      "sectionId": "distribution",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "service_name",
       "id": "latency-breakdown",
-      "layout": {
-        "preset": "breakdown"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/spans/latency-breakdown",
@@ -186,13 +165,11 @@
       "labelKey": "serviceName",
       "valueKey": "totalMs",
       "panelType": "bar",
-      "sectionId": "distribution"
+      "sectionId": "distribution",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "top-slow-operations",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/spans/red/top-slow-operations",
@@ -205,13 +182,11 @@
       "description": "Lists operations ranked by 99th-percentile duration, showing the worst tail-latency offenders. Focus optimization efforts on the top entries for maximum user-impact improvement.",
       "titleIcon": "TrendingDown",
       "panelType": "table",
-      "sectionId": "offenders"
+      "sectionId": "offenders",
+      "layoutVariant": "summary-table"
     },
     {
       "id": "top-error-operations-latency",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/spans/red/top-error-operations",
@@ -224,7 +199,8 @@
       "description": "Lists operations ranked by error rate. High error rates often correlate with latency spikes due to retries and fallback logic.",
       "titleIcon": "AlertTriangle",
       "panelType": "table",
-      "sectionId": "offenders"
+      "sectionId": "offenders",
+      "layoutVariant": "summary-table"
     }
   ]
 }

@@ -33,14 +33,14 @@ type JVMBufferBucket struct {
 	Count       *float64 `json:"count" ch:"buf_count"`
 }
 
-type ResourceBucket struct {
+type JVMGCCollectionBucket struct {
 	Timestamp string   `json:"timestamp" ch:"time_bucket"`
-	Pod       string   `json:"pod" ch:"pod"`
+	Collector string   `json:"collector" ch:"collector"`
 	Value     *float64 `json:"value" ch:"metric_val"`
 }
 
-type StateBucket struct {
+type JVMThreadBucket struct {
 	Timestamp string   `json:"timestamp" ch:"time_bucket"`
-	State     string   `json:"state" ch:"state"`
+	Daemon    string   `json:"daemon" ch:"daemon"`
 	Value     *float64 `json:"value" ch:"metric_val"`
 }

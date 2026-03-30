@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "database-detail",
   "path": "/saturation/database/:dbSystem",
   "label": "Database Detail",

@@ -8,25 +8,20 @@
       "id": "signals",
       "title": "Signals",
       "order": 10,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "three-up"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "quality",
       "title": "Quality",
       "order": 20,
-      "kind": "breakdowns",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "three-up"
     }
   ],
   "panels": [
     {
       "id": "op-request-rate",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/spans/red/request-rate",
@@ -40,13 +35,11 @@
       "description": "Tracks requests per second for this operation over time. Watch for unexpected dips that may indicate callers failing before reaching this endpoint, or spikes from retry storms.",
       "titleIcon": "TrendingUp",
       "panelType": "request",
-      "sectionId": "signals"
+      "sectionId": "signals",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "op-error-rate",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/spans/red/error-rate",
@@ -60,13 +53,11 @@
       "description": "Shows the percentage of invocations of this operation that result in an error over time. Correlate spikes with deployment events or dependency outages to find the root cause.",
       "titleIcon": "AlertCircle",
       "panelType": "error-rate",
-      "sectionId": "signals"
+      "sectionId": "signals",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "op-p95-latency",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/spans/red/p95-latency",
@@ -81,13 +72,11 @@
       "titleIcon": "Clock",
       "valueKey": "p95",
       "panelType": "latency",
-      "sectionId": "signals"
+      "sectionId": "signals",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "op-apdex",
-      "layout": {
-        "preset": "breakdown"
-      },
       "order": 40,
       "query": {
         "endpoint": "/v1/spans/red/apdex",
@@ -104,7 +93,8 @@
       "titleIcon": "Target",
       "valueKey": "apdex",
       "panelType": "gauge",
-      "sectionId": "quality"
+      "sectionId": "quality",
+      "layoutVariant": "summary"
     }
   ]
 }

@@ -8,17 +8,13 @@
       "id": "trends",
       "title": "Connections",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "three-up"
+      "sectionTemplate": "two-up"
     }
   ],
   "panels": [
     {
       "id": "db-connection-count",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/database/connections/count",
@@ -31,13 +27,11 @@
       "description": "Tracks the number of active connections to this database over time. Watch for sustained growth that may approach the connection limit.",
       "titleIcon": "Link",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "db-connection-pending",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/database/connections/pending",
@@ -50,13 +44,11 @@
       "description": "Shows connections waiting to be established to this database. A rising count indicates pool exhaustion or slow handshake times.",
       "titleIcon": "Clock",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "db-connection-timeouts",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/database/connections/timeout-rate",
@@ -69,7 +61,8 @@
       "description": "Tracks the rate of connection timeouts for this database. Any non-zero value warrants investigation into pool sizing or network issues.",
       "titleIcon": "AlertCircle",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     }
   ]
 }

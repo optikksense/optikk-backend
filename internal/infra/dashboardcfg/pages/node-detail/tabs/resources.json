@@ -8,41 +8,34 @@
       "id": "cpu",
       "title": "CPU",
       "order": 10,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "memory",
       "title": "Memory",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "disk",
       "title": "Disk",
       "order": 30,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "network",
       "title": "Network",
       "order": 40,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     }
   ],
   "panels": [
     {
       "id": "node-cpu-time",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/infrastructure/cpu/time",
@@ -55,13 +48,11 @@
       "description": "Tracks cumulative CPU time consumed on this node, broken down by mode (user, system, iowait). High iowait values suggest disk or network bottlenecks.",
       "titleIcon": "Cpu",
       "panelType": "request",
-      "sectionId": "cpu"
+      "sectionId": "cpu",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "node-load-average",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/infrastructure/cpu/load-average",
@@ -74,13 +65,11 @@
       "description": "Shows the system load average for this node over time. Values exceeding the CPU core count indicate processes are queuing for execution.",
       "titleIcon": "Activity",
       "panelType": "request",
-      "sectionId": "cpu"
+      "sectionId": "cpu",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "node-mem-usage",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/infrastructure/memory/usage",
@@ -93,13 +82,11 @@
       "description": "Tracks absolute memory consumption on this node over time. Compare used versus available memory to assess remaining headroom.",
       "titleIcon": "HardDrive",
       "panelType": "request",
-      "sectionId": "memory"
+      "sectionId": "memory",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "node-swap",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 40,
       "query": {
         "endpoint": "/v1/infrastructure/memory/swap",
@@ -112,13 +99,11 @@
       "description": "Tracks swap space utilization on this node over time. Active swapping degrades performance significantly and often signals insufficient physical memory.",
       "titleIcon": "Repeat",
       "panelType": "request",
-      "sectionId": "memory"
+      "sectionId": "memory",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "node-disk-io",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 50,
       "query": {
         "endpoint": "/v1/infrastructure/disk/io",
@@ -131,13 +116,11 @@
       "description": "Tracks disk read and write throughput on this node over time. Sudden increases may correlate with log rotation, backups, or compaction jobs.",
       "titleIcon": "HardDrive",
       "panelType": "request",
-      "sectionId": "disk"
+      "sectionId": "disk",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "node-disk-ops",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 60,
       "query": {
         "endpoint": "/v1/infrastructure/disk/operations",
@@ -150,13 +133,11 @@
       "description": "Tracks the rate of disk read and write operations (IOPS) on this node. High IOPS with increased latency can indicate disk saturation.",
       "titleIcon": "HardDrive",
       "panelType": "request",
-      "sectionId": "disk"
+      "sectionId": "disk",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "node-network-io",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 70,
       "query": {
         "endpoint": "/v1/infrastructure/network/io",
@@ -169,13 +150,11 @@
       "description": "Tracks inbound and outbound network throughput on this node over time. Watch for asymmetric traffic patterns that may indicate misconfigured load balancing.",
       "titleIcon": "Wifi",
       "panelType": "request",
-      "sectionId": "network"
+      "sectionId": "network",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "node-network-errors",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 80,
       "query": {
         "endpoint": "/v1/infrastructure/network/errors",
@@ -188,7 +167,8 @@
       "description": "Tracks network-level errors (drops, retransmits) on this node over time. Any sustained error rate warrants investigation into NIC or switch health.",
       "titleIcon": "AlertCircle",
       "panelType": "request",
-      "sectionId": "network"
+      "sectionId": "network",
+      "layoutVariant": "standard-chart"
     }
   ]
 }

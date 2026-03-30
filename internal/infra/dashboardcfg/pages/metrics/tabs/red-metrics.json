@@ -8,42 +8,35 @@
       "id": "g1",
       "title": "Overview",
       "order": 10,
-      "kind": "summary",
       "collapsible": true,
-      "layoutMode": "kpi-strip"
+      "sectionTemplate": "kpi-band"
     },
     {
       "id": "g2",
       "title": "Rate, Error & Latency",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "g3",
       "title": "Quality Signals",
       "order": 30,
-      "kind": "breakdowns",
       "collapsible": true,
-      "layoutMode": "three-up"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "g4",
       "title": "Top Offenders",
       "order": 40,
-      "kind": "details",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "table-stack"
     }
   ],
   "panels": [
     {
       "formatter": "number",
       "id": "stat-service-count",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/spans/red/summary",
@@ -54,14 +47,12 @@
       "titleIcon": "Layers",
       "valueField": "service_count",
       "panelType": "stat-card",
-      "sectionId": "g1"
+      "sectionId": "g1",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "number",
       "id": "stat-total-rps",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/spans/red/summary",
@@ -72,14 +63,12 @@
       "titleIcon": "TrendingUp",
       "valueField": "total_rps",
       "panelType": "stat-card",
-      "sectionId": "g1"
+      "sectionId": "g1",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "percent2",
       "id": "stat-avg-error-pct",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/spans/red/summary",
@@ -90,14 +79,12 @@
       "titleIcon": "AlertCircle",
       "valueField": "avg_error_pct",
       "panelType": "stat-card",
-      "sectionId": "g1"
+      "sectionId": "g1",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "ms",
       "id": "stat-avg-p95",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 40,
       "query": {
         "endpoint": "/v1/spans/red/summary",
@@ -108,14 +95,12 @@
       "titleIcon": "Clock",
       "valueField": "avg_p95_ms",
       "panelType": "stat-card",
-      "sectionId": "g1"
+      "sectionId": "g1",
+      "layoutVariant": "kpi"
     },
     {
       "groupByKey": "service_name",
       "id": "request-rate",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 60,
       "query": {
         "endpoint": "/v1/spans/red/request-rate",
@@ -126,14 +111,12 @@
       "titleIcon": "TrendingUp",
       "valueKey": "rps",
       "panelType": "request",
-      "sectionId": "g2"
+      "sectionId": "g2",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "service_name",
       "id": "error-rate",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 70,
       "query": {
         "endpoint": "/v1/spans/red/error-rate",
@@ -144,14 +127,12 @@
       "titleIcon": "AlertCircle",
       "valueKey": "error_pct",
       "panelType": "error-rate",
-      "sectionId": "g2"
+      "sectionId": "g2",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "kind_string",
       "id": "span-kind-breakdown",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 90,
       "query": {
         "endpoint": "/v1/spans/red/span-kind-breakdown",
@@ -162,14 +143,12 @@
       "titleIcon": "GitBranch",
       "valueKey": "span_count",
       "panelType": "request",
-      "sectionId": "g2"
+      "sectionId": "g2",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "http_route",
       "id": "errors-by-route",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 120,
       "query": {
         "endpoint": "/v1/spans/red/errors-by-route",
@@ -180,13 +159,11 @@
       "titleIcon": "AlertTriangle",
       "valueKey": "error_count",
       "panelType": "error-rate",
-      "sectionId": "g3"
+      "sectionId": "g3",
+      "layoutVariant": "wide-chart"
     },
     {
       "id": "top-slow-operations",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 130,
       "query": {
         "endpoint": "/v1/spans/red/top-slow-operations",
@@ -199,13 +176,11 @@
       "description": "Lists operations ranked by 99th-percentile duration, showing the worst tail-latency offenders. Focus optimization efforts on the top entries for maximum user-impact improvement.",
       "titleIcon": "TrendingDown",
       "panelType": "table",
-      "sectionId": "g4"
+      "sectionId": "g4",
+      "layoutVariant": "summary-table"
     },
     {
       "id": "top-error-operations",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 140,
       "query": {
         "endpoint": "/v1/spans/red/top-error-operations",
@@ -218,7 +193,8 @@
       "description": "Lists operations ranked by error rate descending. Rows at the top represent the most unreliable operations and are prime candidates for bug fixes or retry tuning.",
       "titleIcon": "AlertTriangle",
       "panelType": "table",
-      "sectionId": "g4"
+      "sectionId": "g4",
+      "layoutVariant": "summary-table"
     }
   ]
 }

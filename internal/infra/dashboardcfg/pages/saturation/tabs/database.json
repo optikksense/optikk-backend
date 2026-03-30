@@ -8,34 +8,28 @@
       "id": "summary",
       "title": "Key Metrics",
       "order": 10,
-      "kind": "summary",
       "collapsible": true,
-      "layoutMode": "kpi-strip"
+      "sectionTemplate": "kpi-band"
     },
     {
       "id": "trends",
       "title": "Golden Signals",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "details",
       "title": "Details",
       "order": 40,
-      "kind": "details",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "hero-plus-table"
     }
   ],
   "panels": [
     {
       "formatter": "ms",
       "id": "db-avg-latency-stat",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/database/summary",
@@ -46,14 +40,12 @@
       "titleIcon": "Clock",
       "valueField": "avg_latency_ms",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "ms",
       "id": "db-p95-latency-stat",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/database/summary",
@@ -64,14 +56,12 @@
       "titleIcon": "Clock",
       "valueField": "p95_latency_ms",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "ms",
       "id": "db-p99-latency-stat",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/database/summary",
@@ -82,14 +72,12 @@
       "titleIcon": "Activity",
       "valueField": "p99_latency_ms",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "number",
       "id": "db-span-count-stat",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 40,
       "query": {
         "endpoint": "/v1/database/summary",
@@ -100,31 +88,12 @@
       "titleIcon": "Database",
       "valueField": "span_count",
       "panelType": "stat-card",
-      "sectionId": "summary"
-    },
-    {
-      "id": "db-systems",
-      "layout": {
-        "preset": "detail"
-      },
-      "order": 50,
-      "query": {
-        "endpoint": "/v1/database/systems",
-        "method": "GET"
-      },
-      "drilldownRoute": "/saturation/database/{db_system}",
-      "title": "Detected Database Systems",
-      "description": "Lists all database systems detected from span attributes, with key metrics for each. Drill down into a system to see its detailed performance breakdown.",
-      "titleIcon": "Database",
-      "panelType": "db-systems-overview",
-      "sectionId": "details"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "groupByKey": "group_by",
       "id": "db-latency-by-system",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 60,
       "query": {
         "endpoint": "/v1/database/latency/by-system",
@@ -135,14 +104,12 @@
       "titleIcon": "Clock",
       "valueKey": "p99_ms",
       "panelType": "latency",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "group_by",
       "id": "db-latency-by-operation",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 70,
       "query": {
         "endpoint": "/v1/database/latency/by-operation",
@@ -153,14 +120,12 @@
       "titleIcon": "Activity",
       "valueKey": "p99_ms",
       "panelType": "latency",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "group_by",
       "id": "db-ops-by-system",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 80,
       "query": {
         "endpoint": "/v1/database/ops/by-system",
@@ -171,14 +136,12 @@
       "titleIcon": "BarChart",
       "valueKey": "ops_per_sec",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "group_by",
       "id": "db-ops-by-operation",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 90,
       "query": {
         "endpoint": "/v1/database/ops/by-operation",
@@ -189,13 +152,11 @@
       "titleIcon": "BarChart",
       "valueKey": "ops_per_sec",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "db-read-vs-write",
-      "layout": {
-        "preset": "hero"
-      },
       "order": 100,
       "query": {
         "endpoint": "/v1/database/ops/read-vs-write",
@@ -206,46 +167,12 @@
       "titleIcon": "GitPullRequest",
       "valueKey": "read_ops_per_sec",
       "panelType": "request",
-      "sectionId": "trends"
-    },
-    {
-      "id": "db-slow-queries",
-      "layout": {
-        "preset": "detail"
-      },
-      "order": 110,
-      "query": {
-        "endpoint": "/v1/database/slow-queries/patterns",
-        "method": "GET"
-      },
-      "title": "Top Slow Query Patterns",
-      "description": "Lists the slowest query patterns ranked by latency. Each row represents a normalized query signature with its p99 latency and call count for optimization prioritization.",
-      "titleIcon": "AlertTriangle",
-      "panelType": "table",
-      "sectionId": "details"
-    },
-    {
-      "id": "db-slowest-collections",
-      "layout": {
-        "preset": "detail"
-      },
-      "order": 120,
-      "query": {
-        "endpoint": "/v1/database/slow-queries/collections",
-        "method": "GET"
-      },
-      "title": "Slowest Collections",
-      "description": "Lists database collections or tables ranked by query latency. Use this to identify which data stores need indexing or schema optimization.",
-      "titleIcon": "Table",
-      "panelType": "table",
-      "sectionId": "details"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "group_by",
       "id": "db-errors-by-system",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 130,
       "query": {
         "endpoint": "/v1/database/errors/by-system",
@@ -256,14 +183,12 @@
       "titleIcon": "AlertTriangle",
       "valueKey": "errors_per_sec",
       "panelType": "error-rate",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "group_by",
       "id": "db-errors-by-type",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 140,
       "query": {
         "endpoint": "/v1/database/errors/by-error-type",
@@ -274,14 +199,12 @@
       "titleIcon": "AlertCircle",
       "valueKey": "errors_per_sec",
       "panelType": "error-rate",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "state",
       "id": "db-connection-count",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 150,
       "query": {
         "endpoint": "/v1/database/connections/count",
@@ -292,13 +215,11 @@
       "titleIcon": "Network",
       "valueKey": "count",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "db-connection-pending",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 160,
       "query": {
         "endpoint": "/v1/database/connections/pending",
@@ -309,13 +230,11 @@
       "titleIcon": "Clock",
       "valueKey": "count",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "db-connection-timeouts",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 170,
       "query": {
         "endpoint": "/v1/database/connections/timeout-rate",
@@ -326,7 +245,51 @@
       "titleIcon": "AlertTriangle",
       "valueKey": "timeout_rate",
       "panelType": "error-rate",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "id": "db-systems",
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/database/systems",
+        "method": "GET"
+      },
+      "drilldownRoute": "/saturation/database/{db_system}",
+      "title": "Detected Database Systems",
+      "description": "Lists all database systems detected from span attributes, with key metrics for each. Drill down into a system to see its detailed performance breakdown.",
+      "titleIcon": "Database",
+      "panelType": "db-systems-overview",
+      "sectionId": "details",
+      "layoutVariant": "hero-detail"
+    },
+    {
+      "id": "db-slow-queries",
+      "order": 110,
+      "query": {
+        "endpoint": "/v1/database/slow-queries/patterns",
+        "method": "GET"
+      },
+      "title": "Top Slow Query Patterns",
+      "description": "Lists the slowest query patterns ranked by latency. Each row represents a normalized query signature with its p99 latency and call count for optimization prioritization.",
+      "titleIcon": "AlertTriangle",
+      "panelType": "table",
+      "sectionId": "details",
+      "layoutVariant": "summary-table"
+    },
+    {
+      "id": "db-slowest-collections",
+      "order": 120,
+      "query": {
+        "endpoint": "/v1/database/slow-queries/collections",
+        "method": "GET"
+      },
+      "title": "Slowest Collections",
+      "description": "Lists database collections or tables ranked by query latency. Use this to identify which data stores need indexing or schema optimization.",
+      "titleIcon": "Table",
+      "panelType": "table",
+      "sectionId": "details",
+      "layoutVariant": "detail-table"
     }
   ]
 }

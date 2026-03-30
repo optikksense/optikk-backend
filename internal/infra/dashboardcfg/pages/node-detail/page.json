@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "node-detail",
   "path": "/infrastructure/nodes/:host",
   "label": "Node Detail",

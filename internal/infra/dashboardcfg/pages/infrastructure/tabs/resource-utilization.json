@@ -8,34 +8,28 @@
       "id": "summary",
       "title": "Key Metrics",
       "order": 10,
-      "kind": "summary",
       "collapsible": true,
-      "layoutMode": "kpi-strip"
+      "sectionTemplate": "kpi-band"
     },
     {
       "id": "trends",
       "title": "Golden Signals",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "details",
       "title": "Details",
       "order": 40,
-      "kind": "details",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "table-stack"
     }
   ],
   "panels": [
     {
       "formatter": "percent1",
       "id": "avg-cpu",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/infrastructure/resource-utilisation/avg-cpu",
@@ -46,14 +40,12 @@
       "titleIcon": "Cpu",
       "valueField": "value",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "percent1",
       "id": "avg-memory",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/infrastructure/resource-utilisation/avg-memory",
@@ -64,14 +56,12 @@
       "titleIcon": "HardDrive",
       "valueField": "value",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "percent1",
       "id": "avg-network",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/infrastructure/resource-utilisation/avg-network",
@@ -82,14 +72,12 @@
       "titleIcon": "Network",
       "valueField": "value",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "percent1",
       "id": "avg-conn-pool",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 40,
       "query": {
         "endpoint": "/v1/infrastructure/resource-utilisation/avg-conn-pool",
@@ -100,137 +88,11 @@
       "titleIcon": "Database",
       "valueField": "value",
       "panelType": "stat-card",
-      "sectionId": "summary"
-    },
-    {
-      "datasetLabel": "CPU Util",
-      "groupByKey": "pod",
-      "id": "cpu-usage",
-      "layout": {
-        "preset": "trend"
-      },
-      "order": 50,
-      "query": {
-        "endpoint": "/v1/infrastructure/cpu/usage-percentage",
-        "method": "GET"
-      },
-      "title": "CPU Usage Percentage",
-      "description": "Tracks host-level CPU usage over time broken down by pod. Look for upward trends or periodic spikes that align with workload patterns.",
-      "titleIcon": "Cpu",
-      "valueKey": "value",
-      "panelType": "request",
-      "sectionId": "trends"
-    },
-    {
-      "datasetLabel": "Mem Util",
-      "groupByKey": "pod",
-      "id": "memory-usage",
-      "layout": {
-        "preset": "trend"
-      },
-      "order": 60,
-      "query": {
-        "endpoint": "/v1/infrastructure/memory/usage-percentage",
-        "method": "GET"
-      },
-      "title": "Memory Usage Percentage",
-      "description": "Tracks host-level memory usage over time broken down by pod. A steady upward climb may indicate a memory leak.",
-      "titleIcon": "HardDrive",
-      "valueKey": "value",
-      "panelType": "request",
-      "sectionId": "trends"
-    },
-    {
-      "id": "by-service",
-      "layout": {
-        "preset": "detail"
-      },
-      "order": 70,
-      "query": {
-        "endpoint": "/v1/infrastructure/resource-utilisation/by-service",
-        "method": "GET"
-      },
-      "title": "Resource Usage by Service",
-      "description": "Breaks down CPU, memory, and network consumption per service. Identify which services are the heaviest resource consumers.",
-      "titleIcon": "Layers",
-      "panelType": "table",
-      "sectionId": "details"
-    },
-    {
-      "id": "by-instance",
-      "layout": {
-        "preset": "detail"
-      },
-      "order": 80,
-      "query": {
-        "endpoint": "/v1/infrastructure/resource-utilisation/by-instance",
-        "method": "GET"
-      },
-      "title": "Resource Usage by Instance",
-      "description": "Breaks down CPU, memory, and network consumption per host instance. Use this to spot hot instances that need rebalancing.",
-      "titleIcon": "Server",
-      "panelType": "table",
-      "sectionId": "details"
-    },
-    {
-      "groupByKey": "state",
-      "id": "infra-cpu-time",
-      "layout": {
-        "preset": "trend"
-      },
-      "order": 90,
-      "query": {
-        "endpoint": "/v1/infrastructure/cpu/time",
-        "method": "GET"
-      },
-      "title": "CPU Time by State",
-      "description": "Shows CPU time split across states such as user, system, and iowait. High iowait signals disk or network bottlenecks.",
-      "titleIcon": "Cpu",
-      "valueKey": "value",
-      "panelType": "request",
-      "sectionId": "trends"
-    },
-    {
-      "groupByKey": "state",
-      "id": "infra-memory-usage",
-      "layout": {
-        "preset": "trend"
-      },
-      "order": 100,
-      "query": {
-        "endpoint": "/v1/infrastructure/memory/usage",
-        "method": "GET"
-      },
-      "title": "Memory Usage by State",
-      "description": "Shows host memory broken down by state such as used, cached, and buffered. Watch for shrinking free memory over time.",
-      "titleIcon": "HardDrive",
-      "valueKey": "value",
-      "panelType": "request",
-      "sectionId": "trends"
-    },
-    {
-      "groupByKey": "state",
-      "id": "infra-swap-usage",
-      "layout": {
-        "preset": "trend"
-      },
-      "order": 110,
-      "query": {
-        "endpoint": "/v1/infrastructure/memory/swap",
-        "method": "GET"
-      },
-      "title": "Swap Usage by State",
-      "description": "Tracks swap memory usage over time. Any significant swap activity indicates memory pressure on the host.",
-      "titleIcon": "HardDrive",
-      "valueKey": "value",
-      "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "id": "infra-load-average",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 120,
       "query": {
         "endpoint": "/v1/infrastructure/cpu/load-average",
@@ -255,14 +117,94 @@
       ],
       "formatter": "number",
       "panelType": "stat-summary",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "wide-chart"
+    },
+    {
+      "datasetLabel": "CPU Util",
+      "groupByKey": "pod",
+      "id": "cpu-usage",
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/infrastructure/cpu/usage-percentage",
+        "method": "GET"
+      },
+      "title": "CPU Usage Percentage",
+      "description": "Tracks host-level CPU usage over time broken down by pod. Look for upward trends or periodic spikes that align with workload patterns.",
+      "titleIcon": "Cpu",
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "datasetLabel": "Mem Util",
+      "groupByKey": "pod",
+      "id": "memory-usage",
+      "order": 60,
+      "query": {
+        "endpoint": "/v1/infrastructure/memory/usage-percentage",
+        "method": "GET"
+      },
+      "title": "Memory Usage Percentage",
+      "description": "Tracks host-level memory usage over time broken down by pod. A steady upward climb may indicate a memory leak.",
+      "titleIcon": "HardDrive",
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "groupByKey": "state",
+      "id": "infra-cpu-time",
+      "order": 90,
+      "query": {
+        "endpoint": "/v1/infrastructure/cpu/time",
+        "method": "GET"
+      },
+      "title": "CPU Time by State",
+      "description": "Shows CPU time split across states such as user, system, and iowait. High iowait signals disk or network bottlenecks.",
+      "titleIcon": "Cpu",
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "groupByKey": "state",
+      "id": "infra-memory-usage",
+      "order": 100,
+      "query": {
+        "endpoint": "/v1/infrastructure/memory/usage",
+        "method": "GET"
+      },
+      "title": "Memory Usage by State",
+      "description": "Shows host memory broken down by state such as used, cached, and buffered. Watch for shrinking free memory over time.",
+      "titleIcon": "HardDrive",
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "groupByKey": "state",
+      "id": "infra-swap-usage",
+      "order": 110,
+      "query": {
+        "endpoint": "/v1/infrastructure/memory/swap",
+        "method": "GET"
+      },
+      "title": "Swap Usage by State",
+      "description": "Tracks swap memory usage over time. Any significant swap activity indicates memory pressure on the host.",
+      "titleIcon": "HardDrive",
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "direction",
       "id": "infra-disk-io",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 130,
       "query": {
         "endpoint": "/v1/infrastructure/disk/io",
@@ -273,14 +215,12 @@
       "titleIcon": "HardDrive",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "direction",
       "id": "infra-disk-operations",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 140,
       "query": {
         "endpoint": "/v1/infrastructure/disk/operations",
@@ -291,14 +231,12 @@
       "titleIcon": "HardDrive",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "pod",
       "id": "infra-disk-io-time",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 150,
       "query": {
         "endpoint": "/v1/infrastructure/disk/io-time",
@@ -309,14 +247,12 @@
       "titleIcon": "Clock",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "mountpoint",
       "id": "infra-filesystem-usage",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 160,
       "query": {
         "endpoint": "/v1/infrastructure/disk/filesystem-usage",
@@ -327,14 +263,12 @@
       "titleIcon": "FolderOpen",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "pod",
       "id": "infra-filesystem-util",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 170,
       "query": {
         "endpoint": "/v1/infrastructure/disk/filesystem-utilization",
@@ -345,14 +279,12 @@
       "titleIcon": "FolderOpen",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "direction",
       "id": "infra-network-io",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 180,
       "query": {
         "endpoint": "/v1/infrastructure/network/io",
@@ -363,14 +295,12 @@
       "titleIcon": "Network",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "direction",
       "id": "infra-network-packets",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 190,
       "query": {
         "endpoint": "/v1/infrastructure/network/packets",
@@ -381,14 +311,12 @@
       "titleIcon": "Network",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "state",
       "id": "infra-network-errors",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 200,
       "query": {
         "endpoint": "/v1/infrastructure/network/errors",
@@ -399,14 +327,12 @@
       "titleIcon": "AlertTriangle",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "pod",
       "id": "infra-network-dropped",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 210,
       "query": {
         "endpoint": "/v1/infrastructure/network/dropped",
@@ -417,14 +343,12 @@
       "titleIcon": "AlertTriangle",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "state",
       "id": "infra-process-count",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 220,
       "query": {
         "endpoint": "/v1/infrastructure/cpu/process-count",
@@ -435,14 +359,12 @@
       "titleIcon": "Activity",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "state",
       "id": "infra-network-connections",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 230,
       "query": {
         "endpoint": "/v1/infrastructure/network/connections",
@@ -453,7 +375,36 @@
       "titleIcon": "Network",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "id": "by-service",
+      "order": 70,
+      "query": {
+        "endpoint": "/v1/infrastructure/resource-utilisation/by-service",
+        "method": "GET"
+      },
+      "title": "Resource Usage by Service",
+      "description": "Breaks down CPU, memory, and network consumption per service. Identify which services are the heaviest resource consumers.",
+      "titleIcon": "Layers",
+      "panelType": "table",
+      "sectionId": "details",
+      "layoutVariant": "summary-table"
+    },
+    {
+      "id": "by-instance",
+      "order": 80,
+      "query": {
+        "endpoint": "/v1/infrastructure/resource-utilisation/by-instance",
+        "method": "GET"
+      },
+      "title": "Resource Usage by Instance",
+      "description": "Breaks down CPU, memory, and network consumption per host instance. Use this to spot hot instances that need rebalancing.",
+      "titleIcon": "Server",
+      "panelType": "table",
+      "sectionId": "details",
+      "layoutVariant": "summary-table"
     }
   ]
 }

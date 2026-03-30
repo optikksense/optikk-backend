@@ -8,25 +8,20 @@
       "id": "summary",
       "title": "Summary",
       "order": 10,
-      "kind": "summary",
       "collapsible": true,
-      "layoutMode": "kpi-strip"
+      "sectionTemplate": "kpi-band"
     },
     {
       "id": "latency",
       "title": "Latency",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "two-up"
     }
   ],
   "panels": [
     {
       "id": "db-avg-latency",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/database/summary",
@@ -39,13 +34,11 @@
       "description": "Shows the mean query latency for this database over the selected time range. A rising value may indicate lock contention or growing dataset size.",
       "titleIcon": "Clock",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "id": "db-p95-latency",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/database/summary",
@@ -58,13 +51,11 @@
       "description": "Represents the 95th-percentile query duration for this database. Watch for sudden jumps that signal slow-query regressions affecting most users.",
       "titleIcon": "Clock",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "id": "db-p99-latency",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/database/summary",
@@ -77,13 +68,11 @@
       "description": "Represents the 99th-percentile query duration for this database. Spikes here reveal tail-latency issues that impact a small but significant fraction of queries.",
       "titleIcon": "Clock",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "id": "db-span-count",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 40,
       "query": {
         "endpoint": "/v1/database/summary",
@@ -96,13 +85,11 @@
       "description": "Shows the total number of database operations observed for this database. Use this to gauge overall query volume and detect unexpected traffic changes.",
       "titleIcon": "Activity",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "id": "db-latency-by-operation",
-      "layout": {
-        "preset": "hero"
-      },
       "order": 50,
       "query": {
         "endpoint": "/v1/database/latency/by-operation",
@@ -115,7 +102,8 @@
       "description": "Tracks query latency over time, grouped by operation type for this database. Look for operations whose latency diverges from the baseline.",
       "titleIcon": "BarChart2",
       "panelType": "latency",
-      "sectionId": "latency"
+      "sectionId": "latency",
+      "layoutVariant": "wide-chart"
     }
   ]
 }

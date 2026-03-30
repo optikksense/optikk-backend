@@ -39,8 +39,7 @@ type socketSpanEventPayload struct {
 	LagMs int64    `json:"lagMs"`
 }
 
-// SocketIOHandler creates a SubscriptionHandler that streams live spans
-// via Socket.IO instead of SSE.
+// SocketIOHandler creates a SubscriptionHandler that streams live spans via Socket.IO.
 func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 	return sio.SubscriptionHandler{
 		Event: "subscribe:spans",

@@ -29,6 +29,7 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 		SELECT
 		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count)  AS p50,
 		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count)  AS p95,
+		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count)  AS p99,
 		    toInt64(sum(hist_count))                                                    AS total_count,
 		    toInt64(sumIf(hist_count, notEmpty(%s)))                                    AS error_count
 		FROM %s
@@ -106,6 +107,7 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 	return SummaryStats{
 		AvgLatencyMs:      shared.ScaleToMs(mainDTO.P50),
 		P95LatencyMs:      shared.ScaleToMs(mainDTO.P95),
+		P99LatencyMs:      shared.ScaleToMs(mainDTO.P99),
 		SpanCount:         mainDTO.TotalCount,
 		ActiveConnections: activeConns,
 		ErrorRate:         errorRatePtr,

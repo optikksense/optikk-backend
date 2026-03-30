@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "ai-runs",
   "path": "/ai-runs",
   "label": "LLM Runs",

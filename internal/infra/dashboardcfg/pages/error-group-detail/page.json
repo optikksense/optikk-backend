@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "error-group-detail",
   "path": "/errors/:errorGroupId",
   "label": "Error Group Detail",

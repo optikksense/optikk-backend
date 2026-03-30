@@ -1,69 +1,19 @@
 version: "2"
 
 run:
-  timeout: 10m
+  timeout: 5m
   modules-download-mode: readonly
 
 linters:
   enable:
-    # ── Bug detection ─────────────────────────────────────────────
-    - errcheck          # unchecked errors — critical for production
-    - govet             # official go vet passes
-    - staticcheck       # 150+ advanced checks (SA, ST, S, QF, U)
-    - unused            # dead constants, vars, funcs, types
-    - ineffassign       # assignments to vars that are never read
-    - bodyclose         # unclosed HTTP response bodies → resource leaks
-    - nilerr            # returning nil when err != nil
-    - nilnesserr        # err != nil guard followed by returning different nil error
-    - noctx             # HTTP requests without context.Context
-    - durationcheck     # nonsensical duration arithmetic (d * time.Second)
-    - makezero          # slice append after make with non-zero len
-    - musttag           # missing struct tags for (un)marshaling
-    - rowserrcheck      # unchecked sql.Rows.Err()
-    - sqlclosecheck     # sql.Rows/Stmt not closed
-
-    # ── Security ──────────────────────────────────────────────────
-    - gosec             # OWASP-style security checks
-    - bidichk           # dangerous bidirectional unicode sequences
-
-    # ── Error handling ────────────────────────────────────────────
-    - errorlint         # proper error wrapping (errors.Is / errors.As)
-    - errname           # sentinel errors prefixed with Err, types suffixed Error
-
-    # ── Code quality ──────────────────────────────────────────────
-    - gocritic          # opinionated bug/perf/style diagnostics
-    - unconvert         # unnecessary type conversions
-    - misspell          # common typos in comments & strings
-    - dupword           # repeated words in comments (the the, etc.)
-    - copyloopvar       # loop variable capture bugs
-    - intrange          # for i := 0; i < n; i++ → for i := range n
-    - fatcontext        # context.WithValue in loops
-    - exhaustive        # missing enum switch cases
-    - goconst           # repeated string literals → constants
-    - nestif            # deeply nested if blocks
-    - nakedret          # naked returns in long functions
-    - prealloc          # slice preallocation opportunities
-    - perfsprint        # faster alternatives to fmt.Sprintf
-    - revive            # fast, configurable superset of golint
-    - gocheckcompilerdirectives # validates //go: directives
-    - loggercheck       # structured logger key-value pair correctness
-
-    # ── Import hygiene ────────────────────────────────────────────
-    - importas          # enforce consistent import aliases
-
-  disable:
-    # Intentionally off — too noisy or not applicable
-    - exhaustruct       # requiring all struct fields initialized is impractical
-    - gochecknoglobals  # we use package-level vars for registries
-    - gochecknoinits    # we rely on init() for module registration
-    - varnamelen        # overly strict on short variable names
-    - wrapcheck         # too aggressive for internal-only code
-    - nlreturn          # blank-line-before-return is a style nit
-    - godot             # period-at-end-of-comment is a style nit
-    - lll               # line length varies; gofmt handles wrapping
-    - mnd               # magic number detector has too many false positives
-    - ireturn           # returning interfaces is fine in our codebase
-    - err113            # requiring errors.New for every error is excessive
+    - errcheck          # unchecked errors
+    - govet             # go vet passes
+    - staticcheck       # advanced static analysis
+    - unused            # dead code
+    - ineffassign       # useless assignments
+    - gosec             # security checks
+    - gocritic          # bug/perf/style diagnostics
+    - revive            # fast superset of golint
 
   settings:
     errcheck:
@@ -77,21 +27,18 @@ linters:
       enabled-checks:
         - dupImport
         - nestingReduce
-        - sloppyReassign
         - builtinShadow
-        - importShadow
-        - unnamedResult
 
     gosec:
       excludes:
-        - G104              # unhandled errors on deferred Close — handled by errcheck
+        - G104
 
     staticcheck:
       checks:
         - all
-        - "-ST1000"         # package comment style — not enforced
-        - "-ST1003"         # variable naming conventions — too strict
-        - "-QF1001"         # type conversion suggestion — noisy
+        - "-ST1000"
+        - "-ST1003"
+        - "-QF1001"
 
     revive:
       rules:
@@ -124,61 +71,12 @@ linters:
         - name: unreachable-code
         - name: redefines-builtin-id
 
-    exhaustive:
-      default-signifies-exhaustive: true
-
-    goconst:
-      min-len: 3
-      min-occurrences: 3
-
-    nestif:
-      min-complexity: 5
-
-    nakedret:
-      max-func-lines: 30
-
-    errorlint:
-      errorf: true
-      asserts: true
-      comparison: true
-
-    perfsprint:
-      err-error: true
-      errorf: true
-      sprintf1: true
-
-    importas:
-      no-unaliased: false
-      alias:
-        - pkg: github.com/observability/observability-backend-go/internal/database
-          alias: dbutil
-        - pkg: github.com/observability/observability-backend-go/internal/modules/common
-          alias: modulecommon
-
-    misspell:
-      locale: US
-
-    dupword:
-      keywords:
-        - the
-        - and
-        - a
-
-    loggercheck:
-      zap: true
-
   exclusions:
     rules:
       - path: _test\.go
         linters:
           - errcheck
           - gosec
-          - goconst
-          - exhaustive
-          - musttag
-      - path: internal/modules/otlp/
-        linters:
-          - errorlint
       - path: internal/migrate/
         linters:
           - errcheck

@@ -8,17 +8,13 @@
       "id": "details",
       "title": "Overview",
       "order": 40,
-      "kind": "details",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "table-stack"
     }
   ],
   "panels": [
     {
       "id": "error-group-info",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/errors/groups/{errorGroupId}",
@@ -28,7 +24,8 @@
       "description": "Shows the key attributes of this error group, including exception type, message, and affected service. Use this to understand the root cause at a glance.",
       "titleIcon": "AlertOctagon",
       "panelType": "table",
-      "sectionId": "details"
+      "sectionId": "details",
+      "layoutVariant": "detail-table"
     }
   ]
 }

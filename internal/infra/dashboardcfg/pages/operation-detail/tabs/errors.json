@@ -8,26 +8,21 @@
       "id": "trends",
       "title": "Golden Signals",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "breakdowns",
       "title": "Breakdowns",
       "order": 30,
-      "kind": "breakdowns",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "two-up"
     }
   ],
   "panels": [
     {
       "groupByKey": "exceptionType",
       "id": "op-exception-rate",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/spans/exception-rate-by-type",
@@ -42,14 +37,12 @@
       "titleIcon": "Bug",
       "valueKey": "count",
       "panelType": "exception-type-line",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "wide-chart"
     },
     {
       "groupByKey": "http_route",
       "id": "op-5xx-by-route",
-      "layout": {
-        "preset": "breakdown"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/spans/http-5xx-by-route",
@@ -64,7 +57,8 @@
       "titleIcon": "AlertTriangle",
       "valueKey": "count",
       "panelType": "bar",
-      "sectionId": "breakdowns"
+      "sectionId": "breakdowns",
+      "layoutVariant": "wide-chart"
     }
   ]
 }

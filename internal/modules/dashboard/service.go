@@ -53,26 +53,6 @@ func (s *Service) GetTabDocument(teamID int64, pageID, tabID string) (configdefa
 	return configdefaults.TabDefinition{}, httpError("No tab found for page: " + pageID + " tab: " + tabID)
 }
 
-func (s *Service) SavePageOverride(teamID int64, pageID string, override configdefaults.PageDocument) error {
-	defaultDoc, ok := s.registry.GetPage(pageID)
-	if !ok {
-		return httpError("No configuration found for page: " + pageID)
-	}
-
-	if err := normalizeOverridePageDocument(&override, defaultDoc); err != nil {
-		return err
-	}
-	if err := configdefaults.ValidatePageDocument(override); err != nil {
-		return err
-	}
-
-	bytes, err := json.Marshal(override)
-	if err != nil {
-		return err
-	}
-	return s.repo.SavePageOverride(teamID, pageID, string(bytes))
-}
-
 func (s *Service) resolvePage(teamID int64, pageID string) (configdefaults.PageDocument, error) {
 	defaultDoc, ok := s.registry.GetPage(pageID)
 	if !ok {
@@ -149,3 +129,7 @@ func normalizeOverridePageDocument(
 
 	return nil
 }
+
+type httpError string
+
+func (e httpError) Error() string { return string(e) }

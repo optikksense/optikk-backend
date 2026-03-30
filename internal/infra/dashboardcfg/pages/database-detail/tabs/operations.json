@@ -8,25 +8,20 @@
       "id": "trends",
       "title": "Golden Signals",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "breakdowns",
       "title": "Breakdowns",
       "order": 30,
-      "kind": "breakdowns",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "three-up"
     }
   ],
   "panels": [
     {
       "id": "db-ops-by-operation",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/database/ops/by-operation",
@@ -39,13 +34,11 @@
       "description": "Tracks the volume of database operations over time, grouped by operation type (e.g., SELECT, INSERT, UPDATE). Watch for unexpected shifts in the operation mix.",
       "titleIcon": "BarChart2",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "wide-chart"
     },
     {
       "id": "db-read-vs-write",
-      "layout": {
-        "preset": "breakdown"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/database/ops/read-vs-write",
@@ -58,7 +51,8 @@
       "description": "Compares the proportion of read operations to write operations for this database. A shift in this ratio can signal new workload patterns or caching changes.",
       "titleIcon": "PieChart",
       "panelType": "pie",
-      "sectionId": "breakdowns"
+      "sectionId": "breakdowns",
+      "layoutVariant": "summary"
     }
   ]
 }

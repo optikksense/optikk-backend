@@ -20,7 +20,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 		return
 	}
 	v1.POST("/logs/explorer/query", h.Query)
-	v1.GET("/logs/explorer/stream", h.Stream)
 }
 
 func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
@@ -39,11 +38,7 @@ func (m *logsExplorerModule) RouteTarget() registry.RouteTarget { return registr
 func (m *logsExplorerModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	searchService := logsearch.NewService(logsearch.NewRepository(nativeQuerier))
 	analyticsService := loganalytics.NewService(loganalytics.NewRepository(nativeQuerier))
-	m.handler = NewHandler(
-		getTenant,
-		NewService(searchService, analyticsService),
-		searchService,
-	)
+	m.handler = NewHandler(getTenant, NewService(searchService, analyticsService))
 }
 
 func (m *logsExplorerModule) RegisterRoutes(group *gin.RouterGroup) {

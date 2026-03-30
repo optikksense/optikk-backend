@@ -8,17 +8,13 @@
       "id": "details",
       "title": "Details",
       "order": 40,
-      "kind": "details",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "table-stack"
     }
   ],
   "panels": [
     {
       "id": "service-endpoints",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/services/{serviceName}/endpoints",
@@ -29,13 +25,11 @@
       "description": "Lists all discovered endpoints for this service with their throughput, error rate, and latency. Click any row to drill down into the operation-level detail view.",
       "titleIcon": "List",
       "panelType": "table",
-      "sectionId": "details"
+      "sectionId": "details",
+      "layoutVariant": "summary-table"
     },
     {
       "id": "top-slow-operations",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/spans/red/top-slow-operations",
@@ -49,7 +43,8 @@
       "description": "Ranks operations within this service by p99 latency in descending order. Focus optimization efforts on the top entries, as they represent the worst-case response times users experience.",
       "titleIcon": "Clock",
       "panelType": "table",
-      "sectionId": "details"
+      "sectionId": "details",
+      "layoutVariant": "summary-table"
     }
   ]
 }

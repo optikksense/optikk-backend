@@ -8,33 +8,27 @@
       "id": "trends",
       "title": "Golden Signals",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "breakdowns",
       "title": "Breakdowns",
       "order": 30,
-      "kind": "breakdowns",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "details",
       "title": "Details",
       "order": 40,
-      "kind": "details",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "table-stack"
     }
   ],
   "panels": [
     {
       "id": "model-cost-timeseries",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/ai/cost/timeseries",
@@ -48,13 +42,11 @@
       "description": "Tracks the dollar cost of this model's token usage per time interval. Look for cost anomalies that diverge from normal traffic patterns.",
       "titleIcon": "DollarSign",
       "panelType": "ai-line",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "wide-chart"
     },
     {
       "id": "model-token-breakdown",
-      "layout": {
-        "preset": "breakdown"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/ai/cost/token-breakdown",
@@ -67,13 +59,11 @@
       "description": "Shows the split of prompt, completion, system, and cache tokens for this model. Reducing prompt token volume is often the fastest path to cost savings.",
       "titleIcon": "PieChart",
       "panelType": "ai-bar",
-      "sectionId": "breakdowns"
+      "sectionId": "breakdowns",
+      "layoutVariant": "wide-chart"
     },
     {
       "id": "model-cost-metrics",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/ai/cost/metrics",
@@ -86,7 +76,8 @@
       "description": "Lists detailed cost statistics for this model including total spend, cost per token, and token counts by type.",
       "titleIcon": "DollarSign",
       "panelType": "table",
-      "sectionId": "details"
+      "sectionId": "details",
+      "layoutVariant": "detail-table"
     }
   ]
 }

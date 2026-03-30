@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "ai-model-detail",
   "path": "/ai-observability/models/:modelName",
   "label": "Model Detail",

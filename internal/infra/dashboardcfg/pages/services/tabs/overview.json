@@ -8,18 +8,14 @@
       "id": "trends",
       "title": "Overview",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     }
   ],
   "panels": [
     {
       "groupByKey": "service",
       "id": "services-request-rate",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/services/timeseries",
@@ -32,14 +28,12 @@
       "description": "Shows the request rate over time for each service. Look for unexpected drops that may indicate upstream failures or traffic shifts.",
       "titleIcon": "TrendingUp",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "service",
       "id": "services-error-rate",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/services/timeseries",
@@ -52,14 +46,12 @@
       "description": "Tracks the error rate across all services over time. Spikes in a single service often propagate to its downstream dependents.",
       "titleIcon": "AlertCircle",
       "panelType": "error-rate",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "service",
       "id": "services-latency",
-      "layout": {
-        "preset": "hero"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/services/timeseries",
@@ -72,7 +64,8 @@
       "description": "Compares latency trends across all services. Identify which services contribute most to end-to-end response time.",
       "titleIcon": "Clock",
       "panelType": "latency",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     }
   ]
 }

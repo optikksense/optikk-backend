@@ -8,17 +8,13 @@
       "id": "breakdowns",
       "title": "Latency",
       "order": 30,
-      "kind": "breakdowns",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     }
   ],
   "panels": [
     {
       "id": "op-latency-histogram",
-      "layout": {
-        "preset": "breakdown"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/latency/histogram",
@@ -32,13 +28,11 @@
       "description": "Shows the distribution of response times for this operation across latency buckets. Look for bimodal shapes or long tails that reveal slow outlier requests.",
       "titleIcon": "BarChart2",
       "panelType": "latency-histogram",
-      "sectionId": "breakdowns"
+      "sectionId": "breakdowns",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "op-latency-heatmap",
-      "layout": {
-        "preset": "breakdown"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/latency/heatmap",
@@ -53,7 +47,8 @@
       "description": "Visualizes response-time density for this operation over time, with darker bands indicating more requests at that latency. Watch for new hot bands appearing at higher latencies, which signal performance degradation.",
       "titleIcon": "Grid",
       "panelType": "latency-heatmap",
-      "sectionId": "breakdowns"
+      "sectionId": "breakdowns",
+      "layoutVariant": "standard-chart"
     }
   ]
 }

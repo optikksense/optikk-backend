@@ -6,42 +6,21 @@ import (
 
 type RenderMode string
 
-const CurrentSchemaVersion = 1
+// CurrentSchemaVersion is the canonical dashboard page schema. Version 2 adds explicit
+// panel layout grid dimensions (layout.w, layout.h) alongside x/y; see CODEBASE_INDEX.md.
+const CurrentSchemaVersion = 2
+
+// MinSupportedSchemaVersion is the oldest schemaVersion still accepted at load time (hydration may apply).
+const MinSupportedSchemaVersion = 1
 
 const (
 	RenderModeDashboard RenderMode = "dashboard"
 	RenderModeExplorer  RenderMode = "explorer"
 )
 
-type SectionKind string
-
-const (
-	SectionKindSummary    SectionKind = "summary"
-	SectionKindTrends     SectionKind = "trends"
-	SectionKindBreakdowns SectionKind = "breakdowns"
-	SectionKindDetails    SectionKind = "details"
-)
-
-type SectionLayoutMode string
-
-const (
-	SectionLayoutModeKPIStrip SectionLayoutMode = "kpi-strip"
-	SectionLayoutModeTwoUp    SectionLayoutMode = "two-up"
-	SectionLayoutModeThreeUp  SectionLayoutMode = "three-up"
-	SectionLayoutModeStack    SectionLayoutMode = "stack"
-)
-
-type PanelPreset string
-
-const (
-	PanelPresetKPI       PanelPreset = "kpi"
-	PanelPresetTrend     PanelPreset = "trend"
-	PanelPresetHero      PanelPreset = "hero"
-	PanelPresetBreakdown PanelPreset = "breakdown"
-	PanelPresetDetail    PanelPreset = "detail"
-)
-
 type PanelType string
+type LayoutVariant string
+type SectionTemplate string
 
 const (
 	PanelTypeAIBar             PanelType = "ai-bar"
@@ -66,6 +45,31 @@ const (
 	PanelTypeStatCardsGrid     PanelType = "stat-cards-grid"
 	PanelTypeStatSummary       PanelType = "stat-summary"
 	PanelTypeTable             PanelType = "table"
+	PanelTypeTraceWaterfall    PanelType = "trace-waterfall"
+)
+
+const (
+	LayoutVariantKPI           LayoutVariant = "kpi"
+	LayoutVariantSummary       LayoutVariant = "summary"
+	LayoutVariantStandardChart LayoutVariant = "standard-chart"
+	LayoutVariantWideChart     LayoutVariant = "wide-chart"
+	LayoutVariantRanking       LayoutVariant = "ranking"
+	LayoutVariantSummaryTable  LayoutVariant = "summary-table"
+	LayoutVariantDetailTable   LayoutVariant = "detail-table"
+	LayoutVariantHero          LayoutVariant = "hero"
+	LayoutVariantHeroMap       LayoutVariant = "hero-map"
+	LayoutVariantHeroDetail    LayoutVariant = "hero-detail"
+)
+
+const (
+	SectionTemplateKPIBand              SectionTemplate = "kpi-band"
+	SectionTemplateSummaryPlusHealth    SectionTemplate = "summary-plus-health"
+	SectionTemplateTwoUp                SectionTemplate = "two-up"
+	SectionTemplateThreeUp              SectionTemplate = "three-up"
+	SectionTemplateStacked              SectionTemplate = "stacked"
+	SectionTemplateHeroPlusTable        SectionTemplate = "hero-plus-table"
+	SectionTemplateChartGridPlusDetails SectionTemplate = "chart-grid-plus-details"
+	SectionTemplateTableStack           SectionTemplate = "table-stack"
 )
 
 var allowedPanelTypes = map[PanelType]struct{}{
@@ -91,6 +95,31 @@ var allowedPanelTypes = map[PanelType]struct{}{
 	PanelTypeStatCardsGrid:     {},
 	PanelTypeStatSummary:       {},
 	PanelTypeTable:             {},
+	PanelTypeTraceWaterfall:    {},
+}
+
+var allowedLayoutVariants = map[LayoutVariant]struct{}{
+	LayoutVariantKPI:           {},
+	LayoutVariantSummary:       {},
+	LayoutVariantStandardChart: {},
+	LayoutVariantWideChart:     {},
+	LayoutVariantRanking:       {},
+	LayoutVariantSummaryTable:  {},
+	LayoutVariantDetailTable:   {},
+	LayoutVariantHero:          {},
+	LayoutVariantHeroMap:       {},
+	LayoutVariantHeroDetail:    {},
+}
+
+var allowedSectionTemplates = map[SectionTemplate]struct{}{
+	SectionTemplateKPIBand:              {},
+	SectionTemplateSummaryPlusHealth:    {},
+	SectionTemplateTwoUp:                {},
+	SectionTemplateThreeUp:              {},
+	SectionTemplateStacked:              {},
+	SectionTemplateHeroPlusTable:        {},
+	SectionTemplateChartGridPlusDetails: {},
+	SectionTemplateTableStack:           {},
 }
 
 // PageMetadata describes a top-level page exposed to the frontend.
@@ -117,21 +146,18 @@ type QuerySpec struct {
 }
 
 type PanelLayout struct {
-	Preset  PanelPreset `json:"preset"`
-	X       *int        `json:"x,omitempty"`
-	Y       *int        `json:"y,omitempty"`
-	W       *int        `json:"w,omitempty"`
-	H       *int        `json:"h,omitempty"`
-	ColSpan *int        `json:"colSpan,omitempty"`
+	X int `json:"x"`
+	Y int `json:"y"`
+	W int `json:"w"`
+	H int `json:"h"`
 }
 
 type SectionDefinition struct {
-	ID          string            `json:"id"`
-	Title       string            `json:"title"`
-	Order       int               `json:"order"`
-	Kind        SectionKind       `json:"kind"`
-	LayoutMode  SectionLayoutMode `json:"layoutMode"`
-	Collapsible bool              `json:"collapsible"`
+	ID              string          `json:"id"`
+	Title           string          `json:"title"`
+	Order           int             `json:"order"`
+	Collapsible     bool            `json:"collapsible"`
+	SectionTemplate SectionTemplate `json:"sectionTemplate"`
 }
 
 type StatSummaryField struct {
@@ -144,6 +170,7 @@ type StatSummaryField struct {
 type PanelDefinition struct {
 	ID                    string             `json:"id"`
 	PanelType             PanelType          `json:"panelType"`
+	LayoutVariant         LayoutVariant      `json:"layoutVariant"`
 	Title                 string             `json:"title,omitempty"`
 	Description           string             `json:"description,omitempty"`
 	TitleIcon             string             `json:"titleIcon,omitempty"`

@@ -8,25 +8,20 @@
       "id": "summary",
       "title": "Summary",
       "order": 10,
-      "kind": "summary",
       "collapsible": true,
-      "layoutMode": "kpi-strip"
+      "sectionTemplate": "kpi-band"
     },
     {
       "id": "trends",
       "title": "Trends",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     }
   ],
   "panels": [
     {
       "id": "model-total-requests",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/ai/summary",
@@ -39,13 +34,11 @@
       "description": "Shows the total number of inference requests sent to this model. Use this to understand overall demand for this model.",
       "titleIcon": "Activity",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "id": "model-total-cost",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/ai/summary",
@@ -58,13 +51,11 @@
       "description": "Shows the cumulative token cost in USD for this model over the selected period. Compare against other models to evaluate cost efficiency.",
       "titleIcon": "DollarSign",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "id": "model-guardrail-blocks",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/ai/summary",
@@ -77,13 +68,11 @@
       "description": "Shows the number of requests to this model blocked by safety guardrails. A high ratio relative to total requests may indicate prompt quality issues.",
       "titleIcon": "Shield",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "id": "model-pii-detections",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 40,
       "query": {
         "endpoint": "/v1/ai/summary",
@@ -96,13 +85,11 @@
       "description": "Shows the count of PII instances found in prompts or completions for this model. Any detections require review to ensure data compliance.",
       "titleIcon": "Eye",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "id": "model-qps",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 50,
       "query": {
         "endpoint": "/v1/ai/performance/timeseries",
@@ -116,13 +103,11 @@
       "description": "Tracks inference queries per second for this model over time. Look for traffic patterns and sudden load changes.",
       "titleIcon": "TrendingUp",
       "panelType": "ai-line",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "model-cost-over-time",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 60,
       "query": {
         "endpoint": "/v1/ai/cost/timeseries",
@@ -136,7 +121,8 @@
       "description": "Shows how this model's token spend evolves over each time interval. Correlate cost spikes with QPS or token-heavy request patterns.",
       "titleIcon": "DollarSign",
       "panelType": "ai-line",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     }
   ]
 }

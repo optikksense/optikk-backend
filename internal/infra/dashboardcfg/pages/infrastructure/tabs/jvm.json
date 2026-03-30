@@ -8,26 +8,21 @@
       "id": "summary",
       "title": "Key Metrics",
       "order": 10,
-      "kind": "summary",
       "collapsible": true,
-      "layoutMode": "kpi-strip"
+      "sectionTemplate": "kpi-band"
     },
     {
       "id": "trends",
       "title": "Golden Signals",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     }
   ],
   "panels": [
     {
       "formatter": "ms",
       "id": "gc-p95-duration",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/infrastructure/jvm/gc-duration",
@@ -38,14 +33,12 @@
       "titleIcon": "Trash2",
       "valueField": "p95",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "ms",
       "id": "gc-p99-duration",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/infrastructure/jvm/gc-duration",
@@ -56,14 +49,12 @@
       "titleIcon": "Trash2",
       "valueField": "p99",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "ns",
       "id": "jvm-cpu-time",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/infrastructure/jvm/cpu",
@@ -74,14 +65,12 @@
       "titleIcon": "Cpu",
       "valueField": "cpu_time_value",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "percent2",
       "id": "jvm-cpu-utilization",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 40,
       "query": {
         "endpoint": "/v1/infrastructure/jvm/cpu",
@@ -92,14 +81,27 @@
       "titleIcon": "Cpu",
       "valueField": "recent_utilization",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
+    },
+    {
+      "id": "jvm-classes",
+      "order": 90,
+      "query": {
+        "endpoint": "/v1/infrastructure/jvm/classes",
+        "method": "GET"
+      },
+      "title": "Loaded Classes",
+      "description": "Shows the number of classes currently loaded in the JVM. A continuously increasing count may indicate a classloader leak.",
+      "titleIcon": "BookOpen",
+      "valueField": "loaded",
+      "panelType": "stat-card",
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "groupByKey": "pool_name",
       "id": "jvm-memory",
-      "layout": {
-        "preset": "hero"
-      },
       "order": 50,
       "query": {
         "endpoint": "/v1/infrastructure/jvm/memory",
@@ -110,14 +112,12 @@
       "titleIcon": "HardDrive",
       "valueKey": "used",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
-      "groupByKey": "pod",
+      "groupByKey": "collector",
       "id": "jvm-gc-collections",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 60,
       "query": {
         "endpoint": "/v1/infrastructure/jvm/gc-collections",
@@ -128,32 +128,28 @@
       "titleIcon": "Trash2",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
-      "groupByKey": "state",
+      "groupByKey": "daemon",
       "id": "jvm-threads",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 70,
       "query": {
         "endpoint": "/v1/infrastructure/jvm/threads",
         "method": "GET"
       },
-      "title": "Thread Count by State",
-      "description": "Tracks JVM thread counts grouped by state such as runnable, waiting, and blocked. A growing blocked thread count signals contention on shared resources.",
+      "title": "Thread Count by Daemon Status",
+      "description": "Tracks JVM thread counts grouped by daemon versus non-daemon threads. A sudden increase can indicate thread leaks or runaway background work.",
       "titleIcon": "Activity",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "groupByKey": "pool_name",
       "id": "jvm-buffers",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 80,
       "query": {
         "endpoint": "/v1/infrastructure/jvm/buffers",
@@ -164,23 +160,8 @@
       "titleIcon": "Database",
       "valueKey": "memory_usage",
       "panelType": "request",
-      "sectionId": "trends"
-    },
-    {
-      "id": "jvm-classes",
-      "layout": {
-        "preset": "kpi"
-      },
-      "order": 90,
-      "query": {
-        "endpoint": "/v1/infrastructure/jvm/classes",
-        "method": "GET"
-      },
-      "title": "Loaded Classes",
-      "description": "Shows the number of classes currently loaded in the JVM. A continuously increasing count may indicate a classloader leak.",
-      "titleIcon": "BookOpen",
-      "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     }
   ]
 }

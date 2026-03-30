@@ -8,34 +8,28 @@
       "id": "summary",
       "title": "Key Metrics",
       "order": 10,
-      "kind": "summary",
       "collapsible": true,
-      "layoutMode": "kpi-strip"
+      "sectionTemplate": "kpi-band"
     },
     {
       "id": "trends",
       "title": "Golden Signals",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     },
     {
       "id": "details",
       "title": "Details",
       "order": 40,
-      "kind": "details",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "table-stack"
     }
   ],
   "panels": [
     {
       "formatter": "percent1",
       "id": "cache-hit-rate",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/saturation/redis/cache-hit-rate",
@@ -46,14 +40,12 @@
       "titleIcon": "Target",
       "valueField": "hit_rate_pct",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "number",
       "id": "cache-hits",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/saturation/redis/cache-hit-rate",
@@ -64,14 +56,12 @@
       "titleIcon": "CheckCircle",
       "valueField": "hits",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "number",
       "id": "cache-misses",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/saturation/redis/cache-hit-rate",
@@ -82,14 +72,12 @@
       "titleIcon": "XCircle",
       "valueField": "misses",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "formatter": "number",
       "id": "replication-offset",
-      "layout": {
-        "preset": "kpi"
-      },
       "order": 40,
       "query": {
         "endpoint": "/v1/saturation/redis/replication-lag",
@@ -100,13 +88,11 @@
       "titleIcon": "GitBranch",
       "valueField": "offset",
       "panelType": "stat-card",
-      "sectionId": "summary"
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
     },
     {
       "id": "redis-clients",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 50,
       "query": {
         "endpoint": "/v1/saturation/redis/clients",
@@ -117,13 +103,11 @@
       "titleIcon": "Users",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "redis-memory",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 60,
       "query": {
         "endpoint": "/v1/saturation/redis/memory",
@@ -134,13 +118,11 @@
       "titleIcon": "HardDrive",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "redis-memory-frag",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 70,
       "query": {
         "endpoint": "/v1/saturation/redis/memory-fragmentation",
@@ -151,13 +133,11 @@
       "titleIcon": "AlertTriangle",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "redis-commands",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 80,
       "query": {
         "endpoint": "/v1/saturation/redis/commands",
@@ -168,13 +148,11 @@
       "titleIcon": "Terminal",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "redis-evictions",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 90,
       "query": {
         "endpoint": "/v1/saturation/redis/evictions",
@@ -185,13 +163,11 @@
       "titleIcon": "Trash2",
       "valueKey": "value",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "redis-instances",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 95,
       "query": {
         "endpoint": "/v1/saturation/redis/instances",
@@ -202,13 +178,11 @@
       "description": "Lists all detected Redis instances with summary metrics for each. Drill down into an instance to see its detailed performance and memory breakdown.",
       "titleIcon": "Server",
       "panelType": "table",
-      "sectionId": "details"
+      "sectionId": "details",
+      "layoutVariant": "summary-table"
     },
     {
       "id": "redis-keyspace",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 100,
       "query": {
         "endpoint": "/v1/saturation/redis/keyspace",
@@ -218,13 +192,11 @@
       "description": "Shows the number of keys stored in each Redis logical database. Helps identify which databases consume the most memory and drive eviction pressure.",
       "titleIcon": "Database",
       "panelType": "table",
-      "sectionId": "details"
+      "sectionId": "details",
+      "layoutVariant": "summary-table"
     },
     {
       "id": "redis-key-expiries",
-      "layout": {
-        "preset": "detail"
-      },
       "order": 110,
       "query": {
         "endpoint": "/v1/saturation/redis/key-expiries",
@@ -234,7 +206,8 @@
       "description": "Shows the number of expired keys per Redis logical database. A low expiry count relative to keyspace size may mean TTLs are not set, leading to unbounded memory growth.",
       "titleIcon": "Clock",
       "panelType": "table",
-      "sectionId": "details"
+      "sectionId": "details",
+      "layoutVariant": "detail-table"
     }
   ]
 }

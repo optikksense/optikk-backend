@@ -1,9 +1,6 @@
 package explorer
 
-import (
-	spanlivetail "github.com/Optikk-Org/optikk-backend/internal/modules/traces/livetail"
-	spantraces "github.com/Optikk-Org/optikk-backend/internal/modules/traces/query"
-)
+import spantraces "github.com/Optikk-Org/optikk-backend/internal/modules/traces/query"
 
 type TraceExplorerParams struct {
 	Services       []string `json:"services,omitempty"`
@@ -61,10 +58,4 @@ type ExplorerFacets struct {
 	ServiceName   []FacetBucket `json:"service_name"`
 	Status        []FacetBucket `json:"status"`
 	OperationName []FacetBucket `json:"operation_name"`
-}
-
-type StreamItem struct {
-	Item         spanlivetail.LiveSpan `json:"item"`
-	LagMs        int64                 `json:"lagMs"`
-	DroppedCount int                   `json:"droppedCount"`
 }

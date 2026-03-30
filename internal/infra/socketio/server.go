@@ -125,7 +125,7 @@ func (s *Server) getDone(connID string) <-chan struct{} {
 
 // RegisterHandler registers a subscription handler on the /live namespace.
 func (s *Server) RegisterHandler(h SubscriptionHandler) {
-	s.IO.OnEvent(Namespace, h.Event, func(conn socketio.Conn, msg string) {
+	s.IO.OnEvent(Namespace, h.Event, func(conn socketio.Conn, msg interface{}) {
 		done := s.getDone(conn.ID())
 
 		emit := func(event string, data any) {
@@ -133,8 +133,17 @@ func (s *Server) RegisterHandler(h SubscriptionHandler) {
 		}
 
 		var payload json.RawMessage
-		if msg != "" {
-			payload = json.RawMessage(msg)
+		if msg != nil {
+			switch v := msg.(type) {
+			case string:
+				if v != "" {
+					payload = json.RawMessage(v)
+				}
+			default:
+				if b, err := json.Marshal(v); err == nil {
+					payload = json.RawMessage(b)
+				}
+			}
 		}
 
 		// Run the handler in a goroutine so it can block (poll loop).

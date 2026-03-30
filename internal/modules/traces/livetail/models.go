@@ -2,7 +2,7 @@ package livetail
 
 import "time"
 
-// LiveSpan is a simplified span emitted over the SSE stream.
+// LiveSpan is a simplified span emitted to clients (e.g. Socket.IO live tail).
 type LiveSpan struct {
 	SpanID        string    `json:"spanId"               ch:"span_id"`
 	TraceID       string    `json:"traceId"              ch:"trace_id"`

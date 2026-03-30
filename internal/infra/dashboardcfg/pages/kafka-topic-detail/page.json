@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "id": "kafka-topic-detail",
   "path": "/saturation/kafka/topics/:topic",
   "label": "Topic Detail",

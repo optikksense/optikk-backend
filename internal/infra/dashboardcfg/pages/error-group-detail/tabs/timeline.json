@@ -8,17 +8,13 @@
       "id": "trends",
       "title": "Timeline",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "stack"
+      "sectionTemplate": "two-up"
     }
   ],
   "panels": [
     {
       "id": "error-group-timeseries",
-      "layout": {
-        "preset": "hero"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/errors/groups/{errorGroupId}/timeseries",
@@ -28,7 +24,8 @@
       "description": "Tracks how frequently this error group occurs over the selected time range. Look for correlation with deployments or traffic spikes to identify triggers.",
       "titleIcon": "TrendingUp",
       "panelType": "error-rate",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "wide-chart"
     }
   ]
 }

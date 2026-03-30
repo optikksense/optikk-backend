@@ -19,7 +19,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ResourceUtilisationHandl
 		return
 	}
 
-	g := v1.Group("/infrastructure/resource-utilization")
+	g := v1.Group("/infrastructure/resource-utilisation")
 	g.GET("/avg-cpu", h.GetAvgCPU)
 	g.GET("/avg-memory", h.GetAvgMemory)
 	g.GET("/avg-network", h.GetAvgNetwork)

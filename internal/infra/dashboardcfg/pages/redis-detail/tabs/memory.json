@@ -8,17 +8,13 @@
       "id": "trends",
       "title": "Memory",
       "order": 20,
-      "kind": "trends",
       "collapsible": true,
-      "layoutMode": "two-up"
+      "sectionTemplate": "two-up"
     }
   ],
   "panels": [
     {
       "id": "redis-memory",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 10,
       "query": {
         "endpoint": "/v1/saturation/redis/memory",
@@ -31,13 +27,11 @@
       "description": "Tracks the total memory consumed by this Redis instance over time. Watch for steady growth approaching the configured maxmemory threshold.",
       "titleIcon": "HardDrive",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "redis-memory-frag",
-      "layout": {
-        "preset": "trend"
-      },
       "order": 20,
       "query": {
         "endpoint": "/v1/saturation/redis/memory-fragmentation",
@@ -50,13 +44,11 @@
       "description": "Tracks the ratio of OS-allocated memory to Redis-used memory for this instance. Ratios well above 1.5 indicate significant fragmentation; values below 1.0 suggest swapping to disk.",
       "titleIcon": "PieChart",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     },
     {
       "id": "redis-evictions",
-      "layout": {
-        "preset": "hero"
-      },
       "order": 30,
       "query": {
         "endpoint": "/v1/saturation/redis/evictions",
@@ -69,7 +61,8 @@
       "description": "Tracks the number of keys evicted from this Redis instance due to memory limits. Any evictions mean the instance has hit its maxmemory ceiling and is discarding data.",
       "titleIcon": "Trash2",
       "panelType": "request",
-      "sectionId": "trends"
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
     }
   ]
 }
