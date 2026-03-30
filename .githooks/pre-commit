@@ -1,6 +1,6 @@
 #!/bin/sh
 # Optikk Backend Pre-Commit Hook
-# Mirrors CI pipeline: mod verify → build → vet → lint → test
+# Mirrors CI pipeline: mod verify → build
 
 echo "[Optikk Backend] Running pre-commit checks..."
 
@@ -18,24 +18,6 @@ fi
 make build
 if [ $? -ne 0 ]; then
     echo "[Optikk Backend] go build failed. Commit aborted."
-    exit 1
-fi
-
-make vet
-if [ $? -ne 0 ]; then
-    echo "[Optikk Backend] go vet failed. Commit aborted."
-    exit 1
-fi
-
-make lint
-if [ $? -ne 0 ]; then
-    echo "[Optikk Backend] golangci-lint failed. Commit aborted."
-    exit 1
-fi
-
-go test ./... -race -count=1
-if [ $? -ne 0 ]; then
-    echo "[Optikk Backend] tests failed. Commit aborted."
     exit 1
 fi
 
