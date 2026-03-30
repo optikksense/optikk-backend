@@ -1,0 +1,103 @@
+{
+  "id": "nodes",
+  "pageId": "infrastructure",
+  "label": "Nodes",
+  "order": 40,
+  "sections": [
+    {
+      "id": "summary",
+      "title": "Key Metrics",
+      "order": 10,
+      "collapsible": true,
+      "sectionTemplate": "kpi-band"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "collapsible": true,
+      "sectionTemplate": "table-stack"
+    }
+  ],
+  "panels": [
+    {
+      "formatter": "number",
+      "id": "healthy-nodes",
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/infrastructure/nodes/summary",
+        "method": "GET"
+      },
+      "title": "Healthy Nodes",
+      "description": "Shows the count of nodes reporting a Ready condition. All nodes should ideally be in this state.",
+      "titleIcon": "CheckCircle2",
+      "valueField": "healthy_nodes",
+      "panelType": "stat-card",
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
+    },
+    {
+      "formatter": "number",
+      "id": "degraded-nodes",
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/infrastructure/nodes/summary",
+        "method": "GET"
+      },
+      "title": "Degraded Nodes",
+      "description": "Shows nodes with partial failures such as disk pressure or network unavailability. Investigate before they become fully unhealthy.",
+      "titleIcon": "AlertTriangle",
+      "valueField": "degraded_nodes",
+      "panelType": "stat-card",
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
+    },
+    {
+      "formatter": "number",
+      "id": "unhealthy-nodes",
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/infrastructure/nodes/summary",
+        "method": "GET"
+      },
+      "title": "Unhealthy Nodes",
+      "description": "Shows nodes that are NotReady or unreachable. Pods on these nodes will be rescheduled and may cause service disruption.",
+      "titleIcon": "XCircle",
+      "valueField": "unhealthy_nodes",
+      "panelType": "stat-card",
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
+    },
+    {
+      "formatter": "number",
+      "id": "total-pods",
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/infrastructure/nodes/summary",
+        "method": "GET"
+      },
+      "title": "Total Pods",
+      "description": "Shows the total number of pods scheduled across all nodes. Compare against node pod capacity limits to assess scheduling headroom.",
+      "titleIcon": "Box",
+      "valueField": "total_pods",
+      "panelType": "stat-card",
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
+    },
+    {
+      "id": "nodes-table",
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/infrastructure/nodes",
+        "method": "GET"
+      },
+      "drilldownRoute": "/infrastructure/nodes/{host}",
+      "title": "Nodes",
+      "description": "Lists all nodes with their CPU, memory, pod count, and health status. Click a row to drill into per-node resource details.",
+      "titleIcon": "Server",
+      "panelType": "table",
+      "sectionId": "details",
+      "layoutVariant": "detail-table"
+    }
+  ]
+}

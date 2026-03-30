@@ -1,0 +1,51 @@
+{
+  "id": "consumption",
+  "pageId": "kafka-topic-detail",
+  "label": "Consumption",
+  "order": 20,
+  "sections": [
+    {
+      "id": "trends",
+      "title": "Consumption",
+      "order": 20,
+      "collapsible": true,
+      "sectionTemplate": "two-up"
+    }
+  ],
+  "panels": [
+    {
+      "id": "topic-consume-by-group",
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/consume-rate-by-group",
+        "method": "GET",
+        "params": {
+          "topic": "{topic}"
+        }
+      },
+      "title": "Consume Rate by Group",
+      "description": "Tracks message consumption throughput for each consumer group subscribed to this topic. Uneven rates across groups may indicate processing bottlenecks in specific consumers.",
+      "titleIcon": "Users",
+      "panelType": "request",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "id": "topic-process-by-group",
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/process-rate-by-group",
+        "method": "GET",
+        "params": {
+          "topic": "{topic}"
+        }
+      },
+      "title": "Process Rate by Group",
+      "description": "Tracks the rate at which each consumer group processes messages from this topic after receiving them. A gap between consume and process rates signals slow message handling.",
+      "titleIcon": "Activity",
+      "panelType": "request",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    }
+  ]
+}

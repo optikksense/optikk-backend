@@ -1,0 +1,150 @@
+{
+  "id": "slo",
+  "pageId": "overview",
+  "label": "SLO",
+  "order": 30,
+  "sections": [
+    {
+      "id": "slo-at-a-glance",
+      "title": "At a Glance",
+      "order": 10,
+      "collapsible": true,
+      "sectionTemplate": "kpi-band"
+    },
+    {
+      "id": "slo-timeseries",
+      "title": "Over Time",
+      "order": 20,
+      "collapsible": true,
+      "sectionTemplate": "two-up"
+    }
+  ],
+  "panels": [
+    {
+      "formatter": "percent1",
+      "id": "slo-availability-pct",
+      "order": 5,
+      "query": {
+        "endpoint": "/v1/overview/slo/stats",
+        "method": "GET"
+      },
+      "title": "Availability",
+      "description": "Overall service availability as a percentage of successful requests. Compare against your SLO target to gauge remaining error budget.",
+      "titleIcon": "Target",
+      "valueField": "availability_percent",
+      "panelType": "stat-card",
+      "sectionId": "slo-at-a-glance",
+      "layoutVariant": "kpi"
+    },
+    {
+      "formatter": "ms",
+      "id": "slo-p95-latency",
+      "order": 6,
+      "query": {
+        "endpoint": "/v1/overview/slo/stats",
+        "method": "GET"
+      },
+      "title": "p95 Latency",
+      "description": "95th-percentile latency across all requests. Breaching the latency SLO target indicates degraded user experience for the slowest 5% of requests.",
+      "titleIcon": "Clock",
+      "valueField": "p95_latency_ms",
+      "panelType": "stat-card",
+      "sectionId": "slo-at-a-glance",
+      "layoutVariant": "kpi"
+    },
+    {
+      "formatter": "number",
+      "id": "slo-total-requests",
+      "order": 7,
+      "query": {
+        "endpoint": "/v1/overview/slo/stats",
+        "method": "GET"
+      },
+      "title": "Total Requests",
+      "description": "Total request count in the selected time window. Provides context for error rate and availability percentages.",
+      "titleIcon": "TrendingUp",
+      "valueField": "total_requests",
+      "panelType": "stat-card",
+      "sectionId": "slo-at-a-glance",
+      "layoutVariant": "kpi"
+    },
+    {
+      "formatter": "number",
+      "id": "slo-error-count",
+      "order": 8,
+      "query": {
+        "endpoint": "/v1/overview/slo/stats",
+        "method": "GET"
+      },
+      "title": "Error Count",
+      "description": "Absolute number of failed requests. Combined with total requests, shows how much error budget has been consumed.",
+      "titleIcon": "AlertCircle",
+      "valueField": "error_count",
+      "panelType": "stat-card",
+      "sectionId": "slo-at-a-glance",
+      "layoutVariant": "kpi"
+    },
+    {
+      "color": "#12B76A",
+      "dataKey": "timeseries",
+      "datasetLabel": "Availability %",
+      "id": "availability",
+      "order": 15,
+      "query": {
+        "endpoint": "/v1/overview/slo",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "targetThreshold": 99.9,
+      "title": "Availability Over Time",
+      "description": "Availability percentage plotted over time with the 99.9% SLO target line. Dips below the target line consume error budget.",
+      "titleIcon": "Target",
+      "valueField": "availability_percent",
+      "panelType": "error-rate",
+      "sectionId": "slo-timeseries",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "dataKey": "timeseries",
+      "id": "latency-vs-target",
+      "order": 25,
+      "query": {
+        "endpoint": "/v1/overview/slo",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "targetThreshold": 300,
+      "title": "Latency vs Target",
+      "description": "Average latency plotted against the 300 ms SLO target. Periods above the line indicate latency SLO breaches.",
+      "titleIcon": "Clock",
+      "valueField": "avg_latency_ms",
+      "panelType": "latency",
+      "sectionId": "slo-timeseries",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "dataKey": "timeseries",
+      "id": "error-budget-burn",
+      "order": 35,
+      "query": {
+        "endpoint": "/v1/overview/slo",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "targetThreshold": 0.1,
+      "title": "Error Budget Burn",
+      "description": "Rate at which error budget is being consumed over time. Sustained values above the threshold risk exhausting the budget before the SLO window ends.",
+      "titleIcon": "Flame",
+      "valueField": "_errorBudgetBurn",
+      "panelType": "error-rate",
+      "sectionId": "slo-timeseries",
+      "layoutVariant": "standard-chart"
+    }
+  ]
+}

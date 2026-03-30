@@ -1,0 +1,31 @@
+{
+  "id": "services",
+  "pageId": "node-detail",
+  "label": "Services",
+  "order": 30,
+  "sections": [
+    {
+      "id": "details",
+      "title": "Services",
+      "order": 40,
+      "collapsible": true,
+      "sectionTemplate": "table-stack"
+    }
+  ],
+  "panels": [
+    {
+      "id": "node-services",
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/infrastructure/nodes/{host}/services",
+        "method": "GET"
+      },
+      "title": "Services on this Host",
+      "description": "Lists all services currently deployed on this node along with their resource consumption. Use this to identify noisy neighbors that may be starving other workloads.",
+      "titleIcon": "Layers",
+      "panelType": "table",
+      "sectionId": "details",
+      "layoutVariant": "detail-table"
+    }
+  ]
+}

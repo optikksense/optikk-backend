@@ -1,0 +1,58 @@
+{
+  "id": "logs",
+  "pageId": "service-detail",
+  "label": "Logs",
+  "order": 50,
+  "sections": [
+    {
+      "id": "breakdowns",
+      "title": "Breakdowns",
+      "order": 30,
+      "collapsible": true,
+      "sectionTemplate": "two-up"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "collapsible": true,
+      "sectionTemplate": "table-stack"
+    }
+  ],
+  "panels": [
+    {
+      "id": "log-volume",
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/logs/histogram",
+        "method": "GET",
+        "params": {
+          "service": "{serviceName}"
+        }
+      },
+      "title": "Log Volume",
+      "description": "Shows the volume of log entries emitted by this service over time, grouped by severity level. Sudden spikes in error or warn logs often precede or coincide with incidents.",
+      "titleIcon": "BarChart2",
+      "panelType": "log-histogram",
+      "sectionId": "breakdowns",
+      "layoutVariant": "wide-chart"
+    },
+    {
+      "id": "log-search",
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/logs",
+        "method": "GET",
+        "params": {
+          "service": "{serviceName}"
+        }
+      },
+      "title": "Logs",
+      "description": "Displays individual log lines produced by this service in reverse-chronological order. Each row includes timestamp, severity, and message body for detailed investigation.",
+      "titleIcon": "FileText",
+      "panelType": "table",
+      "sectionId": "details",
+      "layoutVariant": "detail-table"
+    }
+  ]
+}

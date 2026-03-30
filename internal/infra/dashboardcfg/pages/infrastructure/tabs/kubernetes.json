@@ -1,0 +1,192 @@
+{
+  "id": "kubernetes",
+  "pageId": "infrastructure",
+  "label": "Kubernetes",
+  "order": 30,
+  "sections": [
+    {
+      "id": "summary",
+      "title": "Key Metrics",
+      "order": 10,
+      "collapsible": true,
+      "sectionTemplate": "kpi-band"
+    },
+    {
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "collapsible": true,
+      "sectionTemplate": "two-up"
+    },
+    {
+      "id": "breakdowns",
+      "title": "Breakdowns",
+      "order": 30,
+      "collapsible": true,
+      "sectionTemplate": "three-up"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "collapsible": true,
+      "sectionTemplate": "table-stack"
+    }
+  ],
+  "panels": [
+    {
+      "formatter": "number",
+      "id": "allocatable-cpu-(cores)",
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/node-allocatable",
+        "method": "GET"
+      },
+      "title": "Allocatable CPU (cores)",
+      "description": "Shows the total allocatable CPU cores across all Kubernetes nodes. Compare against requested CPU to gauge cluster headroom.",
+      "titleIcon": "Cpu",
+      "valueField": "cpu_cores",
+      "panelType": "stat-card",
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
+    },
+    {
+      "formatter": "bytes",
+      "id": "allocatable-memory",
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/node-allocatable",
+        "method": "GET"
+      },
+      "title": "Allocatable Memory",
+      "description": "Shows the total allocatable memory across all Kubernetes nodes. Low headroom may prevent new pod scheduling.",
+      "titleIcon": "HardDrive",
+      "valueField": "memory_bytes",
+      "panelType": "stat-card",
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
+    },
+    {
+      "groupByKey": "container",
+      "id": "k8s-container-cpu",
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/container-cpu",
+        "method": "GET"
+      },
+      "title": "Container CPU Time",
+      "description": "Tracks CPU time consumed by each container over time. Containers consistently near their CPU limits are candidates for throttling.",
+      "titleIcon": "Cpu",
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "groupByKey": "container",
+      "id": "k8s-cpu-throttling",
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/cpu-throttling",
+        "method": "GET"
+      },
+      "title": "CPU Throttling Time",
+      "description": "Shows the time containers spent being CPU-throttled by the kernel. Non-zero throttling means containers are hitting their CPU limits.",
+      "titleIcon": "AlertTriangle",
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "groupByKey": "container",
+      "id": "k8s-container-memory",
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/container-memory",
+        "method": "GET"
+      },
+      "title": "Container Memory Usage",
+      "description": "Tracks memory consumption per container over time. Containers approaching their memory limits risk being OOM-killed.",
+      "titleIcon": "HardDrive",
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "groupByKey": "container",
+      "id": "k8s-oom-kills",
+      "order": 60,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/oom-kills",
+        "method": "GET"
+      },
+      "title": "OOM Kill Count",
+      "description": "Shows the number of out-of-memory kills per container. Any OOM kills indicate that memory limits need to be increased or the application has a leak.",
+      "titleIcon": "AlertTriangle",
+      "valueKey": "value",
+      "panelType": "request",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "groupByKey": "phase",
+      "id": "k8s-pod-phases",
+      "order": 70,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/pod-phases",
+        "method": "GET"
+      },
+      "title": "Pod Phase Distribution",
+      "description": "Displays the distribution of pods across phases such as Running, Pending, and Failed. A high Pending count suggests scheduling or resource constraints.",
+      "titleIcon": "Circle",
+      "valueKey": "count",
+      "panelType": "pie",
+      "sectionId": "breakdowns",
+      "layoutVariant": "summary"
+    },
+    {
+      "id": "k8s-replica-status",
+      "order": 80,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/replica-status",
+        "method": "GET"
+      },
+      "title": "ReplicaSet Status (Desired vs Available)",
+      "description": "Compares desired versus available replicas for each deployment. A mismatch indicates pods that failed to schedule or start.",
+      "titleIcon": "Layers",
+      "panelType": "table",
+      "sectionId": "details",
+      "layoutVariant": "summary-table"
+    },
+    {
+      "id": "k8s-pod-restarts",
+      "order": 90,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/pod-restarts",
+        "method": "GET"
+      },
+      "title": "Pod Restarts",
+      "description": "Lists pods ranked by restart count. Frequent restarts point to crash loops, health-check failures, or resource limits being exceeded.",
+      "titleIcon": "RefreshCw",
+      "panelType": "table",
+      "sectionId": "details",
+      "layoutVariant": "summary-table"
+    },
+    {
+      "id": "k8s-volume-usage",
+      "order": 100,
+      "query": {
+        "endpoint": "/v1/infrastructure/kubernetes/volume-usage",
+        "method": "GET"
+      },
+      "title": "Volume Usage",
+      "description": "Shows persistent volume capacity and current usage per claim. Volumes nearing full capacity may cause application write failures.",
+      "titleIcon": "FolderOpen",
+      "panelType": "table",
+      "sectionId": "details",
+      "layoutVariant": "detail-table"
+    }
+  ]
+}

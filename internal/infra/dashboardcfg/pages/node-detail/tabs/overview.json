@@ -1,0 +1,126 @@
+{
+  "id": "overview",
+  "pageId": "node-detail",
+  "label": "Overview",
+  "order": 10,
+  "sections": [
+    {
+      "id": "summary",
+      "title": "Summary",
+      "order": 10,
+      "collapsible": true,
+      "sectionTemplate": "kpi-band"
+    },
+    {
+      "id": "usage",
+      "title": "Usage",
+      "order": 20,
+      "collapsible": true,
+      "sectionTemplate": "two-up"
+    }
+  ],
+  "panels": [
+    {
+      "id": "node-cpu",
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/infrastructure/resource-utilisation/avg-cpu",
+        "method": "GET",
+        "params": {
+          "host": "{host}"
+        }
+      },
+      "title": "Avg CPU",
+      "description": "Shows the average CPU utilization percentage for this node. Sustained values above 80% may indicate the need to scale or redistribute workloads.",
+      "titleIcon": "Cpu",
+      "panelType": "stat-card",
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
+    },
+    {
+      "id": "node-memory",
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/infrastructure/resource-utilisation/avg-memory",
+        "method": "GET",
+        "params": {
+          "host": "{host}"
+        }
+      },
+      "title": "Avg Memory",
+      "description": "Shows the average memory utilization percentage for this node. High values with low headroom increase the risk of OOM kills.",
+      "titleIcon": "HardDrive",
+      "panelType": "stat-card",
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
+    },
+    {
+      "id": "node-network",
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/infrastructure/resource-utilisation/avg-network",
+        "method": "GET",
+        "params": {
+          "host": "{host}"
+        }
+      },
+      "title": "Avg Network",
+      "description": "Shows the average network throughput for this node. Watch for values approaching interface bandwidth limits.",
+      "titleIcon": "Wifi",
+      "panelType": "stat-card",
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
+    },
+    {
+      "id": "node-conn-pool",
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/infrastructure/resource-utilisation/avg-conn-pool",
+        "method": "GET",
+        "params": {
+          "host": "{host}"
+        }
+      },
+      "title": "Avg Conn Pool",
+      "description": "Shows the average connection pool utilization for services on this node. High pool usage can lead to connection queuing and increased latency.",
+      "titleIcon": "Link",
+      "panelType": "stat-card",
+      "sectionId": "summary",
+      "layoutVariant": "kpi"
+    },
+    {
+      "id": "node-cpu-usage",
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/infrastructure/cpu/usage-percentage",
+        "method": "GET",
+        "params": {
+          "host": "{host}"
+        }
+      },
+      "title": "CPU Usage %",
+      "description": "Tracks CPU utilization percentage for this node over time. Look for periodic spikes that may correlate with cron jobs or batch processing.",
+      "titleIcon": "Cpu",
+      "panelType": "request",
+      "sectionId": "usage",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "id": "node-memory-usage",
+      "order": 60,
+      "query": {
+        "endpoint": "/v1/infrastructure/memory/usage-percentage",
+        "method": "GET",
+        "params": {
+          "host": "{host}"
+        }
+      },
+      "title": "Memory Usage %",
+      "description": "Tracks memory utilization percentage for this node over time. A steadily rising trend may indicate a memory leak in one of the hosted services.",
+      "titleIcon": "HardDrive",
+      "panelType": "request",
+      "sectionId": "usage",
+      "layoutVariant": "standard-chart"
+    }
+  ]
+}

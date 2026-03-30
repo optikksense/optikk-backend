@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 2,
+  "id": "metrics",
+  "path": "/metrics",
+  "label": "Metrics",
+  "icon": "BarChart3",
+  "group": "observe",
+  "order": 20,
+  "defaultTabId": "red-metrics",
+  "navigable": true,
+  "title": "Metrics",
+  "subtitle": "RED, HTTP, APM, and latency analysis",
+  "renderMode": "dashboard"
+}

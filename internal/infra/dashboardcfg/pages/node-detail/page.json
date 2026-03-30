@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 2,
+  "id": "node-detail",
+  "path": "/infrastructure/nodes/:host",
+  "label": "Node Detail",
+  "icon": "Monitor",
+  "group": "operate",
+  "order": 997,
+  "defaultTabId": "overview",
+  "navigable": false,
+  "title": "Node Detail",
+  "subtitle": "Host-level resource utilization, services, and Kubernetes pods",
+  "renderMode": "dashboard"
+}

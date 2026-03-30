@@ -1,0 +1,191 @@
+{
+  "id": "summary",
+  "pageId": "overview",
+  "label": "Summary",
+  "order": 10,
+  "sections": [
+    {
+      "id": "overview-stats",
+      "title": "Key Metrics",
+      "order": 5,
+      "collapsible": true,
+      "sectionTemplate": "three-up"
+    },
+    {
+      "id": "golden-signals",
+      "title": "Golden Signals",
+      "order": 10,
+      "collapsible": true,
+      "sectionTemplate": "two-up"
+    },
+    {
+      "id": "service-health",
+      "title": "Service Health",
+      "order": 20,
+      "collapsible": true,
+      "sectionTemplate": "summary-plus-health"
+    },
+    {
+      "id": "top-consumers",
+      "title": "Top Consumers",
+      "order": 30,
+      "collapsible": true,
+      "sectionTemplate": "table-stack"
+    }
+  ],
+  "panels": [
+    {
+      "id": "overview-stat-cards",
+      "order": 1,
+      "query": {
+        "endpoint": "/v1/overview/services",
+        "method": "GET"
+      },
+      "title": "Overview Stats",
+      "description": "High-level KPIs across all services including request rate, error rate, and latency. Use this as a quick health check for your entire system.",
+      "titleIcon": "BarChart3",
+      "panelType": "stat-cards-grid",
+      "sectionId": "overview-stats",
+      "layoutVariant": "summary"
+    },
+    {
+      "id": "slo-indicators",
+      "order": 2,
+      "query": {
+        "endpoint": "/v1/overview/services",
+        "method": "GET"
+      },
+      "title": "SLO Indicators",
+      "description": "Visual indicators showing whether each service is meeting its Service Level Objectives. Green means within target; red signals SLO breach.",
+      "titleIcon": "ShieldCheck",
+      "panelType": "slo-indicators",
+      "sectionId": "overview-stats",
+      "layoutVariant": "summary"
+    },
+    {
+      "id": "service-health-grid",
+      "order": 3,
+      "query": {
+        "endpoint": "/v1/overview/services",
+        "method": "GET"
+      },
+      "title": "Services Overview",
+      "description": "Grid of all reporting services with health indicators. Click any service to drill down into its detail page.",
+      "titleIcon": "Server",
+      "panelType": "service-health-grid",
+      "sectionId": "overview-stats",
+      "layoutVariant": "summary"
+    },
+    {
+      "groupByKey": "service_name",
+      "id": "request-rate",
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/overview/request-rate",
+        "method": "GET"
+      },
+      "title": "Request Rate",
+      "description": "Requests per second over time, broken down by service. Sudden drops may indicate an outage or traffic routing change.",
+      "titleIcon": "TrendingUp",
+      "panelType": "request",
+      "sectionId": "golden-signals",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "groupByKey": "service_name",
+      "id": "error-rate",
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/overview/error-rate",
+        "method": "GET"
+      },
+      "title": "Error Rate",
+      "description": "Percentage of failed requests over time per service. Spikes often correlate with deployments or downstream failures.",
+      "titleIcon": "AlertCircle",
+      "panelType": "error-rate",
+      "sectionId": "golden-signals",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "groupByKey": "service_name",
+      "id": "p95-latency",
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/overview/p95-latency",
+        "method": "GET"
+      },
+      "title": "p95 Latency",
+      "description": "95th-percentile response time over time per service. Catches tail-latency regressions that averages would hide.",
+      "titleIcon": "Clock",
+      "valueKey": "p95",
+      "panelType": "latency",
+      "sectionId": "golden-signals",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "groupByKey": "service_name",
+      "id": "apdex-scores",
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/spans/red/apdex",
+        "method": "GET",
+        "params": {
+          "satisfied_ms": 300,
+          "tolerating_ms": 1200
+        }
+      },
+      "title": "Apdex Score by Service",
+      "description": "Application Performance Index scored 0 to 1, where 1.0 means all requests completed within the satisfied threshold (300 ms). Below 0.7 is generally considered poor.",
+      "titleIcon": "Target",
+      "valueKey": "apdex",
+      "panelType": "gauge",
+      "sectionId": "service-health",
+      "layoutVariant": "summary"
+    },
+    {
+      "id": "error-hotspot-summary",
+      "order": 60,
+      "query": {
+        "endpoint": "/v1/spans/error-hotspot",
+        "method": "GET"
+      },
+      "title": "Error Hotspot",
+      "description": "Ranked error hotspots by service and operation, ordered by error rate and error volume so the biggest failures surface first.",
+      "titleIcon": "Crosshair",
+      "valueKey": "error_rate",
+      "xKey": "operation_name",
+      "yKey": "service_name",
+      "panelType": "error-hotspot-ranking",
+      "sectionId": "service-health",
+      "layoutVariant": "ranking"
+    },
+    {
+      "id": "services-table",
+      "order": 70,
+      "query": {
+        "endpoint": "/v1/overview/services",
+        "method": "GET"
+      },
+      "title": "Services",
+      "description": "All services reporting in the selected time window with key metrics including request rate, error rate, and p95 latency.",
+      "titleIcon": "Layers",
+      "panelType": "table",
+      "sectionId": "top-consumers",
+      "layoutVariant": "summary-table"
+    },
+    {
+      "id": "endpoints-table",
+      "order": 80,
+      "query": {
+        "endpoint": "/v1/overview/top-endpoints",
+        "method": "GET"
+      },
+      "title": "Top Endpoints",
+      "description": "Highest-traffic endpoints ranked by request volume. Helps identify which endpoints drive the most load.",
+      "titleIcon": "List",
+      "panelType": "table",
+      "sectionId": "top-consumers",
+      "layoutVariant": "summary-table"
+    }
+  ]
+}

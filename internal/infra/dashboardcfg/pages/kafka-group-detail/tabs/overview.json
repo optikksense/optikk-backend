@@ -1,0 +1,89 @@
+{
+  "id": "overview",
+  "pageId": "kafka-group-detail",
+  "label": "Overview",
+  "order": 10,
+  "sections": [
+    {
+      "id": "trends",
+      "title": "Overview",
+      "order": 20,
+      "collapsible": true,
+      "sectionTemplate": "two-up"
+    }
+  ],
+  "panels": [
+    {
+      "id": "group-consume-rate",
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/consume-rate-by-group",
+        "method": "GET",
+        "params": {
+          "group": "{groupId}"
+        }
+      },
+      "valueKey": "rate_per_sec",
+      "title": "Consume Rate",
+      "description": "Tracks the message consumption throughput for this consumer group over time. A drop in consume rate often precedes a rise in consumer lag.",
+      "titleIcon": "TrendingDown",
+      "panelType": "request",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "id": "group-process-rate",
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/process-rate-by-group",
+        "method": "GET",
+        "params": {
+          "group": "{groupId}"
+        }
+      },
+      "valueKey": "rate_per_sec",
+      "title": "Process Rate",
+      "description": "Tracks the rate at which this consumer group processes messages after receiving them. A widening gap between consume and process rates signals slow message handling logic.",
+      "titleIcon": "Activity",
+      "panelType": "request",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "id": "group-rebalances",
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/rebalance-signals",
+        "method": "GET",
+        "params": {
+          "group": "{groupId}"
+        }
+      },
+      "valueKey": "rebalance_rate",
+      "title": "Rebalance Events",
+      "description": "Tracks rebalance frequency for this consumer group over time. Each rebalance pauses consumption, so frequent events degrade overall throughput.",
+      "titleIcon": "RefreshCw",
+      "panelType": "request",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "id": "group-assigned-partitions",
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/assigned-partitions",
+        "method": "GET",
+        "params": {
+          "group": "{groupId}"
+        }
+      },
+      "valueKey": "assigned_partitions",
+      "title": "Assigned Partitions",
+      "description": "Tracks the number of partitions assigned to this consumer group over time. Drops indicate members leaving the group; increases follow new member joins or topic partition expansion.",
+      "titleIcon": "Grid",
+      "panelType": "request",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    }
+  ]
+}

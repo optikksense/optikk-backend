@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 2,
+  "id": "infrastructure",
+  "path": "/infrastructure",
+  "label": "Infrastructure",
+  "icon": "HardDrive",
+  "group": "operate",
+  "order": 60,
+  "defaultTabId": "resource-utilization",
+  "navigable": true,
+  "title": "Infrastructure",
+  "subtitle": "Host, JVM, Kubernetes, and node health telemetry",
+  "renderMode": "dashboard"
+}

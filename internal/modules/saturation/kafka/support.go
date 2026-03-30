@@ -1,0 +1,174 @@
+package kafka
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/ClickHouse/clickhouse-go/v2"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+)
+
+const (
+	DefaultUnknown       = "unknown"
+	MessagingSystemKafka = "kafka"
+
+	// Column names in the metrics table.
+	ColMetricName  = "metric_name"
+	ColServiceName = "service"
+	ColCount       = "hist_count"
+	ColTeamID      = "team_id"
+	ColTimestamp   = "timestamp"
+	ColValue       = "value"
+
+	MaxTopQueues = 50
+)
+
+var (
+	ProducerMetrics = []string{
+		MetricPublishMessages,
+		MetricClientSentMessages,
+		"kafka.producer.message.count",
+		"messaging.client.published.messages",
+	}
+
+	ConsumerMetrics = []string{
+		MetricReceiveMessages,
+		MetricClientReceivedMessages,
+		"kafka.consumer.message.count",
+		"messaging.client.consumed.messages",
+	}
+
+	ProcessMetrics = []string{
+		MetricProcessMessages,
+	}
+
+	ConsumerLagMetrics = []string{
+		MetricKafkaConsumerLag,
+		MetricKafkaConsumerLagSum,
+		"kafka.consumer.lag",
+		"queue.depth",
+	}
+
+	RebalanceMetrics = []string{
+		MetricRebalanceCount,
+		MetricJoinCount,
+		MetricSyncCount,
+		MetricHeartbeatCount,
+		MetricFailedHeartbeatCount,
+		MetricAssignedPartitions,
+	}
+
+	DurationMetrics = []string{
+		MetricPublishDuration,
+		MetricReceiveDuration,
+		MetricProcessDuration,
+		MetricClientOperationDuration,
+	}
+
+	AllKafkaMetrics = flatten(
+		ProducerMetrics,
+		ConsumerMetrics,
+		ProcessMetrics,
+		ConsumerLagMetrics,
+		RebalanceMetrics,
+		DurationMetrics,
+		[]string{MetricClientConnections},
+	)
+)
+
+type ClickHouseRepository struct {
+	db *dbutil.NativeQuerier
+}
+
+func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
+	return &ClickHouseRepository{db: db}
+}
+
+func MetricSetToInClause(metrics []string) string {
+	var b strings.Builder
+	for i, metric := range metrics {
+		if i > 0 {
+			b.WriteString(", ")
+		}
+		b.WriteByte('\'')
+		b.WriteString(metric)
+		b.WriteByte('\'')
+	}
+	return b.String()
+}
+
+func flatten(slices ...[]string) []string {
+	var out []string
+	for _, s := range slices {
+		out = append(out, s...)
+	}
+	return out
+}
+
+func attrStringAny(attrNames ...string) string {
+	if len(attrNames) == 0 {
+		return "''"
+	}
+
+	parts := make([]string, 0, len(attrNames))
+	for _, attrName := range attrNames {
+		parts = append(parts, fmt.Sprintf("nullIf(attributes.'%s'::String, '')", attrName))
+	}
+	return fmt.Sprintf("coalesce(%s, '')", strings.Join(parts, ", "))
+}
+
+func topicExpr() string {
+	return attrStringAny(AttrMessagingDestinationName, "messaging.destination")
+}
+
+func consumerGroupExpr() string {
+	return attrStringAny(AttrMessagingConsumerGroupName, "messaging.kafka.consumer.group")
+}
+
+func operationExpr() string {
+	return attrStringAny(AttrMessagingOperationName, "messaging.operation")
+}
+
+func publishDurationCondition() string {
+	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) IN ('publish', 'produce', 'send')))",
+		ColMetricName, MetricPublishDuration,
+		ColMetricName, MetricClientOperationDuration,
+		operationExpr(),
+	)
+}
+
+func receiveDurationCondition() string {
+	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) IN ('receive', 'consume')))",
+		ColMetricName, MetricReceiveDuration,
+		ColMetricName, MetricClientOperationDuration,
+		operationExpr(),
+	)
+}
+
+func processDurationCondition() string {
+	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) = 'process'))",
+		ColMetricName, MetricProcessDuration,
+		ColMetricName, MetricClientOperationDuration,
+		operationExpr(),
+	)
+}
+
+// KafkaFilters holds optional filter query params for detail pages.
+type KafkaFilters struct {
+	Topic string
+	Group string
+}
+
+// kafkaFilterClauses builds optional WHERE clauses from KafkaFilters.
+func kafkaFilterClauses(f KafkaFilters) (frag string, args []any) {
+	var sb strings.Builder
+	if f.Topic != "" {
+		fmt.Fprintf(&sb, " AND %s = @topicFilter", topicExpr())
+		args = append(args, clickhouse.Named("topicFilter", f.Topic))
+	}
+	if f.Group != "" {
+		fmt.Fprintf(&sb, " AND %s = @groupFilter", consumerGroupExpr())
+		args = append(args, clickhouse.Named("groupFilter", f.Group))
+	}
+	return sb.String(), args
+}

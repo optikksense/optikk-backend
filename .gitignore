@@ -1,0 +1,26 @@
+# Compiled binaries
+main
+/server
+observability-go
+*.exe
+*.test
+
+# IDE
+.idea/
+.vscode/
+.claude/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build output
+bin/
+
+# Local demo env files
+examples/python-observability-demo/.env
+examples/python-observability-demo/.env.generated
+examples/python-observability-demo/.venv/

@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 2,
+  "id": "services",
+  "path": "/services",
+  "label": "Services",
+  "icon": "Server",
+  "group": "observe",
+  "order": 50,
+  "defaultTabId": "overview",
+  "navigable": true,
+  "title": "Services",
+  "subtitle": "Service health and dependency maps",
+  "renderMode": "dashboard"
+}

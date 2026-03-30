@@ -1,0 +1,72 @@
+{
+  "id": "dependencies",
+  "pageId": "service-detail",
+  "label": "Dependencies",
+  "order": 40,
+  "sections": [
+    {
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "collapsible": true,
+      "sectionTemplate": "two-up"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "collapsible": true,
+      "sectionTemplate": "table-stack"
+    }
+  ],
+  "panels": [
+    {
+      "id": "client-server-latency",
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/spans/client-server-latency",
+        "method": "GET",
+        "params": {
+          "service": "{serviceName}"
+        }
+      },
+      "title": "Client vs Server Latency (p95)",
+      "description": "Compares the p95 latency as seen by callers (client spans) versus this service's own processing time (server spans). A widening gap indicates network overhead or queuing between the two.",
+      "titleIcon": "Activity",
+      "panelType": "latency",
+      "sectionId": "trends",
+      "layoutVariant": "wide-chart"
+    },
+    {
+      "id": "upstream-downstream",
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/services/{serviceName}/upstream-downstream",
+        "method": "GET"
+      },
+      "title": "Upstream & Downstream Dependencies",
+      "description": "Lists every service that calls this service (upstream) and every service this service calls (downstream), along with p95 latency and error rate. Use it to trace where failures or slowness originate.",
+      "titleIcon": "GitBranch",
+      "panelType": "table",
+      "sectionId": "details",
+      "layoutVariant": "summary-table"
+    },
+    {
+      "id": "external-dependencies",
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/services/external-dependencies",
+        "method": "GET",
+        "params": {
+          "service": "{serviceName}"
+        }
+      },
+      "title": "External Dependencies",
+      "description": "Shows hosts outside the service mesh that this service communicates with, such as third-party APIs or managed databases. Watch for high latency or error rates on external calls that could bottleneck this service.",
+      "titleIcon": "Globe",
+      "panelType": "table",
+      "sectionId": "details",
+      "layoutVariant": "summary-table"
+    }
+  ]
+}

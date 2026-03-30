@@ -1,0 +1,71 @@
+{
+  "id": "overview",
+  "pageId": "services",
+  "label": "Overview",
+  "order": 10,
+  "sections": [
+    {
+      "id": "trends",
+      "title": "Overview",
+      "order": 20,
+      "collapsible": true,
+      "sectionTemplate": "two-up"
+    }
+  ],
+  "panels": [
+    {
+      "groupByKey": "service",
+      "id": "services-request-rate",
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/services/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "Service Request Rate",
+      "description": "Shows the request rate over time for each service. Look for unexpected drops that may indicate upstream failures or traffic shifts.",
+      "titleIcon": "TrendingUp",
+      "panelType": "request",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "groupByKey": "service",
+      "id": "services-error-rate",
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/services/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "Service Error Rate",
+      "description": "Tracks the error rate across all services over time. Spikes in a single service often propagate to its downstream dependents.",
+      "titleIcon": "AlertCircle",
+      "panelType": "error-rate",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "groupByKey": "service",
+      "id": "services-latency",
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/services/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "Service Latency",
+      "description": "Compares latency trends across all services. Identify which services contribute most to end-to-end response time.",
+      "titleIcon": "Clock",
+      "panelType": "latency",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    }
+  ]
+}

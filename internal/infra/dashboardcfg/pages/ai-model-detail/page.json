@@ -1,0 +1,14 @@
+{
+  "schemaVersion": 2,
+  "id": "ai-model-detail",
+  "path": "/ai-observability/models/:modelName",
+  "label": "Model Detail",
+  "icon": "Brain",
+  "group": "operate",
+  "order": 992,
+  "defaultTabId": "overview",
+  "navigable": false,
+  "title": "Model Detail",
+  "subtitle": "AI model performance, cost, and security metrics",
+  "renderMode": "dashboard"
+}

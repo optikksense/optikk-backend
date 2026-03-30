@@ -1,0 +1,74 @@
+{
+  "id": "errors",
+  "pageId": "kafka-topic-detail",
+  "label": "Errors",
+  "order": 40,
+  "sections": [
+    {
+      "id": "trends",
+      "title": "Errors",
+      "order": 20,
+      "collapsible": true,
+      "sectionTemplate": "two-up"
+    }
+  ],
+  "panels": [
+    {
+      "id": "topic-publish-errors",
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/publish-errors",
+        "method": "GET",
+        "params": {
+          "topic": "{topic}"
+        }
+      },
+      "groupByKey": "error_type",
+      "valueKey": "error_rate",
+      "title": "Publish Errors",
+      "description": "Tracks producer-side error rates for this topic grouped by error type. Spikes may indicate serialization failures, authorization issues, or broker rejections.",
+      "titleIcon": "AlertCircle",
+      "panelType": "error-rate",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "id": "topic-consume-errors",
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/consume-errors",
+        "method": "GET",
+        "params": {
+          "topic": "{topic}"
+        }
+      },
+      "groupByKey": "error_type",
+      "valueKey": "error_rate",
+      "title": "Consume Errors",
+      "description": "Tracks consumer-side error rates for this topic grouped by error type. Watch for deserialization or offset commit failures that could cause duplicate processing.",
+      "titleIcon": "AlertCircle",
+      "panelType": "error-rate",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "id": "topic-process-errors",
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/saturation/kafka/process-errors",
+        "method": "GET",
+        "params": {
+          "topic": "{topic}"
+        }
+      },
+      "groupByKey": "error_type",
+      "valueKey": "error_rate",
+      "title": "Process Errors",
+      "description": "Tracks message processing error rates for this topic grouped by error type. Persistent errors suggest bugs in consumer business logic or downstream dependency failures.",
+      "titleIcon": "AlertCircle",
+      "panelType": "error-rate",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    }
+  ]
+}

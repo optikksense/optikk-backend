@@ -1,0 +1,108 @@
+{
+  "id": "cost",
+  "pageId": "ai-observability",
+  "label": "Cost",
+  "order": 30,
+  "sections": [
+    {
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "collapsible": true,
+      "sectionTemplate": "two-up"
+    },
+    {
+      "id": "breakdowns",
+      "title": "Breakdowns",
+      "order": 30,
+      "collapsible": true,
+      "sectionTemplate": "two-up"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "collapsible": true,
+      "sectionTemplate": "table-stack"
+    }
+  ],
+  "panels": [
+    {
+      "groupByKey": "model_name",
+      "id": "cost-over-time",
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/ai/cost/timeseries",
+        "method": "GET",
+        "params": {
+          "interval": "5m"
+        }
+      },
+      "title": "Cost per Interval (USD)",
+      "description": "Tracks the dollar cost of token consumption per time interval for each model. Sudden increases may signal runaway prompts or unexpected traffic.",
+      "titleIcon": "DollarSign",
+      "valueKey": "cost_per_interval",
+      "yDecimals": 4,
+      "yPrefix": "$",
+      "panelType": "ai-line",
+      "sectionId": "trends",
+      "layoutVariant": "wide-chart"
+    },
+    {
+      "color": "#F79009",
+      "id": "cost-by-model",
+      "labelKey": "model_name",
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/ai/cost/metrics",
+        "method": "GET"
+      },
+      "title": "Total Cost by Model (USD)",
+      "description": "Compares the total spend across all models for the selected period. Identify which models drive the most cost to optimize spend.",
+      "titleIcon": "BarChart2",
+      "valueKey": "total_cost_usd",
+      "yDecimals": 4,
+      "yPrefix": "$",
+      "panelType": "ai-bar",
+      "sectionId": "breakdowns",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "id": "token-breakdown",
+      "labelKey": "model_name",
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/ai/cost/token-breakdown",
+        "method": "GET"
+      },
+      "stacked": true,
+      "title": "Token Breakdown by Model",
+      "description": "Shows prompt, completion, system, and cache token volumes stacked per model. High prompt-to-completion ratios may indicate optimization opportunities.",
+      "titleIcon": "Zap",
+      "valueKeys": [
+        "prompt_tokens",
+        "completion_tokens",
+        "system_tokens",
+        "cache_tokens"
+      ],
+      "panelType": "ai-bar",
+      "sectionId": "breakdowns",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "id": "cost-metrics",
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/ai/cost/metrics",
+        "method": "GET"
+      },
+      "drilldownRoute": "/ai-observability/models/{model_name}",
+      "title": "Cost Metrics",
+      "description": "Lists per-model cost details including total spend, cost per token, and token counts. Click a row to drill into model-level cost analysis.",
+      "titleIcon": "Table",
+      "panelType": "table",
+      "sectionId": "details",
+      "layoutVariant": "detail-table"
+    }
+  ]
+}

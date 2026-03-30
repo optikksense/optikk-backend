@@ -1,0 +1,110 @@
+{
+  "id": "errors",
+  "pageId": "overview",
+  "label": "Errors",
+  "order": 20,
+  "sections": [
+    {
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "collapsible": true,
+      "sectionTemplate": "two-up"
+    },
+    {
+      "id": "breakdowns",
+      "title": "Breakdowns",
+      "order": 30,
+      "collapsible": true,
+      "sectionTemplate": "chart-grid-plus-details"
+    },
+    {
+      "id": "details",
+      "title": "Details",
+      "order": 40,
+      "collapsible": true,
+      "sectionTemplate": "table-stack"
+    }
+  ],
+  "panels": [
+    {
+      "groupByKey": "service",
+      "id": "service-error-rate",
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/overview/errors/service-error-rate",
+        "method": "GET"
+      },
+      "title": "Service Error Rate",
+      "description": "Percentage of failed requests over time, broken down by service. Helps pinpoint which service is driving error spikes.",
+      "titleIcon": "AlertCircle",
+      "panelType": "error-rate",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "groupByKey": "exceptionType",
+      "id": "exception-rate-by-type",
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/spans/exception-rate-by-type",
+        "method": "GET"
+      },
+      "title": "Exception Rate by Type",
+      "description": "Span event count over time grouped by exception type. Reveals whether errors stem from a single root cause or multiple independent issues.",
+      "titleIcon": "Bug",
+      "valueKey": "count",
+      "panelType": "exception-type-line",
+      "sectionId": "trends",
+      "layoutVariant": "standard-chart"
+    },
+    {
+      "id": "error-hotspot",
+      "order": 30,
+      "query": {
+        "endpoint": "/v1/spans/error-hotspot",
+        "method": "GET"
+      },
+      "title": "Error Hotspot (Service \u00d7 Operation)",
+      "description": "Ranks service-operation pairs by error rate so the worst hotspots stay readable even with long operation names.",
+      "titleIcon": "Crosshair",
+      "valueKey": "error_rate",
+      "xKey": "operation_name",
+      "yKey": "service_name",
+      "panelType": "error-hotspot-ranking",
+      "sectionId": "breakdowns",
+      "layoutVariant": "ranking"
+    },
+    {
+      "id": "error-groups",
+      "order": 50,
+      "query": {
+        "endpoint": "/v1/errors/groups",
+        "method": "GET"
+      },
+      "drilldownRoute": "/errors/{group_id}",
+      "title": "Error Groups",
+      "description": "Errors aggregated by fingerprint showing occurrence count and affected services. Click a group to see individual traces.",
+      "titleIcon": "List",
+      "panelType": "table",
+      "sectionId": "details",
+      "layoutVariant": "summary-table"
+    },
+    {
+      "groupByKey": "http_route",
+      "id": "http-5xx-by-route",
+      "order": 40,
+      "query": {
+        "endpoint": "/v1/spans/http-5xx-by-route",
+        "method": "GET"
+      },
+      "title": "HTTP 5xx by Route",
+      "description": "Lists routes and services with their 5xx totals in a readable table so long endpoint names do not collide on the axis.",
+      "titleIcon": "AlertTriangle",
+      "valueKey": "count",
+      "panelType": "table",
+      "sectionId": "details",
+      "layoutVariant": "summary-table"
+    }
+  ]
+}

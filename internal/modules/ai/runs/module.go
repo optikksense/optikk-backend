@@ -1,0 +1,50 @@
+package runs
+
+import (
+	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
+	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
+	"github.com/gin-gonic/gin"
+)
+
+type Config struct {
+	Enabled bool
+}
+
+func DefaultConfig() Config {
+	return Config{Enabled: true}
+}
+
+func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
+	if !cfg.Enabled || h == nil {
+		return
+	}
+
+	v1.GET("/ai/runs", h.ListRuns)
+	v1.GET("/ai/runs/summary", h.GetRunsSummary)
+	v1.GET("/ai/runs/models", h.ListModels)
+	v1.GET("/ai/runs/operations", h.ListOperations)
+}
+
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+	module := &aiRunsModule{}
+	module.configure(nativeQuerier, getTenant)
+	return module
+}
+
+type aiRunsModule struct {
+	handler *Handler
+}
+
+func (m *aiRunsModule) Name() string                      { return "aiRuns" }
+func (m *aiRunsModule) RouteTarget() registry.RouteTarget { return registry.V1 }
+
+func (m *aiRunsModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+	m.handler = &Handler{
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		Service:  NewService(NewRepository(nativeQuerier)),
+	}
+}
+
+func (m *aiRunsModule) RegisterRoutes(group *gin.RouterGroup) {
+	RegisterRoutes(DefaultConfig(), group, m.handler)
+}

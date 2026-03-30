@@ -1,0 +1,64 @@
+package main
+
+import (
+	"context"
+	"flag"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"go.uber.org/zap"
+
+	"github.com/Optikk-Org/optikk-backend/internal/app/server"
+	"github.com/Optikk-Org/optikk-backend/internal/config"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/migrate"
+)
+
+func main() {
+	configPath := flag.String("config", "config.yml", "path to config file")
+	flag.Parse()
+
+	cfg := config.Load(*configPath)
+
+	mode := "production"
+	if os.Getenv("ENV") == "development" {
+		mode = "development"
+	}
+	logger.Init(mode)
+	defer logger.Sync()
+	log := logger.L()
+
+	dbConn, err := database.Open(cfg.MySQLDSN(), cfg.MySQL.MaxOpenConns, cfg.MySQL.MaxIdleConns)
+	if err != nil {
+		log.Fatal("failed to connect mysql", zap.Error(err))
+	}
+	defer dbConn.Close()
+
+	chCloud := database.ClickHouseCloudConfig{
+		Host:     cfg.ClickHouse.CloudHost,
+		Username: cfg.ClickHouse.User,
+		Password: cfg.ClickHouse.Password,
+	}
+	chConn, err := database.OpenClickHouseConn(cfg.ClickHouseDSN(), cfg.ClickHouse.Production, chCloud)
+	if err != nil {
+		log.Fatal("failed to connect clickhouse", zap.Error(err))
+	}
+	defer chConn.Close()
+
+	// Auto-apply pending database migrations before serving traffic.
+	log.Info("running database migrations")
+	if err := migrate.Run(cfg); err != nil {
+		log.Fatal("migration failed", zap.Error(err))
+	}
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer cancel()
+	app := server.New(dbConn, chConn, cfg)
+
+	log.Info("server starting", zap.String("port", cfg.Server.Port))
+	if err := app.Start(ctx); err != nil {
+		log.Fatal("server failed", zap.Error(err))
+	}
+}

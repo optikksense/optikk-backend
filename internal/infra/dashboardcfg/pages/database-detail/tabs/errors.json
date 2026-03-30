@@ -1,0 +1,58 @@
+{
+  "id": "errors",
+  "pageId": "database-detail",
+  "label": "Errors",
+  "order": 40,
+  "sections": [
+    {
+      "id": "trends",
+      "title": "Golden Signals",
+      "order": 20,
+      "collapsible": true,
+      "sectionTemplate": "two-up"
+    },
+    {
+      "id": "breakdowns",
+      "title": "Breakdowns",
+      "order": 30,
+      "collapsible": true,
+      "sectionTemplate": "two-up"
+    }
+  ],
+  "panels": [
+    {
+      "id": "db-errors-by-system",
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/database/errors/by-system",
+        "method": "GET",
+        "params": {
+          "db_system": "{dbSystem}"
+        }
+      },
+      "title": "Errors Over Time",
+      "description": "Tracks the error count for this database over time. Look for spikes that correlate with deployments or traffic changes.",
+      "titleIcon": "AlertCircle",
+      "panelType": "error-rate",
+      "sectionId": "trends",
+      "layoutVariant": "wide-chart"
+    },
+    {
+      "id": "db-errors-by-type",
+      "order": 20,
+      "query": {
+        "endpoint": "/v1/database/errors/by-error-type",
+        "method": "GET",
+        "params": {
+          "db_system": "{dbSystem}"
+        }
+      },
+      "title": "Errors by Type",
+      "description": "Breaks down database errors by their error type classification. Compare relative proportions to identify the most impactful failure mode.",
+      "titleIcon": "AlertTriangle",
+      "panelType": "bar",
+      "sectionId": "breakdowns",
+      "layoutVariant": "wide-chart"
+    }
+  ]
+}
