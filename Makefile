@@ -1,4 +1,4 @@
-.PHONY: build lint vet fmt check
+.PHONY: build lint vet fmt check setup
 
 build:
 	go build -v ./cmd/server
@@ -17,3 +17,7 @@ fmt:
 
 # Run all checks (lint + vet + build)
 check: lint vet build
+
+# Set up git hooks (run once after cloning)
+setup:
+	git config core.hooksPath .githooks
