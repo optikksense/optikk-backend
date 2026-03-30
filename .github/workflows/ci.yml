@@ -1,3 +1,4 @@
+# Branch protection (main): require status check "CI/CD Pipeline / build" — not docker publish jobs.
 name: CI/CD Pipeline
 
 on:
@@ -27,30 +28,3 @@ jobs:
 
       - name: Build
         run: go build -v ./cmd/server
-
-  docker-push:
-    needs: build
-    if: github.event_name == 'push'
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Login to GHCR
-        run: echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
-      - name: Compute version
-        id: version
-        run: |
-          BASE="1.0"
-          RUN="${{ github.run_number }}"
-          echo "value=v${BASE}.${RUN}" >> $GITHUB_OUTPUT
-
-      - name: Build and push
-        run: |
-          docker build -t ghcr.io/optikk-org/optikk-lens:latest \
-                       -t ghcr.io/optikk-org/optikk-lens:${{ steps.version.outputs.value }} .
-          docker push ghcr.io/optikk-org/optikk-lens:latest
-          docker push ghcr.io/optikk-org/optikk-lens:${{ steps.version.outputs.value }}
