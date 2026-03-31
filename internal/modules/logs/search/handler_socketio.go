@@ -46,10 +46,15 @@ type socketErrorPayload struct {
 	Message string `json:"message"`
 }
 
-type socketHeartbeatPayload struct{}
+type socketHeartbeatPayload struct {
+	LagMs        int64 `json:"lagMs"`
+	DroppedCount int64 `json:"droppedCount"`
+}
 
 type socketLogEventPayload struct {
-	Item shared.Log `json:"item"`
+	Item         shared.Log `json:"item"`
+	LagMs        int64      `json:"lagMs"`
+	DroppedCount int64      `json:"droppedCount"`
 }
 
 // SocketIOHandler creates a SubscriptionHandler that streams logs via Socket.IO.
@@ -90,6 +95,8 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 			}
 
 			latestNs := uint64(filters.EndMs) * 1_000_000 //nolint:gosec // G115 - domain-constrained value
+			lastLagMs := int64(0)
+			lastDroppedCount := int64(0)
 
 			ticker := time.NewTicker(sioPollInterval)
 			heartbeat := time.NewTicker(sioHeartbeatInterval)
@@ -110,7 +117,10 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 				case <-done:
 					return
 				case <-heartbeat.C:
-					emit("heartbeat", socketHeartbeatPayload{})
+					emit("heartbeat", socketHeartbeatPayload{
+						LagMs:        lastLagMs,
+						DroppedCount: lastDroppedCount,
+					})
 				case <-ticker.C:
 					nowMs := time.Now().UnixMilli()
 					pollFilters := filters
@@ -123,11 +133,27 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 						continue
 					}
 
+					lastDroppedCount = 0
+					logCount := int64(len(resp.Logs))
+					if resp.Total > logCount {
+						lastDroppedCount = resp.Total - logCount
+					}
+
 					for _, entry := range resp.Logs {
-						emit("log", socketLogEventPayload{Item: entry})
+						entryLagMs := nowMs - int64(entry.Timestamp/1_000_000) //nolint:gosec // G115 - timestamp is bounded by domain
+						if entryLagMs < 0 {
+							entryLagMs = 0
+						}
+
+						emit("log", socketLogEventPayload{
+							Item:         entry,
+							LagMs:        entryLagMs,
+							DroppedCount: lastDroppedCount,
+						})
 						if entry.Timestamp > latestNs {
 							latestNs = entry.Timestamp
 						}
+						lastLagMs = entryLagMs
 					}
 				}
 			}

@@ -26,3 +26,8 @@ type LiveTailFilters struct {
 	Operation  string   `json:"operation,omitempty"`
 	HTTPMethod string   `json:"httpMethod,omitempty"`
 }
+
+type PollResult struct {
+	Spans        []LiveSpan `json:"spans"`
+	DroppedCount int64      `json:"droppedCount"`
+}

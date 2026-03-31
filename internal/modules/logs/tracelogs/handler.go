@@ -26,5 +26,5 @@ func (h *Handler) GetTraceLogs(c *gin.Context) {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query trace logs", err)
 		return
 	}
-	modulecommon.RespondOK(c, resp.Logs)
+	modulecommon.RespondOK(c, resp)
 }
