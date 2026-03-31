@@ -33,15 +33,28 @@ func (s *Service) Compare(teamID int64, traceIDA, traceIDB string) (*ComparisonR
 	assignDepths(spansA)
 	assignDepths(spansB)
 
-	sigA := buildSignatureMap(spansA)
-	sigB := buildSignatureMap(spansB)
+	sigA := buildSignatureBuckets(spansA)
+	sigB := buildSignatureBuckets(spansB)
 
 	var matched []SpanPairDiff
 	var onlyInA []SpanSummary
-	matchedKeysB := make(map[string]bool)
+	for key, groupA := range sigA {
+		groupB, ok := sigB[key]
+		if !ok {
+			for _, a := range groupA {
+				onlyInA = append(onlyInA, spanToSummary(a))
+			}
+			continue
+		}
 
-	for key, a := range sigA {
-		if b, ok := sigB[key]; ok {
+		matchedCount := len(groupA)
+		if len(groupB) < matchedCount {
+			matchedCount = len(groupB)
+		}
+
+		for i := 0; i < matchedCount; i++ {
+			a := groupA[i]
+			b := groupB[i]
 			deltaMs := b.DurationMs - a.DurationMs
 			deltaPct := 0.0
 			if a.DurationMs > 0 {
@@ -59,15 +72,22 @@ func (s *Service) Compare(teamID int64, traceIDA, traceIDB string) (*ComparisonR
 				StatusB:       b.Status,
 				StatusChanged: a.Status != b.Status,
 			})
-			matchedKeysB[key] = true
-		} else {
+		}
+
+		for _, a := range groupA[matchedCount:] {
 			onlyInA = append(onlyInA, spanToSummary(a))
 		}
 	}
 
 	var onlyInB []SpanSummary
-	for key, b := range sigB {
-		if !matchedKeysB[key] {
+	for key, groupB := range sigB {
+		groupA := sigA[key]
+		matchedCount := len(groupA)
+		if len(groupB) < matchedCount {
+			matchedCount = len(groupB)
+		}
+
+		for _, b := range groupB[matchedCount:] {
 			onlyInB = append(onlyInB, spanToSummary(b))
 		}
 	}
@@ -128,10 +148,10 @@ type sigEntry struct {
 	sig SpanSignature
 }
 
-// buildSignatureMap creates a lookup from canonical signature to span.
-// For duplicate signatures, keeps the first occurrence.
-func buildSignatureMap(spans []internalSpan) map[string]sigEntry {
-	m := make(map[string]sigEntry, len(spans))
+// buildSignatureBuckets groups spans by canonical signature and keeps a
+// deterministic order so repeated spans can still be compared.
+func buildSignatureBuckets(spans []internalSpan) map[string][]sigEntry {
+	m := make(map[string][]sigEntry, len(spans))
 	for _, s := range spans {
 		sig := SpanSignature{
 			Service:   s.Service,
@@ -140,9 +160,16 @@ func buildSignatureMap(spans []internalSpan) map[string]sigEntry {
 			Depth:     s.Depth,
 		}
 		key := fmt.Sprintf("%s|%s|%s|%d", sig.Service, sig.Operation, sig.SpanKind, sig.Depth)
-		if _, exists := m[key]; !exists {
-			m[key] = sigEntry{internalSpan: s, sig: sig}
-		}
+		m[key] = append(m[key], sigEntry{internalSpan: s, sig: sig})
+	}
+
+	for key := range m {
+		sort.Slice(m[key], func(i, j int) bool {
+			if m[key][i].DurationMs == m[key][j].DurationMs {
+				return m[key][i].SpanID < m[key][j].SpanID
+			}
+			return m[key][i].DurationMs > m[key][j].DurationMs
+		})
 	}
 	return m
 }

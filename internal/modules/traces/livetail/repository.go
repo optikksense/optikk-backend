@@ -21,7 +21,7 @@ func NewRepository(db *dbutil.NativeQuerier) *Repository {
 }
 
 // Poll fetches spans newer than `since` for the given team, applying optional filters.
-func (r *Repository) Poll(teamID int64, since time.Time, filters LiveTailFilters) ([]liveSpanDTO, error) {
+func (r *Repository) Poll(teamID int64, since time.Time, filters LiveTailFilters) (*PollResult, error) {
 	now := time.Now()
 	sinceMs := since.UnixMilli()
 	nowMs := now.UnixMilli()
@@ -75,10 +75,27 @@ func (r *Repository) Poll(teamID int64, since time.Time, filters LiveTailFilters
 		       s.kind_string AS span_kind,
 		       s.has_error, s.timestamp
 		FROM observability.spans s` + frag + `
-		ORDER BY s.timestamp DESC
+		ORDER BY s.timestamp ASC
 		LIMIT ?`
-	args = append(args, maxSpansPerPoll)
+	args = append(args, maxSpansPerPoll+1)
 
 	var rows []liveSpanDTO
-	return rows, r.db.Select(context.Background(), &rows, query, args...)
+	if err := r.db.Select(context.Background(), &rows, query, args...); err != nil {
+		return nil, err
+	}
+
+	result := &PollResult{
+		Spans: make([]LiveSpan, 0, len(rows)),
+	}
+
+	if len(rows) > maxSpansPerPoll {
+		result.DroppedCount = int64(len(rows) - maxSpansPerPoll)
+		rows = rows[:maxSpansPerPoll]
+	}
+
+	for _, row := range rows {
+		result.Spans = append(result.Spans, LiveSpan(row))
+	}
+
+	return result, nil
 }

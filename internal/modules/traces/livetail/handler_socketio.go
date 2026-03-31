@@ -34,9 +34,15 @@ type socketDonePayload struct {
 	Reason string `json:"reason"`
 }
 
+type socketHeartbeatPayload struct {
+	LagMs        int64 `json:"lagMs"`
+	DroppedCount int64 `json:"droppedCount"`
+}
+
 type socketSpanEventPayload struct {
-	Item  LiveSpan `json:"item"`
-	LagMs int64    `json:"lagMs"`
+	Item         LiveSpan `json:"item"`
+	LagMs        int64    `json:"lagMs"`
+	DroppedCount int64    `json:"droppedCount"`
 }
 
 // SocketIOHandler creates a SubscriptionHandler that streams live spans via Socket.IO.
@@ -68,31 +74,47 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 			since := time.Now().Add(-sioPollInterval)
 			deadline := time.Now().Add(sioMaxSessionTime)
 			ticker := time.NewTicker(sioPollInterval)
+			heartbeat := time.NewTicker(15 * time.Second)
 			defer ticker.Stop()
+			defer heartbeat.Stop()
+			lastLagMs := int64(0)
+			lastDroppedCount := int64(0)
 
 			for {
 				select {
 				case <-done:
 					return
+				case <-heartbeat.C:
+					emit("heartbeat", socketHeartbeatPayload{
+						LagMs:        lastLagMs,
+						DroppedCount: lastDroppedCount,
+					})
 				case <-ticker.C:
 					if time.Now().After(deadline) {
 						emit("done", socketDonePayload{Reason: "session_timeout"})
 						return
 					}
 
-					spans, err := service.Poll(p.TeamID, since, filters)
+					result, err := service.Poll(p.TeamID, since, filters)
 					if err != nil {
 						logger.L().Warn("Socket.IO [subscribe:spans] poll error", zap.Error(err))
 						emit("error", socketErrorPayload{Message: "poll error"})
 						continue
 					}
 
-					for _, s := range spans {
+					lastDroppedCount = result.DroppedCount
+					for _, s := range result.Spans {
 						since = s.Timestamp
+						lagMs := time.Since(s.Timestamp).Milliseconds()
+						if lagMs < 0 {
+							lagMs = 0
+						}
 						emit("span", socketSpanEventPayload{
-							Item:  s,
-							LagMs: time.Since(s.Timestamp).Milliseconds(),
+							Item:         s,
+							LagMs:        lagMs,
+							DroppedCount: lastDroppedCount,
 						})
+						lastLagMs = lagMs
 					}
 				}
 			}
