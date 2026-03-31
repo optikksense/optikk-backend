@@ -1,90 +1,80 @@
-# Optikk Lens Backend
+# Optikk Lens Backend (Go/Gin)
 
-The Go/Gin backend service for the Optikk observability platform. It provides a REST API for telemetry data (traces, logs, metrics), JWT authentication, multi-tenant support, and real-time ingestion via OpenTelemetry Protocol (OTLP). Data is persisted in MySQL (config, users) and ClickHouse (telemetry).
+Optikk Lens Backend is the high-performance core of the Optikk observability platform. Built with Go and the Gin web framework, it provides a unified REST API for telemetry data (traces, logs, and metrics), manages multi-tenant authentication, and orchestrates real-time data ingestion via the OpenTelemetry Protocol (OTLP).
 
-## Quick Start
+## Core Architecture
 
-### Prerequisites
+The backend follows a modular monolith architecture, segregating concerns between the ingestion pipeline, data persistence, and the consumption API.
 
-- Docker and Docker Compose, or Podman
-- MySQL 8.0+ (or MariaDB 11.0+)
-- ClickHouse 26.2+
-- An initialized database schema (see [Database Setup](#database-setup))
+### High-Level Components
 
-### Running the Backend
+*   **OTLP Ingestion Engine**: Receives telemetry directly from OpenTelemetry SDKs or collectors via gRPC (port `4317`). Implements a high-throughput buffering system to batch writes to ClickHouse.
+*   **Module System**: The domain logic is subdivided into decoupled modules (see `internal/modules`):
+    *   `auth`: JWT-based user session and tenant management.
+    *   `traces` & `logs`: Query logic for telemetry data.
+    *   `infrastructure`: Kubernetes and cloud resource utilization metrics.
+    *   `ai`: LLM and AI-agent monitoring integration.
+    *   `apm`: Pre-aggregated service-level performance metrics (RED).
+*   **Data Tier**:
+    *   **MariaDB**: Stores relational data (users, teams, dashboard configurations, and metadata).
+    *   **ClickHouse**: The primary analytical store for petabyte-scale telemetry storage.
+    *   **Redis**: Used for high-speed query caching and session persistence.
 
-#### Pull the Docker Image
+## Project Structure
 
-```bash
-docker pull ghcr.io/optikk-org/optikk-lens:latest
+```text
+optikk-backend/
+├── cmd/server          # Main entry point (Gin server)
+├── internal/
+│   ├── app/            # Application lifecycle and dependency injection
+│   ├── ingestion/      # OTLP batching and flushing logic
+│   ├── infra/          # Infrastructure abstractions (DB, CH, Redis, Kafka)
+│   ├── modules/        # Domain-specific business logic
+│   └── config/         # YAML-based configuration management
+├── migrations/         # Database schema migrations (SQL)
+└── scripts/            # Utility and maintenance scripts
 ```
-
-#### Run the Container
-
-```bash
-docker run -d \
-  --name optikk-backend \
-  -p 9090:9090 \
-  -e GO_ENV=production \
-  -e PORT=9090 \
-  -e MYSQL_HOST=host.docker.internal \
-  -e MYSQL_PORT=3306 \
-  -e MYSQL_USERNAME=root \
-  -e MYSQL_PASSWORD=root123 \
-  -e MYSQL_DATABASE=observability \
-  -e CLICKHOUSE_HOST=host.docker.internal \
-  -e CLICKHOUSE_PORT=9000 \
-  -e CLICKHOUSE_USERNAME=default \
-  -e CLICKHOUSE_PASSWORD=clickhouse123 \
-  -e CLICKHOUSE_DATABASE=observability \
-  -e ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173 \
-  -e SESSION_COOKIE_NAME=optikk_session \
-  -e SESSION_COOKIE_SECURE=false \
-  -e REDIS_ENABLED=false \
-  -e KAFKA_ENABLED=false \
-  ghcr.io/optikk-org/optikk-lens:latest
-```
-
-**Note:** If databases are on your host machine (not in Docker), use `host.docker.internal` instead of `localhost`.
-
-### Environment Variables
-
-| Variable | Description | Default / Required |
-|---|---|---|
-| `GO_ENV` | Environment: `development` or `production` | `development` |
-| `PORT` | HTTP server port | `9090` |
-| `MYSQL_HOST` | MySQL hostname | Required |
-| `MYSQL_PORT` | MySQL port | `3306` |
-| `MYSQL_USERNAME` | MySQL username | Required |
-| `MYSQL_PASSWORD` | MySQL password | Required |
-| `MYSQL_DATABASE` | MySQL database name | `observability` |
-| `CLICKHOUSE_HOST` | ClickHouse hostname | Required |
-| `CLICKHOUSE_PORT` | ClickHouse native protocol port | `9000` |
-| `CLICKHOUSE_USERNAME` | ClickHouse username | Required |
-| `CLICKHOUSE_PASSWORD` | ClickHouse password | Required |
-| `CLICKHOUSE_DATABASE` | ClickHouse database name | `observability` |
-| `ALLOWED_ORIGINS` | CORS allowed origins (comma-separated) | `http://localhost:3000,http://localhost:5173` |
-| `SESSION_COOKIE_NAME` | Cookie name for the server-side session | `optikk_session` |
-| `SESSION_COOKIE_SECURE` | Mark the session cookie as HTTPS-only | `false` |
-| `SESSION_IDLE_TIMEOUT_MS` | Idle timeout for authenticated sessions | `7200000` |
-| `SESSION_LIFETIME_MS` | Absolute session lifetime | `86400000` |
-| `REDIS_ENABLED` | Enable Redis for query caching and session persistence | `false` |
-| `REDIS_HOST` | Redis hostname (if enabled) | `localhost` |
-| `REDIS_PORT` | Redis port (if enabled) | `6379` |
-| `KAFKA_ENABLED` | Enable Kafka for batched ingest queuing | `false` |
-| `KAFKA_BROKERS` | Kafka broker addresses (if enabled) | `localhost:9092` |
-
 
 ## Local Development
 
-### Build the Backend Locally
+### 1. Prerequisites
 
+You'll need a running local infrastructure (MariaDB, ClickHouse, etc.). Use the central deployment guide:
+👉 [**Full Stack Local Deployment Guide**](../deploy/README.md)
+
+### 2. Configuration
+
+Copy the default configuration and adjust your connection strings:
 ```bash
-# From the root directory
-go build -v ./cmd/server
-
-# Run the binary
-./cmd/server/server
+cp config.yml.example config.yml
 ```
 
-Requires MySQL and ClickHouse running with matching environment variables.
+### 3. Build & Run
+
+Ensure you have Go 1.22+ installed.
+
+```bash
+# Install dependencies
+go mod download
+
+# Run directly
+go run cmd/server/main.go
+
+# Or build the binary
+go build -o bin/server cmd/server/main.go
+./bin/server
+```
+
+## API Documentation
+
+The backend serves an Internal API for the Optikk Frontend.
+- Port: `9090` (default)
+- Health Check: `GET /api/v1/health`
+- OTLP gRPC: `Port 4317`
+
+## Technical Details
+
+- **Framework**: [Gin Gonic](https://github.com/gin-gonic/gin)
+- **Persistence Layer**: [SQLx](https://github.com/jmoiron/sqlx) for MySQL/MariaDB, and [ClickHouse Go Client](https://github.com/ClickHouse/clickhouse-go).
+- **Caching**: [Go-Redis](https://github.com/redis/go-redis).
+- **Ingestion**: Zero-allocation batching logic for OTLP spans and logs.
