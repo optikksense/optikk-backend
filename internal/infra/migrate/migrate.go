@@ -42,6 +42,7 @@ func runMySQL(dsn string) error {
 		os.DirFS("migrations/mysql"),
 		goose.WithGoMigrations(
 			goose.NewGoMigration(1, &goose.GoFunc{RunDB: mysqlUp001}, &goose.GoFunc{RunDB: mysqlDown001}),
+			goose.NewGoMigration(2, &goose.GoFunc{RunDB: mysqlUp002}, &goose.GoFunc{RunDB: mysqlDown002}),
 		),
 	)
 	if err != nil {

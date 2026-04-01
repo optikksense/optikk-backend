@@ -24,46 +24,12 @@ const (
 )
 
 var (
-	ProducerMetrics = []string{
-		MetricPublishMessages,
-		MetricClientSentMessages,
-		"kafka.producer.message.count",
-		"messaging.client.published.messages",
-	}
-
-	ConsumerMetrics = []string{
-		MetricReceiveMessages,
-		MetricClientReceivedMessages,
-		"kafka.consumer.message.count",
-		"messaging.client.consumed.messages",
-	}
-
-	ProcessMetrics = []string{
-		MetricProcessMessages,
-	}
-
-	ConsumerLagMetrics = []string{
-		MetricKafkaConsumerLag,
-		MetricKafkaConsumerLagSum,
-		"kafka.consumer.lag",
-		"queue.depth",
-	}
-
-	RebalanceMetrics = []string{
-		MetricRebalanceCount,
-		MetricJoinCount,
-		MetricSyncCount,
-		MetricHeartbeatCount,
-		MetricFailedHeartbeatCount,
-		MetricAssignedPartitions,
-	}
-
-	DurationMetrics = []string{
-		MetricPublishDuration,
-		MetricReceiveDuration,
-		MetricProcessDuration,
-		MetricClientOperationDuration,
-	}
+	ProducerMetrics    = producerMetricAliases
+	ConsumerMetrics    = consumerMetricAliases
+	ProcessMetrics     = processMetricAliases
+	ConsumerLagMetrics = consumerLagMetricAliases
+	RebalanceMetrics   = rebalanceMetricAliases
+	DurationMetrics    = durationMetricAliases
 
 	AllKafkaMetrics = flatten(
 		ProducerMetrics,
@@ -118,38 +84,49 @@ func attrStringAny(attrNames ...string) string {
 }
 
 func topicExpr() string {
-	return attrStringAny(AttrMessagingDestinationName, "messaging.destination")
+	return attrStringAny(topicAttributeAliases...)
 }
 
 func consumerGroupExpr() string {
-	return attrStringAny(AttrMessagingConsumerGroupName, "messaging.kafka.consumer.group")
+	return attrStringAny(consumerGroupAttributeAliases...)
 }
 
 func operationExpr() string {
-	return attrStringAny(AttrMessagingOperationName, "messaging.operation")
+	return attrStringAny(operationAttributeAliases...)
+}
+
+func messagingSystemExpr() string {
+	return attrStringAny(AttrMessagingSystem)
+}
+
+func topicPartitionExpr() string {
+	return attrStringAny(partitionAttributeAliases...)
 }
 
 func publishDurationCondition() string {
-	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) IN ('publish', 'produce', 'send')))",
+	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) IN (%s)))",
 		ColMetricName, MetricPublishDuration,
 		ColMetricName, MetricClientOperationDuration,
 		operationExpr(),
+		MetricSetToInClause(publishOperationAliases),
 	)
 }
 
 func receiveDurationCondition() string {
-	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) IN ('receive', 'consume')))",
+	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) IN (%s)))",
 		ColMetricName, MetricReceiveDuration,
 		ColMetricName, MetricClientOperationDuration,
 		operationExpr(),
+		MetricSetToInClause(receiveOperationAliases),
 	)
 }
 
 func processDurationCondition() string {
-	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) = 'process'))",
+	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) IN (%s)))",
 		ColMetricName, MetricProcessDuration,
 		ColMetricName, MetricClientOperationDuration,
 		operationExpr(),
+		MetricSetToInClause(processOperationAliases),
 	)
 }
 
@@ -162,6 +139,8 @@ type KafkaFilters struct {
 // kafkaFilterClauses builds optional WHERE clauses from KafkaFilters.
 func kafkaFilterClauses(f KafkaFilters) (frag string, args []any) {
 	var sb strings.Builder
+
+	fmt.Fprintf(&sb, " AND lower(%s) = '%s'", messagingSystemExpr(), MessagingSystemKafka)
 	if f.Topic != "" {
 		fmt.Fprintf(&sb, " AND %s = @topicFilter", topicExpr())
 		args = append(args, clickhouse.Named("topicFilter", f.Topic))

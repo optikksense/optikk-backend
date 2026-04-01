@@ -24,7 +24,7 @@
       "id": "db-errors-by-system",
       "order": 10,
       "query": {
-        "endpoint": "/v1/database/errors/by-system",
+        "endpoint": "/v1/saturation/database/errors/by-system",
         "method": "GET",
         "params": {
           "db_system": "{dbSystem}"
@@ -41,7 +41,7 @@
       "id": "db-errors-by-type",
       "order": 20,
       "query": {
-        "endpoint": "/v1/database/errors/by-error-type",
+        "endpoint": "/v1/saturation/database/errors/by-error-type",
         "method": "GET",
         "params": {
           "db_system": "{dbSystem}"

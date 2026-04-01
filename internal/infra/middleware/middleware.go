@@ -3,6 +3,7 @@ package middleware
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -14,7 +15,6 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	types "github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 )
 
 const RequestIDKey = "requestId"
@@ -63,7 +63,7 @@ func APIDebugLogger(enabled bool) gin.HandlerFunc {
 			path = path + "?" + raw
 		}
 
-		logger.L().Debug("API request", zap.String("method", method), zap.String("path", path), zap.Int("status", statusCode), zap.Duration("latency", latency))
+		logger.L().Debug("API request", slog.String("method", method), slog.String("path", path), slog.Int("status", statusCode), slog.Duration("latency", latency))
 	}
 }
 
@@ -72,18 +72,40 @@ type tenantContextKey string
 const tenantKey tenantContextKey = "tenant"
 
 func CORSMiddleware(allowedOrigins string) gin.HandlerFunc {
-	originSet := make(map[string]bool)
+	origins := make([]string, 0, 8)
 	for _, o := range strings.Split(allowedOrigins, ",") {
 		origin := strings.TrimSpace(o)
 		if origin == "" {
 			continue
 		}
-		originSet[origin] = true
+		origins = append(origins, origin)
+	}
+
+	isAllowed := func(origin string) bool {
+		if origin == "" {
+			return false
+		}
+		// If no allowlist is configured, keep existing permissive behavior.
+		if len(origins) == 0 {
+			return true
+		}
+		for _, allowed := range origins {
+			if allowed == "*" || allowed == origin {
+				return true
+			}
+			if strings.HasPrefix(allowed, "*.") {
+				suffix := allowed[1:]
+				if strings.HasSuffix(origin, suffix) {
+					return true
+				}
+			}
+		}
+		return false
 	}
 
 	return func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
-		if originSet[origin] {
+		if isAllowed(origin) {
 			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
 			c.Writer.Header().Set("Vary", "Origin")
 		}
@@ -109,15 +131,12 @@ func ErrorRecovery() gin.HandlerFunc {
 // publicPrefixes are paths that are always public regardless of HTTP method.
 var publicPrefixes = []string{
 	"/api/v1/auth/login",
-	"/api/v1/auth/google",
-	"/api/v1/auth/github",
 	"/otlp/",
 	"/health",
 }
 
 // publicPOSTPrefixes are paths that are public only for POST requests.
 var publicPOSTPrefixes = []string{
-	"/api/v1/auth/oauth/complete-signup",
 	"/api/v1/auth/forgot-password",
 	"/api/v1/users",
 	"/api/v1/teams",
@@ -141,21 +160,21 @@ func isPublicRequest(method, path string) bool {
 }
 
 func abortUnauthorized(c *gin.Context) {
-	logger.L().Warn("AUTH_DENIED", zap.String("method", c.Request.Method), zap.String("path", c.Request.URL.Path), zap.String("code", "UNAUTHORIZED"), zap.String("ip", c.ClientIP()))
+	logger.L().Warn("AUTH_DENIED", slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path), slog.String("code", "UNAUTHORIZED"), slog.String("ip", c.ClientIP()))
 	c.AbortWithStatusJSON(http.StatusUnauthorized, types.Failure(
 		errorcode.Unauthorized, "Valid authentication is required", c.Request.URL.Path,
 	))
 }
 
 func abortMissingTeam(c *gin.Context, email string) {
-	logger.L().Warn("AUTH_DENIED", zap.String("method", c.Request.Method), zap.String("path", c.Request.URL.Path), zap.String("code", "MISSING_TEAM"), zap.String("user", email), zap.String("ip", c.ClientIP()))
+	logger.L().Warn("AUTH_DENIED", slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path), slog.String("code", "MISSING_TEAM"), slog.String("user", email), slog.String("ip", c.ClientIP()))
 	c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
 		"MISSING_TEAM", "Session does not contain a valid team_id", c.Request.URL.Path,
 	))
 }
 
 func abortForbiddenTeam(c *gin.Context, email string, requestedTeamID int64) {
-	logger.L().Warn("AUTH_DENIED", zap.String("method", c.Request.Method), zap.String("path", c.Request.URL.Path), zap.String("code", "FORBIDDEN_TEAM"), zap.String("user", email), zap.Int64("requested_team", requestedTeamID), zap.String("ip", c.ClientIP()))
+	logger.L().Warn("AUTH_DENIED", slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path), slog.String("code", "FORBIDDEN_TEAM"), slog.String("user", email), slog.Int64("requested_team", requestedTeamID), slog.String("ip", c.ClientIP()))
 	c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
 		"FORBIDDEN_TEAM", "You are not a member of the requested team", c.Request.URL.Path,
 	))

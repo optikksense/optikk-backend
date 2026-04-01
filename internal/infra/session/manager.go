@@ -20,12 +20,6 @@ const (
 	authRoleKey          = "auth_role"
 	authDefaultTeamIDKey = "auth_default_team_id"
 	authTeamIDsKey       = "auth_team_ids"
-
-	pendingProviderKey  = "pending_oauth_provider"
-	pendingOAuthIDKey   = "pending_oauth_id"
-	pendingEmailKey     = "pending_oauth_email"
-	pendingNameKey      = "pending_oauth_name"
-	pendingAvatarURLKey = "pending_oauth_avatar_url"
 )
 
 type Manager struct {
@@ -38,14 +32,6 @@ type AuthState struct {
 	Role          string
 	DefaultTeamID int64
 	TeamIDs       []int64
-}
-
-type PendingOAuthState struct {
-	Provider  string
-	OAuthID   string
-	Email     string
-	Name      string
-	AvatarURL string
 }
 
 func NewManager(cfg config.Config) *Manager {
@@ -79,8 +65,6 @@ func (m *Manager) CreateAuthSession(ctx context.Context, state AuthState) error 
 	if err := m.RenewToken(ctx); err != nil {
 		return err
 	}
-
-	m.clearPendingOAuth(ctx)
 	m.clearAuthState(ctx)
 
 	m.Put(ctx, authUserIDKey, state.UserID)
@@ -116,55 +100,12 @@ func (m *Manager) GetAuthState(ctx context.Context) (AuthState, bool) {
 	return state, true
 }
 
-func (m *Manager) SetPendingOAuth(ctx context.Context, state PendingOAuthState) error {
-	if err := m.RenewToken(ctx); err != nil {
-		return err
-	}
-
-	m.clearPendingOAuth(ctx)
-	m.Put(ctx, pendingProviderKey, state.Provider)
-	m.Put(ctx, pendingOAuthIDKey, state.OAuthID)
-	m.Put(ctx, pendingEmailKey, state.Email)
-	m.Put(ctx, pendingNameKey, state.Name)
-	m.Put(ctx, pendingAvatarURLKey, state.AvatarURL)
-	return nil
-}
-
-func (m *Manager) GetPendingOAuth(ctx context.Context) (PendingOAuthState, bool) {
-	provider := m.GetString(ctx, pendingProviderKey)
-	oauthID := m.GetString(ctx, pendingOAuthIDKey)
-	email := m.GetString(ctx, pendingEmailKey)
-	if provider == "" || oauthID == "" || email == "" {
-		return PendingOAuthState{}, false
-	}
-
-	return PendingOAuthState{
-		Provider:  provider,
-		OAuthID:   oauthID,
-		Email:     email,
-		Name:      m.GetString(ctx, pendingNameKey),
-		AvatarURL: m.GetString(ctx, pendingAvatarURLKey),
-	}, true
-}
-
-func (m *Manager) ClearPendingOAuth(ctx context.Context) {
-	m.clearPendingOAuth(ctx)
-}
-
 func (m *Manager) clearAuthState(ctx context.Context) {
 	m.Remove(ctx, authUserIDKey)
 	m.Remove(ctx, authEmailKey)
 	m.Remove(ctx, authRoleKey)
 	m.Remove(ctx, authDefaultTeamIDKey)
 	m.Remove(ctx, authTeamIDsKey)
-}
-
-func (m *Manager) clearPendingOAuth(ctx context.Context) {
-	m.Remove(ctx, pendingProviderKey)
-	m.Remove(ctx, pendingOAuthIDKey)
-	m.Remove(ctx, pendingEmailKey)
-	m.Remove(ctx, pendingNameKey)
-	m.Remove(ctx, pendingAvatarURLKey)
 }
 
 func encodeInt64List(values []int64) string {

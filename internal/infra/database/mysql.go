@@ -3,13 +3,13 @@ package database
 import (
 	"context"
 	"database/sql"
+	"log/slog"
 	"strings"
 	"time"
 
 	circuitbreaker "github.com/Optikk-Org/optikk-backend/internal/infra/circuitbreaker"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	_ "github.com/go-sql-driver/mysql" // MySQL driver registration
-	"go.uber.org/zap"
 )
 
 // injectMySQLTimeouts adds connection timeouts to the DSN if not already present.
@@ -64,10 +64,10 @@ type MySQLWrapper struct {
 	cb *circuitbreaker.CircuitBreaker
 }
 
-func NewMySQLWrapper(db *sql.DB) *MySQLWrapper {
+func NewMySQLWrapper(db *sql.DB, consecutiveFailures int, resetTimeout time.Duration) *MySQLWrapper {
 	return &MySQLWrapper{
 		db: db,
-		cb: circuitbreaker.NewCircuitBreaker("mysql_wrapper", 5, 30*time.Second),
+		cb: circuitbreaker.NewCircuitBreaker("mysql_wrapper", consecutiveFailures, resetTimeout),
 	}
 }
 
@@ -104,7 +104,7 @@ func (m *MySQLWrapper) Query(query string, args ...any) (Rows, error) {
 		return err
 	})
 	if d := time.Since(start); d >= slowQueryThreshold {
-		logger.L().Warn("SLOW_QUERY mysql", zap.Duration("duration", d), zap.String("query", truncateQuery(query)))
+		logger.L().Warn("SLOW_QUERY mysql", slog.Duration("duration", d), slog.String("query", truncateQuery(query)))
 	}
 	if err != nil {
 		return nil, err
@@ -120,7 +120,7 @@ func (m *MySQLWrapper) QueryRow(query string, args ...any) Row {
 		return nil
 	})
 	if d := time.Since(start); d >= slowQueryThreshold {
-		logger.L().Warn("SLOW_QUERY mysql", zap.Duration("duration", d), zap.String("query", truncateQuery(query)))
+		logger.L().Warn("SLOW_QUERY mysql", slog.Duration("duration", d), slog.String("query", truncateQuery(query)))
 	}
 	if err != nil {
 		return &circuitBreakerRowAdapter{err: err}

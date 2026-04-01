@@ -2,10 +2,10 @@ package dashboard
 
 import (
 	"encoding/json"
+	"log/slog"
 
 	configdefaults "github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
-	"go.uber.org/zap"
 )
 
 type Service struct {
@@ -24,7 +24,7 @@ func (s *Service) ListPages(teamID int64) []configdefaults.PageMetadata {
 	for _, page := range defaultPages {
 		doc, err := s.resolvePage(teamID, page.ID)
 		if err != nil {
-			logger.L().Warn("default-config: failed to resolve page", zap.String("page_id", page.ID), zap.Int64("team_id", teamID), zap.Error(err))
+			logger.L().Warn("default-config: failed to resolve page", slog.String("page_id", page.ID), slog.Int64("team_id", teamID), slog.Any("error", err))
 			continue
 		}
 		if doc.Page.Navigable {
@@ -71,19 +71,19 @@ func (s *Service) resolvePage(teamID int64, pageID string) (configdefaults.PageD
 
 	pageOverride, err := configdefaults.DecodePageDocument([]byte(override.ConfigJSON))
 	if err != nil {
-		logger.L().Warn("default-config: ignoring invalid override", zap.String("page_id", pageID), zap.Int64("team_id", teamID), zap.Error(err))
+		logger.L().Warn("default-config: ignoring invalid override", slog.String("page_id", pageID), slog.Int64("team_id", teamID), slog.Any("error", err))
 		s.seedDefaultDoc(teamID, pageID, defaultDoc)
 		return defaultDoc, nil
 	}
 
 	if err := normalizeOverridePageDocument(&pageOverride, defaultDoc); err != nil {
-		logger.L().Warn("default-config: ignoring invalid override metadata", zap.String("page_id", pageID), zap.Int64("team_id", teamID), zap.Error(err))
+		logger.L().Warn("default-config: ignoring invalid override metadata", slog.String("page_id", pageID), slog.Int64("team_id", teamID), slog.Any("error", err))
 		s.seedDefaultDoc(teamID, pageID, defaultDoc)
 		return defaultDoc, nil
 	}
 
 	if err := configdefaults.ValidatePageDocument(pageOverride); err != nil {
-		logger.L().Warn("default-config: ignoring invalid override document", zap.String("page_id", pageID), zap.Int64("team_id", teamID), zap.Error(err))
+		logger.L().Warn("default-config: ignoring invalid override document", slog.String("page_id", pageID), slog.Int64("team_id", teamID), slog.Any("error", err))
 		s.seedDefaultDoc(teamID, pageID, defaultDoc)
 		return defaultDoc, nil
 	}
@@ -96,7 +96,7 @@ func (s *Service) seedDefaultDoc(teamID int64, pageID string, defaultDoc configd
 		return
 	}
 	if saveErr := s.repo.SavePageOverride(teamID, pageID, string(seedBytes)); saveErr != nil {
-		logger.L().Warn("default-config: failed to seed page", zap.String("page_id", pageID), zap.Int64("team_id", teamID), zap.Error(saveErr))
+		logger.L().Warn("default-config: failed to seed page", slog.String("page_id", pageID), slog.Int64("team_id", teamID), slog.Any("error", saveErr))
 	}
 }
 

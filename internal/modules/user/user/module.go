@@ -34,9 +34,9 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	}
 }
 
-func NewModule(sqlDB *registry.SQLDB, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(sqlDB *registry.SQLDB, getTenant registry.GetTenantFunc, appConfig registry.AppConfig) registry.Module {
 	module := &userPageModule{}
-	module.configure(sqlDB, getTenant)
+	module.configure(sqlDB, getTenant, appConfig)
 	return module
 }
 
@@ -47,10 +47,10 @@ type userPageModule struct {
 func (m *userPageModule) Name() string                      { return "userPage" }
 func (m *userPageModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *userPageModule) configure(sqlDB *registry.SQLDB, getTenant registry.GetTenantFunc) {
+func (m *userPageModule) configure(sqlDB *registry.SQLDB, getTenant registry.GetTenantFunc, appConfig registry.AppConfig) {
 	m.handler = NewHandler(
 		getTenant,
-		NewService(NewRepository(sqlDB)),
+		NewService(NewRepository(sqlDB, appConfig)),
 	)
 }
 

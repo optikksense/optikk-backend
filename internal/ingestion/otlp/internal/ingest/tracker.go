@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"sync"
@@ -12,7 +13,6 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	"github.com/redis/go-redis/v9"
-	"go.uber.org/zap"
 )
 
 const (
@@ -68,7 +68,7 @@ func (b *ByteTracker) Track(teamID int64, bytes int64) {
 	pipe.IncrBy(ctx, key, bytes)
 	pipe.Expire(ctx, key, redisKeyTTL)
 	if _, err := pipe.Exec(ctx); err != nil {
-		logger.L().Warn("ingest/bytetracker: redis INCRBY failed", zap.Int64("team", teamID), zap.Error(err))
+		logger.L().Warn("ingest/bytetracker: redis INCRBY failed", slog.Int64("team", teamID), slog.Any("error", err))
 	}
 }
 
@@ -107,7 +107,7 @@ func (b *ByteTracker) flush() {
 		keys = append(keys, iter.Val())
 	}
 	if err := iter.Err(); err != nil {
-		logger.L().Error("ingest/bytetracker: redis SCAN failed", zap.Error(err))
+		logger.L().Error("ingest/bytetracker: redis SCAN failed", slog.Any("error", err))
 		return
 	}
 	if len(keys) == 0 {
@@ -122,7 +122,7 @@ func (b *ByteTracker) flush() {
 			continue
 		}
 		if err != nil {
-			logger.L().Warn("ingest/bytetracker: redis GETDEL failed", zap.String("key", key), zap.Error(err))
+			logger.L().Warn("ingest/bytetracker: redis GETDEL failed", slog.String("key", key), slog.Any("error", err))
 			continue
 		}
 		bytes, _ := strconv.ParseInt(val, 10, 64)
@@ -186,7 +186,7 @@ func (b *ByteTracker) updateMySQL(ctx context.Context, counts map[int64]int64) {
 
 	if _, err := b.db.ExecContext(ctx, sb.String(), args...); err != nil {
 		logger.L().Error("ingest/bytetracker: MySQL batch update failed",
-			zap.Int("teams", len(teamIDs)), zap.Error(err))
+			slog.Int("teams", len(teamIDs)), slog.Any("error", err))
 		// Re-add failed counts back to Redis so they are retried next flush.
 		reCtx, reCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer reCancel()
@@ -196,6 +196,6 @@ func (b *ByteTracker) updateMySQL(ctx context.Context, counts map[int64]int64) {
 			b.rdb.Expire(reCtx, key, redisKeyTTL)
 		}
 	} else {
-		logger.L().Info("ingest/bytetracker: flushed to MySQL", zap.Int("teams", len(teamIDs)))
+		logger.L().Info("ingest/bytetracker: flushed to MySQL", slog.Int("teams", len(teamIDs)))
 	}
 }

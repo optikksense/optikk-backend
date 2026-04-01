@@ -2,6 +2,7 @@ package spans
 
 import (
 	"encoding/json"
+	"log/slog"
 	"strconv"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
@@ -11,7 +12,6 @@ import (
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	trace "go.opentelemetry.io/proto/otlp/trace/v1"
-	"go.uber.org/zap"
 )
 
 const maxSpanAttributes = 128
@@ -129,8 +129,8 @@ func mergeAndCapAttrs(teamID int64, spanID []byte, resMap, spanMap map[string]st
 		return merged
 	}
 	logger.L().Warn("ingest: span attributes truncated",
-		zap.Int("from", len(merged)), zap.Int("to", maxSpanAttributes),
-		zap.Int64("team_id", teamID), zap.String("span_id", protoconv.BytesToHex(spanID)))
+		slog.Int("from", len(merged)), slog.Int("to", maxSpanAttributes),
+		slog.Int64("team_id", teamID), slog.String("span_id", protoconv.BytesToHex(spanID)))
 	trimmed := make(map[string]string, maxSpanAttributes)
 	i := 0
 	for k, v := range merged {

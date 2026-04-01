@@ -1,37 +1,26 @@
 package explorer
 
 import (
-	loganalytics "github.com/Optikk-Org/optikk-backend/internal/modules/logs/analytics"
 	logshared "github.com/Optikk-Org/optikk-backend/internal/modules/logs/internal/shared"
+
+	exploreranalytics "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
 )
 
-type LogExplorerParams struct {
-	Search            string                         `json:"search,omitempty"`
-	SearchMode        string                         `json:"searchMode,omitempty"`
-	Severities        []string                       `json:"severities,omitempty"`
-	ExcludeSeverities []string                       `json:"excludeSeverities,omitempty"`
-	Services          []string                       `json:"services,omitempty"`
-	ExcludeServices   []string                       `json:"excludeServices,omitempty"`
-	Hosts             []string                       `json:"hosts,omitempty"`
-	ExcludeHosts      []string                       `json:"excludeHosts,omitempty"`
-	Pods              []string                       `json:"pods,omitempty"`
-	Containers        []string                       `json:"containers,omitempty"`
-	Environments      []string                       `json:"environments,omitempty"`
-	Loggers           []string                       `json:"loggers,omitempty"`
-	TraceID           string                         `json:"traceId,omitempty"`
-	SpanID            string                         `json:"spanId,omitempty"`
-	AttributeFilters  []logshared.LogAttributeFilter `json:"attributeFilters,omitempty"`
-}
-
+// QueryRequest is the new unified explorer request.
 type QueryRequest struct {
-	StartTime int64             `json:"startTime"`
-	EndTime   int64             `json:"endTime"`
-	Limit     int               `json:"limit"`
-	Offset    int               `json:"offset"`
-	Cursor    string            `json:"cursor"`
-	Direction string            `json:"direction"`
-	Step      string            `json:"step"`
-	Params    LogExplorerParams `json:"params"`
+	StartTime    int64                           `json:"startTime"`
+	EndTime      int64                           `json:"endTime"`
+	Query        string                          `json:"query"`
+	Limit        int                             `json:"limit"`
+	Offset       int                             `json:"offset"`
+	Cursor       string                          `json:"cursor"`
+	Direction    string                          `json:"direction"`
+	Step         string                          `json:"step"`
+	GroupBy      []string                        `json:"groupBy,omitempty"`
+	Aggregations []exploreranalytics.Aggregation `json:"aggregations,omitempty"`
+	VizMode      string                          `json:"vizMode,omitempty"`
+	OrderBy      string                          `json:"orderBy,omitempty"`
+	OrderDir     string                          `json:"orderDir,omitempty"`
 }
 
 type Summary struct {
@@ -49,23 +38,31 @@ type PageInfo struct {
 	Limit      int    `json:"limit"`
 }
 
+// Response is returned when vizMode is empty or "list".
 type Response struct {
-	Results      []logshared.Log            `json:"results"`
-	Summary      Summary                    `json:"summary"`
-	Facets       ExplorerFacets             `json:"facets"`
-	Trend        loganalytics.LogVolumeData `json:"trend"`
-	PageInfo     PageInfo                   `json:"pageInfo"`
-	Correlations ExplorerCorrelations       `json:"correlations,omitempty"`
+	Results      []logshared.Log      `json:"results"`
+	Summary      Summary              `json:"summary"`
+	Facets       ExplorerFacets       `json:"facets"`
+	Trend        LogVolumeData        `json:"trend"`
+	PageInfo     PageInfo             `json:"pageInfo"`
+	Correlations ExplorerCorrelations `json:"correlations,omitempty"`
 }
 
 type ExplorerFacets struct {
-	Level       []loganalytics.Facet `json:"level"`
-	ServiceName []loganalytics.Facet `json:"service_name"`
-	Host        []loganalytics.Facet `json:"host,omitempty"`
-	Pod         []loganalytics.Facet `json:"pod,omitempty"`
-	ScopeName   []loganalytics.Facet `json:"scope_name,omitempty"`
+	Level       []Facet `json:"level"`
+	ServiceName []Facet `json:"service_name"`
+	Host        []Facet `json:"host,omitempty"`
+	Pod         []Facet `json:"pod,omitempty"`
+	Container   []Facet `json:"container,omitempty"`
+	Environment []Facet `json:"environment,omitempty"`
+	ScopeName   []Facet `json:"scope_name,omitempty"`
 }
 
 type ExplorerCorrelations struct {
-	ServiceErrorRate loganalytics.LogAggregateResponse `json:"serviceErrorRate,omitempty"`
+	ServiceErrorRate LogAggregateResponse `json:"serviceErrorRate,omitempty"`
+}
+
+// AnalyticsResponse wraps the unified analytics result for non-list viz modes.
+type AnalyticsResponse struct {
+	*exploreranalytics.AnalyticsResult
 }

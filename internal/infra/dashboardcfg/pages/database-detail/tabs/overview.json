@@ -24,7 +24,7 @@
       "id": "db-avg-latency",
       "order": 10,
       "query": {
-        "endpoint": "/v1/database/summary",
+        "endpoint": "/v1/saturation/database/summary",
         "method": "GET",
         "params": {
           "db_system": "{dbSystem}"
@@ -41,7 +41,7 @@
       "id": "db-p95-latency",
       "order": 20,
       "query": {
-        "endpoint": "/v1/database/summary",
+        "endpoint": "/v1/saturation/database/summary",
         "method": "GET",
         "params": {
           "db_system": "{dbSystem}"
@@ -58,7 +58,7 @@
       "id": "db-p99-latency",
       "order": 30,
       "query": {
-        "endpoint": "/v1/database/summary",
+        "endpoint": "/v1/saturation/database/summary",
         "method": "GET",
         "params": {
           "db_system": "{dbSystem}"
@@ -75,7 +75,7 @@
       "id": "db-span-count",
       "order": 40,
       "query": {
-        "endpoint": "/v1/database/summary",
+        "endpoint": "/v1/saturation/database/summary",
         "method": "GET",
         "params": {
           "db_system": "{dbSystem}"
@@ -92,7 +92,7 @@
       "id": "db-latency-by-operation",
       "order": 50,
       "query": {
-        "endpoint": "/v1/database/latency/by-operation",
+        "endpoint": "/v1/saturation/database/latency/by-operation",
         "method": "GET",
         "params": {
           "db_system": "{dbSystem}"

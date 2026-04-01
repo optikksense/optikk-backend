@@ -11,13 +11,15 @@ import (
 
 type Handler struct {
 	modulecommon.DBTenant
-	Service *Service
+	Service  *Service
+	LogStats *LogStatsService
 }
 
-func NewHandler(getTenant modulecommon.GetTenantFunc, service *Service) *Handler {
+func NewHandler(getTenant modulecommon.GetTenantFunc, service *Service, logStats *LogStatsService) *Handler {
 	return &Handler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service:  service,
+		LogStats: logStats,
 	}
 }
 

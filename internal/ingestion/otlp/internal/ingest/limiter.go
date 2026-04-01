@@ -2,13 +2,13 @@ package ingest
 
 import (
 	"context"
+	"log/slog"
 	"strconv"
 	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	limiterlib "github.com/ulule/limiter/v3"
 	memorylimiter "github.com/ulule/limiter/v3/drivers/store/memory"
-	"go.uber.org/zap"
 )
 
 const (
@@ -38,14 +38,14 @@ func (l *TeamLimiter) Allow(teamID int64, n int64) bool {
 
 	limitContext, err := l.limiter.Increment(ctx, key, n)
 	if err != nil {
-		logger.L().Error("ingest: internal rate limiter error", zap.Error(err))
+		logger.L().Error("ingest: internal rate limiter error", slog.Any("error", err))
 		return false
 	}
 
 	if limitContext.Reached {
 		logger.L().Warn("ingest: rate limit exceeded",
-			zap.Int64("team_id", teamID),
-			zap.Int64("want", n),
+			slog.Int64("team_id", teamID),
+			slog.Int64("want", n),
 		)
 		return false
 	}

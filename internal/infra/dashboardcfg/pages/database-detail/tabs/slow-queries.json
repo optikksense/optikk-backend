@@ -17,7 +17,7 @@
       "id": "db-slow-query-patterns",
       "order": 10,
       "query": {
-        "endpoint": "/v1/database/slow-queries/patterns",
+        "endpoint": "/v1/saturation/database/slow-queries/patterns",
         "method": "GET",
         "params": {
           "db_system": "{dbSystem}"
@@ -34,7 +34,7 @@
       "id": "db-slowest-collections",
       "order": 20,
       "query": {
-        "endpoint": "/v1/database/slow-queries/collections",
+        "endpoint": "/v1/saturation/database/slow-queries/collections",
         "method": "GET",
         "params": {
           "db_system": "{dbSystem}"

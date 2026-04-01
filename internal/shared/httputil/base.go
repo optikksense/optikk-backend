@@ -6,13 +6,13 @@ package httputil
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
@@ -29,8 +29,8 @@ func RespondOK(c *gin.Context, data any) {
 func RespondError(c *gin.Context, status int, code, msg string) {
 	if status >= 500 {
 		logger.FromCtx(c.Request.Context()).Error("request error",
-			zap.String("code", code), zap.String("msg", msg),
-			zap.String("method", c.Request.Method), zap.String("path", c.Request.URL.Path))
+			slog.String("code", code), slog.String("msg", msg),
+			slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path))
 	}
 	c.JSON(status, types.Failure(code, msg, c.Request.URL.Path))
 }
@@ -42,14 +42,14 @@ func RespondErrorWithCause(c *gin.Context, status int, code, msg string, err err
 	log := logger.FromCtx(c.Request.Context())
 	if err != nil {
 		log.Error("request error",
-			zap.String("code", code), zap.String("msg", msg),
-			zap.String("method", c.Request.Method), zap.String("path", c.Request.URL.Path),
-			zap.Error(err))
+			slog.String("code", code), slog.String("msg", msg),
+			slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path),
+			slog.Any("error", err))
 		msg = fmt.Sprintf("%s: %s", msg, dbutil.SanitizeError(err))
 	} else if status >= 500 {
 		log.Error("request error",
-			zap.String("code", code), zap.String("msg", msg),
-			zap.String("method", c.Request.Method), zap.String("path", c.Request.URL.Path))
+			slog.String("code", code), slog.String("msg", msg),
+			slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path))
 	}
 	c.JSON(status, types.Failure(code, msg, c.Request.URL.Path))
 }
