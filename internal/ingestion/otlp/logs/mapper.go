@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"time"
 
+	"log/slog"
+
 	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/ingest"
@@ -12,7 +14,6 @@ import (
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	logv1 "go.opentelemetry.io/proto/otlp/logs/v1"
-	"go.uber.org/zap"
 )
 
 const maxLogAttributes = 128
@@ -125,8 +126,8 @@ func capStringAttrs(attrs map[string]string, teamID int64) map[string]string {
 		return attrs
 	}
 	logger.L().Warn("ingest: log attributes truncated",
-		zap.Int("from", len(attrs)), zap.Int("to", maxLogAttributes),
-		zap.Int64("team_id", teamID))
+		slog.Int("from", len(attrs)), slog.Int("to", maxLogAttributes),
+		slog.Int64("team_id", teamID))
 	trimmed := make(map[string]string, maxLogAttributes)
 	i := 0
 	for k, v := range attrs {

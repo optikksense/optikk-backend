@@ -70,52 +70,52 @@ var dashboardEndpointFieldContracts = map[string]map[string]struct{}{
 	"/v1/apm/uptime": {
 		"value": {},
 	},
-	"/v1/database/connections/count": {
+	"/v1/saturation/database/connections/count": {
 		"count": {},
 		"state": {},
 	},
-	"/v1/database/connections/pending": {
+	"/v1/saturation/database/connections/pending": {
 		"count": {},
 	},
-	"/v1/database/connections/timeout-rate": {
+	"/v1/saturation/database/connections/timeout-rate": {
 		"timeout_rate": {},
 	},
-	"/v1/database/errors/by-error-type": {
+	"/v1/saturation/database/errors/by-error-type": {
 		"errors_per_sec": {},
 		"group_by":       {},
 	},
-	"/v1/database/errors/by-system": {
+	"/v1/saturation/database/errors/by-system": {
 		"errors_per_sec": {},
 		"group_by":       {},
 	},
-	"/v1/database/latency/by-operation": {
+	"/v1/saturation/database/latency/by-operation": {
 		"group_by": {},
 		"p99_ms":   {},
 	},
-	"/v1/database/latency/by-system": {
+	"/v1/saturation/database/latency/by-system": {
 		"group_by": {},
 		"p99_ms":   {},
 	},
-	"/v1/database/ops/by-operation": {
+	"/v1/saturation/database/ops/by-operation": {
 		"group_by":    {},
 		"ops_per_sec": {},
 	},
-	"/v1/database/ops/by-system": {
+	"/v1/saturation/database/ops/by-system": {
 		"group_by":    {},
 		"ops_per_sec": {},
 	},
-	"/v1/database/ops/read-vs-write": {
+	"/v1/saturation/database/ops/read-vs-write": {
 		"read_ops_per_sec": {},
 	},
-	"/v1/database/slow-queries/collections": {},
-	"/v1/database/slow-queries/patterns":    {},
-	"/v1/database/summary": {
+	"/v1/saturation/database/slow-queries/collections": {},
+	"/v1/saturation/database/slow-queries/patterns":    {},
+	"/v1/saturation/database/summary": {
 		"avg_latency_ms": {},
 		"p95_latency_ms": {},
 		"p99_latency_ms": {},
 		"span_count":     {},
 	},
-	"/v1/database/systems": {
+	"/v1/saturation/database/systems": {
 		"db_system": {},
 	},
 	"/v1/errors/groups": {

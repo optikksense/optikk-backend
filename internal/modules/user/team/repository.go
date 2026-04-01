@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
 )
@@ -26,8 +27,10 @@ type MySQLRepository struct {
 	db dbutil.Querier
 }
 
-func NewRepository(db *sql.DB) *MySQLRepository {
-	return &MySQLRepository{db: dbutil.NewMySQLWrapper(db)}
+func NewRepository(db *sql.DB, appConfig registry.AppConfig) *MySQLRepository {
+	return &MySQLRepository{
+		db: dbutil.NewMySQLWrapper(db, appConfig.CircuitBreakerConsecutiveFailures(), appConfig.CircuitBreakerResetTimeout()),
+	}
 }
 
 func (r *MySQLRepository) FindUserByID(userID int64) (usershared.UserRecord, error) {

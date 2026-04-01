@@ -2,6 +2,7 @@ package query
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -10,7 +11,6 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 )
 
 const maxAttributeFilters = 10
@@ -292,7 +292,7 @@ func (h *TraceHandler) GetLatencyHistogram(c *gin.Context) {
 
 	buckets, err := h.Service.GetLatencyHistogram(c.Request.Context(), teamID, startMs, endMs, serviceName, operationName)
 	if err != nil {
-		logger.L().Error("latency histogram query failed", zap.Error(err))
+		logger.L().Error("latency histogram query failed", slog.Any("error", err))
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query latency histogram", err)
 		return
 	}

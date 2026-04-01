@@ -5,13 +5,14 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"go.uber.org/zap"
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/config"
@@ -51,13 +52,25 @@ type App struct {
 	EventBus *events.Bus
 }
 
+func splitAllowedOrigins(allowed string) []string {
+	var out []string
+	for _, o := range strings.Split(allowed, ",") {
+		o = strings.TrimSpace(o)
+		if o != "" {
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
 func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) *App {
 	getTenant := modulecommon.GetTenantFunc(middleware.GetTenant)
 	sessionManager := sessionauth.NewManager(cfg)
 
 	reg, err := configdefaults.Load()
 	if err != nil {
-		logger.L().Fatal("failed to load embedded default config registry", zap.Error(err))
+		logger.L().Error("failed to load embedded default config registry", slog.Any("error", err))
+		os.Exit(1)
 	}
 
 	var redisClient *redis.Client
@@ -71,14 +84,16 @@ func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) *App {
 		queryCache = cache.New(nil)
 	}
 
-	nativeQuerier := dbutil.NewNativeQuerier(ch)
+	nativeQuerier := dbutil.NewNativeQuerier(ch, cfg.CircuitBreakerConsecutiveFailures(), cfg.CircuitBreakerResetTimeout())
 
 	modules := configuredModules(nativeQuerier, db, ch, getTenant, sessionManager, cfg, reg)
 
 	// Create Socket.IO server and register handlers from modules.
-	socketIOServer, err := sio.NewServer(strings.Split(cfg.Server.AllowedOrigins, ","))
+	// Trim each origin so "a, b" does not leave a leading space that breaks WebSocket CheckOrigin.
+	socketIOServer, err := sio.NewServer(splitAllowedOrigins(cfg.Server.AllowedOrigins))
 	if err != nil {
-		logger.L().Fatal("failed to create Socket.IO server", zap.Error(err))
+		logger.L().Error("failed to create Socket.IO server", slog.Any("error", err))
+		os.Exit(1)
 	}
 	eventBus := events.NewBus()
 	for _, mod := range modules {
@@ -132,7 +147,7 @@ func (a *App) Start(ctx context.Context) error {
 			IdleTimeout:  120 * time.Second,
 		}
 		g.Add(func() error {
-			logger.L().Info("main API server starting", zap.String("addr", srv.Addr))
+			logger.L().Info("main API server starting", slog.String("addr", srv.Addr))
 			return srv.ListenAndServe()
 		}, func(error) {
 			shutCtx, c := context.WithTimeout(context.Background(), 10*time.Second)
@@ -166,7 +181,7 @@ func (a *App) Start(ctx context.Context) error {
 			}
 		}
 		g.Add(func() error {
-			logger.L().Info("gRPC server starting", zap.String("port", a.Config.OTLP.GRPCPort))
+			logger.L().Info("gRPC server starting", slog.String("port", a.Config.OTLP.GRPCPort))
 			return grpcSrv.Serve(lis)
 		}, func(error) {
 			grpcSrv.GracefulStop()
@@ -177,13 +192,13 @@ func (a *App) Start(ctx context.Context) error {
 
 	// Shut down Socket.IO server.
 	if closeErr := a.SocketIO.Close(); closeErr != nil {
-		logger.L().Warn("error closing Socket.IO server", zap.Error(closeErr))
+		logger.L().Warn("error closing Socket.IO server", slog.Any("error", closeErr))
 	}
 
 	for _, mod := range a.Modules {
 		if r, ok := mod.(registry.BackgroundRunner); ok {
 			if stopErr := r.Stop(); stopErr != nil {
-				logger.L().Warn("error stopping module", zap.String("module", mod.Name()), zap.Error(stopErr))
+				logger.L().Warn("error stopping module", slog.String("module", mod.Name()), slog.Any("error", stopErr))
 			}
 		}
 	}

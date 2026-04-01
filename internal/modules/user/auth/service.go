@@ -2,15 +2,7 @@ package auth
 
 import (
 	"context"
-	"crypto/rand"
-	"database/sql"
-	"encoding/hex"
-	"encoding/json"
-	"errors"
-	"fmt"
-	"io"
-	"net/http"
-	"strconv"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -18,66 +10,19 @@ import (
 	sessionauth "github.com/Optikk-Org/optikk-backend/internal/infra/session"
 	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
 	contracts "github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
-	"github.com/google/go-github/v60/github"
-	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
-	"golang.org/x/oauth2"
-	googleOAuth2 "golang.org/x/oauth2/google"
 )
 
 type Service struct {
-	repo         Repository
-	sessions     *sessionauth.Manager
-	googleConfig *oauth2.Config
-	githubConfig *oauth2.Config
-	redirectBase string
+	repo     Repository
+	sessions *sessionauth.Manager
 }
 
-func NewService(
-	repo Repository,
-	sessions *sessionauth.Manager,
-	googleClientID, googleClientSecret,
-	githubClientID, githubClientSecret,
-	redirectBase string,
-) *Service {
-	service := &Service{
-		repo:         repo,
-		sessions:     sessions,
-		redirectBase: strings.TrimRight(redirectBase, "/"),
+func NewService(repo Repository, sessions *sessionauth.Manager) *Service {
+	return &Service{
+		repo:     repo,
+		sessions: sessions,
 	}
-
-	if googleClientID != "" && googleClientSecret != "" {
-		service.googleConfig = &oauth2.Config{
-			ClientID:     googleClientID,
-			ClientSecret: googleClientSecret,
-			RedirectURL:  redirectBase + "/api/v1/auth/google/callback",
-			Scopes:       []string{"openid", "email", "profile"},
-			Endpoint:     googleOAuth2.Endpoint,
-		}
-	}
-
-	if githubClientID != "" && githubClientSecret != "" {
-		service.githubConfig = &oauth2.Config{
-			ClientID:     githubClientID,
-			ClientSecret: githubClientSecret,
-			RedirectURL:  redirectBase + "/api/v1/auth/github/callback",
-			Scopes:       []string{"user:email", "read:user"},
-			Endpoint: oauth2.Endpoint{ //nolint:gosec // G101 - OAuth URLs, not credentials
-				AuthURL:  "https://github.com/login/oauth/authorize",
-				TokenURL: "https://github.com/login/oauth/access_token",
-			},
-		}
-	}
-
-	return service
-}
-
-func (s *Service) GoogleConfigured() bool {
-	return s.googleConfig != nil
-}
-
-func (s *Service) GithubConfigured() bool {
-	return s.githubConfig != nil
 }
 
 func (s *Service) Login(ctx context.Context, req LoginRequest, clientIP string) (AuthContextResponse, error) {
@@ -94,7 +39,7 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, clientIP string) 
 	}
 
 	if err := s.repo.UpdateUserLastLogin(user.ID, time.Now().UTC()); err != nil {
-		logger.L().Warn("AUTH_EVENT login_update_failed", zap.Int64("user_id", user.ID), zap.String("email", user.Email), zap.Error(err))
+		logger.L().Warn("AUTH_EVENT login_update_failed", slog.Int64("user_id", user.ID), slog.String("email", user.Email), slog.Any("error", err))
 	}
 
 	response, teamID, teamIDs, err := s.buildAuthContextResponse(user)
@@ -112,7 +57,7 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, clientIP string) 
 		return AuthContextResponse{}, usershared.NewInternalError("Failed to create session", err)
 	}
 
-	logger.L().Info("AUTH_EVENT login_success", zap.Int64("user_id", user.ID), zap.String("email", user.Email), zap.Int64("team_id", teamID), zap.String("ip", clientIP))
+	logger.L().Info("AUTH_EVENT login_success", slog.Int64("user_id", user.ID), slog.String("email", user.Email), slog.Int64("team_id", teamID), slog.String("ip", clientIP))
 	return response, nil
 }
 
@@ -121,7 +66,7 @@ func (s *Service) Logout(ctx context.Context, tenant contracts.TenantContext, cl
 		return MessageResponse{}, usershared.NewInternalError("Failed to end session", err)
 	}
 	if tenant.UserID > 0 {
-		logger.L().Info("AUTH_EVENT logout", zap.Int64("user_id", tenant.UserID), zap.String("email", tenant.UserEmail), zap.String("ip", clientIP))
+		logger.L().Info("AUTH_EVENT logout", slog.Int64("user_id", tenant.UserID), slog.String("email", tenant.UserEmail), slog.String("ip", clientIP))
 	}
 	return MessageResponse{Message: "Logged out successfully"}, nil
 }
@@ -162,237 +107,16 @@ func (s *Service) ValidateToken(tenant contracts.TenantContext) (ValidateTokenRe
 	}, nil
 }
 
-func (s *Service) GoogleLoginURL() (string, error) {
-	if s.googleConfig == nil {
-		return "", usershared.NewInternalError("Google OAuth is not configured", nil)
-	}
-	state, err := randomState()
-	if err != nil {
-		return "", usershared.NewInternalError("Failed to generate state", err)
-	}
-	return s.googleConfig.AuthCodeURL(state, oauth2.AccessTypeOnline), nil
-}
-
-func (s *Service) GoogleCallbackRedirect(code string) string {
-	if code == "" {
-		return s.redirectBase + "/login?error=oauth_canceled"
-	}
-
-	token, err := s.googleConfig.Exchange(context.Background(), code)
-	if err != nil {
-		return s.redirectBase + "/login?error=oauth_failed"
-	}
-
-	client := s.googleConfig.Client(context.Background(), token)
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, "https://www.googleapis.com/oauth2/v2/userinfo", nil)
-	if err != nil {
-		return s.redirectBase + "/login?error=oauth_failed"
-	}
-	resp, err := client.Do(req)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		return s.redirectBase + "/login?error=oauth_failed"
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return s.redirectBase + "/login?error=oauth_failed"
-	}
-
-	var info struct {
-		ID      string `json:"id"`
-		Email   string `json:"email"`
-		Name    string `json:"name"`
-		Picture string `json:"picture"`
-	}
-	if err := json.Unmarshal(body, &info); err != nil || info.ID == "" {
-		return s.redirectBase + "/login?error=oauth_failed"
-	}
-
-	return s.handleOAuthCallback(context.Background(), "google", info.ID, info.Email, info.Name, info.Picture)
-}
-
-func (s *Service) GithubLoginURL() (string, error) {
-	if s.githubConfig == nil {
-		return "", usershared.NewInternalError("GitHub OAuth is not configured", nil)
-	}
-	state, err := randomState()
-	if err != nil {
-		return "", usershared.NewInternalError("Failed to generate state", err)
-	}
-	return s.githubConfig.AuthCodeURL(state), nil
-}
-
-func (s *Service) GithubCallbackRedirect(code string) string {
-	if code == "" {
-		return s.redirectBase + "/login?error=oauth_canceled"
-	}
-
-	token, err := s.githubConfig.Exchange(context.Background(), code)
-	if err != nil {
-		return s.redirectBase + "/login?error=oauth_failed"
-	}
-
-	httpClient := s.githubConfig.Client(context.Background(), token)
-	ghClient := github.NewClient(httpClient)
-
-	ghUser, _, err := ghClient.Users.Get(context.Background(), "")
-	if err != nil || ghUser == nil {
-		return s.redirectBase + "/login?error=oauth_failed"
-	}
-
-	email := ghUser.GetEmail()
-	if email == "" {
-		emails, _, err := ghClient.Users.ListEmails(context.Background(), nil)
-		if err == nil {
-			for _, item := range emails {
-				if item.GetPrimary() && item.GetVerified() {
-					email = item.GetEmail()
-					break
-				}
-			}
-		}
-	}
-	if email == "" {
-		return s.redirectBase + "/login?error=no_email"
-	}
-
-	oauthID := strconv.FormatInt(ghUser.GetID(), 10)
-	name := ghUser.GetName()
-	if name == "" {
-		name = ghUser.GetLogin()
-	}
-
-	return s.handleOAuthCallback(context.Background(), "github", oauthID, email, name, ghUser.GetAvatarURL())
-}
-
-func (s *Service) CompleteSignup(ctx context.Context, req CompleteSignupRequest) (AuthContextResponse, error) {
-	pending, ok := s.sessions.GetPendingOAuth(ctx)
-	if !ok {
-		return AuthContextResponse{}, usershared.NewUnauthorizedError("OAuth signup session is missing or expired", nil)
-	}
-
-	team, err := s.repo.FindTeamByOrgAndName(strings.TrimSpace(req.OrgName), strings.TrimSpace(req.TeamName))
-	if errors.Is(err, sql.ErrNoRows) {
-		return AuthContextResponse{}, usershared.NewValidationError("No team found with that name and org. Contact your IT admin.", err)
-	}
-	if err != nil {
-		return AuthContextResponse{}, usershared.NewInternalError("Failed to look up team", err)
-	}
-
-	existingUser, err := s.repo.FindActiveUserByEmail(pending.Email)
-	if err == nil {
-		if err := s.repo.UpdateUserOAuth(existingUser.ID, pending.Provider, pending.OAuthID); err != nil {
-			return AuthContextResponse{}, usershared.NewInternalError("Failed to link OAuth account", err)
-		}
-		if err := s.startUserSession(ctx, existingUser); err != nil {
-			return AuthContextResponse{}, err
-		}
-		response, _, _, err := s.buildAuthContextResponse(existingUser)
-		if err != nil {
-			return AuthContextResponse{}, err
-		}
-		return response, nil
-	}
-
-	memberships := []usershared.TeamMembership{{TeamID: team.ID, Role: "member"}}
-	teamsJSON, err := usershared.BuildTeamMembershipsJSON(memberships)
-	if err != nil {
-		return AuthContextResponse{}, usershared.NewInternalError("Failed to build teams JSON", err)
-	}
-
-	userID, err := s.repo.CreateOAuthUser(
-		pending.Email,
-		pending.Name,
-		pending.AvatarURL,
-		teamsJSON,
-		pending.Provider,
-		pending.OAuthID,
-		time.Now().UTC(),
-	)
-	if err != nil {
-		return AuthContextResponse{}, usershared.NewValidationError("Unable to create user", err)
-	}
-
-	createdUser, err := s.repo.FindActiveUserByEmail(pending.Email)
-	if err != nil {
-		return AuthContextResponse{}, usershared.NewInternalError("Failed to load created user", err)
-	}
-	createdUser.ID = userID
-
-	if err := s.startUserSession(ctx, createdUser); err != nil {
-		return AuthContextResponse{}, err
-	}
-	response, _, _, err := s.buildAuthContextResponse(createdUser)
-	if err != nil {
-		return AuthContextResponse{}, err
-	}
-	return response, nil
-}
-
 func (s *Service) ForgotPassword() MessageResponse {
 	return MessageResponse{
 		Message: "Password resets are managed by your IT administrator. Please contact your IT admin for assistance.",
 	}
 }
 
-func (s *Service) handleOAuthCallback(ctx context.Context, provider, oauthID, email, name, avatarURL string) string {
-	user, err := s.repo.FindUserByOAuth(provider, oauthID)
-	if err == nil {
-		if err := s.startUserSession(ctx, user); err != nil {
-			return s.redirectBase + "/login?error=session_failed"
-		}
-		return s.redirectBase + "/oauth/success"
-	}
-
-	existingUser, err := s.repo.FindActiveUserByEmail(email)
-	if err == nil {
-		if err := s.repo.UpdateUserOAuth(existingUser.ID, provider, oauthID); err != nil {
-			return s.redirectBase + "/login?error=oauth_failed"
-		}
-		if err := s.startUserSession(ctx, existingUser); err != nil {
-			return s.redirectBase + "/login?error=session_failed"
-		}
-		return s.redirectBase + "/oauth/success"
-	}
-
-	if err := s.sessions.SetPendingOAuth(ctx, sessionauth.PendingOAuthState{
-		Provider:  provider,
-		OAuthID:   oauthID,
-		Email:     email,
-		Name:      name,
-		AvatarURL: avatarURL,
-	}); err != nil {
-		return s.redirectBase + "/login?error=session_failed"
-	}
-
-	return fmt.Sprintf(
-		"%s/oauth/signup?name=%s&email=%s",
-		s.redirectBase,
-		urlEncode(name),
-		urlEncode(email),
-	)
-}
-
-func (s *Service) startUserSession(ctx context.Context, user usershared.AuthUser) error {
-	_, teamID, teamIDs, err := s.buildAuthContextResponse(user)
-	if err != nil {
-		return err
-	}
-	_ = s.repo.UpdateUserLastLogin(user.ID, time.Now().UTC())
-	return s.sessions.CreateAuthSession(ctx, sessionauth.AuthState{
-		UserID:        user.ID,
-		Email:         user.Email,
-		Role:          "member",
-		DefaultTeamID: teamID,
-		TeamIDs:       teamIDs,
-	})
-}
-
 func (s *Service) buildAuthContextResponse(user usershared.AuthUser) (resp AuthContextResponse, teamID int64, teamIDs []int64, err error) {
 	teams, err := s.listTeamsForUser(user.TeamsJSON)
 	if err != nil {
-		logger.L().Warn("AUTH_EVENT team_fetch_failed", zap.Int64("user_id", user.ID), zap.String("email", user.Email), zap.Error(err))
+		logger.L().Warn("AUTH_EVENT team_fetch_failed", slog.Int64("user_id", user.ID), slog.String("email", user.Email), slog.Any("error", err))
 		teams = []AuthTeamSummary{}
 	}
 
@@ -412,8 +136,6 @@ func (s *Service) buildAuthContextResponse(user usershared.AuthUser) (resp AuthC
 
 	if currentTeam != nil {
 		teamID = currentTeam.ID
-	} else {
-		teamID = 0
 	}
 
 	return AuthContextResponse{
@@ -461,28 +183,4 @@ func (s *Service) listTeamsForUser(teamsJSON string) ([]AuthTeamSummary, error) 
 		})
 	}
 	return items, nil
-}
-
-func randomState() (string, error) {
-	bytes := make([]byte, 16)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(bytes), nil
-}
-
-func urlEncode(value string) string {
-	var builder strings.Builder
-	for _, r := range value {
-		switch {
-		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9',
-			r == '-', r == '_', r == '.', r == '~':
-			builder.WriteRune(r)
-		default:
-			for _, byt := range []byte(string(r)) {
-				fmt.Fprintf(&builder, "%%%02X", byt)
-			}
-		}
-	}
-	return builder.String()
 }

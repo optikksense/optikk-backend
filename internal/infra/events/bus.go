@@ -13,10 +13,10 @@ package events
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
-	"go.uber.org/zap"
 )
 
 // Handler processes an event. Handlers are called synchronously in the order
@@ -68,8 +68,8 @@ func (b *Bus) Publish(ctx context.Context, topic string, payload any) {
 			defer func() {
 				if r := recover(); r != nil {
 					logger.L().Error("event handler panicked",
-						zap.String("topic", topic),
-						zap.Any("panic", r))
+						slog.String("topic", topic),
+						slog.Any("panic", r))
 				}
 			}()
 			h(ctx, payload)

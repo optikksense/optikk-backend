@@ -1,13 +1,14 @@
 package metrics
 
 import (
+	"log/slog"
+
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/ingest"
 	"github.com/gin-gonic/gin"
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
-	"go.uber.org/zap"
 	"google.golang.org/grpc"
 )
 
@@ -43,7 +44,7 @@ func (m *Module) Start() {}
 func (m *Module) Stop() error {
 	if m.queue != nil {
 		if err := m.queue.Close(); err != nil {
-			logger.L().Warn("error flushing ingest queue", zap.Error(err))
+			logger.L().Warn("error flushing ingest queue", slog.Any("error", err))
 		}
 	}
 	m.lifecycle.Stop()

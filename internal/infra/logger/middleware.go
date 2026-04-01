@@ -1,11 +1,11 @@
 package logger
 
 import (
+	"log/slog"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"go.uber.org/zap"
 )
 
 const RequestIDHeader = "X-Request-ID"
@@ -25,9 +25,9 @@ func GinMiddleware() gin.HandlerFunc {
 		c.Header(RequestIDHeader, requestID)
 
 		reqLogger := L().With(
-			zap.String("request_id", requestID),
-			zap.String("method", c.Request.Method),
-			zap.String("path", c.Request.URL.Path),
+			slog.String("request_id", requestID),
+			slog.String("method", c.Request.Method),
+			slog.String("path", c.Request.URL.Path),
 		)
 		c.Request = c.Request.WithContext(WithCtx(c.Request.Context(), reqLogger))
 
@@ -36,18 +36,18 @@ func GinMiddleware() gin.HandlerFunc {
 		latency := time.Since(start)
 		status := c.Writer.Status()
 
-		fields := []zap.Field{
-			zap.Int("status", status),
-			zap.Duration("latency", latency),
+		attrs := []any{
+			slog.Int("status", status),
+			slog.Duration("latency", latency),
 		}
 
 		switch {
 		case status >= 500:
-			reqLogger.Error("request completed", fields...)
+			reqLogger.Error("request completed", attrs...)
 		case status >= 400:
-			reqLogger.Warn("request completed", fields...)
+			reqLogger.Warn("request completed", attrs...)
 		default:
-			reqLogger.Info("request completed", fields...)
+			reqLogger.Info("request completed", attrs...)
 		}
 	}
 }

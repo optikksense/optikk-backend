@@ -1,30 +1,24 @@
 package explorer
 
-import spantraces "github.com/Optikk-Org/optikk-backend/internal/modules/traces/query"
+import (
+	exploreranalytics "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
+	spantraces "github.com/Optikk-Org/optikk-backend/internal/modules/traces/query"
+)
 
-type TraceExplorerParams struct {
-	Services       []string `json:"services,omitempty"`
-	Status         string   `json:"status,omitempty"`
-	Search         string   `json:"search,omitempty"`
-	MinDurationMs  *float64 `json:"minDuration,omitempty"`
-	MaxDurationMs  *float64 `json:"maxDuration,omitempty"`
-	TraceID        string   `json:"traceId,omitempty"`
-	OperationName  string   `json:"operationName,omitempty"`
-	HTTPMethod     string   `json:"httpMethod,omitempty"`
-	HTTPStatusCode string   `json:"httpStatusCode,omitempty"`
-	Mode           string   `json:"mode,omitempty"`
-	SpanKind       string   `json:"spanKind,omitempty"`
-	SpanName       string   `json:"spanName,omitempty"`
-}
-
+// QueryRequest is the unified traces explorer request.
 type QueryRequest struct {
-	StartTime int64               `json:"startTime"`
-	EndTime   int64               `json:"endTime"`
-	Limit     int                 `json:"limit"`
-	Offset    int                 `json:"offset"`
-	Cursor    string              `json:"cursor"`
-	Step      string              `json:"step"`
-	Params    TraceExplorerParams `json:"params"`
+	StartTime    int64                           `json:"startTime"`
+	EndTime      int64                           `json:"endTime"`
+	Query        string                          `json:"query"`
+	Limit        int                             `json:"limit"`
+	Offset       int                             `json:"offset"`
+	Cursor       string                          `json:"cursor"`
+	Step         string                          `json:"step"`
+	GroupBy      []string                        `json:"groupBy,omitempty"`
+	Aggregations []exploreranalytics.Aggregation `json:"aggregations,omitempty"`
+	VizMode      string                          `json:"vizMode,omitempty"`
+	OrderBy      string                          `json:"orderBy,omitempty"`
+	OrderDir     string                          `json:"orderDir,omitempty"`
 }
 
 type FacetBucket struct {
@@ -58,4 +52,8 @@ type ExplorerFacets struct {
 	ServiceName   []FacetBucket `json:"service_name"`
 	Status        []FacetBucket `json:"status"`
 	OperationName []FacetBucket `json:"operation_name"`
+	SpanKind      []FacetBucket `json:"span_kind,omitempty"`
+	HTTPMethod    []FacetBucket `json:"http_method,omitempty"`
+	HTTPStatus    []FacetBucket `json:"http_status_code,omitempty"`
+	DBSystem      []FacetBucket `json:"db_system,omitempty"`
 }

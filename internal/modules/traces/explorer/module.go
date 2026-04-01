@@ -2,6 +2,7 @@ package explorer
 
 import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
+	exploreranalytics "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
 	spantraces "github.com/Optikk-Org/optikk-backend/internal/modules/traces/query"
 	"github.com/gin-gonic/gin"
 )
@@ -36,7 +37,8 @@ func (m *tracesExplorerModule) RouteTarget() registry.RouteTarget { return regis
 
 func (m *tracesExplorerModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	traceService := spantraces.NewService(spantraces.NewRepository(nativeQuerier))
-	m.handler = NewHandler(getTenant, NewService(traceService))
+	explorerAnalyticsService := exploreranalytics.NewService(nativeQuerier)
+	m.handler = NewHandler(getTenant, NewService(traceService, explorerAnalyticsService))
 }
 
 func (m *tracesExplorerModule) RegisterRoutes(group *gin.RouterGroup) {

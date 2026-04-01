@@ -38,9 +38,10 @@ func NewModule(
 	sqlDB *registry.SQLDB,
 	getTenant registry.GetTenantFunc,
 	configRegistry *registry.ConfigRegistry,
+	appConfig registry.AppConfig,
 ) registry.Module {
 	module := &teamModule{}
-	module.configure(sqlDB, getTenant, configRegistry)
+	module.configure(sqlDB, getTenant, configRegistry, appConfig)
 	return module
 }
 
@@ -55,10 +56,11 @@ func (m *teamModule) configure(
 	sqlDB *registry.SQLDB,
 	getTenant registry.GetTenantFunc,
 	configRegistry *registry.ConfigRegistry,
+	appConfig registry.AppConfig,
 ) {
 	m.handler = NewHandler(
 		getTenant,
-		NewService(NewRepository(sqlDB), configRegistry),
+		NewService(NewRepository(sqlDB, appConfig), configRegistry),
 	)
 }
 

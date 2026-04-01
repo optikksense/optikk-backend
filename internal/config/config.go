@@ -68,14 +68,6 @@ type OTLPConfig struct {
 	GRPCMaxRecvMsgSizeMB int    `yaml:"grpc_max_recv_msg_size_mb"`
 }
 
-type OAuthConfig struct {
-	GoogleClientID     string `yaml:"google_client_id"`
-	GoogleClientSecret string `yaml:"google_client_secret"`
-	GitHubClientID     string `yaml:"github_client_id"`
-	GitHubClientSecret string `yaml:"github_client_secret"`
-	RedirectBase       string `yaml:"redirect_base"`
-}
-
 type RetentionConfig struct {
 	DefaultDays int `yaml:"default_days"`
 }
@@ -85,19 +77,26 @@ type AppConfig struct {
 	DashboardConfigUseDefaults bool   `yaml:"dashboard_config_use_defaults"`
 }
 
+// CircuitBreakerConfig tunes gobreaker-backed DB clients (MySQL wrapper, ClickHouse native querier).
+// Zero values fall back to consecutive_failures=5 and reset_timeout_ms=30000 in CircuitBreaker* helpers.
+type CircuitBreakerConfig struct {
+	ConsecutiveFailures int   `yaml:"consecutive_failures"`
+	ResetTimeoutMs      int64 `yaml:"reset_timeout_ms"`
+}
+
 type Config struct {
-	Environment string           `yaml:"environment"`
-	Server      ServerConfig     `yaml:"server"`
-	MySQL       MySQLConfig      `yaml:"mysql"`
-	ClickHouse  ClickHouseConfig `yaml:"clickhouse"`
-	Session     SessionConfig    `yaml:"session"`
-	Queue       QueueConfig      `yaml:"queue"`
-	Kafka       KafkaConfig      `yaml:"kafka"`
-	Redis       RedisConfig      `yaml:"redis"`
-	OTLP        OTLPConfig       `yaml:"otlp"`
-	OAuth       OAuthConfig      `yaml:"oauth"`
-	Retention   RetentionConfig  `yaml:"retention"`
-	App         AppConfig        `yaml:"app"`
+	Environment    string               `yaml:"environment"`
+	Server         ServerConfig         `yaml:"server"`
+	MySQL          MySQLConfig          `yaml:"mysql"`
+	ClickHouse     ClickHouseConfig     `yaml:"clickhouse"`
+	Session        SessionConfig        `yaml:"session"`
+	Queue          QueueConfig          `yaml:"queue"`
+	Kafka          KafkaConfig          `yaml:"kafka"`
+	Redis          RedisConfig          `yaml:"redis"`
+	OTLP           OTLPConfig           `yaml:"otlp"`
+	Retention      RetentionConfig      `yaml:"retention"`
+	App            AppConfig            `yaml:"app"`
+	CircuitBreaker CircuitBreakerConfig `yaml:"circuit_breaker"`
 }
 
 // Load reads configuration from a YAML file.
@@ -183,4 +182,22 @@ func (c Config) QueueFlushInterval() time.Duration {
 
 func (c Config) KafkaBrokerList() []string {
 	return strings.Split(c.Kafka.Brokers, ",")
+}
+
+// CircuitBreakerConsecutiveFailures returns the failure streak before the breaker opens (default 5).
+func (c Config) CircuitBreakerConsecutiveFailures() int {
+	n := c.CircuitBreaker.ConsecutiveFailures
+	if n <= 0 {
+		return 5
+	}
+	return n
+}
+
+// CircuitBreakerResetTimeout is how long the breaker stays open before half-open (default 30s).
+func (c Config) CircuitBreakerResetTimeout() time.Duration {
+	ms := c.CircuitBreaker.ResetTimeoutMs
+	if ms <= 0 {
+		return 30 * time.Second
+	}
+	return time.Duration(ms) * time.Millisecond
 }

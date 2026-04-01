@@ -315,8 +315,8 @@ func (r *ClickHouseRepository) GetConsumerLagByGroup(teamID int64, startMs, endM
 
 func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamID int64, startMs, endMs int64, f KafkaFilters) ([]PartitionLag, error) {
 	clause := MetricSetToInClause(ConsumerLagMetrics)
-	topic := attrString(AttrMessagingDestinationName)
-	partition := attrString(AttrMessagingKafkaDestinationPartition)
+	topic := topicExpr()
+	partition := topicPartitionExpr()
 	group := consumerGroupExpr()
 	filterSQL, filterArgs := kafkaFilterClauses(f)
 	lagExpr := "avgIf(value, isFinite(value))"
@@ -404,29 +404,29 @@ func (r *ClickHouseRepository) GetE2ELatency(teamID int64, startMs, endMs int64,
 		    %[2]s AS topic,
 		    quantileExactWeightedIf(0.95)(
 		        hist_sum / nullIf(hist_count, 0), hist_count,
-		        %[3]s = '%[4]s' AND metric_type = 'Histogram'
+		    %[3]s AND metric_type = 'Histogram'
 		    ) AS publish_p95,
 		    quantileExactWeightedIf(0.95)(
 		        hist_sum / nullIf(hist_count, 0), hist_count,
-		        %[3]s = '%[5]s' AND metric_type = 'Histogram'
+		        %[4]s AND metric_type = 'Histogram'
 		    ) AS receive_p95,
 		    quantileExactWeightedIf(0.95)(
 		        hist_sum / nullIf(hist_count, 0), hist_count,
-		        %[3]s = '%[6]s' AND metric_type = 'Histogram'
+		        %[5]s AND metric_type = 'Histogram'
 		    ) AS process_p95
-		FROM %[7]s
+		FROM %[6]s
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
-		  %[8]s
-		  AND %[3]s IN ('%[4]s', '%[5]s', '%[6]s')
+		  %[7]s
+		  AND (%[3]s OR %[4]s OR %[5]s)
 		  AND metric_type = 'Histogram'
 		GROUP BY time_bucket, topic
 		ORDER BY time_bucket ASC, topic ASC
 	`,
-		bucket, topic, ColMetricName,
-		MetricPublishDuration,
-		MetricReceiveDuration,
-		MetricProcessDuration,
+		bucket, topic,
+		publishDurationCondition(),
+		receiveDurationCondition(),
+		processDurationCondition(),
 		TableMetrics,
 		filterSQL,
 	)

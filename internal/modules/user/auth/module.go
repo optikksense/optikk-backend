@@ -25,11 +25,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 		authGroup.GET("/me", h.AuthMe)
 		authGroup.GET("/context", h.AuthContext)
 		authGroup.GET("/validate", h.ValidateToken)
-		authGroup.GET("/google", h.GoogleLogin)
-		authGroup.GET("/google/callback", h.GoogleCallback)
-		authGroup.GET("/github", h.GithubLogin)
-		authGroup.GET("/github/callback", h.GithubCallback)
-		authGroup.POST("/oauth/complete-signup", h.CompleteSignup)
 		authGroup.POST("/forgot-password", h.ForgotPassword)
 	}
 }
@@ -61,11 +56,8 @@ func (m *authModule) configure(
 	m.handler = NewHandler(
 		getTenant,
 		NewService(
-			NewRepository(sqlDB),
+			NewRepository(sqlDB, appConfig),
 			sessionManager,
-			appConfig.OAuth.GoogleClientID, appConfig.OAuth.GoogleClientSecret,
-			appConfig.OAuth.GitHubClientID, appConfig.OAuth.GitHubClientSecret,
-			appConfig.OAuth.RedirectBase,
 		),
 	)
 }

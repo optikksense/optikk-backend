@@ -3,12 +3,12 @@ package search
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	sio "github.com/Optikk-Org/optikk-backend/internal/infra/socketio"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/logs/internal/shared"
-	"go.uber.org/zap"
 )
 
 const (
@@ -59,13 +59,13 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 		Handle: func(payload json.RawMessage, emit sio.EmitFunc, done <-chan struct{}) {
 			var p SubscribeLogsPayload
 			if err := json.Unmarshal(payload, &p); err != nil {
-				logger.L().Warn("Socket.IO [subscribe:logs] bad payload", zap.Error(err))
-				emit("error", socketErrorPayload{Message: "invalid payload"})
+				logger.L().Warn("Socket.IO [subscribe:logs] bad payload", slog.Any("error", err))
+				emit("subscribeError", socketErrorPayload{Message: "invalid payload"})
 				return
 			}
 
 			if p.TeamID == 0 {
-				emit("error", socketErrorPayload{Message: "teamId is required"})
+				emit("subscribeError", socketErrorPayload{Message: "teamId is required"})
 				return
 			}
 
@@ -119,7 +119,7 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 
 					resp, err := service.GetLogs(ctx, pollFilters, sioMaxLogsPerPoll, "asc", shared.LogCursor{})
 					if err != nil {
-						logger.L().Warn("Socket.IO [subscribe:logs] poll error", zap.Error(err))
+						logger.L().Warn("Socket.IO [subscribe:logs] poll error", slog.Any("error", err))
 						continue
 					}
 

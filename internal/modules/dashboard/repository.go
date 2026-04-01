@@ -3,6 +3,7 @@ package dashboard
 import (
 	"database/sql"
 
+	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 )
 
@@ -17,8 +18,10 @@ type MySQLRepository struct {
 	db dbutil.Querier
 }
 
-func NewRepository(db *sql.DB) *MySQLRepository {
-	return &MySQLRepository{db: dbutil.NewMySQLWrapper(db)}
+func NewRepository(db *sql.DB, appConfig registry.AppConfig) *MySQLRepository {
+	return &MySQLRepository{
+		db: dbutil.NewMySQLWrapper(db, appConfig.CircuitBreakerConsecutiveFailures(), appConfig.CircuitBreakerResetTimeout()),
+	}
 }
 
 // GetPageOverride returns the saved override JSON for a page from the teams table. Empty string means none.

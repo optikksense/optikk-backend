@@ -53,7 +53,7 @@ func (m *defaultConfigModule) configure(
 			DB:        sqlDB,
 			GetTenant: getTenant,
 		},
-		Service: NewService(NewRepository(sqlDB), configRegistry, appConfig.App.DashboardConfigUseDefaults),
+		Service: NewService(NewRepository(sqlDB, appConfig), configRegistry, appConfig.App.DashboardConfigUseDefaults),
 	}
 }
 

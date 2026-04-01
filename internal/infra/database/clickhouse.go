@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"regexp"
 	"strings"
@@ -14,10 +15,42 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	circuitbreaker "github.com/Optikk-Org/optikk-backend/internal/infra/circuitbreaker"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
-	"go.uber.org/zap"
 )
 
 const slowQueryThreshold = 100 * time.Millisecond
+
+// clickHouseTransientErrorSubstrings matches transport-layer failures worth retrying
+// and mirrors the circuit-breaker "unsuccessful" string checks.
+var clickHouseTransientErrorSubstrings = []string{
+	"connection refused",
+	"connection reset",
+	"broken pipe",
+	"i/o timeout",
+	"no such host",
+	"timeout exceeded",
+	"connection closed",
+	"unexpected eof",
+}
+
+const (
+	defaultCHMaxOpenConns    = 15
+	defaultCHMaxIdleConns    = 5
+	defaultCHConnMaxLifetime = 30 * time.Minute
+)
+
+// applyClickHouseConnectionPoolDefaults sets pool sizing and connection rotation when
+// unset so idle connections are recycled before typical LB / server idle cuts.
+func applyClickHouseConnectionPoolDefaults(opts *clickhouse.Options) {
+	if opts.MaxOpenConns <= 0 {
+		opts.MaxOpenConns = defaultCHMaxOpenConns
+	}
+	if opts.MaxIdleConns <= 0 {
+		opts.MaxIdleConns = defaultCHMaxIdleConns
+	}
+	if opts.ConnMaxLifetime <= 0 {
+		opts.ConnMaxLifetime = defaultCHConnMaxLifetime
+	}
+}
 
 func truncateQuery(q string) string {
 	q = strings.TrimSpace(q)
@@ -81,6 +114,8 @@ func OpenClickHouseConn(dsn string, isProduction bool, cloud ...ClickHouseCloudC
 			return nil, fmt.Errorf("clickhouse: parse DSN: %w", err)
 		}
 	}
+
+	applyClickHouseConnectionPoolDefaults(opts)
 
 	conn, err := clickhouse.Open(opts)
 	if err != nil {
@@ -166,10 +201,12 @@ type NativeQuerier struct {
 	cb   *circuitbreaker.CircuitBreaker
 }
 
-func NewNativeQuerier(conn clickhouse.Conn) *NativeQuerier {
+func NewNativeQuerier(conn clickhouse.Conn, consecutiveFailures int, resetTimeout time.Duration) *NativeQuerier {
 	return &NativeQuerier{
 		conn: conn,
-		cb:   circuitbreaker.NewCircuitBreakerWithSuccessDecider("clickhouse_native", 5, 30*time.Second, isClickHouseQuerySuccessfulForBreaker),
+		cb: circuitbreaker.NewCircuitBreakerWithSuccessDecider(
+			"clickhouse_native", consecutiveFailures, resetTimeout, isClickHouseQuerySuccessfulForBreaker,
+		),
 	}
 }
 
@@ -198,16 +235,7 @@ func isClickHouseQuerySuccessfulForBreaker(err error) bool {
 	}
 
 	lower := strings.ToLower(err.Error())
-	for _, marker := range []string{
-		"connection refused",
-		"connection reset",
-		"broken pipe",
-		"i/o timeout",
-		"no such host",
-		"timeout exceeded",
-		"connection closed",
-		"unexpected eof",
-	} {
+	for _, marker := range clickHouseTransientErrorSubstrings {
 		if strings.Contains(lower, marker) {
 			return false
 		}
@@ -216,14 +244,77 @@ func isClickHouseQuerySuccessfulForBreaker(err error) bool {
 	return true
 }
 
+// isRetriableClickHouseNetworkError reports whether err is likely transient at the
+// transport layer and safe to retry for read-only queries.
+func isRetriableClickHouseNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return false
+	}
+	var chErr *clickhouse.Exception
+	if errors.As(err, &chErr) {
+		return false
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
+	}
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return true
+	}
+	lower := strings.ToLower(err.Error())
+	for _, marker := range clickHouseTransientErrorSubstrings {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+const clickHouseReadMaxAttempts = 3
+
+// retryClickHouseRead re-executes op on transient connection failures (initial try
+// plus up to clickHouseReadMaxAttempts-1 retries). Callers wrap this inside
+// circuitbreaker.Call: transient failures on earlier attempts do not trip the
+// breaker; only the final returned error counts toward breaker state.
+func retryClickHouseRead(ctx context.Context, op func() error) error {
+	var lastErr error
+	for attempt := range clickHouseReadMaxAttempts {
+		if attempt > 0 {
+			backoff := time.Duration(50*(1<<uint(attempt-1))) * time.Millisecond
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(backoff):
+			}
+			logger.L().Info("clickhouse_native retry after transient error",
+				slog.Int("attempt", attempt+1),
+				slog.String("cause", lastErr.Error()))
+		}
+		lastErr = op()
+		if lastErr == nil {
+			return nil
+		}
+		if !isRetriableClickHouseNetworkError(lastErr) {
+			return lastErr
+		}
+	}
+	return lastErr
+}
+
 func (n *NativeQuerier) Select(ctx context.Context, dest any, query string, args ...any) error {
 	query = optimizeQuery(query)
 	start := time.Now()
 	err := n.cb.Call(func() error {
-		return n.conn.Select(ctx, dest, query, args...)
+		return retryClickHouseRead(ctx, func() error {
+			return n.conn.Select(ctx, dest, query, args...)
+		})
 	})
 	if d := time.Since(start); d >= slowQueryThreshold {
-		logger.L().Warn("SLOW_QUERY clickhouse_native", zap.Duration("duration", d), zap.String("query", truncateQuery(query)))
+		logger.L().Warn("SLOW_QUERY clickhouse_native", slog.Duration("duration", d), slog.String("query", truncateQuery(query)))
 	}
 	return err
 }
@@ -232,10 +323,12 @@ func (n *NativeQuerier) QueryRow(ctx context.Context, dest any, query string, ar
 	query = optimizeQuery(query)
 	start := time.Now()
 	err := n.cb.Call(func() error {
-		return n.conn.QueryRow(ctx, query, args...).ScanStruct(dest)
+		return retryClickHouseRead(ctx, func() error {
+			return n.conn.QueryRow(ctx, query, args...).ScanStruct(dest)
+		})
 	})
 	if d := time.Since(start); d >= slowQueryThreshold {
-		logger.L().Warn("SLOW_QUERY clickhouse_native", zap.Duration("duration", d), zap.String("query", truncateQuery(query)))
+		logger.L().Warn("SLOW_QUERY clickhouse_native", slog.Duration("duration", d), slog.String("query", truncateQuery(query)))
 	}
 	return err
 }

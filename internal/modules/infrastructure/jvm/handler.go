@@ -1,6 +1,7 @@
 package jvm
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
@@ -8,7 +9,6 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 )
 
 type JVMHandler struct {
@@ -80,7 +80,7 @@ func (h *JVMHandler) GetJVMClasses(c *gin.Context) {
 	}
 	resp, err := h.Service.GetJVMClasses(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		logger.L().Error("jvm classes query failed", zap.Error(err))
+		logger.L().Error("jvm classes query failed", slog.Any("error", err))
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query JVM classes", err)
 		return
 	}

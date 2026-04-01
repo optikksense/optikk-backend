@@ -1,6 +1,7 @@
 package resourceutil //nolint:misspell
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
@@ -8,7 +9,6 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 )
 
 type ResourceUtilisationHandler struct {
@@ -130,7 +130,7 @@ func (h *ResourceUtilisationHandler) GetByInstance(c *gin.Context) {
 
 	resp, err := h.Service.GetResourceUsageByInstance(teamID, startMs, endMs)
 	if err != nil {
-		logger.L().Error("resource usage by instance query failed", zap.Error(err))
+		logger.L().Error("resource usage by instance query failed", slog.Any("error", err))
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query resource usage by instance", err)
 		return
 	}

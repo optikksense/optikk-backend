@@ -2,11 +2,11 @@ package livetail
 
 import (
 	"encoding/json"
+	"log/slog"
 	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	sio "github.com/Optikk-Org/optikk-backend/internal/infra/socketio"
-	"go.uber.org/zap"
 )
 
 const (
@@ -46,13 +46,13 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 		Handle: func(payload json.RawMessage, emit sio.EmitFunc, done <-chan struct{}) {
 			var p SubscribeSpansPayload
 			if err := json.Unmarshal(payload, &p); err != nil {
-				logger.L().Warn("Socket.IO [subscribe:spans] bad payload", zap.Error(err))
-				emit("error", socketErrorPayload{Message: "invalid payload"})
+				logger.L().Warn("Socket.IO [subscribe:spans] bad payload", slog.Any("error", err))
+				emit("subscribeError", socketErrorPayload{Message: "invalid payload"})
 				return
 			}
 
 			if p.TeamID == 0 {
-				emit("error", socketErrorPayload{Message: "teamId is required"})
+				emit("subscribeError", socketErrorPayload{Message: "teamId is required"})
 				return
 			}
 
@@ -82,8 +82,8 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 
 					spans, err := service.Poll(p.TeamID, since, filters)
 					if err != nil {
-						logger.L().Warn("Socket.IO [subscribe:spans] poll error", zap.Error(err))
-						emit("error", socketErrorPayload{Message: "poll error"})
+						logger.L().Warn("Socket.IO [subscribe:spans] poll error", slog.Any("error", err))
+						emit("subscribeError", socketErrorPayload{Message: "poll error"})
 						continue
 					}
 

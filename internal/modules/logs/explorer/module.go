@@ -2,7 +2,7 @@ package explorer
 
 import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	loganalytics "github.com/Optikk-Org/optikk-backend/internal/modules/logs/analytics"
+	exploreranalytics "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
 	logsearch "github.com/Optikk-Org/optikk-backend/internal/modules/logs/search"
 	"github.com/gin-gonic/gin"
 )
@@ -20,6 +20,11 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 		return
 	}
 	v1.POST("/logs/explorer/query", h.Query)
+	v1.GET("/logs/histogram", h.GetLogHistogram)
+	v1.GET("/logs/volume", h.GetLogVolume)
+	v1.GET("/logs/stats", h.GetLogStats)
+	v1.GET("/logs/fields", h.GetLogFields)
+	v1.GET("/logs/aggregate", h.GetLogAggregate)
 }
 
 func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
@@ -37,8 +42,9 @@ func (m *logsExplorerModule) RouteTarget() registry.RouteTarget { return registr
 
 func (m *logsExplorerModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	searchService := logsearch.NewService(logsearch.NewRepository(nativeQuerier))
-	analyticsService := loganalytics.NewService(loganalytics.NewRepository(nativeQuerier))
-	m.handler = NewHandler(getTenant, NewService(searchService, analyticsService))
+	logStatsService := newLogStatsService(nativeQuerier)
+	explorerAnalyticsService := exploreranalytics.NewService(nativeQuerier)
+	m.handler = NewHandler(getTenant, NewService(searchService, logStatsService, explorerAnalyticsService), logStatsService)
 }
 
 func (m *logsExplorerModule) RegisterRoutes(group *gin.RouterGroup) {

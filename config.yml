@@ -50,16 +50,14 @@ otlp:
   grpc_port: "4317"
   grpc_max_recv_msg_size_mb: 16
 
-oauth:
-  google_client_id: ""
-  google_client_secret: ""
-  github_client_id: ""
-  github_client_secret: ""
-  redirect_base: "http://localhost:3000"
-
 retention:
   default_days: 30
 
 app:
   region: us-east-1
   dashboard_config_use_defaults: true
+
+# Database client circuit breakers (MySQL wrapper, ClickHouse native querier).
+circuit_breaker:
+  consecutive_failures: 500
+  reset_timeout_ms: 30000

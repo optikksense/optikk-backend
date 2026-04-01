@@ -11,16 +11,8 @@ import (
 	ai_runs "github.com/Optikk-Org/optikk-backend/internal/modules/ai/runs"
 	ai_traces "github.com/Optikk-Org/optikk-backend/internal/modules/ai/traces"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/apm"
+	explorer_analytics "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
 	defaultconfig "github.com/Optikk-Org/optikk-backend/internal/modules/dashboard"
-	database_collection "github.com/Optikk-Org/optikk-backend/internal/modules/database/collection"
-	database_connections "github.com/Optikk-Org/optikk-backend/internal/modules/database/connections"
-	database_errors "github.com/Optikk-Org/optikk-backend/internal/modules/database/errors"
-	database_latency "github.com/Optikk-Org/optikk-backend/internal/modules/database/latency"
-	database_slowqueries "github.com/Optikk-Org/optikk-backend/internal/modules/database/slowqueries"
-	database_summary "github.com/Optikk-Org/optikk-backend/internal/modules/database/summary"
-	database_system "github.com/Optikk-Org/optikk-backend/internal/modules/database/system"
-	database_systems "github.com/Optikk-Org/optikk-backend/internal/modules/database/systems"
-	database_volume "github.com/Optikk-Org/optikk-backend/internal/modules/database/volume"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/httpmetrics"
 	infrastructure_cpu "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/cpu"
 	infrastructure_disk "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/disk"
@@ -30,19 +22,28 @@ import (
 	infrastructure_network "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/network"
 	infrastructure_nodes "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/nodes"
 	infrastructure_resource_utilisation "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/resourceutil"
-	log_analytics "github.com/Optikk-Org/optikk-backend/internal/modules/logs/analytics"
 	log_detail "github.com/Optikk-Org/optikk-backend/internal/modules/logs/detail"
 	log_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/logs/explorer"
+	log_patterns "github.com/Optikk-Org/optikk-backend/internal/modules/logs/patterns"
 	log_search "github.com/Optikk-Org/optikk-backend/internal/modules/logs/search"
+	log_transactions "github.com/Optikk-Org/optikk-backend/internal/modules/logs/transactions"
 	log_tracelogs "github.com/Optikk-Org/optikk-backend/internal/modules/logs/tracelogs"
 	overview_errors "github.com/Optikk-Org/optikk-backend/internal/modules/overview/errors"
 	overview_overview "github.com/Optikk-Org/optikk-backend/internal/modules/overview/overview"
 	overview_slo "github.com/Optikk-Org/optikk-backend/internal/modules/overview/slo"
+	saturation_database_collection "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/collection"
+	saturation_database_connections "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/connections"
+	saturation_database_errors "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/errors"
+	saturation_database_latency "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/latency"
+	saturation_database_slowqueries "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/slowqueries"
+	saturation_database_summary "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/summary"
+	saturation_database_system "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/system"
+	saturation_database_systems "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/systems"
+	saturation_database_volume "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/volume"
 	saturation_kafka "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka"
 	saturation_redis "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/redis"
 	services_service "github.com/Optikk-Org/optikk-backend/internal/modules/services/service"
 	services_servicemap "github.com/Optikk-Org/optikk-backend/internal/modules/services/servicemap"
-	spans_analytics "github.com/Optikk-Org/optikk-backend/internal/modules/traces/analytics"
 	spans_errorfingerprint "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errorfingerprint"
 	spans_errortracking "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errortracking"
 	spans_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
@@ -72,15 +73,7 @@ func configuredModules(
 		ai_runs.NewModule(nativeQuerier, getTenant),
 		ai_traces.NewModule(nativeQuerier, getTenant),
 		apm.NewModule(nativeQuerier, getTenant),
-		database_collection.NewModule(nativeQuerier, getTenant),
-		database_connections.NewModule(nativeQuerier, getTenant),
-		database_errors.NewModule(nativeQuerier, getTenant),
-		database_latency.NewModule(nativeQuerier, getTenant),
-		database_slowqueries.NewModule(nativeQuerier, getTenant),
-		database_summary.NewModule(nativeQuerier, getTenant),
-		database_system.NewModule(nativeQuerier, getTenant),
-		database_systems.NewModule(nativeQuerier, getTenant),
-		database_volume.NewModule(nativeQuerier, getTenant),
+		explorer_analytics.NewModule(nativeQuerier, getTenant),
 		defaultconfig.NewModule(sqlDB, getTenant, appConfig, configRegistry),
 		httpmetrics.NewModule(nativeQuerier, getTenant),
 		infrastructure_cpu.NewModule(nativeQuerier, getTenant),
@@ -91,10 +84,11 @@ func configuredModules(
 		infrastructure_network.NewModule(nativeQuerier, getTenant),
 		infrastructure_nodes.NewModule(nativeQuerier, getTenant),
 		infrastructure_resource_utilisation.NewModule(nativeQuerier, getTenant),
-		log_analytics.NewModule(nativeQuerier, getTenant),
 		log_detail.NewModule(nativeQuerier, getTenant),
 		log_explorer.NewModule(nativeQuerier, getTenant),
+		log_patterns.NewModule(nativeQuerier, getTenant),
 		log_search.NewModule(nativeQuerier, getTenant),
+		log_transactions.NewModule(nativeQuerier, getTenant),
 		log_tracelogs.NewModule(nativeQuerier, getTenant),
 		otlp_spans.NewModule(sqlDB, clickHouseConn, appConfig),
 		otlp_logs.NewModule(sqlDB, clickHouseConn, appConfig),
@@ -102,11 +96,19 @@ func configuredModules(
 		overview_errors.NewModule(nativeQuerier, getTenant),
 		overview_overview.NewModule(nativeQuerier, getTenant),
 		overview_slo.NewModule(nativeQuerier, getTenant),
+		saturation_database_collection.NewModule(nativeQuerier, getTenant),
+		saturation_database_connections.NewModule(nativeQuerier, getTenant),
+		saturation_database_errors.NewModule(nativeQuerier, getTenant),
+		saturation_database_latency.NewModule(nativeQuerier, getTenant),
+		saturation_database_slowqueries.NewModule(nativeQuerier, getTenant),
+		saturation_database_summary.NewModule(nativeQuerier, getTenant),
+		saturation_database_system.NewModule(nativeQuerier, getTenant),
+		saturation_database_systems.NewModule(nativeQuerier, getTenant),
+		saturation_database_volume.NewModule(nativeQuerier, getTenant),
 		saturation_kafka.NewModule(nativeQuerier, getTenant),
 		saturation_redis.NewModule(nativeQuerier, getTenant),
 		services_service.NewModule(nativeQuerier, getTenant),
 		services_servicemap.NewModule(nativeQuerier, getTenant),
-		spans_analytics.NewModule(nativeQuerier, getTenant),
 		spans_errorfingerprint.NewModule(nativeQuerier, getTenant),
 		spans_errortracking.NewModule(nativeQuerier, getTenant),
 		spans_explorer.NewModule(nativeQuerier, getTenant),
@@ -116,7 +118,7 @@ func configuredModules(
 		spans_tracedetail.NewModule(nativeQuerier, getTenant),
 		spans_traces.NewModule(nativeQuerier, getTenant),
 		user_auth.NewModule(sqlDB, getTenant, sessionManager, appConfig),
-		user_team.NewModule(sqlDB, getTenant, configRegistry),
-		user_user.NewModule(sqlDB, getTenant),
+		user_team.NewModule(sqlDB, getTenant, configRegistry, appConfig),
+		user_user.NewModule(sqlDB, getTenant, appConfig),
 	}
 }
