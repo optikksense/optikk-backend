@@ -40,11 +40,11 @@ type PageInfo struct {
 
 // Response is returned when vizMode is empty or "list".
 type Response struct {
-	Results      []logshared.Log     `json:"results"`
-	Summary      Summary             `json:"summary"`
-	Facets       ExplorerFacets      `json:"facets"`
-	Trend        LogVolumeData       `json:"trend"`
-	PageInfo     PageInfo            `json:"pageInfo"`
+	Results      []logshared.Log      `json:"results"`
+	Summary      Summary              `json:"summary"`
+	Facets       ExplorerFacets       `json:"facets"`
+	Trend        LogVolumeData        `json:"trend"`
+	PageInfo     PageInfo             `json:"pageInfo"`
 	Correlations ExplorerCorrelations `json:"correlations,omitempty"`
 }
 

@@ -10,7 +10,7 @@ type LogHistogramBucket struct {
 
 type LogHistogramData struct {
 	Buckets []LogHistogramBucket `json:"buckets"`
-	Step    string                 `json:"step"`
+	Step    string               `json:"step"`
 }
 
 type LogVolumeBucket struct {

@@ -11,8 +11,8 @@ import (
 
 type Handler struct {
 	modulecommon.DBTenant
-	Service   *Service
-	LogStats  *LogStatsService
+	Service  *Service
+	LogStats *LogStatsService
 }
 
 func NewHandler(getTenant modulecommon.GetTenantFunc, service *Service, logStats *LogStatsService) *Handler {

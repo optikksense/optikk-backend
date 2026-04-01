@@ -13,7 +13,7 @@ import (
 type Transaction struct {
 	GroupValue  string   `json:"group_value"  ch:"group_value"`
 	LogCount    int64    `json:"log_count"    ch:"log_count"`
-	DurationNs  int64   `json:"duration_ns"  ch:"duration_ns"`
+	DurationNs  int64    `json:"duration_ns"  ch:"duration_ns"`
 	MaxSeverity uint8    `json:"max_severity" ch:"max_severity"`
 	FirstSeen   uint64   `json:"first_seen"   ch:"first_seen"`
 	LastSeen    uint64   `json:"last_seen"    ch:"last_seen"`

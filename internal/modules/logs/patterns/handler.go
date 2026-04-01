@@ -3,8 +3,8 @@ package patterns
 import (
 	"net/http"
 
-	logshared "github.com/Optikk-Org/optikk-backend/internal/modules/logs/internal/shared"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/explorer/queryparser"
+	logshared "github.com/Optikk-Org/optikk-backend/internal/modules/logs/internal/shared"
 	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
