@@ -14,6 +14,7 @@ import (
 	defaultconfig "github.com/Optikk-Org/optikk-backend/internal/modules/dashboard"
 	explorer_analytics "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/httpmetrics"
+	metrics_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/metrics/explorer"
 	infrastructure_cpu "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/cpu"
 	infrastructure_disk "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/disk"
 	infrastructure_jvm "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/jvm"
@@ -76,6 +77,7 @@ func configuredModules(
 		explorer_analytics.NewModule(nativeQuerier, getTenant),
 		defaultconfig.NewModule(sqlDB, getTenant, appConfig, configRegistry),
 		httpmetrics.NewModule(nativeQuerier, getTenant),
+		metrics_explorer.NewModule(nativeQuerier, getTenant),
 		infrastructure_cpu.NewModule(nativeQuerier, getTenant),
 		infrastructure_disk.NewModule(nativeQuerier, getTenant),
 		infrastructure_jvm.NewModule(nativeQuerier, getTenant),
