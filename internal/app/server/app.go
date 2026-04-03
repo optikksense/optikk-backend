@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"os"
 	"strings"
 	"time"
 
@@ -63,14 +62,13 @@ func splitAllowedOrigins(allowed string) []string {
 	return out
 }
 
-func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) *App {
+func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) (*App, error) {
 	getTenant := modulecommon.GetTenantFunc(middleware.GetTenant)
 	sessionManager := sessionauth.NewManager(cfg)
 
 	reg, err := configdefaults.Load()
 	if err != nil {
-		logger.L().Error("failed to load embedded default config registry", slog.Any("error", err))
-		os.Exit(1)
+		return nil, fmt.Errorf("failed to load embedded default config registry: %w", err)
 	}
 
 	var redisClient *redis.Client
@@ -92,8 +90,7 @@ func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) *App {
 	// Trim each origin so "a, b" does not leave a leading space that breaks WebSocket CheckOrigin.
 	socketIOServer, err := sio.NewServer(splitAllowedOrigins(cfg.Server.AllowedOrigins))
 	if err != nil {
-		logger.L().Error("failed to create Socket.IO server", slog.Any("error", err))
-		os.Exit(1)
+		return nil, fmt.Errorf("failed to create Socket.IO server: %w", err)
 	}
 	eventBus := events.NewBus()
 	for _, mod := range modules {
@@ -115,7 +112,7 @@ func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) *App {
 		Cache:          queryCache,
 		SocketIO:       socketIOServer,
 		EventBus:       eventBus,
-	}
+	}, nil
 }
 
 func (a *App) Start(ctx context.Context) error {
