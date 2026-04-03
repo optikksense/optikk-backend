@@ -102,7 +102,7 @@ type Config struct {
 // Load reads configuration from a YAML file.
 // If no path is provided, it defaults to "config.yml".
 // In production (environment: production), passwords must not use insecure defaults.
-func Load(path ...string) Config {
+func Load(path ...string) (Config, error) {
 	p := "config.yml"
 	if len(path) > 0 && path[0] != "" {
 		p = path[0]
@@ -110,42 +110,39 @@ func Load(path ...string) Config {
 
 	data, err := os.ReadFile(p)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: cannot read config file %s: %v\n", p, err)
-		os.Exit(1)
+		return Config{}, fmt.Errorf("cannot read config file %s: %w", p, err)
 	}
 
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		fmt.Fprintf(os.Stderr, "FATAL: invalid config YAML in %s: %v\n", p, err)
-		os.Exit(1)
+		return Config{}, fmt.Errorf("invalid config YAML in %s: %w", p, err)
 	}
 
-	cfg.validate()
-	return cfg
+	if err := cfg.validate(); err != nil {
+		return Config{}, err
+	}
+	return cfg, nil
 }
 
-func (c Config) validate() {
+func (c Config) validate() error {
 	isProd := strings.EqualFold(c.Environment, "production")
 	if !isProd {
-		return
+		return nil
 	}
 	var errs []string
 	if c.MySQL.Password == "root123" {
-		errs = append(errs, "mysql.password must be set in production (do not use the default)")
+		errs = append(errs, "mysql.password must be set in production")
 	}
 	if c.ClickHouse.Password == "clickhouse123" {
-		errs = append(errs, "clickhouse.password must be set in production (do not use the default)")
+		errs = append(errs, "clickhouse.password must be set in production")
 	}
 	if c.ClickHouse.Production && c.ClickHouse.CloudHost == "" {
 		errs = append(errs, "clickhouse.cloud_host must be set when clickhouse.production is true")
 	}
 	if len(errs) > 0 {
-		fmt.Fprintf(os.Stderr, "FATAL: insecure configuration detected:\n")
-		for _, e := range errs {
-			fmt.Fprintf(os.Stderr, "  - %s\n", e)
-		}
-		os.Exit(1)
+		return fmt.Errorf("insecure configuration detected: %s", strings.Join(errs, "; "))
 	}
+	return nil
 }
 
 func (c Config) MySQLDSN() string {

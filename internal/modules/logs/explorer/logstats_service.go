@@ -36,7 +36,7 @@ func (s *LogStatsService) GetLogHistogram(ctx context.Context, f shared.LogFilte
 	}
 	buckets := make([]LogHistogramBucket, len(rows))
 	for i, row := range rows {
-		buckets[i] = LogHistogramBucket{TimeBucket: row.TimeBucket, Severity: row.Severity, Count: row.Count}
+		buckets[i] = LogHistogramBucket(row)
 	}
 	return LogHistogramData{Buckets: buckets, Step: step}, nil
 }
@@ -48,15 +48,7 @@ func (s *LogStatsService) GetLogVolume(ctx context.Context, f shared.LogFilters,
 	}
 	buckets := make([]LogVolumeBucket, len(rows))
 	for i, row := range rows {
-		buckets[i] = LogVolumeBucket{
-			TimeBucket: row.TimeBucket,
-			Total:      row.Total,
-			Errors:     row.Errors,
-			Warnings:   row.Warnings,
-			Infos:      row.Infos,
-			Debugs:     row.Debugs,
-			Fatals:     row.Fatals,
-		}
+		buckets[i] = LogVolumeBucket(row)
 	}
 	return LogVolumeData{Buckets: buckets, Step: step}, nil
 }
@@ -108,7 +100,7 @@ func (s *LogStatsService) GetLogFields(ctx context.Context, f shared.LogFilters,
 	}
 	values := make([]Facet, len(rows))
 	for i, row := range rows {
-		values[i] = Facet{Value: row.Value, Count: row.Count}
+		values[i] = Facet(row)
 	}
 	return FieldValuesResponse{Field: field, Values: values}, nil
 }

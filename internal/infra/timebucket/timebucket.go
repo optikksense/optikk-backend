@@ -10,32 +10,45 @@ import (
 type Strategy interface {
 	GetBucketExpression() string
 	GetBucketName() string
+	GetRawExpression(column string) string
 }
 type MinuteStrategy struct{}
 
 func (MinuteStrategy) GetBucketExpression() string {
-	return "formatDateTime(toStartOfMinute(timestamp), '%Y-%m-%d %H:%i:00')"
+	return MinuteStrategy{}.GetRawExpression("timestamp")
+}
+func (MinuteStrategy) GetRawExpression(column string) string {
+	return fmt.Sprintf("formatDateTime(toStartOfMinute(%s), '%%Y-%%m-%%d %%H:%%i:00')", column)
 }
 func (MinuteStrategy) GetBucketName() string { return "1 minute" }
 
 type FiveMinuteStrategy struct{}
 
 func (FiveMinuteStrategy) GetBucketExpression() string {
-	return "formatDateTime(toStartOfFiveMinutes(timestamp), '%Y-%m-%d %H:%i:00')"
+	return FiveMinuteStrategy{}.GetRawExpression("timestamp")
+}
+func (FiveMinuteStrategy) GetRawExpression(column string) string {
+	return fmt.Sprintf("formatDateTime(toStartOfFiveMinutes(%s), '%%Y-%%m-%%d %%H:%%i:00')", column)
 }
 func (FiveMinuteStrategy) GetBucketName() string { return "5 minutes" }
 
 type HourStrategy struct{}
 
 func (HourStrategy) GetBucketExpression() string {
-	return "formatDateTime(toStartOfHour(timestamp), '%Y-%m-%d %H:%i:00')"
+	return HourStrategy{}.GetRawExpression("timestamp")
+}
+func (HourStrategy) GetRawExpression(column string) string {
+	return fmt.Sprintf("formatDateTime(toStartOfHour(%s), '%%Y-%%m-%%d %%H:%%i:00')", column)
 }
 func (HourStrategy) GetBucketName() string { return "1 hour" }
 
 type DayStrategy struct{}
 
 func (DayStrategy) GetBucketExpression() string {
-	return "formatDateTime(toStartOfDay(timestamp), '%Y-%m-%d %H:%i:00')"
+	return DayStrategy{}.GetRawExpression("timestamp")
+}
+func (DayStrategy) GetRawExpression(column string) string {
+	return fmt.Sprintf("formatDateTime(toStartOfDay(%s), '%%Y-%%m-%%d %%H:%%i:00')", column)
 }
 func (DayStrategy) GetBucketName() string { return "1 day" }
 
@@ -52,30 +65,30 @@ func (s *AdaptiveStrategy) hours() int64 {
 	return (s.endMs - s.startMs) / 3_600_000
 }
 
-func (s *AdaptiveStrategy) GetBucketExpression() string {
-	switch h := s.hours(); {
+func (s *AdaptiveStrategy) strategy() Strategy {
+	h := s.hours()
+	switch {
 	case h <= 3:
-		return MinuteStrategy{}.GetBucketExpression()
+		return MinuteStrategy{}
 	case h <= 24:
-		return FiveMinuteStrategy{}.GetBucketExpression()
+		return FiveMinuteStrategy{}
 	case h <= 168:
-		return HourStrategy{}.GetBucketExpression()
+		return HourStrategy{}
 	default:
-		return DayStrategy{}.GetBucketExpression()
+		return DayStrategy{}
 	}
 }
 
+func (s *AdaptiveStrategy) GetBucketExpression() string {
+	return s.strategy().GetBucketExpression()
+}
+
+func (s *AdaptiveStrategy) GetRawExpression(column string) string {
+	return s.strategy().GetRawExpression(column)
+}
+
 func (s *AdaptiveStrategy) GetBucketName() string {
-	switch h := s.hours(); {
-	case h <= 3:
-		return MinuteStrategy{}.GetBucketName()
-	case h <= 24:
-		return FiveMinuteStrategy{}.GetBucketName()
-	case h <= 168:
-		return HourStrategy{}.GetBucketName()
-	default:
-		return DayStrategy{}.GetBucketName()
-	}
+	return s.strategy().GetBucketName()
 }
 func Expression(startMs, endMs int64) string {
 	return NewAdaptiveStrategy(startMs, endMs).GetBucketExpression()
@@ -83,17 +96,7 @@ func Expression(startMs, endMs int64) string {
 
 // ExprForColumn applies adaptive bucketing to a non-default timestamp column.
 func ExprForColumn(startMs, endMs int64, column string) string {
-	h := (endMs - startMs) / 3_600_000
-	switch {
-	case h <= 3:
-		return fmt.Sprintf("formatDateTime(toStartOfMinute(%s), '%%Y-%%m-%%d %%H:%%i:00')", column)
-	case h <= 24:
-		return fmt.Sprintf("formatDateTime(toStartOfFiveMinutes(%s), '%%Y-%%m-%%d %%H:%%i:00')", column)
-	case h <= 168:
-		return fmt.Sprintf("formatDateTime(toStartOfHour(%s), '%%Y-%%m-%%d %%H:%%i:00')", column)
-	default:
-		return fmt.Sprintf("formatDateTime(toStartOfDay(%s), '%%Y-%%m-%%d %%H:%%i:00')", column)
-	}
+	return NewAdaptiveStrategy(startMs, endMs).strategy().GetRawExpression(column)
 }
 
 // ExprForColumnTime applies adaptive bucketing while preserving a native

@@ -331,7 +331,7 @@ func (p *parser) parseAtom() (Node, error) {
 func (p *parser) parseFieldValue(field string) (Node, error) {
 	t := p.peek()
 	if t == nil {
-		return nil, fmt.Errorf("expected value after %q:", field)
+		return nil, fmt.Errorf("expected value after %q", field)
 	}
 
 	// Range: [low TO high]
@@ -347,7 +347,7 @@ func (p *parser) parseFieldValue(field string) (Node, error) {
 	// Regular value (word or quoted).
 	val := p.next()
 	if val == nil {
-		return nil, fmt.Errorf("expected value after %q:", field)
+		return nil, fmt.Errorf("expected value after %q", field)
 	}
 
 	// Check for wildcard "*" meaning "exists".

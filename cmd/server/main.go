@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"flag"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -19,7 +20,11 @@ func main() {
 	configPath := flag.String("config", "config.yml", "path to config file")
 	flag.Parse()
 
-	cfg := config.Load(*configPath)
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "FATAL: %v\n", err)
+		os.Exit(1)
+	}
 
 	mode := "production"
 	if os.Getenv("ENV") == "development" {
@@ -57,7 +62,11 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
-	app := server.New(dbConn, chConn, cfg)
+	app, err := server.New(dbConn, chConn, cfg)
+	if err != nil {
+		log.Error("failed to initialize app", slog.Any("error", err))
+		os.Exit(1)
+	}
 
 	log.Info("server starting", slog.String("port", cfg.Server.Port))
 	if err := app.Start(ctx); err != nil {
