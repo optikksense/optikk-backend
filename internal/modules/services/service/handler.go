@@ -84,6 +84,38 @@ func (h *ServiceHandler) GetServiceEndpoints(c *gin.Context) {
 	modulecommon.RespondOK(c, endpoints)
 }
 
+func (h *ServiceHandler) GetSpanAnalysis(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	serviceName := c.Param("serviceName")
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+
+	rows, err := h.Service.GetSpanAnalysis(c.Request.Context(), teamID, startMs, endMs, serviceName)
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query span analysis", err)
+		return
+	}
+	modulecommon.RespondOK(c, rows)
+}
+
+func (h *ServiceHandler) GetServiceInfraMetrics(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	serviceName := c.Param("serviceName")
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+
+	metrics, err := h.Service.GetServiceInfraMetrics(c.Request.Context(), teamID, startMs, endMs, serviceName)
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query service infrastructure metrics", err)
+		return
+	}
+	modulecommon.RespondOK(c, metrics)
+}
+
 func (h *ServiceHandler) respondWithCount(c *gin.Context, fn func(context.Context, int64, int64, int64) (int64, error), message string) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)

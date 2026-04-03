@@ -38,6 +38,14 @@ func (s *Service) GetServiceEndpoints(ctx context.Context, teamID int64, startMs
 	return s.repo.GetServiceEndpoints(ctx, teamID, startMs, endMs, serviceName)
 }
 
+func (s *Service) GetSpanAnalysis(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]SpanAnalysisRow, error) {
+	return s.repo.GetSpanAnalysis(ctx, teamID, startMs, endMs, serviceName)
+}
+
+func (s *Service) GetServiceInfraMetrics(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (*ServiceInfraMetrics, error) {
+	return s.repo.GetServiceInfraMetrics(ctx, teamID, startMs, endMs, serviceName)
+}
+
 func (s *Service) GetNavigator(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceHealth, error) {
 	rows, err := s.repo.GetServiceHealth(ctx, teamID, startMs, endMs)
 	if err != nil {

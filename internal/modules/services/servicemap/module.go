@@ -20,6 +20,9 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ServiceMapHandler) {
 	}
 	v1.GET("/services/topology", h.GetTopology)
 	v1.GET("/services/:serviceName/upstream-downstream", h.GetUpstreamDownstream)
+	v1.GET("/services/:serviceName/dependency-graph", h.GetServiceDependencyGraph)
+	v1.GET("/services/topology/enriched", h.GetEnrichedTopology)
+	v1.GET("/services/topology/clusters", h.GetTopologyClusters)
 	v1.GET("/services/external-dependencies", h.GetExternalDependencies)
 	v1.GET("/spans/client-server-latency", h.GetClientServerLatency)
 }

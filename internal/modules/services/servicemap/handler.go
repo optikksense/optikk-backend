@@ -46,6 +46,52 @@ func (h *ServiceMapHandler) GetUpstreamDownstream(c *gin.Context) {
 	modulecommon.RespondOK(c, deps)
 }
 
+func (h *ServiceMapHandler) GetServiceDependencyGraph(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	serviceName := c.Param("serviceName")
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+
+	graph, err := h.Service.GetServiceDependencyGraph(teamID, serviceName, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query service dependency graph", err)
+		return
+	}
+	modulecommon.RespondOK(c, graph)
+}
+
+func (h *ServiceMapHandler) GetEnrichedTopology(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+
+	data, err := h.Service.GetEnrichedTopology(teamID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query enriched topology", err)
+		return
+	}
+	modulecommon.RespondOK(c, data)
+}
+
+func (h *ServiceMapHandler) GetTopologyClusters(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+
+	clusters, err := h.Service.GetTopologyClusters(teamID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query topology clusters", err)
+		return
+	}
+	modulecommon.RespondOK(c, clusters)
+}
+
 func (h *ServiceMapHandler) GetExternalDependencies(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)

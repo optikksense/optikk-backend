@@ -273,6 +273,22 @@ func (h *TraceHandler) GetErrorTimeSeries(c *gin.Context) {
 	modulecommon.RespondOK(c, points)
 }
 
+func (h *TraceHandler) GetServiceErrorTimeSeries(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	serviceName := c.Param("serviceName")
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+
+	points, err := h.Service.GetErrorTimeSeries(c.Request.Context(), teamID, startMs, endMs, serviceName)
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query service error timeseries", err)
+		return
+	}
+	modulecommon.RespondOK(c, points)
+}
+
 // --- Latency handlers ---
 
 func (h *TraceHandler) GetLatencyHistogram(c *gin.Context) {
