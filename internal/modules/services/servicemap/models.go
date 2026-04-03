@@ -42,6 +42,37 @@ type TopologyData struct {
 	Edges []TopologyEdge `json:"edges"`
 }
 
+// ServiceDependencyGraph is the response for the focused dependency graph endpoint.
+type ServiceDependencyGraph struct {
+	Center string         `json:"center"`
+	Nodes  []TopologyNode `json:"nodes"`
+	Edges  []TopologyEdge `json:"edges"`
+}
+
+// EnrichedTopologyNode extends TopologyNode with sparkline data and service type.
+type EnrichedTopologyNode struct {
+	Name         string    `json:"name"`
+	Status       string    `json:"status"`
+	RequestCount int64     `json:"request_count"`
+	ErrorRate    float64   `json:"error_rate"`
+	AvgLatency   float64   `json:"avg_latency"`
+	ServiceType  string    `json:"service_type"`
+	Sparkline    []int64   `json:"sparkline"`
+}
+
+// EnrichedTopologyData is the response for the enriched topology endpoint.
+type EnrichedTopologyData struct {
+	Nodes []EnrichedTopologyNode `json:"nodes"`
+	Edges []TopologyEdge         `json:"edges"`
+}
+
+// TopologyCluster represents a group of services.
+type TopologyCluster struct {
+	Name     string   `json:"name"`
+	Services []string `json:"services"`
+	Count    int      `json:"count"`
+}
+
 // ClientServerLatencyPoint has NetworkGapMs computed in the service layer.
 type ClientServerLatencyPoint struct {
 	Timestamp     time.Time `json:"timestamp"`
