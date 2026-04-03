@@ -21,20 +21,24 @@ type ExternalDependency struct {
 }
 
 type TopologyNode struct {
-	Name         string  `json:"name"`
-	Status       string  `json:"status"`
-	RequestCount int64   `json:"request_count"`
-	ErrorRate    float64 `json:"error_rate"`
-	AvgLatency   float64 `json:"avg_latency"`
+	Name             string  `json:"name"`
+	Status           string  `json:"status"`
+	RequestCount     int64   `json:"request_count"`
+	ErrorRate        float64 `json:"error_rate"`
+	AvgLatency       float64 `json:"avg_latency"`
+	LastSeenAt       string  `json:"last_seen_at"`
+	WindowHasTraffic bool    `json:"window_has_traffic"`
 }
 
 type TopologyEdge struct {
-	Source       string  `json:"source"         ch:"source"`
-	Target       string  `json:"target"         ch:"target"`
-	CallCount    int64   `json:"call_count"     ch:"call_count"`
-	AvgLatency   float64 `json:"avg_latency"    ch:"avg_latency"`
-	P95LatencyMs float64 `json:"p95_latency_ms" ch:"p95_latency_ms"`
-	ErrorRate    float64 `json:"error_rate"     ch:"error_rate"`
+	Source            string  `json:"source"         ch:"source"`
+	Target            string  `json:"target"         ch:"target"`
+	CallCount         int64   `json:"call_count"     ch:"call_count"`
+	AvgLatency        float64 `json:"avg_latency"    ch:"avg_latency"`
+	P95LatencyMs      float64 `json:"p95_latency_ms" ch:"p95_latency_ms"`
+	ErrorRate         float64 `json:"error_rate"     ch:"error_rate"`
+	LastSeenAt        string  `json:"last_seen_at"`
+	WindowHasTraffic  bool    `json:"window_has_traffic"`
 }
 
 type TopologyData struct {
@@ -51,13 +55,16 @@ type ServiceDependencyGraph struct {
 
 // EnrichedTopologyNode extends TopologyNode with sparkline data and service type.
 type EnrichedTopologyNode struct {
-	Name         string    `json:"name"`
-	Status       string    `json:"status"`
-	RequestCount int64     `json:"request_count"`
-	ErrorRate    float64   `json:"error_rate"`
-	AvgLatency   float64   `json:"avg_latency"`
-	ServiceType  string    `json:"service_type"`
-	Sparkline    []int64   `json:"sparkline"`
+	Name             string  `json:"name"`
+	Status           string  `json:"status"`
+	RequestCount     int64   `json:"request_count"`
+	ErrorRate        float64 `json:"error_rate"`
+	AvgLatency       float64 `json:"avg_latency"`
+	ServiceType      string  `json:"service_type"`
+	Sparkline        []int64 `json:"sparkline"`
+	ClusterName      string  `json:"cluster_name"`
+	LastSeenAt       string  `json:"last_seen_at"`
+	WindowHasTraffic bool    `json:"window_has_traffic"`
 }
 
 // EnrichedTopologyData is the response for the enriched topology endpoint.

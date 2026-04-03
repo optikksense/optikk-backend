@@ -2,6 +2,7 @@ package servicemap
 
 import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
+	serviceinventory "github.com/Optikk-Org/optikk-backend/internal/modules/services/inventory"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -27,9 +28,9 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ServiceMapHandler) {
 	v1.GET("/spans/client-server-latency", h.GetClientServerLatency)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(sqlDB *registry.SQLDB, nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc, appConfig registry.AppConfig) registry.Module {
 	module := &serviceMapModule{}
-	module.configure(nativeQuerier, getTenant)
+	module.configure(sqlDB, nativeQuerier, getTenant, appConfig)
 	return module
 }
 
@@ -40,10 +41,10 @@ type serviceMapModule struct {
 func (m *serviceMapModule) Name() string                      { return "serviceMap" }
 func (m *serviceMapModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *serviceMapModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+func (m *serviceMapModule) configure(sqlDB *registry.SQLDB, nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc, appConfig registry.AppConfig) {
 	m.handler = &ServiceMapHandler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  NewService(NewRepository(nativeQuerier)),
+		Service:  NewService(NewRepository(nativeQuerier), serviceinventory.NewRepository(sqlDB, appConfig)),
 	}
 }
 

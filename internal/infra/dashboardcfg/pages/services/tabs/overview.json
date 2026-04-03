@@ -5,18 +5,39 @@
   "order": 10,
   "sections": [
     {
+      "id": "catalog",
+      "title": "Operations Home",
+      "order": 10,
+      "collapsible": true,
+      "sectionTemplate": "stacked"
+    },
+    {
       "id": "trends",
-      "title": "Overview",
-      "order": 20,
+      "title": "Recent Telemetry",
+      "order": 30,
       "collapsible": true,
       "sectionTemplate": "two-up"
     }
   ],
   "panels": [
     {
+      "id": "services-catalog",
+      "order": 10,
+      "query": {
+        "endpoint": "/v1/services/catalog",
+        "method": "GET"
+      },
+      "title": "Service Operations Catalog",
+      "description": "Keeps known services visible with ownership, incident, deployment, and monitor context even when the selected telemetry window is quiet.",
+      "titleIcon": "TableProperties",
+      "panelType": "service-catalog",
+      "sectionId": "catalog",
+      "layoutVariant": "detail-table"
+    },
+    {
       "groupByKey": "service",
       "id": "services-request-rate",
-      "order": 10,
+      "order": 20,
       "query": {
         "endpoint": "/v1/services/timeseries",
         "method": "GET",
@@ -34,7 +55,7 @@
     {
       "groupByKey": "service",
       "id": "services-error-rate",
-      "order": 20,
+      "order": 30,
       "query": {
         "endpoint": "/v1/services/timeseries",
         "method": "GET",
@@ -52,7 +73,7 @@
     {
       "groupByKey": "service",
       "id": "services-latency",
-      "order": 30,
+      "order": 40,
       "query": {
         "endpoint": "/v1/services/timeseries",
         "method": "GET",

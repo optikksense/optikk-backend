@@ -42,6 +42,7 @@ import (
 	saturation_database_volume "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/volume"
 	saturation_kafka "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka"
 	saturation_redis "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/redis"
+	services_context "github.com/Optikk-Org/optikk-backend/internal/modules/services/context"
 	services_service "github.com/Optikk-Org/optikk-backend/internal/modules/services/service"
 	services_servicemap "github.com/Optikk-Org/optikk-backend/internal/modules/services/servicemap"
 	spans_errorfingerprint "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errorfingerprint"
@@ -90,7 +91,7 @@ func configuredModules(
 		log_search.NewModule(nativeQuerier, getTenant),
 		log_transactions.NewModule(nativeQuerier, getTenant),
 		log_tracelogs.NewModule(nativeQuerier, getTenant),
-		otlp_spans.NewModule(sqlDB, clickHouseConn, appConfig),
+		otlp_spans.NewModule(sqlDB, nativeQuerier, clickHouseConn, appConfig),
 		otlp_logs.NewModule(sqlDB, clickHouseConn, appConfig),
 		otlp_metrics.NewModule(sqlDB, clickHouseConn, appConfig),
 		overview_errors.NewModule(nativeQuerier, getTenant),
@@ -107,8 +108,9 @@ func configuredModules(
 		saturation_database_volume.NewModule(nativeQuerier, getTenant),
 		saturation_kafka.NewModule(nativeQuerier, getTenant),
 		saturation_redis.NewModule(nativeQuerier, getTenant),
+		services_context.NewModule(sqlDB, nativeQuerier, getTenant, appConfig),
 		services_service.NewModule(nativeQuerier, getTenant),
-		services_servicemap.NewModule(nativeQuerier, getTenant),
+		services_servicemap.NewModule(sqlDB, nativeQuerier, getTenant, appConfig),
 		spans_errorfingerprint.NewModule(nativeQuerier, getTenant),
 		spans_errortracking.NewModule(nativeQuerier, getTenant),
 		spans_explorer.NewModule(nativeQuerier, getTenant),

@@ -9,6 +9,6 @@
   "defaultTabId": "overview",
   "navigable": true,
   "title": "Services",
-  "subtitle": "Service health and dependency maps",
+  "subtitle": "Service operations cockpit with health, ownership, deployments, and incidents",
   "renderMode": "dashboard"
 }

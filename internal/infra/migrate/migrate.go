@@ -43,6 +43,8 @@ func runMySQL(dsn string) error {
 		goose.WithGoMigrations(
 			goose.NewGoMigration(1, &goose.GoFunc{RunDB: mysqlUp001}, &goose.GoFunc{RunDB: mysqlDown001}),
 			goose.NewGoMigration(2, &goose.GoFunc{RunDB: mysqlUp002}, &goose.GoFunc{RunDB: mysqlDown002}),
+			goose.NewGoMigration(3, &goose.GoFunc{RunDB: mysqlUp003}, &goose.GoFunc{RunDB: mysqlDown003}),
+			goose.NewGoMigration(4, &goose.GoFunc{RunDB: mysqlUp004}, &goose.GoFunc{RunDB: mysqlDown004}),
 		),
 	)
 	if err != nil {

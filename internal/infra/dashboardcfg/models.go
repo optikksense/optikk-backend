@@ -38,6 +38,7 @@ const (
 	PanelTypeLogHistogram      PanelType = "log-histogram"
 	PanelTypePie               PanelType = "pie"
 	PanelTypeRequest           PanelType = "request"
+	PanelTypeServiceCatalog    PanelType = "service-catalog"
 	PanelTypeServiceHealthGrid PanelType = "service-health-grid"
 	PanelTypeServiceMap        PanelType = "service-map"
 	PanelTypeSLOIndicators     PanelType = "slo-indicators"
@@ -88,6 +89,7 @@ var allowedPanelTypes = map[PanelType]struct{}{
 	PanelTypeLogHistogram:      {},
 	PanelTypePie:               {},
 	PanelTypeRequest:           {},
+	PanelTypeServiceCatalog:    {},
 	PanelTypeServiceHealthGrid: {},
 	PanelTypeServiceMap:        {},
 	PanelTypeSLOIndicators:     {},
