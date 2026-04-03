@@ -21,7 +21,7 @@ func (m *metricsExplorerModule) RouteTarget() registry.RouteTarget { return regi
 func (m *metricsExplorerModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{
 		GetTenant: getTenant,
-		Service:  NewService(NewRepository(nativeQuerier)),
+		Service:   NewService(NewRepository(nativeQuerier)),
 	}
 }
 

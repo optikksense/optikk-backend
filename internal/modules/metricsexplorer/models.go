@@ -34,11 +34,11 @@ type TagFilter struct {
 
 // MetricQuery defines a single metric query line in the explorer.
 type MetricQuery struct {
-	Name        string      `json:"name"`                  // query label: "a", "b", etc.
-	MetricName  string      `json:"metricName"`            // e.g. "http.server.request.duration"
-	Aggregation string      `json:"aggregation"`           // avg, sum, min, max, count, p50, p75, p95, p99
-	GroupBy     []string    `json:"groupBy,omitempty"`      // tag keys to group by
-	Filters     []TagFilter `json:"filters,omitempty"`      // dimension filters
+	Name        string      `json:"name"`              // query label: "a", "b", etc.
+	MetricName  string      `json:"metricName"`        // e.g. "http.server.request.duration"
+	Aggregation string      `json:"aggregation"`       // avg, sum, min, max, count, p50, p75, p95, p99
+	GroupBy     []string    `json:"groupBy,omitempty"` // tag keys to group by
+	Filters     []TagFilter `json:"filters,omitempty"` // dimension filters
 }
 
 // Formula combines query results with arithmetic.
