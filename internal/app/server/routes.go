@@ -54,7 +54,7 @@ func (a *App) applyRateLimiter(group gin.IRoutes) {
 		rl := middleware.NewRedisRateLimiter(a.Redis, 2000, time.Second)
 		group.Use(middleware.RedisRateLimitMiddleware(rl))
 	} else {
-		rl := middleware.NewRateLimiter(1000, 2000, time.Second)
+		rl := middleware.NewRateLimiter(2000, 2000, time.Second)
 		group.Use(middleware.RateLimitMiddleware(rl))
 	}
 }
