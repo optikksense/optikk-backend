@@ -25,14 +25,14 @@ The backend follows a modular monolith architecture, segregating concerns betwee
 ```text
 optikk-backend/
 ├── cmd/server          # Main entry point (Gin server)
+├── db/                 # Database schema definitions (SQL)
 ├── internal/
 │   ├── app/            # Application lifecycle and dependency injection
 │   ├── ingestion/      # OTLP batching and flushing logic
 │   ├── infra/          # Infrastructure abstractions (DB, CH, Redis, Kafka)
 │   ├── modules/        # Domain-specific business logic
 │   └── config/         # YAML-based configuration management
-├── migrations/         # Database schema migrations (SQL)
-└── scripts/            # Utility and maintenance scripts
+└── README.md
 ```
 
 ## Local Development
