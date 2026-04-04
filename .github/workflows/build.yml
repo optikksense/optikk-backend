@@ -1,15 +1,15 @@
-# Branch protection (main): require status check "Build and Test / build".
 name: Build and Test
 
 on:
   push:
-    branches: [main, CodeRefarctor]
+    branches: [main, CodeRefactor]
   pull_request:
     branches: [main]
   workflow_dispatch:
 
 jobs:
-  build:
+  checks:
+    name: Build Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -23,8 +23,19 @@ jobs:
       - name: Sync go.work
         run: go work use
 
-      - name: Verify dependencies
-        run: go mod verify
+      - name: Verify Formatting
+        run: |
+          if [ -n "$(gofmt -l .)" ]; then
+            echo "The following files are not formatted:"
+            gofmt -l .
+            exit 1
+          fi
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Run Tests
+        run: go test -v -race ./...
 
       - name: Build
         run: go build -v ./cmd/server
