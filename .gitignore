@@ -4,6 +4,7 @@ main
 observability-go
 *.exe
 *.test
+/cmd/server/__debug_bin*
 
 # IDE
 .idea/
