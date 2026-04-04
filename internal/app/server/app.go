@@ -44,7 +44,6 @@ type App struct {
 
 	// SocketIO is the Socket.IO server for real-time streaming.
 	SocketIO *sio.Server
-
 }
 
 func splitAllowedOrigins(allowed string) []string {

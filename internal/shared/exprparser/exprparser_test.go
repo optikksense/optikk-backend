@@ -12,20 +12,20 @@ func TestEvaluate(t *testing.T) {
 		wantErr  bool
 	}{
 		{
-			expr: "1 + 2 * 3",
-			resolve: func(s string) float64 { return 0 },
+			expr:     "1 + 2 * 3",
+			resolve:  func(s string) float64 { return 0 },
 			expected: 7,
 			wantErr:  false,
 		},
 		{
-			expr: "(1 + 2) * 3",
-			resolve: func(s string) float64 { return 0 },
+			expr:     "(1 + 2) * 3",
+			resolve:  func(s string) float64 { return 0 },
 			expected: 9,
 			wantErr:  false,
 		},
 		{
-			expr: "10 / 2 - 1",
-			resolve: func(s string) float64 { return 0 },
+			expr:     "10 / 2 - 1",
+			resolve:  func(s string) float64 { return 0 },
 			expected: 4,
 			wantErr:  false,
 		},
@@ -58,13 +58,13 @@ func TestEvaluate(t *testing.T) {
 			wantErr:  false,
 		},
 		{
-			expr: "10 / 0",
-			resolve: func(s string) float64 { return 0 },
+			expr:     "10 / 0",
+			resolve:  func(s string) float64 { return 0 },
 			expected: 0,
 			wantErr:  false,
 		},
 		{
-			expr: "1 + unknown",
+			expr:    "1 + unknown",
 			resolve: func(s string) float64 { return 0 },
 			wantErr: true, // "unknown" is too long for a single-letter variable
 		},

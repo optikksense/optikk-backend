@@ -1,8 +1,8 @@
 package logs
 
 import (
-	"log/slog"
 	"context"
+	"log/slog"
 
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 )

@@ -54,4 +54,3 @@ type BackgroundRunner interface {
 type SocketIORegistrar interface {
 	RegisterSocketIO(srv *sio.Server)
 }
-
