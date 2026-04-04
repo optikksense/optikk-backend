@@ -44,7 +44,7 @@ import (
 	saturation_database_volume "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/volume"
 	saturation_kafka "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka"
 	saturation_redis "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/redis"
-spans_errorfingerprint "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errorfingerprint"
+	spans_errorfingerprint "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errorfingerprint"
 	spans_errortracking "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errortracking"
 	spans_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
 	spans_livetail "github.com/Optikk-Org/optikk-backend/internal/modules/traces/livetail"
