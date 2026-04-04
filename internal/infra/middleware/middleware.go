@@ -1,71 +1,17 @@
 package middleware
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"log/slog"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	sessionauth "github.com/Optikk-Org/optikk-backend/internal/infra/session"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	types "github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
 	"github.com/gin-gonic/gin"
 )
-
-const RequestIDKey = "requestId"
-
-func RequestIDMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		id := c.GetHeader("X-Request-Id")
-		if id == "" {
-			b := make([]byte, 16)
-			_, _ = rand.Read(b)
-			id = hex.EncodeToString(b)
-		}
-		c.Set(RequestIDKey, id)
-		c.Writer.Header().Set("X-Request-Id", id)
-		c.Next()
-	}
-}
-
-func GetRequestID(c *gin.Context) string {
-	if id, ok := c.Get(RequestIDKey); ok {
-		s, _ := id.(string)
-		return s
-	}
-	return ""
-}
-
-func APIDebugLogger(enabled bool) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if !enabled {
-			c.Next()
-			return
-		}
-
-		start := time.Now()
-		path := c.Request.URL.Path
-		raw := c.Request.URL.RawQuery
-
-		c.Next()
-
-		timestamp := time.Now()
-		latency := timestamp.Sub(start)
-		method := c.Request.Method
-		statusCode := c.Writer.Status()
-
-		if raw != "" {
-			path = path + "?" + raw
-		}
-
-		logger.L().Debug("API request", slog.String("method", method), slog.String("path", path), slog.Int("status", statusCode), slog.Duration("latency", latency))
-	}
-}
 
 type tenantContextKey string
 
@@ -160,21 +106,21 @@ func isPublicRequest(method, path string) bool {
 }
 
 func abortUnauthorized(c *gin.Context) {
-	logger.L().Warn("AUTH_DENIED", slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path), slog.String("code", "UNAUTHORIZED"), slog.String("ip", c.ClientIP()))
+	slog.Warn("AUTH_DENIED", slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path), slog.String("code", "UNAUTHORIZED"), slog.String("ip", c.ClientIP()))
 	c.AbortWithStatusJSON(http.StatusUnauthorized, types.Failure(
 		errorcode.Unauthorized, "Valid authentication is required", c.Request.URL.Path,
 	))
 }
 
 func abortMissingTeam(c *gin.Context, email string) {
-	logger.L().Warn("AUTH_DENIED", slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path), slog.String("code", "MISSING_TEAM"), slog.String("user", email), slog.String("ip", c.ClientIP()))
+	slog.Warn("AUTH_DENIED", slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path), slog.String("code", "MISSING_TEAM"), slog.String("user", email), slog.String("ip", c.ClientIP()))
 	c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
 		"MISSING_TEAM", "Session does not contain a valid team_id", c.Request.URL.Path,
 	))
 }
 
 func abortForbiddenTeam(c *gin.Context, email string, requestedTeamID int64) {
-	logger.L().Warn("AUTH_DENIED", slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path), slog.String("code", "FORBIDDEN_TEAM"), slog.String("user", email), slog.Int64("requested_team", requestedTeamID), slog.String("ip", c.ClientIP()))
+	slog.Warn("AUTH_DENIED", slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path), slog.String("code", "FORBIDDEN_TEAM"), slog.String("user", email), slog.Int64("requested_team", requestedTeamID), slog.String("ip", c.ClientIP()))
 	c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
 		"FORBIDDEN_TEAM", "You are not a member of the requested team", c.Request.URL.Path,
 	))

@@ -4,7 +4,6 @@ import (
 	"log/slog"
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/ingest"
 	"github.com/gin-gonic/gin"
@@ -12,7 +11,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-func NewModule(sqlDB *registry.SQLDB, clickHouseConn registry.ClickHouseConn, appConfig registry.AppConfig) registry.Module {
+func NewModule(sqlDB *registry.SQLDB, nativeQuerier *registry.NativeQuerier, clickHouseConn registry.ClickHouseConn, appConfig registry.AppConfig) registry.Module {
 	shared := otlp.Shared(sqlDB, appConfig)
 	flusher := otlp.NewCHFlusher(clickHouseConn, "observability.spans", spanColumns)
 	queue := ingest.NewQueue(flusher.Flush, otlp.QueueOpts(appConfig)...)
@@ -44,7 +43,7 @@ func (m *Module) Start() {}
 func (m *Module) Stop() error {
 	if m.queue != nil {
 		if err := m.queue.Close(); err != nil {
-			logger.L().Warn("error flushing ingest queue", slog.Any("error", err))
+			slog.Warn("error flushing ingest queue", slog.Any("error", err))
 		}
 	}
 	m.lifecycle.Stop()

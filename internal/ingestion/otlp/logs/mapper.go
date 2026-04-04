@@ -7,7 +7,6 @@ import (
 
 	"log/slog"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/ingest"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/protoconv"
@@ -125,7 +124,7 @@ func capStringAttrs(attrs map[string]string, teamID int64) map[string]string {
 	if len(attrs) <= maxLogAttributes {
 		return attrs
 	}
-	logger.L().Warn("ingest: log attributes truncated",
+	slog.Warn("ingest: log attributes truncated",
 		slog.Int("from", len(attrs)), slog.Int("to", maxLogAttributes),
 		slog.Int64("team_id", teamID))
 	trimmed := make(map[string]string, maxLogAttributes)

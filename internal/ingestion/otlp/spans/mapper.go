@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"strconv"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/ingest"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/protoconv"
@@ -128,7 +127,7 @@ func mergeAndCapAttrs(teamID int64, spanID []byte, resMap, spanMap map[string]st
 	if len(merged) <= maxSpanAttributes {
 		return merged
 	}
-	logger.L().Warn("ingest: span attributes truncated",
+	slog.Warn("ingest: span attributes truncated",
 		slog.Int("from", len(merged)), slog.Int("to", maxSpanAttributes),
 		slog.Int64("team_id", teamID), slog.String("span_id", protoconv.BytesToHex(spanID)))
 	trimmed := make(map[string]string, maxSpanAttributes)

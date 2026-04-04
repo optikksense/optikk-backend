@@ -7,7 +7,6 @@ import (
 	"log/slog"
 
 	configdefaults "github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
 )
 
@@ -130,7 +129,7 @@ func (s *Service) CreateTeam(req CreateTeamRequest) (TeamResponse, error) {
 
 	teamID, err := s.repo.CreateTeam(orgName, name, slug, descriptionPtr, color, apiKey, &defaultConfigJSON, time.Now().UTC())
 	if err != nil {
-		logger.L().Error("Failed to create team", slog.Any("error", err), slog.String("org_name", orgName), slog.String("name", name))
+		slog.Error("Failed to create team", slog.Any("error", err), slog.String("org_name", orgName), slog.String("name", name))
 		if strings.Contains(err.Error(), "1062") || strings.Contains(err.Error(), "Duplicate entry") {
 			return TeamResponse{}, usershared.NewValidationError("Team already exists in this organization", err)
 		}

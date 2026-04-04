@@ -7,13 +7,15 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
+	"time"
+
+	"github.com/lmittmann/tint"
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/server"
 	"github.com/Optikk-Org/optikk-backend/internal/config"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/migrate"
 )
 
 func main() {
@@ -30,13 +32,11 @@ func main() {
 	if os.Getenv("ENV") == "development" {
 		mode = "development"
 	}
-	logger.Init(mode)
-	defer logger.Sync()
-	log := logger.L()
+	initLogger(mode)
 
 	dbConn, err := database.Open(cfg.MySQLDSN(), cfg.MySQL.MaxOpenConns, cfg.MySQL.MaxIdleConns)
 	if err != nil {
-		log.Error("failed to connect mysql", slog.Any("error", err))
+		slog.Error("failed to connect mysql", slog.Any("error", err))
 		os.Exit(1)
 	}
 	defer dbConn.Close()
@@ -48,29 +48,56 @@ func main() {
 	}
 	chConn, err := database.OpenClickHouseConn(cfg.ClickHouseDSN(), cfg.ClickHouse.Production, chCloud)
 	if err != nil {
-		log.Error("failed to connect clickhouse", slog.Any("error", err))
+		slog.Error("failed to connect clickhouse", slog.Any("error", err))
 		os.Exit(1)
 	}
 	defer chConn.Close()
-
-	// Auto-apply pending database migrations before serving traffic.
-	log.Info("running database migrations")
-	if err := migrate.Run(cfg); err != nil {
-		log.Error("migration failed", slog.Any("error", err))
-		os.Exit(1)
-	}
 
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	app, err := server.New(dbConn, chConn, cfg)
 	if err != nil {
-		log.Error("failed to initialize app", slog.Any("error", err))
+		slog.Error("failed to initialize app", slog.Any("error", err))
 		os.Exit(1)
 	}
 
-	log.Info("server starting", slog.String("port", cfg.Server.Port))
+	slog.Info("server starting", slog.String("port", cfg.Server.Port))
 	if err := app.Start(ctx); err != nil {
-		log.Error("server failed", slog.Any("error", err))
+		slog.Error("server failed", slog.Any("error", err))
 		os.Exit(1)
 	}
+}
+
+func initLogger(mode string) {
+	level := new(slog.LevelVar)
+	level.Set(slog.LevelInfo)
+
+	if lvl := os.Getenv("LOG_LEVEL"); lvl != "" {
+		switch strings.ToLower(lvl) {
+		case "debug":
+			level.Set(slog.LevelDebug)
+		case "info":
+			level.Set(slog.LevelInfo)
+		case "warn", "warning":
+			level.Set(slog.LevelWarn)
+		case "error":
+			level.Set(slog.LevelError)
+		}
+	}
+
+	var handler slog.Handler
+	if mode == "development" {
+		handler = tint.NewHandler(os.Stdout, &tint.Options{
+			Level:      level,
+			TimeFormat: time.Kitchen,
+			AddSource:  true,
+		})
+	} else {
+		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level:     level,
+			AddSource: true,
+		})
+	}
+
+	slog.SetDefault(slog.New(handler))
 }

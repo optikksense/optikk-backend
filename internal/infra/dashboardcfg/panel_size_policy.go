@@ -51,6 +51,7 @@ var panelTypeAllowedLayoutVariants = map[PanelType][]LayoutVariant{
 	PanelTypeLogHistogram:      {LayoutVariantWideChart, LayoutVariantHeroDetail},
 	PanelTypePie:               {LayoutVariantSummary},
 	PanelTypeRequest:           {LayoutVariantStandardChart, LayoutVariantWideChart},
+	PanelTypeServiceCatalog:    {LayoutVariantDetailTable},
 	PanelTypeServiceHealthGrid: {LayoutVariantSummary},
 	PanelTypeServiceMap:        {LayoutVariantHeroMap},
 	PanelTypeSLOIndicators:     {LayoutVariantSummary},

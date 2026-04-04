@@ -1,4 +1,4 @@
-.PHONY: build run fmt setup
+.PHONY: build run fmt
 
 build:
 	go build -v ./cmd/server
@@ -8,7 +8,3 @@ run:
 
 fmt:
 	gofmt -w .
-
-# Set up git hooks (run once after cloning)
-setup:
-	git config core.hooksPath .githooks

@@ -16,7 +16,6 @@ import (
 
 	"log/slog"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	"github.com/gin-gonic/gin"
 )
 
@@ -84,7 +83,7 @@ func NewServer(allowedOrigins []string) (*Server, error) {
 	}
 
 	srv.OnConnect(Namespace, func(conn socketio.Conn) error {
-		logger.L().Info("Socket.IO connected", slog.String("namespace", Namespace), slog.String("conn_id", conn.ID()))
+		slog.Info("Socket.IO connected", slog.String("namespace", Namespace), slog.String("conn_id", conn.ID()))
 		s.mu.Lock()
 		s.connDone[conn.ID()] = make(chan struct{})
 		s.mu.Unlock()
@@ -92,7 +91,7 @@ func NewServer(allowedOrigins []string) (*Server, error) {
 	})
 
 	srv.OnDisconnect(Namespace, func(conn socketio.Conn, reason string) {
-		logger.L().Info("Socket.IO disconnected", slog.String("namespace", Namespace), slog.String("conn_id", conn.ID()), slog.String("reason", reason))
+		slog.Info("Socket.IO disconnected", slog.String("namespace", Namespace), slog.String("conn_id", conn.ID()), slog.String("reason", reason))
 		s.mu.Lock()
 		if ch, ok := s.connDone[conn.ID()]; ok {
 			close(ch)
@@ -103,9 +102,9 @@ func NewServer(allowedOrigins []string) (*Server, error) {
 
 	srv.OnError(Namespace, func(conn socketio.Conn, err error) {
 		if conn != nil {
-			logger.L().Error("Socket.IO error", slog.String("namespace", Namespace), slog.String("conn_id", conn.ID()), slog.Any("error", err))
+			slog.Error("Socket.IO error", slog.String("namespace", Namespace), slog.String("conn_id", conn.ID()), slog.Any("error", err))
 		} else {
-			logger.L().Error("Socket.IO error", slog.String("namespace", Namespace), slog.Any("error", err))
+			slog.Error("Socket.IO error", slog.String("namespace", Namespace), slog.Any("error", err))
 		}
 	})
 
@@ -156,7 +155,7 @@ func (s *Server) RegisterHandler(h SubscriptionHandler) {
 func (s *Server) Serve() {
 	go func() {
 		if err := s.IO.Serve(); err != nil {
-			logger.L().Error("Socket.IO serve error", slog.Any("error", err))
+			slog.Error("Socket.IO serve error", slog.Any("error", err))
 		}
 	}()
 }
