@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	sessionauth "github.com/Optikk-Org/optikk-backend/internal/infra/session"
 	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
 	contracts "github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
@@ -39,7 +38,7 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, clientIP string) 
 	}
 
 	if err := s.repo.UpdateUserLastLogin(user.ID, time.Now().UTC()); err != nil {
-		logger.L().Warn("AUTH_EVENT login_update_failed", slog.Int64("user_id", user.ID), slog.String("email", user.Email), slog.Any("error", err))
+		slog.Warn("AUTH_EVENT login_update_failed", slog.Int64("user_id", user.ID), slog.String("email", user.Email), slog.Any("error", err))
 	}
 
 	response, teamID, teamIDs, err := s.buildAuthContextResponse(user)
@@ -57,7 +56,7 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, clientIP string) 
 		return AuthContextResponse{}, usershared.NewInternalError("Failed to create session", err)
 	}
 
-	logger.L().Info("AUTH_EVENT login_success", slog.Int64("user_id", user.ID), slog.String("email", user.Email), slog.Int64("team_id", teamID), slog.String("ip", clientIP))
+	slog.Info("AUTH_EVENT login_success", slog.Int64("user_id", user.ID), slog.String("email", user.Email), slog.Int64("team_id", teamID), slog.String("ip", clientIP))
 	return response, nil
 }
 
@@ -66,7 +65,7 @@ func (s *Service) Logout(ctx context.Context, tenant contracts.TenantContext, cl
 		return MessageResponse{}, usershared.NewInternalError("Failed to end session", err)
 	}
 	if tenant.UserID > 0 {
-		logger.L().Info("AUTH_EVENT logout", slog.Int64("user_id", tenant.UserID), slog.String("email", tenant.UserEmail), slog.String("ip", clientIP))
+		slog.Info("AUTH_EVENT logout", slog.Int64("user_id", tenant.UserID), slog.String("email", tenant.UserEmail), slog.String("ip", clientIP))
 	}
 	return MessageResponse{Message: "Logged out successfully"}, nil
 }
@@ -116,7 +115,7 @@ func (s *Service) ForgotPassword() MessageResponse {
 func (s *Service) buildAuthContextResponse(user usershared.AuthUser) (resp AuthContextResponse, teamID int64, teamIDs []int64, err error) {
 	teams, err := s.listTeamsForUser(user.TeamsJSON)
 	if err != nil {
-		logger.L().Warn("AUTH_EVENT team_fetch_failed", slog.Int64("user_id", user.ID), slog.String("email", user.Email), slog.Any("error", err))
+		slog.Warn("AUTH_EVENT team_fetch_failed", slog.Int64("user_id", user.ID), slog.String("email", user.Email), slog.Any("error", err))
 		teams = []AuthTeamSummary{}
 	}
 

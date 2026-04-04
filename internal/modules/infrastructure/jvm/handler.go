@@ -6,7 +6,6 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -80,7 +79,7 @@ func (h *JVMHandler) GetJVMClasses(c *gin.Context) {
 	}
 	resp, err := h.Service.GetJVMClasses(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
-		logger.L().Error("jvm classes query failed", slog.Any("error", err))
+		slog.Error("jvm classes query failed", slog.Any("error", err))
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query JVM classes", err)
 		return
 	}

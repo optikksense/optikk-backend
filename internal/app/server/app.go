@@ -16,10 +16,8 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/config"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/cache"
-	configdefaults "github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg"
+	configdefaults "github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg/defaults"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/events"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/middleware"
 	sessionauth "github.com/Optikk-Org/optikk-backend/internal/infra/session"
 	sio "github.com/Optikk-Org/optikk-backend/internal/infra/socketio"
@@ -47,8 +45,6 @@ type App struct {
 	// SocketIO is the Socket.IO server for real-time streaming.
 	SocketIO *sio.Server
 
-	// EventBus enables cross-module event communication.
-	EventBus *events.Bus
 }
 
 func splitAllowedOrigins(allowed string) []string {
@@ -84,7 +80,7 @@ func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) (*App, error) {
 
 	nativeQuerier := dbutil.NewNativeQuerier(ch, cfg.CircuitBreakerConsecutiveFailures(), cfg.CircuitBreakerResetTimeout())
 
-	modules := configuredModules(nativeQuerier, db, ch, getTenant, sessionManager, cfg, reg)
+	modules := configuredModules(nativeQuerier, db, ch, getTenant, sessionManager, cfg, reg, queryCache)
 
 	// Create Socket.IO server and register handlers from modules.
 	// Trim each origin so "a, b" does not leave a leading space that breaks WebSocket CheckOrigin.
@@ -92,13 +88,9 @@ func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) (*App, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Socket.IO server: %w", err)
 	}
-	eventBus := events.NewBus()
 	for _, mod := range modules {
 		if r, ok := mod.(registry.SocketIORegistrar); ok {
 			r.RegisterSocketIO(socketIOServer)
-		}
-		if r, ok := mod.(registry.EventSubscriber); ok {
-			r.SubscribeEvents(eventBus)
 		}
 	}
 
@@ -111,7 +103,6 @@ func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) (*App, error) {
 		Modules:        modules,
 		Cache:          queryCache,
 		SocketIO:       socketIOServer,
-		EventBus:       eventBus,
 	}, nil
 }
 
@@ -144,7 +135,7 @@ func (a *App) Start(ctx context.Context) error {
 			IdleTimeout:  120 * time.Second,
 		}
 		g.Add(func() error {
-			logger.L().Info("main API server starting", slog.String("addr", srv.Addr))
+			slog.Info("main API server starting", slog.String("addr", srv.Addr))
 			return srv.ListenAndServe()
 		}, func(error) {
 			shutCtx, c := context.WithTimeout(context.Background(), 10*time.Second)
@@ -178,7 +169,7 @@ func (a *App) Start(ctx context.Context) error {
 			}
 		}
 		g.Add(func() error {
-			logger.L().Info("gRPC server starting", slog.String("port", a.Config.OTLP.GRPCPort))
+			slog.Info("gRPC server starting", slog.String("port", a.Config.OTLP.GRPCPort))
 			return grpcSrv.Serve(lis)
 		}, func(error) {
 			grpcSrv.GracefulStop()
@@ -187,15 +178,14 @@ func (a *App) Start(ctx context.Context) error {
 
 	err := g.Run()
 
-	// Shut down Socket.IO server.
 	if closeErr := a.SocketIO.Close(); closeErr != nil {
-		logger.L().Warn("error closing Socket.IO server", slog.Any("error", closeErr))
+		slog.Warn("error closing Socket.IO server", slog.Any("error", closeErr))
 	}
 
 	for _, mod := range a.Modules {
 		if r, ok := mod.(registry.BackgroundRunner); ok {
 			if stopErr := r.Stop(); stopErr != nil {
-				logger.L().Warn("error stopping module", slog.String("module", mod.Name()), slog.Any("error", stopErr))
+				slog.Warn("error stopping module", slog.String("module", mod.Name()), slog.Any("error", stopErr))
 			}
 		}
 	}

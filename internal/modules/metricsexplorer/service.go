@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"strings"
-	"unicode"
+
+	"github.com/Optikk-Org/optikk-backend/internal/shared/exprparser"
 )
 
 type Service interface {
@@ -99,7 +99,7 @@ func assembleSeriesFromPoints(q MetricQuery, points []TimeseriesPoint) []SeriesR
 // Only supports single-series queries (no group-by) for now.
 func evaluateFormula(f Formula, queryResults map[string][]SeriesResult) ([]SeriesResult, error) {
 	// Parse referenced query names from the expression.
-	refs := parseFormulaRefs(f.Expression)
+	refs := exprparser.ExtractVariables(f.Expression)
 	if len(refs) == 0 {
 		return nil, fmt.Errorf("no query references found in expression %q", f.Expression)
 	}
@@ -131,7 +131,7 @@ func evaluateFormula(f Formula, queryResults map[string][]SeriesResult) ([]Serie
 	// Evaluate the expression for each timestamp.
 	datapoints := make([]Datapoint, 0, len(timestamps))
 	for _, ts := range timestamps {
-		val, err := evalExpr(f.Expression, func(ref string) float64 {
+		val, err := exprparser.Evaluate(f.Expression, func(ref string) float64 {
 			if vm, ok := valueMaps[ref]; ok {
 				return vm[ts]
 			}
@@ -151,134 +151,4 @@ func evaluateFormula(f Formula, queryResults map[string][]SeriesResult) ([]Serie
 		GroupTags:  map[string]string{},
 		Datapoints: datapoints,
 	}}, nil
-}
-
-// parseFormulaRefs extracts single-letter query references from a formula expression.
-func parseFormulaRefs(expr string) []string {
-	seen := map[string]bool{}
-	var refs []string
-	for _, r := range expr {
-		if unicode.IsLetter(r) && r >= 'a' && r <= 'z' {
-			s := string(r)
-			if !seen[s] {
-				seen[s] = true
-				refs = append(refs, s)
-			}
-		}
-	}
-	return refs
-}
-
-// evalExpr evaluates a simple arithmetic expression with single-letter variable references.
-// Supports +, -, *, / operators and parentheses.
-func evalExpr(expr string, resolve func(string) float64) (float64, error) {
-	p := &exprParser{input: strings.TrimSpace(expr), pos: 0, resolve: resolve}
-	val := p.parseExpr()
-	if p.err != nil {
-		return 0, p.err
-	}
-	return val, nil
-}
-
-type exprParser struct {
-	input   string
-	pos     int
-	resolve func(string) float64
-	err     error
-}
-
-func (p *exprParser) parseExpr() float64 {
-	result := p.parseTerm()
-	for p.pos < len(p.input) {
-		p.skipSpaces()
-		if p.pos >= len(p.input) {
-			break
-		}
-		op := p.input[p.pos]
-		if op != '+' && op != '-' {
-			break
-		}
-		p.pos++
-		right := p.parseTerm()
-		if op == '+' {
-			result += right
-		} else {
-			result -= right
-		}
-	}
-	return result
-}
-
-func (p *exprParser) parseTerm() float64 {
-	result := p.parseFactor()
-	for p.pos < len(p.input) {
-		p.skipSpaces()
-		if p.pos >= len(p.input) {
-			break
-		}
-		op := p.input[p.pos]
-		if op != '*' && op != '/' {
-			break
-		}
-		p.pos++
-		right := p.parseFactor()
-		if op == '*' {
-			result *= right
-		} else {
-			if right == 0 {
-				return 0
-			}
-			result /= right
-		}
-	}
-	return result
-}
-
-func (p *exprParser) parseFactor() float64 {
-	p.skipSpaces()
-	if p.pos >= len(p.input) {
-		return 0
-	}
-
-	// Parenthesized sub-expression.
-	if p.input[p.pos] == '(' {
-		p.pos++
-		val := p.parseExpr()
-		p.skipSpaces()
-		if p.pos < len(p.input) && p.input[p.pos] == ')' {
-			p.pos++
-		}
-		return val
-	}
-
-	// Number literal.
-	if p.input[p.pos] >= '0' && p.input[p.pos] <= '9' || p.input[p.pos] == '.' {
-		return p.parseNumber()
-	}
-
-	// Single-letter variable reference.
-	if p.input[p.pos] >= 'a' && p.input[p.pos] <= 'z' {
-		ref := string(p.input[p.pos])
-		p.pos++
-		return p.resolve(ref)
-	}
-
-	p.err = fmt.Errorf("unexpected character at position %d: %q", p.pos, string(p.input[p.pos]))
-	return 0
-}
-
-func (p *exprParser) parseNumber() float64 {
-	start := p.pos
-	for p.pos < len(p.input) && (p.input[p.pos] >= '0' && p.input[p.pos] <= '9' || p.input[p.pos] == '.') {
-		p.pos++
-	}
-	var val float64
-	_, _ = fmt.Sscanf(p.input[start:p.pos], "%f", &val)
-	return val
-}
-
-func (p *exprParser) skipSpaces() {
-	for p.pos < len(p.input) && p.input[p.pos] == ' ' {
-		p.pos++
-	}
 }

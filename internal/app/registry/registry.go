@@ -7,7 +7,6 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/config"
 	configdefaults "github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/events"
 	sessionauth "github.com/Optikk-Org/optikk-backend/internal/infra/session"
 	sio "github.com/Optikk-Org/optikk-backend/internal/infra/socketio"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
@@ -56,7 +55,3 @@ type SocketIORegistrar interface {
 	RegisterSocketIO(srv *sio.Server)
 }
 
-// EventSubscriber is implemented by modules that subscribe to internal events.
-type EventSubscriber interface {
-	SubscribeEvents(bus *events.Bus)
-}

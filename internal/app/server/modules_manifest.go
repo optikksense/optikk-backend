@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/cache"
 	otlp_logs "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/logs"
 	otlp_metrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/metrics"
 	otlp_spans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
@@ -43,10 +44,7 @@ import (
 	saturation_database_volume "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/volume"
 	saturation_kafka "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka"
 	saturation_redis "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/redis"
-	services_context "github.com/Optikk-Org/optikk-backend/internal/modules/services/context"
-	services_service "github.com/Optikk-Org/optikk-backend/internal/modules/services/service"
-	services_servicemap "github.com/Optikk-Org/optikk-backend/internal/modules/services/servicemap"
-	spans_errorfingerprint "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errorfingerprint"
+spans_errorfingerprint "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errorfingerprint"
 	spans_errortracking "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errortracking"
 	spans_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
 	spans_livetail "github.com/Optikk-Org/optikk-backend/internal/modules/traces/livetail"
@@ -67,6 +65,7 @@ func configuredModules(
 	sessionManager *registry.SessionManager,
 	appConfig registry.AppConfig,
 	configRegistry *registry.ConfigRegistry,
+	queryCache *cache.QueryCache,
 ) []registry.Module {
 	return []registry.Module{
 		ai_conversations.NewModule(nativeQuerier, getTenant),
@@ -110,9 +109,6 @@ func configuredModules(
 		saturation_database_volume.NewModule(nativeQuerier, getTenant),
 		saturation_kafka.NewModule(nativeQuerier, getTenant),
 		saturation_redis.NewModule(nativeQuerier, getTenant),
-		services_context.NewModule(sqlDB, nativeQuerier, getTenant, appConfig),
-		services_service.NewModule(nativeQuerier, getTenant),
-		services_servicemap.NewModule(sqlDB, nativeQuerier, getTenant, appConfig),
 		spans_errorfingerprint.NewModule(nativeQuerier, getTenant),
 		spans_errortracking.NewModule(nativeQuerier, getTenant),
 		spans_explorer.NewModule(nativeQuerier, getTenant),

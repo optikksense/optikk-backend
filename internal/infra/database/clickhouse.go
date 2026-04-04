@@ -14,7 +14,6 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	circuitbreaker "github.com/Optikk-Org/optikk-backend/internal/infra/circuitbreaker"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 )
 
 const slowQueryThreshold = 100 * time.Millisecond
@@ -290,7 +289,7 @@ func retryClickHouseRead(ctx context.Context, op func() error) error {
 				return ctx.Err()
 			case <-time.After(backoff):
 			}
-			logger.L().Info("clickhouse_native retry after transient error",
+			slog.Info("clickhouse_native retry after transient error",
 				slog.Int("attempt", attempt+1),
 				slog.String("cause", lastErr.Error()))
 		}
@@ -314,7 +313,7 @@ func (n *NativeQuerier) Select(ctx context.Context, dest any, query string, args
 		})
 	})
 	if d := time.Since(start); d >= slowQueryThreshold {
-		logger.L().Warn("SLOW_QUERY clickhouse_native", slog.Duration("duration", d), slog.String("query", truncateQuery(query)))
+		slog.Warn("SLOW_QUERY clickhouse_native", slog.Duration("duration", d), slog.String("query", truncateQuery(query)))
 	}
 	return err
 }
@@ -328,7 +327,7 @@ func (n *NativeQuerier) QueryRow(ctx context.Context, dest any, query string, ar
 		})
 	})
 	if d := time.Since(start); d >= slowQueryThreshold {
-		logger.L().Warn("SLOW_QUERY clickhouse_native", slog.Duration("duration", d), slog.String("query", truncateQuery(query)))
+		slog.Warn("SLOW_QUERY clickhouse_native", slog.Duration("duration", d), slog.String("query", truncateQuery(query)))
 	}
 	return err
 }

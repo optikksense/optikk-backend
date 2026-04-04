@@ -6,7 +6,6 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -178,7 +177,7 @@ func (h *HTTPMetricsHandler) GetRouteErrorTimeseries(c *gin.Context) {
 	}
 	resp, err := h.Service.GetRouteErrorTimeseries(teamID, startMs, endMs)
 	if err != nil {
-		logger.L().Error("http route error timeseries query failed", slog.Any("error", err))
+		slog.Error("http route error timeseries query failed", slog.Any("error", err))
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query route error timeseries", err)
 		return
 	}
@@ -207,7 +206,7 @@ func (h *HTTPMetricsHandler) GetErrorTimeseries(c *gin.Context) {
 	}
 	resp, err := h.Service.GetErrorTimeseries(teamID, startMs, endMs)
 	if err != nil {
-		logger.L().Error("http error timeseries query failed", slog.Any("error", err))
+		slog.Error("http error timeseries query failed", slog.Any("error", err))
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query HTTP error timeseries", err)
 		return
 	}

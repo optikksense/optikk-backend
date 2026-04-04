@@ -6,7 +6,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	sio "github.com/Optikk-Org/optikk-backend/internal/infra/socketio"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/logs/internal/shared"
 )
@@ -64,7 +63,7 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 		Handle: func(payload json.RawMessage, emit sio.EmitFunc, done <-chan struct{}) {
 			var p SubscribeLogsPayload
 			if err := json.Unmarshal(payload, &p); err != nil {
-				logger.L().Warn("Socket.IO [subscribe:logs] bad payload", slog.Any("error", err))
+				slog.Warn("Socket.IO [subscribe:logs] bad payload", slog.Any("error", err))
 				emit("subscribeError", socketErrorPayload{Message: "invalid payload"})
 				return
 			}
@@ -129,7 +128,7 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 
 					resp, err := service.GetLogs(ctx, pollFilters, sioMaxLogsPerPoll, "asc", shared.LogCursor{})
 					if err != nil {
-						logger.L().Warn("Socket.IO [subscribe:logs] poll error", slog.Any("error", err))
+						slog.Warn("Socket.IO [subscribe:logs] poll error", slog.Any("error", err))
 						continue
 					}
 

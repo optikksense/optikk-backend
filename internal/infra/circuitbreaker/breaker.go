@@ -6,7 +6,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	"github.com/sony/gobreaker"
 )
 
@@ -65,7 +64,7 @@ func (r *syncRegistry) getOrCreate(name string, threshold int, resetTimeout time
 				return err == nil
 			},
 			OnStateChange: func(name string, from gobreaker.State, to gobreaker.State) {
-				logger.L().Warn("circuit_breaker state change", slog.String("name", name), slog.String("from", from.String()), slog.String("to", to.String()))
+				slog.Warn("circuit_breaker state change", slog.String("name", name), slog.String("from", from.String()), slog.String("to", to.String()))
 			},
 		}),
 	}

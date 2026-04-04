@@ -2,21 +2,18 @@ package server
 
 import (
 	"context"
+	"log/slog"
 	"net/http"
 	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/cache"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/middleware"
 	"github.com/gin-gonic/gin"
 )
 
 func (a *App) Router() *gin.Engine {
-	r := gin.New()
-	r.Use(middleware.RequestIDMiddleware())
-	r.Use(middleware.APIDebugLogger(a.Config.Server.DebugAPILogs))
-	r.Use(logger.GinMiddleware())
+	r := gin.Default()
 	r.Use(middleware.ErrorRecovery())
 	r.Use(middleware.CORSMiddleware(a.Config.Server.AllowedOrigins))
 
@@ -71,6 +68,9 @@ func (a *App) healthReady(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 	if err := a.CH.Ping(ctx); err != nil {
+		slog.Error("request error",
+			slog.String("code", "503"), slog.String("msg", err.Error()),
+			slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path))
 		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "clickhouse": err.Error()})
 		return
 	}

@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/ingest"
 )
 
@@ -35,18 +34,18 @@ func (f *CHFlusher) Flush(batch []ingest.Row) {
 
 	b, err := f.conn.PrepareBatch(ctx, f.queryPrefix)
 	if err != nil {
-		logger.L().Error("ingest: prepare failed", slog.String("table", f.table), slog.Any("error", err))
+		slog.Error("ingest: prepare failed", slog.String("table", f.table), slog.Any("error", err))
 		return
 	}
 	for _, row := range batch {
 		if err := b.Append(row.Values...); err != nil {
-			logger.L().Error("ingest: append failed", slog.String("table", f.table), slog.Any("error", err))
+			slog.Error("ingest: append failed", slog.String("table", f.table), slog.Any("error", err))
 			return
 		}
 	}
 	if err := b.Send(); err != nil {
-		logger.L().Error("ingest: send failed", slog.String("table", f.table), slog.Any("error", err))
+		slog.Error("ingest: send failed", slog.String("table", f.table), slog.Any("error", err))
 		return
 	}
-	logger.L().Info("ingest: flushed", slog.Int("rows", len(batch)), slog.String("table", f.table), slog.Duration("took", time.Since(start)))
+	slog.Info("ingest: flushed", slog.Int("rows", len(batch)), slog.String("table", f.table), slog.Duration("took", time.Since(start)))
 }

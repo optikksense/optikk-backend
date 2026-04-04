@@ -1,9 +1,9 @@
 package spans
 
 import (
+	"log/slog"
 	"context"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 )
 
@@ -19,7 +19,7 @@ func NewHandler(service *Service) *Handler {
 func (h *Handler) Export(ctx context.Context, req *tracepb.ExportTraceServiceRequest) (*tracepb.ExportTraceServiceResponse, error) {
 	resp, err := h.service.Export(ctx, req)
 	if err == nil {
-		logger.L().Info("ingest: processed traces via gRPC")
+		slog.Info("ingest: processed traces via gRPC")
 	}
 	return resp, err
 }

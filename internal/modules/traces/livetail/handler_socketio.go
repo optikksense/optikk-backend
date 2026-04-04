@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/logger"
 	sio "github.com/Optikk-Org/optikk-backend/internal/infra/socketio"
 )
 
@@ -52,7 +51,7 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 		Handle: func(payload json.RawMessage, emit sio.EmitFunc, done <-chan struct{}) {
 			var p SubscribeSpansPayload
 			if err := json.Unmarshal(payload, &p); err != nil {
-				logger.L().Warn("Socket.IO [subscribe:spans] bad payload", slog.Any("error", err))
+				slog.Warn("Socket.IO [subscribe:spans] bad payload", slog.Any("error", err))
 				emit("subscribeError", socketErrorPayload{Message: "invalid payload"})
 				return
 			}
@@ -97,7 +96,7 @@ func SocketIOHandler(service *Service) sio.SubscriptionHandler {
 
 					result, err := service.Poll(p.TeamID, since, filters)
 					if err != nil {
-						logger.L().Warn("Socket.IO [subscribe:spans] poll error", slog.Any("error", err))
+						slog.Warn("Socket.IO [subscribe:spans] poll error", slog.Any("error", err))
 						emit("subscribeError", socketErrorPayload{Message: "poll error"})
 						continue
 					}

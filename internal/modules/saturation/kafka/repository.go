@@ -25,7 +25,7 @@ func bucketSecs(startMs, endMs int64) float64 {
 	return 3600.0
 }
 
-// ── 1. Summary stat cards ─────────────────────────────────────────────────────
+
 
 func (r *ClickHouseRepository) GetKafkaSummaryStats(teamID int64, startMs, endMs int64, f KafkaFilters) (KafkaSummaryStats, error) {
 	durationSecs := float64(endMs-startMs) / 1000.0
@@ -74,7 +74,7 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(teamID int64, startMs, endMs
 	return result, r.db.QueryRow(context.Background(), &result, query, args...)
 }
 
-// ── 2. Produce rate by topic ──────────────────────────────────────────────────
+
 
 func (r *ClickHouseRepository) GetProduceRateByTopic(teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
@@ -103,7 +103,7 @@ func (r *ClickHouseRepository) GetProduceRateByTopic(teamID int64, startMs, endM
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
-// ── 3. Publish latency by topic ───────────────────────────────────────────────
+
 
 func (r *ClickHouseRepository) GetPublishLatencyByTopic(teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicLatencyPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
@@ -132,7 +132,7 @@ func (r *ClickHouseRepository) GetPublishLatencyByTopic(teamID int64, startMs, e
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
-// ── 4. Consume rate by topic ──────────────────────────────────────────────────
+
 
 func (r *ClickHouseRepository) GetConsumeRateByTopic(teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
@@ -161,7 +161,7 @@ func (r *ClickHouseRepository) GetConsumeRateByTopic(teamID int64, startMs, endM
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
-// ── 5. Receive latency by topic ───────────────────────────────────────────────
+
 
 func (r *ClickHouseRepository) GetReceiveLatencyByTopic(teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicLatencyPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
@@ -190,7 +190,7 @@ func (r *ClickHouseRepository) GetReceiveLatencyByTopic(teamID int64, startMs, e
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
-// ── 6. Consume rate by consumer group ────────────────────────────────────────
+
 
 func (r *ClickHouseRepository) GetConsumeRateByGroup(teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
@@ -219,7 +219,7 @@ func (r *ClickHouseRepository) GetConsumeRateByGroup(teamID int64, startMs, endM
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
-// ── 7. Process rate by consumer group ────────────────────────────────────────
+
 
 func (r *ClickHouseRepository) GetProcessRateByGroup(teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
@@ -248,7 +248,7 @@ func (r *ClickHouseRepository) GetProcessRateByGroup(teamID int64, startMs, endM
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
-// ── 8. Process latency by consumer group ─────────────────────────────────────
+
 
 func (r *ClickHouseRepository) GetProcessLatencyByGroup(teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupLatencyPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
@@ -277,7 +277,7 @@ func (r *ClickHouseRepository) GetProcessLatencyByGroup(teamID int64, startMs, e
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
-// ── 9. Consumer lag by group ──────────────────────────────────────────────────
+
 
 func (r *ClickHouseRepository) GetConsumerLagByGroup(teamID int64, startMs, endMs int64, f KafkaFilters) ([]LagPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
@@ -311,7 +311,7 @@ func (r *ClickHouseRepository) GetConsumerLagByGroup(teamID int64, startMs, endM
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
-// ── 10. Consumer lag per partition ────────────────────────────────────────────
+
 
 func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamID int64, startMs, endMs int64, f KafkaFilters) ([]PartitionLag, error) {
 	clause := MetricSetToInClause(ConsumerLagMetrics)
@@ -346,7 +346,7 @@ func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamID int64, startMs,
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
-// ── 11. Rebalance signals by group ────────────────────────────────────────────
+
 
 func (r *ClickHouseRepository) GetRebalanceSignals(teamID int64, startMs, endMs int64, f KafkaFilters) ([]RebalancePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
@@ -391,7 +391,7 @@ func (r *ClickHouseRepository) GetRebalanceSignals(teamID int64, startMs, endMs 
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
-// ── 12. End-to-end latency p95 by topic ──────────────────────────────────────
+
 
 func (r *ClickHouseRepository) GetE2ELatency(teamID int64, startMs, endMs int64, f KafkaFilters) ([]E2ELatencyPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
@@ -436,25 +436,25 @@ func (r *ClickHouseRepository) GetE2ELatency(teamID int64, startMs, endMs int64,
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
-// ── 13. Publish errors by error type ─────────────────────────────────────────
+
 
 func (r *ClickHouseRepository) GetPublishErrors(teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
 	return r.getErrorRates(teamID, startMs, endMs, MetricPublishMessages, "topic", "GetPublishErrors", f)
 }
 
-// ── 14. Consume errors by error type ─────────────────────────────────────────
+
 
 func (r *ClickHouseRepository) GetConsumeErrors(teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
 	return r.getGroupErrorRates(teamID, startMs, endMs, MetricReceiveMessages, "GetConsumeErrors", f)
 }
 
-// ── 15. Process errors by error type ─────────────────────────────────────────
+
 
 func (r *ClickHouseRepository) GetProcessErrors(teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
 	return r.getGroupErrorRates(teamID, startMs, endMs, MetricProcessMessages, "GetProcessErrors", f)
 }
 
-// ── 16. Client operation errors ───────────────────────────────────────────────
+
 
 func (r *ClickHouseRepository) GetClientOpErrors(teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
@@ -489,7 +489,7 @@ func (r *ClickHouseRepository) GetClientOpErrors(teamID int64, startMs, endMs in
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
-// ── 17. Broker connections ────────────────────────────────────────────────────
+
 
 func (r *ClickHouseRepository) GetBrokerConnections(teamID int64, startMs, endMs int64, f KafkaFilters) ([]BrokerConnectionPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
@@ -518,7 +518,7 @@ func (r *ClickHouseRepository) GetBrokerConnections(teamID int64, startMs, endMs
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
-// ── 18. Client operation duration ─────────────────────────────────────────────
+
 
 func (r *ClickHouseRepository) GetClientOperationDuration(teamID int64, startMs, endMs int64, f KafkaFilters) ([]ClientOpDurationPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
@@ -547,7 +547,7 @@ func (r *ClickHouseRepository) GetClientOperationDuration(teamID int64, startMs,
 	return out, r.db.Select(context.Background(), &out, query, args...)
 }
 
-// ── Internal helpers ──────────────────────────────────────────────────────────
+
 
 func (r *ClickHouseRepository) getErrorRates(teamID int64, startMs, endMs int64, metricName, _ string, caller string, f KafkaFilters) ([]ErrorRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
