@@ -6,14 +6,13 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/cache"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/middleware"
 	"github.com/gin-gonic/gin"
 )
 
 func (a *App) Router() *gin.Engine {
-	r := gin.Default()
+	gin.SetMode(gin.ReleaseMode)
+	r := gin.New()
 	r.Use(middleware.ErrorRecovery())
 	r.Use(middleware.CORSMiddleware(a.Config.Server.AllowedOrigins))
 
@@ -24,36 +23,18 @@ func (a *App) Router() *gin.Engine {
 	v1 := r.Group("/api/v1")
 	v1.Use(middleware.TenantMiddleware(a.SessionManager))
 	a.applyRateLimiter(v1)
-	a.registerRoutesToGroup(v1)
+	v1.GET("/ws/live", a.LiveTailWS)
 
-	// Mount Socket.IO endpoints for real-time streaming.
-	r.GET("/socket.io/*any", a.SocketIO.GinMiddleware())
-	r.POST("/socket.io/*any", a.SocketIO.GinMiddleware())
+	for _, mod := range a.Modules {
+		mod.RegisterRoutes(v1)
+	}
 
 	return r
 }
 
-func (a *App) registerRoutesToGroup(v1 *gin.RouterGroup) {
-	cached := v1.Group("", cache.CacheResponse(a.Cache, 30*time.Second))
-
-	for _, mod := range a.Modules {
-		switch mod.RouteTarget() {
-		case registry.Cached:
-			mod.RegisterRoutes(cached)
-		default:
-			mod.RegisterRoutes(v1)
-		}
-	}
-}
-
 func (a *App) applyRateLimiter(group gin.IRoutes) {
-	if a.Redis != nil {
-		rl := middleware.NewRedisRateLimiter(a.Redis, 2000, time.Second)
-		group.Use(middleware.RedisRateLimitMiddleware(rl))
-	} else {
-		rl := middleware.NewRateLimiter(2000, 2000, time.Second)
-		group.Use(middleware.RateLimitMiddleware(rl))
-	}
+	rl := middleware.NewRateLimiter(2000, 2000, time.Second)
+	group.Use(middleware.RateLimitMiddleware(rl))
 }
 
 func (a *App) healthLive(c *gin.Context) {
@@ -74,13 +55,5 @@ func (a *App) healthReady(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "clickhouse": err.Error()})
 		return
 	}
-	result := gin.H{"status": "ready", "mysql": "ok", "clickhouse": "ok"}
-	if a.Cache != nil && a.Cache.Enabled() {
-		if err := a.Cache.Ping(c.Request.Context()); err != nil {
-			c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "redis": err.Error()})
-			return
-		}
-		result["redis"] = "ok"
-	}
-	c.JSON(http.StatusOK, result)
+	c.JSON(http.StatusOK, gin.H{"status": "ready", "mysql": "ok", "clickhouse": "ok"})
 }

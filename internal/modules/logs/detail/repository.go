@@ -3,6 +3,7 @@ package detail
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
@@ -11,10 +12,10 @@ import (
 
 type Repository interface {
 	GetLogByID(ctx context.Context, teamID int64, logID string) (shared.LogRowDTO, error)
-	GetSurroundingBefore(ctx context.Context, teamID int64, service string, tsLow, tsHigh, anchorTs uint64, logID string, limit int) ([]shared.LogRowDTO, error)
-	GetSurroundingAfter(ctx context.Context, teamID int64, service string, tsLow, tsHigh, anchorTs uint64, logID string, limit int) ([]shared.LogRowDTO, error)
-	GetLogByTraceSpanWindow(ctx context.Context, teamID int64, traceID, spanID string, fromNs, toNs uint64) (shared.LogRowDTO, error)
-	GetContextLogs(ctx context.Context, teamID int64, service string, fromNs, toNs uint64) ([]shared.LogRowDTO, error)
+	GetSurroundingBefore(ctx context.Context, teamID int64, service string, tsLow, tsHigh, anchorTs time.Time, logID string, limit int) ([]shared.LogRowDTO, error)
+	GetSurroundingAfter(ctx context.Context, teamID int64, service string, tsLow, tsHigh, anchorTs time.Time, logID string, limit int) ([]shared.LogRowDTO, error)
+	GetLogByTraceSpanWindow(ctx context.Context, teamID int64, traceID, spanID string, from, to time.Time) (shared.LogRowDTO, error)
+	GetContextLogs(ctx context.Context, teamID int64, service string, from, to time.Time) ([]shared.LogRowDTO, error)
 }
 
 type ClickHouseRepository struct {
@@ -37,46 +38,46 @@ func (r *ClickHouseRepository) GetLogByID(ctx context.Context, teamID int64, log
 	return rows[0], nil
 }
 
-func (r *ClickHouseRepository) GetSurroundingBefore(ctx context.Context, teamID int64, service string, tsLow, tsHigh, anchorTs uint64, logID string, limit int) ([]shared.LogRowDTO, error) {
+func (r *ClickHouseRepository) GetSurroundingBefore(ctx context.Context, teamID int64, service string, tsLow, tsHigh, anchorTs time.Time, logID string, limit int) ([]shared.LogRowDTO, error) {
 	var rows []shared.LogRowDTO
 	err := r.db.Select(ctx, &rows,
 		fmt.Sprintf(`SELECT %s FROM observability.logs WHERE team_id = ? AND service = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ? AND (timestamp < ? OR (timestamp = ? AND id < ?)) ORDER BY timestamp DESC, id DESC LIMIT ?`, shared.LogColumns),
-		teamID, service, timebucket.LogsBucketStart(int64(tsLow/1_000_000_000)), timebucket.LogsBucketStart(int64(tsHigh/1_000_000_000)), tsLow, tsHigh, anchorTs, anchorTs, logID, limit, //nolint:gosec // G115
+		teamID, service, timebucket.LogsBucketStart(tsLow.Unix()), timebucket.LogsBucketStart(tsHigh.Unix()), tsLow, tsHigh, anchorTs, anchorTs, logID, limit,
 	)
 	return rows, err
 }
 
-func (r *ClickHouseRepository) GetSurroundingAfter(ctx context.Context, teamID int64, service string, tsLow, tsHigh, anchorTs uint64, logID string, limit int) ([]shared.LogRowDTO, error) {
+func (r *ClickHouseRepository) GetSurroundingAfter(ctx context.Context, teamID int64, service string, tsLow, tsHigh, anchorTs time.Time, logID string, limit int) ([]shared.LogRowDTO, error) {
 	var rows []shared.LogRowDTO
 	err := r.db.Select(ctx, &rows,
 		fmt.Sprintf(`SELECT %s FROM observability.logs WHERE team_id = ? AND service = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ? AND (timestamp > ? OR (timestamp = ? AND id > ?)) ORDER BY timestamp ASC, id ASC LIMIT ?`, shared.LogColumns),
-		teamID, service, timebucket.LogsBucketStart(int64(tsLow/1_000_000_000)), timebucket.LogsBucketStart(int64(tsHigh/1_000_000_000)), tsLow, tsHigh, anchorTs, anchorTs, logID, limit, //nolint:gosec // G115
+		teamID, service, timebucket.LogsBucketStart(tsLow.Unix()), timebucket.LogsBucketStart(tsHigh.Unix()), tsLow, tsHigh, anchorTs, anchorTs, logID, limit,
 	)
 	return rows, err
 }
 
-func (r *ClickHouseRepository) GetLogByTraceSpanWindow(ctx context.Context, teamID int64, traceID, spanID string, fromNs, toNs uint64) (shared.LogRowDTO, error) {
+func (r *ClickHouseRepository) GetLogByTraceSpanWindow(ctx context.Context, teamID int64, traceID, spanID string, from, to time.Time) (shared.LogRowDTO, error) {
 	var rows []shared.LogRowDTO
 	err := r.db.Select(ctx, &rows, fmt.Sprintf(`
 		SELECT %s FROM observability.logs
 		WHERE team_id = ? AND trace_id = ? AND span_id = ?
 		  AND timestamp BETWEEN ? AND ?
 		ORDER BY timestamp DESC LIMIT 1
-	`, shared.LogColumns), teamID, traceID, spanID, fromNs, toNs)
+	`, shared.LogColumns), teamID, traceID, spanID, from, to)
 	if err != nil || len(rows) == 0 {
 		return shared.LogRowDTO{}, err
 	}
 	return rows[0], nil
 }
 
-func (r *ClickHouseRepository) GetContextLogs(ctx context.Context, teamID int64, service string, fromNs, toNs uint64) ([]shared.LogRowDTO, error) {
-	bucketLow := timebucket.LogsBucketStart(int64(fromNs / 1_000_000_000)) //nolint:gosec // G115
-	bucketHigh := timebucket.LogsBucketStart(int64(toNs / 1_000_000_000))  //nolint:gosec // G115
+func (r *ClickHouseRepository) GetContextLogs(ctx context.Context, teamID int64, service string, from, to time.Time) ([]shared.LogRowDTO, error) {
+	bucketLow := timebucket.LogsBucketStart(from.Unix())
+	bucketHigh := timebucket.LogsBucketStart(to.Unix())
 	var rows []shared.LogRowDTO
 	err := r.db.Select(ctx, &rows, fmt.Sprintf(`
 		SELECT %s FROM observability.logs
 		WHERE team_id = ? AND service = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ?
 		ORDER BY timestamp ASC LIMIT 100
-	`, shared.LogColumns), teamID, service, bucketLow, bucketHigh, fromNs, toNs)
+	`, shared.LogColumns), teamID, service, bucketLow, bucketHigh, from, to)
 	return rows, err
 }

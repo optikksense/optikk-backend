@@ -91,6 +91,10 @@ CREATE TABLE IF NOT EXISTS observability.spans (
                                     MATERIALIZED attributes.`host.name`::String                CODEC(ZSTD(1)),
     mat_k8s_pod_name          LowCardinality(String)
                                     MATERIALIZED attributes.`k8s.pod.name`::String             CODEC(ZSTD(1)),
+    mat_service_version       LowCardinality(String)
+                                    MATERIALIZED attributes.`service.version`::String          CODEC(ZSTD(1)),
+    mat_deployment_environment LowCardinality(String)
+                                    MATERIALIZED attributes.`deployment.environment`::String    CODEC(ZSTD(1)),
     INDEX idx_service_name          service_name            TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_trace_id              trace_id                TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_span_name             name                    TYPE bloom_filter(0.01) GRANULARITY 4,
@@ -102,18 +106,20 @@ CREATE TABLE IF NOT EXISTS observability.spans (
     INDEX idx_mat_peer_service      mat_peer_service        TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_mat_exception_type    mat_exception_type      TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_mat_host_name         mat_host_name           TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_mat_k8s_pod_name      mat_k8s_pod_name        TYPE bloom_filter(0.01) GRANULARITY 4
+    INDEX idx_mat_k8s_pod_name      mat_k8s_pod_name        TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_mat_service_version        mat_service_version        TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_mat_deployment_environment mat_deployment_environment TYPE bloom_filter(0.01) GRANULARITY 4
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, ts_bucket_start, service_name, name, timestamp)
-TTL toDate(timestamp) + INTERVAL 30 DAY DELETE
+TTL timestamp + INTERVAL 1 HOUR DELETE
 SETTINGS
     index_granularity = 8192;
 
 CREATE TABLE IF NOT EXISTS observability.logs (
     team_id              UInt32 CODEC(T64, ZSTD(1)),
     ts_bucket_start      UInt32 CODEC(Delta(4), LZ4),
-    timestamp            UInt64 CODEC(DoubleDelta, LZ4),
+    timestamp            DateTime64(9) CODEC(DoubleDelta, LZ4),
     observed_timestamp   UInt64 CODEC(DoubleDelta, LZ4),
     id                   String CODEC(ZSTD(1)),
     trace_id             String CODEC(ZSTD(1)),
@@ -144,7 +150,7 @@ CREATE TABLE IF NOT EXISTS observability.logs (
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(toDateTime(ts_bucket_start))
 ORDER BY (team_id, ts_bucket_start, service, timestamp)
-TTL toDateTime(ts_bucket_start) + INTERVAL 30 DAY DELETE
+TTL timestamp + INTERVAL 1 HOUR DELETE
 SETTINGS
     index_granularity = 8192;
 
@@ -183,7 +189,7 @@ CREATE TABLE IF NOT EXISTS observability.metrics (
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, metric_name, service, environment, temporality, timestamp, resource_fingerprint)
-TTL toDateTime(timestamp) + INTERVAL 365 DAY DELETE
+TTL timestamp + INTERVAL 1 HOUR DELETE
 SETTINGS
     index_granularity = 8192,
     enable_mixed_granularity_parts = 1;

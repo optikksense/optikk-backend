@@ -74,23 +74,6 @@ func errorsTab() dashboardcfg.TabDefinition {
 				},
 				DrawerAction: &dashboardcfg.DrawerActionSpec{Entity: dashboardcfg.DrawerEntity("errorGroup"), IDField: "group_id", TitleField: "group_id"},
 			},
-			dashboardcfg.PanelDefinition{
-				ID:            "http-5xx-by-route",
-				PanelType:     dashboardcfg.PanelType("table"),
-				LayoutVariant: dashboardcfg.LayoutVariant("summary-table"),
-				SectionID:     "details",
-				Order:         40,
-				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/spans/http-5xx-by-route", Params: nil},
-				Layout:        dashboardcfg.PanelLayout{X: 0, Y: 0, W: 0, H: 0},
-				Title:         "HTTP 5xx by Route",
-				Description:   "Lists routes and services with their 5xx totals in a readable table so long endpoint names do not collide on the axis.",
-				TitleIcon:     "AlertTriangle",
-				GroupByKey:    "http_route",
-				ValueKey:      "count",
-				Columns: []dashboardcfg.DashboardTableColumn{
-					dashboardcfg.DashboardTableColumn{Key: "http_route", Label: "HTTP Route", Align: dashboardcfg.ColumnAlign("left"), Width: dashboardcfg.IntPtr(260)},
-				},
-			},
 		},
 	}
 }

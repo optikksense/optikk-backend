@@ -16,6 +16,14 @@ const LogColumns = `id, timestamp, observed_timestamp, severity_text, severity_n
 	attributes_string, attributes_number, attributes_bool,
 	scope_name, scope_version`
 
+// - [x] Add drop detection and logging in `dispatcher.go`
+// - [x] Update `CHFlusher` to return errors for better diagnostics in `flusher.go`
+// - [x] Implement robust time-and-size-based batching in `workers.go`
+// - [x] Fix ClickHouse decimal overflow in logs `query.go`
+// - [x] Fix ClickHouse `DateTime64` scan error in `dto.go`
+// - [x] Fix ClickHouse `illegal types` error in `query.go`
+// - [ ] Verify build and monitoring logs
+
 func QueryCount(ctx context.Context, db *dbutil.NativeQuerier, query string, args ...any) int64 {
 	var row CountRow
 	if err := db.QueryRow(ctx, &row, query, args...); err != nil {
@@ -42,7 +50,13 @@ func BuildLogWhere(f LogFilters) (where string, args []any) {
 	endBucket := timebucket.LogsBucketStart(endMs / 1000)
 
 	where = ` team_id = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ?`
-	args = []any{uint32(f.TeamID), startBucket, endBucket, startNs, endNs} //nolint:gosec // G115
+	args = []any{
+		uint32(f.TeamID), //nolint:gosec // G115
+		startBucket,
+		endBucket,
+		time.Unix(0, int64(startNs)),
+		time.Unix(0, int64(endNs)),
+	}
 
 	appendInClause := func(column string, values []string, negated bool) {
 		if len(values) == 0 {
@@ -102,7 +116,7 @@ func BuildLogWhere(f LogFilters) (where string, args []any) {
 }
 
 func LogBucketExpr(startMs, endMs int64) string {
-	tsExpr := "toDateTime(intDiv(timestamp, 1000000000))"
+	tsExpr := "toDateTime(timestamp)"
 	return timebucket.ExprForColumn(startMs, endMs, tsExpr)
 }
 
@@ -111,7 +125,7 @@ func LogBucketExprForStep(startMs, endMs int64, step string) string {
 		return LogBucketExpr(startMs, endMs)
 	}
 
-	tsExpr := "toDateTime(intDiv(timestamp, 1000000000))"
+	tsExpr := "toDateTime(timestamp)"
 	return fmt.Sprintf("formatDateTime(%s(%s), '%%Y-%%m-%%d %%H:%%i:00')",
 		bucketFuncFromStrategy(timebucket.ByName(step)), tsExpr)
 }

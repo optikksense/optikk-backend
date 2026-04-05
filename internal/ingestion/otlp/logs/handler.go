@@ -2,7 +2,6 @@ package logs
 
 import (
 	"context"
-	"log/slog"
 
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 )
@@ -17,9 +16,5 @@ func NewHandler(service *Service) *Handler {
 }
 
 func (h *Handler) Export(ctx context.Context, req *logspb.ExportLogsServiceRequest) (*logspb.ExportLogsServiceResponse, error) {
-	resp, err := h.service.Export(ctx, req)
-	if err == nil {
-		slog.Info("ingest: processed logs via gRPC")
-	}
-	return resp, err
+	return h.service.Export(ctx, req)
 }

@@ -1,8 +1,10 @@
 package shared
 
+import "time"
+
 type LogRowDTO struct {
 	ID                string             `ch:"id"`
-	Timestamp         uint64             `ch:"timestamp"`
+	Timestamp         time.Time          `ch:"timestamp"`
 	ObservedTimestamp uint64             `ch:"observed_timestamp"`
 	SeverityText      string             `ch:"severity_text"`
 	SeverityNumber    uint8              `ch:"severity_number"`
@@ -23,7 +25,27 @@ type LogRowDTO struct {
 }
 
 func (d LogRowDTO) ToLog() Log {
-	return Log(d)
+	return Log{
+		ID:                d.ID,
+		Timestamp:         uint64(d.Timestamp.UnixNano()),
+		ObservedTimestamp: d.ObservedTimestamp,
+		SeverityText:      d.SeverityText,
+		SeverityNumber:    d.SeverityNumber,
+		Body:              d.Body,
+		TraceID:           d.TraceID,
+		SpanID:            d.SpanID,
+		TraceFlags:        d.TraceFlags,
+		ServiceName:       d.ServiceName,
+		Host:              d.Host,
+		Pod:               d.Pod,
+		Container:         d.Container,
+		Environment:       d.Environment,
+		AttributesString:  d.AttributesString,
+		AttributesNumber:  d.AttributesNumber,
+		AttributesBool:    d.AttributesBool,
+		ScopeName:         d.ScopeName,
+		ScopeVersion:      d.ScopeVersion,
+	}
 }
 
 func MapLogRows(rows []LogRowDTO) []Log {

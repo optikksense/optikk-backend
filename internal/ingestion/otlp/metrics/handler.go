@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"context"
-	"log/slog"
 
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 )
@@ -17,9 +16,5 @@ func NewHandler(service *Service) *Handler {
 }
 
 func (h *Handler) Export(ctx context.Context, req *metricspb.ExportMetricsServiceRequest) (*metricspb.ExportMetricsServiceResponse, error) {
-	resp, err := h.service.Export(ctx, req)
-	if err == nil {
-		slog.Info("ingest: processed metrics via gRPC")
-	}
-	return resp, err
+	return h.service.Export(ctx, req)
 }

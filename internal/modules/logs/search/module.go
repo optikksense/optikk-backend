@@ -2,7 +2,6 @@ package search
 
 import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	sio "github.com/Optikk-Org/optikk-backend/internal/infra/socketio"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -22,9 +21,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	v1.GET("/logs", h.GetLogs)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+// NewModule constructs the log search module. Pass a non-nil service to share the instance with live tail WebSocket.
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc, svc *Service) registry.Module {
 	module := &logSearchModule{}
-	module.configure(nativeQuerier, getTenant)
+	module.configure(nativeQuerier, getTenant, svc)
 	return module
 }
 
@@ -36,8 +36,12 @@ type logSearchModule struct {
 func (m *logSearchModule) Name() string                      { return "logSearch" }
 func (m *logSearchModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *logSearchModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
-	m.service = NewService(NewRepository(nativeQuerier))
+func (m *logSearchModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc, svc *Service) {
+	if svc != nil {
+		m.service = svc
+	} else {
+		m.service = NewService(NewRepository(nativeQuerier))
+	}
 	m.handler = &Handler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service:  m.service,
@@ -46,8 +50,4 @@ func (m *logSearchModule) configure(nativeQuerier *registry.NativeQuerier, getTe
 
 func (m *logSearchModule) RegisterRoutes(group *gin.RouterGroup) {
 	RegisterRoutes(DefaultConfig(), group, m.handler)
-}
-
-func (m *logSearchModule) RegisterSocketIO(srv *sio.Server) {
-	srv.RegisterHandler(SocketIOHandler(m.service))
 }

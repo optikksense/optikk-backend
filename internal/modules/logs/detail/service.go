@@ -2,6 +2,7 @@ package detail
 
 import (
 	"context"
+	"time"
 
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/logs/internal/shared"
 )
@@ -20,9 +21,8 @@ func (s *Service) GetLogSurrounding(ctx context.Context, teamID int64, logID str
 		return LogSurroundingResponse{}, err
 	}
 
-	const oneHourNs = uint64(3_600_000_000_000)
-	tsLow := anchor.Timestamp - oneHourNs
-	tsHigh := anchor.Timestamp + oneHourNs
+	tsLow := anchor.Timestamp.Add(-time.Hour)
+	tsHigh := anchor.Timestamp.Add(time.Hour)
 
 	beforeRows, _ := s.repo.GetSurroundingBefore(ctx, teamID, anchor.ServiceName, tsLow, tsHigh, anchor.Timestamp, logID, before)
 	afterRows, _ := s.repo.GetSurroundingAfter(ctx, teamID, anchor.ServiceName, tsLow, tsHigh, anchor.Timestamp, logID, after)
@@ -39,14 +39,18 @@ func (s *Service) GetLogSurrounding(ctx context.Context, teamID int64, logID str
 }
 
 func (s *Service) GetLogDetail(ctx context.Context, teamID int64, traceID, spanID string, centerNs, fromNs, toNs uint64) (LogDetailResponse, error) {
-	logRow, err := s.repo.GetLogByTraceSpanWindow(ctx, teamID, traceID, spanID, centerNs-1_000_000_000, centerNs+1_000_000_000)
+	from := time.Unix(0, int64(centerNs-1_000_000_000))
+	to := time.Unix(0, int64(centerNs+1_000_000_000))
+	logRow, err := s.repo.GetLogByTraceSpanWindow(ctx, teamID, traceID, spanID, from, to)
 	if err != nil {
 		return LogDetailResponse{}, err
 	}
 
 	contextRows := []shared.LogRowDTO{}
 	if logRow.ServiceName != "" {
-		contextRows, _ = s.repo.GetContextLogs(ctx, teamID, logRow.ServiceName, fromNs, toNs)
+		cFrom := time.Unix(0, int64(fromNs))
+		cTo := time.Unix(0, int64(toNs))
+		contextRows, _ = s.repo.GetContextLogs(ctx, teamID, logRow.ServiceName, cFrom, cTo)
 	}
 
 	return LogDetailResponse{

@@ -1,0 +1,28 @@
+---
+description: Planning, approval gate, options, SOLID/DRY, dependencies — applies to optikk-backend
+alwaysApply: true
+---
+
+# Planning, review, and code quality
+
+## Before making changes
+
+1. **Plan first, code after approval** — **Do not modify project files until a written plan exists and the user has approved it** (explicit go-ahead in chat). The plan is mandatory for any non-trivial work. After approval, implement that plan; if requirements shift, revise the plan and get confirmation before diverging.
+
+2. **Create a plan** — For any non-trivial change, outline goal, scope, affected areas, and main risks *before* editing files.
+
+3. **Review the plan** — After writing it, re-read it: alignment with the request, missing edge cases, and whether the scope should shrink.
+
+**Exceptions:** Purely trivial edits (obvious one-line fix, typo, formatting only) may use a one-sentence intent and do not require a formal plan or approval — **but** if there is any doubt about scope or behavior, fall back to the full plan + approval flow.
+
+## Engineering principles (mandatory)
+
+- **SOLID** — Single responsibility, clear boundaries, depend on abstractions where it reduces coupling, keep interfaces focused.
+- **DRY** — No duplicated business rules or copy-pasted flows; factor shared behavior when the same idea appears more than once.
+- **Improve quality on every change** — Each change should leave the code **clearer, safer, or simpler** where reasonable (naming, structure, types). Avoid drive-by unrelated refactors; improve what you touch.
+- **No unsolicited tests** — Do not add or expand test cases, test files, or test scaffolding unless the user explicitly asks for them.
+
+## Libraries and dependencies
+
+- Prefer **established, actively maintained** libraries that fit the stack when they solve a non-trivial problem (parsing, auth patterns, dates, etc.).
+- Before adding a dependency: check maintenance (releases, community), overlap with existing deps, security posture, and license. Do not add redundant or niche unmaintained packages when a standard option exists.

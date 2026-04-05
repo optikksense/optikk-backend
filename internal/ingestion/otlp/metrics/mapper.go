@@ -15,7 +15,8 @@ var (
 	emptyCounts = []uint64{}
 )
 
-var metricColumns = []string{
+// MetricColumns is the ClickHouse insert column order for observability.metrics.
+var MetricColumns = []string{
 	"team_id", "env", "metric_name", "metric_type", "temporality", "is_monotonic",
 	"unit", "description", "resource_fingerprint", "timestamp", "value",
 	"hist_sum", "hist_count", "hist_buckets", "hist_counts", "attributes",

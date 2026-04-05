@@ -61,7 +61,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	slog.Info("server starting", slog.String("port", cfg.Server.Port))
 	if err := app.Start(ctx); err != nil {
 		slog.Error("server failed", slog.Any("error", err))
 		os.Exit(1)
@@ -86,16 +85,18 @@ func initLogger(mode string) {
 	}
 
 	var handler slog.Handler
-	if mode == "development" {
+	format := strings.ToLower(os.Getenv("LOG_FORMAT"))
+
+	if format == "json" {
+		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+			Level:     level,
+			AddSource: true,
+		})
+	} else {
 		handler = tint.NewHandler(os.Stdout, &tint.Options{
 			Level:      level,
 			TimeFormat: time.Kitchen,
 			AddSource:  true,
-		})
-	} else {
-		handler = slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-			Level:     level,
-			AddSource: true,
 		})
 	}
 

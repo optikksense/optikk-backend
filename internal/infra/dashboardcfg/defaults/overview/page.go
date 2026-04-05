@@ -25,7 +25,6 @@ func Page() dashboardcfg.PageDocument {
 			errorsTab(),
 			httpTab(),
 			latencyAnalysisTab(),
-			redMetricsTab(),
 			sloTab(),
 			summaryTab(),
 		},

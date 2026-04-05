@@ -15,15 +15,18 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/config"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/cache"
 	configdefaults "github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg/defaults"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/livetail"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/livetailws"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/middleware"
 	sessionauth "github.com/Optikk-Org/optikk-backend/internal/infra/session"
-	sio "github.com/Optikk-Org/optikk-backend/internal/infra/socketio"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
+	log_search "github.com/Optikk-Org/optikk-backend/internal/modules/logs/search"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
+	"github.com/gin-gonic/gin"
 	"github.com/oklog/run"
-	"github.com/redis/go-redis/v9"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
@@ -34,16 +37,12 @@ import (
 type App struct {
 	DB             *sql.DB
 	CH             clickhouse.Conn
-	Redis          *redis.Client
 	Config         config.Config
 	SessionManager *sessionauth.Manager
 	Modules        []registry.Module
 
-	// Query result cache (Redis-gated, nil-safe).
-	Cache *cache.QueryCache
-
-	// SocketIO is the Socket.IO server for real-time streaming.
-	SocketIO *sio.Server
+	// LiveTailWS serves GET /api/v1/ws/live (native WebSocket live tail).
+	LiveTailWS gin.HandlerFunc
 }
 
 func splitAllowedOrigins(allowed string) []string {
@@ -61,47 +60,36 @@ func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) (*App, error) {
 	getTenant := modulecommon.GetTenantFunc(middleware.GetTenant)
 	sessionManager := sessionauth.NewManager(cfg)
 
+	// Initialize global infrastructure parameters.
+	timebucket.Init(cfg.SpansBucketSeconds(), cfg.LogsBucketSeconds())
+
 	reg, err := configdefaults.Load()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load embedded default config registry: %w", err)
 	}
 
-	var redisClient *redis.Client
-	var queryCache *cache.QueryCache
-	if cfg.Redis.Enabled {
-		redisClient = redis.NewClient(&redis.Options{
-			Addr: fmt.Sprintf("%s:%s", cfg.Redis.Host, cfg.Redis.Port),
-		})
-		queryCache = cache.New(redisClient)
-	} else {
-		queryCache = cache.New(nil)
-	}
+	nativeQuerier := dbutil.NewNativeQuerier(ch)
 
-	nativeQuerier := dbutil.NewNativeQuerier(ch, cfg.CircuitBreakerConsecutiveFailures(), cfg.CircuitBreakerResetTimeout())
+	// New channel-based ingestion pipeline
+	dispatcher := otlp.NewDispatcher(cfg.IngestionQueueSize())
+	hub := livetail.NewHub()
 
-	modules := configuredModules(nativeQuerier, db, ch, getTenant, sessionManager, cfg, reg, queryCache)
+	logSearchSvc := log_search.NewService(log_search.NewRepository(nativeQuerier))
+	modules := configuredModules(nativeQuerier, db, ch, getTenant, sessionManager, cfg, reg, logSearchSvc, dispatcher, hub)
 
-	// Create Socket.IO server and register handlers from modules.
-	// Trim each origin so "a, b" does not leave a leading space that breaks WebSocket CheckOrigin.
-	socketIOServer, err := sio.NewServer(splitAllowedOrigins(cfg.Server.AllowedOrigins))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Socket.IO server: %w", err)
-	}
-	for _, mod := range modules {
-		if r, ok := mod.(registry.SocketIORegistrar); ok {
-			r.RegisterSocketIO(socketIOServer)
-		}
-	}
+	liveTailH := livetailws.NewHandler(livetailws.Config{
+		Hub:            hub,
+		AllowedOrigins: splitAllowedOrigins(cfg.Server.AllowedOrigins),
+		Sessions:       sessionManager,
+	})
 
 	return &App{
 		DB:             db,
 		CH:             ch,
-		Redis:          redisClient,
 		Config:         cfg,
 		SessionManager: sessionManager,
 		Modules:        modules,
-		Cache:          queryCache,
-		SocketIO:       socketIOServer,
+		LiveTailWS:     liveTailH,
 	}, nil
 }
 
@@ -111,9 +99,6 @@ func (a *App) Start(ctx context.Context) error {
 			r.Start()
 		}
 	}
-
-	// Start the Socket.IO event loop.
-	a.SocketIO.Serve()
 
 	var g run.Group
 
@@ -134,7 +119,6 @@ func (a *App) Start(ctx context.Context) error {
 			IdleTimeout:  120 * time.Second,
 		}
 		g.Add(func() error {
-			slog.Info("main API server starting", slog.String("addr", srv.Addr))
 			return srv.ListenAndServe()
 		}, func(error) {
 			shutCtx, c := context.WithTimeout(context.Background(), 10*time.Second)
@@ -168,7 +152,6 @@ func (a *App) Start(ctx context.Context) error {
 			}
 		}
 		g.Add(func() error {
-			slog.Info("gRPC server starting", slog.String("port", a.Config.OTLP.GRPCPort))
 			return grpcSrv.Serve(lis)
 		}, func(error) {
 			grpcSrv.GracefulStop()
@@ -176,10 +159,6 @@ func (a *App) Start(ctx context.Context) error {
 	}
 
 	err := g.Run()
-
-	if closeErr := a.SocketIO.Close(); closeErr != nil {
-		slog.Warn("error closing Socket.IO server", slog.Any("error", closeErr))
-	}
 
 	for _, mod := range a.Modules {
 		if r, ok := mod.(registry.BackgroundRunner); ok {

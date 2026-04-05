@@ -2,7 +2,6 @@ package livetail
 
 import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	sio "github.com/Optikk-Org/optikk-backend/internal/infra/socketio"
 	"github.com/gin-gonic/gin"
 )
 
@@ -14,12 +13,13 @@ func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-// RegisterRoutes is a no-op: live tail is exposed only via Socket.IO (see RegisterSocketIO).
+// RegisterRoutes is a no-op: live tail is exposed via WebSocket (see server wiring).
 func RegisterRoutes(_ Config, _ *gin.RouterGroup) {}
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+// NewModule constructs the traces live tail module. Pass a non-nil service to share the instance with live tail WebSocket.
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc, svc *Service) registry.Module {
 	module := &liveTailModule{}
-	module.configure(nativeQuerier, getTenant)
+	module.configure(nativeQuerier, getTenant, svc)
 	return module
 }
 
@@ -30,14 +30,14 @@ type liveTailModule struct {
 func (m *liveTailModule) Name() string                      { return "liveTail" }
 func (m *liveTailModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *liveTailModule) configure(nativeQuerier *registry.NativeQuerier, _ registry.GetTenantFunc) {
-	m.service = NewService(NewRepository(nativeQuerier))
+func (m *liveTailModule) configure(nativeQuerier *registry.NativeQuerier, _ registry.GetTenantFunc, svc *Service) {
+	if svc != nil {
+		m.service = svc
+	} else {
+		m.service = NewService(NewRepository(nativeQuerier))
+	}
 }
 
 func (m *liveTailModule) RegisterRoutes(group *gin.RouterGroup) {
 	RegisterRoutes(DefaultConfig(), group)
-}
-
-func (m *liveTailModule) RegisterSocketIO(srv *sio.Server) {
-	srv.RegisterHandler(SocketIOHandler(m.service))
 }

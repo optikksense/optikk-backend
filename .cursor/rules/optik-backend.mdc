@@ -1,0 +1,151 @@
+---
+description: Optik backend (optikk-backend) — orientation and hot paths for AI sessions
+alwaysApply: true
+---
+
+## Session workflow (do this first)
+
+1. **Read** **`CODEBASE_INDEX.md`** at the **repository root** (full map for this repo).
+2. **Read** this file — **`.cursor/rules/optik-backend.mdc`** — hot paths and patterns.
+3. **Read** **`.cursor/rules/engineering-workflow.mdc`** — plan, approval before code, two options, quality bar.
+4. **After every iteration (mandatory):** Review and update if anything changed:
+   - **`CODEBASE_INDEX.md`** — new modules, endpoints, helpers, config, cross-repo contracts
+   - **This file** (`.cursor/rules/optik-backend.mdc`) — new patterns, conventions, LLD details
+   - **`.agent/SKILL.md`** and **`CLAUDE.md`** — keep aligned
+
+   Documentation must always reflect current architecture. Always check, even for small changes.
+
+## Canonical map
+
+**`CODEBASE_INDEX.md`** (repo root) lists modules, ingestion, dashboardcfg, and the cross-repo map to **optic-frontend**.
+
+## Stack
+
+Go 1.25, Gin, ClickHouse, MySQL, Redis, WebSocket live tail (`/api/v1/ws/live`), OTLP ingestion.
+
+## Entry / wiring
+
+- Server entry: `cmd/server/main.go`
+- Module registration: `internal/app/server/modules_manifest.go` — **`configuredModules()`** lists all `registry.Module` constructors; new HTTP domains go here.
+- Shared deps: `internal/app/registry/registry.go`
+- App wiring: `internal/app/server/app.go`
+
+## Dashboard / default config
+
+- HTTP + service: `internal/modules/dashboard/`
+- JSON pages and loader: `internal/infra/dashboardcfg/` (embedded pages under `internal/infra/dashboardcfg/pages/`)
+- Default pages package: `internal/infra/dashboardcfg/defaults/` — includes **`service`** (deployments tab; frontend path `/service`, query `serviceName`)
+- Schema/version notes: `CurrentSchemaVersion` in `internal/infra/dashboardcfg/models.go`
+
+## Deployments module
+
+- **`internal/modules/deployments/`** — `GET /api/v1/deployments/list|timeline|impact|active-version` (query `serviceName`, range `start`/`end`); **`registry.Cached`** (30s). Uses **`observability.spans`** with `mat_service_version` / `mat_deployment_environment` materialized columns (`db/clickhouse_*.sql`).
+
+## Realtime
+
+- Live tail WebSocket: `internal/infra/livetailws/` — `GET /api/v1/ws/live` (`subscribe:logs` / `subscribe:spans` JSON protocol)
+
+## Ingestion
+
+- OTLP: `internal/ingestion/otlp/` — gRPC → `XADD` to `otlp:ingest:{logs,metrics,spans}`; **`internal/ingestion/otlp/streamworkers/`** (`BackgroundRunner`) — `XREADGROUP` → ClickHouse + livetail bridges to `livetail:*:stream:{team}`; **`rowjson`** encode/decode; Redis required for OTLP publish path.
+
+## Config
+
+- `internal/config/config.go` — loads `config.yml`; struct sections: `ServerConfig`, `MySQLConfig`, `ClickHouseConfig`, `SessionConfig`, `RedisConfig`, `OtlRedisStream`, `OTLPConfig`, `RetentionConfig`, `AppConfig`, `CircuitBreakerConfig`
+
+---
+
+## Low-Level Design Patterns
+
+### Handler pattern
+
+```go
+type Handler struct {
+    GetTenant httputil.GetTenantFunc
+    Service   Service // interface, not concrete
+}
+
+func (h *Handler) SomeEndpoint(c *gin.Context) {
+    teamID := h.GetTenant(c).TeamID
+    startMs, endMs, ok := httputil.ParseRequiredRange(c)
+    if !ok { return } // error already written
+
+    result, err := h.Service.DoSomething(c.Request.Context(), teamID, startMs, endMs)
+    if err != nil {
+        httputil.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "failed to do something", err)
+        return
+    }
+    httputil.RespondOK(c, result)
+}
+```
+
+- **Import alias**: `modulecommon "github.com/.../internal/shared/httputil"`
+- `ParseRequiredRange(c)` — returns `(startMs, endMs int64, ok bool)`; writes 400 if missing
+- `ParseRange(c)` — returns `(startMs, endMs int64, err error)` for manual handling
+- `ParseComparisonRange(c, startMs, endMs)` — optional comparison window (`previous_period`, `previous_day`, `previous_week`)
+- `WithComparison(c, startMs, endMs, queryFn)` — runs query for primary + optional comparison range
+- `ParseInt64Param`, `ParseIntParam`, `ParseFloatParam`, `ParseListParam` — query param helpers
+- `ParsePageSize(c, key, fallback)` — capped at `MaxPageSize` (200)
+
+### Service / Repository separation
+
+- **Service** = interface + concrete struct; business logic, orchestration
+- **Repository** = interface + concrete struct; raw ClickHouse/MySQL queries
+- Constructor chain: `NewService(NewRepository(nativeQuerier))` — service depends on repo interface
+
+### Module registration flow
+
+```go
+// module.go
+func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+    m := &myModule{}
+    m.handler = &Handler{
+        GetTenant: getTenant,
+        Service:   NewService(NewRepository(nativeQuerier)),
+    }
+    return m
+}
+
+func (m *myModule) Name() string                      { return "moduleName" }
+func (m *myModule) RouteTarget() registry.RouteTarget { return registry.V1 }
+func (m *myModule) RegisterRoutes(group *gin.RouterGroup) {
+    g := group.Group("/my-endpoint")
+    g.GET("/list", m.handler.List)
+    g.POST("/query", m.handler.Query)
+}
+```
+
+- Add constructor to `modules_manifest.go:configuredModules()`
+- Extension interfaces: `Module` (HTTP), `GRPCRegistrar`, `BackgroundRunner`
+
+### ClickHouse query helpers (`internal/infra/database/`)
+
+- `dbutil.QueryMaps(querier, sql, args...)` — returns `[]map[string]any` (10K row limit)
+- `dbutil.QueryMapsLimit(querier, limit, sql, args...)` — custom limit
+- `dbutil.SqlTime(ms)` — Unix ms to `time.Time` UTC for ClickHouse params
+- `dbutil.Int64FromAny(v)`, `Float64FromAny(v)`, `StringFromAny(v)` — type-safe row extraction
+- `dbutil.NormalizeRows(rows)` — sanitize NaN/Inf to 0 for JSON
+- `dbutil.SanitizeError(err)` — strip internal details before client response
+- Named params: `clickhouse.Named("teamID", teamID)` with `@teamID` in SQL
+
+### Time bucketing (`internal/infra/timebucket/`)
+
+- `timebucket.NewAdaptiveStrategy(startMs, endMs)` — picks minute/5min/hour/day based on range
+- `.GetBucketExpression()` — returns SQL expr for SELECT + GROUP BY
+- `.GetRawExpression(column)` — for custom column name
+
+### Middleware stack (order in `routes.go`)
+
+1. `gin.Default()` — Logger + Recovery
+2. `middleware.ErrorRecovery()` — custom panic to `contracts.Failure`
+3. `middleware.CORSMiddleware(allowedOrigins)` — origin allowlist, credentials
+4. `/api/v1` group: `middleware.TenantMiddleware(sessionManager)` — session auth + team resolution
+5. Rate limiter — Redis-backed (`NewRedisRateLimiter`) or in-memory (`NewRateLimiter`); 2000 req/s
+6. Optional `cache.CacheResponse(cache, 30s)` for modules with `RouteTarget() == registry.Cached`
+
+### API response envelope
+
+- Shape: `contracts.APIResponse{Success bool, Data any, Error *ErrorDetail}`
+- `contracts.Success(data)` / `contracts.Failure(code, msg, path)`
+- Error codes (`errorcode` package): `BadRequest`, `Validation`, `Unauthorized`, `Forbidden`, `NotFound`, `Conflict`, `RateLimited`, `Internal`, `QueryFailed`, `QueryTimeout`, `ConnectionError`, `Unavailable`, `CircuitOpen`
+- Data-level: `NoData`, `PartialData` (inside success responses)

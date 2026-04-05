@@ -8,7 +8,6 @@ import (
 	configdefaults "github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	sessionauth "github.com/Optikk-Org/optikk-backend/internal/infra/session"
-	sio "github.com/Optikk-Org/optikk-backend/internal/infra/socketio"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
@@ -48,9 +47,4 @@ type GRPCRegistrar interface {
 type BackgroundRunner interface {
 	Start()
 	Stop() error
-}
-
-// SocketIORegistrar is implemented by modules that register Socket.IO handlers.
-type SocketIORegistrar interface {
-	RegisterSocketIO(srv *sio.Server)
 }

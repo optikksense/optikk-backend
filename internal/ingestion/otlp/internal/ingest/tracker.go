@@ -3,48 +3,35 @@ package ingest
 import (
 	"context"
 	"database/sql"
-	"errors"
-	"fmt"
 	"log/slog"
-	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
-
-	"github.com/redis/go-redis/v9"
 )
 
-const (
-	// redisKeyPrefix is the prefix for all usage counter keys in Redis.
-	// Key format: usage:bytes:{teamID}:{YYYYMMDDHH}
-	redisKeyPrefix = "usage:bytes:"
-	// redisKeyTTL is how long hourly counter keys live before auto-expiring.
-	redisKeyTTL = 48 * time.Hour
-)
-
-// ByteTracker aggregates ingested byte counts per team using Redis atomic
-// counters and periodically flushes the totals into MySQL.
+// ByteTracker aggregates ingested byte counts per team using in-memory
+// atomic counters and periodically flushes the totals into MySQL.
 type ByteTracker struct {
-	rdb           *redis.Client
 	db            *sql.DB
 	flushInterval time.Duration
 	stopCh        chan struct{}
 	wg            sync.WaitGroup
+
+	// counts maps teamID (int64) to per-team byte counter (*int64).
+	// We use a sync.Map for thread-safe access to per-team counters.
+	counts sync.Map
 }
 
-// NewByteTracker creates a tracker backed by Redis atomic counters.
-// If rdb is nil, tracking is silently disabled (no-op).
-func NewByteTracker(db *sql.DB, rdb *redis.Client, flushInterval time.Duration) *ByteTracker {
+// NewByteTracker creates a tracker backed by in-memory atomic counters.
+func NewByteTracker(db *sql.DB, flushInterval time.Duration) *ByteTracker {
 	bt := &ByteTracker{
-		rdb:           rdb,
 		db:            db,
 		flushInterval: flushInterval,
 		stopCh:        make(chan struct{}),
 	}
-	if rdb != nil {
-		bt.wg.Add(1)
-		go bt.flushLoop()
-	}
+	bt.wg.Add(1)
+	go bt.flushLoop()
 	return bt
 }
 
@@ -54,29 +41,17 @@ func (b *ByteTracker) Stop() {
 	b.wg.Wait()
 }
 
-// Track increments the ingested byte count for a team.
-// Uses Redis INCRBY — atomic, lock-free, crash-safe.
+// Track increments the ingested byte count for a team using in-memory atomic counters.
 func (b *ByteTracker) Track(teamID int64, bytes int64) {
-	if bytes <= 0 || teamID <= 0 || b.rdb == nil {
+	if bytes <= 0 || teamID <= 0 {
 		return
 	}
-	key := redisKey(teamID)
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-	defer cancel()
-	pipe := b.rdb.Pipeline()
-	pipe.IncrBy(ctx, key, bytes)
-	pipe.Expire(ctx, key, redisKeyTTL)
-	if _, err := pipe.Exec(ctx); err != nil {
-		slog.Warn("ingest/bytetracker: redis INCRBY failed", slog.Int64("team", teamID), slog.Any("error", err))
-	}
+
+	actual, _ := b.counts.LoadOrStore(teamID, new(int64))
+	atomic.AddInt64(actual.(*int64), bytes)
 }
 
-func redisKey(teamID int64) string {
-	hour := time.Now().UTC().Format("2006010215")
-	return redisKeyPrefix + strconv.FormatInt(teamID, 10) + ":" + hour
-}
-
-// flushLoop periodically scans Redis for usage keys and flushes totals to MySQL.
+// flushLoop periodically aggregates the in-memory totals and flushes to MySQL.
 func (b *ByteTracker) flushLoop() {
 	defer b.wg.Done()
 	ticker := time.NewTicker(b.flushInterval)
@@ -93,66 +68,30 @@ func (b *ByteTracker) flushLoop() {
 	}
 }
 
-// flush scans all usage:bytes:* keys, aggregates per team, atomically reads
-// and deletes each key (GETDEL), then batch-updates MySQL.
+// flush snapshots the current in-memory totals, resets them, and batch-updates MySQL.
 func (b *ByteTracker) flush() {
+	// Collect and reset counters
+	snapshot := make(map[int64]int64)
+	b.counts.Range(func(key, value any) bool {
+		teamID := key.(int64)
+		counter := value.(*int64)
+		
+		// Atomically swap the counter with 0 to get the delta for this interval.
+		delta := atomic.SwapInt64(counter, 0)
+		if delta > 0 {
+			snapshot[teamID] = delta
+		}
+		return true
+	})
+
+	if len(snapshot) == 0 {
+		return
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	// Scan for all usage keys.
-	var keys []string
-	iter := b.rdb.Scan(ctx, 0, redisKeyPrefix+"*", 1000).Iterator()
-	for iter.Next(ctx) {
-		keys = append(keys, iter.Val())
-	}
-	if err := iter.Err(); err != nil {
-		slog.Error("ingest/bytetracker: redis SCAN failed", slog.Any("error", err))
-		return
-	}
-	if len(keys) == 0 {
-		return
-	}
-
-	// Atomically read + delete each key and aggregate per team.
-	counts := make(map[int64]int64)
-	for _, key := range keys {
-		val, err := b.rdb.GetDel(ctx, key).Result()
-		if errors.Is(err, redis.Nil) {
-			continue
-		}
-		if err != nil {
-			slog.Warn("ingest/bytetracker: redis GETDEL failed", slog.String("key", key), slog.Any("error", err))
-			continue
-		}
-		bytes, _ := strconv.ParseInt(val, 10, 64)
-		if bytes <= 0 {
-			continue
-		}
-		teamID := parseTeamIDFromKey(key)
-		if teamID <= 0 {
-			continue
-		}
-		counts[teamID] += bytes
-	}
-
-	if len(counts) == 0 {
-		return
-	}
-
-	b.updateMySQL(ctx, counts)
-}
-
-// parseTeamIDFromKey extracts the team ID from a key like "usage:bytes:42:2026032812".
-func parseTeamIDFromKey(key string) int64 {
-	// Strip prefix "usage:bytes:"
-	rest := strings.TrimPrefix(key, redisKeyPrefix)
-	// rest = "42:2026032812"
-	idx := strings.Index(rest, ":")
-	if idx < 0 {
-		return 0
-	}
-	id, _ := strconv.ParseInt(rest[:idx], 10, 64)
-	return id
+	b.updateMySQL(ctx, snapshot)
 }
 
 // updateMySQL batches all team byte counts into a single UPDATE statement.
@@ -166,6 +105,7 @@ func (b *ByteTracker) updateMySQL(ctx context.Context, counts map[int64]int64) {
 	args := make([]any, 0, len(teamIDs)*3)
 	sb.WriteString("UPDATE teams SET data_ingested_kb = data_ingested_kb + CASE id ")
 	for _, id := range teamIDs {
+		// Convert to KB, minimum 1 to ensure some visibility for small pulses.
 		kb := counts[id] / 1024
 		if kb == 0 {
 			kb = 1
@@ -186,15 +126,11 @@ func (b *ByteTracker) updateMySQL(ctx context.Context, counts map[int64]int64) {
 	if _, err := b.db.ExecContext(ctx, sb.String(), args...); err != nil {
 		slog.Error("ingest/bytetracker: MySQL batch update failed",
 			slog.Int("teams", len(teamIDs)), slog.Any("error", err))
-		// Re-add failed counts back to Redis so they are retried next flush.
-		reCtx, reCancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer reCancel()
-		for _, id := range teamIDs {
-			key := fmt.Sprintf("%s%d:retry", redisKeyPrefix, id)
-			b.rdb.IncrBy(reCtx, key, counts[id])
-			b.rdb.Expire(reCtx, key, redisKeyTTL)
-		}
+		
+		// If MySQL fails, we unfortunately lose these counts in the current simplified model.
+		// However, given it's just usage tracking for visibility, this is acceptable
+		// compared to the overhead of Redis persistence.
 	} else {
-		slog.Info("ingest/bytetracker: flushed to MySQL", slog.Int("teams", len(teamIDs)))
+		slog.Debug("ingest/bytetracker: flushed to MySQL", slog.Int("teams", len(teamIDs)))
 	}
 }

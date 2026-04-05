@@ -53,6 +53,7 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, clientIP string) 
 		DefaultTeamID: teamID,
 		TeamIDs:       teamIDs,
 	}); err != nil {
+		slog.Warn("AUTH_EVENT session_create_failed", slog.Int64("user_id", user.ID), slog.String("email", user.Email), slog.Any("error", err))
 		return AuthContextResponse{}, usershared.NewInternalError("Failed to create session", err)
 	}
 
