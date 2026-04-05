@@ -33,6 +33,6 @@ func (m *Module) Stop() error {
 }
 
 var (
-	_ registry.Module          = (*Module)(nil)
+	_ registry.Module           = (*Module)(nil)
 	_ registry.BackgroundRunner = (*Module)(nil)
 )

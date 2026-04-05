@@ -75,7 +75,7 @@ func (b *ByteTracker) flush() {
 	b.counts.Range(func(key, value any) bool {
 		teamID := key.(int64)
 		counter := value.(*int64)
-		
+
 		// Atomically swap the counter with 0 to get the delta for this interval.
 		delta := atomic.SwapInt64(counter, 0)
 		if delta > 0 {
@@ -126,7 +126,7 @@ func (b *ByteTracker) updateMySQL(ctx context.Context, counts map[int64]int64) {
 	if _, err := b.db.ExecContext(ctx, sb.String(), args...); err != nil {
 		slog.Error("ingest/bytetracker: MySQL batch update failed",
 			slog.Int("teams", len(teamIDs)), slog.Any("error", err))
-		
+
 		// If MySQL fails, we unfortunately lose these counts in the current simplified model.
 		// However, given it's just usage tracking for visibility, this is acceptable
 		// compared to the overhead of Redis persistence.

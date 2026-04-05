@@ -62,10 +62,10 @@ func buildLogRow(teamID int64, resourceMap map[string]string, fingerprint string
 	attrStr = capStringAttrs(attrStr, teamID)
 
 	return ingest.Row{Values: []any{
-		uint32(teamID), //nolint:gosec // G115 — team_id
-		tsBucket,       // ts_bucket_start
+		uint32(teamID),             //nolint:gosec // G115 — team_id
+		tsBucket,                   // ts_bucket_start
 		protoconv.NanoToTime(tsNs), // timestamp
-		observedNs,     // observed_timestamp
+		observedNs,                 // observed_timestamp
 		protoLogID(teamID, tsNs, lr.TraceId, lr.SpanId, body), // id
 		protoconv.BytesToHex(lr.TraceId),                      // trace_id
 		protoconv.BytesToHex(lr.SpanId),                       // span_id

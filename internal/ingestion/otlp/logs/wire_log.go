@@ -176,7 +176,6 @@ func wireMapStringString(v any) map[string]string {
 	return wireMapStringAny(v)
 }
 
-
 func wireMapStringFloat(v any) map[string]float64 {
 	switch m := v.(type) {
 	case map[string]float64:

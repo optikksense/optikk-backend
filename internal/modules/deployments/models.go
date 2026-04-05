@@ -4,12 +4,12 @@ import "time"
 
 // Deployment is a distinct (version, environment) observed for a service in the time range.
 type Deployment struct {
-	Version       string    `json:"version"`
-	Environment   string    `json:"environment"`
-	FirstSeen     time.Time `json:"first_seen"`
-	LastSeen      time.Time `json:"last_seen"`
-	SpanCount     int64     `json:"span_count"`
-	IsActive      bool      `json:"is_active"`
+	Version     string    `json:"version"`
+	Environment string    `json:"environment"`
+	FirstSeen   time.Time `json:"first_seen"`
+	LastSeen    time.Time `json:"last_seen"`
+	SpanCount   int64     `json:"span_count"`
+	IsActive    bool      `json:"is_active"`
 }
 
 // ListDeploymentsResponse is the payload for GET /deployments/list.
@@ -39,7 +39,7 @@ type ImpactWindowMetrics struct {
 
 // DeploymentImpactRow is one row in the impact table (MVP).
 type DeploymentImpactRow struct {
-	Version   string `json:"version"`
+	Version     string `json:"version"`
 	Environment string `json:"environment"`
 
 	ErrorRateBefore *float64 `json:"error_rate_before,omitempty"`

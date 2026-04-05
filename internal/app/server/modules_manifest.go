@@ -3,9 +3,9 @@ package server
 import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/livetail"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
 	otlp_logs "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/logs"
 	otlp_metrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/metrics"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
 	otlp_spans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
 	otlp_streamworkers "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/streamworkers"
 	ai_conversations "github.com/Optikk-Org/optikk-backend/internal/modules/ai/conversations"
@@ -54,7 +54,7 @@ import (
 	spans_tracedetail "github.com/Optikk-Org/optikk-backend/internal/modules/traces/tracedetail"
 	user_auth "github.com/Optikk-Org/optikk-backend/internal/modules/user/auth"
 	user_team "github.com/Optikk-Org/optikk-backend/internal/modules/user/team"
-	user_user 	"github.com/Optikk-Org/optikk-backend/internal/modules/user/user"
+	user_user "github.com/Optikk-Org/optikk-backend/internal/modules/user/user"
 )
 
 func configuredModules(

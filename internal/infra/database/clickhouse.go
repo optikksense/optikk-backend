@@ -15,7 +15,6 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 )
 
-
 // clickHouseTransientErrorSubstrings matches transport-layer failures worth retrying
 // and mirrors the circuit-breaker "unsuccessful" string checks.
 var clickHouseTransientErrorSubstrings = []string{
@@ -48,7 +47,6 @@ func applyClickHouseConnectionPoolDefaults(opts *clickhouse.Options) {
 		opts.ConnMaxLifetime = defaultCHConnMaxLifetime
 	}
 }
-
 
 type Querier interface {
 	Exec(query string, args ...any) (sql.Result, error)
@@ -121,7 +119,6 @@ func OpenClickHouseConn(dsn string, isProduction bool, cloud ...ClickHouseCloudC
 	return conn, nil
 }
 
-
 type sqlRowsAdapter struct {
 	rows *sql.Rows
 }
@@ -188,7 +185,6 @@ func NewNativeQuerier(conn clickhouse.Conn) *NativeQuerier {
 		conn: conn,
 	}
 }
-
 
 // isRetriableClickHouseNetworkError reports whether err is likely transient at the
 // transport layer and safe to retry for read-only queries.
