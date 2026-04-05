@@ -2,6 +2,7 @@ package metrics
 
 import (
 	"context"
+	"log/slog"
 
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 )
