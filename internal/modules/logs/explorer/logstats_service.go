@@ -2,7 +2,6 @@ package explorer
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -27,18 +26,6 @@ type LogStatsService struct {
 
 func newLogStatsService(db *dbutil.NativeQuerier) *LogStatsService {
 	return &LogStatsService{repo: newLogStatsRepository(db)}
-}
-
-func (s *LogStatsService) GetLogHistogram(ctx context.Context, f shared.LogFilters, step string) (LogHistogramData, error) {
-	rows, err := s.repo.GetLogHistogram(ctx, f, step)
-	if err != nil {
-		return LogHistogramData{}, err
-	}
-	buckets := make([]LogHistogramBucket, len(rows))
-	for i, row := range rows {
-		buckets[i] = LogHistogramBucket(row)
-	}
-	return LogHistogramData{Buckets: buckets, Step: step}, nil
 }
 
 func (s *LogStatsService) GetLogVolume(ctx context.Context, f shared.LogFilters, step string) (LogVolumeData, error) {
@@ -87,22 +74,6 @@ func (s *LogStatsService) GetLogStats(ctx context.Context, f shared.LogFilters) 
 	}
 
 	return LogStats{Total: total, Fields: fields}, nil
-}
-
-func (s *LogStatsService) GetLogFields(ctx context.Context, f shared.LogFilters, field string) (FieldValuesResponse, error) {
-	col, ok := allowedFieldColumns[field]
-	if !ok {
-		return FieldValuesResponse{}, errors.New("field is required and must be one of: severity_text, service, host, pod, container, scope_name, environment")
-	}
-	rows, err := s.repo.GetLogFields(ctx, f, col)
-	if err != nil {
-		return FieldValuesResponse{}, err
-	}
-	values := make([]Facet, len(rows))
-	for i, row := range rows {
-		values[i] = Facet(row)
-	}
-	return FieldValuesResponse{Field: field, Values: values}, nil
 }
 
 func (s *LogStatsService) GetLogAggregate(ctx context.Context, f shared.LogFilters, req LogAggregateRequest) (LogAggregateResponse, error) {

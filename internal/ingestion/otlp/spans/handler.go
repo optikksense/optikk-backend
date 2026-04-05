@@ -2,7 +2,6 @@ package spans
 
 import (
 	"context"
-	"log/slog"
 
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 )

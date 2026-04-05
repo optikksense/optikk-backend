@@ -27,10 +27,8 @@ import (
 	infrastructure_network "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/network"
 	infrastructure_nodes "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/nodes"
 	infrastructure_resource_utilisation "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/resourceutil"
-	log_detail "github.com/Optikk-Org/optikk-backend/internal/modules/logs/detail"
 	log_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/logs/explorer"
 	log_search "github.com/Optikk-Org/optikk-backend/internal/modules/logs/search"
-	log_tracelogs "github.com/Optikk-Org/optikk-backend/internal/modules/logs/tracelogs"
 	overview_errors "github.com/Optikk-Org/optikk-backend/internal/modules/overview/errors"
 	overview_overview "github.com/Optikk-Org/optikk-backend/internal/modules/overview/overview"
 	overview_slo "github.com/Optikk-Org/optikk-backend/internal/modules/overview/slo"
@@ -89,10 +87,8 @@ func configuredModules(
 		infrastructure_network.NewModule(nativeQuerier, getTenant),
 		infrastructure_nodes.NewModule(nativeQuerier, getTenant),
 		infrastructure_resource_utilisation.NewModule(nativeQuerier, getTenant),
-		log_detail.NewModule(nativeQuerier, getTenant),
 		log_explorer.NewModule(nativeQuerier, getTenant),
 		log_search.NewModule(nativeQuerier, getTenant, logSearchSvc),
-		log_tracelogs.NewModule(nativeQuerier, getTenant),
 		otlp_streamworkers.NewModule(clickHouseConn, dispatcher, hub, appConfig),
 		otlp_spans.NewModule(sqlDB, appConfig, dispatcher),
 		otlp_logs.NewModule(sqlDB, appConfig, dispatcher),
