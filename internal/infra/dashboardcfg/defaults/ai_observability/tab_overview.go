@@ -70,7 +70,6 @@ func overviewTab() dashboardcfg.TabDefinition {
 				ValueField:    "pii_count",
 				Formatter:     "number",
 			},
-
 		},
 	}
 }

@@ -9,7 +9,6 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-
 func (h *Handler) GetLogVolume(c *gin.Context) {
 	filters, ok := shared.EnrichFilters(c, h.GetTenant(c).TeamID)
 	if !ok {
@@ -35,7 +34,6 @@ func (h *Handler) GetLogStats(c *gin.Context) {
 	}
 	modulecommon.RespondOK(c, resp)
 }
-
 
 func (h *Handler) GetLogAggregate(c *gin.Context) {
 	filters, ok := shared.EnrichFilters(c, h.GetTenant(c).TeamID)

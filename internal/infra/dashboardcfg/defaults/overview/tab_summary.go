@@ -220,6 +220,15 @@ func summaryTab() dashboardcfg.TabDefinition {
 				Title:         "Services",
 				Description:   "All services reporting in the selected time window with key metrics including request rate, error rate, and p95 latency.",
 				TitleIcon:     "Layers",
+				Columns: []dashboardcfg.DashboardTableColumn{
+					{Key: "service_name", Label: "Service", Align: dashboardcfg.ColumnAlign("left")},
+					{Key: "request_count", Label: "Requests", Formatter: "number", Align: dashboardcfg.ColumnAlign("right")},
+					{Key: "error_count", Label: "Errors", Formatter: "number", Align: dashboardcfg.ColumnAlign("right")},
+					{Key: "avg_latency", Label: "Avg Latency", Formatter: "ms", Align: dashboardcfg.ColumnAlign("right")},
+					{Key: "p50_latency", Label: "p50", Formatter: "ms", Align: dashboardcfg.ColumnAlign("right")},
+					{Key: "p95_latency", Label: "p95", Formatter: "ms", Align: dashboardcfg.ColumnAlign("right")},
+					{Key: "p99_latency", Label: "p99", Formatter: "ms", Align: dashboardcfg.ColumnAlign("right")},
+				},
 			},
 			dashboardcfg.PanelDefinition{
 				ID:            "endpoints-table",
@@ -232,6 +241,16 @@ func summaryTab() dashboardcfg.TabDefinition {
 				Title:         "Top Endpoints",
 				Description:   "Highest-traffic endpoints ranked by request volume. Helps identify which endpoints drive the most load.",
 				TitleIcon:     "List",
+				Columns: []dashboardcfg.DashboardTableColumn{
+					{Key: "service_name", Label: "Service", Align: dashboardcfg.ColumnAlign("left")},
+					{Key: "operation_name", Label: "Operation", Align: dashboardcfg.ColumnAlign("left")},
+					{Key: "http_method", Label: "Method", Align: dashboardcfg.ColumnAlign("center")},
+					{Key: "request_count", Label: "Requests", Formatter: "number", Align: dashboardcfg.ColumnAlign("right")},
+					{Key: "error_count", Label: "Errors", Formatter: "number", Align: dashboardcfg.ColumnAlign("right")},
+					{Key: "avg_latency", Label: "Avg Latency", Formatter: "ms", Align: dashboardcfg.ColumnAlign("right")},
+					{Key: "p50_latency", Label: "p50", Formatter: "ms", Align: dashboardcfg.ColumnAlign("right")},
+					{Key: "p95_latency", Label: "p95", Formatter: "ms", Align: dashboardcfg.ColumnAlign("right")},
+				},
 			},
 		},
 	}
