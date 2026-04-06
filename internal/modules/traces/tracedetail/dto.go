@@ -35,6 +35,29 @@ type errorPathRow struct {
 	DurationMs    float64   `ch:"duration_ms"`
 }
 
+// traceLogRow is the scan target for GetTraceLogs.
+type traceLogRow struct {
+	ID                string             `ch:"id"`
+	Timestamp         time.Time          `ch:"timestamp"`
+	ObservedTimestamp uint64             `ch:"observed_timestamp"`
+	SeverityText      string             `ch:"severity_text"`
+	SeverityNumber    uint8              `ch:"severity_number"`
+	Body              string             `ch:"body"`
+	TraceID           string             `ch:"trace_id"`
+	SpanID            string             `ch:"span_id"`
+	TraceFlags        uint32             `ch:"trace_flags"`
+	ServiceName       string             `ch:"service"`
+	Host              string             `ch:"host"`
+	Pod               string             `ch:"pod"`
+	Container         string             `ch:"container"`
+	Environment       string             `ch:"environment"`
+	AttributesString  map[string]string  `ch:"attributes_string"`
+	AttributesNumber  map[string]float64 `ch:"attributes_number"`
+	AttributesBool    map[string]bool    `ch:"attributes_bool"`
+	ScopeName         string             `ch:"scope_name"`
+	ScopeVersion      string             `ch:"scope_version"`
+}
+
 // flamegraphRow is the scan target for GetFlamegraphData.
 // Name, Level, and SelfTimeMs are computed in the service layer.
 type flamegraphRow struct {

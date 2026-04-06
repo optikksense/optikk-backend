@@ -40,7 +40,7 @@ This is **mandatory**, not optional. The documentation must always reflect the c
 - **Deployments API**: `internal/modules/deployments/` — `/api/v1/deployments/*`
 - **Logs live tail**: `internal/modules/logs/search/livetail_run.go`, `livetail_payload.go` — Redis Stream subscription, no ClickHouse polling
 - **Explorer**: `internal/modules/explorer/analytics/` — `POST /api/v1/explorer/:scope/analytics` (scope: `logs` or `traces`); query parser: `explorer/queryparser/`
-- **Traces**: `internal/modules/traces/{query,explorer,tracedetail,redmetrics,errorfingerprint,errortracking,tracecompare,livetail}/`
+- **Traces**: `internal/modules/traces/{query,explorer,tracedetail,redmetrics,errorfingerprint,errortracking,tracecompare,livetail}/` — tracedetail includes `/traces/:traceId/logs` for trace-correlated log retrieval
 - **Config**: `internal/config/config.go` (loads `config.yml`; `redis.password` / `redis.db` optional for secured Redis)
 - **Sibling repo**: `optic-frontend` (see its `CODEBASE_INDEX.md`)
 

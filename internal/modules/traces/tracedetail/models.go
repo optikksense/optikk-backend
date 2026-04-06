@@ -80,6 +80,35 @@ type FlamegraphFrame struct {
 	HasError   bool    `json:"has_error"`
 }
 
+// TraceLog is the JSON response model for a log entry associated with a trace.
+type TraceLog struct {
+	ID                string             `json:"id"`
+	Timestamp         uint64             `json:"timestamp"`
+	ObservedTimestamp uint64             `json:"observed_timestamp,omitempty"`
+	SeverityText      string             `json:"severity_text"`
+	SeverityNumber    uint8              `json:"severity_number,omitempty"`
+	Body              string             `json:"body"`
+	TraceID           string             `json:"trace_id"`
+	SpanID            string             `json:"span_id"`
+	TraceFlags        uint32             `json:"trace_flags,omitempty"`
+	ServiceName       string             `json:"service_name"`
+	Host              string             `json:"host"`
+	Pod               string             `json:"pod"`
+	Container         string             `json:"container"`
+	Environment       string             `json:"environment"`
+	AttributesString  map[string]string  `json:"attributes_string,omitempty"`
+	AttributesNumber  map[string]float64 `json:"attributes_number,omitempty"`
+	AttributesBool    map[string]bool    `json:"attributes_bool,omitempty"`
+	ScopeName         string             `json:"scope_name,omitempty"`
+	ScopeVersion      string             `json:"scope_version,omitempty"`
+}
+
+// TraceLogsResponse wraps the trace logs with a speculative flag.
+type TraceLogsResponse struct {
+	Logs          []TraceLog `json:"logs"`
+	IsSpeculative bool       `json:"is_speculative"`
+}
+
 type RelatedTrace struct {
 	TraceID       string    `json:"trace_id"       ch:"trace_id"`
 	SpanID        string    `json:"span_id"        ch:"span_id"`

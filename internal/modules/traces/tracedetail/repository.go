@@ -31,6 +31,7 @@ type Repository interface {
 	GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*spanAttributeRow, error)
 	GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
 	GetFlamegraphData(ctx context.Context, teamID int64, traceID string) ([]flamegraphRow, error)
+	GetTraceLogs(ctx context.Context, teamID int64, traceID string) ([]traceLogRow, error)
 }
 
 type ClickHouseRepository struct {

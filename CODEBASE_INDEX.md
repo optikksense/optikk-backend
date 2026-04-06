@@ -75,7 +75,7 @@ The web app lives in the sibling repo **`optic-frontend`** (see that repo's `COD
 |-----------|--------------|
 | `traces/query` | `GET /traces`, `/traces/:traceId/spans`, `/spans/:spanId/tree`, `/spans/search`, `/services/dependencies`, `/services/:serviceName/errors/*`, `/latency/*`, `/errors/*` |
 | `traces/explorer` | `POST /traces/explorer/query` |
-| `traces/tracedetail` | `GET /traces/:traceId/{span-events,span-kind-breakdown,critical-path,span-self-times,error-path,flamegraph,related}`, `/traces/:traceId/spans/:spanId/attributes` |
+| `traces/tracedetail` | `GET /traces/:traceId/{span-events,span-kind-breakdown,critical-path,span-self-times,error-path,flamegraph,logs,related}`, `/traces/:traceId/spans/:spanId/attributes` |
 | `traces/redmetrics` | `GET /spans/red/{summary,apdex,top-slow-operations,top-error-operations,request-rate,error-rate,p95-latency,span-kind-breakdown,errors-by-route}`, `/spans/latency-breakdown` |
 | `traces/errorfingerprint` | `GET /errors/fingerprints`, `/errors/fingerprints/trend` |
 | `traces/errortracking` | `GET /spans/exception-rate-by-type`, `/spans/error-hotspot`, `/spans/http-5xx-by-route` |
