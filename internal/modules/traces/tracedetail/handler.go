@@ -110,6 +110,18 @@ func (h *TraceDetailHandler) GetFlamegraphData(c *gin.Context) {
 	modulecommon.RespondOK(c, frames)
 }
 
+func (h *TraceDetailHandler) GetTraceLogs(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	traceID := c.Param("traceId")
+
+	resp, err := h.Service.GetTraceLogs(teamID, traceID)
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query trace logs", err)
+		return
+	}
+	modulecommon.RespondOK(c, resp)
+}
+
 func (h *TraceDetailHandler) GetRelatedTraces(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")

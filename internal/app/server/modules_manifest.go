@@ -2,10 +2,12 @@ package server
 
 import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/cache"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/livetail"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
 	otlp_logs "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/logs"
 	otlp_metrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/metrics"
 	otlp_spans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
+	otlp_streamworkers "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/streamworkers"
 	ai_conversations "github.com/Optikk-Org/optikk-backend/internal/modules/ai/conversations"
 	ai_dashboard "github.com/Optikk-Org/optikk-backend/internal/modules/ai/dashboard"
 	ai_rundetail "github.com/Optikk-Org/optikk-backend/internal/modules/ai/rundetail"
@@ -13,6 +15,7 @@ import (
 	ai_traces "github.com/Optikk-Org/optikk-backend/internal/modules/ai/traces"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/apm"
 	defaultconfig "github.com/Optikk-Org/optikk-backend/internal/modules/dashboard"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/deployments"
 	explorer_analytics "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/httpmetrics"
 
@@ -24,12 +27,9 @@ import (
 	infrastructure_network "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/network"
 	infrastructure_nodes "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/nodes"
 	infrastructure_resource_utilisation "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/resourceutil"
-	log_detail "github.com/Optikk-Org/optikk-backend/internal/modules/logs/detail"
 	log_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/logs/explorer"
-	log_patterns "github.com/Optikk-Org/optikk-backend/internal/modules/logs/patterns"
 	log_search "github.com/Optikk-Org/optikk-backend/internal/modules/logs/search"
-	log_tracelogs "github.com/Optikk-Org/optikk-backend/internal/modules/logs/tracelogs"
-	log_transactions "github.com/Optikk-Org/optikk-backend/internal/modules/logs/transactions"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/metricsexplorer"
 	overview_errors "github.com/Optikk-Org/optikk-backend/internal/modules/overview/errors"
 	overview_overview "github.com/Optikk-Org/optikk-backend/internal/modules/overview/overview"
 	overview_slo "github.com/Optikk-Org/optikk-backend/internal/modules/overview/slo"
@@ -43,7 +43,6 @@ import (
 	saturation_database_systems "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/systems"
 	saturation_database_volume "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/volume"
 	saturation_kafka "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka"
-	saturation_redis "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/redis"
 	spans_errorfingerprint "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errorfingerprint"
 	spans_errortracking "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errortracking"
 	spans_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
@@ -65,7 +64,9 @@ func configuredModules(
 	sessionManager *registry.SessionManager,
 	appConfig registry.AppConfig,
 	configRegistry *registry.ConfigRegistry,
-	queryCache *cache.QueryCache,
+	logSearchSvc *log_search.Service,
+	dispatcher *otlp.Dispatcher,
+	hub *livetail.Hub,
 ) []registry.Module {
 	return []registry.Module{
 		ai_conversations.NewModule(nativeQuerier, getTenant),
@@ -76,6 +77,7 @@ func configuredModules(
 		apm.NewModule(nativeQuerier, getTenant),
 		explorer_analytics.NewModule(nativeQuerier, getTenant),
 		defaultconfig.NewModule(sqlDB, getTenant, appConfig, configRegistry),
+		deployments.NewModule(nativeQuerier, getTenant),
 		httpmetrics.NewModule(nativeQuerier, getTenant),
 
 		infrastructure_cpu.NewModule(nativeQuerier, getTenant),
@@ -86,15 +88,13 @@ func configuredModules(
 		infrastructure_network.NewModule(nativeQuerier, getTenant),
 		infrastructure_nodes.NewModule(nativeQuerier, getTenant),
 		infrastructure_resource_utilisation.NewModule(nativeQuerier, getTenant),
-		log_detail.NewModule(nativeQuerier, getTenant),
 		log_explorer.NewModule(nativeQuerier, getTenant),
-		log_patterns.NewModule(nativeQuerier, getTenant),
-		log_search.NewModule(nativeQuerier, getTenant),
-		log_transactions.NewModule(nativeQuerier, getTenant),
-		log_tracelogs.NewModule(nativeQuerier, getTenant),
-		otlp_spans.NewModule(sqlDB, nativeQuerier, clickHouseConn, appConfig),
-		otlp_logs.NewModule(sqlDB, clickHouseConn, appConfig),
-		otlp_metrics.NewModule(sqlDB, clickHouseConn, appConfig),
+		log_search.NewModule(nativeQuerier, getTenant, logSearchSvc),
+		metricsexplorer.NewModule(nativeQuerier, getTenant),
+		otlp_streamworkers.NewModule(clickHouseConn, dispatcher, hub, appConfig),
+		otlp_spans.NewModule(sqlDB, appConfig, dispatcher),
+		otlp_logs.NewModule(sqlDB, appConfig, dispatcher),
+		otlp_metrics.NewModule(sqlDB, appConfig, dispatcher),
 		overview_errors.NewModule(nativeQuerier, getTenant),
 		overview_overview.NewModule(nativeQuerier, getTenant),
 		overview_slo.NewModule(nativeQuerier, getTenant),
@@ -108,11 +108,10 @@ func configuredModules(
 		saturation_database_systems.NewModule(nativeQuerier, getTenant),
 		saturation_database_volume.NewModule(nativeQuerier, getTenant),
 		saturation_kafka.NewModule(nativeQuerier, getTenant),
-		saturation_redis.NewModule(nativeQuerier, getTenant),
 		spans_errorfingerprint.NewModule(nativeQuerier, getTenant),
 		spans_errortracking.NewModule(nativeQuerier, getTenant),
 		spans_explorer.NewModule(nativeQuerier, getTenant),
-		spans_livetail.NewModule(nativeQuerier, getTenant),
+		spans_livetail.NewModule(nativeQuerier, getTenant, nil),
 		spans_redmetrics.NewModule(nativeQuerier, getTenant),
 		spans_tracecompare.NewModule(nativeQuerier, getTenant),
 		spans_tracedetail.NewModule(nativeQuerier, getTenant),

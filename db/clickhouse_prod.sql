@@ -91,6 +91,10 @@ CREATE TABLE IF NOT EXISTS observability.spans (
                                     MATERIALIZED attributes.`host.name`::String                CODEC(ZSTD(1)),
     mat_k8s_pod_name          LowCardinality(String)
                                     MATERIALIZED attributes.`k8s.pod.name`::String             CODEC(ZSTD(1)),
+    mat_service_version       LowCardinality(String)
+                                    MATERIALIZED attributes.`service.version`::String          CODEC(ZSTD(1)),
+    mat_deployment_environment LowCardinality(String)
+                                    MATERIALIZED attributes.`deployment.environment`::String    CODEC(ZSTD(1)),
     INDEX idx_service_name          service_name            TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_trace_id              trace_id                TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_span_name             name                    TYPE bloom_filter(0.01) GRANULARITY 4,
@@ -102,7 +106,9 @@ CREATE TABLE IF NOT EXISTS observability.spans (
     INDEX idx_mat_peer_service      mat_peer_service        TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_mat_exception_type    mat_exception_type      TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_mat_host_name         mat_host_name           TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_mat_k8s_pod_name      mat_k8s_pod_name        TYPE bloom_filter(0.01) GRANULARITY 4
+    INDEX idx_mat_k8s_pod_name      mat_k8s_pod_name        TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_mat_service_version        mat_service_version        TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_mat_deployment_environment mat_deployment_environment TYPE bloom_filter(0.01) GRANULARITY 4
 ) ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/spans', '{replica}')
 PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, ts_bucket_start, service_name, name, timestamp)

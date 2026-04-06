@@ -57,3 +57,11 @@ func (s *Service) GetEndpointTimeSeries(ctx context.Context, teamID int64, start
 	}
 	return mapTimeSeriesRows(rows), nil
 }
+
+func (s *Service) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) (GlobalSummary, error) {
+	row, err := s.repo.GetSummary(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return GlobalSummary{}, err
+	}
+	return mapGlobalSummaryRow(row), nil
+}

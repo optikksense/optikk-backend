@@ -2,16 +2,12 @@ package session
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/config"
-	"github.com/alexedwards/scs/redisstore"
 	"github.com/alexedwards/scs/v2"
-	"github.com/gomodule/redigo/redis"
 )
 
 const (
@@ -47,18 +43,9 @@ func NewManager(cfg config.Config) *Manager {
 	sessionManager.Cookie.SameSite = parseSameSite(cfg.Session.CookieSameSite)
 	sessionManager.Cookie.Persist = true
 
-	if cfg.Redis.Enabled {
-		pool := &redis.Pool{
-			MaxIdle:     4,
-			IdleTimeout: 5 * time.Minute,
-			Dial: func() (redis.Conn, error) {
-				return redis.Dial("tcp", fmt.Sprintf("%s:%s", cfg.Redis.Host, cfg.Redis.Port))
-			},
-		}
-		sessionManager.Store = redisstore.New(pool)
+	return &Manager{
+		SessionManager: sessionManager,
 	}
-
-	return &Manager{SessionManager: sessionManager}
 }
 
 func (m *Manager) CreateAuthSession(ctx context.Context, state AuthState) error {

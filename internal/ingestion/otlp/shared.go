@@ -3,14 +3,12 @@ package otlp
 import (
 	"context"
 	"errors"
-	"fmt"
+	"log/slog"
 	"sync"
-	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/auth"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/ingest"
-	"github.com/redis/go-redis/v9"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -19,11 +17,6 @@ import (
 
 type TeamResolver interface {
 	ResolveTeamID(ctx context.Context, apiKey string) (int64, error)
-}
-
-type Queue interface {
-	Enqueue(rows []ingest.Row) error
-	Close() error
 }
 
 type Limiter interface {
@@ -47,50 +40,45 @@ var (
 
 func Shared(sqlDB *registry.SQLDB, cfg registry.AppConfig) *SharedDependencies {
 	sharedDepsOnce.Do(func() {
-		var rdb *redis.Client
-		if cfg.Redis.Enabled {
-			rdb = redis.NewClient(&redis.Options{
-				Addr: fmt.Sprintf("%s:%s", cfg.Redis.Host, cfg.Redis.Port),
-			})
-		}
 		sharedDeps = &SharedDependencies{
 			Authenticator: auth.NewAuthenticator(sqlDB),
-			Tracker:       ingest.NewByteTracker(sqlDB, rdb, time.Hour),
+			Tracker:       ingest.NewByteTracker(sqlDB, cfg.ByteTrackerFlushInterval()),
 			Limiter:       ingest.NewTeamLimiter(ingest.DefaultTeamRatePerSec, ingest.DefaultTeamBurstRows),
 		}
 	})
 	return sharedDeps
 }
 
-func QueueOpts(appConfig registry.AppConfig) []ingest.Option {
-	opts := []ingest.Option{
-		ingest.WithBatchSize(appConfig.Queue.BatchSize),
-		ingest.WithFlushInterval(int(appConfig.Queue.FlushIntervalMs)),
-	}
-	if appConfig.Queue.Capacity > 0 {
-		opts = append(opts, ingest.WithCapacity(appConfig.Queue.Capacity))
-	}
-	return opts
-}
-
 func ResolveTeamID(ctx context.Context, resolver TeamResolver) (int64, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
+		slog.Warn("OTLP request missing metadata")
 		return 0, status.Error(codes.Unauthenticated, "missing metadata")
 	}
 
 	keys := md.Get("x-api-key")
 	if len(keys) == 0 {
+		slog.Warn("OTLP request missing x-api-key header")
 		return 0, status.Error(codes.Unauthenticated, "missing x-api-key metadata header")
 	}
 
-	teamID, err := resolver.ResolveTeamID(ctx, keys[0])
+	apiKey := keys[0]
+	// Truncate API key for safety in logs
+	maskedKey := apiKey
+	if len(apiKey) > 8 {
+		maskedKey = apiKey[:4] + "..." + apiKey[len(apiKey)-4:]
+	}
+
+	teamID, err := resolver.ResolveTeamID(ctx, apiKey)
 	if err != nil {
+		slog.Error("OTLP auth failed", slog.String("apiKey", maskedKey), slog.Any("error", err))
 		if errors.Is(err, auth.ErrMissingAPIKey) || errors.Is(err, auth.ErrInvalidAPIKey) {
 			return 0, status.Error(codes.Unauthenticated, err.Error())
 		}
 		return 0, status.Error(codes.Internal, err.Error())
 	}
+
+	slog.Debug("OTLP request authenticated", slog.String("apiKey", maskedKey), slog.Int64("teamID", teamID))
 	return teamID, nil
 }
 

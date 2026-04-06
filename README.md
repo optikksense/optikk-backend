@@ -8,7 +8,7 @@ The backend follows a modular monolith architecture, segregating concerns betwee
 
 ### High-Level Components
 
-*   **OTLP Ingestion Engine**: Receives telemetry directly from OpenTelemetry SDKs or collectors via gRPC (port `4317`). Implements a high-throughput buffering system to batch writes to ClickHouse.
+*   **OTLP Ingestion Engine**: Receives telemetry via gRPC (port `4317`), publishes rows to **Redis Streams**, and background workers batch to ClickHouse and fan out live tail streams.
 *   **Module System**: The domain logic is subdivided into decoupled modules (see `internal/modules`):
     *   `auth`: JWT-based user session and tenant management.
     *   `traces` & `logs`: Query logic for telemetry data.
@@ -18,7 +18,7 @@ The backend follows a modular monolith architecture, segregating concerns betwee
 *   **Data Tier**:
     *   **MariaDB**: Stores relational data (users, teams, dashboard configurations, and metadata).
     *   **ClickHouse**: The primary analytical store for petabyte-scale telemetry storage.
-    *   **Redis**: Used for high-speed query caching and session persistence.
+    *   **Redis**: Query caching, sessions, OTLP ingest streams, and live-tail fan-out.
 
 ## Project Structure
 
@@ -28,8 +28,8 @@ optikk-backend/
 ├── db/                 # Database schema definitions (SQL)
 ├── internal/
 │   ├── app/            # Application lifecycle and dependency injection
-│   ├── ingestion/      # OTLP batching and flushing logic
-│   ├── infra/          # Infrastructure abstractions (DB, CH, Redis, Kafka)
+│   ├── ingestion/      # OTLP → Redis Streams + CH consumers
+│   ├── infra/          # Infrastructure abstractions (DB, CH, Redis)
 │   ├── modules/        # Domain-specific business logic
 │   └── config/         # YAML-based configuration management
 └── README.md
@@ -68,7 +68,7 @@ go build -o bin/server cmd/server/main.go
 ## API Documentation
 
 The backend serves an Internal API for the Optikk Frontend.
-- Port: `9090` (default)
+- Port: `19090` (default)
 - Health Check: `GET /api/v1/health`
 - OTLP gRPC: `Port 4317`
 
@@ -77,4 +77,4 @@ The backend serves an Internal API for the Optikk Frontend.
 - **Framework**: [Gin Gonic](https://github.com/gin-gonic/gin)
 - **Persistence Layer**: [SQLx](https://github.com/jmoiron/sqlx) for MySQL/MariaDB, and [ClickHouse Go Client](https://github.com/ClickHouse/clickhouse-go).
 - **Caching**: [Go-Redis](https://github.com/redis/go-redis).
-- **Ingestion**: Zero-allocation batching logic for OTLP spans and logs.
+- **Ingestion**: OTLP rows via Redis Streams; ClickHouse flush in `streamworkers`.

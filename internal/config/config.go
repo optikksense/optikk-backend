@@ -46,21 +46,31 @@ type SessionConfig struct {
 	CookieSameSite string `yaml:"cookie_same_site"`
 }
 
-type QueueConfig struct {
-	BatchSize       int   `yaml:"batch_size"`
-	FlushIntervalMs int64 `yaml:"flush_interval_ms"`
-	Capacity        int   `yaml:"capacity"`
-}
-
-type KafkaConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Brokers string `yaml:"brokers"`
+// OtlRedisStream configures Redis Streams OTLP ingest (XADD + background consumers).
+type OtlRedisStream struct {
+	// MaxLenApprox is approximate MAXLEN per ingest stream (spans and metrics).
+	MaxLenApprox int64 `yaml:"max_len_approx"`
+	// LogsMaxLenApprox is approximate MAXLEN specific to the logs ingest stream.
+	LogsMaxLenApprox int64 `yaml:"logs_max_len_approx"`
+	// StreamTTLSeconds is the maximum age of stream entries (using MINID ~ pruning if Redis 6.2+).
+	StreamTTLSeconds int64 `yaml:"stream_ttl_seconds"`
+	// ChBatchSize is max rows per ClickHouse flush from stream reads.
+	ChBatchSize int `yaml:"ch_batch_size"`
+	// ChFlushIntervalMs bounds how long the CH consumer waits before flushing a partial batch.
+	ChFlushIntervalMs int64 `yaml:"ch_flush_interval_ms"`
+	// XReadBlockMs is BLOCK timeout for XREADGROUP (consumer wait).
+	XReadBlockMs int64 `yaml:"xread_block_ms"`
+	// XReadCount is COUNT for each XREADGROUP batch.
+	XReadCount int64 `yaml:"xread_count"`
 }
 
 type RedisConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	Host    string `yaml:"host"`
-	Port    string `yaml:"port"`
+	Enabled  bool   `yaml:"enabled"`
+	Host     string `yaml:"host"`
+	Port     string `yaml:"port"`
+	Password string `yaml:"password"`
+	// DB selects the Redis logical database index (go-redis / redigo). Default 0.
+	DB int `yaml:"db"`
 }
 
 type OTLPConfig struct {
@@ -77,6 +87,15 @@ type AppConfig struct {
 	DashboardConfigUseDefaults bool   `yaml:"dashboard_config_use_defaults"`
 }
 
+type IngestionConfig struct {
+	SpansBucketSeconds int64 `yaml:"spans_bucket_seconds"`
+	LogsBucketSeconds  int64 `yaml:"logs_bucket_seconds"`
+	// QueueSize is the buffer size for the in-memory Go channels before ClickHouse ingestion.
+	QueueSize int `yaml:"queue_size"`
+	// ByteTrackerFlushIntervalMs is the frequency at which byte tracking totals are flushed to MySQL.
+	ByteTrackerFlushIntervalMs int64 `yaml:"byte_tracker_flush_interval_ms"`
+}
+
 // CircuitBreakerConfig tunes gobreaker-backed DB clients (MySQL wrapper, ClickHouse native querier).
 // Zero values fall back to consecutive_failures=5 and reset_timeout_ms=30000 in CircuitBreaker* helpers.
 type CircuitBreakerConfig struct {
@@ -90,12 +109,12 @@ type Config struct {
 	MySQL          MySQLConfig          `yaml:"mysql"`
 	ClickHouse     ClickHouseConfig     `yaml:"clickhouse"`
 	Session        SessionConfig        `yaml:"session"`
-	Queue          QueueConfig          `yaml:"queue"`
-	Kafka          KafkaConfig          `yaml:"kafka"`
+	OtlRedisStream OtlRedisStream       `yaml:"otl_redis_stream"`
 	Redis          RedisConfig          `yaml:"redis"`
 	OTLP           OTLPConfig           `yaml:"otlp"`
 	Retention      RetentionConfig      `yaml:"retention"`
 	App            AppConfig            `yaml:"app"`
+	Ingestion      IngestionConfig      `yaml:"ingestion"`
 	CircuitBreaker CircuitBreakerConfig `yaml:"circuit_breaker"`
 }
 
@@ -173,12 +192,20 @@ func (c Config) SessionIdleTimeout() time.Duration {
 	return time.Duration(c.Session.IdleTimeoutMs) * time.Millisecond
 }
 
-func (c Config) QueueFlushInterval() time.Duration {
-	return time.Duration(c.Queue.FlushIntervalMs) * time.Millisecond
+func (c Config) OtlChFlushInterval() time.Duration {
+	ms := c.OtlRedisStream.ChFlushIntervalMs
+	if ms <= 0 {
+		return 2 * time.Second
+	}
+	return time.Duration(ms) * time.Millisecond
 }
 
-func (c Config) KafkaBrokerList() []string {
-	return strings.Split(c.Kafka.Brokers, ",")
+func (c Config) OtlXReadBlock() time.Duration {
+	ms := c.OtlRedisStream.XReadBlockMs
+	if ms <= 0 {
+		return 2 * time.Second
+	}
+	return time.Duration(ms) * time.Millisecond
 }
 
 // CircuitBreakerConsecutiveFailures returns the failure streak before the breaker opens (default 5).
@@ -197,4 +224,56 @@ func (c Config) CircuitBreakerResetTimeout() time.Duration {
 		return 30 * time.Second
 	}
 	return time.Duration(ms) * time.Millisecond
+}
+
+func (c Config) SpansBucketSeconds() int64 {
+	if c.Ingestion.SpansBucketSeconds <= 0 {
+		return 300 // 5 minutes
+	}
+	return c.Ingestion.SpansBucketSeconds
+}
+
+func (c Config) LogsBucketSeconds() int64 {
+	if c.Ingestion.LogsBucketSeconds <= 0 {
+		return 86400 // 1 day
+	}
+	return c.Ingestion.LogsBucketSeconds
+}
+
+func (c Config) IngestionQueueSize() int {
+	n := c.Ingestion.QueueSize
+	if n <= 0 {
+		return 10000
+	}
+	return n
+}
+
+func (c Config) ByteTrackerFlushInterval() time.Duration {
+	ms := c.Ingestion.ByteTrackerFlushIntervalMs
+	if ms <= 0 {
+		return 5 * time.Minute
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
+func (c Config) OtlLogsMaxLen() int64 {
+	if c.OtlRedisStream.MaxLenApprox <= 0 {
+		return 5000 // default for logs
+	}
+	return c.OtlRedisStream.MaxLenApprox
+}
+
+func (c Config) OtlSpansMaxLen() int64 {
+	if c.OtlRedisStream.MaxLenApprox <= 0 {
+		return 1000 // default for spans
+	}
+	return c.OtlRedisStream.MaxLenApprox
+}
+
+func (c Config) OtlStreamTTL() time.Duration {
+	n := c.OtlRedisStream.StreamTTLSeconds
+	if n <= 0 {
+		return 3600 * time.Second // 1 hour
+	}
+	return time.Duration(n) * time.Second
 }

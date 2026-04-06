@@ -16,6 +16,7 @@ type Service interface {
 	GetSpanAttributes(teamID int64, traceID, spanID string) (*SpanAttributes, error)
 	GetRelatedTraces(teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
 	GetFlamegraphData(teamID int64, traceID string) ([]FlamegraphFrame, error)
+	GetTraceLogs(teamID int64, traceID string) (*TraceLogsResponse, error)
 }
 
 type TraceDetailService struct {
@@ -167,6 +168,41 @@ func (s *TraceDetailService) GetSpanAttributes(teamID int64, traceID, spanID str
 
 func (s *TraceDetailService) GetRelatedTraces(teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
 	return s.repo.GetRelatedTraces(context.Background(), teamID, serviceName, operationName, startMs, endMs, excludeTraceID, limit)
+}
+
+func (s *TraceDetailService) GetTraceLogs(teamID int64, traceID string) (*TraceLogsResponse, error) {
+	rows, err := s.repo.GetTraceLogs(context.Background(), teamID, traceID)
+	if err != nil {
+		return nil, err
+	}
+	logs := make([]TraceLog, len(rows))
+	for i, row := range rows {
+		logs[i] = TraceLog{
+			ID:                row.ID,
+			Timestamp:         uint64(row.Timestamp.UnixNano()),
+			ObservedTimestamp: row.ObservedTimestamp,
+			SeverityText:      row.SeverityText,
+			SeverityNumber:    row.SeverityNumber,
+			Body:              row.Body,
+			TraceID:           row.TraceID,
+			SpanID:            row.SpanID,
+			TraceFlags:        row.TraceFlags,
+			ServiceName:       row.ServiceName,
+			Host:              row.Host,
+			Pod:               row.Pod,
+			Container:         row.Container,
+			Environment:       row.Environment,
+			AttributesString:  row.AttributesString,
+			AttributesNumber:  row.AttributesNumber,
+			AttributesBool:    row.AttributesBool,
+			ScopeName:         row.ScopeName,
+			ScopeVersion:      row.ScopeVersion,
+		}
+	}
+	return &TraceLogsResponse{
+		Logs:          logs,
+		IsSpeculative: false,
+	}, nil
 }
 
 func (s *TraceDetailService) GetFlamegraphData(teamID int64, traceID string) ([]FlamegraphFrame, error) {

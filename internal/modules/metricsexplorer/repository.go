@@ -27,6 +27,7 @@ var materializedDimensions = map[string]string{
 var allowedAggregations = map[string]bool{
 	"avg": true, "sum": true, "min": true, "max": true, "count": true,
 	"p50": true, "p75": true, "p95": true, "p99": true,
+	"rate": true,
 }
 
 // allowedOperators is the set of filter operators we support.
@@ -38,7 +39,7 @@ type Repository interface {
 	ListMetricNames(ctx context.Context, teamID int64, startMs, endMs int64, search string) ([]MetricNameResult, error)
 	ListTagKeys(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]TagKeyResult, error)
 	ListTagValues(ctx context.Context, teamID int64, startMs, endMs int64, metricName, tagKey string) ([]TagValueResult, error)
-	QueryTimeseries(ctx context.Context, teamID int64, startMs, endMs int64, query MetricQuery) ([]TimeseriesPoint, error)
+	QueryTimeseries(ctx context.Context, teamID int64, startMs, endMs int64, query MetricQuery, step string) ([]TimeseriesPoint, error)
 }
 
 type ClickHouseRepository struct {
@@ -86,10 +87,11 @@ func (r *ClickHouseRepository) ListMetricNames(ctx context.Context, teamID int64
 }
 
 func (r *ClickHouseRepository) ListTagKeys(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]TagKeyResult, error) {
-	// Query dynamic attribute keys from the JSON column, unioned with materialized column names.
+	// For native JSON columns, use mapKeys(JSONAllPathsWithTypes()) to extract
+	// dynamic attribute key names instead of JSONExtractKeys (which is for String JSON).
 	query := fmt.Sprintf(`
 		SELECT DISTINCT tag_key FROM (
-			SELECT DISTINCT arrayJoin(JSONExtractKeys(attributes)) AS tag_key
+			SELECT DISTINCT arrayJoin(mapKeys(JSONAllPathsWithTypes(attributes))) AS tag_key
 			FROM %s
 			WHERE team_id = @teamID
 			  AND timestamp BETWEEN @start AND @end
@@ -128,7 +130,7 @@ func (r *ClickHouseRepository) ListTagValues(ctx context.Context, teamID int64, 
 	if col, ok := materializedDimensions[tagKey]; ok {
 		valueExpr = col
 	} else {
-		valueExpr = fmt.Sprintf("attributes.'%s'::String", sanitizeAttrKey(tagKey))
+		valueExpr = fmt.Sprintf("attributes.`%s`::String", sanitizeAttrKey(tagKey))
 	}
 
 	query := fmt.Sprintf(`
@@ -160,13 +162,21 @@ func (r *ClickHouseRepository) ListTagValues(ctx context.Context, teamID int64, 
 	return results, nil
 }
 
-func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, teamID int64, startMs, endMs int64, query MetricQuery) ([]TimeseriesPoint, error) {
+// QueryTimeseries executes a time-series query. If step is non-empty, it is used
+// for time bucketing; otherwise adaptive bucketing is applied based on the time range.
+func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, teamID int64, startMs, endMs int64, query MetricQuery, step string) ([]TimeseriesPoint, error) {
 	if !allowedAggregations[query.Aggregation] {
 		return nil, fmt.Errorf("unsupported aggregation: %s", query.Aggregation)
 	}
 
-	bucket := timebucket.Expression(startMs, endMs)
-	aggExpr := buildAggExpr(query.Aggregation)
+	var bucket string
+	if step != "" {
+		bucket = timebucket.ByName(step).GetBucketExpression()
+	} else {
+		bucket = timebucket.Expression(startMs, endMs)
+	}
+
+	aggExpr := buildAggExpr(query.Aggregation, startMs, endMs, step)
 
 	// Build GROUP BY columns
 	groupByCols := []string{"time_bucket"}
@@ -221,8 +231,7 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, teamID int64
 }
 
 // buildAggExpr returns the ClickHouse aggregation expression.
-// For percentiles, uses histogram-aware quantileExactWeighted.
-func buildAggExpr(agg string) string {
+func buildAggExpr(agg string, startMs, endMs int64, step string) string {
 	switch agg {
 	case "avg":
 		return "avg(if(metric_type = 'Histogram', hist_sum / nullIf(hist_count, 0), value))"
@@ -234,6 +243,9 @@ func buildAggExpr(agg string) string {
 		return "max(if(metric_type = 'Histogram', hist_sum / nullIf(hist_count, 0), value))"
 	case "count":
 		return "sum(if(metric_type = 'Histogram', hist_count, 1))"
+	case "rate":
+		bucketSeconds := bucketDurationSeconds(startMs, endMs, step)
+		return fmt.Sprintf("sum(if(metric_type = 'Histogram', hist_count, value)) / %d", bucketSeconds)
 	case "p50":
 		return "quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), toUInt64(hist_count))"
 	case "p75":
@@ -247,12 +259,41 @@ func buildAggExpr(agg string) string {
 	}
 }
 
+// bucketDurationSeconds returns the duration in seconds for a given step or adaptive bucket.
+func bucketDurationSeconds(startMs, endMs int64, step string) int64 {
+	switch step {
+	case "1m":
+		return 60
+	case "5m":
+		return 300
+	case "15m":
+		return 900
+	case "1h":
+		return 3600
+	case "1d":
+		return 86400
+	default:
+		// Adaptive: derive from the time range
+		h := (endMs - startMs) / 3_600_000
+		switch {
+		case h <= 3:
+			return 60
+		case h <= 24:
+			return 300
+		case h <= 168:
+			return 3600
+		default:
+			return 86400
+		}
+	}
+}
+
 // resolveColumn maps a tag key to its ClickHouse column expression.
 func resolveColumn(key string) string {
 	if col, ok := materializedDimensions[key]; ok {
 		return col
 	}
-	return fmt.Sprintf("attributes.'%s'::String", sanitizeAttrKey(key))
+	return fmt.Sprintf("attributes.`%s`::String", sanitizeAttrKey(key))
 }
 
 // buildFilterClauses converts TagFilter slices to SQL WHERE clauses and params.

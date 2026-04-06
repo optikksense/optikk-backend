@@ -1,7 +1,7 @@
 environment: development
 
 server:
-  port: "9090"
+  port: "19090"
   allowed_origins: "http://localhost:3000,http://localhost:5173"
   debug_api_logs: false
 
@@ -33,19 +33,6 @@ session:
   cookie_http_only: true
   cookie_same_site: lax
 
-queue:
-  batch_size: 1000
-  flush_interval_ms: 2000
-
-kafka:
-  enabled: false
-  brokers: "localhost:9092"
-
-redis:
-  enabled: false
-  host: localhost
-  port: "6379"
-
 otlp:
   grpc_port: "4317"
   grpc_max_recv_msg_size_mb: 16
@@ -53,11 +40,16 @@ otlp:
 retention:
   default_days: 30
 
+ingestion:
+  queue_size: 10000
+  byte_tracker_flush_interval_ms: 300000 # 5 minutes
+
 app:
   region: us-east-1
   dashboard_config_use_defaults: true
 
 # Database client circuit breakers (MySQL wrapper, ClickHouse native querier).
+# Since circuit breakers were removed from the code, these settings are primarily for legacy reference or future use if re-introduced.
 circuit_breaker:
-  consecutive_failures: 500
+  consecutive_failures: 5
   reset_timeout_ms: 30000

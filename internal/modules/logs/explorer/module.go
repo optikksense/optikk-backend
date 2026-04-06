@@ -20,10 +20,8 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 		return
 	}
 	v1.POST("/logs/explorer/query", h.Query)
-	v1.GET("/logs/histogram", h.GetLogHistogram)
 	v1.GET("/logs/volume", h.GetLogVolume)
 	v1.GET("/logs/stats", h.GetLogStats)
-	v1.GET("/logs/fields", h.GetLogFields)
 	v1.GET("/logs/aggregate", h.GetLogAggregate)
 }
 

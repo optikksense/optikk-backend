@@ -26,6 +26,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *OverviewHandler) {
 	v1.GET("/overview/top-endpoints", h.GetTopEndpoints)
 	v1.GET("/overview/endpoints/metrics", h.GetTopEndpoints)
 	v1.GET("/overview/endpoints/timeseries", h.GetEndpointTimeSeries)
+	v1.GET("/overview/summary", h.GetSummary)
 }
 
 func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {

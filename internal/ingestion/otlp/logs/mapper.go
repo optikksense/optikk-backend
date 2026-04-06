@@ -18,7 +18,8 @@ import (
 const maxLogAttributes = 128
 const nsPerSecond = 1_000_000_000
 
-var logColumns = []string{
+// LogColumns is the ClickHouse insert column order for observability.logs.
+var LogColumns = []string{
 	"team_id", "ts_bucket_start", "timestamp", "observed_timestamp",
 	"id", "trace_id", "span_id", "trace_flags",
 	"severity_text", "severity_number", "body",
@@ -55,16 +56,16 @@ func mapLogs(teamID int64, req *logspb.ExportLogsServiceRequest) []ingest.Row {
 // buildLogRow maps a single OTLP log record into a ClickHouse ingest row.
 func buildLogRow(teamID int64, resourceMap map[string]string, fingerprint string, scope scopeInfo, lr *logv1.LogRecord) ingest.Row {
 	tsNs, observedNs := resolveTimestamps(lr)
-	tsBucket := timebucket.LogsBucketStart(int64(tsNs / nsPerSecond)) //nolint:gosec // G115
+	tsBucket := timebucket.LogsBucketStart(int64(tsNs / nsPerSecond))
 	body := protoconv.AnyValueString(lr.Body)
 	attrStr, attrNum, attrBool := protoAttrsToTypedMaps(lr.Attributes)
 	attrStr = capStringAttrs(attrStr, teamID)
 
 	return ingest.Row{Values: []any{
-		uint32(teamID), //nolint:gosec // G115 — team_id
-		tsBucket,       // ts_bucket_start
-		tsNs,           // timestamp
-		observedNs,     // observed_timestamp
+		uint32(teamID),             //nolint:gosec // G115 — team_id
+		tsBucket,                   // ts_bucket_start
+		protoconv.NanoToTime(tsNs), // timestamp
+		observedNs,                 // observed_timestamp
 		protoLogID(teamID, tsNs, lr.TraceId, lr.SpanId, body), // id
 		protoconv.BytesToHex(lr.TraceId),                      // trace_id
 		protoconv.BytesToHex(lr.SpanId),                       // span_id

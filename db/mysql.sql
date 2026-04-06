@@ -42,31 +42,3 @@ CREATE TABLE IF NOT EXISTS observability.dashboard_config_cleanup_backups
     created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_dashboard_cleanup_team_id (team_id)
 );
-
-INSERT INTO observability.dashboard_config_cleanup_backups (team_id, removed_keys)
-SELECT
-    id,
-    JSON_OBJECT(
-        'ai-model-detail', JSON_EXTRACT(COALESCE(dashboard_configs, JSON_OBJECT()), '$."ai-model-detail"'),
-        'database-detail', JSON_EXTRACT(COALESCE(dashboard_configs, JSON_OBJECT()), '$."database-detail"'),
-        'error-group-detail', JSON_EXTRACT(COALESCE(dashboard_configs, JSON_OBJECT()), '$."error-group-detail"'),
-        'kafka-group-detail', JSON_EXTRACT(COALESCE(dashboard_configs, JSON_OBJECT()), '$."kafka-group-detail"'),
-        'kafka-topic-detail', JSON_EXTRACT(COALESCE(dashboard_configs, JSON_OBJECT()), '$."kafka-topic-detail"'),
-        'node-detail', JSON_EXTRACT(COALESCE(dashboard_configs, JSON_OBJECT()), '$."node-detail"'),
-        'operation-detail', JSON_EXTRACT(COALESCE(dashboard_configs, JSON_OBJECT()), '$."operation-detail"'),
-        'redis-detail', JSON_EXTRACT(COALESCE(dashboard_configs, JSON_OBJECT()), '$."redis-detail"')
-    )
-FROM observability.teams;
-
-UPDATE observability.teams
-SET dashboard_configs = JSON_REMOVE(
-    COALESCE(dashboard_configs, JSON_OBJECT()),
-    '$."ai-model-detail"',
-    '$."database-detail"',
-    '$."error-group-detail"',
-    '$."kafka-group-detail"',
-    '$."kafka-topic-detail"',
-    '$."node-detail"',
-    '$."operation-detail"',
-    '$."redis-detail"'
-);

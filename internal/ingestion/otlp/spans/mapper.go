@@ -15,7 +15,8 @@ import (
 
 const maxSpanAttributes = 128
 
-var spanColumns = []string{
+// SpanColumns is the ClickHouse insert column order for observability.spans.
+var SpanColumns = []string{
 	"ts_bucket_start", "team_id",
 	"timestamp", "trace_id", "span_id", "parent_span_id", "trace_state", "flags",
 	"name", "kind", "kind_string", "duration_nano", "has_error", "is_remote",
@@ -36,7 +37,7 @@ type exceptionFields struct {
 	escaped                  bool
 }
 
-// mapSpans converts an OTLP trace export request into ClickHouse ingest rows.
+// mapLogs converts an OTLP traces export request into ClickHouse ingest rows.
 func mapSpans(teamID int64, req *tracepb.ExportTraceServiceRequest) []ingest.Row {
 	result := make([]ingest.Row, 0, 64)
 	for _, rs := range req.ResourceSpans {

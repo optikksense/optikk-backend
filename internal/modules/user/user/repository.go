@@ -28,7 +28,7 @@ type MySQLRepository struct {
 
 func NewRepository(db *sql.DB, appConfig registry.AppConfig) *MySQLRepository {
 	return &MySQLRepository{
-		db: dbutil.NewMySQLWrapper(db, appConfig.CircuitBreakerConsecutiveFailures(), appConfig.CircuitBreakerResetTimeout()),
+		db: dbutil.NewMySQLWrapper(db),
 	}
 }
 

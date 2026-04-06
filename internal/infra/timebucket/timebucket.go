@@ -32,6 +32,16 @@ func (FiveMinuteStrategy) GetRawExpression(column string) string {
 }
 func (FiveMinuteStrategy) GetBucketName() string { return "5 minutes" }
 
+type FifteenMinuteStrategy struct{}
+
+func (FifteenMinuteStrategy) GetBucketExpression() string {
+	return FifteenMinuteStrategy{}.GetRawExpression("timestamp")
+}
+func (FifteenMinuteStrategy) GetRawExpression(column string) string {
+	return fmt.Sprintf("formatDateTime(toStartOfFifteenMinutes(%s), '%%Y-%%m-%%d %%H:%%i:00')", column)
+}
+func (FifteenMinuteStrategy) GetBucketName() string { return "15 minutes" }
+
 type HourStrategy struct{}
 
 func (HourStrategy) GetBucketExpression() string {
@@ -122,6 +132,8 @@ func ByName(name string) Strategy {
 		return MinuteStrategy{}
 	case "5minute", "5m":
 		return FiveMinuteStrategy{}
+	case "15minute", "15m":
+		return FifteenMinuteStrategy{}
 	case "hour", "1h":
 		return HourStrategy{}
 	case "day", "1d":

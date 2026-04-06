@@ -56,3 +56,12 @@ type TimeSeriesPoint struct {
 	P95           float64   `json:"p95,omitempty"`
 	P99           float64   `json:"p99,omitempty"`
 }
+
+type GlobalSummary struct {
+	TotalRequests int64   `json:"total_requests"`
+	ErrorCount    int64   `json:"error_count"`
+	AvgLatency    float64 `json:"avg_latency"`
+	P50Latency    float64 `json:"p50_latency"`
+	P95Latency    float64 `json:"p95_latency"`
+	P99Latency    float64 `json:"p99_latency"`
+}

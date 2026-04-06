@@ -25,25 +25,9 @@ func (m *metricsExplorerModule) configure(nativeQuerier *registry.NativeQuerier,
 	}
 }
 
-type Config struct {
-	Enabled bool
-}
-
-func DefaultConfig() Config {
-	return Config{Enabled: true}
-}
-
-func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
-	if !cfg.Enabled || h == nil {
-		return
-	}
-	g := v1.Group("/metrics-explorer")
-	g.GET("/metric-names", h.ListMetricNames)
-	g.GET("/tag-keys", h.ListTagKeys)
-	g.GET("/tag-values", h.ListTagValues)
-	g.POST("/query", h.Query)
-}
-
 func (m *metricsExplorerModule) RegisterRoutes(group *gin.RouterGroup) {
-	RegisterRoutes(DefaultConfig(), group, m.handler)
+	g := group.Group("/metrics")
+	g.GET("/names", m.handler.ListMetricNames)
+	g.GET("/:metricName/tags", m.handler.ListTags)
+	g.POST("/explorer/query", m.handler.Query)
 }
