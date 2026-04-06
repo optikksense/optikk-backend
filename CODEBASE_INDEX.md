@@ -32,7 +32,7 @@ The web app lives in the sibling repo **`optic-frontend`** (see that repo's `COD
 
 ## Module packages (`internal/modules/`)
 
-51 registered modules across 13 domains. Each may contain `handler.go`, `service.go`, `repository.go`, `module.go`, `dto.go`, `models.go`.
+51 registered modules across 13 domains. Every module **must** follow the strict 6-file pattern: `handler.go`, `service.go`, `repository.go`, `module.go`, `dto.go`, `models.go`. All repository implementation methods must reside in the single `repository.go` file.
 
 | Domain | Packages | Route prefix | Cache |
 |--------|----------|-------------|-------|
@@ -155,13 +155,13 @@ All under `/http/` prefix, Cached:
 
 ## Module Anatomy (LLD)
 
-Every feature module follows a 6-file pattern under `internal/modules/<domain>/`:
+Every feature module follows a strict 6-file pattern under `internal/modules/<domain>/`:
 
 | File | Purpose |
 |------|---------|
 | `handler.go` | HTTP handlers — param parsing, response writing |
 | `service.go` | Interface + concrete impl — business logic, orchestration |
-| `repository.go` | Interface + concrete impl — raw ClickHouse/MySQL queries |
+| `repository.go` | Interface + concrete impl — raw ClickHouse/MySQL queries (all methods here) |
 | `module.go` | `NewModule()` constructor, `RegisterRoutes()`, wired into `modules_manifest.go` |
 | `dto.go` | Request/response DTOs (JSON tags) |
 | `models.go` | Domain models, constants |

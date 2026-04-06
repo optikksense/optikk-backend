@@ -56,6 +56,7 @@ This is **mandatory**, not optional. The documentation must always reflect the c
 
 ## Engineering principles
 
+- **Module Architecture**: Strict 6-file pattern (`handler.go`, `service.go`, `repository.go`, `module.go`, `dto.go`, `models.go`). All repository methods must stay in `repository.go`.
 - **SOLID & DRY**: Factor shared behavior when a pattern appears more than once.
 - **Quality**: Leave the code clearer or simpler with every change.
 - **No unsolicited tests**: Do not add tests unless explicitly asked.

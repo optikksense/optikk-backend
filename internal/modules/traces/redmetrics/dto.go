@@ -23,10 +23,19 @@ type latencyBreakdownRow struct {
 	SpanCount   int64   `ch:"span_count"`
 }
 
-type slowOperationDTO = SlowOperation
-type errorOperationDTO = ErrorOperation
-type serviceRatePointDTO = ServiceRatePoint
-type serviceErrorRatePointDTO = ServiceErrorRatePoint
-type serviceLatencyPointDTO = ServiceLatencyPoint
-type spanKindPointDTO = SpanKindPoint
-type errorByRoutePointDTO = ErrorByRoutePoint
+type slowOperationRow struct {
+	ServiceName   string  `ch:"service_name"`
+	OperationName string  `ch:"operation_name"`
+	SpanCount     int64   `ch:"span_count"`
+	P50Ms         float64 `ch:"p50_ms"`
+	P95Ms         float64 `ch:"p95_ms"`
+	P99Ms         float64 `ch:"p99_ms"`
+}
+
+type errorOperationRow struct {
+	ServiceName   string  `ch:"service_name"`
+	OperationName string  `ch:"operation_name"`
+	TotalCount    int64   `ch:"total_count"`
+	ErrorCount    int64   `ch:"error_count"`
+	ErrorRate     float64 `ch:"error_rate"`
+}

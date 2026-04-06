@@ -138,11 +138,24 @@ func (h *Handler) SomeEndpoint(c *gin.Context) {
 - `ParseInt64Param`, `ParseIntParam`, `ParseFloatParam`, `ParseListParam` — query param helpers
 - `ParsePageSize(c, key, fallback)` — capped at `MaxPageSize` (200)
 
+### Module architecture (Strict 6-file pattern)
+
+Every feature module under `internal/modules/` **must** follow the strict 6-file pattern. No fragmented implementation files are allowed.
+
+| File | Purpose |
+|------|---------|
+| `handler.go` | HTTP handlers — param parsing, response writing |
+| `service.go` | Interface + concrete impl — business logic, orchestration |
+| `repository.go` | Interface + concrete impl — raw ClickHouse/MySQL queries (**all methods here**) |
+| `module.go` | `NewModule()` constructor, `RegisterRoutes()`, registry wiring |
+| `dto.go` | Request/response DTOs and Row types |
+| `models.go` | Domain models and constants |
+
 ### Service / Repository separation
 
-- **Service** = interface + concrete struct; business logic, orchestration
-- **Repository** = interface + concrete struct; raw ClickHouse/MySQL queries
-- Constructor chain: `NewService(NewRepository(nativeQuerier))` — service depends on repo interface
+- **Service** = interface + concrete struct; business logic, orchestration.
+- **Repository** = interface + concrete struct; raw ClickHouse/MySQL queries.
+- Constructor chain: `NewService(NewRepository(nativeQuerier))`.
 
 ### Module registration flow
 

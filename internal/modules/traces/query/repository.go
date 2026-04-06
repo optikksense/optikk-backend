@@ -2,12 +2,30 @@ package query
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	rootspan "github.com/Optikk-Org/optikk-backend/internal/modules/traces/shared/rootspan"
 )
+
+const serviceNameFilter = " AND s.service_name = @serviceName"
+
+type Repository interface {
+	GetTracesKeyset(ctx context.Context, f TraceFilters, limit int, cursor TraceCursor) ([]traceRow, traceSummaryRow, bool, error)
+	GetTraces(ctx context.Context, f TraceFilters, limit, offset int) ([]traceRow, int64, traceSummaryRow, error)
+	GetTraceFacets(ctx context.Context, f TraceFilters) ([]traceFacetRow, error)
+	GetTraceTrend(ctx context.Context, f TraceFilters, step string) ([]traceTrendRow, error)
+	GetTraceSpans(ctx context.Context, teamID int64, traceID string) ([]spanRow, error)
+	GetSpanTree(ctx context.Context, teamID int64, spanID string) ([]spanRow, error)
+	GetServiceDependencies(ctx context.Context, teamID int64, startMs, endMs int64) ([]serviceDependencyRow, error)
+	GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorGroupRow, error)
+	GetErrorTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]errorTimeSeriesRow, error)
+	GetLatencyHistogram(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) ([]latencyHistogramRow, error)
+	GetLatencyHeatmap(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]latencyHeatmapRow, error)
+}
 
 type ClickHouseRepository struct {
 	db *dbutil.NativeQuerier
@@ -17,25 +35,8 @@ func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-func rawTimeBucketExpr(startMs, endMs int64, column string) string {
-	return timebucket.ExprForColumnTime(startMs, endMs, column)
-}
-
-// GetTracesKeyset returns a page of traces using keyset (cursor) pagination.
 func (r *ClickHouseRepository) GetTracesKeyset(ctx context.Context, f TraceFilters, limit int, cursor TraceCursor) ([]traceRow, traceSummaryRow, bool, error) {
-	queryFrag, args := buildWhereClause(f)
-
-	if !cursor.Timestamp.IsZero() && cursor.SpanID != "" {
-		queryFrag += ` AND (s.timestamp < @cursorTimestamp OR (s.timestamp = @cursorTimestamp AND s.span_id < @cursorSpanID))`
-		args = append(args,
-			clickhouse.Named("cursorTimestamp", cursor.Timestamp),
-			clickhouse.Named("cursorSpanID", cursor.SpanID),
-		)
-	}
-
-	selectCols := traceSelectColumns(f.SearchMode)
-	query := `SELECT ` + selectCols + ` FROM observability.spans s` + queryFrag + ` ORDER BY s.timestamp DESC, s.span_id DESC LIMIT @limit`
-	args = append(args, clickhouse.Named("limit", limit+1))
+	query, args := buildTracesQuery(f, true, limit, cursor, 0)
 	var rows []traceRow
 	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, traceSummaryRow{}, false, err
@@ -46,120 +47,87 @@ func (r *ClickHouseRepository) GetTracesKeyset(ctx context.Context, f TraceFilte
 		rows = rows[:limit]
 	}
 
-	summaryFrag, summaryArgs := buildWhereClause(f)
-	var summary traceSummaryRow
-	if err := r.db.QueryRow(ctx, &summary, `
-		SELECT toInt64(COUNT(*)) as total_traces,
-		       toInt64(sum(if(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400, 1, 0))) as error_traces,
-		       AVG(s.duration_nano / 1000000.0) as avg_duration,
-		       quantile(0.5)(s.duration_nano / 1000000.0) as p50_duration,
-		       quantile(0.95)(s.duration_nano / 1000000.0) as p95_duration,
-		       quantile(0.99)(s.duration_nano / 1000000.0) as p99_duration
-		FROM observability.spans s`+summaryFrag, summaryArgs...); err != nil {
-		//nolint:nilerr // summary is supplementary; return traces with empty summary on failure
-		return rows, traceSummaryRow{}, hasMore, nil
-	}
-
-	return rows, summary, hasMore, nil
+	summary, err := r.getTraceSummary(ctx, f)
+	return rows, summary, hasMore, err
 }
 
-// GetTraces returns traces with legacy OFFSET-based pagination.
 func (r *ClickHouseRepository) GetTraces(ctx context.Context, f TraceFilters, limit, offset int) ([]traceRow, int64, traceSummaryRow, error) {
-	queryFrag, args := buildWhereClause(f)
-
-	selectCols := traceSelectColumns(f.SearchMode)
-	query := `SELECT ` + selectCols + ` FROM observability.spans s` + queryFrag + ` ORDER BY s.timestamp DESC LIMIT @limit OFFSET @offset`
-	args = append(args,
-		clickhouse.Named("limit", limit),
-		clickhouse.Named("offset", offset),
-	)
+	query, args := buildTracesQuery(f, false, limit, TraceCursor{}, offset)
 	var rows []traceRow
 	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, 0, traceSummaryRow{}, err
 	}
 
-	countFrag, countArgs := buildWhereClause(f)
-	var countRow traceCountRow
-	total := int64(0)
-	if err := r.db.QueryRow(ctx, &countRow, `SELECT toInt64(COUNT(*)) as total FROM observability.spans s`+countFrag, countArgs...); err == nil {
-		total = countRow.Total
+	countQuery, countArgs := buildTracesCountQuery(f)
+	var total int64
+	if err := r.db.QueryRow(ctx, &total, countQuery, countArgs...); err != nil {
+		return nil, 0, traceSummaryRow{}, err
 	}
 
-	summaryFrag, summaryArgs := buildWhereClause(f)
-	var summary traceSummaryRow
-	if err := r.db.QueryRow(ctx, &summary, `
-		SELECT toInt64(COUNT(*)) as total_traces,
-		       toInt64(sum(if(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400, 1, 0))) as error_traces,
-		       AVG(s.duration_nano / 1000000.0) as avg_duration,
-		       quantile(0.5)(s.duration_nano / 1000000.0) as p50_duration,
-		       quantile(0.95)(s.duration_nano / 1000000.0) as p95_duration,
-		       quantile(0.99)(s.duration_nano / 1000000.0) as p99_duration
-		FROM observability.spans s`+summaryFrag, summaryArgs...); err != nil {
-		return rows, total, traceSummaryRow{}, err
-	}
+	summary, err := r.getTraceSummary(ctx, f)
+	return rows, total, summary, err
+}
 
-	return rows, total, summary, nil
+func (r *ClickHouseRepository) getTraceSummary(ctx context.Context, f TraceFilters) (traceSummaryRow, error) {
+	query, args := buildTracesSummaryQuery(f)
+	var res traceSummaryRow
+	err := r.db.QueryRow(ctx, &res, query, args...)
+	return res, err
+}
+
+func (r *ClickHouseRepository) GetTraceFacets(ctx context.Context, f TraceFilters) ([]traceFacetRow, error) {
+	query, args := buildTraceFacetsQuery(f)
+	var rows []traceFacetRow
+	err := r.db.Select(ctx, &rows, query, args...)
+	return rows, err
+}
+
+func (r *ClickHouseRepository) GetTraceTrend(ctx context.Context, f TraceFilters, step string) ([]traceTrendRow, error) {
+	query, args := buildTraceTrendQuery(f, step)
+	var rows []traceTrendRow
+	err := r.db.Select(ctx, &rows, query, args...)
+	return rows, err
 }
 
 func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamID int64, traceID string) ([]spanRow, error) {
 	var rows []spanRow
 	err := r.db.Select(ctx, &rows, `
-		SELECT s.span_id, s.parent_span_id, s.trace_id, s.name as operation_name, s.service_name AS service_name, s.kind_string as span_kind,
-		       s.timestamp as start_time,
-		       toInt64(s.duration_nano) as duration_nano,
-		       s.duration_nano / 1000000.0 as duration_ms,
-		       s.status_code_string as status, s.status_message,
-		       s.http_method, s.http_url, toUInt16OrZero(s.response_status_code) as http_status_code,
-		       s.mat_host_name as host, s.mat_k8s_pod_name as pod, toJSONString(s.attributes) as attributes
-		FROM observability.spans s
-		WHERE s.team_id = @teamID AND s.trace_id = @traceID
-		ORDER BY s.timestamp ASC
-		LIMIT 5000
+		SELECT span_id, parent_span_id, trace_id, name AS operation_name, service_name, kind_string AS span_kind,
+		       timestamp AS start_time, duration_nano, (duration_nano / 1000000.0) AS duration_ms, 
+		       status_code_string AS status, status_message, attributes_string AS attributes,
+		       events, links, resource_attributes, has_error,
+		       mat_http_method AS http_method, mat_http_url AS http_url, toInt64(toUInt16OrZero(response_status_code)) AS http_status_code,
+		       mat_host_name AS host, mat_k8s_pod_name AS pod
+		FROM observability.spans
+		WHERE team_id = @teamID AND trace_id = @traceID
+		ORDER BY timestamp ASC
+		LIMIT 10000
 	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)) //nolint:gosec // G115
-	if err != nil {
-		return nil, err
-	}
-	return rows, nil
+	return rows, err
 }
 
 func (r *ClickHouseRepository) GetSpanTree(ctx context.Context, teamID int64, spanID string) ([]spanRow, error) {
-	var rows []spanRow
-	err := r.db.Select(ctx, &rows, `
-		SELECT s.span_id, s.parent_span_id, s.trace_id, s.name as operation_name, s.service_name AS service_name, s.kind_string as span_kind,
-		       s.timestamp as start_time,
-		       toInt64(s.duration_nano) as duration_nano,
-		       s.duration_nano / 1000000.0 as duration_ms,
-		       s.status_code_string as status, s.status_message,
-		       s.http_method, s.http_url, toUInt16OrZero(s.response_status_code) as http_status_code,
-		       s.mat_host_name as host, s.mat_k8s_pod_name as pod, toJSONString(s.attributes) as attributes
-		FROM observability.spans s
-		WHERE s.team_id = @teamID
-		  AND s.trace_id = (
-		      SELECT trace_id FROM observability.spans WHERE team_id = @teamID AND span_id = @spanID LIMIT 1
-		  )
-		ORDER BY s.timestamp ASC
-		LIMIT 5000
-	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("spanID", spanID)) //nolint:gosec // G115
+	var traceID string
+	err := r.db.QueryRow(ctx, &traceID, "SELECT trace_id FROM observability.spans WHERE team_id = @teamID AND span_id = @spanID LIMIT 1",
+		clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("spanID", spanID)) //nolint:gosec // G115
 	if err != nil {
 		return nil, err
 	}
-	return rows, nil
+	return r.GetTraceSpans(ctx, teamID, traceID)
 }
 
 func (r *ClickHouseRepository) GetServiceDependencies(ctx context.Context, teamID int64, startMs, endMs int64) ([]serviceDependencyRow, error) {
 	var rows []serviceDependencyRow
 	err := r.db.Select(ctx, &rows, `
-		SELECT s1.service_name AS source,
-		       s2.service_name AS target,
-		       toInt64(count()) AS call_count
-		FROM observability.spans s1
-		JOIN observability.spans s2 ON s1.team_id = s2.team_id AND s1.trace_id = s2.trace_id AND s1.span_id = s2.parent_span_id
-			AND s2.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s2.timestamp BETWEEN @start AND @end
-		WHERE s1.team_id = @teamID AND s1.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s1.kind = 3 AND s1.timestamp BETWEEN @start AND @end
-		  AND s1.service_name != s2.service_name
-		GROUP BY s1.service_name, s2.service_name
-		ORDER BY call_count DESC
-		LIMIT 100
+		SELECT s.service_name        AS source,
+		       c.service_name        AS target,
+		       toInt64(count())      AS call_count
+		FROM observability.spans s
+		INNER JOIN observability.spans c ON s.span_id = c.parent_span_id AND s.trace_id = c.trace_id
+		WHERE s.team_id = @teamID AND s.service_name != c.service_name
+		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
+		  AND s.timestamp BETWEEN @start AND @end
+		GROUP BY source, target
 	`,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
@@ -170,14 +138,191 @@ func (r *ClickHouseRepository) GetServiceDependencies(ctx context.Context, teamI
 	return rows, err
 }
 
-// traceSelectColumns returns the SELECT column list.
-// In "all" mode (span-level search), include parent_span_id and span_kind.
+func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorGroupRow, error) {
+	var rows []errorGroupRow
+	err := r.db.Select(ctx, &rows, `
+		SELECT service_name,
+		       name                                           AS operation_name,
+		       status_message,
+		       toUInt16OrZero(response_status_code)           AS http_status_code,
+		       toInt64(count())                               AS error_count,
+		       max(timestamp)                                 AS last_occurrence,
+		       min(timestamp)                                 AS first_occurrence,
+		       argMax(trace_id, timestamp)                    AS sample_trace_id
+		FROM observability.spans
+		WHERE team_id = @teamID
+		  AND (has_error = true OR toUInt16OrZero(response_status_code) >= 400)
+		  AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
+		  AND timestamp BETWEEN @start AND @end
+		  AND service_name = if(@serviceName = '', service_name, @serviceName)
+		GROUP BY service_name, operation_name, status_message, http_status_code
+		ORDER BY error_count DESC
+		LIMIT @limit
+	`,
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("serviceName", serviceName),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("limit", limit),
+	)
+	return rows, err
+}
+
+func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]errorTimeSeriesRow, error) {
+	bucket := timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
+	query := fmt.Sprintf(`
+		SELECT %s AS timestamp,
+		       service_name,
+		       toInt64(count())                     AS total_count,
+		       toInt64(countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400)) AS error_count,
+		       error_count * 100.0 / total_count     AS error_rate
+		FROM observability.spans s
+		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
+		  AND s.service_name = if(@serviceName = '', s.service_name, @serviceName)
+		GROUP BY timestamp, service_name
+		ORDER BY timestamp ASC`, bucket)
+
+	var rows []errorTimeSeriesRow
+	err := r.db.Select(ctx, &rows, query,
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("serviceName", serviceName),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	)
+	return rows, err
+}
+
+func (r *ClickHouseRepository) GetLatencyHistogram(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) ([]latencyHistogramRow, error) {
+	var rows []latencyHistogramRow
+	err := r.db.Select(ctx, &rows, `
+		SELECT
+		    concat(toString(floor(log10(duration_nano/1000000.0) * 10) / 10), ' - ', toString(floor(log10(duration_nano/1000000.0) * 10) / 10 + 0.1)) AS bucket_label,
+		    floor(log10(duration_nano/1000000.0) * 10) / 10 AS bucket_min,
+		    toInt64(count()) AS span_count
+		FROM observability.spans s
+		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
+		  AND s.service_name = @serviceName AND s.name = @operationName
+		GROUP BY bucket_label, bucket_min
+		ORDER BY bucket_min ASC
+	`,
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("serviceName", serviceName),
+		clickhouse.Named("operationName", operationName),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	)
+	return rows, err
+}
+
+func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]latencyHeatmapRow, error) {
+	bucket := timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
+	query := fmt.Sprintf(`
+		SELECT time_bucket,
+		       latency_bucket,
+		       toInt64(count()) AS span_count
+		FROM (
+			SELECT %s                            AS time_bucket,
+			       toString(floor(log10(duration_nano/1000000.0) * 10) / 10) AS latency_bucket
+			FROM observability.spans s
+			WHERE s.team_id = @teamID AND `+rootspan.Condition("s")+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+	if serviceName != "" {
+		query += serviceNameFilter
+		args = append(args, clickhouse.Named("serviceName", serviceName))
+	}
+	query += fmt.Sprintf(`) GROUP BY time_bucket, latency_bucket
+                   ORDER BY time_bucket ASC, latency_bucket ASC`)
+
+	var rows []latencyHeatmapRow
+	return rows, r.db.Select(ctx, &rows, query, args...)
+}
+
+// SQL Query Builders follow ...
+
+func buildTracesQuery(f TraceFilters, useKeyset bool, limit int, cursor TraceCursor, offset int) (string, []any) {
+	where, args := buildWhereClause(f)
+	columns := traceSelectColumns(f.SearchMode)
+
+	query := fmt.Sprintf("SELECT %s FROM observability.spans s %s", columns, where)
+
+	if useKeyset && cursor.Timestamp.UnixMilli() > 0 {
+		query += " AND (s.timestamp < @cursorTime OR (s.timestamp = @cursorTime AND s.span_id < @cursorSpanID))"
+		args = append(args, clickhouse.Named("cursorTime", cursor.Timestamp), clickhouse.Named("cursorSpanID", cursor.SpanID))
+	}
+
+	query += " ORDER BY s.timestamp DESC, s.span_id DESC"
+
+	if limit > 0 {
+		query += fmt.Sprintf(" LIMIT %d", limit+1)
+		if offset > 0 {
+			query += fmt.Sprintf(" OFFSET %d", offset)
+		}
+	}
+
+	return query, args
+}
+
+func buildTracesCountQuery(f TraceFilters) (string, []any) {
+	where, args := buildWhereClause(f)
+	return fmt.Sprintf("SELECT count() AS total FROM observability.spans s %s", where), args
+}
+
+func buildTracesSummaryQuery(f TraceFilters) (string, []any) {
+	where, args := buildWhereClause(f)
+	query := fmt.Sprintf(`
+		SELECT count() AS total_traces,
+		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) AS error_traces,
+		       avg(duration_nano / 1000000.0) AS avg_duration,
+		       quantile(0.5)(duration_nano / 1000000.0) AS p50_duration,
+		       quantile(0.95)(duration_nano / 1000000.0) AS p95_duration,
+		       quantile(0.99)(duration_nano / 1000000.0) AS p99_duration
+		FROM observability.spans s %s`, where)
+	return query, args
+}
+
+func buildTraceFacetsQuery(f TraceFilters) (string, []any) {
+	where, args := buildWhereClause(f)
+	// Example: just service name facets for now
+	query := fmt.Sprintf(`
+		SELECT 'service_name' AS facet_key, service_name AS facet_value, count() AS count
+		FROM observability.spans s %s
+		GROUP BY service_name
+		ORDER BY count DESC LIMIT 10`, where)
+	return query, args
+}
+
+func buildTraceTrendQuery(f TraceFilters, step string) (string, []any) {
+	where, args := buildWhereClause(f)
+	bucket := fmt.Sprintf("toStartOfInterval(s.timestamp, INTERVAL %s)", step)
+	query := fmt.Sprintf(`
+		SELECT %s AS time_bucket,
+		       count() AS total_traces,
+		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) AS error_traces,
+		       quantile(0.95)(duration_nano / 1000000.0) AS p95_duration
+		FROM observability.spans s %s
+		GROUP BY time_bucket
+		ORDER BY time_bucket ASC`, bucket, where)
+	return query, args
+}
+
 func traceSelectColumns(searchMode string) string {
 	base := `s.span_id, s.trace_id, s.service_name AS service_name, s.name as operation_name,
-		       s.timestamp as start_time, toInt64(s.duration_nano) as duration_nano,
-		       s.duration_nano / 1000000.0 as duration_ms,
-		       s.status_code_string as status, s.http_method, toUInt16OrZero(s.response_status_code) as http_status_code,
-		       s.status_message`
+	               s.timestamp as start_time, toInt64(s.duration_nano) as duration_nano,
+	               s.duration_nano / 1000000.0 as duration_ms,
+	               s.status_code_string as status, s.http_method, toUInt16OrZero(s.response_status_code) as http_status_code,
+	               s.status_message`
 	if searchMode == SearchModeAll {
 		base += `, s.parent_span_id, s.kind_string as span_kind`
 	}

@@ -93,11 +93,40 @@ func (s *REDMetricsService) GetApdex(teamID int64, startMs, endMs int64, satisfi
 }
 
 func (s *REDMetricsService) GetTopSlowOperations(teamID int64, startMs, endMs int64, limit int) ([]SlowOperation, error) {
-	return s.repo.GetTopSlowOperations(context.Background(), teamID, startMs, endMs, limit)
+	rows, err := s.repo.GetTopSlowOperations(context.Background(), teamID, startMs, endMs, limit)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]SlowOperation, len(rows))
+	for i, row := range rows {
+		result[i] = SlowOperation{
+			OperationName: row.OperationName,
+			ServiceName:   row.ServiceName,
+			P50Ms:         row.P50Ms,
+			P95Ms:         row.P95Ms,
+			P99Ms:         row.P99Ms,
+			SpanCount:     row.SpanCount,
+		}
+	}
+	return result, nil
 }
 
 func (s *REDMetricsService) GetTopErrorOperations(teamID int64, startMs, endMs int64, limit int) ([]ErrorOperation, error) {
-	return s.repo.GetTopErrorOperations(context.Background(), teamID, startMs, endMs, limit)
+	rows, err := s.repo.GetTopErrorOperations(context.Background(), teamID, startMs, endMs, limit)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]ErrorOperation, len(rows))
+	for i, row := range rows {
+		result[i] = ErrorOperation{
+			OperationName: row.OperationName,
+			ServiceName:   row.ServiceName,
+			ErrorRate:     row.ErrorRate,
+			ErrorCount:    row.ErrorCount,
+			TotalCount:    row.TotalCount,
+		}
+	}
+	return result, nil
 }
 
 func (s *REDMetricsService) GetRequestRateTimeSeries(teamID int64, startMs, endMs int64) ([]ServiceRatePoint, error) {

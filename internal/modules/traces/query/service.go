@@ -8,20 +8,6 @@ import (
 	"time"
 )
 
-type Repository interface {
-	GetTracesKeyset(ctx context.Context, f TraceFilters, limit int, cursor TraceCursor) ([]traceRow, traceSummaryRow, bool, error)
-	GetTraces(ctx context.Context, f TraceFilters, limit, offset int) ([]traceRow, int64, traceSummaryRow, error)
-	GetTraceFacets(ctx context.Context, f TraceFilters) ([]traceFacetRow, error)
-	GetTraceTrend(ctx context.Context, f TraceFilters, step string) ([]traceTrendRow, error)
-	GetTraceSpans(ctx context.Context, teamID int64, traceID string) ([]spanRow, error)
-	GetSpanTree(ctx context.Context, teamID int64, spanID string) ([]spanRow, error)
-	GetServiceDependencies(ctx context.Context, teamID int64, startMs, endMs int64) ([]serviceDependencyRow, error)
-	GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorGroupRow, error)
-	GetErrorTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]errorTimeSeriesRow, error)
-	GetLatencyHistogram(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) ([]latencyHistogramRow, error)
-	GetLatencyHeatmap(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]latencyHeatmapRow, error)
-}
-
 type Service struct {
 	repo Repository
 }
