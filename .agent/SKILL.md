@@ -13,8 +13,7 @@ This skill defines the development standards and architectural patterns for the 
 2. **Review [Active Rules](../../.cursor/rules/optik-backend.mdc)** for latest hot paths.
 3. **Plan First, Code After Approval**:
    - For non-trivial work, produce a plan.
-   - **At least two viable approaches** m
-   'ust be presented with Pros/Cons.
+   - **At least two viable approaches** must be presented with Pros/Cons.
    - Do **not** modify project files until the user explicitly approves the plan.
 4. **After every iteration (mandatory)**: Review and update if anything changed:
    - `CODEBASE_INDEX.md` — new modules, endpoints, helpers, config, cross-repo contracts
@@ -25,11 +24,12 @@ This skill defines the development standards and architectural patterns for the 
 
 ## Modular Monolith Patterns
 
-- **Module Registration**: New modules **must** be registered in **`internal/app/server/modules_manifest.go`** within the `configuredModules()` function.
+- **Module Registration**: New modules **must** be registered in **`internal/app/server/modules_manifest.go`** within the `configuredModules()` function (currently 51 constructors: 47 HTTP + 4 ingestion).
 - **Dependency Injection**: Use the shared **`registry.Module`** pattern.
 - **Real-time Ingestion**: Spans, logs, and metrics are handled via the OTLP pipeline in `internal/ingestion/otlp/`.
 - **Dashboard Configuration**: 
-  - Backend-authored pages live in `internal/infra/dashboardcfg/pages/`.
+  - Backend-authored pages live in `internal/infra/dashboardcfg/defaults/`.
+  - 5 default pages: **overview** (6 tabs), **service** (1 tab), **ai-observability** (4 tabs), **infrastructure** (4 tabs), **saturation** (3 tabs).
   - Coordinate schema updates with the frontend.
 
 ## Engineering Principles
@@ -42,13 +42,21 @@ This skill defines the development standards and architectural patterns for the 
 
 - **Server Entry**: `cmd/server/main.go`
 - **Application Configuration**: `internal/config/config.go`
-- **Socket.IO Real-time Subscriptions**: `internal/infra/livetailws/ (GET /api/v1/ws/live)`
+- **WebSocket Live Tail**: `internal/infra/livetailws/` (`GET /api/v1/ws/live`)
+- **Logs Live Tail**: `internal/modules/logs/search/livetail_run.go`, `livetail_payload.go`
 - **HTTP Helpers**: `internal/shared/httputil/base.go`
 - **Error Codes**: `internal/shared/contracts/errorcode/codes.go`
 - **API Response**: `internal/shared/contracts/response.go`
 - **ClickHouse Helpers**: `internal/infra/database/` (`query.go`, `utils.go`)
 - **Time Bucketing**: `internal/infra/timebucket/timebucket.go`
 - **Middleware**: `internal/infra/middleware/`
+- **Session**: `internal/infra/session/manager.go`
+- **AI Modules**: `internal/modules/ai/{dashboard,runs,rundetail,conversations,traces}/`
+- **HTTP Metrics**: `internal/modules/httpmetrics/`
+- **Infrastructure**: `internal/modules/infrastructure/{cpu,disk,jvm,kubernetes,memory,network,nodes,resourceutil}/`
+- **Saturation DB**: `internal/modules/saturation/database/{collection,connections,errors,latency,slowqueries,summary,system,systems,volume}/`
+- **Saturation Kafka**: `internal/modules/saturation/kafka/`
+- **Dashboard Enums**: `internal/infra/dashboardcfg/enums.go` (24 panel types, 10 layout variants, 8 section templates)
 
 ## Low-Level Design Patterns
 
@@ -88,16 +96,32 @@ func (h *Handler) ListItems(c *gin.Context) {
 
 ### ClickHouse Helpers
 
-- `dbutil.QueryMaps(querier, sql, args...)` → `[]map[string]any`
+**Query execution** (`internal/infra/database/query.go`):
+- `dbutil.QueryMaps(querier, sql, args...)` → `[]map[string]any` (10K limit)
+- `dbutil.QueryMapsLimit(querier, limit, sql, args...)` — custom limit
+- `dbutil.QueryMap(querier, sql, args...)` — single row
+- `dbutil.QueryCount(querier, sql, args...)` — COUNT → int64
+- `dbutil.InClause([]string)` / `InClauseInt64([]int64)` — positional `(?,?,?)`
+- `dbutil.NamedInClause(prefix, []string)` / `NamedInClauseInt64(prefix, []int64)` — named `(@p0,@p1)`
+
+**Type-safe extraction** (`internal/infra/database/utils.go`):
 - `dbutil.SqlTime(ms)` → `time.Time` UTC
-- `dbutil.Int64FromAny`, `Float64FromAny`, `StringFromAny` — type-safe extraction
-- `timebucket.NewAdaptiveStrategy(startMs, endMs)` → auto-bucket
+- `dbutil.Int64FromAny`, `Float64FromAny`, `StringFromAny`, `BoolFromAny`, `TimeFromAny`
+- Nullable: `NullableStringFromAny` → `*string`, `NullableFloat64FromAny` → `*float64`, `NullableTimeFromAny` → `*time.Time`
+- `NormalizeRows(rows)` — sanitize NaN/Inf for JSON
+- `ToInt64Slice(v)` — `[]any` → `[]int64`
+
+**Time bucketing** (`internal/infra/timebucket/`):
+- `timebucket.NewAdaptiveStrategy(startMs, endMs)` → auto-bucket (minute/5min/hour/day)
+- `.GetBucketExpression()` — SQL for SELECT + GROUP BY
 
 ### Middleware Stack (order)
 
 1. `gin.Default()` → 2. `ErrorRecovery()` → 3. `CORSMiddleware` → 4. `TenantMiddleware` → 5. Rate limiter (2000 req/s) → 6. Optional `CacheResponse` (30s)
 
+Public prefixes (skip auth): `/api/v1/auth/login`, `/otlp/`, `/health`
+
 ### API Response Envelope
 
 - `contracts.Success(data)` / `contracts.Failure(code, msg, path)`
-- Error codes: `BadRequest`, `Unauthorized`, `NotFound`, `Internal`, `QueryFailed`, `QueryTimeout`, `CircuitOpen`, etc.
+- Error codes: `BadRequest`, `Unauthorized`, `NotFound`, `Internal`, `QueryFailed`, `QueryTimeout`, `CircuitOpen`, `RateLimited`, `Validation`, `Forbidden`, `ConnectionError`, `Unavailable`

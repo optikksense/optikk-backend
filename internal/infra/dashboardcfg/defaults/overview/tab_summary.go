@@ -26,7 +26,7 @@ func summaryTab() dashboardcfg.TabDefinition {
 				LayoutVariant: dashboardcfg.LayoutVariant("summary"),
 				SectionID:     "overview-stats",
 				Order:         1,
-				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/overview/services", Params: nil},
+				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/overview/summary", Params: nil},
 				Layout:        dashboardcfg.PanelLayout{X: 0, Y: 0, W: 0, H: 0},
 				Title:         "Overview Stats",
 				Description:   "High-level KPIs across all services including request rate, error rate, and latency. Use this as a quick health check for your entire system.",

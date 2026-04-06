@@ -70,9 +70,12 @@ func errorsTab() dashboardcfg.TabDefinition {
 				Description:   "Errors aggregated by fingerprint showing occurrence count and affected services. Click a group to see individual traces.",
 				TitleIcon:     "List",
 				Columns: []dashboardcfg.DashboardTableColumn{
-					dashboardcfg.DashboardTableColumn{Key: "group_id", Label: "Group Id", Align: dashboardcfg.ColumnAlign("left"), Width: dashboardcfg.IntPtr(180)},
+					{Key: "operation_name", Label: "Operation", Align: dashboardcfg.ColumnAlign("left")},
+					{Key: "status_message", Label: "Message", Align: dashboardcfg.ColumnAlign("left")},
+					{Key: "sample_trace_id", Label: "Trace ID", Align: dashboardcfg.ColumnAlign("left")},
+					{Key: "error_count", Label: "Count", Align: dashboardcfg.ColumnAlign("right")},
 				},
-				DrawerAction: &dashboardcfg.DrawerActionSpec{Entity: dashboardcfg.DrawerEntity("errorGroup"), IDField: "group_id", TitleField: "group_id"},
+				DrawerAction: &dashboardcfg.DrawerActionSpec{Entity: dashboardcfg.DrawerEntity("errorGroup"), IDField: "group_id", TitleField: "operation_name"},
 			},
 		},
 	}

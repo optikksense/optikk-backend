@@ -17,7 +17,7 @@ alwaysApply: true
 
 ## Canonical map
 
-**`CODEBASE_INDEX.md`** (repo root) lists modules, ingestion, dashboardcfg, and the cross-repo map to **optic-frontend**.
+**`CODEBASE_INDEX.md`** (repo root) lists all 51 modules (47 HTTP + 4 ingestion), ingestion, dashboardcfg, and the cross-repo map to **optic-frontend**.
 
 ## Stack
 
@@ -34,16 +34,67 @@ Go 1.25, Gin, ClickHouse, MySQL, Redis, WebSocket live tail (`/api/v1/ws/live`),
 
 - HTTP + service: `internal/modules/dashboard/`
 - JSON pages and loader: `internal/infra/dashboardcfg/` (embedded pages under `internal/infra/dashboardcfg/pages/`)
-- Default pages package: `internal/infra/dashboardcfg/defaults/` — includes **`service`** (deployments tab; frontend path `/service`, query `serviceName`)
-- Schema/version notes: `CurrentSchemaVersion` in `internal/infra/dashboardcfg/models.go`
+- Schema/version: `CurrentSchemaVersion` = **2** in `internal/infra/dashboardcfg/types.go`
+- Default pages (`internal/infra/dashboardcfg/defaults/`):
+
+| Page | Directory | Tabs | Default tab |
+|------|-----------|------|-------------|
+| overview | `defaults/overview/` | summary, latency-analysis, apm, errors, http, slo | summary |
+| service | `defaults/service/` | deployments | deployments |
+| ai-observability | `defaults/ai_observability/` | overview, performance, cost, security | overview |
+| infrastructure | `defaults/infrastructure/` | resource-utilization, jvm, kubernetes, nodes | resource-utilization |
+| saturation | `defaults/saturation/` | database, queue, redis | database |
+
+## AI Observability modules
+
+5 submodules under `internal/modules/ai/`, all V1 (uncached):
+- `ai/dashboard` — `/ai/summary`, `/ai/models`, `/ai/performance/*`, `/ai/cost/*`, `/ai/security/*`
+- `ai/runs` — `/ai/runs`, `/ai/runs/summary`, `/ai/runs/models`, `/ai/runs/operations`
+- `ai/rundetail` — `/ai/runs/:spanId`, `/ai/runs/:spanId/messages`, `/ai/runs/:spanId/context`
+- `ai/conversations` — `/ai/conversations`, `/ai/conversations/:conversationId`
+- `ai/traces` — `/ai/traces/:traceId`, `/ai/traces/:traceId/summary`
+
+Dashboard default page: `defaults/ai_observability/` (4 tabs: overview, performance, cost, security)
 
 ## Deployments module
 
-- **`internal/modules/deployments/`** — `GET /api/v1/deployments/list|timeline|impact|active-version` (query `serviceName`, range `start`/`end`); **`registry.Cached`** (30s). Uses **`observability.spans`** with `mat_service_version` / `mat_deployment_environment` materialized columns (`db/clickhouse_*.sql`).
+- **`internal/modules/deployments/`** — `GET /api/v1/deployments/list|timeline|impact|active-version` (query `serviceName`, range `start`/`end`); **`registry.Cached`** (30s). Uses **`observability.spans`** with `mat_service_version` / `mat_deployment_environment` materialized columns.
+
+## HTTP Metrics module
+
+- **`internal/modules/httpmetrics/`** — Cached. Routes under `/http/*`:
+  - Root: `request-rate`, `request-duration`, `active-requests`, `body-sizes`, `dns-duration`, `tls-duration`, `status-distribution`, `error-timeseries`
+  - `/http/routes/`: `top-by-volume`, `top-by-latency`, `error-rate`, `error-timeseries`
+  - `/http/external/`: `top-hosts`, `host-latency`, `error-rate`
+
+## Infrastructure modules
+
+8 submodules under `internal/modules/infrastructure/`, all Cached, routes under `/infrastructure/*`:
+- `cpu`, `disk`, `jvm`, `kubernetes`, `memory`, `network`, `nodes`, `resourceutil`
+- Shared constants: `infrastructure/infraconsts/`
+
+## Saturation modules
+
+10 submodules (9 database + 1 kafka):
+- Database: `saturation/database/{collection,connections,errors,latency,slowqueries,summary,system,systems,volume}` — routes under `/saturation/*`
+- Kafka: `saturation/kafka/` — routes under `/saturation/kafka/*` (Cached)
+
+## Overview module
+
+3 submodules under `internal/modules/overview/`, all Cached:
+- `overview/overview` — `/overview/request-rate`, `/overview/error-rate`, `/overview/p95-latency`, `/overview/services`, `/overview/top-endpoints`, `/overview/endpoints/metrics`, `/overview/endpoints/timeseries`, `/overview/summary`
+- `overview/errors` — `/overview/errors/*`, `/errors/groups/:groupId/*`
+- `overview/slo` — `/overview/slo`, `/overview/slo/stats`, `/overview/slo/burn-down`, `/overview/slo/burn-rate`
 
 ## Realtime
 
 - Live tail WebSocket: `internal/infra/livetailws/` — `GET /api/v1/ws/live` (`subscribe:logs` / `subscribe:spans` JSON protocol)
+
+## Logs live tail
+
+- **`internal/modules/logs/search/livetail_run.go`** — `RunLogsLiveTail()`: subscribes to Redis Stream (`livetailredis.LogsStreamKey(teamID)`), heartbeat every 15s
+- **`internal/modules/logs/search/livetail_payload.go`** — `SubscribeLogsPayload` filter fields: Severities, Services, Hosts, Pods, Containers, Environments, TraceID, SpanID, Search, AttributeFilters
+- No ClickHouse polling — reads from Redis ingest fan-out stream
 
 ## Ingestion
 
@@ -120,17 +171,26 @@ func (m *myModule) RegisterRoutes(group *gin.RouterGroup) {
 
 ### ClickHouse query helpers (`internal/infra/database/`)
 
+**Query execution** (`query.go`):
 - `dbutil.QueryMaps(querier, sql, args...)` — returns `[]map[string]any` (10K row limit)
 - `dbutil.QueryMapsLimit(querier, limit, sql, args...)` — custom limit
-- `dbutil.SqlTime(ms)` — Unix ms to `time.Time` UTC for ClickHouse params
-- `dbutil.Int64FromAny(v)`, `Float64FromAny(v)`, `StringFromAny(v)` — type-safe row extraction
-- `dbutil.NormalizeRows(rows)` — sanitize NaN/Inf to 0 for JSON
-- `dbutil.SanitizeError(err)` — strip internal details before client response
+- `dbutil.QueryMap(querier, sql, args...)` — single row
+- `dbutil.QueryCount(querier, sql, args...)` — COUNT → int64
+- `dbutil.InClause([]string)` / `InClauseInt64([]int64)` — positional `(?,?,?)`
+- `dbutil.NamedInClause(prefix, []string)` / `NamedInClauseInt64(prefix, []int64)` — named `(@p0,@p1)`
 - Named params: `clickhouse.Named("teamID", teamID)` with `@teamID` in SQL
+
+**Type-safe extraction** (`utils.go`):
+- `dbutil.SqlTime(ms)` → `time.Time` UTC
+- `dbutil.Int64FromAny`, `Float64FromAny`, `StringFromAny`, `BoolFromAny`, `TimeFromAny`
+- Nullable: `NullableStringFromAny` → `*string`, `NullableFloat64FromAny` → `*float64`, `NullableTimeFromAny` → `*time.Time`
+- `NormalizeRows(rows)` — sanitize NaN/Inf for JSON
+- `ToInt64Slice(v)` — `[]any` → `[]int64`
 
 ### Time bucketing (`internal/infra/timebucket/`)
 
-- `timebucket.NewAdaptiveStrategy(startMs, endMs)` — picks minute/5min/hour/day based on range
+- `timebucket.NewAdaptiveStrategy(startMs, endMs)` — picks minute/5min/15min/hour/day based on range
+- `timebucket.ByName("15m")` — explicit step selection (1m/5m/15m/1h/1d)
 - `.GetBucketExpression()` — returns SQL expr for SELECT + GROUP BY
 - `.GetRawExpression(column)` — for custom column name
 
@@ -143,9 +203,10 @@ func (m *myModule) RegisterRoutes(group *gin.RouterGroup) {
 5. Rate limiter — Redis-backed (`NewRedisRateLimiter`) or in-memory (`NewRateLimiter`); 2000 req/s
 6. Optional `cache.CacheResponse(cache, 30s)` for modules with `RouteTarget() == registry.Cached`
 
+**Public prefixes** (skip TenantMiddleware): `/api/v1/auth/login`, `/otlp/`, `/health`
+
 ### API response envelope
 
 - Shape: `contracts.APIResponse{Success bool, Data any, Error *ErrorDetail}`
 - `contracts.Success(data)` / `contracts.Failure(code, msg, path)`
 - Error codes (`errorcode` package): `BadRequest`, `Validation`, `Unauthorized`, `Forbidden`, `NotFound`, `Conflict`, `RateLimited`, `Internal`, `QueryFailed`, `QueryTimeout`, `ConnectionError`, `Unavailable`, `CircuitOpen`
-- Data-level: `NoData`, `PartialData` (inside success responses)

@@ -47,3 +47,14 @@ func mapTimeSeriesRows(rows []timeSeriesRow) []TimeSeriesPoint {
 	}
 	return points
 }
+
+func mapGlobalSummaryRow(row serviceMetricRow) GlobalSummary {
+	return GlobalSummary{
+		TotalRequests: row.RequestCount,
+		ErrorCount:    row.ErrorCount,
+		AvgLatency:    row.AvgLatency,
+		P50Latency:    row.P50Latency,
+		P95Latency:    row.P95Latency,
+		P99Latency:    row.P99Latency,
+	}
+}

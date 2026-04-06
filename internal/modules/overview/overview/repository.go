@@ -23,6 +23,7 @@ type Repository interface {
 	GetServices(ctx context.Context, teamID int64, startMs, endMs int64) ([]serviceMetricRow, error)
 	GetTopEndpoints(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]endpointMetricRow, error)
 	GetEndpointTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]timeSeriesRow, error)
+	GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) (serviceMetricRow, error)
 }
 
 type ClickHouseRepository struct {
@@ -286,4 +287,26 @@ func (r *ClickHouseRepository) GetEndpointTimeSeries(ctx context.Context, teamID
 	}
 
 	return rows, nil
+}
+
+func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) (serviceMetricRow, error) {
+	query := `
+		SELECT '' AS service_name,
+		       toInt64(count())                                                             AS request_count,
+		       toInt64(countIf(` + ErrorCondition() + `))                                   AS error_count,
+		       avg(s.duration_nano / 1000000.0)                                            AS avg_latency,
+		       quantile(` + fmt.Sprintf("%.1f", QuantileP50) + `)(s.duration_nano / 1000000.0) AS p50_latency,
+		       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency,
+		       quantile(` + fmt.Sprintf("%.2f", QuantileP99) + `)(s.duration_nano / 1000000.0) AS p99_latency
+		FROM observability.spans s
+		WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
+	`
+
+	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
+	var row serviceMetricRow
+	if err := r.db.QueryRow(ctx, &row, query, args...); err != nil {
+		return serviceMetricRow{}, err
+	}
+
+	return row, nil
 }
