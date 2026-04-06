@@ -5,6 +5,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 )
 
@@ -41,3 +42,22 @@ type ClickHouseRepository struct {
 func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
+
+func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, traceID string) ([]traceLogRow, error) {
+	var rows []traceLogRow
+	if err := r.db.Select(ctx, &rows, `
+		SELECT id, timestamp, observed_timestamp, severity_text, severity_number,
+			body, trace_id, span_id, trace_flags,
+			service, host, pod, container, environment,
+			attributes_string, attributes_number, attributes_bool,
+			scope_name, scope_version
+		FROM observability.logs
+		WHERE team_id = @teamID AND trace_id = @traceID
+		ORDER BY timestamp ASC
+		LIMIT 1000
+	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)); err != nil { //nolint:gosec // G115
+		return nil, err
+	}
+	return rows, nil
+}
+
