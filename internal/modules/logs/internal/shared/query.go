@@ -10,7 +10,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 )
 
-const LogColumns = `id, timestamp, observed_timestamp, severity_text, severity_number,
+const LogColumns = `timestamp, observed_timestamp, severity_text, severity_number,
 	body, trace_id, span_id, trace_flags,
 	service, host, pod, container, environment,
 	attributes_string, attributes_number, attributes_bool,

@@ -15,7 +15,7 @@ const serviceNameFilter = " AND s.service_name = @serviceName"
 
 type Repository interface {
 	GetTracesKeyset(ctx context.Context, f TraceFilters, limit int, cursor TraceCursor) ([]traceRow, traceSummaryRow, bool, error)
-	GetTraces(ctx context.Context, f TraceFilters, limit, offset int) ([]traceRow, int64, traceSummaryRow, error)
+	GetTraces(ctx context.Context, f TraceFilters, limit, offset int) ([]traceRow, uint64, traceSummaryRow, error)
 	GetTraceFacets(ctx context.Context, f TraceFilters) ([]traceFacetRow, error)
 	GetTraceTrend(ctx context.Context, f TraceFilters, step string) ([]traceTrendRow, error)
 	GetTraceSpans(ctx context.Context, teamID int64, traceID string) ([]spanRow, error)
@@ -50,7 +50,7 @@ func (r *ClickHouseRepository) GetTracesKeyset(ctx context.Context, f TraceFilte
 	return rows, summary, hasMore, err
 }
 
-func (r *ClickHouseRepository) GetTraces(ctx context.Context, f TraceFilters, limit, offset int) ([]traceRow, int64, traceSummaryRow, error) {
+func (r *ClickHouseRepository) GetTraces(ctx context.Context, f TraceFilters, limit, offset int) ([]traceRow, uint64, traceSummaryRow, error) {
 	query, args := buildTracesQuery(f, false, limit, TraceCursor{}, offset)
 	var rows []traceRow
 	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
@@ -58,7 +58,7 @@ func (r *ClickHouseRepository) GetTraces(ctx context.Context, f TraceFilters, li
 	}
 
 	countQuery, countArgs := buildTracesCountQuery(f)
-	var total int64
+	var total uint64
 	if err := r.db.QueryRow(ctx, &total, countQuery, countArgs...); err != nil {
 		return nil, 0, traceSummaryRow{}, err
 	}
@@ -122,7 +122,7 @@ func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64,
 		       name                                           AS operation_name,
 		       status_message,
 		       toUInt16OrZero(response_status_code)           AS http_status_code,
-		       toInt64(count())                               AS error_count,
+		       count()                                        AS error_count,
 		       max(timestamp)                                 AS last_occurrence,
 		       min(timestamp)                                 AS first_occurrence,
 		       argMax(trace_id, timestamp)                    AS sample_trace_id
@@ -152,8 +152,8 @@ func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamID in
 	query := fmt.Sprintf(`
 		SELECT %s AS timestamp,
 		       service_name,
-		       toInt64(count())                     AS total_count,
-		       toInt64(countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400)) AS error_count,
+		       count()                              AS total_count,
+		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) AS error_count,
 		       error_count * 100.0 / total_count     AS error_rate
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
@@ -179,7 +179,7 @@ func (r *ClickHouseRepository) GetLatencyHistogram(ctx context.Context, teamID i
 		SELECT
 		    concat(toString(floor(log10(duration_nano/1000000.0) * 10) / 10), ' - ', toString(floor(log10(duration_nano/1000000.0) * 10) / 10 + 0.1)) AS bucket_label,
 		    floor(log10(duration_nano/1000000.0) * 10) / 10 AS bucket_min,
-		    toInt64(count()) AS span_count
+		    count() AS span_count
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
 		  AND s.service_name = @serviceName AND s.name = @operationName
@@ -202,7 +202,7 @@ func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int
 	query := fmt.Sprintf(`
 		SELECT time_bucket,
 		       latency_bucket,
-		       toInt64(count()) AS span_count
+		       count() AS span_count
 		FROM (
 			SELECT %s                            AS time_bucket,
 			       toString(floor(log10(duration_nano/1000000.0) * 10) / 10) AS latency_bucket
@@ -282,7 +282,7 @@ func buildTraceFacetsQuery(f TraceFilters) (string, []any) {
 
 func buildTraceTrendQuery(f TraceFilters, step string) (string, []any) {
 	where, args := buildWhereClause(f)
-	bucket := fmt.Sprintf("toStartOfInterval(s.timestamp, INTERVAL %s)", step)
+	bucket := timebucket.ByName(step).GetRawExpression("s.timestamp")
 	query := fmt.Sprintf(`
 		SELECT %s AS time_bucket,
 		       count() AS total_traces,

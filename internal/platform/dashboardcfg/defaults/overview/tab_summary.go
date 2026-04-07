@@ -218,8 +218,9 @@ func summaryTab() dashboardcfg.TabDefinition {
 				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/overview/services", Params: nil},
 				Layout:        dashboardcfg.PanelLayout{X: 0, Y: 0, W: 0, H: 0},
 				Title:         "Services",
-				Description:   "All services reporting in the selected time window with key metrics including request rate, error rate, and p95 latency.",
+				Description:   "All services reporting in the selected time window with key metrics including request rate, error rate, and p95 latency. Use Details to open the service side drawer.",
 				TitleIcon:     "Layers",
+				DrawerAction:  &dashboardcfg.DrawerActionSpec{Entity: dashboardcfg.DrawerEntity("service"), IDField: "service_name", TitleField: "service_name"},
 				Columns: []dashboardcfg.DashboardTableColumn{
 					{Key: "service_name", Label: "Service", Align: dashboardcfg.ColumnAlign("left")},
 					{Key: "request_count", Label: "Requests", Formatter: "number", Align: dashboardcfg.ColumnAlign("right")},

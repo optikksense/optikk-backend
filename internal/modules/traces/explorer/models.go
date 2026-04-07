@@ -23,11 +23,11 @@ type QueryRequest struct {
 
 type FacetBucket struct {
 	Value string `json:"value"`
-	Count int64  `json:"count"`
+	Count uint64 `json:"count"`
 }
 
 type PageInfo struct {
-	Total      int64  `json:"total"`
+	Total      uint64 `json:"total"`
 	HasMore    bool   `json:"hasMore"`
 	NextCursor string `json:"nextCursor,omitempty"`
 	Offset     int    `json:"offset"`

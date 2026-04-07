@@ -70,6 +70,7 @@ const (
 	DrawerEntityKafkaTopic     DrawerEntity = "kafkaTopic"
 	DrawerEntityNode           DrawerEntity = "node"
 	DrawerEntityRedisInstance  DrawerEntity = "redisInstance"
+	DrawerEntityService        DrawerEntity = "service"
 )
 
 var allowedPanelTypes = map[PanelType]struct{}{
@@ -137,6 +138,7 @@ var allowedDrawerEntities = map[DrawerEntity]struct{}{
 	DrawerEntityKafkaTopic:     {},
 	DrawerEntityNode:           {},
 	DrawerEntityRedisInstance:  {},
+	DrawerEntityService:        {},
 }
 
 var allowedFormatters = map[string]struct{}{

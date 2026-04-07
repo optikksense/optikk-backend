@@ -81,8 +81,8 @@ type TraceCursor struct {
 }
 
 type TraceSummary struct {
-	TotalTraces int64   `json:"total_traces" ch:"total_traces"`
-	ErrorTraces int64   `json:"error_traces" ch:"error_traces"`
+	TotalTraces uint64  `json:"total_traces" ch:"total_traces"`
+	ErrorTraces uint64  `json:"error_traces" ch:"error_traces"`
 	AvgDuration float64 `json:"avg_duration" ch:"avg_duration"`
 	P50Duration float64 `json:"p50_duration" ch:"p50_duration"`
 	P95Duration float64 `json:"p95_duration" ch:"p95_duration"`
@@ -92,13 +92,13 @@ type TraceSummary struct {
 type TraceFacet struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
-	Count int64  `json:"count"`
+	Count uint64 `json:"count"`
 }
 
 type TraceTrendBucket struct {
 	TimeBucket  string  `json:"time_bucket"`
-	TotalTraces int64   `json:"total_traces"`
-	ErrorTraces int64   `json:"error_traces"`
+	TotalTraces uint64  `json:"total_traces"`
+	ErrorTraces uint64  `json:"error_traces"`
 	P95Duration float64 `json:"p95_duration"`
 }
 
@@ -107,7 +107,7 @@ type TraceSearchResponse struct {
 	HasMore bool         `json:"has_more"`
 	Offset  int          `json:"offset"`
 	Limit   int          `json:"limit"`
-	Total   int64        `json:"total"`
+	Total   uint64       `json:"total"`
 	Summary TraceSummary `json:"summary"`
 }
 
@@ -116,7 +116,7 @@ type TraceCursorResponse struct {
 	HasMore    bool         `json:"has_more"`
 	NextCursor string       `json:"next_cursor,omitempty"`
 	Limit      int          `json:"limit"`
-	Total      int64        `json:"total,omitempty"`
+	Total      uint64       `json:"total,omitempty"`
 	Summary    TraceSummary `json:"summary"`
 }
 
@@ -134,7 +134,7 @@ type ErrorGroup struct {
 	OperationName   string    `json:"operation_name"    ch:"operation_name"`
 	StatusMessage   string    `json:"status_message"    ch:"status_message"`
 	HTTPStatusCode  int       `json:"http_status_code"  ch:"http_status_code"`
-	ErrorCount      int64     `json:"error_count"       ch:"error_count"`
+	ErrorCount      uint64    `json:"error_count"       ch:"error_count"`
 	LastOccurrence  time.Time `json:"last_occurrence"   ch:"last_occurrence"`
 	FirstOccurrence time.Time `json:"first_occurrence"  ch:"first_occurrence"`
 	SampleTraceID   string    `json:"sample_trace_id"   ch:"sample_trace_id"`
@@ -148,8 +148,8 @@ func ErrorGroupID(service, operation, statusMessage string, httpCode int) string
 type ErrorTimeSeries struct {
 	ServiceName string    `json:"service_name" ch:"service_name"`
 	Timestamp   time.Time `json:"timestamp"    ch:"timestamp"`
-	TotalCount  int64     `json:"total_count"  ch:"total_count"`
-	ErrorCount  int64     `json:"error_count"  ch:"error_count"`
+	TotalCount  uint64    `json:"total_count"  ch:"total_count"`
+	ErrorCount  uint64    `json:"error_count"  ch:"error_count"`
 	ErrorRate   float64   `json:"error_rate"   ch:"error_rate"`
 }
 
@@ -157,11 +157,11 @@ type LatencyHistogramBucket struct {
 	BucketLabel string `json:"bucket_label" ch:"bucket_label"`
 	BucketMin   int64  `json:"bucket_min"   ch:"bucket_min"`
 	BucketMax   int64  `json:"bucket_max"`
-	SpanCount   int64  `json:"span_count"   ch:"span_count"`
+	SpanCount   uint64 `json:"span_count"   ch:"span_count"`
 }
 
 type LatencyHeatmapPoint struct {
 	TimeBucket    time.Time `json:"time_bucket"    ch:"time_bucket"`
 	LatencyBucket string    `json:"latency_bucket" ch:"latency_bucket"`
-	SpanCount     int64     `json:"span_count"     ch:"span_count"`
+	SpanCount     uint64    `json:"span_count"     ch:"span_count"`
 }

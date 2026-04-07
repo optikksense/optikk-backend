@@ -18,7 +18,7 @@ type TraceSearchResult struct {
 	NextCursor string
 	Offset     int
 	Limit      int
-	Total      int64
+	Total      uint64
 	Summary    TraceSummary
 	UsesKeyset bool
 }

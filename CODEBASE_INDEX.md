@@ -295,6 +295,8 @@ type APIResponse struct {
 
 ### Default pages (`internal/platform/dashboardcfg/defaults/`)
 
+The `service` default page remains the backend-authored main service page at `/service`. Service detail is frontend-owned as a side drawer; the backend only contributes the shared drawer entity contract and the overview services table `drawerAction` that opens that drawer from backend-driven rows.
+
 | Page ID | Directory | Tabs | Default tab | Group | Order |
 |---------|-----------|------|-------------|-------|-------|
 | `overview` | `defaults/overview/` | summary, latency-analysis, apm, errors, http, slo | summary | observe | 10 |

@@ -188,6 +188,7 @@ func (r *ClickHouseRepository) GetServices(ctx context.Context, teamID int64, st
 type endpointMetricRow struct {
 	ServiceName   string  `ch:"service_name"`
 	OperationName string  `ch:"operation_name"`
+	EndpointName  string  `ch:"endpoint_name"`
 	HTTPMethod    string  `ch:"http_method"`
 	RequestCount  int64   `ch:"request_count"`
 	ErrorCount    int64   `ch:"error_count"`
@@ -199,9 +200,12 @@ type endpointMetricRow struct {
 
 func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]endpointMetricRow, error) {
 	query := `
-		SELECT service_name, operation_name, http_method, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
+		SELECT service_name, operation_name, endpoint_name, http_method, request_count, error_count, avg_latency, p50_latency, p95_latency, p99_latency
 		FROM (
-			SELECT s.service_name AS service_name, s.name AS operation_name, s.http_method,
+			SELECT s.service_name AS service_name,
+			       s.name AS operation_name,
+			       coalesce(nullIf(s.mat_http_route, ''), nullIf(s.mat_http_target, ''), s.name) AS endpoint_name,
+			       s.http_method,
 			       toInt64(count()) AS request_count,
 			       toInt64(countIf(` + ErrorCondition() + `)) AS error_count,
 			       avg(s.duration_nano / 1000000.0) AS avg_latency,
@@ -210,8 +214,8 @@ func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64
 			       quantile(` + fmt.Sprintf("%.2f", QuantileP99) + `)(s.duration_nano / 1000000.0) AS p99_latency
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end AND
-				tuple(s.service_name, s.name, s.http_method) IN (
-					SELECT service_name, name, http_method
+				tuple(s.service_name, s.name, s.http_method, coalesce(nullIf(s.mat_http_route, ''), nullIf(s.mat_http_target, ''), s.name)) IN (
+					SELECT service_name, name, http_method, coalesce(nullIf(mat_http_route, ''), nullIf(mat_http_target, ''), name) AS endpoint_name
 					FROM observability.spans s
 					WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`
 	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
@@ -220,7 +224,7 @@ func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += `
-					GROUP BY service_name, name, http_method
+					GROUP BY service_name, name, http_method, endpoint_name
 					ORDER BY count() DESC
 					LIMIT 100
 				)`
@@ -228,7 +232,7 @@ func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64
 		query += serviceNameFilter
 	}
 	query += `
-			GROUP BY s.service_name, s.name, s.http_method
+			GROUP BY s.service_name, s.name, endpoint_name, s.http_method
 		)
 		ORDER BY request_count DESC`
 
