@@ -2,25 +2,21 @@ package metrics
 
 import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
+	platformingestion "github.com/Optikk-Org/optikk-backend/internal/platform/ingestion"
 	"github.com/gin-gonic/gin"
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	"google.golang.org/grpc"
 )
 
-func NewModule(sqlDB *registry.SQLDB, appConfig registry.AppConfig, d *otlp.Dispatcher) registry.Module {
-	shared := otlp.Shared(sqlDB, appConfig)
-	service := NewService(shared.Authenticator, d, shared.Tracker, shared.Limiter)
-
+func NewModule(authenticator platformingestion.TeamResolver, tracker platformingestion.SizeTracker, limiter platformingestion.Limiter, d platformingestion.Dispatcher[*MetricRow]) registry.Module {
+	service := NewService(authenticator, d, tracker, limiter)
 	return &Module{
-		handler:   NewHandler(service),
-		lifecycle: otlp.NewLifecycle(shared),
+		handler: NewHandler(service),
 	}
 }
 
 type Module struct {
-	handler   *Handler
-	lifecycle otlp.Lifecycle
+	handler *Handler
 }
 
 func (m *Module) Name() string                      { return "otlpMetrics" }
@@ -33,7 +29,4 @@ func (m *Module) RegisterGRPC(srv *grpc.Server) {
 
 func (m *Module) Start() {}
 
-func (m *Module) Stop() error {
-	m.lifecycle.Stop()
-	return nil
-}
+func (m *Module) Stop() error { return nil }

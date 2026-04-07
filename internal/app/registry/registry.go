@@ -5,9 +5,9 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/config"
-	configdefaults "github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	sessionauth "github.com/Optikk-Org/optikk-backend/internal/infra/session"
+	configdefaults "github.com/Optikk-Org/optikk-backend/internal/platform/dashboardcfg"
+	platformsession "github.com/Optikk-Org/optikk-backend/internal/platform/session"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
@@ -27,7 +27,7 @@ type SQLDB = sql.DB
 type ClickHouseConn = clickhouse.Conn
 type NativeQuerier = database.NativeQuerier
 type GetTenantFunc = modulecommon.GetTenantFunc
-type SessionManager = sessionauth.Manager
+type SessionManager = platformsession.Manager
 type AppConfig = config.Config
 type ConfigRegistry = configdefaults.Registry
 

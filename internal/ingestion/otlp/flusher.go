@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/ingest"
 )
 
 // Task List:
@@ -16,21 +15,21 @@ import (
 // - `[ ]` Implement robust time-and-size-based batching in `workers.go`
 // - `[ ]` Verify build and monitoring logs
 
-type CHFlusher struct {
+type CHFlusher[T any] struct {
 	conn        clickhouse.Conn
 	queryPrefix string
 	table       string
 }
 
-func NewCHFlusher(conn clickhouse.Conn, table string, columns []string) *CHFlusher {
-	return &CHFlusher{
+func NewCHFlusher[T any](conn clickhouse.Conn, table string, columns []string) *CHFlusher[T] {
+	return &CHFlusher[T]{
 		conn:        conn,
 		queryPrefix: "INSERT INTO " + table + " (" + strings.Join(columns, ", ") + ")",
 		table:       table,
 	}
 }
 
-func (f *CHFlusher) Flush(batch []ingest.Row) error {
+func (f *CHFlusher[T]) Flush(batch []T) error {
 	if len(batch) == 0 {
 		return nil
 	}
@@ -43,7 +42,7 @@ func (f *CHFlusher) Flush(batch []ingest.Row) error {
 		return err
 	}
 	for i, row := range batch {
-		if err := b.Append(row.Values...); err != nil {
+		if err := b.AppendStruct(row); err != nil {
 			slog.Error("ingest: append failed", slog.String("table", f.table), slog.Int("index", i), slog.Any("error", err))
 			return err
 		}

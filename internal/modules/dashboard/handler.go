@@ -5,7 +5,7 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
 
-	configdefaults "github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg"
+	configdefaults "github.com/Optikk-Org/optikk-backend/internal/platform/dashboardcfg"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )

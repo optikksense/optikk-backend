@@ -4,13 +4,15 @@ import (
 	"container/ring"
 	"sync"
 	"time"
+
+	platformlivetail "github.com/Optikk-Org/optikk-backend/internal/platform/livetail"
 )
 
 // Hub manages active WebSocket subscriptions and maintains a ring buffer
 // of recent telemetry events for each team to display on initial load.
 type Hub struct {
 	mu          sync.RWMutex
-	subscribers map[int64]map[chan any]FilterFunc
+	subscribers map[int64]map[chan any]platformlivetail.FilterFunc
 	snapshots   map[int64]*ring.Ring
 }
 
@@ -19,11 +21,9 @@ type eventWrapper struct {
 	payload any
 }
 
-type FilterFunc func(any) bool
-
 func NewHub() *Hub {
 	return &Hub{
-		subscribers: make(map[int64]map[chan any]FilterFunc),
+		subscribers: make(map[int64]map[chan any]platformlivetail.FilterFunc),
 		snapshots:   make(map[int64]*ring.Ring),
 	}
 }
@@ -32,10 +32,10 @@ const snapshotSize = 20
 const snapshotTTL = 5 * time.Second
 
 // Subscribe adds a new client channel to the team's broadcast list with an optional filter.
-func (h *Hub) Subscribe(teamID int64, ch chan any, filter FilterFunc) {
+func (h *Hub) Subscribe(teamID int64, ch chan any, filter platformlivetail.FilterFunc) {
 	h.mu.Lock()
 	if _, ok := h.subscribers[teamID]; !ok {
-		h.subscribers[teamID] = make(map[chan any]FilterFunc)
+		h.subscribers[teamID] = make(map[chan any]platformlivetail.FilterFunc)
 	}
 	h.subscribers[teamID][ch] = filter
 	h.mu.Unlock()

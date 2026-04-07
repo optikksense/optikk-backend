@@ -20,7 +20,6 @@ type Repository interface {
 	GetTraceTrend(ctx context.Context, f TraceFilters, step string) ([]traceTrendRow, error)
 	GetTraceSpans(ctx context.Context, teamID int64, traceID string) ([]spanRow, error)
 	GetSpanTree(ctx context.Context, teamID int64, spanID string) ([]spanRow, error)
-	GetServiceDependencies(ctx context.Context, teamID int64, startMs, endMs int64) ([]serviceDependencyRow, error)
 	GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorGroupRow, error)
 	GetErrorTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]errorTimeSeriesRow, error)
 	GetLatencyHistogram(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) ([]latencyHistogramRow, error)
@@ -116,28 +115,6 @@ func (r *ClickHouseRepository) GetSpanTree(ctx context.Context, teamID int64, sp
 	return r.GetTraceSpans(ctx, teamID, traceID)
 }
 
-func (r *ClickHouseRepository) GetServiceDependencies(ctx context.Context, teamID int64, startMs, endMs int64) ([]serviceDependencyRow, error) {
-	var rows []serviceDependencyRow
-	err := r.db.Select(ctx, &rows, `
-		SELECT s.service_name        AS source,
-		       c.service_name        AS target,
-		       toInt64(count())      AS call_count
-		FROM observability.spans s
-		INNER JOIN observability.spans c ON s.span_id = c.parent_span_id AND s.trace_id = c.trace_id
-		WHERE s.team_id = @teamID AND s.service_name != c.service_name
-		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
-		  AND s.timestamp BETWEEN @start AND @end
-		GROUP BY source, target
-	`,
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	)
-	return rows, err
-}
-
 func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorGroupRow, error) {
 	var rows []errorGroupRow
 	err := r.db.Select(ctx, &rows, `
@@ -171,7 +148,7 @@ func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64,
 }
 
 func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]errorTimeSeriesRow, error) {
-	bucket := timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
+	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	query := fmt.Sprintf(`
 		SELECT %s AS timestamp,
 		       service_name,
@@ -221,7 +198,7 @@ func (r *ClickHouseRepository) GetLatencyHistogram(ctx context.Context, teamID i
 }
 
 func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]latencyHeatmapRow, error) {
-	bucket := timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
+	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	query := fmt.Sprintf(`
 		SELECT time_bucket,
 		       latency_bucket,

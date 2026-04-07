@@ -59,7 +59,7 @@ func (r *Repository) ListFingerprints(teamID int64, startMs, endMs int64, servic
 
 // GetFingerprintTrend returns occurrence count over time for a specific error fingerprint.
 func (r *Repository) GetFingerprintTrend(teamID int64, startMs, endMs int64, serviceName, operationName, exceptionType, statusMessage string) ([]fingerprintTrendPointDTO, error) {
-	bucket := timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
+	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	query := fmt.Sprintf(`
 		SELECT %s AS ts,
 		       count() AS cnt

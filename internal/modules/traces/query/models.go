@@ -128,12 +128,6 @@ type SpanSearchResponse struct {
 	Summary    TraceSummary `json:"summary"`
 }
 
-type ServiceDependency struct {
-	Source    string `json:"source"     ch:"source"`
-	Target    string `json:"target"     ch:"target"`
-	CallCount int64  `json:"call_count" ch:"call_count"`
-}
-
 type ErrorGroup struct {
 	GroupID         string    `json:"group_id"`
 	ServiceName     string    `json:"service_name"      ch:"service_name"`

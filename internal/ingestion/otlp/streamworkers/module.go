@@ -2,9 +2,11 @@ package streamworkers
 
 import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	"github.com/Optikk-Org/optikk-backend/internal/config"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/livetail"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
+	otlplogs "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/logs"
+	otlpmetrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/metrics"
+	otlpspans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
+	platformingestion "github.com/Optikk-Org/optikk-backend/internal/platform/ingestion"
+	platformlivetail "github.com/Optikk-Org/optikk-backend/internal/platform/livetail"
 	"github.com/gin-gonic/gin"
 )
 
@@ -14,8 +16,14 @@ type Module struct {
 }
 
 // NewModule wires ClickHouse + Hub consumers.
-func NewModule(ch registry.ClickHouseConn, d *otlp.Dispatcher, hub *livetail.Hub, cfg config.Config) registry.Module {
-	return &Module{workers: NewWorkers(ch, d, hub, cfg)}
+func NewModule(
+	ch registry.ClickHouseConn,
+	ld platformingestion.Dispatcher[*otlplogs.LogRow],
+	sd platformingestion.Dispatcher[*otlpspans.SpanRow],
+	md platformingestion.Dispatcher[*otlpmetrics.MetricRow],
+	hub platformlivetail.Hub,
+) registry.Module {
+	return &Module{workers: NewWorkers(ch, ld, sd, md, hub)}
 }
 
 func (m *Module) Name() string { return "otlpStreamWorkers" }

@@ -121,7 +121,6 @@ CREATE TABLE IF NOT EXISTS observability.logs (
     ts_bucket_start      UInt32 CODEC(Delta(4), LZ4),
     timestamp            DateTime64(9) CODEC(DoubleDelta, LZ4),
     observed_timestamp   UInt64 CODEC(DoubleDelta, LZ4),
-    id                   String CODEC(ZSTD(1)),
     trace_id             String CODEC(ZSTD(1)),
     span_id              String CODEC(ZSTD(1)),
     trace_flags          UInt32 DEFAULT 0,

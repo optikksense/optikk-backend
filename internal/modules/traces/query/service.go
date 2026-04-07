@@ -108,14 +108,6 @@ func (s *Service) GetSpanTree(ctx context.Context, teamID int64, spanID string) 
 	return spanRowsToModels(rows), nil
 }
 
-func (s *Service) GetServiceDependencies(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceDependency, error) {
-	rows, err := s.repo.GetServiceDependencies(ctx, teamID, startMs, endMs)
-	if err != nil {
-		return nil, fmt.Errorf("traces.GetServiceDependencies: %w", err)
-	}
-	return serviceDependencyRowsToModels(rows), nil
-}
-
 func (s *Service) GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error) {
 	rows, err := s.repo.GetErrorGroups(ctx, teamID, startMs, endMs, serviceName, limit)
 	if err != nil {
@@ -216,14 +208,6 @@ func spanRowsToModels(rows []spanRow) []Span {
 
 func mapTraceSummary(row traceSummaryRow) TraceSummary {
 	return TraceSummary(row)
-}
-
-func serviceDependencyRowsToModels(rows []serviceDependencyRow) []ServiceDependency {
-	result := make([]ServiceDependency, len(rows))
-	for i, row := range rows {
-		result[i] = ServiceDependency(row)
-	}
-	return result
 }
 
 func errorGroupRowsToModels(rows []errorGroupRow) []ErrorGroup {

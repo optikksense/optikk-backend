@@ -17,7 +17,7 @@ alwaysApply: true
 
 ## Canonical map
 
-**`CODEBASE_INDEX.md`** (repo root) lists all 51 modules (47 HTTP + 4 ingestion), ingestion, dashboardcfg, and the cross-repo map to **optic-frontend**.
+**`CODEBASE_INDEX.md`** (repo root) lists all 52 modules (48 HTTP + 4 ingestion), ingestion, dashboardcfg, and the cross-repo map to **optic-frontend**.
 
 ## Stack
 
@@ -60,6 +60,10 @@ Dashboard default page: `defaults/ai_observability/` (4 tabs: overview, performa
 
 - **`internal/modules/deployments/`** — `GET /api/v1/deployments/list|timeline|impact|active-version` (query `serviceName`, range `start`/`end`); **`registry.Cached`** (30s). Uses **`observability.spans`** with `mat_service_version` / `mat_deployment_environment` materialized columns.
 
+## Service Topology module
+
+- **`internal/modules/services/topology/`** — `GET /api/v1/services/topology` (range `startMs`/`endMs`, optional `?service=<name>` for 1-hop neighborhood). Returns `{nodes, edges}` with RED metrics per service and per edge. Nodes aggregate inbound spans (`kind_string IN ('SERVER','CONSUMER')`); edges are parent→child span joins. `registry.Cached` (30s). Health thresholds: errorRate >5% unhealthy, >1% degraded.
+
 ## HTTP Metrics module
 
 - **`internal/modules/httpmetrics/`** — Cached. Routes under `/http/*`:
@@ -98,7 +102,8 @@ Dashboard default page: `defaults/ai_observability/` (4 tabs: overview, performa
 
 ## Ingestion
 
-- OTLP: `internal/ingestion/otlp/` — gRPC → `XADD` to `otlp:ingest:{logs,metrics,spans}`; **`internal/ingestion/otlp/streamworkers/`** (`BackgroundRunner`) — `XREADGROUP` → ClickHouse + livetail bridges to `livetail:*:stream:{team}`; **`rowjson`** encode/decode; Redis required for OTLP publish path.
+- OTLP: `internal/ingestion/otlp/` — gRPC → specifically mapped to `*LogRow`, `*SpanRow`, `*MetricRow` → generic channel `Dispatcher[T]` → `internal/ingestion/otlp/streamworkers/` background routines → `CHFlusher[T]` (ClickHouse via `AppendStruct`) + livetail bridges. The legacy `ingest.Row` and `[]any` constructs are strictly prohibited to ensure type safety.
+- **No Dummy Values**: Telemetry attributes that arrive empty must remain empty. Do not inject placeholders like `"default"` or `"unknown"`. However, time fields required for ClickHouse partitioning must defensively fallback to `time.Now()`.
 
 ## Config
 

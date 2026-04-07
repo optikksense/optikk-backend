@@ -3,7 +3,6 @@ package shared
 import "time"
 
 type LogRowDTO struct {
-	ID                string             `ch:"id"`
 	Timestamp         time.Time          `ch:"timestamp"`
 	ObservedTimestamp uint64             `ch:"observed_timestamp"`
 	SeverityText      string             `ch:"severity_text"`
@@ -26,7 +25,6 @@ type LogRowDTO struct {
 
 func (d LogRowDTO) ToLog() Log {
 	return Log{
-		ID:                d.ID,
 		Timestamp:         uint64(d.Timestamp.UnixNano()),
 		ObservedTimestamp: d.ObservedTimestamp,
 		SeverityText:      d.SeverityText,

@@ -68,12 +68,6 @@ type spanRow struct {
 	Attributes     string    `ch:"attributes"`
 }
 
-type serviceDependencyRow struct {
-	Source    string `ch:"source"`
-	Target    string `ch:"target"`
-	CallCount int64  `ch:"call_count"`
-}
-
 type errorGroupRow struct {
 	ServiceName     string    `ch:"service_name"`
 	OperationName   string    `ch:"operation_name"`

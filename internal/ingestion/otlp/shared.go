@@ -4,52 +4,16 @@ import (
 	"context"
 	"errors"
 	"log/slog"
-	"sync"
 
-	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/auth"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/ingest"
+	platformingestion "github.com/Optikk-Org/optikk-backend/internal/platform/ingestion"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
-type TeamResolver interface {
-	ResolveTeamID(ctx context.Context, apiKey string) (int64, error)
-}
-
-type Limiter interface {
-	Allow(teamID int64, n int64) bool
-}
-
-type SizeTracker interface {
-	Track(teamID int64, bytes int64)
-}
-
-type SharedDependencies struct {
-	Authenticator TeamResolver
-	Tracker       *ingest.ByteTracker
-	Limiter       Limiter
-}
-
-var (
-	sharedDepsOnce sync.Once
-	sharedDeps     *SharedDependencies
-)
-
-func Shared(sqlDB *registry.SQLDB, cfg registry.AppConfig) *SharedDependencies {
-	sharedDepsOnce.Do(func() {
-		sharedDeps = &SharedDependencies{
-			Authenticator: auth.NewAuthenticator(sqlDB),
-			Tracker:       ingest.NewByteTracker(sqlDB, cfg.ByteTrackerFlushInterval()),
-			Limiter:       ingest.NewTeamLimiter(ingest.DefaultTeamRatePerSec, ingest.DefaultTeamBurstRows),
-		}
-	})
-	return sharedDeps
-}
-
-func ResolveTeamID(ctx context.Context, resolver TeamResolver) (int64, error) {
+func ResolveTeamID(ctx context.Context, resolver platformingestion.TeamResolver) (int64, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		slog.Warn("OTLP request missing metadata")
@@ -82,7 +46,7 @@ func ResolveTeamID(ctx context.Context, resolver TeamResolver) (int64, error) {
 	return teamID, nil
 }
 
-func TrackPayloadSize(tracker SizeTracker, teamID int64, msg proto.Message) {
+func TrackPayloadSize(tracker platformingestion.SizeTracker, teamID int64, msg proto.Message) {
 	if tracker == nil || teamID <= 0 || msg == nil {
 		return
 	}
@@ -91,18 +55,4 @@ func TrackPayloadSize(tracker SizeTracker, teamID int64, msg proto.Message) {
 		return
 	}
 	tracker.Track(teamID, int64(size))
-}
-
-type Lifecycle struct {
-	shared *SharedDependencies
-}
-
-func NewLifecycle(shared *SharedDependencies) Lifecycle {
-	return Lifecycle{shared: shared}
-}
-
-func (l Lifecycle) Stop() {
-	if l.shared != nil && l.shared.Tracker != nil {
-		l.shared.Tracker.Stop()
-	}
 }

@@ -22,7 +22,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *TraceHandler) {
 	v1.GET("/traces/:traceId/spans", h.GetTraceSpans)
 	v1.GET("/spans/:spanId/tree", h.GetSpanTree)
 	v1.GET("/spans/search", h.GetSpanSearch)
-	v1.GET("/services/dependencies", h.GetServiceDependencies)
 	v1.GET("/services/:serviceName/errors", h.GetServiceErrors)
 	v1.GET("/services/:serviceName/errors/timeseries", h.GetServiceErrorTimeSeries)
 	v1.GET("/latency/histogram", h.GetLatencyHistogram)
