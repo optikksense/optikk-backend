@@ -21,8 +21,8 @@ type traceRow struct {
 }
 
 type traceSummaryRow struct {
-	TotalTraces int64   `ch:"total_traces"`
-	ErrorTraces int64   `ch:"error_traces"`
+	TotalTraces uint64  `ch:"total_traces"`
+	ErrorTraces uint64  `ch:"error_traces"`
 	AvgDuration float64 `ch:"avg_duration"`
 	P50Duration float64 `ch:"p50_duration"`
 	P95Duration float64 `ch:"p95_duration"`
@@ -30,19 +30,19 @@ type traceSummaryRow struct {
 }
 
 type traceCountRow struct {
-	Total int64 `ch:"total"`
+	Total uint64 `ch:"total"`
 }
 
 type traceFacetRow struct {
 	Key   string `ch:"facet_key"`
 	Value string `ch:"facet_value"`
-	Count int64  `ch:"count"`
+	Count uint64 `ch:"count"`
 }
 
 type traceTrendRow struct {
 	TimeBucket  string  `ch:"time_bucket"`
-	TotalTraces int64   `ch:"total_traces"`
-	ErrorTraces int64   `ch:"error_traces"`
+	TotalTraces uint64  `ch:"total_traces"`
+	ErrorTraces uint64  `ch:"error_traces"`
 	P95Duration float64 `ch:"p95_duration"`
 }
 
@@ -68,18 +68,12 @@ type spanRow struct {
 	Attributes     string    `ch:"attributes"`
 }
 
-type serviceDependencyRow struct {
-	Source    string `ch:"source"`
-	Target    string `ch:"target"`
-	CallCount int64  `ch:"call_count"`
-}
-
 type errorGroupRow struct {
 	ServiceName     string    `ch:"service_name"`
 	OperationName   string    `ch:"operation_name"`
 	StatusMessage   string    `ch:"status_message"`
 	HTTPStatusCode  uint16    `ch:"http_status_code"`
-	ErrorCount      int64     `ch:"error_count"`
+	ErrorCount      uint64    `ch:"error_count"`
 	LastOccurrence  time.Time `ch:"last_occurrence"`
 	FirstOccurrence time.Time `ch:"first_occurrence"`
 	SampleTraceID   string    `ch:"sample_trace_id"`
@@ -88,8 +82,8 @@ type errorGroupRow struct {
 type errorTimeSeriesRow struct {
 	ServiceName string    `ch:"service_name"`
 	Timestamp   time.Time `ch:"timestamp"`
-	TotalCount  int64     `ch:"total_count"`
-	ErrorCount  int64     `ch:"error_count"`
+	TotalCount  uint64    `ch:"total_count"`
+	ErrorCount  uint64    `ch:"error_count"`
 	ErrorRate   float64   `ch:"error_rate"`
 }
 
@@ -98,11 +92,11 @@ type errorTimeSeriesRow struct {
 type latencyHistogramRow struct {
 	BucketLabel string `ch:"bucket_label"`
 	BucketMin   int64  `ch:"bucket_min"`
-	SpanCount   int64  `ch:"span_count"`
+	SpanCount   uint64 `ch:"span_count"`
 }
 
 type latencyHeatmapRow struct {
 	TimeBucket    time.Time `ch:"time_bucket"`
 	LatencyBucket string    `ch:"latency_bucket"`
-	SpanCount     int64     `ch:"span_count"`
+	SpanCount     uint64    `ch:"span_count"`
 }

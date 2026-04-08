@@ -21,7 +21,7 @@ func (a *App) Router() *gin.Engine {
 	r.GET("/health/ready", a.healthReady)
 
 	v1 := r.Group("/api/v1")
-	v1.Use(middleware.TenantMiddleware(a.SessionManager))
+	v1.Use(middleware.TenantMiddleware(a.Runtime.SessionManager))
 	a.applyRateLimiter(v1)
 	v1.GET("/ws/live", a.LiveTailWS)
 
@@ -33,8 +33,7 @@ func (a *App) Router() *gin.Engine {
 }
 
 func (a *App) applyRateLimiter(group gin.IRoutes) {
-	rl := middleware.NewRateLimiter(2000, 2000, time.Second)
-	group.Use(middleware.RateLimitMiddleware(rl))
+	group.Use(middleware.RateLimitMiddleware(a.Runtime.RateLimiter))
 }
 
 func (a *App) healthLive(c *gin.Context) {

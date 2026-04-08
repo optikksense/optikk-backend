@@ -4,18 +4,19 @@ import (
 	"context"
 
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
+	platformingestion "github.com/Optikk-Org/optikk-backend/internal/platform/ingestion"
 	metricpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 )
 
 type Service struct {
-	auth       otlp.TeamResolver
-	dispatcher *otlp.Dispatcher
-	tracker    otlp.SizeTracker
-	limiter    otlp.Limiter
+	auth       platformingestion.TeamResolver
+	dispatcher platformingestion.Dispatcher[*MetricRow]
+	tracker    platformingestion.SizeTracker
+	limiter    platformingestion.Limiter
 }
 
-func NewService(authenticator otlp.TeamResolver, d *otlp.Dispatcher, tracker otlp.SizeTracker, limiter otlp.Limiter) *Service {
+func NewService(authenticator platformingestion.TeamResolver, d platformingestion.Dispatcher[*MetricRow], tracker platformingestion.SizeTracker, limiter platformingestion.Limiter) *Service {
 	return &Service{
 		auth:       authenticator,
 		dispatcher: d,
@@ -35,8 +36,7 @@ func (s *Service) Export(ctx context.Context, req *metricspb.ExportMetricsServic
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
 	// Dispatch to internal channels (persistence + streaming)
-	s.dispatcher.Dispatch(otlp.TelemetryBatch{
-		Signal: otlp.SignalMetric,
+	s.dispatcher.Dispatch(platformingestion.TelemetryBatch[*MetricRow]{
 		TeamID: teamID,
 		Rows:   rows,
 	})

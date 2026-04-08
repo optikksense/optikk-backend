@@ -2,8 +2,6 @@ package server
 
 import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/livetail"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
 	otlp_logs "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/logs"
 	otlp_metrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/metrics"
 	otlp_spans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
@@ -43,6 +41,7 @@ import (
 	saturation_database_systems "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/systems"
 	saturation_database_volume "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/volume"
 	saturation_kafka "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka"
+	services_topology "github.com/Optikk-Org/optikk-backend/internal/modules/services/topology"
 	spans_errorfingerprint "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errorfingerprint"
 	spans_errortracking "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errortracking"
 	spans_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
@@ -54,6 +53,7 @@ import (
 	user_auth "github.com/Optikk-Org/optikk-backend/internal/modules/user/auth"
 	user_team "github.com/Optikk-Org/optikk-backend/internal/modules/user/team"
 	user_user "github.com/Optikk-Org/optikk-backend/internal/modules/user/user"
+	platformruntime "github.com/Optikk-Org/optikk-backend/internal/platform/runtime"
 )
 
 func configuredModules(
@@ -61,12 +61,9 @@ func configuredModules(
 	sqlDB *registry.SQLDB,
 	clickHouseConn registry.ClickHouseConn,
 	getTenant registry.GetTenantFunc,
-	sessionManager *registry.SessionManager,
 	appConfig registry.AppConfig,
-	configRegistry *registry.ConfigRegistry,
+	runtimeDeps *platformruntime.Runtime,
 	logSearchSvc *log_search.Service,
-	dispatcher *otlp.Dispatcher,
-	hub *livetail.Hub,
 ) []registry.Module {
 	return []registry.Module{
 		ai_conversations.NewModule(nativeQuerier, getTenant),
@@ -76,7 +73,7 @@ func configuredModules(
 		ai_traces.NewModule(nativeQuerier, getTenant),
 		apm.NewModule(nativeQuerier, getTenant),
 		explorer_analytics.NewModule(nativeQuerier, getTenant),
-		defaultconfig.NewModule(sqlDB, getTenant, appConfig, configRegistry),
+		defaultconfig.NewModule(sqlDB, getTenant, appConfig, runtimeDeps.DashboardConfig),
 		deployments.NewModule(nativeQuerier, getTenant),
 		httpmetrics.NewModule(nativeQuerier, getTenant),
 
@@ -91,10 +88,10 @@ func configuredModules(
 		log_explorer.NewModule(nativeQuerier, getTenant),
 		log_search.NewModule(nativeQuerier, getTenant, logSearchSvc),
 		metricsexplorer.NewModule(nativeQuerier, getTenant),
-		otlp_streamworkers.NewModule(clickHouseConn, dispatcher, hub, appConfig),
-		otlp_spans.NewModule(sqlDB, appConfig, dispatcher),
-		otlp_logs.NewModule(sqlDB, appConfig, dispatcher),
-		otlp_metrics.NewModule(sqlDB, appConfig, dispatcher),
+		otlp_streamworkers.NewModule(clickHouseConn, runtimeDeps.OTLP.LogDispatcher, runtimeDeps.OTLP.SpanDispatcher, runtimeDeps.OTLP.MetricDispatcher, runtimeDeps.LiveTailHub),
+		otlp_spans.NewModule(runtimeDeps.OTLP.Authenticator, runtimeDeps.OTLP.Tracker, runtimeDeps.OTLP.Limiter, runtimeDeps.OTLP.SpanDispatcher),
+		otlp_logs.NewModule(runtimeDeps.OTLP.Authenticator, runtimeDeps.OTLP.Tracker, runtimeDeps.OTLP.Limiter, runtimeDeps.OTLP.LogDispatcher),
+		otlp_metrics.NewModule(runtimeDeps.OTLP.Authenticator, runtimeDeps.OTLP.Tracker, runtimeDeps.OTLP.Limiter, runtimeDeps.OTLP.MetricDispatcher),
 		overview_errors.NewModule(nativeQuerier, getTenant),
 		overview_overview.NewModule(nativeQuerier, getTenant),
 		overview_slo.NewModule(nativeQuerier, getTenant),
@@ -108,6 +105,7 @@ func configuredModules(
 		saturation_database_systems.NewModule(nativeQuerier, getTenant),
 		saturation_database_volume.NewModule(nativeQuerier, getTenant),
 		saturation_kafka.NewModule(nativeQuerier, getTenant),
+		services_topology.NewModule(nativeQuerier, getTenant),
 		spans_errorfingerprint.NewModule(nativeQuerier, getTenant),
 		spans_errortracking.NewModule(nativeQuerier, getTenant),
 		spans_explorer.NewModule(nativeQuerier, getTenant),
@@ -116,8 +114,8 @@ func configuredModules(
 		spans_tracecompare.NewModule(nativeQuerier, getTenant),
 		spans_tracedetail.NewModule(nativeQuerier, getTenant),
 		spans_traces.NewModule(nativeQuerier, getTenant),
-		user_auth.NewModule(sqlDB, getTenant, sessionManager, appConfig),
-		user_team.NewModule(sqlDB, getTenant, configRegistry, appConfig),
+		user_auth.NewModule(sqlDB, getTenant, runtimeDeps.SessionManager, appConfig),
+		user_team.NewModule(sqlDB, getTenant, runtimeDeps.DashboardConfig, appConfig),
 		user_user.NewModule(sqlDB, getTenant, appConfig),
 	}
 }

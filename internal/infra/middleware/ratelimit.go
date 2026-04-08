@@ -37,7 +37,7 @@ func NewRateLimiter(rate, burst int, window time.Duration) *RateLimiter {
 	}
 }
 
-func (rl *RateLimiter) allow(key string) bool {
+func (rl *RateLimiter) Allow(key string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
@@ -60,9 +60,13 @@ func rateLimitKey(c *gin.Context) string {
 	return "ip:" + c.ClientIP()
 }
 
-func RateLimitMiddleware(rl *RateLimiter) gin.HandlerFunc {
+type keyLimiter interface {
+	Allow(key string) bool
+}
+
+func RateLimitMiddleware(rl keyLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if !rl.allow(rateLimitKey(c)) {
+		if !rl.Allow(rateLimitKey(c)) {
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, types.Failure(
 				"RATE_LIMITED", "Too many requests, please try again later", c.Request.URL.Path,
 			))

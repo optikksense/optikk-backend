@@ -32,7 +32,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 func NewModule(
 	sqlDB *registry.SQLDB,
 	getTenant registry.GetTenantFunc,
-	sessionManager *registry.SessionManager,
+	sessionManager registry.SessionManager,
 	appConfig registry.AppConfig,
 ) registry.Module {
 	module := &authModule{}
@@ -50,7 +50,7 @@ func (m *authModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 func (m *authModule) configure(
 	sqlDB *registry.SQLDB,
 	getTenant registry.GetTenantFunc,
-	sessionManager *registry.SessionManager,
+	sessionManager registry.SessionManager,
 	appConfig registry.AppConfig,
 ) {
 	m.handler = NewHandler(

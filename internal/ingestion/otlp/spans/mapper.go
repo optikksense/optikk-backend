@@ -4,9 +4,9 @@ import (
 	"encoding/json"
 	"log/slog"
 	"strconv"
+	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/ingest"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/protoconv"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
@@ -27,6 +27,40 @@ var SpanColumns = []string{
 	"exception_type", "exception_message", "exception_stacktrace", "exception_escaped",
 }
 
+// SpanRow structurally maps an OTLP span to ClickHouse columns.
+type SpanRow struct {
+	TsBucketStart       uint64            `ch:"ts_bucket_start"`
+	TeamID              uint32            `ch:"team_id"`
+	Timestamp           time.Time         `ch:"timestamp"`
+	TraceID             string            `ch:"trace_id"`
+	SpanID              string            `ch:"span_id"`
+	ParentSpanID        string            `ch:"parent_span_id"`
+	TraceState          string            `ch:"trace_state"`
+	Flags               uint32            `ch:"flags"`
+	Name                string            `ch:"name"`
+	Kind                int8              `ch:"kind"`
+	KindString          string            `ch:"kind_string"`
+	DurationNano        uint64            `ch:"duration_nano"`
+	HasError            bool              `ch:"has_error"`
+	IsRemote            bool              `ch:"is_remote"`
+	StatusCode          int16             `ch:"status_code"`
+	StatusCodeString    string            `ch:"status_code_string"`
+	StatusMessage       string            `ch:"status_message"`
+	HTTPUrl             string            `ch:"http_url"`
+	HTTPMethod          string            `ch:"http_method"`
+	HTTPHost            string            `ch:"http_host"`
+	ExternalHTTPUrl     string            `ch:"external_http_url"`
+	ExternalHTTPMethod  string            `ch:"external_http_method"`
+	ResponseStatusCode  string            `ch:"response_status_code"`
+	Attributes          map[string]string `ch:"attributes"`
+	Events              []string          `ch:"events"`
+	Links               string            `ch:"links"`
+	ExceptionType       string            `ch:"exception_type"`
+	ExceptionMessage    string            `ch:"exception_message"`
+	ExceptionStacktrace string            `ch:"exception_stacktrace"`
+	ExceptionEscaped    bool              `ch:"exception_escaped"`
+}
+
 type httpFields struct {
 	url, method, host, statusCode string
 	externalURL, externalMethod   string
@@ -37,9 +71,9 @@ type exceptionFields struct {
 	escaped                  bool
 }
 
-// mapLogs converts an OTLP traces export request into ClickHouse ingest rows.
-func mapSpans(teamID int64, req *tracepb.ExportTraceServiceRequest) []ingest.Row {
-	result := make([]ingest.Row, 0, 64)
+// mapSpans converts an OTLP traces export request into ClickHouse ingest rows.
+func mapSpans(teamID int64, req *tracepb.ExportTraceServiceRequest) []*SpanRow {
+	result := make([]*SpanRow, 0, 64)
 	for _, rs := range req.ResourceSpans {
 		var resAttrs []*commonpb.KeyValue
 		if rs.Resource != nil {
@@ -56,7 +90,7 @@ func mapSpans(teamID int64, req *tracepb.ExportTraceServiceRequest) []ingest.Row
 }
 
 // buildSpanRow maps a single OTLP span into a ClickHouse ingest row.
-func buildSpanRow(teamID int64, resMap map[string]string, s *trace.Span) ingest.Row {
+func buildSpanRow(teamID int64, resMap map[string]string, s *trace.Span) *SpanRow {
 	timestamp := protoconv.NanoToTime(s.StartTimeUnixNano)
 	durNano := spanDuration(s)
 	tsBucket := timebucket.SpansBucketStart(timestamp.Unix())
@@ -66,38 +100,38 @@ func buildSpanRow(teamID int64, resMap map[string]string, s *trace.Span) ingest.
 	http := extractHTTPFields(spanMap, s.Kind)
 	exc := extractExceptionFields(spanMap)
 
-	return ingest.Row{Values: []any{
-		tsBucket,                             // ts_bucket_start
-		uint32(teamID),                       //nolint:gosec // G115 — team_id
-		timestamp,                            // timestamp
-		protoconv.BytesToHex(s.TraceId),      // trace_id
-		protoconv.BytesToHex(s.SpanId),       // span_id
-		protoconv.BytesToHex(s.ParentSpanId), // parent_span_id
-		s.TraceState,                         // trace_state
-		s.Flags,                              // flags
-		s.Name,                               // name
-		int8(s.Kind),                         //nolint:gosec // G115 — kind
-		spanKindString(s.Kind),               // kind_string
-		durNano,                              // duration_nano
-		statusCode == trace.Status_STATUS_CODE_ERROR, // has_error
-		false,                        // is_remote
-		int16(statusCode),            //nolint:gosec // G115 — status_code
-		statusCodeString(statusCode), // status_code_string
-		statusMsg,                    // status_message
-		http.url,                     // http_url
-		http.method,                  // http_method
-		http.host,                    // http_host
-		http.externalURL,             // external_http_url
-		http.externalMethod,          // external_http_method
-		http.statusCode,              // response_status_code
-		mergedMap,                    // attributes
-		serializeEvents(s.Events),    // events
-		serializeLinks(s.Links),      // links
-		exc.typ,                      // exception_type
-		exc.message,                  // exception_message
-		exc.stacktrace,               // exception_stacktrace
-		exc.escaped,                  // exception_escaped
-	}}
+	return &SpanRow{
+		TsBucketStart:       tsBucket,
+		TeamID:              uint32(teamID), //nolint:gosec // G115 — team_id
+		Timestamp:           timestamp,
+		TraceID:             protoconv.BytesToHex(s.TraceId),
+		SpanID:              protoconv.BytesToHex(s.SpanId),
+		ParentSpanID:        protoconv.BytesToHex(s.ParentSpanId),
+		TraceState:          s.TraceState,
+		Flags:               s.Flags,
+		Name:                s.Name,
+		Kind:                int8(s.Kind), //nolint:gosec // G115 — kind
+		KindString:          spanKindString(s.Kind),
+		DurationNano:        durNano,
+		HasError:            statusCode == trace.Status_STATUS_CODE_ERROR,
+		IsRemote:            false,
+		StatusCode:          int16(statusCode), //nolint:gosec // G115 — status_code
+		StatusCodeString:    statusCodeString(statusCode),
+		StatusMessage:       statusMsg,
+		HTTPUrl:             http.url,
+		HTTPMethod:          http.method,
+		HTTPHost:            http.host,
+		ExternalHTTPUrl:     http.externalURL,
+		ExternalHTTPMethod:  http.externalMethod,
+		ResponseStatusCode:  http.statusCode,
+		Attributes:          mergedMap,
+		Events:              serializeEvents(s.Events),
+		Links:               serializeLinks(s.Links),
+		ExceptionType:       exc.typ,
+		ExceptionMessage:    exc.message,
+		ExceptionStacktrace: exc.stacktrace,
+		ExceptionEscaped:    exc.escaped,
+	}
 }
 
 // spanDuration returns span duration in nanoseconds, or 0 if end <= start.
@@ -240,4 +274,46 @@ func mapGet(m map[string]string, keys ...string) string {
 		}
 	}
 	return ""
+}
+
+// WireSpan matches traces/livetail.LiveSpan JSON shape plus emit_ms.
+type WireSpan struct {
+	SpanID        string    `json:"spanId"`
+	TraceID       string    `json:"traceId"`
+	ServiceName   string    `json:"serviceName"`
+	OperationName string    `json:"operationName"`
+	DurationMs    float64   `json:"durationMs"`
+	Status        string    `json:"status"`
+	Host          string    `json:"host,omitempty"`
+	HTTPMethod    string    `json:"httpMethod,omitempty"`
+	HTTPStatus    string    `json:"httpStatusCode,omitempty"`
+	SpanKind      string    `json:"spanKind,omitempty"`
+	HasError      bool      `json:"hasError"`
+	Timestamp     time.Time `json:"timestamp"`
+	EmitMs        int64     `json:"emit_ms"`
+}
+
+// SpanLiveTailStreamPayload encodes an ingest row for span snapshots or broadcasting.
+func SpanLiveTailStreamPayload(row *SpanRow, emitMs int64) (any, error) {
+	w := liveSpanTailFromRow(row)
+	w.EmitMs = emitMs
+	return w, nil
+}
+
+func liveSpanTailFromRow(row *SpanRow) WireSpan {
+	return WireSpan{
+		SpanID:        row.SpanID,
+		TraceID:       row.TraceID,
+		ServiceName:   row.Attributes["service.name"],
+		Host:          row.Attributes["host.name"],
+		OperationName: row.Name,
+		DurationMs:    float64(row.DurationNano) / 1e6,
+		Status:        row.StatusCodeString,
+		HTTPMethod:    row.HTTPMethod,
+		HTTPStatus:    row.ResponseStatusCode,
+		SpanKind:      row.KindString,
+		HasError:      row.HasError,
+		Timestamp:     row.Timestamp,
+		EmitMs:        0, // placeholder, will be set by caller
+	}
 }

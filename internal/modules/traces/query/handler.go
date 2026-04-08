@@ -18,7 +18,6 @@ type TraceService interface {
 	SearchTraces(ctx context.Context, filters TraceFilters, limit int, cursorRaw string, offset int) (TraceSearchResult, error)
 	GetTraceSpans(ctx context.Context, teamID int64, traceID string) ([]Span, error)
 	GetSpanTree(ctx context.Context, teamID int64, spanID string) ([]Span, error)
-	GetServiceDependencies(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceDependency, error)
 	GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error)
 	GetErrorTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]ErrorTimeSeries, error)
 	GetLatencyHistogram(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) ([]LatencyHistogramBucket, error)
@@ -211,21 +210,6 @@ func (h *TraceHandler) GetSpanTree(c *gin.Context) {
 		return
 	}
 	modulecommon.RespondOK(c, spans)
-}
-
-func (h *TraceHandler) GetServiceDependencies(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
-
-	deps, err := h.Service.GetServiceDependencies(c.Request.Context(), teamID, startMs, endMs)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query dependencies", err)
-		return
-	}
-	modulecommon.RespondOK(c, deps)
 }
 
 // --- Error handlers ---

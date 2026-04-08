@@ -1,14 +1,13 @@
 package metrics
 
 import (
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/ingest"
+	"time"
+
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/protoconv"
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	metricsdatapb "go.opentelemetry.io/proto/otlp/metrics/v1"
 )
-
-const defaultEnv = "default"
 
 var (
 	emptyBounds = []float64{}
@@ -22,6 +21,26 @@ var MetricColumns = []string{
 	"hist_sum", "hist_count", "hist_buckets", "hist_counts", "attributes",
 }
 
+// MetricRow structurally maps an OTLP metric to ClickHouse columns.
+type MetricRow struct {
+	TeamID              uint32            `ch:"team_id"`
+	Env                 string            `ch:"env"`
+	MetricName          string            `ch:"metric_name"`
+	MetricType          string            `ch:"metric_type"`
+	Temporality         string            `ch:"temporality"`
+	IsMonotonic         bool              `ch:"is_monotonic"`
+	Unit                string            `ch:"unit"`
+	Description         string            `ch:"description"`
+	ResourceFingerprint uint64            `ch:"resource_fingerprint"`
+	Timestamp           time.Time         `ch:"timestamp"`
+	Value               float64           `ch:"value"`
+	HistSum             float64           `ch:"hist_sum"`
+	HistCount           uint64            `ch:"hist_count"`
+	HistBuckets         []float64         `ch:"hist_buckets"`
+	HistCounts          []uint64          `ch:"hist_counts"`
+	Attributes          map[string]string `ch:"attributes"`
+}
+
 type metricHeader struct {
 	teamID      uint32
 	env         string
@@ -30,8 +49,8 @@ type metricHeader struct {
 }
 
 // mapMetrics converts an OTLP metrics export request into ClickHouse ingest rows.
-func mapMetrics(teamID int64, req *metricspb.ExportMetricsServiceRequest) []ingest.Row {
-	var rows []ingest.Row
+func mapMetrics(teamID int64, req *metricspb.ExportMetricsServiceRequest) []*MetricRow {
+	var rows []*MetricRow
 	for _, rm := range req.ResourceMetrics {
 		var resAttrs []*commonpb.KeyValue
 		if rm.Resource != nil {
@@ -60,88 +79,88 @@ func mapMetrics(teamID int64, req *metricspb.ExportMetricsServiceRequest) []inge
 	return rows
 }
 
-// envFromResource returns the deployment environment or "default".
+// envFromResource returns the deployment environment, or empty string if not set.
 func envFromResource(resMap map[string]string) string {
 	if env := resMap["deployment.environment"]; env != "" {
 		return env
 	}
-	return defaultEnv
+	return ""
 }
 
 // mapGaugeRows appends one row per Gauge data point.
-func mapGaugeRows(rows []ingest.Row, hdr metricHeader, m *metricsdatapb.Metric, dps []*metricsdatapb.NumberDataPoint) []ingest.Row {
+func mapGaugeRows(rows []*MetricRow, hdr metricHeader, m *metricsdatapb.Metric, dps []*metricsdatapb.NumberDataPoint) []*MetricRow {
 	for _, dp := range dps {
-		rows = append(rows, ingest.Row{Values: []any{
-			hdr.teamID,                            // team_id
-			hdr.env,                               // env
-			m.Name,                                // metric_name
-			"Gauge",                               // metric_type
-			"Unspecified",                         // temporality
-			false,                                 // is_monotonic
-			m.Unit,                                // unit
-			m.Description,                         // description
-			hdr.fingerprint,                       // resource_fingerprint
-			protoconv.NanoToTime(dp.TimeUnixNano), // timestamp
-			numberDataPointValue(dp),              // value
-			0.0,                                   // hist_sum
-			uint64(0),                             // hist_count
-			emptyBounds,                           // hist_buckets
-			emptyCounts,                           // hist_counts
-			protoconv.MergeAttrsMap(hdr.resMap, dp.Attributes), // attributes
-		}})
+		rows = append(rows, &MetricRow{
+			TeamID:              hdr.teamID,
+			Env:                 hdr.env,
+			MetricName:          m.Name,
+			MetricType:          "Gauge",
+			Temporality:         "Unspecified",
+			IsMonotonic:         false,
+			Unit:                m.Unit,
+			Description:         m.Description,
+			ResourceFingerprint: hdr.fingerprint,
+			Timestamp:           protoconv.NanoToTime(dp.TimeUnixNano),
+			Value:               numberDataPointValue(dp),
+			HistSum:             0.0,
+			HistCount:           uint64(0),
+			HistBuckets:         emptyBounds,
+			HistCounts:          emptyCounts,
+			Attributes:          protoconv.MergeAttrsMap(hdr.resMap, dp.Attributes),
+		})
 	}
 	return rows
 }
 
 // mapSumRows appends one row per Sum data point.
-func mapSumRows(rows []ingest.Row, hdr metricHeader, m *metricsdatapb.Metric, sum *metricsdatapb.Sum) []ingest.Row {
+func mapSumRows(rows []*MetricRow, hdr metricHeader, m *metricsdatapb.Metric, sum *metricsdatapb.Sum) []*MetricRow {
 	temporality := temporalityString(sum.AggregationTemporality)
 	for _, dp := range sum.DataPoints {
-		rows = append(rows, ingest.Row{Values: []any{
-			hdr.teamID,                            // team_id
-			hdr.env,                               // env
-			m.Name,                                // metric_name
-			"Sum",                                 // metric_type
-			temporality,                           // temporality
-			sum.IsMonotonic,                       // is_monotonic
-			m.Unit,                                // unit
-			m.Description,                         // description
-			hdr.fingerprint,                       // resource_fingerprint
-			protoconv.NanoToTime(dp.TimeUnixNano), // timestamp
-			numberDataPointValue(dp),              // value
-			0.0,                                   // hist_sum
-			uint64(0),                             // hist_count
-			emptyBounds,                           // hist_buckets
-			emptyCounts,                           // hist_counts
-			protoconv.MergeAttrsMap(hdr.resMap, dp.Attributes), // attributes
-		}})
+		rows = append(rows, &MetricRow{
+			TeamID:              hdr.teamID,
+			Env:                 hdr.env,
+			MetricName:          m.Name,
+			MetricType:          "Sum",
+			Temporality:         temporality,
+			IsMonotonic:         sum.IsMonotonic,
+			Unit:                m.Unit,
+			Description:         m.Description,
+			ResourceFingerprint: hdr.fingerprint,
+			Timestamp:           protoconv.NanoToTime(dp.TimeUnixNano),
+			Value:               numberDataPointValue(dp),
+			HistSum:             0.0,
+			HistCount:           uint64(0),
+			HistBuckets:         emptyBounds,
+			HistCounts:          emptyCounts,
+			Attributes:          protoconv.MergeAttrsMap(hdr.resMap, dp.Attributes),
+		})
 	}
 	return rows
 }
 
 // mapHistogramRows appends one row per Histogram data point.
-func mapHistogramRows(rows []ingest.Row, hdr metricHeader, m *metricsdatapb.Metric, hist *metricsdatapb.Histogram) []ingest.Row {
+func mapHistogramRows(rows []*MetricRow, hdr metricHeader, m *metricsdatapb.Metric, hist *metricsdatapb.Histogram) []*MetricRow {
 	temporality := temporalityString(hist.AggregationTemporality)
 	for _, dp := range hist.DataPoints {
 		sum, avg := histValues(dp)
-		rows = append(rows, ingest.Row{Values: []any{
-			hdr.teamID,                              // team_id
-			hdr.env,                                 // env
-			m.Name,                                  // metric_name
-			"Histogram",                             // metric_type
-			temporality,                             // temporality
-			false,                                   // is_monotonic
-			m.Unit,                                  // unit
-			m.Description,                           // description
-			hdr.fingerprint,                         // resource_fingerprint
-			protoconv.NanoToTime(dp.TimeUnixNano),   // timestamp
-			avg,                                     // value
-			sum,                                     // hist_sum
-			dp.Count,                                // hist_count
-			orSlice(dp.ExplicitBounds, emptyBounds), // hist_buckets
-			orSlice(dp.BucketCounts, emptyCounts),   // hist_counts
-			protoconv.MergeAttrsMap(hdr.resMap, dp.Attributes), // attributes
-		}})
+		rows = append(rows, &MetricRow{
+			TeamID:              hdr.teamID,
+			Env:                 hdr.env,
+			MetricName:          m.Name,
+			MetricType:          "Histogram",
+			Temporality:         temporality,
+			IsMonotonic:         false,
+			Unit:                m.Unit,
+			Description:         m.Description,
+			ResourceFingerprint: hdr.fingerprint,
+			Timestamp:           protoconv.NanoToTime(dp.TimeUnixNano),
+			Value:               avg,
+			HistSum:             sum,
+			HistCount:           dp.Count,
+			HistBuckets:         orSlice(dp.ExplicitBounds, emptyBounds),
+			HistCounts:          orSlice(dp.BucketCounts, emptyCounts),
+			Attributes:          protoconv.MergeAttrsMap(hdr.resMap, dp.Attributes),
+		})
 	}
 	return rows
 }

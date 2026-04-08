@@ -28,7 +28,7 @@ func (r *ClickHouseRepository) GetLogs(ctx context.Context, f shared.LogFilters,
 		orderDir = "ASC"
 	}
 
-	orderBy := fmt.Sprintf(`timestamp %s, id %s`, orderDir, orderDir)
+	orderBy := fmt.Sprintf(`timestamp %s, observed_timestamp %s`, orderDir, orderDir)
 	offset := cursor.Offset
 
 	query := fmt.Sprintf(`SELECT %s FROM observability.logs WHERE%s ORDER BY %s LIMIT ?`, shared.LogColumns, where, orderBy)

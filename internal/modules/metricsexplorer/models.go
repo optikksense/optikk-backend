@@ -20,7 +20,7 @@ type TagKeyResult struct {
 // TagValueResult holds an attribute value and its occurrence count.
 type TagValueResult struct {
 	TagValue string `json:"tag_value" ch:"tag_value"`
-	Count    int64  `json:"count"     ch:"count"`
+	Count    uint64 `json:"count"     ch:"count"`
 }
 
 // TimeseriesPoint is a single aggregated data point from the explorer query.

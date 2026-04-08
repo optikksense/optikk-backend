@@ -4,9 +4,12 @@ Orientation for **optikk-backend** (Go modular monolith). Read this file and `.c
 
 ## How assistants should use this document
 
-- **Before** any substantive task: read **`CODEBASE_INDEX.md`** (this file) and **`.cursor/rules/optik-backend.mdc`**. Follow **`.cursor/rules/engineering-workflow.mdc`** for planning and quality bar.
+- **Before** any substantive task: read **`CODEBASE_INDEX.md`** (this file), **`.cursor/rules/optik-backend.mdc`**, and **`.agent/philosophy/`** for strategic alignment. Follow **`.cursor/rules/engineering-workflow.mdc`** for planning and quality bar.
 - **Plan before code:** Produce a plan (with options where appropriate) and **do not change code until the user approves** the plan, except for trivial one-line/typo fixes.
-- **After** module or contract changes (new HTTP domains, dashboard JSON, ingestion boundaries): **update this file** and **`.cursor/rules/optik-backend.mdc`** in the same change when something durable changed.
+- **Agent Philosophy**: Mandatory reading for staff-level alignment:
+  - **ADR-001**: [adr-001-strict-architecture.md](file:///Users/ramantayal/pro/optikk-backend/.agent/philosophy/adr-001-strict-architecture.md)
+  - **Vision**: [vision-and-extensibility.md](file:///Users/ramantayal/pro/optikk-backend/.agent/philosophy/vision-and-extensibility.md)
+  - **Architecture**: [system-architecture.md](file:///Users/ramantayal/pro/optikk-backend/.agent/philosophy/system-architecture.md)
 
 ## Related repository
 
@@ -27,8 +30,15 @@ The web app lives in the sibling repo **`optic-frontend`** (see that repo's `COD
 | File | Purpose |
 |------|---------|
 | `internal/app/server/modules_manifest.go` | **`configuredModules()`** — single list of all `registry.Module` constructors (51 total: 47 HTTP + 4 ingestion); add new HTTP/domain modules here |
-| `internal/app/server/app.go` | App wiring |
-| `internal/app/registry/registry.go` | Shared dependencies (querier, DB, tenant, session, config) |
+| `internal/app/server/app.go` | App wiring; builds `platform/runtime.Runtime`, native querier, WebSocket handler, module graph |
+| `internal/app/registry/registry.go` | Shared dependency aliases for modules (querier, DB, tenant, config, platform session contract) |
+
+## Runtime ownership
+
+- `internal/platform/` owns cross-cutting capability contracts and provider selection.
+- `internal/platform/runtime/` builds the runtime bundle used by the app layer.
+- `internal/infra/` owns concrete low-level implementations behind those platform contracts.
+- `internal/modules/` and `internal/app/` should not import provider implementations like `internal/infra/session`, `internal/infra/livetail`, `internal/infra/ingestion`, or the old `internal/infra/dashboardcfg`.
 
 ## Module packages (`internal/modules/`)
 
@@ -73,7 +83,8 @@ The web app lives in the sibling repo **`optic-frontend`** (see that repo's `COD
 
 | Submodule | Key endpoints |
 |-----------|--------------|
-| `traces/query` | `GET /traces`, `/traces/:traceId/spans`, `/spans/:spanId/tree`, `/spans/search`, `/services/dependencies`, `/services/:serviceName/errors/*`, `/latency/*`, `/errors/*` |
+| `traces/query` | `GET /traces`, `/traces/:traceId/spans`, `/spans/:spanId/tree`, `/spans/search`, `/services/:serviceName/errors/*`, `/latency/*`, `/errors/*` |
+| `services/topology` | `GET /services/topology` — runtime service map (nodes + directed RED-weighted edges from parent→child span joins); optional `?service=<name>` for 1-hop neighborhood. Cached (30s). |
 | `traces/explorer` | `POST /traces/explorer/query` |
 | `traces/tracedetail` | `GET /traces/:traceId/{span-events,span-kind-breakdown,critical-path,span-self-times,error-path,flamegraph,logs,related}`, `/traces/:traceId/spans/:spanId/attributes` |
 | `traces/redmetrics` | `GET /spans/red/{summary,apdex,top-slow-operations,top-error-operations,request-rate,error-rate,p95-latency,span-kind-breakdown,errors-by-route}`, `/spans/latency-breakdown` |
@@ -123,17 +134,28 @@ All under `/http/` prefix, Cached:
 
 ### Logs live tail
 
-- **`internal/modules/logs/search/livetail_run.go`** — `RunLogsLiveTail()`: subscribes to Redis Stream (`livetailredis.LogsStreamKey(teamID)`), sends heartbeat every 15s with lag metrics
+- **`internal/infra/livetailws/handler.go`** — WebSocket entrypoint; depends on platform session + live-tail hub contracts
 - **`internal/modules/logs/search/livetail_payload.go`** — `SubscribeLogsPayload`: filter fields: Severities, Services, Hosts, Pods, Containers, Environments, TraceID, SpanID, Search, SearchMode, ExcludeSeverities, ExcludeServices, ExcludeHosts, AttributeFilters
-- WebSocket protocol: client sends `subscribe:logs` op to `/api/v1/ws/live`, backend fans out from Redis ingest stream (no ClickHouse polling)
+- WebSocket protocol: client sends `subscribe:logs` op to `/api/v1/ws/live`, backend receives events from the runtime live-tail hub fed by OTLP stream workers
 
 ## Ingestion
 
-- **OTLP Pipeline**: `internal/ingestion/otlp/` — gRPC export maps to `ingest.Row`, then **`XADD`** to Redis Streams (`otlp:ingest:logs|metrics|spans`, field `payload` JSON). **Redis is required** when OTLP is used (publish path).
+- **OTLP Pipeline**: `internal/ingestion/otlp/` — gRPC export explicitly mapped to concrete structs (`LogRow`, `SpanRow`, `MetricRow`).
 - **Authentication**: `internal/ingestion/otlp/auth/` — TTL-cached team resolution via API keys.
-- **Row types**: `internal/ingestion/otlp/internal/ingest/` — `ingest.Row`, byte tracking, team rate limits.
-- **Background consumers**: `internal/ingestion/otlp/streamworkers/` — `BackgroundRunner` with separate consumer groups: **ClickHouse** writers (`ch-logs` / `ch-metrics` / `ch-spans`) and **live-tail bridges** (`livetail-logs` / `livetail-spans` on ingest logs/spans streams) fanning out to `livetail:logs:stream:{teamId}` and `livetail:spans:stream:{teamId}` (field `data`). WebSocket clients `XREVRANGE` snapshot then `XREAD` block.
-- **Encoding**: `internal/ingestion/otlp/rowjson/` — marshal/unmarshal rows for stream payloads.
+- **Dispatch contracts**: `internal/platform/ingestion/` — `Dispatcher[T]`, `TelemetryBatch[T]`, OTLP dependency interfaces.
+- **Default dispatcher implementation**: `internal/infra/ingestion/dispatcher.go` — in-memory channel fanout used by the runtime bundle.
+- **Background consumers**: `internal/ingestion/otlp/streamworkers/` — `BackgroundRunner` with separate routines per type. **ClickHouse** writers use `CHFlusher[T]` with `AppendStruct(row)`. Live tail components tap into these same pipelines and broadcast to WebSocket clients.
+
+## Platform Layer (`internal/platform/`)
+
+| Package | Purpose |
+|---------|---------|
+| `runtime` | Builds the runtime dependency bundle used by `server.New` |
+| `session` | Session/auth contract used by app, middleware, WebSocket auth, and auth module |
+| `ratelimit` | Rate limiter contract and provider-facing API |
+| `livetail` | Live-tail hub contract |
+| `ingestion` | OTLP dispatcher + dependency contracts |
+| `dashboardcfg` | Dashboard schema, validation, hydration, registry, and embedded defaults |
 
 ## Internal Infrastructure (`internal/infra/`)
 
@@ -144,13 +166,13 @@ All under `/http/` prefix, Cached:
 | `validation` | Schema-based validation logic |
 | `cache` | Query and object caching |
 | `database` | **`NativeQuerier`** and ClickHouse/MySQL connection management |
-| `livetail` | Live tail hub for fan-out to WebSocket clients |
-| `livetailws` | Live tail WebSocket handler (`GET /api/v1/ws/live`); protocol: `subscribe:logs` sends `WireLog`, `subscribe:spans` sends `WireSpan` |
+| `ingestion` | Default in-memory dispatcher implementation backing `platform/ingestion.Dispatcher[T]` |
+| `livetail` | Default live-tail hub implementation behind `platform/livetail.Hub` |
+| `livetailws` | Live tail WebSocket handler (`GET /api/v1/ws/live`) wired against platform hub + session contracts |
 | `livetailredis` | Redis Stream keys for live tail (`livetail:logs:stream:{teamId}`, `livetail:spans:stream:{teamId}`; field `data`) |
 | `otlpredis` | Ingest stream names and consumer group ids; `EnsureIngestStreams` (`MKSTREAM` + `XGROUP CREATE`) |
-| `middleware` | HTTP middleware: CORS, error recovery, tenant context, rate limiting |
-| `session` | Session management via `scs/v2`; keys: `auth_user_id`, `auth_email`, `auth_role`, `auth_default_team_id`, `auth_team_ids` |
-| `dashboardcfg` | Dashboard configuration schema, validation, hydration, registry (see dedicated section below) |
+| `middleware` | HTTP middleware: CORS, error recovery, tenant context, rate limiting middleware |
+| `session` | Default `scs/v2` session manager implementation; keys: `auth_user_id`, `auth_email`, `auth_role`, `auth_default_team_id`, `auth_team_ids` |
 | `utils` | String conversion and time parsing helpers |
 
 ## Module Anatomy (LLD)
@@ -194,8 +216,8 @@ Gin request
   → middleware.ErrorRecovery (panic → contracts.Failure)
   → middleware.CORSMiddleware (origin allowlist)
   → /api/v1 group
-    → middleware.TenantMiddleware (session auth + team resolution)
-    → RateLimiter (2000 req/s; Redis-backed or in-memory)
+    → middleware.TenantMiddleware (platform session contract + team resolution)
+    → RateLimiter (platform-injected, local provider by default)
     → [cache.CacheResponse 30s for registry.Cached modules]
     → Handler → Service → Repository → ClickHouse/MySQL
   → contracts.APIResponse envelope
@@ -266,22 +288,24 @@ type APIResponse struct {
 
 | Path | Purpose |
 |------|---------|
-| `internal/infra/dashboardcfg/` | Loader, models, panel layout, validation, hydration |
+| `internal/platform/dashboardcfg/` | Loader, models, panel layout, validation, hydration |
 | `internal/modules/dashboard/` | HTTP/service for default config API |
 
-**Schema:** `page.schemaVersion` is **2** in embedded defaults (`CurrentSchemaVersion` in `internal/infra/dashboardcfg/types.go`). **1** remains accepted for older stored configs. **v2** adds explicit **`layout.w` and `layout.h`** (grid units, 12-column model); values must match the canonical footprint for `layoutVariant` (`panel_size_policy.go`). If `w`/`h` are omitted (legacy JSON), the loader hydrates them once from `layoutVariant` before validation. The **optic-frontend** reads `panel.layout.w` / `panel.layout.h` for `react-grid-layout`; pixel spacing stays frontend-only.
+**Schema:** `page.schemaVersion` is **2** in embedded defaults (`CurrentSchemaVersion` in `internal/platform/dashboardcfg/types.go`). **1** remains accepted for older stored configs. **v2** adds explicit **`layout.w` and `layout.h`** (grid units, 12-column model); values must match the canonical footprint for `layoutVariant` (`panel_size_policy.go`). If `w`/`h` are omitted (legacy JSON), the loader hydrates them once from `layoutVariant` before validation. The **optic-frontend** reads `panel.layout.w` / `panel.layout.h` for `react-grid-layout`; pixel spacing stays frontend-only.
 
-### Default pages (`internal/infra/dashboardcfg/defaults/`)
+### Default pages (`internal/platform/dashboardcfg/defaults/`)
+
+The `service` default page remains the backend-authored main service page at `/service`. Service detail is frontend-owned as a side drawer; the backend only contributes the shared drawer entity contract and the overview services table `drawerAction` that opens that drawer from backend-driven rows.
 
 | Page ID | Directory | Tabs | Default tab | Group | Order |
 |---------|-----------|------|-------------|-------|-------|
 | `overview` | `defaults/overview/` | summary, latency-analysis, apm, errors, http, slo | summary | observe | 10 |
 | `service` | `defaults/service/` | deployments | deployments | observe | 15 |
 | `ai-observability` | `defaults/ai_observability/` | overview, performance, cost, security | overview | operate | 80 |
-| `infrastructure` | `defaults/infrastructure/` | resource-utilization, jvm, kubernetes, nodes | resource-utilization | operate | 60 |
+| `infrastructure` | `defaults/infrastructure/` | resource-utilization, jvm, kubernetes, pods | resource-utilization | operate | 60 |
 | `saturation` | `defaults/saturation/` | database, queue, redis | database | operate | 70 |
 
-### Dashboard schema enums (`internal/infra/dashboardcfg/enums.go`)
+### Dashboard schema enums (`internal/platform/dashboardcfg/enums.go`)
 
 **Panel types (24):** `ai-bar`, `ai-line`, `bar`, `db-systems-overview`, `error-hotspot-ranking`, `error-rate`, `exception-type-line`, `gauge`, `heatmap`, `latency`, `latency-heatmap`, `latency-histogram`, `log-histogram`, `pie`, `request`, `service-catalog`, `service-health-grid`, `service-map`, `slo-indicators`, `stat-card`, `stat-cards-grid`, `stat-summary`, `table`, `trace-waterfall`
 
@@ -327,9 +351,9 @@ Use when a change spans API and UI. Frontend paths refer to **`optic-frontend`**
 | Registry / route wiring | `modules_manifest.go` | `domainRegistry.ts`, feature `index.ts` |
 | Explorer APIs | `internal/modules/.../handler.go` | Feature `api/` or `shared/api` |
 | Metrics Explorer | `internal/modules/metricsexplorer` (`/metrics/names`, `/:metricName/tags`, `/explorer/query`) | `src/features/metrics` (`metricsExplorerApi.ts`) |
-| Dashboard panels | `internal/infra/dashboardcfg/`, panel types | `dashboard/renderers/`, `dashboardPanelRegistry` |
+| Dashboard panels | `internal/platform/dashboardcfg/`, panel types | `dashboard/renderers/`, `dashboardPanelRegistry` |
 | Auth | `internal/modules/user/auth/` | `shared/api/auth/` |
-| Default config | `internal/modules/dashboard/`, `internal/infra/dashboardcfg/` | `defaultConfigService.ts` |
+| Default config | `internal/modules/dashboard/`, `internal/platform/dashboardcfg/` | `defaultConfigService.ts` |
 | Live tail (logs/traces) | `internal/infra/livetailws/`, `logs/search/livetail_*.go`, `traces/livetail/` | `useSocketStream.ts`, `useLiveTailStream.ts` |
 
 ---

@@ -8,10 +8,10 @@ import (
 
 	"time"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/livetail"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/session"
 	otlplogs "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/logs"
 	otlpspans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
+	platformlivetail "github.com/Optikk-Org/optikk-backend/internal/platform/livetail"
+	platformsession "github.com/Optikk-Org/optikk-backend/internal/platform/session"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
 )
@@ -30,9 +30,9 @@ type outbound struct {
 
 // Config wires live tail hub and session validation.
 type Config struct {
-	Hub            *livetail.Hub
+	Hub            platformlivetail.Hub
 	AllowedOrigins []string
-	Sessions       *session.Manager
+	Sessions       platformsession.Manager
 }
 
 // NewHandler returns a Gin handler for GET /api/v1/ws/live (WebSocket upgrade).
@@ -173,7 +173,7 @@ func extractTeamID(op string, payload json.RawMessage) (int64, bool) {
 	}
 }
 
-func teamAllowed(state session.AuthState, requested int64) bool {
+func teamAllowed(state platformsession.AuthState, requested int64) bool {
 	if len(state.TeamIDs) == 0 {
 		return state.DefaultTeamID == requested
 	}

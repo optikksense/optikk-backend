@@ -129,7 +129,7 @@ func (r *ClickHouseRepository) GetTopErrorOperations(ctx context.Context, teamID
 }
 
 func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceRatePoint, error) {
-	bucket := timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
+	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	var rows []ServiceRatePoint
 	err := r.db.Select(ctx, &rows, fmt.Sprintf(`
 		SELECT %s                               AS timestamp,
@@ -150,7 +150,7 @@ func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, tea
 }
 
 func (r *ClickHouseRepository) GetErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceErrorRatePoint, error) {
-	bucket := timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
+	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	var rows []ServiceErrorRatePoint
 	err := r.db.Select(ctx, &rows, fmt.Sprintf(`
 		SELECT %s                                                                      AS timestamp,
@@ -173,7 +173,7 @@ func (r *ClickHouseRepository) GetErrorRateTimeSeries(ctx context.Context, teamI
 }
 
 func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceLatencyPoint, error) {
-	bucket := timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
+	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	var rows []ServiceLatencyPoint
 	err := r.db.Select(ctx, &rows, fmt.Sprintf(`
 		SELECT %s                                              AS timestamp,
@@ -194,7 +194,7 @@ func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, team
 }
 
 func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]SpanKindPoint, error) {
-	bucket := timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
+	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	var rows []SpanKindPoint
 	err := r.db.Select(ctx, &rows, fmt.Sprintf(`
 		SELECT %s                        AS timestamp,
@@ -215,7 +215,7 @@ func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID 
 }
 
 func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorByRoutePoint, error) {
-	bucket := timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
+	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	var rows []ErrorByRoutePoint
 	err := r.db.Select(ctx, &rows, fmt.Sprintf(`
 		SELECT %s                                                                      AS timestamp,

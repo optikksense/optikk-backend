@@ -11,7 +11,8 @@ This skill defines the development standards and architectural patterns for the 
 
 1. **Read [CODEBASE_INDEX.md](../../CODEBASE_INDEX.md)** at the repository root. This provides the full map of modules, ingestion, and dashboard configuration.
 2. **Review [Active Rules](../../.cursor/rules/optik-backend.mdc)** for latest hot paths.
-3. **Plan First, Code After Approval**:
+3. **Read [Agent Philosophy](./philosophy/)**: Review strategic alignment, ADRs, and extensibility rules for Staff-level context.
+4. **Plan First, Code After Approval**:
    - For non-trivial work, produce a plan.
    - **At least two viable approaches** must be presented with Pros/Cons.
    - Do **not** modify project files until the user explicitly approves the plan.
@@ -24,7 +25,7 @@ This skill defines the development standards and architectural patterns for the 
 
 ## Modular Monolith Patterns
 
-- **Module Registration**: New modules **must** be registered in **`internal/app/server/modules_manifest.go`** within the `configuredModules()` function (currently 51 constructors: 47 HTTP + 4 ingestion).
+- **Module Registration**: New modules **must** be registered in **`internal/app/server/modules_manifest.go`** within the `configuredModules()` function (currently 52 constructors: 48 HTTP + 4 ingestion).
 - **Dependency Injection**: Use the shared **`registry.Module`** pattern.
 - **Real-time Ingestion**: Spans, logs, and metrics are handled via the OTLP pipeline in `internal/ingestion/otlp/`.
 - **Dashboard Configuration**: 

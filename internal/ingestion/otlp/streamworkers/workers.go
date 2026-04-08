@@ -7,36 +7,40 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/Optikk-Org/optikk-backend/internal/config"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/livetail"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/ingest"
 	otlplogs "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/logs"
 	otlpmetrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/metrics"
 	otlpspans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
+	platformingestion "github.com/Optikk-Org/optikk-backend/internal/platform/ingestion"
+	platformlivetail "github.com/Optikk-Org/optikk-backend/internal/platform/livetail"
 )
 
 const (
-	// batchMaxRows is the maximum number of rows we aggregate before flushing to ClickHouse.
 	batchMaxRows = 5000
-	// batchMaxWait is the maximum time we wait before flushing an incomplete batch.
 	batchMaxWait = 5 * time.Second
 )
 
 // Workers runs in-memory queue consumers for OTLP ingest to ClickHouse
 // and the real-time Live Tail Hub.
 type Workers struct {
-	ch         clickhouse.Conn
-	cfg        config.Config
-	dispatcher *otlp.Dispatcher
-	hub        *livetail.Hub
+	ch               clickhouse.Conn
+	logDispatcher    platformingestion.Dispatcher[*otlplogs.LogRow]
+	spanDispatcher   platformingestion.Dispatcher[*otlpspans.SpanRow]
+	metricDispatcher platformingestion.Dispatcher[*otlpmetrics.MetricRow]
+	hub              platformlivetail.Hub
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
 
-func NewWorkers(ch clickhouse.Conn, d *otlp.Dispatcher, hub *livetail.Hub, cfg config.Config) *Workers {
-	return &Workers{ch: ch, dispatcher: d, hub: hub, cfg: cfg}
+func NewWorkers(ch clickhouse.Conn, ld platformingestion.Dispatcher[*otlplogs.LogRow], sd platformingestion.Dispatcher[*otlpspans.SpanRow], md platformingestion.Dispatcher[*otlpmetrics.MetricRow], hub platformlivetail.Hub) *Workers {
+	return &Workers{
+		ch:               ch,
+		logDispatcher:    ld,
+		spanDispatcher:   sd,
+		metricDispatcher: md,
+		hub:              hub,
+	}
 }
 
 // Start launches background consumers.
@@ -45,10 +49,7 @@ func (w *Workers) Start() {
 	w.cancel = cancel
 
 	w.wg.Add(2)
-	// 1. Persistence Worker (Aggregates and flushes to ClickHouse)
 	go func() { defer w.wg.Done(); w.runPersistence(ctx) }()
-
-	// 2. Streaming Worker (Fans out to the Live Tail Hub)
 	go func() { defer w.wg.Done(); w.runStreaming(ctx) }()
 }
 
@@ -62,14 +63,13 @@ func (w *Workers) Stop() error {
 }
 
 func (w *Workers) runPersistence(ctx context.Context) {
-	logFlusher := otlp.NewCHFlusher(w.ch, "observability.logs", otlplogs.LogColumns)
-	metricFlusher := otlp.NewCHFlusher(w.ch, "observability.metrics", otlpmetrics.MetricColumns)
-	spanFlusher := otlp.NewCHFlusher(w.ch, "observability.spans", otlpspans.SpanColumns)
+	logFlusher := otlp.NewCHFlusher[*otlplogs.LogRow](w.ch, "observability.logs", otlplogs.LogColumns)
+	metricFlusher := otlp.NewCHFlusher[*otlpmetrics.MetricRow](w.ch, "observability.metrics", otlpmetrics.MetricColumns)
+	spanFlusher := otlp.NewCHFlusher[*otlpspans.SpanRow](w.ch, "observability.spans", otlpspans.SpanColumns)
 
-	// Local buffers for aggregation
-	logBuf := make([]ingest.Row, 0, batchMaxRows)
-	metricBuf := make([]ingest.Row, 0, batchMaxRows)
-	spanBuf := make([]ingest.Row, 0, batchMaxRows)
+	logBuf := make([]*otlplogs.LogRow, 0, batchMaxRows)
+	metricBuf := make([]*otlpmetrics.MetricRow, 0, batchMaxRows)
+	spanBuf := make([]*otlpspans.SpanRow, 0, batchMaxRows)
 
 	ticker := time.NewTicker(batchMaxWait)
 	defer ticker.Stop()
@@ -98,40 +98,41 @@ func (w *Workers) runPersistence(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			flush() // final flush on shutdown
+			flush()
 			return
 		case <-ticker.C:
 			flush()
-		case batch, ok := <-w.dispatcher.PersistenceChan:
+		case batch, ok := <-w.logDispatcher.Persistence():
 			if !ok {
 				flush()
 				return
 			}
-
-			switch batch.Signal {
-			case otlp.SignalLog:
-				logBuf = append(logBuf, batch.Rows...)
-				if len(logBuf) >= batchMaxRows {
-					if err := logFlusher.Flush(logBuf); err == nil {
-						slog.Info("ingest: flushed logs (max size)", slog.Int("rows", len(logBuf)))
-						logBuf = logBuf[:0]
-					}
+			logBuf = append(logBuf, batch.Rows...)
+			if len(logBuf) >= batchMaxRows {
+				if err := logFlusher.Flush(logBuf); err == nil {
+					logBuf = logBuf[:0]
 				}
-			case otlp.SignalMetric:
-				metricBuf = append(metricBuf, batch.Rows...)
-				if len(metricBuf) >= batchMaxRows {
-					if err := metricFlusher.Flush(metricBuf); err == nil {
-						slog.Info("ingest: flushed metrics (max size)", slog.Int("rows", len(metricBuf)))
-						metricBuf = metricBuf[:0]
-					}
+			}
+		case batch, ok := <-w.spanDispatcher.Persistence():
+			if !ok {
+				flush()
+				return
+			}
+			spanBuf = append(spanBuf, batch.Rows...)
+			if len(spanBuf) >= batchMaxRows {
+				if err := spanFlusher.Flush(spanBuf); err == nil {
+					spanBuf = spanBuf[:0]
 				}
-			case otlp.SignalSpan:
-				spanBuf = append(spanBuf, batch.Rows...)
-				if len(spanBuf) >= batchMaxRows {
-					if err := spanFlusher.Flush(spanBuf); err == nil {
-						slog.Info("ingest: flushed spans (max size)", slog.Int("rows", len(spanBuf)))
-						spanBuf = spanBuf[:0]
-					}
+			}
+		case batch, ok := <-w.metricDispatcher.Persistence():
+			if !ok {
+				flush()
+				return
+			}
+			metricBuf = append(metricBuf, batch.Rows...)
+			if len(metricBuf) >= batchMaxRows {
+				if err := metricFlusher.Flush(metricBuf); err == nil {
+					metricBuf = metricBuf[:0]
 				}
 			}
 		}
@@ -143,33 +144,23 @@ func (w *Workers) runStreaming(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
-		case batch, ok := <-w.dispatcher.StreamingChan:
+		case batch, ok := <-w.logDispatcher.Streaming():
 			if !ok {
 				return
 			}
-			if len(batch.Rows) == 0 {
-				continue
+			for _, row := range batch.Rows {
+				if payload, ok := otlplogs.LiveTailStreamPayload(row); ok && payload != nil {
+					w.hub.Publish(batch.TeamID, payload)
+				}
 			}
-
-			// Only logs and spans are currently streamed to Live Tail
-			if batch.Signal == otlp.SignalLog || batch.Signal == otlp.SignalSpan {
-				for _, row := range batch.Rows {
-					var payload any
-					var ok bool
-					if batch.Signal == otlp.SignalLog {
-						payload, ok = otlplogs.LiveTailStreamPayload(row)
-					} else {
-						// SpanLiveTailStreamJSON returns ([]byte, error)
-						data, err := otlpspans.SpanLiveTailStreamPayload(row, time.Now().UnixMilli())
-						if err == nil {
-							payload = data
-							ok = true
-						}
-					}
-
-					if ok && payload != nil {
-						w.hub.Publish(batch.TeamID, payload)
-					}
+		case batch, ok := <-w.spanDispatcher.Streaming():
+			if !ok {
+				return
+			}
+			for _, row := range batch.Rows {
+				data, err := otlpspans.SpanLiveTailStreamPayload(row, time.Now().UnixMilli())
+				if err == nil && data != nil {
+					w.hub.Publish(batch.TeamID, data)
 				}
 			}
 		}

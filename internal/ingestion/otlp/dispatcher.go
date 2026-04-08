@@ -3,45 +3,34 @@ package otlp
 import (
 	"log/slog"
 	"sync/atomic"
-
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/ingest"
 )
 
-type SignalType int
-
-const (
-	SignalLog SignalType = iota
-	SignalSpan
-	SignalMetric
-)
-
-// TelemetryBatch wraps a set of rows with metadata for the dispatcher.
-type TelemetryBatch struct {
-	Signal SignalType
+// TelemetryBatch wraps a set of typed telemetry rows with metadata.
+type TelemetryBatch[T any] struct {
 	TeamID int64
-	Rows   []ingest.Row
+	Rows   []T
 }
 
 // Dispatcher fans out incoming OTLP batches to both persistence (ClickHouse)
 // and real-time streaming (Live Tail) channels.
-type Dispatcher struct {
-	PersistenceChan chan TelemetryBatch
-	StreamingChan   chan TelemetryBatch
+type Dispatcher[T any] struct {
+	PersistenceChan chan TelemetryBatch[T]
+	StreamingChan   chan TelemetryBatch[T]
 
 	droppedCount int64
 }
 
-func NewDispatcher(bufferSize int) *Dispatcher {
+func NewDispatcher[T any](bufferSize int) *Dispatcher[T] {
 	if bufferSize <= 0 {
 		bufferSize = 10000
 	}
-	return &Dispatcher{
-		PersistenceChan: make(chan TelemetryBatch, bufferSize),
-		StreamingChan:   make(chan TelemetryBatch, bufferSize),
+	return &Dispatcher[T]{
+		PersistenceChan: make(chan TelemetryBatch[T], bufferSize),
+		StreamingChan:   make(chan TelemetryBatch[T], bufferSize),
 	}
 }
 
-func (d *Dispatcher) Dispatch(batch TelemetryBatch) {
+func (d *Dispatcher[T]) Dispatch(batch TelemetryBatch[T]) {
 	if len(batch.Rows) == 0 {
 		return
 	}
@@ -52,9 +41,8 @@ func (d *Dispatcher) Dispatch(batch TelemetryBatch) {
 	default:
 		// Drop if buffer full
 		dropCount := atomic.AddInt64(&d.droppedCount, 1)
-		if dropCount%100 == 1 { // Log every 100 drops to avoid log flooding
-			slog.Warn("ingest: Dispatcher persistence channel full, dropping batch",
-				slog.Int("signal", int(batch.Signal)),
+		if dropCount%100 == 1 { // Log every 100 drops
+			slog.Error("ingest: Dispatcher persistence channel full, dropping batch",
 				slog.Int64("dropped_batches_total", dropCount))
 		}
 	}
@@ -63,11 +51,11 @@ func (d *Dispatcher) Dispatch(batch TelemetryBatch) {
 	select {
 	case d.StreamingChan <- batch:
 	default:
-		// Drop if buffer full (streaming usually high volume, we don't log separate counter for now)
+		// Drop if buffer full
 	}
 }
 
-func (d *Dispatcher) Close() {
+func (d *Dispatcher[T]) Close() {
 	close(d.PersistenceChan)
 	close(d.StreamingChan)
 }

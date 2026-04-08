@@ -20,7 +20,7 @@ type tagKeyDTO struct {
 // tagValueDTO scans the result of ListTagValues.
 type tagValueDTO struct {
 	TagValue string `ch:"tag_value"`
-	Count    int64  `ch:"count"`
+	Count    uint64 `ch:"count"`
 }
 
 // timeseriesPointDTO scans a single row from QueryTimeseries.

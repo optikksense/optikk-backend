@@ -1,14 +1,12 @@
 package logs
 
 import (
-	"hash/fnv"
 	"strconv"
 	"time"
 
 	"log/slog"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/ingest"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/protoconv"
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
@@ -21,11 +19,32 @@ const nsPerSecond = 1_000_000_000
 // LogColumns is the ClickHouse insert column order for observability.logs.
 var LogColumns = []string{
 	"team_id", "ts_bucket_start", "timestamp", "observed_timestamp",
-	"id", "trace_id", "span_id", "trace_flags",
-	"severity_text", "severity_number", "body",
+	"trace_id", "span_id", "trace_flags", "severity_text", "severity_number", "body",
 	"attributes_string", "attributes_number", "attributes_bool",
 	"resource", "resource_fingerprint",
 	"scope_name", "scope_version", "scope_string",
+}
+
+// LogRow structurally maps an OTLP log to ClickHouse columns.
+type LogRow struct {
+	TeamID              uint32             `ch:"team_id"`
+	TsBucketStart       uint32             `ch:"ts_bucket_start"`
+	Timestamp           time.Time          `ch:"timestamp"`
+	ObservedTimestamp   uint64             `ch:"observed_timestamp"`
+	TraceID             string             `ch:"trace_id"`
+	SpanID              string             `ch:"span_id"`
+	TraceFlags          uint32             `ch:"trace_flags"`
+	SeverityText        string             `ch:"severity_text"`
+	SeverityNumber      uint8              `ch:"severity_number"`
+	Body                string             `ch:"body"`
+	AttributesString    map[string]string  `ch:"attributes_string"`
+	AttributesNumber    map[string]float64 `ch:"attributes_number"`
+	AttributesBool      map[string]bool    `ch:"attributes_bool"`
+	Resource            map[string]string  `ch:"resource"`
+	ResourceFingerprint string             `ch:"resource_fingerprint"`
+	ScopeName           string             `ch:"scope_name"`
+	ScopeVersion        string             `ch:"scope_version"`
+	ScopeString         map[string]string  `ch:"scope_string"`
 }
 
 type scopeInfo struct {
@@ -34,8 +53,8 @@ type scopeInfo struct {
 }
 
 // mapLogs converts an OTLP logs export request into ClickHouse ingest rows.
-func mapLogs(teamID int64, req *logspb.ExportLogsServiceRequest) []ingest.Row {
-	var rows []ingest.Row
+func mapLogs(teamID int64, req *logspb.ExportLogsServiceRequest) []*LogRow {
+	var rows []*LogRow
 	for _, rl := range req.ResourceLogs {
 		var resAttrs []*commonpb.KeyValue
 		if rl.Resource != nil {
@@ -54,34 +73,33 @@ func mapLogs(teamID int64, req *logspb.ExportLogsServiceRequest) []ingest.Row {
 }
 
 // buildLogRow maps a single OTLP log record into a ClickHouse ingest row.
-func buildLogRow(teamID int64, resourceMap map[string]string, fingerprint string, scope scopeInfo, lr *logv1.LogRecord) ingest.Row {
+func buildLogRow(teamID int64, resourceMap map[string]string, fingerprint string, scope scopeInfo, lr *logv1.LogRecord) *LogRow {
 	tsNs, observedNs := resolveTimestamps(lr)
 	tsBucket := timebucket.LogsBucketStart(int64(tsNs / nsPerSecond))
 	body := protoconv.AnyValueString(lr.Body)
 	attrStr, attrNum, attrBool := protoAttrsToTypedMaps(lr.Attributes)
 	attrStr = capStringAttrs(attrStr, teamID)
 
-	return ingest.Row{Values: []any{
-		uint32(teamID),             //nolint:gosec // G115 — team_id
-		tsBucket,                   // ts_bucket_start
-		protoconv.NanoToTime(tsNs), // timestamp
-		observedNs,                 // observed_timestamp
-		protoLogID(teamID, tsNs, lr.TraceId, lr.SpanId, body), // id
-		protoconv.BytesToHex(lr.TraceId),                      // trace_id
-		protoconv.BytesToHex(lr.SpanId),                       // span_id
-		lr.Flags,                                              // trace_flags
-		resolveSeverity(lr),                                   // severity_text
-		uint8(lr.SeverityNumber),                              //nolint:gosec // G115 — severity_number
-		body,                                                  // body
-		attrStr,                                               // attributes_string
-		attrNum,                                               // attributes_number
-		attrBool,                                              // attributes_bool
-		resourceMap,                                           // resource
-		fingerprint,                                           // resource_fingerprint
-		scope.name,                                            // scope_name
-		scope.version,                                         // scope_version
-		scope.attrs,                                           // scope_string
-	}}
+	return &LogRow{
+		TeamID:              uint32(teamID), //nolint:gosec // G115 — team_id
+		TsBucketStart:       tsBucket,
+		Timestamp:           protoconv.NanoToTime(tsNs),
+		ObservedTimestamp:   observedNs,
+		TraceID:             protoconv.BytesToHex(lr.TraceId),
+		SpanID:              protoconv.BytesToHex(lr.SpanId),
+		TraceFlags:          lr.Flags,
+		SeverityText:        resolveSeverity(lr),
+		SeverityNumber:      uint8(lr.SeverityNumber), //nolint:gosec // G115 — severity_number
+		Body:                body,
+		AttributesString:    attrStr,
+		AttributesNumber:    attrNum,
+		AttributesBool:      attrBool,
+		Resource:            resourceMap,
+		ResourceFingerprint: fingerprint,
+		ScopeName:           scope.name,
+		ScopeVersion:        scope.version,
+		ScopeString:         scope.attrs,
+	}
 }
 
 // resolveTimestamps picks the best timestamp, falling back to now().
@@ -164,21 +182,6 @@ func protoAttrsToTypedMaps(kvs []*commonpb.KeyValue) (strMap map[string]string, 
 	return sm, nm, bm
 }
 
-func protoLogID(teamID int64, tsNano uint64, traceID, spanID []byte, body string) string {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(strconv.FormatInt(teamID, 10)))
-	_, _ = h.Write([]byte{0})
-	b := strconv.AppendUint(nil, tsNano, 10)
-	_, _ = h.Write(b)
-	_, _ = h.Write([]byte{0})
-	_, _ = h.Write(traceID)
-	_, _ = h.Write([]byte{0})
-	_, _ = h.Write(spanID)
-	_, _ = h.Write([]byte{0})
-	_, _ = h.Write([]byte(body))
-	return strconv.FormatUint(h.Sum64(), 16)
-}
-
 func severityNumberToLevel(n logv1.SeverityNumber) string {
 	v := int(n)
 	switch {
@@ -197,4 +200,63 @@ func severityNumberToLevel(n logv1.SeverityNumber) string {
 	default:
 		return "FATAL"
 	}
+}
+
+// WireLog mirrors the logs API JSON shape (internal/modules/logs/internal/shared.Log).
+type WireLog struct {
+	Timestamp         uint64             `json:"timestamp"`
+	ObservedTimestamp uint64             `json:"observed_timestamp"`
+	SeverityText      string             `json:"severity_text"`
+	SeverityNumber    uint8              `json:"severity_number"`
+	Body              string             `json:"body"`
+	TraceID           string             `json:"trace_id"`
+	SpanID            string             `json:"span_id"`
+	TraceFlags        uint32             `json:"trace_flags"`
+	ServiceName       string             `json:"service_name"`
+	Host              string             `json:"host"`
+	Pod               string             `json:"pod"`
+	Container         string             `json:"container"`
+	Environment       string             `json:"environment"`
+	AttributesString  map[string]string  `json:"attributes_string,omitempty"`
+	AttributesNumber  map[string]float64 `json:"attributes_number,omitempty"`
+	AttributesBool    map[string]bool    `json:"attributes_bool,omitempty"`
+	ScopeName         string             `json:"scope_name"`
+	ScopeVersion      string             `json:"scope_version"`
+	Level             string             `json:"level"`
+	Message           string             `json:"message"`
+	Service           string             `json:"service"`
+	EmitMs            int64              `json:"emit_ms"`
+}
+
+func wireLogFromRow(row *LogRow) WireLog {
+	return WireLog{
+		Timestamp:         uint64(row.Timestamp.UnixNano()),
+		ObservedTimestamp: row.ObservedTimestamp,
+		SeverityText:      row.SeverityText,
+		SeverityNumber:    row.SeverityNumber,
+		Body:              row.Body,
+		TraceID:           row.TraceID,
+		SpanID:            row.SpanID,
+		TraceFlags:        row.TraceFlags,
+		ServiceName:       row.Resource["service.name"],
+		Host:              row.Resource["host.name"],
+		Pod:               row.Resource["k8s.pod.name"],
+		Container:         row.Resource["k8s.container.name"],
+		Environment:       row.Resource["deployment.environment"],
+		AttributesString:  row.AttributesString,
+		AttributesNumber:  row.AttributesNumber,
+		AttributesBool:    row.AttributesBool,
+		ScopeName:         row.ScopeName,
+		ScopeVersion:      row.ScopeVersion,
+		Level:             row.SeverityText,
+		Message:           row.Body,
+		Service:           row.Resource["service.name"],
+	}
+}
+
+// LiveTailStreamPayload builds a WireLog object for livetail:log:streaming.
+func LiveTailStreamPayload(row *LogRow) (any, bool) {
+	w := wireLogFromRow(row)
+	w.EmitMs = time.Now().UnixMilli()
+	return w, true
 }

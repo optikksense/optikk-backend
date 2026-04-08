@@ -6,18 +6,18 @@ import (
 	"strings"
 	"time"
 
-	sessionauth "github.com/Optikk-Org/optikk-backend/internal/infra/session"
 	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
+	sessionauth "github.com/Optikk-Org/optikk-backend/internal/platform/session"
 	contracts "github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type Service struct {
 	repo     Repository
-	sessions *sessionauth.Manager
+	sessions sessionauth.Manager
 }
 
-func NewService(repo Repository, sessions *sessionauth.Manager) *Service {
+func NewService(repo Repository, sessions sessionauth.Manager) *Service {
 	return &Service{
 		repo:     repo,
 		sessions: sessions,

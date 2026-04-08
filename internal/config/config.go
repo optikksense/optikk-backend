@@ -9,6 +9,8 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+const DefaultRateLimitWindow = time.Second
+
 type ServerConfig struct {
 	Port           string `yaml:"port"`
 	AllowedOrigins string `yaml:"allowed_origins"`
@@ -87,6 +89,17 @@ type AppConfig struct {
 	DashboardConfigUseDefaults bool   `yaml:"dashboard_config_use_defaults"`
 }
 
+type PlatformProvidersConfig struct {
+	Session             string `yaml:"session"`
+	RateLimiter         string `yaml:"rate_limiter"`
+	LiveTailHub         string `yaml:"live_tail_hub"`
+	IngestionDispatcher string `yaml:"ingestion_dispatcher"`
+}
+
+type PlatformConfig struct {
+	Providers PlatformProvidersConfig `yaml:"providers"`
+}
+
 type IngestionConfig struct {
 	SpansBucketSeconds int64 `yaml:"spans_bucket_seconds"`
 	LogsBucketSeconds  int64 `yaml:"logs_bucket_seconds"`
@@ -114,6 +127,7 @@ type Config struct {
 	OTLP           OTLPConfig           `yaml:"otlp"`
 	Retention      RetentionConfig      `yaml:"retention"`
 	App            AppConfig            `yaml:"app"`
+	Platform       PlatformConfig       `yaml:"platform"`
 	Ingestion      IngestionConfig      `yaml:"ingestion"`
 	CircuitBreaker CircuitBreakerConfig `yaml:"circuit_breaker"`
 }
@@ -276,4 +290,28 @@ func (c Config) OtlStreamTTL() time.Duration {
 		return 3600 * time.Second // 1 hour
 	}
 	return time.Duration(n) * time.Second
+}
+
+func (c Config) SessionProvider() string {
+	return firstNonEmpty(c.Platform.Providers.Session, "local")
+}
+
+func (c Config) RateLimiterProvider() string {
+	return firstNonEmpty(c.Platform.Providers.RateLimiter, "local")
+}
+
+func (c Config) LiveTailHubProvider() string {
+	return firstNonEmpty(c.Platform.Providers.LiveTailHub, "local")
+}
+
+func (c Config) IngestionDispatcherProvider() string {
+	return firstNonEmpty(c.Platform.Providers.IngestionDispatcher, "local")
+}
+
+func firstNonEmpty(value, fallback string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return fallback
+	}
+	return value
 }

@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Optikk-Org/optikk-backend/internal/config"
+	platformsession "github.com/Optikk-Org/optikk-backend/internal/platform/session"
 	"github.com/alexedwards/scs/v2"
 )
 
@@ -22,13 +23,7 @@ type Manager struct {
 	*scs.SessionManager
 }
 
-type AuthState struct {
-	UserID        int64
-	Email         string
-	Role          string
-	DefaultTeamID int64
-	TeamIDs       []int64
-}
+type AuthState = platformsession.AuthState
 
 func NewManager(cfg config.Config) *Manager {
 	sessionManager := scs.New()
@@ -46,6 +41,10 @@ func NewManager(cfg config.Config) *Manager {
 	return &Manager{
 		SessionManager: sessionManager,
 	}
+}
+
+func (m *Manager) Wrap(next http.Handler) http.Handler {
+	return m.LoadAndSave(next)
 }
 
 func (m *Manager) CreateAuthSession(ctx context.Context, state AuthState) error {

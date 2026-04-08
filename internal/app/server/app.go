@@ -15,15 +15,12 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/config"
-	configdefaults "github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg/defaults"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/livetail"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/livetailws"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/middleware"
-	sessionauth "github.com/Optikk-Org/optikk-backend/internal/infra/session"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
 	log_search "github.com/Optikk-Org/optikk-backend/internal/modules/logs/search"
+	platformruntime "github.com/Optikk-Org/optikk-backend/internal/platform/runtime"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 	"github.com/oklog/run"
@@ -35,11 +32,11 @@ import (
 )
 
 type App struct {
-	DB             *sql.DB
-	CH             clickhouse.Conn
-	Config         config.Config
-	SessionManager *sessionauth.Manager
-	Modules        []registry.Module
+	DB      *sql.DB
+	CH      clickhouse.Conn
+	Config  config.Config
+	Runtime *platformruntime.Runtime
+	Modules []registry.Module
 
 	// LiveTailWS serves GET /api/v1/ws/live (native WebSocket live tail).
 	LiveTailWS gin.HandlerFunc
@@ -58,38 +55,33 @@ func splitAllowedOrigins(allowed string) []string {
 
 func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) (*App, error) {
 	getTenant := modulecommon.GetTenantFunc(middleware.GetTenant)
-	sessionManager := sessionauth.NewManager(cfg)
 
 	// Initialize global infrastructure parameters.
 	timebucket.Init(cfg.SpansBucketSeconds(), cfg.LogsBucketSeconds())
 
-	reg, err := configdefaults.Load()
+	runtimeDeps, err := platformruntime.New(db, cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to load embedded default config registry: %w", err)
+		return nil, fmt.Errorf("failed to initialize runtime dependencies: %w", err)
 	}
 
 	nativeQuerier := dbutil.NewNativeQuerier(ch)
 
-	// New channel-based ingestion pipeline
-	dispatcher := otlp.NewDispatcher(cfg.IngestionQueueSize())
-	hub := livetail.NewHub()
-
 	logSearchSvc := log_search.NewService(log_search.NewRepository(nativeQuerier))
-	modules := configuredModules(nativeQuerier, db, ch, getTenant, sessionManager, cfg, reg, logSearchSvc, dispatcher, hub)
+	modules := configuredModules(nativeQuerier, db, ch, getTenant, cfg, runtimeDeps, logSearchSvc)
 
 	liveTailH := livetailws.NewHandler(livetailws.Config{
-		Hub:            hub,
+		Hub:            runtimeDeps.LiveTailHub,
 		AllowedOrigins: splitAllowedOrigins(cfg.Server.AllowedOrigins),
-		Sessions:       sessionManager,
+		Sessions:       runtimeDeps.SessionManager,
 	})
 
 	return &App{
-		DB:             db,
-		CH:             ch,
-		Config:         cfg,
-		SessionManager: sessionManager,
-		Modules:        modules,
-		LiveTailWS:     liveTailH,
+		DB:         db,
+		CH:         ch,
+		Config:     cfg,
+		Runtime:    runtimeDeps,
+		Modules:    modules,
+		LiveTailWS: liveTailH,
 	}, nil
 }
 
@@ -113,7 +105,7 @@ func (a *App) Start(ctx context.Context) error {
 	{
 		srv := &http.Server{
 			Addr:         fmt.Sprintf(":%s", a.Config.Server.Port),
-			Handler:      h2c.NewHandler(a.SessionManager.LoadAndSave(a.Router()), &http2.Server{}),
+			Handler:      h2c.NewHandler(a.Runtime.SessionManager.Wrap(a.Router()), &http2.Server{}),
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 60 * time.Second,
 			IdleTimeout:  120 * time.Second,
@@ -166,6 +158,9 @@ func (a *App) Start(ctx context.Context) error {
 				slog.Warn("error stopping module", slog.String("module", mod.Name()), slog.Any("error", stopErr))
 			}
 		}
+	}
+	if closeErr := a.Runtime.Close(); closeErr != nil {
+		slog.Warn("error closing runtime", slog.Any("error", closeErr))
 	}
 
 	if errors.Is(err, context.Canceled) || errors.Is(err, http.ErrServerClosed) {

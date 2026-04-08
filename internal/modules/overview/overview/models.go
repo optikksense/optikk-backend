@@ -35,6 +35,7 @@ type ServiceMetric struct {
 type EndpointMetric struct {
 	ServiceName   string  `json:"service_name"`
 	OperationName string  `json:"operation_name"`
+	EndpointName  string  `json:"endpoint_name,omitempty"`
 	HTTPMethod    string  `json:"http_method"`
 	RequestCount  int64   `json:"request_count"`
 	ErrorCount    int64   `json:"error_count"`
@@ -48,6 +49,7 @@ type TimeSeriesPoint struct {
 	Timestamp     time.Time `json:"timestamp"`
 	ServiceName   string    `json:"service_name,omitempty"`
 	OperationName string    `json:"operation_name,omitempty"`
+	EndpointName  string    `json:"endpoint_name,omitempty"`
 	HTTPMethod    string    `json:"http_method,omitempty"`
 	RequestCount  int64     `json:"request_count"`
 	ErrorCount    int64     `json:"error_count"`

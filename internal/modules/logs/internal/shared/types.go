@@ -6,7 +6,6 @@ import (
 )
 
 type Log struct {
-	ID                string             `json:"id"`
 	Timestamp         uint64             `json:"timestamp"`
 	ObservedTimestamp uint64             `json:"observed_timestamp"`
 	SeverityText      string             `json:"severity_text"`

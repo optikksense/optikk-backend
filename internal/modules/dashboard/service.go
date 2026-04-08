@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"log/slog"
 
-	configdefaults "github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg"
+	configdefaults "github.com/Optikk-Org/optikk-backend/internal/platform/dashboardcfg"
 )
 
 type Service struct {
