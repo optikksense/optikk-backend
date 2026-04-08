@@ -2,17 +2,28 @@ package deployments
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
 	"math"
+	"sort"
 )
 
 const maxImpactDeployments = 10
+const maxCompareErrors = 8
+const maxCompareEndpoints = 12
+
+var ErrDeploymentNotFound = errors.New("deployment not found")
 
 // Service orchestrates deployment detection and impact.
 type Service interface {
 	ListDeployments(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (ListDeploymentsResponse, error)
+	GetLatestDeploymentsByService(ctx context.Context, teamID int64) ([]ServiceLatestDeployment, error)
 	GetVersionTraffic(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) ([]VersionTrafficPoint, error)
 	GetDeploymentImpact(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (DeploymentImpactResponse, error)
 	GetActiveVersion(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (ActiveVersionResponse, error)
+	GetDeploymentCompare(ctx context.Context, teamID int64, serviceName, version, environment string, deployedAtMs int64) (DeploymentCompareResponse, error)
 }
 
 type deploymentService struct {
@@ -54,6 +65,30 @@ func (s *deploymentService) ListDeployments(ctx context.Context, teamID int64, s
 	}, nil
 }
 
+func toServiceLatestDeployment(row deploymentAggRow, isActive bool) ServiceLatestDeployment {
+	return ServiceLatestDeployment{
+		ServiceName: row.ServiceName,
+		Version:     row.Version,
+		Environment: row.Environment,
+		DeployedAt:  row.FirstSeen,
+		LastSeenAt:  row.LastSeen,
+		IsActive:    isActive,
+	}
+}
+
+func (s *deploymentService) GetLatestDeploymentsByService(ctx context.Context, teamID int64) ([]ServiceLatestDeployment, error) {
+	rows, err := s.repo.GetLatestDeploymentsByService(ctx, teamID)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]ServiceLatestDeployment, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, toServiceLatestDeployment(row, true))
+	}
+	return out, nil
+}
+
 func (s *deploymentService) GetVersionTraffic(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) ([]VersionTrafficPoint, error) {
 	return s.repo.GetVersionTraffic(ctx, teamID, serviceName, startMs, endMs)
 }
@@ -87,6 +122,7 @@ func windowMetrics(ctx context.Context, repo Repository, teamID int64, serviceNa
 		ErrorCount:   row.ErrorCount,
 		ErrorRate:    errRate,
 		P95Ms:        row.P95Ms,
+		P99Ms:        row.P99Ms,
 		RPS:          float64(row.RequestCount) / sec,
 	}, nil
 }
@@ -101,6 +137,177 @@ func ptrFloat(v float64) *float64 {
 
 func subPtr(a, b float64) *float64 {
 	return ptrFloat(a - b)
+}
+
+func normalizeWindow(startMs, endMs int64) (int64, int64) {
+	if endMs <= startMs {
+		return startMs, startMs + 1
+	}
+	return startMs, endMs
+}
+
+func errorGroupID(service, operation, statusMessage string, httpCode int) string {
+	hash := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%d", service, operation, statusMessage, httpCode)))
+	return hex.EncodeToString(hash[:8])
+}
+
+func errorSeverity(httpStatusCode int, deltaCount int64, afterCount uint64) string {
+	switch {
+	case httpStatusCode >= 500 || deltaCount >= 10 || afterCount >= 25:
+		return "critical"
+	case deltaCount > 0 || afterCount > 0:
+		return "warning"
+	default:
+		return "stable"
+	}
+}
+
+func buildErrorRegressions(beforeRows, afterRows []errorGroupAggRow) []DeploymentCompareErrorRegression {
+	type errorKey struct {
+		operation string
+		status    string
+		code      int
+	}
+
+	beforeMap := make(map[errorKey]errorGroupAggRow, len(beforeRows))
+	for _, row := range beforeRows {
+		beforeMap[errorKey{operation: row.OperationName, status: row.StatusMessage, code: row.HTTPStatusCode}] = row
+	}
+
+	keys := make(map[errorKey]struct{}, len(beforeRows)+len(afterRows))
+	for _, row := range beforeRows {
+		keys[errorKey{operation: row.OperationName, status: row.StatusMessage, code: row.HTTPStatusCode}] = struct{}{}
+	}
+	for _, row := range afterRows {
+		keys[errorKey{operation: row.OperationName, status: row.StatusMessage, code: row.HTTPStatusCode}] = struct{}{}
+	}
+
+	regressions := make([]DeploymentCompareErrorRegression, 0, len(keys))
+	for key := range keys {
+		before := beforeMap[key]
+		var after errorGroupAggRow
+		for _, row := range afterRows {
+			if row.OperationName == key.operation && row.StatusMessage == key.status && row.HTTPStatusCode == key.code {
+				after = row
+				break
+			}
+		}
+
+		delta := int64(after.ErrorCount) - int64(before.ErrorCount)
+		serviceName := after.ServiceName
+		if serviceName == "" {
+			serviceName = before.ServiceName
+		}
+		lastOccurrence := after.LastOccurrence
+		if lastOccurrence.IsZero() {
+			lastOccurrence = before.LastOccurrence
+		}
+		sampleTraceID := after.SampleTraceID
+		if sampleTraceID == "" {
+			sampleTraceID = before.SampleTraceID
+		}
+
+		regressions = append(regressions, DeploymentCompareErrorRegression{
+			GroupID:        errorGroupID(serviceName, key.operation, key.status, key.code),
+			OperationName:  key.operation,
+			StatusMessage:  key.status,
+			HTTPStatusCode: key.code,
+			BeforeCount:    before.ErrorCount,
+			AfterCount:     after.ErrorCount,
+			DeltaCount:     delta,
+			LastOccurrence: lastOccurrence,
+			SampleTraceID:  sampleTraceID,
+			Severity:       errorSeverity(key.code, delta, after.ErrorCount),
+		})
+	}
+
+	sort.Slice(regressions, func(i, j int) bool {
+		if regressions[i].DeltaCount == regressions[j].DeltaCount {
+			return regressions[i].AfterCount > regressions[j].AfterCount
+		}
+		return regressions[i].DeltaCount > regressions[j].DeltaCount
+	})
+	if len(regressions) > maxCompareErrors {
+		regressions = regressions[:maxCompareErrors]
+	}
+	return regressions
+}
+
+func endpointRegressionScore(row DeploymentCompareEndpointRegression) float64 {
+	return math.Max(row.P95DeltaMs, 0) + math.Max(row.P99DeltaMs, 0)*0.4 + math.Max(row.ErrorRateDelta, 0)*35 + math.Max(float64(row.RequestDelta), 0)/250
+}
+
+func buildEndpointRegressions(beforeRows, afterRows []endpointMetricAggRow) []DeploymentCompareEndpointRegression {
+	type endpointKey struct {
+		method   string
+		endpoint string
+		span     string
+	}
+
+	beforeMap := make(map[endpointKey]endpointMetricAggRow, len(beforeRows))
+	for _, row := range beforeRows {
+		beforeMap[endpointKey{method: row.HTTPMethod, endpoint: row.EndpointName, span: row.OperationName}] = row
+	}
+
+	keys := make(map[endpointKey]struct{}, len(beforeRows)+len(afterRows))
+	for _, row := range beforeRows {
+		keys[endpointKey{method: row.HTTPMethod, endpoint: row.EndpointName, span: row.OperationName}] = struct{}{}
+	}
+	for _, row := range afterRows {
+		keys[endpointKey{method: row.HTTPMethod, endpoint: row.EndpointName, span: row.OperationName}] = struct{}{}
+	}
+
+	regressions := make([]DeploymentCompareEndpointRegression, 0, len(keys))
+	for key := range keys {
+		before := beforeMap[key]
+		var after endpointMetricAggRow
+		for _, row := range afterRows {
+			if row.HTTPMethod == key.method && row.EndpointName == key.endpoint && row.OperationName == key.span {
+				after = row
+				break
+			}
+		}
+
+		beforeErrorRate := 0.0
+		if before.RequestCount > 0 {
+			beforeErrorRate = float64(before.ErrorCount) * 100.0 / float64(before.RequestCount)
+		}
+		afterErrorRate := 0.0
+		if after.RequestCount > 0 {
+			afterErrorRate = float64(after.ErrorCount) * 100.0 / float64(after.RequestCount)
+		}
+
+		regression := DeploymentCompareEndpointRegression{
+			EndpointName:    key.endpoint,
+			OperationName:   key.span,
+			HTTPMethod:      key.method,
+			BeforeRequests:  before.RequestCount,
+			AfterRequests:   after.RequestCount,
+			RequestDelta:    after.RequestCount - before.RequestCount,
+			BeforeErrorRate: beforeErrorRate,
+			AfterErrorRate:  afterErrorRate,
+			ErrorRateDelta:  afterErrorRate - beforeErrorRate,
+			BeforeP95Ms:     before.P95Ms,
+			AfterP95Ms:      after.P95Ms,
+			P95DeltaMs:      after.P95Ms - before.P95Ms,
+			BeforeP99Ms:     before.P99Ms,
+			AfterP99Ms:      after.P99Ms,
+			P99DeltaMs:      after.P99Ms - before.P99Ms,
+		}
+		regression.RegressionScore = endpointRegressionScore(regression)
+		regressions = append(regressions, regression)
+	}
+
+	sort.Slice(regressions, func(i, j int) bool {
+		if regressions[i].RegressionScore == regressions[j].RegressionScore {
+			return regressions[i].AfterRequests > regressions[j].AfterRequests
+		}
+		return regressions[i].RegressionScore > regressions[j].RegressionScore
+	})
+	if len(regressions) > maxCompareEndpoints {
+		regressions = regressions[:maxCompareEndpoints]
+	}
+	return regressions
 }
 
 func (s *deploymentService) GetDeploymentImpact(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (DeploymentImpactResponse, error) {
@@ -170,4 +377,88 @@ func (s *deploymentService) GetDeploymentImpact(ctx context.Context, teamID int6
 	}
 
 	return DeploymentImpactResponse{Impacts: impacts}, nil
+}
+
+func (s *deploymentService) GetDeploymentCompare(ctx context.Context, teamID int64, serviceName, version, environment string, deployedAtMs int64) (DeploymentCompareResponse, error) {
+	rows, err := s.repo.ListServiceDeployments(ctx, teamID, serviceName)
+	if err != nil {
+		return DeploymentCompareResponse{}, err
+	}
+	if len(rows) == 0 {
+		return DeploymentCompareResponse{}, nil
+	}
+
+	selectedIndex := -1
+	for i, row := range rows {
+		if row.Version == version && row.Environment == environment && row.FirstSeen.UnixMilli() == deployedAtMs {
+			selectedIndex = i
+			break
+		}
+	}
+	if selectedIndex == -1 {
+		return DeploymentCompareResponse{}, ErrDeploymentNotFound
+	}
+
+	selected := rows[selectedIndex]
+	afterStart, afterEnd := normalizeWindow(selected.FirstSeen.UnixMilli(), selected.LastSeen.UnixMilli())
+	if selectedIndex+1 < len(rows) {
+		afterStart, afterEnd = normalizeWindow(selected.FirstSeen.UnixMilli(), rows[selectedIndex+1].FirstSeen.UnixMilli())
+	}
+
+	afterMetrics, err := windowMetrics(ctx, s.repo, teamID, serviceName, afterStart, afterEnd)
+	if err != nil {
+		return DeploymentCompareResponse{}, err
+	}
+
+	var beforeWindow *DeploymentCompareWindow
+	var beforeMetrics *ImpactWindowMetrics
+	beforeStart, beforeEnd := int64(0), int64(0)
+	if selectedIndex > 0 {
+		beforeStart, beforeEnd = normalizeWindow(rows[selectedIndex-1].FirstSeen.UnixMilli(), selected.FirstSeen.UnixMilli())
+		beforeWindow = &DeploymentCompareWindow{StartMs: beforeStart, EndMs: beforeEnd}
+		metrics, err := windowMetrics(ctx, s.repo, teamID, serviceName, beforeStart, beforeEnd)
+		if err != nil {
+			return DeploymentCompareResponse{}, err
+		}
+		beforeMetrics = &metrics
+	}
+
+	beforeErrors := []errorGroupAggRow{}
+	beforeEndpoints := []endpointMetricAggRow{}
+	if beforeWindow != nil {
+		beforeErrors, err = s.repo.GetErrorGroupsWindow(ctx, teamID, serviceName, beforeStart, beforeEnd, maxCompareErrors*2)
+		if err != nil {
+			return DeploymentCompareResponse{}, err
+		}
+		beforeEndpoints, err = s.repo.GetEndpointMetricsWindow(ctx, teamID, serviceName, beforeStart, beforeEnd, maxCompareEndpoints*2)
+		if err != nil {
+			return DeploymentCompareResponse{}, err
+		}
+	}
+
+	afterErrors, err := s.repo.GetErrorGroupsWindow(ctx, teamID, serviceName, afterStart, afterEnd, maxCompareErrors*2)
+	if err != nil {
+		return DeploymentCompareResponse{}, err
+	}
+	afterEndpoints, err := s.repo.GetEndpointMetricsWindow(ctx, teamID, serviceName, afterStart, afterEnd, maxCompareEndpoints*2)
+	if err != nil {
+		return DeploymentCompareResponse{}, err
+	}
+
+	timelineStart := afterStart
+	if beforeWindow != nil {
+		timelineStart = beforeStart
+	}
+
+	return DeploymentCompareResponse{
+		Deployment:      toServiceLatestDeployment(selected, selectedIndex == len(rows)-1),
+		BeforeWindow:    beforeWindow,
+		AfterWindow:     DeploymentCompareWindow{StartMs: afterStart, EndMs: afterEnd},
+		HasBaseline:     beforeWindow != nil,
+		Summary:         DeploymentCompareSummary{Before: beforeMetrics, After: afterMetrics},
+		TopErrors:       buildErrorRegressions(beforeErrors, afterErrors),
+		TopEndpoints:    buildEndpointRegressions(beforeEndpoints, afterEndpoints),
+		TimelineStartMs: timelineStart,
+		TimelineEndMs:   afterEnd,
+	}, nil
 }

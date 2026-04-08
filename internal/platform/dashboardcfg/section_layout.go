@@ -7,9 +7,11 @@ import (
 
 var sectionTemplateAllowedVariants = map[SectionTemplate]map[LayoutVariant]struct{}{
 	SectionTemplateKPIBand: {
-		LayoutVariantKPI:       {},
-		LayoutVariantSummary:   {},
-		LayoutVariantWideChart: {},
+		LayoutVariantKPI:         {},
+		LayoutVariantSummary:     {},
+		LayoutVariantWideChart:   {},
+		LayoutVariantCompact:     {},
+		LayoutVariantWideCompact: {},
 	},
 	SectionTemplateSummaryPlusHealth: {
 		LayoutVariantSummary: {},
@@ -22,6 +24,7 @@ var sectionTemplateAllowedVariants = map[SectionTemplate]map[LayoutVariant]struc
 	SectionTemplateThreeUp: {
 		LayoutVariantSummary: {},
 		LayoutVariantRanking: {},
+		LayoutVariantCompact: {},
 	},
 	SectionTemplateStacked: {
 		LayoutVariantWideChart:   {},
@@ -29,6 +32,7 @@ var sectionTemplateAllowedVariants = map[SectionTemplate]map[LayoutVariant]struc
 		LayoutVariantHero:        {},
 		LayoutVariantHeroMap:     {},
 		LayoutVariantHeroDetail:  {},
+		LayoutVariantWideCompact: {},
 	},
 	SectionTemplateHeroPlusTable: {
 		LayoutVariantHero:         {},
@@ -45,6 +49,8 @@ var sectionTemplateAllowedVariants = map[SectionTemplate]map[LayoutVariant]struc
 		LayoutVariantSummaryTable:  {},
 		LayoutVariantDetailTable:   {},
 		LayoutVariantHeroDetail:    {},
+		LayoutVariantCompact:       {},
+		LayoutVariantWideCompact:   {},
 	},
 	SectionTemplateTableStack: {
 		LayoutVariantSummaryTable: {},

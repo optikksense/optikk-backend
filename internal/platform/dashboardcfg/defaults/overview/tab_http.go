@@ -14,16 +14,16 @@ func httpTab() dashboardcfg.TabDefinition {
 			dashboardcfg.SectionDefinition{ID: "server-summary", Title: "Server Overview", Order: 10, Collapsible: true, SectionTemplate: dashboardcfg.SectionTemplate("three-up")},
 			dashboardcfg.SectionDefinition{ID: "server-trends", Title: "Server Traffic", Order: 20, Collapsible: true, SectionTemplate: dashboardcfg.SectionTemplate("two-up")},
 			dashboardcfg.SectionDefinition{ID: "route-breakdown", Title: "Route-Level Breakdown", Order: 30, Collapsible: true, SectionTemplate: dashboardcfg.SectionTemplate("chart-grid-plus-details")},
-			dashboardcfg.SectionDefinition{ID: "status-overview", Title: "Status Distribution", Order: 40, Collapsible: true, SectionTemplate: dashboardcfg.SectionTemplate("three-up")},
-			dashboardcfg.SectionDefinition{ID: "status-errors", Title: "5xx Errors & Rate", Order: 50, Collapsible: true, SectionTemplate: dashboardcfg.SectionTemplate("chart-grid-plus-details")},
-			dashboardcfg.SectionDefinition{ID: "outbound-summary", Title: "Outbound / External HTTP Summary", Order: 60, Collapsible: true, SectionTemplate: dashboardcfg.SectionTemplate("kpi-band")},
-			dashboardcfg.SectionDefinition{ID: "outbound-breakdowns", Title: "Outbound / External HTTP", Order: 70, Collapsible: true, SectionTemplate: dashboardcfg.SectionTemplate("table-stack")},
+			dashboardcfg.SectionDefinition{ID: "error-analysis", Title: "Error Analysis", Order: 40, Collapsible: true, SectionTemplate: dashboardcfg.SectionTemplate("chart-grid-plus-details")},
+			dashboardcfg.SectionDefinition{ID: "outbound-summary", Title: "Outbound / External HTTP Summary", Order: 50, Collapsible: true, SectionTemplate: dashboardcfg.SectionTemplate("kpi-band")},
+			dashboardcfg.SectionDefinition{ID: "outbound-breakdowns", Title: "Outbound / External HTTP", Order: 60, Collapsible: true, SectionTemplate: dashboardcfg.SectionTemplate("table-stack")},
 		},
 		Panels: []dashboardcfg.PanelDefinition{
+			// ── Section: Server Overview ──
 			dashboardcfg.PanelDefinition{
 				ID:            "http-request-duration",
 				PanelType:     dashboardcfg.PanelType("stat-summary"),
-				LayoutVariant: dashboardcfg.LayoutVariant("summary"),
+				LayoutVariant: dashboardcfg.LayoutVariant("compact"),
 				SectionID:     "server-summary",
 				Order:         10,
 				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/http/request-duration", Params: nil},
@@ -35,7 +35,7 @@ func httpTab() dashboardcfg.TabDefinition {
 			dashboardcfg.PanelDefinition{
 				ID:            "http-request-body-size",
 				PanelType:     dashboardcfg.PanelType("stat-summary"),
-				LayoutVariant: dashboardcfg.LayoutVariant("summary"),
+				LayoutVariant: dashboardcfg.LayoutVariant("compact"),
 				SectionID:     "server-summary",
 				Order:         20,
 				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/http/request-body-size", Params: nil},
@@ -48,7 +48,7 @@ func httpTab() dashboardcfg.TabDefinition {
 			dashboardcfg.PanelDefinition{
 				ID:            "http-response-body-size",
 				PanelType:     dashboardcfg.PanelType("stat-summary"),
-				LayoutVariant: dashboardcfg.LayoutVariant("summary"),
+				LayoutVariant: dashboardcfg.LayoutVariant("compact"),
 				SectionID:     "server-summary",
 				Order:         30,
 				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/http/response-body-size", Params: nil},
@@ -58,6 +58,8 @@ func httpTab() dashboardcfg.TabDefinition {
 				TitleIcon:     "Download",
 				Formatter:     "bytes",
 			},
+
+			// ── Section: Server Traffic ──
 			dashboardcfg.PanelDefinition{
 				ID:            "http-request-rate",
 				PanelType:     dashboardcfg.PanelType("request"),
@@ -72,18 +74,22 @@ func httpTab() dashboardcfg.TabDefinition {
 				GroupByKey:    "status_code",
 				ValueKey:      "count",
 			},
+
+			// ── Section: Route-Level Breakdown ──
+			// Chart first — gives context before the detail tables below.
 			dashboardcfg.PanelDefinition{
-				ID:            "http-active-requests",
-				PanelType:     dashboardcfg.PanelType("request"),
+				ID:            "route-error-timeseries",
+				PanelType:     dashboardcfg.PanelType("error-rate"),
 				LayoutVariant: dashboardcfg.LayoutVariant("standard-chart"),
-				SectionID:     "server-trends",
-				Order:         20,
-				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/http/active-requests", Params: nil},
+				SectionID:     "route-breakdown",
+				Order:         5,
+				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/http/routes/error-timeseries", Params: nil},
 				Layout:        dashboardcfg.PanelLayout{X: 0, Y: 0, W: 0, H: 0},
-				Title:         "Active HTTP Requests",
-				Description:   "Tracks the number of in-flight HTTP requests over time. Sustained climbs without a corresponding RPS increase suggest requests are queuing or stalling.",
-				TitleIcon:     "Activity",
-				ValueKey:      "value",
+				Title:         "Route Error Rate Over Time",
+				Description:   "Plots per-route error counts over time to reveal which routes are contributing to error spikes. Diverging lines help isolate the offending endpoint.",
+				TitleIcon:     "TrendingDown",
+				GroupByKey:    "http_route",
+				ValueKey:      "error_count",
 			},
 			dashboardcfg.PanelDefinition{
 				ID:            "top-routes-volume",
@@ -99,6 +105,7 @@ func httpTab() dashboardcfg.TabDefinition {
 				GroupByKey:    "route",
 				ValueKey:      "req_count",
 				Columns: []dashboardcfg.DashboardTableColumn{
+					dashboardcfg.DashboardTableColumn{Key: "route", Label: "Route", Align: dashboardcfg.ColumnAlign("left"), Width: dashboardcfg.IntPtr(260)},
 					dashboardcfg.DashboardTableColumn{Key: "req_count", Label: "Request Count", Align: dashboardcfg.ColumnAlign("right"), Width: dashboardcfg.IntPtr(120)},
 				},
 			},
@@ -116,6 +123,7 @@ func httpTab() dashboardcfg.TabDefinition {
 				GroupByKey:    "route",
 				ValueKey:      "p95_ms",
 				Columns: []dashboardcfg.DashboardTableColumn{
+					dashboardcfg.DashboardTableColumn{Key: "route", Label: "Route", Align: dashboardcfg.ColumnAlign("left"), Width: dashboardcfg.IntPtr(260)},
 					dashboardcfg.DashboardTableColumn{Key: "p95_ms", Label: "P95 Latency", Formatter: "ms", Align: dashboardcfg.ColumnAlign("right"), Width: dashboardcfg.IntPtr(120)},
 				},
 			},
@@ -133,28 +141,18 @@ func httpTab() dashboardcfg.TabDefinition {
 				GroupByKey:    "route",
 				ValueKey:      "error_pct",
 				Columns: []dashboardcfg.DashboardTableColumn{
+					dashboardcfg.DashboardTableColumn{Key: "route", Label: "Route", Align: dashboardcfg.ColumnAlign("left"), Width: dashboardcfg.IntPtr(260)},
 					dashboardcfg.DashboardTableColumn{Key: "error_pct", Label: "Error %", Formatter: "percent1", Align: dashboardcfg.ColumnAlign("right"), Width: dashboardcfg.IntPtr(120)},
 				},
 			},
-			dashboardcfg.PanelDefinition{
-				ID:            "route-error-timeseries",
-				PanelType:     dashboardcfg.PanelType("error-rate"),
-				LayoutVariant: dashboardcfg.LayoutVariant("standard-chart"),
-				SectionID:     "route-breakdown",
-				Order:         40,
-				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/http/routes/error-timeseries", Params: nil},
-				Layout:        dashboardcfg.PanelLayout{X: 0, Y: 0, W: 0, H: 0},
-				Title:         "Route Error Rate Over Time",
-				Description:   "Plots per-route error counts over time to reveal which routes are contributing to error spikes. Diverging lines help isolate the offending endpoint.",
-				TitleIcon:     "TrendingDown",
-				GroupByKey:    "http_route",
-				ValueKey:      "error_count",
-			},
+
+			// ── Section: Error Analysis (merged status-overview + status-errors) ──
+			// Status distribution pie gives immediate visual context; tables + timeseries follow.
 			dashboardcfg.PanelDefinition{
 				ID:            "status-distribution",
 				PanelType:     dashboardcfg.PanelType("pie"),
 				LayoutVariant: dashboardcfg.LayoutVariant("summary"),
-				SectionID:     "status-overview",
+				SectionID:     "error-analysis",
 				Order:         10,
 				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/http/status-distribution", Params: nil},
 				Layout:        dashboardcfg.PanelLayout{X: 0, Y: 0, W: 0, H: 0},
@@ -165,25 +163,10 @@ func httpTab() dashboardcfg.TabDefinition {
 				ValueKey:      "count",
 			},
 			dashboardcfg.PanelDefinition{
-				ID:            "http-5xx-by-route",
-				PanelType:     dashboardcfg.PanelType("table"),
-				LayoutVariant: dashboardcfg.LayoutVariant("detail-table"),
-				SectionID:     "status-errors",
-				Order:         10,
-				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/spans/http-5xx-by-route", Params: nil},
-				Layout:        dashboardcfg.PanelLayout{X: 0, Y: 0, W: 0, H: 0},
-				Title:         "5xx Errors by Route & Service",
-				Description:   "Lists each route-service pair with its 5xx error count, sorted by volume. Rows near the top are the highest-impact targets for reliability fixes.",
-				TitleIcon:     "XCircle",
-				Columns: []dashboardcfg.DashboardTableColumn{
-					dashboardcfg.DashboardTableColumn{Key: "http_route", Label: "HTTP Route", Align: dashboardcfg.ColumnAlign("left"), Width: dashboardcfg.IntPtr(260)},
-				},
-			},
-			dashboardcfg.PanelDefinition{
 				ID:            "http-error-timeseries",
 				PanelType:     dashboardcfg.PanelType("error-rate"),
 				LayoutVariant: dashboardcfg.LayoutVariant("standard-chart"),
-				SectionID:     "status-errors",
+				SectionID:     "error-analysis",
 				Order:         20,
 				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/http/error-timeseries", Params: nil},
 				Layout:        dashboardcfg.PanelLayout{X: 0, Y: 0, W: 0, H: 0},
@@ -193,9 +176,26 @@ func httpTab() dashboardcfg.TabDefinition {
 				ValueKey:      "error_rate",
 			},
 			dashboardcfg.PanelDefinition{
+				ID:            "http-5xx-by-route",
+				PanelType:     dashboardcfg.PanelType("table"),
+				LayoutVariant: dashboardcfg.LayoutVariant("detail-table"),
+				SectionID:     "error-analysis",
+				Order:         30,
+				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/spans/http-5xx-by-route", Params: nil},
+				Layout:        dashboardcfg.PanelLayout{X: 0, Y: 0, W: 0, H: 0},
+				Title:         "5xx Errors by Route & Service",
+				Description:   "Lists each route-service pair with its 5xx error count, sorted by volume. Rows near the top are the highest-impact targets for reliability fixes.",
+				TitleIcon:     "XCircle",
+				Columns: []dashboardcfg.DashboardTableColumn{
+					dashboardcfg.DashboardTableColumn{Key: "http_route", Label: "HTTP Route", Align: dashboardcfg.ColumnAlign("left"), Width: dashboardcfg.IntPtr(260)},
+				},
+			},
+
+			// ── Section: Outbound / External HTTP Summary ──
+			dashboardcfg.PanelDefinition{
 				ID:            "http-client-duration",
 				PanelType:     dashboardcfg.PanelType("stat-summary"),
-				LayoutVariant: dashboardcfg.LayoutVariant("summary"),
+				LayoutVariant: dashboardcfg.LayoutVariant("compact"),
 				SectionID:     "outbound-summary",
 				Order:         10,
 				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/http/client-duration", Params: nil},
@@ -207,7 +207,7 @@ func httpTab() dashboardcfg.TabDefinition {
 			dashboardcfg.PanelDefinition{
 				ID:            "dns-tls-duration",
 				PanelType:     dashboardcfg.PanelType("stat-summary"),
-				LayoutVariant: dashboardcfg.LayoutVariant("summary"),
+				LayoutVariant: dashboardcfg.LayoutVariant("compact"),
 				SectionID:     "outbound-summary",
 				Order:         20,
 				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/http/dns-duration", Params: nil},
@@ -216,6 +216,8 @@ func httpTab() dashboardcfg.TabDefinition {
 				Description:   "Shows time spent on DNS resolution and TLS handshakes for outbound calls. Elevated values may point to DNS infrastructure issues or certificate negotiation overhead.",
 				TitleIcon:     "Shield",
 			},
+
+			// ── Section: Outbound / External HTTP ──
 			dashboardcfg.PanelDefinition{
 				ID:            "external-top-hosts",
 				PanelType:     dashboardcfg.PanelType("table"),
@@ -230,6 +232,7 @@ func httpTab() dashboardcfg.TabDefinition {
 				GroupByKey:    "host",
 				ValueKey:      "req_count",
 				Columns: []dashboardcfg.DashboardTableColumn{
+					dashboardcfg.DashboardTableColumn{Key: "host", Label: "Host", Align: dashboardcfg.ColumnAlign("left"), Width: dashboardcfg.IntPtr(260)},
 					dashboardcfg.DashboardTableColumn{Key: "req_count", Label: "Request Count", Align: dashboardcfg.ColumnAlign("right"), Width: dashboardcfg.IntPtr(120)},
 				},
 			},
@@ -247,13 +250,14 @@ func httpTab() dashboardcfg.TabDefinition {
 				GroupByKey:    "host",
 				ValueKey:      "p95_ms",
 				Columns: []dashboardcfg.DashboardTableColumn{
+					dashboardcfg.DashboardTableColumn{Key: "host", Label: "Host", Align: dashboardcfg.ColumnAlign("left"), Width: dashboardcfg.IntPtr(260)},
 					dashboardcfg.DashboardTableColumn{Key: "p95_ms", Label: "P95 Latency", Formatter: "ms", Align: dashboardcfg.ColumnAlign("right"), Width: dashboardcfg.IntPtr(120)},
 				},
 			},
 			dashboardcfg.PanelDefinition{
 				ID:            "external-error-rate",
 				PanelType:     dashboardcfg.PanelType("table"),
-				LayoutVariant: dashboardcfg.LayoutVariant("detail-table"),
+				LayoutVariant: dashboardcfg.LayoutVariant("summary-table"),
 				SectionID:     "outbound-breakdowns",
 				Order:         30,
 				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/http/external/error-rate", Params: nil},
@@ -264,6 +268,7 @@ func httpTab() dashboardcfg.TabDefinition {
 				GroupByKey:    "host",
 				ValueKey:      "error_pct",
 				Columns: []dashboardcfg.DashboardTableColumn{
+					dashboardcfg.DashboardTableColumn{Key: "host", Label: "Host", Align: dashboardcfg.ColumnAlign("left"), Width: dashboardcfg.IntPtr(260)},
 					dashboardcfg.DashboardTableColumn{Key: "error_pct", Label: "Error %", Formatter: "percent1", Align: dashboardcfg.ColumnAlign("right"), Width: dashboardcfg.IntPtr(120)},
 				},
 			},
