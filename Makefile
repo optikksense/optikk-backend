@@ -1,4 +1,4 @@
-.PHONY: build run fmt
+.PHONY: build run fmt vet
 
 build:
 	go build -v ./cmd/server
@@ -8,3 +8,6 @@ run:
 
 fmt:
 	gofmt -w .
+
+vet:
+	go vet ./...

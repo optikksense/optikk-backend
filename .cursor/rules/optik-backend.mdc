@@ -145,7 +145,7 @@ func (h *Handler) SomeEndpoint(c *gin.Context) {
 
 ### Module architecture (Strict 6-file pattern)
 
-Every feature module under `internal/modules/` **must** follow the strict 6-file pattern. No fragmented implementation files are allowed.
+Every feature module under `internal/modules/` **must** follow the strict 6-file pattern. No fragmented implementation files are allowed. Redundant duplicate files, functions, or variables must be removed immediately to maintain codebase integrity.
 
 | File | Purpose |
 |------|---------|
