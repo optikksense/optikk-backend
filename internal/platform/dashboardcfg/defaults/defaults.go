@@ -6,7 +6,6 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/platform/dashboardcfg/defaults/infrastructure"
 	"github.com/Optikk-Org/optikk-backend/internal/platform/dashboardcfg/defaults/overview"
 	"github.com/Optikk-Org/optikk-backend/internal/platform/dashboardcfg/defaults/saturation"
-	"github.com/Optikk-Org/optikk-backend/internal/platform/dashboardcfg/defaults/service"
 )
 
 // Load creates a Registry populated with the built-in default page configurations.
@@ -20,6 +19,5 @@ func defaultPageDocuments() []dashboardcfg.PageDocument {
 		saturation.Page(),
 		infrastructure.Page(),
 		ai_observability.Page(),
-		service.Page(),
 	}
 }

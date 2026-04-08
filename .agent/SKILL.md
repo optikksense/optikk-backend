@@ -30,7 +30,7 @@ This skill defines the development standards and architectural patterns for the 
 - **Real-time Ingestion**: Spans, logs, and metrics are handled via the OTLP pipeline in `internal/ingestion/otlp/`.
 - **Dashboard Configuration**: 
   - Backend-authored pages live in `internal/infra/dashboardcfg/defaults/`.
-  - 5 default pages: **overview** (6 tabs), **service** (1 tab), **ai-observability** (4 tabs), **infrastructure** (4 tabs), **saturation** (3 tabs).
+  - 4 backend default pages: **overview** (6 tabs), **ai-observability** (4 tabs), **infrastructure** (4 tabs), **saturation** (3 tabs). The **service** page (`/service`) is fully frontend-owned (Discovery + Topology).
   - Coordinate schema updates with the frontend.
 
 ## Engineering Principles

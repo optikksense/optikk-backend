@@ -295,12 +295,11 @@ type APIResponse struct {
 
 ### Default pages (`internal/platform/dashboardcfg/defaults/`)
 
-The `service` default page remains the backend-authored main service page at `/service`. Service detail is frontend-owned as a side drawer; the backend only contributes the shared drawer entity contract and the overview services table `drawerAction` that opens that drawer from backend-driven rows.
+The `service` page at `/service` is **fully frontend-owned** (Discovery + Topology tabs in optic-frontend) — no backend default config. Service detail is frontend-owned as a side drawer; the backend contributes the shared drawer entity contract and the overview services table `drawerAction` that opens that drawer from backend-driven rows.
 
 | Page ID | Directory | Tabs | Default tab | Group | Order |
 |---------|-----------|------|-------------|-------|-------|
 | `overview` | `defaults/overview/` | summary, latency-analysis, apm, errors, http, slo | summary | observe | 10 |
-| `service` | `defaults/service/` | deployments | deployments | observe | 15 |
 | `ai-observability` | `defaults/ai_observability/` | overview, performance, cost, security | overview | operate | 80 |
 | `infrastructure` | `defaults/infrastructure/` | resource-utilization, jvm, kubernetes, pods | resource-utilization | operate | 60 |
 | `saturation` | `defaults/saturation/` | database, queue, redis | database | operate | 70 |

@@ -22,7 +22,6 @@ type Repository interface {
 	GetP95Latency(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]p95LatencyRow, error)
 	GetServices(ctx context.Context, teamID int64, startMs, endMs int64) ([]serviceMetricRow, error)
 	GetTopEndpoints(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]endpointMetricRow, error)
-	GetEndpointTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]timeSeriesRow, error)
 	GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) (serviceMetricRow, error)
 }
 
@@ -237,55 +236,6 @@ func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64
 		ORDER BY request_count DESC`
 
 	var rows []endpointMetricRow
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
-		return nil, err
-	}
-
-	return rows, nil
-}
-
-// timeSeriesRow is the DTO for GetEndpointTimeSeries.
-type timeSeriesRow struct {
-	Timestamp     time.Time `ch:"time_bucket"`
-	ServiceName   string    `ch:"service_name"`
-	OperationName string    `ch:"operation_name"`
-	HTTPMethod    string    `ch:"http_method"`
-	RequestCount  int64     `ch:"request_count"`
-	ErrorCount    int64     `ch:"error_count"`
-	AvgLatency    float64   `ch:"avg_latency"`
-	P50           float64   `ch:"p50"`
-	P95           float64   `ch:"p95"`
-	P99           float64   `ch:"p99"`
-}
-
-func (r *ClickHouseRepository) GetEndpointTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]timeSeriesRow, error) {
-	bucket := overviewBucketExpr(startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT time_bucket, service_name, operation_name, http_method, request_count, error_count, avg_latency, p50, p95, p99
-		FROM (
-			SELECT %s        AS time_bucket,
-			       s.service_name AS service_name,
-			       s.name AS operation_name,
-			       s.http_method AS http_method,
-			       toInt64(count())                                                             AS request_count,
-			       toInt64(countIf(`+ErrorCondition()+`))                                       AS error_count,
-			       avg(s.duration_nano / 1000000.0)                                            AS avg_latency,
-			       quantile(`+fmt.Sprintf("%.1f", QuantileP50)+`)(s.duration_nano / 1000000.0) AS p50,
-			       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(s.duration_nano / 1000000.0) AS p95,
-			       quantile(`+fmt.Sprintf("%.2f", QuantileP99)+`)(s.duration_nano / 1000000.0) AS p99
-			FROM observability.spans s
-			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
-	if serviceName != "" {
-		query += serviceNameFilter
-		args = append(args, clickhouse.Named("serviceName", serviceName))
-	}
-	query += fmt.Sprintf(` GROUP BY %s, s.service_name, s.name, s.http_method
-		)
-		ORDER BY time_bucket ASC, request_count DESC
-		LIMIT 10000`, bucket)
-
-	var rows []timeSeriesRow
 	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}

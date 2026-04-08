@@ -45,20 +45,6 @@ type EndpointMetric struct {
 	P99Latency    float64 `json:"p99_latency"`
 }
 
-type TimeSeriesPoint struct {
-	Timestamp     time.Time `json:"timestamp"`
-	ServiceName   string    `json:"service_name,omitempty"`
-	OperationName string    `json:"operation_name,omitempty"`
-	EndpointName  string    `json:"endpoint_name,omitempty"`
-	HTTPMethod    string    `json:"http_method,omitempty"`
-	RequestCount  int64     `json:"request_count"`
-	ErrorCount    int64     `json:"error_count"`
-	AvgLatency    float64   `json:"avg_latency"`
-	P50           float64   `json:"p50,omitempty"`
-	P95           float64   `json:"p95,omitempty"`
-	P99           float64   `json:"p99,omitempty"`
-}
-
 type GlobalSummary struct {
 	TotalRequests int64   `json:"total_requests"`
 	ErrorCount    int64   `json:"error_count"`
