@@ -1,4 +1,4 @@
-package metricsexplorer
+package metrics
 
 import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"

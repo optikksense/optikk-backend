@@ -13,11 +13,8 @@ import (
 	ai_runs "github.com/Optikk-Org/optikk-backend/internal/modules/ai/runs"
 	ai_traces "github.com/Optikk-Org/optikk-backend/internal/modules/ai/traces"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/alerting"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/apm"
 	defaultconfig "github.com/Optikk-Org/optikk-backend/internal/modules/dashboard"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/deployments"
 	explorer_analytics "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/httpmetrics"
 
 	infrastructure_cpu "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/cpu"
 	infrastructure_disk "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/disk"
@@ -29,8 +26,10 @@ import (
 	infrastructure_resource_utilisation "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/resourceutil"
 	log_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/logs/explorer"
 	log_search "github.com/Optikk-Org/optikk-backend/internal/modules/logs/search"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/metricsexplorer"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/metrics"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/overview/apm"
 	overview_errors "github.com/Optikk-Org/optikk-backend/internal/modules/overview/errors"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/overview/httpmetrics"
 	overview_overview "github.com/Optikk-Org/optikk-backend/internal/modules/overview/overview"
 	overview_slo "github.com/Optikk-Org/optikk-backend/internal/modules/overview/slo"
 	saturation_database_collection "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/collection"
@@ -44,6 +43,7 @@ import (
 	saturation_database_systems "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/systems"
 	saturation_database_volume "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/volume"
 	saturation_kafka "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/services/deployments"
 	services_topology "github.com/Optikk-Org/optikk-backend/internal/modules/services/topology"
 	spans_errorfingerprint "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errorfingerprint"
 	spans_errortracking "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errortracking"
@@ -91,7 +91,7 @@ func configuredModules(
 		infrastructure_resource_utilisation.NewModule(nativeQuerier, getTenant),
 		log_explorer.NewModule(nativeQuerier, getTenant),
 		log_search.NewModule(nativeQuerier, getTenant, logSearchSvc),
-		metricsexplorer.NewModule(nativeQuerier, getTenant),
+		metrics.NewModule(nativeQuerier, getTenant),
 		otlp_streamworkers.NewModule(clickHouseConn, runtimeDeps.OTLP.LogDispatcher, runtimeDeps.OTLP.SpanDispatcher, runtimeDeps.OTLP.MetricDispatcher, runtimeDeps.LiveTailHub),
 		otlp_spans.NewModule(runtimeDeps.OTLP.Authenticator, runtimeDeps.OTLP.Tracker, runtimeDeps.OTLP.SpanDispatcher),
 		otlp_logs.NewModule(runtimeDeps.OTLP.Authenticator, runtimeDeps.OTLP.Tracker, runtimeDeps.OTLP.LogDispatcher),

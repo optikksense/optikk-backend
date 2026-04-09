@@ -1,4 +1,4 @@
-package metricsexplorer
+package metrics
 
 import (
 	"net/http"

@@ -1,4 +1,4 @@
-package metricsexplorer
+package metrics
 
 // ClickHouse scan DTOs — these match the column aliases in repository queries.
 // They are intentionally separate from the API-facing models so the DB shape

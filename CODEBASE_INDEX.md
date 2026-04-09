@@ -48,14 +48,14 @@ The web app lives in the sibling repo **`optic-frontend`** (see that repo's `COD
 |--------|----------|-------------|-------|
 | **AI** (5) | `ai/dashboard`, `ai/runs`, `ai/rundetail`, `ai/conversations`, `ai/traces` | `/ai/*` | V1 |
 | **Alerting** (1) | `alerting` (subpackages: `evaluators`, `channels`) | `/alerts/*` | V1 |
-| **APM** (1) | `apm` | `/apm/*` | Cached |
+| **APM** (1) | `overview/apm` | `/apm/*` | Cached |
 | **Dashboard config** (1) | `dashboard` | `/default-config/*` | V1 |
-| **Deployments** (1) | `deployments` | `/deployments/*` | Cached |
+| **Deployments** (1) | `services/deployments` | `/deployments/*` | Cached |
 | **Explorer** (1) | `explorer/analytics` (helper: `explorer/queryparser`) | `POST /explorer/:scope/analytics` | V1 |
-| **HTTP Metrics** (1) | `httpmetrics` | `/http/*`, `/http/routes/*`, `/http/external/*` | Cached |
+| **HTTP Metrics** (1) | `overview/httpmetrics` | `/http/*`, `/http/routes/*`, `/http/external/*` | Cached |
 | **Infrastructure** (8) | `infrastructure/{cpu,disk,jvm,kubernetes,memory,network,nodes,resourceutil}` (consts: `infraconsts`) | `/infrastructure/*` | Cached |
 | **Logs** (2) | `logs/explorer`, `logs/search` (shared: `logs/internal/shared`) | `/logs/*`, `POST /logs/explorer/query` | V1 |
-| **Metrics Explorer** (1) | `metricsexplorer` | `/metrics/names`, `/metrics/:metricName/tags`, `POST /metrics/explorer/query` | V1 |
+| **Metrics** (1) | `metrics` | `/metrics/names`, `/metrics/:metricName/tags`, `POST /metrics/explorer/query` | V1 |
 | **Overview** (3) | `overview/overview`, `overview/errors`, `overview/slo` | `/overview/*`, `/errors/groups/*` | Cached |
 | **Saturation** (10) | `saturation/database/{collection,connections,errors,latency,slowqueries,summary,system,systems,volume}`, `saturation/kafka` | `/saturation/*` | V1 (db), Cached (kafka/summary) |
 | **Traces** (8) | `traces/{query,explorer,tracedetail,redmetrics,errorfingerprint,errortracking,tracecompare,livetail}` (shared: `traces/shared`) | `/traces/*`, `/spans/*`, `/services/*`, `/latency/*`, `/errors/*` | Mixed |
@@ -369,7 +369,7 @@ Use when a change spans API and UI. Frontend paths refer to **`optic-frontend`**
 |--------------|-----------|----------------------------|
 | Registry / route wiring | `modules_manifest.go` | `domainRegistry.ts`, feature `index.ts` |
 | Explorer APIs | `internal/modules/.../handler.go` | Feature `api/` or `shared/api` |
-| Metrics Explorer | `internal/modules/metricsexplorer` (`/metrics/names`, `/:metricName/tags`, `/explorer/query`) | `src/features/metrics` (`metricsExplorerApi.ts`) |
+| Metrics | `internal/modules/metrics` (`/metrics/names`, `/:metricName/tags`, `/explorer/query`) | `src/features/metrics` (`metricsExplorerApi.ts`) |
 | Dashboard panels | `internal/platform/dashboardcfg/`, panel types | `dashboard/renderers/`, `dashboardPanelRegistry` |
 | Auth | `internal/modules/user/auth/` | `shared/api/auth/` |
 | Default config | `internal/modules/dashboard/`, `internal/platform/dashboardcfg/` | `defaultConfigService.ts` |

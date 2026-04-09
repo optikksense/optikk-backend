@@ -1,4 +1,4 @@
-package metricsexplorer
+package metrics
 
 // ---------------------------------------------------------------------------
 // Internal domain models (used by repository layer)
