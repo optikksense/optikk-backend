@@ -75,7 +75,7 @@ func resourceUtilizationTab() dashboardcfg.TabDefinition {
 			dashboardcfg.PanelDefinition{
 				ID:            "infra-load-average",
 				PanelType:     dashboardcfg.PanelType("stat-summary"),
-				LayoutVariant: dashboardcfg.LayoutVariant("wide-chart"),
+				LayoutVariant: dashboardcfg.LayoutVariant("wide-compact"),
 				SectionID:     "summary",
 				Order:         120,
 				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/infrastructure/cpu/load-average", Params: nil},

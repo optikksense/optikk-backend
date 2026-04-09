@@ -23,9 +23,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *OverviewHandler) {
 	v1.GET("/overview/error-rate", h.GetErrorRate)
 	v1.GET("/overview/p95-latency", h.GetP95Latency)
 	v1.GET("/overview/services", h.GetServices)
-	v1.GET("/overview/top-endpoints", h.GetTopEndpoints)
 	v1.GET("/overview/endpoints/metrics", h.GetTopEndpoints)
-	v1.GET("/overview/endpoints/timeseries", h.GetEndpointTimeSeries)
 	v1.GET("/overview/summary", h.GetSummary)
 }
 

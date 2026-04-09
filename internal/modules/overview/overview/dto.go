@@ -40,25 +40,6 @@ func mapEndpointMetricRows(rows []endpointMetricRow) []EndpointMetric {
 	return metrics
 }
 
-func mapTimeSeriesRows(rows []timeSeriesRow) []TimeSeriesPoint {
-	points := make([]TimeSeriesPoint, len(rows))
-	for i, row := range rows {
-		points[i] = TimeSeriesPoint{
-			Timestamp:     row.Timestamp,
-			ServiceName:   row.ServiceName,
-			OperationName: row.OperationName,
-			HTTPMethod:    row.HTTPMethod,
-			RequestCount:  row.RequestCount,
-			ErrorCount:    row.ErrorCount,
-			AvgLatency:    row.AvgLatency,
-			P50:           row.P50,
-			P95:           row.P95,
-			P99:           row.P99,
-		}
-	}
-	return points
-}
-
 func mapGlobalSummaryRow(row serviceMetricRow) GlobalSummary {
 	return GlobalSummary{
 		TotalRequests: row.RequestCount,

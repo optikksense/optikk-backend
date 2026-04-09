@@ -237,7 +237,7 @@ func summaryTab() dashboardcfg.TabDefinition {
 				LayoutVariant: dashboardcfg.LayoutVariant("summary-table"),
 				SectionID:     "top-consumers",
 				Order:         80,
-				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/overview/top-endpoints", Params: nil},
+				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/overview/endpoints/metrics", Params: nil},
 				Layout:        dashboardcfg.PanelLayout{X: 0, Y: 0, W: 0, H: 0},
 				Title:         "Top Endpoints",
 				Description:   "Highest-traffic endpoints ranked by request volume. Helps identify which endpoints drive the most load.",

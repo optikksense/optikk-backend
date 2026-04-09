@@ -40,7 +40,6 @@ Go 1.25, Gin, ClickHouse, MySQL, Redis, WebSocket live tail (`/api/v1/ws/live`),
 | Page | Directory | Tabs | Default tab |
 |------|-----------|------|-------------|
 | overview | `defaults/overview/` | summary, latency-analysis, apm, errors, http, slo | summary |
-| service | `defaults/service/` | deployments | deployments |
 | ai-observability | `defaults/ai_observability/` | overview, performance, cost, security | overview |
 | infrastructure | `defaults/infrastructure/` | resource-utilization, jvm, kubernetes, nodes | resource-utilization |
 | saturation | `defaults/saturation/` | database, queue, redis | database |

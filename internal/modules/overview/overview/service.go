@@ -50,14 +50,6 @@ func (s *Service) GetTopEndpoints(ctx context.Context, teamID int64, startMs, en
 	return mapEndpointMetricRows(rows), nil
 }
 
-func (s *Service) GetEndpointTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
-	rows, err := s.repo.GetEndpointTimeSeries(ctx, teamID, startMs, endMs, serviceName)
-	if err != nil {
-		return nil, err
-	}
-	return mapTimeSeriesRows(rows), nil
-}
-
 func (s *Service) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) (GlobalSummary, error) {
 	row, err := s.repo.GetSummary(ctx, teamID, startMs, endMs)
 	if err != nil {

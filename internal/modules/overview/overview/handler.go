@@ -116,26 +116,6 @@ func (h *OverviewHandler) GetTopEndpoints(c *gin.Context) {
 	modulecommon.RespondOK(c, rows)
 }
 
-func (h *OverviewHandler) GetEndpointTimeSeries(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
-	serviceName := c.Query("serviceName")
-	if serviceName == "" {
-		serviceName = c.Query("service")
-	}
-
-	rows, err := h.Service.GetEndpointTimeSeries(c.Request.Context(), teamID, startMs, endMs, serviceName)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview endpoint time series", err)
-		return
-	}
-
-	modulecommon.RespondOK(c, rows)
-}
-
 func (h *OverviewHandler) GetSummary(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)

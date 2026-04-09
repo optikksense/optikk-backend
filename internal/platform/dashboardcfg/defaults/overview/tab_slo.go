@@ -9,12 +9,14 @@ func sloTab() dashboardcfg.TabDefinition {
 		ID:     "slo",
 		PageID: "overview",
 		Label:  "SLO",
-		Order:  30,
+		Order:  50,
 		Sections: []dashboardcfg.SectionDefinition{
 			dashboardcfg.SectionDefinition{ID: "slo-at-a-glance", Title: "At a Glance", Order: 10, Collapsible: true, SectionTemplate: dashboardcfg.SectionTemplate("kpi-band")},
-			dashboardcfg.SectionDefinition{ID: "slo-timeseries", Title: "Over Time", Order: 20, Collapsible: true, SectionTemplate: dashboardcfg.SectionTemplate("two-up")},
+			dashboardcfg.SectionDefinition{ID: "slo-compliance", Title: "SLO Compliance", Order: 20, Collapsible: true, SectionTemplate: dashboardcfg.SectionTemplate("two-up")},
+			dashboardcfg.SectionDefinition{ID: "slo-budget", Title: "Error Budget", Order: 30, Collapsible: true, SectionTemplate: dashboardcfg.SectionTemplate("stacked")},
 		},
 		Panels: []dashboardcfg.PanelDefinition{
+			// ── Section: At a Glance (kpi-band) ──
 			dashboardcfg.PanelDefinition{
 				ID:            "slo-availability-pct",
 				PanelType:     dashboardcfg.PanelType("stat-card"),
@@ -71,12 +73,15 @@ func sloTab() dashboardcfg.TabDefinition {
 				ValueField:    "error_count",
 				Formatter:     "number",
 			},
+
+			// ── Section: SLO Compliance (two-up) ──
+			// Availability and latency side-by-side: the two primary SLO dimensions.
 			dashboardcfg.PanelDefinition{
 				ID:            "availability",
 				PanelType:     dashboardcfg.PanelType("error-rate"),
 				LayoutVariant: dashboardcfg.LayoutVariant("standard-chart"),
-				SectionID:     "slo-timeseries",
-				Order:         15,
+				SectionID:     "slo-compliance",
+				Order:         10,
 				Query: dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/overview/slo", Params: dashboardcfg.MustQueryParams(map[string]any{
 					"interval": "5m",
 				})},
@@ -94,8 +99,8 @@ func sloTab() dashboardcfg.TabDefinition {
 				ID:            "latency-vs-target",
 				PanelType:     dashboardcfg.PanelType("latency"),
 				LayoutVariant: dashboardcfg.LayoutVariant("standard-chart"),
-				SectionID:     "slo-timeseries",
-				Order:         25,
+				SectionID:     "slo-compliance",
+				Order:         20,
 				Query: dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/overview/slo", Params: dashboardcfg.MustQueryParams(map[string]any{
 					"interval": "5m",
 				})},
@@ -107,12 +112,15 @@ func sloTab() dashboardcfg.TabDefinition {
 				ValueField:      "avg_latency_ms",
 				TargetThreshold: dashboardcfg.FloatPtr(300),
 			},
+
+			// ── Section: Error Budget (stacked) ──
+			// Full-width burn rate chart — the most forward-looking SLO signal deserves prominence.
 			dashboardcfg.PanelDefinition{
 				ID:            "error-budget-burn",
 				PanelType:     dashboardcfg.PanelType("error-rate"),
-				LayoutVariant: dashboardcfg.LayoutVariant("standard-chart"),
-				SectionID:     "slo-timeseries",
-				Order:         35,
+				LayoutVariant: dashboardcfg.LayoutVariant("wide-chart"),
+				SectionID:     "slo-budget",
+				Order:         10,
 				Query: dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/overview/slo", Params: dashboardcfg.MustQueryParams(map[string]any{
 					"interval": "5m",
 				})},

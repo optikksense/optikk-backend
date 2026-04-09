@@ -43,6 +43,8 @@ const (
 	LayoutVariantHero          LayoutVariant = "hero"
 	LayoutVariantHeroMap       LayoutVariant = "hero-map"
 	LayoutVariantHeroDetail    LayoutVariant = "hero-detail"
+	LayoutVariantCompact       LayoutVariant = "compact"
+	LayoutVariantWideCompact   LayoutVariant = "wide-compact"
 )
 
 const (
@@ -111,6 +113,8 @@ var allowedLayoutVariants = map[LayoutVariant]struct{}{
 	LayoutVariantHero:          {},
 	LayoutVariantHeroMap:       {},
 	LayoutVariantHeroDetail:    {},
+	LayoutVariantCompact:       {},
+	LayoutVariantWideCompact:   {},
 }
 
 var allowedSectionTemplates = map[SectionTemplate]struct{}{

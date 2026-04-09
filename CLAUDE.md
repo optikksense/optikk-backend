@@ -30,7 +30,7 @@ This is **mandatory**, not optional. The documentation must always reflect the c
 - **Session**: `internal/infra/session/manager.go` — keys: `auth_user_id`, `auth_email`, `auth_role`, `auth_default_team_id`, `auth_team_ids`
 - **Middleware**: `internal/infra/middleware/` — public prefixes: `/api/v1/auth/login`, `/otlp/`, `/health`
 - **Dashboard JSON**: `internal/platform/dashboardcfg/`; enums in `enums.go` (24 panel types, 10 layout variants, 8 section templates)
-- **Dashboard default pages**: overview (6 tabs), service (1 tab), ai-observability (4 tabs), infrastructure (4 tabs), saturation (3 tabs) — under `internal/platform/dashboardcfg/defaults/`
+- **Dashboard default pages**: overview (6 tabs), ai-observability (4 tabs), infrastructure (4 tabs), saturation (3 tabs) — under `internal/platform/dashboardcfg/defaults/`. The `service` page is **fully frontend-owned** (Discovery + Topology in optic-frontend); no backend default config.
 - **AI modules**: `internal/modules/ai/{dashboard,runs,rundetail,conversations,traces}/` — `/api/v1/ai/*`
 - **Overview module**: `internal/modules/overview/{overview,errors,slo}/` — `/api/v1/overview/*`
 - **HTTP Metrics**: `internal/modules/httpmetrics/` — `/api/v1/http/*`
@@ -49,7 +49,6 @@ This is **mandatory**, not optional. The documentation must always reflect the c
 | Page | Default config directory |
 |------|------------------------|
 | overview (summary, latency-analysis, apm, errors, http, slo) | `internal/platform/dashboardcfg/defaults/overview/` |
-| service (deployments) | `internal/platform/dashboardcfg/defaults/service/` |
 | ai-observability (overview, performance, cost, security) | `internal/platform/dashboardcfg/defaults/ai_observability/` |
 | infrastructure (resource-utilization, jvm, kubernetes, nodes) | `internal/platform/dashboardcfg/defaults/infrastructure/` |
 | saturation (database, queue, redis) | `internal/platform/dashboardcfg/defaults/saturation/` |
