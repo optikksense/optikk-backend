@@ -9,7 +9,6 @@ import (
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 
-	appvalidation "github.com/Optikk-Org/optikk-backend/internal/infra/validation"
 	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
 )
 
@@ -76,10 +75,6 @@ func (h *Handler) CreateTeam(c *gin.Context) {
 
 	req.TeamName = strings.TrimSpace(req.TeamName)
 	req.OrgName = strings.TrimSpace(req.OrgName)
-	if err := appvalidation.Struct(req); err != nil {
-		usershared.RespondServiceError(c, usershared.NewValidationError("team name and organization name are required", nil), "Unable to create team")
-		return
-	}
 
 	team, err := h.Service.CreateTeam(req)
 	if err != nil {

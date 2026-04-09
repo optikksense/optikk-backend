@@ -7,7 +7,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 const (
@@ -29,8 +29,8 @@ func buildWhereClause(f LLMRunFilters) (where string, args []any) {
 	}
 	args = []any{
 		clickhouse.Named("teamID", uint32(f.TeamID)), //nolint:gosec // G115
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(f.StartMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(f.EndMs/1000)),
+		clickhouse.Named("bucketStart", utils.SpansBucketStart(f.StartMs/1000)),
+		clickhouse.Named("bucketEnd", utils.SpansBucketStart(f.EndMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(f.StartMs)),
 		clickhouse.Named("end", time.UnixMilli(f.EndMs)),
 	}

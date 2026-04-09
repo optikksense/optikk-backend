@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 type QueryBuilder interface {
@@ -137,13 +137,13 @@ func (b *ModelListQueryBuilder) Build() (query string, args []any) {
 
 type TimeSeriesQueryBuilder struct {
 	*BaseQueryBuilder
-	bucketStrategy timebucket.Strategy
+	bucketStrategy utils.Strategy
 	selectFields   []string
 	groupByFields  []string
 	orderBy        string
 }
 
-func NewTimeSeriesQueryBuilder(teamID int64, startMs, endMs int64, strategy timebucket.Strategy) *TimeSeriesQueryBuilder {
+func NewTimeSeriesQueryBuilder(teamID int64, startMs, endMs int64, strategy utils.Strategy) *TimeSeriesQueryBuilder {
 	return &TimeSeriesQueryBuilder{
 		BaseQueryBuilder: NewBaseQueryBuilder(teamID, startMs, endMs),
 		bucketStrategy:   strategy,

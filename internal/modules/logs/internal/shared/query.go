@@ -7,7 +7,7 @@ import (
 	"time"
 
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 const LogColumns = `timestamp, observed_timestamp, severity_text, severity_number,
@@ -46,8 +46,8 @@ func BuildLogWhere(f LogFilters) (where string, args []any) {
 
 	startNs := uint64(startMs) * 1_000_000 //nolint:gosec // G115 - domain-constrained value
 	endNs := uint64(endMs) * 1_000_000     //nolint:gosec // G115 - domain-constrained value
-	startBucket := timebucket.LogsBucketStart(startMs / 1000)
-	endBucket := timebucket.LogsBucketStart(endMs / 1000)
+	startBucket := utils.LogsBucketStart(startMs / 1000)
+	endBucket := utils.LogsBucketStart(endMs / 1000)
 
 	where = ` team_id = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ?`
 	args = []any{
@@ -117,7 +117,7 @@ func BuildLogWhere(f LogFilters) (where string, args []any) {
 
 func LogBucketExpr(startMs, endMs int64) string {
 	tsExpr := "toDateTime(timestamp)"
-	return timebucket.ExprForColumn(startMs, endMs, tsExpr)
+	return utils.ExprForColumn(startMs, endMs, tsExpr)
 }
 
 func LogBucketExprForStep(startMs, endMs int64, step string) string {
@@ -127,7 +127,7 @@ func LogBucketExprForStep(startMs, endMs int64, step string) string {
 
 	tsExpr := "toDateTime(timestamp)"
 	return fmt.Sprintf("formatDateTime(%s(%s), '%%Y-%%m-%%d %%H:%%i:00')",
-		bucketFuncFromStrategy(timebucket.ByName(step)), tsExpr)
+		bucketFuncFromStrategy(utils.ByName(step)), tsExpr)
 }
 
 func NormalizeRoute(raw string) string {
@@ -145,7 +145,7 @@ func NormalizeRoute(raw string) string {
 	return s
 }
 
-func bucketFuncFromStrategy(s timebucket.Strategy) string {
+func bucketFuncFromStrategy(s utils.Strategy) string {
 	expr := s.GetBucketExpression()
 	start := strings.Index(expr, "(") + 1
 	end := strings.Index(expr[start:], "(")

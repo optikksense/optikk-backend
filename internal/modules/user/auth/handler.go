@@ -9,7 +9,6 @@ import (
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 
-	appvalidation "github.com/Optikk-Org/optikk-backend/internal/infra/validation"
 	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
 )
 
@@ -34,10 +33,6 @@ func (h *Handler) Login(c *gin.Context) {
 
 	req.Email = strings.TrimSpace(req.Email)
 	req.Password = strings.TrimSpace(req.Password)
-	if err := appvalidation.Struct(req); err != nil {
-		usershared.RespondServiceError(c, usershared.NewValidationError("Email and password are required", nil), "Failed to login")
-		return
-	}
 
 	response, err := h.Service.Login(c.Request.Context(), req, c.ClientIP())
 	if err != nil {

@@ -31,6 +31,7 @@ import (
 	overview_errors "github.com/Optikk-Org/optikk-backend/internal/modules/overview/errors"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/overview/httpmetrics"
 	overview_overview "github.com/Optikk-Org/optikk-backend/internal/modules/overview/overview"
+	overview_redmetrics "github.com/Optikk-Org/optikk-backend/internal/modules/overview/redmetrics"
 	overview_slo "github.com/Optikk-Org/optikk-backend/internal/modules/overview/slo"
 	saturation_database_collection "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/collection"
 	saturation_database_connections "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/connections"
@@ -45,12 +46,9 @@ import (
 	saturation_kafka "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/services/deployments"
 	services_topology "github.com/Optikk-Org/optikk-backend/internal/modules/services/topology"
-	spans_errorfingerprint "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errorfingerprint"
-	spans_errortracking "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errortracking"
 	spans_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
 	spans_livetail "github.com/Optikk-Org/optikk-backend/internal/modules/traces/livetail"
 	spans_traces "github.com/Optikk-Org/optikk-backend/internal/modules/traces/query"
-	spans_redmetrics "github.com/Optikk-Org/optikk-backend/internal/modules/traces/redmetrics"
 	spans_tracedetail "github.com/Optikk-Org/optikk-backend/internal/modules/traces/tracedetail"
 	user_auth "github.com/Optikk-Org/optikk-backend/internal/modules/user/auth"
 	user_team "github.com/Optikk-Org/optikk-backend/internal/modules/user/team"
@@ -98,6 +96,7 @@ func configuredModules(
 		otlp_metrics.NewModule(runtimeDeps.OTLP.Authenticator, runtimeDeps.OTLP.Tracker, runtimeDeps.OTLP.MetricDispatcher),
 		overview_errors.NewModule(nativeQuerier, getTenant),
 		overview_overview.NewModule(nativeQuerier, getTenant),
+		overview_redmetrics.NewModule(nativeQuerier, getTenant),
 		overview_slo.NewModule(nativeQuerier, getTenant),
 		saturation_explorer.NewModule(nativeQuerier, getTenant),
 		saturation_database_collection.NewModule(nativeQuerier, getTenant),
@@ -111,11 +110,8 @@ func configuredModules(
 		saturation_database_volume.NewModule(nativeQuerier, getTenant),
 		saturation_kafka.NewModule(nativeQuerier, getTenant),
 		services_topology.NewModule(nativeQuerier, getTenant),
-		spans_errorfingerprint.NewModule(nativeQuerier, getTenant),
-		spans_errortracking.NewModule(nativeQuerier, getTenant),
-		spans_explorer.NewModule(nativeQuerier, getTenant),
+	spans_explorer.NewModule(nativeQuerier, getTenant),
 		spans_livetail.NewModule(nativeQuerier, getTenant, nil),
-		spans_redmetrics.NewModule(nativeQuerier, getTenant),
 		spans_tracedetail.NewModule(nativeQuerier, getTenant),
 		spans_traces.NewModule(nativeQuerier, getTenant),
 		user_auth.NewModule(sqlDB, getTenant, runtimeDeps.SessionManager, appConfig),

@@ -6,54 +6,26 @@ import (
 	"strings"
 	"time"
 
-	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	logshared "github.com/Optikk-Org/optikk-backend/internal/modules/logs/internal/shared"
 	logsearch "github.com/Optikk-Org/optikk-backend/internal/modules/logs/search"
 
-	exploreranalytics "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/explorer/queryparser"
+	logsearch "github.com/Optikk-Org/optikk-backend/internal/modules/logs/search"
 )
 
 type Service struct {
-	searchService     *logsearch.Service
-	logStats          *LogStatsService
-	explorerAnalytics *exploreranalytics.Service
+	searchService *logsearch.Service
+	logStats      *LogStatsService
 }
 
-func NewService(searchService *logsearch.Service, logStats *LogStatsService, explorerAnalytics *exploreranalytics.Service) *Service {
+func NewService(searchService *logsearch.Service, logStats *LogStatsService) *Service {
 	return &Service{
-		searchService:     searchService,
-		logStats:          logStats,
-		explorerAnalytics: explorerAnalytics,
+		searchService: searchService,
+		logStats:      logStats,
 	}
 }
 
-// Query handles the explorer request. If groupBy/aggregations are set, delegates to
-// the unified analytics engine. Otherwise, returns the standard list view.
-func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (any, error) {
-	if len(req.GroupBy) > 0 && len(req.Aggregations) > 0 {
-		return s.queryAnalytics(ctx, req, teamID)
-	}
-	return s.queryList(ctx, req, teamID)
-}
-
-func (s *Service) queryAnalytics(ctx context.Context, req QueryRequest, teamID int64) (*exploreranalytics.AnalyticsResult, error) {
-	analyticsReq := exploreranalytics.AnalyticsRequest{
-		Query:        req.Query,
-		StartTime:    req.StartTime,
-		EndTime:      req.EndTime,
-		GroupBy:      req.GroupBy,
-		Aggregations: req.Aggregations,
-		OrderBy:      req.OrderBy,
-		OrderDir:     req.OrderDir,
-		Limit:        req.Limit,
-		Step:         req.Step,
-		VizMode:      req.VizMode,
-	}
-	return s.explorerAnalytics.RunQuery(ctx, teamID, analyticsReq, "logs")
-}
-
-func (s *Service) queryList(ctx context.Context, req QueryRequest, teamID int64) (Response, error) {
+func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Response, error) {
 	filters, err := buildFiltersFromQuery(req, teamID)
 	if err != nil {
 		return Response{}, fmt.Errorf("logExplorer.Query.parseQuery: %w", err)
@@ -332,7 +304,7 @@ func (s *LogStatsService) GetLogAggregate(ctx context.Context, f logshared.LogFi
 	respRows := make([]LogAggregateRow, len(rows))
 	for i, row := range rows {
 		respRows[i] = LogAggregateRow{
-			TimeBucket: dbutil.TimeFromAny(row.TimeBucket).UTC().Format(time.RFC3339),
+			TimeBucket: utils.TimeFromAny(row.TimeBucket).UTC().Format(time.RFC3339),
 			GroupValue: row.GroupValue,
 			Count:      row.Count,
 			ErrorRate:  row.ErrorRate,

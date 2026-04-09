@@ -6,7 +6,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
@@ -27,7 +27,7 @@ func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID int64, startMs, endMs int64, collection string, f shared.Filters) ([]LatencyTimeSeries, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+	bucket := utils.Expression(startMs, endMs)
 	fc, fargs := shared.FilterClauses(f)
 
 	query := fmt.Sprintf(`
@@ -65,7 +65,7 @@ func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID 
 }
 
 func (r *ClickHouseRepository) GetCollectionOps(ctx context.Context, teamID int64, startMs, endMs int64, collection string, f shared.Filters) ([]OpsTimeSeries, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+	bucket := utils.Expression(startMs, endMs)
 	fc, fargs := shared.FilterClauses(f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
@@ -103,7 +103,7 @@ func (r *ClickHouseRepository) GetCollectionOps(ctx context.Context, teamID int6
 }
 
 func (r *ClickHouseRepository) GetCollectionErrors(ctx context.Context, teamID int64, startMs, endMs int64, collection string, f shared.Filters) ([]ErrorTimeSeries, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+	bucket := utils.Expression(startMs, endMs)
 	fc, fargs := shared.FilterClauses(f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
@@ -188,7 +188,7 @@ func (r *ClickHouseRepository) GetCollectionQueryTexts(ctx context.Context, team
 }
 
 func (r *ClickHouseRepository) GetCollectionReadVsWrite(ctx context.Context, teamID int64, startMs, endMs int64, collection string) ([]ReadWritePoint, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+	bucket := utils.Expression(startMs, endMs)
 	opAttr := shared.AttrString(shared.AttrDBOperationName)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 

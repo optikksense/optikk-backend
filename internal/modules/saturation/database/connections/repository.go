@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
@@ -29,7 +29,7 @@ func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionCountPoint, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+	bucket := utils.Expression(startMs, endMs)
 	poolAttr := shared.AttrString(shared.AttrPoolName)
 	stateAttr := shared.AttrString(shared.AttrConnectionState)
 	fc, fargs := shared.FilterClauses(f)
@@ -64,7 +64,7 @@ func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, tea
 }
 
 func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionUtilPoint, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+	bucket := utils.Expression(startMs, endMs)
 	poolAttr := shared.AttrString(shared.AttrPoolName)
 	stateAttr := shared.AttrString(shared.AttrConnectionState)
 	fc, fargs := shared.FilterClauses(f)
@@ -149,7 +149,7 @@ func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID i
 }
 
 func (r *ClickHouseRepository) GetPendingRequests(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PendingRequestsPoint, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+	bucket := utils.Expression(startMs, endMs)
 	poolAttr := shared.AttrString(shared.AttrPoolName)
 	fc, fargs := shared.FilterClauses(f)
 
@@ -182,7 +182,7 @@ func (r *ClickHouseRepository) GetPendingRequests(ctx context.Context, teamID in
 }
 
 func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionTimeoutPoint, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+	bucket := utils.Expression(startMs, endMs)
 	poolAttr := shared.AttrString(shared.AttrPoolName)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 	fc, fargs := shared.FilterClauses(f)
@@ -217,7 +217,7 @@ func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, tea
 }
 
 func (r *ClickHouseRepository) poolLatency(ctx context.Context, teamID int64, startMs, endMs int64, metricName string, f shared.Filters) ([]PoolLatencyPoint, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+	bucket := utils.Expression(startMs, endMs)
 	poolAttr := shared.AttrString(shared.AttrPoolName)
 	fc, fargs := shared.FilterClauses(f)
 

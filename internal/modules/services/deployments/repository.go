@@ -7,7 +7,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	rootspan "github.com/Optikk-Org/optikk-backend/internal/modules/traces/shared/rootspan"
 )
 
@@ -65,8 +65,8 @@ func (r *ClickHouseRepository) ListDeployments(ctx context.Context, teamID int64
 	`,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
@@ -156,8 +156,8 @@ func (r *ClickHouseRepository) GetDeploysInRange(ctx context.Context, teamID int
 		ORDER BY first_seen ASC
 	`,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
@@ -166,7 +166,7 @@ func (r *ClickHouseRepository) GetDeploysInRange(ctx context.Context, teamID int
 
 func (r *ClickHouseRepository) GetVersionTraffic(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) ([]VersionTrafficPoint, error) {
 	bs := bucketSecs(startMs, endMs)
-	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
+	bucket := utils.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	query := fmt.Sprintf(`
 		SELECT %s AS timestamp,
 		       s.mat_service_version AS version,
@@ -186,8 +186,8 @@ func (r *ClickHouseRepository) GetVersionTraffic(ctx context.Context, teamID int
 		clickhouse.Named("bucketSeconds", bs),
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
@@ -214,8 +214,8 @@ func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64
 	`,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
@@ -242,8 +242,8 @@ func (r *ClickHouseRepository) GetActiveVersion(ctx context.Context, teamID int6
 	`,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
@@ -276,8 +276,8 @@ func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID 
 	`,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("limit", limit),
@@ -307,8 +307,8 @@ func (r *ClickHouseRepository) GetEndpointMetricsWindow(ctx context.Context, tea
 	`,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("limit", limit),

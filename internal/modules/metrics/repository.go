@@ -7,7 +7,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 const tableMetrics = "observability.metrics"
@@ -171,9 +171,9 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, teamID int64
 
 	var bucket string
 	if step != "" {
-		bucket = timebucket.ByName(step).GetBucketExpression()
+		bucket = utils.ByName(step).GetBucketExpression()
 	} else {
-		bucket = timebucket.Expression(startMs, endMs)
+		bucket = utils.Expression(startMs, endMs)
 	}
 
 	aggExpr := buildAggExpr(query.Aggregation, startMs, endMs, step)

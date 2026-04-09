@@ -1,17 +1,37 @@
-// Package timebucket provides shared time-bucketing logic for ClickHouse queries.
+package utils
+
+// Package utils provides shared time-bucketing logic for ClickHouse queries,
+// as well as general time handling helpers.
 // All metrics and observability modules should use this package instead of
 // rolling their own time-bucket expression helpers.
-package timebucket
 
 import (
 	"fmt"
+	"time"
 )
+
+func ResolveRange(startPtr, endPtr *int64, defaultRangeMs int64) (start, end int64) {
+	end = time.Now().UnixMilli()
+	if endPtr != nil {
+		end = *endPtr
+	}
+	start = end - defaultRangeMs
+	if startPtr != nil {
+		start = *startPtr
+	}
+	return start, end
+}
+
+func ParseMillis(v int64) time.Time {
+	return time.UnixMilli(v).UTC()
+}
 
 type Strategy interface {
 	GetBucketExpression() string
 	GetBucketName() string
 	GetRawExpression(column string) string
 }
+
 type MinuteStrategy struct{}
 
 func (MinuteStrategy) GetBucketExpression() string {
@@ -141,4 +161,61 @@ func ByName(name string) Strategy {
 	default:
 		return MinuteStrategy{}
 	}
+}
+
+// These bucket sizes mirror the ts_bucket_start partition keys used for
+// ClickHouse PREWHERE pruning in spans and logs queries.
+var (
+	spansBucketSeconds int64 = 300
+	logsBucketSeconds  int64 = 86400
+)
+
+const (
+	millisecondsPerSecond = 1000
+)
+
+// Init sets the global bucket sizes from configuration.
+func Init(spans, logs int64) {
+	if spans > 0 {
+		spansBucketSeconds = spans
+	}
+	if logs > 0 {
+		logsBucketSeconds = logs
+	}
+}
+
+func SpansBucketStart(unixSeconds int64) uint64 {
+	return uint64(toBucketStart(unixSeconds, spansBucketSeconds))
+}
+
+func SpansBucketQueryBounds(startMs, endMs int64) (startBucket, endBucket uint64) {
+	startSec := startMs / millisecondsPerSecond
+	endSec := endMs / millisecondsPerSecond
+
+	startBucket = SpansBucketStart(startSec)
+	endBucket = SpansBucketStart(endSec)
+
+	return startBucket, endBucket
+}
+
+func LogsBucketStart(unixSeconds int64) uint32 {
+	return uint32(toBucketStart(unixSeconds, int64(logsBucketSeconds)))
+}
+
+func LogsBucketQueryBounds(startMs, endMs int64) (startBucket, endBucket uint32) {
+	startSec := startMs / millisecondsPerSecond
+	endSec := endMs / millisecondsPerSecond
+
+	startBucket = LogsBucketStart(startSec)
+	endBucket = LogsBucketStart(endSec)
+
+	return startBucket, endBucket
+}
+
+func toBucketStart(unixSeconds int64, bucketSize int64) int64 {
+	if bucketSize <= 0 {
+		return unixSeconds
+	}
+	// Use integer division to truncate to the bucket boundary.
+	return (unixSeconds / bucketSize) * bucketSize
 }

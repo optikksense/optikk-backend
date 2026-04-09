@@ -6,7 +6,7 @@ import (
 
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
@@ -28,7 +28,7 @@ func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) errorSeriesByAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]ErrorTimeSeries, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+	bucket := utils.Expression(startMs, endMs)
 	fc, fargs := shared.FilterClauses(f)
 	groupExpr := shared.AttrString(groupAttr)
 	errorAttr := shared.AttrString(shared.AttrErrorType)
@@ -86,7 +86,7 @@ func (r *ClickHouseRepository) GetErrorsByResponseStatus(ctx context.Context, te
 }
 
 func (r *ClickHouseRepository) GetErrorRatio(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ErrorRatioPoint, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+	bucket := utils.Expression(startMs, endMs)
 	fc, fargs := shared.FilterClauses(f)
 	errorAttr := shared.AttrString(shared.AttrErrorType)
 

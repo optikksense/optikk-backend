@@ -6,7 +6,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 type Repository interface {
@@ -37,7 +37,7 @@ func nodeFilter(node string) (clause string, args []any) {
 }
 
 func (r *ClickHouseRepository) queryContainerBuckets(ctx context.Context, teamID int64, startMs, endMs int64, metricName string, node string) ([]containerBucketDTO, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+	bucket := utils.Expression(startMs, endMs)
 	containerAttr := attrString(AttrContainerName)
 	nf, nfArgs := nodeFilter(node)
 

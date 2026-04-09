@@ -3,7 +3,7 @@ package infraconsts
 import (
 	"strings"
 
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 // OpenTelemetry Semantic Conventions for Infrastructure / Resource Utilization Metrics
@@ -156,7 +156,7 @@ var (
 )
 
 func TimeBucketExpression(startMs, endMs int64) string {
-	return timebucket.Expression(startMs, endMs)
+	return utils.Expression(startMs, endMs)
 }
 
 func AttrFloat(attrName string) string {

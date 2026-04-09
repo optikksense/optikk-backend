@@ -17,9 +17,7 @@ type Handler struct {
 
 func parseServiceName(c *gin.Context) (string, bool) {
 	name := c.Query("serviceName")
-	if name == "" {
-		name = c.Query("service")
-	}
+
 	if name == "" {
 		modulecommon.RespondErrorWithCause(c, http.StatusBadRequest, errorcode.Validation, "serviceName is required", nil)
 		return "", false

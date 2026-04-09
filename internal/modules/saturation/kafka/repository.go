@@ -6,12 +6,12 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 // timeBucketExpr returns the adaptive time-bucket expression for the metrics table timestamp column.
 func timeBucketExpr(startMs, endMs int64) string {
-	return timebucket.Expression(startMs, endMs)
+	return utils.Expression(startMs, endMs)
 }
 
 // bucketSecs returns the bucket width in seconds matching the adaptive strategy.

@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 type TimeBucketStrategyFactory struct{}
@@ -14,8 +14,8 @@ func NewTimeBucketStrategyFactory() *TimeBucketStrategyFactory {
 	return &TimeBucketStrategyFactory{}
 }
 
-func (f *TimeBucketStrategyFactory) CreateStrategy(startMs, endMs int64) timebucket.Strategy {
-	return timebucket.NewAdaptiveStrategy(startMs, endMs)
+func (f *TimeBucketStrategyFactory) CreateStrategy(startMs, endMs int64) utils.Strategy {
+	return utils.NewAdaptiveStrategy(startMs, endMs)
 }
 
 type Repository interface {

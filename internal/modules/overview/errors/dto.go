@@ -90,3 +90,12 @@ func mapLatencyErrorRows(rows []latencyErrorRow) []TimeSeriesPoint {
 	}
 	return points
 }
+
+// DTO aliases migrated from errortracking
+type exceptionRatePointDTO = ExceptionRatePoint
+type errorHotspotCellDTO = ErrorHotspotCell
+type http5xxByRouteDTO = HTTP5xxByRoute
+
+// DTO aliases migrated from errorfingerprint
+type errorFingerprintDTO = ErrorFingerprint
+type fingerprintTrendPointDTO = FingerprintTrendPoint

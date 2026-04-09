@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 // LogsScopeConfig returns the ScopeConfig for logs analytics.
@@ -40,18 +40,18 @@ var logsAggFields = map[string]string{
 func logsTimeBucket(startMs, endMs int64, step string) string {
 	tsExpr := "toDateTime(intDiv(timestamp, 1000000000))"
 	if strings.TrimSpace(step) != "" {
-		strat := timebucket.ByName(step)
+		strat := utils.ByName(step)
 		bucketFunc := extractBucketFunc(strat.GetBucketExpression())
 		return fmt.Sprintf("formatDateTime(%s(%s), '%%Y-%%m-%%d %%H:%%i:00')", bucketFunc, tsExpr)
 	}
-	return timebucket.ExprForColumn(startMs, endMs, tsExpr)
+	return utils.ExprForColumn(startMs, endMs, tsExpr)
 }
 
 func logsBaseWhere(teamID int64, startMs, endMs int64) (string, []any) {
 	startNs := uint64(startMs) * 1_000_000 //nolint:gosec // G115
 	endNs := uint64(endMs) * 1_000_000     //nolint:gosec // G115
-	startBucket := timebucket.LogsBucketStart(startMs / 1000)
-	endBucket := timebucket.LogsBucketStart(endMs / 1000)
+	startBucket := utils.LogsBucketStart(startMs / 1000)
+	endBucket := utils.LogsBucketStart(endMs / 1000)
 
 	frag := "team_id = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ?"
 	args := []any{uint32(teamID), startBucket, endBucket, startNs, endNs} //nolint:gosec // G115

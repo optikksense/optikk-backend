@@ -23,9 +23,7 @@ func (h *Handler) GetTopology(c *gin.Context) {
 		return
 	}
 	service := c.Query("service")
-	if service == "" {
-		service = c.Query("serviceName")
-	}
+
 
 	out, err := h.Service.GetTopology(c.Request.Context(), teamID, startMs, endMs, service)
 	if err != nil {

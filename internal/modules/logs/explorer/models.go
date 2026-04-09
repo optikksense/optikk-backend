@@ -2,8 +2,6 @@ package explorer
 
 import (
 	logshared "github.com/Optikk-Org/optikk-backend/internal/modules/logs/internal/shared"
-
-	exploreranalytics "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
 )
 
 // QueryRequest is the new unified explorer request.
@@ -16,9 +14,6 @@ type QueryRequest struct {
 	Cursor       string                          `json:"cursor"`
 	Direction    string                          `json:"direction"`
 	Step         string                          `json:"step"`
-	GroupBy      []string                        `json:"groupBy,omitempty"`
-	Aggregations []exploreranalytics.Aggregation `json:"aggregations,omitempty"`
-	VizMode      string                          `json:"vizMode,omitempty"`
 	OrderBy      string                          `json:"orderBy,omitempty"`
 	OrderDir     string                          `json:"orderDir,omitempty"`
 }
@@ -60,11 +55,6 @@ type ExplorerFacets struct {
 
 type ExplorerCorrelations struct {
 	ServiceErrorRate LogAggregateResponse `json:"serviceErrorRate,omitempty"`
-}
-
-// AnalyticsResponse wraps the unified analytics result for non-list viz modes.
-type AnalyticsResponse struct {
-	*exploreranalytics.AnalyticsResult
 }
 
 // JSON response types for log stats / histogram / volume / aggregate APIs (formerly logs/analytics).

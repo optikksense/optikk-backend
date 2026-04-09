@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 type Repository interface {
@@ -47,7 +47,7 @@ func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID
 }
 
 func (r *ClickHouseRepository) queryTimeBuckets(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]timeBucketDTO, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+	bucket := utils.Expression(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT
 		    %s         AS time_bucket,
@@ -73,7 +73,7 @@ func (r *ClickHouseRepository) GetRPCDuration(ctx context.Context, teamID int64,
 }
 
 func (r *ClickHouseRepository) GetRPCRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketDTO, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+	bucket := utils.Expression(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT
 		    %s               AS time_bucket,
@@ -99,7 +99,7 @@ func (r *ClickHouseRepository) GetMessagingPublishDuration(ctx context.Context, 
 }
 
 func (r *ClickHouseRepository) GetProcessCPU(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+	bucket := utils.Expression(startMs, endMs)
 	stateAttr := attrString(AttrProcessCPUState)
 
 	query := fmt.Sprintf(`

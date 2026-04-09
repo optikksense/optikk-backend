@@ -7,13 +7,13 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 const serviceNameFilter = " AND s.service_name = @serviceName"
 
 func overviewBucketExpr(startMs, endMs int64) string {
-	return timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
+	return utils.ExprForColumnTime(startMs, endMs, "s.timestamp")
 }
 
 type Repository interface {

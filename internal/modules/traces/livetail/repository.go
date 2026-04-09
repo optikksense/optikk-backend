@@ -6,7 +6,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	rootspan "github.com/Optikk-Org/optikk-backend/internal/modules/traces/shared/rootspan"
 )
 
@@ -29,8 +29,8 @@ func (r *Repository) Poll(teamID int64, since time.Time, filters LiveTailFilters
 	frag := ` WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp > ? AND ` + rootspan.Condition("s")
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		timebucket.SpansBucketStart(sinceMs / 1000),
-		timebucket.SpansBucketStart(nowMs / 1000),
+		utils.SpansBucketStart(sinceMs / 1000),
+		utils.SpansBucketStart(nowMs / 1000),
 		since,
 	}
 

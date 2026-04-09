@@ -1,7 +1,6 @@
 package explorer
 
 import (
-	exploreranalytics "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
 	spantraces "github.com/Optikk-Org/optikk-backend/internal/modules/traces/query"
 )
 
@@ -14,9 +13,6 @@ type QueryRequest struct {
 	Offset       int                             `json:"offset"`
 	Cursor       string                          `json:"cursor"`
 	Step         string                          `json:"step"`
-	GroupBy      []string                        `json:"groupBy,omitempty"`
-	Aggregations []exploreranalytics.Aggregation `json:"aggregations,omitempty"`
-	VizMode      string                          `json:"vizMode,omitempty"`
 	OrderBy      string                          `json:"orderBy,omitempty"`
 	OrderDir     string                          `json:"orderDir,omitempty"`
 }

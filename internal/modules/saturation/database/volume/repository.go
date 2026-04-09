@@ -6,7 +6,7 @@ import (
 
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
@@ -27,7 +27,7 @@ func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) opsSeriesByAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]OpsTimeSeries, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+	bucket := utils.Expression(startMs, endMs)
 	fc, fargs := shared.FilterClauses(f)
 	groupExpr := shared.AttrString(groupAttr)
 
@@ -87,7 +87,7 @@ func (r *ClickHouseRepository) GetOpsByNamespace(ctx context.Context, teamID int
 }
 
 func (r *ClickHouseRepository) GetReadVsWrite(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ReadWritePoint, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+	bucket := utils.Expression(startMs, endMs)
 	fc, fargs := shared.FilterClauses(f)
 	opAttr := shared.AttrString(shared.AttrDBOperationName)
 
