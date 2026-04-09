@@ -25,7 +25,7 @@ This skill defines the development standards and architectural patterns for the 
 
 ## Modular Monolith Patterns
 
-- **Module Registration**: New modules **must** be registered in **`internal/app/server/modules_manifest.go`** within the `configuredModules()` function (currently 52 constructors: 48 HTTP + 4 ingestion).
+- **Module Registration**: New modules **must** be registered in **`internal/app/server/modules_manifest.go`** within the `configuredModules()` function (currently 52 constructors: 48 HTTP + 4 ingestion; `alerting` is both an HTTP module and a `BackgroundRunner`).
 - **Dependency Injection**: Use the shared **`registry.Module`** pattern.
 - **Real-time Ingestion**: Spans, logs, and metrics are handled via the OTLP pipeline in `internal/ingestion/otlp/`.
 - **Dashboard Configuration**: 
@@ -57,6 +57,7 @@ This skill defines the development standards and architectural patterns for the 
 - **Infrastructure**: `internal/modules/infrastructure/{cpu,disk,jvm,kubernetes,memory,network,nodes,resourceutil}/`
 - **Saturation DB**: `internal/modules/saturation/database/{collection,connections,errors,latency,slowqueries,summary,system,systems,volume}/`
 - **Saturation Kafka**: `internal/modules/saturation/kafka/`
+- **Alerting**: `internal/modules/alerting/` (subpackages `evaluators/`, `channels/`) — `/api/v1/alerts/*`. Datadog-grade monitors with evaluator loop (`EvaluatorLoop`) + `Dispatcher` wired as a combined `Module`+`BackgroundRunner`. Storage: `observability.alerts` (MySQL, JSON-inline instances/silences), `observability.alert_events` (ClickHouse, append-only transitions/audit).
 - **Dashboard Enums**: `internal/infra/dashboardcfg/enums.go` (24 panel types, 10 layout variants, 8 section templates)
 
 ## Low-Level Design Patterns

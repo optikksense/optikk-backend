@@ -7,6 +7,7 @@ import (
 	otlp_spans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
 	otlp_streamworkers "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/streamworkers"
 	ai_conversations "github.com/Optikk-Org/optikk-backend/internal/modules/ai/conversations"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/alerting"
 	ai_dashboard "github.com/Optikk-Org/optikk-backend/internal/modules/ai/dashboard"
 	ai_rundetail "github.com/Optikk-Org/optikk-backend/internal/modules/ai/rundetail"
 	ai_runs "github.com/Optikk-Org/optikk-backend/internal/modules/ai/runs"
@@ -40,6 +41,7 @@ import (
 	saturation_database_system "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/system"
 	saturation_database_systems "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/systems"
 	saturation_database_volume "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/volume"
+	saturation_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/explorer"
 	saturation_kafka "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka"
 	services_topology "github.com/Optikk-Org/optikk-backend/internal/modules/services/topology"
 	spans_errorfingerprint "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errorfingerprint"
@@ -67,6 +69,7 @@ func configuredModules(
 ) []registry.Module {
 	return []registry.Module{
 		ai_conversations.NewModule(nativeQuerier, getTenant),
+		alerting.NewModule(sqlDB, nativeQuerier, clickHouseConn, getTenant, ""),
 		ai_dashboard.NewModule(nativeQuerier, getTenant),
 		ai_rundetail.NewModule(nativeQuerier, getTenant),
 		ai_runs.NewModule(nativeQuerier, getTenant),
@@ -95,6 +98,7 @@ func configuredModules(
 		overview_errors.NewModule(nativeQuerier, getTenant),
 		overview_overview.NewModule(nativeQuerier, getTenant),
 		overview_slo.NewModule(nativeQuerier, getTenant),
+		saturation_explorer.NewModule(nativeQuerier, getTenant),
 		saturation_database_collection.NewModule(nativeQuerier, getTenant),
 		saturation_database_connections.NewModule(nativeQuerier, getTenant),
 		saturation_database_errors.NewModule(nativeQuerier, getTenant),

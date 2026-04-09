@@ -10,14 +10,14 @@ import (
 )
 
 type Repository interface {
-	GetConnectionCountSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ConnectionCountPoint, error)
-	GetConnectionUtilization(ctx context.Context, teamID int64, startMs, endMs int64) ([]ConnectionUtilPoint, error)
-	GetConnectionLimits(ctx context.Context, teamID int64, startMs, endMs int64) ([]ConnectionLimits, error)
-	GetPendingRequests(ctx context.Context, teamID int64, startMs, endMs int64) ([]PendingRequestsPoint, error)
-	GetConnectionTimeoutRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]ConnectionTimeoutPoint, error)
-	GetConnectionWaitTime(ctx context.Context, teamID int64, startMs, endMs int64) ([]PoolLatencyPoint, error)
-	GetConnectionCreateTime(ctx context.Context, teamID int64, startMs, endMs int64) ([]PoolLatencyPoint, error)
-	GetConnectionUseTime(ctx context.Context, teamID int64, startMs, endMs int64) ([]PoolLatencyPoint, error)
+	GetConnectionCountSeries(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionCountPoint, error)
+	GetConnectionUtilization(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionUtilPoint, error)
+	GetConnectionLimits(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionLimits, error)
+	GetPendingRequests(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PendingRequestsPoint, error)
+	GetConnectionTimeoutRate(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionTimeoutPoint, error)
+	GetConnectionWaitTime(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PoolLatencyPoint, error)
+	GetConnectionCreateTime(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PoolLatencyPoint, error)
+	GetConnectionUseTime(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PoolLatencyPoint, error)
 }
 
 type ClickHouseRepository struct {
@@ -28,10 +28,11 @@ func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ConnectionCountPoint, error) {
+func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionCountPoint, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	poolAttr := shared.AttrString(shared.AttrPoolName)
 	stateAttr := shared.AttrString(shared.AttrConnectionState)
+	fc, fargs := shared.FilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -43,6 +44,7 @@ func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, tea
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
 		  AND %s = '%s'
+		  %s
 		GROUP BY time_bucket, pool_name, state
 		ORDER BY time_bucket, pool_name, state
 	`,
@@ -50,19 +52,22 @@ func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, tea
 		shared.TableMetrics,
 		shared.ColTeamID, shared.ColTimestamp,
 		shared.ColMetricName, shared.MetricDBConnectionCount,
+		fc,
 	)
 
 	var rows []ConnectionCountPoint
-	if err := r.db.Select(ctx, &rows, query, shared.BaseParams(teamID, startMs, endMs)...); err != nil {
+	args := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
+	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, teamID int64, startMs, endMs int64) ([]ConnectionUtilPoint, error) {
+func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionUtilPoint, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	poolAttr := shared.AttrString(shared.AttrPoolName)
 	stateAttr := shared.AttrString(shared.AttrConnectionState)
+	fc, fargs := shared.FilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -76,12 +81,14 @@ func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, tea
 		          AND mx.%s BETWEEN @start AND @end
 		          AND mx.%s = '%s'
 		          AND mx.%s = %s
+		          %s
 		    )                                                             AS max_val,
 		    if(max_val > 0, used_avg / max_val * 100, NULL)             AS util_pct
 		FROM %s AS m
 		WHERE m.%s = @teamID
 		  AND m.%s BETWEEN @start AND @end
 		  AND m.%s = '%s'
+		  %s
 		GROUP BY time_bucket, pool_name
 		ORDER BY time_bucket, pool_name
 	`,
@@ -91,20 +98,24 @@ func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, tea
 		shared.ColTimestamp,
 		shared.ColMetricName, shared.MetricDBConnectionMax,
 		poolAttr, poolAttr,
+		fc,
 		shared.TableMetrics,
 		shared.ColTeamID, shared.ColTimestamp,
 		shared.ColMetricName, shared.MetricDBConnectionCount,
+		fc,
 	)
 
 	var rows []ConnectionUtilPoint
-	if err := r.db.Select(ctx, &rows, query, shared.BaseParams(teamID, startMs, endMs)...); err != nil {
+	args := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
+	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID int64, startMs, endMs int64) ([]ConnectionLimits, error) {
+func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionLimits, error) {
 	poolAttr := shared.AttrString(shared.AttrPoolName)
+	fc, fargs := shared.FilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -116,6 +127,7 @@ func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID i
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
 		  AND %s IN ('%s', '%s', '%s')
+		  %s
 		GROUP BY pool_name
 		ORDER BY pool_name
 	`,
@@ -125,18 +137,21 @@ func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID i
 		shared.ColTeamID, shared.ColTimestamp,
 		shared.ColMetricName,
 		shared.MetricDBConnectionMax, shared.MetricDBConnectionIdleMax, shared.MetricDBConnectionIdleMin,
+		fc,
 	)
 
 	var rows []ConnectionLimits
-	if err := r.db.Select(ctx, &rows, query, shared.BaseParams(teamID, startMs, endMs)...); err != nil {
+	args := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
+	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetPendingRequests(ctx context.Context, teamID int64, startMs, endMs int64) ([]PendingRequestsPoint, error) {
+func (r *ClickHouseRepository) GetPendingRequests(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PendingRequestsPoint, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	poolAttr := shared.AttrString(shared.AttrPoolName)
+	fc, fargs := shared.FilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -147,6 +162,7 @@ func (r *ClickHouseRepository) GetPendingRequests(ctx context.Context, teamID in
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
 		  AND %s = '%s'
+		  %s
 		GROUP BY time_bucket, pool_name
 		ORDER BY time_bucket, pool_name
 	`,
@@ -154,19 +170,22 @@ func (r *ClickHouseRepository) GetPendingRequests(ctx context.Context, teamID in
 		shared.TableMetrics,
 		shared.ColTeamID, shared.ColTimestamp,
 		shared.ColMetricName, shared.MetricDBConnectionPendReqs,
+		fc,
 	)
 
 	var rows []PendingRequestsPoint
-	if err := r.db.Select(ctx, &rows, query, shared.BaseParams(teamID, startMs, endMs)...); err != nil {
+	args := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
+	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]ConnectionTimeoutPoint, error) {
+func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionTimeoutPoint, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	poolAttr := shared.AttrString(shared.AttrPoolName)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
+	fc, fargs := shared.FilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -177,6 +196,7 @@ func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, tea
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
 		  AND %s = '%s'
+		  %s
 		GROUP BY time_bucket, pool_name
 		ORDER BY time_bucket, pool_name
 	`,
@@ -185,18 +205,21 @@ func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, tea
 		shared.TableMetrics,
 		shared.ColTeamID, shared.ColTimestamp,
 		shared.ColMetricName, shared.MetricDBConnectionTimeouts,
+		fc,
 	)
 
 	var rows []ConnectionTimeoutPoint
-	if err := r.db.Select(ctx, &rows, query, shared.BaseParams(teamID, startMs, endMs)...); err != nil {
+	args := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
+	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) poolLatency(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]PoolLatencyPoint, error) {
+func (r *ClickHouseRepository) poolLatency(ctx context.Context, teamID int64, startMs, endMs int64, metricName string, f shared.Filters) ([]PoolLatencyPoint, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	poolAttr := shared.AttrString(shared.AttrPoolName)
+	fc, fargs := shared.FilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -210,6 +233,7 @@ func (r *ClickHouseRepository) poolLatency(ctx context.Context, teamID int64, st
 		  AND %s BETWEEN @start AND @end
 		  AND %s = '%s'
 		  AND metric_type = 'Histogram'
+		  %s
 		GROUP BY time_bucket, pool_name
 		ORDER BY time_bucket, pool_name
 	`,
@@ -217,23 +241,25 @@ func (r *ClickHouseRepository) poolLatency(ctx context.Context, teamID int64, st
 		shared.TableMetrics,
 		shared.ColTeamID, shared.ColTimestamp,
 		shared.ColMetricName, metricName,
+		fc,
 	)
 
 	var rows []PoolLatencyPoint
-	if err := r.db.Select(ctx, &rows, query, shared.BaseParams(teamID, startMs, endMs)...); err != nil {
+	args := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
+	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetConnectionWaitTime(ctx context.Context, teamID int64, startMs, endMs int64) ([]PoolLatencyPoint, error) {
-	return r.poolLatency(ctx, teamID, startMs, endMs, shared.MetricDBConnectionWaitTime)
+func (r *ClickHouseRepository) GetConnectionWaitTime(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PoolLatencyPoint, error) {
+	return r.poolLatency(ctx, teamID, startMs, endMs, shared.MetricDBConnectionWaitTime, f)
 }
 
-func (r *ClickHouseRepository) GetConnectionCreateTime(ctx context.Context, teamID int64, startMs, endMs int64) ([]PoolLatencyPoint, error) {
-	return r.poolLatency(ctx, teamID, startMs, endMs, shared.MetricDBConnectionCreateTime)
+func (r *ClickHouseRepository) GetConnectionCreateTime(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PoolLatencyPoint, error) {
+	return r.poolLatency(ctx, teamID, startMs, endMs, shared.MetricDBConnectionCreateTime, f)
 }
 
-func (r *ClickHouseRepository) GetConnectionUseTime(ctx context.Context, teamID int64, startMs, endMs int64) ([]PoolLatencyPoint, error) {
-	return r.poolLatency(ctx, teamID, startMs, endMs, shared.MetricDBConnectionUseTime)
+func (r *ClickHouseRepository) GetConnectionUseTime(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PoolLatencyPoint, error) {
+	return r.poolLatency(ctx, teamID, startMs, endMs, shared.MetricDBConnectionUseTime, f)
 }

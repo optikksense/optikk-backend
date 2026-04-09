@@ -29,7 +29,7 @@ The web app lives in the sibling repo **`optic-frontend`** (see that repo's `COD
 
 | File | Purpose |
 |------|---------|
-| `internal/app/server/modules_manifest.go` | **`configuredModules()`** — single list of all `registry.Module` constructors (51 total: 47 HTTP + 4 ingestion); add new HTTP/domain modules here |
+| `internal/app/server/modules_manifest.go` | **`configuredModules()`** — single list of all `registry.Module` constructors (52 total: 48 HTTP + 4 ingestion, including `alerting` which also implements `BackgroundRunner`); add new HTTP/domain modules here |
 | `internal/app/server/app.go` | App wiring; builds `platform/runtime.Runtime`, native querier, WebSocket handler, module graph |
 | `internal/app/registry/registry.go` | Shared dependency aliases for modules (querier, DB, tenant, config, platform session contract) |
 
@@ -42,11 +42,12 @@ The web app lives in the sibling repo **`optic-frontend`** (see that repo's `COD
 
 ## Module packages (`internal/modules/`)
 
-51 registered modules across 13 domains. Every module **must** follow the strict 6-file pattern: `handler.go`, `service.go`, `repository.go`, `module.go`, `dto.go`, `models.go`. All repository implementation methods must reside in the single `repository.go` file.
+52 registered modules across 14 domains. Every module **must** follow the strict 6-file pattern: `handler.go`, `service.go`, `repository.go`, `module.go`, `dto.go`, `models.go`. All repository implementation methods must reside in the single `repository.go` file.
 
 | Domain | Packages | Route prefix | Cache |
 |--------|----------|-------------|-------|
 | **AI** (5) | `ai/dashboard`, `ai/runs`, `ai/rundetail`, `ai/conversations`, `ai/traces` | `/ai/*` | V1 |
+| **Alerting** (1) | `alerting` (subpackages: `evaluators`, `channels`) | `/alerts/*` | V1 |
 | **APM** (1) | `apm` | `/apm/*` | Cached |
 | **Dashboard config** (1) | `dashboard` | `/default-config/*` | V1 |
 | **Deployments** (1) | `deployments` | `/deployments/*` | Cached |
@@ -78,6 +79,29 @@ The web app lives in the sibling repo **`optic-frontend`** (see that repo's `COD
 | `overview/overview` | `GET /overview/request-rate`, `/overview/error-rate`, `/overview/p95-latency`, `/overview/services`, `/overview/top-endpoints`, `/overview/endpoints/metrics` (alias), `/overview/endpoints/timeseries`, `/overview/summary` |
 | `overview/errors` | `GET /overview/errors/{service-error-rate,error-volume,latency-during-error-windows,groups}`, `/errors/groups/:groupId/*` |
 | `overview/slo` | `GET /overview/slo`, `/overview/slo/stats`, `/overview/slo/burn-down`, `/overview/slo/burn-rate` |
+
+### Alerting module routes
+
+All under `/alerts/` prefix. Datadog-grade monitors: multi-window, multi-state (`ok|warn|alert|no_data|muted`), hysteresis (`for_secs`/`recover_for_secs`), per-group instances, Slack dispatch, deploy correlation, backtest.
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /alerts/rules` | Create rule |
+| `GET /alerts/rules` | List team rules |
+| `GET /alerts/rules/:id` | Rule + instance state |
+| `PATCH /alerts/rules/:id` | Update rule |
+| `DELETE /alerts/rules/:id` | Delete rule |
+| `POST /alerts/rules/:id/mute` | Mute until timestamp |
+| `POST /alerts/rules/:id/test` | Dry-run against live data |
+| `POST /alerts/rules/:id/backtest` | Replay over historical range |
+| `GET /alerts/rules/:id/audit` | Audit log (from ClickHouse `alert_events`) |
+| `GET /alerts/incidents` | Live list of firing instances (team-scoped) |
+| `POST /alerts/instances/:id/ack` | Ack an instance with optional `until` |
+| `POST /alerts/instances/:id/snooze` | Snooze an instance N minutes |
+| `GET /alerts/silences` / `POST` / `PATCH /:id` / `DELETE /:id` | Maintenance-window CRUD |
+| `POST /alerts/callback/slack` | Slack action-button callback (v1 stub) |
+
+**Storage:** single MySQL `observability.alerts` table (rule + instances + silences inline as JSON); append-only ClickHouse `observability.alert_events` for transitions/audit. **Runtime:** the module implements `registry.BackgroundRunner` — `NewEvaluatorLoop` ticks every 30s, runs `evaluators.Registry` (`slo_burn_rate`, `error_rate`) → `Decide` state machine → `Dispatcher` with Slack channel and deploy correlation via `repository.DeploysInRange`. Evaluator data queries (`SLOErrorRate`, `ServiceErrorRate`, `ErrorRateHistorical`) hit `observability.spans` through the shared `NativeQuerier`.
 
 ### Traces module routes
 

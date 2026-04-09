@@ -3,6 +3,7 @@ package connections
 import (
 	"net/http"
 
+	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 
@@ -20,7 +21,7 @@ func (h *Handler) GetConnectionCountSeries(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetConnectionCountSeries(c.Request.Context(), teamID, startMs, endMs)
+	resp, err := h.Service.GetConnectionCountSeries(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query connection count series", err)
 		return
@@ -34,7 +35,7 @@ func (h *Handler) GetConnectionUtilization(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetConnectionUtilization(c.Request.Context(), teamID, startMs, endMs)
+	resp, err := h.Service.GetConnectionUtilization(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query connection utilization", err)
 		return
@@ -48,7 +49,7 @@ func (h *Handler) GetConnectionLimits(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetConnectionLimits(c.Request.Context(), teamID, startMs, endMs)
+	resp, err := h.Service.GetConnectionLimits(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query connection limits", err)
 		return
@@ -62,7 +63,7 @@ func (h *Handler) GetPendingRequests(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetPendingRequests(c.Request.Context(), teamID, startMs, endMs)
+	resp, err := h.Service.GetPendingRequests(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query pending connection requests", err)
 		return
@@ -76,7 +77,7 @@ func (h *Handler) GetConnectionTimeoutRate(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetConnectionTimeoutRate(c.Request.Context(), teamID, startMs, endMs)
+	resp, err := h.Service.GetConnectionTimeoutRate(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query connection timeout rate", err)
 		return
@@ -90,7 +91,7 @@ func (h *Handler) GetConnectionWaitTime(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetConnectionWaitTime(c.Request.Context(), teamID, startMs, endMs)
+	resp, err := h.Service.GetConnectionWaitTime(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query connection wait time", err)
 		return
@@ -104,7 +105,7 @@ func (h *Handler) GetConnectionCreateTime(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetConnectionCreateTime(c.Request.Context(), teamID, startMs, endMs)
+	resp, err := h.Service.GetConnectionCreateTime(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query connection create time", err)
 		return
@@ -118,7 +119,7 @@ func (h *Handler) GetConnectionUseTime(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetConnectionUseTime(c.Request.Context(), teamID, startMs, endMs)
+	resp, err := h.Service.GetConnectionUseTime(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query connection use time", err)
 		return

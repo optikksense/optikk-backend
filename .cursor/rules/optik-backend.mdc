@@ -89,6 +89,20 @@ Dashboard default page: `defaults/ai_observability/` (4 tabs: overview, performa
 - `overview/errors` — `/overview/errors/*`, `/errors/groups/:groupId/*`
 - `overview/slo` — `/overview/slo`, `/overview/slo/stats`, `/overview/slo/burn-down`, `/overview/slo/burn-rate`
 
+## Alerting module
+
+`internal/modules/alerting/` (subpackages `evaluators/`, `channels/`) exposes `/alerts/*` and is the only current module that is **both** a `registry.Module` and a `registry.BackgroundRunner`.
+
+- **Storage**: single MySQL table `observability.alerts` — rule config + per-instance runtime state + silences all live inline as JSON columns. Append-only ClickHouse `observability.alert_events` (MergeTree, `PARTITION BY toYYYYMM(ts) ORDER BY (team_id, alert_id, ts)`) holds audit + transition history.
+- **Routes**: `POST/GET/PATCH/DELETE /alerts/rules[/:id]`, `POST /alerts/rules/:id/{mute,test,backtest}`, `GET /alerts/rules/:id/audit`, `GET /alerts/incidents`, `POST /alerts/instances/:id/{ack,snooze}`, `GET/POST/PATCH/DELETE /alerts/silences[/:id]`, `POST /alerts/callback/slack`.
+- **Evaluator loop** (`service.go:EvaluatorLoop.run`): 30s tick → `ListEnabledRules` → for each rule call `evaluators.Registry.Get(rule.ConditionType).Evaluate()` → `Decide()` (pure state machine in `statemachine.go`; states `ok|no_data|warn|alert|muted`, honors `for_secs`/`recover_for_secs`/`no_data_secs`/`mute_until`/`snoozed_until`) → on transition write `alert_events`, enqueue to in-memory `Dispatcher` (with deploy correlation via `DeploysInRange`), persist `SaveRuleRuntime`.
+- **Dispatcher** (`dispatcher.go`): worker goroutine consumes a bounded Go channel, de-duplicates via `alert_id:instance_key:transition_seq`, renders notification via `text/template` in `template.go`, posts to Slack webhook via `channels.Slack`. Failures append `dispatch_failed` events.
+- **Evaluators** (`evaluators/`): `SLOBurnRate`, `ErrorRate` — both wrap the shared repository DataSource (`SLOErrorRate`, `ServiceErrorRate`, `ErrorRateHistorical`) so they hit `observability.spans` through the same root-span definition used by `overview/slo`. New condition types = new struct + `NewRegistry` entry; no schema change.
+- **Backtest**: `backtest.go:RunBacktest` loops `Evaluator.EvaluateAt` across a historical range without persisting state or dispatching — powers `POST /alerts/rules/:id/backtest`.
+- **Deploy correlation**: `deployments.Repository.GetDeploysInRange` returns all root-span deploy markers in [start,end] across services for a team; alerting calls it on every transition to attach `deploy_refs` to the event + dispatch payload.
+- **Error codes**: `errorcode.AlertRuleNotFound`, `AlertRuleInvalidCondition`, `AlertInstanceNotFound`, `AlertChannelNotFound`, `AlertSilenceNotFound`.
+- **Module wiring**: `alerting.NewModule(sqlDB, nativeQuerier, clickHouseConn, getTenant, baseURL)` — registered in `modules_manifest.go:configuredModules()`. `Start/Stop` fan out to evaluator + dispatcher so the module slots into the existing `BackgroundRunner` lifecycle in `app.go`.
+
 ## Realtime
 
 - Live tail WebSocket: `internal/infra/livetailws/` — `GET /api/v1/ws/live` (`subscribe:logs` / `subscribe:spans` JSON protocol)

@@ -16,6 +16,7 @@ type Repository interface {
 	ListDeployments(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) ([]deploymentAggRow, error)
 	ListServiceDeployments(ctx context.Context, teamID int64, serviceName string) ([]deploymentAggRow, error)
 	GetLatestDeploymentsByService(ctx context.Context, teamID int64) ([]deploymentAggRow, error)
+	GetDeploysInRange(ctx context.Context, teamID int64, startMs, endMs int64) ([]deploymentAggRow, error)
 	GetVersionTraffic(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) ([]VersionTrafficPoint, error)
 	GetImpactWindow(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (impactAggRow, error)
 	GetActiveVersion(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (activeVersionRow, error)
@@ -129,6 +130,36 @@ func (r *ClickHouseRepository) GetLatestDeploymentsByService(ctx context.Context
 		ORDER BY deployments.service_name ASC
 	`,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+	)
+	return rows, err
+}
+
+// GetDeploysInRange returns all deploys (root-span markers) in [startMs,endMs]
+// across every service for a team. Used by alerting for fire/resolve deploy
+// correlation.
+func (r *ClickHouseRepository) GetDeploysInRange(ctx context.Context, teamID int64, startMs, endMs int64) ([]deploymentAggRow, error) {
+	var rows []deploymentAggRow
+	err := r.db.Select(ctx, &rows, `
+		SELECT s.service_name AS service_name,
+		       s.mat_service_version AS version,
+		       s.mat_deployment_environment AS environment,
+		       min(s.timestamp) AS first_seen,
+		       max(s.timestamp) AS last_seen,
+		       toInt64(count()) AS span_count
+		FROM observability.spans s
+		WHERE s.team_id = @teamID
+		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
+		  AND s.timestamp BETWEEN @start AND @end
+		  AND `+rootspan.Condition("s")+`
+		  AND s.mat_service_version != ''
+		GROUP BY service_name, version, environment
+		ORDER BY first_seen ASC
+	`,
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
 	return rows, err
 }
