@@ -101,13 +101,13 @@ func buildWhereClause(f TraceFilters) (frag string, args []any) {
 		valueName := fmt.Sprintf("attrValue%d", i)
 		switch af.Op {
 		case "neq":
-			frag += ` AND s.attributes_string[@` + keyName + `] != @` + valueName
+			frag += ` AND JSONExtractString(toJSONString(s.attributes), @` + keyName + `) != @` + valueName
 		case "contains":
-			frag += ` AND positionCaseInsensitive(s.attributes_string[@` + keyName + `], @` + valueName + `) > 0`
+			frag += ` AND positionCaseInsensitive(JSONExtractString(toJSONString(s.attributes), @` + keyName + `), @` + valueName + `) > 0`
 		case "regex":
-			frag += ` AND match(s.attributes_string[@` + keyName + `], @` + valueName + `)`
+			frag += ` AND match(JSONExtractString(toJSONString(s.attributes), @` + keyName + `), @` + valueName + `)`
 		default:
-			frag += ` AND s.attributes_string[@` + keyName + `] = @` + valueName
+			frag += ` AND JSONExtractString(toJSONString(s.attributes), @` + keyName + `) = @` + valueName
 		}
 		args = append(args, clickhouse.Named(keyName, af.Key), clickhouse.Named(valueName, af.Value))
 	}

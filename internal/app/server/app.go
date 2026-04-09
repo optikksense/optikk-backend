@@ -126,7 +126,6 @@ func (a *App) Start(ctx context.Context) error {
 			return fmt.Errorf("gRPC listen failed: %v", err)
 		}
 		grpcSrv := grpc.NewServer(
-			grpc.MaxRecvMsgSize(a.Config.OTLP.GRPCMaxRecvMsgSizeMB*1024*1024),
 			grpc.MaxConcurrentStreams(100),
 			grpc.ConnectionTimeout(30*time.Second),
 			grpc.KeepaliveParams(keepalive.ServerParameters{

@@ -6,8 +6,6 @@ const (
 )
 
 const (
-	PanelTypeAIBar             PanelType = "ai-bar"
-	PanelTypeAILine            PanelType = "ai-line"
 	PanelTypeBar               PanelType = "bar"
 	PanelTypeDBSystemsOverview PanelType = "db-systems-overview"
 	PanelTypeErrorHotspotRank  PanelType = "error-hotspot-ranking"
@@ -65,7 +63,6 @@ const (
 )
 
 const (
-	DrawerEntityAIModel        DrawerEntity = "aiModel"
 	DrawerEntityDatabaseSystem DrawerEntity = "databaseSystem"
 	DrawerEntityErrorGroup     DrawerEntity = "errorGroup"
 	DrawerEntityKafkaGroup     DrawerEntity = "kafkaGroup"
@@ -76,8 +73,6 @@ const (
 )
 
 var allowedPanelTypes = map[PanelType]struct{}{
-	PanelTypeAIBar:             {},
-	PanelTypeAILine:            {},
 	PanelTypeBar:               {},
 	PanelTypeDBSystemsOverview: {},
 	PanelTypeErrorHotspotRank:  {},
@@ -135,7 +130,6 @@ var allowedColumnAligns = map[ColumnAlign]struct{}{
 }
 
 var allowedDrawerEntities = map[DrawerEntity]struct{}{
-	DrawerEntityAIModel:        {},
 	DrawerEntityDatabaseSystem: {},
 	DrawerEntityErrorGroup:     {},
 	DrawerEntityKafkaGroup:     {},

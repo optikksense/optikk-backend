@@ -114,7 +114,6 @@ All under `/alerts/` prefix. Datadog-grade monitors: multi-window, multi-state (
 | `traces/redmetrics` | `GET /spans/red/{summary,apdex,top-slow-operations,top-error-operations,request-rate,error-rate,p95-latency,span-kind-breakdown,errors-by-route}`, `/spans/latency-breakdown` |
 | `traces/errorfingerprint` | `GET /errors/fingerprints`, `/errors/fingerprints/trend` |
 | `traces/errortracking` | `GET /spans/exception-rate-by-type`, `/spans/error-hotspot`, `/spans/http-5xx-by-route` |
-| `traces/tracecompare` | `GET /traces/compare` |
 | `traces/livetail` | WebSocket-only via `livetail.Hub` (no HTTP routes) |
 
 ### Infrastructure module routes
@@ -185,7 +184,6 @@ All under `/http/` prefix, Cached:
 
 | Package | Purpose |
 |---------|---------|
-| `circuitbreaker` | Resilience patterns for external/DB calls (`breaker.go`) — wraps `sony/gobreaker` |
 | `timebucket` | Adaptive time bucketing for ClickHouse aggregations (minute/5min/hour/day) |
 | `validation` | Schema-based validation logic |
 | `cache` | Query and object caching |
@@ -193,7 +191,6 @@ All under `/http/` prefix, Cached:
 | `ingestion` | Default in-memory dispatcher implementation backing `platform/ingestion.Dispatcher[T]` |
 | `livetail` | Default live-tail hub implementation behind `platform/livetail.Hub` |
 | `livetailws` | Live tail WebSocket handler (`GET /api/v1/ws/live`) wired against platform hub + session contracts |
-| `livetailredis` | Redis Stream keys for live tail (`livetail:logs:stream:{teamId}`, `livetail:spans:stream:{teamId}`; field `data`) |
 | `otlpredis` | Ingest stream names and consumer group ids; `EnsureIngestStreams` (`MKSTREAM` + `XGROUP CREATE`) |
 | `middleware` | HTTP middleware: CORS, error recovery, tenant context, rate limiting middleware |
 | `session` | Default `scs/v2` session manager implementation; keys: `auth_user_id`, `auth_email`, `auth_role`, `auth_default_team_id`, `auth_team_ids` |
@@ -355,7 +352,6 @@ The `service` page at `/service` is **fully frontend-owned** (Discovery + Topolo
 | `otlp` | `OTLPConfig` | `grpc_port`, `grpc_max_recv_msg_size_mb` |
 | `retention` | `RetentionConfig` | `default_days` |
 | `app` | `AppConfig` | `region`, `dashboard_config_use_defaults` |
-| `circuit_breaker` | `CircuitBreakerConfig` | `consecutive_failures`, `reset_timeout_ms` |
 
 ## Extension Interfaces
 
@@ -377,7 +373,7 @@ Use when a change spans API and UI. Frontend paths refer to **`optic-frontend`**
 | Dashboard panels | `internal/platform/dashboardcfg/`, panel types | `dashboard/renderers/`, `dashboardPanelRegistry` |
 | Auth | `internal/modules/user/auth/` | `shared/api/auth/` |
 | Default config | `internal/modules/dashboard/`, `internal/platform/dashboardcfg/` | `defaultConfigService.ts` |
-| Live tail (logs/traces) | `internal/infra/livetailws/`, `logs/search/livetail_*.go`, `traces/livetail/` | `useSocketStream.ts`, `useLiveTailStream.ts` |
+| Live tail (logs/traces) | `internal/infra/livetailws/`, `logs/search/livetail_payload.go`, `traces/livetail/` | `useSocketStream.ts`, `useLiveTailStream.ts` |
 
 ---
 

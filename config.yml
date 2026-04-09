@@ -33,9 +33,15 @@ session:
   cookie_http_only: true
   cookie_same_site: lax
 
+redis:
+  enabled: true
+  host: "127.0.0.1"
+  port: "6379"
+  password: ""
+  db: 0
+
 otlp:
   grpc_port: "4317"
-  grpc_max_recv_msg_size_mb: 16
 
 retention:
   default_days: 30
@@ -48,8 +54,3 @@ app:
   region: us-east-1
   dashboard_config_use_defaults: true
 
-# Database client circuit breakers (MySQL wrapper, ClickHouse native querier).
-# Since circuit breakers were removed from the code, these settings are primarily for legacy reference or future use if re-introduced.
-circuit_breaker:
-  consecutive_failures: 5
-  reset_timeout_ms: 30000

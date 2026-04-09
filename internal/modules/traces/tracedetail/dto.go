@@ -37,7 +37,6 @@ type errorPathRow struct {
 
 // traceLogRow is the scan target for GetTraceLogs.
 type traceLogRow struct {
-	ID                string             `ch:"id"`
 	Timestamp         time.Time          `ch:"timestamp"`
 	ObservedTimestamp uint64             `ch:"observed_timestamp"`
 	SeverityText      string             `ch:"severity_text"`

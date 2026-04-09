@@ -92,10 +92,9 @@ func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamID int64, 
 	var rows []spanRow
 	err := r.db.Select(ctx, &rows, `
 		SELECT span_id, parent_span_id, trace_id, name AS operation_name, service_name, kind_string AS span_kind,
-		       timestamp AS start_time, duration_nano, (duration_nano / 1000000.0) AS duration_ms, 
-		       status_code_string AS status, status_message, attributes_string AS attributes,
-		       events, links, resource_attributes, has_error,
-		       mat_http_method AS http_method, mat_http_url AS http_url, toInt64(toUInt16OrZero(response_status_code)) AS http_status_code,
+		       timestamp AS start_time, toInt64(duration_nano) AS duration_nano, (duration_nano / 1000000.0) AS duration_ms, 
+		       status_code_string AS status, status_message, toJSONString(attributes) AS attributes,
+		       http_method, http_url, toUInt16OrZero(response_status_code) AS http_status_code,
 		       mat_host_name AS host, mat_k8s_pod_name AS pod
 		FROM observability.spans
 		WHERE team_id = @teamID AND trace_id = @traceID

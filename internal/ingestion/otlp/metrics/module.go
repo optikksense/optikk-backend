@@ -8,8 +8,8 @@ import (
 	"google.golang.org/grpc"
 )
 
-func NewModule(authenticator platformingestion.TeamResolver, tracker platformingestion.SizeTracker, limiter platformingestion.Limiter, d platformingestion.Dispatcher[*MetricRow]) registry.Module {
-	service := NewService(authenticator, d, tracker, limiter)
+func NewModule(authenticator platformingestion.TeamResolver, tracker platformingestion.SizeTracker, d platformingestion.Dispatcher[*MetricRow]) registry.Module {
+	service := NewService(authenticator, d, tracker)
 	return &Module{
 		handler: NewHandler(service),
 	}

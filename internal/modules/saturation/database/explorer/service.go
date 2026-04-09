@@ -493,12 +493,52 @@ func (s *Service) GetDatastoreSystemSlowQueries(ctx context.Context, teamID int6
 	}, 25)
 }
 
-func (s *Service) GetKafkaSummary(teamID int64, startMs, endMs int64) (KafkaSummaryResponse, error) {
-	summary, err := s.kafka.GetKafkaSummaryStats(teamID, startMs, endMs, saturationkafka.KafkaFilters{})
-	if err != nil {
-		return KafkaSummaryResponse{}, err
-	}
+const (
+	kafkaMetricBytesConsumedRate      = "kafka.consumer.bytes_consumed_rate"
+	kafkaMetricBytesConsumedTotal     = "kafka.consumer.bytes_consumed_total"
+	kafkaMetricRecordsConsumedRate    = "kafka.consumer.records_consumed_rate"
+	kafkaMetricRecordsConsumedTotal   = "kafka.consumer.records_consumed_total"
+	kafkaMetricRecordsLag             = "kafka.consumer.records_lag"
+	kafkaMetricRecordsLead            = "kafka.consumer.records_lead"
+	kafkaMetricAssignedPartitions     = "kafka.consumer.assigned_partitions"
+	kafkaMetricCommitRate             = "kafka.consumer.commit_rate"
+	kafkaMetricCommitLatencyAvg       = "kafka.consumer.commit_latency_avg"
+	kafkaMetricCommitLatencyMax       = "kafka.consumer.commit_latency_max"
+	kafkaMetricFetchRate              = "kafka.consumer.fetch_rate"
+	kafkaMetricFetchLatencyAvg        = "kafka.consumer.fetch_latency_avg"
+	kafkaMetricFetchLatencyMax        = "kafka.consumer.fetch_latency_max"
+	kafkaMetricHeartbeatRate          = "kafka.consumer.heartbeat_rate"
+	kafkaMetricFailedRebalancePerHour = "kafka.consumer.failed_rebalance_rate_per_hour"
+	kafkaMetricPollIdleRatioAvg       = "kafka.consumer.poll_idle_ratio_avg"
+	kafkaMetricLastPollSecondsAgo     = "kafka.consumer.last_poll_seconds_ago"
+	kafkaMetricConnectionCount        = "kafka.consumer.connection_count"
+)
 
+var kafkaTopicMetricNames = []string{
+	kafkaMetricBytesConsumedRate,
+	kafkaMetricBytesConsumedTotal,
+	kafkaMetricRecordsConsumedRate,
+	kafkaMetricRecordsConsumedTotal,
+	kafkaMetricRecordsLag,
+	kafkaMetricRecordsLead,
+}
+
+var kafkaGroupMetricNames = []string{
+	kafkaMetricAssignedPartitions,
+	kafkaMetricCommitRate,
+	kafkaMetricCommitLatencyAvg,
+	kafkaMetricCommitLatencyMax,
+	kafkaMetricFetchRate,
+	kafkaMetricFetchLatencyAvg,
+	kafkaMetricFetchLatencyMax,
+	kafkaMetricHeartbeatRate,
+	kafkaMetricFailedRebalancePerHour,
+	kafkaMetricPollIdleRatioAvg,
+	kafkaMetricLastPollSecondsAgo,
+	kafkaMetricConnectionCount,
+}
+
+func (s *Service) GetKafkaSummary(teamID int64, startMs, endMs int64) (KafkaSummaryResponse, error) {
 	topics, err := s.buildKafkaTopicRows(teamID, startMs, endMs, saturationkafka.KafkaFilters{})
 	if err != nil {
 		return KafkaSummaryResponse{}, err
@@ -508,15 +548,17 @@ func (s *Service) GetKafkaSummary(teamID int64, startMs, endMs int64) (KafkaSumm
 		return KafkaSummaryResponse{}, err
 	}
 
-	return KafkaSummaryResponse{
-		PublishRatePerSec: summary.PublishRatePerSec,
-		ReceiveRatePerSec: summary.ReceiveRatePerSec,
-		MaxLag:            summary.MaxLag,
-		PublishP95Ms:      summary.PublishP95Ms,
-		ReceiveP95Ms:      summary.ReceiveP95Ms,
-		TopicCount:        len(topics),
-		GroupCount:        len(groups),
-	}, nil
+	summary := KafkaSummaryResponse{
+		TopicCount: len(topics),
+		GroupCount: len(groups),
+	}
+	for _, row := range topics {
+		summary.BytesPerSec += row.BytesPerSec
+	}
+	for _, row := range groups {
+		summary.AssignedPartitions += row.AssignedPartitions
+	}
+	return summary, nil
 }
 
 func (s *Service) GetKafkaTopics(teamID int64, startMs, endMs int64) ([]KafkaTopicRow, error) {
@@ -534,23 +576,20 @@ func (s *Service) GetKafkaTopicOverview(teamID int64, startMs, endMs int64, topi
 	}
 	overview := KafkaTopicOverview{
 		Topic: topic,
+		Trend: []KafkaTopicTrendPoint{},
 	}
 	if len(rows) > 0 {
 		overview.Summary = rows[0]
 	}
-	overview.Trend, err = s.buildKafkaTopicTrend(teamID, startMs, endMs, saturationkafka.KafkaFilters{Topic: topic})
-	if err != nil {
-		return KafkaTopicOverview{}, err
-	}
 	return overview, nil
 }
 
-func (s *Service) GetKafkaTopicGroups(teamID int64, startMs, endMs int64, topic string) ([]KafkaGroupRow, error) {
-	return s.buildKafkaGroupRows(teamID, startMs, endMs, saturationkafka.KafkaFilters{Topic: topic})
+func (s *Service) GetKafkaTopicGroups(teamID int64, startMs, endMs int64, topic string) ([]KafkaTopicConsumerRow, error) {
+	return s.buildKafkaTopicConsumerRows(teamID, startMs, endMs, saturationkafka.KafkaFilters{Topic: topic})
 }
 
 func (s *Service) GetKafkaTopicPartitions(teamID int64, startMs, endMs int64, topic string) ([]saturationkafka.PartitionLag, error) {
-	return s.kafka.GetConsumerLagPerPartition(teamID, startMs, endMs, saturationkafka.KafkaFilters{Topic: topic})
+	return []saturationkafka.PartitionLag{}, nil
 }
 
 func (s *Service) GetKafkaGroupOverview(teamID int64, startMs, endMs int64, group string) (KafkaGroupOverview, error) {
@@ -560,13 +599,10 @@ func (s *Service) GetKafkaGroupOverview(teamID int64, startMs, endMs int64, grou
 	}
 	overview := KafkaGroupOverview{
 		ConsumerGroup: group,
+		Trend:         []KafkaGroupTrendPoint{},
 	}
 	if len(rows) > 0 {
 		overview.Summary = rows[0]
-	}
-	overview.Trend, err = s.buildKafkaGroupTrend(teamID, startMs, endMs, saturationkafka.KafkaFilters{Group: group})
-	if err != nil {
-		return KafkaGroupOverview{}, err
 	}
 	return overview, nil
 }
@@ -576,167 +612,207 @@ func (s *Service) GetKafkaGroupTopics(teamID int64, startMs, endMs int64, group 
 }
 
 func (s *Service) GetKafkaGroupPartitions(teamID int64, startMs, endMs int64, group string) ([]saturationkafka.PartitionLag, error) {
-	return s.kafka.GetConsumerLagPerPartition(teamID, startMs, endMs, saturationkafka.KafkaFilters{Group: group})
+	return []saturationkafka.PartitionLag{}, nil
 }
 
 func (s *Service) buildKafkaTopicRows(teamID int64, startMs, endMs int64, filters saturationkafka.KafkaFilters) ([]KafkaTopicRow, error) {
-	produceRates, err := s.kafka.GetProduceRateByTopic(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	consumeRates, err := s.kafka.GetConsumeRateByTopic(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	publishLatency, err := s.kafka.GetPublishLatencyByTopic(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	receiveLatency, err := s.kafka.GetReceiveLatencyByTopic(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	e2eLatency, err := s.kafka.GetE2ELatency(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	lagRows, err := s.kafka.GetConsumerLagByGroup(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	publishErrors, err := s.kafka.GetPublishErrors(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	consumeErrors, err := s.kafka.GetConsumeErrors(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	processErrors, err := s.kafka.GetProcessErrors(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	clientErrors, err := s.kafka.GetClientOpErrors(teamID, startMs, endMs, filters)
+	samples, err := s.kafka.GetTopicMetricSamples(teamID, startMs, endMs, filters, kafkaTopicMetricNames)
 	if err != nil {
 		return nil, err
 	}
 
-	latestProduce := latestTopicRates(produceRates)
-	latestConsume := latestTopicRates(consumeRates)
-	latestPublish := latestTopicLatencies(publishLatency)
-	latestReceive := latestTopicLatencies(receiveLatency)
-	latestE2E := latestE2ELatencies(e2eLatency)
-	maxLag := maxLagByTopic(lagRows)
-	groupCounts := distinctGroupCountsByTopic(lagRows)
-	errorRates := mergeMaxFloatMaps(
-		maxTopicErrors(publishErrors),
-		maxTopicErrors(consumeErrors),
-		maxTopicErrors(processErrors),
-		maxTopicErrors(clientErrors),
-	)
+	latestByKey := map[string]sampleValue{}
+	consumerGroupsByTopic := map[string]map[string]struct{}{}
+	for _, sample := range samples {
+		topic := strings.TrimSpace(sample.Topic)
+		consumerGroup := strings.TrimSpace(sample.ConsumerGroup)
+		if topic == "" {
+			continue
+		}
+		if consumerGroup != "" {
+			if consumerGroupsByTopic[topic] == nil {
+				consumerGroupsByTopic[topic] = map[string]struct{}{}
+			}
+			consumerGroupsByTopic[topic][consumerGroup] = struct{}{}
+		}
+		key := topic + "\x00" + consumerGroup + "\x00" + sample.MetricName
+		if current, ok := latestByKey[key]; !ok || sample.Timestamp >= current.Timestamp {
+			latestByKey[key] = sampleValue{Timestamp: sample.Timestamp, Value: sample.Value}
+		}
+	}
 
-	keys := unionKeysFromStringMaps(
-		latestProduce,
-		latestConsume,
-		maxLag,
-		errorRates,
-	)
-	keys = unionKeysWithTopicLatencies(keys, latestPublish, latestReceive)
-	keys = unionKeysWithE2ELatencies(keys, latestE2E)
-	keys = unionKeysWithCounts(keys, groupCounts)
+	rowsByTopic := map[string]*KafkaTopicRow{}
+	for key, value := range latestByKey {
+		topic, _, metricName := splitKafkaKey(key)
+		row := ensureKafkaTopicRow(rowsByTopic, topic)
+		switch metricName {
+		case kafkaMetricBytesConsumedRate:
+			row.BytesPerSec += value.Value
+		case kafkaMetricBytesConsumedTotal:
+			row.BytesTotal += value.Value
+		case kafkaMetricRecordsConsumedRate:
+			row.RecordsPerSec += value.Value
+		case kafkaMetricRecordsConsumedTotal:
+			row.RecordsTotal += value.Value
+		case kafkaMetricRecordsLag:
+			if value.Value > row.Lag {
+				row.Lag = value.Value
+			}
+		case kafkaMetricRecordsLead:
+			if value.Value > row.Lead {
+				row.Lead = value.Value
+			}
+		}
+	}
 
-	rows := make([]KafkaTopicRow, 0, len(keys))
-	for _, topic := range keys {
-		publish := latestPublish[topic]
-		receive := latestReceive[topic]
-		e2e := latestE2E[topic]
-		rows = append(rows, KafkaTopicRow{
-			Topic:              topic,
-			ProduceRatePerSec:  latestProduce[topic],
-			ConsumeRatePerSec:  latestConsume[topic],
-			MaxLag:             maxLag[topic],
-			E2EP95Ms:           e2e.ProcessP95Ms,
-			PublishP95Ms:       publish.P95Ms,
-			ReceiveP95Ms:       receive.P95Ms,
-			ErrorRate:          errorRates[topic],
-			ConsumerGroupCount: groupCounts[topic],
-		})
+	rows := make([]KafkaTopicRow, 0, len(rowsByTopic))
+	for topic, row := range rowsByTopic {
+		if groups := consumerGroupsByTopic[topic]; groups != nil {
+			row.ConsumerGroupCount = len(groups)
+		}
+		rows = append(rows, *row)
 	}
 
 	sort.Slice(rows, func(i, j int) bool {
-		if rows[i].MaxLag == rows[j].MaxLag {
-			return rows[i].Topic < rows[j].Topic
+		if rows[i].Lag == rows[j].Lag {
+			if rows[i].BytesPerSec == rows[j].BytesPerSec {
+				return rows[i].Topic < rows[j].Topic
+			}
+			return rows[i].BytesPerSec > rows[j].BytesPerSec
 		}
-		return rows[i].MaxLag > rows[j].MaxLag
+		return rows[i].Lag > rows[j].Lag
 	})
 	return rows, nil
 }
 
 func (s *Service) buildKafkaGroupRows(teamID int64, startMs, endMs int64, filters saturationkafka.KafkaFilters) ([]KafkaGroupRow, error) {
-	consumeRates, err := s.kafka.GetConsumeRateByGroup(teamID, startMs, endMs, filters)
+	groupSamples, err := s.kafka.GetConsumerMetricSamples(teamID, startMs, endMs, filters, kafkaGroupMetricNames)
 	if err != nil {
 		return nil, err
 	}
-	processRates, err := s.kafka.GetProcessRateByGroup(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	processLatency, err := s.kafka.GetProcessLatencyByGroup(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	lagRows, err := s.kafka.GetConsumerLagByGroup(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	rebalanceRows, err := s.kafka.GetRebalanceSignals(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	consumeErrors, err := s.kafka.GetConsumeErrors(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	processErrors, err := s.kafka.GetProcessErrors(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	clientErrors, err := s.kafka.GetClientOpErrors(teamID, startMs, endMs, filters)
+	topicSamples, err := s.kafka.GetTopicMetricSamples(teamID, startMs, endMs, filters, kafkaTopicMetricNames)
 	if err != nil {
 		return nil, err
 	}
 
-	latestConsume := latestGroupRates(consumeRates)
-	latestProcess := latestGroupRates(processRates)
-	latestLatency := latestGroupLatencies(processLatency)
-	maxLag := maxLagByGroup(lagRows)
-	topicCounts := distinctTopicCountsByGroup(lagRows)
-	latestRebalance := latestRebalanceByGroup(rebalanceRows)
-	errorRates := mergeMaxFloatMaps(
-		maxGroupErrors(consumeErrors),
-		maxGroupErrors(processErrors),
-		maxGroupErrors(clientErrors),
-	)
+	latestByKey := map[string]sampleValue{}
+	for _, sample := range groupSamples {
+		consumerGroup := strings.TrimSpace(sample.ConsumerGroup)
+		if consumerGroup == "" {
+			continue
+		}
+		key := consumerGroup + "\x00" + strings.TrimSpace(sample.NodeID) + "\x00" + sample.MetricName
+		if current, ok := latestByKey[key]; !ok || sample.Timestamp >= current.Timestamp {
+			latestByKey[key] = sampleValue{Timestamp: sample.Timestamp, Value: sample.Value}
+		}
+	}
 
-	keys := unionKeysFromStringMaps(latestConsume, latestProcess, maxLag, errorRates)
-	keys = unionKeysWithGroupLatency(keys, latestLatency, latestRebalance)
-	keys = unionKeysWithCounts(keys, topicCounts)
+	valuesByGroup := map[string]map[string][]float64{}
+	for key, value := range latestByKey {
+		consumerGroup, _, metricName := splitKafkaKey(key)
+		if valuesByGroup[consumerGroup] == nil {
+			valuesByGroup[consumerGroup] = map[string][]float64{}
+		}
+		valuesByGroup[consumerGroup][metricName] = append(valuesByGroup[consumerGroup][metricName], value.Value)
+	}
 
-	rows := make([]KafkaGroupRow, 0, len(keys))
-	for _, group := range keys {
-		latency := latestLatency[group]
-		rebalance := latestRebalance[group]
-		rows = append(rows, KafkaGroupRow{
-			ConsumerGroup:      group,
-			Lag:                maxLag[group],
-			ConsumeRatePerSec:  latestConsume[group],
-			ProcessRatePerSec:  latestProcess[group],
-			ProcessP95Ms:       latency.P95Ms,
-			ErrorRate:          errorRates[group],
-			RebalanceRate:      rebalance.RebalanceRate,
-			AssignedPartitions: rebalance.AssignedPartitions,
-			TopicCount:         topicCounts[group],
-		})
+	topicsByGroup := map[string]map[string]struct{}{}
+	for _, sample := range topicSamples {
+		consumerGroup := strings.TrimSpace(sample.ConsumerGroup)
+		topic := strings.TrimSpace(sample.Topic)
+		if consumerGroup == "" || topic == "" {
+			continue
+		}
+		if topicsByGroup[consumerGroup] == nil {
+			topicsByGroup[consumerGroup] = map[string]struct{}{}
+		}
+		topicsByGroup[consumerGroup][topic] = struct{}{}
+	}
+
+	groupSet := map[string]struct{}{}
+	for group := range valuesByGroup {
+		groupSet[group] = struct{}{}
+	}
+	for group := range topicsByGroup {
+		groupSet[group] = struct{}{}
+	}
+
+	rows := make([]KafkaGroupRow, 0, len(groupSet))
+	for _, consumerGroup := range sortedKeys(groupSet) {
+		values := valuesByGroup[consumerGroup]
+		row := KafkaGroupRow{
+			ConsumerGroup:          consumerGroup,
+			AssignedPartitions:     sumFloat(values[kafkaMetricAssignedPartitions]),
+			CommitRate:             sumFloat(values[kafkaMetricCommitRate]),
+			CommitLatencyAvgMs:     avgFloat(values[kafkaMetricCommitLatencyAvg]),
+			CommitLatencyMaxMs:     maxFloat(values[kafkaMetricCommitLatencyMax]),
+			FetchRate:              sumFloat(values[kafkaMetricFetchRate]),
+			FetchLatencyAvgMs:      avgFloat(values[kafkaMetricFetchLatencyAvg]),
+			FetchLatencyMaxMs:      maxFloat(values[kafkaMetricFetchLatencyMax]),
+			HeartbeatRate:          sumFloat(values[kafkaMetricHeartbeatRate]),
+			FailedRebalancePerHour: sumFloat(values[kafkaMetricFailedRebalancePerHour]),
+			PollIdleRatio:          avgFloat(values[kafkaMetricPollIdleRatioAvg]),
+			LastPollSecondsAgo:     maxFloat(values[kafkaMetricLastPollSecondsAgo]),
+			ConnectionCount:        sumFloat(values[kafkaMetricConnectionCount]),
+			TopicCount:             len(topicsByGroup[consumerGroup]),
+		}
+		rows = append(rows, row)
+	}
+
+	sort.Slice(rows, func(i, j int) bool {
+		if rows[i].AssignedPartitions == rows[j].AssignedPartitions {
+			return rows[i].ConsumerGroup < rows[j].ConsumerGroup
+		}
+		return rows[i].AssignedPartitions > rows[j].AssignedPartitions
+	})
+	return rows, nil
+}
+
+func (s *Service) buildKafkaTopicConsumerRows(teamID int64, startMs, endMs int64, filters saturationkafka.KafkaFilters) ([]KafkaTopicConsumerRow, error) {
+	samples, err := s.kafka.GetTopicMetricSamples(teamID, startMs, endMs, filters, kafkaTopicMetricNames)
+	if err != nil {
+		return nil, err
+	}
+
+	latestByKey := map[string]sampleValue{}
+	for _, sample := range samples {
+		consumerGroup := strings.TrimSpace(sample.ConsumerGroup)
+		if consumerGroup == "" {
+			continue
+		}
+		key := consumerGroup + "\x00" + strings.TrimSpace(sample.Topic) + "\x00" + sample.MetricName
+		if current, ok := latestByKey[key]; !ok || sample.Timestamp >= current.Timestamp {
+			latestByKey[key] = sampleValue{Timestamp: sample.Timestamp, Value: sample.Value}
+		}
+	}
+
+	rowsByGroup := map[string]*KafkaTopicConsumerRow{}
+	for key, value := range latestByKey {
+		consumerGroup, _, metricName := splitKafkaKey(key)
+		row := rowsByGroup[consumerGroup]
+		if row == nil {
+			row = &KafkaTopicConsumerRow{ConsumerGroup: consumerGroup}
+			rowsByGroup[consumerGroup] = row
+		}
+		switch metricName {
+		case kafkaMetricBytesConsumedRate:
+			row.BytesPerSec += value.Value
+		case kafkaMetricRecordsConsumedRate:
+			row.RecordsPerSec += value.Value
+		case kafkaMetricRecordsLag:
+			if value.Value > row.Lag {
+				row.Lag = value.Value
+			}
+		case kafkaMetricRecordsLead:
+			if value.Value > row.Lead {
+				row.Lead = value.Value
+			}
+		}
+	}
+
+	rows := make([]KafkaTopicConsumerRow, 0, len(rowsByGroup))
+	for _, row := range rowsByGroup {
+		rows = append(rows, *row)
 	}
 
 	sort.Slice(rows, func(i, j int) bool {
@@ -746,187 +822,6 @@ func (s *Service) buildKafkaGroupRows(teamID int64, startMs, endMs int64, filter
 		return rows[i].Lag > rows[j].Lag
 	})
 	return rows, nil
-}
-
-func (s *Service) buildKafkaTopicTrend(teamID int64, startMs, endMs int64, filters saturationkafka.KafkaFilters) ([]KafkaTopicTrendPoint, error) {
-	produceRates, err := s.kafka.GetProduceRateByTopic(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	consumeRates, err := s.kafka.GetConsumeRateByTopic(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	publishLatency, err := s.kafka.GetPublishLatencyByTopic(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	receiveLatency, err := s.kafka.GetReceiveLatencyByTopic(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	e2eLatency, err := s.kafka.GetE2ELatency(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	lagRows, err := s.kafka.GetConsumerLagByGroup(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	publishErrors, err := s.kafka.GetPublishErrors(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	consumeErrors, err := s.kafka.GetConsumeErrors(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	processErrors, err := s.kafka.GetProcessErrors(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	clientErrors, err := s.kafka.GetClientOpErrors(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-
-	aggregated := map[string]KafkaTopicTrendPoint{}
-	for _, row := range produceRates {
-		acc := aggregated[row.Timestamp]
-		acc.Timestamp = row.Timestamp
-		acc.ProduceRatePerSec = row.RatePerSec
-		aggregated[row.Timestamp] = acc
-	}
-	for _, row := range consumeRates {
-		acc := aggregated[row.Timestamp]
-		acc.Timestamp = row.Timestamp
-		acc.ConsumeRatePerSec = row.RatePerSec
-		aggregated[row.Timestamp] = acc
-	}
-	for _, row := range publishLatency {
-		acc := aggregated[row.Timestamp]
-		acc.Timestamp = row.Timestamp
-		acc.PublishP95Ms = row.P95Ms
-		aggregated[row.Timestamp] = acc
-	}
-	for _, row := range receiveLatency {
-		acc := aggregated[row.Timestamp]
-		acc.Timestamp = row.Timestamp
-		acc.ReceiveP95Ms = row.P95Ms
-		aggregated[row.Timestamp] = acc
-	}
-	for _, row := range e2eLatency {
-		acc := aggregated[row.Timestamp]
-		acc.Timestamp = row.Timestamp
-		acc.E2EP95Ms = row.ProcessP95Ms
-		aggregated[row.Timestamp] = acc
-	}
-	for _, row := range lagRows {
-		acc := aggregated[row.Timestamp]
-		acc.Timestamp = row.Timestamp
-		if row.Lag > acc.MaxLag {
-			acc.MaxLag = row.Lag
-		}
-		aggregated[row.Timestamp] = acc
-	}
-	for _, set := range [][]saturationkafka.ErrorRatePoint{publishErrors, consumeErrors, processErrors, clientErrors} {
-		for _, row := range set {
-			acc := aggregated[row.Timestamp]
-			acc.Timestamp = row.Timestamp
-			if row.ErrorRate > acc.ErrorRate {
-				acc.ErrorRate = row.ErrorRate
-			}
-			aggregated[row.Timestamp] = acc
-		}
-	}
-
-	return trendRows(aggregated, func(left, right KafkaTopicTrendPoint) bool {
-		return left.Timestamp < right.Timestamp
-	}), nil
-}
-
-func (s *Service) buildKafkaGroupTrend(teamID int64, startMs, endMs int64, filters saturationkafka.KafkaFilters) ([]KafkaGroupTrendPoint, error) {
-	consumeRates, err := s.kafka.GetConsumeRateByGroup(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	processRates, err := s.kafka.GetProcessRateByGroup(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	processLatency, err := s.kafka.GetProcessLatencyByGroup(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	lagRows, err := s.kafka.GetConsumerLagByGroup(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	rebalanceRows, err := s.kafka.GetRebalanceSignals(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	consumeErrors, err := s.kafka.GetConsumeErrors(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	processErrors, err := s.kafka.GetProcessErrors(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-	clientErrors, err := s.kafka.GetClientOpErrors(teamID, startMs, endMs, filters)
-	if err != nil {
-		return nil, err
-	}
-
-	aggregated := map[string]KafkaGroupTrendPoint{}
-	for _, row := range consumeRates {
-		acc := aggregated[row.Timestamp]
-		acc.Timestamp = row.Timestamp
-		acc.ConsumeRatePerSec = row.RatePerSec
-		aggregated[row.Timestamp] = acc
-	}
-	for _, row := range processRates {
-		acc := aggregated[row.Timestamp]
-		acc.Timestamp = row.Timestamp
-		acc.ProcessRatePerSec = row.RatePerSec
-		aggregated[row.Timestamp] = acc
-	}
-	for _, row := range processLatency {
-		acc := aggregated[row.Timestamp]
-		acc.Timestamp = row.Timestamp
-		acc.ProcessP95Ms = row.P95Ms
-		aggregated[row.Timestamp] = acc
-	}
-	for _, row := range lagRows {
-		acc := aggregated[row.Timestamp]
-		acc.Timestamp = row.Timestamp
-		if row.Lag > acc.MaxLag {
-			acc.MaxLag = row.Lag
-		}
-		aggregated[row.Timestamp] = acc
-	}
-	for _, row := range rebalanceRows {
-		acc := aggregated[row.Timestamp]
-		acc.Timestamp = row.Timestamp
-		acc.RebalanceRate = row.RebalanceRate
-		acc.AssignedPartitions = row.AssignedPartitions
-		aggregated[row.Timestamp] = acc
-	}
-	for _, set := range [][]saturationkafka.ErrorRatePoint{consumeErrors, processErrors, clientErrors} {
-		for _, row := range set {
-			acc := aggregated[row.Timestamp]
-			acc.Timestamp = row.Timestamp
-			if row.ErrorRate > acc.ErrorRate {
-				acc.ErrorRate = row.ErrorRate
-			}
-			aggregated[row.Timestamp] = acc
-		}
-	}
-
-	return trendRows(aggregated, func(left, right KafkaGroupTrendPoint) bool {
-		return left.Timestamp < right.Timestamp
-	}), nil
 }
 
 func isRedisSystem(system string) bool {
@@ -1014,285 +909,51 @@ func trendRows[T any](input map[string]T, less func(left, right T) bool) []T {
 	return rows
 }
 
-func latestTopicRates(rows []saturationkafka.TopicRatePoint) map[string]float64 {
-	values := map[string]float64{}
-	latest := map[string]string{}
-	for _, row := range rows {
-		key := strings.TrimSpace(row.Topic)
-		if key == "" {
-			continue
-		}
-		if row.Timestamp >= latest[key] {
-			latest[key] = row.Timestamp
-			values[key] = row.RatePerSec
-		}
-	}
-	return values
+type sampleValue struct {
+	Timestamp string
+	Value     float64
 }
 
-func latestTopicLatencies(rows []saturationkafka.TopicLatencyPoint) map[string]saturationkafka.TopicLatencyPoint {
-	values := map[string]saturationkafka.TopicLatencyPoint{}
-	latest := map[string]string{}
-	for _, row := range rows {
-		key := strings.TrimSpace(row.Topic)
-		if key == "" {
-			continue
-		}
-		if row.Timestamp >= latest[key] {
-			latest[key] = row.Timestamp
-			values[key] = row
-		}
+func ensureKafkaTopicRow(rows map[string]*KafkaTopicRow, topic string) *KafkaTopicRow {
+	row := rows[topic]
+	if row == nil {
+		row = &KafkaTopicRow{Topic: topic}
+		rows[topic] = row
 	}
-	return values
+	return row
 }
 
-func latestE2ELatencies(rows []saturationkafka.E2ELatencyPoint) map[string]saturationkafka.E2ELatencyPoint {
-	values := map[string]saturationkafka.E2ELatencyPoint{}
-	latest := map[string]string{}
-	for _, row := range rows {
-		key := strings.TrimSpace(row.Topic)
-		if key == "" {
-			continue
-		}
-		if row.Timestamp >= latest[key] {
-			latest[key] = row.Timestamp
-			values[key] = row
-		}
+func splitKafkaKey(key string) (string, string, string) {
+	parts := strings.SplitN(key, "\x00", 3)
+	for len(parts) < 3 {
+		parts = append(parts, "")
 	}
-	return values
+	return parts[0], parts[1], parts[2]
 }
 
-func latestGroupRates(rows []saturationkafka.GroupRatePoint) map[string]float64 {
-	values := map[string]float64{}
-	latest := map[string]string{}
-	for _, row := range rows {
-		key := strings.TrimSpace(row.ConsumerGroup)
-		if key == "" {
-			continue
-		}
-		if row.Timestamp >= latest[key] {
-			latest[key] = row.Timestamp
-			values[key] = row.RatePerSec
-		}
+func sumFloat(values []float64) float64 {
+	total := 0.0
+	for _, value := range values {
+		total += value
 	}
-	return values
+	return total
 }
 
-func latestGroupLatencies(rows []saturationkafka.GroupLatencyPoint) map[string]saturationkafka.GroupLatencyPoint {
-	values := map[string]saturationkafka.GroupLatencyPoint{}
-	latest := map[string]string{}
-	for _, row := range rows {
-		key := strings.TrimSpace(row.ConsumerGroup)
-		if key == "" {
-			continue
-		}
-		if row.Timestamp >= latest[key] {
-			latest[key] = row.Timestamp
-			values[key] = row
-		}
+func avgFloat(values []float64) float64 {
+	if len(values) == 0 {
+		return 0
 	}
-	return values
+	return sumFloat(values) / float64(len(values))
 }
 
-func latestRebalanceByGroup(rows []saturationkafka.RebalancePoint) map[string]saturationkafka.RebalancePoint {
-	values := map[string]saturationkafka.RebalancePoint{}
-	latest := map[string]string{}
-	for _, row := range rows {
-		key := strings.TrimSpace(row.ConsumerGroup)
-		if key == "" {
-			continue
-		}
-		if row.Timestamp >= latest[key] {
-			latest[key] = row.Timestamp
-			values[key] = row
+func maxFloat(values []float64) float64 {
+	max := 0.0
+	for i, value := range values {
+		if i == 0 || value > max {
+			max = value
 		}
 	}
-	return values
-}
-
-func maxLagByTopic(rows []saturationkafka.LagPoint) map[string]float64 {
-	values := map[string]float64{}
-	for _, row := range rows {
-		key := strings.TrimSpace(row.Topic)
-		if key == "" {
-			continue
-		}
-		if row.Lag > values[key] {
-			values[key] = row.Lag
-		}
-	}
-	return values
-}
-
-func maxLagByGroup(rows []saturationkafka.LagPoint) map[string]float64 {
-	values := map[string]float64{}
-	for _, row := range rows {
-		key := strings.TrimSpace(row.ConsumerGroup)
-		if key == "" {
-			continue
-		}
-		if row.Lag > values[key] {
-			values[key] = row.Lag
-		}
-	}
-	return values
-}
-
-func distinctGroupCountsByTopic(rows []saturationkafka.LagPoint) map[string]int {
-	sets := map[string]map[string]struct{}{}
-	for _, row := range rows {
-		topic := strings.TrimSpace(row.Topic)
-		group := strings.TrimSpace(row.ConsumerGroup)
-		if topic == "" || group == "" {
-			continue
-		}
-		if sets[topic] == nil {
-			sets[topic] = map[string]struct{}{}
-		}
-		sets[topic][group] = struct{}{}
-	}
-	values := map[string]int{}
-	for key, set := range sets {
-		values[key] = len(set)
-	}
-	return values
-}
-
-func distinctTopicCountsByGroup(rows []saturationkafka.LagPoint) map[string]int {
-	sets := map[string]map[string]struct{}{}
-	for _, row := range rows {
-		topic := strings.TrimSpace(row.Topic)
-		group := strings.TrimSpace(row.ConsumerGroup)
-		if topic == "" || group == "" {
-			continue
-		}
-		if sets[group] == nil {
-			sets[group] = map[string]struct{}{}
-		}
-		sets[group][topic] = struct{}{}
-	}
-	values := map[string]int{}
-	for key, set := range sets {
-		values[key] = len(set)
-	}
-	return values
-}
-
-func maxTopicErrors(rows []saturationkafka.ErrorRatePoint) map[string]float64 {
-	values := map[string]float64{}
-	for _, row := range rows {
-		key := strings.TrimSpace(row.Topic)
-		if key == "" {
-			continue
-		}
-		if row.ErrorRate > values[key] {
-			values[key] = row.ErrorRate
-		}
-	}
-	return values
-}
-
-func maxGroupErrors(rows []saturationkafka.ErrorRatePoint) map[string]float64 {
-	values := map[string]float64{}
-	for _, row := range rows {
-		key := strings.TrimSpace(row.ConsumerGroup)
-		if key == "" {
-			continue
-		}
-		if row.ErrorRate > values[key] {
-			values[key] = row.ErrorRate
-		}
-	}
-	return values
-}
-
-func mergeMaxFloatMaps(maps ...map[string]float64) map[string]float64 {
-	out := map[string]float64{}
-	for _, current := range maps {
-		for key, value := range current {
-			if value > out[key] {
-				out[key] = value
-			}
-		}
-	}
-	return out
-}
-
-func unionKeysFromStringMaps(maps ...map[string]float64) []string {
-	set := map[string]struct{}{}
-	for _, current := range maps {
-		for key := range current {
-			if strings.TrimSpace(key) == "" {
-				continue
-			}
-			set[key] = struct{}{}
-		}
-	}
-	return sortedKeys(set)
-}
-
-func unionKeysWithTopicLatencies(keys []string, topicLatencies ...map[string]saturationkafka.TopicLatencyPoint) []string {
-	set := map[string]struct{}{}
-	for _, key := range keys {
-		set[key] = struct{}{}
-	}
-	for _, current := range topicLatencies {
-		for key := range current {
-			if strings.TrimSpace(key) == "" {
-				continue
-			}
-			set[key] = struct{}{}
-		}
-	}
-	return sortedKeys(set)
-}
-
-func unionKeysWithE2ELatencies(keys []string, latencies map[string]saturationkafka.E2ELatencyPoint) []string {
-	set := map[string]struct{}{}
-	for _, key := range keys {
-		set[key] = struct{}{}
-	}
-	for key := range latencies {
-		if strings.TrimSpace(key) == "" {
-			continue
-		}
-		set[key] = struct{}{}
-	}
-	return sortedKeys(set)
-}
-
-func unionKeysWithGroupLatency(keys []string, groupLatency map[string]saturationkafka.GroupLatencyPoint, rebalance map[string]saturationkafka.RebalancePoint) []string {
-	set := map[string]struct{}{}
-	for _, key := range keys {
-		set[key] = struct{}{}
-	}
-	for key := range groupLatency {
-		if strings.TrimSpace(key) == "" {
-			continue
-		}
-		set[key] = struct{}{}
-	}
-	for key := range rebalance {
-		if strings.TrimSpace(key) == "" {
-			continue
-		}
-		set[key] = struct{}{}
-	}
-	return sortedKeys(set)
-}
-
-func unionKeysWithCounts(keys []string, counts map[string]int) []string {
-	set := map[string]struct{}{}
-	for _, key := range keys {
-		set[key] = struct{}{}
-	}
-	for key := range counts {
-		if strings.TrimSpace(key) == "" {
-			continue
-		}
-		set[key] = struct{}{}
-	}
-	return sortedKeys(set)
+	return max
 }
 
 func sortedKeys(set map[string]struct{}) []string {

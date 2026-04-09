@@ -79,3 +79,11 @@ func (s *KafkaService) GetBrokerConnections(teamID int64, startMs, endMs int64, 
 func (s *KafkaService) GetClientOperationDuration(teamID int64, startMs, endMs int64, f KafkaFilters) ([]ClientOpDurationPoint, error) {
 	return s.repo.GetClientOperationDuration(teamID, startMs, endMs, f)
 }
+
+func (s *KafkaService) GetConsumerMetricSamples(teamID int64, startMs, endMs int64, f KafkaFilters, metricNames []string) ([]ConsumerMetricSample, error) {
+	return s.repo.GetConsumerMetricSamples(teamID, startMs, endMs, f, metricNames)
+}
+
+func (s *KafkaService) GetTopicMetricSamples(teamID int64, startMs, endMs int64, f KafkaFilters, metricNames []string) ([]TopicMetricSample, error) {
+	return s.repo.GetTopicMetricSamples(teamID, startMs, endMs, f, metricNames)
+}

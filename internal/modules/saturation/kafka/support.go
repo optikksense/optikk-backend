@@ -95,12 +95,20 @@ func operationExpr() string {
 	return attrStringAny(operationAttributeAliases...)
 }
 
+func clientIDExpr() string {
+	return attrStringAny("client-id")
+}
+
 func messagingSystemExpr() string {
 	return attrStringAny(AttrMessagingSystem)
 }
 
 func topicPartitionExpr() string {
 	return attrStringAny(partitionAttributeAliases...)
+}
+
+func nodeIDExpr() string {
+	return attrStringAny("node-id")
 }
 
 func publishDurationCondition() string {
@@ -141,6 +149,20 @@ func kafkaFilterClauses(f KafkaFilters) (frag string, args []any) {
 	var sb strings.Builder
 
 	fmt.Fprintf(&sb, " AND lower(%s) = '%s'", messagingSystemExpr(), MessagingSystemKafka)
+	if f.Topic != "" {
+		fmt.Fprintf(&sb, " AND %s = @topicFilter", topicExpr())
+		args = append(args, clickhouse.Named("topicFilter", f.Topic))
+	}
+	if f.Group != "" {
+		fmt.Fprintf(&sb, " AND %s = @groupFilter", consumerGroupExpr())
+		args = append(args, clickhouse.Named("groupFilter", f.Group))
+	}
+	return sb.String(), args
+}
+
+func kafkaInventoryFilterClauses(f KafkaFilters) (frag string, args []any) {
+	var sb strings.Builder
+
 	if f.Topic != "" {
 		fmt.Fprintf(&sb, " AND %s = @topicFilter", topicExpr())
 		args = append(args, clickhouse.Named("topicFilter", f.Topic))

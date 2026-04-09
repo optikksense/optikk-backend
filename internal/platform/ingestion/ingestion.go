@@ -20,10 +20,6 @@ type TeamResolver interface {
 	ResolveTeamID(ctx context.Context, apiKey string) (int64, error)
 }
 
-type Limiter interface {
-	Allow(teamID int64, n int64) bool
-}
-
 type SizeTracker interface {
 	Track(teamID int64, bytes int64)
 }

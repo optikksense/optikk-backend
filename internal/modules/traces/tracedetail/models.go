@@ -82,7 +82,6 @@ type FlamegraphFrame struct {
 
 // TraceLog is the JSON response model for a log entry associated with a trace.
 type TraceLog struct {
-	ID                string             `json:"id"`
 	Timestamp         uint64             `json:"timestamp"`
 	ObservedTimestamp uint64             `json:"observed_timestamp,omitempty"`
 	SeverityText      string             `json:"severity_text"`

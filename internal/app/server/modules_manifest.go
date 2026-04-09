@@ -7,11 +7,12 @@ import (
 	otlp_spans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
 	otlp_streamworkers "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/streamworkers"
 	ai_conversations "github.com/Optikk-Org/optikk-backend/internal/modules/ai/conversations"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/alerting"
-	ai_dashboard "github.com/Optikk-Org/optikk-backend/internal/modules/ai/dashboard"
+	ai_insights "github.com/Optikk-Org/optikk-backend/internal/modules/ai/dashboard"
+	ai_platform "github.com/Optikk-Org/optikk-backend/internal/modules/ai/platform"
 	ai_rundetail "github.com/Optikk-Org/optikk-backend/internal/modules/ai/rundetail"
 	ai_runs "github.com/Optikk-Org/optikk-backend/internal/modules/ai/runs"
 	ai_traces "github.com/Optikk-Org/optikk-backend/internal/modules/ai/traces"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/alerting"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/apm"
 	defaultconfig "github.com/Optikk-Org/optikk-backend/internal/modules/dashboard"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/deployments"
@@ -35,13 +36,13 @@ import (
 	saturation_database_collection "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/collection"
 	saturation_database_connections "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/connections"
 	saturation_database_errors "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/errors"
+	saturation_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/explorer"
 	saturation_database_latency "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/latency"
 	saturation_database_slowqueries "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/slowqueries"
 	saturation_database_summary "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/summary"
 	saturation_database_system "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/system"
 	saturation_database_systems "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/systems"
 	saturation_database_volume "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/volume"
-	saturation_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/explorer"
 	saturation_kafka "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka"
 	services_topology "github.com/Optikk-Org/optikk-backend/internal/modules/services/topology"
 	spans_errorfingerprint "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errorfingerprint"
@@ -50,7 +51,6 @@ import (
 	spans_livetail "github.com/Optikk-Org/optikk-backend/internal/modules/traces/livetail"
 	spans_traces "github.com/Optikk-Org/optikk-backend/internal/modules/traces/query"
 	spans_redmetrics "github.com/Optikk-Org/optikk-backend/internal/modules/traces/redmetrics"
-	spans_tracecompare "github.com/Optikk-Org/optikk-backend/internal/modules/traces/tracecompare"
 	spans_tracedetail "github.com/Optikk-Org/optikk-backend/internal/modules/traces/tracedetail"
 	user_auth "github.com/Optikk-Org/optikk-backend/internal/modules/user/auth"
 	user_team "github.com/Optikk-Org/optikk-backend/internal/modules/user/team"
@@ -70,7 +70,8 @@ func configuredModules(
 	return []registry.Module{
 		ai_conversations.NewModule(nativeQuerier, getTenant),
 		alerting.NewModule(sqlDB, nativeQuerier, clickHouseConn, getTenant, ""),
-		ai_dashboard.NewModule(nativeQuerier, getTenant),
+		ai_insights.NewModule(nativeQuerier, getTenant),
+		ai_platform.NewModule(sqlDB, getTenant),
 		ai_rundetail.NewModule(nativeQuerier, getTenant),
 		ai_runs.NewModule(nativeQuerier, getTenant),
 		ai_traces.NewModule(nativeQuerier, getTenant),
@@ -92,9 +93,9 @@ func configuredModules(
 		log_search.NewModule(nativeQuerier, getTenant, logSearchSvc),
 		metricsexplorer.NewModule(nativeQuerier, getTenant),
 		otlp_streamworkers.NewModule(clickHouseConn, runtimeDeps.OTLP.LogDispatcher, runtimeDeps.OTLP.SpanDispatcher, runtimeDeps.OTLP.MetricDispatcher, runtimeDeps.LiveTailHub),
-		otlp_spans.NewModule(runtimeDeps.OTLP.Authenticator, runtimeDeps.OTLP.Tracker, runtimeDeps.OTLP.Limiter, runtimeDeps.OTLP.SpanDispatcher),
-		otlp_logs.NewModule(runtimeDeps.OTLP.Authenticator, runtimeDeps.OTLP.Tracker, runtimeDeps.OTLP.Limiter, runtimeDeps.OTLP.LogDispatcher),
-		otlp_metrics.NewModule(runtimeDeps.OTLP.Authenticator, runtimeDeps.OTLP.Tracker, runtimeDeps.OTLP.Limiter, runtimeDeps.OTLP.MetricDispatcher),
+		otlp_spans.NewModule(runtimeDeps.OTLP.Authenticator, runtimeDeps.OTLP.Tracker, runtimeDeps.OTLP.SpanDispatcher),
+		otlp_logs.NewModule(runtimeDeps.OTLP.Authenticator, runtimeDeps.OTLP.Tracker, runtimeDeps.OTLP.LogDispatcher),
+		otlp_metrics.NewModule(runtimeDeps.OTLP.Authenticator, runtimeDeps.OTLP.Tracker, runtimeDeps.OTLP.MetricDispatcher),
 		overview_errors.NewModule(nativeQuerier, getTenant),
 		overview_overview.NewModule(nativeQuerier, getTenant),
 		overview_slo.NewModule(nativeQuerier, getTenant),
@@ -115,7 +116,6 @@ func configuredModules(
 		spans_explorer.NewModule(nativeQuerier, getTenant),
 		spans_livetail.NewModule(nativeQuerier, getTenant, nil),
 		spans_redmetrics.NewModule(nativeQuerier, getTenant),
-		spans_tracecompare.NewModule(nativeQuerier, getTenant),
 		spans_tracedetail.NewModule(nativeQuerier, getTenant),
 		spans_traces.NewModule(nativeQuerier, getTenant),
 		user_auth.NewModule(sqlDB, getTenant, runtimeDeps.SessionManager, appConfig),

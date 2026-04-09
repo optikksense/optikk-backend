@@ -85,48 +85,54 @@ type DatastoreConnectionRow struct {
 }
 
 type KafkaSummaryResponse struct {
-	PublishRatePerSec float64 `json:"publish_rate_per_sec"`
-	ReceiveRatePerSec float64 `json:"receive_rate_per_sec"`
-	MaxLag            float64 `json:"max_lag"`
-	PublishP95Ms      float64 `json:"publish_p95_ms"`
-	ReceiveP95Ms      float64 `json:"receive_p95_ms"`
-	TopicCount        int     `json:"topic_count"`
-	GroupCount        int     `json:"group_count"`
+	TopicCount         int     `json:"topic_count"`
+	GroupCount         int     `json:"group_count"`
+	BytesPerSec        float64 `json:"bytes_per_sec"`
+	AssignedPartitions float64 `json:"assigned_partitions"`
 }
 
 type KafkaTopicRow struct {
 	Topic              string  `json:"topic"`
-	ProduceRatePerSec  float64 `json:"produce_rate_per_sec"`
-	ConsumeRatePerSec  float64 `json:"consume_rate_per_sec"`
-	MaxLag             float64 `json:"max_lag"`
-	E2EP95Ms           float64 `json:"e2e_p95_ms"`
-	PublishP95Ms       float64 `json:"publish_p95_ms"`
-	ReceiveP95Ms       float64 `json:"receive_p95_ms"`
-	ErrorRate          float64 `json:"error_rate"`
+	BytesPerSec        float64 `json:"bytes_per_sec"`
+	BytesTotal         float64 `json:"bytes_total"`
+	RecordsPerSec      float64 `json:"records_per_sec"`
+	RecordsTotal       float64 `json:"records_total"`
+	Lag                float64 `json:"lag"`
+	Lead               float64 `json:"lead"`
 	ConsumerGroupCount int     `json:"consumer_group_count"`
 }
 
 type KafkaGroupRow struct {
-	ConsumerGroup      string  `json:"consumer_group"`
-	Lag                float64 `json:"lag"`
-	ConsumeRatePerSec  float64 `json:"consume_rate_per_sec"`
-	ProcessRatePerSec  float64 `json:"process_rate_per_sec"`
-	ProcessP95Ms       float64 `json:"process_p95_ms"`
-	ErrorRate          float64 `json:"error_rate"`
-	RebalanceRate      float64 `json:"rebalance_rate"`
-	AssignedPartitions float64 `json:"assigned_partitions"`
-	TopicCount         int     `json:"topic_count"`
+	ConsumerGroup          string  `json:"consumer_group"`
+	AssignedPartitions     float64 `json:"assigned_partitions"`
+	CommitRate             float64 `json:"commit_rate"`
+	CommitLatencyAvgMs     float64 `json:"commit_latency_avg_ms"`
+	CommitLatencyMaxMs     float64 `json:"commit_latency_max_ms"`
+	FetchRate              float64 `json:"fetch_rate"`
+	FetchLatencyAvgMs      float64 `json:"fetch_latency_avg_ms"`
+	FetchLatencyMaxMs      float64 `json:"fetch_latency_max_ms"`
+	HeartbeatRate          float64 `json:"heartbeat_rate"`
+	FailedRebalancePerHour float64 `json:"failed_rebalance_per_hour"`
+	PollIdleRatio          float64 `json:"poll_idle_ratio"`
+	LastPollSecondsAgo     float64 `json:"last_poll_seconds_ago"`
+	ConnectionCount        float64 `json:"connection_count"`
+	TopicCount             int     `json:"topic_count"`
+}
+
+type KafkaTopicConsumerRow struct {
+	ConsumerGroup string  `json:"consumer_group"`
+	BytesPerSec   float64 `json:"bytes_per_sec"`
+	RecordsPerSec float64 `json:"records_per_sec"`
+	Lag           float64 `json:"lag"`
+	Lead          float64 `json:"lead"`
 }
 
 type KafkaTopicTrendPoint struct {
-	Timestamp         string  `json:"timestamp"`
-	ProduceRatePerSec float64 `json:"produce_rate_per_sec"`
-	ConsumeRatePerSec float64 `json:"consume_rate_per_sec"`
-	PublishP95Ms      float64 `json:"publish_p95_ms"`
-	ReceiveP95Ms      float64 `json:"receive_p95_ms"`
-	E2EP95Ms          float64 `json:"e2e_p95_ms"`
-	MaxLag            float64 `json:"max_lag"`
-	ErrorRate         float64 `json:"error_rate"`
+	Timestamp     string  `json:"timestamp"`
+	BytesPerSec   float64 `json:"bytes_per_sec"`
+	RecordsPerSec float64 `json:"records_per_sec"`
+	Lag           float64 `json:"lag"`
+	Lead          float64 `json:"lead"`
 }
 
 type KafkaTopicOverview struct {
@@ -136,14 +142,15 @@ type KafkaTopicOverview struct {
 }
 
 type KafkaGroupTrendPoint struct {
-	Timestamp          string  `json:"timestamp"`
-	ConsumeRatePerSec  float64 `json:"consume_rate_per_sec"`
-	ProcessRatePerSec  float64 `json:"process_rate_per_sec"`
-	ProcessP95Ms       float64 `json:"process_p95_ms"`
-	MaxLag             float64 `json:"max_lag"`
-	ErrorRate          float64 `json:"error_rate"`
-	RebalanceRate      float64 `json:"rebalance_rate"`
-	AssignedPartitions float64 `json:"assigned_partitions"`
+	Timestamp              string  `json:"timestamp"`
+	AssignedPartitions     float64 `json:"assigned_partitions"`
+	CommitRate             float64 `json:"commit_rate"`
+	FetchRate              float64 `json:"fetch_rate"`
+	HeartbeatRate          float64 `json:"heartbeat_rate"`
+	FailedRebalancePerHour float64 `json:"failed_rebalance_per_hour"`
+	ConnectionCount        float64 `json:"connection_count"`
+	PollIdleRatio          float64 `json:"poll_idle_ratio"`
+	LastPollSecondsAgo     float64 `json:"last_poll_seconds_ago"`
 }
 
 type KafkaGroupOverview struct {
@@ -153,9 +160,11 @@ type KafkaGroupOverview struct {
 }
 
 type KafkaGroupTopicRow struct {
-	Topic             string  `json:"topic"`
-	ConsumeRatePerSec float64 `json:"consume_rate_per_sec"`
-	MaxLag            float64 `json:"max_lag"`
-	ReceiveP95Ms      float64 `json:"receive_p95_ms"`
-	ErrorRate         float64 `json:"error_rate"`
+	Topic         string  `json:"topic"`
+	BytesPerSec   float64 `json:"bytes_per_sec"`
+	BytesTotal    float64 `json:"bytes_total"`
+	RecordsPerSec float64 `json:"records_per_sec"`
+	RecordsTotal  float64 `json:"records_total"`
+	Lag           float64 `json:"lag"`
+	Lead          float64 `json:"lead"`
 }

@@ -8,7 +8,9 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/config"
 	platformsession "github.com/Optikk-Org/optikk-backend/internal/platform/session"
+	"github.com/alexedwards/scs/redisstore"
 	"github.com/alexedwards/scs/v2"
+	redigoredis "github.com/gomodule/redigo/redis"
 )
 
 const (
@@ -25,7 +27,7 @@ type Manager struct {
 
 type AuthState = platformsession.AuthState
 
-func NewManager(cfg config.Config) *Manager {
+func NewManager(cfg config.Config, pool *redigoredis.Pool) *Manager {
 	sessionManager := scs.New()
 	sessionManager.Lifetime = cfg.SessionLifetime()
 	sessionManager.IdleTimeout = cfg.SessionIdleTimeout()
@@ -37,6 +39,9 @@ func NewManager(cfg config.Config) *Manager {
 	sessionManager.Cookie.Secure = cfg.Session.CookieSecure
 	sessionManager.Cookie.SameSite = parseSameSite(cfg.Session.CookieSameSite)
 	sessionManager.Cookie.Persist = true
+	if pool != nil {
+		sessionManager.Store = redisstore.New(pool)
+	}
 
 	return &Manager{
 		SessionManager: sessionManager,

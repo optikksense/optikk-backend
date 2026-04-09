@@ -2,7 +2,6 @@ package defaults
 
 import (
 	dashboardcfg "github.com/Optikk-Org/optikk-backend/internal/platform/dashboardcfg"
-	"github.com/Optikk-Org/optikk-backend/internal/platform/dashboardcfg/defaults/ai_observability"
 	"github.com/Optikk-Org/optikk-backend/internal/platform/dashboardcfg/defaults/infrastructure"
 	"github.com/Optikk-Org/optikk-backend/internal/platform/dashboardcfg/defaults/overview"
 )
@@ -16,6 +15,5 @@ func defaultPageDocuments() []dashboardcfg.PageDocument {
 	return []dashboardcfg.PageDocument{
 		overview.Page(),
 		infrastructure.Page(),
-		ai_observability.Page(),
 	}
 }

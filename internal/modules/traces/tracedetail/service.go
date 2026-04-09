@@ -178,7 +178,6 @@ func (s *TraceDetailService) GetTraceLogs(teamID int64, traceID string) (*TraceL
 	logs := make([]TraceLog, len(rows))
 	for i, row := range rows {
 		logs[i] = TraceLog{
-			ID:                row.ID,
 			Timestamp:         uint64(row.Timestamp.UnixNano()),
 			ObservedTimestamp: row.ObservedTimestamp,
 			SeverityText:      row.SeverityText,

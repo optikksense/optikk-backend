@@ -42,7 +42,7 @@ type aiDashboardModule struct {
 	handler *Handler
 }
 
-func (m *aiDashboardModule) Name() string                      { return "aiDashboard" }
+func (m *aiDashboardModule) Name() string                      { return "aiInsights" }
 func (m *aiDashboardModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
 func (m *aiDashboardModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {

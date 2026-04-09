@@ -55,7 +55,7 @@ func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, traceID string) ([]traceLogRow, error) {
 	var rows []traceLogRow
 	if err := r.db.Select(ctx, &rows, `
-		SELECT id, timestamp, observed_timestamp, severity_text, severity_number,
+		SELECT timestamp, observed_timestamp, severity_text, severity_number,
 			body, trace_id, span_id, trace_flags,
 			service, host, pod, container, environment,
 			attributes_string, attributes_number, attributes_bool,
@@ -108,9 +108,10 @@ func (r *ClickHouseRepository) GetSpanAttributes(ctx context.Context, teamID int
 	var rows []spanAttributeRow
 	if err := r.db.Select(ctx, &rows, `
 		SELECT s.span_id, s.trace_id, s.name AS operation_name, s.service_name,
-		       s.attributes_string, s.resource_attributes,
+		       CAST(s.attributes, 'Map(String, String)') AS attributes_string,
+		       CAST(map(), 'Map(String, String)') AS resource_attributes,
 		       s.exception_type, s.exception_message, s.exception_stacktrace,
-		       s.db_system, s.db_name, s.db_statement
+		       s.mat_db_system AS db_system, s.mat_db_name AS db_name, s.mat_db_statement AS db_statement
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND s.trace_id = @traceID AND s.span_id = @spanID
 		LIMIT 1
