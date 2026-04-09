@@ -8,7 +8,6 @@ import (
 	otlp_streamworkers "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/streamworkers"
 	ai_conversations "github.com/Optikk-Org/optikk-backend/internal/modules/ai/conversations"
 	ai_insights "github.com/Optikk-Org/optikk-backend/internal/modules/ai/dashboard"
-	ai_platform "github.com/Optikk-Org/optikk-backend/internal/modules/ai/platform"
 	ai_rundetail "github.com/Optikk-Org/optikk-backend/internal/modules/ai/rundetail"
 	ai_runs "github.com/Optikk-Org/optikk-backend/internal/modules/ai/runs"
 	ai_traces "github.com/Optikk-Org/optikk-backend/internal/modules/ai/traces"
@@ -69,7 +68,6 @@ func configuredModules(
 		ai_conversations.NewModule(nativeQuerier, getTenant),
 		alerting.NewModule(sqlDB, nativeQuerier, clickHouseConn, getTenant, ""),
 		ai_insights.NewModule(nativeQuerier, getTenant),
-		ai_platform.NewModule(sqlDB, getTenant),
 		ai_rundetail.NewModule(nativeQuerier, getTenant),
 		ai_runs.NewModule(nativeQuerier, getTenant),
 		ai_traces.NewModule(nativeQuerier, getTenant),
