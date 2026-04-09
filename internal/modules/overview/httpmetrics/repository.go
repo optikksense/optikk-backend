@@ -64,7 +64,7 @@ func (r *ClickHouseRepository) queryHistogramSummary(teamID int64, startMs, endM
 }
 
 func (r *ClickHouseRepository) GetRequestRate(teamID int64, startMs, endMs int64) ([]StatusCodeBucket, error) {
-	bucket := utils.Expression(startMs, endMs)
+	bucket := timebucket.Expression(startMs, endMs)
 	statusAttr := attrString(AttrHTTPStatusCode)
 
 	query := fmt.Sprintf(`
@@ -96,7 +96,7 @@ func (r *ClickHouseRepository) GetRequestDuration(teamID int64, startMs, endMs i
 }
 
 func (r *ClickHouseRepository) GetActiveRequests(teamID int64, startMs, endMs int64) ([]TimeBucket, error) {
-	bucket := utils.Expression(startMs, endMs)
+	bucket := timebucket.Expression(startMs, endMs)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -200,7 +200,7 @@ func (r *ClickHouseRepository) GetRouteErrorRate(teamID int64, startMs, endMs in
 }
 
 func (r *ClickHouseRepository) GetRouteErrorTimeseries(teamID int64, startMs, endMs int64) ([]RouteTimeseriesPoint, error) {
-	bucket := utils.Expression(startMs, endMs)
+	bucket := timebucket.Expression(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT %s AS time_bucket,
 		       mat_http_route AS http_route,
@@ -246,7 +246,7 @@ func (r *ClickHouseRepository) GetStatusDistribution(teamID int64, startMs, endM
 }
 
 func (r *ClickHouseRepository) GetErrorTimeseries(teamID int64, startMs, endMs int64) ([]ErrorTimeseriesPoint, error) {
-	bucket := utils.Expression(startMs, endMs)
+	bucket := timebucket.Expression(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT %s AS time_bucket,
 		       toInt64(count()) AS req_count,

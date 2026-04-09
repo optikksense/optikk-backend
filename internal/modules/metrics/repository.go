@@ -171,9 +171,9 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, teamID int64
 
 	var bucket string
 	if step != "" {
-		bucket = utils.ByName(step).GetBucketExpression()
+		bucket = timebucket.ByName(step).GetBucketExpression()
 	} else {
-		bucket = utils.Expression(startMs, endMs)
+		bucket = timebucket.Expression(startMs, endMs)
 	}
 
 	aggExpr := buildAggExpr(query.Aggregation, startMs, endMs, step)

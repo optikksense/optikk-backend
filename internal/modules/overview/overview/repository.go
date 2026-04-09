@@ -13,7 +13,7 @@ import (
 const serviceNameFilter = " AND s.service_name = @serviceName"
 
 func overviewBucketExpr(startMs, endMs int64) string {
-	return utils.ExprForColumnTime(startMs, endMs, "s.timestamp")
+	return timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 }
 
 type Repository interface {

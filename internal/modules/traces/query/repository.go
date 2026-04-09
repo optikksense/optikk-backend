@@ -137,8 +137,8 @@ func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64,
 	`,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
-		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("limit", limit),
@@ -147,7 +147,7 @@ func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64,
 }
 
 func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]errorTimeSeriesRow, error) {
-	bucket := utils.ExprForColumnTime(startMs, endMs, "s.timestamp")
+	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	query := fmt.Sprintf(`
 		SELECT %s AS timestamp,
 		       service_name,
@@ -164,8 +164,8 @@ func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamID in
 	err := r.db.Select(ctx, &rows, query,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
-		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
@@ -188,8 +188,8 @@ func (r *ClickHouseRepository) GetLatencyHistogram(ctx context.Context, teamID i
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("operationName", operationName),
-		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
@@ -197,7 +197,7 @@ func (r *ClickHouseRepository) GetLatencyHistogram(ctx context.Context, teamID i
 }
 
 func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]latencyHeatmapRow, error) {
-	bucket := utils.ExprForColumnTime(startMs, endMs, "s.timestamp")
+	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	query := fmt.Sprintf(`
 		SELECT time_bucket,
 		       latency_bucket,
@@ -209,8 +209,8 @@ func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int
 			WHERE s.team_id = @teamID AND `+rootspan.Condition("s")+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
@@ -281,7 +281,7 @@ func buildTraceFacetsQuery(f TraceFilters) (string, []any) {
 
 func buildTraceTrendQuery(f TraceFilters, step string) (string, []any) {
 	where, args := buildWhereClause(f)
-	bucket := utils.ByName(step).GetRawExpression("s.timestamp")
+	bucket := timebucket.ByName(step).GetRawExpression("s.timestamp")
 	query := fmt.Sprintf(`
 		SELECT %s AS time_bucket,
 		       count() AS total_traces,

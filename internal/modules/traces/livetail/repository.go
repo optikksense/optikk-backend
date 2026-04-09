@@ -29,8 +29,8 @@ func (r *Repository) Poll(teamID int64, since time.Time, filters LiveTailFilters
 	frag := ` WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN ? AND ? AND s.timestamp > ? AND ` + rootspan.Condition("s")
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		utils.SpansBucketStart(sinceMs / 1000),
-		utils.SpansBucketStart(nowMs / 1000),
+		timebucket.SpansBucketStart(sinceMs / 1000),
+		timebucket.SpansBucketStart(nowMs / 1000),
 		since,
 	}
 

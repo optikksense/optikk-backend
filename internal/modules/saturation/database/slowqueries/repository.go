@@ -107,7 +107,7 @@ func (r *ClickHouseRepository) GetSlowestCollections(ctx context.Context, teamID
 }
 
 func (r *ClickHouseRepository) GetSlowQueryRate(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters, thresholdMs float64) ([]SlowRatePoint, error) {
-	bucket := utils.Expression(startMs, endMs)
+	bucket := timebucket.Expression(startMs, endMs)
 	fc, fargs := shared.FilterClauses(f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 	thresholdSec := thresholdMs / 1000.0

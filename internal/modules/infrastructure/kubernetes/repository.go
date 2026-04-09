@@ -37,7 +37,7 @@ func nodeFilter(node string) (clause string, args []any) {
 }
 
 func (r *ClickHouseRepository) queryContainerBuckets(ctx context.Context, teamID int64, startMs, endMs int64, metricName string, node string) ([]containerBucketDTO, error) {
-	bucket := utils.Expression(startMs, endMs)
+	bucket := timebucket.Expression(startMs, endMs)
 	containerAttr := attrString(AttrContainerName)
 	nf, nfArgs := nodeFilter(node)
 

@@ -2,6 +2,7 @@ package tracedetail
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"strings"
 	"time"
@@ -41,6 +42,7 @@ type Repository interface {
 	GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
 	GetFlamegraphData(ctx context.Context, teamID int64, traceID string) ([]flamegraphRow, error)
 	GetTraceLogs(ctx context.Context, teamID int64, traceID string) ([]traceLogRow, error)
+	GetLLMTraceSpans(ctx context.Context, teamID int64, traceID string) ([]llmTraceSpanDTO, error)
 }
 
 type ClickHouseRepository struct {
@@ -50,6 +52,28 @@ type ClickHouseRepository struct {
 func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
+
+const (
+	tableSpans      = "observability.spans"
+	colModel        = "attributes.'gen_ai.request.model'::String"
+	colInputTokens  = "attributes.'gen_ai.usage.input_tokens'::Int64"  //nolint:gosec // G101
+	colOutputTokens = "attributes.'gen_ai.usage.output_tokens'::Int64" //nolint:gosec // G101
+)
+
+type llmTraceSpanDTO struct {
+	SpanID        string    `ch:"span_id"`
+	ParentSpanID  string    `ch:"parent_span_id"`
+	ServiceName   string    `ch:"service_name"`
+	OperationName string    `ch:"operation_name"`
+	Timestamp     time.Time `ch:"timestamp"`
+	DurationMs    float64   `ch:"duration_ms"`
+	HasError      bool      `ch:"has_error"`
+	KindString    string    `ch:"kind_string"`
+	Model         string    `ch:"model"`
+	InputTokens   int64     `ch:"input_tokens"`
+	OutputTokens  int64     `ch:"output_tokens"`
+}
+
 
 // GetTraceLogs returns the logs associated with a particular trace.
 func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, traceID string) ([]traceLogRow, error) {
@@ -144,8 +168,8 @@ func (r *ClickHouseRepository) GetRelatedTraces(ctx context.Context, teamID int6
 		LIMIT @limit
 	`,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("serviceName", serviceName),
@@ -179,7 +203,34 @@ func (r *ClickHouseRepository) GetSpanEvents(ctx context.Context, teamID int64, 
 		return nil, nil, err
 	}
 
+	for i, j := 0, len(exceptionRows)-1; i < j; i, j = i+1, j-1 {
+		exceptionRows[i], exceptionRows[j] = exceptionRows[j], exceptionRows[i]
+	}
 	return eventRows, exceptionRows, nil
+}
+
+func (r *ClickHouseRepository) GetLLMTraceSpans(ctx context.Context, teamID int64, traceID string) ([]llmTraceSpanDTO, error) {
+	query := fmt.Sprintf(`
+		SELECT s.span_id, s.parent_span_id, s.service_name,
+		       s.name AS operation_name, s.timestamp,
+		       s.duration_nano / 1000000.0 AS duration_ms,
+		       s.has_error, s.kind_string,
+		       %s AS model,
+		       %s AS input_tokens,
+		       %s AS output_tokens
+		FROM %s s
+		WHERE s.team_id = @teamID AND s.trace_id = @traceID
+		ORDER BY s.timestamp ASC
+		LIMIT 500
+	`, colModel, colInputTokens, colOutputTokens, tableSpans)
+	var rows []llmTraceSpanDTO
+	if err := r.db.Select(ctx, &rows, query,
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("traceID", traceID),
+	); err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 // GetFlamegraphData returns the raw spans for the flamegraph visualization.

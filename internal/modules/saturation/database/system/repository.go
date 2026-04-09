@@ -28,7 +28,7 @@ func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string, f shared.Filters) ([]LatencyTimeSeries, error) {
-	bucket := utils.Expression(startMs, endMs)
+	bucket := timebucket.Expression(startMs, endMs)
 	fc, fargs := shared.FilterClauses(f)
 
 	query := fmt.Sprintf(`
@@ -66,7 +66,7 @@ func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID int6
 }
 
 func (r *ClickHouseRepository) GetSystemOps(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string, f shared.Filters) ([]OpsTimeSeries, error) {
-	bucket := utils.Expression(startMs, endMs)
+	bucket := timebucket.Expression(startMs, endMs)
 	fc, fargs := shared.FilterClauses(f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
@@ -178,7 +178,7 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByVolume(ctx context.Conte
 }
 
 func (r *ClickHouseRepository) GetSystemErrors(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]ErrorTimeSeries, error) {
-	bucket := utils.Expression(startMs, endMs)
+	bucket := timebucket.Expression(startMs, endMs)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
 	query := fmt.Sprintf(`

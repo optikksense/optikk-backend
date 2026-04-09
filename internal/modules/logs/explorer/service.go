@@ -8,8 +8,8 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	logshared "github.com/Optikk-Org/optikk-backend/internal/modules/logs/internal/shared"
-	logsearch "github.com/Optikk-Org/optikk-backend/internal/modules/logs/search"
-
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	queryparser "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/queryparser"
 	logsearch "github.com/Optikk-Org/optikk-backend/internal/modules/logs/search"
 )
 

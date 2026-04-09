@@ -12,7 +12,7 @@ import (
 const serviceNameFilter = " AND s.service_name = @serviceName"
 
 func sloBucketExpr(startMs, endMs int64) string {
-	return utils.ExprForColumn(startMs, endMs, "s.timestamp")
+	return timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
 }
 
 type Repository interface {

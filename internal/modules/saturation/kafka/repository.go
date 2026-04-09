@@ -11,7 +11,7 @@ import (
 
 // timeBucketExpr returns the adaptive time-bucket expression for the metrics table timestamp column.
 func timeBucketExpr(startMs, endMs int64) string {
-	return utils.Expression(startMs, endMs)
+	return timebucket.Expression(startMs, endMs)
 }
 
 // bucketSecs returns the bucket width in seconds matching the adaptive strategy.

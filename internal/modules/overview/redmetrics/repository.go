@@ -46,8 +46,8 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		GROUP BY service_name
 	`,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
@@ -70,8 +70,8 @@ func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, start
 		clickhouse.Named("satisfiedMs", satisfiedMs),
 		clickhouse.Named("toleratingMs", toleratingMs),
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
@@ -94,8 +94,8 @@ func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID 
 		LIMIT @limit
 	`,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("limit", limit),
@@ -119,8 +119,8 @@ func (r *ClickHouseRepository) GetTopErrorOperations(ctx context.Context, teamID
 		LIMIT @limit
 	`,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("limit", limit),
@@ -129,7 +129,7 @@ func (r *ClickHouseRepository) GetTopErrorOperations(ctx context.Context, teamID
 }
 
 func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceRatePoint, error) {
-	bucket := utils.ExprForColumnTime(startMs, endMs, "s.timestamp")
+	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	var rows []ServiceRatePoint
 	err := r.db.Select(ctx, &rows, fmt.Sprintf(`
 		SELECT %s                               AS timestamp,
@@ -141,8 +141,8 @@ func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, tea
 		ORDER BY timestamp ASC
 	`, bucket),
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
@@ -150,7 +150,7 @@ func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, tea
 }
 
 func (r *ClickHouseRepository) GetErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceErrorRatePoint, error) {
-	bucket := utils.ExprForColumnTime(startMs, endMs, "s.timestamp")
+	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	var rows []ServiceErrorRatePoint
 	err := r.db.Select(ctx, &rows, fmt.Sprintf(`
 		SELECT %s                                                                      AS timestamp,
@@ -164,8 +164,8 @@ func (r *ClickHouseRepository) GetErrorRateTimeSeries(ctx context.Context, teamI
 		ORDER BY timestamp ASC
 	`, bucket),
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
@@ -173,7 +173,7 @@ func (r *ClickHouseRepository) GetErrorRateTimeSeries(ctx context.Context, teamI
 }
 
 func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceLatencyPoint, error) {
-	bucket := utils.ExprForColumnTime(startMs, endMs, "s.timestamp")
+	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	var rows []ServiceLatencyPoint
 	err := r.db.Select(ctx, &rows, fmt.Sprintf(`
 		SELECT %s                                              AS timestamp,
@@ -185,8 +185,8 @@ func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, team
 		ORDER BY timestamp ASC
 	`, bucket),
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
@@ -194,7 +194,7 @@ func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, team
 }
 
 func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]SpanKindPoint, error) {
-	bucket := utils.ExprForColumnTime(startMs, endMs, "s.timestamp")
+	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	var rows []SpanKindPoint
 	err := r.db.Select(ctx, &rows, fmt.Sprintf(`
 		SELECT %s                        AS timestamp,
@@ -206,8 +206,8 @@ func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID 
 		ORDER BY timestamp ASC
 	`, bucket),
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
@@ -215,7 +215,7 @@ func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID 
 }
 
 func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorByRoutePoint, error) {
-	bucket := utils.ExprForColumnTime(startMs, endMs, "s.timestamp")
+	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	var rows []ErrorByRoutePoint
 	err := r.db.Select(ctx, &rows, fmt.Sprintf(`
 		SELECT %s                                                                      AS timestamp,
@@ -229,8 +229,8 @@ func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int6
 		ORDER BY timestamp ASC, error_count DESC
 	`, bucket),
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
@@ -249,8 +249,8 @@ func (r *ClickHouseRepository) GetLatencyBreakdown(ctx context.Context, teamID i
 		GROUP BY service_name
 	`,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)

@@ -28,7 +28,7 @@ func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) latencySeriesByAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]LatencyTimeSeries, error) {
-	bucket := utils.Expression(startMs, endMs)
+	bucket := timebucket.Expression(startMs, endMs)
 	fc, fargs := shared.FilterClauses(f)
 
 	query := fmt.Sprintf(`
@@ -82,7 +82,7 @@ func (r *ClickHouseRepository) GetLatencyByServer(ctx context.Context, teamID in
 }
 
 func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyHeatmapBucket, error) {
-	bucket := utils.Expression(startMs, endMs)
+	bucket := timebucket.Expression(startMs, endMs)
 	fc, fargs := shared.FilterClauses(f)
 
 	query := fmt.Sprintf(`

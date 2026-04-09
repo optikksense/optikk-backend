@@ -180,7 +180,7 @@ var (
 )
 
 func TimeBucketExpression(startMs, endMs int64) string {
-	return utils.Expression(startMs, endMs)
+	return timebucket.Expression(startMs, endMs)
 }
 
 func attrFloat(attrName string) string {

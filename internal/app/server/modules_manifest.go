@@ -7,10 +7,8 @@ import (
 	otlp_spans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
 	otlp_streamworkers "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/streamworkers"
 	ai_conversations "github.com/Optikk-Org/optikk-backend/internal/modules/ai/conversations"
-	ai_insights "github.com/Optikk-Org/optikk-backend/internal/modules/ai/dashboard"
 	ai_rundetail "github.com/Optikk-Org/optikk-backend/internal/modules/ai/rundetail"
 	ai_runs "github.com/Optikk-Org/optikk-backend/internal/modules/ai/runs"
-	ai_traces "github.com/Optikk-Org/optikk-backend/internal/modules/ai/traces"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/alerting"
 	defaultconfig "github.com/Optikk-Org/optikk-backend/internal/modules/dashboard"
 	explorer_analytics "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
@@ -67,10 +65,8 @@ func configuredModules(
 	return []registry.Module{
 		ai_conversations.NewModule(nativeQuerier, getTenant),
 		alerting.NewModule(sqlDB, nativeQuerier, clickHouseConn, getTenant, ""),
-		ai_insights.NewModule(nativeQuerier, getTenant),
 		ai_rundetail.NewModule(nativeQuerier, getTenant),
 		ai_runs.NewModule(nativeQuerier, getTenant),
-		ai_traces.NewModule(nativeQuerier, getTenant),
 		apm.NewModule(nativeQuerier, getTenant),
 		explorer_analytics.NewModule(nativeQuerier, getTenant),
 		defaultconfig.NewModule(sqlDB, getTenant, appConfig, runtimeDeps.DashboardConfig),
