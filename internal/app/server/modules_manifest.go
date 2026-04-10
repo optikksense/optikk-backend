@@ -9,7 +9,6 @@ import (
 	ai_analytics "github.com/Optikk-Org/optikk-backend/internal/modules/ai/analytics"
 	ai_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/ai/explorer"
 	ai_overview "github.com/Optikk-Org/optikk-backend/internal/modules/ai/overview"
-	ai_spandetail "github.com/Optikk-Org/optikk-backend/internal/modules/ai/spandetail"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/alerting"
 	defaultconfig "github.com/Optikk-Org/optikk-backend/internal/modules/dashboard"
 	explorer_analytics "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
@@ -67,7 +66,6 @@ func configuredModules(
 		ai_analytics.NewModule(nativeQuerier, getTenant),
 		ai_explorer.NewModule(nativeQuerier, getTenant),
 		ai_overview.NewModule(nativeQuerier, getTenant),
-		ai_spandetail.NewModule(nativeQuerier, getTenant),
 		alerting.NewModule(sqlDB, nativeQuerier, clickHouseConn, getTenant, ""),
 		apm.NewModule(nativeQuerier, getTenant),
 		explorer_analytics.NewModule(nativeQuerier, getTenant),
