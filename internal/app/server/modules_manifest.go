@@ -6,9 +6,10 @@ import (
 	otlp_metrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/metrics"
 	otlp_spans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
 	otlp_streamworkers "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/streamworkers"
-	ai_conversations "github.com/Optikk-Org/optikk-backend/internal/modules/ai/conversations"
-	ai_rundetail "github.com/Optikk-Org/optikk-backend/internal/modules/ai/rundetail"
-	ai_runs "github.com/Optikk-Org/optikk-backend/internal/modules/ai/runs"
+	ai_analytics "github.com/Optikk-Org/optikk-backend/internal/modules/ai/analytics"
+	ai_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/ai/explorer"
+	ai_overview "github.com/Optikk-Org/optikk-backend/internal/modules/ai/overview"
+	ai_spandetail "github.com/Optikk-Org/optikk-backend/internal/modules/ai/spandetail"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/alerting"
 	defaultconfig "github.com/Optikk-Org/optikk-backend/internal/modules/dashboard"
 	explorer_analytics "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
@@ -63,10 +64,11 @@ func configuredModules(
 	logSearchSvc *log_search.Service,
 ) []registry.Module {
 	return []registry.Module{
-		ai_conversations.NewModule(nativeQuerier, getTenant),
+		ai_analytics.NewModule(nativeQuerier, getTenant),
+		ai_explorer.NewModule(nativeQuerier, getTenant),
+		ai_overview.NewModule(nativeQuerier, getTenant),
+		ai_spandetail.NewModule(nativeQuerier, getTenant),
 		alerting.NewModule(sqlDB, nativeQuerier, clickHouseConn, getTenant, ""),
-		ai_rundetail.NewModule(nativeQuerier, getTenant),
-		ai_runs.NewModule(nativeQuerier, getTenant),
 		apm.NewModule(nativeQuerier, getTenant),
 		explorer_analytics.NewModule(nativeQuerier, getTenant),
 		defaultconfig.NewModule(sqlDB, getTenant, appConfig, runtimeDeps.DashboardConfig),

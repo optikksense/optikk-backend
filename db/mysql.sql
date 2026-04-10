@@ -32,4 +32,3 @@ CREATE TABLE IF NOT EXISTS observability.users
      created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
      INDEX idx_user_email (email)
   );
-  

@@ -46,7 +46,7 @@ The web app lives in the sibling repo **`optic-frontend`** (see that repo's `COD
 
 | Domain | Packages | Route prefix | Cache |
 |--------|----------|-------------|-------|
-| **AI** (5) | `ai/dashboard`, `ai/runs`, `ai/rundetail`, `ai/conversations`, `ai/traces` | `/ai/*` | V1 |
+| **AI** (4) | `ai/overview`, `ai/explorer`, `ai/spandetail`, `ai/analytics` | `/ai/*` | Cached |
 | **Alerting** (1) | `alerting` (subpackages: `evaluators`, `channels`) | `/alerts/*` | V1 |
 | **APM** (1) | `overview/apm` | `/apm/*` | Cached |
 | **Dashboard config** (1) | `dashboard` | `/default-config/*` | V1 |
@@ -62,15 +62,15 @@ The web app lives in the sibling repo **`optic-frontend`** (see that repo's `COD
 | **User** (3) | `user/auth`, `user/team`, `user/user` (shared: `user/internal`) | `/auth/*`, `/users/*`, `/teams/*`, `/settings/*` | V1 |
 | **Ingestion** (4) | via `internal/ingestion/otlp/{streamworkers,spans,logs,metrics}` | gRPC only (no HTTP routes) | — |
 
-### AI module routes
-
 | Submodule | Key endpoints |
 |-----------|--------------|
-| `ai/dashboard` | `GET /ai/summary`, `/ai/models`, `/ai/performance/{summary,timeseries,latency-histogram}`, `/ai/cost/{summary,timeseries,token-breakdown}`, `/ai/security/{summary,timeseries,pii-categories}` |
-| `ai/runs` | `GET /ai/runs`, `/ai/runs/summary`, `/ai/runs/models`, `/ai/runs/operations` |
-| `ai/rundetail` | `GET /ai/runs/:spanId`, `/ai/runs/:spanId/messages`, `/ai/runs/:spanId/context` |
-| `ai/conversations` | `GET /ai/conversations`, `/ai/conversations/:conversationId` |
-| `ai/traces` | `GET /ai/traces/:traceId`, `/ai/traces/:traceId/summary` |
+| `ai/overview` | `GET /ai/overview/{summary,models,operations,services,model-health,top-slow,top-errors,finish-reasons,timeseries/*}` |
+| `ai/explorer` | `GET /ai/explorer/{spans,facets,summary,histogram}` |
+| `ai/spandetail` | `GET /ai/spans/{:spanId,messages,trace-context,related,token-breakdown}` |
+| `ai/analytics` | `GET /ai/analytics/{model-catalog,model-timeseries/*,latency-distribution,parameter-impact,cost-summary,cost-timeseries,token-economics,error-patterns,error-timeseries,finish-reason-analysis,conversations,conversations/:id/*}` |
+
+**Logic:** All AI modules filter the core `observability.spans` table for presence of `gen_ai.*` attributes (system, model, prompt, response). Metrics are aggregated via the `timebucket` infra; cost is derived from the in-memory static price map in `ai/analytics/models.go`.
+
 
 ### Overview module routes
 
@@ -370,6 +370,7 @@ Use when a change spans API and UI. Frontend paths refer to **`optic-frontend`**
 | Metrics | `internal/modules/metrics` (`/metrics/names`, `/:metricName/tags`, `/explorer/query`) | `src/features/metrics` (`metricsExplorerApi.ts`) |
 | Dashboard panels | `internal/platform/dashboardcfg/`, panel types | `dashboard/renderers/`, `dashboardPanelRegistry` |
 | Auth | `internal/modules/user/auth/` | `shared/api/auth/` |
+| AI Observability | `internal/modules/ai/{overview,explorer,spandetail,analytics}/` | `src/features/ai/api/` |
 | Default config | `internal/modules/dashboard/`, `internal/platform/dashboardcfg/` | `defaultConfigService.ts` |
 | Live tail (logs/traces) | `internal/infra/livetailws/`, `logs/search/livetail_payload.go`, `traces/livetail/` | `useSocketStream.ts`, `useLiveTailStream.ts` |
 
