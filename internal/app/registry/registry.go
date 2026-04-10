@@ -6,8 +6,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/config"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	configdefaults "github.com/Optikk-Org/optikk-backend/internal/platform/dashboardcfg"
-	platformsession "github.com/Optikk-Org/optikk-backend/internal/platform/session"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/session"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
@@ -27,9 +26,8 @@ type SQLDB = sql.DB
 type ClickHouseConn = clickhouse.Conn
 type NativeQuerier = database.NativeQuerier
 type GetTenantFunc = modulecommon.GetTenantFunc
-type SessionManager = platformsession.Manager
+type SessionManager = session.Manager
 type AppConfig = config.Config
-type ConfigRegistry = configdefaults.Registry
 
 // Module is the interface every feature module implements.
 type Module interface {

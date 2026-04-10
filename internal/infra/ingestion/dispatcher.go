@@ -3,27 +3,25 @@ package ingestion
 import (
 	"log/slog"
 	"sync/atomic"
-
-	platformingestion "github.com/Optikk-Org/optikk-backend/internal/platform/ingestion"
 )
 
 type LocalDispatcher[T any] struct {
-	persistenceChan chan platformingestion.TelemetryBatch[T]
-	streamingChan   chan platformingestion.TelemetryBatch[T]
+	persistenceChan chan TelemetryBatch[T]
+	streamingChan   chan TelemetryBatch[T]
 	droppedCount    int64
 }
 
-func NewLocalDispatcher[T any](bufferSize int) platformingestion.Dispatcher[T] {
+func NewLocalDispatcher[T any](bufferSize int) Dispatcher[T] {
 	if bufferSize <= 0 {
 		bufferSize = 10000
 	}
 	return &LocalDispatcher[T]{
-		persistenceChan: make(chan platformingestion.TelemetryBatch[T], bufferSize),
-		streamingChan:   make(chan platformingestion.TelemetryBatch[T], bufferSize),
+		persistenceChan: make(chan TelemetryBatch[T], bufferSize),
+		streamingChan:   make(chan TelemetryBatch[T], bufferSize),
 	}
 }
 
-func (d *LocalDispatcher[T]) Dispatch(batch platformingestion.TelemetryBatch[T]) {
+func (d *LocalDispatcher[T]) Dispatch(batch TelemetryBatch[T]) {
 	if len(batch.Rows) == 0 {
 		return
 	}
@@ -44,11 +42,11 @@ func (d *LocalDispatcher[T]) Dispatch(batch platformingestion.TelemetryBatch[T])
 	}
 }
 
-func (d *LocalDispatcher[T]) Persistence() <-chan platformingestion.TelemetryBatch[T] {
+func (d *LocalDispatcher[T]) Persistence() <-chan TelemetryBatch[T] {
 	return d.persistenceChan
 }
 
-func (d *LocalDispatcher[T]) Streaming() <-chan platformingestion.TelemetryBatch[T] {
+func (d *LocalDispatcher[T]) Streaming() <-chan TelemetryBatch[T] {
 	return d.streamingChan
 }
 

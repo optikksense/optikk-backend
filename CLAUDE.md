@@ -29,9 +29,8 @@ This is **mandatory**, not optional. The documentation must always reflect the c
 - **Time bucketing**: `internal/infra/timebucket/timebucket.go` — adaptive (1m/5m/15m/1h/1d) + `ByName()` for explicit steps
 - **Session**: `internal/infra/session/manager.go` — keys: `auth_user_id`, `auth_email`, `auth_role`, `auth_default_team_id`, `auth_team_ids`
 - **Middleware**: `internal/infra/middleware/` — public prefixes: `/api/v1/auth/login`, `/otlp/`, `/health`
-- **Dashboard JSON**: `internal/platform/dashboardcfg/`; enums in `enums.go` (24 panel types, 10 layout variants, 8 section templates)
-- **Dashboard default pages**: overview (6 tabs), ai-observability (4 tabs), infrastructure (4 tabs), saturation (3 tabs) — under `internal/platform/dashboardcfg/defaults/`. The `service` page is **fully frontend-owned** (Discovery + Topology in optic-frontend); no backend default config.
-- **AI modules**: `internal/modules/ai/{dashboard,runs,rundetail,conversations,traces}/` — `/api/v1/ai/*`
+- **Dashboard JSON + config API**: `internal/infra/dashboardcfg/` (handler, service, registry, enums, defaults merged); enums in `enums.go` (22 panel types, 10 layout variants, 8 section templates)
+- **Dashboard default pages**: overview (6 tabs), infrastructure (4 tabs), saturation (3 tabs) — under `internal/infra/dashboardcfg/defaults/`. The `service` page is **fully frontend-owned** (Discovery + Topology in optic-frontend); no backend default config.
 - **Overview module**: `internal/modules/overview/{overview,errors,slo}/` — `/api/v1/overview/*`
 - **HTTP Metrics**: `internal/modules/httpmetrics/` — `/api/v1/http/*`
 - **Infrastructure**: `internal/modules/infrastructure/{cpu,disk,jvm,kubernetes,memory,network,nodes,resourceutil}/` — `/api/v1/infrastructure/*`
@@ -40,7 +39,7 @@ This is **mandatory**, not optional. The documentation must always reflect the c
 - **Deployments API**: `internal/modules/deployments/` — `/api/v1/deployments/*` (exposes `GetDeploysInRange` for alerting deploy correlation)
 - **Alerting**: `internal/modules/alerting/` (subpackages `evaluators/`, `channels/`) — `/api/v1/alerts/*`. Datadog-grade monitors: MySQL `observability.alerts` (rule+instances+silences inline), ClickHouse `observability.alert_events` (audit/transitions). Evaluator loop ticks 30s, runs `evaluators.Registry` (`slo_burn_rate`, `error_rate`) → `Decide` state machine → `Dispatcher` → Slack webhook. Module implements `registry.BackgroundRunner`.
 - **Logs live tail**: `internal/modules/logs/search/livetail_run.go`, `livetail_payload.go` — Redis Stream subscription, no ClickHouse polling
-- **Explorer**: `internal/modules/explorer/analytics/` — `POST /api/v1/explorer/:scope/analytics` (scope: `logs` or `traces`); query parser: `explorer/queryparser/`
+- **Explorer**: analytics owned by logs/traces explorers (`POST /explorer/logs/analytics`, `POST /explorer/traces/analytics`); shared types in `explorer/analytics/`, query parser in `explorer/queryparser/`
 - **Traces**: `internal/modules/traces/{query,explorer,tracedetail,redmetrics,errorfingerprint,errortracking,tracecompare,livetail}/` — tracedetail includes `/traces/:traceId/logs` for trace-correlated log retrieval
 - **Config**: `internal/config/config.go` (loads `config.yml`; `redis.password` / `redis.db` optional for secured Redis)
 - **Sibling repo**: `optic-frontend` (see its `CODEBASE_INDEX.md`)
@@ -49,10 +48,9 @@ This is **mandatory**, not optional. The documentation must always reflect the c
 
 | Page | Default config directory |
 |------|------------------------|
-| overview (summary, latency-analysis, apm, errors, http, slo) | `internal/platform/dashboardcfg/defaults/overview/` |
-| ai-observability (overview, performance, cost, security) | `internal/platform/dashboardcfg/defaults/ai_observability/` |
-| infrastructure (resource-utilization, jvm, kubernetes, nodes) | `internal/platform/dashboardcfg/defaults/infrastructure/` |
-| saturation (database, queue, redis) | `internal/platform/dashboardcfg/defaults/saturation/` |
+| overview (summary, latency-analysis, apm, errors, http, slo) | `internal/infra/dashboardcfg/defaults/overview/` |
+| infrastructure (resource-utilization, jvm, kubernetes, nodes) | `internal/infra/dashboardcfg/defaults/infrastructure/` |
+| saturation (database, queue, redis) | `internal/infra/dashboardcfg/defaults/saturation/` |
 
 ## Engineering principles
 

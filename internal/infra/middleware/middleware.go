@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strings"
 
-	platformsession "github.com/Optikk-Org/optikk-backend/internal/platform/session"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/session"
 	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
@@ -128,7 +128,7 @@ func abortForbiddenTeam(c *gin.Context, email string, requestedTeamID int64) {
 
 // resolveTeam returns the effective team ID for the request.
 // It aborts c and returns (0, false) on any auth violation.
-func resolveTeam(c *gin.Context, state platformsession.AuthState) (int64, bool) {
+func resolveTeam(c *gin.Context, state session.AuthState) (int64, bool) {
 	requested := utils.ToInt64(c.GetHeader("X-Team-Id"), 0)
 	if requested == 0 {
 		if state.DefaultTeamID == 0 {
@@ -144,7 +144,7 @@ func resolveTeam(c *gin.Context, state platformsession.AuthState) (int64, bool) 
 	return requested, true
 }
 
-func TenantMiddleware(sessions platformsession.Manager) gin.HandlerFunc {
+func TenantMiddleware(sessions session.Manager) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authState, ok := sessions.GetAuthState(c.Request.Context())
 		if !ok {

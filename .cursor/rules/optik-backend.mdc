@@ -32,28 +32,15 @@ Go 1.25, Gin, ClickHouse, MySQL, Redis, WebSocket live tail (`/api/v1/ws/live`),
 
 ## Dashboard / default config
 
-- HTTP + service: `internal/modules/dashboard/`
-- JSON pages and loader: `internal/infra/dashboardcfg/` (embedded pages under `internal/infra/dashboardcfg/pages/`)
+- HTTP handler, service, and registry merged in: `internal/infra/dashboardcfg/`
 - Schema/version: `CurrentSchemaVersion` = **2** in `internal/infra/dashboardcfg/types.go`
 - Default pages (`internal/infra/dashboardcfg/defaults/`):
 
 | Page | Directory | Tabs | Default tab |
 |------|-----------|------|-------------|
 | overview | `defaults/overview/` | summary, latency-analysis, apm, errors, http, slo | summary |
-| ai-observability | `defaults/ai_observability/` | overview, performance, cost, security | overview |
 | infrastructure | `defaults/infrastructure/` | resource-utilization, jvm, kubernetes, nodes | resource-utilization |
 | saturation | `defaults/saturation/` | database, queue, redis | database |
-
-## AI Observability modules
-
-5 submodules under `internal/modules/ai/`, all V1 (uncached):
-- `ai/dashboard` — `/ai/summary`, `/ai/models`, `/ai/performance/*`, `/ai/cost/*`, `/ai/security/*`
-- `ai/runs` — `/ai/runs`, `/ai/runs/summary`, `/ai/runs/models`, `/ai/runs/operations`
-- `ai/rundetail` — `/ai/runs/:spanId`, `/ai/runs/:spanId/messages`, `/ai/runs/:spanId/context`
-- `ai/conversations` — `/ai/conversations`, `/ai/conversations/:conversationId`
-- `ai/traces` — `/ai/traces/:traceId`, `/ai/traces/:traceId/summary`
-
-Dashboard default page: `defaults/ai_observability/` (4 tabs: overview, performance, cost, security)
 
 ## Deployments module
 
@@ -105,7 +92,7 @@ Dashboard default page: `defaults/ai_observability/` (4 tabs: overview, performa
 
 ## Realtime
 
-- Live tail WebSocket: `internal/infra/livetailws/` — `GET /api/v1/ws/live` (`subscribe:logs` / `subscribe:spans` JSON protocol)
+- Live tail WebSocket: `internal/modules/livetail/` — `GET /api/v1/ws/live` (`subscribe:logs` / `subscribe:spans` JSON protocol)
 
 ## Logs live tail
 

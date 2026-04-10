@@ -27,8 +27,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *TraceDetailHandler) {
 	v1.GET("/traces/:traceId/flamegraph", h.GetFlamegraphData)
 	v1.GET("/traces/:traceId/logs", h.GetTraceLogs)
 	v1.GET("/traces/:traceId/related", h.GetRelatedTraces)
-	v1.GET("/traces/:traceId/llm-spans", h.GetLLMTraceSpans)
-	v1.GET("/traces/:traceId/llm-summary", h.GetLLMTraceSummary)
 }
 
 func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {

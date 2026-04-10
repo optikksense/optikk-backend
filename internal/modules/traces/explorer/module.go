@@ -19,6 +19,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 		return
 	}
 	v1.POST("/traces/explorer/query", h.Query)
+	v1.POST("/explorer/traces/analytics", h.Analytics)
 }
 
 func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
@@ -36,7 +37,7 @@ func (m *tracesExplorerModule) RouteTarget() registry.RouteTarget { return regis
 
 func (m *tracesExplorerModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	traceService := spantraces.NewService(spantraces.NewRepository(nativeQuerier))
-	m.handler = NewHandler(getTenant, NewService(traceService))
+	m.handler = NewHandler(getTenant, NewService(traceService), nativeQuerier)
 }
 
 func (m *tracesExplorerModule) RegisterRoutes(group *gin.RouterGroup) {

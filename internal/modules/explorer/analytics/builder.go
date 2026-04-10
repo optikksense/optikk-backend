@@ -2,6 +2,8 @@ package analytics
 
 import (
 	"fmt"
+	"math"
+	"strconv"
 	"strings"
 )
 
@@ -261,4 +263,64 @@ func floatArrayExpr(exprs []string) string {
 		items[i] = fmt.Sprintf("toFloat64(%s)", expr)
 	}
 	return "[" + strings.Join(items, ", ") + "]"
+}
+
+// AnalyticsRowDTO mirrors the ClickHouse result: arrays of keys/values.
+type AnalyticsRowDTO struct {
+	DimensionKeys   []string  `ch:"dimension_keys"`
+	DimensionValues []string  `ch:"dimension_values"`
+	MetricKeys      []string  `ch:"metric_keys"`
+	MetricValues    []float64 `ch:"metric_values"`
+}
+
+// BuildResult converts raw ClickHouse rows into the structured analytics response.
+func BuildResult(req AnalyticsRequest, rows []AnalyticsRowDTO) *AnalyticsResult {
+	isTimeseries := req.VizMode == VizTimeseries && req.Step != ""
+
+	var columns []string
+	if isTimeseries {
+		columns = append(columns, "time_bucket")
+	}
+	columns = append(columns, req.GroupBy...)
+	for _, a := range req.Aggregations {
+		columns = append(columns, a.Alias)
+	}
+
+	resultRows := make([]AnalyticsRow, 0, len(rows))
+	for _, row := range rows {
+		cells := make([]AnalyticsCell, 0, len(row.DimensionKeys)+len(row.MetricKeys))
+		for i, key := range row.DimensionKeys {
+			if i < len(row.DimensionValues) {
+				cells = append(cells, cellFromString(key, row.DimensionValues[i]))
+			}
+		}
+		for i, key := range row.MetricKeys {
+			if i < len(row.MetricValues) {
+				v := row.MetricValues[i]
+				if math.IsNaN(v) || math.IsInf(v, 0) {
+					v = 0
+				}
+				rounded := math.Round(v*100) / 100
+				cells = append(cells, AnalyticsCell{Key: key, Type: ValueNumber, NumberValue: &rounded})
+			}
+		}
+		resultRows = append(resultRows, AnalyticsRow{Cells: cells})
+	}
+
+	return &AnalyticsResult{
+		Columns: columns,
+		Rows:    resultRows,
+	}
+}
+
+func cellFromString(key, val string) AnalyticsCell {
+	if i, err := strconv.ParseInt(val, 10, 64); err == nil {
+		return AnalyticsCell{Key: key, Type: ValueInteger, IntegerValue: &i}
+	}
+	if f, err := strconv.ParseFloat(val, 64); err == nil {
+		rounded := math.Round(f*100) / 100
+		return AnalyticsCell{Key: key, Type: ValueNumber, NumberValue: &rounded}
+	}
+	s := val
+	return AnalyticsCell{Key: key, Type: ValueString, StringValue: &s}
 }

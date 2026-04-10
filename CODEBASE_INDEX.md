@@ -35,10 +35,10 @@ The web app lives in the sibling repo **`optic-frontend`** (see that repo's `COD
 
 ## Runtime ownership
 
-- `internal/platform/` owns cross-cutting capability contracts and provider selection.
-- `internal/platform/runtime/` builds the runtime bundle used by the app layer.
+- `internal/infra/` owns cross-cutting capability contracts and provider selection.
+- `internal/infra/runtime/` builds the runtime bundle used by the app layer.
 - `internal/infra/` owns concrete low-level implementations behind those platform contracts.
-- `internal/modules/` and `internal/app/` should not import provider implementations like `internal/infra/session`, `internal/infra/livetail`, `internal/infra/ingestion`, or the old `internal/infra/dashboardcfg`.
+- `internal/modules/` and `internal/app/` should not import provider implementations like `internal/infra/session` or `internal/infra/ingestion` directly; use the registry type aliases.
 
 ## Module packages (`internal/modules/`)
 
@@ -46,30 +46,20 @@ The web app lives in the sibling repo **`optic-frontend`** (see that repo's `COD
 
 | Domain | Packages | Route prefix | Cache |
 |--------|----------|-------------|-------|
-| **AI** (4) | `ai/overview`, `ai/explorer`, `ai/spandetail`, `ai/analytics` | `/ai/*` | Cached |
 | **Alerting** (1) | `alerting` (subpackages: `evaluators`, `channels`) | `/alerts/*` | V1 |
 | **APM** (1) | `overview/apm` | `/apm/*` | Cached |
-| **Dashboard config** (1) | `dashboard` | `/default-config/*` | V1 |
+| **Dashboard config** (1) | `infra/dashboardcfg` (handler+service+module merged with config registry) | `/default-config/*` | V1 |
 | **Deployments** (1) | `services/deployments` | `/deployments/*` | Cached |
-| **Explorer** (1) | `explorer/analytics` (helper: `explorer/queryparser`) | `POST /explorer/:scope/analytics` | V1 |
+| **Explorer** (shared) | `explorer/analytics` (shared types+builder), `explorer/queryparser` (query parser) | Analytics routes owned by logs/traces explorers | — |
 | **HTTP Metrics** (1) | `overview/httpmetrics` | `/http/*`, `/http/routes/*`, `/http/external/*` | Cached |
 | **Infrastructure** (8) | `infrastructure/{cpu,disk,jvm,kubernetes,memory,network,nodes,resourceutil}` (consts: `infraconsts`) | `/infrastructure/*` | Cached |
-| **Logs** (2) | `logs/explorer`, `logs/search` (shared: `logs/internal/shared`) | `/logs/*`, `POST /logs/explorer/query` | V1 |
+| **Logs** (2) | `logs/explorer`, `logs/search` (shared: `logs/internal/shared`) | `/logs/*`, `POST /logs/explorer/query`, `POST /explorer/logs/analytics` | V1 |
 | **Metrics** (1) | `metrics` | `/metrics/names`, `/metrics/:metricName/tags`, `POST /metrics/explorer/query` | V1 |
 | **Overview** (4) | `overview/overview`, `overview/errors`, `overview/slo`, `overview/redmetrics` | `/overview/*`, `/errors/groups/*`, `/spans/red/*` | Cached |
 | **Saturation** (10) | `saturation/database/{collection,connections,errors,latency,slowqueries,summary,system,systems,volume}`, `saturation/kafka` | `/saturation/*` | V1 (db), Cached (kafka/summary) |
-| **Traces** (5) | `traces/{query,explorer,tracedetail,tracecompare,livetail}` (shared: `traces/shared`) | `/traces/*`, `/spans/*`, `/services/*`, `/latency/*`, `/errors/*` | Mixed |
+| **Traces** (5) | `traces/{query,explorer,tracedetail,tracecompare,livetail}` (shared: `traces/shared`) | `/traces/*`, `/spans/*`, `/services/*`, `/latency/*`, `/errors/*`, `POST /explorer/traces/analytics` | Mixed |
 | **User** (3) | `user/auth`, `user/team`, `user/user` (shared: `user/internal`) | `/auth/*`, `/users/*`, `/teams/*`, `/settings/*` | V1 |
 | **Ingestion** (4) | via `internal/ingestion/otlp/{streamworkers,spans,logs,metrics}` | gRPC only (no HTTP routes) | — |
-
-| Submodule | Key endpoints |
-|-----------|--------------|
-| `ai/overview` | `GET /ai/overview/{summary,models,operations,services,model-health,top-slow,top-errors,finish-reasons,timeseries/*}` |
-| `ai/explorer` | `GET /ai/explorer/{spans,facets,summary,histogram}` |
-| `ai/spandetail` | `GET /ai/spans/{:spanId,messages,trace-context,related,token-breakdown}` |
-| `ai/analytics` | `GET /ai/analytics/{model-catalog,model-timeseries/*,latency-distribution,parameter-impact,cost-summary,cost-timeseries,token-economics,error-patterns,error-timeseries,finish-reason-analysis,conversations,conversations/:id/*}` |
-
-**Logic:** All AI modules filter the core `observability.spans` table for presence of `gen_ai.*` attributes (system, model, prompt, response). Metrics are aggregated via the `timebucket` infra; cost is derived from the in-memory static price map in `ai/analytics/models.go`.
 
 
 ### Overview module routes
@@ -155,7 +145,7 @@ All under `/http/` prefix, Cached:
 
 ### Logs live tail
 
-- **`internal/infra/livetailws/handler.go`** — WebSocket entrypoint; depends on platform session + live-tail hub contracts
+- **`internal/modules/livetail/handler.go`** — WebSocket entrypoint; depends on session + live-tail hub contracts
 - **`internal/modules/logs/search/livetail_payload.go`** — `SubscribeLogsPayload`: filter fields: Severities, Services, Hosts, Pods, Containers, Environments, TraceID, SpanID, Search, SearchMode, ExcludeSeverities, ExcludeServices, ExcludeHosts, AttributeFilters
 - WebSocket protocol: client sends `subscribe:logs` op to `/api/v1/ws/live`, backend receives events from the runtime live-tail hub fed by OTLP stream workers
 
@@ -163,11 +153,11 @@ All under `/http/` prefix, Cached:
 
 - **OTLP Pipeline**: `internal/ingestion/otlp/` — gRPC export explicitly mapped to concrete structs (`LogRow`, `SpanRow`, `MetricRow`).
 - **Authentication**: `internal/ingestion/otlp/auth/` — TTL-cached team resolution via API keys.
-- **Dispatch contracts**: `internal/platform/ingestion/` — `Dispatcher[T]`, `TelemetryBatch[T]`, OTLP dependency interfaces.
+- **Dispatch contracts**: `internal/infra/ingestion/` — `Dispatcher[T]`, `TelemetryBatch[T]`, OTLP dependency interfaces.
 - **Default dispatcher implementation**: `internal/infra/ingestion/dispatcher.go` — in-memory channel fanout used by the runtime bundle.
 - **Background consumers**: `internal/ingestion/otlp/streamworkers/` — `BackgroundRunner` with separate routines per type. **ClickHouse** writers use `CHFlusher[T]` with `AppendStruct(row)`. Live tail components tap into these same pipelines and broadcast to WebSocket clients.
 
-## Platform Layer (`internal/platform/`)
+## Infrastructure Layer (`internal/infra/`)
 
 | Package | Purpose |
 |---------|---------|
@@ -307,37 +297,48 @@ type APIResponse struct {
 
 | Path | Purpose |
 |------|---------|
-| `internal/platform/dashboardcfg/` | Loader, models, panel layout, validation, hydration |
-| `internal/modules/dashboard/` | HTTP/service for default config API |
+| `internal/infra/dashboardcfg/` | Loader, models, panel layout, validation, hydration, HTTP handler + service (merged) |
 
-**Schema:** `page.schemaVersion` is **2** in embedded defaults (`CurrentSchemaVersion` in `internal/platform/dashboardcfg/types.go`). **1** remains accepted for older stored configs. **v2** adds explicit **`layout.w` and `layout.h`** (grid units, 12-column model); values must match the canonical footprint for `layoutVariant` (`panel_size_policy.go`). If `w`/`h` are omitted (legacy JSON), the loader hydrates them once from `layoutVariant` before validation. The **optic-frontend** reads `panel.layout.w` / `panel.layout.h` for `react-grid-layout`; pixel spacing stays frontend-only.
+**Schema:** `page.schemaVersion` is **2** in embedded defaults (`CurrentSchemaVersion` in `internal/infra/dashboardcfg/types.go`). **1** remains accepted for older stored configs. **v2** adds explicit **`layout.w` and `layout.h`** (grid units, 12-column model); values must match the canonical footprint for `layoutVariant` (`panel_size_policy.go`). If `w`/`h` are omitted (legacy JSON), the loader hydrates them once from `layoutVariant` before validation. The **optic-frontend** reads `panel.layout.w` / `panel.layout.h` for `react-grid-layout`; pixel spacing stays frontend-only.
 
-### Default pages (`internal/platform/dashboardcfg/defaults/`)
+### Default pages (`internal/infra/dashboardcfg/defaults/`)
 
 The `service` page at `/service` is **fully frontend-owned** (Discovery + Topology tabs in optic-frontend) — no backend default config. Service detail is frontend-owned as a side drawer; the backend contributes the shared drawer entity contract and the overview services table `drawerAction` that opens that drawer from backend-driven rows.
 
 | Page ID | Directory | Tabs | Default tab | Group | Order |
 |---------|-----------|------|-------------|-------|-------|
 | `overview` | `defaults/overview/` | summary, latency-analysis, apm, errors, http, slo | summary | observe | 10 |
-| `ai-observability` | `defaults/ai_observability/` | overview, performance, cost, security | overview | operate | 80 |
 | `infrastructure` | `defaults/infrastructure/` | resource-utilization, jvm, kubernetes, pods | resource-utilization | operate | 60 |
 | `saturation` | `defaults/saturation/` | database, queue, redis | database | operate | 70 |
 
-### Dashboard schema enums (`internal/platform/dashboardcfg/enums.go`)
+### Dashboard schema enums (`internal/infra/dashboardcfg/enums.go`)
 
-**Panel types (24):** `ai-bar`, `ai-line`, `bar`, `db-systems-overview`, `error-hotspot-ranking`, `error-rate`, `exception-type-line`, `gauge`, `heatmap`, `latency`, `latency-heatmap`, `latency-histogram`, `log-histogram`, `pie`, `request`, `service-catalog`, `service-health-grid`, `service-map`, `slo-indicators`, `stat-card`, `stat-cards-grid`, `stat-summary`, `table`, `trace-waterfall`
+**Panel types (22):** `bar`, `db-systems-overview`, `error-hotspot-ranking`, `error-rate`, `exception-type-line`, `gauge`, `heatmap`, `latency`, `latency-heatmap`, `latency-histogram`, `log-histogram`, `pie`, `request`, `service-catalog`, `service-health-grid`, `service-map`, `slo-indicators`, `stat-card`, `stat-cards-grid`, `stat-summary`, `table`, `trace-waterfall`
 
 **Layout variants (10):** `kpi`, `summary`, `standard-chart`, `wide-chart`, `ranking`, `summary-table`, `detail-table`, `hero`, `hero-map`, `hero-detail`
 
 **Section templates (8):** `kpi-band`, `summary-plus-health`, `two-up`, `three-up`, `stacked`, `hero-plus-table`, `chart-grid-plus-details`, `table-stack`
 
-**Drawer entities (7):** `aiModel`, `databaseSystem`, `errorGroup`, `kafkaGroup`, `kafkaTopic`, `node`, `redisInstance`
+**Drawer entities (6):** `databaseSystem`, `errorGroup`, `kafkaGroup`, `kafkaTopic`, `node`, `redisInstance`
 
 **Formatters (6):** `ms`, `ns`, `bytes`, `percent1`, `percent2`, `number`
 
 ## Config Structure (`internal/config/config.go`)
 
-`config.yml` → `Config` struct:
+`config.yml` → Viper → `Config` struct. Loaded via `config.Load()` using `github.com/spf13/viper`.
+
+**Environment variable overrides:** All config values can be overridden via env vars with the `OPTIKK_` prefix. Convention: `OPTIKK_` + uppercase YAML path with `.` replaced by `_`.
+
+| YAML key | Env var |
+|----------|---------|
+| `mysql.host` | `OPTIKK_MYSQL_HOST` |
+| `clickhouse.production` | `OPTIKK_CLICKHOUSE_PRODUCTION` |
+| `session.cookie_name` | `OPTIKK_SESSION_COOKIE_NAME` |
+| `redis.enabled` | `OPTIKK_REDIS_ENABLED` |
+| `otl_redis_stream.ch_batch_size` | `OPTIKK_OTL_REDIS_STREAM_CH_BATCH_SIZE` |
+| `platform.providers.session` | `OPTIKK_PLATFORM_PROVIDERS_SESSION` |
+
+Note: `ENV`, `LOG_LEVEL`, `LOG_FORMAT` are separate (`os.Getenv` in `main.go`) — not managed by Viper.
 
 | Section | Struct | Key fields |
 |---------|--------|------------|
@@ -349,7 +350,7 @@ The `service` page at `/service` is **fully frontend-owned** (Discovery + Topolo
 | `otl_redis_stream` | `OtlRedisStream` | `max_len_approx`, `ch_batch_size`, `ch_flush_interval_ms`, `xread_block_ms`, `xread_count` |
 | `otlp` | `OTLPConfig` | `grpc_port`, `grpc_max_recv_msg_size_mb` |
 | `retention` | `RetentionConfig` | `default_days` |
-| `app` | `AppConfig` | `region`, `dashboard_config_use_defaults` |
+| `app` | `AppConfig` | `region` |
 
 ## Extension Interfaces
 
@@ -368,11 +369,10 @@ Use when a change spans API and UI. Frontend paths refer to **`optic-frontend`**
 | Registry / route wiring | `modules_manifest.go` | `domainRegistry.ts`, feature `index.ts` |
 | Explorer APIs | `internal/modules/.../handler.go` | Feature `api/` or `shared/api` |
 | Metrics | `internal/modules/metrics` (`/metrics/names`, `/:metricName/tags`, `/explorer/query`) | `src/features/metrics` (`metricsExplorerApi.ts`) |
-| Dashboard panels | `internal/platform/dashboardcfg/`, panel types | `dashboard/renderers/`, `dashboardPanelRegistry` |
+| Dashboard panels | `internal/infra/dashboardcfg/`, panel types | `dashboard/renderers/`, `dashboardPanelRegistry` |
 | Auth | `internal/modules/user/auth/` | `shared/api/auth/` |
-| AI Observability | `internal/modules/ai/{overview,explorer,spandetail,analytics}/` | `src/features/ai/api/` |
-| Default config | `internal/modules/dashboard/`, `internal/platform/dashboardcfg/` | `defaultConfigService.ts` |
-| Live tail (logs/traces) | `internal/infra/livetailws/`, `logs/search/livetail_payload.go`, `traces/livetail/` | `useSocketStream.ts`, `useLiveTailStream.ts` |
+| Default config | `internal/infra/dashboardcfg/` (handler+service+registry merged) | `defaultConfigService.ts` |
+| Live tail (logs/traces) | `internal/modules/livetail/`, `logs/search/livetail_payload.go`, `traces/livetail/` | `useSocketStream.ts`, `useLiveTailStream.ts` |
 
 ---
 

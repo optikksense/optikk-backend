@@ -5,9 +5,9 @@ import (
 	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/ingest"
-	platformingestion "github.com/Optikk-Org/optikk-backend/internal/platform/ingestion"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/ingestion"
 )
 
-func NewByteTracker(db *sql.DB, flushInterval time.Duration) platformingestion.SizeTracker {
+func NewByteTracker(db *sql.DB, flushInterval time.Duration) ingestion.SizeTracker {
 	return ingest.NewByteTracker(db, flushInterval)
 }

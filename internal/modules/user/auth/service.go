@@ -7,7 +7,7 @@ import (
 	"time"
 
 	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
-	sessionauth "github.com/Optikk-Org/optikk-backend/internal/platform/session"
+	sessionauth "github.com/Optikk-Org/optikk-backend/internal/infra/session"
 	contracts "github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
 	"golang.org/x/crypto/bcrypt"
 )

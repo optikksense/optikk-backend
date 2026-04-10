@@ -6,14 +6,14 @@ import (
 	"log/slog"
 
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/auth"
-	platformingestion "github.com/Optikk-Org/optikk-backend/internal/platform/ingestion"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/ingestion"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 )
 
-func ResolveTeamID(ctx context.Context, resolver platformingestion.TeamResolver) (int64, error) {
+func ResolveTeamID(ctx context.Context, resolver ingestion.TeamResolver) (int64, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		slog.Warn("OTLP request missing metadata")
@@ -46,7 +46,7 @@ func ResolveTeamID(ctx context.Context, resolver platformingestion.TeamResolver)
 	return teamID, nil
 }
 
-func TrackPayloadSize(tracker platformingestion.SizeTracker, teamID int64, msg proto.Message) {
+func TrackPayloadSize(tracker ingestion.SizeTracker, teamID int64, msg proto.Message) {
 	if tracker == nil || teamID <= 0 || msg == nil {
 		return
 	}

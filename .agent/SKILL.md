@@ -30,7 +30,7 @@ This skill defines the development standards and architectural patterns for the 
 - **Real-time Ingestion**: Spans, logs, and metrics are handled via the OTLP pipeline in `internal/ingestion/otlp/`.
 - **Dashboard Configuration**: 
   - Backend-authored pages live in `internal/infra/dashboardcfg/defaults/`.
-  - 4 backend default pages: **overview** (6 tabs), **ai-observability** (4 tabs), **infrastructure** (4 tabs), **saturation** (3 tabs). The **service** page (`/service`) is fully frontend-owned (Discovery + Topology).
+  - 3 backend default pages: **overview** (6 tabs), **infrastructure** (4 tabs), **saturation** (3 tabs). The **service** page (`/service`) is fully frontend-owned (Discovery + Topology).
   - Coordinate schema updates with the frontend.
 
 ## Engineering Principles
@@ -43,7 +43,7 @@ This skill defines the development standards and architectural patterns for the 
 
 - **Server Entry**: `cmd/server/main.go`
 - **Application Configuration**: `internal/config/config.go`
-- **WebSocket Live Tail**: `internal/infra/livetailws/` (`GET /api/v1/ws/live`)
+- **WebSocket Live Tail**: `internal/modules/livetail/` (`GET /api/v1/ws/live`)
 - **Logs Live Tail**: `internal/modules/logs/search/livetail_run.go`, `livetail_payload.go`
 - **HTTP Helpers**: `internal/shared/httputil/base.go`
 - **Error Codes**: `internal/shared/contracts/errorcode/codes.go`
