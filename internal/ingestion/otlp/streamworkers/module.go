@@ -5,8 +5,8 @@ import (
 	otlplogs "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/logs"
 	otlpmetrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/metrics"
 	otlpspans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
-	platformingestion "github.com/Optikk-Org/optikk-backend/internal/platform/ingestion"
-	platformlivetail "github.com/Optikk-Org/optikk-backend/internal/platform/livetail"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/ingestion"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/livetail"
 	"github.com/gin-gonic/gin"
 )
 
@@ -18,10 +18,10 @@ type Module struct {
 // NewModule wires ClickHouse + Hub consumers.
 func NewModule(
 	ch registry.ClickHouseConn,
-	ld platformingestion.Dispatcher[*otlplogs.LogRow],
-	sd platformingestion.Dispatcher[*otlpspans.SpanRow],
-	md platformingestion.Dispatcher[*otlpmetrics.MetricRow],
-	hub platformlivetail.Hub,
+	ld ingestion.Dispatcher[*otlplogs.LogRow],
+	sd ingestion.Dispatcher[*otlpspans.SpanRow],
+	md ingestion.Dispatcher[*otlpmetrics.MetricRow],
+	hub livetail.Hub,
 ) registry.Module {
 	return &Module{workers: NewWorkers(ch, ld, sd, md, hub)}
 }

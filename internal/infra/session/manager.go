@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/Optikk-Org/optikk-backend/internal/config"
-	platformsession "github.com/Optikk-Org/optikk-backend/internal/platform/session"
 	"github.com/alexedwards/scs/redisstore"
 	"github.com/alexedwards/scs/v2"
 	redigoredis "github.com/gomodule/redigo/redis"
@@ -21,13 +20,11 @@ const (
 	authTeamIDsKey       = "auth_team_ids"
 )
 
-type Manager struct {
+type SessionManager struct {
 	*scs.SessionManager
 }
 
-type AuthState = platformsession.AuthState
-
-func NewManager(cfg config.Config, pool *redigoredis.Pool) *Manager {
+func NewManager(cfg config.Config, pool *redigoredis.Pool) *SessionManager {
 	sessionManager := scs.New()
 	sessionManager.Lifetime = cfg.SessionLifetime()
 	sessionManager.IdleTimeout = cfg.SessionIdleTimeout()
@@ -43,16 +40,16 @@ func NewManager(cfg config.Config, pool *redigoredis.Pool) *Manager {
 		sessionManager.Store = redisstore.New(pool)
 	}
 
-	return &Manager{
+	return &SessionManager{
 		SessionManager: sessionManager,
 	}
 }
 
-func (m *Manager) Wrap(next http.Handler) http.Handler {
+func (m *SessionManager) Wrap(next http.Handler) http.Handler {
 	return m.LoadAndSave(next)
 }
 
-func (m *Manager) CreateAuthSession(ctx context.Context, state AuthState) error {
+func (m *SessionManager) CreateAuthSession(ctx context.Context, state AuthState) error {
 	if err := m.RenewToken(ctx); err != nil {
 		return err
 	}
@@ -66,11 +63,11 @@ func (m *Manager) CreateAuthSession(ctx context.Context, state AuthState) error 
 	return nil
 }
 
-func (m *Manager) DestroySession(ctx context.Context) error {
+func (m *SessionManager) DestroySession(ctx context.Context) error {
 	return m.Destroy(ctx)
 }
 
-func (m *Manager) GetAuthState(ctx context.Context) (AuthState, bool) {
+func (m *SessionManager) GetAuthState(ctx context.Context) (AuthState, bool) {
 	userID := m.GetInt64(ctx, authUserIDKey)
 	if userID == 0 {
 		return AuthState{}, false
@@ -91,7 +88,7 @@ func (m *Manager) GetAuthState(ctx context.Context) (AuthState, bool) {
 	return state, true
 }
 
-func (m *Manager) clearAuthState(ctx context.Context) {
+func (m *SessionManager) clearAuthState(ctx context.Context) {
 	m.Remove(ctx, authUserIDKey)
 	m.Remove(ctx, authEmailKey)
 	m.Remove(ctx, authRoleKey)

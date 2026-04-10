@@ -7,7 +7,7 @@ import (
 	"log/slog"
 
 	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
-	configdefaults "github.com/Optikk-Org/optikk-backend/internal/platform/dashboardcfg"
+	configdefaults "github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg"
 )
 
 type Service struct {

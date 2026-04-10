@@ -52,5 +52,4 @@ ingestion:
 
 app:
   region: us-east-1
-  dashboard_config_use_defaults: true
 

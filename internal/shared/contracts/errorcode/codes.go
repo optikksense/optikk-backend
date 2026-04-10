@@ -8,7 +8,6 @@ const (
 	Forbidden       = "FORBIDDEN"
 	NotFound        = "NOT_FOUND"
 	Conflict        = "CONFLICT"
-	RateLimited     = "RATE_LIMITED"
 	PayloadTooLarge = "PAYLOAD_TOO_LARGE"
 )
 

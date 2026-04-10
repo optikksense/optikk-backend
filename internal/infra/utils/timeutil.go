@@ -1,30 +1,10 @@
 package utils
 
-// Package utils provides shared time-bucketing logic for ClickHouse queries,
-// as well as general time handling helpers.
+// Package utils provides shared time-bucketing logic for ClickHouse queries.
 // All metrics and observability modules should use this package instead of
 // rolling their own time-bucket expression helpers.
 
-import (
-	"fmt"
-	"time"
-)
-
-func ResolveRange(startPtr, endPtr *int64, defaultRangeMs int64) (start, end int64) {
-	end = time.Now().UnixMilli()
-	if endPtr != nil {
-		end = *endPtr
-	}
-	start = end - defaultRangeMs
-	if startPtr != nil {
-		start = *startPtr
-	}
-	return start, end
-}
-
-func ParseMillis(v int64) time.Time {
-	return time.UnixMilli(v).UTC()
-}
+import "fmt"
 
 type Strategy interface {
 	GetBucketExpression() string
@@ -32,101 +12,77 @@ type Strategy interface {
 	GetRawExpression(column string) string
 }
 
-type MinuteStrategy struct{}
+type minuteStrategy struct{}
 
-func (MinuteStrategy) GetBucketExpression() string {
-	return MinuteStrategy{}.GetRawExpression("timestamp")
+func (minuteStrategy) GetBucketExpression() string {
+	return minuteStrategy{}.GetRawExpression("timestamp")
 }
-func (MinuteStrategy) GetRawExpression(column string) string {
+func (minuteStrategy) GetRawExpression(column string) string {
 	return fmt.Sprintf("formatDateTime(toStartOfMinute(%s), '%%Y-%%m-%%d %%H:%%i:00')", column)
 }
-func (MinuteStrategy) GetBucketName() string { return "1 minute" }
+func (minuteStrategy) GetBucketName() string { return "1 minute" }
 
-type FiveMinuteStrategy struct{}
+type fiveMinuteStrategy struct{}
 
-func (FiveMinuteStrategy) GetBucketExpression() string {
-	return FiveMinuteStrategy{}.GetRawExpression("timestamp")
+func (fiveMinuteStrategy) GetBucketExpression() string {
+	return fiveMinuteStrategy{}.GetRawExpression("timestamp")
 }
-func (FiveMinuteStrategy) GetRawExpression(column string) string {
+func (fiveMinuteStrategy) GetRawExpression(column string) string {
 	return fmt.Sprintf("formatDateTime(toStartOfFiveMinutes(%s), '%%Y-%%m-%%d %%H:%%i:00')", column)
 }
-func (FiveMinuteStrategy) GetBucketName() string { return "5 minutes" }
+func (fiveMinuteStrategy) GetBucketName() string { return "5 minutes" }
 
-type FifteenMinuteStrategy struct{}
+type fifteenMinuteStrategy struct{}
 
-func (FifteenMinuteStrategy) GetBucketExpression() string {
-	return FifteenMinuteStrategy{}.GetRawExpression("timestamp")
+func (fifteenMinuteStrategy) GetBucketExpression() string {
+	return fifteenMinuteStrategy{}.GetRawExpression("timestamp")
 }
-func (FifteenMinuteStrategy) GetRawExpression(column string) string {
+func (fifteenMinuteStrategy) GetRawExpression(column string) string {
 	return fmt.Sprintf("formatDateTime(toStartOfFifteenMinutes(%s), '%%Y-%%m-%%d %%H:%%i:00')", column)
 }
-func (FifteenMinuteStrategy) GetBucketName() string { return "15 minutes" }
+func (fifteenMinuteStrategy) GetBucketName() string { return "15 minutes" }
 
-type HourStrategy struct{}
+type hourStrategy struct{}
 
-func (HourStrategy) GetBucketExpression() string {
-	return HourStrategy{}.GetRawExpression("timestamp")
+func (hourStrategy) GetBucketExpression() string {
+	return hourStrategy{}.GetRawExpression("timestamp")
 }
-func (HourStrategy) GetRawExpression(column string) string {
+func (hourStrategy) GetRawExpression(column string) string {
 	return fmt.Sprintf("formatDateTime(toStartOfHour(%s), '%%Y-%%m-%%d %%H:%%i:00')", column)
 }
-func (HourStrategy) GetBucketName() string { return "1 hour" }
+func (hourStrategy) GetBucketName() string { return "1 hour" }
 
-type DayStrategy struct{}
+type dayStrategy struct{}
 
-func (DayStrategy) GetBucketExpression() string {
-	return DayStrategy{}.GetRawExpression("timestamp")
+func (dayStrategy) GetBucketExpression() string {
+	return dayStrategy{}.GetRawExpression("timestamp")
 }
-func (DayStrategy) GetRawExpression(column string) string {
+func (dayStrategy) GetRawExpression(column string) string {
 	return fmt.Sprintf("formatDateTime(toStartOfDay(%s), '%%Y-%%m-%%d %%H:%%i:00')", column)
 }
-func (DayStrategy) GetBucketName() string { return "1 day" }
+func (dayStrategy) GetBucketName() string { return "1 day" }
 
-type AdaptiveStrategy struct {
-	startMs int64
-	endMs   int64
-}
-
-func NewAdaptiveStrategy(startMs, endMs int64) *AdaptiveStrategy {
-	return &AdaptiveStrategy{startMs: startMs, endMs: endMs}
-}
-
-func (s *AdaptiveStrategy) hours() int64 {
-	return (s.endMs - s.startMs) / 3_600_000
-}
-
-func (s *AdaptiveStrategy) strategy() Strategy {
-	h := s.hours()
+func adaptiveStrategy(startMs, endMs int64) Strategy {
+	h := (endMs - startMs) / 3_600_000
 	switch {
 	case h <= 3:
-		return MinuteStrategy{}
+		return minuteStrategy{}
 	case h <= 24:
-		return FiveMinuteStrategy{}
+		return fiveMinuteStrategy{}
 	case h <= 168:
-		return HourStrategy{}
+		return hourStrategy{}
 	default:
-		return DayStrategy{}
+		return dayStrategy{}
 	}
 }
 
-func (s *AdaptiveStrategy) GetBucketExpression() string {
-	return s.strategy().GetBucketExpression()
-}
-
-func (s *AdaptiveStrategy) GetRawExpression(column string) string {
-	return s.strategy().GetRawExpression(column)
-}
-
-func (s *AdaptiveStrategy) GetBucketName() string {
-	return s.strategy().GetBucketName()
-}
 func Expression(startMs, endMs int64) string {
-	return NewAdaptiveStrategy(startMs, endMs).GetBucketExpression()
+	return adaptiveStrategy(startMs, endMs).GetBucketExpression()
 }
 
 // ExprForColumn applies adaptive bucketing to a non-default timestamp column.
 func ExprForColumn(startMs, endMs int64, column string) string {
-	return NewAdaptiveStrategy(startMs, endMs).strategy().GetRawExpression(column)
+	return adaptiveStrategy(startMs, endMs).GetRawExpression(column)
 }
 
 // ExprForColumnTime applies adaptive bucketing while preserving a native
@@ -149,17 +105,17 @@ func ExprForColumnTime(startMs, endMs int64, column string) string {
 func ByName(name string) Strategy {
 	switch name {
 	case "minute", "1m":
-		return MinuteStrategy{}
+		return minuteStrategy{}
 	case "5minute", "5m":
-		return FiveMinuteStrategy{}
+		return fiveMinuteStrategy{}
 	case "15minute", "15m":
-		return FifteenMinuteStrategy{}
+		return fifteenMinuteStrategy{}
 	case "hour", "1h":
-		return HourStrategy{}
+		return hourStrategy{}
 	case "day", "1d":
-		return DayStrategy{}
+		return dayStrategy{}
 	default:
-		return MinuteStrategy{}
+		return minuteStrategy{}
 	}
 }
 
@@ -168,10 +124,6 @@ func ByName(name string) Strategy {
 var (
 	spansBucketSeconds int64 = 300
 	logsBucketSeconds  int64 = 86400
-)
-
-const (
-	millisecondsPerSecond = 1000
 )
 
 // Init sets the global bucket sizes from configuration.
@@ -188,34 +140,13 @@ func SpansBucketStart(unixSeconds int64) uint64 {
 	return uint64(toBucketStart(unixSeconds, spansBucketSeconds))
 }
 
-func SpansBucketQueryBounds(startMs, endMs int64) (startBucket, endBucket uint64) {
-	startSec := startMs / millisecondsPerSecond
-	endSec := endMs / millisecondsPerSecond
-
-	startBucket = SpansBucketStart(startSec)
-	endBucket = SpansBucketStart(endSec)
-
-	return startBucket, endBucket
-}
-
 func LogsBucketStart(unixSeconds int64) uint32 {
 	return uint32(toBucketStart(unixSeconds, int64(logsBucketSeconds)))
-}
-
-func LogsBucketQueryBounds(startMs, endMs int64) (startBucket, endBucket uint32) {
-	startSec := startMs / millisecondsPerSecond
-	endSec := endMs / millisecondsPerSecond
-
-	startBucket = LogsBucketStart(startSec)
-	endBucket = LogsBucketStart(endSec)
-
-	return startBucket, endBucket
 }
 
 func toBucketStart(unixSeconds int64, bucketSize int64) int64 {
 	if bucketSize <= 0 {
 		return unixSeconds
 	}
-	// Use integer division to truncate to the bucket boundary.
 	return (unixSeconds / bucketSize) * bucketSize
 }

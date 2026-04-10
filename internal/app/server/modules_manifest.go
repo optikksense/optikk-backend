@@ -6,12 +6,8 @@ import (
 	otlp_metrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/metrics"
 	otlp_spans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
 	otlp_streamworkers "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/streamworkers"
-	ai_analytics "github.com/Optikk-Org/optikk-backend/internal/modules/ai/analytics"
-	ai_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/ai/explorer"
-	ai_overview "github.com/Optikk-Org/optikk-backend/internal/modules/ai/overview"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/alerting"
-	defaultconfig "github.com/Optikk-Org/optikk-backend/internal/modules/dashboard"
-	explorer_analytics "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
+	defaultconfig "github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg"
 
 	infrastructure_cpu "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/cpu"
 	infrastructure_disk "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/disk"
@@ -50,7 +46,7 @@ import (
 	user_auth "github.com/Optikk-Org/optikk-backend/internal/modules/user/auth"
 	user_team "github.com/Optikk-Org/optikk-backend/internal/modules/user/team"
 	user_user "github.com/Optikk-Org/optikk-backend/internal/modules/user/user"
-	platformruntime "github.com/Optikk-Org/optikk-backend/internal/platform/runtime"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/runtime"
 )
 
 func configuredModules(
@@ -59,17 +55,13 @@ func configuredModules(
 	clickHouseConn registry.ClickHouseConn,
 	getTenant registry.GetTenantFunc,
 	appConfig registry.AppConfig,
-	runtimeDeps *platformruntime.Runtime,
+	runtimeDeps *runtime.Runtime,
 	logSearchSvc *log_search.Service,
 ) []registry.Module {
 	return []registry.Module{
-		ai_analytics.NewModule(nativeQuerier, getTenant),
-		ai_explorer.NewModule(nativeQuerier, getTenant),
-		ai_overview.NewModule(nativeQuerier, getTenant),
 		alerting.NewModule(sqlDB, nativeQuerier, clickHouseConn, getTenant, ""),
 		apm.NewModule(nativeQuerier, getTenant),
-		explorer_analytics.NewModule(nativeQuerier, getTenant),
-		defaultconfig.NewModule(sqlDB, getTenant, appConfig, runtimeDeps.DashboardConfig),
+		defaultconfig.NewModule(getTenant, runtimeDeps.DashboardConfig),
 		deployments.NewModule(nativeQuerier, getTenant),
 		httpmetrics.NewModule(nativeQuerier, getTenant),
 

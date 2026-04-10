@@ -11,8 +11,8 @@ import (
 	otlplogs "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/logs"
 	otlpmetrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/metrics"
 	otlpspans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
-	platformingestion "github.com/Optikk-Org/optikk-backend/internal/platform/ingestion"
-	platformlivetail "github.com/Optikk-Org/optikk-backend/internal/platform/livetail"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/ingestion"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/livetail"
 )
 
 const (
@@ -24,16 +24,16 @@ const (
 // and the real-time Live Tail Hub.
 type Workers struct {
 	ch               clickhouse.Conn
-	logDispatcher    platformingestion.Dispatcher[*otlplogs.LogRow]
-	spanDispatcher   platformingestion.Dispatcher[*otlpspans.SpanRow]
-	metricDispatcher platformingestion.Dispatcher[*otlpmetrics.MetricRow]
-	hub              platformlivetail.Hub
+	logDispatcher    ingestion.Dispatcher[*otlplogs.LogRow]
+	spanDispatcher   ingestion.Dispatcher[*otlpspans.SpanRow]
+	metricDispatcher ingestion.Dispatcher[*otlpmetrics.MetricRow]
+	hub              livetail.Hub
 
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
 
-func NewWorkers(ch clickhouse.Conn, ld platformingestion.Dispatcher[*otlplogs.LogRow], sd platformingestion.Dispatcher[*otlpspans.SpanRow], md platformingestion.Dispatcher[*otlpmetrics.MetricRow], hub platformlivetail.Hub) *Workers {
+func NewWorkers(ch clickhouse.Conn, ld ingestion.Dispatcher[*otlplogs.LogRow], sd ingestion.Dispatcher[*otlpspans.SpanRow], md ingestion.Dispatcher[*otlpmetrics.MetricRow], hub livetail.Hub) *Workers {
 	return &Workers{
 		ch:               ch,
 		logDispatcher:    ld,

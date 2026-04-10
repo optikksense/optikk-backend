@@ -16,11 +16,11 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/config"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/livetailws"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/livetail"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/middleware"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	log_search "github.com/Optikk-Org/optikk-backend/internal/modules/logs/search"
-	platformruntime "github.com/Optikk-Org/optikk-backend/internal/platform/runtime"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/runtime"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 	"github.com/oklog/run"
@@ -35,7 +35,7 @@ type App struct {
 	DB      *sql.DB
 	CH      clickhouse.Conn
 	Config  config.Config
-	Runtime *platformruntime.Runtime
+	Runtime *runtime.Runtime
 	Modules []registry.Module
 
 	// LiveTailWS serves GET /api/v1/ws/live (native WebSocket live tail).
@@ -59,7 +59,7 @@ func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) (*App, error) {
 	// Initialize global infrastructure parameters.
 	utils.Init(cfg.SpansBucketSeconds(), cfg.LogsBucketSeconds())
 
-	runtimeDeps, err := platformruntime.New(db, cfg)
+	runtimeDeps, err := runtime.New(db, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize runtime dependencies: %w", err)
 	}
@@ -69,7 +69,7 @@ func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) (*App, error) {
 	logSearchSvc := log_search.NewService(log_search.NewRepository(nativeQuerier))
 	modules := configuredModules(nativeQuerier, db, ch, getTenant, cfg, runtimeDeps, logSearchSvc)
 
-	liveTailH := livetailws.NewHandler(livetailws.Config{
+	liveTailH := livetail.NewHandler(livetail.Config{
 		Hub:            runtimeDeps.LiveTailHub,
 		AllowedOrigins: splitAllowedOrigins(cfg.Server.AllowedOrigins),
 		Sessions:       runtimeDeps.SessionManager,

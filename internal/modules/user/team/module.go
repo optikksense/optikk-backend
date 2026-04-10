@@ -2,6 +2,7 @@ package team
 
 import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg"
 	"github.com/gin-gonic/gin"
 )
 
@@ -37,7 +38,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 func NewModule(
 	sqlDB *registry.SQLDB,
 	getTenant registry.GetTenantFunc,
-	configRegistry *registry.ConfigRegistry,
+	configRegistry *dashboardcfg.Registry,
 	appConfig registry.AppConfig,
 ) registry.Module {
 	module := &teamModule{}
@@ -55,7 +56,7 @@ func (m *teamModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 func (m *teamModule) configure(
 	sqlDB *registry.SQLDB,
 	getTenant registry.GetTenantFunc,
-	configRegistry *registry.ConfigRegistry,
+	configRegistry *dashboardcfg.Registry,
 	appConfig registry.AppConfig,
 ) {
 	m.handler = NewHandler(

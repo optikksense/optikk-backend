@@ -3,14 +3,12 @@ package config
 import (
 	"fmt"
 	"net"
-	"os"
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"github.com/go-viper/mapstructure/v2"
+	"github.com/spf13/viper"
 )
-
-const DefaultRateLimitWindow = time.Second
 
 type ServerConfig struct {
 	Port           string `yaml:"port"`
@@ -85,13 +83,11 @@ type RetentionConfig struct {
 }
 
 type AppConfig struct {
-	Region                     string `yaml:"region"`
-	DashboardConfigUseDefaults bool   `yaml:"dashboard_config_use_defaults"`
+	Region string `yaml:"region"`
 }
 
 type PlatformProvidersConfig struct {
 	Session             string `yaml:"session"`
-	RateLimiter         string `yaml:"rate_limiter"`
 	LiveTailHub         string `yaml:"live_tail_hub"`
 	IngestionDispatcher string `yaml:"ingestion_dispatcher"`
 }
@@ -124,8 +120,10 @@ type Config struct {
 	Ingestion      IngestionConfig  `yaml:"ingestion"`
 }
 
-// Load reads configuration from a YAML file.
+// Load reads configuration from a YAML file with environment variable overrides.
 // If no path is provided, it defaults to "config.yml".
+// Environment variables use the OPTIKK_ prefix with dots replaced by underscores
+// (e.g., mysql.host → OPTIKK_MYSQL_HOST).
 // In production (environment: production), passwords must not use insecure defaults.
 func Load(path ...string) (Config, error) {
 	p := "config.yml"
@@ -133,20 +131,107 @@ func Load(path ...string) (Config, error) {
 		p = path[0]
 	}
 
-	data, err := os.ReadFile(p)
-	if err != nil {
+	v := viper.New()
+	v.SetConfigFile(p)
+
+	setDefaults(v)
+
+	v.SetEnvPrefix("OPTIKK")
+	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_"))
+	v.AutomaticEnv()
+
+	if err := v.ReadInConfig(); err != nil {
 		return Config{}, fmt.Errorf("cannot read config file %s: %w", p, err)
 	}
 
 	var cfg Config
-	if err := yaml.Unmarshal(data, &cfg); err != nil {
-		return Config{}, fmt.Errorf("invalid config YAML in %s: %w", p, err)
+	if err := v.Unmarshal(&cfg, viper.DecoderConfigOption(func(dc *mapstructure.DecoderConfig) {
+		dc.TagName = "yaml"
+	})); err != nil {
+		return Config{}, fmt.Errorf("invalid config in %s: %w", p, err)
 	}
 
 	if err := cfg.validate(); err != nil {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// setDefaults registers all known config keys with Viper so that
+// AutomaticEnv() can resolve environment variable overrides even for
+// keys that are absent from the YAML file.
+func setDefaults(v *viper.Viper) {
+	// top-level
+	v.SetDefault("environment", "")
+
+	// server
+	v.SetDefault("server.port", "")
+	v.SetDefault("server.allowed_origins", "")
+	v.SetDefault("server.debug_api_logs", false)
+
+	// mysql
+	v.SetDefault("mysql.host", "")
+	v.SetDefault("mysql.port", "")
+	v.SetDefault("mysql.database", "")
+	v.SetDefault("mysql.user", "")
+	v.SetDefault("mysql.password", "")
+	v.SetDefault("mysql.max_open_conns", 0)
+	v.SetDefault("mysql.max_idle_conns", 0)
+
+	// clickhouse
+	v.SetDefault("clickhouse.host", "")
+	v.SetDefault("clickhouse.port", "")
+	v.SetDefault("clickhouse.database", "")
+	v.SetDefault("clickhouse.user", "")
+	v.SetDefault("clickhouse.password", "")
+	v.SetDefault("clickhouse.production", false)
+	v.SetDefault("clickhouse.cloud_host", "")
+
+	// session
+	v.SetDefault("session.lifetime_ms", 0)
+	v.SetDefault("session.idle_timeout_ms", 0)
+	v.SetDefault("session.cookie_name", "")
+	v.SetDefault("session.cookie_domain", "")
+	v.SetDefault("session.cookie_path", "")
+	v.SetDefault("session.cookie_secure", false)
+	v.SetDefault("session.cookie_http_only", false)
+	v.SetDefault("session.cookie_same_site", "")
+
+	// otl_redis_stream
+	v.SetDefault("otl_redis_stream.max_len_approx", 0)
+	v.SetDefault("otl_redis_stream.logs_max_len_approx", 0)
+	v.SetDefault("otl_redis_stream.stream_ttl_seconds", 0)
+	v.SetDefault("otl_redis_stream.ch_batch_size", 0)
+	v.SetDefault("otl_redis_stream.ch_flush_interval_ms", 0)
+	v.SetDefault("otl_redis_stream.xread_block_ms", 0)
+	v.SetDefault("otl_redis_stream.xread_count", 0)
+
+	// redis
+	v.SetDefault("redis.enabled", false)
+	v.SetDefault("redis.host", "")
+	v.SetDefault("redis.port", "")
+	v.SetDefault("redis.password", "")
+	v.SetDefault("redis.db", 0)
+
+	// otlp
+	v.SetDefault("otlp.grpc_port", "")
+
+	// retention
+	v.SetDefault("retention.default_days", 0)
+
+	// app
+	v.SetDefault("app.region", "")
+
+	// platform
+	v.SetDefault("platform.providers.session", "")
+	v.SetDefault("platform.providers.live_tail_hub", "")
+	v.SetDefault("platform.providers.ingestion_dispatcher", "")
+
+	// ingestion
+	v.SetDefault("ingestion.spans_bucket_seconds", 0)
+	v.SetDefault("ingestion.logs_bucket_seconds", 0)
+	v.SetDefault("ingestion.queue_size", 0)
+	v.SetDefault("ingestion.byte_tracker_flush_interval_ms", 0)
 }
 
 func (c Config) validate() error {
@@ -300,9 +385,6 @@ func (c Config) SessionProvider() string {
 	return firstNonEmpty(c.Platform.Providers.Session, fallback)
 }
 
-func (c Config) RateLimiterProvider() string {
-	return firstNonEmpty(c.Platform.Providers.RateLimiter, "local")
-}
 
 func (c Config) LiveTailHubProvider() string {
 	return firstNonEmpty(c.Platform.Providers.LiveTailHub, "local")
