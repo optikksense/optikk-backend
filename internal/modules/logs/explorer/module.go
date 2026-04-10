@@ -2,7 +2,6 @@ package explorer
 
 import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	exploreranalytics "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
 	logsearch "github.com/Optikk-Org/optikk-backend/internal/modules/logs/search"
 	"github.com/gin-gonic/gin"
 )
@@ -41,8 +40,7 @@ func (m *logsExplorerModule) RouteTarget() registry.RouteTarget { return registr
 func (m *logsExplorerModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
 	searchService := logsearch.NewService(logsearch.NewRepository(nativeQuerier))
 	logStatsService := newLogStatsService(nativeQuerier)
-	explorerAnalyticsService := exploreranalytics.NewService(nativeQuerier)
-	m.handler = NewHandler(getTenant, NewService(searchService, logStatsService, explorerAnalyticsService), logStatsService)
+	m.handler = NewHandler(getTenant, NewService(searchService, logStatsService), logStatsService)
 }
 
 func (m *logsExplorerModule) RegisterRoutes(group *gin.RouterGroup) {

@@ -3,7 +3,7 @@ package resourceutil //nolint:misspell
 import (
 	"strings"
 
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 // OpenTelemetry Semantic Conventions for Resource Utilization Metrics

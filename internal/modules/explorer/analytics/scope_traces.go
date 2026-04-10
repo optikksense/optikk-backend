@@ -4,7 +4,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 // TracesScopeConfig returns the ScopeConfig for traces/spans analytics.
@@ -57,18 +57,18 @@ var tracesAggFields = map[string]string{
 
 func tracesTimeBucket(startMs, endMs int64, step string) string {
 	if step != "" {
-		strat := timebucket.ByName(step)
+		strat := utils.ByName(step)
 		return strat.GetBucketExpression()
 	}
-	return timebucket.Expression(startMs, endMs)
+	return utils.Expression(startMs, endMs)
 }
 
 func tracesBaseWhere(_ int64, startMs, endMs int64) (string, []any) {
 	frag := "s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end"
 	args := []any{
 		clickhouse.Named("teamID", uint32(0)), // placeholder — caller sets real teamID
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}

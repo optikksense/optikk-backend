@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"strings"
 	"time"
@@ -76,8 +77,7 @@ type RedisConfig struct {
 }
 
 type OTLPConfig struct {
-	GRPCPort             string `yaml:"grpc_port"`
-	GRPCMaxRecvMsgSizeMB int    `yaml:"grpc_max_recv_msg_size_mb"`
+	GRPCPort string `yaml:"grpc_port"`
 }
 
 type RetentionConfig struct {
@@ -109,27 +109,19 @@ type IngestionConfig struct {
 	ByteTrackerFlushIntervalMs int64 `yaml:"byte_tracker_flush_interval_ms"`
 }
 
-// CircuitBreakerConfig tunes gobreaker-backed DB clients (MySQL wrapper, ClickHouse native querier).
-// Zero values fall back to consecutive_failures=5 and reset_timeout_ms=30000 in CircuitBreaker* helpers.
-type CircuitBreakerConfig struct {
-	ConsecutiveFailures int   `yaml:"consecutive_failures"`
-	ResetTimeoutMs      int64 `yaml:"reset_timeout_ms"`
-}
-
 type Config struct {
-	Environment    string               `yaml:"environment"`
-	Server         ServerConfig         `yaml:"server"`
-	MySQL          MySQLConfig          `yaml:"mysql"`
-	ClickHouse     ClickHouseConfig     `yaml:"clickhouse"`
-	Session        SessionConfig        `yaml:"session"`
-	OtlRedisStream OtlRedisStream       `yaml:"otl_redis_stream"`
-	Redis          RedisConfig          `yaml:"redis"`
-	OTLP           OTLPConfig           `yaml:"otlp"`
-	Retention      RetentionConfig      `yaml:"retention"`
-	App            AppConfig            `yaml:"app"`
-	Platform       PlatformConfig       `yaml:"platform"`
-	Ingestion      IngestionConfig      `yaml:"ingestion"`
-	CircuitBreaker CircuitBreakerConfig `yaml:"circuit_breaker"`
+	Environment    string           `yaml:"environment"`
+	Server         ServerConfig     `yaml:"server"`
+	MySQL          MySQLConfig      `yaml:"mysql"`
+	ClickHouse     ClickHouseConfig `yaml:"clickhouse"`
+	Session        SessionConfig    `yaml:"session"`
+	OtlRedisStream OtlRedisStream   `yaml:"otl_redis_stream"`
+	Redis          RedisConfig      `yaml:"redis"`
+	OTLP           OTLPConfig       `yaml:"otlp"`
+	Retention      RetentionConfig  `yaml:"retention"`
+	App            AppConfig        `yaml:"app"`
+	Platform       PlatformConfig   `yaml:"platform"`
+	Ingestion      IngestionConfig  `yaml:"ingestion"`
 }
 
 // Load reads configuration from a YAML file.
@@ -160,6 +152,9 @@ func Load(path ...string) (Config, error) {
 func (c Config) validate() error {
 	isProd := strings.EqualFold(c.Environment, "production")
 	if !isProd {
+		if c.Redis.Enabled {
+			return c.validateRedis()
+		}
 		return nil
 	}
 	var errs []string
@@ -172,8 +167,27 @@ func (c Config) validate() error {
 	if c.ClickHouse.Production && c.ClickHouse.CloudHost == "" {
 		errs = append(errs, "clickhouse.cloud_host must be set when clickhouse.production is true")
 	}
+	if !c.Redis.Enabled {
+		errs = append(errs, "redis.enabled must be true in production")
+	} else if err := c.validateRedis(); err != nil {
+		errs = append(errs, err.Error())
+	}
 	if len(errs) > 0 {
 		return fmt.Errorf("insecure configuration detected: %s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+func (c Config) validateRedis() error {
+	var errs []string
+	if strings.TrimSpace(c.Redis.Host) == "" {
+		errs = append(errs, "redis.host must be set")
+	}
+	if strings.TrimSpace(c.Redis.Port) == "" {
+		errs = append(errs, "redis.port must be set")
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("%s", strings.Join(errs, "; "))
 	}
 	return nil
 }
@@ -198,6 +212,10 @@ func (c Config) ClickHouseDSN() string {
 	)
 }
 
+func (c Config) RedisAddr() string {
+	return net.JoinHostPort(c.Redis.Host, c.Redis.Port)
+}
+
 func (c Config) SessionLifetime() time.Duration {
 	return time.Duration(c.Session.LifetimeMs) * time.Millisecond
 }
@@ -218,24 +236,6 @@ func (c Config) OtlXReadBlock() time.Duration {
 	ms := c.OtlRedisStream.XReadBlockMs
 	if ms <= 0 {
 		return 2 * time.Second
-	}
-	return time.Duration(ms) * time.Millisecond
-}
-
-// CircuitBreakerConsecutiveFailures returns the failure streak before the breaker opens (default 5).
-func (c Config) CircuitBreakerConsecutiveFailures() int {
-	n := c.CircuitBreaker.ConsecutiveFailures
-	if n <= 0 {
-		return 5
-	}
-	return n
-}
-
-// CircuitBreakerResetTimeout is how long the breaker stays open before half-open (default 30s).
-func (c Config) CircuitBreakerResetTimeout() time.Duration {
-	ms := c.CircuitBreaker.ResetTimeoutMs
-	if ms <= 0 {
-		return 30 * time.Second
 	}
 	return time.Duration(ms) * time.Millisecond
 }
@@ -293,7 +293,11 @@ func (c Config) OtlStreamTTL() time.Duration {
 }
 
 func (c Config) SessionProvider() string {
-	return firstNonEmpty(c.Platform.Providers.Session, "local")
+	fallback := "local"
+	if c.Redis.Enabled {
+		fallback = "redis"
+	}
+	return firstNonEmpty(c.Platform.Providers.Session, fallback)
 }
 
 func (c Config) RateLimiterProvider() string {

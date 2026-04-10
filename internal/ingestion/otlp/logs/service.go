@@ -12,15 +12,13 @@ type Service struct {
 	auth       platformingestion.TeamResolver
 	dispatcher platformingestion.Dispatcher[*LogRow]
 	tracker    platformingestion.SizeTracker
-	limiter    platformingestion.Limiter
 }
 
-func NewService(authenticator platformingestion.TeamResolver, d platformingestion.Dispatcher[*LogRow], tracker platformingestion.SizeTracker, limiter platformingestion.Limiter) *Service {
+func NewService(authenticator platformingestion.TeamResolver, d platformingestion.Dispatcher[*LogRow], tracker platformingestion.SizeTracker) *Service {
 	return &Service{
 		auth:       authenticator,
 		dispatcher: d,
 		tracker:    tracker,
-		limiter:    limiter,
 	}
 }
 

@@ -149,3 +149,35 @@ func (h *TraceDetailHandler) GetRelatedTraces(c *gin.Context) {
 	}
 	modulecommon.RespondOK(c, traces)
 }
+
+func (h *TraceDetailHandler) GetLLMTraceSpans(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	traceID := c.Param("traceId")
+	if traceID == "" {
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "traceId is required")
+		return
+	}
+
+	spans, err := h.Service.GetLLMTrace(teamID, traceID)
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to get LLM trace", err)
+		return
+	}
+	modulecommon.RespondOK(c, spans)
+}
+
+func (h *TraceDetailHandler) GetLLMTraceSummary(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	traceID := c.Param("traceId")
+	if traceID == "" {
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "traceId is required")
+		return
+	}
+
+	summary, err := h.Service.GetLLMTraceSummary(teamID, traceID)
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to get LLM trace summary", err)
+		return
+	}
+	modulecommon.RespondOK(c, summary)
+}

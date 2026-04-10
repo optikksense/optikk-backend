@@ -1,24 +1,20 @@
 package explorer
 
 import (
-	exploreranalytics "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
 	spantraces "github.com/Optikk-Org/optikk-backend/internal/modules/traces/query"
 )
 
 // QueryRequest is the unified traces explorer request.
 type QueryRequest struct {
-	StartTime    int64                           `json:"startTime"`
-	EndTime      int64                           `json:"endTime"`
-	Query        string                          `json:"query"`
-	Limit        int                             `json:"limit"`
-	Offset       int                             `json:"offset"`
-	Cursor       string                          `json:"cursor"`
-	Step         string                          `json:"step"`
-	GroupBy      []string                        `json:"groupBy,omitempty"`
-	Aggregations []exploreranalytics.Aggregation `json:"aggregations,omitempty"`
-	VizMode      string                          `json:"vizMode,omitempty"`
-	OrderBy      string                          `json:"orderBy,omitempty"`
-	OrderDir     string                          `json:"orderDir,omitempty"`
+	StartTime int64  `json:"startTime"`
+	EndTime   int64  `json:"endTime"`
+	Query     string `json:"query"`
+	Limit     int    `json:"limit"`
+	Offset    int    `json:"offset"`
+	Cursor    string `json:"cursor"`
+	Step      string `json:"step"`
+	OrderBy   string `json:"orderBy,omitempty"`
+	OrderDir  string `json:"orderDir,omitempty"`
 }
 
 type FacetBucket struct {

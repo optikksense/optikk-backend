@@ -20,7 +20,7 @@ type Repository interface {
 	ListActiveTeamsByOrganization(orgName string) ([]usershared.TeamRecord, error)
 	ListActiveTeamsByIDs(teamIDs []int64) ([]usershared.TeamRecord, error)
 	UpdateUserTeams(userID int64, teamsJSON string) error
-	CreateTeam(orgName, name, slug string, description *string, color, apiKey string, dashboardConfigsJSON *string, createdAt time.Time) (int64, error)
+	CreateTeam(orgName, name, slug string, description *string, color, apiKey string, createdAt time.Time) (int64, error)
 }
 
 type MySQLRepository struct {
@@ -148,11 +148,11 @@ func (r *MySQLRepository) UpdateUserTeams(userID int64, teamsJSON string) error 
 	return err
 }
 
-func (r *MySQLRepository) CreateTeam(orgName, name, slug string, description *string, color, apiKey string, dashboardConfigsJSON *string, createdAt time.Time) (int64, error) {
+func (r *MySQLRepository) CreateTeam(orgName, name, slug string, description *string, color, apiKey string, createdAt time.Time) (int64, error) {
 	res, err := r.db.Exec(`
-		INSERT INTO teams (org_name, name, slug, description, active, color, api_key, dashboard_configs, created_at)
-		VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
-	`, orgName, name, slug, nullableStringPtr(description), color, apiKey, dashboardConfigsJSON, createdAt)
+		INSERT INTO teams (org_name, name, slug, description, active, color, api_key, created_at)
+		VALUES (?, ?, ?, ?, 1, ?, ?, ?)
+	`, orgName, name, slug, nullableStringPtr(description), color, apiKey, createdAt)
 	if err != nil {
 		return 0, err
 	}

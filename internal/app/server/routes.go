@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/middleware"
 	"github.com/gin-gonic/gin"
 )
@@ -22,18 +23,25 @@ func (a *App) Router() *gin.Engine {
 
 	v1 := r.Group("/api/v1")
 	v1.Use(middleware.TenantMiddleware(a.Runtime.SessionManager))
-	a.applyRateLimiter(v1)
 	v1.GET("/ws/live", a.LiveTailWS)
 
+	cachedV1 := r.Group("/api/v1")
+	cachedV1.Use(middleware.TenantMiddleware(a.Runtime.SessionManager))
+	cachedV1.Use(middleware.CacheMiddleware(
+		middleware.NewRedisResponseCache(a.Runtime.RedisClient),
+		middleware.DefaultResponseCacheTTL,
+	))
+
 	for _, mod := range a.Modules {
-		mod.RegisterRoutes(v1)
+		switch mod.RouteTarget() {
+		case registry.Cached:
+			mod.RegisterRoutes(cachedV1)
+		default:
+			mod.RegisterRoutes(v1)
+		}
 	}
 
 	return r
-}
-
-func (a *App) applyRateLimiter(group gin.IRoutes) {
-	group.Use(middleware.RateLimitMiddleware(a.Runtime.RateLimiter))
 }
 
 func (a *App) healthLive(c *gin.Context) {
@@ -54,5 +62,16 @@ func (a *App) healthReady(c *gin.Context) {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "clickhouse": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"status": "ready", "mysql": "ok", "clickhouse": "ok"})
+	if a.Runtime.RedisClient == nil {
+		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "redis": "client not configured"})
+		return
+	}
+	if err := a.Runtime.RedisClient.Ping(ctx).Err(); err != nil {
+		slog.Error("request error",
+			slog.String("code", "503"), slog.String("msg", err.Error()),
+			slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path))
+		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "redis": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"status": "ready", "mysql": "ok", "clickhouse": "ok", "redis": "ok"})
 }

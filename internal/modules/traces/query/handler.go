@@ -62,14 +62,10 @@ func NewHandler(getTenant modulecommon.GetTenantFunc, service TraceService) *Tra
 func (h *TraceHandler) buildFilters(c *gin.Context, teamID int64, startMs, endMs int64) TraceFilters {
 	services := modulecommon.ParseListParam(c, "services")
 	if len(services) == 0 {
-		if singleService := c.Query("service"); singleService != "" {
-			services = []string{singleService}
-		}
+
 	}
 	operation := c.Query("operationName")
-	if operation == "" {
-		operation = c.Query("operation")
-	}
+
 	httpStatus := c.Query("httpStatusCode")
 	if httpStatus == "" {
 		httpStatus = c.Query("http.status_code")
@@ -277,13 +273,9 @@ func (h *TraceHandler) GetServiceErrorTimeSeries(c *gin.Context) {
 func (h *TraceHandler) GetLatencyHistogram(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")
-	if serviceName == "" {
-		serviceName = c.Query("service")
-	}
+
 	operationName := c.Query("operationName")
-	if operationName == "" {
-		operationName = c.Query("operation")
-	}
+
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
@@ -301,9 +293,7 @@ func (h *TraceHandler) GetLatencyHistogram(c *gin.Context) {
 func (h *TraceHandler) GetLatencyHeatmap(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")
-	if serviceName == "" {
-		serviceName = c.Query("service")
-	}
+
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return

@@ -11,7 +11,3 @@ import (
 func NewByteTracker(db *sql.DB, flushInterval time.Duration) platformingestion.SizeTracker {
 	return ingest.NewByteTracker(db, flushInterval)
 }
-
-func NewLimiter(ratePerSec, burst int64) platformingestion.Limiter {
-	return ingest.NewTeamLimiter(ratePerSec, burst)
-}

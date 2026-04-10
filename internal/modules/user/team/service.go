@@ -120,14 +120,7 @@ func (s *Service) CreateTeam(req CreateTeamRequest) (TeamResponse, error) {
 		descriptionPtr = &description
 	}
 
-	defaultConfigJSON := "{}"
-	if s.registry != nil {
-		if jsonStr, err := s.registry.GenerateDefaultDashboardConfigsJSON(); err == nil {
-			defaultConfigJSON = jsonStr
-		}
-	}
-
-	teamID, err := s.repo.CreateTeam(orgName, name, slug, descriptionPtr, color, apiKey, &defaultConfigJSON, time.Now().UTC())
+	teamID, err := s.repo.CreateTeam(orgName, name, slug, descriptionPtr, color, apiKey, time.Now().UTC())
 	if err != nil {
 		slog.Error("Failed to create team", slog.Any("error", err), slog.String("org_name", orgName), slog.String("name", name))
 		if strings.Contains(err.Error(), "1062") || strings.Contains(err.Error(), "Duplicate entry") {

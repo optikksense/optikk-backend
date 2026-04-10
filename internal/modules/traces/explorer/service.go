@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	exploreranalytics "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/explorer/queryparser"
 	spantraces "github.com/Optikk-Org/optikk-backend/internal/modules/traces/query"
 )
@@ -17,43 +16,16 @@ type tracesQueryService interface {
 }
 
 type Service struct {
-	tracesService     tracesQueryService
-	explorerAnalytics *exploreranalytics.Service
+	tracesService tracesQueryService
 }
 
-func NewService(tracesService tracesQueryService, explorerAnalytics *exploreranalytics.Service) *Service {
+func NewService(tracesService tracesQueryService) *Service {
 	return &Service{
-		tracesService:     tracesService,
-		explorerAnalytics: explorerAnalytics,
+		tracesService: tracesService,
 	}
 }
 
-// Query handles the explorer request. If groupBy/aggregations are set, delegates to
-// the unified analytics engine. Otherwise, returns the standard list view.
-func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (any, error) {
-	if len(req.GroupBy) > 0 && len(req.Aggregations) > 0 {
-		return s.queryAnalytics(ctx, req, teamID)
-	}
-	return s.queryList(ctx, req, teamID)
-}
-
-func (s *Service) queryAnalytics(ctx context.Context, req QueryRequest, teamID int64) (*exploreranalytics.AnalyticsResult, error) {
-	analyticsReq := exploreranalytics.AnalyticsRequest{
-		Query:        req.Query,
-		StartTime:    req.StartTime,
-		EndTime:      req.EndTime,
-		GroupBy:      req.GroupBy,
-		Aggregations: req.Aggregations,
-		OrderBy:      req.OrderBy,
-		OrderDir:     req.OrderDir,
-		Limit:        req.Limit,
-		Step:         req.Step,
-		VizMode:      req.VizMode,
-	}
-	return s.explorerAnalytics.RunQuery(ctx, teamID, analyticsReq, "traces")
-}
-
-func (s *Service) queryList(ctx context.Context, req QueryRequest, teamID int64) (Response, error) {
+func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Response, error) {
 	filters, err := buildFiltersFromQuery(req, teamID)
 	if err != nil {
 		return Response{}, fmt.Errorf("explorer.Query.parseQuery: %w", err)

@@ -103,3 +103,19 @@ type KafkaSummaryStats struct {
 	PublishP95Ms      float64 `ch:"publish_p95"  json:"publish_p95_ms"`
 	ReceiveP95Ms      float64 `ch:"receive_p95"  json:"receive_p95_ms"`
 }
+
+type ConsumerMetricSample struct {
+	Timestamp     string  `ch:"time_bucket"    json:"timestamp"`
+	ConsumerGroup string  `ch:"consumer_group" json:"consumer_group"`
+	NodeID        string  `ch:"node_id"        json:"node_id"`
+	MetricName    string  `ch:"metric_name"    json:"metric_name"`
+	Value         float64 `ch:"value"          json:"value"`
+}
+
+type TopicMetricSample struct {
+	Timestamp     string  `ch:"time_bucket"    json:"timestamp"`
+	Topic         string  `ch:"topic"          json:"topic"`
+	ConsumerGroup string  `ch:"consumer_group" json:"consumer_group"`
+	MetricName    string  `ch:"metric_name"    json:"metric_name"`
+	Value         float64 `ch:"value"          json:"value"`
+}

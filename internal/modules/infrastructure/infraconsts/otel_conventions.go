@@ -3,7 +3,7 @@ package infraconsts
 import (
 	"strings"
 
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 // OpenTelemetry Semantic Conventions for Infrastructure / Resource Utilization Metrics

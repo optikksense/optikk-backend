@@ -27,3 +27,12 @@ const (
 	NoData      = "NO_DATA"
 	PartialData = "PARTIAL_DATA"
 )
+
+// Alerting module codes.
+const (
+	AlertRuleNotFound         = "ALERT_RULE_NOT_FOUND"
+	AlertInstanceNotFound     = "ALERT_INSTANCE_NOT_FOUND"
+	AlertRuleInvalidCondition = "ALERT_RULE_INVALID_CONDITION"
+	AlertChannelNotFound      = "ALERT_CHANNEL_NOT_FOUND"
+	AlertSilenceNotFound      = "ALERT_SILENCE_NOT_FOUND"
+)

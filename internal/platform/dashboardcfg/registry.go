@@ -63,21 +63,6 @@ func (r *Registry) ListPages(navigableOnly bool) []PageMetadata {
 	return pages
 }
 
-// GenerateDefaultDashboardConfigsJSON exports the entire registry of default pages as a JSON string.
-// This is used to seed the dashboard_configs column when a new team is created.
-func (r *Registry) GenerateDefaultDashboardConfigsJSON() (string, error) {
-	if r == nil || len(r.pages) == 0 {
-		return "{}", nil
-	}
-
-	data, err := json.Marshal(r.pages)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal default configs: %w", err)
-	}
-
-	return string(data), nil
-}
-
 // ClonePageDocument performs a deep clone of a PageDocument via JSON round-trip.
 func ClonePageDocument(doc PageDocument) (PageDocument, error) {
 	data, err := json.Marshal(doc)

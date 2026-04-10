@@ -38,12 +38,14 @@ const (
 
 var (
 	topicAttributeAliases = []string{
+		"topic",
 		AttrMessagingDestinationName,
 		"messaging.destination",
 		"messaging.kafka.destination.name",
 	}
 
 	consumerGroupAttributeAliases = []string{
+		"client-id",
 		AttrMessagingConsumerGroupName,
 		"messaging.kafka.consumer.group",
 		"messaging.consumer.group",

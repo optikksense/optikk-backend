@@ -6,7 +6,7 @@ import (
 
 	"log/slog"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/protoconv"
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
@@ -75,7 +75,7 @@ func mapLogs(teamID int64, req *logspb.ExportLogsServiceRequest) []*LogRow {
 // buildLogRow maps a single OTLP log record into a ClickHouse ingest row.
 func buildLogRow(teamID int64, resourceMap map[string]string, fingerprint string, scope scopeInfo, lr *logv1.LogRecord) *LogRow {
 	tsNs, observedNs := resolveTimestamps(lr)
-	tsBucket := timebucket.LogsBucketStart(int64(tsNs / nsPerSecond))
+	tsBucket := utils.LogsBucketStart(int64(tsNs / nsPerSecond))
 	body := protoconv.AnyValueString(lr.Body)
 	attrStr, attrNum, attrBool := protoAttrsToTypedMaps(lr.Attributes)
 	attrStr = capStringAttrs(attrStr, teamID)

@@ -219,9 +219,7 @@ func isRetriableClickHouseNetworkError(err error) bool {
 const clickHouseReadMaxAttempts = 3
 
 // retryClickHouseRead re-executes op on transient connection failures (initial try
-// plus up to clickHouseReadMaxAttempts-1 retries). Callers wrap this inside
-// circuitbreaker.Call: transient failures on earlier attempts do not trip the
-// breaker; only the final returned error counts toward breaker state.
+// plus up to clickHouseReadMaxAttempts-1 retries).
 func retryClickHouseRead(ctx context.Context, op func() error) error {
 	var lastErr error
 	for attempt := range clickHouseReadMaxAttempts {

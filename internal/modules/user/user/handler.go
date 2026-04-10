@@ -8,7 +8,6 @@ import (
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 
-	appvalidation "github.com/Optikk-Org/optikk-backend/internal/infra/validation"
 	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
 )
 
@@ -65,10 +64,6 @@ func (h *Handler) CreateUser(c *gin.Context) {
 	var req CreateUserRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Invalid request body")
-		return
-	}
-	if err := appvalidation.Struct(req); err != nil {
-		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "email, name, password and teamIDs are mandatory")
 		return
 	}
 

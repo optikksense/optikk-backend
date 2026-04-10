@@ -12,7 +12,6 @@ CREATE TABLE IF NOT EXISTS observability.teams
      icon              VARCHAR(100),
      api_key           VARCHAR(64) NOT NULL UNIQUE,
      retention_days    INT NOT NULL DEFAULT 30,
-     dashboard_configs JSON NULL,
      data_ingested_kb  BIGINT NOT NULL DEFAULT 0,
      created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
      updated_at        DATETIME NULL,
@@ -33,12 +32,3 @@ CREATE TABLE IF NOT EXISTS observability.users
      created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
      INDEX idx_user_email (email)
   );
-
-CREATE TABLE IF NOT EXISTS observability.dashboard_config_cleanup_backups
-(
-    id           BIGINT AUTO_INCREMENT PRIMARY KEY,
-    team_id      BIGINT NOT NULL,
-    removed_keys JSON NOT NULL,
-    created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    INDEX idx_dashboard_cleanup_team_id (team_id)
-);

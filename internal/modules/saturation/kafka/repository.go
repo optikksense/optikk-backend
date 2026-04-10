@@ -6,7 +6,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 // timeBucketExpr returns the adaptive time-bucket expression for the metrics table timestamp column.
@@ -581,4 +581,70 @@ func (r *ClickHouseRepository) getGroupErrorRates(teamID int64, startMs, endMs i
 		return nil, fmt.Errorf("%s: %w", caller, err)
 	}
 	return out, nil
+}
+
+func (r *ClickHouseRepository) GetConsumerMetricSamples(teamID int64, startMs, endMs int64, f KafkaFilters, metricNames []string) ([]ConsumerMetricSample, error) {
+	if len(metricNames) == 0 {
+		return []ConsumerMetricSample{}, nil
+	}
+
+	bucket := timeBucketExpr(startMs, endMs)
+	group := consumerGroupExpr()
+	nodeID := nodeIDExpr()
+	filterSQL, filterArgs := kafkaInventoryFilterClauses(f)
+	clause := MetricSetToInClause(metricNames)
+
+	query := fmt.Sprintf(`
+		SELECT
+		    %s AS time_bucket,
+		    %s AS consumer_group,
+		    %s AS node_id,
+		    %s AS metric_name,
+		    avgIf(%s, isFinite(%s)) AS value
+		FROM %s
+		WHERE team_id = @teamID
+		  AND timestamp BETWEEN @start AND @end
+		  %s
+		  AND %s IN (%s)
+		  AND %s != ''
+		GROUP BY time_bucket, consumer_group, node_id, metric_name
+		ORDER BY time_bucket ASC, consumer_group ASC, metric_name ASC
+	`, bucket, group, nodeID, ColMetricName, ColValue, ColValue, TableMetrics, filterSQL, ColMetricName, clause, group)
+
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
+	var out []ConsumerMetricSample
+	return out, r.db.Select(context.Background(), &out, query, args...)
+}
+
+func (r *ClickHouseRepository) GetTopicMetricSamples(teamID int64, startMs, endMs int64, f KafkaFilters, metricNames []string) ([]TopicMetricSample, error) {
+	if len(metricNames) == 0 {
+		return []TopicMetricSample{}, nil
+	}
+
+	bucket := timeBucketExpr(startMs, endMs)
+	topic := topicExpr()
+	group := consumerGroupExpr()
+	filterSQL, filterArgs := kafkaInventoryFilterClauses(f)
+	clause := MetricSetToInClause(metricNames)
+
+	query := fmt.Sprintf(`
+		SELECT
+		    %s AS time_bucket,
+		    %s AS topic,
+		    %s AS consumer_group,
+		    %s AS metric_name,
+		    avgIf(%s, isFinite(%s)) AS value
+		FROM %s
+		WHERE team_id = @teamID
+		  AND timestamp BETWEEN @start AND @end
+		  %s
+		  AND %s IN (%s)
+		  AND %s != ''
+		GROUP BY time_bucket, topic, consumer_group, metric_name
+		ORDER BY time_bucket ASC, topic ASC, consumer_group ASC, metric_name ASC
+	`, bucket, topic, group, ColMetricName, ColValue, ColValue, TableMetrics, filterSQL, ColMetricName, clause, topic)
+
+	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
+	var out []TopicMetricSample
+	return out, r.db.Select(context.Background(), &out, query, args...)
 }

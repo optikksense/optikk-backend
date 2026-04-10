@@ -9,7 +9,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	rootspan "github.com/Optikk-Org/optikk-backend/internal/modules/traces/shared/rootspan"
 )
 
@@ -71,9 +71,9 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(teamID int64, startMs, end
 		LIMIT ` + strconv.Itoa(MaxNodes)
 
 	params := []any{
-		clickhouse.Named("teamID", uint32(teamID)),                                                      //nolint:gosec // G115 - domain-constrained value
-		clickhouse.Named("bucketStart", time.Unix(int64(timebucket.SpansBucketStart(startMs/1000)), 0)), //nolint:gosec // G115 - domain-constrained value
-		clickhouse.Named("bucketEnd", time.Unix(int64(timebucket.SpansBucketStart(endMs/1000)), 0)),     //nolint:gosec // G115 - domain-constrained value
+		clickhouse.Named("teamID", uint32(teamID)),                                                 //nolint:gosec // G115 - domain-constrained value
+		clickhouse.Named("bucketStart", time.Unix(int64(utils.SpansBucketStart(startMs/1000)), 0)), //nolint:gosec // G115 - domain-constrained value
+		clickhouse.Named("bucketEnd", time.Unix(int64(utils.SpansBucketStart(endMs/1000)), 0)),     //nolint:gosec // G115 - domain-constrained value
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
@@ -123,8 +123,8 @@ func (r *ClickHouseRepository) GetInfrastructureNodeServices(teamID int64, host 
 	params := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("host", host),
-		clickhouse.Named("bucketStart", time.Unix(int64(timebucket.SpansBucketStart(startMs/1000)), 0)), //nolint:gosec // G115
-		clickhouse.Named("bucketEnd", time.Unix(int64(timebucket.SpansBucketStart(endMs/1000)), 0)),     //nolint:gosec // G115
+		clickhouse.Named("bucketStart", time.Unix(int64(utils.SpansBucketStart(startMs/1000)), 0)), //nolint:gosec // G115
+		clickhouse.Named("bucketEnd", time.Unix(int64(utils.SpansBucketStart(endMs/1000)), 0)),     //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}

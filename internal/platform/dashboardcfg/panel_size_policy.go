@@ -38,8 +38,6 @@ var layoutVariantSizes = func() map[LayoutVariant]PanelSize {
 }()
 
 var panelTypeAllowedLayoutVariants = map[PanelType][]LayoutVariant{
-	PanelTypeAIBar:             {LayoutVariantStandardChart, LayoutVariantWideChart},
-	PanelTypeAILine:            {LayoutVariantStandardChart, LayoutVariantWideChart},
 	PanelTypeBar:               {LayoutVariantStandardChart, LayoutVariantWideChart},
 	PanelTypeDBSystemsOverview: {LayoutVariantHeroDetail, LayoutVariantSummary, LayoutVariantCompact},
 	PanelTypeErrorHotspotRank:  {LayoutVariantRanking, LayoutVariantSummary, LayoutVariantCompact},

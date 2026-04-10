@@ -17,9 +17,7 @@ type SLOHandler struct {
 func (h *SLOHandler) GetSloSli(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")
-	if serviceName == "" {
-		serviceName = c.Query("service")
-	}
+
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
@@ -37,9 +35,7 @@ func (h *SLOHandler) GetSloSli(c *gin.Context) {
 func (h *SLOHandler) GetSloStats(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")
-	if serviceName == "" {
-		serviceName = c.Query("service")
-	}
+
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
@@ -57,9 +53,7 @@ func (h *SLOHandler) GetSloStats(c *gin.Context) {
 func (h *SLOHandler) GetBurnDown(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")
-	if serviceName == "" {
-		serviceName = c.Query("service")
-	}
+
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
@@ -76,9 +70,7 @@ func (h *SLOHandler) GetBurnDown(c *gin.Context) {
 func (h *SLOHandler) GetBurnRate(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")
-	if serviceName == "" {
-		serviceName = c.Query("service")
-	}
+
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return

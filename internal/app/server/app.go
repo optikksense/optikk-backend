@@ -18,7 +18,7 @@ import (
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/livetailws"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/middleware"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	log_search "github.com/Optikk-Org/optikk-backend/internal/modules/logs/search"
 	platformruntime "github.com/Optikk-Org/optikk-backend/internal/platform/runtime"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
@@ -57,7 +57,7 @@ func New(db *sql.DB, ch clickhouse.Conn, cfg config.Config) (*App, error) {
 	getTenant := modulecommon.GetTenantFunc(middleware.GetTenant)
 
 	// Initialize global infrastructure parameters.
-	timebucket.Init(cfg.SpansBucketSeconds(), cfg.LogsBucketSeconds())
+	utils.Init(cfg.SpansBucketSeconds(), cfg.LogsBucketSeconds())
 
 	runtimeDeps, err := platformruntime.New(db, cfg)
 	if err != nil {
@@ -126,7 +126,6 @@ func (a *App) Start(ctx context.Context) error {
 			return fmt.Errorf("gRPC listen failed: %v", err)
 		}
 		grpcSrv := grpc.NewServer(
-			grpc.MaxRecvMsgSize(a.Config.OTLP.GRPCMaxRecvMsgSizeMB*1024*1024),
 			grpc.MaxConcurrentStreams(100),
 			grpc.ConnectionTimeout(30*time.Second),
 			grpc.KeepaliveParams(keepalive.ServerParameters{

@@ -29,7 +29,7 @@ The web app lives in the sibling repo **`optic-frontend`** (see that repo's `COD
 
 | File | Purpose |
 |------|---------|
-| `internal/app/server/modules_manifest.go` | **`configuredModules()`** — single list of all `registry.Module` constructors (51 total: 47 HTTP + 4 ingestion); add new HTTP/domain modules here |
+| `internal/app/server/modules_manifest.go` | **`configuredModules()`** — single list of all `registry.Module` constructors (52 total: 48 HTTP + 4 ingestion, including `alerting` which also implements `BackgroundRunner`); add new HTTP/domain modules here |
 | `internal/app/server/app.go` | App wiring; builds `platform/runtime.Runtime`, native querier, WebSocket handler, module graph |
 | `internal/app/registry/registry.go` | Shared dependency aliases for modules (querier, DB, tenant, config, platform session contract) |
 
@@ -42,42 +42,67 @@ The web app lives in the sibling repo **`optic-frontend`** (see that repo's `COD
 
 ## Module packages (`internal/modules/`)
 
-51 registered modules across 13 domains. Every module **must** follow the strict 6-file pattern: `handler.go`, `service.go`, `repository.go`, `module.go`, `dto.go`, `models.go`. All repository implementation methods must reside in the single `repository.go` file.
+52 registered modules across 14 domains. Every module **must** follow the strict 6-file pattern: `handler.go`, `service.go`, `repository.go`, `module.go`, `dto.go`, `models.go`. All repository implementation methods must reside in the single `repository.go` file.
 
 | Domain | Packages | Route prefix | Cache |
 |--------|----------|-------------|-------|
-| **AI** (5) | `ai/dashboard`, `ai/runs`, `ai/rundetail`, `ai/conversations`, `ai/traces` | `/ai/*` | V1 |
-| **APM** (1) | `apm` | `/apm/*` | Cached |
+| **AI** (4) | `ai/overview`, `ai/explorer`, `ai/spandetail`, `ai/analytics` | `/ai/*` | Cached |
+| **Alerting** (1) | `alerting` (subpackages: `evaluators`, `channels`) | `/alerts/*` | V1 |
+| **APM** (1) | `overview/apm` | `/apm/*` | Cached |
 | **Dashboard config** (1) | `dashboard` | `/default-config/*` | V1 |
-| **Deployments** (1) | `deployments` | `/deployments/*` | Cached |
+| **Deployments** (1) | `services/deployments` | `/deployments/*` | Cached |
 | **Explorer** (1) | `explorer/analytics` (helper: `explorer/queryparser`) | `POST /explorer/:scope/analytics` | V1 |
-| **HTTP Metrics** (1) | `httpmetrics` | `/http/*`, `/http/routes/*`, `/http/external/*` | Cached |
+| **HTTP Metrics** (1) | `overview/httpmetrics` | `/http/*`, `/http/routes/*`, `/http/external/*` | Cached |
 | **Infrastructure** (8) | `infrastructure/{cpu,disk,jvm,kubernetes,memory,network,nodes,resourceutil}` (consts: `infraconsts`) | `/infrastructure/*` | Cached |
 | **Logs** (2) | `logs/explorer`, `logs/search` (shared: `logs/internal/shared`) | `/logs/*`, `POST /logs/explorer/query` | V1 |
-| **Metrics Explorer** (1) | `metricsexplorer` | `/metrics/names`, `/metrics/:metricName/tags`, `POST /metrics/explorer/query` | V1 |
-| **Overview** (3) | `overview/overview`, `overview/errors`, `overview/slo` | `/overview/*`, `/errors/groups/*` | Cached |
+| **Metrics** (1) | `metrics` | `/metrics/names`, `/metrics/:metricName/tags`, `POST /metrics/explorer/query` | V1 |
+| **Overview** (4) | `overview/overview`, `overview/errors`, `overview/slo`, `overview/redmetrics` | `/overview/*`, `/errors/groups/*`, `/spans/red/*` | Cached |
 | **Saturation** (10) | `saturation/database/{collection,connections,errors,latency,slowqueries,summary,system,systems,volume}`, `saturation/kafka` | `/saturation/*` | V1 (db), Cached (kafka/summary) |
-| **Traces** (8) | `traces/{query,explorer,tracedetail,redmetrics,errorfingerprint,errortracking,tracecompare,livetail}` (shared: `traces/shared`) | `/traces/*`, `/spans/*`, `/services/*`, `/latency/*`, `/errors/*` | Mixed |
+| **Traces** (5) | `traces/{query,explorer,tracedetail,tracecompare,livetail}` (shared: `traces/shared`) | `/traces/*`, `/spans/*`, `/services/*`, `/latency/*`, `/errors/*` | Mixed |
 | **User** (3) | `user/auth`, `user/team`, `user/user` (shared: `user/internal`) | `/auth/*`, `/users/*`, `/teams/*`, `/settings/*` | V1 |
 | **Ingestion** (4) | via `internal/ingestion/otlp/{streamworkers,spans,logs,metrics}` | gRPC only (no HTTP routes) | — |
 
-### AI module routes
-
 | Submodule | Key endpoints |
 |-----------|--------------|
-| `ai/dashboard` | `GET /ai/summary`, `/ai/models`, `/ai/performance/{summary,timeseries,latency-histogram}`, `/ai/cost/{summary,timeseries,token-breakdown}`, `/ai/security/{summary,timeseries,pii-categories}` |
-| `ai/runs` | `GET /ai/runs`, `/ai/runs/summary`, `/ai/runs/models`, `/ai/runs/operations` |
-| `ai/rundetail` | `GET /ai/runs/:spanId`, `/ai/runs/:spanId/messages`, `/ai/runs/:spanId/context` |
-| `ai/conversations` | `GET /ai/conversations`, `/ai/conversations/:conversationId` |
-| `ai/traces` | `GET /ai/traces/:traceId`, `/ai/traces/:traceId/summary` |
+| `ai/overview` | `GET /ai/overview/{summary,models,operations,services,model-health,top-slow,top-errors,finish-reasons,timeseries/*}` |
+| `ai/explorer` | `GET /ai/explorer/{spans,facets,summary,histogram}` |
+| `ai/spandetail` | `GET /ai/spans/{:spanId,messages,trace-context,related,token-breakdown}` |
+| `ai/analytics` | `GET /ai/analytics/{model-catalog,model-timeseries/*,latency-distribution,parameter-impact,cost-summary,cost-timeseries,token-economics,error-patterns,error-timeseries,finish-reason-analysis,conversations,conversations/:id/*}` |
+
+**Logic:** All AI modules filter the core `observability.spans` table for presence of `gen_ai.*` attributes (system, model, prompt, response). Metrics are aggregated via the `timebucket` infra; cost is derived from the in-memory static price map in `ai/analytics/models.go`.
+
 
 ### Overview module routes
 
 | Submodule | Key endpoints |
 |-----------|--------------|
 | `overview/overview` | `GET /overview/request-rate`, `/overview/error-rate`, `/overview/p95-latency`, `/overview/services`, `/overview/top-endpoints`, `/overview/endpoints/metrics` (alias), `/overview/endpoints/timeseries`, `/overview/summary` |
-| `overview/errors` | `GET /overview/errors/{service-error-rate,error-volume,latency-during-error-windows,groups}`, `/errors/groups/:groupId/*` |
+| `overview/errors` | `GET /overview/errors/{service-error-rate,error-volume,latency-during-error-windows,groups}`, `/errors/groups/:groupId/*`, `/errors/fingerprints/*`, `/spans/{exception-rate-by-type,error-hotspot,http-5xx-by-route}` |
 | `overview/slo` | `GET /overview/slo`, `/overview/slo/stats`, `/overview/slo/burn-down`, `/overview/slo/burn-rate` |
+| `overview/redmetrics` | `GET /spans/red/{summary,apdex,top-slow-operations,top-error-operations,request-rate,error-rate,p95-latency,span-kind-breakdown,errors-by-route}`, `/spans/latency-breakdown` |
+
+### Alerting module routes
+
+All under `/alerts/` prefix. Datadog-grade monitors: multi-window, multi-state (`ok|warn|alert|no_data|muted`), hysteresis (`for_secs`/`recover_for_secs`), per-group instances, Slack dispatch, deploy correlation, backtest.
+
+| Endpoint | Purpose |
+|----------|---------|
+| `POST /alerts/rules` | Create rule |
+| `GET /alerts/rules` | List team rules |
+| `GET /alerts/rules/:id` | Rule + instance state |
+| `PATCH /alerts/rules/:id` | Update rule |
+| `DELETE /alerts/rules/:id` | Delete rule |
+| `POST /alerts/rules/:id/mute` | Mute until timestamp |
+| `POST /alerts/rules/:id/test` | Dry-run against live data |
+| `POST /alerts/rules/:id/backtest` | Replay over historical range |
+| `GET /alerts/rules/:id/audit` | Audit log (from ClickHouse `alert_events`) |
+| `GET /alerts/incidents` | Live list of firing instances (team-scoped) |
+| `POST /alerts/instances/:id/ack` | Ack an instance with optional `until` |
+| `POST /alerts/instances/:id/snooze` | Snooze an instance N minutes |
+| `GET /alerts/silences` / `POST` / `PATCH /:id` / `DELETE /:id` | Maintenance-window CRUD |
+| `POST /alerts/callback/slack` | Slack action-button callback (v1 stub) |
+
+**Storage:** single MySQL `observability.alerts` table (rule + instances + silences inline as JSON); append-only ClickHouse `observability.alert_events` for transitions/audit. **Runtime:** the module implements `registry.BackgroundRunner` — `NewEvaluatorLoop` ticks every 30s, runs `evaluators.Registry` (`slo_burn_rate`, `error_rate`) → `Decide` state machine → `Dispatcher` with Slack channel and deploy correlation via `repository.DeploysInRange`. Evaluator data queries (`SLOErrorRate`, `ServiceErrorRate`, `ErrorRateHistorical`) hit `observability.spans` through the shared `NativeQuerier`.
 
 ### Traces module routes
 
@@ -87,10 +112,6 @@ The web app lives in the sibling repo **`optic-frontend`** (see that repo's `COD
 | `services/topology` | `GET /services/topology` — runtime service map (nodes + directed RED-weighted edges from parent→child span joins); optional `?service=<name>` for 1-hop neighborhood. Cached (30s). |
 | `traces/explorer` | `POST /traces/explorer/query` |
 | `traces/tracedetail` | `GET /traces/:traceId/{span-events,span-kind-breakdown,critical-path,span-self-times,error-path,flamegraph,logs,related}`, `/traces/:traceId/spans/:spanId/attributes` |
-| `traces/redmetrics` | `GET /spans/red/{summary,apdex,top-slow-operations,top-error-operations,request-rate,error-rate,p95-latency,span-kind-breakdown,errors-by-route}`, `/spans/latency-breakdown` |
-| `traces/errorfingerprint` | `GET /errors/fingerprints`, `/errors/fingerprints/trend` |
-| `traces/errortracking` | `GET /spans/exception-rate-by-type`, `/spans/error-hotspot`, `/spans/http-5xx-by-route` |
-| `traces/tracecompare` | `GET /traces/compare` |
 | `traces/livetail` | WebSocket-only via `livetail.Hub` (no HTTP routes) |
 
 ### Infrastructure module routes
@@ -161,7 +182,6 @@ All under `/http/` prefix, Cached:
 
 | Package | Purpose |
 |---------|---------|
-| `circuitbreaker` | Resilience patterns for external/DB calls (`breaker.go`) — wraps `sony/gobreaker` |
 | `timebucket` | Adaptive time bucketing for ClickHouse aggregations (minute/5min/hour/day) |
 | `validation` | Schema-based validation logic |
 | `cache` | Query and object caching |
@@ -169,7 +189,6 @@ All under `/http/` prefix, Cached:
 | `ingestion` | Default in-memory dispatcher implementation backing `platform/ingestion.Dispatcher[T]` |
 | `livetail` | Default live-tail hub implementation behind `platform/livetail.Hub` |
 | `livetailws` | Live tail WebSocket handler (`GET /api/v1/ws/live`) wired against platform hub + session contracts |
-| `livetailredis` | Redis Stream keys for live tail (`livetail:logs:stream:{teamId}`, `livetail:spans:stream:{teamId}`; field `data`) |
 | `otlpredis` | Ingest stream names and consumer group ids; `EnsureIngestStreams` (`MKSTREAM` + `XGROUP CREATE`) |
 | `middleware` | HTTP middleware: CORS, error recovery, tenant context, rate limiting middleware |
 | `session` | Default `scs/v2` session manager implementation; keys: `auth_user_id`, `auth_email`, `auth_role`, `auth_default_team_id`, `auth_team_ids` |
@@ -331,7 +350,6 @@ The `service` page at `/service` is **fully frontend-owned** (Discovery + Topolo
 | `otlp` | `OTLPConfig` | `grpc_port`, `grpc_max_recv_msg_size_mb` |
 | `retention` | `RetentionConfig` | `default_days` |
 | `app` | `AppConfig` | `region`, `dashboard_config_use_defaults` |
-| `circuit_breaker` | `CircuitBreakerConfig` | `consecutive_failures`, `reset_timeout_ms` |
 
 ## Extension Interfaces
 
@@ -349,11 +367,12 @@ Use when a change spans API and UI. Frontend paths refer to **`optic-frontend`**
 |--------------|-----------|----------------------------|
 | Registry / route wiring | `modules_manifest.go` | `domainRegistry.ts`, feature `index.ts` |
 | Explorer APIs | `internal/modules/.../handler.go` | Feature `api/` or `shared/api` |
-| Metrics Explorer | `internal/modules/metricsexplorer` (`/metrics/names`, `/:metricName/tags`, `/explorer/query`) | `src/features/metrics` (`metricsExplorerApi.ts`) |
+| Metrics | `internal/modules/metrics` (`/metrics/names`, `/:metricName/tags`, `/explorer/query`) | `src/features/metrics` (`metricsExplorerApi.ts`) |
 | Dashboard panels | `internal/platform/dashboardcfg/`, panel types | `dashboard/renderers/`, `dashboardPanelRegistry` |
 | Auth | `internal/modules/user/auth/` | `shared/api/auth/` |
+| AI Observability | `internal/modules/ai/{overview,explorer,spandetail,analytics}/` | `src/features/ai/api/` |
 | Default config | `internal/modules/dashboard/`, `internal/platform/dashboardcfg/` | `defaultConfigService.ts` |
-| Live tail (logs/traces) | `internal/infra/livetailws/`, `logs/search/livetail_*.go`, `traces/livetail/` | `useSocketStream.ts`, `useLiveTailStream.ts` |
+| Live tail (logs/traces) | `internal/infra/livetailws/`, `logs/search/livetail_payload.go`, `traces/livetail/` | `useSocketStream.ts`, `useLiveTailStream.ts` |
 
 ---
 

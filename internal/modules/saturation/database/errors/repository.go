@@ -6,7 +6,7 @@ import (
 
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 

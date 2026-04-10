@@ -7,13 +7,13 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	utils "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 const serviceNameFilter = " AND s.service_name = @serviceName"
 
 func errorBucketExpr(startMs, endMs int64) string {
-	return timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
+	return utils.ExprForColumnTime(startMs, endMs, "s.timestamp")
 }
 
 type Repository interface {
@@ -24,6 +24,15 @@ type Repository interface {
 	GetErrorGroupDetail(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (*errorGroupDetailRow, error)
 	GetErrorGroupTraces(ctx context.Context, teamID int64, startMs, endMs int64, groupID string, limit int) ([]errorGroupTraceRow, error)
 	GetErrorGroupTimeseries(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) ([]errorGroupTSRow, error)
+
+	// Migrated from errortracking
+	GetExceptionRateByType(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]exceptionRatePointDTO, error)
+	GetErrorHotspot(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorHotspotCellDTO, error)
+	GetHTTP5xxByRoute(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]http5xxByRouteDTO, error)
+
+	// Migrated from errorfingerprint
+	ListFingerprints(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorFingerprintDTO, error)
+	GetFingerprintTrend(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName, exceptionType, statusMessage string) ([]fingerprintTrendPointDTO, error)
 }
 
 type ClickHouseRepository struct {
@@ -352,4 +361,153 @@ func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(ctx context.Context,
 	}
 
 	return rows, nil
+}
+
+// --- Migrated from errortracking ---
+
+func (r *ClickHouseRepository) GetExceptionRateByType(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]exceptionRatePointDTO, error) {
+	bucket := utils.ExprForColumnTime(startMs, endMs, "s.timestamp")
+	query := fmt.Sprintf(`
+		SELECT %s AS time_bucket,
+		       s.exception_type AS exception_type,
+		       toInt64(count()) AS event_count
+		FROM observability.spans s
+		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.exception_type != '' AND s.timestamp BETWEEN @start AND @end`, bucket)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+	if serviceName != "" {
+		query += ` AND s.service_name = @serviceName`
+		args = append(args, clickhouse.Named("serviceName", serviceName))
+	}
+	query += ` GROUP BY time_bucket, exception_type ORDER BY time_bucket ASC`
+
+	var rows []exceptionRatePointDTO
+	return rows, r.db.Select(ctx, &rows, query, args...)
+}
+
+func (r *ClickHouseRepository) GetErrorHotspot(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorHotspotCellDTO, error) {
+	var rows []errorHotspotCellDTO
+	err := r.db.Select(ctx, &rows, `
+		SELECT s.service_name AS service_name,
+		       s.name AS operation_name,
+		       toInt64(count())                                                                    AS total_count,
+		       toInt64(countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)) AS error_count,
+		       if(count() > 0,
+		           countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400) * 100.0 / count(),
+		           0) AS error_rate
+		FROM observability.spans s
+		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
+		GROUP BY s.service_name, s.name
+		ORDER BY error_rate DESC
+		LIMIT 500
+	`,
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	)
+	return rows, err
+}
+
+func (r *ClickHouseRepository) GetHTTP5xxByRoute(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]http5xxByRouteDTO, error) {
+	query := `
+		SELECT s.mat_http_route AS http_route,
+		       s.service_name   AS service_name,
+		       toInt64(count()) AS count_5xx
+		FROM observability.spans s
+		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
+		  AND toUInt16OrZero(s.response_status_code) >= 500`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+	if serviceName != "" {
+		query += ` AND s.service_name = @serviceName`
+		args = append(args, clickhouse.Named("serviceName", serviceName))
+	}
+	query += ` GROUP BY http_route, s.service_name ORDER BY count_5xx DESC LIMIT 100`
+
+	var rows []http5xxByRouteDTO
+	return rows, r.db.Select(ctx, &rows, query, args...)
+}
+
+// --- Migrated from errorfingerprint ---
+
+func (r *ClickHouseRepository) ListFingerprints(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorFingerprintDTO, error) {
+	query := `
+		SELECT hex(cityHash64(s.service_name, s.name, s.mat_exception_type, s.status_message)) AS fingerprint,
+		       s.service_name,
+		       s.name AS operation_name,
+		       s.mat_exception_type AS exception_type,
+		       s.status_message,
+		       min(s.timestamp) AS first_seen,
+		       max(s.timestamp) AS last_seen,
+		       count() AS cnt,
+		       any(s.trace_id) AS sample_trace_id
+		FROM observability.spans s
+		WHERE s.team_id = @teamID
+		  AND s.ts_bucket_start BETWEEN ? AND ?
+		  AND s.timestamp BETWEEN @start AND @end
+		  AND (s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		utils.SpansBucketStart(startMs / 1000),
+		utils.SpansBucketStart(endMs / 1000),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+	if serviceName != "" {
+		query += ` AND s.service_name = ?`
+		args = append(args, serviceName)
+	}
+	query += `
+		GROUP BY s.service_name, s.name, s.mat_exception_type, s.status_message
+		ORDER BY cnt DESC
+		LIMIT ?`
+	args = append(args, limit)
+
+	var rows []errorFingerprintDTO
+	return rows, r.db.Select(ctx, &rows, query, args...)
+}
+
+func (r *ClickHouseRepository) GetFingerprintTrend(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName, exceptionType, statusMessage string) ([]fingerprintTrendPointDTO, error) {
+	bucket := utils.ExprForColumnTime(startMs, endMs, "s.timestamp")
+	query := fmt.Sprintf(`
+		SELECT %s AS ts,
+		       count() AS cnt
+		FROM observability.spans s
+		WHERE s.team_id = @teamID
+		  AND s.ts_bucket_start BETWEEN ? AND ?
+		  AND s.timestamp BETWEEN @start AND @end
+		  AND (s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)
+		  AND s.service_name = ?
+		  AND s.name = ?
+		  AND s.mat_exception_type = ?
+		  AND s.status_message = ?
+		GROUP BY ts
+		ORDER BY ts ASC
+	`, bucket)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		utils.SpansBucketStart(startMs / 1000),
+		utils.SpansBucketStart(endMs / 1000),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		serviceName,
+		operationName,
+		exceptionType,
+		statusMessage,
+	}
+
+	var rows []fingerprintTrendPointDTO
+	return rows, r.db.Select(ctx, &rows, query, args...)
 }

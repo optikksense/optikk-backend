@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/protoconv"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
@@ -93,7 +93,7 @@ func mapSpans(teamID int64, req *tracepb.ExportTraceServiceRequest) []*SpanRow {
 func buildSpanRow(teamID int64, resMap map[string]string, s *trace.Span) *SpanRow {
 	timestamp := protoconv.NanoToTime(s.StartTimeUnixNano)
 	durNano := spanDuration(s)
-	tsBucket := timebucket.SpansBucketStart(timestamp.Unix())
+	tsBucket := utils.SpansBucketStart(timestamp.Unix())
 	statusMsg, statusCode := spanStatus(s)
 	spanMap := protoconv.AttrsToMap(s.Attributes)
 	mergedMap := mergeAndCapAttrs(teamID, s.SpanId, resMap, spanMap)
