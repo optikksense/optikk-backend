@@ -71,7 +71,7 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(teamID int64, startMs, end
 		LIMIT ` + strconv.Itoa(MaxNodes)
 
 	params := []any{
-		clickhouse.Named("teamID", uint32(teamID)),                                                      //nolint:gosec // G115 - domain-constrained value
+		clickhouse.Named("teamID", uint32(teamID)),                                                 //nolint:gosec // G115 - domain-constrained value
 		clickhouse.Named("bucketStart", time.Unix(int64(utils.SpansBucketStart(startMs/1000)), 0)), //nolint:gosec // G115 - domain-constrained value
 		clickhouse.Named("bucketEnd", time.Unix(int64(utils.SpansBucketStart(endMs/1000)), 0)),     //nolint:gosec // G115 - domain-constrained value
 		clickhouse.Named("start", time.UnixMilli(startMs)),

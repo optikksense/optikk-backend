@@ -16,12 +16,12 @@ type tracesQueryService interface {
 }
 
 type Service struct {
-	tracesService     tracesQueryService
+	tracesService tracesQueryService
 }
 
 func NewService(tracesService tracesQueryService) *Service {
 	return &Service{
-		tracesService:     tracesService,
+		tracesService: tracesService,
 	}
 }
 

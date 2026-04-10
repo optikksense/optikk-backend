@@ -6,15 +6,15 @@ import (
 
 // QueryRequest is the unified traces explorer request.
 type QueryRequest struct {
-	StartTime    int64                           `json:"startTime"`
-	EndTime      int64                           `json:"endTime"`
-	Query        string                          `json:"query"`
-	Limit        int                             `json:"limit"`
-	Offset       int                             `json:"offset"`
-	Cursor       string                          `json:"cursor"`
-	Step         string                          `json:"step"`
-	OrderBy      string                          `json:"orderBy,omitempty"`
-	OrderDir     string                          `json:"orderDir,omitempty"`
+	StartTime int64  `json:"startTime"`
+	EndTime   int64  `json:"endTime"`
+	Query     string `json:"query"`
+	Limit     int    `json:"limit"`
+	Offset    int    `json:"offset"`
+	Cursor    string `json:"cursor"`
+	Step      string `json:"step"`
+	OrderBy   string `json:"orderBy,omitempty"`
+	OrderDir  string `json:"orderDir,omitempty"`
 }
 
 type FacetBucket struct {

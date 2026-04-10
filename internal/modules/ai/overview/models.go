@@ -5,17 +5,17 @@ import "time"
 // -------- DB scan models (unexported) --------
 
 type summaryRow struct {
-	TotalCount    int64   `ch:"total_count"`
-	ErrorCount    int64   `ch:"error_count"`
-	AvgLatencyMs  float64 `ch:"avg_latency_ms"`
-	P50Ms         float64 `ch:"p50_ms"`
-	P95Ms         float64 `ch:"p95_ms"`
-	P99Ms         float64 `ch:"p99_ms"`
-	TotalInTok    int64   `ch:"total_input_tokens"`
-	TotalOutTok   int64   `ch:"total_output_tokens"`
-	UniqueModels  int64   `ch:"unique_models"`
-	UniqueOps     int64   `ch:"unique_operations"`
-	UniqueSvcs    int64   `ch:"unique_services"`
+	TotalCount   int64   `ch:"total_count"`
+	ErrorCount   int64   `ch:"error_count"`
+	AvgLatencyMs float64 `ch:"avg_latency_ms"`
+	P50Ms        float64 `ch:"p50_ms"`
+	P95Ms        float64 `ch:"p95_ms"`
+	P99Ms        float64 `ch:"p99_ms"`
+	TotalInTok   int64   `ch:"total_input_tokens"`
+	TotalOutTok  int64   `ch:"total_output_tokens"`
+	UniqueModels int64   `ch:"unique_models"`
+	UniqueOps    int64   `ch:"unique_operations"`
+	UniqueSvcs   int64   `ch:"unique_services"`
 }
 
 type modelRow struct {

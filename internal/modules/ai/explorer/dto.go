@@ -58,20 +58,20 @@ type HistogramPointDTO struct {
 // -------- Filter params --------
 
 type ExplorerFilter struct {
-	TeamID       int64
-	StartMs      int64
-	EndMs        int64
-	Service      string
-	Model        string
-	Provider     string
-	Operation    string
-	Status       string // "error" or "ok"
-	FinishReason string
+	TeamID        int64
+	StartMs       int64
+	EndMs         int64
+	Service       string
+	Model         string
+	Provider      string
+	Operation     string
+	Status        string // "error" or "ok"
+	FinishReason  string
 	MinDurationMs float64
 	MaxDurationMs float64
-	TraceID      string
-	Limit        int
-	Offset       int
-	Sort         string // "timestamp", "duration", "tokens"
-	SortDir      string // "asc", "desc"
+	TraceID       string
+	Limit         int
+	Offset        int
+	Sort          string // "timestamp", "duration", "tokens"
+	SortDir       string // "asc", "desc"
 }

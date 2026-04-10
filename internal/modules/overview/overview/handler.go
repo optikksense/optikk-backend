@@ -22,7 +22,6 @@ func (h *OverviewHandler) GetRequestRate(c *gin.Context) {
 	}
 	serviceName := c.Query("serviceName")
 
-
 	resp, err := modulecommon.WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
 		return h.Service.GetRequestRate(c.Request.Context(), teamID, s, e, serviceName)
 	})
@@ -42,7 +41,6 @@ func (h *OverviewHandler) GetErrorRate(c *gin.Context) {
 	}
 	serviceName := c.Query("serviceName")
 
-
 	resp, err := modulecommon.WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
 		return h.Service.GetErrorRate(c.Request.Context(), teamID, s, e, serviceName)
 	})
@@ -61,7 +59,6 @@ func (h *OverviewHandler) GetP95Latency(c *gin.Context) {
 		return
 	}
 	serviceName := c.Query("serviceName")
-
 
 	resp, err := modulecommon.WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
 		return h.Service.GetP95Latency(c.Request.Context(), teamID, s, e, serviceName)
@@ -97,7 +94,6 @@ func (h *OverviewHandler) GetTopEndpoints(c *gin.Context) {
 		return
 	}
 	serviceName := c.Query("serviceName")
-
 
 	rows, err := h.Service.GetTopEndpoints(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {

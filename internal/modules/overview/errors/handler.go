@@ -146,7 +146,6 @@ func (h *ErrorHandler) GetExceptionRateByType(c *gin.Context) {
 	}
 	serviceName := c.Query("serviceName")
 
-
 	points, err := h.Service.GetExceptionRateByType(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query exception rate by type", err)
@@ -177,7 +176,6 @@ func (h *ErrorHandler) GetHTTP5xxByRoute(c *gin.Context) {
 		return
 	}
 	serviceName := c.Query("serviceName")
-
 
 	rows, err := h.Service.GetHTTP5xxByRoute(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {

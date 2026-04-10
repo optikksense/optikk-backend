@@ -74,7 +74,6 @@ type llmTraceSpanDTO struct {
 	OutputTokens  int64     `ch:"output_tokens"`
 }
 
-
 // GetTraceLogs returns the logs associated with a particular trace.
 func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, traceID string) ([]traceLogRow, error) {
 	var rows []traceLogRow

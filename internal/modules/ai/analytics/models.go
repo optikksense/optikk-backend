@@ -20,9 +20,9 @@ type modelCatalogRow struct {
 }
 
 type latencyBucketRow struct {
-	Model     string `ch:"model"`
-	BucketMs  int64  `ch:"bucket_ms"`
-	Count     int64  `ch:"count"`
+	Model    string `ch:"model"`
+	BucketMs int64  `ch:"bucket_ms"`
+	Count    int64  `ch:"count"`
 }
 
 type paramImpactRow struct {

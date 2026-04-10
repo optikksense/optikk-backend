@@ -125,33 +125,33 @@ type Rule struct {
 	MaxNotifsPerHour  int
 	SlackWebhookURL   string
 
-	RuleState   string
-	LastEvalAt  *time.Time
-	Instances   InstancesMap
-	MuteUntil   *time.Time
-	Silences    []Silence
-	Enabled     bool
-	ParentID    *int64
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	CreatedBy   int64
-	UpdatedBy   int64
+	RuleState  string
+	LastEvalAt *time.Time
+	Instances  InstancesMap
+	MuteUntil  *time.Time
+	Silences   []Silence
+	Enabled    bool
+	ParentID   *int64
+	CreatedAt  time.Time
+	UpdatedAt  time.Time
+	CreatedBy  int64
+	UpdatedBy  int64
 }
 
 // AlertEvent is the append-only ClickHouse row.
 type AlertEvent struct {
-	Ts           time.Time       `ch:"ts"`
-	TeamID       uint32          `ch:"team_id"`
-	AlertID      int64           `ch:"alert_id"`
-	InstanceKey  string          `ch:"instance_key"`
-	Kind         string          `ch:"kind"`
-	FromState    string          `ch:"from_state"`
-	ToState      string          `ch:"to_state"`
-	Values       string          `ch:"values"`
-	ActorUserID  int64           `ch:"actor_user_id"`
-	Message      string          `ch:"message"`
-	DeployRefs   string          `ch:"deploy_refs"`
-	TransitionID int64           `ch:"transition_id"`
+	Ts           time.Time `ch:"ts"`
+	TeamID       uint32    `ch:"team_id"`
+	AlertID      int64     `ch:"alert_id"`
+	InstanceKey  string    `ch:"instance_key"`
+	Kind         string    `ch:"kind"`
+	FromState    string    `ch:"from_state"`
+	ToState      string    `ch:"to_state"`
+	Values       string    `ch:"values"`
+	ActorUserID  int64     `ch:"actor_user_id"`
+	Message      string    `ch:"message"`
+	DeployRefs   string    `ch:"deploy_refs"`
+	TransitionID int64     `ch:"transition_id"`
 }
 
 // ensure json import is used

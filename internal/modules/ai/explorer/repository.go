@@ -32,7 +32,7 @@ func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 
 func baseArgs(f ExplorerFilter) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(f.TeamID)),                                //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(f.TeamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(f.StartMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(f.EndMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(f.StartMs)),

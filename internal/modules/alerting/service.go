@@ -111,7 +111,7 @@ func (s *service) UpdateRule(ctx context.Context, teamID, userID, id int64, req 
 		return nil, err
 	}
 	_ = s.repo.WriteEvent(ctx, AlertEvent{
-		TeamID: uint32(teamID), //nolint:gosec
+		TeamID:  uint32(teamID), //nolint:gosec
 		AlertID: rule.ID, Kind: EventKindEdit, ActorUserID: userID,
 	})
 	return ruleToResponse(rule), nil
@@ -209,7 +209,7 @@ func (s *service) MuteRule(ctx context.Context, teamID, userID, id int64, req Mu
 		return err
 	}
 	_ = s.repo.WriteEvent(ctx, AlertEvent{
-		TeamID: uint32(teamID), //nolint:gosec
+		TeamID:  uint32(teamID), //nolint:gosec
 		AlertID: rule.ID, Kind: EventKindMute, ActorUserID: userID, Message: req.Reason,
 	})
 	return nil
@@ -285,7 +285,7 @@ func (s *service) AckInstance(ctx context.Context, teamID, userID, id int64, req
 		return err
 	}
 	_ = s.repo.WriteEvent(ctx, AlertEvent{
-		TeamID: uint32(teamID), //nolint:gosec
+		TeamID:  uint32(teamID), //nolint:gosec
 		AlertID: rule.ID, InstanceKey: req.InstanceKey, Kind: EventKindAck,
 		ActorUserID: userID, Message: req.Comment,
 	})
@@ -310,7 +310,7 @@ func (s *service) SnoozeInstance(ctx context.Context, teamID, userID, id int64, 
 		return err
 	}
 	_ = s.repo.WriteEvent(ctx, AlertEvent{
-		TeamID: uint32(teamID), //nolint:gosec
+		TeamID:  uint32(teamID), //nolint:gosec
 		AlertID: rule.ID, InstanceKey: req.InstanceKey, Kind: EventKindAck, ActorUserID: userID,
 		Message: fmt.Sprintf("snoozed %d minutes", req.Minutes),
 	})
@@ -356,7 +356,7 @@ func (s *service) CreateSilence(ctx context.Context, teamID, userID int64, req C
 		return nil, err
 	}
 	_ = s.repo.WriteEvent(ctx, AlertEvent{
-		TeamID: uint32(teamID), //nolint:gosec
+		TeamID:  uint32(teamID), //nolint:gosec
 		AlertID: rule.ID, Kind: EventKindSilence, ActorUserID: userID,
 	})
 	return &sil, nil

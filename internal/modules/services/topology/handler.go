@@ -24,7 +24,6 @@ func (h *Handler) GetTopology(c *gin.Context) {
 	}
 	service := c.Query("service")
 
-
 	out, err := h.Service.GetTopology(c.Request.Context(), teamID, startMs, endMs, service)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to build service topology", err)

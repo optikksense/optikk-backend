@@ -15,11 +15,11 @@ import (
 // so a Go channel is sufficient; the plan's Redis Stream + consumer group is
 // the next-step upgrade (kept in a comment below for continuity).
 type dispatchItem struct {
-	Rule        *Rule
-	Instance    *Instance
-	Transition  Transition
-	Now         time.Time
-	DeployRefs  []DeployRef
+	Rule       *Rule
+	Instance   *Instance
+	Transition Transition
+	Now        time.Time
+	DeployRefs []DeployRef
 }
 
 // Dispatcher consumes transitions and sends them through registered channels
@@ -117,7 +117,7 @@ func (d *Dispatcher) handle(ctx context.Context, item dispatchItem) {
 	if err != nil {
 		slog.Error("alerting: template render failed", slog.Any("error", err))
 		_ = d.repo.WriteEvent(ctx, AlertEvent{
-			TeamID: uint32(item.Rule.TeamID), //nolint:gosec
+			TeamID:  uint32(item.Rule.TeamID), //nolint:gosec
 			AlertID: item.Rule.ID, InstanceKey: item.Instance.InstanceKey,
 			Kind: EventKindDispatchFailed, Message: err.Error(),
 		})
@@ -134,7 +134,7 @@ func (d *Dispatcher) handle(ctx context.Context, item dispatchItem) {
 		if err := d.slack.Send(ctx, item.Rule.SlackWebhookURL, r); err != nil {
 			slog.Error("alerting: slack send failed", slog.Any("error", err))
 			_ = d.repo.WriteEvent(ctx, AlertEvent{
-				TeamID: uint32(item.Rule.TeamID), //nolint:gosec
+				TeamID:  uint32(item.Rule.TeamID), //nolint:gosec
 				AlertID: item.Rule.ID, InstanceKey: item.Instance.InstanceKey,
 				Kind: EventKindDispatchFailed, Message: err.Error(),
 			})

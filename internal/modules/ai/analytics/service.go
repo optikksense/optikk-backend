@@ -5,20 +5,20 @@ import "context"
 // modelPricing maps model name prefixes to per-million-token costs (input, output).
 // These are static estimates — the canonical reference for cost estimation.
 var modelPricing = map[string][2]float64{
-	"gpt-4o":          {2.50, 10.00},
-	"gpt-4o-mini":     {0.15, 0.60},
-	"gpt-4-turbo":     {10.00, 30.00},
-	"gpt-4":           {30.00, 60.00},
-	"gpt-3.5-turbo":   {0.50, 1.50},
-	"claude-3-opus":   {15.00, 75.00},
-	"claude-3-sonnet": {3.00, 15.00},
-	"claude-3-haiku":  {0.25, 1.25},
-	"claude-3.5":      {3.00, 15.00},
-	"gemini-1.5-pro":  {3.50, 10.50},
+	"gpt-4o":           {2.50, 10.00},
+	"gpt-4o-mini":      {0.15, 0.60},
+	"gpt-4-turbo":      {10.00, 30.00},
+	"gpt-4":            {30.00, 60.00},
+	"gpt-3.5-turbo":    {0.50, 1.50},
+	"claude-3-opus":    {15.00, 75.00},
+	"claude-3-sonnet":  {3.00, 15.00},
+	"claude-3-haiku":   {0.25, 1.25},
+	"claude-3.5":       {3.00, 15.00},
+	"gemini-1.5-pro":   {3.50, 10.50},
 	"gemini-1.5-flash": {0.35, 1.05},
-	"command-r-plus":  {3.00, 15.00},
-	"command-r":       {0.50, 1.50},
-	"llama-3":         {0.00, 0.00}, // Self-hosted
+	"command-r-plus":   {3.00, 15.00},
+	"command-r":        {0.50, 1.50},
+	"llama-3":          {0.00, 0.00}, // Self-hosted
 }
 
 func estimateCost(model string, inputTokens, outputTokens int64) float64 {

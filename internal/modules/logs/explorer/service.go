@@ -6,10 +6,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
-	logshared "github.com/Optikk-Org/optikk-backend/internal/modules/logs/internal/shared"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	queryparser "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/queryparser"
+	logshared "github.com/Optikk-Org/optikk-backend/internal/modules/logs/internal/shared"
 	logsearch "github.com/Optikk-Org/optikk-backend/internal/modules/logs/search"
 )
 

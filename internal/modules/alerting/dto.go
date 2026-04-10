@@ -84,13 +84,13 @@ type RuleResponse struct {
 
 // IncidentResponse is one firing instance in GET /alerts/incidents.
 type IncidentResponse struct {
-	AlertID     int64             `json:"alert_id"`
-	RuleName    string            `json:"rule_name"`
-	Severity    string            `json:"severity"`
-	InstanceKey string            `json:"instance_key"`
-	GroupValues map[string]string `json:"group_values,omitempty"`
-	State       string            `json:"state"`
-	FiredAt     *time.Time        `json:"fired_at,omitempty"`
+	AlertID     int64              `json:"alert_id"`
+	RuleName    string             `json:"rule_name"`
+	Severity    string             `json:"severity"`
+	InstanceKey string             `json:"instance_key"`
+	GroupValues map[string]string  `json:"group_values,omitempty"`
+	State       string             `json:"state"`
+	FiredAt     *time.Time         `json:"fired_at,omitempty"`
 	Values      map[string]float64 `json:"values,omitempty"`
 }
 
@@ -115,9 +115,9 @@ type SnoozeInstanceRequest struct {
 
 // TestRuleResponse is POST /alerts/rules/:id/test — dry-run current state.
 type TestRuleResponse struct {
-	Results    []TestInstanceResult `json:"results"`
-	WouldFire  bool                 `json:"would_fire"`
-	EvaluatedAt time.Time           `json:"evaluated_at"`
+	Results     []TestInstanceResult `json:"results"`
+	WouldFire   bool                 `json:"would_fire"`
+	EvaluatedAt time.Time            `json:"evaluated_at"`
 }
 
 type TestInstanceResult struct {
