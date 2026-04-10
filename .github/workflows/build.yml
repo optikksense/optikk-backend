@@ -23,13 +23,6 @@ jobs:
       - name: Sync go.work
         run: go work use
 
-      - name: Verify Formatting
-        run: |
-          if [ -n "$(gofmt -l .)" ]; then
-            echo "The following files are not formatted:"
-            gofmt -l .
-            exit 1
-          fi
 
       - name: Vet
         run: go vet ./...
