@@ -17,7 +17,7 @@ alwaysApply: true
 
 ## Canonical map
 
-**`CODEBASE_INDEX.md`** (repo root) lists all 52 modules (48 HTTP + 4 ingestion), ingestion, dashboardcfg, and the cross-repo map to **optic-frontend**.
+**`CODEBASE_INDEX.md`** (repo root) lists all 52 modules (48 HTTP + 4 ingestion), ingestion, dashboardcfg, and the cross-repo map to **optikk-frontend**.
 
 ## Stack
 
@@ -39,8 +39,8 @@ Go 1.25, Gin, ClickHouse, MySQL, Redis, WebSocket live tail (`/api/v1/ws/live`),
 | Page | Directory | Tabs | Default tab |
 |------|-----------|------|-------------|
 | overview | `defaults/overview/` | summary, latency-analysis, apm, errors, http, slo | summary |
-| infrastructure | `defaults/infrastructure/` | resource-utilization, jvm, kubernetes, nodes | resource-utilization |
-| saturation | `defaults/saturation/` | database, queue, redis | database |
+
+(Infrastructure and saturation UIs live in **optikk-frontend**; there is no `defaults/infrastructure/` or `defaults/saturation/` in this repo.)
 
 ## Deployments module
 

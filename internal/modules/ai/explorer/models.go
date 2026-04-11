@@ -54,3 +54,17 @@ type aiTrendRow struct {
 	AvgLatencyMs float64 `ch:"avg_latency_ms"`
 	TotalTokens  float64 `ch:"total_tokens"`
 }
+
+// aiSessionRow is one grouped session/conversation bucket from GenAI spans.
+type aiSessionRow struct {
+	SessionID         string    `ch:"session_id"`
+	GenerationCount   uint64    `ch:"generation_count"`
+	TraceCount        uint64    `ch:"trace_count"`
+	FirstStart        time.Time `ch:"first_start"`
+	LastStart         time.Time `ch:"last_start"`
+	TotalInputTokens  float64   `ch:"total_input_tokens"`
+	TotalOutputTokens float64   `ch:"total_output_tokens"`
+	ErrorCount        uint64    `ch:"error_count"`
+	DominantModel     string    `ch:"dominant_model"`
+	DominantService   string    `ch:"dominant_service"`
+}

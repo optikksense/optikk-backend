@@ -30,4 +30,5 @@ func (m *aiExplorerModule) RegisterRoutes(group *gin.RouterGroup) {
 		return
 	}
 	group.POST("/ai/explorer/query", m.handler.Query)
+	group.POST("/ai/explorer/sessions/query", m.handler.SessionsQuery)
 }

@@ -32,6 +32,11 @@ func NewModule(
 	reg := evaluators.NewRegistry(
 		&evaluators.SLOBurnRate{Data: repo},
 		&evaluators.ErrorRate{Data: repo},
+		&evaluators.AILatency{Data: repo},
+		&evaluators.AIErrorRate{Data: repo},
+		&evaluators.AICostSpike{Data: repo},
+		&evaluators.AIQualityDrop{Data: repo},
+		&evaluators.HTTPCheck{},
 	)
 	dispatcher := NewDispatcher(repo, baseURL)
 	svc := NewService(repo, reg, dispatcher)

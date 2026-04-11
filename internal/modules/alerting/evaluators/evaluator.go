@@ -4,7 +4,10 @@
 // structs, zero schema churn).
 package evaluators
 
-import "context"
+import (
+	"context"
+	"encoding/json"
+)
 
 // InstanceResult is the output of Evaluator.Evaluate for a single instance.
 type InstanceResult struct {
@@ -21,6 +24,7 @@ type Rule struct {
 	ID            int64
 	TeamID        int64
 	ConditionType string
+	TargetRef     json.RawMessage
 	TargetService string
 	GroupBy       []string
 	Windows       []Window
@@ -38,6 +42,9 @@ type DataSource interface {
 	SLOErrorRate(ctx context.Context, teamID int64, serviceName string, windowSecs int64) (float64, bool, error)
 	ServiceErrorRate(ctx context.Context, teamID int64, serviceName string, windowSecs int64) (float64, bool, error)
 	ErrorRateHistorical(ctx context.Context, teamID int64, serviceName string, fromMs, toMs, windowSecs int64) (float64, bool, error)
+
+	AIMetric(ctx context.Context, teamID int64, targetRef json.RawMessage, metric string, windowSecs int64) (float64, bool, error)
+	AIMetricHistorical(ctx context.Context, teamID int64, targetRef json.RawMessage, metric string, fromMs, toMs, windowSecs int64) (float64, bool, error)
 }
 
 // Evaluator is the per-condition-type contract.

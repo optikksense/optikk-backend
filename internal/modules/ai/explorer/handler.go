@@ -41,3 +41,23 @@ func (h *Handler) Query(c *gin.Context) {
 	}
 	modulecommon.RespondOK(c, resp)
 }
+
+// SessionsQuery handles POST /ai/explorer/sessions/query.
+func (h *Handler) SessionsQuery(c *gin.Context) {
+	var req SessionsQueryRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Invalid request body")
+		return
+	}
+	if req.StartTime <= 0 || req.EndTime <= 0 || req.StartTime >= req.EndTime {
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Valid startTime and endTime are required")
+		return
+	}
+
+	resp, err := h.Service.QuerySessions(c.Request.Context(), req, h.GetTenant(c).TeamID)
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query AI sessions", err)
+		return
+	}
+	modulecommon.RespondOK(c, resp)
+}

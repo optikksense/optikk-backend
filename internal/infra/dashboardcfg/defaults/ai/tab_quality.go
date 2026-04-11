@@ -1,0 +1,87 @@
+package ai
+
+import dashboardcfg "github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg"
+
+func qualityTab() dashboardcfg.TabDefinition {
+	return dashboardcfg.TabDefinition{
+		ID:     "quality",
+		PageID: "ai",
+		Label:  "Quality",
+		Order:  30,
+		Sections: []dashboardcfg.SectionDefinition{
+			{ID: "quality-kpis", Title: "Quality Summary", Order: 10, Collapsible: true, SectionTemplate: dashboardcfg.SectionTemplateKPIBand},
+			{ID: "quality-breakdown", Title: "Guardrails & Scoring", Order: 20, Collapsible: true, SectionTemplate: dashboardcfg.SectionTemplateTwoUp},
+		},
+		Panels: []dashboardcfg.PanelDefinition{
+			{
+				ID:            "quality-score",
+				PanelType:     dashboardcfg.PanelTypeStatCard,
+				LayoutVariant: dashboardcfg.LayoutVariantKPI,
+				SectionID:     "quality-kpis",
+				Order:         10,
+				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/ai/overview/quality"},
+				Layout:        dashboardcfg.PanelLayout{},
+				Title:         "Avg Quality",
+				TitleIcon:     "ShieldCheck",
+				ValueField:    "avg_quality_score",
+				Formatter:     "number",
+			},
+			{
+				ID:            "feedback-score",
+				PanelType:     dashboardcfg.PanelTypeStatCard,
+				LayoutVariant: dashboardcfg.LayoutVariantKPI,
+				SectionID:     "quality-kpis",
+				Order:         20,
+				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/ai/overview/quality"},
+				Layout:        dashboardcfg.PanelLayout{},
+				Title:         "Avg Feedback",
+				TitleIcon:     "MessageSquareQuote",
+				ValueField:    "avg_feedback_score",
+				Formatter:     "number",
+			},
+			{
+				ID:            "guardrail-blocks",
+				PanelType:     dashboardcfg.PanelTypeStatCard,
+				LayoutVariant: dashboardcfg.LayoutVariantKPI,
+				SectionID:     "quality-kpis",
+				Order:         30,
+				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/ai/overview/quality"},
+				Layout:        dashboardcfg.PanelLayout{},
+				Title:         "Guardrail Blocks",
+				TitleIcon:     "ShieldAlert",
+				ValueField:    "guardrail_blocks",
+				Formatter:     "number",
+			},
+			{
+				ID:            "guardrail-breakdown",
+				PanelType:     dashboardcfg.PanelTypePie,
+				LayoutVariant: dashboardcfg.LayoutVariantSummary,
+				SectionID:     "quality-breakdown",
+				Order:         40,
+				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/ai/overview/quality"},
+				DataKey:       "guardrail_breakdown",
+				Layout:        dashboardcfg.PanelLayout{},
+				Title:         "Guardrail Outcomes",
+				TitleIcon:     "PieChart",
+				LabelKey:      "guardrail_state",
+				ValueKey:      "count",
+			},
+			{
+				ID:            "quality-buckets",
+				PanelType:     dashboardcfg.PanelTypeTable,
+				LayoutVariant: dashboardcfg.LayoutVariantSummaryTable,
+				SectionID:     "quality-breakdown",
+				Order:         50,
+				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/ai/overview/quality"},
+				DataKey:       "quality_buckets",
+				Layout:        dashboardcfg.PanelLayout{},
+				Title:         "Quality Buckets",
+				TitleIcon:     "ListChecks",
+				Columns: []dashboardcfg.DashboardTableColumn{
+					{Key: "bucket", Label: "Bucket"},
+					{Key: "count", Label: "Runs", Formatter: "number", Align: dashboardcfg.ColumnAlignRight},
+				},
+			},
+		},
+	}
+}

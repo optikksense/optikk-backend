@@ -15,6 +15,7 @@ import (
 	infrastructure_kubernetes "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/kubernetes"
 	infrastructure_memory "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/memory"
 	infrastructure_network "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/network"
+	infrastructure_fleet "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/fleet"
 	infrastructure_nodes "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/nodes"
 	infrastructure_resource_utilisation "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/resourceutil"
 	log_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/logs/explorer"
@@ -40,6 +41,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/services/deployments"
 	services_topology "github.com/Optikk-Org/optikk-backend/internal/modules/services/topology"
 	ai_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/ai/explorer"
+	llm_hub "github.com/Optikk-Org/optikk-backend/internal/modules/llm/hub"
 	spans_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
 	spans_livetail "github.com/Optikk-Org/optikk-backend/internal/modules/traces/livetail"
 	spans_traces "github.com/Optikk-Org/optikk-backend/internal/modules/traces/query"
@@ -61,6 +63,7 @@ func configuredModules(
 ) []registry.Module {
 	return []registry.Module{
 		ai_explorer.NewModule(nativeQuerier, getTenant),
+		llm_hub.NewModule(sqlDB, getTenant),
 		alerting.NewModule(sqlDB, nativeQuerier, clickHouseConn, getTenant, ""),
 		apm.NewModule(nativeQuerier, getTenant),
 		defaultconfig.NewModule(getTenant, runtimeDeps.DashboardConfig),
@@ -73,6 +76,7 @@ func configuredModules(
 		infrastructure_kubernetes.NewModule(nativeQuerier, getTenant),
 		infrastructure_memory.NewModule(nativeQuerier, getTenant),
 		infrastructure_network.NewModule(nativeQuerier, getTenant),
+		infrastructure_fleet.NewModule(nativeQuerier, getTenant),
 		infrastructure_nodes.NewModule(nativeQuerier, getTenant),
 		infrastructure_resource_utilisation.NewModule(nativeQuerier, getTenant),
 		log_explorer.NewModule(nativeQuerier, getTenant),

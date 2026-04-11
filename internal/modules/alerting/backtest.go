@@ -62,6 +62,7 @@ func adaptRule(r *Rule) evaluators.Rule {
 		ID:            r.ID,
 		TeamID:        r.TeamID,
 		ConditionType: r.ConditionType,
+		TargetRef:     r.TargetRef,
 		TargetService: targetServiceFromRef(r.TargetRef),
 		GroupBy:       r.GroupBy,
 		Windows:       ws,

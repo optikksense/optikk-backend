@@ -19,6 +19,7 @@ type Repository interface {
 	GetAISummary(ctx context.Context, teamID, startMs, endMs int64, attrFilters []attrFilter) (aiSummaryRow, error)
 	GetAIFacets(ctx context.Context, teamID, startMs, endMs int64, attrFilters []attrFilter) ([]aiFacetRow, error)
 	GetAITrend(ctx context.Context, teamID, startMs, endMs int64, attrFilters []attrFilter, step string) ([]aiTrendRow, error)
+	GetAISessions(ctx context.Context, teamID, startMs, endMs int64, attrFilters []attrFilter, limit, offset int) ([]aiSessionRow, uint64, error)
 }
 
 // attrFilter represents a single custom attribute filter extracted from the query string.
@@ -119,6 +120,7 @@ func (r *ClickHouseRepository) GetAIFacets(ctx context.Context, teamID, startMs,
 		{"service_name", `s.service_name`},
 		{"status", `s.status_code_string`},
 		{"finish_reason", `JSONExtractString(s.attributes, 'gen_ai.response.finish_reasons')`},
+		{"prompt_template", `JSONExtractString(s.attributes, 'gen_ai.prompt.template.name')`},
 	}
 
 	parts := make([]string, 0, len(facetDefs))
@@ -168,6 +170,66 @@ func (r *ClickHouseRepository) GetAITrend(ctx context.Context, teamID, startMs, 
 	return rows, nil
 }
 
+// sessionIDInnerSelect is the GenAI span subquery column that picks a stable session key from OTel attributes.
+const sessionIDInnerSelect = `multiIf(
+  JSONExtractString(s.attributes, 'gen_ai.session.id') != '', JSONExtractString(s.attributes, 'gen_ai.session.id'),
+  JSONExtractString(s.attributes, 'gen_ai.conversation.id') != '', JSONExtractString(s.attributes, 'gen_ai.conversation.id'),
+  JSONExtractString(s.attributes, 'session.id') != '', JSONExtractString(s.attributes, 'session.id'),
+  ''
+) AS session_id`
+
+// GetAISessions aggregates GenAI spans by session/conversation id (non-empty session_id only).
+func (r *ClickHouseRepository) GetAISessions(ctx context.Context, teamID, startMs, endMs int64, filters []attrFilter, limit, offset int) ([]aiSessionRow, uint64, error) {
+	where, args := buildAIWhereClause(teamID, startMs, endMs, filters)
+
+	inner := fmt.Sprintf(`
+		SELECT
+			%s,
+			s.trace_id AS trace_id,
+			s.timestamp AS start_time,
+			s.status_code_string AS status,
+			s.has_error AS has_error,
+			toFloat64OrZero(JSONExtractString(s.attributes, 'gen_ai.usage.input_tokens')) AS input_tokens,
+			toFloat64OrZero(JSONExtractString(s.attributes, 'gen_ai.usage.output_tokens')) AS output_tokens,
+			JSONExtractString(s.attributes, 'gen_ai.request.model') AS ai_request_model,
+			s.service_name AS service_name
+		FROM observability.spans s
+		%s`, sessionIDInnerSelect, where)
+
+	grouped := fmt.Sprintf(`
+		SELECT
+			session_id,
+			count() AS generation_count,
+			uniq(trace_id) AS trace_count,
+			min(start_time) AS first_start,
+			max(start_time) AS last_start,
+			sum(input_tokens) AS total_input_tokens,
+			sum(output_tokens) AS total_output_tokens,
+			countIf(status = 'ERROR' OR has_error = true) AS error_count,
+			argMax(ai_request_model, start_time) AS dominant_model,
+			argMax(service_name, start_time) AS dominant_service
+		FROM (%s) AS t
+		WHERE session_id != ''
+		GROUP BY session_id
+		ORDER BY last_start DESC`, inner)
+
+	query := fmt.Sprintf(`%s LIMIT @limit OFFSET @offset`, grouped)
+	argsWithPaging := append(append([]any{}, args...), clickhouse.Named("limit", limit), clickhouse.Named("offset", offset))
+
+	var rows []aiSessionRow
+	if err := r.db.Select(ctx, &rows, query, argsWithPaging...); err != nil {
+		return nil, 0, fmt.Errorf("ai.GetAISessions: %w", err)
+	}
+
+	countQuery := fmt.Sprintf(`SELECT count() FROM (%s)`, grouped)
+	var total uint64
+	if err := r.db.QueryRow(ctx, &total, countQuery, args...); err != nil {
+		return nil, 0, fmt.Errorf("ai.GetAISessions.count: %w", err)
+	}
+
+	return rows, total, nil
+}
+
 // buildAIWhereClause constructs the WHERE clause for AI explorer queries.
 // It always includes the gen_ai.system existence filter plus standard time/team bounds.
 func buildAIWhereClause(teamID, startMs, endMs int64, filters []attrFilter) (string, []any) {
@@ -191,6 +253,14 @@ func buildAIWhereClause(teamID, startMs, endMs int64, filters []attrFilter) (str
 				frag += fmt.Sprintf(` AND s.status_code_string = @%s`, valueName)
 				args = append(args, clickhouse.Named(valueName, af.Value))
 			}
+			continue
+		case "__session_id":
+			frag += fmt.Sprintf(` AND (
+				JSONExtractString(s.attributes, 'gen_ai.session.id') = @%s OR
+				JSONExtractString(s.attributes, 'gen_ai.conversation.id') = @%s OR
+				JSONExtractString(s.attributes, 'session.id') = @%s
+			)`, valueName, valueName, valueName)
+			args = append(args, clickhouse.Named(valueName, af.Value))
 			continue
 		}
 

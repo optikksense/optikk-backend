@@ -59,6 +59,29 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Re
 	}, nil
 }
 
+// QuerySessions returns paginated session aggregates for the LLM hub.
+func (s *Service) QuerySessions(ctx context.Context, req SessionsQueryRequest, teamID int64) (SessionsResponse, error) {
+	filters, err := parseQueryToFilters(req.Query)
+	if err != nil {
+		return SessionsResponse{}, fmt.Errorf("ai.QuerySessions.parseQuery: %w", err)
+	}
+
+	limit := req.Limit
+	if limit <= 0 || limit > 500 {
+		limit = 50
+	}
+
+	rows, total, err := s.repo.GetAISessions(ctx, teamID, req.StartTime, req.EndTime, filters, limit, req.Offset)
+	if err != nil {
+		return SessionsResponse{}, fmt.Errorf("ai.QuerySessions.GetAISessions: %w", err)
+	}
+
+	return SessionsResponse{
+		Results:  toSessionRows(rows),
+		PageInfo: PageInfo{Total: total, Offset: req.Offset, Limit: limit},
+	}, nil
+}
+
 // parseQueryToFilters uses the shared queryparser to extract attribute filters
 // from the user's query string. Known field names (service, status, model, provider,
 // operation) are mapped to their gen_ai attribute keys.
@@ -120,6 +143,10 @@ func mapAIField(field, value string) attrFilter {
 		return attrFilter{Key: "gen_ai.operation.name", Value: value, Op: "eq"}
 	case "finish_reason":
 		return attrFilter{Key: "gen_ai.response.finish_reasons", Value: value, Op: "eq"}
+	case "session", "session_id", "conversation":
+		return attrFilter{Key: "__session_id", Value: value, Op: "eq"}
+	case "prompt", "prompt_template", "gen_ai.prompt.template.name":
+		return attrFilter{Key: "gen_ai.prompt.template.name", Value: value, Op: "eq"}
 	default:
 		if strings.HasPrefix(field, "@") {
 			return attrFilter{Key: field[1:], Value: value, Op: "eq"}
@@ -192,12 +219,13 @@ func toAISummary(row aiSummaryRow) AISummary {
 
 func groupFacets(rows []aiFacetRow) AIExplorerFacets {
 	facets := AIExplorerFacets{
-		AISystem:     []FacetBucket{},
-		AIModel:      []FacetBucket{},
-		AIOperation:  []FacetBucket{},
-		ServiceName:  []FacetBucket{},
-		Status:       []FacetBucket{},
-		FinishReason: []FacetBucket{},
+		AISystem:       []FacetBucket{},
+		AIModel:        []FacetBucket{},
+		AIOperation:    []FacetBucket{},
+		ServiceName:    []FacetBucket{},
+		Status:         []FacetBucket{},
+		FinishReason:   []FacetBucket{},
+		PromptTemplate: []FacetBucket{},
 	}
 	for _, r := range rows {
 		bucket := FacetBucket{Value: r.FacetValue, Count: r.Count}
@@ -214,9 +242,30 @@ func groupFacets(rows []aiFacetRow) AIExplorerFacets {
 			facets.Status = append(facets.Status, bucket)
 		case "finish_reason":
 			facets.FinishReason = append(facets.FinishReason, bucket)
+		case "prompt_template":
+			facets.PromptTemplate = append(facets.PromptTemplate, bucket)
 		}
 	}
 	return facets
+}
+
+func toSessionRows(rows []aiSessionRow) []SessionRow {
+	out := make([]SessionRow, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, SessionRow{
+			SessionID:         r.SessionID,
+			GenerationCount:   r.GenerationCount,
+			TraceCount:        r.TraceCount,
+			FirstStart:        r.FirstStart,
+			LastStart:         r.LastStart,
+			TotalInputTokens:  r.TotalInputTokens,
+			TotalOutputTokens: r.TotalOutputTokens,
+			ErrorCount:        r.ErrorCount,
+			DominantModel:     r.DominantModel,
+			DominantService:   r.DominantService,
+		})
+	}
+	return out
 }
 
 func toAITrend(rows []aiTrendRow) []AITrendBucket {
