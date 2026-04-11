@@ -2,7 +2,6 @@ package defaults
 
 import (
 	dashboardcfg "github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg/defaults/infrastructure"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg/defaults/overview"
 )
 
@@ -14,6 +13,6 @@ func Load() (*dashboardcfg.Registry, error) {
 func defaultPageDocuments() []dashboardcfg.PageDocument {
 	return []dashboardcfg.PageDocument{
 		overview.Page(),
-		infrastructure.Page(),
+		// infrastructure: UI is optikk-frontend InfrastructureHubPage (no embedded default page).
 	}
 }

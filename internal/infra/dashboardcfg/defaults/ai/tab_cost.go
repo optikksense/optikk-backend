@@ -1,0 +1,93 @@
+package ai
+
+import dashboardcfg "github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg"
+
+func costTab() dashboardcfg.TabDefinition {
+	return dashboardcfg.TabDefinition{
+		ID:     "cost",
+		PageID: "ai",
+		Label:  "Cost",
+		Order:  20,
+		Sections: []dashboardcfg.SectionDefinition{
+			{ID: "cost-kpis", Title: "Spend Signals", Order: 10, Collapsible: true, SectionTemplate: dashboardcfg.SectionTemplateKPIBand},
+			{ID: "cost-breakdown", Title: "Cost Breakdown", Order: 20, Collapsible: true, SectionTemplate: dashboardcfg.SectionTemplateTwoUp},
+		},
+		Panels: []dashboardcfg.PanelDefinition{
+			{
+				ID:            "cost-total-spend",
+				PanelType:     dashboardcfg.PanelTypeStatCard,
+				LayoutVariant: dashboardcfg.LayoutVariantKPI,
+				SectionID:     "cost-kpis",
+				Order:         10,
+				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/ai/overview"},
+				Layout:        dashboardcfg.PanelLayout{},
+				Title:         "Total Spend",
+				TitleIcon:     "Coins",
+				ValueField:    "total_cost_usd",
+				Formatter:     "number",
+			},
+			{
+				ID:            "cost-total-tokens",
+				PanelType:     dashboardcfg.PanelTypeStatCard,
+				LayoutVariant: dashboardcfg.LayoutVariantKPI,
+				SectionID:     "cost-kpis",
+				Order:         20,
+				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/ai/overview"},
+				Layout:        dashboardcfg.PanelLayout{},
+				Title:         "Total Tokens",
+				TitleIcon:     "Hash",
+				ValueField:    "total_tokens",
+				Formatter:     "number",
+			},
+			{
+				ID:            "cost-ttft",
+				PanelType:     dashboardcfg.PanelTypeStatCard,
+				LayoutVariant: dashboardcfg.LayoutVariantKPI,
+				SectionID:     "cost-kpis",
+				Order:         30,
+				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/ai/overview"},
+				Layout:        dashboardcfg.PanelLayout{},
+				Title:         "Avg TTFT",
+				TitleIcon:     "Gauge",
+				ValueField:    "avg_ttft_ms",
+				Formatter:     "ms",
+			},
+			{
+				ID:            "cost-model-table",
+				PanelType:     dashboardcfg.PanelTypeTable,
+				LayoutVariant: dashboardcfg.LayoutVariantSummaryTable,
+				SectionID:     "cost-breakdown",
+				Order:         40,
+				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/ai/overview/top-models"},
+				Layout:        dashboardcfg.PanelLayout{},
+				Title:         "Spend by Model",
+				TitleIcon:     "Bot",
+				Columns: []dashboardcfg.DashboardTableColumn{
+					{Key: "provider", Label: "Provider"},
+					{Key: "request_model", Label: "Model"},
+					{Key: "total_cost_usd", Label: "Cost", Formatter: "number", Align: dashboardcfg.ColumnAlignRight},
+					{Key: "total_tokens", Label: "Tokens", Formatter: "number", Align: dashboardcfg.ColumnAlignRight},
+					{Key: "avg_ttft_ms", Label: "TTFT", Formatter: "ms", Align: dashboardcfg.ColumnAlignRight},
+				},
+			},
+			{
+				ID:            "cost-prompt-table",
+				PanelType:     dashboardcfg.PanelTypeTable,
+				LayoutVariant: dashboardcfg.LayoutVariantSummaryTable,
+				SectionID:     "cost-breakdown",
+				Order:         50,
+				Query:         dashboardcfg.QuerySpec{Method: "GET", Endpoint: "/v1/ai/overview/top-prompts"},
+				Layout:        dashboardcfg.PanelLayout{},
+				Title:         "Spend by Prompt Template",
+				TitleIcon:     "FileText",
+				Columns: []dashboardcfg.DashboardTableColumn{
+					{Key: "prompt_template", Label: "Prompt template"},
+					{Key: "prompt_template_version", Label: "Version"},
+					{Key: "total_cost_usd", Label: "Cost", Formatter: "number", Align: dashboardcfg.ColumnAlignRight},
+					{Key: "requests", Label: "Runs", Formatter: "number", Align: dashboardcfg.ColumnAlignRight},
+					{Key: "avg_quality_score", Label: "Quality", Formatter: "number", Align: dashboardcfg.ColumnAlignRight},
+				},
+			},
+		},
+	}
+}

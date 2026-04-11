@@ -49,8 +49,8 @@ This is **mandatory**, not optional. The documentation must always reflect the c
 | Page | Default config directory |
 |------|------------------------|
 | overview (summary, latency-analysis, apm, errors, http, slo) | `internal/infra/dashboardcfg/defaults/overview/` |
-| infrastructure (resource-utilization, jvm, kubernetes, nodes) | `internal/infra/dashboardcfg/defaults/infrastructure/` |
-| saturation (database, queue, redis) | `internal/infra/dashboardcfg/defaults/saturation/` |
+
+Infrastructure and saturation product pages are **frontend-owned** in optikk-frontend; there are no matching `defaults/*` packages here.
 
 ## Engineering principles
 

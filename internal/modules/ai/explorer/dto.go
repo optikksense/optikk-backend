@@ -56,12 +56,13 @@ type FacetBucket struct {
 
 // AIExplorerFacets holds all facet groups.
 type AIExplorerFacets struct {
-	AISystem      []FacetBucket `json:"ai_system"`
-	AIModel       []FacetBucket `json:"ai_model"`
-	AIOperation   []FacetBucket `json:"ai_operation"`
-	ServiceName   []FacetBucket `json:"service_name"`
-	Status        []FacetBucket `json:"status"`
-	FinishReason  []FacetBucket `json:"finish_reason"`
+	AISystem         []FacetBucket `json:"ai_system"`
+	AIModel          []FacetBucket `json:"ai_model"`
+	AIOperation      []FacetBucket `json:"ai_operation"`
+	ServiceName      []FacetBucket `json:"service_name"`
+	Status           []FacetBucket `json:"status"`
+	FinishReason     []FacetBucket `json:"finish_reason"`
+	PromptTemplate   []FacetBucket `json:"prompt_template"`
 }
 
 // AITrendBucket is one time-bucketed data point for the trend timeseries.
@@ -87,4 +88,33 @@ type Response struct {
 	Facets   AIExplorerFacets `json:"facets"`
 	Trend    []AITrendBucket  `json:"trend"`
 	PageInfo PageInfo         `json:"pageInfo"`
+}
+
+// SessionsQueryRequest is the body for POST /ai/explorer/sessions/query.
+type SessionsQueryRequest struct {
+	StartTime int64  `json:"startTime"`
+	EndTime   int64  `json:"endTime"`
+	Query     string `json:"query"`
+	Limit     int    `json:"limit"`
+	Offset    int    `json:"offset"`
+}
+
+// SessionRow is one aggregated session/conversation in the time window.
+type SessionRow struct {
+	SessionID         string    `json:"session_id"`
+	GenerationCount   uint64    `json:"generation_count"`
+	TraceCount        uint64    `json:"trace_count"`
+	FirstStart        time.Time `json:"first_start"`
+	LastStart         time.Time `json:"last_start"`
+	TotalInputTokens  float64   `json:"total_input_tokens"`
+	TotalOutputTokens float64   `json:"total_output_tokens"`
+	ErrorCount        uint64    `json:"error_count"`
+	DominantModel     string    `json:"dominant_model"`
+	DominantService   string    `json:"dominant_service"`
+}
+
+// SessionsResponse is returned by POST /ai/explorer/sessions/query.
+type SessionsResponse struct {
+	Results  []SessionRow `json:"results"`
+	PageInfo PageInfo     `json:"pageInfo"`
 }

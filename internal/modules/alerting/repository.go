@@ -37,6 +37,8 @@ type Repository interface {
 	SLOErrorRate(ctx context.Context, teamID int64, serviceName string, windowSecs int64) (float64, bool, error)
 	ServiceErrorRate(ctx context.Context, teamID int64, serviceName string, windowSecs int64) (float64, bool, error)
 	ErrorRateHistorical(ctx context.Context, teamID int64, serviceName string, fromMs, toMs, windowSecs int64) (float64, bool, error)
+	AIMetric(ctx context.Context, teamID int64, targetRef json.RawMessage, metric string, windowSecs int64) (float64, bool, error)
+	AIMetricHistorical(ctx context.Context, teamID int64, targetRef json.RawMessage, metric string, fromMs, toMs, windowSecs int64) (float64, bool, error)
 
 	// Deploy correlation — reused from deployments domain conceptually, but
 	// implemented inline to keep the import graph flat.
@@ -413,7 +415,112 @@ func (r *repository) DeploysInRange(ctx context.Context, teamID int64, fromMs, t
 	return rows, err
 }
 
-// ------------------- helpers -------------------
+// ------------------- AI Metric Queries -------------------
+
+func (r *repository) AIMetric(ctx context.Context, teamID int64, targetRef json.RawMessage, metric string, windowSecs int64) (float64, bool, error) {
+	if windowSecs <= 0 {
+		windowSecs = 300
+	}
+	where, args := buildAIWhereFromRef(teamID, targetRef)
+	where += fmt.Sprintf(" AND s.timestamp >= now() - INTERVAL %d SECOND", windowSecs)
+
+	return r.queryAIMetric(ctx, metric, where, args)
+}
+
+func (r *repository) AIMetricHistorical(ctx context.Context, teamID int64, targetRef json.RawMessage, metric string, fromMs, toMs, windowSecs int64) (float64, bool, error) {
+	_ = windowSecs // not used for exact range historical queries
+	where, args := buildAIWhereFromRef(teamID, targetRef)
+	where += " AND s.timestamp BETWEEN @start AND @end"
+	args = append(args,
+		clickhouse.Named("start", time.UnixMilli(fromMs)),
+		clickhouse.Named("end", time.UnixMilli(toMs)),
+	)
+
+	return r.queryAIMetric(ctx, metric, where, args)
+}
+
+func (r *repository) queryAIMetric(ctx context.Context, metric, where string, args []any) (float64, bool, error) {
+	var selectExpr string
+	switch metric {
+	case "error_rate_pct":
+		selectExpr = "countIf(s.has_error) * 100.0 / count()"
+	case "cost_usd":
+		selectExpr = "sum(toFloat64OrZero(mapGet(s.attributes, 'optikk.ai.cost_usd')))"
+	case "latency_ms":
+		selectExpr = "avg(s.duration_nano / 1000000.0)"
+	case "quality_score":
+		// Only average scored runs
+		selectExpr = "if(countIf(toFloat64OrZero(mapGet(s.attributes, 'optikk.ai.quality.score')) > 0) = 0, 0, avgIf(toFloat64OrZero(mapGet(s.attributes, 'optikk.ai.quality.score')), toFloat64OrZero(mapGet(s.attributes, 'optikk.ai.quality.score')) > 0))"
+	default:
+		return 0, false, fmt.Errorf("unsupported AI metric: %q", metric)
+	}
+
+	query := fmt.Sprintf(`
+		SELECT toFloat64(%s) AS val, count() AS total
+		FROM observability.spans s
+		WHERE %s`, selectExpr, where)
+
+	var row struct {
+		Val   float64 `ch:"val"`
+		Total uint64  `ch:"total"`
+	}
+	if err := r.ch.QueryRow(ctx, &row, query, args...); err != nil {
+		return 0, false, err
+	}
+	if row.Total == 0 {
+		return 0, true, nil
+	}
+	return row.Val, false, nil
+}
+
+func buildAIWhereFromRef(teamID int64, targetRef json.RawMessage) (string, []any) {
+	where := "s.team_id = @teamID"
+	args := []any{clickhouse.Named("teamID", uint32(teamID))} //nolint:gosec
+
+	if len(targetRef) == 0 {
+		return where, args
+	}
+
+	var m map[string]any
+	if err := json.Unmarshal(targetRef, &m); err != nil {
+		return where, args
+	}
+
+	// Service filter
+	for _, k := range []string{"service_name", "service", "serviceName"} {
+		if v, ok := m[k].(string); ok && v != "" {
+			where += " AND s.service_name = @serviceName"
+			args = append(args, clickhouse.Named("serviceName", v))
+			break
+		}
+	}
+
+	// Provider filter
+	if v, ok := m["provider"].(string); ok && v != "" {
+		where += " AND (mapGet(s.attributes, 'optikk.ai.provider') = @provider OR mapGet(s.attributes, 'llm.provider') = @provider OR mapGet(s.attributes, 'gen_ai.system') = @provider)"
+		args = append(args, clickhouse.Named("provider", v))
+	}
+
+	// Model filter
+	for _, k := range []string{"model", "request_model", "requestModel"} {
+		if v, ok := m[k].(string); ok && v != "" {
+			where += " AND (mapGet(s.attributes, 'optikk.ai.model') = @model OR mapGet(s.attributes, 'llm.request.model') = @model OR mapGet(s.attributes, 'gen_ai.request.model') = @model)"
+			args = append(args, clickhouse.Named("model", v))
+			break
+		}
+	}
+
+	// Prompt template filter
+	for _, k := range []string{"prompt_template", "promptTemplate"} {
+		if v, ok := m[k].(string); ok && v != "" {
+			where += " AND (mapGet(s.attributes, 'optikk.ai.prompt_template.name') = @promptTemplate OR mapGet(s.attributes, 'gen_ai.prompt.template.name') = @promptTemplate)"
+			args = append(args, clickhouse.Named("promptTemplate", v))
+			break
+		}
+	}
+
+	return where, args
+}
 
 func ensureJSONObject(raw json.RawMessage) json.RawMessage {
 	if len(raw) == 0 {
