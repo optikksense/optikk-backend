@@ -39,6 +39,7 @@ import (
 	saturation_kafka "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/services/deployments"
 	services_topology "github.com/Optikk-Org/optikk-backend/internal/modules/services/topology"
+	ai_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/ai/explorer"
 	spans_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
 	spans_livetail "github.com/Optikk-Org/optikk-backend/internal/modules/traces/livetail"
 	spans_traces "github.com/Optikk-Org/optikk-backend/internal/modules/traces/query"
@@ -59,6 +60,7 @@ func configuredModules(
 	logSearchSvc *log_search.Service,
 ) []registry.Module {
 	return []registry.Module{
+		ai_explorer.NewModule(nativeQuerier, getTenant),
 		alerting.NewModule(sqlDB, nativeQuerier, clickHouseConn, getTenant, ""),
 		apm.NewModule(nativeQuerier, getTenant),
 		defaultconfig.NewModule(getTenant, runtimeDeps.DashboardConfig),
