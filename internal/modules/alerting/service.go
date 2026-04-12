@@ -110,10 +110,12 @@ func (s *service) UpdateRule(ctx context.Context, teamID, userID, id int64, req 
 	if err := s.repo.UpdateRule(ctx, rule); err != nil {
 		return nil, err
 	}
-	_ = s.repo.WriteEvent(ctx, AlertEvent{
+	if err := s.repo.WriteEvent(ctx, AlertEvent{
 		TeamID:  uint32(teamID), //nolint:gosec
 		AlertID: rule.ID, Kind: EventKindEdit, ActorUserID: userID,
-	})
+	}); err != nil {
+		slog.Debug("alerting: write audit event failed", slog.Any("error", err))
+	}
 	return ruleToResponse(rule), nil
 }
 
@@ -208,10 +210,12 @@ func (s *service) MuteRule(ctx context.Context, teamID, userID, id int64, req Mu
 	if err := s.repo.UpdateRule(ctx, rule); err != nil {
 		return err
 	}
-	_ = s.repo.WriteEvent(ctx, AlertEvent{
+	if err := s.repo.WriteEvent(ctx, AlertEvent{
 		TeamID:  uint32(teamID), //nolint:gosec
 		AlertID: rule.ID, Kind: EventKindMute, ActorUserID: userID, Message: req.Reason,
-	})
+	}); err != nil {
+		slog.Debug("alerting: write audit event failed", slog.Any("error", err))
+	}
 	return nil
 }
 
@@ -284,11 +288,13 @@ func (s *service) AckInstance(ctx context.Context, teamID, userID, id int64, req
 	if err := s.repo.SaveRuleRuntime(ctx, rule); err != nil {
 		return err
 	}
-	_ = s.repo.WriteEvent(ctx, AlertEvent{
+	if err := s.repo.WriteEvent(ctx, AlertEvent{
 		TeamID:  uint32(teamID), //nolint:gosec
 		AlertID: rule.ID, InstanceKey: req.InstanceKey, Kind: EventKindAck,
 		ActorUserID: userID, Message: req.Comment,
-	})
+	}); err != nil {
+		slog.Debug("alerting: write audit event failed", slog.Any("error", err))
+	}
 	return nil
 }
 
@@ -309,11 +315,13 @@ func (s *service) SnoozeInstance(ctx context.Context, teamID, userID, id int64, 
 	if err := s.repo.SaveRuleRuntime(ctx, rule); err != nil {
 		return err
 	}
-	_ = s.repo.WriteEvent(ctx, AlertEvent{
+	if err := s.repo.WriteEvent(ctx, AlertEvent{
 		TeamID:  uint32(teamID), //nolint:gosec
 		AlertID: rule.ID, InstanceKey: req.InstanceKey, Kind: EventKindAck, ActorUserID: userID,
 		Message: fmt.Sprintf("snoozed %d minutes", req.Minutes),
-	})
+	}); err != nil {
+		slog.Debug("alerting: write audit event failed", slog.Any("error", err))
+	}
 	return nil
 }
 
@@ -355,10 +363,12 @@ func (s *service) CreateSilence(ctx context.Context, teamID, userID int64, req C
 	if err := s.repo.UpdateRule(ctx, rule); err != nil {
 		return nil, err
 	}
-	_ = s.repo.WriteEvent(ctx, AlertEvent{
+	if err := s.repo.WriteEvent(ctx, AlertEvent{
 		TeamID:  uint32(teamID), //nolint:gosec
 		AlertID: rule.ID, Kind: EventKindSilence, ActorUserID: userID,
-	})
+	}); err != nil {
+		slog.Debug("alerting: write audit event failed", slog.Any("error", err))
+	}
 	return &sil, nil
 }
 
@@ -660,10 +670,10 @@ func (l *EvaluatorLoop) evalRule(ctx context.Context, rule *Rule, now time.Time)
 			changed = true
 			// Deploy correlation (best effort).
 			from := now.Add(-30 * time.Minute).UnixMilli()
-			refs, _ := l.repo.DeploysInRange(ctx, rule.TeamID, from, now.UnixMilli())
-			valuesJSON, _ := json.Marshal(r.Windows)
-			deployJSON, _ := json.Marshal(refs)
-			_ = l.repo.WriteEvent(ctx, AlertEvent{
+			refs, _ := l.repo.DeploysInRange(ctx, rule.TeamID, from, now.UnixMilli()) //nolint:errcheck // best-effort deploy correlation
+			valuesJSON, _ := json.Marshal(r.Windows)                                  //nolint:errcheck // marshal of known-safe struct
+			deployJSON, _ := json.Marshal(refs)                                        //nolint:errcheck // marshal of known-safe struct slice
+			if err := l.repo.WriteEvent(ctx, AlertEvent{
 				Ts: now, TeamID: uint32(rule.TeamID), //nolint:gosec
 				AlertID:      rule.ID,
 				InstanceKey:  r.InstanceKey,
@@ -673,7 +683,9 @@ func (l *EvaluatorLoop) evalRule(ctx context.Context, rule *Rule, now time.Time)
 				Values:       string(valuesJSON),
 				DeployRefs:   string(deployJSON),
 				TransitionID: inst.LastTransitionSeq,
-			})
+			}); err != nil {
+				slog.Debug("alerting: write transition event failed", slog.Any("error", err))
+			}
 			if l.dispatcher != nil {
 				l.dispatcher.Enqueue(dispatchItem{
 					Rule:       rule,

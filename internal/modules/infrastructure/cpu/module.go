@@ -31,6 +31,9 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *CPUHandler) {
 	g.GET("/usage-percentage", h.GetCPUUsagePercentage)
 	g.GET("/load-average", h.GetLoadAverage)
 	g.GET("/process-count", h.GetProcessCount)
+	g.GET("/avg", h.GetAvgCPU)
+	g.GET("/by-service", h.GetCPUByService)
+	g.GET("/by-instance", h.GetCPUByInstance)
 }
 
 func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {

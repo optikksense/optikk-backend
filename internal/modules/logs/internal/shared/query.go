@@ -3,6 +3,7 @@ package shared
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ const LogColumns = `timestamp, observed_timestamp, severity_text, severity_numbe
 func QueryCount(ctx context.Context, db *dbutil.NativeQuerier, query string, args ...any) int64 {
 	var row CountRow
 	if err := db.QueryRow(ctx, &row, query, args...); err != nil {
+		slog.Error("logs: count query failed", slog.Any("error", err))
 		return 0
 	}
 	return row.Count

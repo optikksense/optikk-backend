@@ -9,13 +9,23 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/middleware"
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
+
+	_ "github.com/Optikk-Org/optikk-backend/internal/infra/metrics" // register Prometheus collectors
 )
 
 func (a *App) Router() *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
+
+	// Expose Prometheus metrics before the middleware stack so /metrics
+	// is not behind auth or body-limit middleware.
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+
 	r.Use(middleware.ErrorRecovery())
 	r.Use(middleware.CORSMiddleware(a.Config.Server.AllowedOrigins))
+	r.Use(middleware.PrometheusMiddleware())
+	r.Use(middleware.BodyLimitMiddleware(10 * 1024 * 1024)) // 10 MB
 
 	r.GET("/health", a.healthLive)
 	r.GET("/health/live", a.healthLive)

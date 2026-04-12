@@ -2,6 +2,11 @@ package resourceutil //nolint:misspell
 
 import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/connpool"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/cpu"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/disk"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/memory"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/network"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -44,9 +49,16 @@ func (m *resourceUtilisationModule) Name() string                      { return 
 func (m *resourceUtilisationModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *resourceUtilisationModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+	repo := NewRepository(
+		cpu.NewRepository(nativeQuerier),
+		memory.NewRepository(nativeQuerier),
+		disk.NewRepository(nativeQuerier),
+		network.NewRepository(nativeQuerier),
+		connpool.NewRepository(nativeQuerier),
+	)
 	m.handler = &ResourceUtilisationHandler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  NewService(NewRepository(nativeQuerier)),
+		Service:  NewService(repo),
 	}
 }
 

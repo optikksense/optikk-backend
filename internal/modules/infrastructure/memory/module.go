@@ -30,6 +30,9 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *MemoryHandler) {
 	g.GET("/usage", h.GetMemoryUsage)
 	g.GET("/usage-percentage", h.GetMemoryUsagePercentage)
 	g.GET("/swap", h.GetSwapUsage)
+	g.GET("/avg", h.GetAvgMemory)
+	g.GET("/by-service", h.GetMemoryByService)
+	g.GET("/by-instance", h.GetMemoryByInstance)
 }
 
 func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {

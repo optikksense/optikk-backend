@@ -1,7 +1,9 @@
 package fleet
 
+import "context"
+
 type Service interface {
-	GetFleetPods(teamID int64, startMs, endMs int64) ([]FleetPod, error)
+	GetFleetPods(ctx context.Context, teamID int64, startMs, endMs int64) ([]FleetPod, error)
 }
 
 type fleetService struct {
@@ -12,6 +14,6 @@ func NewService(repo Repository) Service {
 	return &fleetService{repo: repo}
 }
 
-func (s *fleetService) GetFleetPods(teamID int64, startMs, endMs int64) ([]FleetPod, error) {
-	return s.repo.GetFleetPods(teamID, startMs, endMs)
+func (s *fleetService) GetFleetPods(ctx context.Context, teamID int64, startMs, endMs int64) ([]FleetPod, error) {
+	return s.repo.GetFleetPods(ctx, teamID, startMs, endMs)
 }

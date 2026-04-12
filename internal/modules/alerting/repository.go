@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -54,13 +55,17 @@ type DeployRef struct {
 }
 
 type repository struct {
-	db     *sql.DB
-	ch     *dbutil.NativeQuerier
-	chConn clickhouse.Conn
+	db              *sql.DB
+	ch              *dbutil.NativeQuerier
+	chConn          clickhouse.Conn
+	maxEnabledRules int
 }
 
-func NewRepository(db *sql.DB, ch *dbutil.NativeQuerier, chConn clickhouse.Conn) Repository {
-	return &repository{db: db, ch: ch, chConn: chConn}
+func NewRepository(db *sql.DB, ch *dbutil.NativeQuerier, chConn clickhouse.Conn, maxEnabledRules int) Repository {
+	if maxEnabledRules <= 0 {
+		maxEnabledRules = 10000
+	}
+	return &repository{db: db, ch: ch, chConn: chConn, maxEnabledRules: maxEnabledRules}
 }
 
 // ------------------- MySQL: rules -------------------
@@ -73,10 +78,22 @@ const alertColumns = `id, team_id, name, description, condition_type, target_ref
 	enabled, parent_alert_id, created_at, updated_at, created_by, updated_by`
 
 func (r *repository) CreateRule(ctx context.Context, rule *Rule) (int64, error) {
-	groupByJSON, _ := json.Marshal(rule.GroupBy)
-	windowsJSON, _ := json.Marshal(rule.Windows)
-	instancesJSON, _ := json.Marshal(rule.Instances)
-	silencesJSON, _ := json.Marshal(rule.Silences)
+	groupByJSON, err := json.Marshal(rule.GroupBy)
+	if err != nil {
+		return 0, fmt.Errorf("alerting: marshal group_by: %w", err)
+	}
+	windowsJSON, err := json.Marshal(rule.Windows)
+	if err != nil {
+		return 0, fmt.Errorf("alerting: marshal windows: %w", err)
+	}
+	instancesJSON, err := json.Marshal(rule.Instances)
+	if err != nil {
+		return 0, fmt.Errorf("alerting: marshal instances: %w", err)
+	}
+	silencesJSON, err := json.Marshal(rule.Silences)
+	if err != nil {
+		return 0, fmt.Errorf("alerting: marshal silences: %w", err)
+	}
 	now := time.Now().UTC()
 	if rule.CreatedAt.IsZero() {
 		rule.CreatedAt = now
@@ -113,11 +130,20 @@ func (r *repository) CreateRule(ctx context.Context, rule *Rule) (int64, error) 
 }
 
 func (r *repository) UpdateRule(ctx context.Context, rule *Rule) error {
-	groupByJSON, _ := json.Marshal(rule.GroupBy)
-	windowsJSON, _ := json.Marshal(rule.Windows)
-	silencesJSON, _ := json.Marshal(rule.Silences)
+	groupByJSON, err := json.Marshal(rule.GroupBy)
+	if err != nil {
+		return fmt.Errorf("alerting: marshal group_by: %w", err)
+	}
+	windowsJSON, err := json.Marshal(rule.Windows)
+	if err != nil {
+		return fmt.Errorf("alerting: marshal windows: %w", err)
+	}
+	silencesJSON, err := json.Marshal(rule.Silences)
+	if err != nil {
+		return fmt.Errorf("alerting: marshal silences: %w", err)
+	}
 	rule.UpdatedAt = time.Now().UTC()
-	_, err := r.db.ExecContext(ctx, `
+	_, err = r.db.ExecContext(ctx, `
 		UPDATE observability.alerts
 		SET name=?, description=?, condition_type=?, target_ref=?, group_by=?, windows=?,
 		    operator=?, warn_threshold=?, critical_threshold=?, recovery_threshold=?,
@@ -138,8 +164,11 @@ func (r *repository) UpdateRule(ctx context.Context, rule *Rule) error {
 }
 
 func (r *repository) SaveRuleRuntime(ctx context.Context, rule *Rule) error {
-	instancesJSON, _ := json.Marshal(rule.Instances)
-	_, err := r.db.ExecContext(ctx, `
+	instancesJSON, err := json.Marshal(rule.Instances)
+	if err != nil {
+		return fmt.Errorf("alerting: marshal instances: %w", err)
+	}
+	_, err = r.db.ExecContext(ctx, `
 		UPDATE observability.alerts
 		SET rule_state=?, last_eval_at=?, instances=?
 		WHERE id=?`,
@@ -180,7 +209,7 @@ func (r *repository) ListRules(ctx context.Context, teamID int64) ([]*Rule, erro
 }
 
 func (r *repository) ListEnabledRules(ctx context.Context) ([]*Rule, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT `+alertColumns+` FROM observability.alerts WHERE enabled=1`)
+	rows, err := r.db.QueryContext(ctx, `SELECT `+alertColumns+` FROM observability.alerts WHERE enabled=1 LIMIT ?`, r.maxEnabledRules)
 	if err != nil {
 		return nil, err
 	}
@@ -193,7 +222,13 @@ func (r *repository) ListEnabledRules(ctx context.Context) ([]*Rule, error) {
 		}
 		out = append(out, rule)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if len(out) == r.maxEnabledRules {
+		slog.Warn("alerting: enabled rules hit safety cap", slog.Int("cap", r.maxEnabledRules))
+	}
+	return out, nil
 }
 
 type scanFn func(dest ...any) error
@@ -233,19 +268,27 @@ func scanRule(scan scanFn) (*Rule, error) {
 		rule.TargetRef = json.RawMessage(targetRef.String)
 	}
 	if groupByJSON.Valid && groupByJSON.String != "" {
-		_ = json.Unmarshal([]byte(groupByJSON.String), &rule.GroupBy)
+		if err := json.Unmarshal([]byte(groupByJSON.String), &rule.GroupBy); err != nil {
+			slog.Warn("alerting: corrupt JSON in rule column", slog.Int64("rule_id", rule.ID), slog.String("column", "group_by"), slog.Any("error", err))
+		}
 	}
 	if windowsJSON.Valid && windowsJSON.String != "" {
-		_ = json.Unmarshal([]byte(windowsJSON.String), &rule.Windows)
+		if err := json.Unmarshal([]byte(windowsJSON.String), &rule.Windows); err != nil {
+			slog.Warn("alerting: corrupt JSON in rule column", slog.Int64("rule_id", rule.ID), slog.String("column", "windows"), slog.Any("error", err))
+		}
 	}
 	if instancesJSON.Valid && instancesJSON.String != "" {
-		_ = json.Unmarshal([]byte(instancesJSON.String), &rule.Instances)
+		if err := json.Unmarshal([]byte(instancesJSON.String), &rule.Instances); err != nil {
+			slog.Warn("alerting: corrupt JSON in rule column", slog.Int64("rule_id", rule.ID), slog.String("column", "instances"), slog.Any("error", err))
+		}
 	}
 	if rule.Instances == nil {
 		rule.Instances = InstancesMap{}
 	}
 	if silencesJSON.Valid && silencesJSON.String != "" {
-		_ = json.Unmarshal([]byte(silencesJSON.String), &rule.Silences)
+		if err := json.Unmarshal([]byte(silencesJSON.String), &rule.Silences); err != nil {
+			slog.Warn("alerting: corrupt JSON in rule column", slog.Int64("rule_id", rule.ID), slog.String("column", "silences"), slog.Any("error", err))
+		}
 	}
 	if warnThreshold.Valid {
 		v := warnThreshold.Float64

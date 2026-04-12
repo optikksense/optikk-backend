@@ -538,12 +538,12 @@ var kafkaGroupMetricNames = []string{
 	kafkaMetricConnectionCount,
 }
 
-func (s *Service) GetKafkaSummary(teamID int64, startMs, endMs int64) (KafkaSummaryResponse, error) {
-	topics, err := s.buildKafkaTopicRows(teamID, startMs, endMs, saturationkafka.KafkaFilters{})
+func (s *Service) GetKafkaSummary(ctx context.Context, teamID int64, startMs, endMs int64) (KafkaSummaryResponse, error) {
+	topics, err := s.buildKafkaTopicRows(ctx, teamID, startMs, endMs, saturationkafka.KafkaFilters{})
 	if err != nil {
 		return KafkaSummaryResponse{}, err
 	}
-	groups, err := s.buildKafkaGroupRows(teamID, startMs, endMs, saturationkafka.KafkaFilters{})
+	groups, err := s.buildKafkaGroupRows(ctx, teamID, startMs, endMs, saturationkafka.KafkaFilters{})
 	if err != nil {
 		return KafkaSummaryResponse{}, err
 	}
@@ -561,16 +561,16 @@ func (s *Service) GetKafkaSummary(teamID int64, startMs, endMs int64) (KafkaSumm
 	return summary, nil
 }
 
-func (s *Service) GetKafkaTopics(teamID int64, startMs, endMs int64) ([]KafkaTopicRow, error) {
-	return s.buildKafkaTopicRows(teamID, startMs, endMs, saturationkafka.KafkaFilters{})
+func (s *Service) GetKafkaTopics(ctx context.Context, teamID int64, startMs, endMs int64) ([]KafkaTopicRow, error) {
+	return s.buildKafkaTopicRows(ctx, teamID, startMs, endMs, saturationkafka.KafkaFilters{})
 }
 
-func (s *Service) GetKafkaGroups(teamID int64, startMs, endMs int64) ([]KafkaGroupRow, error) {
-	return s.buildKafkaGroupRows(teamID, startMs, endMs, saturationkafka.KafkaFilters{})
+func (s *Service) GetKafkaGroups(ctx context.Context, teamID int64, startMs, endMs int64) ([]KafkaGroupRow, error) {
+	return s.buildKafkaGroupRows(ctx, teamID, startMs, endMs, saturationkafka.KafkaFilters{})
 }
 
-func (s *Service) GetKafkaTopicOverview(teamID int64, startMs, endMs int64, topic string) (KafkaTopicOverview, error) {
-	rows, err := s.buildKafkaTopicRows(teamID, startMs, endMs, saturationkafka.KafkaFilters{Topic: topic})
+func (s *Service) GetKafkaTopicOverview(ctx context.Context, teamID int64, startMs, endMs int64, topic string) (KafkaTopicOverview, error) {
+	rows, err := s.buildKafkaTopicRows(ctx, teamID, startMs, endMs, saturationkafka.KafkaFilters{Topic: topic})
 	if err != nil {
 		return KafkaTopicOverview{}, err
 	}
@@ -584,16 +584,16 @@ func (s *Service) GetKafkaTopicOverview(teamID int64, startMs, endMs int64, topi
 	return overview, nil
 }
 
-func (s *Service) GetKafkaTopicGroups(teamID int64, startMs, endMs int64, topic string) ([]KafkaTopicConsumerRow, error) {
-	return s.buildKafkaTopicConsumerRows(teamID, startMs, endMs, saturationkafka.KafkaFilters{Topic: topic})
+func (s *Service) GetKafkaTopicGroups(ctx context.Context, teamID int64, startMs, endMs int64, topic string) ([]KafkaTopicConsumerRow, error) {
+	return s.buildKafkaTopicConsumerRows(ctx, teamID, startMs, endMs, saturationkafka.KafkaFilters{Topic: topic})
 }
 
-func (s *Service) GetKafkaTopicPartitions(teamID int64, startMs, endMs int64, topic string) ([]saturationkafka.PartitionLag, error) {
+func (s *Service) GetKafkaTopicPartitions(ctx context.Context, teamID int64, startMs, endMs int64, topic string) ([]saturationkafka.PartitionLag, error) {
 	return []saturationkafka.PartitionLag{}, nil
 }
 
-func (s *Service) GetKafkaGroupOverview(teamID int64, startMs, endMs int64, group string) (KafkaGroupOverview, error) {
-	rows, err := s.buildKafkaGroupRows(teamID, startMs, endMs, saturationkafka.KafkaFilters{Group: group})
+func (s *Service) GetKafkaGroupOverview(ctx context.Context, teamID int64, startMs, endMs int64, group string) (KafkaGroupOverview, error) {
+	rows, err := s.buildKafkaGroupRows(ctx, teamID, startMs, endMs, saturationkafka.KafkaFilters{Group: group})
 	if err != nil {
 		return KafkaGroupOverview{}, err
 	}
@@ -607,16 +607,16 @@ func (s *Service) GetKafkaGroupOverview(teamID int64, startMs, endMs int64, grou
 	return overview, nil
 }
 
-func (s *Service) GetKafkaGroupTopics(teamID int64, startMs, endMs int64, group string) ([]KafkaTopicRow, error) {
-	return s.buildKafkaTopicRows(teamID, startMs, endMs, saturationkafka.KafkaFilters{Group: group})
+func (s *Service) GetKafkaGroupTopics(ctx context.Context, teamID int64, startMs, endMs int64, group string) ([]KafkaTopicRow, error) {
+	return s.buildKafkaTopicRows(ctx, teamID, startMs, endMs, saturationkafka.KafkaFilters{Group: group})
 }
 
-func (s *Service) GetKafkaGroupPartitions(teamID int64, startMs, endMs int64, group string) ([]saturationkafka.PartitionLag, error) {
+func (s *Service) GetKafkaGroupPartitions(ctx context.Context, teamID int64, startMs, endMs int64, group string) ([]saturationkafka.PartitionLag, error) {
 	return []saturationkafka.PartitionLag{}, nil
 }
 
-func (s *Service) buildKafkaTopicRows(teamID int64, startMs, endMs int64, filters saturationkafka.KafkaFilters) ([]KafkaTopicRow, error) {
-	samples, err := s.kafka.GetTopicMetricSamples(teamID, startMs, endMs, filters, kafkaTopicMetricNames)
+func (s *Service) buildKafkaTopicRows(ctx context.Context, teamID int64, startMs, endMs int64, filters saturationkafka.KafkaFilters) ([]KafkaTopicRow, error) {
+	samples, err := s.kafka.GetTopicMetricSamples(ctx, teamID, startMs, endMs, filters, kafkaTopicMetricNames)
 	if err != nil {
 		return nil, err
 	}
@@ -685,12 +685,12 @@ func (s *Service) buildKafkaTopicRows(teamID int64, startMs, endMs int64, filter
 	return rows, nil
 }
 
-func (s *Service) buildKafkaGroupRows(teamID int64, startMs, endMs int64, filters saturationkafka.KafkaFilters) ([]KafkaGroupRow, error) {
-	groupSamples, err := s.kafka.GetConsumerMetricSamples(teamID, startMs, endMs, filters, kafkaGroupMetricNames)
+func (s *Service) buildKafkaGroupRows(ctx context.Context, teamID int64, startMs, endMs int64, filters saturationkafka.KafkaFilters) ([]KafkaGroupRow, error) {
+	groupSamples, err := s.kafka.GetConsumerMetricSamples(ctx, teamID, startMs, endMs, filters, kafkaGroupMetricNames)
 	if err != nil {
 		return nil, err
 	}
-	topicSamples, err := s.kafka.GetTopicMetricSamples(teamID, startMs, endMs, filters, kafkaTopicMetricNames)
+	topicSamples, err := s.kafka.GetTopicMetricSamples(ctx, teamID, startMs, endMs, filters, kafkaTopicMetricNames)
 	if err != nil {
 		return nil, err
 	}
@@ -768,8 +768,8 @@ func (s *Service) buildKafkaGroupRows(teamID int64, startMs, endMs int64, filter
 	return rows, nil
 }
 
-func (s *Service) buildKafkaTopicConsumerRows(teamID int64, startMs, endMs int64, filters saturationkafka.KafkaFilters) ([]KafkaTopicConsumerRow, error) {
-	samples, err := s.kafka.GetTopicMetricSamples(teamID, startMs, endMs, filters, kafkaTopicMetricNames)
+func (s *Service) buildKafkaTopicConsumerRows(ctx context.Context, teamID int64, startMs, endMs int64, filters saturationkafka.KafkaFilters) ([]KafkaTopicConsumerRow, error) {
+	samples, err := s.kafka.GetTopicMetricSamples(ctx, teamID, startMs, endMs, filters, kafkaTopicMetricNames)
 	if err != nil {
 		return nil, err
 	}

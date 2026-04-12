@@ -14,8 +14,8 @@ import (
 )
 
 type Repository interface {
-	GetInfrastructureNodes(teamID int64, startMs, endMs int64) ([]infrastructureNodeRecordDTO, error)
-	GetInfrastructureNodeServices(teamID int64, host string, startMs, endMs int64) ([]infrastructureNodeServiceRecordDTO, error)
+	GetInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]infrastructureNodeRecordDTO, error)
+	GetInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]infrastructureNodeServiceRecordDTO, error)
 }
 
 type ClickHouseRepository struct {
@@ -49,7 +49,7 @@ type infrastructureNodeServiceDTO struct {
 	PodCount     int64   `ch:"pod_count"`
 }
 
-func (r *ClickHouseRepository) GetInfrastructureNodes(teamID int64, startMs, endMs int64) ([]InfrastructureNode, error) {
+func (r *ClickHouseRepository) GetInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]InfrastructureNode, error) {
 	query := `
 		SELECT if(s.mat_host_name != '', s.mat_host_name, '` + DefaultUnknown + `') as host_name,
 		       toInt64(uniqExactIf(s.mat_k8s_pod_name, s.mat_k8s_pod_name != '')) as pod_count,
@@ -79,7 +79,7 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(teamID int64, startMs, end
 	}
 
 	var dtos []infrastructureNodeDTO
-	if err := r.db.Select(context.Background(), &dtos, query, params...); err != nil {
+	if err := r.db.Select(ctx, &dtos, query, params...); err != nil {
 		return nil, err
 	}
 
@@ -101,7 +101,7 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(teamID int64, startMs, end
 	return nodes, nil
 }
 
-func (r *ClickHouseRepository) GetInfrastructureNodeServices(teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error) {
+func (r *ClickHouseRepository) GetInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error) {
 	query := `
 		SELECT s.service_name as service_name,
 		       toInt64(COUNT(*)) as request_count,
@@ -130,7 +130,7 @@ func (r *ClickHouseRepository) GetInfrastructureNodeServices(teamID int64, host 
 	}
 
 	var dtos []infrastructureNodeServiceDTO
-	if err := r.db.Select(context.Background(), &dtos, query, params...); err != nil {
+	if err := r.db.Select(ctx, &dtos, query, params...); err != nil {
 		return nil, err
 	}
 

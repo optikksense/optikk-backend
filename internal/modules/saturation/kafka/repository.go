@@ -25,7 +25,7 @@ func bucketSecs(startMs, endMs int64) float64 {
 	return 3600.0
 }
 
-func (r *ClickHouseRepository) GetKafkaSummaryStats(teamID int64, startMs, endMs int64, f KafkaFilters) (KafkaSummaryStats, error) {
+func (r *ClickHouseRepository) GetKafkaSummaryStats(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) (KafkaSummaryStats, error) {
 	durationSecs := float64(endMs-startMs) / 1000.0
 	if durationSecs <= 0 {
 		durationSecs = 1.0
@@ -69,10 +69,10 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(teamID int64, startMs, endMs
 	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("durationSecs", durationSecs))
 	args = append(args, filterArgs...)
 	var result KafkaSummaryStats
-	return result, r.db.QueryRow(context.Background(), &result, query, args...)
+	return result, r.db.QueryRow(ctx, &result, query, args...)
 }
 
-func (r *ClickHouseRepository) GetProduceRateByTopic(teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicRatePoint, error) {
+func (r *ClickHouseRepository) GetProduceRateByTopic(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	clause := MetricSetToInClause(ProducerMetrics)
@@ -96,10 +96,10 @@ func (r *ClickHouseRepository) GetProduceRateByTopic(teamID int64, startMs, endM
 	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []TopicRatePoint
-	return out, r.db.Select(context.Background(), &out, query, args...)
+	return out, r.db.Select(ctx, &out, query, args...)
 }
 
-func (r *ClickHouseRepository) GetPublishLatencyByTopic(teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicLatencyPoint, error) {
+func (r *ClickHouseRepository) GetPublishLatencyByTopic(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicLatencyPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	topic := topicExpr()
 	filterSQL, filterArgs := kafkaFilterClauses(f)
@@ -123,10 +123,10 @@ func (r *ClickHouseRepository) GetPublishLatencyByTopic(teamID int64, startMs, e
 
 	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
 	var out []TopicLatencyPoint
-	return out, r.db.Select(context.Background(), &out, query, args...)
+	return out, r.db.Select(ctx, &out, query, args...)
 }
 
-func (r *ClickHouseRepository) GetConsumeRateByTopic(teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicRatePoint, error) {
+func (r *ClickHouseRepository) GetConsumeRateByTopic(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	clause := MetricSetToInClause(ConsumerMetrics)
@@ -150,10 +150,10 @@ func (r *ClickHouseRepository) GetConsumeRateByTopic(teamID int64, startMs, endM
 	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []TopicRatePoint
-	return out, r.db.Select(context.Background(), &out, query, args...)
+	return out, r.db.Select(ctx, &out, query, args...)
 }
 
-func (r *ClickHouseRepository) GetReceiveLatencyByTopic(teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicLatencyPoint, error) {
+func (r *ClickHouseRepository) GetReceiveLatencyByTopic(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicLatencyPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	topic := topicExpr()
 	filterSQL, filterArgs := kafkaFilterClauses(f)
@@ -177,10 +177,10 @@ func (r *ClickHouseRepository) GetReceiveLatencyByTopic(teamID int64, startMs, e
 
 	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
 	var out []TopicLatencyPoint
-	return out, r.db.Select(context.Background(), &out, query, args...)
+	return out, r.db.Select(ctx, &out, query, args...)
 }
 
-func (r *ClickHouseRepository) GetConsumeRateByGroup(teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupRatePoint, error) {
+func (r *ClickHouseRepository) GetConsumeRateByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	clause := MetricSetToInClause(ConsumerMetrics)
@@ -204,10 +204,10 @@ func (r *ClickHouseRepository) GetConsumeRateByGroup(teamID int64, startMs, endM
 	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []GroupRatePoint
-	return out, r.db.Select(context.Background(), &out, query, args...)
+	return out, r.db.Select(ctx, &out, query, args...)
 }
 
-func (r *ClickHouseRepository) GetProcessRateByGroup(teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupRatePoint, error) {
+func (r *ClickHouseRepository) GetProcessRateByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	clause := MetricSetToInClause(ProcessMetrics)
@@ -231,10 +231,10 @@ func (r *ClickHouseRepository) GetProcessRateByGroup(teamID int64, startMs, endM
 	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []GroupRatePoint
-	return out, r.db.Select(context.Background(), &out, query, args...)
+	return out, r.db.Select(ctx, &out, query, args...)
 }
 
-func (r *ClickHouseRepository) GetProcessLatencyByGroup(teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupLatencyPoint, error) {
+func (r *ClickHouseRepository) GetProcessLatencyByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupLatencyPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	group := consumerGroupExpr()
 	filterSQL, filterArgs := kafkaFilterClauses(f)
@@ -258,10 +258,10 @@ func (r *ClickHouseRepository) GetProcessLatencyByGroup(teamID int64, startMs, e
 
 	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
 	var out []GroupLatencyPoint
-	return out, r.db.Select(context.Background(), &out, query, args...)
+	return out, r.db.Select(ctx, &out, query, args...)
 }
 
-func (r *ClickHouseRepository) GetConsumerLagByGroup(teamID int64, startMs, endMs int64, f KafkaFilters) ([]LagPoint, error) {
+func (r *ClickHouseRepository) GetConsumerLagByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]LagPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	clause := MetricSetToInClause(ConsumerLagMetrics)
 	group := consumerGroupExpr()
@@ -290,10 +290,10 @@ func (r *ClickHouseRepository) GetConsumerLagByGroup(teamID int64, startMs, endM
 
 	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
 	var out []LagPoint
-	return out, r.db.Select(context.Background(), &out, query, args...)
+	return out, r.db.Select(ctx, &out, query, args...)
 }
 
-func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamID int64, startMs, endMs int64, f KafkaFilters) ([]PartitionLag, error) {
+func (r *ClickHouseRepository) GetConsumerLagPerPartition(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]PartitionLag, error) {
 	clause := MetricSetToInClause(ConsumerLagMetrics)
 	topic := topicExpr()
 	partition := topicPartitionExpr()
@@ -323,10 +323,10 @@ func (r *ClickHouseRepository) GetConsumerLagPerPartition(teamID int64, startMs,
 
 	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
 	var out []PartitionLag
-	return out, r.db.Select(context.Background(), &out, query, args...)
+	return out, r.db.Select(ctx, &out, query, args...)
 }
 
-func (r *ClickHouseRepository) GetRebalanceSignals(teamID int64, startMs, endMs int64, f KafkaFilters) ([]RebalancePoint, error) {
+func (r *ClickHouseRepository) GetRebalanceSignals(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]RebalancePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	group := consumerGroupExpr()
@@ -366,10 +366,10 @@ func (r *ClickHouseRepository) GetRebalanceSignals(teamID int64, startMs, endMs 
 	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []RebalancePoint
-	return out, r.db.Select(context.Background(), &out, query, args...)
+	return out, r.db.Select(ctx, &out, query, args...)
 }
 
-func (r *ClickHouseRepository) GetE2ELatency(teamID int64, startMs, endMs int64, f KafkaFilters) ([]E2ELatencyPoint, error) {
+func (r *ClickHouseRepository) GetE2ELatency(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]E2ELatencyPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	topic := topicExpr()
 	filterSQL, filterArgs := kafkaFilterClauses(f)
@@ -409,22 +409,22 @@ func (r *ClickHouseRepository) GetE2ELatency(teamID int64, startMs, endMs int64,
 
 	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
 	var out []E2ELatencyPoint
-	return out, r.db.Select(context.Background(), &out, query, args...)
+	return out, r.db.Select(ctx, &out, query, args...)
 }
 
-func (r *ClickHouseRepository) GetPublishErrors(teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
-	return r.getErrorRates(teamID, startMs, endMs, MetricPublishMessages, "topic", "GetPublishErrors", f)
+func (r *ClickHouseRepository) GetPublishErrors(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
+	return r.getErrorRates(ctx, teamID, startMs, endMs, MetricPublishMessages, "topic", "GetPublishErrors", f)
 }
 
-func (r *ClickHouseRepository) GetConsumeErrors(teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
-	return r.getGroupErrorRates(teamID, startMs, endMs, MetricReceiveMessages, "GetConsumeErrors", f)
+func (r *ClickHouseRepository) GetConsumeErrors(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
+	return r.getGroupErrorRates(ctx, teamID, startMs, endMs, MetricReceiveMessages, "GetConsumeErrors", f)
 }
 
-func (r *ClickHouseRepository) GetProcessErrors(teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
-	return r.getGroupErrorRates(teamID, startMs, endMs, MetricProcessMessages, "GetProcessErrors", f)
+func (r *ClickHouseRepository) GetProcessErrors(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
+	return r.getGroupErrorRates(ctx, teamID, startMs, endMs, MetricProcessMessages, "GetProcessErrors", f)
 }
 
-func (r *ClickHouseRepository) GetClientOpErrors(teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
+func (r *ClickHouseRepository) GetClientOpErrors(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	errType := attrString(AttrErrorType)
@@ -454,10 +454,10 @@ func (r *ClickHouseRepository) GetClientOpErrors(teamID int64, startMs, endMs in
 	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []ErrorRatePoint
-	return out, r.db.Select(context.Background(), &out, query, args...)
+	return out, r.db.Select(ctx, &out, query, args...)
 }
 
-func (r *ClickHouseRepository) GetBrokerConnections(teamID int64, startMs, endMs int64, f KafkaFilters) ([]BrokerConnectionPoint, error) {
+func (r *ClickHouseRepository) GetBrokerConnections(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]BrokerConnectionPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	broker := attrString(AttrServerAddress)
 	filterSQL, filterArgs := kafkaFilterClauses(f)
@@ -481,10 +481,10 @@ func (r *ClickHouseRepository) GetBrokerConnections(teamID int64, startMs, endMs
 
 	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
 	var out []BrokerConnectionPoint
-	return out, r.db.Select(context.Background(), &out, query, args...)
+	return out, r.db.Select(ctx, &out, query, args...)
 }
 
-func (r *ClickHouseRepository) GetClientOperationDuration(teamID int64, startMs, endMs int64, f KafkaFilters) ([]ClientOpDurationPoint, error) {
+func (r *ClickHouseRepository) GetClientOperationDuration(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ClientOpDurationPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	opName := operationExpr()
 	filterSQL, filterArgs := kafkaFilterClauses(f)
@@ -508,10 +508,10 @@ func (r *ClickHouseRepository) GetClientOperationDuration(teamID int64, startMs,
 
 	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
 	var out []ClientOpDurationPoint
-	return out, r.db.Select(context.Background(), &out, query, args...)
+	return out, r.db.Select(ctx, &out, query, args...)
 }
 
-func (r *ClickHouseRepository) getErrorRates(teamID int64, startMs, endMs int64, metricName, _ string, caller string, f KafkaFilters) ([]ErrorRatePoint, error) {
+func (r *ClickHouseRepository) getErrorRates(ctx context.Context, teamID int64, startMs, endMs int64, metricName, _ string, caller string, f KafkaFilters) ([]ErrorRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	errType := attrString(AttrErrorType)
@@ -541,13 +541,13 @@ func (r *ClickHouseRepository) getErrorRates(teamID int64, startMs, endMs int64,
 	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []ErrorRatePoint
-	if err := r.db.Select(context.Background(), &out, query, args...); err != nil {
+	if err := r.db.Select(ctx, &out, query, args...); err != nil {
 		return nil, fmt.Errorf("%s: %w", caller, err)
 	}
 	return out, nil
 }
 
-func (r *ClickHouseRepository) getGroupErrorRates(teamID int64, startMs, endMs int64, metricName, caller string, f KafkaFilters) ([]ErrorRatePoint, error) {
+func (r *ClickHouseRepository) getGroupErrorRates(ctx context.Context, teamID int64, startMs, endMs int64, metricName, caller string, f KafkaFilters) ([]ErrorRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	errType := attrString(AttrErrorType)
@@ -577,13 +577,13 @@ func (r *ClickHouseRepository) getGroupErrorRates(teamID int64, startMs, endMs i
 	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []ErrorRatePoint
-	if err := r.db.Select(context.Background(), &out, query, args...); err != nil {
+	if err := r.db.Select(ctx, &out, query, args...); err != nil {
 		return nil, fmt.Errorf("%s: %w", caller, err)
 	}
 	return out, nil
 }
 
-func (r *ClickHouseRepository) GetConsumerMetricSamples(teamID int64, startMs, endMs int64, f KafkaFilters, metricNames []string) ([]ConsumerMetricSample, error) {
+func (r *ClickHouseRepository) GetConsumerMetricSamples(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters, metricNames []string) ([]ConsumerMetricSample, error) {
 	if len(metricNames) == 0 {
 		return []ConsumerMetricSample{}, nil
 	}
@@ -613,10 +613,10 @@ func (r *ClickHouseRepository) GetConsumerMetricSamples(teamID int64, startMs, e
 
 	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
 	var out []ConsumerMetricSample
-	return out, r.db.Select(context.Background(), &out, query, args...)
+	return out, r.db.Select(ctx, &out, query, args...)
 }
 
-func (r *ClickHouseRepository) GetTopicMetricSamples(teamID int64, startMs, endMs int64, f KafkaFilters, metricNames []string) ([]TopicMetricSample, error) {
+func (r *ClickHouseRepository) GetTopicMetricSamples(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters, metricNames []string) ([]TopicMetricSample, error) {
 	if len(metricNames) == 0 {
 		return []TopicMetricSample{}, nil
 	}
@@ -646,5 +646,5 @@ func (r *ClickHouseRepository) GetTopicMetricSamples(teamID int64, startMs, endM
 
 	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
 	var out []TopicMetricSample
-	return out, r.db.Select(context.Background(), &out, query, args...)
+	return out, r.db.Select(ctx, &out, query, args...)
 }

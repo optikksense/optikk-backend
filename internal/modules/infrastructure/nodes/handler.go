@@ -21,7 +21,7 @@ func (h *NodeHandler) GetInfrastructureNodes(c *gin.Context) {
 		return
 	}
 
-	rows, err := h.Service.GetInfrastructureNodes(teamID, startMs, endMs)
+	rows, err := h.Service.GetInfrastructureNodes(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query node health", err)
 		return
@@ -37,7 +37,7 @@ func (h *NodeHandler) GetInfrastructureNodeSummary(c *gin.Context) {
 		return
 	}
 
-	summary, err := h.Service.GetInfrastructureNodeSummary(teamID, startMs, endMs)
+	summary, err := h.Service.GetInfrastructureNodeSummary(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query node summary", err)
 		return
@@ -54,7 +54,7 @@ func (h *NodeHandler) GetInfrastructureNodeServices(c *gin.Context) {
 		return
 	}
 
-	rows, err := h.Service.GetInfrastructureNodeServices(teamID, host, startMs, endMs)
+	rows, err := h.Service.GetInfrastructureNodeServices(c.Request.Context(), teamID, host, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query node services", err)
 		return

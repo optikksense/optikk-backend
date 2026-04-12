@@ -27,8 +27,9 @@ func NewModule(
 	chConn registry.ClickHouseConn,
 	getTenant registry.GetTenantFunc,
 	baseURL string,
+	maxEnabledRules int,
 ) registry.Module {
-	repo := NewRepository(db, nativeQuerier, chConn)
+	repo := NewRepository(db, nativeQuerier, chConn, maxEnabledRules)
 	reg := evaluators.NewRegistry(
 		&evaluators.SLOBurnRate{Data: repo},
 		&evaluators.ErrorRate{Data: repo},

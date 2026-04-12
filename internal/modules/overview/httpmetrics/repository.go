@@ -10,26 +10,26 @@ import (
 )
 
 type Repository interface {
-	GetRequestRate(teamID int64, startMs, endMs int64) ([]statusCodeBucketDTO, error)
-	GetRequestDuration(teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
-	GetActiveRequests(teamID int64, startMs, endMs int64) ([]timeBucketDTO, error)
-	GetRequestBodySize(teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
-	GetResponseBodySize(teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
-	GetClientDuration(teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
-	GetDNSDuration(teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
-	GetTLSDuration(teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
+	GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]statusCodeBucketDTO, error)
+	GetRequestDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
+	GetActiveRequests(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketDTO, error)
+	GetRequestBodySize(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
+	GetResponseBodySize(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
+	GetClientDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
+	GetDNSDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
+	GetTLSDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
 	// Span-based route analysis
-	GetTopRoutesByVolume(teamID int64, startMs, endMs int64) ([]routeMetricDTO, error)
-	GetTopRoutesByLatency(teamID int64, startMs, endMs int64) ([]routeMetricDTO, error)
-	GetRouteErrorRate(teamID int64, startMs, endMs int64) ([]routeMetricDTO, error)
-	GetRouteErrorTimeseries(teamID int64, startMs, endMs int64) ([]routeTimeseriesPointDTO, error)
+	GetTopRoutesByVolume(ctx context.Context, teamID int64, startMs, endMs int64) ([]routeMetricDTO, error)
+	GetTopRoutesByLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]routeMetricDTO, error)
+	GetRouteErrorRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]routeMetricDTO, error)
+	GetRouteErrorTimeseries(ctx context.Context, teamID int64, startMs, endMs int64) ([]routeTimeseriesPointDTO, error)
 	// Span-based status / error analysis
-	GetStatusDistribution(teamID int64, startMs, endMs int64) ([]statusGroupBucketDTO, error)
-	GetErrorTimeseries(teamID int64, startMs, endMs int64) ([]errorTimeseriesPointDTO, error)
+	GetStatusDistribution(ctx context.Context, teamID int64, startMs, endMs int64) ([]statusGroupBucketDTO, error)
+	GetErrorTimeseries(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorTimeseriesPointDTO, error)
 	// External / outbound host analysis (CLIENT spans)
-	GetTopExternalHosts(teamID int64, startMs, endMs int64) ([]externalHostMetricDTO, error)
-	GetExternalHostLatency(teamID int64, startMs, endMs int64) ([]externalHostMetricDTO, error)
-	GetExternalHostErrorRate(teamID int64, startMs, endMs int64) ([]externalHostMetricDTO, error)
+	GetTopExternalHosts(ctx context.Context, teamID int64, startMs, endMs int64) ([]externalHostMetricDTO, error)
+	GetExternalHostLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]externalHostMetricDTO, error)
+	GetExternalHostErrorRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]externalHostMetricDTO, error)
 }
 
 type ClickHouseRepository struct {
@@ -40,7 +40,7 @@ func NewRepository(db *dbutil.NativeQuerier) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) queryHistogramSummary(teamID int64, startMs, endMs int64, metricName string) (HistogramSummary, error) {
+func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (HistogramSummary, error) {
 	query := fmt.Sprintf(`
 		SELECT
 		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
@@ -57,13 +57,13 @@ func (r *ClickHouseRepository) queryHistogramSummary(teamID int64, startMs, endM
 		ColMetricName, metricName,
 	)
 	var row HistogramSummary
-	if err := r.db.QueryRow(context.Background(), &row, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.QueryRow(ctx, &row, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return HistogramSummary{}, err
 	}
 	return row, nil
 }
 
-func (r *ClickHouseRepository) GetRequestRate(teamID int64, startMs, endMs int64) ([]StatusCodeBucket, error) {
+func (r *ClickHouseRepository) GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]StatusCodeBucket, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	statusAttr := attrString(AttrHTTPStatusCode)
 
@@ -85,17 +85,17 @@ func (r *ClickHouseRepository) GetRequestRate(teamID int64, startMs, endMs int64
 		ColMetricName, MetricHTTPServerRequestDuration,
 	)
 	var rows []StatusCodeBucket
-	if err := r.db.Select(context.Background(), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetRequestDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
-	return r.queryHistogramSummary(teamID, startMs, endMs, MetricHTTPServerRequestDuration)
+func (r *ClickHouseRepository) GetRequestDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return r.queryHistogramSummary(ctx, teamID, startMs, endMs, MetricHTTPServerRequestDuration)
 }
 
-func (r *ClickHouseRepository) GetActiveRequests(teamID int64, startMs, endMs int64) ([]TimeBucket, error) {
+func (r *ClickHouseRepository) GetActiveRequests(ctx context.Context, teamID int64, startMs, endMs int64) ([]TimeBucket, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 
 	query := fmt.Sprintf(`
@@ -115,33 +115,33 @@ func (r *ClickHouseRepository) GetActiveRequests(teamID int64, startMs, endMs in
 		ColMetricName, MetricHTTPServerActiveRequests,
 	)
 	var rows []TimeBucket
-	if err := r.db.Select(context.Background(), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetRequestBodySize(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
-	return r.queryHistogramSummary(teamID, startMs, endMs, MetricHTTPServerRequestBodySize)
+func (r *ClickHouseRepository) GetRequestBodySize(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return r.queryHistogramSummary(ctx, teamID, startMs, endMs, MetricHTTPServerRequestBodySize)
 }
 
-func (r *ClickHouseRepository) GetResponseBodySize(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
-	return r.queryHistogramSummary(teamID, startMs, endMs, MetricHTTPServerResponseBodySize)
+func (r *ClickHouseRepository) GetResponseBodySize(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return r.queryHistogramSummary(ctx, teamID, startMs, endMs, MetricHTTPServerResponseBodySize)
 }
 
-func (r *ClickHouseRepository) GetClientDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
-	return r.queryHistogramSummary(teamID, startMs, endMs, MetricHTTPClientRequestDuration)
+func (r *ClickHouseRepository) GetClientDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return r.queryHistogramSummary(ctx, teamID, startMs, endMs, MetricHTTPClientRequestDuration)
 }
 
-func (r *ClickHouseRepository) GetDNSDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
-	return r.queryHistogramSummary(teamID, startMs, endMs, MetricDNSLookupDuration)
+func (r *ClickHouseRepository) GetDNSDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return r.queryHistogramSummary(ctx, teamID, startMs, endMs, MetricDNSLookupDuration)
 }
 
-func (r *ClickHouseRepository) GetTLSDuration(teamID int64, startMs, endMs int64) (HistogramSummary, error) {
-	return r.queryHistogramSummary(teamID, startMs, endMs, MetricTLSConnectDuration)
+func (r *ClickHouseRepository) GetTLSDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+	return r.queryHistogramSummary(ctx, teamID, startMs, endMs, MetricTLSConnectDuration)
 }
 
-func (r *ClickHouseRepository) GetTopRoutesByVolume(teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
+func (r *ClickHouseRepository) GetTopRoutesByVolume(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
 	query := fmt.Sprintf(`
 		SELECT mat_http_route AS route, toInt64(count()) AS req_count
 		FROM %s
@@ -153,13 +153,13 @@ func (r *ClickHouseRepository) GetTopRoutesByVolume(teamID int64, startMs, endMs
 		LIMIT 20
 	`, TableSpans)
 	var rows []RouteMetric
-	if err := r.db.Select(context.Background(), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetTopRoutesByLatency(teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
+func (r *ClickHouseRepository) GetTopRoutesByLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
 	query := fmt.Sprintf(`
 		SELECT mat_http_route AS route,
 		       toInt64(count()) AS req_count,
@@ -173,13 +173,13 @@ func (r *ClickHouseRepository) GetTopRoutesByLatency(teamID int64, startMs, endM
 		LIMIT 20
 	`, TableSpans)
 	var rows []RouteMetric
-	if err := r.db.Select(context.Background(), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetRouteErrorRate(teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
+func (r *ClickHouseRepository) GetRouteErrorRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
 	query := fmt.Sprintf(`
 		SELECT mat_http_route AS route,
 		       toInt64(count()) AS req_count,
@@ -193,13 +193,13 @@ func (r *ClickHouseRepository) GetRouteErrorRate(teamID int64, startMs, endMs in
 		LIMIT 20
 	`, TableSpans)
 	var rows []RouteMetric
-	if err := r.db.Select(context.Background(), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetRouteErrorTimeseries(teamID int64, startMs, endMs int64) ([]RouteTimeseriesPoint, error) {
+func (r *ClickHouseRepository) GetRouteErrorTimeseries(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteTimeseriesPoint, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT %s AS time_bucket,
@@ -215,13 +215,13 @@ func (r *ClickHouseRepository) GetRouteErrorTimeseries(teamID int64, startMs, en
 		ORDER BY time_bucket ASC, error_count DESC
 	`, bucket, TableSpans)
 	var rows []RouteTimeseriesPoint
-	if err := r.db.Select(context.Background(), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetStatusDistribution(teamID int64, startMs, endMs int64) ([]StatusGroupBucket, error) {
+func (r *ClickHouseRepository) GetStatusDistribution(ctx context.Context, teamID int64, startMs, endMs int64) ([]StatusGroupBucket, error) {
 	query := fmt.Sprintf(`
 		SELECT multiIf(
 			toUInt16OrZero(response_status_code) BETWEEN 200 AND 299, '2xx',
@@ -239,13 +239,13 @@ func (r *ClickHouseRepository) GetStatusDistribution(teamID int64, startMs, endM
 		ORDER BY status_group ASC
 	`, TableSpans)
 	var rows []StatusGroupBucket
-	if err := r.db.Select(context.Background(), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetErrorTimeseries(teamID int64, startMs, endMs int64) ([]ErrorTimeseriesPoint, error) {
+func (r *ClickHouseRepository) GetErrorTimeseries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorTimeseriesPoint, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT %s AS time_bucket,
@@ -260,13 +260,13 @@ func (r *ClickHouseRepository) GetErrorTimeseries(teamID int64, startMs, endMs i
 		ORDER BY time_bucket ASC
 	`, bucket, TableSpans)
 	var rows []ErrorTimeseriesPoint
-	if err := r.db.Select(context.Background(), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetTopExternalHosts(teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
+func (r *ClickHouseRepository) GetTopExternalHosts(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
 	query := fmt.Sprintf(`
 		SELECT http_host AS host, toInt64(count()) AS req_count
 		FROM %s
@@ -279,13 +279,13 @@ func (r *ClickHouseRepository) GetTopExternalHosts(teamID int64, startMs, endMs 
 		LIMIT 20
 	`, TableSpans)
 	var rows []ExternalHostMetric
-	if err := r.db.Select(context.Background(), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetExternalHostLatency(teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
+func (r *ClickHouseRepository) GetExternalHostLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
 	query := fmt.Sprintf(`
 		SELECT http_host AS host,
 		       toInt64(count()) AS req_count,
@@ -300,13 +300,13 @@ func (r *ClickHouseRepository) GetExternalHostLatency(teamID int64, startMs, end
 		LIMIT 20
 	`, TableSpans)
 	var rows []ExternalHostMetric
-	if err := r.db.Select(context.Background(), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetExternalHostErrorRate(teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
+func (r *ClickHouseRepository) GetExternalHostErrorRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
 	query := fmt.Sprintf(`
 		SELECT http_host AS host,
 		       toInt64(count()) AS req_count,
@@ -321,7 +321,7 @@ func (r *ClickHouseRepository) GetExternalHostErrorRate(teamID int64, startMs, e
 		LIMIT 20
 	`, TableSpans)
 	var rows []ExternalHostMetric
-	if err := r.db.Select(context.Background(), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil

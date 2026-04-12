@@ -123,7 +123,7 @@ func (a *App) Start(ctx context.Context) error {
 	{
 		lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%s", a.Config.OTLP.GRPCPort))
 		if err != nil {
-			return fmt.Errorf("gRPC listen failed: %v", err)
+			return fmt.Errorf("server: gRPC listen failed: %w", err)
 		}
 		grpcSrv := grpc.NewServer(
 			grpc.MaxConcurrentStreams(100),

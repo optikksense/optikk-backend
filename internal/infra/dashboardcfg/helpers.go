@@ -2,6 +2,7 @@ package dashboardcfg
 
 import (
 	"encoding/json"
+	"log/slog"
 
 	queryvalue "github.com/Optikk-Org/optikk-backend/internal/shared/contracts/queryvalue"
 )
@@ -28,11 +29,13 @@ func MustQueryParams(raw map[string]any) map[string]queryvalue.Value {
 func MustQueryValue(value any) queryvalue.Value {
 	payload, err := json.Marshal(value)
 	if err != nil {
-		panic(err)
+		slog.Error("dashboardcfg: failed to marshal query value", slog.Any("error", err))
+		return queryvalue.Value{}
 	}
 	var parsed queryvalue.Value
 	if err := json.Unmarshal(payload, &parsed); err != nil {
-		panic(err)
+		slog.Error("dashboardcfg: failed to unmarshal query value", slog.Any("error", err))
+		return queryvalue.Value{}
 	}
 	return parsed
 }

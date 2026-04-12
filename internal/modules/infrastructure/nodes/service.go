@@ -1,9 +1,14 @@
 package nodes
 
+import (
+	"context"
+	"log/slog"
+)
+
 type Service interface {
-	GetInfrastructureNodes(teamID int64, startMs, endMs int64) ([]InfrastructureNode, error)
-	GetInfrastructureNodeSummary(teamID int64, startMs, endMs int64) (InfrastructureNodeSummary, error)
-	GetInfrastructureNodeServices(teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error)
+	GetInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]InfrastructureNode, error)
+	GetInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (InfrastructureNodeSummary, error)
+	GetInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error)
 }
 
 type NodeService struct {
@@ -14,13 +19,14 @@ func NewService(repo Repository) Service {
 	return &NodeService{repo: repo}
 }
 
-func (s *NodeService) GetInfrastructureNodes(teamID int64, startMs, endMs int64) ([]InfrastructureNode, error) {
-	return s.repo.GetInfrastructureNodes(teamID, startMs, endMs)
+func (s *NodeService) GetInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]InfrastructureNode, error) {
+	return s.repo.GetInfrastructureNodes(ctx, teamID, startMs, endMs)
 }
 
-func (s *NodeService) GetInfrastructureNodeSummary(teamID int64, startMs, endMs int64) (InfrastructureNodeSummary, error) {
-	nodes, err := s.repo.GetInfrastructureNodes(teamID, startMs, endMs)
+func (s *NodeService) GetInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (InfrastructureNodeSummary, error) {
+	nodes, err := s.repo.GetInfrastructureNodes(ctx, teamID, startMs, endMs)
 	if err != nil {
+		slog.Error("nodes: GetInfrastructureNodeSummary failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return InfrastructureNodeSummary{}, err
 	}
 
@@ -39,6 +45,6 @@ func (s *NodeService) GetInfrastructureNodeSummary(teamID int64, startMs, endMs 
 	return summary, nil
 }
 
-func (s *NodeService) GetInfrastructureNodeServices(teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error) {
-	return s.repo.GetInfrastructureNodeServices(teamID, host, startMs, endMs)
+func (s *NodeService) GetInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error) {
+	return s.repo.GetInfrastructureNodeServices(ctx, teamID, host, startMs, endMs)
 }

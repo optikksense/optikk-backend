@@ -17,3 +17,20 @@ type LoadAverageResult struct {
 	Load5m  float64 `ch:"load_5m"  json:"load_5m"`
 	Load15m float64 `ch:"load_15m" json:"load_15m"`
 }
+
+type MetricValue struct {
+	Value float64 `json:"value"`
+}
+
+type CPUServiceMetric struct {
+	ServiceName string   `json:"service_name"`
+	Value       *float64 `json:"value"`
+}
+
+type CPUInstanceMetric struct {
+	Host        string   `json:"host"`
+	Pod         string   `json:"pod"`
+	Container   string   `json:"container"`
+	ServiceName string   `json:"service_name"`
+	Value       *float64 `json:"value"`
+}

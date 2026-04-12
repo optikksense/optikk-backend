@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strconv"
 	"strings"
@@ -117,7 +118,9 @@ func CacheMiddleware(store ResponseCacheStore, ttl time.Duration) gin.HandlerFun
 			ContentType: contentType,
 			Body:        append([]byte(nil), writer.body.Bytes()...),
 		}
-		_ = store.Set(c.Request.Context(), key, response, ttl)
+		if err := store.Set(c.Request.Context(), key, response, ttl); err != nil {
+			slog.Debug("cache: store response failed", slog.Any("error", err))
+		}
 	}
 }
 
@@ -128,14 +131,14 @@ type cacheResponseWriter struct {
 
 func (w *cacheResponseWriter) Write(data []byte) (int, error) {
 	if len(data) > 0 {
-		_, _ = w.body.Write(data)
+		_, _ = w.body.Write(data) //nolint:errcheck // bytes.Buffer.Write never returns an error
 	}
 	return w.ResponseWriter.Write(data)
 }
 
 func (w *cacheResponseWriter) WriteString(s string) (int, error) {
 	if s != "" {
-		_, _ = w.body.WriteString(s)
+		_, _ = w.body.WriteString(s) //nolint:errcheck // bytes.Buffer.WriteString never returns an error
 	}
 	return w.ResponseWriter.WriteString(s)
 }

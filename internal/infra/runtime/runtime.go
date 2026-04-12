@@ -47,40 +47,40 @@ func New(sqlDB *sql.DB, cfg config.Config) (*Runtime, error) {
 	sessionManager, err := newSessionManager(cfg, redisClients.Pool)
 	if err != nil {
 		redisClients.Pool.Close()
-		_ = redisClients.Client.Close()
+		_ = redisClients.Client.Close() //nolint:errcheck // best-effort cleanup on init failure
 		return nil, err
 	}
 
 	liveTailHub, err := newLiveTailHub(cfg)
 	if err != nil {
 		redisClients.Pool.Close()
-		_ = redisClients.Client.Close()
+		_ = redisClients.Client.Close() //nolint:errcheck // best-effort cleanup on init failure
 		return nil, err
 	}
 
 	registry, err := dashboarddefaults.Load()
 	if err != nil {
 		redisClients.Pool.Close()
-		_ = redisClients.Client.Close()
+		_ = redisClients.Client.Close() //nolint:errcheck // best-effort cleanup on init failure
 		return nil, fmt.Errorf("failed to load embedded default config registry: %w", err)
 	}
 
-	logDispatcher, err := newDispatcher[*otlplogs.LogRow](cfg)
+	logDispatcher, err := newDispatcher[*otlplogs.LogRow]("logs", cfg)
 	if err != nil {
 		redisClients.Pool.Close()
-		_ = redisClients.Client.Close()
+		_ = redisClients.Client.Close() //nolint:errcheck // best-effort cleanup on init failure
 		return nil, err
 	}
-	spanDispatcher, err := newDispatcher[*otlpspans.SpanRow](cfg)
+	spanDispatcher, err := newDispatcher[*otlpspans.SpanRow]("spans", cfg)
 	if err != nil {
 		redisClients.Pool.Close()
-		_ = redisClients.Client.Close()
+		_ = redisClients.Client.Close() //nolint:errcheck // best-effort cleanup on init failure
 		return nil, err
 	}
-	metricDispatcher, err := newDispatcher[*otlpmetrics.MetricRow](cfg)
+	metricDispatcher, err := newDispatcher[*otlpmetrics.MetricRow]("metrics", cfg)
 	if err != nil {
 		redisClients.Pool.Close()
-		_ = redisClients.Client.Close()
+		_ = redisClients.Client.Close() //nolint:errcheck // best-effort cleanup on init failure
 		return nil, err
 	}
 
@@ -117,10 +117,10 @@ func (r *Runtime) Close() error {
 		r.OTLP.MetricDispatcher.Close()
 	}
 	if r.RedisPool != nil {
-		_ = r.RedisPool.Close()
+		_ = r.RedisPool.Close() //nolint:errcheck // best-effort cleanup
 	}
 	if r.RedisClient != nil {
-		_ = r.RedisClient.Close()
+		_ = r.RedisClient.Close() //nolint:errcheck // best-effort cleanup
 	}
 	return nil
 }
@@ -148,10 +148,10 @@ func newLiveTailHub(cfg config.Config) (livetail.Hub, error) {
 	}
 }
 
-func newDispatcher[T any](cfg config.Config) (ingestion.Dispatcher[T], error) {
+func newDispatcher[T any](name string, cfg config.Config) (ingestion.Dispatcher[T], error) {
 	switch normalizeProvider(cfg.IngestionDispatcherProvider()) {
 	case "local":
-		return ingestion.NewLocalDispatcher[T](cfg.IngestionQueueSize()), nil
+		return ingestion.NewLocalDispatcher[T](name, cfg.IngestionQueueSize()), nil
 	default:
 		return nil, fmt.Errorf("unsupported ingestion dispatcher provider %q", cfg.IngestionDispatcherProvider())
 	}

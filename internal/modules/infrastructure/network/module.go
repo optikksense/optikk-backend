@@ -32,6 +32,9 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *NetworkHandler) {
 	g.GET("/errors", h.GetNetworkErrors)
 	g.GET("/dropped", h.GetNetworkDropped)
 	g.GET("/connections", h.GetNetworkConnections)
+	g.GET("/avg", h.GetAvgNetwork)
+	g.GET("/by-service", h.GetNetworkByService)
+	g.GET("/by-instance", h.GetNetworkByInstance)
 }
 
 func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {

@@ -20,7 +20,7 @@ const (
 )
 
 type Repository interface {
-	GetFleetPods(teamID int64, startMs, endMs int64) ([]FleetPod, error)
+	GetFleetPods(ctx context.Context, teamID int64, startMs, endMs int64) ([]FleetPod, error)
 }
 
 type ClickHouseRepository struct {
@@ -43,7 +43,7 @@ type fleetPodRowDTO struct {
 	LastSeen     time.Time `ch:"last_seen"`
 }
 
-func (r *ClickHouseRepository) GetFleetPods(teamID int64, startMs, endMs int64) ([]FleetPod, error) {
+func (r *ClickHouseRepository) GetFleetPods(ctx context.Context, teamID int64, startMs, endMs int64) ([]FleetPod, error) {
 	query := `
 		SELECT s.mat_k8s_pod_name as pod_name,
 		       if(s.mat_host_name != '', s.mat_host_name, '` + defaultUnknown + `') as host_name,
@@ -73,7 +73,7 @@ func (r *ClickHouseRepository) GetFleetPods(teamID int64, startMs, endMs int64) 
 	}
 
 	var dtos []fleetPodRowDTO
-	if err := r.db.Select(context.Background(), &dtos, query, params...); err != nil {
+	if err := r.db.Select(ctx, &dtos, query, params...); err != nil {
 		return nil, err
 	}
 

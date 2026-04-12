@@ -78,7 +78,7 @@ func (h *Handler) GetLogAggregate(c *gin.Context) {
 		return
 	}
 	var req LogAggregateRequest
-	_ = c.ShouldBindQuery(&req)
+	_ = c.ShouldBindQuery(&req) //nolint:errcheck // validation handled by buildLogAggregateQuery below
 	if _, err := buildLogAggregateQuery(req); err != nil {
 		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, err.Error())
 		return

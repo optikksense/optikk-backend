@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/metrics"
 )
 
 // clickHouseTransientErrorSubstrings matches transport-layer failures worth retrying
@@ -137,7 +138,7 @@ func (r *sqlRowsAdapter) Next() bool {
 }
 
 func (r *sqlRowsAdapter) Scan(dest ...any) {
-	_ = r.rows.Scan(dest...)
+	_ = r.rows.Scan(dest...) //nolint:errcheck // adapter interface does not surface scan errors; callers check via rows.Err()
 }
 
 type sqlRowAdapter struct {
@@ -247,16 +248,22 @@ func retryClickHouseRead(ctx context.Context, op func() error) error {
 
 func (n *NativeQuerier) Select(ctx context.Context, dest any, query string, args ...any) error {
 	query = optimizeQuery(query)
-	return retryClickHouseRead(ctx, func() error {
+	start := time.Now()
+	err := retryClickHouseRead(ctx, func() error {
 		return n.conn.Select(ctx, dest, query, args...)
 	})
+	metrics.ClickHouseQueryDuration.WithLabelValues("select").Observe(time.Since(start).Seconds())
+	return err
 }
 
 func (n *NativeQuerier) QueryRow(ctx context.Context, dest any, query string, args ...any) error {
 	query = optimizeQuery(query)
-	return retryClickHouseRead(ctx, func() error {
+	start := time.Now()
+	err := retryClickHouseRead(ctx, func() error {
 		return n.conn.QueryRow(ctx, query, args...).ScanStruct(dest)
 	})
+	metrics.ClickHouseQueryDuration.WithLabelValues("query_row").Observe(time.Since(start).Seconds())
+	return err
 }
 
 // SelectTyped executes a SELECT query and scans results into a typed slice.

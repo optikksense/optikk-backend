@@ -21,7 +21,7 @@ func (h *Handler) GetFleetPods(c *gin.Context) {
 		return
 	}
 
-	rows, err := h.Service.GetFleetPods(teamID, startMs, endMs)
+	rows, err := h.Service.GetFleetPods(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query fleet pods", err)
 		return

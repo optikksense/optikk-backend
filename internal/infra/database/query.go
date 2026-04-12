@@ -26,7 +26,7 @@ func QueryMapsLimit(db Querier, limit int, query string, args ...any) ([]map[str
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
+	defer func() { _ = rows.Close() }() //nolint:errcheck // best-effort cleanup on deferred close
 
 	cols := rows.Columns()
 

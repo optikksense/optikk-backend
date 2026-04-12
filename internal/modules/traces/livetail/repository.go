@@ -21,7 +21,7 @@ func NewRepository(db *dbutil.NativeQuerier) *Repository {
 }
 
 // Poll fetches spans newer than `since` for the given team, applying optional filters.
-func (r *Repository) Poll(teamID int64, since time.Time, filters LiveTailFilters) (*PollResult, error) {
+func (r *Repository) Poll(ctx context.Context, teamID int64, since time.Time, filters LiveTailFilters) (*PollResult, error) {
 	now := time.Now()
 	sinceMs := since.UnixMilli()
 	nowMs := now.UnixMilli()
@@ -80,7 +80,7 @@ func (r *Repository) Poll(teamID int64, since time.Time, filters LiveTailFilters
 	args = append(args, maxSpansPerPoll+1)
 
 	var rows []liveSpanDTO
-	if err := r.db.Select(context.Background(), &rows, query, args...); err != nil {
+	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, err
 	}
 

@@ -9,6 +9,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/alerting"
 	defaultconfig "github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg"
 
+	infrastructure_connpool "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/connpool"
 	infrastructure_cpu "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/cpu"
 	infrastructure_disk "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/disk"
 	infrastructure_jvm "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/jvm"
@@ -64,12 +65,13 @@ func configuredModules(
 	return []registry.Module{
 		ai_explorer.NewModule(nativeQuerier, getTenant),
 		llm_hub.NewModule(sqlDB, getTenant),
-		alerting.NewModule(sqlDB, nativeQuerier, clickHouseConn, getTenant, ""),
+		alerting.NewModule(sqlDB, nativeQuerier, clickHouseConn, getTenant, "", appConfig.AlertingMaxEnabledRules()),
 		apm.NewModule(nativeQuerier, getTenant),
 		defaultconfig.NewModule(getTenant, runtimeDeps.DashboardConfig),
 		deployments.NewModule(nativeQuerier, getTenant),
 		httpmetrics.NewModule(nativeQuerier, getTenant),
 
+		infrastructure_connpool.NewModule(nativeQuerier, getTenant),
 		infrastructure_cpu.NewModule(nativeQuerier, getTenant),
 		infrastructure_disk.NewModule(nativeQuerier, getTenant),
 		infrastructure_jvm.NewModule(nativeQuerier, getTenant),
@@ -82,7 +84,7 @@ func configuredModules(
 		log_explorer.NewModule(nativeQuerier, getTenant),
 		log_search.NewModule(nativeQuerier, getTenant, logSearchSvc),
 		metrics.NewModule(nativeQuerier, getTenant),
-		otlp_streamworkers.NewModule(clickHouseConn, runtimeDeps.OTLP.LogDispatcher, runtimeDeps.OTLP.SpanDispatcher, runtimeDeps.OTLP.MetricDispatcher, runtimeDeps.LiveTailHub),
+		otlp_streamworkers.NewModule(clickHouseConn, runtimeDeps.OTLP.LogDispatcher, runtimeDeps.OTLP.SpanDispatcher, runtimeDeps.OTLP.MetricDispatcher, runtimeDeps.LiveTailHub, appConfig.IngestionBatchMaxRows(), appConfig.IngestionBatchMaxWait()),
 		otlp_spans.NewModule(runtimeDeps.OTLP.Authenticator, runtimeDeps.OTLP.Tracker, runtimeDeps.OTLP.SpanDispatcher),
 		otlp_logs.NewModule(runtimeDeps.OTLP.Authenticator, runtimeDeps.OTLP.Tracker, runtimeDeps.OTLP.LogDispatcher),
 		otlp_metrics.NewModule(runtimeDeps.OTLP.Authenticator, runtimeDeps.OTLP.Tracker, runtimeDeps.OTLP.MetricDispatcher),

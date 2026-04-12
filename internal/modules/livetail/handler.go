@@ -79,22 +79,25 @@ func NewHandler(cfg Config) gin.HandlerFunc {
 
 		var msg ClientMessage
 		if err := json.Unmarshal(data, &msg); err != nil {
-			_ = conn.WriteJSON(outbound{Event: "subscribeError", Data: map[string]string{"message": "invalid JSON"}})
+			_ = conn.WriteJSON(outbound{Event: "subscribeError", Data: map[string]string{"message": "invalid JSON"}}) //nolint:errcheck // client may have disconnected
 			return
 		}
 
 		teamID, ok := extractTeamID(msg.Op, msg.Payload)
 		if !ok || teamID == 0 {
-			_ = conn.WriteJSON(outbound{Event: "subscribeError", Data: map[string]string{"message": "teamId is required"}})
+			_ = conn.WriteJSON(outbound{Event: "subscribeError", Data: map[string]string{"message": "teamId is required"}}) //nolint:errcheck // client may have disconnected
 			return
 		}
 		if !teamAllowed(authState, teamID) {
-			_ = conn.WriteJSON(outbound{Event: "subscribeError", Data: map[string]string{"message": "forbidden team"}})
+			_ = conn.WriteJSON(outbound{Event: "subscribeError", Data: map[string]string{"message": "forbidden team"}}) //nolint:errcheck // client may have disconnected
 			return
 		}
 
 		eventChan := make(chan any, 500)
-		cfg.Hub.Subscribe(teamID, eventChan, nil)
+		if !cfg.Hub.Subscribe(teamID, eventChan, nil) {
+			_ = conn.WriteJSON(outbound{Event: "subscribeError", Data: map[string]string{"message": "too many connections"}}) //nolint:errcheck // client may have disconnected
+			return
+		}
 		defer cfg.Hub.Unsubscribe(teamID, eventChan)
 
 		done := make(chan struct{})

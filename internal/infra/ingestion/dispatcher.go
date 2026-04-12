@@ -3,19 +3,23 @@ package ingestion
 import (
 	"log/slog"
 	"sync/atomic"
+
+	"github.com/Optikk-Org/optikk-backend/internal/infra/metrics"
 )
 
 type LocalDispatcher[T any] struct {
+	name            string
 	persistenceChan chan TelemetryBatch[T]
 	streamingChan   chan TelemetryBatch[T]
 	droppedCount    int64
 }
 
-func NewLocalDispatcher[T any](bufferSize int) Dispatcher[T] {
+func NewLocalDispatcher[T any](name string, bufferSize int) Dispatcher[T] {
 	if bufferSize <= 0 {
 		bufferSize = 10000
 	}
 	return &LocalDispatcher[T]{
+		name:            name,
 		persistenceChan: make(chan TelemetryBatch[T], bufferSize),
 		streamingChan:   make(chan TelemetryBatch[T], bufferSize),
 	}
@@ -30,8 +34,10 @@ func (d *LocalDispatcher[T]) Dispatch(batch TelemetryBatch[T]) {
 	case d.persistenceChan <- batch:
 	default:
 		dropCount := atomic.AddInt64(&d.droppedCount, 1)
+		metrics.DispatcherDropsTotal.WithLabelValues(d.name).Inc()
 		if dropCount%100 == 1 {
 			slog.Warn("ingest: dispatcher persistence channel full, dropping batch",
+				slog.String("signal", d.name),
 				slog.Int64("dropped_batches_total", dropCount))
 		}
 	}
