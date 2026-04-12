@@ -2,6 +2,7 @@ package session
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -24,7 +25,10 @@ type SessionManager struct {
 	*scs.SessionManager
 }
 
-func NewManager(cfg config.Config, pool *redigoredis.Pool) *SessionManager {
+func NewManager(cfg config.Config, pool *redigoredis.Pool) (*SessionManager, error) {
+	if pool == nil {
+		return nil, fmt.Errorf("redis pool is required for sessions")
+	}
 	sessionManager := scs.New()
 	sessionManager.Lifetime = cfg.SessionLifetime()
 	sessionManager.IdleTimeout = cfg.SessionIdleTimeout()
@@ -36,13 +40,11 @@ func NewManager(cfg config.Config, pool *redigoredis.Pool) *SessionManager {
 	sessionManager.Cookie.Secure = cfg.Session.CookieSecure
 	sessionManager.Cookie.SameSite = parseSameSite(cfg.Session.CookieSameSite)
 	sessionManager.Cookie.Persist = true
-	if pool != nil {
-		sessionManager.Store = redisstore.New(pool)
-	}
+	sessionManager.Store = redisstore.New(pool)
 
 	return &SessionManager{
 		SessionManager: sessionManager,
-	}
+	}, nil
 }
 
 func (m *SessionManager) Wrap(next http.Handler) http.Handler {

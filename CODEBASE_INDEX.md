@@ -15,40 +15,39 @@ Orientation for **optikk-backend** (Go modular monolith). Read this file and `.c
 
 The web app lives in the sibling repo **`optikk-frontend`** (see that repo's `CODEBASE_INDEX.md`).
 
-**Hybrid model:** backend-authored dashboards (JSON + default config), frontend-owned explorer routes and feature modules, shared dashboard panel registry and API decode boundary.
+**Hybrid model:** backend exposes data APIs under `/api/v1/...` (overview, infrastructure, saturation, etc.); **optikk-frontend** owns dashboard layout, tabs, and panel wiring (including the overview page). No backend `/default-config` or embedded dashboard JSON in this repo.
 
 ---
 
 ## Stack and entry
 
-- **Stack:** Go 1.25, Gin, ClickHouse, MySQL, Redis, native WebSocket live tail (`/api/v1/ws/live`), OTLP ingestion.
+- **Stack:** Go 1.25, Gin, ClickHouse, MySQL, Redis, Kafka (optional OTLP ingest queue), native WebSocket live tail (`/api/v1/ws/live`), OTLP ingestion.
 - **Module:** `github.com/Optikk-Org/optikk-backend`
-- **Server entry:** `cmd/server/main.go`
+- **Server entry:** `cmd/server/main.go` (telemetry in `logger.go`); MySQL and ClickHouse open in `internal/app/server/infra.go` with Redis, Kafka, and OTLP helpers
 
 ## Composition (where modules are wired)
 
 | File | Purpose |
 |------|---------|
 | `internal/app/server/modules_manifest.go` | **`configuredModules()`** — single list of all `registry.Module` constructors (52 total: 48 HTTP + 4 ingestion, including `alerting` which also implements `BackgroundRunner`); add new HTTP/domain modules here |
-| `internal/app/server/app.go` | App wiring; builds `platform/runtime.Runtime`, native querier, WebSocket handler, module graph |
+| `internal/app/server/app.go` | App wiring; calls `newInfra` (`infra.go`) for MySQL, ClickHouse, Redis, sessions, Kafka topics, dispatchers, OTLP deps; native querier, module graph |
 | `internal/app/registry/registry.go` | Shared dependency aliases for modules (querier, DB, tenant, config, platform session contract) |
 
 ## Runtime ownership
 
 - `internal/infra/` owns cross-cutting capability contracts and provider selection.
-- `internal/infra/runtime/` builds the runtime bundle used by the app layer.
+- `internal/app/server/infra.go` builds the `Infra` bundle (Redis, sessions, live tail hub, Kafka topic ensure, OTLP dispatchers) used by `server.New`.
 - `internal/infra/` owns concrete low-level implementations behind those platform contracts.
-- `internal/modules/` and `internal/app/` should not import provider implementations like `internal/infra/session` or `internal/infra/ingestion` directly; use the registry type aliases.
+- `internal/modules/` and `internal/app/` should not import provider implementations like `internal/infra/session` or `internal/ingestion` directly; use the registry type aliases.
 
 ## Module packages (`internal/modules/`)
 
-52 registered modules across 14 domains. Every module **must** follow the strict 6-file pattern: `handler.go`, `service.go`, `repository.go`, `module.go`, `dto.go`, `models.go`. All repository implementation methods must reside in the single `repository.go` file.
+52 registered modules across 13 domains. Every module **must** follow the strict 6-file pattern: `handler.go`, `service.go`, `repository.go`, `module.go`, `dto.go`, `models.go`. All repository implementation methods must reside in the single `repository.go` file.
 
 | Domain | Packages | Route prefix | Cache |
 |--------|----------|-------------|-------|
 | **Alerting** (1) | `alerting` (subpackages: `evaluators`, `channels`) | `/alerts/*` | V1 |
 | **APM** (1) | `overview/apm` | `/apm/*` | Cached |
-| **Dashboard config** (1) | `infra/dashboardcfg` (handler+service+module merged with config registry) | `/default-config/*` | V1 |
 | **Deployments** (1) | `services/deployments` | `/deployments/*` | Cached |
 | **Explorer** (shared) | `explorer/analytics` (shared types+builder), `explorer/queryparser` (query parser) | Analytics routes owned by logs/traces explorers | — |
 | **AI / GenAI** (2) | `ai/explorer`, `llm/hub` | `POST /ai/explorer/query`, `POST /ai/explorer/sessions/query`; hub: `POST/GET /ai/llm/scores`, `POST /ai/llm/scores/batch`, `GET/POST /ai/llm/prompts`, `PATCH/DELETE /ai/llm/prompts/:id`, `GET/POST /ai/llm/datasets`, `GET /ai/llm/datasets/:id`, `GET/PATCH /ai/llm/settings` (hub tables: `llm_scores`, `llm_prompts`, `llm_datasets`; pricing overrides on `teams.pricing_overrides_json`) | V1 |
@@ -154,21 +153,19 @@ All under `/http/` prefix, Cached:
 ## Ingestion
 
 - **OTLP Pipeline**: `internal/ingestion/otlp/` — gRPC export explicitly mapped to concrete structs (`LogRow`, `SpanRow`, `MetricRow`).
-- **Authentication**: `internal/ingestion/otlp/auth/` — TTL-cached team resolution via API keys.
-- **Dispatch contracts**: `internal/infra/ingestion/` — `Dispatcher[T]`, `TelemetryBatch[T]`, OTLP dependency interfaces.
-- **Default dispatcher implementation**: `internal/infra/ingestion/dispatcher.go` — in-memory channel fanout used by the runtime bundle.
+- **Authentication**: `internal/ingestion/otlp/auth/` — team resolution via API keys; optional Redis cache (TTL) when Redis is enabled.
+- **Dispatch contracts & implementations**: `internal/ingestion/` — `Dispatcher[T]`, `TelemetryBatch[T]`, OTLP dependency interfaces; `kafka_dispatcher.go` — Kafka-backed OTLP ingest queue (required; brokers in `kafka` / env).
+- **Kafka admin (topics)**: `internal/infra/kafka/topics.go` — `EnsureTopics`, `IngestTopicNames` (called from `server` at startup).
 - **Background consumers**: `internal/ingestion/otlp/streamworkers/` — `BackgroundRunner` with separate routines per type. **ClickHouse** writers use `CHFlusher[T]` with `AppendStruct(row)`. Live tail components tap into these same pipelines and broadcast to WebSocket clients.
 
 ## Infrastructure Layer (`internal/infra/`)
 
 | Package | Purpose |
 |---------|---------|
-| `runtime` | Builds the runtime dependency bundle used by `server.New` |
 | `session` | Session/auth contract used by app, middleware, WebSocket auth, and auth module |
 | `ratelimit` | Rate limiter contract and provider-facing API |
 | `livetail` | Live-tail hub contract |
-| `ingestion` | OTLP dispatcher + dependency contracts |
-| `dashboardcfg` | Dashboard schema, validation, hydration, registry, and embedded defaults |
+| `kafka` | Kafka topic creation for OTLP ingest queues |
 
 ## Internal Infrastructure (`internal/infra/`)
 
@@ -178,10 +175,10 @@ All under `/http/` prefix, Cached:
 | `validation` | Schema-based validation logic |
 | `cache` | Query and object caching |
 | `database` | **`NativeQuerier`** and ClickHouse/MySQL connection management |
-| `ingestion` | Default in-memory dispatcher implementation backing `platform/ingestion.Dispatcher[T]` |
+| `kafka` | `EnsureTopics` / `IngestTopicNames` for ingest Kafka topics |
 | `livetail` | Default live-tail hub implementation behind `platform/livetail.Hub` |
-| `livetailws` | Live tail WebSocket handler (`GET /api/v1/ws/live`) wired against platform hub + session contracts |
-| `otlpredis` | Ingest stream names and consumer group ids; `EnsureIngestStreams` (`MKSTREAM` + `XGROUP CREATE`) |
+| `livetail` | Live tail WebSocket module (`GET /api/v1/ws/live`); `handler.go` upgrades WS; registered from `modules_manifest.go` |
+| `redis` | go-redis + Redigo pool construction and ping |
 | `middleware` | HTTP middleware: CORS, error recovery, tenant context, rate limiting middleware |
 | `session` | Default `scs/v2` session manager implementation; keys: `auth_user_id`, `auth_email`, `auth_role`, `auth_default_team_id`, `auth_team_ids` |
 | `utils` | String conversion and time parsing helpers |
@@ -228,7 +225,7 @@ Gin request
   → middleware.CORSMiddleware (origin allowlist)
   → /api/v1 group
     → middleware.TenantMiddleware (platform session contract + team resolution)
-    → RateLimiter (platform-injected, local provider by default)
+    → RateLimiter (middleware default limiter)
     → [cache.CacheResponse 30s for registry.Cached modules]
     → Handler → Service → Repository → ClickHouse/MySQL
   → contracts.APIResponse envelope
@@ -295,37 +292,11 @@ type APIResponse struct {
 - Error codes in `internal/shared/contracts/errorcode/`: `BadRequest`, `Validation`, `Unauthorized`, `Forbidden`, `NotFound`, `Internal`, `QueryFailed`, `QueryTimeout`, `ConnectionError`, `RateLimited`, `Unavailable`, `CircuitOpen`
 - Comparison support: `httputil.WithComparison(c, startMs, endMs, queryFn)` wraps primary + optional comparison range
 
-## Dashboard JSON (backend-authored pages)
+## Overview & dashboard UI (frontend-owned)
 
-| Path | Purpose |
-|------|---------|
-| `internal/infra/dashboardcfg/` | Loader, models, panel layout, validation, hydration, HTTP handler + service (merged) |
+The **overview** hub (tabs, panel grid, which `/overview/*` or related endpoints each chart calls) lives in **optikk-frontend** — see that repo’s `CODEBASE_INDEX.md` and dashboard/panel registry. This backend only provides **JSON data APIs** via `internal/modules/overview/*` (`/overview/...`, `/errors/...`, `/spans/red/...`, etc.) and does not serve dashboard layout or `/default-config`.
 
-**Schema:** `page.schemaVersion` is **2** in embedded defaults (`CurrentSchemaVersion` in `internal/infra/dashboardcfg/types.go`). **1** remains accepted for older stored configs. **v2** adds explicit **`layout.w` and `layout.h`** (grid units, 12-column model); values must match the canonical footprint for `layoutVariant` (`panel_size_policy.go`). If `w`/`h` are omitted (legacy JSON), the loader hydrates them once from `layoutVariant` before validation. The **optikk-frontend** reads `panel.layout.w` / `panel.layout.h` for `react-grid-layout`; pixel spacing stays frontend-only.
-
-### Default pages (`internal/infra/dashboardcfg/defaults/`)
-
-The `service` page at `/service` is **fully frontend-owned** (Discovery + Topology tabs in optikk-frontend) — no backend default config. Service detail is frontend-owned as a side drawer; the backend contributes the shared drawer entity contract and the overview services table `drawerAction` that opens that drawer from backend-driven rows.
-
-**Infrastructure:** product UI is **`optikk-frontend`** `InfrastructureHubPage` (see optikk-frontend `CODEBASE_INDEX.md` → **Infrastructure product direction**). **`internal/modules/infrastructure/*`** is the **HTTP data plane** (`/v1/infrastructure/*`). There is **no** `defaults/infrastructure/` package (removed).
-
-| Page ID | Directory | Tabs | Default tab | Group | Order |
-|---------|-----------|------|-------------|-------|-------|
-| `overview` | `defaults/overview/` | summary, latency-analysis, apm, errors, http, slo | summary | observe | 10 |
-
-*(**`infrastructure`** and **`saturation`** hubs are frontend-owned; only **`overview`** has embedded default JSON in this repo.)*
-
-### Dashboard schema enums (`internal/infra/dashboardcfg/enums.go`)
-
-**Panel types (22):** `bar`, `db-systems-overview`, `error-hotspot-ranking`, `error-rate`, `exception-type-line`, `gauge`, `heatmap`, `latency`, `latency-heatmap`, `latency-histogram`, `log-histogram`, `pie`, `request`, `service-catalog`, `service-health-grid`, `service-map`, `slo-indicators`, `stat-card`, `stat-cards-grid`, `stat-summary`, `table`, `trace-waterfall`
-
-**Layout variants (10):** `kpi`, `summary`, `standard-chart`, `wide-chart`, `ranking`, `summary-table`, `detail-table`, `hero`, `hero-map`, `hero-detail`
-
-**Section templates (8):** `kpi-band`, `summary-plus-health`, `two-up`, `three-up`, `stacked`, `hero-plus-table`, `chart-grid-plus-details`, `table-stack`
-
-**Drawer entities (6):** `databaseSystem`, `errorGroup`, `kafkaGroup`, `kafkaTopic`, `node`, `redisInstance`
-
-**Formatters (6):** `ms`, `ns`, `bytes`, `percent1`, `percent2`, `number`
+**Infrastructure** and **saturation** UIs are also frontend-owned; **`internal/modules/infrastructure/*`** and **`internal/modules/saturation/*`** are the HTTP data plane.
 
 ## Config Structure (`internal/config/config.go`)
 
@@ -340,7 +311,9 @@ The `service` page at `/service` is **fully frontend-owned** (Discovery + Topolo
 | `session.cookie_name` | `OPTIKK_SESSION_COOKIE_NAME` |
 | `redis.enabled` | `OPTIKK_REDIS_ENABLED` |
 | `otl_redis_stream.ch_batch_size` | `OPTIKK_OTL_REDIS_STREAM_CH_BATCH_SIZE` |
-| `platform.providers.session` | `OPTIKK_PLATFORM_PROVIDERS_SESSION` |
+| `kafka.broker_list` | `OPTIKK_KAFKA_BROKER_LIST` |
+| `kafka.consumer_group` | `OPTIKK_KAFKA_CONSUMER_GROUP` |
+| `kafka.topic_prefix` | `OPTIKK_KAFKA_TOPIC_PREFIX` |
 
 Note: `ENV`, `LOG_LEVEL`, `LOG_FORMAT` are separate (`os.Getenv` in `main.go`) — not managed by Viper.
 
@@ -373,9 +346,8 @@ Use when a change spans API and UI. Frontend paths refer to **`optikk-frontend`*
 | Registry / route wiring | `modules_manifest.go` | `domainRegistry.ts`, feature `index.ts` |
 | Explorer APIs | `internal/modules/.../handler.go` | Feature `api/` or `shared/api` |
 | Metrics | `internal/modules/metrics` (`/metrics/names`, `/:metricName/tags`, `/explorer/query`) | `src/features/metrics` (`metricsExplorerApi.ts`) |
-| Dashboard panels | `internal/infra/dashboardcfg/`, panel types | `dashboard/renderers/`, `dashboardPanelRegistry` |
+| Overview & dashboard layout | `internal/modules/overview/*` (data only) | Overview hub, `dashboard/renderers/`, panel registry in **optikk-frontend** |
 | Auth | `internal/modules/user/auth/` | `shared/api/auth/` |
-| Default config | `internal/infra/dashboardcfg/` (handler+service+registry merged) | `defaultConfigService.ts` |
 | Live tail (logs/traces) | `internal/modules/livetail/`, `logs/search/livetail_payload.go`, `traces/livetail/` | `useSocketStream.ts`, `useLiveTailStream.ts` |
 | Infrastructure | `internal/modules/infrastructure/*/` (`/v1/infrastructure/*`); includes `fleet/pods` for pod-level aggregates | `src/features/infrastructure/` — **frontend-owned** hub, host + pod fleet lens, map, query UI |
 

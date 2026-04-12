@@ -60,6 +60,7 @@ func (m *Module) RegisterRoutes(group *gin.RouterGroup) {
 	a := group.Group("/alerts")
 	a.POST("/rules", m.handler.CreateRule)
 	a.GET("/rules", m.handler.ListRules)
+	a.POST("/rules/preview", m.handler.PreviewRule)
 	a.GET("/rules/:id", m.handler.GetRule)
 	a.PATCH("/rules/:id", m.handler.UpdateRule)
 	a.DELETE("/rules/:id", m.handler.DeleteRule)
@@ -70,6 +71,7 @@ func (m *Module) RegisterRoutes(group *gin.RouterGroup) {
 	a.GET("/rules/:id/audit", m.handler.ListAudit)
 
 	a.GET("/incidents", m.handler.ListIncidents)
+	a.GET("/activity", m.handler.ListActivity)
 
 	a.POST("/instances/:id/ack", m.handler.AckInstance)
 	a.POST("/instances/:id/snooze", m.handler.SnoozeInstance)
@@ -79,6 +81,7 @@ func (m *Module) RegisterRoutes(group *gin.RouterGroup) {
 	a.PATCH("/silences/:id", m.handler.UpdateSilence)
 	a.DELETE("/silences/:id", m.handler.DeleteSilence)
 
+	a.POST("/slack/test", m.handler.TestSlack)
 	a.POST("/callback/slack", m.handler.SlackCallback)
 }
 

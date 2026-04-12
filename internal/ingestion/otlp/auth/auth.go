@@ -2,12 +2,15 @@ package auth
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
-	ttlcache "github.com/jellydator/ttlcache/v3"
+	goredis "github.com/redis/go-redis/v9"
 )
 
 var (
@@ -17,22 +20,27 @@ var (
 )
 
 const (
-	cacheTTL = 5 * time.Minute
+	cacheTTL        = 5 * time.Minute
+	redisKeyPrefix  = "optikk:otlp:team_by_api_key:"
+	invalidSentinel = "0"
 )
 
 type Authenticator struct {
 	db    *sql.DB
-	cache *ttlcache.Cache[string, int64]
+	redis *goredis.Client
 }
 
-func NewAuthenticator(db *sql.DB) *Authenticator {
-	cache := ttlcache.New[string, int64](ttlcache.WithTTL[string, int64](cacheTTL))
-	go cache.Start()
-
+// NewAuthenticator resolves OTLP API keys to team IDs. When redis is non-nil, successful lookups are cached in Redis with a short TTL.
+func NewAuthenticator(db *sql.DB, redis *goredis.Client) *Authenticator {
 	return &Authenticator{
 		db:    db,
-		cache: cache,
+		redis: redis,
 	}
+}
+
+func apiKeyCacheKey(apiKey string) string {
+	h := sha256.Sum256([]byte(apiKey))
+	return redisKeyPrefix + hex.EncodeToString(h[:])
 }
 
 func (a *Authenticator) ResolveTeamID(ctx context.Context, apiKey string) (int64, error) {
@@ -40,8 +48,20 @@ func (a *Authenticator) ResolveTeamID(ctx context.Context, apiKey string) (int64
 		return 0, ErrMissingAPIKey
 	}
 
-	if item := a.cache.Get(apiKey); item != nil {
-		return item.Value(), nil
+	if a.redis != nil {
+		cacheKey := apiKeyCacheKey(apiKey)
+		s, err := a.redis.Get(ctx, cacheKey).Result()
+		if err == nil {
+			if s == invalidSentinel {
+				return 0, ErrInvalidAPIKey
+			}
+			id, perr := strconv.ParseInt(s, 10, 64)
+			if perr == nil && id > 0 {
+				return id, nil
+			}
+		} else if err != goredis.Nil {
+			// Redis error: fall through to MySQL without failing the request.
+		}
 	}
 
 	var teamID int64
@@ -50,13 +70,18 @@ func (a *Authenticator) ResolveTeamID(ctx context.Context, apiKey string) (int64
 	).Scan(&teamID)
 
 	if err == sql.ErrNoRows {
+		if a.redis != nil {
+			_ = a.redis.Set(ctx, apiKeyCacheKey(apiKey), invalidSentinel, cacheTTL).Err() //nolint:errcheck
+		}
 		return 0, ErrInvalidAPIKey
 	}
 	if err != nil {
 		return 0, fmt.Errorf("%w: %w", ErrResolveFailed, err)
 	}
 
-	a.cache.Set(apiKey, teamID, ttlcache.DefaultTTL)
+	if a.redis != nil {
+		_ = a.redis.Set(ctx, apiKeyCacheKey(apiKey), strconv.FormatInt(teamID, 10), cacheTTL).Err() //nolint:errcheck
+	}
 
 	return teamID, nil
 }

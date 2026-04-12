@@ -1,97 +1,96 @@
 package alerting
 
-import (
-	"encoding/json"
-	"time"
-)
+import "time"
 
 // CreateRuleRequest is the POST /alerts/rules body.
 type CreateRuleRequest struct {
-	Name              string          `json:"name" binding:"required"`
-	Description       string          `json:"description"`
-	ConditionType     string          `json:"condition_type" binding:"required"`
-	TargetRef         json.RawMessage `json:"target_ref"`
-	GroupBy           []string        `json:"group_by"`
-	Windows           []Window        `json:"windows"`
-	Operator          string          `json:"operator"`
-	WarnThreshold     *float64        `json:"warn_threshold,omitempty"`
-	CriticalThreshold float64         `json:"critical_threshold"`
-	RecoveryThreshold *float64        `json:"recovery_threshold,omitempty"`
-	ForSecs           int64           `json:"for_secs"`
-	RecoverForSecs    int64           `json:"recover_for_secs"`
-	KeepAliveSecs     int64           `json:"keep_alive_secs"`
-	NoDataSecs        int64           `json:"no_data_secs"`
-	Severity          string          `json:"severity"`
-	NotifyTemplate    string          `json:"notify_template"`
-	MaxNotifsPerHour  int             `json:"max_notifs_per_hour"`
-	SlackWebhookURL   string          `json:"slack_webhook_url"`
-	Enabled           bool            `json:"enabled"`
+	Name        string             `json:"name" binding:"required"`
+	Description string             `json:"description"`
+	PresetKind  string             `json:"preset_kind" binding:"required"`
+	Scope       AlertRuleScope     `json:"scope" binding:"required"`
+	Condition   AlertRuleCondition `json:"condition" binding:"required"`
+	Delivery    AlertRuleDelivery  `json:"delivery" binding:"required"`
+	Enabled     bool               `json:"enabled"`
 }
 
-// UpdateRuleRequest is the PATCH body — all pointers so we can detect presence.
+// UpdateRuleRequest is the PATCH body — top-level pointers so we can detect presence.
 type UpdateRuleRequest struct {
-	Name              *string          `json:"name,omitempty"`
-	Description       *string          `json:"description,omitempty"`
-	TargetRef         *json.RawMessage `json:"target_ref,omitempty"`
-	GroupBy           *[]string        `json:"group_by,omitempty"`
-	Windows           *[]Window        `json:"windows,omitempty"`
-	Operator          *string          `json:"operator,omitempty"`
-	WarnThreshold     *float64         `json:"warn_threshold,omitempty"`
-	CriticalThreshold *float64         `json:"critical_threshold,omitempty"`
-	RecoveryThreshold *float64         `json:"recovery_threshold,omitempty"`
-	ForSecs           *int64           `json:"for_secs,omitempty"`
-	RecoverForSecs    *int64           `json:"recover_for_secs,omitempty"`
-	KeepAliveSecs     *int64           `json:"keep_alive_secs,omitempty"`
-	NoDataSecs        *int64           `json:"no_data_secs,omitempty"`
-	Severity          *string          `json:"severity,omitempty"`
-	NotifyTemplate    *string          `json:"notify_template,omitempty"`
-	MaxNotifsPerHour  *int             `json:"max_notifs_per_hour,omitempty"`
-	SlackWebhookURL   *string          `json:"slack_webhook_url,omitempty"`
-	Enabled           *bool            `json:"enabled,omitempty"`
+	Name        *string             `json:"name,omitempty"`
+	Description *string             `json:"description,omitempty"`
+	PresetKind  *string             `json:"preset_kind,omitempty"`
+	Scope       *AlertRuleScope     `json:"scope,omitempty"`
+	Condition   *AlertRuleCondition `json:"condition,omitempty"`
+	Delivery    *AlertRuleDelivery  `json:"delivery,omitempty"`
+	Enabled     *bool               `json:"enabled,omitempty"`
 }
 
 // RuleResponse is the canonical wire shape for a rule.
 type RuleResponse struct {
-	ID                int64           `json:"id"`
-	TeamID            int64           `json:"team_id"`
-	Name              string          `json:"name"`
-	Description       string          `json:"description"`
-	ConditionType     string          `json:"condition_type"`
-	TargetRef         json.RawMessage `json:"target_ref,omitempty"`
-	GroupBy           []string        `json:"group_by"`
-	Windows           []Window        `json:"windows"`
-	Operator          string          `json:"operator"`
-	WarnThreshold     *float64        `json:"warn_threshold,omitempty"`
-	CriticalThreshold float64         `json:"critical_threshold"`
-	RecoveryThreshold *float64        `json:"recovery_threshold,omitempty"`
-	ForSecs           int64           `json:"for_secs"`
-	RecoverForSecs    int64           `json:"recover_for_secs"`
-	KeepAliveSecs     int64           `json:"keep_alive_secs"`
-	NoDataSecs        int64           `json:"no_data_secs"`
-	Severity          string          `json:"severity"`
-	NotifyTemplate    string          `json:"notify_template"`
-	MaxNotifsPerHour  int             `json:"max_notifs_per_hour"`
-	SlackWebhookURL   string          `json:"slack_webhook_url,omitempty"`
-	RuleState         string          `json:"rule_state"`
-	LastEvalAt        *time.Time      `json:"last_eval_at,omitempty"`
-	Instances         []*Instance     `json:"instances"`
-	MuteUntil         *time.Time      `json:"mute_until,omitempty"`
-	Silences          []Silence       `json:"silences,omitempty"`
-	Enabled           bool            `json:"enabled"`
-	CreatedAt         time.Time       `json:"created_at"`
-	UpdatedAt         time.Time       `json:"updated_at"`
+	ID          string             `json:"id"`
+	TeamID      int64              `json:"team_id"`
+	Name        string             `json:"name"`
+	Description string             `json:"description,omitempty"`
+	PresetKind  string             `json:"preset_kind"`
+	Scope       AlertRuleScope     `json:"scope"`
+	Condition   AlertRuleCondition `json:"condition"`
+	Delivery    AlertRuleDelivery  `json:"delivery"`
+	Summary     string             `json:"summary"`
+	RuleState   string             `json:"rule_state"`
+	LastEvalAt  *time.Time         `json:"last_eval_at,omitempty"`
+	Instances   []*Instance        `json:"instances"`
+	MuteUntil   *time.Time         `json:"mute_until,omitempty"`
+	Silences    []Silence          `json:"silences,omitempty"`
+	Enabled     bool               `json:"enabled"`
+	CreatedAt   time.Time          `json:"created_at"`
+	UpdatedAt   time.Time          `json:"updated_at"`
+}
+
+// PreviewRuleResponse is the preview response for unsaved or edited rules.
+type PreviewRuleResponse struct {
+	Summary      string              `json:"summary"`
+	Engine       RuleEnginePreview   `json:"engine"`
+	Notification NotificationPreview `json:"notification"`
 }
 
 // IncidentResponse is one firing instance in GET /alerts/incidents.
 type IncidentResponse struct {
-	AlertID     int64              `json:"alert_id"`
+	AlertID     string             `json:"alert_id"`
 	RuleName    string             `json:"rule_name"`
+	PresetKind  string             `json:"preset_kind"`
+	Summary     string             `json:"summary"`
 	Severity    string             `json:"severity"`
 	InstanceKey string             `json:"instance_key"`
 	GroupValues map[string]string  `json:"group_values,omitempty"`
 	State       string             `json:"state"`
 	FiredAt     *time.Time         `json:"fired_at,omitempty"`
 	Values      map[string]float64 `json:"values,omitempty"`
+}
+
+// ActivityEntry is one recent alerting event enriched with rule metadata.
+type ActivityEntry struct {
+	Ts          time.Time          `json:"ts"`
+	AlertID     string             `json:"alert_id"`
+	RuleName    string             `json:"rule_name"`
+	PresetKind  string             `json:"preset_kind"`
+	Summary     string             `json:"summary"`
+	Kind        string             `json:"kind"`
+	FromState   string             `json:"from_state,omitempty"`
+	ToState     string             `json:"to_state,omitempty"`
+	InstanceKey string             `json:"instance_key,omitempty"`
+	ActorUserID int64              `json:"actor_user_id,omitempty"`
+	Message     string             `json:"message,omitempty"`
+	Values      map[string]float64 `json:"values,omitempty"`
+}
+
+// SlackTestRequest / SlackTestResponse power POST /alerts/slack/test.
+type SlackTestRequest struct {
+	Rule AlertRuleDefinition `json:"rule" binding:"required"`
+}
+
+type SlackTestResponse struct {
+	Delivered    bool                `json:"delivered"`
+	Error        string              `json:"error,omitempty"`
+	Notification NotificationPreview `json:"notification"`
 }
 
 // MuteRuleRequest is POST /alerts/rules/:id/mute.

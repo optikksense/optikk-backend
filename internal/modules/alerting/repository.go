@@ -33,6 +33,7 @@ type Repository interface {
 	// ClickHouse — events / audit
 	WriteEvent(ctx context.Context, ev AlertEvent) error
 	ListEvents(ctx context.Context, teamID, alertID int64, limit int) ([]AlertEvent, error)
+	ListRecentEvents(ctx context.Context, teamID int64, limit int) ([]AlertEvent, error)
 
 	// Evaluator data queries
 	SLOErrorRate(ctx context.Context, teamID int64, serviceName string, windowSecs int64) (float64, bool, error)
@@ -358,6 +359,24 @@ func (r *repository) ListEvents(ctx context.Context, teamID, alertID int64, limi
 	return rows, err
 }
 
+func (r *repository) ListRecentEvents(ctx context.Context, teamID int64, limit int) ([]AlertEvent, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+	var rows []AlertEvent
+	err := r.ch.Select(ctx, &rows, `
+		SELECT ts, team_id, alert_id, instance_key, kind, from_state, to_state,
+		       values, actor_user_id, message, deploy_refs, transition_id
+		FROM observability.alert_events
+		WHERE team_id = @teamID
+		ORDER BY ts DESC
+		LIMIT @limit`,
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("limit", limit),
+	)
+	return rows, err
+}
+
 // ------------------- Evaluator queries -------------------
 
 // SLOErrorRate returns the current error rate (%) over the last windowSecs for the
@@ -523,11 +542,7 @@ func buildAIWhereFromRef(teamID int64, targetRef json.RawMessage) (string, []any
 	if len(targetRef) == 0 {
 		return where, args
 	}
-
-	var m map[string]any
-	if err := json.Unmarshal(targetRef, &m); err != nil {
-		return where, args
-	}
+	m := targetRefMap(targetRef)
 
 	// Service filter
 	for _, k := range []string{"service_name", "service", "serviceName"} {

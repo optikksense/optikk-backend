@@ -5,8 +5,6 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
-	"github.com/Optikk-Org/optikk-backend/internal/infra/metrics"
 )
 
 const maxGlobalConnections = 100
@@ -48,7 +46,6 @@ func (h *LocalHub) Subscribe(teamID int64, ch chan any, filter FilterFunc) bool 
 	h.subscribers[teamID][ch] = filter
 	h.mu.Unlock()
 	h.connCount.Add(1)
-	metrics.WSConnectionsActive.Set(float64(h.connCount.Load()))
 
 	// Push snapshot (last 20 events) that are younger than 5 seconds
 	go func() {
@@ -83,7 +80,6 @@ func (h *LocalHub) Unsubscribe(teamID int64, ch chan any) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.connCount.Add(-1)
-	metrics.WSConnectionsActive.Set(float64(h.connCount.Load()))
 
 	if subs, ok := h.subscribers[teamID]; ok {
 		delete(subs, ch)

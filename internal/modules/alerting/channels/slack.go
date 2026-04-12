@@ -9,8 +9,7 @@ import (
 	"time"
 )
 
-// Slack posts to a Slack incoming webhook URL. Action buttons are rendered as
-// standard Block Kit buttons with a signed callback URL embedded in the value.
+// Slack posts to a Slack incoming webhook URL.
 type Slack struct {
 	Client *http.Client
 }
@@ -41,8 +40,6 @@ func (s *Slack) Send(ctx context.Context, webhookURL string, r Rendered) error {
 				"type": "actions",
 				"elements": []map[string]any{
 					{"type": "button", "text": map[string]any{"type": "plain_text", "text": "Open in Optik"}, "url": r.DeepLinkURL},
-					{"type": "button", "text": map[string]any{"type": "plain_text", "text": "Ack"}, "value": "ack"},
-					{"type": "button", "text": map[string]any{"type": "plain_text", "text": "Snooze 30m"}, "value": "snooze:30"},
 				},
 			},
 		}

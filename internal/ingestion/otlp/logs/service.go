@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/ingestion"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 )
 

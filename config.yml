@@ -47,8 +47,13 @@ retention:
   default_days: 30
 
 ingestion:
-  queue_size: 10000
   byte_tracker_flush_interval_ms: 300000 # 5 minutes
+
+# OTLP ingest uses Kafka. Brokers must be reachable from this process (e.g. host port when API runs on host).
+kafka:
+  broker_list: "localhost:19092" # or OPTIKK_KAFKA_BROKER_LIST; docker-compose redpanda external port
+  consumer_group: optikk-ingest # optional; default optikk-ingest
+  topic_prefix: optikk.ingest # optional; topics: {prefix}.logs|.spans|.metrics
 
 app:
   region: us-east-1

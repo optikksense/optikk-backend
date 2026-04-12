@@ -7,19 +7,14 @@ import (
 	"log/slog"
 
 	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
-	configdefaults "github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg"
 )
 
 type Service struct {
-	repo     Repository
-	registry *configdefaults.Registry
+	repo Repository
 }
 
-func NewService(repo Repository, registry *configdefaults.Registry) *Service {
-	return &Service{
-		repo:     repo,
-		registry: registry,
-	}
+func NewService(repo Repository) *Service {
+	return &Service{repo: repo}
 }
 
 func (s *Service) GetTeams(teamID int64) ([]TeamResponse, error) {

@@ -45,6 +45,10 @@ func NewDispatcher(repo Repository, baseURL string) *Dispatcher {
 	}
 }
 
+func (d *Dispatcher) SendSlack(ctx context.Context, webhookURL string, rendered channels.Rendered) error {
+	return d.slack.Send(ctx, webhookURL, rendered)
+}
+
 func (d *Dispatcher) Start() {
 	ctx, cancel := context.WithCancel(context.Background())
 	d.cancel = cancel
@@ -120,35 +124,16 @@ func (d *Dispatcher) handle(ctx context.Context, item dispatchItem) {
 		ref := item.DeployRefs[len(item.DeployRefs)-1]
 		deployHint = ref.ServiceName + " " + ref.Version
 	}
-
-	body, err := RenderTemplate(item.Rule.NotifyTemplate, TemplateData{
-		RuleName:    item.Rule.Name,
-		Severity:    item.Rule.Severity,
-		State:       item.Transition.ToState,
-		Values:      item.Instance.Values,
-		Threshold:   item.Rule.CriticalThreshold,
-		DeployHint:  deployHint,
-		DeepLinkURL: d.baseURL + "/alerts/" + itoa(item.Rule.ID),
-		Tags:        item.Instance.GroupValues,
-	})
-	if err != nil {
-		slog.Error("alerting: template render failed", slog.Any("error", err))
-		if writeErr := d.repo.WriteEvent(ctx, AlertEvent{
-			TeamID:  uint32(item.Rule.TeamID), //nolint:gosec
-			AlertID: item.Rule.ID, InstanceKey: item.Instance.InstanceKey,
-			Kind: EventKindDispatchFailed, Message: err.Error(),
-		}); writeErr != nil {
-			slog.Debug("alerting: write audit event failed", slog.Any("error", writeErr))
-		}
-		return
-	}
-	r := channels.Rendered{
-		Title:       item.Rule.Name,
-		Body:        body,
-		Severity:    item.Rule.Severity,
-		DeepLinkURL: d.baseURL + "/alerts/" + itoa(item.Rule.ID),
-		Tags:        item.Instance.GroupValues,
-	}
+	deepLink := d.baseURL + "/alerts/rules/" + itoa(item.Rule.ID)
+	r := renderRuleNotification(
+		item.Rule,
+		ruleDefinitionFromRow(item.Rule),
+		item.Transition.ToState,
+		item.Instance.Values,
+		deployHint,
+		deepLink,
+	)
+	r.Tags = item.Instance.GroupValues
 	if item.Rule.SlackWebhookURL != "" {
 		if err := d.slack.Send(ctx, item.Rule.SlackWebhookURL, r); err != nil {
 			slog.Error("alerting: slack send failed", slog.Any("error", err))

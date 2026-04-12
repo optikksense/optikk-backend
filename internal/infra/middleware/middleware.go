@@ -4,11 +4,8 @@ import (
 	"log/slog"
 	"net/http"
 	"runtime/debug"
-	"strconv"
 	"strings"
-	"time"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/metrics"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/session"
 	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
 
@@ -251,22 +248,4 @@ func GetTenant(c *gin.Context) types.TenantContext {
 		return types.TenantContext{}
 	}
 	return t
-}
-
-// PrometheusMiddleware records HTTP request count and duration metrics.
-func PrometheusMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		start := time.Now()
-		c.Next()
-
-		path := c.FullPath()
-		if path == "" {
-			path = c.Request.URL.Path
-		}
-		method := c.Request.Method
-		status := strconv.Itoa(c.Writer.Status())
-
-		metrics.HTTPRequestsTotal.WithLabelValues(method, path, status).Inc()
-		metrics.HTTPRequestDuration.WithLabelValues(method, path).Observe(time.Since(start).Seconds())
-	}
 }

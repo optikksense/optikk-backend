@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/metrics"
 )
 
 // clickHouseTransientErrorSubstrings matches transport-layer failures worth retrying
@@ -248,21 +247,17 @@ func retryClickHouseRead(ctx context.Context, op func() error) error {
 
 func (n *NativeQuerier) Select(ctx context.Context, dest any, query string, args ...any) error {
 	query = optimizeQuery(query)
-	start := time.Now()
 	err := retryClickHouseRead(ctx, func() error {
 		return n.conn.Select(ctx, dest, query, args...)
 	})
-	metrics.ClickHouseQueryDuration.WithLabelValues("select").Observe(time.Since(start).Seconds())
 	return err
 }
 
 func (n *NativeQuerier) QueryRow(ctx context.Context, dest any, query string, args ...any) error {
 	query = optimizeQuery(query)
-	start := time.Now()
 	err := retryClickHouseRead(ctx, func() error {
 		return n.conn.QueryRow(ctx, query, args...).ScanStruct(dest)
 	})
-	metrics.ClickHouseQueryDuration.WithLabelValues("query_row").Observe(time.Since(start).Seconds())
 	return err
 }
 

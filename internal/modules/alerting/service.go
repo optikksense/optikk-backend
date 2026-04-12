@@ -30,8 +30,11 @@ type Service interface {
 	DeleteRule(ctx context.Context, teamID, id int64) error
 	GetRule(ctx context.Context, teamID, id int64) (*RuleResponse, error)
 	ListRules(ctx context.Context, teamID int64) ([]*RuleResponse, error)
+	PreviewRule(ctx context.Context, req CreateRuleRequest) (*PreviewRuleResponse, error)
+	TestSlack(ctx context.Context, req SlackTestRequest) (*SlackTestResponse, error)
 
-	ListIncidents(ctx context.Context, teamID int64) ([]IncidentResponse, error)
+	ListIncidents(ctx context.Context, teamID int64, state string) ([]IncidentResponse, error)
+	ListActivity(ctx context.Context, teamID int64, limit int) ([]ActivityEntry, error)
 	MuteRule(ctx context.Context, teamID, userID, id int64, req MuteRuleRequest) error
 	TestRule(ctx context.Context, teamID, id int64) (*TestRuleResponse, error)
 	BacktestRule(ctx context.Context, teamID, id int64, req BacktestRequest) (*BacktestResponse, error)
@@ -62,35 +65,27 @@ func NewService(repo Repository, reg *evaluators.Registry, dispatcher *Dispatche
 // ------------------- rules CRUD -------------------
 
 func (s *service) CreateRule(ctx context.Context, teamID, userID int64, req CreateRuleRequest) (*RuleResponse, error) {
-	if err := validateCondition(req.ConditionType, s.registry); err != nil {
+	def := normalizeAlertRuleDefinition(AlertRuleDefinition{
+		Name:        req.Name,
+		Description: req.Description,
+		PresetKind:  req.PresetKind,
+		Scope:       req.Scope,
+		Condition:   req.Condition,
+		Delivery:    req.Delivery,
+		Enabled:     req.Enabled,
+	})
+	rule, err := engineRuleFromDefinition(def, nil)
+	if err != nil {
 		return nil, err
 	}
-	rule := &Rule{
-		TeamID:            teamID,
-		Name:              req.Name,
-		Description:       req.Description,
-		ConditionType:     req.ConditionType,
-		TargetRef:         req.TargetRef,
-		GroupBy:           req.GroupBy,
-		Windows:           req.Windows,
-		Operator:          firstNonEmpty(req.Operator, OpGT),
-		WarnThreshold:     req.WarnThreshold,
-		CriticalThreshold: req.CriticalThreshold,
-		RecoveryThreshold: req.RecoveryThreshold,
-		ForSecs:           req.ForSecs,
-		RecoverForSecs:    req.RecoverForSecs,
-		KeepAliveSecs:     req.KeepAliveSecs,
-		NoDataSecs:        req.NoDataSecs,
-		Severity:          firstNonEmpty(req.Severity, SeverityP3),
-		NotifyTemplate:    req.NotifyTemplate,
-		MaxNotifsPerHour:  req.MaxNotifsPerHour,
-		SlackWebhookURL:   req.SlackWebhookURL,
-		Enabled:           req.Enabled,
-		RuleState:         StateOK,
-		Instances:         InstancesMap{},
-		CreatedBy:         userID,
-		UpdatedBy:         userID,
+	if err := validateCondition(rule.ConditionType, s.registry); err != nil {
+		return nil, err
 	}
+	rule.TeamID = teamID
+	rule.RuleState = StateOK
+	rule.Instances = InstancesMap{}
+	rule.CreatedBy = userID
+	rule.UpdatedBy = userID
 	if _, err := s.repo.CreateRule(ctx, rule); err != nil {
 		return nil, err
 	}
@@ -105,18 +100,26 @@ func (s *service) UpdateRule(ctx context.Context, teamID, userID, id int64, req 
 	if rule == nil {
 		return nil, ErrRuleNotFound
 	}
-	applyUpdate(rule, req)
-	rule.UpdatedBy = userID
-	if err := s.repo.UpdateRule(ctx, rule); err != nil {
+	merged := applyUpdate(ruleDefinitionFromRow(rule), req)
+	nextRule, err := engineRuleFromDefinition(merged, rule)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateCondition(nextRule.ConditionType, s.registry); err != nil {
+		return nil, err
+	}
+	nextRule.TeamID = teamID
+	nextRule.UpdatedBy = userID
+	if err := s.repo.UpdateRule(ctx, nextRule); err != nil {
 		return nil, err
 	}
 	if err := s.repo.WriteEvent(ctx, AlertEvent{
 		TeamID:  uint32(teamID), //nolint:gosec
-		AlertID: rule.ID, Kind: EventKindEdit, ActorUserID: userID,
+		AlertID: nextRule.ID, Kind: EventKindEdit, ActorUserID: userID,
 	}); err != nil {
 		slog.Debug("alerting: write audit event failed", slog.Any("error", err))
 	}
-	return ruleToResponse(rule), nil
+	return ruleToResponse(nextRule), nil
 }
 
 func (s *service) DeleteRule(ctx context.Context, teamID, id int64) error {
@@ -146,22 +149,78 @@ func (s *service) ListRules(ctx context.Context, teamID int64) ([]*RuleResponse,
 	return out, nil
 }
 
+func (s *service) PreviewRule(_ context.Context, req CreateRuleRequest) (*PreviewRuleResponse, error) {
+	def := normalizeAlertRuleDefinition(AlertRuleDefinition{
+		Name:        req.Name,
+		Description: req.Description,
+		PresetKind:  req.PresetKind,
+		Scope:       req.Scope,
+		Condition:   req.Condition,
+		Delivery:    req.Delivery,
+		Enabled:     req.Enabled,
+	})
+	rule, err := engineRuleFromDefinition(def, nil)
+	if err != nil {
+		return nil, err
+	}
+	preview := previewNotification(def)
+	return &PreviewRuleResponse{
+		Summary: alertSummary(def),
+		Engine: RuleEnginePreview{
+			ConditionType:     rule.ConditionType,
+			Operator:          rule.Operator,
+			Windows:           rule.Windows,
+			CriticalThreshold: rule.CriticalThreshold,
+			RecoveryThreshold: rule.RecoveryThreshold,
+			ForSecs:           rule.ForSecs,
+			RecoverForSecs:    rule.RecoverForSecs,
+			NoDataSecs:        rule.NoDataSecs,
+			Severity:          rule.Severity,
+		},
+		Notification: preview,
+	}, nil
+}
+
+func (s *service) TestSlack(ctx context.Context, req SlackTestRequest) (*SlackTestResponse, error) {
+	def := normalizeAlertRuleDefinition(req.Rule)
+	if err := validateAlertRuleDefinition(def); err != nil {
+		return nil, err
+	}
+	preview := previewNotification(def)
+	rendered := renderSlackMessage(def, preview, "")
+	if s.dispatcher == nil {
+		return &SlackTestResponse{Delivered: false, Error: "slack dispatcher unavailable", Notification: preview}, nil
+	}
+	if err := s.dispatcher.SendSlack(ctx, def.Delivery.SlackWebhookURL, rendered); err != nil {
+		return &SlackTestResponse{Delivered: false, Error: err.Error(), Notification: preview}, nil
+	}
+	return &SlackTestResponse{Delivered: true, Notification: preview}, nil
+}
+
 // ------------------- incidents / audit -------------------
 
-func (s *service) ListIncidents(ctx context.Context, teamID int64) ([]IncidentResponse, error) {
+func (s *service) ListIncidents(ctx context.Context, teamID int64, state string) ([]IncidentResponse, error) {
 	rules, err := s.repo.ListRules(ctx, teamID)
 	if err != nil {
 		return nil, err
 	}
+	wantResolved := strings.EqualFold(strings.TrimSpace(state), "resolved")
 	out := []IncidentResponse{}
 	for _, r := range rules {
+		def := ruleDefinitionFromRow(r)
 		for _, inst := range r.Instances {
-			if inst.State != StateAlert && inst.State != StateWarn {
+			if wantResolved {
+				if inst.State != StateOK || inst.ResolvedAt == nil {
+					continue
+				}
+			} else if inst.State != StateAlert && inst.State != StateWarn {
 				continue
 			}
 			out = append(out, IncidentResponse{
-				AlertID:     r.ID,
+				AlertID:     itoa(r.ID),
 				RuleName:    r.Name,
+				PresetKind:  def.PresetKind,
+				Summary:     alertSummary(def),
 				Severity:    r.Severity,
 				InstanceKey: inst.InstanceKey,
 				GroupValues: inst.GroupValues,
@@ -170,6 +229,57 @@ func (s *service) ListIncidents(ctx context.Context, teamID int64) ([]IncidentRe
 				Values:      inst.Values,
 			})
 		}
+	}
+	return out, nil
+}
+
+func (s *service) ListActivity(ctx context.Context, teamID int64, limit int) ([]ActivityEntry, error) {
+	events, err := s.repo.ListRecentEvents(ctx, teamID, limit)
+	if err != nil {
+		return nil, err
+	}
+	rules, err := s.repo.ListRules(ctx, teamID)
+	if err != nil {
+		return nil, err
+	}
+	ruleIndex := make(map[int64]*Rule, len(rules))
+	for _, rule := range rules {
+		ruleIndex[rule.ID] = rule
+	}
+	out := make([]ActivityEntry, 0, len(events))
+	for _, ev := range events {
+		rule := ruleIndex[ev.AlertID]
+		def := AlertRuleDefinition{
+			Name:       "Alert",
+			PresetKind: PresetServiceErrorRate,
+			Condition:  AlertRuleCondition{Threshold: 5, WindowMinutes: 5, HoldMinutes: 2, Severity: SeverityP2},
+			Enabled:    true,
+		}
+		ruleName := "Deleted rule"
+		if rule != nil {
+			def = ruleDefinitionFromRow(rule)
+			ruleName = rule.Name
+		}
+		entry := ActivityEntry{
+			Ts:          ev.Ts,
+			AlertID:     itoa(ev.AlertID),
+			RuleName:    ruleName,
+			PresetKind:  def.PresetKind,
+			Summary:     alertSummary(def),
+			Kind:        ev.Kind,
+			FromState:   ev.FromState,
+			ToState:     ev.ToState,
+			InstanceKey: ev.InstanceKey,
+			ActorUserID: ev.ActorUserID,
+			Message:     ev.Message,
+		}
+		if strings.TrimSpace(ev.Values) != "" {
+			var values map[string]float64
+			if err := json.Unmarshal([]byte(ev.Values), &values); err == nil {
+				entry.Values = values
+			}
+		}
+		out = append(out, entry)
 	}
 	return out, nil
 }
@@ -449,97 +559,55 @@ func validateCondition(kind string, reg *evaluators.Registry) error {
 	return nil
 }
 
-func applyUpdate(rule *Rule, req UpdateRuleRequest) {
+func applyUpdate(def AlertRuleDefinition, req UpdateRuleRequest) AlertRuleDefinition {
 	if req.Name != nil {
-		rule.Name = *req.Name
+		def.Name = *req.Name
 	}
 	if req.Description != nil {
-		rule.Description = *req.Description
+		def.Description = *req.Description
 	}
-	if req.TargetRef != nil {
-		rule.TargetRef = *req.TargetRef
+	if req.PresetKind != nil {
+		def.PresetKind = *req.PresetKind
 	}
-	if req.GroupBy != nil {
-		rule.GroupBy = *req.GroupBy
+	if req.Scope != nil {
+		def.Scope = *req.Scope
 	}
-	if req.Windows != nil {
-		rule.Windows = *req.Windows
+	if req.Condition != nil {
+		def.Condition = *req.Condition
 	}
-	if req.Operator != nil {
-		rule.Operator = *req.Operator
-	}
-	if req.WarnThreshold != nil {
-		rule.WarnThreshold = req.WarnThreshold
-	}
-	if req.CriticalThreshold != nil {
-		rule.CriticalThreshold = *req.CriticalThreshold
-	}
-	if req.RecoveryThreshold != nil {
-		rule.RecoveryThreshold = req.RecoveryThreshold
-	}
-	if req.ForSecs != nil {
-		rule.ForSecs = *req.ForSecs
-	}
-	if req.RecoverForSecs != nil {
-		rule.RecoverForSecs = *req.RecoverForSecs
-	}
-	if req.KeepAliveSecs != nil {
-		rule.KeepAliveSecs = *req.KeepAliveSecs
-	}
-	if req.NoDataSecs != nil {
-		rule.NoDataSecs = *req.NoDataSecs
-	}
-	if req.Severity != nil {
-		rule.Severity = *req.Severity
-	}
-	if req.NotifyTemplate != nil {
-		rule.NotifyTemplate = *req.NotifyTemplate
-	}
-	if req.MaxNotifsPerHour != nil {
-		rule.MaxNotifsPerHour = *req.MaxNotifsPerHour
-	}
-	if req.SlackWebhookURL != nil {
-		rule.SlackWebhookURL = *req.SlackWebhookURL
+	if req.Delivery != nil {
+		def.Delivery = *req.Delivery
 	}
 	if req.Enabled != nil {
-		rule.Enabled = *req.Enabled
+		def.Enabled = *req.Enabled
 	}
+	return normalizeAlertRuleDefinition(def)
 }
 
 func ruleToResponse(rule *Rule) *RuleResponse {
+	def := ruleDefinitionFromRow(rule)
 	insts := make([]*Instance, 0, len(rule.Instances))
 	for _, inst := range rule.Instances {
 		insts = append(insts, inst)
 	}
 	return &RuleResponse{
-		ID:                rule.ID,
-		TeamID:            rule.TeamID,
-		Name:              rule.Name,
-		Description:       rule.Description,
-		ConditionType:     rule.ConditionType,
-		TargetRef:         rule.TargetRef,
-		GroupBy:           rule.GroupBy,
-		Windows:           rule.Windows,
-		Operator:          rule.Operator,
-		WarnThreshold:     rule.WarnThreshold,
-		CriticalThreshold: rule.CriticalThreshold,
-		RecoveryThreshold: rule.RecoveryThreshold,
-		ForSecs:           rule.ForSecs,
-		RecoverForSecs:    rule.RecoverForSecs,
-		KeepAliveSecs:     rule.KeepAliveSecs,
-		NoDataSecs:        rule.NoDataSecs,
-		Severity:          rule.Severity,
-		NotifyTemplate:    rule.NotifyTemplate,
-		MaxNotifsPerHour:  rule.MaxNotifsPerHour,
-		SlackWebhookURL:   rule.SlackWebhookURL,
-		RuleState:         rule.RuleState,
-		LastEvalAt:        rule.LastEvalAt,
-		Instances:         insts,
-		MuteUntil:         rule.MuteUntil,
-		Silences:          rule.Silences,
-		Enabled:           rule.Enabled,
-		CreatedAt:         rule.CreatedAt,
-		UpdatedAt:         rule.UpdatedAt,
+		ID:          itoa(rule.ID),
+		TeamID:      rule.TeamID,
+		Name:        def.Name,
+		Description: def.Description,
+		PresetKind:  def.PresetKind,
+		Scope:       def.Scope,
+		Condition:   def.Condition,
+		Delivery:    def.Delivery,
+		Summary:     alertSummary(def),
+		RuleState:   rule.RuleState,
+		LastEvalAt:  rule.LastEvalAt,
+		Instances:   insts,
+		MuteUntil:   rule.MuteUntil,
+		Silences:    rule.Silences,
+		Enabled:     rule.Enabled,
+		CreatedAt:   rule.CreatedAt,
+		UpdatedAt:   rule.UpdatedAt,
 	}
 }
 
@@ -553,13 +621,7 @@ func firstNonEmpty(s, fallback string) string {
 // targetServiceFromRef extracts {"service_name":"..."} from a rule's TargetRef.
 // Used by backtest.go and the evaluator loop.
 func targetServiceFromRef(raw json.RawMessage) string {
-	if len(raw) == 0 {
-		return ""
-	}
-	var m map[string]any
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return ""
-	}
+	m := targetRefMap(raw)
 	for _, k := range []string{"service_name", "service", "serviceName"} {
 		if v, ok := m[k]; ok {
 			if s, ok := v.(string); ok {
@@ -672,7 +734,7 @@ func (l *EvaluatorLoop) evalRule(ctx context.Context, rule *Rule, now time.Time)
 			from := now.Add(-30 * time.Minute).UnixMilli()
 			refs, _ := l.repo.DeploysInRange(ctx, rule.TeamID, from, now.UnixMilli()) //nolint:errcheck // best-effort deploy correlation
 			valuesJSON, _ := json.Marshal(r.Windows)                                  //nolint:errcheck // marshal of known-safe struct
-			deployJSON, _ := json.Marshal(refs)                                        //nolint:errcheck // marshal of known-safe struct slice
+			deployJSON, _ := json.Marshal(refs)                                       //nolint:errcheck // marshal of known-safe struct slice
 			if err := l.repo.WriteEvent(ctx, AlertEvent{
 				Ts: now, TeamID: uint32(rule.TeamID), //nolint:gosec
 				AlertID:      rule.ID,

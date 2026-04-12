@@ -51,8 +51,14 @@ func (e *HTTPCheck) run(ctx context.Context, rule Rule) ([]InstanceResult, error
 	if len(rule.TargetRef) == 0 {
 		return httpCheckNoData(), nil
 	}
-	if err := json.Unmarshal(rule.TargetRef, &cfg); err != nil {
-		return httpCheckNoData(), nil
+	if err := json.Unmarshal(rule.TargetRef, &cfg); err != nil || strings.TrimSpace(cfg.URL) == "" {
+		var wrapped struct {
+			Scope httpCheckTarget `json:"scope"`
+		}
+		if err := json.Unmarshal(rule.TargetRef, &wrapped); err != nil {
+			return httpCheckNoData(), nil
+		}
+		cfg = wrapped.Scope
 	}
 	if strings.TrimSpace(cfg.URL) == "" {
 		return httpCheckNoData(), nil
