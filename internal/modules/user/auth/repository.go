@@ -2,7 +2,6 @@ package auth
 
 import (
 	"database/sql"
-	"fmt"
 	"strings"
 	"time"
 
@@ -69,13 +68,12 @@ func (r *MySQLRepository) ListActiveTeamsByIDs(teamIDs []int64) ([]usershared.Te
 	if len(teamIDs) == 0 {
 		return []usershared.TeamRecord{}, nil
 	}
-	inClause, args := dbutil.InClauseInt64(teamIDs)
-	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
+	rows, err := dbutil.QueryMaps(r.db, `
 		SELECT id, org_name, name, slug, description, active, color, icon, api_key, created_at
 		FROM teams
-		WHERE id IN %s AND active = 1
+		WHERE id IN (?) AND active = 1
 		ORDER BY created_at DESC
-	`, inClause), args...)
+	`, teamIDs)
 	if err != nil {
 		return nil, err
 	}

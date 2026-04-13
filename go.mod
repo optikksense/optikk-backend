@@ -11,6 +11,7 @@ require (
 	github.com/go-viper/mapstructure/v2 v2.5.0
 	github.com/gomodule/redigo v1.9.3
 	github.com/gorilla/websocket v1.4.2
+	github.com/jmoiron/sqlx v1.4.0
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/spf13/viper v1.21.0
 	github.com/twmb/franz-go v1.20.7

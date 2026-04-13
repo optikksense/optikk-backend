@@ -113,10 +113,21 @@ func (a *App) addHTTPServerActor(g *run.Group) {
 }
 
 func (a *App) addGRPCServerActor(g *run.Group) error {
-	lis, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%s", a.Config.OTLP.GRPCPort))
-	if err != nil {
-		return fmt.Errorf("server: gRPC listen failed: %w", err)
+	port := a.Config.OTLP.GRPCPort
+	if port == "" {
+		return fmt.Errorf("server: gRPC port is not configured (otlp.grpc_port)")
 	}
+
+	addr := fmt.Sprintf(":%s", port)
+	lis, err := net.Listen("tcp", addr)
+	if err != nil {
+		return fmt.Errorf("server: gRPC listen failed on %s: %w", addr, err)
+	}
+
+	slog.Info("starting OTLP gRPC server",
+		slog.String("addr", addr),
+		slog.String("hint", "send gRPC metadata x-api-key (team API key); use OTLP gRPC on this port, not HTTP/protobuf"))
+
 	grpcSrv := grpc.NewServer(
 		grpc.MaxConcurrentStreams(100),
 		grpc.ConnectionTimeout(30*time.Second),

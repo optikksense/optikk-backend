@@ -12,11 +12,6 @@ func QueryCount(db Querier, q string, args ...any) int64 {
 	}
 	return total
 }
-
-func InClauseFromStrings(values []string) (clause string, args []any) {
-	return InClause(values)
-}
-
 func NormalizeRows(rows []map[string]any) []map[string]any {
 	out := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {

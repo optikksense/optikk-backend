@@ -64,60 +64,6 @@ func QueryMap(db Querier, query string, args ...any) (map[string]any, error) {
 	return items[0], nil
 }
 
-func InClause(values []string) (clause string, args []any) {
-	if len(values) == 0 {
-		return "", nil
-	}
-	parts := make([]string, len(values))
-	args = make([]any, len(values))
-	for i, v := range values {
-		parts[i] = "?"
-		args[i] = v
-	}
-	return "(" + strings.Join(parts, ",") + ")", args
-}
-
-func InClauseInt64(values []int64) (clause string, args []any) {
-	if len(values) == 0 {
-		return "", nil
-	}
-	parts := make([]string, len(values))
-	args = make([]any, len(values))
-	for i, v := range values {
-		parts[i] = "?"
-		args[i] = v
-	}
-	return "(" + strings.Join(parts, ",") + ")", args
-}
-
-func NamedInClause(prefix string, values []string) (clause string, args map[string]any) {
-	if len(values) == 0 {
-		return "", nil
-	}
-	parts := make([]string, len(values))
-	args = make(map[string]any, len(values))
-	for i, v := range values {
-		name := prefix + strconv.Itoa(i)
-		parts[i] = "@" + name
-		args[name] = v
-	}
-	return "(" + strings.Join(parts, ",") + ")", args
-}
-
-func NamedInClauseInt64(prefix string, values []int64) (clause string, args map[string]any) {
-	if len(values) == 0 {
-		return "", nil
-	}
-	parts := make([]string, len(values))
-	args = make(map[string]any, len(values))
-	for i, v := range values {
-		name := prefix + strconv.Itoa(i)
-		parts[i] = "@" + name
-		args[name] = v
-	}
-	return "(" + strings.Join(parts, ",") + ")", args
-}
-
 func normalizeValue(v any) any {
 	switch x := v.(type) {
 	case []byte:

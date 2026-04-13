@@ -245,13 +245,11 @@ Gin request
 | `QueryMapsLimit` | `(querier, limit, sql, args...) → []map[string]any` | Custom row limit |
 | `QueryMap` | `(querier, sql, args...) → map[string]any` | Single row result |
 | `QueryCount` | `(querier, sql, args...) → int64` | Execute COUNT query |
-| `InClause` | `([]string) → (clause, args)` | Positional `(?,?,?)` for strings |
-| `InClauseInt64` | `([]int64) → (clause, args)` | Positional `(?,?,?)` for int64 |
-| `NamedInClause` | `(prefix, []string) → (clause, map)` | Named `(@p0,@p1)` for strings |
-| `NamedInClauseInt64` | `(prefix, []int64) → (clause, map)` | Named `(@p0,@p1)` for int64 |
 | `JSONString` | `(any) → string` | Marshal to JSON with `{}` fallback |
 | `MustAtoi64` | `(string, fallback) → int64` | Parse int64 with fallback |
 | `RowsAffected` | `(sql.Result) → int64` | Safe extraction |
+
+**Native Slice Expansion:** Both MySQL (`sqlx`) and ClickHouse (`clickhouse-go/v2`) now support direct slice expansion. Use `WHERE col IN (?)` (MySQL) or `WHERE col IN @name` (ClickHouse) and pass the slice directly in the arguments. Manual `InClause` builders have been removed to reduce boilerplate.
 
 ### Type-safe extraction (`utils.go`)
 

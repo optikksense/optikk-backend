@@ -80,14 +80,14 @@ func NewKafkaDispatcher[T any](brokers []string, groupBase, topic, signal string
 	return d, nil
 }
 
-func (d *KafkaDispatcher[T]) Dispatch(batch TelemetryBatch[T]) {
+func (d *KafkaDispatcher[T]) Dispatch(batch TelemetryBatch[T]) error {
 	if len(batch.Rows) == 0 {
-		return
+		return nil
 	}
 	payload, err := json.Marshal(batch)
 	if err != nil {
 		slog.Error("kafka: marshal batch failed", slog.String("signal", d.signal), slog.Any("error", err))
-		return
+		return fmt.Errorf("kafka marshal %s: %w", d.signal, err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -97,7 +97,9 @@ func (d *KafkaDispatcher[T]) Dispatch(batch TelemetryBatch[T]) {
 	})
 	if err := res.FirstErr(); err != nil {
 		slog.Error("kafka: publish failed", slog.String("signal", d.signal), slog.Any("error", err))
+		return fmt.Errorf("kafka publish %s: %w", d.signal, err)
 	}
+	return nil
 }
 
 func (d *KafkaDispatcher[T]) Persistence() <-chan TelemetryBatch[T] { return d.persistence }

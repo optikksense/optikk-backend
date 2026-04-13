@@ -3,10 +3,12 @@ package database
 import (
 	"context"
 	"database/sql"
+	"reflect"
 	"strings"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql" // MySQL driver registration
+	"github.com/jmoiron/sqlx"
 )
 
 // injectMySQLTimeouts adds connection timeouts to the DSN if not already present.
@@ -57,21 +59,25 @@ func Open(dsn string, maxOpen, maxIdle int) (*sql.DB, error) {
 }
 
 type MySQLWrapper struct {
-	db *sql.DB
+	db *sqlx.DB
 }
 
 func NewMySQLWrapper(db *sql.DB) *MySQLWrapper {
 	return &MySQLWrapper{
-		db: db,
+		db: sqlx.NewDb(db, "mysql"),
 	}
 }
 
 func (m *MySQLWrapper) Exec(query string, args ...any) (sql.Result, error) {
-	return m.db.ExecContext(context.Background(), query, args...)
+	return m.ExecContext(context.Background(), query, args...)
 }
 
 func (m *MySQLWrapper) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	return m.db.ExecContext(ctx, query, args...)
+	q, a, err := expandArgs(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	return m.db.ExecContext(ctx, q, a...)
 }
 
 func (m *MySQLWrapper) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
@@ -79,7 +85,11 @@ func (m *MySQLWrapper) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.T
 }
 
 func (m *MySQLWrapper) Query(query string, args ...any) (Rows, error) {
-	rows, err := m.db.QueryContext(context.Background(), query, args...) //nolint:rowserrcheck,sqlclosecheck // rows returned to caller via adapter
+	q, a, err := expandArgs(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := m.db.QueryContext(context.Background(), q, a...)
 	if err != nil {
 		return nil, err
 	}
@@ -87,10 +97,42 @@ func (m *MySQLWrapper) Query(query string, args ...any) (Rows, error) {
 }
 
 func (m *MySQLWrapper) QueryRow(query string, args ...any) Row {
-	row := m.db.QueryRowContext(context.Background(), query, args...)
+	q, a, err := expandArgs(query, args...)
+	if err != nil {
+		return &errorRowAdapter{err: err}
+	}
+	row := m.db.QueryRowContext(context.Background(), q, a...)
 	return &sqlRowAdapter{row: row}
 }
 
 func (m *MySQLWrapper) Close() error {
 	return m.db.Close()
+}
+
+func expandArgs(query string, args ...any) (string, []any, error) {
+	hasSlice := false
+	for _, arg := range args {
+		if arg == nil {
+			continue
+		}
+		t := reflect.TypeOf(arg)
+		if t.Kind() == reflect.Slice && t.Elem().Kind() != reflect.Uint8 {
+			hasSlice = true
+			break
+		}
+	}
+
+	if !hasSlice {
+		return query, args, nil
+	}
+
+	return sqlx.In(query, args...)
+}
+
+type errorRowAdapter struct {
+	err error
+}
+
+func (e *errorRowAdapter) Scan(dest ...any) error {
+	return e.err
 }

@@ -3,9 +3,11 @@ package spans
 import (
 	"context"
 
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type Service struct {
@@ -32,11 +34,12 @@ func (s *Service) Export(ctx context.Context, req *tracepb.ExportTraceServiceReq
 	if len(rows) == 0 {
 		return &tracepb.ExportTraceServiceResponse{}, nil
 	}
-	// Dispatch to internal channels (persistence + streaming)
-	s.dispatcher.Dispatch(ingestion.TelemetryBatch[*SpanRow]{
+	if err := s.dispatcher.Dispatch(ingestion.TelemetryBatch[*SpanRow]{
 		TeamID: teamID,
 		Rows:   rows,
-	})
+	}); err != nil {
+		return nil, status.Error(codes.Unavailable, err.Error())
+	}
 
 	otlp.TrackPayloadSize(s.tracker, teamID, req)
 	return &tracepb.ExportTraceServiceResponse{}, nil

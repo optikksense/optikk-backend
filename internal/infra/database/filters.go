@@ -28,29 +28,3 @@ func NamedInArgs(column, prefix string, values []string) (fragment string, args 
 	}
 	return column + " IN (" + strings.Join(placeholders, ",") + ")", args
 }
-
-// NamedEquals builds a simple equality condition with a clickhouse named parameter.
-//
-// Example:
-//
-//	frag, arg := NamedEquals("s.kind_string", "spanKind", "CLIENT")
-//	// frag = "s.kind_string = @spanKind"
-//	// arg  = clickhouse.Named("spanKind", "CLIENT")
-func NamedEquals(column, paramName string, value any) (fragment string, arg any) {
-	return column + " = @" + paramName, clickhouse.Named(paramName, value)
-}
-
-// NamedNotEquals builds a != condition with a clickhouse named parameter.
-func NamedNotEquals(column, paramName string, value any) (fragment string, arg any) {
-	return column + " != @" + paramName, clickhouse.Named(paramName, value)
-}
-
-// NamedGTE builds a >= condition with a clickhouse named parameter.
-func NamedGTE(column, paramName string, value any) (fragment string, arg any) {
-	return column + " >= @" + paramName, clickhouse.Named(paramName, value)
-}
-
-// NamedLTE builds a <= condition with a clickhouse named parameter.
-func NamedLTE(column, paramName string, value any) (fragment string, arg any) {
-	return column + " <= @" + paramName, clickhouse.Named(paramName, value)
-}

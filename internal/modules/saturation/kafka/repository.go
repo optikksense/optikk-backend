@@ -5,7 +5,6 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
@@ -31,42 +30,36 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(ctx context.Context, teamID 
 		durationSecs = 1.0
 	}
 	filterSQL, filterArgs := kafkaFilterClauses(f)
-	producerClause := MetricSetToInClause(ProducerMetrics)
-	consumerClause := MetricSetToInClause(ConsumerMetrics)
-	lagClause := MetricSetToInClause(ConsumerLagMetrics)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    sumIf(%[1]s, %[2]s IN (%[3]s)) / @durationSecs  AS publish_rate,
-		    sumIf(%[1]s, %[2]s IN (%[4]s)) / @durationSecs  AS receive_rate,
-		    maxIf(%[1]s, %[2]s IN (%[5]s) AND isFinite(%[1]s)) AS max_lag,
+		    sumIf(%[1]s, %[2]s IN @producerMetrics) / @durationSecs  AS publish_rate,
+		    sumIf(%[1]s, %[2]s IN @consumerMetrics) / @durationSecs  AS receive_rate,
+		    maxIf(%[1]s, %[2]s IN @lagMetrics AND isFinite(%[1]s)) AS max_lag,
 		    quantileExactWeightedIf(0.95)(
 		        hist_sum / nullIf(hist_count, 0),
 		        hist_count,
-		        %[6]s AND metric_type = 'Histogram'
+		        %[3]s AND metric_type = 'Histogram'
 		    ) AS publish_p95,
 		    quantileExactWeightedIf(0.95)(
 		        hist_sum / nullIf(hist_count, 0),
 		        hist_count,
-		        %[7]s AND metric_type = 'Histogram'
+		        %[4]s AND metric_type = 'Histogram'
 		    ) AS receive_p95
-		FROM %[8]s
+		FROM %[5]s
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
-		  %[9]s
-		  AND (%[2]s IN (%[3]s, %[4]s, %[5]s) OR %[6]s OR %[7]s)
+		  %[6]s
+		  AND (%[2]s IN (@producerMetrics, @consumerMetrics, @lagMetrics) OR %[3]s OR %[4]s)
 	`,
 		ColValue, ColMetricName,
-		producerClause,
-		consumerClause,
-		lagClause,
 		publishDurationCondition(),
 		receiveDurationCondition(),
 		TableMetrics,
 		filterSQL,
 	)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("durationSecs", durationSecs))
+	args := append(r.baseParams(teamID, startMs, endMs), clickhouse.Named("durationSecs", durationSecs))
 	args = append(args, filterArgs...)
 	var result KafkaSummaryStats
 	return result, r.db.QueryRow(ctx, &result, query, args...)
@@ -75,7 +68,6 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(ctx context.Context, teamID 
 func (r *ClickHouseRepository) GetProduceRateByTopic(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
-	clause := MetricSetToInClause(ProducerMetrics)
 	topic := topicExpr()
 	filterSQL, filterArgs := kafkaFilterClauses(f)
 
@@ -88,12 +80,12 @@ func (r *ClickHouseRepository) GetProduceRateByTopic(ctx context.Context, teamID
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
 		  %s
-		  AND %s IN (%s)
+		  AND %s IN @producerMetrics
 		GROUP BY time_bucket, topic
 		ORDER BY time_bucket ASC, topic ASC
-	`, bucket, topic, ColValue, TableMetrics, filterSQL, ColMetricName, clause)
+	`, bucket, topic, ColValue, TableMetrics, filterSQL, ColMetricName)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
+	args := append(r.baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []TopicRatePoint
 	return out, r.db.Select(ctx, &out, query, args...)
@@ -121,7 +113,7 @@ func (r *ClickHouseRepository) GetPublishLatencyByTopic(ctx context.Context, tea
 		ORDER BY time_bucket ASC, topic ASC
 	`, bucket, topic, TableMetrics, filterSQL, publishDurationCondition())
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(r.baseParams(teamID, startMs, endMs), filterArgs...)
 	var out []TopicLatencyPoint
 	return out, r.db.Select(ctx, &out, query, args...)
 }
@@ -129,7 +121,6 @@ func (r *ClickHouseRepository) GetPublishLatencyByTopic(ctx context.Context, tea
 func (r *ClickHouseRepository) GetConsumeRateByTopic(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
-	clause := MetricSetToInClause(ConsumerMetrics)
 	topic := topicExpr()
 	filterSQL, filterArgs := kafkaFilterClauses(f)
 
@@ -142,12 +133,12 @@ func (r *ClickHouseRepository) GetConsumeRateByTopic(ctx context.Context, teamID
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
 		  %s
-		  AND %s IN (%s)
+		  AND %s IN @consumerMetrics
 		GROUP BY time_bucket, topic
 		ORDER BY time_bucket ASC, topic ASC
-	`, bucket, topic, ColValue, TableMetrics, filterSQL, ColMetricName, clause)
+	`, bucket, topic, ColValue, TableMetrics, filterSQL, ColMetricName)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
+	args := append(r.baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []TopicRatePoint
 	return out, r.db.Select(ctx, &out, query, args...)
@@ -175,7 +166,7 @@ func (r *ClickHouseRepository) GetReceiveLatencyByTopic(ctx context.Context, tea
 		ORDER BY time_bucket ASC, topic ASC
 	`, bucket, topic, TableMetrics, filterSQL, receiveDurationCondition())
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(r.baseParams(teamID, startMs, endMs), filterArgs...)
 	var out []TopicLatencyPoint
 	return out, r.db.Select(ctx, &out, query, args...)
 }
@@ -183,7 +174,6 @@ func (r *ClickHouseRepository) GetReceiveLatencyByTopic(ctx context.Context, tea
 func (r *ClickHouseRepository) GetConsumeRateByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
-	clause := MetricSetToInClause(ConsumerMetrics)
 	group := consumerGroupExpr()
 	filterSQL, filterArgs := kafkaFilterClauses(f)
 
@@ -196,12 +186,12 @@ func (r *ClickHouseRepository) GetConsumeRateByGroup(ctx context.Context, teamID
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
 		  %s
-		  AND %s IN (%s)
+		  AND %s IN @consumerMetrics
 		GROUP BY time_bucket, consumer_group
 		ORDER BY time_bucket ASC, consumer_group ASC
-	`, bucket, group, ColValue, TableMetrics, filterSQL, ColMetricName, clause)
+	`, bucket, group, ColValue, TableMetrics, filterSQL, ColMetricName)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
+	args := append(r.baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []GroupRatePoint
 	return out, r.db.Select(ctx, &out, query, args...)
@@ -210,7 +200,6 @@ func (r *ClickHouseRepository) GetConsumeRateByGroup(ctx context.Context, teamID
 func (r *ClickHouseRepository) GetProcessRateByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupRatePoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
-	clause := MetricSetToInClause(ProcessMetrics)
 	group := consumerGroupExpr()
 	filterSQL, filterArgs := kafkaFilterClauses(f)
 
@@ -223,12 +212,12 @@ func (r *ClickHouseRepository) GetProcessRateByGroup(ctx context.Context, teamID
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
 		  %s
-		  AND %s IN (%s)
+		  AND %s IN @processMetrics
 		GROUP BY time_bucket, consumer_group
 		ORDER BY time_bucket ASC, consumer_group ASC
-	`, bucket, group, ColValue, TableMetrics, filterSQL, ColMetricName, clause)
+	`, bucket, group, ColValue, TableMetrics, filterSQL, ColMetricName)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
+	args := append(r.baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []GroupRatePoint
 	return out, r.db.Select(ctx, &out, query, args...)
@@ -256,14 +245,13 @@ func (r *ClickHouseRepository) GetProcessLatencyByGroup(ctx context.Context, tea
 		ORDER BY time_bucket ASC, consumer_group ASC
 	`, bucket, group, TableMetrics, filterSQL, processDurationCondition())
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(r.baseParams(teamID, startMs, endMs), filterArgs...)
 	var out []GroupLatencyPoint
 	return out, r.db.Select(ctx, &out, query, args...)
 }
 
 func (r *ClickHouseRepository) GetConsumerLagByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]LagPoint, error) {
 	bucket := timeBucketExpr(startMs, endMs)
-	clause := MetricSetToInClause(ConsumerLagMetrics)
 	group := consumerGroupExpr()
 	topic := topicExpr()
 	filterSQL, filterArgs := kafkaFilterClauses(f)
@@ -273,28 +261,27 @@ func (r *ClickHouseRepository) GetConsumerLagByGroup(ctx context.Context, teamID
 		    %s AS time_bucket,
 		    %s AS consumer_group,
 		    %s AS topic,
-		    avgIf(%s, %s IN (%s) AND isFinite(%s)) AS lag
+		    avgIf(%s, %s IN @lagMetrics AND isFinite(%s)) AS lag
 		FROM %s
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
 		  %s
-		  AND %s IN (%s)
+		  AND %s IN @lagMetrics
 		GROUP BY time_bucket, consumer_group, topic
 		ORDER BY time_bucket ASC, consumer_group ASC
 	`, bucket, group, topic,
-		ColValue, ColMetricName, clause, ColValue,
+		ColValue, ColMetricName, ColValue,
 		TableMetrics,
 		filterSQL,
-		ColMetricName, clause,
+		ColMetricName,
 	)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(r.baseParams(teamID, startMs, endMs), filterArgs...)
 	var out []LagPoint
 	return out, r.db.Select(ctx, &out, query, args...)
 }
 
 func (r *ClickHouseRepository) GetConsumerLagPerPartition(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]PartitionLag, error) {
-	clause := MetricSetToInClause(ConsumerLagMetrics)
 	topic := topicExpr()
 	partition := topicPartitionExpr()
 	group := consumerGroupExpr()
@@ -311,17 +298,17 @@ func (r *ClickHouseRepository) GetConsumerLagPerPartition(ctx context.Context, t
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
 		  %s
-		  AND %s IN (%s)
+		  AND %s IN @lagMetrics
 		GROUP BY topic, partition, consumer_group
 		ORDER BY lag DESC
 		LIMIT 200
 	`, topic, partition, group, lagExpr, lagExpr,
 		TableMetrics,
 		filterSQL,
-		ColMetricName, clause,
+		ColMetricName,
 	)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(r.baseParams(teamID, startMs, endMs), filterArgs...)
 	var out []PartitionLag
 	return out, r.db.Select(ctx, &out, query, args...)
 }
@@ -330,7 +317,6 @@ func (r *ClickHouseRepository) GetRebalanceSignals(ctx context.Context, teamID i
 	bucket := timeBucketExpr(startMs, endMs)
 	bs := bucketSecs(startMs, endMs)
 	group := consumerGroupExpr()
-	allClause := MetricSetToInClause(RebalanceMetrics)
 	filterSQL, filterArgs := kafkaFilterClauses(f)
 
 	query := fmt.Sprintf(`
@@ -346,8 +332,8 @@ func (r *ClickHouseRepository) GetRebalanceSignals(ctx context.Context, teamID i
 		FROM %[11]s
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
-		  %[13]s
-		  AND %[4]s IN (%[12]s)
+		  %[12]s
+		  AND %[4]s IN @rebalanceMetrics
 		GROUP BY time_bucket, consumer_group
 		ORDER BY time_bucket ASC, consumer_group ASC
 	`,
@@ -359,11 +345,10 @@ func (r *ClickHouseRepository) GetRebalanceSignals(ctx context.Context, teamID i
 		MetricFailedHeartbeatCount,
 		MetricAssignedPartitions,
 		TableMetrics,
-		allClause,
 		filterSQL,
 	)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
+	args := append(r.baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []RebalancePoint
 	return out, r.db.Select(ctx, &out, query, args...)
@@ -407,7 +392,7 @@ func (r *ClickHouseRepository) GetE2ELatency(ctx context.Context, teamID int64, 
 		filterSQL,
 	)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(r.baseParams(teamID, startMs, endMs), filterArgs...)
 	var out []E2ELatencyPoint
 	return out, r.db.Select(ctx, &out, query, args...)
 }
@@ -451,7 +436,7 @@ func (r *ClickHouseRepository) GetClientOpErrors(ctx context.Context, teamID int
 		errType,
 	)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
+	args := append(r.baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []ErrorRatePoint
 	return out, r.db.Select(ctx, &out, query, args...)
@@ -479,7 +464,7 @@ func (r *ClickHouseRepository) GetBrokerConnections(ctx context.Context, teamID 
 		ColMetricName, MetricClientConnections,
 	)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(r.baseParams(teamID, startMs, endMs), filterArgs...)
 	var out []BrokerConnectionPoint
 	return out, r.db.Select(ctx, &out, query, args...)
 }
@@ -506,7 +491,7 @@ func (r *ClickHouseRepository) GetClientOperationDuration(ctx context.Context, t
 		ORDER BY time_bucket ASC, operation_name ASC
 	`, bucket, opName, TableMetrics, filterSQL, ColMetricName, MetricClientOperationDuration)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(r.baseParams(teamID, startMs, endMs), filterArgs...)
 	var out []ClientOpDurationPoint
 	return out, r.db.Select(ctx, &out, query, args...)
 }
@@ -538,7 +523,7 @@ func (r *ClickHouseRepository) getErrorRates(ctx context.Context, teamID int64, 
 		errType,
 	)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
+	args := append(r.baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []ErrorRatePoint
 	if err := r.db.Select(ctx, &out, query, args...); err != nil {
@@ -574,7 +559,7 @@ func (r *ClickHouseRepository) getGroupErrorRates(ctx context.Context, teamID in
 		errType,
 	)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
+	args := append(r.baseParams(teamID, startMs, endMs), clickhouse.Named("bucketSecs", bs))
 	args = append(args, filterArgs...)
 	var out []ErrorRatePoint
 	if err := r.db.Select(ctx, &out, query, args...); err != nil {
@@ -592,7 +577,6 @@ func (r *ClickHouseRepository) GetConsumerMetricSamples(ctx context.Context, tea
 	group := consumerGroupExpr()
 	nodeID := nodeIDExpr()
 	filterSQL, filterArgs := kafkaInventoryFilterClauses(f)
-	clause := MetricSetToInClause(metricNames)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -605,13 +589,14 @@ func (r *ClickHouseRepository) GetConsumerMetricSamples(ctx context.Context, tea
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
 		  %s
-		  AND %s IN (%s)
+		  AND %s IN @metricNames
 		  AND %s != ''
 		GROUP BY time_bucket, consumer_group, node_id, metric_name
 		ORDER BY time_bucket ASC, consumer_group ASC, metric_name ASC
-	`, bucket, group, nodeID, ColMetricName, ColValue, ColValue, TableMetrics, filterSQL, ColMetricName, clause, group)
+	`, bucket, group, nodeID, ColMetricName, ColValue, ColValue, TableMetrics, filterSQL, ColMetricName, group)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(r.baseParams(teamID, startMs, endMs), clickhouse.Named("metricNames", metricNames))
+	args = append(args, filterArgs...)
 	var out []ConsumerMetricSample
 	return out, r.db.Select(ctx, &out, query, args...)
 }
@@ -625,7 +610,6 @@ func (r *ClickHouseRepository) GetTopicMetricSamples(ctx context.Context, teamID
 	topic := topicExpr()
 	group := consumerGroupExpr()
 	filterSQL, filterArgs := kafkaInventoryFilterClauses(f)
-	clause := MetricSetToInClause(metricNames)
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -638,13 +622,14 @@ func (r *ClickHouseRepository) GetTopicMetricSamples(ctx context.Context, teamID
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
 		  %s
-		  AND %s IN (%s)
+		  AND %s IN @metricNames
 		  AND %s != ''
 		GROUP BY time_bucket, topic, consumer_group, metric_name
 		ORDER BY time_bucket ASC, topic ASC, consumer_group ASC, metric_name ASC
-	`, bucket, topic, group, ColMetricName, ColValue, ColValue, TableMetrics, filterSQL, ColMetricName, clause, topic)
+	`, bucket, topic, group, ColMetricName, ColValue, ColValue, TableMetrics, filterSQL, ColMetricName, topic)
 
-	args := append(database.SimpleBaseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(r.baseParams(teamID, startMs, endMs), clickhouse.Named("metricNames", metricNames))
+	args = append(args, filterArgs...)
 	var out []TopicMetricSample
 	return out, r.db.Select(ctx, &out, query, args...)
 }

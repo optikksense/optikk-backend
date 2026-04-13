@@ -3,6 +3,7 @@ package kafka
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
@@ -48,19 +49,6 @@ type ClickHouseRepository struct {
 
 func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
-}
-
-func MetricSetToInClause(metrics []string) string {
-	var b strings.Builder
-	for i, metric := range metrics {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		b.WriteByte('\'')
-		b.WriteString(metric)
-		b.WriteByte('\'')
-	}
-	return b.String()
 }
 
 func flatten(slices ...[]string) []string {
@@ -112,29 +100,26 @@ func nodeIDExpr() string {
 }
 
 func publishDurationCondition() string {
-	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) IN (%s)))",
+	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) IN @publishOps))",
 		ColMetricName, MetricPublishDuration,
 		ColMetricName, MetricClientOperationDuration,
 		operationExpr(),
-		MetricSetToInClause(publishOperationAliases),
 	)
 }
 
 func receiveDurationCondition() string {
-	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) IN (%s)))",
+	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) IN @receiveOps))",
 		ColMetricName, MetricReceiveDuration,
 		ColMetricName, MetricClientOperationDuration,
 		operationExpr(),
-		MetricSetToInClause(receiveOperationAliases),
 	)
 }
 
 func processDurationCondition() string {
-	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) IN (%s)))",
+	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) IN @processOps))",
 		ColMetricName, MetricProcessDuration,
 		ColMetricName, MetricClientOperationDuration,
 		operationExpr(),
-		MetricSetToInClause(processOperationAliases),
 	)
 }
 
@@ -172,4 +157,20 @@ func kafkaInventoryFilterClauses(f KafkaFilters) (frag string, args []any) {
 		args = append(args, clickhouse.Named("groupFilter", f.Group))
 	}
 	return sb.String(), args
+}
+
+func (r *ClickHouseRepository) baseParams(teamID int64, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", teamID),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("publishOps", publishOperationAliases),
+		clickhouse.Named("receiveOps", receiveOperationAliases),
+		clickhouse.Named("processOps", processOperationAliases),
+		clickhouse.Named("producerMetrics", ProducerMetrics),
+		clickhouse.Named("consumerMetrics", ConsumerMetrics),
+		clickhouse.Named("lagMetrics", ConsumerLagMetrics),
+		clickhouse.Named("rebalanceMetrics", RebalanceMetrics),
+		clickhouse.Named("processMetrics", ProcessMetrics),
+	}
 }

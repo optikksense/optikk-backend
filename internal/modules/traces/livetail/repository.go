@@ -35,9 +35,8 @@ func (r *Repository) Poll(ctx context.Context, teamID int64, since time.Time, fi
 	}
 
 	if len(filters.Services) > 0 {
-		in, vals := dbutil.InClauseFromStrings(filters.Services)
-		frag += ` AND s.service_name IN ` + in
-		args = append(args, vals...)
+		frag += ` AND s.service_name IN (?)`
+		args = append(args, filters.Services)
 	}
 	if filters.Status == "ERROR" {
 		frag += ` AND (s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)`

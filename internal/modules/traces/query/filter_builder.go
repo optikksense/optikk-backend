@@ -50,9 +50,8 @@ func buildWhereClause(f TraceFilters) (frag string, args []any) {
 	}
 
 	if len(f.Services) > 0 {
-		inFrag, inArgs := dbutil.NamedInArgs("s.service_name", "service", f.Services)
-		frag += ` AND ` + inFrag
-		args = append(args, inArgs...)
+		frag += ` AND s.service_name IN @services`
+		args = append(args, clickhouse.Named("services", f.Services))
 	}
 	if f.Status != "" {
 		if f.Status == "ERROR" {
