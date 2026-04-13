@@ -19,7 +19,7 @@ type Repository interface {
 	ListActiveTeamsByOrganization(orgName string) ([]usershared.TeamRecord, error)
 	ListActiveTeamsByIDs(teamIDs []int64) ([]usershared.TeamRecord, error)
 	ListActiveUsersByTeamIDs(teamIDs []int64, limit, offset int) ([]usershared.UserRecord, error)
-	CreateUser(email, passwordHash, name, teamsJSON string, createdAt time.Time) (int64, error)
+	CreateUser(email, passwordHash, name string, avatarURL, teamsJSON *string, createdAt time.Time) (int64, error)
 	UpdateUserProfile(userID int64, name, avatarURL *string) error
 }
 
@@ -122,11 +122,11 @@ func (r *MySQLRepository) ListActiveUsersByTeamIDs(teamIDs []int64, limit, offse
 	return records, err
 }
 
-func (r *MySQLRepository) CreateUser(email, passwordHash, name, teamsJSON string, createdAt time.Time) (int64, error) {
+func (r *MySQLRepository) CreateUser(email, passwordHash, name string, avatarURL, teamsJSON *string, createdAt time.Time) (int64, error) {
 	res, err := r.db.ExecContext(context.Background(), `
-		INSERT INTO users (email, password_hash, name, teams, active, created_at)
-		VALUES (?, ?, ?, ?, 1, ?)
-	`, email, usershared.NullableString(passwordHash), name, teamsJSON, createdAt)
+		INSERT INTO users (email, password_hash, name, avatar_url, teams, active, created_at)
+		VALUES (?, ?, ?, ?, ?, 1, ?)
+	`, email, usershared.NullableString(passwordHash), name, avatarURL, teamsJSON, createdAt)
 	if err != nil {
 		return 0, err
 	}

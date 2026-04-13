@@ -42,11 +42,7 @@ func (r *MySQLRepository) FindActiveUserByID(userID int64) (usershared.UserRecor
 func (r *MySQLRepository) FindActiveUserByEmail(email string) (usershared.AuthUser, error) {
 	var u usershared.AuthUser
 	err := r.db.GetContext(context.Background(), &u, `
-		SELECT id, email,
-		       COALESCE(password_hash, '') AS password_hash,
-		       name,
-		       COALESCE(avatar_url, '')   AS avatar_url,
-		       COALESCE(teams, '[]')      AS teams
+		SELECT id, email, password_hash, name, avatar_url, teams
 		FROM users
 		WHERE email = ? AND active = 1
 		LIMIT 1

@@ -41,7 +41,7 @@ func (s *Service) GetMyTeams(userID int64) ([]TeamSummary, error) {
 		return nil, usershared.NewInternalError("Failed to load teams", err)
 	}
 
-	memberships, _ := usershared.ParseTeamMemberships(user.TeamsJSON)
+	memberships, _ := usershared.ParseTeamMemberships(usershared.ValueOr(user.TeamsJSON, "[]"))
 	teamIDs := usershared.TeamIDsFromMemberships(memberships)
 	if len(teamIDs) == 0 {
 		return []TeamSummary{}, nil
@@ -115,7 +115,12 @@ func (s *Service) CreateTeam(req CreateTeamRequest) (TeamResponse, error) {
 		descriptionPtr = &description
 	}
 
-	teamID, err := s.repo.CreateTeam(orgName, name, slug, descriptionPtr, color, apiKey, time.Now().UTC())
+	var iconPtr *string
+	if icon := strings.TrimSpace(req.Icon); icon != "" {
+		iconPtr = &icon
+	}
+
+	teamID, err := s.repo.CreateTeam(orgName, name, slug, descriptionPtr, iconPtr, color, apiKey, time.Now().UTC())
 	if err != nil {
 		slog.Error("Failed to create team", slog.Any("error", err), slog.String("org_name", orgName), slog.String("name", name))
 		if strings.Contains(err.Error(), "1062") || strings.Contains(err.Error(), "Duplicate entry") {
@@ -137,7 +142,7 @@ func (s *Service) AddUserToTeam(userID, teamID int64, role string) error {
 		return usershared.NewInternalError("User not found", err)
 	}
 
-	memberships, _ := usershared.ParseTeamMemberships(user.TeamsJSON)
+	memberships, _ := usershared.ParseTeamMemberships(usershared.ValueOr(user.TeamsJSON, "[]"))
 	found := false
 	for i, membership := range memberships {
 		if membership.TeamID == teamID {
@@ -166,7 +171,7 @@ func (s *Service) RemoveUserFromTeam(userID, teamID int64) error {
 		return usershared.NewInternalError("User not found", err)
 	}
 
-	memberships, _ := usershared.ParseTeamMemberships(user.TeamsJSON)
+	memberships, _ := usershared.ParseTeamMemberships(usershared.ValueOr(user.TeamsJSON, "[]"))
 	filtered := make([]usershared.TeamMembership, 0, len(memberships))
 	for _, membership := range memberships {
 		if membership.TeamID != teamID {

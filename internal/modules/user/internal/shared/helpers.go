@@ -42,9 +42,24 @@ func GenerateAPIKey() (string, error) {
 
 // NullableString returns nil when s is empty or whitespace, so MySQL writes NULL
 // instead of an empty string. Used for optional columns like password_hash.
-func NullableString(s string) any {
-	if strings.TrimSpace(s) == "" {
+func NullableString(s string) *string {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
 		return nil
 	}
-	return s
+	return &trimmed
+}
+
+func ValueOrEmpty(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+func ValueOr(s *string, fallback string) string {
+	if s == nil {
+		return fallback
+	}
+	return *s
 }

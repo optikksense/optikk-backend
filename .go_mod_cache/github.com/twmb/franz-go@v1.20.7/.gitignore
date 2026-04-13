@@ -1,0 +1,10 @@
+dev
+*.swp
+*TODO
+origin
+TESTING
+generate/generate
+.idea
+go.work
+go.work.sum
+CLAUDE.md

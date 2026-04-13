@@ -33,7 +33,7 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, clientIP string) 
 		return AuthContextResponse{}, usershared.NewValidationError("Invalid email or password", err)
 	}
 
-	if user.PasswordHash != "" && bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(password)) != nil {
+	if user.PasswordHash != nil && *user.PasswordHash != "" && bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(password)) != nil {
 		return AuthContextResponse{}, usershared.NewValidationError("Invalid email or password", nil)
 	}
 
@@ -150,8 +150,8 @@ func (s *Service) buildAuthContextResponse(user usershared.AuthUser) (resp AuthC
 	}, teamID, teamIDs, nil
 }
 
-func (s *Service) listTeamsForUser(teamsJSON string) ([]AuthTeamSummary, error) {
-	memberships, err := usershared.ParseTeamMemberships(teamsJSON)
+func (s *Service) listTeamsForUser(teamsJSON *string) ([]AuthTeamSummary, error) {
+	memberships, err := usershared.ParseTeamMemberships(usershared.ValueOr(teamsJSON, "[]"))
 	if err != nil {
 		return nil, err
 	}

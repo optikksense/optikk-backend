@@ -6,4 +6,5 @@ type CreateTeamRequest struct {
 	Slug        string `json:"slug"`
 	Description string `json:"description"`
 	Color       string `json:"color"`
+	Icon        string `json:"icon"`
 }
