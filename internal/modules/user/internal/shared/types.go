@@ -2,6 +2,7 @@ package shared
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
 )
@@ -11,37 +12,40 @@ type TeamMembership struct {
 	Role   string `json:"role"`
 }
 
+// AuthUser is scanned directly by sqlx from the users table.
 type AuthUser struct {
-	ID           int64
-	Email        string
-	PasswordHash string
-	Name         string
-	AvatarURL    string
-	TeamsJSON    string
+	ID           int64  `db:"id"`
+	Email        string `db:"email"`
+	PasswordHash string `db:"password_hash"`
+	Name         string `db:"name"`
+	AvatarURL    string `db:"avatar_url"`
+	TeamsJSON    string `db:"teams"`
 }
 
+// UserRecord is scanned directly by sqlx from the users table.
 type UserRecord struct {
-	ID          int64
-	Email       string
-	Name        string
-	AvatarURL   string
-	TeamsJSON   string
-	Active      bool
-	LastLoginAt any
-	CreatedAt   any
+	ID          int64      `db:"id"`
+	Email       string     `db:"email"`
+	Name        string     `db:"name"`
+	AvatarURL   string     `db:"avatar_url"`
+	TeamsJSON   string     `db:"teams"`
+	Active      bool       `db:"active"`
+	LastLoginAt *time.Time `db:"last_login_at"`
+	CreatedAt   time.Time  `db:"created_at"`
 }
 
+// TeamRecord is scanned directly by sqlx from the teams table.
 type TeamRecord struct {
-	ID          int64
-	OrgName     string
-	Name        string
-	Slug        string
-	Description *string
-	Active      bool
-	Color       string
-	Icon        string
-	APIKey      string
-	CreatedAt   any
+	ID          int64      `db:"id"`
+	OrgName     string     `db:"org_name"`
+	Name        string     `db:"name"`
+	Slug        string     `db:"slug"`
+	Description *string    `db:"description"`
+	Active      bool       `db:"active"`
+	Color       string     `db:"color"`
+	Icon        string     `db:"icon"`
+	APIKey      string     `db:"api_key"`
+	CreatedAt   time.Time  `db:"created_at"`
 }
 
 type ServiceErrorCode string

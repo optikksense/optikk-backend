@@ -1,13 +1,14 @@
 package auth
 
 import (
+	"context"
 	"database/sql"
 	"strings"
 	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
+	"github.com/jmoiron/sqlx"
 )
 
 type Repository interface {
@@ -18,57 +19,46 @@ type Repository interface {
 }
 
 type MySQLRepository struct {
-	db dbutil.Querier
+	db *sqlx.DB
 }
 
 func NewRepository(db *sql.DB, appConfig registry.AppConfig) *MySQLRepository {
 	return &MySQLRepository{
-		db: dbutil.NewMySQLWrapper(db),
+		db: sqlx.NewDb(db, "mysql"),
 	}
 }
 
 func (r *MySQLRepository) FindActiveUserByID(userID int64) (usershared.UserRecord, error) {
-	row, err := dbutil.QueryMap(r.db, `
+	var u usershared.UserRecord
+	err := r.db.GetContext(context.Background(), &u, `
 		SELECT id, email, name, avatar_url, teams, active, last_login_at, created_at
 		FROM users
 		WHERE id = ? AND active = 1
 		LIMIT 1
 	`, userID)
-	if err != nil {
-		return usershared.UserRecord{}, err
-	}
-	if len(row) == 0 {
-		return usershared.UserRecord{}, sql.ErrNoRows
-	}
-	return usershared.UserRecordFromMap(row), nil
+	return u, err
 }
 
 func (r *MySQLRepository) FindActiveUserByEmail(email string) (usershared.AuthUser, error) {
-	var user usershared.AuthUser
-	err := r.db.QueryRow(`
-		SELECT id, email, COALESCE(password_hash,''), name, COALESCE(avatar_url,''), COALESCE(teams, '[]')
+	var u usershared.AuthUser
+	err := r.db.GetContext(context.Background(), &u, `
+		SELECT id, email,
+		       COALESCE(password_hash, '') AS password_hash,
+		       name,
+		       COALESCE(avatar_url, '')   AS avatar_url,
+		       COALESCE(teams, '[]')      AS teams
 		FROM users
 		WHERE email = ? AND active = 1
 		LIMIT 1
-	`, strings.TrimSpace(email)).Scan(
-		&user.ID,
-		&user.Email,
-		&user.PasswordHash,
-		&user.Name,
-		&user.AvatarURL,
-		&user.TeamsJSON,
-	)
-	if err != nil {
-		return usershared.AuthUser{}, err
-	}
-	return user, nil
+	`, strings.TrimSpace(email))
+	return u, err
 }
 
 func (r *MySQLRepository) ListActiveTeamsByIDs(teamIDs []int64) ([]usershared.TeamRecord, error) {
 	if len(teamIDs) == 0 {
 		return []usershared.TeamRecord{}, nil
 	}
-	rows, err := dbutil.QueryMaps(r.db, `
+	query, args, err := sqlx.In(`
 		SELECT id, org_name, name, slug, description, active, color, icon, api_key, created_at
 		FROM teams
 		WHERE id IN (?) AND active = 1
@@ -77,10 +67,16 @@ func (r *MySQLRepository) ListActiveTeamsByIDs(teamIDs []int64) ([]usershared.Te
 	if err != nil {
 		return nil, err
 	}
-	return usershared.TeamRecordsFromMaps(rows), nil
+	query = r.db.Rebind(query)
+	var records []usershared.TeamRecord
+	if err := r.db.SelectContext(context.Background(), &records, query, args...); err != nil {
+		return nil, err
+	}
+	return records, nil
 }
 
 func (r *MySQLRepository) UpdateUserLastLogin(userID int64, at time.Time) error {
-	_, err := r.db.Exec(`UPDATE users SET last_login_at = ? WHERE id = ?`, at, userID)
+	_, err := r.db.ExecContext(context.Background(),
+		`UPDATE users SET last_login_at = ? WHERE id = ?`, at, userID)
 	return err
 }

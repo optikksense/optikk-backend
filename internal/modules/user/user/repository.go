@@ -1,14 +1,15 @@
 package userpage
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
+	"github.com/jmoiron/sqlx"
 )
 
 type Repository interface {
@@ -23,81 +24,64 @@ type Repository interface {
 }
 
 type MySQLRepository struct {
-	db dbutil.Querier
+	db *sqlx.DB
 }
 
 func NewRepository(db *sql.DB, appConfig registry.AppConfig) *MySQLRepository {
 	return &MySQLRepository{
-		db: dbutil.NewMySQLWrapper(db),
+		db: sqlx.NewDb(db, "mysql"),
 	}
 }
 
 func (r *MySQLRepository) FindUserByID(userID int64) (usershared.UserRecord, error) {
-	row, err := dbutil.QueryMap(r.db, `
+	var u usershared.UserRecord
+	err := r.db.GetContext(context.Background(), &u, `
 		SELECT id, email, name, avatar_url, teams, active, last_login_at, created_at
 		FROM users
 		WHERE id = ?
 		LIMIT 1
 	`, userID)
-	if err != nil {
-		return usershared.UserRecord{}, err
-	}
-	if len(row) == 0 {
-		return usershared.UserRecord{}, sql.ErrNoRows
-	}
-	return usershared.UserRecordFromMap(row), nil
+	return u, err
 }
 
 func (r *MySQLRepository) FindActiveUserByID(userID int64) (usershared.UserRecord, error) {
-	row, err := dbutil.QueryMap(r.db, `
+	var u usershared.UserRecord
+	err := r.db.GetContext(context.Background(), &u, `
 		SELECT id, email, name, avatar_url, teams, active, last_login_at, created_at
 		FROM users
 		WHERE id = ? AND active = 1
 		LIMIT 1
 	`, userID)
-	if err != nil {
-		return usershared.UserRecord{}, err
-	}
-	if len(row) == 0 {
-		return usershared.UserRecord{}, sql.ErrNoRows
-	}
-	return usershared.UserRecordFromMap(row), nil
+	return u, err
 }
 
 func (r *MySQLRepository) FindTeamByID(teamID int64) (usershared.TeamRecord, error) {
-	row, err := dbutil.QueryMap(r.db, `
+	var t usershared.TeamRecord
+	err := r.db.GetContext(context.Background(), &t, `
 		SELECT id, org_name, name, slug, description, active, color, icon, api_key, created_at
 		FROM teams
 		WHERE id = ?
 		LIMIT 1
 	`, teamID)
-	if err != nil {
-		return usershared.TeamRecord{}, err
-	}
-	if len(row) == 0 {
-		return usershared.TeamRecord{}, sql.ErrNoRows
-	}
-	return usershared.TeamRecordFromMap(row), nil
+	return t, err
 }
 
 func (r *MySQLRepository) ListActiveTeamsByOrganization(orgName string) ([]usershared.TeamRecord, error) {
-	rows, err := dbutil.QueryMaps(r.db, `
+	var records []usershared.TeamRecord
+	err := r.db.SelectContext(context.Background(), &records, `
 		SELECT id, org_name, name, slug, description, active, color, icon, api_key, created_at
 		FROM teams
 		WHERE org_name = ? AND active = 1
 		ORDER BY created_at DESC
 	`, orgName)
-	if err != nil {
-		return nil, err
-	}
-	return usershared.TeamRecordsFromMaps(rows), nil
+	return records, err
 }
 
 func (r *MySQLRepository) ListActiveTeamsByIDs(teamIDs []int64) ([]usershared.TeamRecord, error) {
 	if len(teamIDs) == 0 {
 		return []usershared.TeamRecord{}, nil
 	}
-	rows, err := dbutil.QueryMaps(r.db, `
+	query, args, err := sqlx.In(`
 		SELECT id, org_name, name, slug, description, active, color, icon, api_key, created_at
 		FROM teams
 		WHERE id IN (?) AND active = 1
@@ -106,7 +90,12 @@ func (r *MySQLRepository) ListActiveTeamsByIDs(teamIDs []int64) ([]usershared.Te
 	if err != nil {
 		return nil, err
 	}
-	return usershared.TeamRecordsFromMaps(rows), nil
+	query = r.db.Rebind(query)
+	var records []usershared.TeamRecord
+	if err := r.db.SelectContext(context.Background(), &records, query, args...); err != nil {
+		return nil, err
+	}
+	return records, nil
 }
 
 func (r *MySQLRepository) ListActiveUsersByTeamIDs(teamIDs []int64, limit, offset int) ([]usershared.UserRecord, error) {
@@ -120,27 +109,24 @@ func (r *MySQLRepository) ListActiveUsersByTeamIDs(teamIDs []int64, limit, offse
 		conditions = append(conditions, `JSON_CONTAINS(teams, ?)`)
 		args = append(args, fmt.Sprintf(`{"team_id":%d}`, teamID))
 	}
-	whereClause := strings.Join(conditions, " OR ")
 	args = append(args, limit, offset)
 
-	rows, err := dbutil.QueryMaps(r.db, fmt.Sprintf(`
+	var records []usershared.UserRecord
+	err := r.db.SelectContext(context.Background(), &records, fmt.Sprintf(`
 		SELECT id, email, name, avatar_url, teams, active, last_login_at, created_at
 		FROM users
 		WHERE (%s) AND active = 1
 		ORDER BY id
 		LIMIT ? OFFSET ?
-	`, whereClause), args...)
-	if err != nil {
-		return nil, err
-	}
-	return usershared.UserRecordsFromMaps(rows), nil
+	`, strings.Join(conditions, " OR ")), args...)
+	return records, err
 }
 
 func (r *MySQLRepository) CreateUser(email, passwordHash, name, teamsJSON string, createdAt time.Time) (int64, error) {
-	res, err := r.db.Exec(`
+	res, err := r.db.ExecContext(context.Background(), `
 		INSERT INTO users (email, password_hash, name, teams, active, created_at)
 		VALUES (?, ?, ?, ?, 1, ?)
-	`, email, nullableStringPtr(&passwordHash), name, teamsJSON, createdAt)
+	`, email, usershared.NullableString(passwordHash), name, teamsJSON, createdAt)
 	if err != nil {
 		return 0, err
 	}
@@ -148,20 +134,10 @@ func (r *MySQLRepository) CreateUser(email, passwordHash, name, teamsJSON string
 }
 
 func (r *MySQLRepository) UpdateUserProfile(userID int64, name, avatarURL *string) error {
-	_, err := r.db.Exec(`
+	_, err := r.db.ExecContext(context.Background(), `
 		UPDATE users
 		SET name = COALESCE(?, name), avatar_url = COALESCE(?, avatar_url)
 		WHERE id = ?
-	`, nullableStringPtr(name), nullableStringPtr(avatarURL), userID)
+	`, name, avatarURL, userID)
 	return err
-}
-
-func nullableStringPtr(v *string) any {
-	if v == nil {
-		return nil
-	}
-	if strings.TrimSpace(*v) == "" {
-		return nil
-	}
-	return *v
 }
