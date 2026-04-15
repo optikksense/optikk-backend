@@ -3,6 +3,7 @@ package middleware
 import (
 	"log/slog"
 	"net/http"
+	"runtime/debug"
 	"strings"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/session"
@@ -70,8 +71,31 @@ func CORSMiddleware(allowedOrigins string) gin.HandlerFunc {
 
 func ErrorRecovery() gin.HandlerFunc {
 	return gin.CustomRecovery(func(c *gin.Context, recovered any) {
+		slog.Error("panic recovered",
+			slog.Any("error", recovered),
+			slog.String("method", c.Request.Method),
+			slog.String("path", c.Request.URL.Path),
+			slog.String("ip", c.ClientIP()),
+			slog.String("stack", string(debug.Stack())),
+		)
 		c.JSON(http.StatusInternalServerError, types.Failure(errorcode.Internal, "An unexpected error occurred", c.Request.URL.Path))
 	})
+}
+
+// BodyLimitMiddleware rejects request bodies larger than maxBytes to prevent
+// memory exhaustion from oversized payloads. WebSocket upgrade requests are
+// excluded since they use a different framing protocol.
+func BodyLimitMiddleware(maxBytes int64) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if strings.EqualFold(c.GetHeader("Upgrade"), "websocket") {
+			c.Next()
+			return
+		}
+		if c.Request.Body != nil {
+			c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBytes)
+		}
+		c.Next()
+	}
 }
 
 // publicPrefixes are paths that are always public regardless of HTTP method.
@@ -186,6 +210,32 @@ func authorizedForTeam(teamIDs []int64, defaultTeamID, requestedTeamID int64) bo
 		}
 	}
 	return false
+}
+
+// RequireRole returns middleware that restricts access to users whose role
+// matches one of the allowed roles. Must be placed after TenantMiddleware.
+func RequireRole(allowed ...string) gin.HandlerFunc {
+	roleSet := make(map[string]struct{}, len(allowed))
+	for _, r := range allowed {
+		roleSet[r] = struct{}{}
+	}
+	return func(c *gin.Context) {
+		tenant := GetTenant(c)
+		if _, ok := roleSet[tenant.UserRole]; !ok {
+			slog.Warn("RBAC_DENIED",
+				slog.String("method", c.Request.Method),
+				slog.String("path", c.Request.URL.Path),
+				slog.String("role", tenant.UserRole),
+				slog.String("user", tenant.UserEmail),
+				slog.String("ip", c.ClientIP()),
+			)
+			c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
+				"FORBIDDEN_ROLE", "Insufficient permissions", c.Request.URL.Path,
+			))
+			return
+		}
+		c.Next()
+	}
 }
 
 func GetTenant(c *gin.Context) types.TenantContext {

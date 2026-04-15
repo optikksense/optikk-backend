@@ -3,6 +3,7 @@ package shared
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -27,6 +28,7 @@ const LogColumns = `timestamp, observed_timestamp, severity_text, severity_numbe
 func QueryCount(ctx context.Context, db *dbutil.NativeQuerier, query string, args ...any) int64 {
 	var row CountRow
 	if err := db.QueryRow(ctx, &row, query, args...); err != nil {
+		slog.Error("logs: count query failed", slog.Any("error", err))
 		return 0
 	}
 	return row.Count
@@ -62,13 +64,12 @@ func BuildLogWhere(f LogFilters) (where string, args []any) {
 		if len(values) == 0 {
 			return
 		}
-		in, vals := dbutil.InClauseFromStrings(values)
 		if negated {
-			where += ` AND ` + column + ` NOT IN ` + in
+			where += ` AND ` + column + ` NOT IN (?)`
 		} else {
-			where += ` AND ` + column + ` IN ` + in
+			where += ` AND ` + column + ` IN (?)`
 		}
-		args = append(args, vals...)
+		args = append(args, values)
 	}
 
 	appendInClause("severity_text", f.Severities, false)

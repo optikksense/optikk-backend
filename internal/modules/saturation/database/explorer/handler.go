@@ -125,19 +125,19 @@ func (h *Handler) GetDatastoreSystemSlowQueries(c *gin.Context) {
 
 func (h *Handler) GetKafkaSummary(c *gin.Context) {
 	h.handleRangeQuery(c, "Failed to query kafka explorer summary", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetKafkaSummary(teamID, startMs, endMs)
+		return h.Service.GetKafkaSummary(c.Request.Context(), teamID, startMs, endMs)
 	})
 }
 
 func (h *Handler) GetKafkaTopics(c *gin.Context) {
 	h.handleRangeQuery(c, "Failed to query kafka topics", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetKafkaTopics(teamID, startMs, endMs)
+		return h.Service.GetKafkaTopics(c.Request.Context(), teamID, startMs, endMs)
 	})
 }
 
 func (h *Handler) GetKafkaGroups(c *gin.Context) {
 	h.handleRangeQuery(c, "Failed to query kafka consumer groups", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetKafkaGroups(teamID, startMs, endMs)
+		return h.Service.GetKafkaGroups(c.Request.Context(), teamID, startMs, endMs)
 	})
 }
 
@@ -147,7 +147,7 @@ func (h *Handler) GetKafkaTopicOverview(c *gin.Context) {
 		return
 	}
 	h.handleRangeQuery(c, "Failed to query kafka topic overview", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetKafkaTopicOverview(teamID, startMs, endMs, topic)
+		return h.Service.GetKafkaTopicOverview(c.Request.Context(), teamID, startMs, endMs, topic)
 	})
 }
 
@@ -157,7 +157,7 @@ func (h *Handler) GetKafkaTopicGroups(c *gin.Context) {
 		return
 	}
 	h.handleRangeQuery(c, "Failed to query kafka topic groups", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetKafkaTopicGroups(teamID, startMs, endMs, topic)
+		return h.Service.GetKafkaTopicGroups(c.Request.Context(), teamID, startMs, endMs, topic)
 	})
 }
 
@@ -167,7 +167,7 @@ func (h *Handler) GetKafkaTopicPartitions(c *gin.Context) {
 		return
 	}
 	h.handleRangeQuery(c, "Failed to query kafka topic partitions", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetKafkaTopicPartitions(teamID, startMs, endMs, topic)
+		return h.Service.GetKafkaTopicPartitions(c.Request.Context(), teamID, startMs, endMs, topic)
 	})
 }
 
@@ -177,7 +177,7 @@ func (h *Handler) GetKafkaGroupOverview(c *gin.Context) {
 		return
 	}
 	h.handleRangeQuery(c, "Failed to query kafka group overview", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetKafkaGroupOverview(teamID, startMs, endMs, group)
+		return h.Service.GetKafkaGroupOverview(c.Request.Context(), teamID, startMs, endMs, group)
 	})
 }
 
@@ -187,7 +187,7 @@ func (h *Handler) GetKafkaGroupTopics(c *gin.Context) {
 		return
 	}
 	h.handleRangeQuery(c, "Failed to query kafka group topics", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetKafkaGroupTopics(teamID, startMs, endMs, group)
+		return h.Service.GetKafkaGroupTopics(c.Request.Context(), teamID, startMs, endMs, group)
 	})
 }
 
@@ -197,6 +197,6 @@ func (h *Handler) GetKafkaGroupPartitions(c *gin.Context) {
 		return
 	}
 	h.handleRangeQuery(c, "Failed to query kafka group partitions", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetKafkaGroupPartitions(teamID, startMs, endMs, group)
+		return h.Service.GetKafkaGroupPartitions(c.Request.Context(), teamID, startMs, endMs, group)
 	})
 }

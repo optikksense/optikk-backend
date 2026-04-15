@@ -2,6 +2,7 @@ package query
 
 import (
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -50,9 +51,8 @@ func buildWhereClause(f TraceFilters) (frag string, args []any) {
 	}
 
 	if len(f.Services) > 0 {
-		inFrag, inArgs := dbutil.NamedInArgs("s.service_name", "service", f.Services)
-		frag += ` AND ` + inFrag
-		args = append(args, inArgs...)
+		frag += ` AND s.service_name IN @services`
+		args = append(args, clickhouse.Named("services", f.Services))
 	}
 	if f.Status != "" {
 		if f.Status == "ERROR" {
@@ -64,11 +64,13 @@ func buildWhereClause(f TraceFilters) (frag string, args []any) {
 	}
 	if f.MinDuration != "" {
 		frag += ` AND s.duration_nano >= @minDuration`
-		args = append(args, clickhouse.Named("minDuration", dbutil.MustAtoi64(f.MinDuration, 0)*1_000_000))
+		minMs, _ := strconv.ParseInt(f.MinDuration, 10, 64)
+		args = append(args, clickhouse.Named("minDuration", minMs*1_000_000))
 	}
 	if f.MaxDuration != "" {
 		frag += ` AND s.duration_nano <= @maxDuration`
-		args = append(args, clickhouse.Named("maxDuration", dbutil.MustAtoi64(f.MaxDuration, 0)*1_000_000))
+		maxMs, _ := strconv.ParseInt(f.MaxDuration, 10, 64)
+		args = append(args, clickhouse.Named("maxDuration", maxMs*1_000_000))
 	}
 	if f.TraceID != "" {
 		frag += ` AND s.trace_id = @traceID`

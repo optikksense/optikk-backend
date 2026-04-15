@@ -9,6 +9,7 @@ const (
 	NotFound        = "NOT_FOUND"
 	Conflict        = "CONFLICT"
 	PayloadTooLarge = "PAYLOAD_TOO_LARGE"
+	RateLimited     = "RATE_LIMITED"
 )
 
 // Server & infrastructure errors (5xx)

@@ -1,8 +1,6 @@
 package infraconsts
 
 import (
-	"strings"
-
 	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
@@ -161,21 +159,4 @@ func TimeBucketExpression(startMs, endMs int64) string {
 
 func AttrFloat(attrName string) string {
 	return "attributes.'" + attrName + "'::Float64"
-}
-
-func MetricSetToInClause(metrics []string) string {
-	if len(metrics) == 0 {
-		return ""
-	}
-	var builder strings.Builder
-	for i, metric := range metrics {
-		if i > 0 {
-			builder.WriteString("', '")
-		} else {
-			builder.WriteString("'")
-		}
-		builder.WriteString(metric)
-	}
-	builder.WriteString("'")
-	return builder.String()
 }

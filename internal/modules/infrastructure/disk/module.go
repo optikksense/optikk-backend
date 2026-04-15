@@ -32,6 +32,9 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *DiskHandler) {
 	g.GET("/io-time", h.GetDiskIOTime)
 	g.GET("/filesystem-usage", h.GetFilesystemUsage)
 	g.GET("/filesystem-utilization", h.GetFilesystemUtilization)
+	g.GET("/avg", h.GetAvgDisk)
+	g.GET("/by-service", h.GetDiskByService)
+	g.GET("/by-instance", h.GetDiskByInstance)
 }
 
 func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {

@@ -9,7 +9,7 @@ This skill defines the development standards and architectural patterns for the 
 
 ## Session Workflow (Mandatory)
 
-1. **Read [CODEBASE_INDEX.md](../../CODEBASE_INDEX.md)** at the repository root. This provides the full map of modules, ingestion, and dashboard configuration.
+1. **Read [CODEBASE_INDEX.md](../../CODEBASE_INDEX.md)** at the repository root. This provides the full map of modules and ingestion.
 2. **Review [Active Rules](../../.cursor/rules/optik-backend.mdc)** for latest hot paths.
 3. **Read [Agent Philosophy](./philosophy/)**: Review strategic alignment, ADRs, and extensibility rules for Staff-level context.
 4. **Plan First, Code After Approval**:
@@ -28,10 +28,7 @@ This skill defines the development standards and architectural patterns for the 
 - **Module Registration**: New modules **must** be registered in **`internal/app/server/modules_manifest.go`** within the `configuredModules()` function (currently 52 constructors: 48 HTTP + 4 ingestion; `alerting` is both an HTTP module and a `BackgroundRunner`).
 - **Dependency Injection**: Use the shared **`registry.Module`** pattern.
 - **Real-time Ingestion**: Spans, logs, and metrics are handled via the OTLP pipeline in `internal/ingestion/otlp/`.
-- **Dashboard Configuration**: 
-  - Backend-authored pages live in `internal/infra/dashboardcfg/defaults/`.
-  - 3 backend default pages: **overview** (6 tabs), **infrastructure** (4 tabs), **saturation** (3 tabs). The **service** page (`/service`) is fully frontend-owned (Discovery + Topology).
-  - Coordinate schema updates with the frontend.
+- **Dashboard / overview UI**: Owned by **optikk-frontend** (layout, tabs, panels). Backend supplies JSON data APIs under `internal/modules/overview/*` and related routes — no embedded dashboard JSON or `/default-config` in this repo.
 
 ## Engineering Principles
 
@@ -58,8 +55,6 @@ This skill defines the development standards and architectural patterns for the 
 - **Saturation DB**: `internal/modules/saturation/database/{collection,connections,errors,latency,slowqueries,summary,system,systems,volume}/`
 - **Saturation Kafka**: `internal/modules/saturation/kafka/`
 - **Alerting**: `internal/modules/alerting/` (subpackages `evaluators/`, `channels/`) — `/api/v1/alerts/*`. Datadog-grade monitors with evaluator loop (`EvaluatorLoop`) + `Dispatcher` wired as a combined `Module`+`BackgroundRunner`. Storage: `observability.alerts` (MySQL, JSON-inline instances/silences), `observability.alert_events` (ClickHouse, append-only transitions/audit).
-- **Dashboard Enums**: `internal/infra/dashboardcfg/enums.go` (24 panel types, 10 layout variants, 8 section templates)
-
 ## Low-Level Design Patterns
 
 ### Handler Pattern

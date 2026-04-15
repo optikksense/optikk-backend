@@ -1,11 +1,13 @@
 package streamworkers
 
 import (
+	"time"
+
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	otlplogs "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/logs"
 	otlpmetrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/metrics"
 	otlpspans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/ingestion"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/livetail"
 	"github.com/gin-gonic/gin"
 )
@@ -22,8 +24,10 @@ func NewModule(
 	sd ingestion.Dispatcher[*otlpspans.SpanRow],
 	md ingestion.Dispatcher[*otlpmetrics.MetricRow],
 	hub livetail.Hub,
+	batchMaxRows int,
+	batchMaxWait time.Duration,
 ) registry.Module {
-	return &Module{workers: NewWorkers(ch, ld, sd, md, hub)}
+	return &Module{workers: NewWorkers(ch, ld, sd, md, hub, batchMaxRows, batchMaxWait)}
 }
 
 func (m *Module) Name() string { return "otlpStreamWorkers" }

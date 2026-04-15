@@ -20,7 +20,7 @@ func (h *REDMetricsHandler) GetSummary(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetSummary(teamID, startMs, endMs)
+	resp, err := h.Service.GetSummary(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query RED summary", err)
 		return
@@ -40,7 +40,7 @@ func (h *REDMetricsHandler) GetApdex(c *gin.Context) {
 		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "satisfied_ms must be positive and less than tolerating_ms")
 		return
 	}
-	resp, err := h.Service.GetApdex(teamID, startMs, endMs, satisfiedMs, toleratingMs)
+	resp, err := h.Service.GetApdex(c.Request.Context(), teamID, startMs, endMs, satisfiedMs, toleratingMs)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query Apdex scores", err)
 		return
@@ -55,7 +55,7 @@ func (h *REDMetricsHandler) GetTopSlowOperations(c *gin.Context) {
 		return
 	}
 	limit := modulecommon.ParseIntParam(c, "limit", 20)
-	resp, err := h.Service.GetTopSlowOperations(teamID, startMs, endMs, limit)
+	resp, err := h.Service.GetTopSlowOperations(c.Request.Context(), teamID, startMs, endMs, limit)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query top slow operations", err)
 		return
@@ -70,7 +70,7 @@ func (h *REDMetricsHandler) GetTopErrorOperations(c *gin.Context) {
 		return
 	}
 	limit := modulecommon.ParseIntParam(c, "limit", 20)
-	resp, err := h.Service.GetTopErrorOperations(teamID, startMs, endMs, limit)
+	resp, err := h.Service.GetTopErrorOperations(c.Request.Context(), teamID, startMs, endMs, limit)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query top error operations", err)
 		return
@@ -85,7 +85,7 @@ func (h *REDMetricsHandler) GetRequestRateTimeSeries(c *gin.Context) {
 		return
 	}
 	resp, err := modulecommon.WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
-		return h.Service.GetRequestRateTimeSeries(teamID, s, e)
+		return h.Service.GetRequestRateTimeSeries(c.Request.Context(), teamID, s, e)
 	})
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query request rate time series", err)
@@ -101,7 +101,7 @@ func (h *REDMetricsHandler) GetErrorRateTimeSeries(c *gin.Context) {
 		return
 	}
 	resp, err := modulecommon.WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
-		return h.Service.GetErrorRateTimeSeries(teamID, s, e)
+		return h.Service.GetErrorRateTimeSeries(c.Request.Context(), teamID, s, e)
 	})
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query error rate time series", err)
@@ -117,7 +117,7 @@ func (h *REDMetricsHandler) GetP95LatencyTimeSeries(c *gin.Context) {
 		return
 	}
 	resp, err := modulecommon.WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
-		return h.Service.GetP95LatencyTimeSeries(teamID, s, e)
+		return h.Service.GetP95LatencyTimeSeries(c.Request.Context(), teamID, s, e)
 	})
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query p95 latency time series", err)
@@ -132,7 +132,7 @@ func (h *REDMetricsHandler) GetSpanKindBreakdown(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetSpanKindBreakdown(teamID, startMs, endMs)
+	resp, err := h.Service.GetSpanKindBreakdown(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query span kind breakdown", err)
 		return
@@ -146,7 +146,7 @@ func (h *REDMetricsHandler) GetErrorsByRoute(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetErrorsByRoute(teamID, startMs, endMs)
+	resp, err := h.Service.GetErrorsByRoute(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query errors by route", err)
 		return
@@ -160,7 +160,7 @@ func (h *REDMetricsHandler) GetLatencyBreakdown(c *gin.Context) {
 	if !ok {
 		return
 	}
-	resp, err := h.Service.GetLatencyBreakdown(teamID, startMs, endMs)
+	resp, err := h.Service.GetLatencyBreakdown(c.Request.Context(), teamID, startMs, endMs)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query latency breakdown", err)
 		return

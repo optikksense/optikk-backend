@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/ingest"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/ingestion"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
 )
 
 func NewByteTracker(db *sql.DB, flushInterval time.Duration) ingestion.SizeTracker {

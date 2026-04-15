@@ -39,7 +39,7 @@ func (h *Handler) CreateRule(c *gin.Context) {
 			modulecommon.RespondErrorWithCause(c, http.StatusBadRequest, errorcode.AlertRuleInvalidCondition, "unsupported condition type", err)
 			return
 		}
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "failed to create rule", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusBadRequest, errorcode.Validation, "failed to create rule", err)
 		return
 	}
 	modulecommon.RespondOK(c, out)
@@ -54,6 +54,25 @@ func (h *Handler) ListRules(c *gin.Context) {
 		return
 	}
 	modulecommon.RespondOK(c, rules)
+}
+
+// PreviewRule POST /alerts/rules/preview
+func (h *Handler) PreviewRule(c *gin.Context) {
+	var req CreateRuleRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusBadRequest, errorcode.Validation, "invalid body", err)
+		return
+	}
+	out, err := h.Service.PreviewRule(c.Request.Context(), req)
+	if err != nil {
+		if errors.Is(err, ErrUnsupportedCondition) {
+			modulecommon.RespondErrorWithCause(c, http.StatusBadRequest, errorcode.AlertRuleInvalidCondition, "unsupported condition type", err)
+			return
+		}
+		modulecommon.RespondErrorWithCause(c, http.StatusBadRequest, errorcode.Validation, "failed to preview rule", err)
+		return
+	}
+	modulecommon.RespondOK(c, out)
 }
 
 // GetRule GET /alerts/rules/:id
@@ -93,7 +112,11 @@ func (h *Handler) UpdateRule(c *gin.Context) {
 			modulecommon.RespondErrorWithCause(c, http.StatusNotFound, errorcode.AlertRuleNotFound, "rule not found", err)
 			return
 		}
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "failed to update rule", err)
+		if errors.Is(err, ErrUnsupportedCondition) {
+			modulecommon.RespondErrorWithCause(c, http.StatusBadRequest, errorcode.AlertRuleInvalidCondition, "unsupported condition type", err)
+			return
+		}
+		modulecommon.RespondErrorWithCause(c, http.StatusBadRequest, errorcode.Validation, "failed to update rule", err)
 		return
 	}
 	modulecommon.RespondOK(c, out)
@@ -116,9 +139,21 @@ func (h *Handler) DeleteRule(c *gin.Context) {
 // ListIncidents GET /alerts/incidents
 func (h *Handler) ListIncidents(c *gin.Context) {
 	tenant := h.GetTenant(c)
-	out, err := h.Service.ListIncidents(c.Request.Context(), tenant.TeamID)
+	out, err := h.Service.ListIncidents(c.Request.Context(), tenant.TeamID, c.Query("state"))
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "failed to list incidents", err)
+		return
+	}
+	modulecommon.RespondOK(c, out)
+}
+
+// ListActivity GET /alerts/activity
+func (h *Handler) ListActivity(c *gin.Context) {
+	tenant := h.GetTenant(c)
+	limit := modulecommon.ParseIntParam(c, "limit", 100)
+	out, err := h.Service.ListActivity(c.Request.Context(), tenant.TeamID, limit)
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "failed to list activity", err)
 		return
 	}
 	modulecommon.RespondOK(c, out)
@@ -325,6 +360,25 @@ func (h *Handler) SlackCallback(c *gin.Context) {
 		return
 	}
 	modulecommon.RespondOK(c, gin.H{"ok": true})
+}
+
+// TestSlack POST /alerts/slack/test
+func (h *Handler) TestSlack(c *gin.Context) {
+	var req SlackTestRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusBadRequest, errorcode.Validation, "invalid body", err)
+		return
+	}
+	out, err := h.Service.TestSlack(c.Request.Context(), req)
+	if err != nil {
+		if errors.Is(err, ErrUnsupportedCondition) {
+			modulecommon.RespondErrorWithCause(c, http.StatusBadRequest, errorcode.AlertRuleInvalidCondition, "unsupported condition type", err)
+			return
+		}
+		modulecommon.RespondErrorWithCause(c, http.StatusBadRequest, errorcode.Validation, "failed to test slack webhook", err)
+		return
+	}
+	modulecommon.RespondOK(c, out)
 }
 
 // ListAudit GET /alerts/rules/:id/audit

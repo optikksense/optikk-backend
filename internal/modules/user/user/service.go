@@ -57,7 +57,7 @@ func (s *Service) GetUsers(teamID int64, limit, offset int) ([]UserListItem, err
 
 	items := make([]UserListItem, 0, len(users))
 	for _, user := range users {
-		memberships, _ := usershared.ParseTeamMemberships(user.TeamsJSON)
+		memberships, _ := usershared.ParseTeamMemberships(usershared.ValueOr(user.TeamsJSON, "[]"))
 		userTeams := make([]UserListMembership, 0, len(memberships))
 		for _, membership := range memberships {
 			userTeams = append(userTeams, UserListMembership{
@@ -111,7 +111,8 @@ func (s *Service) CreateUser(req CreateUserRequest) (UserResponse, error) {
 		return UserResponse{}, usershared.NewInternalError("Failed to build teams JSON", err)
 	}
 
-	userID, err := s.repo.CreateUser(email, string(hash), name, teamsJSON, time.Now().UTC())
+	teamsJSONPtr := &teamsJSON
+	userID, err := s.repo.CreateUser(email, string(hash), name, req.AvatarURL, teamsJSONPtr, time.Now().UTC())
 	if err != nil {
 		return UserResponse{}, usershared.NewValidationError("Unable to create user", err)
 	}
@@ -164,7 +165,7 @@ func (s *Service) UpdatePreferences(userID int64, req UpdatePreferencesRequest) 
 }
 
 func (s *Service) buildUserResponse(user usershared.UserRecord) (UserResponse, error) {
-	memberships, _ := usershared.ParseTeamMemberships(user.TeamsJSON)
+	memberships, _ := usershared.ParseTeamMemberships(usershared.ValueOr(user.TeamsJSON, "[]"))
 	teamIDs := usershared.TeamIDsFromMemberships(memberships)
 	roleByTeamID := make(map[int64]string, len(memberships))
 	for _, membership := range memberships {
@@ -201,7 +202,7 @@ func (s *Service) buildUserResponse(user usershared.UserRecord) (UserResponse, e
 }
 
 func (s *Service) buildProfileResponse(user usershared.UserRecord) (ProfileResponse, error) {
-	memberships, _ := usershared.ParseTeamMemberships(user.TeamsJSON)
+	memberships, _ := usershared.ParseTeamMemberships(usershared.ValueOr(user.TeamsJSON, "[]"))
 	teamIDs := usershared.TeamIDsFromMemberships(memberships)
 
 	teams := make([]ProfileTeam, 0)

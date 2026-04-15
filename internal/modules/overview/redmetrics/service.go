@@ -1,18 +1,21 @@
 package redmetrics
 
-import "context"
+import (
+	"context"
+	"log/slog"
+)
 
 type Service interface {
-	GetSummary(teamID int64, startMs, endMs int64) (REDSummary, error)
-	GetApdex(teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]ApdexScore, error)
-	GetTopSlowOperations(teamID int64, startMs, endMs int64, limit int) ([]SlowOperation, error)
-	GetTopErrorOperations(teamID int64, startMs, endMs int64, limit int) ([]ErrorOperation, error)
-	GetRequestRateTimeSeries(teamID int64, startMs, endMs int64) ([]ServiceRatePoint, error)
-	GetErrorRateTimeSeries(teamID int64, startMs, endMs int64) ([]ServiceErrorRatePoint, error)
-	GetP95LatencyTimeSeries(teamID int64, startMs, endMs int64) ([]ServiceLatencyPoint, error)
-	GetSpanKindBreakdown(teamID int64, startMs, endMs int64) ([]SpanKindPoint, error)
-	GetErrorsByRoute(teamID int64, startMs, endMs int64) ([]ErrorByRoutePoint, error)
-	GetLatencyBreakdown(teamID int64, startMs, endMs int64) ([]LatencyBreakdown, error)
+	GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) (REDSummary, error)
+	GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]ApdexScore, error)
+	GetTopSlowOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]SlowOperation, error)
+	GetTopErrorOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]ErrorOperation, error)
+	GetRequestRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceRatePoint, error)
+	GetErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceErrorRatePoint, error)
+	GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceLatencyPoint, error)
+	GetSpanKindBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]SpanKindPoint, error)
+	GetErrorsByRoute(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorByRoutePoint, error)
+	GetLatencyBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]LatencyBreakdown, error)
 }
 
 type REDMetricsService struct {
@@ -23,9 +26,10 @@ func NewService(repo Repository) Service {
 	return &REDMetricsService{repo: repo}
 }
 
-func (s *REDMetricsService) GetSummary(teamID int64, startMs, endMs int64) (REDSummary, error) {
-	rows, err := s.repo.GetSummary(context.Background(), teamID, startMs, endMs)
+func (s *REDMetricsService) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) (REDSummary, error) {
+	rows, err := s.repo.GetSummary(ctx, teamID, startMs, endMs)
 	if err != nil {
+		slog.Error("redmetrics: GetSummary failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return REDSummary{}, err
 	}
 
@@ -68,9 +72,10 @@ func (s *REDMetricsService) GetSummary(teamID int64, startMs, endMs int64) (REDS
 	}, nil
 }
 
-func (s *REDMetricsService) GetApdex(teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]ApdexScore, error) {
-	rows, err := s.repo.GetApdex(context.Background(), teamID, startMs, endMs, satisfiedMs, toleratingMs)
+func (s *REDMetricsService) GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]ApdexScore, error) {
+	rows, err := s.repo.GetApdex(ctx, teamID, startMs, endMs, satisfiedMs, toleratingMs)
 	if err != nil {
+		slog.Error("redmetrics: GetApdex failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return nil, err
 	}
 
@@ -92,9 +97,10 @@ func (s *REDMetricsService) GetApdex(teamID int64, startMs, endMs int64, satisfi
 	return result, nil
 }
 
-func (s *REDMetricsService) GetTopSlowOperations(teamID int64, startMs, endMs int64, limit int) ([]SlowOperation, error) {
-	rows, err := s.repo.GetTopSlowOperations(context.Background(), teamID, startMs, endMs, limit)
+func (s *REDMetricsService) GetTopSlowOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]SlowOperation, error) {
+	rows, err := s.repo.GetTopSlowOperations(ctx, teamID, startMs, endMs, limit)
 	if err != nil {
+		slog.Error("redmetrics: GetTopSlowOperations failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return nil, err
 	}
 	result := make([]SlowOperation, len(rows))
@@ -111,9 +117,10 @@ func (s *REDMetricsService) GetTopSlowOperations(teamID int64, startMs, endMs in
 	return result, nil
 }
 
-func (s *REDMetricsService) GetTopErrorOperations(teamID int64, startMs, endMs int64, limit int) ([]ErrorOperation, error) {
-	rows, err := s.repo.GetTopErrorOperations(context.Background(), teamID, startMs, endMs, limit)
+func (s *REDMetricsService) GetTopErrorOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]ErrorOperation, error) {
+	rows, err := s.repo.GetTopErrorOperations(ctx, teamID, startMs, endMs, limit)
 	if err != nil {
+		slog.Error("redmetrics: GetTopErrorOperations failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return nil, err
 	}
 	result := make([]ErrorOperation, len(rows))
@@ -129,29 +136,30 @@ func (s *REDMetricsService) GetTopErrorOperations(teamID int64, startMs, endMs i
 	return result, nil
 }
 
-func (s *REDMetricsService) GetRequestRateTimeSeries(teamID int64, startMs, endMs int64) ([]ServiceRatePoint, error) {
-	return s.repo.GetRequestRateTimeSeries(context.Background(), teamID, startMs, endMs)
+func (s *REDMetricsService) GetRequestRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceRatePoint, error) {
+	return s.repo.GetRequestRateTimeSeries(ctx, teamID, startMs, endMs)
 }
 
-func (s *REDMetricsService) GetErrorRateTimeSeries(teamID int64, startMs, endMs int64) ([]ServiceErrorRatePoint, error) {
-	return s.repo.GetErrorRateTimeSeries(context.Background(), teamID, startMs, endMs)
+func (s *REDMetricsService) GetErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceErrorRatePoint, error) {
+	return s.repo.GetErrorRateTimeSeries(ctx, teamID, startMs, endMs)
 }
 
-func (s *REDMetricsService) GetP95LatencyTimeSeries(teamID int64, startMs, endMs int64) ([]ServiceLatencyPoint, error) {
-	return s.repo.GetP95LatencyTimeSeries(context.Background(), teamID, startMs, endMs)
+func (s *REDMetricsService) GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceLatencyPoint, error) {
+	return s.repo.GetP95LatencyTimeSeries(ctx, teamID, startMs, endMs)
 }
 
-func (s *REDMetricsService) GetSpanKindBreakdown(teamID int64, startMs, endMs int64) ([]SpanKindPoint, error) {
-	return s.repo.GetSpanKindBreakdown(context.Background(), teamID, startMs, endMs)
+func (s *REDMetricsService) GetSpanKindBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]SpanKindPoint, error) {
+	return s.repo.GetSpanKindBreakdown(ctx, teamID, startMs, endMs)
 }
 
-func (s *REDMetricsService) GetErrorsByRoute(teamID int64, startMs, endMs int64) ([]ErrorByRoutePoint, error) {
-	return s.repo.GetErrorsByRoute(context.Background(), teamID, startMs, endMs)
+func (s *REDMetricsService) GetErrorsByRoute(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorByRoutePoint, error) {
+	return s.repo.GetErrorsByRoute(ctx, teamID, startMs, endMs)
 }
 
-func (s *REDMetricsService) GetLatencyBreakdown(teamID int64, startMs, endMs int64) ([]LatencyBreakdown, error) {
-	rows, err := s.repo.GetLatencyBreakdown(context.Background(), teamID, startMs, endMs)
+func (s *REDMetricsService) GetLatencyBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]LatencyBreakdown, error) {
+	rows, err := s.repo.GetLatencyBreakdown(ctx, teamID, startMs, endMs)
 	if err != nil {
+		slog.Error("redmetrics: GetLatencyBreakdown failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return nil, err
 	}
 

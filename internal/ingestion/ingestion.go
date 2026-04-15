@@ -10,7 +10,7 @@ type TelemetryBatch[T any] struct {
 }
 
 type Dispatcher[T any] interface {
-	Dispatch(batch TelemetryBatch[T])
+	Dispatch(batch TelemetryBatch[T]) error
 	Persistence() <-chan TelemetryBatch[T]
 	Streaming() <-chan TelemetryBatch[T]
 	Close()

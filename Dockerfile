@@ -23,5 +23,6 @@ COPY config.yml .
 RUN chown -R 1000:1000 /app
 USER 1000:1000
 
-EXPOSE 8080
+# Match default config.yml: HTTP server.port + otlp.grpc_port (override with -p when running).
+EXPOSE 19090 4317
 ENTRYPOINT ["./observability-go"]

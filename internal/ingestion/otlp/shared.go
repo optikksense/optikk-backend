@@ -6,7 +6,7 @@ import (
 	"log/slog"
 
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/auth"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/ingestion"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"

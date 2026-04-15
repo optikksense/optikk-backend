@@ -1,6 +1,9 @@
 package slo
 
-import "context"
+import (
+	"context"
+	"log/slog"
+)
 
 const (
 	availabilityTarget = 99.9
@@ -8,9 +11,9 @@ const (
 )
 
 type Service interface {
-	GetSloSli(teamID int64, startMs, endMs int64, serviceName string) (*Response, error)
-	GetBurnDown(teamID int64, startMs, endMs int64, serviceName string) ([]BurnDownPoint, error)
-	GetBurnRate(teamID int64, startMs, endMs int64, serviceName string) (*BurnRate, error)
+	GetSloSli(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (*Response, error)
+	GetBurnDown(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]BurnDownPoint, error)
+	GetBurnRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (*BurnRate, error)
 }
 
 type SLOService struct {
@@ -21,16 +24,16 @@ func NewService(repo Repository) Service {
 	return &SLOService{repo: repo}
 }
 
-func (s *SLOService) GetSloSli(teamID int64, startMs, endMs int64, serviceName string) (*Response, error) {
-	ctx := context.Background()
-
+func (s *SLOService) GetSloSli(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (*Response, error) {
 	summary, err := s.repo.GetSummary(ctx, teamID, startMs, endMs, serviceName)
 	if err != nil {
+		slog.Error("slo: GetSloSli summary failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("service", serviceName))
 		return nil, err
 	}
 
 	timeseries, err := s.repo.GetTimeSeries(ctx, teamID, startMs, endMs, serviceName)
 	if err != nil {
+		slog.Error("slo: GetSloSli timeseries failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("service", serviceName))
 		return nil, err
 	}
 
@@ -52,12 +55,12 @@ func (s *SLOService) GetSloSli(teamID int64, startMs, endMs int64, serviceName s
 	}, nil
 }
 
-func (s *SLOService) GetBurnDown(teamID int64, startMs, endMs int64, serviceName string) ([]BurnDownPoint, error) {
-	return s.repo.GetBurnDown(context.Background(), teamID, startMs, endMs, serviceName)
+func (s *SLOService) GetBurnDown(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]BurnDownPoint, error) {
+	return s.repo.GetBurnDown(ctx, teamID, startMs, endMs, serviceName)
 }
 
-func (s *SLOService) GetBurnRate(teamID int64, startMs, endMs int64, serviceName string) (*BurnRate, error) {
-	return s.repo.GetBurnRate(context.Background(), teamID, startMs, endMs, serviceName)
+func (s *SLOService) GetBurnRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (*BurnRate, error) {
+	return s.repo.GetBurnRate(ctx, teamID, startMs, endMs, serviceName)
 }
 
 func remainingErrorBudgetPercent(availabilityPercent float64) float64 {

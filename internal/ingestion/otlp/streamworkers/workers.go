@@ -11,13 +11,8 @@ import (
 	otlplogs "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/logs"
 	otlpmetrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/metrics"
 	otlpspans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/ingestion"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/livetail"
-)
-
-const (
-	batchMaxRows = 5000
-	batchMaxWait = 5 * time.Second
 )
 
 // Workers runs in-memory queue consumers for OTLP ingest to ClickHouse
@@ -29,17 +24,28 @@ type Workers struct {
 	metricDispatcher ingestion.Dispatcher[*otlpmetrics.MetricRow]
 	hub              livetail.Hub
 
+	batchMaxRows int
+	batchMaxWait time.Duration
+
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
 
-func NewWorkers(ch clickhouse.Conn, ld ingestion.Dispatcher[*otlplogs.LogRow], sd ingestion.Dispatcher[*otlpspans.SpanRow], md ingestion.Dispatcher[*otlpmetrics.MetricRow], hub livetail.Hub) *Workers {
+func NewWorkers(ch clickhouse.Conn, ld ingestion.Dispatcher[*otlplogs.LogRow], sd ingestion.Dispatcher[*otlpspans.SpanRow], md ingestion.Dispatcher[*otlpmetrics.MetricRow], hub livetail.Hub, batchMaxRows int, batchMaxWait time.Duration) *Workers {
+	if batchMaxRows <= 0 {
+		batchMaxRows = 5000
+	}
+	if batchMaxWait <= 0 {
+		batchMaxWait = 5 * time.Second
+	}
 	return &Workers{
 		ch:               ch,
 		logDispatcher:    ld,
 		spanDispatcher:   sd,
 		metricDispatcher: md,
 		hub:              hub,
+		batchMaxRows:     batchMaxRows,
+		batchMaxWait:     batchMaxWait,
 	}
 }
 
@@ -67,11 +73,11 @@ func (w *Workers) runPersistence(ctx context.Context) {
 	metricFlusher := otlp.NewCHFlusher[*otlpmetrics.MetricRow](w.ch, "observability.metrics", otlpmetrics.MetricColumns)
 	spanFlusher := otlp.NewCHFlusher[*otlpspans.SpanRow](w.ch, "observability.spans", otlpspans.SpanColumns)
 
-	logBuf := make([]*otlplogs.LogRow, 0, batchMaxRows)
-	metricBuf := make([]*otlpmetrics.MetricRow, 0, batchMaxRows)
-	spanBuf := make([]*otlpspans.SpanRow, 0, batchMaxRows)
+	logBuf := make([]*otlplogs.LogRow, 0, w.batchMaxRows)
+	metricBuf := make([]*otlpmetrics.MetricRow, 0, w.batchMaxRows)
+	spanBuf := make([]*otlpspans.SpanRow, 0, w.batchMaxRows)
 
-	ticker := time.NewTicker(batchMaxWait)
+	ticker := time.NewTicker(w.batchMaxWait)
 	defer ticker.Stop()
 
 	flush := func() {
@@ -108,7 +114,7 @@ func (w *Workers) runPersistence(ctx context.Context) {
 				return
 			}
 			logBuf = append(logBuf, batch.Rows...)
-			if len(logBuf) >= batchMaxRows {
+			if len(logBuf) >= w.batchMaxRows {
 				if err := logFlusher.Flush(logBuf); err == nil {
 					logBuf = logBuf[:0]
 				}
@@ -119,7 +125,7 @@ func (w *Workers) runPersistence(ctx context.Context) {
 				return
 			}
 			spanBuf = append(spanBuf, batch.Rows...)
-			if len(spanBuf) >= batchMaxRows {
+			if len(spanBuf) >= w.batchMaxRows {
 				if err := spanFlusher.Flush(spanBuf); err == nil {
 					spanBuf = spanBuf[:0]
 				}
@@ -130,7 +136,7 @@ func (w *Workers) runPersistence(ctx context.Context) {
 				return
 			}
 			metricBuf = append(metricBuf, batch.Rows...)
-			if len(metricBuf) >= batchMaxRows {
+			if len(metricBuf) >= w.batchMaxRows {
 				if err := metricFlusher.Flush(metricBuf); err == nil {
 					metricBuf = metricBuf[:0]
 				}

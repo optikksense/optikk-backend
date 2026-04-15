@@ -3,20 +3,21 @@ package tracedetail
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"sort"
 	"strings"
 )
 
 type Service interface {
-	GetSpanEvents(teamID int64, traceID string) ([]SpanEvent, error)
-	GetSpanKindBreakdown(teamID int64, traceID string) ([]SpanKindDuration, error)
-	GetCriticalPath(teamID int64, traceID string) ([]CriticalPathSpan, error)
-	GetSpanSelfTimes(teamID int64, traceID string) ([]SpanSelfTime, error)
-	GetErrorPath(teamID int64, traceID string) ([]ErrorPathSpan, error)
-	GetSpanAttributes(teamID int64, traceID, spanID string) (*SpanAttributes, error)
-	GetRelatedTraces(teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
-	GetFlamegraphData(teamID int64, traceID string) ([]FlamegraphFrame, error)
-	GetTraceLogs(teamID int64, traceID string) (*TraceLogsResponse, error)
+	GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]SpanEvent, error)
+	GetSpanKindBreakdown(ctx context.Context, teamID int64, traceID string) ([]SpanKindDuration, error)
+	GetCriticalPath(ctx context.Context, teamID int64, traceID string) ([]CriticalPathSpan, error)
+	GetSpanSelfTimes(ctx context.Context, teamID int64, traceID string) ([]SpanSelfTime, error)
+	GetErrorPath(ctx context.Context, teamID int64, traceID string) ([]ErrorPathSpan, error)
+	GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*SpanAttributes, error)
+	GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
+	GetFlamegraphData(ctx context.Context, teamID int64, traceID string) ([]FlamegraphFrame, error)
+	GetTraceLogs(ctx context.Context, teamID int64, traceID string) (*TraceLogsResponse, error)
 }
 
 type TraceDetailService struct {
@@ -27,9 +28,10 @@ func NewService(repo Repository) Service {
 	return &TraceDetailService{repo: repo}
 }
 
-func (s *TraceDetailService) GetSpanEvents(teamID int64, traceID string) ([]SpanEvent, error) {
-	eventRows, exceptionRows, err := s.repo.GetSpanEvents(context.Background(), teamID, traceID)
+func (s *TraceDetailService) GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]SpanEvent, error) {
+	eventRows, exceptionRows, err := s.repo.GetSpanEvents(ctx, teamID, traceID)
 	if err != nil {
+		slog.Error("tracedetail: GetSpanEvents failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
 		return nil, err
 	}
 
@@ -90,9 +92,10 @@ func (s *TraceDetailService) GetSpanEvents(teamID int64, traceID string) ([]Span
 	return events, nil
 }
 
-func (s *TraceDetailService) GetSpanKindBreakdown(teamID int64, traceID string) ([]SpanKindDuration, error) {
-	rows, err := s.repo.GetSpanKindBreakdown(context.Background(), teamID, traceID)
+func (s *TraceDetailService) GetSpanKindBreakdown(ctx context.Context, teamID int64, traceID string) ([]SpanKindDuration, error) {
+	rows, err := s.repo.GetSpanKindBreakdown(ctx, teamID, traceID)
 	if err != nil {
+		slog.Error("tracedetail: GetSpanKindBreakdown failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
 		return nil, err
 	}
 
@@ -114,30 +117,36 @@ func (s *TraceDetailService) GetSpanKindBreakdown(teamID int64, traceID string) 
 	return result, nil
 }
 
-func (s *TraceDetailService) GetCriticalPath(teamID int64, traceID string) ([]CriticalPathSpan, error) {
-	rows, err := s.repo.GetCriticalPath(context.Background(), teamID, traceID)
+func (s *TraceDetailService) GetCriticalPath(ctx context.Context, teamID int64, traceID string) ([]CriticalPathSpan, error) {
+	rows, err := s.repo.GetCriticalPath(ctx, teamID, traceID)
 	if err != nil {
+		slog.Error("tracedetail: GetCriticalPath failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
 		return nil, err
 	}
 	return buildCriticalPath(rows), nil
 }
 
-func (s *TraceDetailService) GetSpanSelfTimes(teamID int64, traceID string) ([]SpanSelfTime, error) {
-	return s.repo.GetSpanSelfTimes(context.Background(), teamID, traceID)
+func (s *TraceDetailService) GetSpanSelfTimes(ctx context.Context, teamID int64, traceID string) ([]SpanSelfTime, error) {
+	return s.repo.GetSpanSelfTimes(ctx, teamID, traceID)
 }
 
-func (s *TraceDetailService) GetErrorPath(teamID int64, traceID string) ([]ErrorPathSpan, error) {
-	rows, err := s.repo.GetErrorPath(context.Background(), teamID, traceID)
+func (s *TraceDetailService) GetErrorPath(ctx context.Context, teamID int64, traceID string) ([]ErrorPathSpan, error) {
+	rows, err := s.repo.GetErrorPath(ctx, teamID, traceID)
 	if err != nil {
+		slog.Error("tracedetail: GetErrorPath failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
 		return nil, err
 	}
 	return buildErrorPath(rows), nil
 }
 
-func (s *TraceDetailService) GetSpanAttributes(teamID int64, traceID, spanID string) (*SpanAttributes, error) {
-	row, err := s.repo.GetSpanAttributes(context.Background(), teamID, traceID, spanID)
-	if err != nil || row == nil {
+func (s *TraceDetailService) GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*SpanAttributes, error) {
+	row, err := s.repo.GetSpanAttributes(ctx, teamID, traceID, spanID)
+	if err != nil {
+		slog.Error("tracedetail: GetSpanAttributes failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID), slog.String("span_id", spanID))
 		return nil, err
+	}
+	if row == nil {
+		return nil, nil
 	}
 
 	merged := make(map[string]string, len(row.AttributesString)+len(row.ResourceAttrs))
@@ -166,13 +175,14 @@ func (s *TraceDetailService) GetSpanAttributes(teamID int64, traceID, spanID str
 	}, nil
 }
 
-func (s *TraceDetailService) GetRelatedTraces(teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
-	return s.repo.GetRelatedTraces(context.Background(), teamID, serviceName, operationName, startMs, endMs, excludeTraceID, limit)
+func (s *TraceDetailService) GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
+	return s.repo.GetRelatedTraces(ctx, teamID, serviceName, operationName, startMs, endMs, excludeTraceID, limit)
 }
 
-func (s *TraceDetailService) GetTraceLogs(teamID int64, traceID string) (*TraceLogsResponse, error) {
-	rows, err := s.repo.GetTraceLogs(context.Background(), teamID, traceID)
+func (s *TraceDetailService) GetTraceLogs(ctx context.Context, teamID int64, traceID string) (*TraceLogsResponse, error) {
+	rows, err := s.repo.GetTraceLogs(ctx, teamID, traceID)
 	if err != nil {
+		slog.Error("tracedetail: GetTraceLogs failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
 		return nil, err
 	}
 	logs := make([]TraceLog, len(rows))
@@ -204,9 +214,10 @@ func (s *TraceDetailService) GetTraceLogs(teamID int64, traceID string) (*TraceL
 	}, nil
 }
 
-func (s *TraceDetailService) GetFlamegraphData(teamID int64, traceID string) ([]FlamegraphFrame, error) {
-	rows, err := s.repo.GetFlamegraphData(context.Background(), teamID, traceID)
+func (s *TraceDetailService) GetFlamegraphData(ctx context.Context, teamID int64, traceID string) ([]FlamegraphFrame, error) {
+	rows, err := s.repo.GetFlamegraphData(ctx, teamID, traceID)
 	if err != nil {
+		slog.Error("tracedetail: GetFlamegraphData failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
 		return nil, err
 	}
 	return buildFlamegraph(rows), nil

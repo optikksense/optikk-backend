@@ -1,6 +1,7 @@
 package shared
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 )
 
@@ -17,9 +18,8 @@ func FilterClauses(f Filters) (frag string, args []any) {
 		if len(values) == 0 {
 			return
 		}
-		inFrag, inArgs := dbutil.NamedInArgs(AttrString(attr), prefix, values)
-		frag += " AND " + inFrag
-		args = append(args, inArgs...)
+		frag += " AND " + AttrString(attr) + " IN @" + prefix
+		args = append(args, clickhouse.Named(prefix, values))
 	}
 
 	appendIn(AttrDBSystem, "dbSystem", f.DBSystem)

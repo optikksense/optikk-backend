@@ -1,10 +1,10 @@
 package auth
 
 type AuthUserSummary struct {
-	ID        int64  `json:"id"`
-	Email     string `json:"email"`
-	Name      string `json:"name"`
-	AvatarURL string `json:"avatarUrl"`
+	ID        int64   `json:"id"`
+	Email     string  `json:"email"`
+	Name      string  `json:"name"`
+	AvatarURL *string `json:"avatarUrl"`
 }
 
 type AuthTeamSummary struct {

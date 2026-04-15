@@ -20,7 +20,7 @@ func (h *TraceDetailHandler) GetSpanEvents(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")
 
-	events, err := h.Service.GetSpanEvents(teamID, traceID)
+	events, err := h.Service.GetSpanEvents(c.Request.Context(), teamID, traceID)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query span events", err)
 		return
@@ -32,7 +32,7 @@ func (h *TraceDetailHandler) GetSpanKindBreakdown(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")
 
-	breakdown, err := h.Service.GetSpanKindBreakdown(teamID, traceID)
+	breakdown, err := h.Service.GetSpanKindBreakdown(c.Request.Context(), teamID, traceID)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query span kind breakdown", err)
 		return
@@ -44,7 +44,7 @@ func (h *TraceDetailHandler) GetCriticalPath(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")
 
-	path, err := h.Service.GetCriticalPath(teamID, traceID)
+	path, err := h.Service.GetCriticalPath(c.Request.Context(), teamID, traceID)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to compute critical path", err)
 		return
@@ -56,7 +56,7 @@ func (h *TraceDetailHandler) GetSpanSelfTimes(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")
 
-	times, err := h.Service.GetSpanSelfTimes(teamID, traceID)
+	times, err := h.Service.GetSpanSelfTimes(c.Request.Context(), teamID, traceID)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query span self times", err)
 		return
@@ -68,7 +68,7 @@ func (h *TraceDetailHandler) GetErrorPath(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")
 
-	path, err := h.Service.GetErrorPath(teamID, traceID)
+	path, err := h.Service.GetErrorPath(c.Request.Context(), teamID, traceID)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query error path", err)
 		return
@@ -86,7 +86,7 @@ func (h *TraceDetailHandler) GetSpanAttributes(c *gin.Context) {
 		return
 	}
 
-	attrs, err := h.Service.GetSpanAttributes(teamID, traceID, spanID)
+	attrs, err := h.Service.GetSpanAttributes(c.Request.Context(), teamID, traceID, spanID)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query span attributes", err)
 		return
@@ -102,7 +102,7 @@ func (h *TraceDetailHandler) GetFlamegraphData(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")
 
-	frames, err := h.Service.GetFlamegraphData(teamID, traceID)
+	frames, err := h.Service.GetFlamegraphData(c.Request.Context(), teamID, traceID)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to compute flamegraph data", err)
 		return
@@ -114,7 +114,7 @@ func (h *TraceDetailHandler) GetTraceLogs(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")
 
-	resp, err := h.Service.GetTraceLogs(teamID, traceID)
+	resp, err := h.Service.GetTraceLogs(c.Request.Context(), teamID, traceID)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query trace logs", err)
 		return
@@ -142,7 +142,7 @@ func (h *TraceDetailHandler) GetRelatedTraces(c *gin.Context) {
 		limit = defaultRelatedLimit
 	}
 
-	traces, err := h.Service.GetRelatedTraces(teamID, serviceName, operationName, startMs, endMs, traceID, limit)
+	traces, err := h.Service.GetRelatedTraces(c.Request.Context(), teamID, serviceName, operationName, startMs, endMs, traceID, limit)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query related traces", err)
 		return

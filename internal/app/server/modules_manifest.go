@@ -1,14 +1,16 @@
 package server
 
 import (
+	"strings"
+
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	otlp_logs "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/logs"
 	otlp_metrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/metrics"
 	otlp_spans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
 	otlp_streamworkers "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/streamworkers"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/alerting"
-	defaultconfig "github.com/Optikk-Org/optikk-backend/internal/infra/dashboardcfg"
 
+	infrastructure_connpool "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/connpool"
 	infrastructure_cpu "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/cpu"
 	infrastructure_disk "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/disk"
 	infrastructure_jvm "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/jvm"
@@ -42,6 +44,7 @@ import (
 	services_topology "github.com/Optikk-Org/optikk-backend/internal/modules/services/topology"
 	ai_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/ai/explorer"
 	llm_hub "github.com/Optikk-Org/optikk-backend/internal/modules/llm/hub"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/livetail"
 	spans_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
 	spans_livetail "github.com/Optikk-Org/optikk-backend/internal/modules/traces/livetail"
 	spans_traces "github.com/Optikk-Org/optikk-backend/internal/modules/traces/query"
@@ -49,27 +52,23 @@ import (
 	user_auth "github.com/Optikk-Org/optikk-backend/internal/modules/user/auth"
 	user_team "github.com/Optikk-Org/optikk-backend/internal/modules/user/team"
 	user_user "github.com/Optikk-Org/optikk-backend/internal/modules/user/user"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/runtime"
 )
 
 func configuredModules(
 	nativeQuerier *registry.NativeQuerier,
-	sqlDB *registry.SQLDB,
-	clickHouseConn registry.ClickHouseConn,
 	getTenant registry.GetTenantFunc,
 	appConfig registry.AppConfig,
-	runtimeDeps *runtime.Runtime,
-	logSearchSvc *log_search.Service,
+	infraDeps *Infra,
 ) []registry.Module {
 	return []registry.Module{
 		ai_explorer.NewModule(nativeQuerier, getTenant),
-		llm_hub.NewModule(sqlDB, getTenant),
-		alerting.NewModule(sqlDB, nativeQuerier, clickHouseConn, getTenant, ""),
+		llm_hub.NewModule(infraDeps.DB, getTenant),
+		alerting.NewModule(infraDeps.DB, nativeQuerier, infraDeps.CH, getTenant, "", appConfig.AlertingMaxEnabledRules()),
 		apm.NewModule(nativeQuerier, getTenant),
-		defaultconfig.NewModule(getTenant, runtimeDeps.DashboardConfig),
 		deployments.NewModule(nativeQuerier, getTenant),
 		httpmetrics.NewModule(nativeQuerier, getTenant),
 
+		infrastructure_connpool.NewModule(nativeQuerier, getTenant),
 		infrastructure_cpu.NewModule(nativeQuerier, getTenant),
 		infrastructure_disk.NewModule(nativeQuerier, getTenant),
 		infrastructure_jvm.NewModule(nativeQuerier, getTenant),
@@ -80,12 +79,17 @@ func configuredModules(
 		infrastructure_nodes.NewModule(nativeQuerier, getTenant),
 		infrastructure_resource_utilisation.NewModule(nativeQuerier, getTenant),
 		log_explorer.NewModule(nativeQuerier, getTenant),
-		log_search.NewModule(nativeQuerier, getTenant, logSearchSvc),
+		log_search.NewModule(nativeQuerier, getTenant),
+		livetail.NewModule(livetail.Config{
+			Hub:            infraDeps.LiveTailHub,
+			AllowedOrigins: splitAllowedOrigins(appConfig.Server.AllowedOrigins),
+			Sessions:       infraDeps.SessionManager,
+		}),
 		metrics.NewModule(nativeQuerier, getTenant),
-		otlp_streamworkers.NewModule(clickHouseConn, runtimeDeps.OTLP.LogDispatcher, runtimeDeps.OTLP.SpanDispatcher, runtimeDeps.OTLP.MetricDispatcher, runtimeDeps.LiveTailHub),
-		otlp_spans.NewModule(runtimeDeps.OTLP.Authenticator, runtimeDeps.OTLP.Tracker, runtimeDeps.OTLP.SpanDispatcher),
-		otlp_logs.NewModule(runtimeDeps.OTLP.Authenticator, runtimeDeps.OTLP.Tracker, runtimeDeps.OTLP.LogDispatcher),
-		otlp_metrics.NewModule(runtimeDeps.OTLP.Authenticator, runtimeDeps.OTLP.Tracker, runtimeDeps.OTLP.MetricDispatcher),
+		otlp_streamworkers.NewModule(infraDeps.CH, infraDeps.OTLP.LogDispatcher, infraDeps.OTLP.SpanDispatcher, infraDeps.OTLP.MetricDispatcher, infraDeps.LiveTailHub, appConfig.IngestionBatchMaxRows(), appConfig.IngestionBatchMaxWait()),
+		otlp_spans.NewModule(infraDeps.OTLP.Authenticator, infraDeps.OTLP.Tracker, infraDeps.OTLP.SpanDispatcher),
+		otlp_logs.NewModule(infraDeps.OTLP.Authenticator, infraDeps.OTLP.Tracker, infraDeps.OTLP.LogDispatcher),
+		otlp_metrics.NewModule(infraDeps.OTLP.Authenticator, infraDeps.OTLP.Tracker, infraDeps.OTLP.MetricDispatcher),
 		overview_errors.NewModule(nativeQuerier, getTenant),
 		overview_overview.NewModule(nativeQuerier, getTenant),
 		overview_redmetrics.NewModule(nativeQuerier, getTenant),
@@ -106,8 +110,19 @@ func configuredModules(
 		spans_livetail.NewModule(nativeQuerier, getTenant, nil),
 		spans_tracedetail.NewModule(nativeQuerier, getTenant),
 		spans_traces.NewModule(nativeQuerier, getTenant),
-		user_auth.NewModule(sqlDB, getTenant, runtimeDeps.SessionManager, appConfig),
-		user_team.NewModule(sqlDB, getTenant, runtimeDeps.DashboardConfig, appConfig),
-		user_user.NewModule(sqlDB, getTenant, appConfig),
+		user_auth.NewModule(infraDeps.DB, getTenant, infraDeps.SessionManager, appConfig),
+		user_team.NewModule(infraDeps.DB, getTenant, appConfig),
+		user_user.NewModule(infraDeps.DB, getTenant, appConfig),
 	}
+}
+
+func splitAllowedOrigins(allowed string) []string {
+	var out []string
+	for _, o := range strings.Split(allowed, ",") {
+		o = strings.TrimSpace(o)
+		if o != "" {
+			out = append(out, o)
+		}
+	}
+	return out
 }

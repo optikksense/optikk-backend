@@ -3,7 +3,6 @@ package database
 import (
 	"context"
 	"crypto/tls"
-	"database/sql"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 // clickHouseTransientErrorSubstrings matches transport-layer failures worth retrying
@@ -48,25 +48,6 @@ func applyClickHouseConnectionPoolDefaults(opts *clickhouse.Options) {
 	}
 }
 
-type Querier interface {
-	Exec(query string, args ...any) (sql.Result, error)
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	Query(query string, args ...any) (Rows, error)
-	QueryRow(query string, args ...any) Row
-	BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error)
-	Close() error
-}
-
-type Rows interface {
-	Columns() []string
-	Close() error
-	Next() bool
-	Scan(dest ...any)
-}
-
-type Row interface {
-	Scan(dest ...any) error
-}
 
 type ClickHouseCloudConfig struct {
 	Host     string
@@ -119,34 +100,6 @@ func OpenClickHouseConn(dsn string, isProduction bool, cloud ...ClickHouseCloudC
 	return conn, nil
 }
 
-type sqlRowsAdapter struct {
-	rows *sql.Rows
-}
-
-func (r *sqlRowsAdapter) Columns() []string {
-	cols, _ := r.rows.Columns()
-	return cols
-}
-
-func (r *sqlRowsAdapter) Close() error {
-	return r.rows.Close()
-}
-
-func (r *sqlRowsAdapter) Next() bool {
-	return r.rows.Next()
-}
-
-func (r *sqlRowsAdapter) Scan(dest ...any) {
-	_ = r.rows.Scan(dest...)
-}
-
-type sqlRowAdapter struct {
-	row *sql.Row
-}
-
-func (r *sqlRowAdapter) Scan(dest ...any) error {
-	return r.row.Scan(dest...)
-}
 
 var prewhereRe = regexp.MustCompile(
 	`(?i)\bWHERE\s+([\w.]*\.?)team_id\s*=\s*\?\s+AND\s+([\w.]*\.?)ts_bucket_start\s+BETWEEN\s+\?\s+AND\s+\?\s+AND\s+`,
@@ -247,16 +200,18 @@ func retryClickHouseRead(ctx context.Context, op func() error) error {
 
 func (n *NativeQuerier) Select(ctx context.Context, dest any, query string, args ...any) error {
 	query = optimizeQuery(query)
-	return retryClickHouseRead(ctx, func() error {
+	err := retryClickHouseRead(ctx, func() error {
 		return n.conn.Select(ctx, dest, query, args...)
 	})
+	return err
 }
 
 func (n *NativeQuerier) QueryRow(ctx context.Context, dest any, query string, args ...any) error {
 	query = optimizeQuery(query)
-	return retryClickHouseRead(ctx, func() error {
+	err := retryClickHouseRead(ctx, func() error {
 		return n.conn.QueryRow(ctx, query, args...).ScanStruct(dest)
 	})
+	return err
 }
 
 // SelectTyped executes a SELECT query and scans results into a typed slice.
@@ -272,4 +227,26 @@ func QueryRowTyped[T any](ctx context.Context, db *NativeQuerier, query string, 
 	var row T
 	err := db.QueryRow(ctx, &row, query, args...)
 	return row, err
+}
+
+// SpanBaseParams returns the standard named parameters for span queries.
+// Includes team_id, ts_bucket_start range, and timestamp range.
+func SpanBaseParams(teamID int64, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 - domain-constrained value
+		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+}
+
+// SimpleBaseParams returns the standard named parameters for queries that
+// do not need bucket range pruning (metrics, infrastructure, saturation, etc.).
+func SimpleBaseParams(teamID int64, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 - domain-constrained value
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
 }

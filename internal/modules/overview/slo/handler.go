@@ -23,7 +23,7 @@ func (h *SLOHandler) GetSloSli(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.Service.GetSloSli(teamID, startMs, endMs, serviceName)
+	resp, err := h.Service.GetSloSli(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview SLO status", err)
 		return
@@ -41,7 +41,7 @@ func (h *SLOHandler) GetSloStats(c *gin.Context) {
 		return
 	}
 
-	resp, err := h.Service.GetSloSli(teamID, startMs, endMs, serviceName)
+	resp, err := h.Service.GetSloSli(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview SLO status", err)
 		return
@@ -59,7 +59,7 @@ func (h *SLOHandler) GetBurnDown(c *gin.Context) {
 		return
 	}
 
-	points, err := h.Service.GetBurnDown(teamID, startMs, endMs, serviceName)
+	points, err := h.Service.GetBurnDown(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query SLO burn-down", err)
 		return
@@ -76,7 +76,7 @@ func (h *SLOHandler) GetBurnRate(c *gin.Context) {
 		return
 	}
 
-	rate, err := h.Service.GetBurnRate(teamID, startMs, endMs, serviceName)
+	rate, err := h.Service.GetBurnRate(c.Request.Context(), teamID, startMs, endMs, serviceName)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query SLO burn rate", err)
 		return

@@ -69,3 +69,45 @@ func (h *CPUHandler) GetProcessCount(c *gin.Context) {
 	}
 	modulecommon.RespondOK(c, resp)
 }
+
+func (h *CPUHandler) GetAvgCPU(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+	resp, err := h.Service.GetAvgCPU(c.Request.Context(), teamID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query avg CPU", err)
+		return
+	}
+	modulecommon.RespondOK(c, resp)
+}
+
+func (h *CPUHandler) GetCPUByService(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+	resp, err := h.Service.GetCPUByService(c.Request.Context(), teamID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query CPU by service", err)
+		return
+	}
+	modulecommon.RespondOK(c, resp)
+}
+
+func (h *CPUHandler) GetCPUByInstance(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+	resp, err := h.Service.GetCPUByInstance(c.Request.Context(), teamID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query CPU by instance", err)
+		return
+	}
+	modulecommon.RespondOK(c, resp)
+}

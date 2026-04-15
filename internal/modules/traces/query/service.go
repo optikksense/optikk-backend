@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"time"
 )
 
@@ -32,6 +33,7 @@ func (s *Service) SearchTraces(ctx context.Context, filters TraceFilters, limit 
 		cursor := decodeCursor(cursorRaw)
 		rows, summaryRow, hasMore, err := s.repo.GetTracesKeyset(ctx, filters, limit, cursor)
 		if err != nil {
+			slog.Error("traces: SearchTraces keyset query failed", slog.Any("error", err), slog.Int64("team_id", filters.TeamID))
 			return TraceSearchResult{}, fmt.Errorf("traces.SearchTraces.Keyset: %w", err)
 		}
 		traces := traceRowsToModels(rows)
@@ -53,6 +55,7 @@ func (s *Service) SearchTraces(ctx context.Context, filters TraceFilters, limit 
 
 	rows, total, summaryRow, err := s.repo.GetTraces(ctx, filters, limit, offset)
 	if err != nil {
+		slog.Error("traces: SearchTraces offset query failed", slog.Any("error", err), slog.Int64("team_id", filters.TeamID))
 		return TraceSearchResult{}, fmt.Errorf("traces.SearchTraces.Offset: %w", err)
 	}
 	traces := traceRowsToModels(rows)
@@ -69,6 +72,7 @@ func (s *Service) SearchTraces(ctx context.Context, filters TraceFilters, limit 
 func (s *Service) GetTraceSpans(ctx context.Context, teamID int64, traceID string) ([]Span, error) {
 	rows, err := s.repo.GetTraceSpans(ctx, teamID, traceID)
 	if err != nil {
+		slog.Error("traces: GetTraceSpans failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
 		return nil, fmt.Errorf("traces.GetTraceSpans: %w", err)
 	}
 	return spanRowsToModels(rows), nil
@@ -111,6 +115,7 @@ func (s *Service) GetSpanTree(ctx context.Context, teamID int64, spanID string) 
 func (s *Service) GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error) {
 	rows, err := s.repo.GetErrorGroups(ctx, teamID, startMs, endMs, serviceName, limit)
 	if err != nil {
+		slog.Error("traces: GetErrorGroups failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("service", serviceName))
 		return nil, fmt.Errorf("traces.GetErrorGroups: %w", err)
 	}
 	return errorGroupRowsToModels(rows), nil
@@ -154,7 +159,7 @@ func decodeCursor(raw string) TraceCursor {
 		return TraceCursor{}
 	}
 	var cur TraceCursor
-	_ = json.Unmarshal(b, &cur)
+	_ = json.Unmarshal(b, &cur) //nolint:errcheck // best-effort cursor parse; zero value is safe fallback
 	return cur
 }
 

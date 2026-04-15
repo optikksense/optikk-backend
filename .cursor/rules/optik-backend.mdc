@@ -17,7 +17,7 @@ alwaysApply: true
 
 ## Canonical map
 
-**`CODEBASE_INDEX.md`** (repo root) lists all 52 modules (48 HTTP + 4 ingestion), ingestion, dashboardcfg, and the cross-repo map to **optikk-frontend**.
+**`CODEBASE_INDEX.md`** (repo root) lists all 52 modules (48 HTTP + 4 ingestion), ingestion, and the cross-repo map to **optikk-frontend**.
 
 ## Stack
 
@@ -30,17 +30,10 @@ Go 1.25, Gin, ClickHouse, MySQL, Redis, WebSocket live tail (`/api/v1/ws/live`),
 - Shared deps: `internal/app/registry/registry.go`
 - App wiring: `internal/app/server/app.go`
 
-## Dashboard / default config
+## Overview & dashboards (frontend-owned)
 
-- HTTP handler, service, and registry merged in: `internal/infra/dashboardcfg/`
-- Schema/version: `CurrentSchemaVersion` = **2** in `internal/infra/dashboardcfg/types.go`
-- Default pages (`internal/infra/dashboardcfg/defaults/`):
-
-| Page | Directory | Tabs | Default tab |
-|------|-----------|------|-------------|
-| overview | `defaults/overview/` | summary, latency-analysis, apm, errors, http, slo | summary |
-
-(Infrastructure and saturation UIs live in **optikk-frontend**; there is no `defaults/infrastructure/` or `defaults/saturation/` in this repo.)
+- **optikk-frontend** owns overview hub layout, tabs, and panel wiring. This repo has **no** `internal/infra/dashboardcfg` and **no** `/api/v1/default-config` routes.
+- Backend data only: `internal/modules/overview/*` (`/overview/...`, `/errors/...`, `/spans/red/...`, `/apm/*`, etc.).
 
 ## Deployments module
 
@@ -71,10 +64,11 @@ Go 1.25, Gin, ClickHouse, MySQL, Redis, WebSocket live tail (`/api/v1/ws/live`),
 
 ## Overview module
 
-3 submodules under `internal/modules/overview/`, all Cached:
+4 submodules under `internal/modules/overview/`, all Cached:
 - `overview/overview` — `/overview/request-rate`, `/overview/error-rate`, `/overview/p95-latency`, `/overview/services`, `/overview/top-endpoints`, `/overview/endpoints/metrics`, `/overview/endpoints/timeseries`, `/overview/summary`
 - `overview/errors` — `/overview/errors/*`, `/errors/groups/:groupId/*`
 - `overview/slo` — `/overview/slo`, `/overview/slo/stats`, `/overview/slo/burn-down`, `/overview/slo/burn-rate`
+- `overview/redmetrics` — `/spans/red/*`, `/spans/latency-breakdown`
 
 ## Alerting module
 

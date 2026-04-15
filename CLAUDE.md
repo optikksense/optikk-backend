@@ -2,7 +2,7 @@
 
 ## Before any task
 
-1. Read **`CODEBASE_INDEX.md`** (repo root) — full map of modules, ingestion, dashboard config, LLD patterns, and cross-repo references.
+1. Read **`CODEBASE_INDEX.md`** (repo root) — full map of modules, ingestion, LLD patterns, and cross-repo references.
 2. Read **`.cursor/rules/optik-backend.mdc`** — hot paths, handler/service/repository patterns, ClickHouse helpers, middleware stack, API envelope.
 3. Read **`.cursor/rules/engineering-workflow.mdc`** — plan before code, two approaches with pros/cons, approval gate.
 4. **Do not modify files** until the user approves the plan (except trivial one-line fixes).
@@ -29,9 +29,7 @@ This is **mandatory**, not optional. The documentation must always reflect the c
 - **Time bucketing**: `internal/infra/timebucket/timebucket.go` — adaptive (1m/5m/15m/1h/1d) + `ByName()` for explicit steps
 - **Session**: `internal/infra/session/manager.go` — keys: `auth_user_id`, `auth_email`, `auth_role`, `auth_default_team_id`, `auth_team_ids`
 - **Middleware**: `internal/infra/middleware/` — public prefixes: `/api/v1/auth/login`, `/otlp/`, `/health`
-- **Dashboard JSON + config API**: `internal/infra/dashboardcfg/` (handler, service, registry, enums, defaults merged); enums in `enums.go` (22 panel types, 10 layout variants, 8 section templates)
-- **Dashboard default pages**: overview (6 tabs), infrastructure (4 tabs), saturation (3 tabs) — under `internal/infra/dashboardcfg/defaults/`. The `service` page is **fully frontend-owned** (Discovery + Topology in optic-frontend); no backend default config.
-- **Overview module**: `internal/modules/overview/{overview,errors,slo}/` — `/api/v1/overview/*`
+- **Overview & dashboard UI**: **optikk-frontend** owns layout/tabs/panels; backend data only via `internal/modules/overview/{overview,errors,slo,redmetrics}/` — `/api/v1/overview/*`, `/errors/*`, `/spans/red/*`, etc.
 - **HTTP Metrics**: `internal/modules/httpmetrics/` — `/api/v1/http/*`
 - **Infrastructure**: `internal/modules/infrastructure/{cpu,disk,jvm,kubernetes,memory,network,nodes,resourceutil}/` — `/api/v1/infrastructure/*`
 - **Saturation DB**: `internal/modules/saturation/database/{collection,connections,errors,latency,slowqueries,summary,system,systems,volume}/` — `/api/v1/saturation/*`
@@ -43,14 +41,6 @@ This is **mandatory**, not optional. The documentation must always reflect the c
 - **Traces**: `internal/modules/traces/{query,explorer,tracedetail,redmetrics,errorfingerprint,errortracking,tracecompare,livetail}/` — tracedetail includes `/traces/:traceId/logs` for trace-correlated log retrieval
 - **Config**: `internal/config/config.go` (loads `config.yml`; `redis.password` / `redis.db` optional for secured Redis)
 - **Sibling repo**: `optic-frontend` (see its `CODEBASE_INDEX.md`)
-
-## Module map (dashboard page → directory)
-
-| Page | Default config directory |
-|------|------------------------|
-| overview (summary, latency-analysis, apm, errors, http, slo) | `internal/infra/dashboardcfg/defaults/overview/` |
-
-Infrastructure and saturation product pages are **frontend-owned** in optikk-frontend; there are no matching `defaults/*` packages here.
 
 ## Engineering principles
 

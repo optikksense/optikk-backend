@@ -32,7 +32,7 @@ type Dispatcher struct {
 	wg       sync.WaitGroup
 	baseURL  string
 	seenMu   sync.Mutex
-	seenKeys map[string]struct{}
+	seenKeys map[string]time.Time
 }
 
 func NewDispatcher(repo Repository, baseURL string) *Dispatcher {
@@ -41,8 +41,12 @@ func NewDispatcher(repo Repository, baseURL string) *Dispatcher {
 		repo:     repo,
 		ch:       make(chan dispatchItem, 512),
 		baseURL:  baseURL,
-		seenKeys: make(map[string]struct{}),
+		seenKeys: make(map[string]time.Time),
 	}
+}
+
+func (d *Dispatcher) SendSlack(ctx context.Context, webhookURL string, rendered channels.Rendered) error {
+	return d.slack.Send(ctx, webhookURL, rendered)
 }
 
 func (d *Dispatcher) Start() {
@@ -73,17 +77,34 @@ func (d *Dispatcher) Enqueue(item dispatchItem) {
 	}
 }
 
+const seenKeyTTL = 1 * time.Hour
+
 func (d *Dispatcher) run(ctx context.Context) {
 	defer d.wg.Done()
+	evictTicker := time.NewTicker(10 * time.Minute)
+	defer evictTicker.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-evictTicker.C:
+			d.evictExpiredKeys()
 		case item, ok := <-d.ch:
 			if !ok {
 				return
 			}
 			d.handle(ctx, item)
+		}
+	}
+}
+
+func (d *Dispatcher) evictExpiredKeys() {
+	d.seenMu.Lock()
+	defer d.seenMu.Unlock()
+	cutoff := time.Now().Add(-seenKeyTTL)
+	for key, ts := range d.seenKeys {
+		if ts.Before(cutoff) {
+			delete(d.seenKeys, key)
 		}
 	}
 }
@@ -95,7 +116,7 @@ func (d *Dispatcher) handle(ctx context.Context, item dispatchItem) {
 		d.seenMu.Unlock()
 		return
 	}
-	d.seenKeys[idem] = struct{}{}
+	d.seenKeys[idem] = time.Now()
 	d.seenMu.Unlock()
 
 	deployHint := ""
@@ -103,46 +124,31 @@ func (d *Dispatcher) handle(ctx context.Context, item dispatchItem) {
 		ref := item.DeployRefs[len(item.DeployRefs)-1]
 		deployHint = ref.ServiceName + " " + ref.Version
 	}
-
-	body, err := RenderTemplate(item.Rule.NotifyTemplate, TemplateData{
-		RuleName:    item.Rule.Name,
-		Severity:    item.Rule.Severity,
-		State:       item.Transition.ToState,
-		Values:      item.Instance.Values,
-		Threshold:   item.Rule.CriticalThreshold,
-		DeployHint:  deployHint,
-		DeepLinkURL: d.baseURL + "/alerts/" + itoa(item.Rule.ID),
-		Tags:        item.Instance.GroupValues,
-	})
-	if err != nil {
-		slog.Error("alerting: template render failed", slog.Any("error", err))
-		_ = d.repo.WriteEvent(ctx, AlertEvent{
-			TeamID:  uint32(item.Rule.TeamID), //nolint:gosec
-			AlertID: item.Rule.ID, InstanceKey: item.Instance.InstanceKey,
-			Kind: EventKindDispatchFailed, Message: err.Error(),
-		})
-		return
-	}
-	r := channels.Rendered{
-		Title:       item.Rule.Name,
-		Body:        body,
-		Severity:    item.Rule.Severity,
-		DeepLinkURL: d.baseURL + "/alerts/" + itoa(item.Rule.ID),
-		Tags:        item.Instance.GroupValues,
-	}
+	deepLink := d.baseURL + "/alerts/rules/" + itoa(item.Rule.ID)
+	r := renderRuleNotification(
+		item.Rule,
+		ruleDefinitionFromRow(item.Rule),
+		item.Transition.ToState,
+		item.Instance.Values,
+		deployHint,
+		deepLink,
+	)
+	r.Tags = item.Instance.GroupValues
 	if item.Rule.SlackWebhookURL != "" {
 		if err := d.slack.Send(ctx, item.Rule.SlackWebhookURL, r); err != nil {
 			slog.Error("alerting: slack send failed", slog.Any("error", err))
-			_ = d.repo.WriteEvent(ctx, AlertEvent{
+			if writeErr := d.repo.WriteEvent(ctx, AlertEvent{
 				TeamID:  uint32(item.Rule.TeamID), //nolint:gosec
 				AlertID: item.Rule.ID, InstanceKey: item.Instance.InstanceKey,
 				Kind: EventKindDispatchFailed, Message: err.Error(),
-			})
+			}); writeErr != nil {
+				slog.Debug("alerting: write audit event failed", slog.Any("error", writeErr))
+			}
 			return
 		}
 	}
-	deployJSON, _ := json.Marshal(item.DeployRefs)
-	_ = d.repo.WriteEvent(ctx, AlertEvent{
+	deployJSON, _ := json.Marshal(item.DeployRefs) //nolint:errcheck // marshal of known-safe struct slice
+	if err := d.repo.WriteEvent(ctx, AlertEvent{
 		TeamID:       uint32(item.Rule.TeamID), //nolint:gosec
 		AlertID:      item.Rule.ID,
 		InstanceKey:  item.Instance.InstanceKey,
@@ -151,7 +157,9 @@ func (d *Dispatcher) handle(ctx context.Context, item dispatchItem) {
 		ToState:      item.Transition.ToState,
 		DeployRefs:   string(deployJSON),
 		TransitionID: item.Instance.LastTransitionSeq,
-	})
+	}); err != nil {
+		slog.Debug("alerting: write audit event failed", slog.Any("error", err))
+	}
 	now := time.Now().UTC()
 	item.Instance.LastNotifiedAt = &now
 	item.Instance.LastNotifiedSeq = item.Instance.LastTransitionSeq

@@ -4,8 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-
-	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"strings"
 )
 
 func ParseTeamMemberships(raw string) ([]TeamMembership, error) {
@@ -41,51 +40,26 @@ func GenerateAPIKey() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-func UserRecordFromMap(row map[string]any) UserRecord {
-	return UserRecord{
-		ID:          utils.Int64FromAny(row["id"]),
-		Email:       utils.StringFromAny(row["email"]),
-		Name:        utils.StringFromAny(row["name"]),
-		AvatarURL:   utils.StringFromAny(row["avatar_url"]),
-		TeamsJSON:   utils.StringFromAny(row["teams"]),
-		Active:      utils.BoolFromAny(row["active"]),
-		LastLoginAt: row["last_login_at"],
-		CreatedAt:   row["created_at"],
+// NullableString returns nil when s is empty or whitespace, so MySQL writes NULL
+// instead of an empty string. Used for optional columns like password_hash.
+func NullableString(s string) *string {
+	trimmed := strings.TrimSpace(s)
+	if trimmed == "" {
+		return nil
 	}
+	return &trimmed
 }
 
-func UserRecordsFromMaps(rows []map[string]any) []UserRecord {
-	records := make([]UserRecord, 0, len(rows))
-	for _, row := range rows {
-		records = append(records, UserRecordFromMap(row))
+func ValueOrEmpty(s *string) string {
+	if s == nil {
+		return ""
 	}
-	return records
+	return *s
 }
 
-func TeamRecordFromMap(row map[string]any) TeamRecord {
-	var description *string
-	if value := utils.StringFromAny(row["description"]); value != "" {
-		description = &value
+func ValueOr(s *string, fallback string) string {
+	if s == nil {
+		return fallback
 	}
-
-	return TeamRecord{
-		ID:          utils.Int64FromAny(row["id"]),
-		OrgName:     utils.StringFromAny(row["org_name"]),
-		Name:        utils.StringFromAny(row["name"]),
-		Slug:        utils.StringFromAny(row["slug"]),
-		Description: description,
-		Active:      utils.BoolFromAny(row["active"]),
-		Color:       utils.StringFromAny(row["color"]),
-		Icon:        utils.StringFromAny(row["icon"]),
-		APIKey:      utils.StringFromAny(row["api_key"]),
-		CreatedAt:   row["created_at"],
-	}
-}
-
-func TeamRecordsFromMaps(rows []map[string]any) []TeamRecord {
-	records := make([]TeamRecord, 0, len(rows))
-	for _, row := range rows {
-		records = append(records, TeamRecordFromMap(row))
-	}
-	return records
+	return *s
 }
