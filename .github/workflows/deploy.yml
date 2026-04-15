@@ -18,8 +18,6 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       # ghcr.io requires lowercase paths; github.repository keeps org casing (e.g. Optikk-Org).
       - name: Image name (lowercase)
@@ -36,10 +34,15 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # Image tag = semver from repo-root VERSION (bump for 1.0.1, etc.). Not git-describe.
       - name: Resolve image version
         id: version
         run: |
-          VERSION="$(git describe --tags --long --always --dirty)"
+          VERSION="$(tr -d '[:space:]' < VERSION)"
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::VERSION file must contain a single MAJOR.MINOR.PATCH line (e.g. 1.0.1), got: $VERSION"
+            exit 1
+          fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Build and push
