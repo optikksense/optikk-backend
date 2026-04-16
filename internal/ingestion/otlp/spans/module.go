@@ -9,7 +9,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/kafka"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/proto"
 	"github.com/gin-gonic/gin"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -42,7 +42,7 @@ func NewModule(deps *registry.Deps) (registry.Module, error) {
 		return nil, fmt.Errorf("otlp spans kafka: %w", err)
 	}
 
-	flusher := otlp.NewCHFlusher[*SpanRow](cfg.CH, "observability.spans", SpanColumns)
+	flusher := dbutil.NewCHFlusher[*SpanRow](cfg.CH, "observability.spans", SpanColumns)
 	dispatcher := kafka.NewDispatcher[*proto.SpanRow](producer, cfg.Topic, "spans")
 
 	return &Module{

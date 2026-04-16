@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
+	errorcode "github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
 
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"

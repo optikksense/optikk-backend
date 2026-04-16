@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
+	errorcode "github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
 )
 
 type TeamMembership struct {

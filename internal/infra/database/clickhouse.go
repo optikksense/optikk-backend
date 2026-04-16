@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
-	"net"
 	"regexp"
 	"strings"
 	"time"
@@ -15,18 +14,9 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
-// clickHouseTransientErrorSubstrings matches transport-layer failures worth retrying
-// and mirrors the circuit-breaker "unsuccessful" string checks.
-var clickHouseTransientErrorSubstrings = []string{
-	"connection refused",
-	"connection reset",
-	"broken pipe",
-	"i/o timeout",
-	"no such host",
-	"timeout exceeded",
-	"connection closed",
-	"unexpected eof",
-}
+// ---------------------------------------------------------------------------
+// Connection pool defaults
+// ---------------------------------------------------------------------------
 
 const (
 	defaultCHMaxOpenConns    = 15
@@ -48,6 +38,9 @@ func applyClickHouseConnectionPoolDefaults(opts *clickhouse.Options) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// Connection opening
+// ---------------------------------------------------------------------------
 
 type ClickHouseCloudConfig struct {
 	Host     string
@@ -55,33 +48,26 @@ type ClickHouseCloudConfig struct {
 	Password string
 }
 
-func OpenClickHouseConn(dsn string, isProduction bool, cloud ...ClickHouseCloudConfig) (clickhouse.Conn, error) {
-	var opts *clickhouse.Options
+func cloudOptions(cc ClickHouseCloudConfig) *clickhouse.Options {
+	return &clickhouse.Options{
+		Addr:     []string{cc.Host},
+		Protocol: clickhouse.Native,
+		TLS: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+		},
+		Auth: clickhouse.Auth{
+			Username: cc.Username,
+			Password: cc.Password,
+		},
+		DialTimeout: 5 * time.Second,
+		ReadTimeout: 30 * time.Second,
+	}
+}
 
-	if isProduction {
-		if len(cloud) == 0 {
-			return nil, errors.New("clickhouse: ClickHouseCloudConfig required for production mode")
-		}
-		cc := cloud[0]
-		opts = &clickhouse.Options{
-			Addr:     []string{cc.Host},
-			Protocol: clickhouse.Native,
-			TLS: &tls.Config{
-				MinVersion: tls.VersionTLS12,
-			},
-			Auth: clickhouse.Auth{
-				Username: cc.Username,
-				Password: cc.Password,
-			},
-			DialTimeout: 5 * time.Second,
-			ReadTimeout: 30 * time.Second,
-		}
-	} else {
-		var err error
-		opts, err = clickhouse.ParseDSN(dsn)
-		if err != nil {
-			return nil, fmt.Errorf("clickhouse: parse DSN: %w", err)
-		}
+func OpenClickHouseConn(dsn string, isProduction bool, cloud ...ClickHouseCloudConfig) (clickhouse.Conn, error) {
+	opts, err := resolveClickHouseOptions(dsn, isProduction, cloud)
+	if err != nil {
+		return nil, err
 	}
 
 	applyClickHouseConnectionPoolDefaults(opts)
@@ -100,6 +86,23 @@ func OpenClickHouseConn(dsn string, isProduction bool, cloud ...ClickHouseCloudC
 	return conn, nil
 }
 
+func resolveClickHouseOptions(dsn string, isProduction bool, cloud []ClickHouseCloudConfig) (*clickhouse.Options, error) {
+	if isProduction {
+		if len(cloud) == 0 {
+			return nil, errors.New("clickhouse: ClickHouseCloudConfig required for production mode")
+		}
+		return cloudOptions(cloud[0]), nil
+	}
+	opts, err := clickhouse.ParseDSN(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse: parse DSN: %w", err)
+	}
+	return opts, nil
+}
+
+// ---------------------------------------------------------------------------
+// Query optimisation rewrites
+// ---------------------------------------------------------------------------
 
 var prewhereRe = regexp.MustCompile(
 	`(?i)\bWHERE\s+([\w.]*\.?)team_id\s*=\s*\?\s+AND\s+([\w.]*\.?)ts_bucket_start\s+BETWEEN\s+\?\s+AND\s+\?\s+AND\s+`,
@@ -126,6 +129,10 @@ func optimizeQuery(query string) string {
 	return query
 }
 
+// ---------------------------------------------------------------------------
+// NativeQuerier — read path (SELECT / QueryRow)
+// ---------------------------------------------------------------------------
+
 // NativeQuerier wraps clickhouse.Conn with shared circuit-breaking, slow query
 // logging, and ClickHouse-specific query rewrites. Repositories should prefer
 // Select/QueryRow with typed structs for ClickHouse access.
@@ -134,100 +141,64 @@ type NativeQuerier struct {
 }
 
 func NewNativeQuerier(conn clickhouse.Conn) *NativeQuerier {
-	return &NativeQuerier{
-		conn: conn,
-	}
-}
-
-// isRetriableClickHouseNetworkError reports whether err is likely transient at the
-// transport layer and safe to retry for read-only queries.
-func isRetriableClickHouseNetworkError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return false
-	}
-	var chErr *clickhouse.Exception
-	if errors.As(err, &chErr) {
-		return false
-	}
-	var netErr net.Error
-	if errors.As(err, &netErr) {
-		return true
-	}
-	var opErr *net.OpError
-	if errors.As(err, &opErr) {
-		return true
-	}
-	lower := strings.ToLower(err.Error())
-	for _, marker := range clickHouseTransientErrorSubstrings {
-		if strings.Contains(lower, marker) {
-			return true
-		}
-	}
-	return false
-}
-
-const clickHouseReadMaxAttempts = 3
-
-// retryClickHouseRead re-executes op on transient connection failures (initial try
-// plus up to clickHouseReadMaxAttempts-1 retries).
-func retryClickHouseRead(ctx context.Context, op func() error) error {
-	var lastErr error
-	for attempt := range clickHouseReadMaxAttempts {
-		if attempt > 0 {
-			backoff := time.Duration(50*(1<<uint(attempt-1))) * time.Millisecond
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(backoff):
-			}
-			slog.Info("clickhouse_native retry after transient error",
-				slog.Int("attempt", attempt+1),
-				slog.String("cause", lastErr.Error()))
-		}
-		lastErr = op()
-		if lastErr == nil {
-			return nil
-		}
-		if !isRetriableClickHouseNetworkError(lastErr) {
-			return lastErr
-		}
-	}
-	return lastErr
+	return &NativeQuerier{conn: conn}
 }
 
 func (n *NativeQuerier) Select(ctx context.Context, dest any, query string, args ...any) error {
-	query = optimizeQuery(query)
-	err := retryClickHouseRead(ctx, func() error {
-		return n.conn.Select(ctx, dest, query, args...)
-	})
-	return err
+	return n.conn.Select(ctx, dest, optimizeQuery(query), args...)
 }
 
 func (n *NativeQuerier) QueryRow(ctx context.Context, dest any, query string, args ...any) error {
-	query = optimizeQuery(query)
-	err := retryClickHouseRead(ctx, func() error {
-		return n.conn.QueryRow(ctx, query, args...).ScanStruct(dest)
-	})
-	return err
+	return n.conn.QueryRow(ctx, optimizeQuery(query), args...).ScanStruct(dest)
 }
 
-// SelectTyped executes a SELECT query and scans results into a typed slice.
-// Eliminates the common three-line pattern: var rows []T; err := db.Select(...); return rows, err
-func SelectTyped[T any](ctx context.Context, db *NativeQuerier, query string, args ...any) ([]T, error) {
-	var rows []T
-	err := db.Select(ctx, &rows, query, args...)
-	return rows, err
+// ---------------------------------------------------------------------------
+// CHFlusher — write path (batch INSERT)
+// ---------------------------------------------------------------------------
+
+// CHFlusher batches rows and inserts them into a ClickHouse table using PrepareBatch.
+type CHFlusher[T any] struct {
+	conn        clickhouse.Conn
+	queryPrefix string
+	table       string
 }
 
-// QueryRowTyped executes a single-row query and scans into a typed struct.
-func QueryRowTyped[T any](ctx context.Context, db *NativeQuerier, query string, args ...any) (T, error) {
-	var row T
-	err := db.QueryRow(ctx, &row, query, args...)
-	return row, err
+func NewCHFlusher[T any](conn clickhouse.Conn, table string, columns []string) *CHFlusher[T] {
+	return &CHFlusher[T]{
+		conn:        conn,
+		queryPrefix: "INSERT INTO " + table + " (" + strings.Join(columns, ", ") + ")",
+		table:       table,
+	}
 }
+
+func (f *CHFlusher[T]) Flush(batch []T) error {
+	if len(batch) == 0 {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	b, err := f.conn.PrepareBatch(ctx, f.queryPrefix)
+	if err != nil {
+		slog.Error("ingest: prepare failed", slog.String("table", f.table), slog.Any("error", err))
+		return err
+	}
+	for i, row := range batch {
+		if err := b.AppendStruct(row); err != nil {
+			slog.Error("ingest: append failed", slog.String("table", f.table), slog.Int("index", i), slog.Any("error", err))
+			return err
+		}
+	}
+	if err := b.Send(); err != nil {
+		slog.Error("ingest: send failed", slog.String("table", f.table), slog.Any("error", err))
+		return err
+	}
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Named parameter helpers
+// ---------------------------------------------------------------------------
 
 // SpanBaseParams returns the standard named parameters for span queries.
 // Includes team_id, ts_bucket_start range, and timestamp range.

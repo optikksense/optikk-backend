@@ -14,8 +14,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	types "github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
 )
 
 // ---------------------------------------------------------------------------
@@ -73,7 +72,7 @@ func Failure(code, msg, path string, requestID ...string) APIResponse {
 // Tenant extraction
 // ---------------------------------------------------------------------------
 
-type GetTenantFunc func(*gin.Context) types.TenantContext
+type GetTenantFunc func(*gin.Context) contracts.TenantContext
 
 // ---------------------------------------------------------------------------
 // Response helpers
@@ -123,8 +122,6 @@ func ParseInt64Param(c *gin.Context, key string, fallback int64) int64 {
 	return fallback
 }
 
-const MaxPageSize = 200
-
 func ParseIntParam(c *gin.Context, key string, fallback int) int {
 	if v := c.Query(key); v != "" {
 		if parsed, err := strconv.Atoi(v); err == nil {
@@ -141,17 +138,6 @@ func ParseFloatParam(c *gin.Context, key string, fallback float64) float64 {
 		}
 	}
 	return fallback
-}
-
-func ParsePageSize(c *gin.Context, key string, fallback int) int {
-	size := ParseIntParam(c, key, fallback)
-	if size > MaxPageSize {
-		size = MaxPageSize
-	}
-	if size <= 0 {
-		size = fallback
-	}
-	return size
 }
 
 func ParseListParam(c *gin.Context, key string) []string {
@@ -216,11 +202,15 @@ func ParseRange(c *gin.Context) (startMs, endMs int64, err error) {
 func ParseRequiredRange(c *gin.Context) (startMs, endMs int64, ok bool) {
 	start, end, err := ParseRange(c)
 	if err != nil {
-		RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "start and end time params are required")
+		RespondError(c, http.StatusBadRequest, contracts.BadRequest, "start and end time params are required")
 		return 0, 0, false
 	}
 	return start, end, true
 }
+
+// ---------------------------------------------------------------------------
+// Comparison helpers
+// ---------------------------------------------------------------------------
 
 // ParseComparisonRange returns an optional comparison time range.
 // If compareStart is provided, it returns the comparison window.

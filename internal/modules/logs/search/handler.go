@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
+	errorcode "github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
 
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/logs/internal/shared"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"

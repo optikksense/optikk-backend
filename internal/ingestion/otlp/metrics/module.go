@@ -9,7 +9,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/kafka"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/proto"
 	"github.com/gin-gonic/gin"
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
@@ -40,7 +40,7 @@ func NewModule(deps *registry.Deps) (registry.Module, error) {
 		return nil, fmt.Errorf("otlp metrics kafka: %w", err)
 	}
 
-	flusher := otlp.NewCHFlusher[*MetricRow](cfg.CH, "observability.metrics", MetricColumns)
+	flusher := dbutil.NewCHFlusher[*MetricRow](cfg.CH, "observability.metrics", MetricColumns)
 	dispatcher := kafka.NewDispatcher[*proto.MetricRow](producer, cfg.Topic, "metrics")
 
 	return &Module{

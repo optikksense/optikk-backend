@@ -7,10 +7,8 @@ import (
 	"strings"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/session"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
-
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
-	types "github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
 	"github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -79,7 +77,7 @@ func ErrorRecovery() gin.HandlerFunc {
 			slog.String("ip", c.ClientIP()),
 			slog.String("stack", string(debug.Stack())),
 		)
-		c.JSON(http.StatusInternalServerError, httputil.Failure(errorcode.Internal, "An unexpected error occurred", c.Request.URL.Path))
+		c.JSON(http.StatusInternalServerError, httputil.Failure(contracts.Internal, "An unexpected error occurred", c.Request.URL.Path))
 	})
 }
 
@@ -133,7 +131,7 @@ func isPublicRequest(method, path string) bool {
 func abortUnauthorized(c *gin.Context) {
 	slog.Warn("AUTH_DENIED", slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path), slog.String("code", "UNAUTHORIZED"), slog.String("ip", c.ClientIP()))
 	c.AbortWithStatusJSON(http.StatusUnauthorized, httputil.Failure(
-		errorcode.Unauthorized, "Valid authentication is required", c.Request.URL.Path,
+		contracts.Unauthorized, "Valid authentication is required", c.Request.URL.Path,
 	))
 }
 
@@ -191,7 +189,7 @@ func TenantMiddleware(sessions session.Manager) gin.HandlerFunc {
 			role = "member"
 		}
 
-		c.Set(string(tenantKey), types.TenantContext{
+		c.Set(string(tenantKey), contracts.TenantContext{
 			TeamID:    teamID,
 			UserID:    authState.UserID,
 			UserEmail: authState.Email,
@@ -239,14 +237,14 @@ func RequireRole(allowed ...string) gin.HandlerFunc {
 	}
 }
 
-func GetTenant(c *gin.Context) types.TenantContext {
+func GetTenant(c *gin.Context) contracts.TenantContext {
 	v, ok := c.Get(string(tenantKey))
 	if !ok {
-		return types.TenantContext{}
+		return contracts.TenantContext{}
 	}
-	t, ok := v.(types.TenantContext)
+	t, ok := v.(contracts.TenantContext)
 	if !ok {
-		return types.TenantContext{}
+		return contracts.TenantContext{}
 	}
 	return t
 }

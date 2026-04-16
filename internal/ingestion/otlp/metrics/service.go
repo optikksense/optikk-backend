@@ -5,7 +5,7 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/kafka"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/auth"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/proto"
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	"google.golang.org/grpc/codes"
@@ -29,7 +29,7 @@ func NewService(authenticator ingestion.TeamResolver, d *kafka.Dispatcher[*proto
 }
 
 func (s *Service) Export(ctx context.Context, req *metricspb.ExportMetricsServiceRequest) (*metricspb.ExportMetricsServiceResponse, error) {
-	teamID, err := otlp.ResolveTeamID(ctx, s.auth)
+	teamID, err := auth.ResolveFromContext(ctx, s.auth)
 	if err != nil {
 		return nil, err
 	}
@@ -45,6 +45,6 @@ func (s *Service) Export(ctx context.Context, req *metricspb.ExportMetricsServic
 		}
 	}
 
-	otlp.TrackPayloadSize(s.tracker, teamID, req)
+	auth.TrackPayloadSize(s.tracker, teamID, req)
 	return &metricspb.ExportMetricsServiceResponse{}, nil
 }

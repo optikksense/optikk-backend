@@ -8,7 +8,7 @@ import (
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/explorer/queryparser"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
+	errorcode "github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )

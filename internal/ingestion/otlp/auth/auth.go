@@ -7,10 +7,16 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"time"
 
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
 	goredis "github.com/redis/go-redis/v9"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/proto"
 )
 
 var (
@@ -84,4 +90,50 @@ func (a *Authenticator) ResolveTeamID(ctx context.Context, apiKey string) (int64
 	}
 
 	return teamID, nil
+}
+
+// ResolveFromContext extracts the x-api-key from gRPC metadata and resolves it
+// to a team ID via the given resolver.
+func ResolveFromContext(ctx context.Context, resolver ingestion.TeamResolver) (int64, error) {
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		slog.Warn("OTLP request missing metadata")
+		return 0, status.Error(codes.Unauthenticated, "missing metadata")
+	}
+
+	keys := md.Get("x-api-key")
+	if len(keys) == 0 {
+		slog.Warn("OTLP request missing x-api-key header")
+		return 0, status.Error(codes.Unauthenticated, "missing x-api-key metadata header")
+	}
+
+	apiKey := keys[0]
+	maskedKey := apiKey
+	if len(apiKey) > 8 {
+		maskedKey = apiKey[:4] + "..." + apiKey[len(apiKey)-4:]
+	}
+
+	teamID, err := resolver.ResolveTeamID(ctx, apiKey)
+	if err != nil {
+		slog.Error("OTLP auth failed", slog.String("apiKey", maskedKey), slog.Any("error", err))
+		if errors.Is(err, ErrMissingAPIKey) || errors.Is(err, ErrInvalidAPIKey) {
+			return 0, status.Error(codes.Unauthenticated, err.Error())
+		}
+		return 0, status.Error(codes.Internal, err.Error())
+	}
+
+	slog.Debug("OTLP request authenticated", slog.String("apiKey", maskedKey), slog.Int64("teamID", teamID))
+	return teamID, nil
+}
+
+// TrackPayloadSize records the serialized size of a protobuf message for usage tracking.
+func TrackPayloadSize(tracker ingestion.SizeTracker, teamID int64, msg proto.Message) {
+	if tracker == nil || teamID <= 0 || msg == nil {
+		return
+	}
+	size := proto.Size(msg)
+	if size <= 0 {
+		return
+	}
+	tracker.Track(teamID, int64(size))
 }

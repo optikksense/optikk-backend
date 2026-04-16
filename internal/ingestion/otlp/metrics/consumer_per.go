@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/kafka"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/proto"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
@@ -14,7 +14,7 @@ type PersistenceConsumer struct {
 	runner *kafka.ConsumerRunner[*proto.MetricRow]
 }
 
-func NewPersistenceConsumer(client *kgo.Client, flusher *otlp.CHFlusher[*MetricRow]) *PersistenceConsumer {
+func NewPersistenceConsumer(client *kgo.Client, flusher *dbutil.CHFlusher[*MetricRow]) *PersistenceConsumer {
 	c := &PersistenceConsumer{}
 	c.runner = &kafka.ConsumerRunner[*proto.MetricRow]{
 		Signal: "metrics-persist",

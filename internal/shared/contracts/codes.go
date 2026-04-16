@@ -1,4 +1,4 @@
-package errorcode
+package contracts
 
 // Request & validation errors (4xx)
 const (
