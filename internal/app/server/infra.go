@@ -1,10 +1,8 @@
 package server
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
-	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 
@@ -25,16 +23,21 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/livetail"
 	redigoredis "github.com/gomodule/redigo/redis"
 	goredis "github.com/redis/go-redis/v9"
-	googlepb "google.golang.org/protobuf/proto"
 )
 
 // OTLPDependencies wires OTLP ingest services and workers.
 type OTLPDependencies struct {
 	Authenticator    ingestion.TeamResolver
 	Tracker          ingestion.SizeTracker
-	LogDispatcher    *kafkadispatcher.KafkaDispatcher[*proto.LogRow]
-	SpanDispatcher   *kafkadispatcher.KafkaDispatcher[*proto.SpanRow]
-	MetricDispatcher *kafkadispatcher.KafkaDispatcher[*proto.MetricRow]
+	LogDispatcher    *kafkadispatcher.Dispatcher[*proto.LogRow]
+	SpanDispatcher   *kafkadispatcher.Dispatcher[*proto.SpanRow]
+	MetricDispatcher *kafkadispatcher.Dispatcher[*proto.MetricRow]
+
+	LogPersist    *otlplogs.PersistenceConsumer
+	LogStream     *otlplogs.StreamingConsumer
+	SpanPersist   *otlpspans.PersistenceConsumer
+	SpanStream    *otlpspans.StreamingConsumer
+	MetricPersist *otlpmetrics.PersistenceConsumer
 }
 
 // Infra holds process-wide infrastructure constructed at startup.
@@ -55,7 +58,7 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 	}
 	defer func() {
 		if err != nil {
-			_ = dbConn.Close() //nolint:errcheck // cleanup after failed init
+			_ = dbConn.Close() //nolint:errcheck
 		}
 	}()
 
@@ -70,7 +73,7 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 	}
 	defer func() {
 		if err != nil {
-			_ = chConn.Close() //nolint:errcheck // cleanup after failed init
+			_ = chConn.Close() //nolint:errcheck
 		}
 	}()
 
@@ -82,108 +85,49 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 	sessionManager, err := newSessionManager(cfg, redisClients.Pool)
 	if err != nil {
 		redisClients.Pool.Close()
-		_ = redisClients.Client.Close() //nolint:errcheck // best-effort cleanup on init failure
+		_ = redisClients.Client.Close()
 		return nil, err
 	}
 
 	liveTailHub, err := newLiveTailHub()
 	if err != nil {
 		redisClients.Pool.Close()
-		_ = redisClients.Client.Close() //nolint:errcheck // best-effort cleanup on init failure
+		_ = redisClients.Client.Close()
 		return nil, err
 	}
 
 	prefix := cfg.KafkaTopicPrefix()
 	if err := kafka.EnsureTopics(cfg.KafkaBrokers(), kafka.IngestTopicNames(prefix)); err != nil {
 		redisClients.Pool.Close()
-		_ = redisClients.Client.Close() //nolint:errcheck // best-effort cleanup on init failure
+		_ = redisClients.Client.Close()
 		return nil, fmt.Errorf("kafka ingest topics: %w", err)
 	}
 
+	// Logs
+	logP, logS, logR, err := kafka.InitIngestClients(cfg.KafkaBrokers(), cfg.KafkaConsumerGroup(), prefix+".logs", "logs")
+	if err != nil {
+		return nil, err
+	}
 	logFlusher := otlp.NewCHFlusher[*otlplogs.LogRow](chConn, "observability.logs", otlplogs.LogColumns)
+	logConsumerP := otlplogs.NewPersistenceConsumer(logR, logFlusher)
+	logConsumerS := otlplogs.NewStreamingConsumer(logS, liveTailHub)
+
+	// Spans
+	spanP, spanS, spanR, err := kafka.InitIngestClients(cfg.KafkaBrokers(), cfg.KafkaConsumerGroup(), prefix+".spans", "spans")
+	if err != nil {
+		return nil, err
+	}
 	spanFlusher := otlp.NewCHFlusher[*otlpspans.SpanRow](chConn, "observability.spans", otlpspans.SpanColumns)
+	spanConsumerP := otlpspans.NewPersistenceConsumer(spanR, spanFlusher)
+	spanConsumerS := otlpspans.NewStreamingConsumer(spanS, liveTailHub)
+
+	// Metrics
+	metricP, _, metricR, err := kafka.InitIngestClients(cfg.KafkaBrokers(), cfg.KafkaConsumerGroup(), prefix+".metrics", "metrics")
+	if err != nil {
+		return nil, err
+	}
 	metricFlusher := otlp.NewCHFlusher[*otlpmetrics.MetricRow](chConn, "observability.metrics", otlpmetrics.MetricColumns)
-
-	// Logs: OnPersistence converts proto.LogRow → logs.LogRow (ch: tags) before flushing.
-	logHandlers := ingestion.Handlers[*proto.LogRow]{
-		OnPersistence: func(ctx context.Context, rows []*proto.LogRow) error {
-			chRows := make([]*otlplogs.LogRow, len(rows))
-			for i, r := range rows {
-				chRows[i] = otlplogs.FromProto(r)
-			}
-			return logFlusher.Flush(chRows)
-		},
-		OnStreaming: func(ctx context.Context, batch ingestion.TelemetryBatch[*proto.LogRow]) {
-			for _, row := range batch.Rows {
-				chRow := otlplogs.FromProto(row)
-				if payload, ok := otlplogs.LiveTailStreamPayload(chRow); ok && payload != nil {
-					liveTailHub.Publish(batch.TeamID, payload)
-				}
-			}
-		},
-	}
-
-	// Spans: OnPersistence converts proto.SpanRow → spans.SpanRow (ch: tags) before flushing.
-	spanHandlers := ingestion.Handlers[*proto.SpanRow]{
-		OnPersistence: func(ctx context.Context, rows []*proto.SpanRow) error {
-			chRows := make([]*otlpspans.SpanRow, len(rows))
-			for i, r := range rows {
-				chRows[i] = otlpspans.FromProto(r)
-			}
-			return spanFlusher.Flush(chRows)
-		},
-		OnStreaming: func(ctx context.Context, batch ingestion.TelemetryBatch[*proto.SpanRow]) {
-			for _, row := range batch.Rows {
-				chRow := otlpspans.FromProto(row)
-				data, err := otlpspans.SpanLiveTailStreamPayload(chRow, time.Now().UnixMilli())
-				if err == nil && data != nil {
-					liveTailHub.Publish(batch.TeamID, data)
-				}
-			}
-		},
-	}
-
-	// Metrics: OnPersistence converts proto.MetricRow → metrics.MetricRow (ch: tags) before flushing.
-	metricHandlers := ingestion.Handlers[*proto.MetricRow]{
-		OnPersistence: func(ctx context.Context, rows []*proto.MetricRow) error {
-			chRows := make([]*otlpmetrics.MetricRow, len(rows))
-			for i, r := range rows {
-				chRows[i] = otlpmetrics.FromProto(r)
-			}
-			return metricFlusher.Flush(chRows)
-		},
-	}
-
-	logDispatcher, err := newIngestDispatcher(
-		"logs", cfg,
-		func() *proto.LogRow { return &proto.LogRow{} },
-		logHandlers,
-	)
-	if err != nil {
-		redisClients.Pool.Close()
-		_ = redisClients.Client.Close()
-		return nil, err
-	}
-	spanDispatcher, err := newIngestDispatcher(
-		"spans", cfg,
-		func() *proto.SpanRow { return &proto.SpanRow{} },
-		spanHandlers,
-	)
-	if err != nil {
-		redisClients.Pool.Close()
-		_ = redisClients.Client.Close()
-		return nil, err
-	}
-	metricDispatcher, err := newIngestDispatcher(
-		"metrics", cfg,
-		func() *proto.MetricRow { return &proto.MetricRow{} },
-		metricHandlers,
-	)
-	if err != nil {
-		redisClients.Pool.Close()
-		_ = redisClients.Client.Close()
-		return nil, err
-	}
+	metricConsumerP := otlpmetrics.NewPersistenceConsumer(metricR, metricFlusher)
 
 	return &Infra{
 		DB:             dbConn,
@@ -195,9 +139,14 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 		OTLP: OTLPDependencies{
 			Authenticator:    auth.NewAuthenticator(dbConn, redisClients.Client),
 			Tracker:          tracker.NewByteTracker(dbConn, cfg.ByteTrackerFlushInterval()),
-			LogDispatcher:    logDispatcher,
-			SpanDispatcher:   spanDispatcher,
-			MetricDispatcher: metricDispatcher,
+			LogDispatcher:    kafkadispatcher.New[*proto.LogRow](logP, prefix+".logs", "logs"),
+			SpanDispatcher:   kafkadispatcher.New[*proto.SpanRow](spanP, prefix+".spans", "spans"),
+			MetricDispatcher: kafkadispatcher.New[*proto.MetricRow](metricP, prefix+".metrics", "metrics"),
+			LogPersist:       logConsumerP,
+			LogStream:        logConsumerS,
+			SpanPersist:      spanConsumerP,
+			SpanStream:       spanConsumerS,
+			MetricPersist:    metricConsumerP,
 		},
 	}, nil
 }
@@ -205,9 +154,6 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 func (i *Infra) Close() error {
 	if i == nil {
 		return nil
-	}
-	if stopper, ok := i.OTLP.Tracker.(interface{ Stop() }); ok {
-		stopper.Stop()
 	}
 	if i.OTLP.LogDispatcher != nil {
 		i.OTLP.LogDispatcher.Close()
@@ -219,16 +165,16 @@ func (i *Infra) Close() error {
 		i.OTLP.MetricDispatcher.Close()
 	}
 	if i.RedisPool != nil {
-		_ = i.RedisPool.Close() //nolint:errcheck // best-effort cleanup
+		_ = i.RedisPool.Close()
 	}
 	if i.RedisClient != nil {
-		_ = i.RedisClient.Close() //nolint:errcheck // best-effort cleanup
+		_ = i.RedisClient.Close()
 	}
 	if i.CH != nil {
-		_ = i.CH.Close() //nolint:errcheck // best-effort cleanup
+		_ = i.CH.Close()
 	}
 	if i.DB != nil {
-		_ = i.DB.Close() //nolint:errcheck // best-effort cleanup
+		_ = i.DB.Close()
 	}
 	return nil
 }
@@ -242,14 +188,4 @@ func newSessionManager(cfg config.Config, pool *redigoredis.Pool) (session.Manag
 
 func newLiveTailHub() (livetail.Hub, error) {
 	return livetail.NewHub(), nil
-}
-
-func newIngestDispatcher[T googlepb.Message](
-	name string, cfg config.Config,
-	newMsg func() T,
-	handlers ingestion.Handlers[T],
-) (*kafkadispatcher.KafkaDispatcher[T], error) {
-	prefix := cfg.KafkaTopicPrefix()
-	topic := fmt.Sprintf("%s.%s", prefix, name)
-	return kafkadispatcher.New[T](cfg.KafkaBrokers(), cfg.KafkaConsumerGroup(), topic, name, newMsg, handlers)
 }

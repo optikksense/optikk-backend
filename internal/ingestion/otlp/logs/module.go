@@ -1,6 +1,8 @@
 package logs
 
 import (
+	"context"
+
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/kafkadispatcher"
@@ -10,15 +12,24 @@ import (
 	"google.golang.org/grpc"
 )
 
-func NewModule(authenticator ingestion.TeamResolver, tracker ingestion.SizeTracker, d *kafkadispatcher.KafkaDispatcher[*proto.LogRow]) registry.Module {
-	service := NewService(authenticator, d, tracker)
+func NewModule(
+	authenticator ingestion.TeamResolver,
+	tracker ingestion.SizeTracker,
+	d *kafkadispatcher.Dispatcher[*proto.LogRow],
+	persist *PersistenceConsumer,
+	stream *StreamingConsumer,
+) registry.Module {
 	return &Module{
-		handler: NewHandler(service),
+		service: NewService(authenticator, d, tracker),
+		persist: persist,
+		stream:  stream,
 	}
 }
 
 type Module struct {
-	handler *Handler
+	service *Service
+	persist *PersistenceConsumer
+	stream  *StreamingConsumer
 }
 
 func (m *Module) Name() string                      { return "otlpLogs" }
@@ -26,9 +37,25 @@ func (m *Module) RouteTarget() registry.RouteTarget { return registry.V1 }
 func (m *Module) RegisterRoutes(_ *gin.RouterGroup) {}
 
 func (m *Module) RegisterGRPC(srv *grpc.Server) {
-	logspb.RegisterLogsServiceServer(srv, m.handler)
+	logspb.RegisterLogsServiceServer(srv, m.service)
 }
 
-func (m *Module) Start() {}
+func (m *Module) Start() {
+	ctx := context.Background()
+	if m.persist != nil {
+		m.persist.Start(ctx)
+	}
+	if m.stream != nil {
+		m.stream.Start(ctx)
+	}
+}
 
-func (m *Module) Stop() error { return nil }
+func (m *Module) Stop() error {
+	if m.persist != nil {
+		_ = m.persist.Stop()
+	}
+	if m.stream != nil {
+		_ = m.stream.Stop()
+	}
+	return nil
+}

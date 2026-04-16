@@ -9,6 +9,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/protoconv"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/proto"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/livetail"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	trace "go.opentelemetry.io/proto/otlp/trace/v1"
@@ -278,32 +279,14 @@ func mapGet(m map[string]string, keys ...string) string {
 	return ""
 }
 
-// WireSpan matches traces/livetail.LiveSpan JSON shape plus emit_ms.
-type WireSpan struct {
-	SpanID        string    `json:"spanId"`
-	TraceID       string    `json:"traceId"`
-	ServiceName   string    `json:"serviceName"`
-	OperationName string    `json:"operationName"`
-	DurationMs    float64   `json:"durationMs"`
-	Status        string    `json:"status"`
-	Host          string    `json:"host,omitempty"`
-	HTTPMethod    string    `json:"httpMethod,omitempty"`
-	HTTPStatus    string    `json:"httpStatusCode,omitempty"`
-	SpanKind      string    `json:"spanKind,omitempty"`
-	HasError      bool      `json:"hasError"`
-	Timestamp     time.Time `json:"timestamp"`
-	EmitMs        int64     `json:"emit_ms"`
-}
-
-// SpanLiveTailStreamPayload encodes an ingest row for span snapshots or broadcasting.
 func SpanLiveTailStreamPayload(row *SpanRow, emitMs int64) (any, error) {
 	w := liveSpanTailFromRow(row)
 	w.EmitMs = emitMs
 	return w, nil
 }
 
-func liveSpanTailFromRow(row *SpanRow) WireSpan {
-	return WireSpan{
+func liveSpanTailFromRow(row *SpanRow) livetail.WireSpan {
+	return livetail.WireSpan{
 		SpanID:        row.SpanID,
 		TraceID:       row.TraceID,
 		ServiceName:   row.Attributes["service.name"],

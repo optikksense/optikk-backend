@@ -12,13 +12,15 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// Service implements the OTLP gRPC log ingestion endpoint.
 type Service struct {
+	logspb.UnimplementedLogsServiceServer
 	auth       ingestion.TeamResolver
-	dispatcher *kafkadispatcher.KafkaDispatcher[*proto.LogRow]
+	dispatcher *kafkadispatcher.Dispatcher[*proto.LogRow]
 	tracker    ingestion.SizeTracker
 }
 
-func NewService(authenticator ingestion.TeamResolver, d *kafkadispatcher.KafkaDispatcher[*proto.LogRow], tracker ingestion.SizeTracker) *Service {
+func NewService(authenticator ingestion.TeamResolver, d *kafkadispatcher.Dispatcher[*proto.LogRow], tracker ingestion.SizeTracker) *Service {
 	return &Service{
 		auth:       authenticator,
 		dispatcher: d,
@@ -38,10 +40,8 @@ func (s *Service) Export(ctx context.Context, req *logspb.ExportLogsServiceReque
 	}
 
 	for _, row := range rows {
-		if err := s.dispatcher.Dispatch(ingestion.TelemetryBatch[*proto.LogRow]{
-			TeamID: teamID,
-			Rows:   []*proto.LogRow{row},
-		}); err != nil {
+		// Dispatch individually as proto messages
+		if err := s.dispatcher.Dispatch(ctx, row); err != nil {
 			return nil, status.Error(codes.Unavailable, err.Error())
 		}
 	}

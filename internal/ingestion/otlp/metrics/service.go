@@ -12,13 +12,15 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// Service implements the OTLP gRPC metrics ingestion endpoint.
 type Service struct {
+	metricspb.UnimplementedMetricsServiceServer
 	auth       ingestion.TeamResolver
-	dispatcher *kafkadispatcher.KafkaDispatcher[*proto.MetricRow]
+	dispatcher *kafkadispatcher.Dispatcher[*proto.MetricRow]
 	tracker    ingestion.SizeTracker
 }
 
-func NewService(authenticator ingestion.TeamResolver, d *kafkadispatcher.KafkaDispatcher[*proto.MetricRow], tracker ingestion.SizeTracker) *Service {
+func NewService(authenticator ingestion.TeamResolver, d *kafkadispatcher.Dispatcher[*proto.MetricRow], tracker ingestion.SizeTracker) *Service {
 	return &Service{
 		auth:       authenticator,
 		dispatcher: d,
@@ -38,10 +40,7 @@ func (s *Service) Export(ctx context.Context, req *metricspb.ExportMetricsServic
 	}
 
 	for _, row := range rows {
-		if err := s.dispatcher.Dispatch(ingestion.TelemetryBatch[*proto.MetricRow]{
-			TeamID: teamID,
-			Rows:   []*proto.MetricRow{row},
-		}); err != nil {
+		if err := s.dispatcher.Dispatch(ctx, row); err != nil {
 			return nil, status.Error(codes.Unavailable, err.Error())
 		}
 	}

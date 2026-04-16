@@ -152,11 +152,11 @@ All under `/http/` prefix, Cached:
 
 ## Ingestion
 
-- **OTLP Pipeline**: `internal/ingestion/otlp/` — gRPC export explicitly mapped to concrete structs (`LogRow`, `SpanRow`, `MetricRow`).
-- **Authentication**: `internal/ingestion/otlp/auth/` — team resolution via API keys; optional Redis cache (TTL) when Redis is enabled.
-- **Dispatch contracts & implementations**: `internal/ingestion/` — `Dispatcher[T]`, `TelemetryBatch[T]`, OTLP dependency interfaces; `internal/ingestion/kafkadispatcher/` — Kafka-backed OTLP ingest queue (required; brokers in `kafka` / env).
-- **Kafka admin (topics)**: `internal/infra/kafka/topics.go` — `EnsureTopics`, `IngestTopicNames` (called from `server` at startup).
-- **Background consumers**: `internal/ingestion/kafkadispatcher/` — natively handles memory buffering, ClickHouse flushing via `CHFlusher[T]`, and live-tail WebSocket broadcasts synchronously to guarantee at-least-once delivery with true backpressure. Relies on `internal/infra/kafka/factory.go` for start-time initialization and `internal/ingestion/proto/` for binary serialization.
+- **OTLP Pipeline**: `internal/ingestion/otlp/` — gRPC export explicitly mapped to internal Protobuf transport types. Ingestion modules here implement `BackgroundRunner` to manage their own signal-specific consumers.
+- **Authentication**: `internal/ingestion/otlp/auth/` — team resolution via API keys; optional Redis cache (TTL).
+- **Dispatch contracts & implementations**: `internal/ingestion/` — `Handlers[T]`, `TelemetryBatch[T]`, OTLP dependency interfaces; `internal/ingestion/kafkadispatcher/` — Proto-native Kafka producer used by gRPC services to queue telemetry.
+- **Kafka admin & consumers**: `internal/infra/kafka/` — `topics.go` (topic creation), `factory.go` (client init), and **`consumer.go`** (generic `ConsumerRunner[T]` polling loop).
+- **Decentralized Consumers**: Each signal package (`logs`, `spans`, `metrics`) now owns its own **`consumer_per.go`** and **`consumer_stream.go`**. This localizes the mapping from internal Protobuf models to ClickHouse-ready Row types (with `ch:` tags) and broadcasts to the LiveTail hub.
 
 ## Infrastructure Layer (`internal/infra/`)
 
@@ -165,7 +165,7 @@ All under `/http/` prefix, Cached:
 | `session` | Session/auth contract used by app, middleware, WebSocket auth, and auth module |
 | `ratelimit` | Rate limiter contract and provider-facing API |
 | `livetail` | Live-tail hub contract |
-| `kafka` | Kafka topic creation (`topics.go`) and specialized client initialization (`factory.go`) |
+| `kafka` | Kafka topic creation (`topics.go`), client initialization (`factory.go`), and generic **`ConsumerRunner`** loop (`consumer.go`) |
 
 ## Internal Infrastructure (`internal/infra/`)
 
@@ -185,12 +185,12 @@ All under `/http/` prefix, Cached:
 
 ## Module Anatomy (LLD)
 
-Every feature module follows a strict 6-file pattern under `internal/modules/<domain>/`:
+ Every feature module follows a strict 6-file pattern under `internal/modules/<domain>/`. **Note:** Ingestion modules (`internal/ingestion/otlp/...`) follow a leaner pattern where `service.go` implements the gRPC server interface directly to eliminate redundant passthrough code.
 
 | File | Purpose |
 |------|---------|
-| `handler.go` | HTTP handlers — param parsing, response writing |
-| `service.go` | Interface + concrete impl — business logic, orchestration |
+| `handler.go` | HTTP handlers — param parsing, response writing (omitted in ingestion) |
+| `service.go` | Interface + concrete impl — business logic, orchestration; implements gRPC entrypoint in ingestion modules |
 | `repository.go` | Interface + concrete impl — raw ClickHouse/MySQL queries (all methods here) |
 | `module.go` | `NewModule()` constructor, `RegisterRoutes()`, wired into `modules_manifest.go` |
 | `dto.go` | Request/response DTOs (JSON tags) |

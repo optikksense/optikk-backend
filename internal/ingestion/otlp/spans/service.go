@@ -12,13 +12,15 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// Service implements the OTLP gRPC span ingestion endpoint.
 type Service struct {
+	tracepb.UnimplementedTraceServiceServer
 	auth       ingestion.TeamResolver
-	dispatcher *kafkadispatcher.KafkaDispatcher[*proto.SpanRow]
+	dispatcher *kafkadispatcher.Dispatcher[*proto.SpanRow]
 	tracker    ingestion.SizeTracker
 }
 
-func NewService(authenticator ingestion.TeamResolver, d *kafkadispatcher.KafkaDispatcher[*proto.SpanRow], tracker ingestion.SizeTracker) *Service {
+func NewService(authenticator ingestion.TeamResolver, d *kafkadispatcher.Dispatcher[*proto.SpanRow], tracker ingestion.SizeTracker) *Service {
 	return &Service{
 		auth:       authenticator,
 		dispatcher: d,
@@ -38,10 +40,7 @@ func (s *Service) Export(ctx context.Context, req *tracepb.ExportTraceServiceReq
 	}
 
 	for _, row := range rows {
-		if err := s.dispatcher.Dispatch(ingestion.TelemetryBatch[*proto.SpanRow]{
-			TeamID: teamID,
-			Rows:   []*proto.SpanRow{row},
-		}); err != nil {
+		if err := s.dispatcher.Dispatch(ctx, row); err != nil {
 			return nil, status.Error(codes.Unavailable, err.Error())
 		}
 	}

@@ -87,9 +87,9 @@ func configuredModules(
 		}),
 		metrics.NewModule(nativeQuerier, getTenant),
 
-		otlp_spans.NewModule(infraDeps.OTLP.Authenticator, infraDeps.OTLP.Tracker, infraDeps.OTLP.SpanDispatcher),
-		otlp_logs.NewModule(infraDeps.OTLP.Authenticator, infraDeps.OTLP.Tracker, infraDeps.OTLP.LogDispatcher),
-		otlp_metrics.NewModule(infraDeps.OTLP.Authenticator, infraDeps.OTLP.Tracker, infraDeps.OTLP.MetricDispatcher),
+		otlp_spans.NewModule(infraDeps.OTLP.Authenticator, infraDeps.OTLP.Tracker, infraDeps.OTLP.SpanDispatcher, infraDeps.OTLP.SpanPersist, infraDeps.OTLP.SpanStream),
+		otlp_logs.NewModule(infraDeps.OTLP.Authenticator, infraDeps.OTLP.Tracker, infraDeps.OTLP.LogDispatcher, infraDeps.OTLP.LogPersist, infraDeps.OTLP.LogStream),
+		otlp_metrics.NewModule(infraDeps.OTLP.Authenticator, infraDeps.OTLP.Tracker, infraDeps.OTLP.MetricDispatcher, infraDeps.OTLP.MetricPersist),
 		overview_errors.NewModule(nativeQuerier, getTenant),
 		overview_overview.NewModule(nativeQuerier, getTenant),
 		overview_redmetrics.NewModule(nativeQuerier, getTenant),

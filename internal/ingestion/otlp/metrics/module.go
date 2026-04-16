@@ -1,6 +1,8 @@
 package metrics
 
 import (
+	"context"
+
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/kafkadispatcher"
@@ -10,15 +12,21 @@ import (
 	"google.golang.org/grpc"
 )
 
-func NewModule(authenticator ingestion.TeamResolver, tracker ingestion.SizeTracker, d *kafkadispatcher.KafkaDispatcher[*proto.MetricRow]) registry.Module {
-	service := NewService(authenticator, d, tracker)
+func NewModule(
+	authenticator ingestion.TeamResolver,
+	tracker ingestion.SizeTracker,
+	d *kafkadispatcher.Dispatcher[*proto.MetricRow],
+	persist *PersistenceConsumer,
+) registry.Module {
 	return &Module{
-		handler: NewHandler(service),
+		service: NewService(authenticator, d, tracker),
+		persist: persist,
 	}
 }
 
 type Module struct {
-	handler *Handler
+	service *Service
+	persist *PersistenceConsumer
 }
 
 func (m *Module) Name() string                      { return "otlpMetrics" }
@@ -26,9 +34,18 @@ func (m *Module) RouteTarget() registry.RouteTarget { return registry.V1 }
 func (m *Module) RegisterRoutes(_ *gin.RouterGroup) {}
 
 func (m *Module) RegisterGRPC(srv *grpc.Server) {
-	metricspb.RegisterMetricsServiceServer(srv, m.handler)
+	metricspb.RegisterMetricsServiceServer(srv, m.service)
 }
 
-func (m *Module) Start() {}
+func (m *Module) Start() {
+	if m.persist != nil {
+		m.persist.Start(context.Background())
+	}
+}
 
-func (m *Module) Stop() error { return nil }
+func (m *Module) Stop() error {
+	if m.persist != nil {
+		return m.persist.Stop()
+	}
+	return nil
+}

@@ -6,9 +6,10 @@ import (
 
 	"log/slog"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/protoconv"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/proto"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/protoconv"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/livetail"
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	logv1 "go.opentelemetry.io/proto/otlp/logs/v1"
@@ -204,34 +205,8 @@ func severityNumberToLevel(n logv1.SeverityNumber) string {
 	}
 }
 
-// WireLog mirrors the logs API JSON shape (internal/modules/logs/internal/shared.Log).
-type WireLog struct {
-	Timestamp         uint64             `json:"timestamp"`
-	ObservedTimestamp uint64             `json:"observed_timestamp"`
-	SeverityText      string             `json:"severity_text"`
-	SeverityNumber    uint8              `json:"severity_number"`
-	Body              string             `json:"body"`
-	TraceID           string             `json:"trace_id"`
-	SpanID            string             `json:"span_id"`
-	TraceFlags        uint32             `json:"trace_flags"`
-	ServiceName       string             `json:"service_name"`
-	Host              string             `json:"host"`
-	Pod               string             `json:"pod"`
-	Container         string             `json:"container"`
-	Environment       string             `json:"environment"`
-	AttributesString  map[string]string  `json:"attributes_string,omitempty"`
-	AttributesNumber  map[string]float64 `json:"attributes_number,omitempty"`
-	AttributesBool    map[string]bool    `json:"attributes_bool,omitempty"`
-	ScopeName         string             `json:"scope_name"`
-	ScopeVersion      string             `json:"scope_version"`
-	Level             string             `json:"level"`
-	Message           string             `json:"message"`
-	Service           string             `json:"service"`
-	EmitMs            int64              `json:"emit_ms"`
-}
-
-func wireLogFromRow(row *LogRow) WireLog {
-	return WireLog{
+func wireLogFromRow(row *LogRow) livetail.WireLog {
+	return livetail.WireLog{
 		Timestamp:         uint64(row.Timestamp.UnixNano()),
 		ObservedTimestamp: row.ObservedTimestamp,
 		SeverityText:      row.SeverityText,
