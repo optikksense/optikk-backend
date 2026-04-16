@@ -36,12 +36,12 @@ func (a *App) setupHealthRoutes(r *gin.Engine) {
 
 func (a *App) setupAPIRoutes(r *gin.Engine) {
 	v1 := r.Group("/api/v1")
-	v1.Use(middleware.TenantMiddleware(a.Infra.SessionManager))
+	v1.Use(middleware.TenantMiddleware(a.Deps.SessionManager))
 
 	cachedV1 := r.Group("/api/v1")
-	cachedV1.Use(middleware.TenantMiddleware(a.Infra.SessionManager))
+	cachedV1.Use(middleware.TenantMiddleware(a.Deps.SessionManager))
 	cachedV1.Use(middleware.CacheMiddleware(
-		middleware.NewRedisResponseCache(a.Infra.RedisClient),
+		middleware.NewRedisResponseCache(a.Deps.RedisClient),
 		middleware.DefaultResponseCacheTTL,
 	))
 
@@ -63,23 +63,23 @@ func (a *App) healthReady(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	if err := a.Infra.DB.Ping(); err != nil {
+	if err := a.Deps.DB.Ping(); err != nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "mysql": err.Error()})
 		return
 	}
 
-	if err := a.Infra.CH.Ping(ctx); err != nil {
+	if err := a.Deps.CH.Ping(ctx); err != nil {
 		a.logHealthError(c, "clickhouse", err)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "clickhouse": err.Error()})
 		return
 	}
 
-	if a.Infra.RedisClient == nil {
+	if a.Deps.RedisClient == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "redis": "client not configured"})
 		return
 	}
 
-	if err := a.Infra.RedisClient.Ping(ctx).Err(); err != nil {
+	if err := a.Deps.RedisClient.Ping(ctx).Err(); err != nil {
 		a.logHealthError(c, "redis", err)
 		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "redis": err.Error()})
 		return
@@ -95,4 +95,3 @@ func (a *App) logHealthError(c *gin.Context, service string, err error) {
 		slog.String("method", c.Request.Method),
 		slog.String("path", c.Request.URL.Path))
 }
-

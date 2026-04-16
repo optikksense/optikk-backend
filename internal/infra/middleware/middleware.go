@@ -11,6 +11,7 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	types "github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
 
@@ -78,7 +79,7 @@ func ErrorRecovery() gin.HandlerFunc {
 			slog.String("ip", c.ClientIP()),
 			slog.String("stack", string(debug.Stack())),
 		)
-		c.JSON(http.StatusInternalServerError, types.Failure(errorcode.Internal, "An unexpected error occurred", c.Request.URL.Path))
+		c.JSON(http.StatusInternalServerError, httputil.Failure(errorcode.Internal, "An unexpected error occurred", c.Request.URL.Path))
 	})
 }
 
@@ -131,21 +132,21 @@ func isPublicRequest(method, path string) bool {
 
 func abortUnauthorized(c *gin.Context) {
 	slog.Warn("AUTH_DENIED", slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path), slog.String("code", "UNAUTHORIZED"), slog.String("ip", c.ClientIP()))
-	c.AbortWithStatusJSON(http.StatusUnauthorized, types.Failure(
+	c.AbortWithStatusJSON(http.StatusUnauthorized, httputil.Failure(
 		errorcode.Unauthorized, "Valid authentication is required", c.Request.URL.Path,
 	))
 }
 
 func abortMissingTeam(c *gin.Context, email string) {
 	slog.Warn("AUTH_DENIED", slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path), slog.String("code", "MISSING_TEAM"), slog.String("user", email), slog.String("ip", c.ClientIP()))
-	c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
+	c.AbortWithStatusJSON(http.StatusForbidden, httputil.Failure(
 		"MISSING_TEAM", "Session does not contain a valid team_id", c.Request.URL.Path,
 	))
 }
 
 func abortForbiddenTeam(c *gin.Context, email string, requestedTeamID int64) {
 	slog.Warn("AUTH_DENIED", slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path), slog.String("code", "FORBIDDEN_TEAM"), slog.String("user", email), slog.Int64("requested_team", requestedTeamID), slog.String("ip", c.ClientIP()))
-	c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
+	c.AbortWithStatusJSON(http.StatusForbidden, httputil.Failure(
 		"FORBIDDEN_TEAM", "You are not a member of the requested team", c.Request.URL.Path,
 	))
 }
@@ -229,7 +230,7 @@ func RequireRole(allowed ...string) gin.HandlerFunc {
 				slog.String("user", tenant.UserEmail),
 				slog.String("ip", c.ClientIP()),
 			)
-			c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
+			c.AbortWithStatusJSON(http.StatusForbidden, httputil.Failure(
 				"FORBIDDEN_ROLE", "Insufficient permissions", c.Request.URL.Path,
 			))
 			return

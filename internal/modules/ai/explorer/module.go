@@ -6,10 +6,10 @@ import (
 )
 
 // NewModule creates the AI explorer module, following the standard module pattern.
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(deps *registry.Deps) (registry.Module, error) {
 	m := &aiExplorerModule{}
-	m.configure(nativeQuerier, getTenant)
-	return m
+	m.configure(deps)
+	return m, nil
 }
 
 type aiExplorerModule struct {
@@ -19,10 +19,10 @@ type aiExplorerModule struct {
 func (m *aiExplorerModule) Name() string                      { return "aiExplorer" }
 func (m *aiExplorerModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *aiExplorerModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
-	repo := NewRepository(nativeQuerier)
+func (m *aiExplorerModule) configure(deps *registry.Deps) {
+	repo := NewRepository(deps.NativeQuerier)
 	svc := NewService(repo)
-	m.handler = NewHandler(getTenant, svc)
+	m.handler = NewHandler(deps.GetTenant, svc)
 }
 
 func (m *aiExplorerModule) RegisterRoutes(group *gin.RouterGroup) {

@@ -29,10 +29,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *TraceDetailHandler) {
 	v1.GET("/traces/:traceId/related", h.GetRelatedTraces)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(deps *registry.Deps) (registry.Module, error) {
 	module := &traceDetailModule{}
-	module.configure(nativeQuerier, getTenant)
-	return module
+	module.configure(deps)
+	return module, nil
 }
 
 type traceDetailModule struct {
@@ -42,10 +42,10 @@ type traceDetailModule struct {
 func (m *traceDetailModule) Name() string                      { return "traceDetail" }
 func (m *traceDetailModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *traceDetailModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+func (m *traceDetailModule) configure(deps *registry.Deps) {
 	m.handler = &TraceDetailHandler{
-		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  NewService(NewRepository(nativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
+		Service:  NewService(NewRepository(deps.NativeQuerier)),
 	}
 }
 

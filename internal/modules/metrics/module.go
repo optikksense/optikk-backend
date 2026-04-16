@@ -5,10 +5,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
-	module := &metricsExplorerModule{}
-	module.configure(nativeQuerier, getTenant)
-	return module
+func NewModule(deps *registry.Deps) (registry.Module, error) {
+	return &metricsExplorerModule{
+		handler: &Handler{
+			GetTenant: deps.GetTenant,
+			Service:   NewService(NewRepository(deps.NativeQuerier)),
+		},
+	}, nil
 }
 
 type metricsExplorerModule struct {
@@ -17,13 +20,6 @@ type metricsExplorerModule struct {
 
 func (m *metricsExplorerModule) Name() string                      { return "metricsExplorer" }
 func (m *metricsExplorerModule) RouteTarget() registry.RouteTarget { return registry.V1 }
-
-func (m *metricsExplorerModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
-	m.handler = &Handler{
-		GetTenant: getTenant,
-		Service:   NewService(NewRepository(nativeQuerier)),
-	}
-}
 
 func (m *metricsExplorerModule) RegisterRoutes(group *gin.RouterGroup) {
 	g := group.Group("/metrics")

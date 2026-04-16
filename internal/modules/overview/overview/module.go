@@ -27,10 +27,13 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *OverviewHandler) {
 	v1.GET("/overview/summary", h.GetSummary)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
-	module := &overviewModule{}
-	module.configure(nativeQuerier, getTenant)
-	return module
+func NewModule(deps *registry.Deps) (registry.Module, error) {
+	return &overviewModule{
+		handler: &OverviewHandler{
+			DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
+			Service:  NewService(NewRepository(deps.NativeQuerier)),
+		},
+	}, nil
 }
 
 type overviewModule struct {
@@ -39,13 +42,6 @@ type overviewModule struct {
 
 func (m *overviewModule) Name() string                      { return "overview" }
 func (m *overviewModule) RouteTarget() registry.RouteTarget { return registry.Cached }
-
-func (m *overviewModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
-	m.handler = &OverviewHandler{
-		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  NewService(NewRepository(nativeQuerier)),
-	}
-}
 
 func (m *overviewModule) RegisterRoutes(group *gin.RouterGroup) {
 	RegisterRoutes(DefaultConfig(), group, m.handler)

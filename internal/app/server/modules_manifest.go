@@ -1,8 +1,6 @@
 package server
 
 import (
-	"strings"
-
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	otlp_logs "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/logs"
 	otlp_metrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/metrics"
@@ -13,11 +11,11 @@ import (
 	infrastructure_connpool "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/connpool"
 	infrastructure_cpu "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/cpu"
 	infrastructure_disk "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/disk"
+	infrastructure_fleet "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/fleet"
 	infrastructure_jvm "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/jvm"
 	infrastructure_kubernetes "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/kubernetes"
 	infrastructure_memory "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/memory"
 	infrastructure_network "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/network"
-	infrastructure_fleet "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/fleet"
 	infrastructure_nodes "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/nodes"
 	infrastructure_resource_utilisation "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/resourceutil"
 	log_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/logs/explorer"
@@ -32,13 +30,13 @@ import (
 	saturation_database_collection "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/collection"
 	saturation_database_connections "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/connections"
 	saturation_database_errors "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/errors"
-	saturation_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/explorer"
 	saturation_database_latency "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/latency"
 	saturation_database_slowqueries "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/slowqueries"
 	saturation_database_summary "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/summary"
 	saturation_database_system "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/system"
 	saturation_database_systems "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/systems"
 	saturation_database_volume "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/volume"
+	saturation_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/explorer"
 	saturation_kafka "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/services/deployments"
 	services_topology "github.com/Optikk-Org/optikk-backend/internal/modules/services/topology"
@@ -54,75 +52,65 @@ import (
 	user_user "github.com/Optikk-Org/optikk-backend/internal/modules/user/user"
 )
 
-func configuredModules(
-	nativeQuerier *registry.NativeQuerier,
-	getTenant registry.GetTenantFunc,
-	appConfig registry.AppConfig,
-	infraDeps *Infra,
-) []registry.Module {
-	return []registry.Module{
-		ai_explorer.NewModule(nativeQuerier, getTenant),
-		llm_hub.NewModule(infraDeps.DB, getTenant),
-		alerting.NewModule(infraDeps.DB, nativeQuerier, infraDeps.CH, getTenant, "", appConfig.AlertingMaxEnabledRules()),
-		apm.NewModule(nativeQuerier, getTenant),
-		deployments.NewModule(nativeQuerier, getTenant),
-		httpmetrics.NewModule(nativeQuerier, getTenant),
-
-		infrastructure_connpool.NewModule(nativeQuerier, getTenant),
-		infrastructure_cpu.NewModule(nativeQuerier, getTenant),
-		infrastructure_disk.NewModule(nativeQuerier, getTenant),
-		infrastructure_jvm.NewModule(nativeQuerier, getTenant),
-		infrastructure_kubernetes.NewModule(nativeQuerier, getTenant),
-		infrastructure_memory.NewModule(nativeQuerier, getTenant),
-		infrastructure_network.NewModule(nativeQuerier, getTenant),
-		infrastructure_fleet.NewModule(nativeQuerier, getTenant),
-		infrastructure_nodes.NewModule(nativeQuerier, getTenant),
-		infrastructure_resource_utilisation.NewModule(nativeQuerier, getTenant),
-		log_explorer.NewModule(nativeQuerier, getTenant),
-		log_search.NewModule(nativeQuerier, getTenant),
-		livetail.NewModule(livetail.Config{
-			Hub:            infraDeps.LiveTailHub,
-			AllowedOrigins: splitAllowedOrigins(appConfig.Server.AllowedOrigins),
-			Sessions:       infraDeps.SessionManager,
-		}),
-		metrics.NewModule(nativeQuerier, getTenant),
-
-		otlp_spans.NewModule(infraDeps.OTLP.Authenticator, infraDeps.OTLP.Tracker, infraDeps.OTLP.SpanDispatcher, infraDeps.OTLP.SpanPersist, infraDeps.OTLP.SpanStream),
-		otlp_logs.NewModule(infraDeps.OTLP.Authenticator, infraDeps.OTLP.Tracker, infraDeps.OTLP.LogDispatcher, infraDeps.OTLP.LogPersist, infraDeps.OTLP.LogStream),
-		otlp_metrics.NewModule(infraDeps.OTLP.Authenticator, infraDeps.OTLP.Tracker, infraDeps.OTLP.MetricDispatcher, infraDeps.OTLP.MetricPersist),
-		overview_errors.NewModule(nativeQuerier, getTenant),
-		overview_overview.NewModule(nativeQuerier, getTenant),
-		overview_redmetrics.NewModule(nativeQuerier, getTenant),
-		overview_slo.NewModule(nativeQuerier, getTenant),
-		saturation_explorer.NewModule(nativeQuerier, getTenant),
-		saturation_database_collection.NewModule(nativeQuerier, getTenant),
-		saturation_database_connections.NewModule(nativeQuerier, getTenant),
-		saturation_database_errors.NewModule(nativeQuerier, getTenant),
-		saturation_database_latency.NewModule(nativeQuerier, getTenant),
-		saturation_database_slowqueries.NewModule(nativeQuerier, getTenant),
-		saturation_database_summary.NewModule(nativeQuerier, getTenant),
-		saturation_database_system.NewModule(nativeQuerier, getTenant),
-		saturation_database_systems.NewModule(nativeQuerier, getTenant),
-		saturation_database_volume.NewModule(nativeQuerier, getTenant),
-		saturation_kafka.NewModule(nativeQuerier, getTenant),
-		services_topology.NewModule(nativeQuerier, getTenant),
-		spans_explorer.NewModule(nativeQuerier, getTenant),
-		spans_livetail.NewModule(nativeQuerier, getTenant, nil),
-		spans_tracedetail.NewModule(nativeQuerier, getTenant),
-		spans_traces.NewModule(nativeQuerier, getTenant),
-		user_auth.NewModule(infraDeps.DB, getTenant, infraDeps.SessionManager, appConfig),
-		user_team.NewModule(infraDeps.DB, getTenant, appConfig),
-		user_user.NewModule(infraDeps.DB, getTenant, appConfig),
-	}
+// allModules is the single module registration table.
+// To add a new module: import it and append one line here.
+var allModules = []registry.NewModuleFunc{
+	ai_explorer.NewModule,
+	alerting.NewModule,
+	apm.NewModule,
+	deployments.NewModule,
+	httpmetrics.NewModule,
+	infrastructure_connpool.NewModule,
+	infrastructure_cpu.NewModule,
+	infrastructure_disk.NewModule,
+	infrastructure_fleet.NewModule,
+	infrastructure_jvm.NewModule,
+	infrastructure_kubernetes.NewModule,
+	infrastructure_memory.NewModule,
+	infrastructure_network.NewModule,
+	infrastructure_nodes.NewModule,
+	infrastructure_resource_utilisation.NewModule,
+	livetail.NewModule,
+	llm_hub.NewModule,
+	log_explorer.NewModule,
+	log_search.NewModule,
+	metrics.NewModule,
+	otlp_logs.NewModule,
+	otlp_metrics.NewModule,
+	otlp_spans.NewModule,
+	overview_errors.NewModule,
+	overview_overview.NewModule,
+	overview_redmetrics.NewModule,
+	overview_slo.NewModule,
+	saturation_database_collection.NewModule,
+	saturation_database_connections.NewModule,
+	saturation_database_errors.NewModule,
+	saturation_database_latency.NewModule,
+	saturation_database_slowqueries.NewModule,
+	saturation_database_summary.NewModule,
+	saturation_database_system.NewModule,
+	saturation_database_systems.NewModule,
+	saturation_database_volume.NewModule,
+	saturation_explorer.NewModule,
+	saturation_kafka.NewModule,
+	services_topology.NewModule,
+	spans_explorer.NewModule,
+	spans_livetail.NewModule,
+	spans_tracedetail.NewModule,
+	spans_traces.NewModule,
+	user_auth.NewModule,
+	user_team.NewModule,
+	user_user.NewModule,
 }
 
-func splitAllowedOrigins(allowed string) []string {
-	var out []string
-	for _, o := range strings.Split(allowed, ",") {
-		o = strings.TrimSpace(o)
-		if o != "" {
-			out = append(out, o)
+func configuredModules(deps *registry.Deps) ([]registry.Module, error) {
+	modules := make([]registry.Module, 0, len(allModules))
+	for _, fn := range allModules {
+		mod, err := fn(deps)
+		if err != nil {
+			return nil, err
 		}
+		modules = append(modules, mod)
 	}
-	return out
+	return modules, nil
 }

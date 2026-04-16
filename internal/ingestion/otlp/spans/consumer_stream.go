@@ -4,9 +4,9 @@ import (
 	"context"
 	"time"
 
+	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/kafka"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/proto"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/livetail"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -15,7 +15,7 @@ type StreamingConsumer struct {
 	runner *kafka.ConsumerRunner[*proto.SpanRow]
 }
 
-func NewStreamingConsumer(client *kgo.Client, hub livetail.Hub) *StreamingConsumer {
+func NewStreamingConsumer(client *kgo.Client, hub registry.LiveTailHub) *StreamingConsumer {
 	c := &StreamingConsumer{}
 	c.runner = &kafka.ConsumerRunner[*proto.SpanRow]{
 		Signal: "spans-stream",

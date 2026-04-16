@@ -29,15 +29,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	}
 }
 
-func NewModule(
-	sqlDB *registry.SQLDB,
-	getTenant registry.GetTenantFunc,
-	sessionManager registry.SessionManager,
-	appConfig registry.AppConfig,
-) registry.Module {
+func NewModule(deps *registry.Deps) (registry.Module, error) {
 	module := &authModule{}
-	module.configure(sqlDB, getTenant, sessionManager, appConfig)
-	return module
+	module.configure(deps.DB, deps.GetTenant, deps.SessionManager, deps.AppConfig)
+	return module, nil
 }
 
 type authModule struct {

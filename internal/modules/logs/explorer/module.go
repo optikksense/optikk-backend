@@ -25,10 +25,12 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	v1.GET("/logs/aggregate", h.GetLogAggregate)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
-	module := &logsExplorerModule{}
-	module.configure(nativeQuerier, getTenant)
-	return module
+func NewModule(deps *registry.Deps) (registry.Module, error) {
+	searchService := logsearch.NewService(logsearch.NewRepository(deps.NativeQuerier))
+	logStatsService := newLogStatsService(deps.NativeQuerier)
+	return &logsExplorerModule{
+		handler: NewHandler(deps.GetTenant, NewService(searchService, logStatsService), logStatsService, deps.NativeQuerier),
+	}, nil
 }
 
 type logsExplorerModule struct {
@@ -37,12 +39,6 @@ type logsExplorerModule struct {
 
 func (m *logsExplorerModule) Name() string                      { return "logsExplorer" }
 func (m *logsExplorerModule) RouteTarget() registry.RouteTarget { return registry.V1 }
-
-func (m *logsExplorerModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
-	searchService := logsearch.NewService(logsearch.NewRepository(nativeQuerier))
-	logStatsService := newLogStatsService(nativeQuerier)
-	m.handler = NewHandler(getTenant, NewService(searchService, logStatsService), logStatsService, nativeQuerier)
-}
 
 func (m *logsExplorerModule) RegisterRoutes(group *gin.RouterGroup) {
 	RegisterRoutes(DefaultConfig(), group, m.handler)

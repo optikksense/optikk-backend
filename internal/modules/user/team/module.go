@@ -34,14 +34,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	}
 }
 
-func NewModule(
-	sqlDB *registry.SQLDB,
-	getTenant registry.GetTenantFunc,
-	appConfig registry.AppConfig,
-) registry.Module {
+func NewModule(deps *registry.Deps) (registry.Module, error) {
 	module := &teamModule{}
-	module.configure(sqlDB, getTenant, appConfig)
-	return module
+	module.configure(deps.DB, deps.GetTenant, deps.AppConfig)
+	return module, nil
 }
 
 type teamModule struct {

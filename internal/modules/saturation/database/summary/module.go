@@ -22,10 +22,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	shared.RegisterDualGET(v1, "/summary", h.GetSummaryStats)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(deps *registry.Deps) (registry.Module, error) {
 	module := &dbSummaryModule{}
-	module.configure(nativeQuerier, getTenant)
-	return module
+	module.configure(deps)
+	return module, nil
 }
 
 type dbSummaryModule struct {
@@ -35,10 +35,10 @@ type dbSummaryModule struct {
 func (m *dbSummaryModule) Name() string                      { return "dbSummary" }
 func (m *dbSummaryModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *dbSummaryModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+func (m *dbSummaryModule) configure(deps *registry.Deps) {
 	m.handler = &Handler{
-		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  NewService(NewRepository(nativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
+		Service:  NewService(NewRepository(deps.NativeQuerier)),
 	}
 }
 

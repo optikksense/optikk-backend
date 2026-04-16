@@ -32,10 +32,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ConnPoolHandler) {
 	g.GET("/by-instance", h.GetConnPoolByInstance)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(deps *registry.Deps) (registry.Module, error) {
 	module := &connpoolModule{}
-	module.configure(nativeQuerier, getTenant)
-	return module
+	module.configure(deps)
+	return module, nil
 }
 
 type connpoolModule struct {
@@ -45,8 +45,8 @@ type connpoolModule struct {
 func (m *connpoolModule) Name() string                      { return "connpool" }
 func (m *connpoolModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *connpoolModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
-	m.handler = NewHandler(nativeQuerier, getTenant)
+func (m *connpoolModule) configure(deps *registry.Deps) {
+	m.handler = NewHandler(deps.NativeQuerier, deps.GetTenant)
 }
 
 func (m *connpoolModule) RegisterRoutes(group *gin.RouterGroup) {

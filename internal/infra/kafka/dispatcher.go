@@ -1,4 +1,4 @@
-package kafkadispatcher
+package kafka
 
 import (
 	"context"
@@ -17,8 +17,8 @@ type Dispatcher[T proto.Message] struct {
 	Producer *kgo.Client
 }
 
-// New initializes a Dispatcher.
-func New[T proto.Message](producer *kgo.Client, topic, signal string) *Dispatcher[T] {
+// NewDispatcher initializes a Dispatcher.
+func NewDispatcher[T proto.Message](producer *kgo.Client, topic, signal string) *Dispatcher[T] {
 	return &Dispatcher[T]{
 		Signal:   signal,
 		Topic:    topic,

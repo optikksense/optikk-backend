@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/session"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -26,7 +27,7 @@ type outbound struct {
 
 // Config wires live tail hub and session validation.
 type Config struct {
-	Hub            Hub
+	Hub            registry.LiveTailHub
 	AllowedOrigins []string
 	Sessions       session.Manager
 }

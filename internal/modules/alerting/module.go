@@ -1,8 +1,6 @@
 package alerting
 
 import (
-	"database/sql"
-
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/alerting/evaluators"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
@@ -21,15 +19,8 @@ type Module struct {
 
 // NewModule wires the full alerting stack. Rules live in MySQL, events in
 // ClickHouse, and evaluator queries go through the native querier.
-func NewModule(
-	db *sql.DB,
-	nativeQuerier *registry.NativeQuerier,
-	chConn registry.ClickHouseConn,
-	getTenant registry.GetTenantFunc,
-	baseURL string,
-	maxEnabledRules int,
-) registry.Module {
-	repo := NewRepository(db, nativeQuerier, chConn, maxEnabledRules)
+func NewModule(deps *registry.Deps) (registry.Module, error) {
+	repo := NewRepository(deps.DB, deps.NativeQuerier, deps.CH, deps.AppConfig.AlertingMaxEnabledRules())
 	reg := evaluators.NewRegistry(
 		&evaluators.SLOBurnRate{Data: repo},
 		&evaluators.ErrorRate{Data: repo},
@@ -39,18 +30,18 @@ func NewModule(
 		&evaluators.AIQualityDrop{Data: repo},
 		&evaluators.HTTPCheck{},
 	)
-	dispatcher := NewDispatcher(repo, baseURL)
+	dispatcher := NewDispatcher(repo, "")
 	svc := NewService(repo, reg, dispatcher)
 	loop := NewEvaluatorLoop(repo, reg, dispatcher)
 
 	return &Module{
 		handler: &Handler{
-			DBTenant: modulecommon.DBTenant{DB: db, GetTenant: getTenant},
+			DBTenant: modulecommon.DBTenant{DB: deps.DB, GetTenant: deps.GetTenant},
 			Service:  svc,
 		},
 		evaluator:  loop,
 		dispatcher: dispatcher,
-	}
+	}, nil
 }
 
 func (m *Module) Name() string                      { return "alerting" }

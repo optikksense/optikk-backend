@@ -3,7 +3,7 @@ package metrics
 import (
 	"time"
 
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/protoconv"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/protoconv"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/proto"
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"

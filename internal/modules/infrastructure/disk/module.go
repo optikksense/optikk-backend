@@ -37,10 +37,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *DiskHandler) {
 	g.GET("/by-instance", h.GetDiskByInstance)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(deps *registry.Deps) (registry.Module, error) {
 	module := &diskModule{}
-	module.configure(nativeQuerier, getTenant)
-	return module
+	module.configure(deps)
+	return module, nil
 }
 
 type diskModule struct {
@@ -50,8 +50,8 @@ type diskModule struct {
 func (m *diskModule) Name() string                      { return "disk" }
 func (m *diskModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *diskModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
-	m.handler = NewHandler(nativeQuerier, getTenant)
+func (m *diskModule) configure(deps *registry.Deps) {
+	m.handler = NewHandler(deps.NativeQuerier, deps.GetTenant)
 }
 
 func (m *diskModule) RegisterRoutes(group *gin.RouterGroup) {

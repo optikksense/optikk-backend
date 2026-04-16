@@ -1,19 +1,17 @@
 package hub
 
 import (
-	"database/sql"
-
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
 
 // NewModule registers LLM hub HTTP routes backed by MySQL.
-func NewModule(db *sql.DB, getTenant registry.GetTenantFunc) registry.Module {
-	repo := NewRepository(db)
+func NewModule(deps *registry.Deps) (registry.Module, error) {
+	repo := NewRepository(deps.DB)
 	svc := NewService(repo)
-	h := NewHandler(modulecommon.DBTenant{DB: db, GetTenant: getTenant}, svc)
-	return &llmHubModule{handler: h}
+	h := NewHandler(modulecommon.DBTenant{DB: deps.DB, GetTenant: deps.GetTenant}, svc)
+	return &llmHubModule{handler: h}, nil
 }
 
 type llmHubModule struct {

@@ -16,11 +16,11 @@ func DefaultConfig() Config {
 // RegisterRoutes is a no-op: live tail is exposed via WebSocket (see server wiring).
 func RegisterRoutes(_ Config, _ *gin.RouterGroup) {}
 
-// NewModule constructs the traces live tail module. Pass a non-nil service to share the instance with live tail WebSocket.
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc, svc *Service) registry.Module {
+// NewModule constructs the traces live tail module.
+func NewModule(deps *registry.Deps) (registry.Module, error) {
 	module := &liveTailModule{}
-	module.configure(nativeQuerier, getTenant, svc)
-	return module
+	module.configure(deps.NativeQuerier, deps.GetTenant, nil)
+	return module, nil
 }
 
 type liveTailModule struct {

@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
 	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
@@ -100,7 +99,7 @@ func (h *Handler) CreatePrompt(c *gin.Context) {
 		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, err.Error())
 		return
 	}
-	c.JSON(http.StatusCreated, contracts.Success(p))
+	c.JSON(http.StatusCreated, modulecommon.Success(p))
 }
 
 func (h *Handler) UpdatePrompt(c *gin.Context) {
@@ -155,7 +154,7 @@ func (h *Handler) CreateDataset(c *gin.Context) {
 		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, err.Error())
 		return
 	}
-	c.JSON(http.StatusCreated, contracts.Success(d))
+	c.JSON(http.StatusCreated, modulecommon.Success(d))
 }
 
 func (h *Handler) GetDataset(c *gin.Context) {

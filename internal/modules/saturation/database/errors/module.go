@@ -29,10 +29,13 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	})
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
-	module := &dbErrorsModule{}
-	module.configure(nativeQuerier, getTenant)
-	return module
+func NewModule(deps *registry.Deps) (registry.Module, error) {
+	return &dbErrorsModule{
+		handler: &Handler{
+			DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
+			Service:  NewService(NewRepository(deps.NativeQuerier)),
+		},
+	}, nil
 }
 
 type dbErrorsModule struct {
@@ -41,13 +44,6 @@ type dbErrorsModule struct {
 
 func (m *dbErrorsModule) Name() string                      { return "dbErrors" }
 func (m *dbErrorsModule) RouteTarget() registry.RouteTarget { return registry.Cached }
-
-func (m *dbErrorsModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
-	m.handler = &Handler{
-		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  NewService(NewRepository(nativeQuerier)),
-	}
-}
 
 func (m *dbErrorsModule) RegisterRoutes(group *gin.RouterGroup) {
 	RegisterRoutes(DefaultConfig(), group, m.handler)

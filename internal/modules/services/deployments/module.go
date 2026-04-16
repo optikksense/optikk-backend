@@ -6,13 +6,13 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(deps *registry.Deps) (registry.Module, error) {
 	m := &deploymentsModule{}
 	m.handler = &Handler{
-		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  NewService(NewRepository(nativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
+		Service:  NewService(NewRepository(deps.NativeQuerier)),
 	}
-	return m
+	return m, nil
 }
 
 type deploymentsModule struct {

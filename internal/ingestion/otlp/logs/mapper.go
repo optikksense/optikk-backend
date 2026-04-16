@@ -7,7 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/proto"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/protoconv"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/protoconv"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/livetail"
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"

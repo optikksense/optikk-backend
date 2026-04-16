@@ -58,10 +58,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *KafkaHandler) {
 	v1.GET("/saturation/kafka/client-op-duration", h.GetClientOperationDuration)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(deps *registry.Deps) (registry.Module, error) {
 	module := &kafkaModule{}
-	module.configure(nativeQuerier, getTenant)
-	return module
+	module.configure(deps)
+	return module, nil
 }
 
 type kafkaModule struct {
@@ -71,10 +71,10 @@ type kafkaModule struct {
 func (m *kafkaModule) Name() string                      { return "kafka" }
 func (m *kafkaModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *kafkaModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+func (m *kafkaModule) configure(deps *registry.Deps) {
 	m.handler = &KafkaHandler{
-		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  NewService(NewRepository(nativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
+		Service:  NewService(NewRepository(deps.NativeQuerier)),
 	}
 }
 

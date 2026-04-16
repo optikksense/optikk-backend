@@ -37,10 +37,13 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ErrorHandler) {
 	v1.GET("/errors/fingerprints/trend", h.GetFingerprintTrend)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
-	module := &overviewErrorsModule{}
-	module.configure(nativeQuerier, getTenant)
-	return module
+func NewModule(deps *registry.Deps) (registry.Module, error) {
+	return &overviewErrorsModule{
+		handler: &ErrorHandler{
+			DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
+			Service:  NewService(NewRepository(deps.NativeQuerier)),
+		},
+	}, nil
 }
 
 type overviewErrorsModule struct {
@@ -49,13 +52,6 @@ type overviewErrorsModule struct {
 
 func (m *overviewErrorsModule) Name() string                      { return "overviewErrors" }
 func (m *overviewErrorsModule) RouteTarget() registry.RouteTarget { return registry.Cached }
-
-func (m *overviewErrorsModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
-	m.handler = &ErrorHandler{
-		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  NewService(NewRepository(nativeQuerier)),
-	}
-}
 
 func (m *overviewErrorsModule) RegisterRoutes(group *gin.RouterGroup) {
 	RegisterRoutes(DefaultConfig(), group, m.handler)

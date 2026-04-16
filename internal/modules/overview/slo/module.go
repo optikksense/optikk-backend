@@ -25,10 +25,13 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *SLOHandler) {
 	v1.GET("/overview/slo/burn-rate", h.GetBurnRate)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
-	module := &overviewSLOModule{}
-	module.configure(nativeQuerier, getTenant)
-	return module
+func NewModule(deps *registry.Deps) (registry.Module, error) {
+	return &overviewSLOModule{
+		handler: &SLOHandler{
+			DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
+			Service:  NewService(NewRepository(deps.NativeQuerier)),
+		},
+	}, nil
 }
 
 type overviewSLOModule struct {
@@ -37,13 +40,6 @@ type overviewSLOModule struct {
 
 func (m *overviewSLOModule) Name() string                      { return "overviewSLO" }
 func (m *overviewSLOModule) RouteTarget() registry.RouteTarget { return registry.Cached }
-
-func (m *overviewSLOModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
-	m.handler = &SLOHandler{
-		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  NewService(NewRepository(nativeQuerier)),
-	}
-}
 
 func (m *overviewSLOModule) RegisterRoutes(group *gin.RouterGroup) {
 	RegisterRoutes(DefaultConfig(), group, m.handler)

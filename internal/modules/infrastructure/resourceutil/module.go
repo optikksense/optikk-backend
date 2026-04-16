@@ -35,10 +35,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ResourceUtilisationHandl
 	g.GET("/by-instance", h.GetByInstance)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(deps *registry.Deps) (registry.Module, error) {
 	module := &resourceUtilisationModule{}
-	module.configure(nativeQuerier, getTenant)
-	return module
+	module.configure(deps)
+	return module, nil
 }
 
 type resourceUtilisationModule struct {
@@ -48,16 +48,16 @@ type resourceUtilisationModule struct {
 func (m *resourceUtilisationModule) Name() string                      { return "resourceUtilisation" }
 func (m *resourceUtilisationModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *resourceUtilisationModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+func (m *resourceUtilisationModule) configure(deps *registry.Deps) {
 	repo := NewRepository(
-		cpu.NewRepository(nativeQuerier),
-		memory.NewRepository(nativeQuerier),
-		disk.NewRepository(nativeQuerier),
-		network.NewRepository(nativeQuerier),
-		connpool.NewRepository(nativeQuerier),
+		cpu.NewRepository(deps.NativeQuerier),
+		memory.NewRepository(deps.NativeQuerier),
+		disk.NewRepository(deps.NativeQuerier),
+		network.NewRepository(deps.NativeQuerier),
+		connpool.NewRepository(deps.NativeQuerier),
 	)
 	m.handler = &ResourceUtilisationHandler{
-		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
 		Service:  NewService(repo),
 	}
 }

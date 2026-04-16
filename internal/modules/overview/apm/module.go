@@ -28,10 +28,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *APMHandler) {
 	g.GET("/uptime", h.GetUptime)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(deps *registry.Deps) (registry.Module, error) {
 	module := &apmModule{}
-	module.configure(nativeQuerier, getTenant)
-	return module
+	module.configure(deps)
+	return module, nil
 }
 
 type apmModule struct {
@@ -41,10 +41,10 @@ type apmModule struct {
 func (m *apmModule) Name() string                      { return "apm" }
 func (m *apmModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *apmModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+func (m *apmModule) configure(deps *registry.Deps) {
 	m.handler = &APMHandler{
-		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  NewService(NewRepository(nativeQuerier)),
+		DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
+		Service:  NewService(NewRepository(deps.NativeQuerier)),
 	}
 }
 

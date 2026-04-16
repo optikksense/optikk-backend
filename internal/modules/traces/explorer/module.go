@@ -22,10 +22,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	v1.POST("/explorer/traces/analytics", h.Analytics)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(deps *registry.Deps) (registry.Module, error) {
 	module := &tracesExplorerModule{}
-	module.configure(nativeQuerier, getTenant)
-	return module
+	module.configure(deps)
+	return module, nil
 }
 
 type tracesExplorerModule struct {
@@ -35,9 +35,9 @@ type tracesExplorerModule struct {
 func (m *tracesExplorerModule) Name() string                      { return "tracesExplorer" }
 func (m *tracesExplorerModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *tracesExplorerModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
-	traceService := spantraces.NewService(spantraces.NewRepository(nativeQuerier))
-	m.handler = NewHandler(getTenant, NewService(traceService), nativeQuerier)
+func (m *tracesExplorerModule) configure(deps *registry.Deps) {
+	traceService := spantraces.NewService(spantraces.NewRepository(deps.NativeQuerier))
+	m.handler = NewHandler(deps.GetTenant, NewService(traceService), deps.NativeQuerier)
 }
 
 func (m *tracesExplorerModule) RegisterRoutes(group *gin.RouterGroup) {

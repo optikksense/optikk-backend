@@ -60,7 +60,7 @@ func (h *RedisHub) Publish(teamID int64, event any) {
 // Subscribe starts a goroutine that reads new events from the team's Redis
 // Stream and sends them to ch. A nil filter accepts all events.
 // Returns false if the global connection limit (100) is exceeded.
-func (h *RedisHub) Subscribe(teamID int64, ch chan any, filter FilterFunc) bool {
+func (h *RedisHub) Subscribe(teamID int64, ch chan any, filter func(any) bool) bool {
 	if h.connCount.Load() >= int64(maxGlobalConnections) {
 		return false
 	}

@@ -3,8 +3,8 @@ package spans
 import (
 	"context"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/kafka"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/kafkadispatcher"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/proto"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -16,11 +16,11 @@ import (
 type Service struct {
 	tracepb.UnimplementedTraceServiceServer
 	auth       ingestion.TeamResolver
-	dispatcher *kafkadispatcher.Dispatcher[*proto.SpanRow]
+	dispatcher *kafka.Dispatcher[*proto.SpanRow]
 	tracker    ingestion.SizeTracker
 }
 
-func NewService(authenticator ingestion.TeamResolver, d *kafkadispatcher.Dispatcher[*proto.SpanRow], tracker ingestion.SizeTracker) *Service {
+func NewService(authenticator ingestion.TeamResolver, d *kafka.Dispatcher[*proto.SpanRow], tracker ingestion.SizeTracker) *Service {
 	return &Service{
 		auth:       authenticator,
 		dispatcher: d,

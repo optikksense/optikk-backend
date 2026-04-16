@@ -13,7 +13,7 @@ const maxGlobalConnections = 100
 // of recent telemetry events for each team to display on initial load.
 type LocalHub struct {
 	mu          sync.RWMutex
-	subscribers map[int64]map[chan any]FilterFunc
+	subscribers map[int64]map[chan any]func(any) bool
 	snapshots   map[int64]*ring.Ring
 	connCount   atomic.Int64
 }
@@ -25,7 +25,7 @@ type eventWrapper struct {
 
 func NewHub() *LocalHub {
 	return &LocalHub{
-		subscribers: make(map[int64]map[chan any]FilterFunc),
+		subscribers: make(map[int64]map[chan any]func(any) bool),
 		snapshots:   make(map[int64]*ring.Ring),
 	}
 }
@@ -35,13 +35,13 @@ const snapshotTTL = 5 * time.Second
 
 // Subscribe adds a new client channel to the team's broadcast list with an optional filter.
 // Returns false if the global connection limit has been reached.
-func (h *LocalHub) Subscribe(teamID int64, ch chan any, filter FilterFunc) bool {
+func (h *LocalHub) Subscribe(teamID int64, ch chan any, filter func(any) bool) bool {
 	if h.connCount.Load() >= int64(maxGlobalConnections) {
 		return false
 	}
 	h.mu.Lock()
 	if _, ok := h.subscribers[teamID]; !ok {
-		h.subscribers[teamID] = make(map[chan any]FilterFunc)
+		h.subscribers[teamID] = make(map[chan any]func(any) bool)
 	}
 	h.subscribers[teamID][ch] = filter
 	h.mu.Unlock()

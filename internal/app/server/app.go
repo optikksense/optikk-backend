@@ -11,10 +11,6 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/config"
-	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/middleware"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
-	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/oklog/run"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -25,27 +21,25 @@ import (
 
 type App struct {
 	Config  config.Config
-	Infra   *Infra
+	Deps    *registry.Deps
 	Modules []registry.Module
 }
 
 func New(cfg config.Config) (*App, error) {
-	getTenant := modulecommon.GetTenantFunc(middleware.GetTenant)
-
-	// Initialize global infrastructure parameters.
-	utils.Init(cfg.SpansBucketSeconds(), cfg.LogsBucketSeconds())
-
-	infraDeps, err := newInfra(cfg)
+	deps, err := newDeps(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("failed to initialize infrastructure: %w", err)
+		return nil, fmt.Errorf("failed to initialize deps: %w", err)
 	}
 
-	nativeQuerier := dbutil.NewNativeQuerier(infraDeps.CH)
-	modules := configuredModules(nativeQuerier, getTenant, cfg, infraDeps)
+	modules, err := configuredModules(deps)
+	if err != nil {
+		_ = deps.Close()
+		return nil, fmt.Errorf("failed to initialize modules: %w", err)
+	}
 
 	return &App{
 		Config:  cfg,
-		Infra:   infraDeps,
+		Deps:    deps,
 		Modules: modules,
 	}, nil
 }
@@ -63,8 +57,8 @@ func (a *App) Start(ctx context.Context) error {
 
 	err := g.Run()
 	a.stopBackgroundModules()
-	if closeErr := a.Infra.Close(); closeErr != nil {
-		slog.Warn("error closing infrastructure", slog.Any("error", closeErr))
+	if closeErr := a.Deps.Close(); closeErr != nil {
+		slog.Warn("error closing deps", slog.Any("error", closeErr))
 	}
 
 	return normalizeRunError(err)
@@ -98,7 +92,7 @@ func runAddContextCancelActor(g *run.Group, ctx context.Context) {
 func (a *App) addHTTPServerActor(g *run.Group) {
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%s", a.Config.Server.Port),
-		Handler:      h2c.NewHandler(a.Infra.SessionManager.Wrap(a.Router()), &http2.Server{}),
+		Handler:      h2c.NewHandler(a.Deps.SessionManager.Wrap(a.Router()), &http2.Server{}),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,

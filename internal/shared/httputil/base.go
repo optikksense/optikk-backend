@@ -22,7 +22,7 @@ import (
 type GetTenantFunc func(*gin.Context) types.TenantContext
 
 func RespondOK(c *gin.Context, data any) {
-	c.JSON(http.StatusOK, types.Success(data))
+	c.JSON(http.StatusOK, Success(data))
 }
 
 func RespondError(c *gin.Context, status int, code, msg string) {
@@ -31,7 +31,7 @@ func RespondError(c *gin.Context, status int, code, msg string) {
 			slog.String("code", code), slog.String("msg", msg),
 			slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path))
 	}
-	c.JSON(status, types.Failure(code, msg, c.Request.URL.Path))
+	c.JSON(status, Failure(code, msg, c.Request.URL.Path))
 }
 
 // RespondErrorWithCause logs the underlying error server-side before responding.
@@ -49,7 +49,7 @@ func RespondErrorWithCause(c *gin.Context, status int, code, msg string, err err
 			slog.String("code", code), slog.String("msg", msg),
 			slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path))
 	}
-	c.JSON(status, types.Failure(code, msg, c.Request.URL.Path))
+	c.JSON(status, Failure(code, msg, c.Request.URL.Path))
 }
 
 func ParseInt64Param(c *gin.Context, key string, fallback int64) int64 {

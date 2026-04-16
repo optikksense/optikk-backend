@@ -3,8 +3,8 @@ package logs
 import (
 	"context"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/kafka"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/kafkadispatcher"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/proto"
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
@@ -16,11 +16,11 @@ import (
 type Service struct {
 	logspb.UnimplementedLogsServiceServer
 	auth       ingestion.TeamResolver
-	dispatcher *kafkadispatcher.Dispatcher[*proto.LogRow]
+	dispatcher *kafka.Dispatcher[*proto.LogRow]
 	tracker    ingestion.SizeTracker
 }
 
-func NewService(authenticator ingestion.TeamResolver, d *kafkadispatcher.Dispatcher[*proto.LogRow], tracker ingestion.SizeTracker) *Service {
+func NewService(authenticator ingestion.TeamResolver, d *kafka.Dispatcher[*proto.LogRow], tracker ingestion.SizeTracker) *Service {
 	return &Service{
 		auth:       authenticator,
 		dispatcher: d,

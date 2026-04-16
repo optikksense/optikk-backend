@@ -22,10 +22,15 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 }
 
 // NewModule constructs the log search module.
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
-	module := &logSearchModule{}
-	module.configure(nativeQuerier, getTenant)
-	return module
+func NewModule(deps *registry.Deps) (registry.Module, error) {
+	svc := NewService(NewRepository(deps.NativeQuerier))
+	return &logSearchModule{
+		service: svc,
+		handler: &Handler{
+			DBTenant: modulecommon.DBTenant{GetTenant: deps.GetTenant},
+			Service:  svc,
+		},
+	}, nil
 }
 
 type logSearchModule struct {
@@ -35,14 +40,6 @@ type logSearchModule struct {
 
 func (m *logSearchModule) Name() string                      { return "logSearch" }
 func (m *logSearchModule) RouteTarget() registry.RouteTarget { return registry.V1 }
-
-func (m *logSearchModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
-	m.service = NewService(NewRepository(nativeQuerier))
-	m.handler = &Handler{
-		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  m.service,
-	}
-}
 
 func (m *logSearchModule) RegisterRoutes(group *gin.RouterGroup) {
 	RegisterRoutes(DefaultConfig(), group, m.handler)
