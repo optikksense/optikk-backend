@@ -41,6 +41,8 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/services/deployments"
 	services_topology "github.com/Optikk-Org/optikk-backend/internal/modules/services/topology"
 	ai_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/ai/explorer"
+	ai_overview "github.com/Optikk-Org/optikk-backend/internal/modules/ai/overview"
+	ai_runs "github.com/Optikk-Org/optikk-backend/internal/modules/ai/runs"
 	llm_hub "github.com/Optikk-Org/optikk-backend/internal/modules/llm/hub"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/livetail"
 	spans_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
@@ -56,6 +58,8 @@ import (
 // To add a new module: import it and append one line here.
 var allModules = []registry.NewModuleFunc{
 	ai_explorer.NewModule,
+	ai_overview.NewModule,
+	ai_runs.NewModule,
 	alerting.NewModule,
 	apm.NewModule,
 	deployments.NewModule,
