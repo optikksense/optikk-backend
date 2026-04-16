@@ -3,12 +3,13 @@ package spans
 import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/kafkadispatcher"
 	"github.com/gin-gonic/gin"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/grpc"
 )
 
-func NewModule(authenticator ingestion.TeamResolver, tracker ingestion.SizeTracker, d ingestion.Dispatcher[*SpanRow]) registry.Module {
+func NewModule(authenticator ingestion.TeamResolver, tracker ingestion.SizeTracker, d *kafkadispatcher.KafkaDispatcher[*SpanRow]) registry.Module {
 	service := NewService(authenticator, d, tracker)
 	return &Module{
 		handler: NewHandler(service),

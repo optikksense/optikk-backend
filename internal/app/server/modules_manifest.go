@@ -7,7 +7,7 @@ import (
 	otlp_logs "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/logs"
 	otlp_metrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/metrics"
 	otlp_spans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
-	otlp_streamworkers "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/streamworkers"
+
 	"github.com/Optikk-Org/optikk-backend/internal/modules/alerting"
 
 	infrastructure_connpool "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/connpool"
@@ -86,7 +86,7 @@ func configuredModules(
 			Sessions:       infraDeps.SessionManager,
 		}),
 		metrics.NewModule(nativeQuerier, getTenant),
-		otlp_streamworkers.NewModule(infraDeps.CH, infraDeps.OTLP.LogDispatcher, infraDeps.OTLP.SpanDispatcher, infraDeps.OTLP.MetricDispatcher, infraDeps.LiveTailHub, appConfig.IngestionBatchMaxRows(), appConfig.IngestionBatchMaxWait()),
+
 		otlp_spans.NewModule(infraDeps.OTLP.Authenticator, infraDeps.OTLP.Tracker, infraDeps.OTLP.SpanDispatcher),
 		otlp_logs.NewModule(infraDeps.OTLP.Authenticator, infraDeps.OTLP.Tracker, infraDeps.OTLP.LogDispatcher),
 		otlp_metrics.NewModule(infraDeps.OTLP.Authenticator, infraDeps.OTLP.Tracker, infraDeps.OTLP.MetricDispatcher),

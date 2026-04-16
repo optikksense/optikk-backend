@@ -59,7 +59,7 @@ The web app lives in the sibling repo **`optikk-frontend`** (see that repo's `CO
 | **Saturation** (10) | `saturation/database/{collection,connections,errors,latency,slowqueries,summary,system,systems,volume}`, `saturation/kafka` | `/saturation/*` | V1 (db), Cached (kafka/summary) |
 | **Traces** (5) | `traces/{query,explorer,tracedetail,tracecompare,livetail}` (shared: `traces/shared`) | `/traces/*`, `/spans/*`, `/services/*`, `/latency/*`, `/errors/*`, `POST /explorer/traces/analytics` | Mixed |
 | **User** (3) | `user/auth`, `user/team`, `user/user` (shared: `user/internal`) | `/auth/*`, `/users/*`, `/teams/*`, `/settings/*` | V1 |
-| **Ingestion** (4) | via `internal/ingestion/otlp/{streamworkers,spans,logs,metrics}` | gRPC only (no HTTP routes) | — |
+| **Ingestion** (3) | via `internal/ingestion/otlp/{spans,logs,metrics}` | gRPC only (no HTTP routes) | — |
 
 
 ### Overview module routes
@@ -154,9 +154,9 @@ All under `/http/` prefix, Cached:
 
 - **OTLP Pipeline**: `internal/ingestion/otlp/` — gRPC export explicitly mapped to concrete structs (`LogRow`, `SpanRow`, `MetricRow`).
 - **Authentication**: `internal/ingestion/otlp/auth/` — team resolution via API keys; optional Redis cache (TTL) when Redis is enabled.
-- **Dispatch contracts & implementations**: `internal/ingestion/` — `Dispatcher[T]`, `TelemetryBatch[T]`, OTLP dependency interfaces; `kafka_dispatcher.go` — Kafka-backed OTLP ingest queue (required; brokers in `kafka` / env).
+- **Dispatch contracts & implementations**: `internal/ingestion/` — `Dispatcher[T]`, `TelemetryBatch[T]`, OTLP dependency interfaces; `internal/ingestion/kafkadispatcher/` — Kafka-backed OTLP ingest queue (required; brokers in `kafka` / env).
 - **Kafka admin (topics)**: `internal/infra/kafka/topics.go` — `EnsureTopics`, `IngestTopicNames` (called from `server` at startup).
-- **Background consumers**: `internal/ingestion/otlp/streamworkers/` — `BackgroundRunner` with separate routines per type. **ClickHouse** writers use `CHFlusher[T]` with `AppendStruct(row)`. Live tail components tap into these same pipelines and broadcast to WebSocket clients.
+- **Background consumers**: `internal/ingestion/kafkadispatcher/` — natively handles memory buffering, ClickHouse flushing via `CHFlusher[T]`, and live-tail WebSocket broadcasts synchronously to guarantee at-least-once delivery with true backpressure. Refactored into `dispatcher.go` (runtime) and `factory.go` (initialization) for separation of concerns.
 
 ## Infrastructure Layer (`internal/infra/`)
 
@@ -176,7 +176,7 @@ All under `/http/` prefix, Cached:
 | `cache` | Query and object caching |
 | `database` | **`NativeQuerier`** and ClickHouse/MySQL connection management |
 | `kafka` | `EnsureTopics` / `IngestTopicNames` for ingest Kafka topics |
-| `livetail` | Default live-tail hub implementation behind `platform/livetail.Hub` |
+| `livetail` | Redis Pub/Sub live-tail hub implementation behind `platform/livetail.Hub` |
 | `livetail` | Live tail WebSocket module (`GET /api/v1/ws/live`); `handler.go` upgrades WS; registered from `modules_manifest.go` |
 | `redis` | go-redis + Redigo pool construction and ping |
 | `middleware` | HTTP middleware: CORS, error recovery, tenant context, rate limiting middleware |

@@ -9,11 +9,6 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 )
 
-// Task List:
-// - `[x]` Add drop detection and logging in `dispatcher.go`
-// - `[/]` Update `CHFlusher` to return errors for better diagnostics in `flusher.go`
-// - `[ ]` Implement robust time-and-size-based batching in `workers.go`
-// - `[ ]` Verify build and monitoring logs
 
 type CHFlusher[T any] struct {
 	conn        clickhouse.Conn

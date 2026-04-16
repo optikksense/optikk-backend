@@ -1,8 +1,10 @@
 package server
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 
@@ -12,11 +14,13 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/infra/redis"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/session"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/kafkadispatcher"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/auth"
 	otlplogs "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/logs"
 	otlpmetrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/metrics"
 	otlpspans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/tracker"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/livetail"
 	redigoredis "github.com/gomodule/redigo/redis"
 	goredis "github.com/redis/go-redis/v9"
@@ -26,9 +30,9 @@ import (
 type OTLPDependencies struct {
 	Authenticator    ingestion.TeamResolver
 	Tracker          ingestion.SizeTracker
-	LogDispatcher    ingestion.Dispatcher[*otlplogs.LogRow]
-	SpanDispatcher   ingestion.Dispatcher[*otlpspans.SpanRow]
-	MetricDispatcher ingestion.Dispatcher[*otlpmetrics.MetricRow]
+	LogDispatcher    *kafkadispatcher.KafkaDispatcher[*otlplogs.LogRow]
+	SpanDispatcher   *kafkadispatcher.KafkaDispatcher[*otlpspans.SpanRow]
+	MetricDispatcher *kafkadispatcher.KafkaDispatcher[*otlpmetrics.MetricRow]
 }
 
 // Infra holds process-wide infrastructure constructed at startup.
@@ -38,8 +42,8 @@ type Infra struct {
 	SessionManager session.Manager
 	LiveTailHub    livetail.Hub
 	RedisClient    *goredis.Client
-	RedisPool       *redigoredis.Pool
-	OTLP            OTLPDependencies
+	RedisPool      *redigoredis.Pool
+	OTLP           OTLPDependencies
 }
 
 func newInfra(cfg config.Config) (_ *Infra, err error) {
@@ -94,22 +98,59 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 		return nil, fmt.Errorf("kafka ingest topics: %w", err)
 	}
 
-	logDispatcher, err := newIngestDispatcher[*otlplogs.LogRow]("logs", cfg)
+	logFlusher := otlp.NewCHFlusher[*otlplogs.LogRow](chConn, "observability.logs", otlplogs.LogColumns)
+	spanFlusher := otlp.NewCHFlusher[*otlpspans.SpanRow](chConn, "observability.spans", otlpspans.SpanColumns)
+	metricFlusher := otlp.NewCHFlusher[*otlpmetrics.MetricRow](chConn, "observability.metrics", otlpmetrics.MetricColumns)
+
+	logHandlers := ingestion.Handlers[*otlplogs.LogRow]{
+		OnPersistence: func(ctx context.Context, rows []*otlplogs.LogRow) error {
+			return logFlusher.Flush(rows)
+		},
+		OnStreaming: func(ctx context.Context, batch ingestion.TelemetryBatch[*otlplogs.LogRow]) {
+			for _, row := range batch.Rows {
+				if payload, ok := otlplogs.LiveTailStreamPayload(row); ok && payload != nil {
+					liveTailHub.Publish(batch.TeamID, payload)
+				}
+			}
+		},
+	}
+
+	spanHandlers := ingestion.Handlers[*otlpspans.SpanRow]{
+		OnPersistence: func(ctx context.Context, rows []*otlpspans.SpanRow) error {
+			return spanFlusher.Flush(rows)
+		},
+		OnStreaming: func(ctx context.Context, batch ingestion.TelemetryBatch[*otlpspans.SpanRow]) {
+			for _, row := range batch.Rows {
+				data, err := otlpspans.SpanLiveTailStreamPayload(row, time.Now().UnixMilli())
+				if err == nil && data != nil {
+					liveTailHub.Publish(batch.TeamID, data)
+				}
+			}
+		},
+	}
+
+	metricHandlers := ingestion.Handlers[*otlpmetrics.MetricRow]{
+		OnPersistence: func(ctx context.Context, rows []*otlpmetrics.MetricRow) error {
+			return metricFlusher.Flush(rows)
+		},
+	}
+
+	logDispatcher, err := newIngestDispatcher[*otlplogs.LogRow]("logs", cfg, logHandlers)
 	if err != nil {
 		redisClients.Pool.Close()
-		_ = redisClients.Client.Close() //nolint:errcheck // best-effort cleanup on init failure
+		_ = redisClients.Client.Close()
 		return nil, err
 	}
-	spanDispatcher, err := newIngestDispatcher[*otlpspans.SpanRow]("spans", cfg)
+	spanDispatcher, err := newIngestDispatcher[*otlpspans.SpanRow]("spans", cfg, spanHandlers)
 	if err != nil {
 		redisClients.Pool.Close()
-		_ = redisClients.Client.Close() //nolint:errcheck // best-effort cleanup on init failure
+		_ = redisClients.Client.Close()
 		return nil, err
 	}
-	metricDispatcher, err := newIngestDispatcher[*otlpmetrics.MetricRow]("metrics", cfg)
+	metricDispatcher, err := newIngestDispatcher[*otlpmetrics.MetricRow]("metrics", cfg, metricHandlers)
 	if err != nil {
 		redisClients.Pool.Close()
-		_ = redisClients.Client.Close() //nolint:errcheck // best-effort cleanup on init failure
+		_ = redisClients.Client.Close()
 		return nil, err
 	}
 
@@ -119,10 +160,10 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 		SessionManager: sessionManager,
 		LiveTailHub:    liveTailHub,
 		RedisClient:    redisClients.Client,
-		RedisPool:       redisClients.Pool,
+		RedisPool:      redisClients.Pool,
 		OTLP: OTLPDependencies{
 			Authenticator:    auth.NewAuthenticator(dbConn, redisClients.Client),
-			Tracker:          otlp.NewByteTracker(dbConn, cfg.ByteTrackerFlushInterval()),
+			Tracker:          tracker.NewByteTracker(dbConn, cfg.ByteTrackerFlushInterval()),
 			LogDispatcher:    logDispatcher,
 			SpanDispatcher:   spanDispatcher,
 			MetricDispatcher: metricDispatcher,
@@ -172,8 +213,8 @@ func newLiveTailHub() (livetail.Hub, error) {
 	return livetail.NewHub(), nil
 }
 
-func newIngestDispatcher[T any](name string, cfg config.Config) (ingestion.Dispatcher[T], error) {
+func newIngestDispatcher[T any](name string, cfg config.Config, handlers ingestion.Handlers[T]) (*kafkadispatcher.KafkaDispatcher[T], error) {
 	prefix := cfg.KafkaTopicPrefix()
 	topic := fmt.Sprintf("%s.%s", prefix, name)
-	return ingestion.NewKafkaDispatcher[T](cfg.KafkaBrokers(), cfg.KafkaConsumerGroup(), topic, name)
+	return kafkadispatcher.New[T](cfg.KafkaBrokers(), cfg.KafkaConsumerGroup(), topic, name, handlers)
 }

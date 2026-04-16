@@ -9,12 +9,11 @@ type TelemetryBatch[T any] struct {
 	Rows   []T
 }
 
-type Dispatcher[T any] interface {
-	Dispatch(batch TelemetryBatch[T]) error
-	Persistence() <-chan TelemetryBatch[T]
-	Streaming() <-chan TelemetryBatch[T]
-	Close()
+type Handlers[T any] struct {
+	OnPersistence func(ctx context.Context, rows []T) error
+	OnStreaming   func(ctx context.Context, batch TelemetryBatch[T])
 }
+
 
 type TeamResolver interface {
 	ResolveTeamID(ctx context.Context, apiKey string) (int64, error)

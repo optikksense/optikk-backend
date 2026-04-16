@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/kafkadispatcher"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	"google.golang.org/grpc/codes"
@@ -12,11 +13,11 @@ import (
 
 type Service struct {
 	auth       ingestion.TeamResolver
-	dispatcher ingestion.Dispatcher[*LogRow]
+	dispatcher *kafkadispatcher.KafkaDispatcher[*LogRow]
 	tracker    ingestion.SizeTracker
 }
 
-func NewService(authenticator ingestion.TeamResolver, d ingestion.Dispatcher[*LogRow], tracker ingestion.SizeTracker) *Service {
+func NewService(authenticator ingestion.TeamResolver, d *kafkadispatcher.KafkaDispatcher[*LogRow], tracker ingestion.SizeTracker) *Service {
 	return &Service{
 		auth:       authenticator,
 		dispatcher: d,
