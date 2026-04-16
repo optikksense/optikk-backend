@@ -8,9 +8,11 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/protoconv"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/proto"
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	logv1 "go.opentelemetry.io/proto/otlp/logs/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const maxLogAttributes = 128
@@ -52,9 +54,9 @@ type scopeInfo struct {
 	attrs         map[string]string
 }
 
-// mapLogs converts an OTLP logs export request into ClickHouse ingest rows.
-func mapLogs(teamID int64, req *logspb.ExportLogsServiceRequest) []*LogRow {
-	var rows []*LogRow
+// mapLogs converts an OTLP logs export request into internal Protobuf messages for Kafka transport.
+func mapLogs(teamID int64, req *logspb.ExportLogsServiceRequest) []*proto.LogRow {
+	var rows []*proto.LogRow
 	for _, rl := range req.ResourceLogs {
 		var resAttrs []*commonpb.KeyValue
 		if rl.Resource != nil {
@@ -65,7 +67,7 @@ func mapLogs(teamID int64, req *logspb.ExportLogsServiceRequest) []*LogRow {
 		for _, sl := range rl.ScopeLogs {
 			scope := extractScope(sl.Scope)
 			for _, lr := range sl.LogRecords {
-				rows = append(rows, buildLogRow(teamID, resourceMap, fingerprint, scope, lr))
+				rows = append(rows, buildLogRow(teamID, resourceMap, fingerprint, scope, lr).ToProto())
 			}
 		}
 	}
@@ -259,4 +261,50 @@ func LiveTailStreamPayload(row *LogRow) (any, bool) {
 	w := wireLogFromRow(row)
 	w.EmitMs = time.Now().UnixMilli()
 	return w, true
+}
+
+func (row *LogRow) ToProto() *proto.LogRow {
+	return &proto.LogRow{
+		TeamID:              row.TeamID,
+		TsBucketStart:       row.TsBucketStart,
+		Timestamp:           timestamppb.New(row.Timestamp),
+		ObservedTimestamp:   row.ObservedTimestamp,
+		TraceID:             row.TraceID,
+		SpanID:              row.SpanID,
+		TraceFlags:          row.TraceFlags,
+		SeverityText:        row.SeverityText,
+		SeverityNumber:      uint32(row.SeverityNumber),
+		Body:                row.Body,
+		AttributesString:    row.AttributesString,
+		AttributesNumber:    row.AttributesNumber,
+		AttributesBool:      row.AttributesBool,
+		Resource:            row.Resource,
+		ResourceFingerprint: row.ResourceFingerprint,
+		ScopeName:           row.ScopeName,
+		ScopeVersion:        row.ScopeVersion,
+		ScopeString:         row.ScopeString,
+	}
+}
+
+func FromProto(p *proto.LogRow) *LogRow {
+	return &LogRow{
+		TeamID:              p.TeamID,
+		TsBucketStart:       p.TsBucketStart,
+		Timestamp:           p.Timestamp.AsTime(),
+		ObservedTimestamp:   p.ObservedTimestamp,
+		TraceID:             p.TraceID,
+		SpanID:              p.SpanID,
+		TraceFlags:          p.TraceFlags,
+		SeverityText:        p.SeverityText,
+		SeverityNumber:      uint8(p.SeverityNumber),
+		Body:                p.Body,
+		AttributesString:    p.AttributesString,
+		AttributesNumber:    p.AttributesNumber,
+		AttributesBool:      p.AttributesBool,
+		Resource:            p.Resource,
+		ResourceFingerprint: p.ResourceFingerprint,
+		ScopeName:           p.ScopeName,
+		ScopeVersion:        p.ScopeVersion,
+		ScopeString:         p.ScopeString,
+	}
 }

@@ -6,7 +6,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/kafkadispatcher"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
-	metricpb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/proto"
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -14,11 +14,11 @@ import (
 
 type Service struct {
 	auth       ingestion.TeamResolver
-	dispatcher *kafkadispatcher.KafkaDispatcher[*MetricRow]
+	dispatcher *kafkadispatcher.KafkaDispatcher[*proto.MetricRow]
 	tracker    ingestion.SizeTracker
 }
 
-func NewService(authenticator ingestion.TeamResolver, d *kafkadispatcher.KafkaDispatcher[*MetricRow], tracker ingestion.SizeTracker) *Service {
+func NewService(authenticator ingestion.TeamResolver, d *kafkadispatcher.KafkaDispatcher[*proto.MetricRow], tracker ingestion.SizeTracker) *Service {
 	return &Service{
 		auth:       authenticator,
 		dispatcher: d,
@@ -36,13 +36,16 @@ func (s *Service) Export(ctx context.Context, req *metricspb.ExportMetricsServic
 	if len(rows) == 0 {
 		return &metricspb.ExportMetricsServiceResponse{}, nil
 	}
-	if err := s.dispatcher.Dispatch(ingestion.TelemetryBatch[*MetricRow]{
-		TeamID: teamID,
-		Rows:   rows,
-	}); err != nil {
-		return nil, status.Error(codes.Unavailable, err.Error())
+
+	for _, row := range rows {
+		if err := s.dispatcher.Dispatch(ingestion.TelemetryBatch[*proto.MetricRow]{
+			TeamID: teamID,
+			Rows:   []*proto.MetricRow{row},
+		}); err != nil {
+			return nil, status.Error(codes.Unavailable, err.Error())
+		}
 	}
 
 	otlp.TrackPayloadSize(s.tracker, teamID, req)
-	return &metricpb.ExportMetricsServiceResponse{}, nil
+	return &metricspb.ExportMetricsServiceResponse{}, nil
 }

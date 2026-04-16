@@ -6,6 +6,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/kafkadispatcher"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/proto"
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -13,11 +14,11 @@ import (
 
 type Service struct {
 	auth       ingestion.TeamResolver
-	dispatcher *kafkadispatcher.KafkaDispatcher[*LogRow]
+	dispatcher *kafkadispatcher.KafkaDispatcher[*proto.LogRow]
 	tracker    ingestion.SizeTracker
 }
 
-func NewService(authenticator ingestion.TeamResolver, d *kafkadispatcher.KafkaDispatcher[*LogRow], tracker ingestion.SizeTracker) *Service {
+func NewService(authenticator ingestion.TeamResolver, d *kafkadispatcher.KafkaDispatcher[*proto.LogRow], tracker ingestion.SizeTracker) *Service {
 	return &Service{
 		auth:       authenticator,
 		dispatcher: d,
@@ -35,11 +36,14 @@ func (s *Service) Export(ctx context.Context, req *logspb.ExportLogsServiceReque
 	if len(rows) == 0 {
 		return &logspb.ExportLogsServiceResponse{}, nil
 	}
-	if err := s.dispatcher.Dispatch(ingestion.TelemetryBatch[*LogRow]{
-		TeamID: teamID,
-		Rows:   rows,
-	}); err != nil {
-		return nil, status.Error(codes.Unavailable, err.Error())
+
+	for _, row := range rows {
+		if err := s.dispatcher.Dispatch(ingestion.TelemetryBatch[*proto.LogRow]{
+			TeamID: teamID,
+			Rows:   []*proto.LogRow{row},
+		}); err != nil {
+			return nil, status.Error(codes.Unavailable, err.Error())
+		}
 	}
 
 	otlp.TrackPayloadSize(s.tracker, teamID, req)

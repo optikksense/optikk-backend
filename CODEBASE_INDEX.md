@@ -156,7 +156,7 @@ All under `/http/` prefix, Cached:
 - **Authentication**: `internal/ingestion/otlp/auth/` — team resolution via API keys; optional Redis cache (TTL) when Redis is enabled.
 - **Dispatch contracts & implementations**: `internal/ingestion/` — `Dispatcher[T]`, `TelemetryBatch[T]`, OTLP dependency interfaces; `internal/ingestion/kafkadispatcher/` — Kafka-backed OTLP ingest queue (required; brokers in `kafka` / env).
 - **Kafka admin (topics)**: `internal/infra/kafka/topics.go` — `EnsureTopics`, `IngestTopicNames` (called from `server` at startup).
-- **Background consumers**: `internal/ingestion/kafkadispatcher/` — natively handles memory buffering, ClickHouse flushing via `CHFlusher[T]`, and live-tail WebSocket broadcasts synchronously to guarantee at-least-once delivery with true backpressure. Refactored into `dispatcher.go` (runtime) and `factory.go` (initialization) for separation of concerns.
+- **Background consumers**: `internal/ingestion/kafkadispatcher/` — natively handles memory buffering, ClickHouse flushing via `CHFlusher[T]`, and live-tail WebSocket broadcasts synchronously to guarantee at-least-once delivery with true backpressure. Relies on `internal/infra/kafka/factory.go` for start-time initialization and `internal/ingestion/proto/` for binary serialization.
 
 ## Infrastructure Layer (`internal/infra/`)
 
@@ -165,7 +165,7 @@ All under `/http/` prefix, Cached:
 | `session` | Session/auth contract used by app, middleware, WebSocket auth, and auth module |
 | `ratelimit` | Rate limiter contract and provider-facing API |
 | `livetail` | Live-tail hub contract |
-| `kafka` | Kafka topic creation for OTLP ingest queues |
+| `kafka` | Kafka topic creation (`topics.go`) and specialized client initialization (`factory.go`) |
 
 ## Internal Infrastructure (`internal/infra/`)
 

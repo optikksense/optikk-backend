@@ -4,12 +4,13 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/kafkadispatcher"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/proto"
 	"github.com/gin-gonic/gin"
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	"google.golang.org/grpc"
 )
 
-func NewModule(authenticator ingestion.TeamResolver, tracker ingestion.SizeTracker, d *kafkadispatcher.KafkaDispatcher[*LogRow]) registry.Module {
+func NewModule(authenticator ingestion.TeamResolver, tracker ingestion.SizeTracker, d *kafkadispatcher.KafkaDispatcher[*proto.LogRow]) registry.Module {
 	service := NewService(authenticator, d, tracker)
 	return &Module{
 		handler: NewHandler(service),

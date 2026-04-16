@@ -8,9 +8,11 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/internal/protoconv"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/proto"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	trace "go.opentelemetry.io/proto/otlp/trace/v1"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const maxSpanAttributes = 128
@@ -71,9 +73,9 @@ type exceptionFields struct {
 	escaped                  bool
 }
 
-// mapSpans converts an OTLP traces export request into ClickHouse ingest rows.
-func mapSpans(teamID int64, req *tracepb.ExportTraceServiceRequest) []*SpanRow {
-	result := make([]*SpanRow, 0, 64)
+// mapSpans converts an OTLP traces export request into internal Protobuf messages for Kafka transport.
+func mapSpans(teamID int64, req *tracepb.ExportTraceServiceRequest) []*proto.SpanRow {
+	result := make([]*proto.SpanRow, 0, 64)
 	for _, rs := range req.ResourceSpans {
 		var resAttrs []*commonpb.KeyValue
 		if rs.Resource != nil {
@@ -82,7 +84,7 @@ func mapSpans(teamID int64, req *tracepb.ExportTraceServiceRequest) []*SpanRow {
 		resMap := protoconv.AttrsToMap(resAttrs)
 		for _, ss := range rs.ScopeSpans {
 			for _, s := range ss.Spans {
-				result = append(result, buildSpanRow(teamID, resMap, s))
+				result = append(result, buildSpanRow(teamID, resMap, s).ToProto())
 			}
 		}
 	}
@@ -315,5 +317,75 @@ func liveSpanTailFromRow(row *SpanRow) WireSpan {
 		HasError:      row.HasError,
 		Timestamp:     row.Timestamp,
 		EmitMs:        0, // placeholder, will be set by caller
+	}
+}
+
+func (row *SpanRow) ToProto() *proto.SpanRow {
+	return &proto.SpanRow{
+		TsBucketStart:       row.TsBucketStart,
+		TeamID:              row.TeamID,
+		Timestamp:           timestamppb.New(row.Timestamp),
+		TraceID:             row.TraceID,
+		SpanID:              row.SpanID,
+		ParentSpanID:        row.ParentSpanID,
+		TraceState:          row.TraceState,
+		Flags:               row.Flags,
+		Name:                row.Name,
+		Kind:                int32(row.Kind),
+		KindString:          row.KindString,
+		DurationNano:        row.DurationNano,
+		HasError:            row.HasError,
+		IsRemote:            row.IsRemote,
+		StatusCode:          int32(row.StatusCode),
+		StatusCodeString:    row.StatusCodeString,
+		StatusMessage:       row.StatusMessage,
+		HTTPUrl:             row.HTTPUrl,
+		HTTPMethod:          row.HTTPMethod,
+		HTTPHost:            row.HTTPHost,
+		ExternalHTTPUrl:     row.ExternalHTTPUrl,
+		ExternalHTTPMethod:  row.ExternalHTTPMethod,
+		ResponseStatusCode:  row.ResponseStatusCode,
+		Attributes:          row.Attributes,
+		Events:              row.Events,
+		Links:               row.Links,
+		ExceptionType:       row.ExceptionType,
+		ExceptionMessage:    row.ExceptionMessage,
+		ExceptionStacktrace: row.ExceptionStacktrace,
+		ExceptionEscaped:    row.ExceptionEscaped,
+	}
+}
+
+func FromProto(p *proto.SpanRow) *SpanRow {
+	return &SpanRow{
+		TsBucketStart:       p.TsBucketStart,
+		TeamID:              p.TeamID,
+		Timestamp:           p.Timestamp.AsTime(),
+		TraceID:             p.TraceID,
+		SpanID:              p.SpanID,
+		ParentSpanID:        p.ParentSpanID,
+		TraceState:          p.TraceState,
+		Flags:               p.Flags,
+		Name:                p.Name,
+		Kind:                int8(p.Kind),
+		KindString:          p.KindString,
+		DurationNano:        p.DurationNano,
+		HasError:            p.HasError,
+		IsRemote:            p.IsRemote,
+		StatusCode:          int16(p.StatusCode),
+		StatusCodeString:    p.StatusCodeString,
+		StatusMessage:       p.StatusMessage,
+		HTTPUrl:             p.HTTPUrl,
+		HTTPMethod:          p.HTTPMethod,
+		HTTPHost:            p.HTTPHost,
+		ExternalHTTPUrl:     p.ExternalHTTPUrl,
+		ExternalHTTPMethod:  p.ExternalHTTPMethod,
+		ResponseStatusCode:  p.ResponseStatusCode,
+		Attributes:          p.Attributes,
+		Events:              p.Events,
+		Links:               p.Links,
+		ExceptionType:       p.ExceptionType,
+		ExceptionMessage:    p.ExceptionMessage,
+		ExceptionStacktrace: p.ExceptionStacktrace,
+		ExceptionEscaped:    p.ExceptionEscaped,
 	}
 }

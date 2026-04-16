@@ -1,42 +1,19 @@
-package kafkadispatcher
+package kafka
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// New starts a stream consumer, a persist consumer, and a producer client.
-func New[T any](brokers []string, groupBase, topic, signal string, handlers ingestion.Handlers[T]) (*KafkaDispatcher[T], error) {
-	if err := validateConfig(brokers, groupBase, topic, signal); err != nil {
-		return nil, err
-	}
-	topic = strings.TrimSpace(topic)
-
-	producer, stream, persist, err := initAllClients(brokers, groupBase, topic, signal)
-	if err != nil {
-		return nil, err
+// InitIngestClients handles the start-time initialization for a producer and two specialized consumers.
+func InitIngestClients(brokers []string, groupBase, topic, signal string) (p, s, r *kgo.Client, err error) {
+	if err := ValidateConfig(brokers, groupBase, topic, signal); err != nil {
+		return nil, nil, nil, err
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	d := &KafkaDispatcher[T]{
-		signal:          signal,
-		topic:           topic,
-		producer:        producer,
-		consumerStream:  stream,
-		consumerPersist: persist,
-		handlers:        handlers,
-		cancel:          cancel,
-	}
-	d.startLoops(ctx)
-	return d, nil
-}
-
-func initAllClients(brokers []string, groupBase, topic, signal string) (p, s, r *kgo.Client, err error) {
 	if p, err = initProducer(brokers, signal); err != nil {
 		return nil, nil, nil, err
 	}
@@ -52,7 +29,8 @@ func initAllClients(brokers []string, groupBase, topic, signal string) (p, s, r 
 	return p, s, r, nil
 }
 
-func validateConfig(brokers []string, groupBase, topic, signal string) error {
+// ValidateConfig performs basic validation on the Kafka configuration parameters.
+func ValidateConfig(brokers []string, groupBase, topic, signal string) error {
 	if len(brokers) == 0 {
 		return fmt.Errorf("kafka: no brokers for %s", signal)
 	}
@@ -66,16 +44,16 @@ func validateConfig(brokers []string, groupBase, topic, signal string) error {
 }
 
 func initProducer(brokers []string, signal string) (*kgo.Client, error) {
-	producer, err := kgo.NewClient(kgo.SeedBrokers(brokers...))
+	cl, err := kgo.NewClient(kgo.SeedBrokers(brokers...))
 	if err != nil {
 		return nil, fmt.Errorf("kafka: producer client %s: %w", signal, err)
 	}
-	return producer, nil
+	return cl, nil
 }
 
 func initStreamConsumer(brokers []string, groupBase, topic, signal string) (*kgo.Client, error) {
 	cg := strings.TrimSpace(groupBase) + "-stream-" + signal
-	consumer, err := kgo.NewClient(
+	cl, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
 		kgo.ConsumerGroup(cg),
 		kgo.ConsumeTopics(topic),
@@ -85,12 +63,12 @@ func initStreamConsumer(brokers []string, groupBase, topic, signal string) (*kgo
 	if err != nil {
 		return nil, fmt.Errorf("kafka: stream consumer client %s: %w", signal, err)
 	}
-	return consumer, nil
+	return cl, nil
 }
 
 func initPersistConsumer(brokers []string, groupBase, topic, signal string) (*kgo.Client, error) {
 	cg := strings.TrimSpace(groupBase) + "-persist-" + signal
-	consumer, err := kgo.NewClient(
+	cl, err := kgo.NewClient(
 		kgo.SeedBrokers(brokers...),
 		kgo.ConsumerGroup(cg),
 		kgo.ConsumeTopics(topic),
@@ -101,5 +79,5 @@ func initPersistConsumer(brokers []string, groupBase, topic, signal string) (*kg
 	if err != nil {
 		return nil, fmt.Errorf("kafka: persist consumer client %s: %w", signal, err)
 	}
-	return consumer, nil
+	return cl, nil
 }

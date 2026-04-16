@@ -2,24 +2,22 @@ package kafkadispatcher
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"log/slog"
 
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"google.golang.org/protobuf/proto"
 )
 
-// consumeStreamLoop targets instantaneous low-latency WebSocket live-tail publishing
+// consumeStreamLoop targets instantaneous low-latency WebSocket live-tail publishing.
 func (d *KafkaDispatcher[T]) consumeStreamLoop(ctx context.Context) {
 	for {
 		fetches := d.consumerStream.PollFetches(ctx)
 		if d.handleStreamFetchErrors(fetches) {
 			return
 		}
-
-		d.processStreamRows(ctx, fetches)
-
+		d.processStreamRecords(ctx, fetches)
 		if err := d.consumerStream.CommitUncommittedOffsets(ctx); err != nil {
 			slog.Warn("kafka: stream commit offsets failed", slog.String("signal", d.signal), slog.Any("error", err))
 		}
@@ -35,17 +33,18 @@ func (d *KafkaDispatcher[T]) handleStreamFetchErrors(fetches kgo.Fetches) bool {
 	return false
 }
 
-func (d *KafkaDispatcher[T]) processStreamRows(ctx context.Context, fetches kgo.Fetches) {
+func (d *KafkaDispatcher[T]) processStreamRecords(ctx context.Context, fetches kgo.Fetches) {
 	iter := fetches.RecordIter()
 	for !iter.Done() {
 		r := iter.Next()
-
-		var batch ingestion.TelemetryBatch[T]
-		if err := json.Unmarshal(r.Value, &batch); err != nil {
-			slog.Error("kafka: stream unmarshal failed", slog.String("signal", d.signal), slog.Any("error", err))
+		msg := d.newMsg()
+		if err := proto.Unmarshal(r.Value, msg); err != nil {
+			slog.Error("kafka: stream proto unmarshal failed",
+				slog.String("signal", d.signal), slog.Any("error", err))
 			continue
 		}
-
-		d.handlers.OnStreaming(ctx, batch)
+		d.handlers.OnStreaming(ctx, ingestion.TelemetryBatch[T]{
+			Rows: []T{msg},
+		})
 	}
 }

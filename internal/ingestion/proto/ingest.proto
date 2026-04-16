@@ -1,0 +1,101 @@
+syntax = "proto3";
+
+package ingestion;
+
+option go_package = "github.com/Optikk-Org/optikk-backend/internal/ingestion/proto";
+
+import "google/protobuf/timestamp.proto";
+
+message LogRow {
+    uint32 team_id = 1;
+    uint32 ts_bucket_start = 2;
+    google.protobuf.Timestamp timestamp = 3;
+    uint64 observed_timestamp = 4;
+    string trace_id = 5;
+    string span_id = 6;
+    uint32 trace_flags = 7;
+    string severity_text = 8;
+    uint32 severity_number = 9;
+    string body = 10;
+    map<string, string> attributes_string = 11;
+    map<string, double> attributes_number = 12;
+    map<string, bool> attributes_bool = 13;
+    map<string, string> resource = 14;
+    string resource_fingerprint = 15;
+    string scope_name = 16;
+    string scope_version = 17;
+    map<string, string> scope_string = 18;
+}
+
+message SpanRow {
+    uint64 ts_bucket_start = 1;
+    uint32 team_id = 2;
+    google.protobuf.Timestamp timestamp = 3;
+    string trace_id = 4;
+    string span_id = 5;
+    string parent_span_id = 6;
+    string trace_state = 7;
+    uint32 flags = 8;
+    string name = 9;
+    int32 kind = 10;
+    string kind_string = 11;
+    uint64 duration_nano = 12;
+    bool has_error = 13;
+    bool is_remote = 14;
+    int32 status_code = 15;
+    string status_code_string = 16;
+    string status_message = 17;
+    string http_url = 18;
+    string http_method = 19;
+    string http_host = 20;
+    string external_http_url = 21;
+    string external_http_method = 22;
+    string response_status_code = 23;
+    map<string, string> attributes = 24;
+    repeated string events = 25;
+    string links = 26;
+    string exception_type = 27;
+    string exception_message = 28;
+    string exception_stacktrace = 29;
+    bool exception_escaped = 30;
+}
+
+message MetricRow {
+    uint32 team_id = 1;
+    string env = 2;
+    string metric_name = 3;
+    string metric_type = 4;
+    string temporality = 5;
+    bool is_monotonic = 6;
+    string unit = 7;
+    string description = 8;
+    uint64 resource_fingerprint = 9;
+    google.protobuf.Timestamp timestamp = 10;
+    double value = 11;
+    double hist_sum = 12;
+    uint64 hist_count = 13;
+    repeated double hist_buckets = 14;
+    repeated uint64 hist_counts = 15;
+    map<string, string> attributes = 16;
+}
+
+message TelemetryBatch {
+    int64 team_id = 1;
+    oneof data {
+        LogBatch logs = 2;
+        SpanBatch spans = 3;
+        MetricBatch metrics = 4;
+    }
+}
+
+message LogBatch {
+    repeated LogRow rows = 1;
+}
+
+message SpanBatch {
+    repeated SpanRow rows = 1;
+}
+
+message MetricBatch {
+    repeated MetricRow rows = 1;
+}
