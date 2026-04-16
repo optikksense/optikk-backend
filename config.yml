@@ -20,8 +20,6 @@ clickhouse:
   database: observability
   user: default
   password: clickhouse123
-  production: false
-  cloud_host: ""
 
 session:
   lifetime_ms: 86400000

@@ -32,12 +32,7 @@ func newDeps(cfg config.Config) (_ *registry.Deps, err error) {
 		}
 	}()
 
-	chCloud := dbutil.ClickHouseCloudConfig{
-		Host:     cfg.ClickHouse.CloudHost,
-		Username: cfg.ClickHouse.User,
-		Password: cfg.ClickHouse.Password,
-	}
-	chConn, err := dbutil.OpenClickHouseConn(cfg.ClickHouseDSN(), cfg.ClickHouse.Production, chCloud)
+	chConn, err := dbutil.OpenClickHouseConn(cfg.ClickHouseDSN())
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse: %w", err)
 	}

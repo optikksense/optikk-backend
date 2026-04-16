@@ -2,8 +2,6 @@ package database
 
 import (
 	"context"
-	"crypto/tls"
-	"errors"
 	"fmt"
 	"log/slog"
 	"regexp"
@@ -42,32 +40,10 @@ func applyClickHouseConnectionPoolDefaults(opts *clickhouse.Options) {
 // Connection opening
 // ---------------------------------------------------------------------------
 
-type ClickHouseCloudConfig struct {
-	Host     string
-	Username string
-	Password string
-}
-
-func cloudOptions(cc ClickHouseCloudConfig) *clickhouse.Options {
-	return &clickhouse.Options{
-		Addr:     []string{cc.Host},
-		Protocol: clickhouse.Native,
-		TLS: &tls.Config{
-			MinVersion: tls.VersionTLS12,
-		},
-		Auth: clickhouse.Auth{
-			Username: cc.Username,
-			Password: cc.Password,
-		},
-		DialTimeout: 5 * time.Second,
-		ReadTimeout: 30 * time.Second,
-	}
-}
-
-func OpenClickHouseConn(dsn string, isProduction bool, cloud ...ClickHouseCloudConfig) (clickhouse.Conn, error) {
-	opts, err := resolveClickHouseOptions(dsn, isProduction, cloud)
+func OpenClickHouseConn(dsn string) (clickhouse.Conn, error) {
+	opts, err := clickhouse.ParseDSN(dsn)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("clickhouse: parse DSN: %w", err)
 	}
 
 	applyClickHouseConnectionPoolDefaults(opts)
@@ -84,20 +60,6 @@ func OpenClickHouseConn(dsn string, isProduction bool, cloud ...ClickHouseCloudC
 	}
 
 	return conn, nil
-}
-
-func resolveClickHouseOptions(dsn string, isProduction bool, cloud []ClickHouseCloudConfig) (*clickhouse.Options, error) {
-	if isProduction {
-		if len(cloud) == 0 {
-			return nil, errors.New("clickhouse: ClickHouseCloudConfig required for production mode")
-		}
-		return cloudOptions(cloud[0]), nil
-	}
-	opts, err := clickhouse.ParseDSN(dsn)
-	if err != nil {
-		return nil, fmt.Errorf("clickhouse: parse DSN: %w", err)
-	}
-	return opts, nil
 }
 
 // ---------------------------------------------------------------------------
