@@ -8,7 +8,8 @@ import (
 	otlp_metrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/metrics"
 	otlp_spans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
 	otlp_streamworkers "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/streamworkers"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/alerting"
+	ai_factory "github.com/Optikk-Org/optikk-backend/internal/modules/ai/factory"
+	alerting_factory "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/factory"
 
 	infrastructure_connpool "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/connpool"
 	infrastructure_cpu "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/cpu"
@@ -60,10 +61,12 @@ func configuredModules(
 	appConfig registry.AppConfig,
 	infraDeps *Infra,
 ) []registry.Module {
-	return []registry.Module{
+	alertingModules := alerting_factory.NewModules(infraDeps.DB, nativeQuerier, infraDeps.CH, infraDeps.RedisClient, getTenant, "", appConfig.AlertingMaxEnabledRules())
+	aiModules := ai_factory.NewModules(nativeQuerier, infraDeps.DB, getTenant)
+
+	core := []registry.Module{
 		ai_explorer.NewModule(nativeQuerier, getTenant),
 		llm_hub.NewModule(infraDeps.DB, getTenant),
-		alerting.NewModule(infraDeps.DB, nativeQuerier, infraDeps.CH, getTenant, "", appConfig.AlertingMaxEnabledRules()),
 		apm.NewModule(nativeQuerier, getTenant),
 		deployments.NewModule(nativeQuerier, getTenant),
 		httpmetrics.NewModule(nativeQuerier, getTenant),
@@ -114,6 +117,9 @@ func configuredModules(
 		user_team.NewModule(infraDeps.DB, getTenant, appConfig),
 		user_user.NewModule(infraDeps.DB, getTenant, appConfig),
 	}
+	out := append(core, alertingModules...)
+	out = append(out, aiModules...)
+	return out
 }
 
 func splitAllowedOrigins(allowed string) []string {

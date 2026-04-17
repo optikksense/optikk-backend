@@ -17,7 +17,20 @@ alwaysApply: true
 
 ## Canonical map
 
-**`CODEBASE_INDEX.md`** (repo root) lists all 52 modules (48 HTTP + 4 ingestion), ingestion, and the cross-repo map to **optikk-frontend**.
+**`CODEBASE_INDEX.md`** (repo root) lists the full module tree (including the alerting and AI subpackage splits from Phase 3 + Phase 6), ingestion, and the cross-repo map to **optikk-frontend**.
+
+## Observability stack (docker-compose)
+
+`docker compose up` now also brings:
+- **Prometheus** on host port `19091` — remote-write receiver fed by the OTel collector. Acts as the metrics UI until Grafana is re-added.
+- **OTel Collector** on host ports `14317` (gRPC) + `14318` (HTTP) + `13133` (health). Config at `docker/otel-collector/config.yaml`.
+- **Grafana is not started** — dropped from `docker-compose.yml` after a local Docker TLS/corporate-proxy issue blocked the image pull. Provisioning files under `docker/grafana/provisioning/` are preserved so the service can be re-added as a single block once image pulls work.
+
+Ports deliberately shifted into the 1xxxx range to avoid collisions with Optikk's own OTLP ingest (`4317`), the frontend dev server (`3000`), and ClickHouse (`9000`/`8123`).
+
+## Scale & perf context
+
+Before perf-motivated changes read **`.agent/audits/2026-04-17-scalability-audit.md`** — documents the 15 Datadog-grade gaps (JSON-over-Kafka, pre-flush Kafka commit at [kafka_dispatcher.go:160](internal/ingestion/kafka_dispatcher.go#L160), silent CH flush drops at [workers.go:85](internal/ingestion/otlp/streamworkers/workers.go#L85), missing rollup MVs on `observability.spans`, in-process `livetail.Hub`, single-goroutine alerting evaluator, global rate limiter) and the ordered 5-phase refactor plan.
 
 ## Stack
 
@@ -72,7 +85,17 @@ Go 1.25, Gin, ClickHouse, MySQL, Redis, WebSocket live tail (`/api/v1/ws/live`),
 
 ## Alerting module
 
-`internal/modules/alerting/` (subpackages `evaluators/`, `channels/`) exposes `/alerts/*` and is the only current module that is **both** a `registry.Module` and a `registry.BackgroundRunner`.
+`internal/modules/alerting/` is **decomposed into five subpackages** (Phase 3 of 2026-04-17 audit). Each is a proper directory with its own `module.go`:
+
+- `alerting/rules/` — `/alerts/rules/*`, mute, test, backtest, audit
+- `alerting/incidents/` — `/alerts/incidents`, `/activity`, `/instances/:id/{ack,snooze}`
+- `alerting/silences/` — `/alerts/silences/*`
+- `alerting/slack/` — `/alerts/slack/test`, `/callback/slack`
+- `alerting/engine/` — `registry.BackgroundRunner` wrapping the evaluator loop + dispatcher + outbox relay (no HTTP routes)
+
+Plus existing `alerting/evaluators/` (condition evaluators), `alerting/channels/` (Slack delivery), `alerting/shared/` (Rule/Instance/Silence/AlertEvent types + DTOs + definition + statemachine + template + helpers — all shared across subpackages), and `alerting/factory/` (composes the five submodules into `[]registry.Module` for `modules_manifest.go`).
+
+**Parent `alerting/` has NO .go files** — it is a pure directory container. All code lives in `shared/` or one of the five concern subpackages. Import graph is one-directional: factory → submodules; submodules → shared (+ rules for incidents/silences, + engine for slack). Modules 52 → 56.
 
 - **Storage**: single MySQL table `observability.alerts` — rule config + per-instance runtime state + silences all live inline as JSON columns. Append-only ClickHouse `observability.alert_events` (MergeTree, `PARTITION BY toYYYYMM(ts) ORDER BY (team_id, alert_id, ts)`) holds audit + transition history.
 - **Routes**: `POST/GET/PATCH/DELETE /alerts/rules[/:id]`, `POST /alerts/rules/:id/{mute,test,backtest}`, `GET /alerts/rules/:id/audit`, `GET /alerts/incidents`, `POST /alerts/instances/:id/{ack,snooze}`, `GET/POST/PATCH/DELETE /alerts/silences[/:id]`, `POST /alerts/callback/slack`.
@@ -82,11 +105,16 @@ Go 1.25, Gin, ClickHouse, MySQL, Redis, WebSocket live tail (`/api/v1/ws/live`),
 - **Backtest**: `backtest.go:RunBacktest` loops `Evaluator.EvaluateAt` across a historical range without persisting state or dispatching — powers `POST /alerts/rules/:id/backtest`.
 - **Deploy correlation**: `deployments.Repository.GetDeploysInRange` returns all root-span deploy markers in [start,end] across services for a team; alerting calls it on every transition to attach `deploy_refs` to the event + dispatch payload.
 - **Error codes**: `errorcode.AlertRuleNotFound`, `AlertRuleInvalidCondition`, `AlertInstanceNotFound`, `AlertChannelNotFound`, `AlertSilenceNotFound`.
-- **Module wiring**: `alerting.NewModule(sqlDB, nativeQuerier, clickHouseConn, getTenant, baseURL)` — registered in `modules_manifest.go:configuredModules()`. `Start/Stop` fan out to evaluator + dispatcher so the module slots into the existing `BackgroundRunner` lifecycle in `app.go`.
+- **Module wiring**: `alerting.NewModule(sqlDB, nativeQuerier, clickHouseConn, redisClient, getTenant, baseURL, maxEnabledRules)` — registered in `modules_manifest.go:configuredModules()`. `Start/Stop` fan out to evaluator + dispatcher + **outbox relay** so the module slots into the existing `BackgroundRunner` lifecycle in `app.go`.
+- **Phase 3 HA (2026-04-17 audit)**:
+  - Redis lease (`lease.go`) guards `evalRule` — `SET NX PX 60000` on `alerting:lease:<rule_id>` so only one pod evaluates a rule per tick.
+  - Durable outbox (`outbox.go`) — evaluator writes to MySQL `observability.alert_outbox` on every transition; `Dispatcher` fast-path sends Slack and marks the row delivered; `OutboxRelay` polls every 15s (`SELECT ... FOR UPDATE SKIP LOCKED`), exponential backoff on failures. Survives pod crash + webhook outage. Dedup via unique key `(alert_id, instance_key, transition_seq)`.
+  - **Deferred**: the submodule structural split (`rules/`, `incidents/`, `silences/`, `slack/`, `engine/`, `shared/`) — tracked in the Phase 3 plan for a dedicated follow-up session to avoid risk of regressing the HA work above.
 
 ## Realtime
 
-- Live tail WebSocket: `internal/modules/livetail/` — `GET /api/v1/ws/live` (`subscribe:logs` / `subscribe:spans` JSON protocol)
+- Live tail WebSocket: `internal/modules/livetail/` — `GET /api/v1/ws/live` (`subscribe:logs` / `subscribe:spans` JSON protocol).
+- **Redis-only hub** (Phase 2, 2026-04-17 audit): `livetail.NewHub(redisClient, maxLen)` returns a `redisHub` backed by Redis Streams (`optikk:livetail:<teamID>`). Any pod can `XADD`; any WS client on any pod sees events via blocking `XREAD`. LocalHub removed — Redis is a hard dependency.
 
 ## Logs live tail
 
@@ -96,7 +124,10 @@ Go 1.25, Gin, ClickHouse, MySQL, Redis, WebSocket live tail (`/api/v1/ws/live`),
 
 ## Ingestion
 
-- OTLP: `internal/ingestion/otlp/` — gRPC → specifically mapped to `*LogRow`, `*SpanRow`, `*MetricRow` → generic channel `Dispatcher[T]` → `internal/ingestion/otlp/streamworkers/` background routines → `CHFlusher[T]` (ClickHouse via `AppendStruct`) + livetail bridges. The legacy `ingest.Row` and `[]any` constructs are strictly prohibited to ensure type safety.
+- OTLP: `internal/ingestion/otlp/` — gRPC → specifically mapped to `*LogRow`, `*SpanRow`, `*MetricRow` → generic channel `Dispatcher[T]` → `internal/ingestion/otlp/streamworkers/` background routines → `CHFlusher[T].Flush(rows, dedupToken)` (ClickHouse via `AppendStruct`) + livetail bridges. The legacy `ingest.Row` and `[]any` constructs are strictly prohibited to ensure type safety.
+- **Ack-gated Kafka commit** (Phase 1, 2026-04-17 audit): `Dispatcher[T].Persistence()` returns `<-chan AckableBatch[T]`. Each Kafka record is wrapped with an ack closure; the consumer commits the offset **only after** the worker invokes `Ack(err)`. `Ack(nil)` commits; `Ack(err)` produces the original record bytes to the per-signal DLQ topic (`<prefix>.<signal>.dlq` — `kafka.DLQTopicFor(topic)`) and then commits. No in-process retry. The DLQ is the retry surface.
+- **Insert dedup**: `AckableBatch.DedupToken` = `sha1(record.Value)`. Flusher passes it as `insert_deduplication_token` via `clickhouse.Context(ctx, clickhouse.WithSettings(...))`. CH schemas set `non_replicated_deduplication_window = 1000` (local MergeTree) / `replicated_deduplication_window = 1000` (prod ReplicatedMergeTree).
+- **Testing hook**: `streamworkers.RunPersistence[T](ctx, signal, dispatcher, flushFunc)` is exported for tests in `tests/ingestion/`. `FlushFunc[T]` is the narrow contract — real production path is `otlp.CHFlusher[T].Flush`.
 - **No Dummy Values**: Telemetry attributes that arrive empty must remain empty. Do not inject placeholders like `"default"` or `"unknown"`. However, time fields required for ClickHouse partitioning must defensively fallback to `time.Now()`.
 
 ## Config
@@ -182,6 +213,8 @@ func (m *myModule) RegisterRoutes(group *gin.RouterGroup) {
 - Extension interfaces: `Module` (HTTP), `GRPCRegistrar`, `BackgroundRunner`
 
 ### ClickHouse query helpers (`internal/infra/database/`)
+
+**Query profiles** (Phase 4, 2026-04-17 audit): `NativeQuerier.SelectOverview` / `SelectExplorer` (and their `QueryRow*` counterparts) apply distinct CH resource budgets — Overview (15s/100M/2GB) for dashboards + infra + saturation + HTTP + services; Explorer (60s/1B/8GB) for logs/traces/ai explorer + tracedetail + metrics timeseries. `Select` / `QueryRow` remain as deprecated Overview aliases. Typed helpers: `SelectTyped` / `QueryRowTyped` (Overview) + `SelectTypedExplorer` / `QueryRowTypedExplorer` (Explorer).
 
 **Query execution** (`query.go`):
 - `dbutil.QueryMaps(querier, sql, args...)` — returns `[]map[string]any` (10K row limit)

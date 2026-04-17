@@ -48,15 +48,33 @@ func EnsureTopics(brokers []string, topics []string) error {
 	return nil
 }
 
-// IngestTopicNames returns full topic names for logs, spans, and metrics under prefix.
+// IngestTopicNames returns full topic names for logs, spans, and metrics under prefix,
+// plus a per-signal DLQ sibling for batches that fail CH insert.
 func IngestTopicNames(prefix string) []string {
-	p := strings.TrimSpace(prefix)
-	if p == "" {
-		p = "optikk.ingest"
-	}
+	p := normalizeIngestPrefix(prefix)
 	return []string{
 		p + ".logs",
 		p + ".spans",
 		p + ".metrics",
+		p + ".logs.dlq",
+		p + ".spans.dlq",
+		p + ".metrics.dlq",
 	}
+}
+
+// DLQTopicFor returns the DLQ topic name paired with a primary ingest topic.
+func DLQTopicFor(topic string) string {
+	t := strings.TrimSpace(topic)
+	if t == "" {
+		return ""
+	}
+	return t + ".dlq"
+}
+
+func normalizeIngestPrefix(prefix string) string {
+	p := strings.TrimSpace(prefix)
+	if p == "" {
+		p = "optikk.ingest"
+	}
+	return p
 }

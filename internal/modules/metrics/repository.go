@@ -220,7 +220,7 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, teamID int64
 	)
 
 	var rows []timeseriesPointDTO
-	if err := r.db.Select(ctx, &rows, sql, params...); err != nil {
+	if err := r.db.SelectExplorer(ctx, &rows, sql, params...); err != nil {
 		return nil, err
 	}
 	results := make([]TimeseriesPoint, len(rows))

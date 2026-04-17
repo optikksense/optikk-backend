@@ -114,7 +114,8 @@ PARTITION BY toYYYYMM(timestamp)
 ORDER BY (team_id, ts_bucket_start, service_name, name, timestamp)
 TTL timestamp + INTERVAL 1 HOUR DELETE
 SETTINGS
-    index_granularity = 8192;
+    index_granularity = 8192,
+    non_replicated_deduplication_window = 1000;
 
 CREATE TABLE IF NOT EXISTS observability.logs (
     team_id              UInt32 CODEC(T64, ZSTD(1)),
@@ -151,7 +152,8 @@ PARTITION BY toYYYYMM(toDateTime(ts_bucket_start))
 ORDER BY (team_id, ts_bucket_start, service, timestamp)
 TTL timestamp + INTERVAL 1 HOUR DELETE
 SETTINGS
-    index_granularity = 8192;
+    index_granularity = 8192,
+    non_replicated_deduplication_window = 1000;
 
 CREATE TABLE IF NOT EXISTS observability.metrics (
     team_id              UInt32 CODEC(T64, ZSTD(1)),
@@ -191,7 +193,8 @@ ORDER BY (team_id, metric_name, service, environment, temporality, timestamp, re
 TTL timestamp + INTERVAL 1 HOUR DELETE
 SETTINGS
     index_granularity = 8192,
-    enable_mixed_granularity_parts = 1;
+    enable_mixed_granularity_parts = 1,
+    non_replicated_deduplication_window = 1000;
 
 CREATE TABLE IF NOT EXISTS observability.alert_events (
     ts             DateTime64(3) CODEC(DoubleDelta, LZ4),

@@ -9,12 +9,6 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 )
 
-// Task List:
-// - `[x]` Add drop detection and logging in `dispatcher.go`
-// - `[/]` Update `CHFlusher` to return errors for better diagnostics in `flusher.go`
-// - `[ ]` Implement robust time-and-size-based batching in `workers.go`
-// - `[ ]` Verify build and monitoring logs
-
 type CHFlusher[T any] struct {
 	conn        clickhouse.Conn
 	queryPrefix string
@@ -29,12 +23,22 @@ func NewCHFlusher[T any](conn clickhouse.Conn, table string, columns []string) *
 	}
 }
 
-func (f *CHFlusher[T]) Flush(batch []T) error {
+// Flush inserts the batch into ClickHouse. If dedupToken is non-empty it is
+// passed as `insert_deduplication_token`; ClickHouse collapses identical
+// tokens into a single physical write within the table's dedup window, which
+// makes at-least-once Kafka redelivery safe.
+func (f *CHFlusher[T]) Flush(batch []T, dedupToken string) error {
 	if len(batch) == 0 {
 		return nil
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
+
+	if dedupToken != "" {
+		ctx = clickhouse.Context(ctx, clickhouse.WithSettings(clickhouse.Settings{
+			"insert_deduplication_token": dedupToken,
+		}))
+	}
 
 	b, err := f.conn.PrepareBatch(ctx, f.queryPrefix)
 	if err != nil {
