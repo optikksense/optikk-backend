@@ -85,6 +85,29 @@ CREATE TABLE IF NOT EXISTS observability.llm_datasets
 -- LLM hub pricing overrides live on `teams.pricing_overrides_json` (see internal/modules/llm/hub).
 -- The standalone table `llm_team_settings` was removed from this file; use the upgrade block below.
 
+-- Alerting outbox: durable notification queue. Rows are written on every
+-- state transition alongside the in-memory Dispatcher fast-path; the
+-- OutboxRelay goroutine (internal/modules/alerting/outbox.go) delivers any
+-- row still undelivered after the fast-lane window, so notifications survive
+-- pod crashes and webhook outages.
+CREATE TABLE IF NOT EXISTS observability.alert_outbox
+  (
+     id                BIGINT auto_increment PRIMARY KEY,
+     team_id           BIGINT NOT NULL,
+     alert_id          BIGINT NOT NULL,
+     instance_key      VARCHAR(512) NOT NULL,
+     transition_seq    BIGINT NOT NULL,
+     payload_json      MEDIUMTEXT NOT NULL,
+     attempts          INT NOT NULL DEFAULT 0,
+     last_error        VARCHAR(1024) NULL,
+     created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     next_attempt_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     delivered_at      DATETIME NULL,
+     UNIQUE KEY uq_alert_outbox_dedup (alert_id, instance_key, transition_seq),
+     INDEX idx_alert_outbox_pending (delivered_at, next_attempt_at),
+     INDEX idx_alert_outbox_team (team_id, created_at)
+  );
+
 -- =============================================================================
 -- Manual upgrades (existing databases — run in order as needed)
 -- =============================================================================

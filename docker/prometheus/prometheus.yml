@@ -1,0 +1,9 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Optikk exports metrics via OTLP → otel-collector → remote_write into this
+# Prometheus. No scrape targets needed; the remote-write receiver handles
+# ingestion. Extra targets can be added here if you also want to scrape
+# Prometheus-format /metrics endpoints (e.g. from redpanda or mariadb).
+scrape_configs: []

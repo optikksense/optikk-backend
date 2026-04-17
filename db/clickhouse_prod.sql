@@ -117,7 +117,8 @@ TTL toDate(timestamp) + INTERVAL 14 DAY TO VOLUME 'warm',
 SETTINGS
     index_granularity = 8192,
     ttl_only_drop_parts = 1,
-    storage_policy = 'tiered_gcs';
+    storage_policy = 'tiered_gcs',
+    replicated_deduplication_window = 1000;
 
 CREATE TABLE IF NOT EXISTS observability.logs (
     team_id              UInt32 CODEC(T64, ZSTD(1)),
@@ -156,7 +157,8 @@ ORDER BY (team_id, ts_bucket_start, service, timestamp)
 TTL toDateTime(ts_bucket_start) + INTERVAL 30 DAY DELETE
 SETTINGS
     index_granularity = 8192,
-    storage_policy = 'tiered_gcs';
+    storage_policy = 'tiered_gcs',
+    replicated_deduplication_window = 1000;
 
 CREATE TABLE IF NOT EXISTS observability.metrics (
     team_id              UInt32 CODEC(T64, ZSTD(1)),
@@ -199,7 +201,8 @@ TTL toDateTime(timestamp) + INTERVAL 30 DAY   TO VOLUME 'warm',
 SETTINGS
     index_granularity = 8192,
     enable_mixed_granularity_parts = 1,
-    storage_policy = 'tiered_gcs';
+    storage_policy = 'tiered_gcs',
+    replicated_deduplication_window = 1000;
 
 CREATE TABLE IF NOT EXISTS observability.alert_events (
     ts             DateTime64(3) CODEC(DoubleDelta, LZ4),

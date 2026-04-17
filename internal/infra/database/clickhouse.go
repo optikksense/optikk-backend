@@ -112,17 +112,47 @@ func injectPrewhere(query string) string {
 	return prewhereRe.ReplaceAllString(query, "PREWHERE ${1}team_id = ? AND ${2}ts_bucket_start BETWEEN ? AND ? WHERE ")
 }
 
-func injectMaxExecutionTime(query string) string {
+// QueryProfile encapsulates the CH resource budget applied to a query.
+// Phase 4 (2026-04-17 audit) splits the single hardcoded budget into
+// workload-appropriate profiles: cheap overview / dashboard queries should
+// fail fast if they run long, while explorer / ad-hoc queries may legitimately
+// scan 10× more data.
+type QueryProfile int
+
+const (
+	// ProfileOverview — defaults for dashboards / overview / infrastructure /
+	// saturation / HTTP metrics / services. 15 s, 100M rows, 2 GB.
+	ProfileOverview QueryProfile = iota
+	// ProfileExplorer — defaults for ad-hoc explorer + tracedetail + ai
+	// explorer + alerting backtest. 60 s, 1B rows, 8 GB.
+	ProfileExplorer
+)
+
+// SettingsClauseForTest exposes the internal settings string for the
+// tests/database package. Not intended for production callers — use
+// SelectOverview / SelectExplorer.
+func (p QueryProfile) SettingsClauseForTest() string { return p.settingsClause() }
+
+func (p QueryProfile) settingsClause() string {
+	switch p {
+	case ProfileExplorer:
+		return "SETTINGS max_execution_time=60, max_rows_to_read=1000000000, max_memory_usage=8589934592, max_result_rows=1000000, result_overflow_mode='break', read_overflow_mode='break', optimize_read_in_order=1"
+	default:
+		return "SETTINGS max_execution_time=15, max_rows_to_read=100000000, max_memory_usage=2147483648, max_result_rows=100000, result_overflow_mode='break', read_overflow_mode='break', optimize_read_in_order=1"
+	}
+}
+
+func injectMaxExecutionTime(query string, profile QueryProfile) string {
 	qUpper := strings.ToUpper(strings.TrimSpace(query))
 	if (strings.HasPrefix(qUpper, "SELECT") || strings.HasPrefix(qUpper, "WITH")) && !strings.Contains(qUpper, "SETTINGS ") {
-		return query + "\nSETTINGS max_execution_time=30, max_rows_to_read=100000000, max_result_rows=100000, result_overflow_mode='break', read_overflow_mode='break', optimize_read_in_order=1"
+		return query + "\n" + profile.settingsClause()
 	}
 	return query
 }
 
-func optimizeQuery(query string) string {
+func optimizeQuery(query string, profile QueryProfile) string {
 	query = injectPrewhere(query)
-	query = injectMaxExecutionTime(query)
+	query = injectMaxExecutionTime(query, profile)
 	return query
 }
 
@@ -198,34 +228,84 @@ func retryClickHouseRead(ctx context.Context, op func() error) error {
 	return lastErr
 }
 
-func (n *NativeQuerier) Select(ctx context.Context, dest any, query string, args ...any) error {
-	query = optimizeQuery(query)
-	err := retryClickHouseRead(ctx, func() error {
+// SelectOverview executes a SELECT with the overview (dashboard) budget —
+// 15s execution, 100M rows, 2 GB memory. Use from overview/ infrastructure/
+// saturation/ HTTP-metrics/ services repositories.
+func (n *NativeQuerier) SelectOverview(ctx context.Context, dest any, query string, args ...any) error {
+	return n.selectWithProfile(ctx, ProfileOverview, dest, query, args...)
+}
+
+// SelectExplorer executes a SELECT with the explorer (ad-hoc) budget —
+// 60s execution, 1B rows, 8 GB memory. Use from explorer/ tracedetail/
+// tracecompare/ ai-explorer/ alerting-backtest code paths.
+func (n *NativeQuerier) SelectExplorer(ctx context.Context, dest any, query string, args ...any) error {
+	return n.selectWithProfile(ctx, ProfileExplorer, dest, query, args...)
+}
+
+// QueryRowOverview is the single-row counterpart to SelectOverview.
+func (n *NativeQuerier) QueryRowOverview(ctx context.Context, dest any, query string, args ...any) error {
+	return n.queryRowWithProfile(ctx, ProfileOverview, dest, query, args...)
+}
+
+// QueryRowExplorer is the single-row counterpart to SelectExplorer.
+func (n *NativeQuerier) QueryRowExplorer(ctx context.Context, dest any, query string, args ...any) error {
+	return n.queryRowWithProfile(ctx, ProfileExplorer, dest, query, args...)
+}
+
+func (n *NativeQuerier) selectWithProfile(ctx context.Context, profile QueryProfile, dest any, query string, args ...any) error {
+	query = optimizeQuery(query, profile)
+	return retryClickHouseRead(ctx, func() error {
 		return n.conn.Select(ctx, dest, query, args...)
 	})
-	return err
 }
 
-func (n *NativeQuerier) QueryRow(ctx context.Context, dest any, query string, args ...any) error {
-	query = optimizeQuery(query)
-	err := retryClickHouseRead(ctx, func() error {
+func (n *NativeQuerier) queryRowWithProfile(ctx context.Context, profile QueryProfile, dest any, query string, args ...any) error {
+	query = optimizeQuery(query, profile)
+	return retryClickHouseRead(ctx, func() error {
 		return n.conn.QueryRow(ctx, query, args...).ScanStruct(dest)
 	})
-	return err
 }
 
-// SelectTyped executes a SELECT query and scans results into a typed slice.
-// Eliminates the common three-line pattern: var rows []T; err := db.Select(...); return rows, err
+// Select is the unprofiled alias retained for the pre-Phase-4 call sites;
+// it forwards to SelectOverview so the default budget is the cheaper one.
+// Deprecated: pick SelectOverview or SelectExplorer explicitly at the call site.
+func (n *NativeQuerier) Select(ctx context.Context, dest any, query string, args ...any) error {
+	return n.SelectOverview(ctx, dest, query, args...)
+}
+
+// QueryRow is the unprofiled alias. See Select above.
+// Deprecated: pick QueryRowOverview or QueryRowExplorer explicitly.
+func (n *NativeQuerier) QueryRow(ctx context.Context, dest any, query string, args ...any) error {
+	return n.QueryRowOverview(ctx, dest, query, args...)
+}
+
+// SelectTyped executes a SELECT query and scans results into a typed slice
+// using the overview budget. For explorer / tracedetail / backtest paths use
+// SelectTypedExplorer instead.
 func SelectTyped[T any](ctx context.Context, db *NativeQuerier, query string, args ...any) ([]T, error) {
 	var rows []T
-	err := db.Select(ctx, &rows, query, args...)
+	err := db.SelectOverview(ctx, &rows, query, args...)
 	return rows, err
 }
 
-// QueryRowTyped executes a single-row query and scans into a typed struct.
+// SelectTypedExplorer is the explorer-budget counterpart to SelectTyped.
+func SelectTypedExplorer[T any](ctx context.Context, db *NativeQuerier, query string, args ...any) ([]T, error) {
+	var rows []T
+	err := db.SelectExplorer(ctx, &rows, query, args...)
+	return rows, err
+}
+
+// QueryRowTyped executes a single-row query with the overview budget.
 func QueryRowTyped[T any](ctx context.Context, db *NativeQuerier, query string, args ...any) (T, error) {
 	var row T
-	err := db.QueryRow(ctx, &row, query, args...)
+	err := db.QueryRowOverview(ctx, &row, query, args...)
+	return row, err
+}
+
+// QueryRowTypedExplorer is the explorer-budget counterpart to QueryRowTyped.
+func QueryRowTypedExplorer[T any](ctx context.Context, db *NativeQuerier, query string, args ...any) (T, error) {
+	var row T
+	err := db.QueryRowExplorer(ctx, &row, query, args...)
 	return row, err
 }
 

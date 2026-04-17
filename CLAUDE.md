@@ -18,11 +18,15 @@ After completing any task — no matter how small — review and update the foll
 
 This is **mandatory**, not optional. The documentation must always reflect the current architecture so the next session (by any AI tool) does not need to scan the full codebase. If nothing changed, skip — but always check.
 
+## Scale audits
+
+- `.agent/audits/2026-04-17-scalability-audit.md` — Datadog-grade gap list (15 items) + 5-phase refactor plan. Read before any perf/scale-motivated change to ingestion, CH query paths, alerting, or live tail.
+
 ## Quick reference
 
 - **Stack**: Go 1.25, Gin, ClickHouse, MySQL, Redis, WebSocket live tail, OTLP
 - **Server entry**: `cmd/server/main.go`
-- **Module registration**: `internal/app/server/modules_manifest.go` → `configuredModules()` — 52 constructors (48 HTTP + 4 ingestion; `alerting` is both HTTP module and `BackgroundRunner`)
+- **Module registration**: `internal/app/server/modules_manifest.go` → `configuredModules()` — the two composite factories `alerting_factory.NewModules` and `ai_factory.NewModules` spread their subpackage slices alongside the other direct-registered modules; `alerting.engine` is the only `BackgroundRunner`.
 - **Handler helpers**: `internal/shared/httputil/base.go` — `RespondOK`, `RespondErrorWithCause`, `ParseRequiredRange`
 - **Error codes**: `internal/shared/contracts/errorcode/codes.go`
 - **ClickHouse helpers**: `internal/infra/database/` — `QueryMaps`, `QueryCount`, `InClause`, `NamedInClause`, `SqlTime`, type extractors (`Int64FromAny`, `Float64FromAny`, `StringFromAny`, `BoolFromAny`, `TimeFromAny`, nullable variants)
@@ -35,7 +39,7 @@ This is **mandatory**, not optional. The documentation must always reflect the c
 - **Saturation DB**: `internal/modules/saturation/database/{collection,connections,errors,latency,slowqueries,summary,system,systems,volume}/` — `/api/v1/saturation/*`
 - **Saturation Kafka**: `internal/modules/saturation/kafka/` — `/api/v1/saturation/kafka/*`
 - **Deployments API**: `internal/modules/deployments/` — `/api/v1/deployments/*` (exposes `GetDeploysInRange` for alerting deploy correlation)
-- **Alerting**: `internal/modules/alerting/` (subpackages `evaluators/`, `channels/`) — `/api/v1/alerts/*`. Datadog-grade monitors: MySQL `observability.alerts` (rule+instances+silences inline), ClickHouse `observability.alert_events` (audit/transitions). Evaluator loop ticks 30s, runs `evaluators.Registry` (`slo_burn_rate`, `error_rate`) → `Decide` state machine → `Dispatcher` → Slack webhook. Module implements `registry.BackgroundRunner`.
+- **Alerting**: `internal/modules/alerting/{rules,incidents,silences,slack,engine}` (plus existing `evaluators/`, `channels/` and the composition `factory/`) — `/api/v1/alerts/*`. Parent carries only shared types + helpers; each submodule is a proper directory with handler + service (+ repo for rules). `engine/` is the sole `BackgroundRunner` (evaluator loop + dispatcher + outbox relay + Redis lease).
 - **Logs live tail**: `internal/modules/logs/search/livetail_run.go`, `livetail_payload.go` — Redis Stream subscription, no ClickHouse polling
 - **Explorer**: analytics owned by logs/traces explorers (`POST /explorer/logs/analytics`, `POST /explorer/traces/analytics`); shared types in `explorer/analytics/`, query parser in `explorer/queryparser/`
 - **Traces**: `internal/modules/traces/{query,explorer,tracedetail,redmetrics,errorfingerprint,errortracking,tracecompare,livetail}/` — tracedetail includes `/traces/:traceId/logs` for trace-correlated log retrieval

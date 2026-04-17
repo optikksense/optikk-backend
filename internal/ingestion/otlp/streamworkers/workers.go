@@ -7,16 +7,26 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp"
 	otlplogs "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/logs"
 	otlpmetrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/metrics"
 	otlpspans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/livetail"
 )
 
 // Workers runs in-memory queue consumers for OTLP ingest to ClickHouse
 // and the real-time Live Tail Hub.
+//
+// Persistence contract (Phase 1):
+//   - One AckableBatch from the dispatcher == one ClickHouse insert.
+//   - Insert success → Ack(nil) commits the source Kafka offset.
+//   - Insert failure → Ack(err) routes the record to the per-signal DLQ
+//     topic and then commits the offset so the partition is not blocked.
+//   - No in-process retry. The DLQ is the retry surface (operators replay).
+//   - Each insert carries AckableBatch.DedupToken as `insert_deduplication_token`
+//     so redelivered records (crash between flush and commit) collapse to a
+//     single physical write.
 type Workers struct {
 	ch               clickhouse.Conn
 	logDispatcher    ingestion.Dispatcher[*otlplogs.LogRow]
@@ -24,42 +34,47 @@ type Workers struct {
 	metricDispatcher ingestion.Dispatcher[*otlpmetrics.MetricRow]
 	hub              livetail.Hub
 
-	batchMaxRows int
-	batchMaxWait time.Duration
-
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
 
-func NewWorkers(ch clickhouse.Conn, ld ingestion.Dispatcher[*otlplogs.LogRow], sd ingestion.Dispatcher[*otlpspans.SpanRow], md ingestion.Dispatcher[*otlpmetrics.MetricRow], hub livetail.Hub, batchMaxRows int, batchMaxWait time.Duration) *Workers {
-	if batchMaxRows <= 0 {
-		batchMaxRows = 5000
-	}
-	if batchMaxWait <= 0 {
-		batchMaxWait = 5 * time.Second
-	}
+// NewWorkers constructs the persistence + streaming workers.
+// The batchMaxRows / batchMaxWait parameters are accepted for backward
+// compatibility with existing call sites but are unused — persistence is now
+// per-record to preserve Kafka offset ack semantics.
+func NewWorkers(
+	ch clickhouse.Conn,
+	ld ingestion.Dispatcher[*otlplogs.LogRow],
+	sd ingestion.Dispatcher[*otlpspans.SpanRow],
+	md ingestion.Dispatcher[*otlpmetrics.MetricRow],
+	hub livetail.Hub,
+	_ int,
+	_ time.Duration,
+) *Workers {
 	return &Workers{
 		ch:               ch,
 		logDispatcher:    ld,
 		spanDispatcher:   sd,
 		metricDispatcher: md,
 		hub:              hub,
-		batchMaxRows:     batchMaxRows,
-		batchMaxWait:     batchMaxWait,
 	}
 }
 
-// Start launches background consumers.
 func (w *Workers) Start() {
 	ctx, cancel := context.WithCancel(context.Background())
 	w.cancel = cancel
 
-	w.wg.Add(2)
-	go func() { defer w.wg.Done(); w.runPersistence(ctx) }()
+	logFlusher := otlp.NewCHFlusher[*otlplogs.LogRow](w.ch, "observability.logs", otlplogs.LogColumns)
+	metricFlusher := otlp.NewCHFlusher[*otlpmetrics.MetricRow](w.ch, "observability.metrics", otlpmetrics.MetricColumns)
+	spanFlusher := otlp.NewCHFlusher[*otlpspans.SpanRow](w.ch, "observability.spans", otlpspans.SpanColumns)
+
+	w.wg.Add(4)
+	go func() { defer w.wg.Done(); RunPersistence(ctx, "logs", w.logDispatcher, logFlusher.Flush) }()
+	go func() { defer w.wg.Done(); RunPersistence(ctx, "spans", w.spanDispatcher, spanFlusher.Flush) }()
+	go func() { defer w.wg.Done(); RunPersistence(ctx, "metrics", w.metricDispatcher, metricFlusher.Flush) }()
 	go func() { defer w.wg.Done(); w.runStreaming(ctx) }()
 }
 
-// Stop shuts down background consumers.
 func (w *Workers) Stop() error {
 	if w.cancel != nil {
 		w.cancel()
@@ -68,78 +83,37 @@ func (w *Workers) Stop() error {
 	return nil
 }
 
-func (w *Workers) runPersistence(ctx context.Context) {
-	logFlusher := otlp.NewCHFlusher[*otlplogs.LogRow](w.ch, "observability.logs", otlplogs.LogColumns)
-	metricFlusher := otlp.NewCHFlusher[*otlpmetrics.MetricRow](w.ch, "observability.metrics", otlpmetrics.MetricColumns)
-	spanFlusher := otlp.NewCHFlusher[*otlpspans.SpanRow](w.ch, "observability.spans", otlpspans.SpanColumns)
+// FlushFunc is the narrow contract RunPersistence depends on. The concrete
+// implementation is otlp.CHFlusher[T].Flush; tests can substitute a fake.
+type FlushFunc[T any] func(rows []T, dedupToken string) error
 
-	logBuf := make([]*otlplogs.LogRow, 0, w.batchMaxRows)
-	metricBuf := make([]*otlpmetrics.MetricRow, 0, w.batchMaxRows)
-	spanBuf := make([]*otlpspans.SpanRow, 0, w.batchMaxRows)
-
-	ticker := time.NewTicker(w.batchMaxWait)
-	defer ticker.Stop()
-
-	flush := func() {
-		if len(logBuf) > 0 {
-			if err := logFlusher.Flush(logBuf); err == nil {
-				slog.Info("ingest: flushed logs", slog.Int("rows", len(logBuf)))
-				logBuf = logBuf[:0]
-			}
-		}
-		if len(metricBuf) > 0 {
-			if err := metricFlusher.Flush(metricBuf); err == nil {
-				slog.Info("ingest: flushed metrics", slog.Int("rows", len(metricBuf)))
-				metricBuf = metricBuf[:0]
-			}
-		}
-		if len(spanBuf) > 0 {
-			if err := spanFlusher.Flush(spanBuf); err == nil {
-				slog.Info("ingest: flushed spans", slog.Int("rows", len(spanBuf)))
-				spanBuf = spanBuf[:0]
-			}
-		}
-	}
-
+// RunPersistence drains a single signal's persistence channel. Each
+// AckableBatch is flushed via flush and acked with the flush result: Ack(nil)
+// on success (Kafka offset commits), Ack(err) on failure (DLQ produce + commit).
+// Exported for tests in tests/ingestion/.
+func RunPersistence[T any](ctx context.Context, signal string, d ingestion.Dispatcher[T], flush FlushFunc[T]) {
+	ch := d.Persistence()
 	for {
 		select {
 		case <-ctx.Done():
-			flush()
 			return
-		case <-ticker.C:
-			flush()
-		case batch, ok := <-w.logDispatcher.Persistence():
+		case batch, ok := <-ch:
 			if !ok {
-				flush()
 				return
 			}
-			logBuf = append(logBuf, batch.Rows...)
-			if len(logBuf) >= w.batchMaxRows {
-				if err := logFlusher.Flush(logBuf); err == nil {
-					logBuf = logBuf[:0]
-				}
+			err := flush(batch.Batch.Rows, batch.DedupToken)
+			if err != nil {
+				slog.Error("ingest: flush failed; routing to DLQ",
+					slog.String("signal", signal),
+					slog.Int("rows", len(batch.Batch.Rows)),
+					slog.Any("error", err))
+			} else {
+				slog.Info("ingest: flushed",
+					slog.String("signal", signal),
+					slog.Int("rows", len(batch.Batch.Rows)))
 			}
-		case batch, ok := <-w.spanDispatcher.Persistence():
-			if !ok {
-				flush()
-				return
-			}
-			spanBuf = append(spanBuf, batch.Rows...)
-			if len(spanBuf) >= w.batchMaxRows {
-				if err := spanFlusher.Flush(spanBuf); err == nil {
-					spanBuf = spanBuf[:0]
-				}
-			}
-		case batch, ok := <-w.metricDispatcher.Persistence():
-			if !ok {
-				flush()
-				return
-			}
-			metricBuf = append(metricBuf, batch.Rows...)
-			if len(metricBuf) >= w.batchMaxRows {
-				if err := metricFlusher.Flush(metricBuf); err == nil {
-					metricBuf = metricBuf[:0]
-				}
+			if batch.Ack != nil {
+				batch.Ack(err)
 			}
 		}
 	}

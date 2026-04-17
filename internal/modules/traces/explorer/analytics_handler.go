@@ -64,7 +64,7 @@ func runTracesAnalytics(ctx context.Context, db *dbutil.NativeQuerier, teamID in
 	}
 
 	var rows []analytics.AnalyticsRowDTO
-	if err := db.Select(ctx, &rows, sql, args...); err != nil {
+	if err := db.SelectExplorer(ctx, &rows, sql, args...); err != nil {
 		return nil, fmt.Errorf("analytics query failed: %w", err)
 	}
 

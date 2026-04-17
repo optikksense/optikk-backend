@@ -10,6 +10,10 @@ Orientation for **optikk-backend** (Go modular monolith). Read this file and `.c
   - **ADR-001**: [adr-001-strict-architecture.md](file:///Users/ramantayal/pro/optikk-backend/.agent/philosophy/adr-001-strict-architecture.md)
   - **Vision**: [vision-and-extensibility.md](file:///Users/ramantayal/pro/optikk-backend/.agent/philosophy/vision-and-extensibility.md)
   - **Architecture**: [system-architecture.md](file:///Users/ramantayal/pro/optikk-backend/.agent/philosophy/system-architecture.md)
+- **Low-level design**: [.agent/architecture/lld.md](.agent/architecture/lld.md) — Mermaid flow + sequence diagrams for the **ingest path**, **query path** (incl. overview vs explorer profile routing), and **overall architecture topology**. Every arrow is wired to a concrete file:line. Includes runtime lifecycle, storage responsibilities, tenancy boundaries, and shipped-vs-gapped matrix.
+- **Scalability audits** (`/.agent/audits/`): read before any perf/scale-motivated change.
+  - **2026-04-17 Datadog-grade scalability audit**: [2026-04-17-scalability-audit.md](.agent/audits/2026-04-17-scalability-audit.md) — 15 gaps (ingest commit ordering, rollups, sharded flushers, distributed live-tail hub, leased alert evaluator, per-tenant limits, multi-region)
+  - **2026-04-17 Capacity estimate vs Datadog**: [2026-04-17-capacity-estimate.md](.agent/audits/2026-04-17-capacity-estimate.md) — current-code ceiling (30–50 k spans/s ingest/pod, 20–50 tenants comfortable, 100–200 strained); component-by-component throughput math; ranked next-8 work items with lift estimates. **Headline: ~3–4 orders of magnitude short on ingest, ~2–3 on query fan-out. Rollups + sharded flushers close 90 % of the gap; cells + tenant isolation close the rest.**
 
 ## Related repository
 
@@ -46,11 +50,11 @@ The web app lives in the sibling repo **`optikk-frontend`** (see that repo's `CO
 
 | Domain | Packages | Route prefix | Cache |
 |--------|----------|-------------|-------|
-| **Alerting** (1) | `alerting` (subpackages: `evaluators`, `channels`) | `/alerts/*` | V1 |
+| **Alerting** (5) | `alerting/{rules,incidents,silences,slack,engine}` (plus `evaluators`, `channels`) | `/alerts/*` | V1 |
 | **APM** (1) | `overview/apm` | `/apm/*` | Cached |
 | **Deployments** (1) | `services/deployments` | `/deployments/*` | Cached |
 | **Explorer** (shared) | `explorer/analytics` (shared types+builder), `explorer/queryparser` (query parser) | Analytics routes owned by logs/traces explorers | — |
-| **AI / GenAI** (2) | `ai/explorer`, `llm/hub` | `POST /ai/explorer/query`, `POST /ai/explorer/sessions/query`; hub: `POST/GET /ai/llm/scores`, `POST /ai/llm/scores/batch`, `GET/POST /ai/llm/prompts`, `PATCH/DELETE /ai/llm/prompts/:id`, `GET/POST /ai/llm/datasets`, `GET /ai/llm/datasets/:id`, `GET/PATCH /ai/llm/settings` (hub tables: `llm_scores`, `llm_prompts`, `llm_datasets`; pricing overrides on `teams.pricing_overrides_json`) | V1 |
+| **AI / GenAI** (5) | `ai/{overview,runs,analytics}` + `ai/explorer` + `llm/hub` | `GET /ai/overview/*` (summary/timeseries/top-models/top-prompts/quality); `POST /ai/explorer/query` + `GET /ai/runs/:runId[/related]`; `POST /explorer/ai/analytics`; explorer: `POST /ai/explorer/query`, `POST /ai/explorer/sessions/query`; hub: `POST/GET /ai/llm/scores`, `POST /ai/llm/scores/batch`, `GET/POST /ai/llm/prompts`, `PATCH/DELETE /ai/llm/prompts/:id`, `GET/POST /ai/llm/datasets`, `GET /ai/llm/datasets/:id`, `GET/PATCH /ai/llm/settings`. **Parent `ai/` has NO .go files** — shared Service + Repository + DTOs + models live in `ai/shared/`; `ai/factory/` wires the three submodules. Mirrors the alerting decomposition pattern. | V1 |
 | **HTTP Metrics** (1) | `overview/httpmetrics` | `/http/*`, `/http/routes/*`, `/http/external/*` | Cached |
 | **Infrastructure** (9) | `infrastructure/{cpu,disk,fleet,jvm,kubernetes,memory,network,nodes,resourceutil}` (consts: `infraconsts`) | `/infrastructure/*` | Cached |
 | **Logs** (2) | `logs/explorer`, `logs/search` (shared: `logs/internal/shared`) | `/logs/*`, `POST /logs/explorer/query`, `POST /explorer/logs/analytics` | V1 |
@@ -92,7 +96,23 @@ All under `/alerts/` prefix. Datadog-grade monitors: multi-window, multi-state (
 | `GET /alerts/silences` / `POST` / `PATCH /:id` / `DELETE /:id` | Maintenance-window CRUD |
 | `POST /alerts/callback/slack` | Slack action-button callback (v1 stub) |
 
-**Storage:** single MySQL `observability.alerts` table (rule + instances + silences inline as JSON); append-only ClickHouse `observability.alert_events` for transitions/audit. **Runtime:** the module implements `registry.BackgroundRunner` — `NewEvaluatorLoop` ticks every 30s, runs `evaluators.Registry` (`slo_burn_rate`, `error_rate`, `http_check`, `ai_latency`, `ai_error_rate`, `ai_cost_spike`, `ai_quality_drop`) → `Decide` state machine → `Dispatcher` with Slack channel and deploy correlation via `repository.DeploysInRange`. Span-backed evaluators use `observability.spans` through the shared `NativeQuerier`; `http_check` performs outbound HTTP(S) probes with SSRF checks on resolved IPs.
+**Storage:** single MySQL `observability.alerts` table (rule + instances + silences inline as JSON); append-only ClickHouse `observability.alert_events` for transitions/audit; MySQL `observability.alert_outbox` (Phase 3.3) for durable notification queue. **Runtime:** the module implements `registry.BackgroundRunner` — `NewEvaluatorLoop` ticks every 30s, runs `evaluators.Registry` (`slo_burn_rate`, `error_rate`, `http_check`, `ai_latency`, `ai_error_rate`, `ai_cost_spike`, `ai_quality_drop`) → `Decide` state machine → **outbox enqueue** + `Dispatcher` fast-path with Slack channel and deploy correlation via `repository.DeploysInRange`. Span-backed evaluators use `observability.spans` through the shared `NativeQuerier`; `http_check` performs outbound HTTP(S) probes with SSRF checks on resolved IPs.
+
+**Phase 3 HA (2026-04-17 audit):**
+- **Redis lease** (`internal/modules/alerting/lease.go`): `newLeaser(redisClient, 60s)`; `evalRule` calls `leaser.Acquire(ctx, rule.ID)` before evaluating. `SET NX PX 60000` per rule — dead pod's rules migrate within lease TTL. Fail-closed on Redis errors to prevent double-dispatch. Redis nil ⇒ always-acquire (single-pod dev).
+- **Durable outbox** (`internal/modules/alerting/outbox.go`): on every transition the evaluator writes a row to `observability.alert_outbox` keyed by `(alert_id, instance_key, transition_seq)`; the in-memory `Dispatcher` fast-path sends Slack immediately and marks the row delivered. `OutboxRelay` goroutine polls every 15s, uses `SELECT ... FOR UPDATE SKIP LOCKED` to claim batches, exponential backoff (30s → 2h) on Slack failures, survives pod crash and webhook outage.
+
+**Phase 3 submodule split (2026-04-17 audit):** The former monolithic `alerting` module is now a true subpackage tree. **Parent `internal/modules/alerting/` contains no .go files** — it is a pure directory container. Every file lives inside a subpackage:
+
+- `alerting/shared/` — Rule, Instance, Silence, DeployRef, AlertEvent, DTOs, definition.go, statemachine.go, template.go, helpers.go, errors.go. All shared types + rendering + state-machine logic.
+- `alerting/rules/` — `handler.go`, `service.go`, `repository.go` (MySQL alerts CRUD + inline instance state + scanRule), `dto.go`, `module.go` — owns `/alerts/rules/*` plus mute/test/backtest/audit.
+- `alerting/incidents/` — `handler.go`, `service.go` (depends on `rules.Repository` + `engine.EventStore`), `dto.go`, `module.go` — owns `/alerts/incidents`, `/activity`, `/instances/:id/{ack,snooze}`.
+- `alerting/silences/` — same layout; `/alerts/silences/*`.
+- `alerting/slack/` — same layout; service takes `*engine.Dispatcher` for the outbound SendSlack.
+- `alerting/engine/` — `evaluator_loop.go`, `dispatcher.go`, `outbox.go` (Store + Relay), `lease.go` (Redis SET NX PX), `backtest.go`, `store.go` (ClickHouse-backed `EventStore` + `DataSource`), `runner.go`, `module.go` (BackgroundRunner). No HTTP routes.
+- `alerting/factory/` — composes all five submodules into `[]registry.Module` for `modules_manifest.go`.
+
+Import graph: `factory → rules + incidents + silences + slack + engine`; `rules, engine → shared`; `incidents, silences → shared + rules`; `slack → shared + engine`. No cycles; parent directory is type-free.
 
 ### Traces module routes
 
@@ -154,9 +174,10 @@ All under `/http/` prefix, Cached:
 
 - **OTLP Pipeline**: `internal/ingestion/otlp/` — gRPC export explicitly mapped to concrete structs (`LogRow`, `SpanRow`, `MetricRow`).
 - **Authentication**: `internal/ingestion/otlp/auth/` — team resolution via API keys; optional Redis cache (TTL) when Redis is enabled.
-- **Dispatch contracts & implementations**: `internal/ingestion/` — `Dispatcher[T]`, `TelemetryBatch[T]`, OTLP dependency interfaces; `kafka_dispatcher.go` — Kafka-backed OTLP ingest queue (required; brokers in `kafka` / env).
-- **Kafka admin (topics)**: `internal/infra/kafka/topics.go` — `EnsureTopics`, `IngestTopicNames` (called from `server` at startup).
-- **Background consumers**: `internal/ingestion/otlp/streamworkers/` — `BackgroundRunner` with separate routines per type. **ClickHouse** writers use `CHFlusher[T]` with `AppendStruct(row)`. Live tail components tap into these same pipelines and broadcast to WebSocket clients.
+- **Dispatch contracts & implementations**: `internal/ingestion/` — `Dispatcher[T]`, `TelemetryBatch[T]`, **`AckableBatch[T]`** (Phase 1: persistence channel now yields ack-carrying batches), OTLP dependency interfaces; `kafka_dispatcher.go` — Kafka-backed OTLP ingest queue with ack-gated offset commit + per-signal DLQ produce on flush failure.
+- **Kafka admin (topics)**: `internal/infra/kafka/topics.go` — `EnsureTopics`, `IngestTopicNames` (now also returns `.dlq` siblings per signal), `DLQTopicFor(topic)`.
+- **Background consumers**: `internal/ingestion/otlp/streamworkers/` — `BackgroundRunner` with separate routines per signal. Persistence is **per-AckableBatch** (one Kafka record = one CH insert = one Ack); no cross-record batching. **ClickHouse** writers use `CHFlusher[T].Flush(rows, dedupToken)` — `dedupToken` is the SHA-1 of the source Kafka record bytes and is passed as `insert_deduplication_token` so redelivered records collapse to a single write.
+- **Phase 1 data-loss guarantees** (2026-04-17 audit): no silent drops. Flush error → DLQ produce + offset commit. Crash between flush and commit → redelivery collapses via dedup token. CH schemas set `non_replicated_deduplication_window = 1000` (local) / `replicated_deduplication_window = 1000` (prod).
 
 ## Infrastructure Layer (`internal/infra/`)
 
@@ -176,7 +197,7 @@ All under `/http/` prefix, Cached:
 | `cache` | Query and object caching |
 | `database` | **`NativeQuerier`** and ClickHouse/MySQL connection management |
 | `kafka` | `EnsureTopics` / `IngestTopicNames` for ingest Kafka topics |
-| `livetail` | Default live-tail hub implementation behind `platform/livetail.Hub` |
+| `livetail` | Redis-Streams-backed live-tail hub (`internal/modules/livetail/redis_hub.go`). `livetail.NewHub(redisClient, maxLen)` is the **only** constructor; Redis is a hard dependency (LocalHub was removed in Phase 2 of the 2026-04-17 audit for cross-pod fan-out). |
 | `livetail` | Live tail WebSocket module (`GET /api/v1/ws/live`); `handler.go` upgrades WS; registered from `modules_manifest.go` |
 | `redis` | go-redis + Redigo pool construction and ping |
 | `middleware` | HTTP middleware: CORS, error recovery, tenant context, rate limiting middleware |
@@ -236,6 +257,21 @@ Gin request
 **Session keys** (`internal/infra/session/manager.go`): `auth_user_id`, `auth_email`, `auth_role`, `auth_default_team_id`, `auth_team_ids`
 
 ## ClickHouse Query Helpers (`internal/infra/database/`)
+
+### Query profiles (Phase 4, 2026-04-17 audit)
+
+Profile-aware resource budgets on `NativeQuerier`:
+
+| Method | Profile | Budget |
+|--------|---------|--------|
+| `SelectOverview` / `QueryRowOverview` | `ProfileOverview` | 15 s / 100M rows / 2 GB |
+| `SelectExplorer` / `QueryRowExplorer` | `ProfileExplorer` | 60 s / 1B rows / 8 GB |
+| `Select` / `QueryRow` | *deprecated alias for Overview* | — |
+
+Call-site guidance:
+- **Overview** (dashboards, infra, saturation, HTTP metrics, services): default — no change needed from existing `.Select` / `.QueryRow` call sites.
+- **Explorer** (logs/explorer, traces/explorer, tracedetail, ai/explorer, metrics timeseries): **must** use `SelectExplorer` / `QueryRowExplorer`. Already migrated: `modules/logs/explorer/repository.go`, `modules/traces/tracedetail/repository.go`, `modules/ai/explorer/repository.go`, `modules/traces/explorer/analytics_handler.go`, `modules/metrics/repository.go::QueryTimeseries`.
+- Typed helpers: `SelectTyped` / `QueryRowTyped` use Overview; `SelectTypedExplorer` / `QueryRowTypedExplorer` use Explorer.
 
 ### Query execution (`query.go`)
 

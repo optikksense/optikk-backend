@@ -80,12 +80,7 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 		return nil, err
 	}
 
-	liveTailHub, err := newLiveTailHub()
-	if err != nil {
-		redisClients.Pool.Close()
-		_ = redisClients.Client.Close() //nolint:errcheck // best-effort cleanup on init failure
-		return nil, err
-	}
+	liveTailHub := livetail.NewHub(redisClients.Client, 0)
 
 	prefix := cfg.KafkaTopicPrefix()
 	if err := kafka.EnsureTopics(cfg.KafkaBrokers(), kafka.IngestTopicNames(prefix)); err != nil {
@@ -166,10 +161,6 @@ func newSessionManager(cfg config.Config, pool *redigoredis.Pool) (session.Manag
 		return nil, fmt.Errorf("session manager requires redis pool")
 	}
 	return session.NewManager(cfg, pool)
-}
-
-func newLiveTailHub() (livetail.Hub, error) {
-	return livetail.NewHub(), nil
 }
 
 func newIngestDispatcher[T any](name string, cfg config.Config) (ingestion.Dispatcher[T], error) {

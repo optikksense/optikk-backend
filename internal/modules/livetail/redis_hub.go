@@ -13,34 +13,38 @@ import (
 // redisStreamKeyFmt is the Redis Stream key pattern per team.
 const redisStreamKeyFmt = "optikk:livetail:%d"
 
-// RedisHub implements Hub using Redis Streams. Each team has a dedicated
-// stream; Publish() does XADD, Subscribe() spawns a goroutine that does
+// maxGlobalConnections caps concurrent WS subscribers served by a single pod.
+const maxGlobalConnections = 100
+
+// redisHub is the sole Hub implementation. Each team has a dedicated Redis
+// Stream; Publish() does XADD, Subscribe() spawns a goroutine that does
 // blocking XREAD until the provided channel is unsubscribed.
 //
-// This enables cross-pod live tail fan-out: any API pod can publish to the
-// stream and any client connected to any pod will receive events.
-type RedisHub struct {
+// Fan-out across API pods: any pod can publish to the stream and any client
+// connected to any pod will receive events.
+type redisHub struct {
 	client    *goredis.Client
 	maxLen    int64 // MAXLEN ~ for stream trimming
 	connCount atomic.Int64
 }
 
-// NewRedisHub creates a RedisHub writing to "optikk:livetail:{teamID}" streams.
-// maxLen controls approximate stream length per team (XADD MAXLEN ~).
-func NewRedisHub(client *goredis.Client, maxLen int64) *RedisHub {
+// NewHub constructs the Redis-backed live-tail hub. maxLen controls the
+// approximate per-team stream length (XADD MAXLEN ~); pass 0 for the 10 000
+// default. Redis is a hard dependency — there is no local fallback.
+func NewHub(client *goredis.Client, maxLen int64) Hub {
 	if maxLen <= 0 {
 		maxLen = 10_000
 	}
-	return &RedisHub{client: client, maxLen: maxLen}
+	return &redisHub{client: client, maxLen: maxLen}
 }
 
-func (h *RedisHub) streamKey(teamID int64) string {
+func (h *redisHub) streamKey(teamID int64) string {
 	return fmt.Sprintf(redisStreamKeyFmt, teamID)
 }
 
 // Publish serialises event as JSON and appends it to the team's Redis Stream.
 // Non-blocking — drops silently if Redis is unavailable.
-func (h *RedisHub) Publish(teamID int64, event any) {
+func (h *redisHub) Publish(teamID int64, event any) {
 	payload, err := json.Marshal(event)
 	if err != nil {
 		slog.Debug("livetail: marshal failed", slog.Any("error", err))
@@ -60,7 +64,7 @@ func (h *RedisHub) Publish(teamID int64, event any) {
 // Subscribe starts a goroutine that reads new events from the team's Redis
 // Stream and sends them to ch. A nil filter accepts all events.
 // Returns false if the global connection limit (100) is exceeded.
-func (h *RedisHub) Subscribe(teamID int64, ch chan any, filter FilterFunc) bool {
+func (h *redisHub) Subscribe(teamID int64, ch chan any, filter FilterFunc) bool {
 	if h.connCount.Load() >= int64(maxGlobalConnections) {
 		return false
 	}
@@ -125,11 +129,11 @@ func (h *RedisHub) Subscribe(teamID int64, ch chan any, filter FilterFunc) bool 
 }
 
 // Unsubscribe closes the channel to signal the reader goroutine to stop.
-func (h *RedisHub) Unsubscribe(teamID int64, ch chan any) {
+func (h *redisHub) Unsubscribe(teamID int64, ch chan any) {
 	// Closing ch signals the goroutine spawned in Subscribe to return.
 	// The goroutine detects this via the channel-closed check in the loop.
 	close(ch)
 }
 
-// Ensure RedisHub implements the Hub interface at compile time.
-var _ Hub = (*RedisHub)(nil)
+// Compile-time check that redisHub satisfies the Hub contract.
+var _ Hub = (*redisHub)(nil)
