@@ -21,9 +21,12 @@ func NewClients(cfg config.Config) (*Clients, error) {
 	}
 
 	client := goredis.NewClient(&goredis.Options{
-		Addr:     cfg.RedisAddr(),
-		Password: cfg.Redis.Password,
-		DB:       cfg.Redis.DB,
+		Addr:         cfg.RedisAddr(),
+		Password:     cfg.Redis.Password,
+		DB:           cfg.Redis.DB,
+		PoolSize:     50,
+		MinIdleConns: 20,
+		PoolTimeout:  2 * time.Second,
 	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
