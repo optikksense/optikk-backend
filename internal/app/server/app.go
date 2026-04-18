@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
+	"github.com/Optikk-Org/optikk-backend/internal/auth"
 	"github.com/Optikk-Org/optikk-backend/internal/config"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/middleware"
@@ -139,6 +140,8 @@ func (a *App) addGRPCServerActor(g *run.Group) error {
 			MinTime:             10 * time.Second,
 			PermitWithoutStream: true,
 		}),
+		grpc.UnaryInterceptor(auth.UnaryInterceptor(a.Infra.Authenticator)),
+		grpc.StreamInterceptor(auth.StreamInterceptor(a.Infra.Authenticator)),
 	)
 	for _, mod := range a.Modules {
 		if r, ok := mod.(registry.GRPCRegistrar); ok {

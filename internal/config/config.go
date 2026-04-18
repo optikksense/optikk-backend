@@ -171,9 +171,6 @@ func setDefaults(v *viper.Viper) {
 	// ingestion
 	v.SetDefault("ingestion.spans_bucket_seconds", 0)
 	v.SetDefault("ingestion.logs_bucket_seconds", 0)
-	v.SetDefault("ingestion.byte_tracker_flush_interval_ms", 0)
-	v.SetDefault("ingestion.batch_max_rows", 0)
-	v.SetDefault("ingestion.batch_max_wait_ms", 0)
 
 	// alerting
 	v.SetDefault("alerting.max_enabled_rules", 0)
