@@ -12,6 +12,15 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
+// Signal enumerates the three OTLP signals we ingest. The naming here feeds
+// both topic construction and consumer-group construction so the canonical
+// wire names stay in one place.
+const (
+	SignalLogs    = "logs"
+	SignalMetrics = "metrics"
+	SignalSpans   = "spans"
+)
+
 // EnsureTopics creates topics if they do not exist (idempotent for existing topics).
 func EnsureTopics(brokers []string, topics []string) error {
 	if len(brokers) == 0 {
@@ -48,27 +57,33 @@ func EnsureTopics(brokers []string, topics []string) error {
 	return nil
 }
 
-// IngestTopicNames returns full topic names for logs, spans, and metrics under prefix,
-// plus a per-signal DLQ sibling for batches that fail CH insert.
-func IngestTopicNames(prefix string) []string {
+// IngestTopics returns the three canonical ingest topic names for the given
+// prefix. The order is fixed: logs, metrics, spans.
+func IngestTopics(prefix string) []string {
 	p := normalizeIngestPrefix(prefix)
 	return []string{
-		p + ".logs",
-		p + ".spans",
-		p + ".metrics",
-		p + ".logs.dlq",
-		p + ".spans.dlq",
-		p + ".metrics.dlq",
+		IngestTopic(p, SignalLogs),
+		IngestTopic(p, SignalMetrics),
+		IngestTopic(p, SignalSpans),
 	}
 }
 
-// DLQTopicFor returns the DLQ topic name paired with a primary ingest topic.
-func DLQTopicFor(topic string) string {
-	t := strings.TrimSpace(topic)
-	if t == "" {
-		return ""
+// IngestTopic returns the full topic name for one signal. Callers must pass
+// one of the Signal* constants; any other value returns a best-effort
+// "<prefix>.<signal>" name so misuse still fails loudly at broker time.
+func IngestTopic(prefix, signal string) string {
+	return normalizeIngestPrefix(prefix) + "." + signal
+}
+
+// GroupID builds the canonical per-signal, per-role consumer group id. Role
+// separates persistence (CH writer) from livetail (hub broadcaster) so each
+// tracks independent offsets on the same topic.
+func GroupID(base, signal, role string) string {
+	b := strings.TrimSpace(base)
+	if b == "" {
+		b = "optikk-ingest"
 	}
-	return t + ".dlq"
+	return fmt.Sprintf("%s.%s.%s", b, signal, role)
 }
 
 func normalizeIngestPrefix(prefix string) string {

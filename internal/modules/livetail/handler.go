@@ -7,8 +7,6 @@ import (
 	"strings"
 	"time"
 
-	otlplogs "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/logs"
-	otlpspans "github.com/Optikk-Org/optikk-backend/internal/ingestion/otlp/spans"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/session"
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -125,14 +123,14 @@ func NewHandler(cfg Config) gin.HandlerFunc {
 				var item any
 				switch msg.Op {
 				case "subscribe:logs":
-					wl, ok := ev.(otlplogs.WireLog)
+					wl, ok := ev.(WireLog)
 					if !ok {
 						continue
 					}
 					lag = now - wl.EmitMs
 					item = wl
 				case "subscribe:spans":
-					ws, ok := ev.(otlpspans.WireSpan)
+					ws, ok := ev.(WireSpan)
 					if !ok {
 						continue
 					}
