@@ -66,45 +66,8 @@ services:
     volumes:
       - redpanda_data:/var/lib/redpanda/data
 
-  # ----------------------------------------------------------------------
-  # Phase 5 — external observability stack (2026-04-17 audit).
-  # Optikk exports OTLP to the collector (no self-ingest, no loops).
-  # Non-conflicting ports: 19091 (Prometheus), 14317/14318 (collector OTLP).
-  # Optikk's own OTLP ingest port 4317 is preserved.
-  #
-  # Grafana is intentionally NOT included here — it was dropped after a
-  # local Docker TLS / corporate-proxy issue blocked the pull. The
-  # provisioning files under docker/grafana/ remain so Grafana can be
-  # re-added in one block when networking allows. In the meantime,
-  # Prometheus's own UI at localhost:19091 serves as the metrics surface.
-  # ----------------------------------------------------------------------
-
-  otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.112.0
-    command: ["--config=/etc/otel-collector/config.yaml"]
-    ports:
-      - "14317:4317"   # OTLP gRPC in
-      - "14318:4318"   # OTLP HTTP in
-      - "13133:13133"  # health check
-    volumes:
-      - ./docker/otel-collector/config.yaml:/etc/otel-collector/config.yaml:ro
-    depends_on:
-      - prometheus
-
-  prometheus:
-    image: prom/prometheus:v2.55.0
-    command:
-      - --config.file=/etc/prometheus/prometheus.yml
-      - --web.enable-remote-write-receiver
-    ports:
-      - "19091:9090"
-    volumes:
-      - ./docker/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
-
 volumes:
   clickhouse_data:
   mariadb_data:
   redis_data:
   redpanda_data:
-  prometheus_data:

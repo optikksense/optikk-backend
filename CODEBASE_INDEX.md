@@ -157,6 +157,7 @@ Database submodules register under `/saturation/` prefix:
 | `volume` | `ops/{by-system,by-operation,by-collection,read-vs-write,by-namespace}` |
 | `kafka` | `kafka/{summary-stats,produce-rate-by-topic,publish-latency-by-topic,consume-rate-by-topic,...}` (Cached) |
 
+**Note on Saturation Performance:** The `kafka/summary` and related explorer queries make multiple heavy reads to `observability.metrics`. These are parallelized via `errgroup` in `GetKafkaSummary` and `buildKafkaGroupRows` to keep response times under 6s even under massive OTLP metric ingestion loads.
 ### HTTP Metrics module routes
 
 All under `/http/` prefix, Cached:
