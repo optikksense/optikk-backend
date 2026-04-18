@@ -32,6 +32,26 @@ func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
+// Git / VCS attribute expressions read from the spans JSON `attributes`
+// column. Backtick-quoted keys are required because the paths contain
+// dots; kept as constants so the backticks don't collide with the
+// raw-string SQL in the queries below.
+const (
+	attrCommitSHA    = "attributes.`git.commit.sha`::String"
+	attrCommitAuthor = "attributes.`git.commit.author.name`::String"
+	attrRepoURL      = "attributes.`scm.repository.url`::String"
+	attrPRURL        = "attributes.`git.pull_request.url`::String"
+)
+
+// commitMetaSelect is the reusable SELECT fragment for the four optional
+// git/VCS attributes on a deployment aggregation. `any(...)` is safe
+// because these values are constant within a (version, environment) pair
+// when the emitting instrumentation tags it correctly.
+var commitMetaSelect = fmt.Sprintf(
+	"any(%s) AS commit_sha, any(%s) AS commit_author, any(%s) AS repo_url, any(%s) AS pr_url",
+	attrCommitSHA, attrCommitAuthor, attrRepoURL, attrPRURL,
+)
+
 func bucketSecs(startMs, endMs int64) float64 {
 	h := (endMs - startMs) / 3_600_000
 	switch {
@@ -52,7 +72,8 @@ func (r *ClickHouseRepository) ListDeployments(ctx context.Context, teamID int64
 		       mat_deployment_environment AS environment,
 		       min(s.timestamp) AS first_seen,
 		       max(s.timestamp) AS last_seen,
-		       toInt64(count()) AS span_count
+		       toInt64(count()) AS span_count,
+		       `+commitMetaSelect+`
 		FROM observability.spans s
 		WHERE s.team_id = @teamID
 		  AND s.service_name = @serviceName
@@ -81,7 +102,8 @@ func (r *ClickHouseRepository) ListServiceDeployments(ctx context.Context, teamI
 		       s.mat_deployment_environment AS environment,
 		       min(s.timestamp) AS first_seen,
 		       max(s.timestamp) AS last_seen,
-		       toInt64(count()) AS span_count
+		       toInt64(count()) AS span_count,
+		       `+commitMetaSelect+`
 		FROM observability.spans s
 		WHERE s.team_id = @teamID
 		  AND s.service_name = @serviceName
@@ -105,7 +127,8 @@ func (r *ClickHouseRepository) GetLatestDeploymentsByService(ctx context.Context
 			       s.mat_deployment_environment AS environment,
 			       min(s.timestamp) AS first_seen,
 			       max(s.timestamp) AS last_seen,
-			       toInt64(count()) AS span_count
+			       toInt64(count()) AS span_count,
+			       `+commitMetaSelect+`
 			FROM observability.spans s
 			WHERE s.team_id = @teamID
 			  AND `+rootspan.Condition("s")+`
@@ -122,7 +145,11 @@ func (r *ClickHouseRepository) GetLatestDeploymentsByService(ctx context.Context
 		       deployments.environment AS environment,
 		       deployments.first_seen AS first_seen,
 		       deployments.last_seen AS last_seen,
-		       deployments.span_count AS span_count
+		       deployments.span_count AS span_count,
+		       deployments.commit_sha AS commit_sha,
+		       deployments.commit_author AS commit_author,
+		       deployments.repo_url AS repo_url,
+		       deployments.pr_url AS pr_url
 		FROM deployments
 		INNER JOIN latest
 		  ON deployments.service_name = latest.service_name
@@ -145,7 +172,8 @@ func (r *ClickHouseRepository) GetDeploysInRange(ctx context.Context, teamID int
 		       s.mat_deployment_environment AS environment,
 		       min(s.timestamp) AS first_seen,
 		       max(s.timestamp) AS last_seen,
-		       toInt64(count()) AS span_count
+		       toInt64(count()) AS span_count,
+		       `+commitMetaSelect+`
 		FROM observability.spans s
 		WHERE s.team_id = @teamID
 		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
