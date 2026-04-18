@@ -52,19 +52,22 @@ func CORSMiddleware(allowedOrigins string) gin.HandlerFunc {
 
 	return func(c *gin.Context) {
 		origin := c.GetHeader("Origin")
+		headers := c.Writer.Header()
 		if isAllowed(origin) {
-			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
-			c.Writer.Header().Set("Vary", "Origin")
+			headers.Set("Access-Control-Allow-Origin", origin)
+			headers.Set("Vary", "Origin")
 		}
-		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Team-Id, X-User-Id, X-User-Email, X-User-Role")
-		c.Writer.Header().Set("Access-Control-Expose-Headers", "X-Team-Id")
-		// Allow cookies to be sent cross-origin (required for httpOnly cookie auth).
-		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+
 		if c.Request.Method == http.MethodOptions {
+			headers.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Team-Id, X-User-Id, X-User-Email, X-User-Role")
+			headers.Set("Access-Control-Allow-Credentials", "true")
 			c.AbortWithStatus(http.StatusNoContent)
 			return
 		}
+
+		headers.Set("Access-Control-Expose-Headers", "X-Team-Id")
+		headers.Set("Access-Control-Allow-Credentials", "true")
 		c.Next()
 	}
 }

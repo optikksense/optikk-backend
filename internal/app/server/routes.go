@@ -11,6 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+var readyCache = newHealthCache()
+
 func (a *App) Router() *gin.Engine {
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
@@ -63,36 +65,48 @@ func (a *App) healthReady(c *gin.Context) {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 
-	if err := a.Infra.DB.Ping(); err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "mysql": err.Error()})
-		return
-	}
+	res := readyCache.get(ctx, a.probeReady)
 
-	if err := a.Infra.CH.Ping(ctx); err != nil {
-		a.logHealthError(c, "clickhouse", err)
-		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "clickhouse": err.Error()})
-		return
-	}
-
-	if a.Infra.RedisClient == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "redis": "client not configured"})
-		return
-	}
-
-	if err := a.Infra.RedisClient.Ping(ctx).Err(); err != nil {
-		a.logHealthError(c, "redis", err)
-		c.JSON(http.StatusServiceUnavailable, gin.H{"status": "not_ready", "redis": err.Error()})
+	if !res.ready {
+		payload := gin.H{"status": "not_ready"}
+		if res.mysqlErr != "" {
+			payload["mysql"] = res.mysqlErr
+		}
+		if res.chErr != "" {
+			payload["clickhouse"] = res.chErr
+		}
+		if res.redisErr != "" {
+			payload["redis"] = res.redisErr
+		}
+		c.JSON(http.StatusServiceUnavailable, payload)
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"status": "ready", "mysql": "ok", "clickhouse": "ok", "redis": "ok"})
 }
 
-func (a *App) logHealthError(c *gin.Context, service string, err error) {
-	slog.Error("health check failed",
-		slog.String("service", service),
-		slog.String("error", err.Error()),
-		slog.String("method", c.Request.Method),
-		slog.String("path", c.Request.URL.Path))
+func (a *App) probeReady(ctx context.Context) *healthResult {
+	res := &healthResult{}
+	if err := a.Infra.DB.Ping(); err != nil {
+		res.mysqlErr = err.Error()
+		return res
+	}
+	if err := a.Infra.CH.Ping(ctx); err != nil {
+		slog.Error("health check failed", slog.String("service", "clickhouse"), slog.String("error", err.Error()))
+		res.chErr = err.Error()
+		return res
+	}
+	if a.Infra.RedisClient == nil {
+		res.redisErr = "client not configured"
+		return res
+	}
+	if err := a.Infra.RedisClient.Ping(ctx).Err(); err != nil {
+		slog.Error("health check failed", slog.String("service", "redis"), slog.String("error", err.Error()))
+		res.redisErr = err.Error()
+		return res
+	}
+	res.ready = true
+	return res
 }
+
 
