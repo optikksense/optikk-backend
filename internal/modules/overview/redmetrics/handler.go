@@ -40,7 +40,8 @@ func (h *REDMetricsHandler) GetApdex(c *gin.Context) {
 		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "satisfied_ms must be positive and less than tolerating_ms")
 		return
 	}
-	resp, err := h.Service.GetApdex(c.Request.Context(), teamID, startMs, endMs, satisfiedMs, toleratingMs)
+	serviceName := c.Query("serviceName")
+	resp, err := h.Service.GetApdex(c.Request.Context(), teamID, startMs, endMs, satisfiedMs, toleratingMs, serviceName)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query Apdex scores", err)
 		return
