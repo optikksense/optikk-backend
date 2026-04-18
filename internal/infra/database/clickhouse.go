@@ -84,6 +84,10 @@ func OpenClickHouseConn(dsn string, isProduction bool, cloud ...ClickHouseCloudC
 		}
 	}
 
+	if opts.Compression == nil {
+		opts.Compression = &clickhouse.Compression{Method: clickhouse.CompressionLZ4}
+	}
+
 	applyClickHouseConnectionPoolDefaults(opts)
 
 	conn, err := clickhouse.Open(opts)
