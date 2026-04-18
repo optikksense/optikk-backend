@@ -3,6 +3,7 @@ package errors
 import (
 	"context"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -11,6 +12,27 @@ import (
 )
 
 const serviceNameFilter = " AND s.service_name = @serviceName"
+
+// Error-group drill-in (detail + traces + timeseries) requires resolving the
+// groupID back to its identity fields. Each call used to aggregate the full
+// group list independently; cache per (teamID, rounded time window) so one
+// CH aggregation serves all three follow-up calls for up to 60 s.
+const groupResolveCacheTTL = 60 * time.Second
+
+type groupResolveEntry struct {
+	groups    []errorGroupRow
+	expiresAt time.Time
+}
+
+var (
+	groupResolveMu    sync.Mutex
+	groupResolveStore = make(map[string]groupResolveEntry)
+)
+
+func groupResolveKey(teamID int64, startMs, endMs int64) string {
+	// Bucket the window to the minute so slight timestamp drift still hits.
+	return fmt.Sprintf("%d|%d|%d", teamID, startMs/60_000, endMs/60_000)
+}
 
 func errorBucketExpr(startMs, endMs int64) string {
 	return utils.ExprForColumnTime(startMs, endMs, "s.timestamp")
@@ -86,8 +108,10 @@ func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64,
 }
 
 // resolveGroupID finds the error group matching the given groupID hash.
+// Results are cached briefly so the detail/traces/timeseries calls that
+// follow a drill-in share a single backing CH aggregation.
 func (r *ClickHouseRepository) resolveGroupID(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (service, operation, statusMessage string, httpCode int, err error) {
-	groups, err := r.GetErrorGroups(ctx, teamID, startMs, endMs, "", 500)
+	groups, err := r.cachedErrorGroups(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return "", "", "", 0, err
 	}
@@ -98,6 +122,39 @@ func (r *ClickHouseRepository) resolveGroupID(ctx context.Context, teamID int64,
 		}
 	}
 	return "", "", "", 0, fmt.Errorf("error group %s not found", groupID)
+}
+
+// cachedErrorGroups returns a short-TTL cached group list for the given
+// window, fetching from ClickHouse only on miss/expiry.
+func (r *ClickHouseRepository) cachedErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorGroupRow, error) {
+	key := groupResolveKey(teamID, startMs, endMs)
+
+	groupResolveMu.Lock()
+	entry, ok := groupResolveStore[key]
+	groupResolveMu.Unlock()
+	if ok && time.Now().Before(entry.expiresAt) {
+		return entry.groups, nil
+	}
+
+	groups, err := r.GetErrorGroups(ctx, teamID, startMs, endMs, "", 500)
+	if err != nil {
+		return nil, err
+	}
+
+	groupResolveMu.Lock()
+	groupResolveStore[key] = groupResolveEntry{groups: groups, expiresAt: time.Now().Add(groupResolveCacheTTL)}
+	// Drop stale entries so the map doesn't grow unbounded across windows.
+	if len(groupResolveStore) > 256 {
+		now := time.Now()
+		for k, e := range groupResolveStore {
+			if now.After(e.expiresAt) {
+				delete(groupResolveStore, k)
+			}
+		}
+	}
+	groupResolveMu.Unlock()
+
+	return groups, nil
 }
 
 // errorGroupDetailRow is the DTO for GetErrorGroupDetail.
