@@ -14,6 +14,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	goredis "github.com/redis/go-redis/v9"
+	"golang.org/x/sync/singleflight"
 )
 
 const DefaultResponseCacheTTL = 30 * time.Second
@@ -71,6 +72,21 @@ func (c *RedisResponseCache) Set(ctx context.Context, key string, response *cach
 	return c.client.Set(ctx, c.prefix+key, payload, ttl).Err()
 }
 
+// cacheMissGroup deduplicates concurrent cache-miss handler runs across
+// goroutines by the same cache key, so thundering herds after TTL expiry
+// collapse to a single backend call.
+var cacheMissGroup singleflight.Group
+
+func writeCached(c *gin.Context, cached *cachedResponse) {
+	contentType := cached.ContentType
+	if contentType == "" {
+		contentType = "application/json; charset=utf-8"
+	}
+	c.Header("Content-Type", contentType)
+	c.Data(cached.Status, contentType, cached.Body)
+	c.Abort()
+}
+
 func CacheMiddleware(store ResponseCacheStore, ttl time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if store == nil || c.Request.Method != http.MethodGet {
@@ -79,48 +95,66 @@ func CacheMiddleware(store ResponseCacheStore, ttl time.Duration) gin.HandlerFun
 		}
 
 		key := cacheKey(c)
-		if cached, err := store.Get(c.Request.Context(), key); err == nil && cached != nil {
-			contentType := cached.ContentType
-			if contentType == "" {
-				contentType = "application/json; charset=utf-8"
+		ctx := c.Request.Context()
+
+		if cached, err := store.Get(ctx, key); err == nil && cached != nil {
+			writeCached(c, cached)
+			return
+		}
+
+		// Cache miss: dedupe concurrent handler runs for the same key.
+		isLeader := false
+		result, _, _ := cacheMissGroup.Do(key, func() (any, error) {
+			isLeader = true
+			// Re-check the cache inside the leader — a sibling that arrived
+			// between our miss and our Do() call may have populated it.
+			if cached, gerr := store.Get(ctx, key); gerr == nil && cached != nil {
+				return cached, nil
 			}
-			c.Header("Content-Type", contentType)
-			c.Data(cached.Status, contentType, cached.Body)
-			c.Abort()
+
+			writer := &cacheResponseWriter{
+				ResponseWriter: c.Writer,
+				body:           bytes.NewBuffer(nil),
+			}
+			c.Writer = writer
+
+			c.Next()
+
+			if c.Writer.Status() != http.StatusOK || writer.body.Len() == 0 {
+				return nil, nil
+			}
+			if c.Writer.Header().Get("Set-Cookie") != "" {
+				return nil, nil
+			}
+
+			contentType := c.Writer.Header().Get("Content-Type")
+			if contentType == "" || !strings.Contains(strings.ToLower(contentType), "application/json") {
+				return nil, nil
+			}
+
+			response := &cachedResponse{
+				Status:      c.Writer.Status(),
+				ContentType: contentType,
+				Body:        append([]byte(nil), writer.body.Bytes()...),
+			}
+			if serr := store.Set(ctx, key, response, ttl); serr != nil {
+				slog.Debug("cache: store response failed", slog.Any("error", serr))
+			}
+			return response, nil
+		})
+
+		if isLeader {
+			// Leader's response already written via the capture writer.
 			return
 		}
 
-		writer := &cacheResponseWriter{
-			ResponseWriter: c.Writer,
-			body:           bytes.NewBuffer(nil),
+		// Follower: replay leader's cached response, or run our own handler
+		// if the leader produced nothing cacheable.
+		if cached, ok := result.(*cachedResponse); ok && cached != nil {
+			writeCached(c, cached)
+			return
 		}
-		c.Writer = writer
-
 		c.Next()
-
-		if c.Writer.Status() != http.StatusOK {
-			return
-		}
-		if writer.body.Len() == 0 {
-			return
-		}
-		if c.Writer.Header().Get("Set-Cookie") != "" {
-			return
-		}
-
-		contentType := c.Writer.Header().Get("Content-Type")
-		if contentType == "" || !strings.Contains(strings.ToLower(contentType), "application/json") {
-			return
-		}
-
-		response := &cachedResponse{
-			Status:      c.Writer.Status(),
-			ContentType: contentType,
-			Body:        append([]byte(nil), writer.body.Bytes()...),
-		}
-		if err := store.Set(c.Request.Context(), key, response, ttl); err != nil {
-			slog.Debug("cache: store response failed", slog.Any("error", err))
-		}
 	}
 }
 
