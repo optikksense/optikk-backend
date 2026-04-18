@@ -13,7 +13,7 @@ import (
 
 type Repository interface {
 	GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) ([]redSummaryServiceRow, error)
-	GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]apdexRow, error)
+	GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]apdexRow, error)
 	GetTopSlowOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]slowOperationRow, error)
 	GetTopErrorOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]errorOperationRow, error)
 	GetRequestRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceRatePoint, error)
@@ -54,7 +54,7 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 	return rows, err
 }
 
-func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]apdexRow, error) {
+func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]apdexRow, error) {
 	var rows []apdexRow
 	err := r.db.Select(ctx, &rows, `
 		SELECT s.service_name AS service_name,
@@ -64,6 +64,7 @@ func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, start
 		       toInt64(count()) AS total_count
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND `+rootspan.Condition("s")+` AND s.timestamp BETWEEN @start AND @end
+		  AND (@serviceName = '' OR s.service_name = @serviceName)
 		GROUP BY s.service_name
 		ORDER BY total_count DESC
 	`,
@@ -74,6 +75,7 @@ func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, start
 		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("serviceName", serviceName),
 	)
 	return rows, err
 }

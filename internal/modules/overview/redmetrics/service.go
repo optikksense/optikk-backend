@@ -7,7 +7,7 @@ import (
 
 type Service interface {
 	GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) (REDSummary, error)
-	GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]ApdexScore, error)
+	GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]ApdexScore, error)
 	GetTopSlowOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]SlowOperation, error)
 	GetTopErrorOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]ErrorOperation, error)
 	GetRequestRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceRatePoint, error)
@@ -72,8 +72,8 @@ func (s *REDMetricsService) GetSummary(ctx context.Context, teamID int64, startM
 	}, nil
 }
 
-func (s *REDMetricsService) GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]ApdexScore, error) {
-	rows, err := s.repo.GetApdex(ctx, teamID, startMs, endMs, satisfiedMs, toleratingMs)
+func (s *REDMetricsService) GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]ApdexScore, error) {
+	rows, err := s.repo.GetApdex(ctx, teamID, startMs, endMs, satisfiedMs, toleratingMs, serviceName)
 	if err != nil {
 		slog.Error("redmetrics: GetApdex failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return nil, err
