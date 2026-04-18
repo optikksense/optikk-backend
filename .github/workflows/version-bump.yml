@@ -1,14 +1,14 @@
 name: Version Bump
 
-# Automatically bumps the patch version after a PR lands on main.
-# Flow:
-#   PR merges → push to main fires this workflow → VERSION patch++ →
-#   new commit `chore(release): vX.Y.Z` + tag `vX.Y.Z` pushed back to main.
-# The guard on `head_commit.message` prevents this workflow from
-# re-triggering itself when it pushes its own bump commit.
+# After a PR merges to main, cut a new `vX.Y.Z` git tag (patch-bumped
+# from the latest existing tag, or from VERSION on first run). Does
+# NOT push commits to main, so it is compatible with branch-protection
+# rules that require changes go through a pull request.
 #
-# The follow-up deploy (deploy.yml) runs on that bump commit and ships
-# an image tagged with the new version.
+# The tag push triggers deploy.yml, which reads the version from the
+# tag name (see deploy.yml's "Resolve image version" step). VERSION
+# stays in the repo as a human-readable reference that can be updated
+# manually on a PR when major/minor bumps are needed.
 
 on:
   push:
@@ -19,64 +19,62 @@ jobs:
   bump:
     name: Bump patch
     runs-on: ubuntu-latest
-    # Skip bump commits so we don't loop, and skip merge commits with
-    # an explicit [skip bump] marker (useful for manual main pushes).
-    if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') && !contains(github.event.head_commit.message, '[skip bump]') }}
+    if: ${{ !contains(github.event.head_commit.message, '[skip bump]') }}
     permissions:
       contents: write
     steps:
-      - name: Checkout main
+      - name: Checkout main (with tags)
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
           ref: main
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Read + bump patch
+      - name: Compute next version
         id: bump
         run: |
           set -euo pipefail
-          if [[ ! -f VERSION ]]; then
-            echo "::error::Missing repo-root VERSION file."
+          CURRENT_TAG="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1 || true)"
+          if [[ -n "${CURRENT_TAG}" ]]; then
+            CURRENT="${CURRENT_TAG#v}"
+          elif [[ -f VERSION ]]; then
+            CURRENT="$(tr -d '[:space:]' < VERSION)"
+          else
+            echo "::error::No existing tag and no VERSION file to seed from."
             exit 1
           fi
-          CURRENT="$(tr -d '[:space:]' < VERSION)"
           if [[ ! "$CURRENT" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
-            echo "::error::VERSION must be MAJOR.MINOR.PATCH, got: '$CURRENT'"
+            echo "::error::Version must be MAJOR.MINOR.PATCH, got: '$CURRENT'"
             exit 1
           fi
           MAJOR="${BASH_REMATCH[1]}"
           MINOR="${BASH_REMATCH[2]}"
           PATCH="${BASH_REMATCH[3]}"
           NEW="${MAJOR}.${MINOR}.$((PATCH + 1))"
-          echo "$NEW" > VERSION
+          TAG="v${NEW}"
           echo "previous=${CURRENT}" >> "$GITHUB_OUTPUT"
           echo "next=${NEW}" >> "$GITHUB_OUTPUT"
-          echo "tag=v${NEW}" >> "$GITHUB_OUTPUT"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
 
       - name: Configure git author
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-      - name: Commit + tag + push
+      - name: Create + push tag
         env:
+          TAG: ${{ steps.bump.outputs.tag }}
           PREVIOUS: ${{ steps.bump.outputs.previous }}
           NEXT: ${{ steps.bump.outputs.next }}
-          TAG: ${{ steps.bump.outputs.tag }}
           TRIGGER_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
-            echo "::warning::Tag ${TAG} already exists; leaving VERSION unchanged."
-            git checkout -- VERSION
+            echo "::warning::Tag ${TAG} already exists; nothing to do."
             exit 0
           fi
           SHORT_SHA="${TRIGGER_SHA:0:7}"
-          git add VERSION
-          git commit \
-            -m "chore(release): ${TAG}" \
+          git tag -a "${TAG}" \
+            -m "${TAG}" \
             -m "Bumped ${PREVIOUS} → ${NEXT} after ${SHORT_SHA} landed on main."
-          git tag "${TAG}"
-          git push origin HEAD:main
           git push origin "${TAG}"

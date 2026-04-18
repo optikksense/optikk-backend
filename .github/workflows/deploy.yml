@@ -2,8 +2,13 @@ name: Deploy to GHCR
 
 on:
   push:
-    branches: [main]
+    tags: ['v[0-9]+.[0-9]+.[0-9]+']
   workflow_dispatch:
+    inputs:
+      version:
+        description: "Semver to publish (defaults to the VERSION file)"
+        required: false
+        type: string
 
 env:
   REGISTRY: ghcr.io
@@ -34,17 +39,30 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      # Image tag = semver from repo-root VERSION (bump for 1.0.1, etc.). Commit this file with deploy.yml.
+      # Resolve version (in priority order):
+      #   1. workflow_dispatch `version` input, if non-empty
+      #   2. the pushed tag (ref_type == "tag"): strip leading `v`
+      #   3. fall back to the VERSION file
       - name: Resolve image version
         id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_TYPE: ${{ github.ref_type }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          if [[ ! -f VERSION ]]; then
-            echo "::error::Missing repo-root VERSION file. Add VERSION containing one line like 1.0.0 (same commit as this workflow)."
+          set -euo pipefail
+          if [[ -n "${INPUT_VERSION}" ]]; then
+            VERSION="${INPUT_VERSION}"
+          elif [[ "${REF_TYPE}" == "tag" && "${REF_NAME}" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            VERSION="${REF_NAME#v}"
+          elif [[ -f VERSION ]]; then
+            VERSION="$(tr -d '[:space:]' < VERSION)"
+          else
+            echo "::error::Could not resolve a version (no input, no tag ref, no VERSION file)."
             exit 1
           fi
-          VERSION="$(tr -d '[:space:]' < VERSION)"
           if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "::error::VERSION must be MAJOR.MINOR.PATCH (e.g. 1.0.1), got: $VERSION"
+            echo "::error::Resolved version must be MAJOR.MINOR.PATCH (e.g. 1.0.1), got: '$VERSION'"
             exit 1
           fi
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
