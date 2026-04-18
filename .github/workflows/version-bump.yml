@@ -1,0 +1,82 @@
+name: Version Bump
+
+# Automatically bumps the patch version after a PR lands on main.
+# Flow:
+#   PR merges → push to main fires this workflow → VERSION patch++ →
+#   new commit `chore(release): vX.Y.Z` + tag `vX.Y.Z` pushed back to main.
+# The guard on `head_commit.message` prevents this workflow from
+# re-triggering itself when it pushes its own bump commit.
+#
+# The follow-up deploy (deploy.yml) runs on that bump commit and ships
+# an image tagged with the new version.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  bump:
+    name: Bump patch
+    runs-on: ubuntu-latest
+    # Skip bump commits so we don't loop, and skip merge commits with
+    # an explicit [skip bump] marker (useful for manual main pushes).
+    if: ${{ !startsWith(github.event.head_commit.message, 'chore(release):') && !contains(github.event.head_commit.message, '[skip bump]') }}
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout main
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Read + bump patch
+        id: bump
+        run: |
+          set -euo pipefail
+          if [[ ! -f VERSION ]]; then
+            echo "::error::Missing repo-root VERSION file."
+            exit 1
+          fi
+          CURRENT="$(tr -d '[:space:]' < VERSION)"
+          if [[ ! "$CURRENT" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+            echo "::error::VERSION must be MAJOR.MINOR.PATCH, got: '$CURRENT'"
+            exit 1
+          fi
+          MAJOR="${BASH_REMATCH[1]}"
+          MINOR="${BASH_REMATCH[2]}"
+          PATCH="${BASH_REMATCH[3]}"
+          NEW="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          echo "$NEW" > VERSION
+          echo "previous=${CURRENT}" >> "$GITHUB_OUTPUT"
+          echo "next=${NEW}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${NEW}" >> "$GITHUB_OUTPUT"
+
+      - name: Configure git author
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Commit + tag + push
+        env:
+          PREVIOUS: ${{ steps.bump.outputs.previous }}
+          NEXT: ${{ steps.bump.outputs.next }}
+          TAG: ${{ steps.bump.outputs.tag }}
+          TRIGGER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "::warning::Tag ${TAG} already exists; leaving VERSION unchanged."
+            git checkout -- VERSION
+            exit 0
+          fi
+          SHORT_SHA="${TRIGGER_SHA:0:7}"
+          git add VERSION
+          git commit \
+            -m "chore(release): ${TAG}" \
+            -m "Bumped ${PREVIOUS} → ${NEXT} after ${SHORT_SHA} landed on main."
+          git tag "${TAG}"
+          git push origin HEAD:main
+          git push origin "${TAG}"

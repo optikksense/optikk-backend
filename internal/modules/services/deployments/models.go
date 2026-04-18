@@ -14,12 +14,16 @@ type Deployment struct {
 
 // ServiceLatestDeployment is the most recent observed deployment for a service.
 type ServiceLatestDeployment struct {
-	ServiceName string    `json:"service_name"`
-	Version     string    `json:"version"`
-	Environment string    `json:"environment"`
-	DeployedAt  time.Time `json:"deployed_at"`
-	LastSeenAt  time.Time `json:"last_seen_at"`
-	IsActive    bool      `json:"is_active"`
+	ServiceName  string    `json:"service_name"`
+	Version      string    `json:"version"`
+	Environment  string    `json:"environment"`
+	DeployedAt   time.Time `json:"deployed_at"`
+	LastSeenAt   time.Time `json:"last_seen_at"`
+	IsActive     bool      `json:"is_active"`
+	CommitSHA    string    `json:"commit_sha,omitempty"`
+	CommitAuthor string    `json:"commit_author,omitempty"`
+	RepoURL      string    `json:"repo_url,omitempty"`
+	PRURL        string    `json:"pr_url,omitempty"`
 }
 
 // ListDeploymentsResponse is the payload for GET /deployments/list.
