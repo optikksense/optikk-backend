@@ -83,7 +83,7 @@ func (m *Module) Name() string                      { return "ai.runs" }
 func (m *Module) RouteTarget() registry.RouteTarget { return registry.V1 }
 
 func (m *Module) RegisterRoutes(group *gin.RouterGroup) {
-	group.POST("/ai/explorer/query", m.handler.Query)
+	group.POST("/ai/runs/query", m.handler.Query)
 	group.GET("/ai/runs/:runId", m.handler.Detail)
 	group.GET("/ai/runs/:runId/related", m.handler.Related)
 }

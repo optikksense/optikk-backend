@@ -15,6 +15,7 @@ import (
 	dbsystems "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/systems"
 	dbvolume "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/volume"
 	saturationkafka "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka"
+	"golang.org/x/sync/errgroup"
 )
 
 type Service struct {
@@ -539,12 +540,24 @@ var kafkaGroupMetricNames = []string{
 }
 
 func (s *Service) GetKafkaSummary(ctx context.Context, teamID int64, startMs, endMs int64) (KafkaSummaryResponse, error) {
-	topics, err := s.buildKafkaTopicRows(ctx, teamID, startMs, endMs, saturationkafka.KafkaFilters{})
-	if err != nil {
-		return KafkaSummaryResponse{}, err
-	}
-	groups, err := s.buildKafkaGroupRows(ctx, teamID, startMs, endMs, saturationkafka.KafkaFilters{})
-	if err != nil {
+	var topics []KafkaTopicRow
+	var groups []KafkaGroupRow
+
+	g, gctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		var err error
+		topics, err = s.buildKafkaTopicRows(gctx, teamID, startMs, endMs, saturationkafka.KafkaFilters{})
+		return err
+	})
+
+	g.Go(func() error {
+		var err error
+		groups, err = s.buildKafkaGroupRows(gctx, teamID, startMs, endMs, saturationkafka.KafkaFilters{})
+		return err
+	})
+
+	if err := g.Wait(); err != nil {
 		return KafkaSummaryResponse{}, err
 	}
 
@@ -686,12 +699,24 @@ func (s *Service) buildKafkaTopicRows(ctx context.Context, teamID int64, startMs
 }
 
 func (s *Service) buildKafkaGroupRows(ctx context.Context, teamID int64, startMs, endMs int64, filters saturationkafka.KafkaFilters) ([]KafkaGroupRow, error) {
-	groupSamples, err := s.kafka.GetConsumerMetricSamples(ctx, teamID, startMs, endMs, filters, kafkaGroupMetricNames)
-	if err != nil {
-		return nil, err
-	}
-	topicSamples, err := s.kafka.GetTopicMetricSamples(ctx, teamID, startMs, endMs, filters, kafkaTopicMetricNames)
-	if err != nil {
+	var groupSamples []saturationkafka.ConsumerMetricSample
+	var topicSamples []saturationkafka.TopicMetricSample
+
+	g, gctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		var err error
+		groupSamples, err = s.kafka.GetConsumerMetricSamples(gctx, teamID, startMs, endMs, filters, kafkaGroupMetricNames)
+		return err
+	})
+
+	g.Go(func() error {
+		var err error
+		topicSamples, err = s.kafka.GetTopicMetricSamples(gctx, teamID, startMs, endMs, filters, kafkaTopicMetricNames)
+		return err
+	})
+
+	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 
