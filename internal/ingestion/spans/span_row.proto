@@ -1,0 +1,42 @@
+syntax = "proto3";
+
+package optikk.ingest.spans.v1;
+
+option go_package = "github.com/Optikk-Org/optikk-backend/internal/ingestion/spans;spans";
+
+// Row is the wire format on Kafka. One record == one span row bound for
+// observability.spans. Field order mirrors the ClickHouse column order in
+// row.go Columns so the consumer can produce positional CH values with no
+// name lookup.
+message Row {
+  uint64 ts_bucket_start = 1;
+  uint32 team_id = 2;
+  int64  timestamp_ns = 3;
+  string trace_id = 4;
+  string span_id = 5;
+  string parent_span_id = 6;
+  string trace_state = 7;
+  uint32 flags = 8;
+  string name = 9;
+  int32  kind = 10;              // int8 at CH
+  string kind_string = 11;
+  uint64 duration_nano = 12;
+  bool   has_error = 13;
+  bool   is_remote = 14;
+  int32  status_code = 15;       // int16 at CH
+  string status_code_string = 16;
+  string status_message = 17;
+  string http_url = 18;
+  string http_method = 19;
+  string http_host = 20;
+  string external_http_url = 21;
+  string external_http_method = 22;
+  string response_status_code = 23;
+  map<string, string> attributes = 24;
+  repeated string events = 25;
+  string links = 26;
+  string exception_type = 27;
+  string exception_message = 28;
+  string exception_stacktrace = 29;
+  bool   exception_escaped = 30;
+}
