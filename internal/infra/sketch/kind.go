@@ -5,10 +5,16 @@ import "time"
 // Kind identifies a family of sketches (distribution or cardinality) keyed by
 // a fixed dimension tuple and time bucket. Each Kind has a stable wire id that
 // shows up in Redis keys — add new kinds by appending, never by renumbering.
+//
+// IDs carry a _dd suffix: the wire format is DDSketch (via
+// github.com/DataDog/sketches-go), not t-digest. Pre-DDSketch ids (`sls`,
+// `sle`, `dbol`, `ktl`, `npc`, `atc`) were emitted briefly in PR #40; the
+// suffix ensures the old keys age out of Redis without colliding with the
+// new binary format.
 type Kind struct {
 	// ID is the short stable key segment for Redis keys. Must be unique.
 	ID string
-	// Family is either FamilyDistribution (t-digest) or FamilyCardinality (HLL).
+	// Family is either FamilyDistribution (DDSketch) or FamilyCardinality (HLL).
 	Family Family
 	// Bucket is the time granularity at which Observe() folds samples together.
 	Bucket time.Duration
@@ -23,47 +29,49 @@ const (
 	FamilyCardinality
 )
 
-// Distribution sketch kinds (t-digest).
+const defaultTTL = 15 * 24 * time.Hour
+
+// Distribution sketch kinds (DDSketch).
 var (
 	SpanLatencyService = Kind{
-		ID:     "sls",
+		ID:     "sls_dd",
 		Family: FamilyDistribution,
 		Bucket: time.Minute,
-		TTL:    15 * 24 * time.Hour,
+		TTL:    defaultTTL,
 	}
 	SpanLatencyEndpoint = Kind{
-		ID:     "sle",
+		ID:     "sle_dd",
 		Family: FamilyDistribution,
 		Bucket: 5 * time.Minute,
-		TTL:    15 * 24 * time.Hour,
+		TTL:    defaultTTL,
 	}
 	DbOpLatency = Kind{
-		ID:     "dbol",
+		ID:     "dbol_dd",
 		Family: FamilyDistribution,
 		Bucket: time.Minute,
-		TTL:    15 * 24 * time.Hour,
+		TTL:    defaultTTL,
 	}
 	KafkaTopicLatency = Kind{
-		ID:     "ktl",
+		ID:     "ktl_dd",
 		Family: FamilyDistribution,
 		Bucket: time.Minute,
-		TTL:    15 * 24 * time.Hour,
+		TTL:    defaultTTL,
 	}
 )
 
 // Cardinality sketch kinds (HyperLogLog).
 var (
 	NodePodCount = Kind{
-		ID:     "npc",
+		ID:     "npc_dd",
 		Family: FamilyCardinality,
 		Bucket: time.Minute,
-		TTL:    15 * 24 * time.Hour,
+		TTL:    defaultTTL,
 	}
 	AiTraceCount = Kind{
-		ID:     "atc",
+		ID:     "atc_dd",
 		Family: FamilyCardinality,
 		Bucket: time.Minute,
-		TTL:    15 * 24 * time.Hour,
+		TTL:    defaultTTL,
 	}
 )
 

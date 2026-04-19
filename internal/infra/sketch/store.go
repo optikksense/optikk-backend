@@ -44,14 +44,14 @@ func (s *RedisStore) WriteDigest(ctx context.Context, key Key, d *Digest, dim st
 	if len(existing) > 0 {
 		prev, perr := UnmarshalDigest(existing)
 		if perr == nil {
-			if mErr := prev.Merge(d); mErr == nil {
+			if mErr := prev.MergeWith(d); mErr == nil {
 				merged = prev
 			}
 		}
 	}
-	buf, err := merged.MarshalBinary()
-	if err != nil {
-		return fmt.Errorf("sketch marshal: %w", err)
+	buf := MarshalDigest(merged)
+	if len(buf) == 0 {
+		return fmt.Errorf("sketch marshal: empty buffer")
 	}
 	if err := s.c.Set(ctx, k, buf, key.Kind.TTL).Err(); err != nil {
 		return fmt.Errorf("sketch set: %w", err)

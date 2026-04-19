@@ -41,9 +41,22 @@ func (q *Querier) Percentiles(ctx context.Context, kind Kind, teamID string, sta
 	for dim, ds := range groups {
 		merged := NewDigest()
 		for _, d := range ds {
-			_ = merged.Merge(d)
+			if d == nil {
+				continue
+			}
+			_ = merged.MergeWith(d)
 		}
-		out[dim] = merged.Quantiles(qs...)
+		if merged.IsEmpty() {
+			out[dim] = make([]float64, len(qs))
+			continue
+		}
+		vals, err := merged.GetValuesAtQuantiles(qs)
+		if err != nil {
+			slog.Debug("sketch: quantile compute failed", slog.String("kind", kind.ID), slog.Any("error", err))
+			out[dim] = make([]float64, len(qs))
+			continue
+		}
+		out[dim] = vals
 	}
 	return out, nil
 }
