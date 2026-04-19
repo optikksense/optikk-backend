@@ -37,12 +37,12 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(ctx context.Context, teamID 
 		    sumIf(%[1]s, %[2]s IN @producerMetrics) / @durationSecs  AS publish_rate,
 		    sumIf(%[1]s, %[2]s IN @consumerMetrics) / @durationSecs  AS receive_rate,
 		    maxIf(%[1]s, %[2]s IN @lagMetrics AND isFinite(%[1]s)) AS max_lag,
-		    quantileExactWeightedIf(0.95)(
+		    quantileTDigestWeightedIf(0.95)(
 		        hist_sum / nullIf(hist_count, 0),
 		        hist_count,
 		        %[3]s AND metric_type = 'Histogram'
 		    ) AS publish_p95,
-		    quantileExactWeightedIf(0.95)(
+		    quantileTDigestWeightedIf(0.95)(
 		        hist_sum / nullIf(hist_count, 0),
 		        hist_count,
 		        %[4]s AND metric_type = 'Histogram'
@@ -101,9 +101,9 @@ func (r *ClickHouseRepository) GetPublishLatencyByTopic(ctx context.Context, tea
 		SELECT
 		    %s AS time_bucket,
 		    %s AS topic,
-		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
-		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
-		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99
+		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
+		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
+		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99
 		FROM %s
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
@@ -154,9 +154,9 @@ func (r *ClickHouseRepository) GetReceiveLatencyByTopic(ctx context.Context, tea
 		SELECT
 		    %s AS time_bucket,
 		    %s AS topic,
-		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
-		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
-		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99
+		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
+		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
+		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99
 		FROM %s
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
@@ -233,9 +233,9 @@ func (r *ClickHouseRepository) GetProcessLatencyByGroup(ctx context.Context, tea
 		SELECT
 		    %s AS time_bucket,
 		    %s AS consumer_group,
-		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
-		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
-		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99
+		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
+		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
+		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99
 		FROM %s
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
@@ -364,15 +364,15 @@ func (r *ClickHouseRepository) GetE2ELatency(ctx context.Context, teamID int64, 
 		SELECT
 		    %[1]s AS time_bucket,
 		    %[2]s AS topic,
-		    quantileExactWeightedIf(0.95)(
+		    quantileTDigestWeightedIf(0.95)(
 		        hist_sum / nullIf(hist_count, 0), hist_count,
 		    %[3]s AND metric_type = 'Histogram'
 		    ) AS publish_p95,
-		    quantileExactWeightedIf(0.95)(
+		    quantileTDigestWeightedIf(0.95)(
 		        hist_sum / nullIf(hist_count, 0), hist_count,
 		        %[4]s AND metric_type = 'Histogram'
 		    ) AS receive_p95,
-		    quantileExactWeightedIf(0.95)(
+		    quantileTDigestWeightedIf(0.95)(
 		        hist_sum / nullIf(hist_count, 0), hist_count,
 		        %[5]s AND metric_type = 'Histogram'
 		    ) AS process_p95
@@ -479,9 +479,9 @@ func (r *ClickHouseRepository) GetClientOperationDuration(ctx context.Context, t
 		SELECT
 		    %s AS time_bucket,
 		    %s AS operation_name,
-		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
-		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
-		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99
+		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
+		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
+		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99
 		FROM %s
 		WHERE team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end

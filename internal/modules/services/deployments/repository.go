@@ -230,8 +230,8 @@ func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64
 	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), `
 		SELECT toInt64(count()) AS request_count,
 		       toInt64(countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)) AS error_count,
-		       quantileExact(0.95)(s.duration_nano / 1000000.0) AS p95_ms,
-		       quantileExact(0.99)(s.duration_nano / 1000000.0) AS p99_ms
+		       quantileTDigest(0.95)(s.duration_nano / 1000000.0) AS p95_ms,
+		       quantileTDigest(0.99)(s.duration_nano / 1000000.0) AS p99_ms
 		FROM observability.spans s
 		WHERE s.team_id = @teamID
 		  AND s.service_name = @serviceName
@@ -315,8 +315,8 @@ func (r *ClickHouseRepository) GetEndpointMetricsWindow(ctx context.Context, tea
 		       s.http_method AS http_method,
 		       toInt64(count()) AS request_count,
 		       toInt64(countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)) AS error_count,
-		       quantile(`+fmt.Sprintf("%.2f", 0.95)+`)(s.duration_nano / 1000000.0) AS p95_ms,
-		       quantile(`+fmt.Sprintf("%.2f", 0.99)+`)(s.duration_nano / 1000000.0) AS p99_ms
+		       quantileTDigest(`+fmt.Sprintf("%.2f", 0.95)+`)(s.duration_nano / 1000000.0) AS p95_ms,
+		       quantileTDigest(`+fmt.Sprintf("%.2f", 0.99)+`)(s.duration_nano / 1000000.0) AS p99_ms
 		FROM observability.spans s
 		WHERE s.team_id = @teamID
 		  AND s.service_name = @serviceName

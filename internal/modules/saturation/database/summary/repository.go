@@ -28,9 +28,9 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 
 	qMain := fmt.Sprintf(`
 		SELECT
-		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count)  AS p50,
-		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count)  AS p95,
-		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count)  AS p99,
+		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count)  AS p50,
+		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count)  AS p95,
+		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count)  AS p99,
 		    toInt64(sum(hist_count))                                                    AS total_count,
 		    toInt64(sumIf(hist_count, notEmpty(%s)))                                    AS error_count
 		FROM %s

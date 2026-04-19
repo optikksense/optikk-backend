@@ -87,7 +87,7 @@ func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64,
 		       toInt64(COUNT(*)) as error_count,
 		       MAX(s.timestamp) as last_occurrence,
 		       MIN(s.timestamp) as first_occurrence,
-		       (groupArray(s.trace_id) as trace_ids)[1] as sample_trace_id
+		       any(s.trace_id) as sample_trace_id
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND (` + ErrorCondition() + `) AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`
 	args := database.SpanBaseParams(teamID, startMs, endMs)
@@ -183,7 +183,7 @@ func (r *ClickHouseRepository) GetErrorGroupDetail(ctx context.Context, teamID i
 		       toInt64(COUNT(*)) AS error_count,
 		       MAX(s.timestamp) AS last_occurrence,
 		       MIN(s.timestamp) AS first_occurrence,
-		       (groupArray(s.trace_id))[1] AS sample_trace_id,
+		       any(s.trace_id) AS sample_trace_id,
 		       any(s.exception_type) AS exception_type,
 		       any(s.exception_stacktrace) AS stack_trace
 		FROM observability.spans s

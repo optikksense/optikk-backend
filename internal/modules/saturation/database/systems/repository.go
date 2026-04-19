@@ -33,7 +33,7 @@ func (r *ClickHouseRepository) GetDetectedSystems(ctx context.Context, teamID in
 		    %s                                                                             AS db_system,
 		    toInt64(sum(hist_count))                                                       AS span_count,
 		    toInt64(sumIf(hist_count, notEmpty(%s)))                                       AS error_count,
-		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS avg_latency_ms,
+		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS avg_latency_ms,
 		    toInt64(sum(hist_count))                                                       AS query_count,
 		    any(%s)                                                                        AS server_address,
 		    max(timestamp)                                                                 AS last_seen

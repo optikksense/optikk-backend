@@ -38,9 +38,9 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		SELECT service_name,
 		       toInt64(count())                                                               AS total_count,
 		       toInt64(countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400)) AS error_count,
-		       quantileExact(0.50)(duration_nano / 1000000.0)                                AS p50_ms,
-		       quantileExact(0.95)(duration_nano / 1000000.0)                                AS p95_ms,
-		       quantileExact(0.99)(duration_nano / 1000000.0)                                AS p99_ms
+		       quantileTDigest(0.50)(duration_nano / 1000000.0)                                AS p50_ms,
+		       quantileTDigest(0.95)(duration_nano / 1000000.0)                                AS p95_ms,
+		       quantileTDigest(0.99)(duration_nano / 1000000.0)                                AS p99_ms
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND `+rootspan.Condition("s")+` AND s.timestamp BETWEEN @start AND @end
 		GROUP BY service_name
@@ -86,9 +86,9 @@ func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID 
 		SELECT service_name,
 		       name                                           AS operation_name,
 		       toInt64(count())                               AS span_count,
-		       quantileExact(0.50)(duration_nano / 1000000.0) AS p50_ms,
-		       quantileExact(0.95)(duration_nano / 1000000.0) AS p95_ms,
-		       quantileExact(0.99)(duration_nano / 1000000.0) AS p99_ms
+		       quantileTDigest(0.50)(duration_nano / 1000000.0) AS p50_ms,
+		       quantileTDigest(0.95)(duration_nano / 1000000.0) AS p95_ms,
+		       quantileTDigest(0.99)(duration_nano / 1000000.0) AS p99_ms
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND `+rootspan.Condition("s")+` AND s.timestamp BETWEEN @start AND @end
 		GROUP BY service_name, operation_name
@@ -180,7 +180,7 @@ func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, team
 	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, fmt.Sprintf(`
 		SELECT %s                                              AS timestamp,
 		       service_name,
-		       quantileExact(0.95)(duration_nano / 1000000.0) AS p95_ms
+		       quantileTDigest(0.95)(duration_nano / 1000000.0) AS p95_ms
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND `+rootspan.Condition("s")+` AND s.timestamp BETWEEN @start AND @end
 		GROUP BY timestamp, service_name

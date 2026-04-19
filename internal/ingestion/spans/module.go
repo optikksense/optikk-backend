@@ -3,6 +3,7 @@ package spans
 import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	kafkainfra "github.com/Optikk-Org/optikk-backend/internal/infra/kafka"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/livetail"
 	"github.com/gin-gonic/gin"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -16,13 +17,14 @@ type Deps struct {
 	PersistenceClient *kafkainfra.Consumer
 	LivetailClient    *kafkainfra.Consumer
 	Hub               livetail.Hub
+	SketchStore       sketch.Store
 }
 
 // NewModule wires handler + persistence consumer + livetail consumer.
 func NewModule(d Deps) registry.Module {
 	return &Module{
 		handler:  NewHandler(d.Producer),
-		consumer: NewConsumer(d.PersistenceClient, d.CH),
+		consumer: NewConsumer(d.PersistenceClient, d.CH, d.SketchStore),
 		livetail: NewLivetail(d.LivetailClient, d.Hub),
 	}
 }

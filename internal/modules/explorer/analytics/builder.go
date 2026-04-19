@@ -176,31 +176,31 @@ func buildAggExpr(a Aggregation, cfg ScopeConfig) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("quantile(0.5)(%s)", col), nil
+		return fmt.Sprintf("quantileTDigest(0.5)(%s)", col), nil
 	case "p75":
 		col, err := resolveField()
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("quantile(0.75)(%s)", col), nil
+		return fmt.Sprintf("quantileTDigest(0.75)(%s)", col), nil
 	case "p90":
 		col, err := resolveField()
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("quantile(0.9)(%s)", col), nil
+		return fmt.Sprintf("quantileTDigest(0.9)(%s)", col), nil
 	case "p95":
 		col, err := resolveField()
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("quantile(0.95)(%s)", col), nil
+		return fmt.Sprintf("quantileTDigest(0.95)(%s)", col), nil
 	case "p99":
 		col, err := resolveField()
 		if err != nil {
 			return "", err
 		}
-		return fmt.Sprintf("quantile(0.99)(%s)", col), nil
+		return fmt.Sprintf("quantileTDigest(0.99)(%s)", col), nil
 	default:
 		return "", fmt.Errorf("unsupported aggregation function: %q", a.Function)
 	}

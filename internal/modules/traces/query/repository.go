@@ -234,9 +234,9 @@ func buildTracesSummaryQuery(f TraceFilters) (string, []any) {
 		SELECT count() AS total_traces,
 		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) AS error_traces,
 		       avg(duration_nano / 1000000.0) AS avg_duration,
-		       quantile(0.5)(duration_nano / 1000000.0) AS p50_duration,
-		       quantile(0.95)(duration_nano / 1000000.0) AS p95_duration,
-		       quantile(0.99)(duration_nano / 1000000.0) AS p99_duration
+		       quantileTDigest(0.5)(duration_nano / 1000000.0) AS p50_duration,
+		       quantileTDigest(0.95)(duration_nano / 1000000.0) AS p95_duration,
+		       quantileTDigest(0.99)(duration_nano / 1000000.0) AS p99_duration
 		FROM observability.spans s %s`, where)
 	return query, args
 }
@@ -259,7 +259,7 @@ func buildTraceTrendQuery(f TraceFilters, step string) (string, []any) {
 		SELECT %s AS time_bucket,
 		       count() AS total_traces,
 		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) AS error_traces,
-		       quantile(0.95)(duration_nano / 1000000.0) AS p95_duration
+		       quantileTDigest(0.95)(duration_nano / 1000000.0) AS p95_duration
 		FROM observability.spans s %s
 		GROUP BY time_bucket
 		ORDER BY time_bucket ASC`, bucket, where)

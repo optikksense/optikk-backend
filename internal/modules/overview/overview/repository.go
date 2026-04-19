@@ -124,7 +124,7 @@ func (r *ClickHouseRepository) GetP95Latency(ctx context.Context, teamID int64, 
 		FROM (
 			SELECT %s AS time_bucket,
 			       s.service_name AS service_name,
-			       quantile(`+fmt.Sprintf("%.2f", QuantileP95)+`)(s.duration_nano / 1000000.0) AS p95
+			       quantileTDigest(`+fmt.Sprintf("%.2f", QuantileP95)+`)(s.duration_nano / 1000000.0) AS p95
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
 	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
@@ -164,9 +164,9 @@ func (r *ClickHouseRepository) GetServices(ctx context.Context, teamID int64, st
 			       toInt64(count())                                                             AS request_count,
 			       toInt64(countIf(` + ErrorCondition() + `))                                   AS error_count,
 			       avg(s.duration_nano / 1000000.0)                                            AS avg_latency,
-			       quantile(` + fmt.Sprintf("%.1f", QuantileP50) + `)(s.duration_nano / 1000000.0) AS p50_latency,
-			       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency,
-			       quantile(` + fmt.Sprintf("%.2f", QuantileP99) + `)(s.duration_nano / 1000000.0) AS p99_latency
+			       quantileTDigest(` + fmt.Sprintf("%.1f", QuantileP50) + `)(s.duration_nano / 1000000.0) AS p50_latency,
+			       quantileTDigest(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency,
+			       quantileTDigest(` + fmt.Sprintf("%.2f", QuantileP99) + `)(s.duration_nano / 1000000.0) AS p99_latency
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
 			GROUP BY s.service_name
@@ -208,9 +208,9 @@ func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64
 			       toInt64(count()) AS request_count,
 			       toInt64(countIf(` + ErrorCondition() + `)) AS error_count,
 			       avg(s.duration_nano / 1000000.0) AS avg_latency,
-			       quantile(` + fmt.Sprintf("%.1f", QuantileP50) + `)(s.duration_nano / 1000000.0) AS p50_latency,
-			       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency,
-			       quantile(` + fmt.Sprintf("%.2f", QuantileP99) + `)(s.duration_nano / 1000000.0) AS p99_latency
+			       quantileTDigest(` + fmt.Sprintf("%.1f", QuantileP50) + `)(s.duration_nano / 1000000.0) AS p50_latency,
+			       quantileTDigest(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency,
+			       quantileTDigest(` + fmt.Sprintf("%.2f", QuantileP99) + `)(s.duration_nano / 1000000.0) AS p99_latency
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end AND
 				tuple(s.service_name, s.name, s.http_method, coalesce(nullIf(s.mat_http_route, ''), nullIf(s.mat_http_target, ''), s.name)) IN (
@@ -249,9 +249,9 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		       toInt64(count())                                                             AS request_count,
 		       toInt64(countIf(` + ErrorCondition() + `))                                   AS error_count,
 		       avg(s.duration_nano / 1000000.0)                                            AS avg_latency,
-		       quantile(` + fmt.Sprintf("%.1f", QuantileP50) + `)(s.duration_nano / 1000000.0) AS p50_latency,
-		       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency,
-		       quantile(` + fmt.Sprintf("%.2f", QuantileP99) + `)(s.duration_nano / 1000000.0) AS p99_latency
+		       quantileTDigest(` + fmt.Sprintf("%.1f", QuantileP50) + `)(s.duration_nano / 1000000.0) AS p50_latency,
+		       quantileTDigest(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency,
+		       quantileTDigest(` + fmt.Sprintf("%.2f", QuantileP99) + `)(s.duration_nano / 1000000.0) AS p99_latency
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
 	`

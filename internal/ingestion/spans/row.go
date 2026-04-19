@@ -8,7 +8,10 @@
 //	protoc --proto_path=. --go_out=. --go_opt=paths=source_relative row.proto
 package spans
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // CHTable is the ClickHouse destination table for the span signal.
 const CHTable = "observability.spans"
@@ -62,4 +65,52 @@ func chValues(r *Row) []any {
 		r.GetExceptionStacktrace(),
 		r.GetExceptionEscaped(),
 	}
+}
+
+// ServiceName returns the OTel service.name from row attributes, or "" when
+// absent. Mirrors the CH materialized column mat_service_name.
+func ServiceName(r *Row) string {
+	return r.GetAttributes()["service.name"]
+}
+
+// EndpointDim composes the dimension tuple used by SpanLatencyEndpoint
+// sketches: service | operation | endpoint | method. Empty segments are
+// preserved as empty strings so the dim string is stable across sparse fields.
+func EndpointDim(r *Row) string {
+	svc := ServiceName(r)
+	op := r.GetName()
+	endpoint := firstNonEmpty(r.GetAttributes(), "http.route", "url.path", "http.target")
+	method := r.GetHttpMethod()
+	var b strings.Builder
+	b.Grow(len(svc) + len(op) + len(endpoint) + len(method) + 3)
+	b.WriteString(svc)
+	b.WriteByte('|')
+	b.WriteString(op)
+	b.WriteByte('|')
+	b.WriteString(endpoint)
+	b.WriteByte('|')
+	b.WriteString(method)
+	return b.String()
+}
+
+// HostDim collapses (host, pod namespace) to a sketch dimension for node-pod
+// cardinality. Uses host.name or k8s.node.name as the host identifier.
+func HostDim(r *Row) string {
+	host := firstNonEmpty(r.GetAttributes(), "host.name", "k8s.node.name", "server.address")
+	ns := r.GetAttributes()["k8s.namespace.name"]
+	return host + "|" + ns
+}
+
+// K8sPodName returns attributes["k8s.pod.name"] or "".
+func K8sPodName(r *Row) string {
+	return r.GetAttributes()["k8s.pod.name"]
+}
+
+func firstNonEmpty(m map[string]string, keys ...string) string {
+	for _, k := range keys {
+		if v := m[k]; v != "" {
+			return v
+		}
+	}
+	return ""
 }

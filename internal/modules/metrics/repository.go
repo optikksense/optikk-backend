@@ -247,13 +247,13 @@ func buildAggExpr(agg string, startMs, endMs int64, step string) string {
 		bucketSeconds := bucketDurationSeconds(startMs, endMs, step)
 		return fmt.Sprintf("sum(if(metric_type = 'Histogram', hist_count, value)) / %d", bucketSeconds)
 	case "p50":
-		return "quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), toUInt64(hist_count))"
+		return "quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), toUInt64(hist_count))"
 	case "p75":
-		return "quantileExactWeighted(0.75)(hist_sum / nullIf(hist_count, 0), toUInt64(hist_count))"
+		return "quantileTDigestWeighted(0.75)(hist_sum / nullIf(hist_count, 0), toUInt64(hist_count))"
 	case "p95":
-		return "quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), toUInt64(hist_count))"
+		return "quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), toUInt64(hist_count))"
 	case "p99":
-		return "quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), toUInt64(hist_count))"
+		return "quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), toUInt64(hist_count))"
 	default:
 		return "avg(value)"
 	}

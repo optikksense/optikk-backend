@@ -90,9 +90,9 @@ func (r *ClickHouseRepository) GetAISummary(ctx context.Context, teamID, startMs
 			count() AS total_calls,
 			countIf(s.status_code_string = 'ERROR' OR s.has_error = true) AS error_calls,
 			avg(s.duration_nano / 1000000.0) AS avg_latency_ms,
-			quantile(0.50)(s.duration_nano / 1000000.0) AS p50_latency_ms,
-			quantile(0.95)(s.duration_nano / 1000000.0) AS p95_latency_ms,
-			quantile(0.99)(s.duration_nano / 1000000.0) AS p99_latency_ms,
+			quantileTDigest(0.50)(s.duration_nano / 1000000.0) AS p50_latency_ms,
+			quantileTDigest(0.95)(s.duration_nano / 1000000.0) AS p95_latency_ms,
+			quantileTDigest(0.99)(s.duration_nano / 1000000.0) AS p99_latency_ms,
 			sum(toFloat64OrZero(JSONExtractString(s.attributes, 'gen_ai.usage.input_tokens'))) AS total_input_tokens,
 			sum(toFloat64OrZero(JSONExtractString(s.attributes, 'gen_ai.usage.output_tokens'))) AS total_output_tokens
 		FROM observability.spans s

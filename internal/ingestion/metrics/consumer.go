@@ -11,26 +11,40 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	kafkainfra "github.com/Optikk-Org/optikk-backend/internal/infra/kafka"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 	"google.golang.org/protobuf/proto"
+)
+
+// flushInterval / flushGrace match the spans consumer so Redis keys from
+// different signals land on the same minute boundary.
+const (
+	flushInterval = 15 * time.Second
+	flushGrace    = 15 * time.Second
 )
 
 // Consumer is the persistence side of the metric pipeline. Mirrors the log
 // consumer: poll → unmarshal → CH batch insert → commit. See logs/consumer.go
-// for the delivery-semantics rationale.
+// for the delivery-semantics rationale. Every flushed row is also folded into
+// the sketch aggregator so repositories can serve percentiles from Redis.
 type Consumer struct {
 	kafka *kafkainfra.Consumer
 	ch    clickhouse.Conn
 	query string
 
+	agg   *sketch.Aggregator
+	store sketch.Store
+
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 }
 
-func NewConsumer(kafka *kafkainfra.Consumer, ch clickhouse.Conn) *Consumer {
+func NewConsumer(kafka *kafkainfra.Consumer, ch clickhouse.Conn, store sketch.Store) *Consumer {
 	return &Consumer{
 		kafka: kafka,
 		ch:    ch,
 		query: "INSERT INTO " + CHTable + " (" + strings.Join(Columns, ", ") + ")",
+		agg:   sketch.NewAggregator(0),
+		store: store,
 	}
 }
 
@@ -41,6 +55,11 @@ func (c *Consumer) Start() {
 	go func() {
 		defer c.wg.Done()
 		c.run(ctx)
+	}()
+	c.wg.Add(1)
+	go func() {
+		defer c.wg.Done()
+		c.flushLoop(ctx)
 	}()
 }
 
@@ -100,10 +119,80 @@ func (c *Consumer) flush(ctx context.Context, records []kafkainfra.Record) error
 		if err := batch.Append(chValues(row)...); err != nil {
 			return fmt.Errorf("append: %w", err)
 		}
+		c.observe(row)
 	}
 	if err := batch.Send(); err != nil {
 		return fmt.Errorf("send: %w", err)
 	}
 	slog.Info("metrics consumer: flushed", slog.Int("rows", len(rows)))
 	return nil
+}
+
+// observe routes a metric row to the correct sketch kind based on metric_name.
+// Non-matching metrics (CPU / memory / JVM / etc.) are ignored — sketches are
+// only maintained for distributions that repositories actively query.
+func (c *Consumer) observe(row *Row) {
+	if c.agg == nil {
+		return
+	}
+	teamID := fmt.Sprintf("%d", row.GetTeamId())
+	tsUnix := row.GetTimestampNs() / int64(time.Second)
+
+	switch row.GetMetricName() {
+	case MetricNameDbOpDuration:
+		c.observeLatencySample(sketch.DbOpLatency, teamID, DbOpDim(row), row, tsUnix)
+	case MetricNameKafkaPublish, MetricNameKafkaConsume, MetricNameKafkaProduce:
+		c.observeLatencySample(sketch.KafkaTopicLatency, teamID, KafkaTopicDim(row), row, tsUnix)
+	}
+}
+
+// observeLatencySample feeds either a histogram sample (bucket midpoints
+// weighted by bucket counts) or a single scalar to the aggregator, matching
+// the OTLP metric type. Histogram sampling uses upper-bucket bounds as the
+// representative value — same convention quantileExactWeighted used on the
+// histogram columns.
+func (c *Consumer) observeLatencySample(kind sketch.Kind, teamID, dim string, row *Row, tsUnix int64) {
+	if dim == "|||" || dim == "|" {
+		return
+	}
+	buckets := row.GetHistBuckets()
+	counts := row.GetHistCounts()
+	if len(buckets) > 0 && len(counts) > 0 {
+		n := len(counts)
+		if len(buckets) < n {
+			n = len(buckets)
+		}
+		for i := 0; i < n; i++ {
+			if counts[i] == 0 {
+				continue
+			}
+			c.agg.ObserveLatency(kind, teamID, dim, buckets[i], uint32(counts[i]), tsUnix)
+		}
+		return
+	}
+	// Fallback: non-histogram metric types — treat value as a single sample.
+	c.agg.ObserveLatency(kind, teamID, dim, row.GetValue(), 1, tsUnix)
+}
+
+// flushLoop mirrors spans/consumer.go's ticker: drain closed buckets every
+// flushInterval, final flush on ctx cancel.
+func (c *Consumer) flushLoop(ctx context.Context) {
+	if c.agg == nil || c.store == nil {
+		return
+	}
+	t := time.NewTicker(flushInterval)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			_ = c.agg.FlushClosed(shutdownCtx, time.Now(), c.store, 0)
+			cancel()
+			return
+		case now := <-t.C:
+			if err := c.agg.FlushClosed(ctx, now, c.store, flushGrace); err != nil {
+				slog.Warn("metrics consumer: sketch flush failed", slog.Any("error", err))
+			}
+		}
+	}
 }
