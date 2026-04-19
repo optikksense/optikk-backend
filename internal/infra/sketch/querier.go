@@ -114,3 +114,87 @@ func (q *Querier) ZipPercentiles(ctx context.Context, rows []RowWithPercentiles,
 	}
 	return nil
 }
+
+// PercentilesByDimPrefix collapses every dim whose string starts with prefix
+// into a single merged sketch. Used by saturation sub-modules that read at
+// a coarser granularity than the ingest-side dim tuple — e.g. the `systems`
+// view wants one result per db_system, but DbOpLatency keys by
+// system|operation|collection|namespace. Service passes `system+"|"` and
+// gets the merged percentiles.
+func (q *Querier) PercentilesByDimPrefix(ctx context.Context, kind Kind, teamID string, startMs, endMs int64, prefixes []string, qs ...float64) (map[string][]float64, error) {
+	if q == nil || q.store == nil {
+		return nil, errors.New("sketch: querier not configured")
+	}
+	if kind.Family != FamilyDistribution {
+		return nil, errors.New("sketch: kind is not a distribution")
+	}
+	all, err := q.store.LoadDigests(ctx, kind, teamID, startMs, endMs)
+	if err != nil {
+		if q.fallback == nil {
+			return nil, err
+		}
+		return q.fallback.Quantiles(ctx, kind, teamID, startMs, endMs, qs...)
+	}
+	out := make(map[string][]float64, len(prefixes))
+	for _, prefix := range prefixes {
+		merged := NewDigest()
+		seen := false
+		for dim, ds := range all {
+			if !startsWith(dim, prefix) {
+				continue
+			}
+			for _, d := range ds {
+				if d == nil {
+					continue
+				}
+				if err := merged.MergeWith(d); err == nil {
+					seen = true
+				}
+			}
+		}
+		if !seen || merged.IsEmpty() {
+			out[prefix] = make([]float64, len(qs))
+			continue
+		}
+		vals, qErr := merged.GetValuesAtQuantiles(qs)
+		if qErr != nil {
+			out[prefix] = make([]float64, len(qs))
+			continue
+		}
+		out[prefix] = vals
+	}
+	return out, nil
+}
+
+// CountRow is the minimal surface ZipCounts needs: a dim string + slots for
+// the percentile values it'll receive. Implementations are usually anonymous
+// structs in service.go.
+type CountRow interface {
+	Dim() string
+	SetPercentiles(vals []float64)
+}
+
+// ZipCounts fills the percentile slots of every row from the map produced
+// by Percentiles / PercentilesByDimPrefix. Returns the number of rows that
+// matched a sketch — useful for observability (low match rate → cold
+// sketches / wrong dim string / stale tenant).
+func (q *Querier) ZipCounts(rows []CountRow, pcts map[string][]float64) int {
+	matched := 0
+	for _, row := range rows {
+		if v, ok := pcts[row.Dim()]; ok {
+			row.SetPercentiles(v)
+			matched++
+		}
+	}
+	return matched
+}
+
+func startsWith(s, prefix string) bool {
+	if len(prefix) == 0 {
+		return true
+	}
+	if len(s) < len(prefix) {
+		return false
+	}
+	return s[:len(prefix)] == prefix
+}

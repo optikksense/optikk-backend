@@ -57,6 +57,30 @@ var (
 		Bucket: time.Minute,
 		TTL:    defaultTTL,
 	}
+	HttpServerDuration = Kind{
+		ID:     "hsd_dd",
+		Family: FamilyDistribution,
+		Bucket: time.Minute,
+		TTL:    defaultTTL,
+	}
+	HttpClientDuration = Kind{
+		ID:     "hcd_dd",
+		Family: FamilyDistribution,
+		Bucket: time.Minute,
+		TTL:    defaultTTL,
+	}
+	JvmMetricLatency = Kind{
+		ID:     "jvm_dd",
+		Family: FamilyDistribution,
+		Bucket: time.Minute,
+		TTL:    defaultTTL,
+	}
+	DbQueryLatency = Kind{
+		ID:     "dbq_dd",
+		Family: FamilyDistribution,
+		Bucket: time.Minute,
+		TTL:    defaultTTL,
+	}
 )
 
 // Cardinality sketch kinds (HyperLogLog).
@@ -81,6 +105,10 @@ var AllKinds = []Kind{
 	SpanLatencyEndpoint,
 	DbOpLatency,
 	KafkaTopicLatency,
+	HttpServerDuration,
+	HttpClientDuration,
+	JvmMetricLatency,
+	DbQueryLatency,
 	NodePodCount,
 	AiTraceCount,
 }

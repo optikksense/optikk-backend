@@ -9,8 +9,9 @@
 package spans
 
 import (
-	"strings"
 	"time"
+
+	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 )
 
 // CHTable is the ClickHouse destination table for the span signal.
@@ -74,31 +75,23 @@ func ServiceName(r *Row) string {
 }
 
 // EndpointDim composes the dimension tuple used by SpanLatencyEndpoint
-// sketches: service | operation | endpoint | method. Empty segments are
-// preserved as empty strings so the dim string is stable across sparse fields.
+// sketches via sketch.DimSpanEndpoint. Kept here so callers don't need to
+// know which attribute keys map to which dim slot.
 func EndpointDim(r *Row) string {
-	svc := ServiceName(r)
-	op := r.GetName()
-	endpoint := firstNonEmpty(r.GetAttributes(), "http.route", "url.path", "http.target")
-	method := r.GetHttpMethod()
-	var b strings.Builder
-	b.Grow(len(svc) + len(op) + len(endpoint) + len(method) + 3)
-	b.WriteString(svc)
-	b.WriteByte('|')
-	b.WriteString(op)
-	b.WriteByte('|')
-	b.WriteString(endpoint)
-	b.WriteByte('|')
-	b.WriteString(method)
-	return b.String()
+	return sketch.DimSpanEndpoint(
+		ServiceName(r),
+		r.GetName(),
+		firstNonEmpty(r.GetAttributes(), "http.route", "url.path", "http.target"),
+		r.GetHttpMethod(),
+	)
 }
 
-// HostDim collapses (host, pod namespace) to a sketch dimension for node-pod
-// cardinality. Uses host.name or k8s.node.name as the host identifier.
+// HostDim collapses (host, namespace) via sketch.DimHost.
 func HostDim(r *Row) string {
-	host := firstNonEmpty(r.GetAttributes(), "host.name", "k8s.node.name", "server.address")
-	ns := r.GetAttributes()["k8s.namespace.name"]
-	return host + "|" + ns
+	return sketch.DimHost(
+		firstNonEmpty(r.GetAttributes(), "host.name", "k8s.node.name", "server.address"),
+		r.GetAttributes()["k8s.namespace.name"],
+	)
 }
 
 // K8sPodName returns attributes["k8s.pod.name"] or "".
