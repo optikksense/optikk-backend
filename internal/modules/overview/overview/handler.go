@@ -119,3 +119,19 @@ func (h *OverviewHandler) GetSummary(c *gin.Context) {
 
 	modulecommon.RespondOK(c, summary)
 }
+
+func (h *OverviewHandler) GetBatchSummary(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+
+	batch, err := h.Service.GetBatchSummary(c.Request.Context(), teamID, startMs, endMs)
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview batch summary", err)
+		return
+	}
+
+	modulecommon.RespondOK(c, batch)
+}
