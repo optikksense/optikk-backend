@@ -5,30 +5,16 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  workflow_dispatch:
 
 jobs:
   checks:
-    name: Build Check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5
         with:
           go-version: '1.25.0'
           cache: true
-
-      - name: Sync go.work
-        run: go work use
-
-
-      - name: Vet
-        run: go vet ./...
-
-      - name: Run Tests
-        run: go test -v -race ./...
-
-      - name: Build
-        run: go build -v ./cmd/server
+      - run: go vet ./...
+      - run: go test -race ./...
+      - run: go build ./cmd/server
