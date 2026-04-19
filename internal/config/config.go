@@ -197,9 +197,6 @@ func (c Config) validate() error {
 	if c.ClickHouse.Password == "clickhouse123" {
 		errs = append(errs, "clickhouse.password must be set in production")
 	}
-	if c.ClickHouse.Production && c.ClickHouse.CloudHost == "" {
-		errs = append(errs, "clickhouse.cloud_host must be set when clickhouse.production is true")
-	}
 	if len(errs) > 0 {
 		return fmt.Errorf("insecure configuration detected: %s", strings.Join(errs, "; "))
 	}
