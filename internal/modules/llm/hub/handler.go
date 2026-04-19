@@ -61,10 +61,10 @@ func (h *Handler) ListScores(c *gin.Context) {
 		return
 	}
 	limit, _ := parseInt64Query(c, "limit", 50)
-	offset, _ := parseInt64Query(c, "offset", 0)
 	name := strings.TrimSpace(c.Query("name"))
 	traceID := strings.TrimSpace(c.Query("traceId"))
-	resp, err := h.Service.ListScores(c.Request.Context(), teamID, startMs, endMs, name, traceID, int(limit), int(offset))
+	cur := strings.TrimSpace(c.Query("cursor"))
+	resp, err := h.Service.ListScores(c.Request.Context(), teamID, startMs, endMs, name, traceID, cur, int(limit))
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to list scores", err)
 		return

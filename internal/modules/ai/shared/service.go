@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/cursor"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/explorer/queryparser"
 )
@@ -73,7 +74,9 @@ func (s *service) QueryRuns(ctx context.Context, teamID int64, req QueryRequest)
 		args:   queryArgs,
 	}
 
-	results, total, err := s.repo.SearchRuns(ctx, q, limit, req.Offset, req.OrderBy, req.OrderDir)
+	cur, _ := cursor.Decode[AICursor](req.Cursor)
+
+	results, hasMore, err := s.repo.SearchRuns(ctx, q, limit, cur, req.OrderBy, req.OrderDir)
 	if err != nil {
 		return AIExplorerResponse{}, err
 	}
@@ -96,12 +99,18 @@ func (s *service) QueryRuns(ctx context.Context, teamID int64, req QueryRequest)
 		return AIExplorerResponse{}, err
 	}
 
+	var nextCursor string
+	if hasMore && len(results) > 0 {
+		last := results[len(results)-1]
+		nextCursor = cursor.Encode(AICursor{StartTime: last.StartTime, SpanID: last.SpanID})
+	}
+
 	return AIExplorerResponse{
 		Results:  results,
 		Summary:  summary,
 		Facets:   facets,
 		Trend:    trend,
-		PageInfo: AIPageInfo{Total: total, Offset: req.Offset, Limit: limit, HasMore: uint64(req.Offset+limit) < total},
+		PageInfo: AIPageInfo{Limit: limit, HasMore: hasMore, NextCursor: nextCursor},
 		Correlations: AICorrelations{
 			TopModels:  facets.Provider,
 			TopPrompts: facets.PromptTemplate,

@@ -10,7 +10,6 @@ type QueryRequest struct {
 	EndTime   int64  `json:"endTime"`
 	Query     string `json:"query"`
 	Limit     int    `json:"limit"`
-	Offset    int    `json:"offset"`
 	Cursor    string `json:"cursor"`
 	Direction string `json:"direction"`
 	Step      string `json:"step"`
@@ -26,10 +25,8 @@ type Summary struct {
 }
 
 type PageInfo struct {
-	Total      int64  `json:"total"`
 	HasMore    bool   `json:"hasMore"`
 	NextCursor string `json:"nextCursor,omitempty"`
-	Offset     int    `json:"offset"`
 	Limit      int    `json:"limit"`
 }
 

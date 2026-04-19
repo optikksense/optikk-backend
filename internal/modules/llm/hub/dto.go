@@ -40,9 +40,15 @@ type ListScoresResponse struct {
 }
 
 type PageInfo struct {
-	Total  int64 `json:"total"`
-	Offset int   `json:"offset"`
-	Limit  int   `json:"limit"`
+	Limit      int    `json:"limit"`
+	HasMore    bool   `json:"hasMore"`
+	NextCursor string `json:"nextCursor,omitempty"`
+}
+
+// ScoresCursor is the keyset cursor used by the scores list.
+type ScoresCursor struct {
+	CreatedAt time.Time `json:"t"`
+	ID        int64     `json:"id"`
 }
 
 // --- Prompts ---

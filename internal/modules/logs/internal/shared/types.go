@@ -1,8 +1,9 @@
 package shared
 
 import (
-	"strconv"
-	"strings"
+	"time"
+
+	"github.com/Optikk-Org/optikk-backend/internal/infra/cursor"
 )
 
 type Log struct {
@@ -54,25 +55,29 @@ type LogAttributeFilter struct {
 	Op    string `json:"op"`
 }
 
+// LogCursor is a keyset pagination cursor. Zero value means "first page".
+//
+// Tiebreak is trace_id. Logs without a trace share trace_id = "", so rows
+// colliding on (timestamp, observed_timestamp, "") may be skipped or duplicated
+// at page boundaries. This is an accepted trade-off vs. COUNT(*) cost —
+// observed_timestamp is nanosecond-precise so collisions are rare.
 type LogCursor struct {
-	Offset int
+	Timestamp         time.Time `json:"ts"`
+	ObservedTimestamp uint64    `json:"ots"`
+	TraceID           string    `json:"tid"`
+}
+
+func (c LogCursor) IsZero() bool {
+	return c.Timestamp.IsZero() && c.ObservedTimestamp == 0 && c.TraceID == ""
 }
 
 func (c LogCursor) Encode() string {
-	if c.Offset <= 0 {
+	if c.IsZero() {
 		return ""
 	}
-	return strconv.Itoa(c.Offset)
+	return cursor.Encode(c)
 }
 
 func ParseLogCursor(raw string) (LogCursor, bool) {
-	s := strings.TrimSpace(raw)
-	if s == "" {
-		return LogCursor{}, false
-	}
-	n, err := strconv.Atoi(s)
-	if err != nil || n <= 0 {
-		return LogCursor{}, false
-	}
-	return LogCursor{Offset: n}, true
+	return cursor.Decode[LogCursor](raw)
 }

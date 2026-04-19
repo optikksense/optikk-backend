@@ -15,22 +15,21 @@ func NewService(repo Repository) *Service {
 }
 
 func (s *Service) GetLogs(ctx context.Context, f shared.LogFilters, limit int, direction string, cursor shared.LogCursor) (LogSearchResponse, error) {
-	rows, total, err := s.repo.GetLogs(ctx, f, limit, direction, cursor)
+	rows, hasMore, err := s.repo.GetLogs(ctx, f, limit, direction, cursor)
 	if err != nil {
 		return LogSearchResponse{}, err
 	}
 
 	logs := shared.MapLogRows(rows)
-	currentOffset := cursor.Offset
-	if currentOffset < 0 {
-		currentOffset = 0
-	}
-	nextOffset := currentOffset + len(logs)
-	hasMore := int64(nextOffset) < total
 
 	var nextCursor string
-	if hasMore {
-		nextCursor = shared.LogCursor{Offset: nextOffset}.Encode()
+	if hasMore && len(rows) > 0 {
+		last := rows[len(rows)-1]
+		nextCursor = shared.LogCursor{
+			Timestamp:         last.Timestamp,
+			ObservedTimestamp: last.ObservedTimestamp,
+			TraceID:           last.TraceID,
+		}.Encode()
 	}
 
 	return LogSearchResponse{
@@ -38,6 +37,5 @@ func (s *Service) GetLogs(ctx context.Context, f shared.LogFilters, limit int, d
 		HasMore:    hasMore,
 		NextCursor: nextCursor,
 		Limit:      limit,
-		Total:      total,
 	}, nil
 }

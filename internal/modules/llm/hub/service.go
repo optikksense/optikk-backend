@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/Optikk-Org/optikk-backend/internal/infra/cursor"
 )
 
 // Service implements LLM hub use cases.
@@ -54,14 +56,13 @@ func (s *Service) BatchCreateScores(ctx context.Context, teamID int64, scores []
 	return ids, nil
 }
 
-func (s *Service) ListScores(ctx context.Context, teamID, startMs, endMs int64, name, traceID string, limit, offset int) (ListScoresResponse, error) {
+func (s *Service) ListScores(ctx context.Context, teamID, startMs, endMs int64, name, traceID, cursorRaw string, limit int) (ListScoresResponse, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 50
 	}
-	if offset < 0 {
-		offset = 0
-	}
-	rows, total, err := s.repo.ListScores(ctx, teamID, startMs, endMs, name, traceID, limit, offset)
+	cur, _ := cursor.Decode[ScoresCursor](cursorRaw)
+
+	rows, hasMore, err := s.repo.ListScores(ctx, teamID, startMs, endMs, name, traceID, limit, cur)
 	if err != nil {
 		return ListScoresResponse{}, err
 	}
@@ -69,9 +70,16 @@ func (s *Service) ListScores(ctx context.Context, teamID, startMs, endMs int64, 
 	for _, r := range rows {
 		out = append(out, scoreRowToDTO(r))
 	}
+
+	var nextCursor string
+	if hasMore && len(rows) > 0 {
+		last := rows[len(rows)-1]
+		nextCursor = cursor.Encode(ScoresCursor{CreatedAt: last.CreatedAt, ID: last.ID})
+	}
+
 	return ListScoresResponse{
 		Results:  out,
-		PageInfo: PageInfo{Total: total, Offset: offset, Limit: limit},
+		PageInfo: PageInfo{Limit: limit, HasMore: hasMore, NextCursor: nextCursor},
 	}, nil
 }
 

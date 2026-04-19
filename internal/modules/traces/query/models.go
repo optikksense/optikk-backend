@@ -102,26 +102,8 @@ type TraceTrendBucket struct {
 	P95Duration float64 `json:"p95_duration"`
 }
 
-type TraceSearchResponse struct {
-	Traces  []Trace      `json:"traces"`
-	HasMore bool         `json:"has_more"`
-	Offset  int          `json:"offset"`
-	Limit   int          `json:"limit"`
-	Total   uint64       `json:"total"`
-	Summary TraceSummary `json:"summary"`
-}
-
 type TraceCursorResponse struct {
 	Traces     []Trace      `json:"traces"`
-	HasMore    bool         `json:"has_more"`
-	NextCursor string       `json:"next_cursor,omitempty"`
-	Limit      int          `json:"limit"`
-	Total      uint64       `json:"total,omitempty"`
-	Summary    TraceSummary `json:"summary"`
-}
-
-type SpanSearchResponse struct {
-	Spans      []Trace      `json:"spans"`
 	HasMore    bool         `json:"has_more"`
 	NextCursor string       `json:"next_cursor,omitempty"`
 	Limit      int          `json:"limit"`

@@ -53,7 +53,3 @@ func MapLogRows(rows []LogRowDTO) []Log {
 	}
 	return logs
 }
-
-type CountRow struct {
-	Count int64 `ch:"count"`
-}

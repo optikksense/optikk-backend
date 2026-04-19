@@ -11,7 +11,7 @@ import (
 // Repository is MySQL persistence for the LLM hub (scores, prompts, datasets, settings).
 type Repository interface {
 	InsertScore(ctx context.Context, teamID int64, req CreateScoreRequest) (int64, error)
-	ListScores(ctx context.Context, teamID, startMs, endMs int64, name, traceID string, limit, offset int) ([]scoreRow, int64, error)
+	ListScores(ctx context.Context, teamID, startMs, endMs int64, name, traceID string, limit int, cursor ScoresCursor) ([]scoreRow, bool, error)
 
 	ListPrompts(ctx context.Context, teamID int64) ([]promptRow, error)
 	InsertPrompt(ctx context.Context, teamID int64, req CreatePromptRequest) (int64, error)
@@ -50,7 +50,7 @@ func (r *mysqlRepository) InsertScore(ctx context.Context, teamID int64, req Cre
 	return res.LastInsertId()
 }
 
-func (r *mysqlRepository) ListScores(ctx context.Context, teamID, startMs, endMs int64, name, traceID string, limit, offset int) ([]scoreRow, int64, error) {
+func (r *mysqlRepository) ListScores(ctx context.Context, teamID, startMs, endMs int64, name, traceID string, limit int, cursor ScoresCursor) ([]scoreRow, bool, error) {
 	start := time.UnixMilli(startMs).UTC()
 	end := time.UnixMilli(endMs).UTC()
 
@@ -64,21 +64,19 @@ func (r *mysqlRepository) ListScores(ctx context.Context, teamID, startMs, endMs
 		where += ` AND trace_id = ?`
 		args = append(args, traceID)
 	}
-
-	countQuery := fmt.Sprintf(`SELECT COUNT(*) FROM llm_scores WHERE %s`, where)
-	var total int64
-	if err := r.db.QueryRowContext(ctx, countQuery, args...).Scan(&total); err != nil {
-		return nil, 0, err
+	if !cursor.CreatedAt.IsZero() {
+		where += ` AND (created_at, id) < (?, ?)`
+		args = append(args, cursor.CreatedAt.UTC(), cursor.ID)
 	}
 
 	listQuery := fmt.Sprintf(`
 		SELECT id, team_id, name, value, trace_id, span_id, session_id, prompt_template, model, source, rationale, created_at
-		FROM llm_scores WHERE %s ORDER BY created_at DESC LIMIT ? OFFSET ?`, where)
-	args = append(args, limit, offset)
+		FROM llm_scores WHERE %s ORDER BY created_at DESC, id DESC LIMIT ?`, where)
+	args = append(args, limit+1)
 
 	rows, err := r.db.QueryContext(ctx, listQuery, args...)
 	if err != nil {
-		return nil, 0, err
+		return nil, false, err
 	}
 	defer rows.Close()
 
@@ -86,11 +84,18 @@ func (r *mysqlRepository) ListScores(ctx context.Context, teamID, startMs, endMs
 	for rows.Next() {
 		var s scoreRow
 		if err := rows.Scan(&s.ID, &s.TeamID, &s.Name, &s.Value, &s.TraceID, &s.SpanID, &s.SessionID, &s.PromptTemplate, &s.Model, &s.Source, &s.Rationale, &s.CreatedAt); err != nil {
-			return nil, 0, err
+			return nil, false, err
 		}
 		out = append(out, s)
 	}
-	return out, total, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, false, err
+	}
+	hasMore := len(out) > limit
+	if hasMore {
+		out = out[:limit]
+	}
+	return out, hasMore, nil
 }
 
 func (r *mysqlRepository) ListPrompts(ctx context.Context, teamID int64) ([]promptRow, error) {

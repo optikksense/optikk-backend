@@ -15,7 +15,6 @@ const serviceNameFilter = " AND s.service_name = @serviceName"
 
 type Repository interface {
 	GetTracesKeyset(ctx context.Context, f TraceFilters, limit int, cursor TraceCursor) ([]traceRow, traceSummaryRow, bool, error)
-	GetTraces(ctx context.Context, f TraceFilters, limit, offset int) ([]traceRow, uint64, traceSummaryRow, error)
 	GetTraceFacets(ctx context.Context, f TraceFilters) ([]traceFacetRow, error)
 	GetTraceTrend(ctx context.Context, f TraceFilters, step string) ([]traceTrendRow, error)
 	GetTraceSpans(ctx context.Context, teamID int64, traceID string) ([]spanRow, error)
@@ -35,7 +34,7 @@ func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) GetTracesKeyset(ctx context.Context, f TraceFilters, limit int, cursor TraceCursor) ([]traceRow, traceSummaryRow, bool, error) {
-	query, args := buildTracesQuery(f, true, limit, cursor, 0)
+	query, args := buildTracesQuery(f, limit, cursor)
 	var rows []traceRow
 	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
 		return nil, traceSummaryRow{}, false, err
@@ -48,23 +47,6 @@ func (r *ClickHouseRepository) GetTracesKeyset(ctx context.Context, f TraceFilte
 
 	summary, err := r.getTraceSummary(ctx, f)
 	return rows, summary, hasMore, err
-}
-
-func (r *ClickHouseRepository) GetTraces(ctx context.Context, f TraceFilters, limit, offset int) ([]traceRow, uint64, traceSummaryRow, error) {
-	query, args := buildTracesQuery(f, false, limit, TraceCursor{}, offset)
-	var rows []traceRow
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
-		return nil, 0, traceSummaryRow{}, err
-	}
-
-	countQuery, countArgs := buildTracesCountQuery(f)
-	var total uint64
-	if err := r.db.QueryRow(ctx, &total, countQuery, countArgs...); err != nil {
-		return nil, 0, traceSummaryRow{}, err
-	}
-
-	summary, err := r.getTraceSummary(ctx, f)
-	return rows, total, summary, err
 }
 
 func (r *ClickHouseRepository) getTraceSummary(ctx context.Context, f TraceFilters) (traceSummaryRow, error) {
@@ -227,13 +209,13 @@ func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int
 
 // SQL Query Builders follow ...
 
-func buildTracesQuery(f TraceFilters, useKeyset bool, limit int, cursor TraceCursor, offset int) (string, []any) {
+func buildTracesQuery(f TraceFilters, limit int, cursor TraceCursor) (string, []any) {
 	where, args := buildWhereClause(f)
 	columns := traceSelectColumns(f.SearchMode)
 
 	query := fmt.Sprintf("SELECT %s FROM observability.spans s %s", columns, where)
 
-	if useKeyset && cursor.Timestamp.UnixMilli() > 0 {
+	if cursor.Timestamp.UnixMilli() > 0 {
 		query += " AND (s.timestamp < @cursorTime OR (s.timestamp = @cursorTime AND s.span_id < @cursorSpanID))"
 		args = append(args, clickhouse.Named("cursorTime", cursor.Timestamp), clickhouse.Named("cursorSpanID", cursor.SpanID))
 	}
@@ -242,17 +224,9 @@ func buildTracesQuery(f TraceFilters, useKeyset bool, limit int, cursor TraceCur
 
 	if limit > 0 {
 		query += fmt.Sprintf(" LIMIT %d", limit+1)
-		if offset > 0 {
-			query += fmt.Sprintf(" OFFSET %d", offset)
-		}
 	}
 
 	return query, args
-}
-
-func buildTracesCountQuery(f TraceFilters) (string, []any) {
-	where, args := buildWhereClause(f)
-	return fmt.Sprintf("SELECT count() AS total FROM observability.spans s %s", where), args
 }
 
 func buildTracesSummaryQuery(f TraceFilters) (string, []any) {

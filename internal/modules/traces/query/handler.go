@@ -15,7 +15,7 @@ import (
 const maxAttributeFilters = 10
 
 type TraceService interface {
-	SearchTraces(ctx context.Context, filters TraceFilters, limit int, cursorRaw string, offset int) (TraceSearchResult, error)
+	SearchTraces(ctx context.Context, filters TraceFilters, limit int, cursorRaw string) (TraceSearchResult, error)
 	GetTraceSpans(ctx context.Context, teamID int64, traceID string) ([]Span, error)
 	GetSpanTree(ctx context.Context, teamID int64, spanID string) ([]Span, error)
 	GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error)
@@ -93,70 +93,20 @@ func (h *TraceHandler) buildFilters(c *gin.Context, teamID int64, startMs, endMs
 // --- Trace search handlers ---
 
 func (h *TraceHandler) GetTraces(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
-	limit := modulecommon.ParseIntParam(c, "limit", 100)
-	if limit <= 0 || limit > 500 {
-		limit = 100
-	}
-	filters := h.buildFilters(c, teamID, startMs, endMs)
-	result, err := h.Service.SearchTraces(c.Request.Context(), filters, limit, c.Query("cursor"), modulecommon.ParseIntParam(c, "offset", 0))
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query traces", err)
-		return
-	}
-	if result.UsesKeyset {
-		modulecommon.RespondOK(c, TraceCursorResponse{
-			Traces:     result.Traces,
-			HasMore:    result.HasMore,
-			NextCursor: result.NextCursor,
-			Limit:      result.Limit,
-			Total:      result.Total,
-			Summary:    result.Summary,
-		})
-		return
-	}
-	modulecommon.RespondOK(c, TraceSearchResponse{
-		Traces:  result.Traces,
-		HasMore: result.HasMore,
-		Offset:  result.Offset,
-		Limit:   result.Limit,
-		Total:   result.Total,
-		Summary: result.Summary,
-	})
+	h.searchAndRespond(c, "", "Failed to query traces")
 }
 
 func (h *TraceHandler) GetTracesKeyset(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
-	limit := modulecommon.ParseIntParam(c, "limit", 100)
-	if limit <= 0 || limit > 500 {
-		limit = 100
-	}
-	filters := h.buildFilters(c, teamID, startMs, endMs)
-	result, err := h.Service.SearchTraces(c.Request.Context(), filters, limit, c.Query("cursor"), 0)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query traces", err)
-		return
-	}
-	modulecommon.RespondOK(c, TraceCursorResponse{
-		Traces:     result.Traces,
-		HasMore:    result.HasMore,
-		NextCursor: result.NextCursor,
-		Limit:      result.Limit,
-		Summary:    result.Summary,
-	})
+	h.searchAndRespond(c, "", "Failed to query traces")
 }
 
 // GetSpanSearch is the span-level search endpoint.
 // It forces SearchMode="all" so all spans (not just root) are searched.
 func (h *TraceHandler) GetSpanSearch(c *gin.Context) {
+	h.searchAndRespond(c, SearchModeAll, "Failed to query spans")
+}
+
+func (h *TraceHandler) searchAndRespond(c *gin.Context, forceMode, errMsg string) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
@@ -167,14 +117,16 @@ func (h *TraceHandler) GetSpanSearch(c *gin.Context) {
 		limit = 100
 	}
 	filters := h.buildFilters(c, teamID, startMs, endMs)
-	filters.SearchMode = SearchModeAll
-	result, err := h.Service.SearchTraces(c.Request.Context(), filters, limit, c.Query("cursor"), 0)
+	if forceMode != "" {
+		filters.SearchMode = forceMode
+	}
+	result, err := h.Service.SearchTraces(c.Request.Context(), filters, limit, c.Query("cursor"))
 	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query spans", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, errMsg, err)
 		return
 	}
-	modulecommon.RespondOK(c, SpanSearchResponse{
-		Spans:      result.Traces,
+	modulecommon.RespondOK(c, TraceCursorResponse{
+		Traces:     result.Traces,
 		HasMore:    result.HasMore,
 		NextCursor: result.NextCursor,
 		Limit:      result.Limit,
