@@ -17,6 +17,7 @@ type Store interface {
 	WriteDigest(ctx context.Context, key Key, d *Digest, dim string) error
 	WriteHLL(ctx context.Context, key Key, h *HLL, dim string) error
 	LoadDigests(ctx context.Context, kind Kind, teamID string, startMs, endMs int64) (map[string][]*Digest, error)
+	LoadDigestsBucketed(ctx context.Context, kind Kind, teamID string, startMs, endMs int64) (map[string]map[int64]*Digest, error)
 	LoadHLLs(ctx context.Context, kind Kind, teamID string, startMs, endMs int64) (map[string][]*HLL, error)
 }
 
@@ -125,6 +126,49 @@ func (s *RedisStore) LoadDigests(ctx context.Context, kind Kind, teamID string, 
 		}
 		dim := s.resolveDim(ctx, kind, teamID, dimHashFromKey(k))
 		out[dim] = append(out[dim], d)
+	}
+	return out, nil
+}
+
+// LoadDigestsBucketed returns {dimLabel → {bucketUnix → digest}}. The bucket
+// timestamp is preserved so callers can assemble time-series answers without
+// a second round-trip. bucketUnix is the seconds-since-epoch of the bucket
+// START (kind.Bucket-aligned). If the same (dim, bucket) has multiple
+// writes, the last one wins on the map load (Redis WriteDigest has already
+// merged into a single value server-side).
+func (s *RedisStore) LoadDigestsBucketed(ctx context.Context, kind Kind, teamID string, startMs, endMs int64) (map[string]map[int64]*Digest, error) {
+	if s == nil || s.c == nil {
+		return nil, errors.New("sketch: redis store not configured")
+	}
+	keys, err := s.scanKeys(ctx, kind, teamID, startMs, endMs)
+	if err != nil || len(keys) == 0 {
+		return nil, err
+	}
+	values, err := s.mget(ctx, keys)
+	if err != nil {
+		return nil, err
+	}
+	out := make(map[string]map[int64]*Digest, len(keys))
+	for i, k := range keys {
+		if values[i] == nil {
+			continue
+		}
+		buf, ok := values[i].(string)
+		if !ok || len(buf) == 0 {
+			continue
+		}
+		d, derr := UnmarshalDigest([]byte(buf))
+		if derr != nil {
+			continue
+		}
+		dim := s.resolveDim(ctx, kind, teamID, dimHashFromKey(k))
+		ts := unixFromKey(k)
+		byBucket := out[dim]
+		if byBucket == nil {
+			byBucket = make(map[int64]*Digest, 8)
+			out[dim] = byBucket
+		}
+		byBucket[ts] = d
 	}
 	return out, nil
 }

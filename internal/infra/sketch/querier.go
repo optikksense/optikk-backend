@@ -198,3 +198,73 @@ func startsWith(s, prefix string) bool {
 	}
 	return s[:len(prefix)] == prefix
 }
+
+// TimeseriesPoint is one (bucketUnix, quantile-values) entry per (dim, step).
+type TimeseriesPoint struct {
+	BucketTs int64
+	Values   []float64 // aligned with qs passed to PercentilesTimeseries
+}
+
+// PercentilesTimeseries returns {dim → ordered []TimeseriesPoint} with
+// stepSecs-aligned buckets. Multiple ingest-bucket sketches inside the same
+// step window are merged into one sketch before quantile computation.
+// If stepSecs == 0 or < kind.Bucket, the kind's native bucket is used.
+// Falls through to CHFallback as a single aggregate (no time-series) when
+// sketch load fails — correct, slightly degraded on that path.
+func (q *Querier) PercentilesTimeseries(ctx context.Context, kind Kind, teamID string, startMs, endMs, stepSecs int64, qs ...float64) (map[string][]TimeseriesPoint, error) {
+	if q == nil || q.store == nil {
+		return nil, errors.New("sketch: querier not configured")
+	}
+	if kind.Family != FamilyDistribution {
+		return nil, errors.New("sketch: kind is not a distribution")
+	}
+	step := stepSecs
+	kindBucket := int64(kind.Bucket.Seconds())
+	if step < kindBucket {
+		step = kindBucket
+	}
+	bucketed, err := q.store.LoadDigestsBucketed(ctx, kind, teamID, startMs, endMs)
+	if err != nil {
+		slog.Warn("sketch: timeseries load failed", slog.String("kind", kind.ID), slog.Any("error", err))
+		return map[string][]TimeseriesPoint{}, nil
+	}
+	out := make(map[string][]TimeseriesPoint, len(bucketed))
+	for dim, byBucket := range bucketed {
+		stepGroup := make(map[int64]*Digest, len(byBucket))
+		for ts, d := range byBucket {
+			if d == nil {
+				continue
+			}
+			floor := (ts / step) * step
+			existing, ok := stepGroup[floor]
+			if !ok {
+				stepGroup[floor] = d
+				continue
+			}
+			_ = existing.MergeWith(d)
+		}
+		points := make([]TimeseriesPoint, 0, len(stepGroup))
+		for ts, merged := range stepGroup {
+			if merged == nil || merged.IsEmpty() {
+				continue
+			}
+			vals, qErr := merged.GetValuesAtQuantiles(qs)
+			if qErr != nil {
+				continue
+			}
+			points = append(points, TimeseriesPoint{BucketTs: ts, Values: vals})
+		}
+		sortPointsByTs(points)
+		out[dim] = points
+	}
+	return out, nil
+}
+
+func sortPointsByTs(points []TimeseriesPoint) {
+	// Small N per dim; insertion sort is fine and keeps this dependency-free.
+	for i := 1; i < len(points); i++ {
+		for j := i; j > 0 && points[j-1].BucketTs > points[j].BucketTs; j-- {
+			points[j-1], points[j] = points[j], points[j-1]
+		}
+	}
+}
