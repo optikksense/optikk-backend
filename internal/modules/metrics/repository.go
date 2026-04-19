@@ -37,7 +37,10 @@ var allowedOperators = map[string]bool{
 
 type Repository interface {
 	ListMetricNames(ctx context.Context, teamID int64, startMs, endMs int64, search string) ([]MetricNameResult, error)
-	ListTagKeys(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]TagKeyResult, error)
+	// ListAttributeSamples powers the service-layer tag-key discovery: grab
+	// the attributes map from the most recent rows, let Go collect distinct
+	// keys instead of running arrayJoin(mapKeys(JSON...)) per row in CH.
+	ListAttributeSamples(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]attributesRow, error)
 	ListTagValues(ctx context.Context, teamID int64, startMs, endMs int64, metricName, tagKey string) ([]TagValueResult, error)
 	QueryTimeseries(ctx context.Context, teamID int64, startMs, endMs int64, query MetricQuery, step string) ([]TimeseriesPoint, error)
 }
@@ -86,43 +89,35 @@ func (r *ClickHouseRepository) ListMetricNames(ctx context.Context, teamID int64
 	return results, nil
 }
 
-func (r *ClickHouseRepository) ListTagKeys(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]TagKeyResult, error) {
-	// For native JSON columns, use mapKeys(JSONAllPathsWithTypes()) to extract
-	// dynamic attribute key names instead of JSONExtractKeys (which is for String JSON).
+// tagKeyAttributeSample is how many recent rows we pull for tag-key discovery.
+// Matches the Datadog / Prometheus default of ~2k; trades a <1-in-2000 miss
+// rate (keys present only in extremely rare rows) for near-constant-time
+// queries instead of the prior per-row arrayJoin(mapKeys(JSON...)) scan.
+const tagKeyAttributeSample = 2000
+
+// ListAttributeSamples fetches the raw attribute maps of the most recent
+// rows for the given metric. Tag-key de-duplication happens in the service
+// layer via service.distinctAttributeKeys — repository stays a thin scan.
+func (r *ClickHouseRepository) ListAttributeSamples(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]attributesRow, error) {
 	query := fmt.Sprintf(`
-		SELECT DISTINCT tag_key FROM (
-			SELECT DISTINCT arrayJoin(mapKeys(JSONAllPathsWithTypes(attributes))) AS tag_key
-			FROM %s
-			WHERE team_id = @teamID
-			  AND timestamp BETWEEN @start AND @end
-			  AND metric_name = @metricName
-			UNION ALL
-			SELECT * FROM (
-				SELECT 'service' AS tag_key
-				UNION ALL SELECT 'host'
-				UNION ALL SELECT 'environment'
-				UNION ALL SELECT 'k8s_namespace'
-				UNION ALL SELECT 'http_method'
-				UNION ALL SELECT 'http_status_code'
-			)
-		)
-		ORDER BY tag_key
-		LIMIT 200
-	`, tableMetrics)
+		SELECT attributes
+		FROM %s
+		WHERE team_id = @teamID
+		  AND timestamp BETWEEN @start AND @end
+		  AND metric_name = @metricName
+		ORDER BY timestamp DESC
+		LIMIT %d
+	`, tableMetrics, tagKeyAttributeSample)
 
 	params := append(dbutil.SimpleBaseParams(teamID, startMs, endMs),
 		clickhouse.Named("metricName", metricName),
 	)
 
-	var rows []tagKeyDTO
+	var rows []attributesRow
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
 		return nil, err
 	}
-	results := make([]TagKeyResult, len(rows))
-	for i, r := range rows {
-		results[i] = TagKeyResult{TagKey: r.TagKey}
-	}
-	return results, nil
+	return rows, nil
 }
 
 func (r *ClickHouseRepository) ListTagValues(ctx context.Context, teamID int64, startMs, endMs int64, metricName, tagKey string) ([]TagValueResult, error) {

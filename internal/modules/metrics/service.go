@@ -31,8 +31,52 @@ func (s *MetricsExplorerService) ListMetricNames(ctx context.Context, teamID int
 	return s.repo.ListMetricNames(ctx, teamID, startMs, endMs, search)
 }
 
+// ListTagKeys samples recent rows for the metric, collects distinct attribute
+// keys in Go, and unions with the hardcoded materialized-dimension list.
+// Replaces the pre-2026-04 query that ran arrayJoin(mapKeys(JSONAllPathsWithTypes(attributes)))
+// over every matching row. Trades a <1-in-2000 miss rate (for keys that appear
+// only in extremely rare rows) for near-constant-time queries.
 func (s *MetricsExplorerService) ListTagKeys(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]TagKeyResult, error) {
-	return s.repo.ListTagKeys(ctx, teamID, startMs, endMs, metricName)
+	samples, err := s.repo.ListAttributeSamples(ctx, teamID, startMs, endMs, metricName)
+	if err != nil {
+		return nil, err
+	}
+	return distinctAttributeKeys(samples), nil
+}
+
+// hardcodedTagKeys is the materialized-column set that ListTagKeys always
+// reports regardless of sample presence. Matches materializedDimensions in
+// repository.go.
+var hardcodedTagKeys = []string{"service", "host", "environment", "k8s_namespace", "http_method", "http_status_code"}
+
+// distinctAttributeKeys collects the set of keys observed across the sample
+// rows, unions with hardcodedTagKeys, sorts, and caps at 200 entries.
+func distinctAttributeKeys(samples []attributesRow) []TagKeyResult {
+	seen := make(map[string]struct{}, 64)
+	for _, k := range hardcodedTagKeys {
+		seen[k] = struct{}{}
+	}
+	for _, s := range samples {
+		for k := range s.Attributes {
+			if k == "" {
+				continue
+			}
+			seen[k] = struct{}{}
+		}
+	}
+	keys := make([]string, 0, len(seen))
+	for k := range seen {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	if len(keys) > 200 {
+		keys = keys[:200]
+	}
+	out := make([]TagKeyResult, len(keys))
+	for i, k := range keys {
+		out[i] = TagKeyResult{TagKey: k}
+	}
+	return out
 }
 
 func (s *MetricsExplorerService) ListTagValues(ctx context.Context, teamID int64, startMs, endMs int64, metricName, tagKey string) ([]TagValueResult, error) {
@@ -54,7 +98,7 @@ func (s *MetricsExplorerService) ListTags(ctx context.Context, teamID int64, sta
 		return []FETagEntry{{Key: tagKey, Values: vals}}, nil
 	}
 
-	keys, err := s.repo.ListTagKeys(ctx, teamID, startMs, endMs, metricName)
+	keys, err := s.ListTagKeys(ctx, teamID, startMs, endMs, metricName)
 	if err != nil {
 		return nil, err
 	}

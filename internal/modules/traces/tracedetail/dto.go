@@ -70,12 +70,25 @@ type flamegraphRow struct {
 	HasError      bool    `ch:"has_error"`
 }
 
-// spanEventRow is the scan target for the events ARRAY JOIN query.
+// spanEventRow is the flattened shape the service layer returns — one entry
+// per span event. Produced by the repository Go-side unpacking loop; no longer
+// a direct CH scan target.
 type spanEventRow struct {
 	SpanID    string    `ch:"span_id"`
 	TraceID   string    `ch:"trace_id"`
 	Timestamp time.Time `ch:"timestamp"`
 	EventJSON string    `ch:"event_json"`
+}
+
+// spanEventsRawRow is the actual CH scan target: one row per span, with its
+// events array intact. repository.GetSpanEvents unpacks into []spanEventRow
+// without CH doing an arrayJoin — fewer bytes on the wire, zero CH CPU for
+// the fan-out.
+type spanEventsRawRow struct {
+	SpanID    string    `ch:"span_id"`
+	TraceID   string    `ch:"trace_id"`
+	Timestamp time.Time `ch:"timestamp"`
+	Events    []string  `ch:"events"`
 }
 
 // exceptionRow is the scan target for the span exception fields query.

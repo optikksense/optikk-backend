@@ -162,16 +162,21 @@ func (r *ClickHouseRepository) GetRelatedTraces(ctx context.Context, teamID int6
 }
 
 // GetSpanEvents returns span specific events like exceptions.
+//
+// Fetches the full events array per span and unpacks in Go rather than relying
+// on CH arrayJoin — fewer bytes on the wire (no per-event repetition of
+// span_id/trace_id/timestamp) and zero CH CPU for the fan-out.
 func (r *ClickHouseRepository) GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]spanEventRow, []exceptionRow, error) {
-	var eventRows []spanEventRow
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &eventRows, `
-		SELECT span_id, trace_id, timestamp, arrayJoin(events) AS event_json
+	var rawRows []spanEventsRawRow
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rawRows, `
+		SELECT span_id, trace_id, timestamp, events
 		FROM observability.spans
 		WHERE team_id = @teamID AND trace_id = @traceID
 		  AND NOT empty(events)
 	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)); err != nil { //nolint:gosec // G115
 		return nil, nil, err
 	}
+	eventRows := unpackSpanEvents(rawRows)
 
 	var exceptionRows []exceptionRow
 	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &exceptionRows, `
@@ -188,6 +193,31 @@ func (r *ClickHouseRepository) GetSpanEvents(ctx context.Context, teamID int64, 
 		exceptionRows[i], exceptionRows[j] = exceptionRows[j], exceptionRows[i]
 	}
 	return eventRows, exceptionRows, nil
+}
+
+// unpackSpanEvents flattens one row per span with its events array into one
+// row per event, preserving the (span_id, trace_id, timestamp) association
+// that CH's arrayJoin used to produce. Empty / malformed entries are skipped.
+func unpackSpanEvents(rawRows []spanEventsRawRow) []spanEventRow {
+	n := 0
+	for _, r := range rawRows {
+		n += len(r.Events)
+	}
+	out := make([]spanEventRow, 0, n)
+	for _, r := range rawRows {
+		for _, ev := range r.Events {
+			if ev == "" {
+				continue
+			}
+			out = append(out, spanEventRow{
+				SpanID:    r.SpanID,
+				TraceID:   r.TraceID,
+				Timestamp: r.Timestamp,
+				EventJSON: ev,
+			})
+		}
+	}
+	return out
 }
 
 // GetFlamegraphData returns the raw spans for the flamegraph visualization.
