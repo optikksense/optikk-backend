@@ -31,11 +31,11 @@ type Repository interface {
 }
 
 type repository struct {
-	db  *dbutil.NativeQuerier
+	db  clickhouse.Conn
 	sql *sql.DB
 }
 
-func NewRepository(db *dbutil.NativeQuerier, sqlDB *sql.DB) Repository {
+func NewRepository(db clickhouse.Conn, sqlDB *sql.DB) Repository {
 	return &repository{db: db, sql: sqlDB}
 }
 
@@ -73,7 +73,7 @@ func (r *repository) GetTopModels(ctx context.Context, teamID, startMs, endMs in
 	`, aiRunsSubquery(), where, limit)
 
 	var rows []AIModelBreakdown
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	for idx := range rows {
@@ -110,7 +110,7 @@ func (r *repository) GetTopPrompts(ctx context.Context, teamID, startMs, endMs i
 	}
 
 	var rows []promptRow
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	out := make([]AIPromptBreakdown, 0, len(rows))
@@ -138,7 +138,7 @@ func (r *repository) GetQualitySummary(ctx context.Context, teamID, startMs, end
 	`, source, where)
 
 	var summary qualitySummaryRow
-	if err := r.db.QueryRow(ctx, &summary, summaryQuery, args...); err != nil {
+	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), summaryQuery, args...).ScanStruct(&summary); err != nil {
 		return AIQualitySummary{}, err
 	}
 
@@ -152,7 +152,7 @@ func (r *repository) GetQualitySummary(ctx context.Context, teamID, startMs, end
 		ORDER BY count DESC
 	`, source, where)
 	var guardrailRows []AIGuardrailBreakdown
-	if err := r.db.Select(ctx, &guardrailRows, guardrailQuery, args...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &guardrailRows, guardrailQuery, args...); err != nil {
 		return AIQualitySummary{}, err
 	}
 
@@ -166,7 +166,7 @@ func (r *repository) GetQualitySummary(ctx context.Context, teamID, startMs, end
 		ORDER BY count DESC
 	`, source, where)
 	var qualityRows []AIQualityBucket
-	if err := r.db.Select(ctx, &qualityRows, qualityQuery, args...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &qualityRows, qualityQuery, args...); err != nil {
 		return AIQualitySummary{}, err
 	}
 
@@ -240,7 +240,7 @@ func (r *repository) SearchRuns(ctx context.Context, q queryContext, limit int, 
 	`, aiRunsSubquery(), where, orderExpr, direction, direction, limit+1)
 
 	var rows []AIRunRow
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, false, err
 	}
 
@@ -272,7 +272,7 @@ func (r *repository) SummarizeRuns(ctx context.Context, q queryContext) (AIOverv
 	`, aiRunsSubquery(), where)
 
 	var summary AIOverview
-	if err := r.db.QueryRow(ctx, &summary, query, args...); err != nil {
+	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&summary); err != nil {
 		return AIOverview{}, err
 	}
 	summary.ErrorRatePct = ratioPct(summary.ErrorRuns, summary.TotalRuns)
@@ -300,7 +300,7 @@ func (r *repository) TrendRuns(ctx context.Context, q queryContext, step string)
 	`, bucket, aiRunsSubquery(), where)
 
 	var rows []AITrendPoint
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	for idx := range rows {
@@ -336,7 +336,7 @@ func (r *repository) FacetRuns(ctx context.Context, q queryContext) (AIExplorerF
 		`, definition.expr, source, where, definition.expr, defaultBreakdownLimit)
 
 		var buckets []FacetBucket
-		if err := r.db.Select(ctx, &buckets, query, args...); err != nil {
+		if err := r.db.Select(dbutil.OverviewCtx(ctx), &buckets, query, args...); err != nil {
 			return AIExplorerFacets{}, err
 		}
 
@@ -407,7 +407,7 @@ func (r *repository) RunAnalytics(ctx context.Context, teamID int64, req analyti
 	}
 
 	var rows []analytics.AnalyticsRowDTO
-	if err := r.db.Select(ctx, &rows, sqlQuery, args...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, sqlQuery, args...); err != nil {
 		return nil, err
 	}
 	return analytics.BuildResult(req, rows), nil
@@ -456,7 +456,7 @@ func (r *repository) GetRunDetail(ctx context.Context, teamID int64, traceID, sp
 	`, aiRunsSubquery())
 
 	var rows []AIRunDetail
-	if err := r.db.Select(ctx, &rows, query,
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query,
 		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("traceID", traceID),
 		clickhouse.Named("spanID", spanID),
@@ -491,7 +491,7 @@ func (r *repository) GetRunLogs(ctx context.Context, teamID int64, traceID, span
 	`
 
 	var rows []logRow
-	if err := r.db.Select(ctx, &rows, query,
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query,
 		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("traceID", traceID),
 		clickhouse.Named("spanID", spanID),

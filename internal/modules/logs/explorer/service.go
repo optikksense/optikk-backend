@@ -1,12 +1,12 @@
 package explorer
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 	"strings"
 	"time"
 
-	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	queryparser "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/queryparser"
 	logshared "github.com/Optikk-Org/optikk-backend/internal/modules/logs/internal/shared"
@@ -221,7 +221,7 @@ type LogStatsService struct {
 	repo *logStatsRepository
 }
 
-func newLogStatsService(db *dbutil.NativeQuerier) *LogStatsService {
+func newLogStatsService(db clickhouse.Conn) *LogStatsService {
 	return &LogStatsService{repo: newLogStatsRepository(db)}
 }
 

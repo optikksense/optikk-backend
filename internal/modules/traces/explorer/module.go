@@ -1,6 +1,7 @@
 package explorer
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	spantraces "github.com/Optikk-Org/optikk-backend/internal/modules/traces/query"
 	"github.com/gin-gonic/gin"
@@ -22,7 +23,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	v1.POST("/explorer/traces/analytics", h.Analytics)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
 	module := &tracesExplorerModule{}
 	module.configure(nativeQuerier, getTenant)
 	return module
@@ -35,7 +36,7 @@ type tracesExplorerModule struct {
 func (m *tracesExplorerModule) Name() string                      { return "tracesExplorer" }
 func (m *tracesExplorerModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *tracesExplorerModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+func (m *tracesExplorerModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	traceService := spantraces.NewService(spantraces.NewRepository(nativeQuerier))
 	m.handler = NewHandler(getTenant, NewService(traceService), nativeQuerier)
 }

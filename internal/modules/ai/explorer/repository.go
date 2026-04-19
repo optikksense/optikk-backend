@@ -31,11 +31,11 @@ type attrFilter struct {
 
 // ClickHouseRepository implements Repository against ClickHouse.
 type ClickHouseRepository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
 // NewRepository creates a new ClickHouseRepository.
-func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -68,13 +68,13 @@ func (r *ClickHouseRepository) GetAICalls(ctx context.Context, teamID, startMs, 
 	args = append(args, clickhouse.Named("limit", limit), clickhouse.Named("offset", offset))
 
 	var rows []aiCallRow
-	if err := r.db.SelectExplorer(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
 		return nil, 0, fmt.Errorf("ai.GetAICalls: %w", err)
 	}
 
 	countQuery := fmt.Sprintf(`SELECT count() FROM observability.spans s %s`, where)
 	var total uint64
-	if err := r.db.QueryRowExplorer(ctx, &total, countQuery, args[:len(args)-2]...); err != nil {
+	if err := r.db.QueryRow(dbutil.ExplorerCtx(ctx), countQuery, args[:len(args)-2]...).ScanStruct(&total); err != nil {
 		return nil, 0, fmt.Errorf("ai.GetAICalls.count: %w", err)
 	}
 
@@ -99,7 +99,7 @@ func (r *ClickHouseRepository) GetAISummary(ctx context.Context, teamID, startMs
 		%s`, where)
 
 	var row aiSummaryRow
-	if err := r.db.QueryRowExplorer(ctx, &row, query, args...); err != nil {
+	if err := r.db.QueryRow(dbutil.ExplorerCtx(ctx), query, args...).ScanStruct(&row); err != nil {
 		return aiSummaryRow{}, fmt.Errorf("ai.GetAISummary: %w", err)
 	}
 	return row, nil
@@ -136,7 +136,7 @@ func (r *ClickHouseRepository) GetAIFacets(ctx context.Context, teamID, startMs,
 	// Each sub-query needs its own copy of args. ClickHouse driver handles
 	// named parameters that appear multiple times, so we only pass one set.
 	var rows []aiFacetRow
-	if err := r.db.SelectExplorer(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
 		return nil, fmt.Errorf("ai.GetAIFacets: %w", err)
 	}
 	return rows, nil
@@ -164,7 +164,7 @@ func (r *ClickHouseRepository) GetAITrend(ctx context.Context, teamID, startMs, 
 		ORDER BY time_bucket`, bucketExpr, where)
 
 	var rows []aiTrendRow
-	if err := r.db.SelectExplorer(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
 		return nil, fmt.Errorf("ai.GetAITrend: %w", err)
 	}
 	return rows, nil
@@ -217,13 +217,13 @@ func (r *ClickHouseRepository) GetAISessions(ctx context.Context, teamID, startM
 	argsWithPaging := append(append([]any{}, args...), clickhouse.Named("limit", limit), clickhouse.Named("offset", offset))
 
 	var rows []aiSessionRow
-	if err := r.db.SelectExplorer(ctx, &rows, query, argsWithPaging...); err != nil {
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, argsWithPaging...); err != nil {
 		return nil, 0, fmt.Errorf("ai.GetAISessions: %w", err)
 	}
 
 	countQuery := fmt.Sprintf(`SELECT count() FROM (%s)`, grouped)
 	var total uint64
-	if err := r.db.QueryRowExplorer(ctx, &total, countQuery, args...); err != nil {
+	if err := r.db.QueryRow(dbutil.ExplorerCtx(ctx), countQuery, args...).ScanStruct(&total); err != nil {
 		return nil, 0, fmt.Errorf("ai.GetAISessions.count: %w", err)
 	}
 

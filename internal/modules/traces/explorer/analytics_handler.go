@@ -1,6 +1,7 @@
 package explorer
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 	"net/http"
@@ -33,7 +34,7 @@ func (h *Handler) Analytics(c *gin.Context) {
 	modulecommon.RespondOK(c, result)
 }
 
-func runTracesAnalytics(ctx context.Context, db *dbutil.NativeQuerier, teamID int64, req analytics.AnalyticsRequest) (*analytics.AnalyticsResult, error) {
+func runTracesAnalytics(ctx context.Context, db clickhouse.Conn, teamID int64, req analytics.AnalyticsRequest) (*analytics.AnalyticsResult, error) {
 	cfg := TracesScopeConfig()
 
 	origBase := cfg.BaseWhereFunc
@@ -64,7 +65,7 @@ func runTracesAnalytics(ctx context.Context, db *dbutil.NativeQuerier, teamID in
 	}
 
 	var rows []analytics.AnalyticsRowDTO
-	if err := db.SelectExplorer(ctx, &rows, sql, args...); err != nil {
+	if err := db.Select(dbutil.ExplorerCtx(ctx), &rows, sql, args...); err != nil {
 		return nil, fmt.Errorf("analytics query failed: %w", err)
 	}
 

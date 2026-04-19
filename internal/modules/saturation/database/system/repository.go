@@ -20,10 +20,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -59,7 +59,7 @@ func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID int6
 	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
 	params = append(params, fargs...)
 	var rows []LatencyTimeSeries
-	if err := r.db.Select(ctx, &rows, query, params...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -97,7 +97,7 @@ func (r *ClickHouseRepository) GetSystemOps(ctx context.Context, teamID int64, s
 	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
 	params = append(params, fargs...)
 	var rows []OpsTimeSeries
-	if err := r.db.Select(ctx, &rows, query, params...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -134,7 +134,7 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByLatency(ctx context.Cont
 
 	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
 	var rows []SystemCollectionRow
-	if err := r.db.Select(ctx, &rows, query, params...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -171,7 +171,7 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByVolume(ctx context.Conte
 
 	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
 	var rows []SystemCollectionRow
-	if err := r.db.Select(ctx, &rows, query, params...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -207,7 +207,7 @@ func (r *ClickHouseRepository) GetSystemErrors(ctx context.Context, teamID int64
 
 	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
 	var rows []ErrorTimeSeries
-	if err := r.db.Select(ctx, &rows, query, params...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -240,7 +240,7 @@ func (r *ClickHouseRepository) GetSystemNamespaces(ctx context.Context, teamID i
 
 	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
 	var rows []SystemNamespace
-	if err := r.db.Select(ctx, &rows, query, params...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
 		return nil, err
 	}
 	return rows, nil

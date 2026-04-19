@@ -1,6 +1,7 @@
 package explorer
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	logsearch "github.com/Optikk-Org/optikk-backend/internal/modules/logs/search"
 	"github.com/gin-gonic/gin"
@@ -25,7 +26,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	v1.GET("/logs/aggregate", h.GetLogAggregate)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
 	module := &logsExplorerModule{}
 	module.configure(nativeQuerier, getTenant)
 	return module
@@ -38,7 +39,7 @@ type logsExplorerModule struct {
 func (m *logsExplorerModule) Name() string                      { return "logsExplorer" }
 func (m *logsExplorerModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *logsExplorerModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+func (m *logsExplorerModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	searchService := logsearch.NewService(logsearch.NewRepository(nativeQuerier))
 	logStatsService := newLogStatsService(nativeQuerier)
 	m.handler = NewHandler(getTenant, NewService(searchService, logStatsService), logStatsService, nativeQuerier)

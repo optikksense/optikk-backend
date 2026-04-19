@@ -19,10 +19,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -58,7 +58,7 @@ func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID 
 	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("collection", collection))
 	params = append(params, fargs...)
 	var rows []LatencyTimeSeries
-	if err := r.db.Select(ctx, &rows, query, params...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, params...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -96,7 +96,7 @@ func (r *ClickHouseRepository) GetCollectionOps(ctx context.Context, teamID int6
 	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("collection", collection))
 	params = append(params, fargs...)
 	var rows []OpsTimeSeries
-	if err := r.db.Select(ctx, &rows, query, params...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, params...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -136,7 +136,7 @@ func (r *ClickHouseRepository) GetCollectionErrors(ctx context.Context, teamID i
 	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("collection", collection))
 	params = append(params, fargs...)
 	var rows []ErrorTimeSeries
-	if err := r.db.Select(ctx, &rows, query, params...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, params...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -181,7 +181,7 @@ func (r *ClickHouseRepository) GetCollectionQueryTexts(ctx context.Context, team
 	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("collection", collection))
 	params = append(params, fargs...)
 	var rows []CollectionTopQuery
-	if err := r.db.Select(ctx, &rows, query, params...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, params...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -217,7 +217,7 @@ func (r *ClickHouseRepository) GetCollectionReadVsWrite(ctx context.Context, tea
 
 	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("collection", collection))
 	var rows []ReadWritePoint
-	if err := r.db.Select(ctx, &rows, query, params...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, params...); err != nil {
 		return nil, err
 	}
 	return rows, nil

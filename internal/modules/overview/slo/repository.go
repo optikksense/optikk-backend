@@ -23,10 +23,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -81,7 +81,7 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		)`
 
 	var row summaryRow
-	if err := r.db.QueryRow(ctx, &row, query, args...); err != nil {
+	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&row); err != nil {
 		return Summary{}, err
 	}
 
@@ -124,7 +124,7 @@ func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, 
 		ORDER BY 1 ASC`
 
 	var rows []timeSliceRow
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -167,7 +167,7 @@ func (r *ClickHouseRepository) GetBurnDown(ctx context.Context, teamID int64, st
 	query += ` GROUP BY time_bucket ORDER BY time_bucket ASC`
 
 	var rows []burnDownRow
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -247,7 +247,7 @@ func (r *ClickHouseRepository) errorRateForWindow(ctx context.Context, teamID in
 	}
 
 	var row errorRateRow
-	if err := r.db.QueryRow(ctx, &row, query, args...); err != nil {
+	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&row); err != nil {
 		return 0, err
 	}
 	return row.ErrorRate, nil

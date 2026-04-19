@@ -2,93 +2,34 @@ package database
 
 import (
 	"context"
-	"crypto/tls"
-	"errors"
 	"fmt"
-	"log/slog"
-	"net"
-	"regexp"
-	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
-// clickHouseTransientErrorSubstrings matches transport-layer failures worth retrying
-// and mirrors the circuit-breaker "unsuccessful" string checks.
-var clickHouseTransientErrorSubstrings = []string{
-	"connection refused",
-	"connection reset",
-	"broken pipe",
-	"i/o timeout",
-	"no such host",
-	"timeout exceeded",
-	"connection closed",
-	"unexpected eof",
-}
-
+// Connection pool sizing. Values are set unconditionally on the Options
+// returned from ParseDSN — any DSN-embedded pool hints are overwritten.
 const (
-	defaultCHMaxOpenConns    = 15
-	defaultCHMaxIdleConns    = 5
-	defaultCHConnMaxLifetime = 30 * time.Minute
+	chMaxOpenConns    = 100
+	chMaxIdleConns    = 25
+	chConnMaxLifetime = 30 * time.Minute
 )
 
-// applyClickHouseConnectionPoolDefaults sets pool sizing and connection rotation when
-// unset so idle connections are recycled before typical LB / server idle cuts.
-func applyClickHouseConnectionPoolDefaults(opts *clickhouse.Options) {
-	if opts.MaxOpenConns <= 0 {
-		opts.MaxOpenConns = defaultCHMaxOpenConns
-	}
-	if opts.MaxIdleConns <= 0 {
-		opts.MaxIdleConns = defaultCHMaxIdleConns
-	}
-	if opts.ConnMaxLifetime <= 0 {
-		opts.ConnMaxLifetime = defaultCHConnMaxLifetime
-	}
-}
-
-
-type ClickHouseCloudConfig struct {
-	Host     string
-	Username string
-	Password string
-}
-
-func OpenClickHouseConn(dsn string, isProduction bool, cloud ...ClickHouseCloudConfig) (clickhouse.Conn, error) {
-	var opts *clickhouse.Options
-
-	if isProduction {
-		if len(cloud) == 0 {
-			return nil, errors.New("clickhouse: ClickHouseCloudConfig required for production mode")
-		}
-		cc := cloud[0]
-		opts = &clickhouse.Options{
-			Addr:     []string{cc.Host},
-			Protocol: clickhouse.Native,
-			TLS: &tls.Config{
-				MinVersion: tls.VersionTLS12,
-			},
-			Auth: clickhouse.Auth{
-				Username: cc.Username,
-				Password: cc.Password,
-			},
-			DialTimeout: 5 * time.Second,
-			ReadTimeout: 30 * time.Second,
-		}
-	} else {
-		var err error
-		opts, err = clickhouse.ParseDSN(dsn)
-		if err != nil {
-			return nil, fmt.Errorf("clickhouse: parse DSN: %w", err)
-		}
+// OpenClickHouseConn parses dsn, opens a connection pool, and pings. The DSN
+// carries everything: host, credentials, database, and TLS via ?secure=true.
+// There is no prod-vs-dev branch — prod config emits a secure DSN.
+func OpenClickHouseConn(dsn string) (clickhouse.Conn, error) {
+	opts, err := clickhouse.ParseDSN(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("clickhouse: parse DSN: %w", err)
 	}
 
-	if opts.Compression == nil {
-		opts.Compression = &clickhouse.Compression{Method: clickhouse.CompressionLZ4}
-	}
-
-	applyClickHouseConnectionPoolDefaults(opts)
+	opts.Compression = &clickhouse.Compression{Method: clickhouse.CompressionLZ4}
+	opts.MaxOpenConns = chMaxOpenConns
+	opts.MaxIdleConns = chMaxIdleConns
+	opts.ConnMaxLifetime = chConnMaxLifetime
 
 	conn, err := clickhouse.Open(opts)
 	if err != nil {
@@ -104,217 +45,84 @@ func OpenClickHouseConn(dsn string, isProduction bool, cloud ...ClickHouseCloudC
 	return conn, nil
 }
 
-
-var prewhereRe = regexp.MustCompile(
-	`(?i)\bWHERE\s+([\w.]*\.?)team_id\s*=\s*\?\s+AND\s+([\w.]*\.?)ts_bucket_start\s+BETWEEN\s+\?\s+AND\s+\?\s+AND\s+`,
-)
-
-func injectPrewhere(query string) string {
-	if strings.Contains(strings.ToUpper(query), "PREWHERE") {
-		return query
-	}
-	return prewhereRe.ReplaceAllString(query, "PREWHERE ${1}team_id = ? AND ${2}ts_bucket_start BETWEEN ? AND ? WHERE ")
+// QueryBudget is the typed resource ceiling applied per-query via
+// clickhouse.WithSettings. Fields map directly to ClickHouse server settings.
+type QueryBudget struct {
+	MaxExecutionTime    int // seconds
+	MaxRowsToRead       int64
+	MaxMemoryUsage      int64 // bytes
+	MaxResultRows       int64
+	ResultOverflowMode  string
+	ReadOverflowMode    string
+	OptimizeReadInOrder int
 }
 
-// QueryProfile encapsulates the CH resource budget applied to a query.
-// Phase 4 (2026-04-17 audit) splits the single hardcoded budget into
-// workload-appropriate profiles: cheap overview / dashboard queries should
-// fail fast if they run long, while explorer / ad-hoc queries may legitimately
-// scan 10× more data.
-type QueryProfile int
-
-const (
-	// ProfileOverview — defaults for dashboards / overview / infrastructure /
-	// saturation / HTTP metrics / services. 15 s, 100M rows, 2 GB.
-	ProfileOverview QueryProfile = iota
-	// ProfileExplorer — defaults for ad-hoc explorer + tracedetail + ai
-	// explorer + alerting backtest. 60 s, 1B rows, 8 GB.
-	ProfileExplorer
-)
-
-// SettingsClauseForTest exposes the internal settings string for the
-// tests/database package. Not intended for production callers — use
-// SelectOverview / SelectExplorer.
-func (p QueryProfile) SettingsClauseForTest() string { return p.settingsClause() }
-
-func (p QueryProfile) settingsClause() string {
-	switch p {
-	case ProfileExplorer:
-		return "SETTINGS max_execution_time=60, max_rows_to_read=1000000000, max_memory_usage=8589934592, max_result_rows=1000000, result_overflow_mode='break', read_overflow_mode='break', optimize_read_in_order=1"
-	default:
-		return "SETTINGS max_execution_time=15, max_rows_to_read=100000000, max_memory_usage=2147483648, max_result_rows=100000, result_overflow_mode='break', read_overflow_mode='break', optimize_read_in_order=1"
+func (b QueryBudget) settings() clickhouse.Settings {
+	return clickhouse.Settings{
+		"max_execution_time":     b.MaxExecutionTime,
+		"max_rows_to_read":       b.MaxRowsToRead,
+		"max_memory_usage":       b.MaxMemoryUsage,
+		"max_result_rows":        b.MaxResultRows,
+		"result_overflow_mode":   b.ResultOverflowMode,
+		"read_overflow_mode":     b.ReadOverflowMode,
+		"optimize_read_in_order": b.OptimizeReadInOrder,
 	}
 }
 
-func injectMaxExecutionTime(query string, profile QueryProfile) string {
-	qUpper := strings.ToUpper(strings.TrimSpace(query))
-	if (strings.HasPrefix(qUpper, "SELECT") || strings.HasPrefix(qUpper, "WITH")) && !strings.Contains(qUpper, "SETTINGS ") {
-		return query + "\n" + profile.settingsClause()
-	}
-	return query
+// Ctx returns a ctx with this budget attached. Repositories call OverviewCtx
+// or ExplorerCtx below rather than using this directly.
+func (b QueryBudget) Ctx(ctx context.Context) context.Context {
+	return clickhouse.Context(ctx, clickhouse.WithSettings(b.settings()))
 }
 
-func optimizeQuery(query string, profile QueryProfile) string {
-	query = injectPrewhere(query)
-	query = injectMaxExecutionTime(query, profile)
-	return query
+// Overview — cheap dashboard / overview / infrastructure / saturation /
+// HTTP-metrics / services budget. Fail fast if a dashboard query runs long.
+var Overview = QueryBudget{
+	MaxExecutionTime:    15,
+	MaxRowsToRead:       100_000_000,
+	MaxMemoryUsage:      2 * 1024 * 1024 * 1024,
+	MaxResultRows:       100_000,
+	ResultOverflowMode:  "break",
+	ReadOverflowMode:    "break",
+	OptimizeReadInOrder: 1,
 }
 
-// NativeQuerier wraps clickhouse.Conn with shared circuit-breaking, slow query
-// logging, and ClickHouse-specific query rewrites. Repositories should prefer
-// Select/QueryRow with typed structs for ClickHouse access.
-type NativeQuerier struct {
-	conn clickhouse.Conn
+// Explorer — ad-hoc explorer / tracedetail / ai-explorer / alerting-backtest
+// budget. Legitimately scans 10× more data than Overview.
+var Explorer = QueryBudget{
+	MaxExecutionTime:    60,
+	MaxRowsToRead:       1_000_000_000,
+	MaxMemoryUsage:      8 * 1024 * 1024 * 1024,
+	MaxResultRows:       1_000_000,
+	ResultOverflowMode:  "break",
+	ReadOverflowMode:    "break",
+	OptimizeReadInOrder: 1,
 }
 
-func NewNativeQuerier(conn clickhouse.Conn) *NativeQuerier {
-	return &NativeQuerier{
-		conn: conn,
-	}
-}
+// OverviewCtx returns ctx with the overview query budget attached.
+func OverviewCtx(ctx context.Context) context.Context { return Overview.Ctx(ctx) }
 
-// isRetriableClickHouseNetworkError reports whether err is likely transient at the
-// transport layer and safe to retry for read-only queries.
-func isRetriableClickHouseNetworkError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return false
-	}
-	var chErr *clickhouse.Exception
-	if errors.As(err, &chErr) {
-		return false
-	}
-	var netErr net.Error
-	if errors.As(err, &netErr) {
-		return true
-	}
-	var opErr *net.OpError
-	if errors.As(err, &opErr) {
-		return true
-	}
-	lower := strings.ToLower(err.Error())
-	for _, marker := range clickHouseTransientErrorSubstrings {
-		if strings.Contains(lower, marker) {
-			return true
-		}
-	}
-	return false
-}
+// ExplorerCtx returns ctx with the explorer query budget attached.
+func ExplorerCtx(ctx context.Context) context.Context { return Explorer.Ctx(ctx) }
 
-const clickHouseReadMaxAttempts = 3
-
-// retryClickHouseRead re-executes op on transient connection failures (initial try
-// plus up to clickHouseReadMaxAttempts-1 retries).
-func retryClickHouseRead(ctx context.Context, op func() error) error {
-	var lastErr error
-	for attempt := range clickHouseReadMaxAttempts {
-		if attempt > 0 {
-			backoff := time.Duration(50*(1<<uint(attempt-1))) * time.Millisecond
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case <-time.After(backoff):
-			}
-			slog.Info("clickhouse_native retry after transient error",
-				slog.Int("attempt", attempt+1),
-				slog.String("cause", lastErr.Error()))
-		}
-		lastErr = op()
-		if lastErr == nil {
-			return nil
-		}
-		if !isRetriableClickHouseNetworkError(lastErr) {
-			return lastErr
-		}
-	}
-	return lastErr
-}
-
-// SelectOverview executes a SELECT with the overview (dashboard) budget —
-// 15s execution, 100M rows, 2 GB memory. Use from overview/ infrastructure/
-// saturation/ HTTP-metrics/ services repositories.
-func (n *NativeQuerier) SelectOverview(ctx context.Context, dest any, query string, args ...any) error {
-	return n.selectWithProfile(ctx, ProfileOverview, dest, query, args...)
-}
-
-// SelectExplorer executes a SELECT with the explorer (ad-hoc) budget —
-// 60s execution, 1B rows, 8 GB memory. Use from explorer/ tracedetail/
-// tracecompare/ ai-explorer/ alerting-backtest code paths.
-func (n *NativeQuerier) SelectExplorer(ctx context.Context, dest any, query string, args ...any) error {
-	return n.selectWithProfile(ctx, ProfileExplorer, dest, query, args...)
-}
-
-// QueryRowOverview is the single-row counterpart to SelectOverview.
-func (n *NativeQuerier) QueryRowOverview(ctx context.Context, dest any, query string, args ...any) error {
-	return n.queryRowWithProfile(ctx, ProfileOverview, dest, query, args...)
-}
-
-// QueryRowExplorer is the single-row counterpart to SelectExplorer.
-func (n *NativeQuerier) QueryRowExplorer(ctx context.Context, dest any, query string, args ...any) error {
-	return n.queryRowWithProfile(ctx, ProfileExplorer, dest, query, args...)
-}
-
-func (n *NativeQuerier) selectWithProfile(ctx context.Context, profile QueryProfile, dest any, query string, args ...any) error {
-	query = optimizeQuery(query, profile)
-	return retryClickHouseRead(ctx, func() error {
-		return n.conn.Select(ctx, dest, query, args...)
-	})
-}
-
-func (n *NativeQuerier) queryRowWithProfile(ctx context.Context, profile QueryProfile, dest any, query string, args ...any) error {
-	query = optimizeQuery(query, profile)
-	return retryClickHouseRead(ctx, func() error {
-		return n.conn.QueryRow(ctx, query, args...).ScanStruct(dest)
-	})
-}
-
-// Select is the unprofiled alias retained for the pre-Phase-4 call sites;
-// it forwards to SelectOverview so the default budget is the cheaper one.
-// Deprecated: pick SelectOverview or SelectExplorer explicitly at the call site.
-func (n *NativeQuerier) Select(ctx context.Context, dest any, query string, args ...any) error {
-	return n.SelectOverview(ctx, dest, query, args...)
-}
-
-// QueryRow is the unprofiled alias. See Select above.
-// Deprecated: pick QueryRowOverview or QueryRowExplorer explicitly.
-func (n *NativeQuerier) QueryRow(ctx context.Context, dest any, query string, args ...any) error {
-	return n.QueryRowOverview(ctx, dest, query, args...)
-}
-
-// SelectTyped executes a SELECT query and scans results into a typed slice
-// using the overview budget. For explorer / tracedetail / backtest paths use
-// SelectTypedExplorer instead.
-func SelectTyped[T any](ctx context.Context, db *NativeQuerier, query string, args ...any) ([]T, error) {
+// SelectTyped executes a SELECT and scans into a typed slice. Callers must
+// pass a ctx already wrapped with OverviewCtx or ExplorerCtx.
+func SelectTyped[T any](ctx context.Context, db clickhouse.Conn, query string, args ...any) ([]T, error) {
 	var rows []T
-	err := db.SelectOverview(ctx, &rows, query, args...)
+	err := db.Select(ctx, &rows, query, args...)
 	return rows, err
 }
 
-// SelectTypedExplorer is the explorer-budget counterpart to SelectTyped.
-func SelectTypedExplorer[T any](ctx context.Context, db *NativeQuerier, query string, args ...any) ([]T, error) {
-	var rows []T
-	err := db.SelectExplorer(ctx, &rows, query, args...)
-	return rows, err
-}
-
-// QueryRowTyped executes a single-row query with the overview budget.
-func QueryRowTyped[T any](ctx context.Context, db *NativeQuerier, query string, args ...any) (T, error) {
+// QueryRowTyped executes a single-row SELECT and scans into a typed struct.
+// Callers must pass a ctx already wrapped with OverviewCtx or ExplorerCtx.
+func QueryRowTyped[T any](ctx context.Context, db clickhouse.Conn, query string, args ...any) (T, error) {
 	var row T
-	err := db.QueryRowOverview(ctx, &row, query, args...)
+	err := db.QueryRow(ctx, query, args...).ScanStruct(&row)
 	return row, err
 }
 
-// QueryRowTypedExplorer is the explorer-budget counterpart to QueryRowTyped.
-func QueryRowTypedExplorer[T any](ctx context.Context, db *NativeQuerier, query string, args ...any) (T, error) {
-	var row T
-	err := db.QueryRowExplorer(ctx, &row, query, args...)
-	return row, err
-}
-
-// SpanBaseParams returns the standard named parameters for span queries.
-// Includes team_id, ts_bucket_start range, and timestamp range.
+// SpanBaseParams returns the standard named parameters for span queries:
+// team_id, ts_bucket_start range, and timestamp range.
 func SpanBaseParams(teamID int64, startMs, endMs int64) []any {
 	return []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 - domain-constrained value
@@ -325,8 +133,8 @@ func SpanBaseParams(teamID int64, startMs, endMs int64) []any {
 	}
 }
 
-// SimpleBaseParams returns the standard named parameters for queries that
-// do not need bucket range pruning (metrics, infrastructure, saturation, etc.).
+// SimpleBaseParams returns named parameters for queries that don't need
+// bucket range pruning (metrics, infrastructure, saturation, etc.).
 func SimpleBaseParams(teamID int64, startMs, endMs int64) []any {
 	return []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 - domain-constrained value

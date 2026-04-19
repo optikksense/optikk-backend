@@ -96,7 +96,7 @@ All under `/alerts/` prefix. Datadog-grade monitors: multi-window, multi-state (
 | `GET /alerts/silences` / `POST` / `PATCH /:id` / `DELETE /:id` | Maintenance-window CRUD |
 | `POST /alerts/callback/slack` | Slack action-button callback (v1 stub) |
 
-**Storage:** single MySQL `observability.alerts` table (rule + instances + silences inline as JSON); append-only ClickHouse `observability.alert_events` for transitions/audit; MySQL `observability.alert_outbox` (Phase 3.3) for durable notification queue. **Runtime:** the module implements `registry.BackgroundRunner` — `NewEvaluatorLoop` ticks every 30s, runs `evaluators.Registry` (`slo_burn_rate`, `error_rate`, `http_check`, `ai_latency`, `ai_error_rate`, `ai_cost_spike`, `ai_quality_drop`) → `Decide` state machine → **outbox enqueue** + `Dispatcher` fast-path with Slack channel and deploy correlation via `repository.DeploysInRange`. Span-backed evaluators use `observability.spans` through the shared `NativeQuerier`; `http_check` performs outbound HTTP(S) probes with SSRF checks on resolved IPs.
+**Storage:** single MySQL `observability.alerts` table (rule + instances + silences inline as JSON); append-only ClickHouse `observability.alert_events` for transitions/audit; MySQL `observability.alert_outbox` (Phase 3.3) for durable notification queue. **Runtime:** the module implements `registry.BackgroundRunner` — `NewEvaluatorLoop` ticks every 30s, runs `evaluators.Registry` (`slo_burn_rate`, `error_rate`, `http_check`, `ai_latency`, `ai_error_rate`, `ai_cost_spike`, `ai_quality_drop`) → `Decide` state machine → **outbox enqueue** + `Dispatcher` fast-path with Slack channel and deploy correlation via `repository.DeploysInRange`. Span-backed evaluators use `observability.spans` via the shared `clickhouse.Conn` (wrap the request ctx with `database.OverviewCtx` or `database.ExplorerCtx` to apply the budget); `http_check` performs outbound HTTP(S) probes with SSRF checks on resolved IPs.
 
 **Phase 3 HA (2026-04-17 audit):**
 - **Redis lease** (`internal/modules/alerting/lease.go`): `newLeaser(redisClient, 60s)`; `evalRule` calls `leaser.Acquire(ctx, rule.ID)` before evaluating. `SET NX PX 60000` per rule — dead pod's rules migrate within lease TTL. Fail-closed on Redis errors to prevent double-dispatch. Redis nil ⇒ always-acquire (single-pod dev).
@@ -196,7 +196,7 @@ All under `/http/` prefix, Cached:
 | `timebucket` | Adaptive time bucketing for ClickHouse aggregations (minute/5min/hour/day) |
 | `validation` | Schema-based validation logic |
 | `cache` | Query and object caching |
-| `database` | **`NativeQuerier`** and ClickHouse/MySQL connection management |
+| `database` | ClickHouse/MySQL connection management; `OverviewCtx` / `ExplorerCtx` per-query budget helpers |
 | `kafka` | `EnsureTopics` / `IngestTopicNames` for ingest Kafka topics |
 | `livetail` | Redis-Streams-backed live-tail hub (`internal/modules/livetail/redis_hub.go`). `livetail.NewHub(redisClient, maxLen)` is the **only** constructor; Redis is a hard dependency (LocalHub was removed in Phase 2 of the 2026-04-17 audit for cross-pod fan-out). |
 | `livetail` | Live tail WebSocket module (`GET /api/v1/ws/live`); `handler.go` upgrades WS; registered from `modules_manifest.go` |
@@ -236,7 +236,7 @@ func (h *Handler) ListItems(c *gin.Context) {
 }
 ```
 
-**Constructor chain:** `NewModule(nativeQuerier, getTenant)` → `Handler{GetTenant, Service: NewService(NewRepository(nativeQuerier))}` → register in `modules_manifest.go:configuredModules()`
+**Constructor chain:** `NewModule(chConn, getTenant)` → `Handler{GetTenant, Service: NewService(NewRepository(chConn))}` → register in `modules_manifest.go:configuredModules()`. `chConn` is `clickhouse.Conn` (native driver). Repositories wrap the request ctx with `database.OverviewCtx` / `database.ExplorerCtx` at call time to apply the query budget.
 
 ## Request Lifecycle (LLD)
 
@@ -259,20 +259,24 @@ Gin request
 
 ## ClickHouse Query Helpers (`internal/infra/database/`)
 
-### Query profiles (Phase 4, 2026-04-17 audit)
+### Query budgets (Phase 4, 2026-04-17 audit)
 
-Profile-aware resource budgets on `NativeQuerier`:
+Repositories hold `clickhouse.Conn` directly. Budget is applied per-query by wrapping the ctx with one of the helpers in `internal/infra/database/clickhouse.go`:
 
-| Method | Profile | Budget |
-|--------|---------|--------|
-| `SelectOverview` / `QueryRowOverview` | `ProfileOverview` | 15 s / 100M rows / 2 GB |
-| `SelectExplorer` / `QueryRowExplorer` | `ProfileExplorer` | 60 s / 1B rows / 8 GB |
-| `Select` / `QueryRow` | *deprecated alias for Overview* | — |
+| Helper | Budget | Who uses it |
+|--------|--------|-------------|
+| `database.OverviewCtx(ctx)` | 15 s / 100M rows / 2 GB / 100K result rows | Dashboards, infra, saturation, HTTP metrics, services |
+| `database.ExplorerCtx(ctx)` | 60 s / 1B rows / 8 GB / 1M result rows | Explorer / tracedetail / ai-explorer / metrics timeseries |
 
-Call-site guidance:
-- **Overview** (dashboards, infra, saturation, HTTP metrics, services): default — no change needed from existing `.Select` / `.QueryRow` call sites.
-- **Explorer** (logs/explorer, traces/explorer, tracedetail, ai/explorer, metrics timeseries): **must** use `SelectExplorer` / `QueryRowExplorer`. Already migrated: `modules/logs/explorer/repository.go`, `modules/traces/tracedetail/repository.go`, `modules/ai/explorer/repository.go`, `modules/traces/explorer/analytics_handler.go`, `modules/metrics/repository.go::QueryTimeseries`.
-- Typed helpers: `SelectTyped` / `QueryRowTyped` use Overview; `SelectTypedExplorer` / `QueryRowTypedExplorer` use Explorer.
+Call style:
+```go
+err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...)
+err := r.db.QueryRow(database.ExplorerCtx(ctx), query, args...).ScanStruct(&row)
+```
+
+Settings ride on the ctx via `clickhouse.Context(parent, clickhouse.WithSettings(...))`. Budgets are defined as typed `QueryBudget` structs (`database.Overview` / `database.Explorer`); tests in `tests/database/budget_test.go` assert against those fields directly.
+
+Typed helpers: `database.SelectTyped[T]` / `database.QueryRowTyped[T]` — caller passes the right ctx (no Overview/Explorer flavor split).
 
 ### Query execution (`query.go`)
 
@@ -342,7 +346,7 @@ The **overview** hub (tabs, panel grid, which `/overview/*` or related endpoints
 | YAML key | Env var |
 |----------|---------|
 | `mysql.host` | `OPTIKK_MYSQL_HOST` |
-| `clickhouse.production` | `OPTIKK_CLICKHOUSE_PRODUCTION` |
+| `clickhouse.secure` | `OPTIKK_CLICKHOUSE_SECURE` |
 | `session.cookie_name` | `OPTIKK_SESSION_COOKIE_NAME` |
 | `redis.enabled` | `OPTIKK_REDIS_ENABLED` |
 | `otl_redis_stream.ch_batch_size` | `OPTIKK_OTL_REDIS_STREAM_CH_BATCH_SIZE` |
@@ -356,7 +360,7 @@ Note: `ENV`, `LOG_LEVEL`, `LOG_FORMAT` are separate (`os.Getenv` in `main.go`) �
 |---------|--------|------------|
 | `server` | `ServerConfig` | `port`, `allowed_origins`, `debug_api_logs` |
 | `mysql` | `MySQLConfig` | `host`, `port`, `database`, `user`, `password`, `max_open_conns` |
-| `clickhouse` | `ClickHouseConfig` | `host`, `port`, `database`, `user`, `password`, `production`, `cloud_host` |
+| `clickhouse` | `ClickHouseConfig` | `host`, `port`, `database`, `user`, `password`, `secure` |
 | `session` | `SessionConfig` | `lifetime_ms`, `idle_timeout_ms`, `cookie_*` |
 | `redis` | `RedisConfig` | `enabled`, `host`, `port`, optional `password`, `db` (shared by sessions/scs, go-redis cache, OTLP helpers) |
 | `otl_redis_stream` | `OtlRedisStream` | `max_len_approx`, `ch_batch_size`, `ch_flush_interval_ms`, `xread_block_ms`, `xread_count` |

@@ -1,6 +1,7 @@
 package query
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/gin-gonic/gin"
 )
@@ -30,7 +31,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *TraceHandler) {
 	v1.GET("/errors/timeseries", h.GetErrorTimeSeries)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
 	module := &tracesModule{}
 	module.configure(nativeQuerier, getTenant)
 	return module
@@ -43,7 +44,7 @@ type tracesModule struct {
 func (m *tracesModule) Name() string                      { return "traces" }
 func (m *tracesModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *tracesModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+func (m *tracesModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = NewHandler(
 		getTenant,
 		NewService(NewRepository(nativeQuerier)),

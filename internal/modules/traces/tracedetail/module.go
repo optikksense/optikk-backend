@@ -1,6 +1,7 @@
 package tracedetail
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
@@ -29,7 +30,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *TraceDetailHandler) {
 	v1.GET("/traces/:traceId/related", h.GetRelatedTraces)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
 	module := &traceDetailModule{}
 	module.configure(nativeQuerier, getTenant)
 	return module
@@ -42,7 +43,7 @@ type traceDetailModule struct {
 func (m *traceDetailModule) Name() string                      { return "traceDetail" }
 func (m *traceDetailModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *traceDetailModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+func (m *traceDetailModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &TraceDetailHandler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service:  NewService(NewRepository(nativeQuerier)),

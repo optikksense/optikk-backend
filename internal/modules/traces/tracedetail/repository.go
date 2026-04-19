@@ -45,10 +45,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -59,7 +59,7 @@ const (
 // GetTraceLogs returns the logs associated with a particular trace.
 func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, traceID string) ([]traceLogRow, error) {
 	var rows []traceLogRow
-	if err := r.db.SelectExplorer(ctx, &rows, `
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
 		SELECT timestamp, observed_timestamp, severity_text, severity_number,
 			body, trace_id, span_id, trace_flags,
 			service, host, pod, container, environment,
@@ -78,7 +78,7 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, t
 // GetSpanKindBreakdown returns a breakdown of traces by their span kind.
 func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID int64, traceID string) ([]spanKindDurationRow, error) {
 	var rows []spanKindDurationRow
-	err := r.db.SelectExplorer(ctx, &rows, `
+	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
 		SELECT kind_string                        AS span_kind,
 		       sum(duration_nano) / 1000000.0     AS total_duration_ms,
 		       toInt64(count())                   AS span_count
@@ -93,7 +93,7 @@ func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID 
 // GetCriticalPath finds the critical path in the trace.
 func (r *ClickHouseRepository) GetCriticalPath(ctx context.Context, teamID int64, traceID string) ([]criticalPathRow, error) {
 	var rows []criticalPathRow
-	err := r.db.SelectExplorer(ctx, &rows, `
+	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
 		SELECT s.span_id, s.parent_span_id,
 		       s.name AS operation_name,
 		       s.service_name,
@@ -111,7 +111,7 @@ func (r *ClickHouseRepository) GetCriticalPath(ctx context.Context, teamID int64
 // GetSpanAttributes returns all attributes for a given span.
 func (r *ClickHouseRepository) GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*spanAttributeRow, error) {
 	var rows []spanAttributeRow
-	if err := r.db.SelectExplorer(ctx, &rows, `
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
 		SELECT s.span_id, s.trace_id, s.name AS operation_name, s.service_name,
 		       CAST(s.attributes, 'Map(String, String)') AS attributes_string,
 		       CAST(map(), 'Map(String, String)') AS resource_attributes,
@@ -133,7 +133,7 @@ func (r *ClickHouseRepository) GetSpanAttributes(ctx context.Context, teamID int
 // GetRelatedTraces returns other traces from the same service and operation.
 func (r *ClickHouseRepository) GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
 	var rows []RelatedTrace
-	err := r.db.SelectExplorer(ctx, &rows, `
+	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
 		SELECT s.span_id, s.trace_id, s.name AS operation_name, s.service_name,
 		       s.duration_nano / 1000000.0 AS duration_ms,
 		       s.status_code_string AS status, s.timestamp AS start_time
@@ -164,7 +164,7 @@ func (r *ClickHouseRepository) GetRelatedTraces(ctx context.Context, teamID int6
 // GetSpanEvents returns span specific events like exceptions.
 func (r *ClickHouseRepository) GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]spanEventRow, []exceptionRow, error) {
 	var eventRows []spanEventRow
-	if err := r.db.SelectExplorer(ctx, &eventRows, `
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &eventRows, `
 		SELECT span_id, trace_id, timestamp, arrayJoin(events) AS event_json
 		FROM observability.spans
 		WHERE team_id = @teamID AND trace_id = @traceID
@@ -174,7 +174,7 @@ func (r *ClickHouseRepository) GetSpanEvents(ctx context.Context, teamID int64, 
 	}
 
 	var exceptionRows []exceptionRow
-	if err := r.db.SelectExplorer(ctx, &exceptionRows, `
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &exceptionRows, `
 		SELECT span_id, trace_id, timestamp,
 		       exception_type, exception_message, exception_stacktrace
 		FROM observability.spans
@@ -193,7 +193,7 @@ func (r *ClickHouseRepository) GetSpanEvents(ctx context.Context, teamID int64, 
 // GetFlamegraphData returns the raw spans for the flamegraph visualization.
 func (r *ClickHouseRepository) GetFlamegraphData(ctx context.Context, teamID int64, traceID string) ([]flamegraphRow, error) {
 	var rows []flamegraphRow
-	err := r.db.SelectExplorer(ctx, &rows, `
+	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
 		SELECT span_id, parent_span_id, name AS operation_name, service_name,
 		       kind_string AS span_kind, duration_nano / 1000000.0 AS duration_ms,
 		       toUnixTimestamp64Nano(timestamp) AS start_ns, has_error
@@ -208,7 +208,7 @@ func (r *ClickHouseRepository) GetFlamegraphData(ctx context.Context, teamID int
 // GetSpanSelfTimes returns the duration for each span.
 func (r *ClickHouseRepository) GetSpanSelfTimes(ctx context.Context, teamID int64, traceID string) ([]SpanSelfTime, error) {
 	var rows []SpanSelfTime
-	err := r.db.SelectExplorer(ctx, &rows, `
+	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
 		SELECT s.span_id, s.name AS operation_name,
 		       s.duration_nano / 1000000.0 AS total_duration_ms,
 		       (s.duration_nano - coalesce(cs.child_duration, 0)) / 1000000.0 AS self_time_ms,
@@ -230,7 +230,7 @@ func (r *ClickHouseRepository) GetSpanSelfTimes(ctx context.Context, teamID int6
 // GetErrorPath returns the path of spans that caused the error.
 func (r *ClickHouseRepository) GetErrorPath(ctx context.Context, teamID int64, traceID string) ([]errorPathRow, error) {
 	var rows []errorPathRow
-	err := r.db.SelectExplorer(ctx, &rows, `
+	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
 		SELECT s.span_id, s.parent_span_id, s.name AS operation_name,
 		       s.service_name AS service_name, s.status_code_string AS status, s.status_message,
 		       s.timestamp AS start_time, s.duration_nano / 1000000.0 AS duration_ms

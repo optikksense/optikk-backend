@@ -43,10 +43,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *dbutil.NativeQuerier) Repository {
+func NewRepository(db clickhouse.Conn) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -71,7 +71,7 @@ func (r *ClickHouseRepository) ListMetricNames(ctx context.Context, teamID int64
 	)
 
 	var rows []metricNameDTO
-	if err := r.db.Select(ctx, &rows, query, params...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
 		return nil, err
 	}
 	results := make([]MetricNameResult, len(rows))
@@ -115,7 +115,7 @@ func (r *ClickHouseRepository) ListTagKeys(ctx context.Context, teamID int64, st
 	)
 
 	var rows []tagKeyDTO
-	if err := r.db.Select(ctx, &rows, query, params...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
 		return nil, err
 	}
 	results := make([]TagKeyResult, len(rows))
@@ -152,7 +152,7 @@ func (r *ClickHouseRepository) ListTagValues(ctx context.Context, teamID int64, 
 	)
 
 	var rows []tagValueDTO
-	if err := r.db.Select(ctx, &rows, query, params...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
 		return nil, err
 	}
 	results := make([]TagValueResult, len(rows))
@@ -220,7 +220,7 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, teamID int64
 	)
 
 	var rows []timeseriesPointDTO
-	if err := r.db.SelectExplorer(ctx, &rows, sql, params...); err != nil {
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, sql, params...); err != nil {
 		return nil, err
 	}
 	results := make([]TimeseriesPoint, len(rows))

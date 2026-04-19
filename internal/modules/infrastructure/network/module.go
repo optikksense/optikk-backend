@@ -1,8 +1,8 @@
 package network
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -15,7 +15,7 @@ func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-func NewHandler(db *dbutil.NativeQuerier, getTenant modulecommon.GetTenantFunc) *NetworkHandler {
+func NewHandler(db clickhouse.Conn, getTenant modulecommon.GetTenantFunc) *NetworkHandler {
 	return &NetworkHandler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service:  NewService(NewRepository(db)),
@@ -37,7 +37,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *NetworkHandler) {
 	g.GET("/by-instance", h.GetNetworkByInstance)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
 	module := &networkModule{}
 	module.configure(nativeQuerier, getTenant)
 	return module
@@ -50,7 +50,7 @@ type networkModule struct {
 func (m *networkModule) Name() string                      { return "network" }
 func (m *networkModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *networkModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+func (m *networkModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = NewHandler(nativeQuerier, getTenant)
 }
 

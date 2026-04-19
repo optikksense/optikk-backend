@@ -25,10 +25,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -66,7 +66,7 @@ func bucketSecs(startMs, endMs int64) float64 {
 
 func (r *ClickHouseRepository) ListDeployments(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) ([]deploymentAggRow, error) {
 	var rows []deploymentAggRow
-	err := r.db.Select(ctx, &rows, `
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT s.service_name AS service_name,
 		       mat_service_version AS version,
 		       mat_deployment_environment AS environment,
@@ -96,7 +96,7 @@ func (r *ClickHouseRepository) ListDeployments(ctx context.Context, teamID int64
 
 func (r *ClickHouseRepository) ListServiceDeployments(ctx context.Context, teamID int64, serviceName string) ([]deploymentAggRow, error) {
 	var rows []deploymentAggRow
-	err := r.db.Select(ctx, &rows, `
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT s.service_name AS service_name,
 		       s.mat_service_version AS version,
 		       s.mat_deployment_environment AS environment,
@@ -120,7 +120,7 @@ func (r *ClickHouseRepository) ListServiceDeployments(ctx context.Context, teamI
 
 func (r *ClickHouseRepository) GetLatestDeploymentsByService(ctx context.Context, teamID int64) ([]deploymentAggRow, error) {
 	var rows []deploymentAggRow
-	err := r.db.Select(ctx, &rows, `
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		WITH deployments AS (
 			SELECT s.service_name AS service_name,
 			       s.mat_service_version AS version,
@@ -166,7 +166,7 @@ func (r *ClickHouseRepository) GetLatestDeploymentsByService(ctx context.Context
 // correlation.
 func (r *ClickHouseRepository) GetDeploysInRange(ctx context.Context, teamID int64, startMs, endMs int64) ([]deploymentAggRow, error) {
 	var rows []deploymentAggRow
-	err := r.db.Select(ctx, &rows, `
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT s.service_name AS service_name,
 		       s.mat_service_version AS version,
 		       s.mat_deployment_environment AS environment,
@@ -210,7 +210,7 @@ func (r *ClickHouseRepository) GetVersionTraffic(ctx context.Context, teamID int
 		ORDER BY timestamp ASC, version ASC
 	`, bucket)
 	var rows []VersionTrafficPoint
-	err := r.db.Select(ctx, &rows, query,
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query,
 		clickhouse.Named("bucketSeconds", bs),
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
@@ -227,7 +227,7 @@ func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64
 		return impactAggRow{}, nil
 	}
 	var row impactAggRow
-	err := r.db.QueryRow(ctx, &row, `
+	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), `
 		SELECT toInt64(count()) AS request_count,
 		       toInt64(countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)) AS error_count,
 		       quantileExact(0.95)(s.duration_nano / 1000000.0) AS p95_ms,
@@ -239,14 +239,8 @@ func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64
 		  AND s.timestamp >= @start AND s.timestamp < @end
 		  AND `+rootspan.Condition("s")+`
 		  AND s.mat_service_version != ''
-	`,
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("serviceName", serviceName),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	)
+	`, clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("serviceName", serviceName), clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)), clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)), clickhouse.Named("start", time.UnixMilli(startMs)), clickhouse.Named("end", time.UnixMilli(endMs)), ).ScanStruct(&row)
 	if err != nil {
 		return impactAggRow{}, err
 	}
@@ -255,7 +249,7 @@ func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64
 
 func (r *ClickHouseRepository) GetActiveVersion(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (activeVersionRow, error) {
 	var rows []activeVersionRow
-	err := r.db.Select(ctx, &rows, `
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT s.mat_service_version AS version,
 		       s.mat_deployment_environment AS environment
 		FROM observability.spans s
@@ -283,7 +277,7 @@ func (r *ClickHouseRepository) GetActiveVersion(ctx context.Context, teamID int6
 
 func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64, limit int) ([]errorGroupAggRow, error) {
 	var rows []errorGroupAggRow
-	err := r.db.Select(ctx, &rows, `
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT s.service_name AS service_name,
 		       '' AS group_id,
 		       s.name AS operation_name,
@@ -315,7 +309,7 @@ func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID 
 
 func (r *ClickHouseRepository) GetEndpointMetricsWindow(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64, limit int) ([]endpointMetricAggRow, error) {
 	var rows []endpointMetricAggRow
-	err := r.db.Select(ctx, &rows, `
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT s.name AS operation_name,
 		       coalesce(nullIf(s.mat_http_route, ''), nullIf(s.mat_http_target, ''), s.name) AS endpoint_name,
 		       s.http_method AS http_method,

@@ -191,11 +191,16 @@ Every feature module under `internal/modules/` **must** follow the strict 6-file
 
 ```go
 // module.go
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+import (
+    "github.com/ClickHouse/clickhouse-go/v2"
+    "github.com/Optikk-Org/optikk-backend/internal/app/registry"
+)
+
+func NewModule(ch clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
     m := &myModule{}
     m.handler = &Handler{
         GetTenant: getTenant,
-        Service:   NewService(NewRepository(nativeQuerier)),
+        Service:   NewService(NewRepository(ch)),
     }
     return m
 }
@@ -214,7 +219,7 @@ func (m *myModule) RegisterRoutes(group *gin.RouterGroup) {
 
 ### ClickHouse query helpers (`internal/infra/database/`)
 
-**Query profiles** (Phase 4, 2026-04-17 audit): `NativeQuerier.SelectOverview` / `SelectExplorer` (and their `QueryRow*` counterparts) apply distinct CH resource budgets — Overview (15s/100M/2GB) for dashboards + infra + saturation + HTTP + services; Explorer (60s/1B/8GB) for logs/traces/ai explorer + tracedetail + metrics timeseries. `Select` / `QueryRow` remain as deprecated Overview aliases. Typed helpers: `SelectTyped` / `QueryRowTyped` (Overview) + `SelectTypedExplorer` / `QueryRowTypedExplorer` (Explorer).
+**Query budgets** (Phase 4, 2026-04-17 audit): repositories hold `clickhouse.Conn` (native driver) directly. Budget is applied per-query by wrapping the request ctx with `database.OverviewCtx(ctx)` (15s/100M/2GB) or `database.ExplorerCtx(ctx)` (60s/1B/8GB) before calling `.Select` / `.QueryRow`. Overview for dashboards + infra + saturation + HTTP + services; Explorer for logs/traces/ai explorer + tracedetail + metrics timeseries. Settings ride on the ctx via `clickhouse.WithSettings`. Typed helpers: `database.SelectTyped[T]` / `database.QueryRowTyped[T]` — caller chooses ctx.
 
 **Query execution** (`query.go`):
 - `dbutil.QueryMaps(querier, sql, args...)` — returns `[]map[string]any` (10K row limit)

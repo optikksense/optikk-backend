@@ -6,6 +6,7 @@
 package factory
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/ai/shared"
 	ai_analytics "github.com/Optikk-Org/optikk-backend/internal/modules/ai/analytics"
@@ -19,7 +20,7 @@ import (
 // now exposes the shared Service + Repository and the submodules own their
 // own handlers.
 func NewModules(
-	nativeQuerier *registry.NativeQuerier,
+	nativeQuerier clickhouse.Conn,
 	sqlDB *registry.SQLDB,
 	getTenant registry.GetTenantFunc,
 ) []registry.Module {

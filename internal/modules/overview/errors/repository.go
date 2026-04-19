@@ -58,10 +58,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -100,7 +100,7 @@ func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64,
 	args = append(args, clickhouse.Named("limit", limit))
 
 	var rows []errorGroupRow
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -204,7 +204,7 @@ func (r *ClickHouseRepository) GetErrorGroupDetail(ctx context.Context, teamID i
 	)
 
 	var row errorGroupDetailRow
-	if err := r.db.QueryRow(ctx, &row, query, args...); err != nil {
+	if err := r.db.QueryRow(database.OverviewCtx(ctx), query, args...).ScanStruct(&row); err != nil {
 		return nil, err
 	}
 
@@ -250,7 +250,7 @@ func (r *ClickHouseRepository) GetErrorGroupTraces(ctx context.Context, teamID i
 	)
 
 	var rows []errorGroupTraceRow
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -292,7 +292,7 @@ func (r *ClickHouseRepository) GetErrorGroupTimeseries(ctx context.Context, team
 	)
 
 	var rows []errorGroupTSRow
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -337,7 +337,7 @@ func (r *ClickHouseRepository) GetServiceErrorRate(ctx context.Context, teamID i
 		LIMIT 10000`, bucket)
 
 	var rows []serviceErrorRateRow
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -373,7 +373,7 @@ func (r *ClickHouseRepository) GetErrorVolume(ctx context.Context, teamID int64,
 		LIMIT 10000`, bucket)
 
 	var rows []errorVolumeRow
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -413,7 +413,7 @@ func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(ctx context.Context,
 		LIMIT 10000`, bucket)
 
 	var rows []latencyErrorRow
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -444,12 +444,12 @@ func (r *ClickHouseRepository) GetExceptionRateByType(ctx context.Context, teamI
 	query += ` GROUP BY time_bucket, exception_type ORDER BY time_bucket ASC`
 
 	var rows []exceptionRatePointDTO
-	return rows, r.db.Select(ctx, &rows, query, args...)
+	return rows, r.db.Select(database.OverviewCtx(ctx), &rows, query, args...)
 }
 
 func (r *ClickHouseRepository) GetErrorHotspot(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorHotspotCellDTO, error) {
 	var rows []errorHotspotCellDTO
-	err := r.db.Select(ctx, &rows, `
+	err := r.db.Select(database.OverviewCtx(ctx), &rows, `
 		SELECT s.service_name AS service_name,
 		       s.name AS operation_name,
 		       toInt64(count())                                                                    AS total_count,
@@ -494,7 +494,7 @@ func (r *ClickHouseRepository) GetHTTP5xxByRoute(ctx context.Context, teamID int
 	query += ` GROUP BY http_route, s.service_name ORDER BY count_5xx DESC LIMIT 100`
 
 	var rows []http5xxByRouteDTO
-	return rows, r.db.Select(ctx, &rows, query, args...)
+	return rows, r.db.Select(database.OverviewCtx(ctx), &rows, query, args...)
 }
 
 // --- Migrated from errorfingerprint ---
@@ -533,7 +533,7 @@ func (r *ClickHouseRepository) ListFingerprints(ctx context.Context, teamID int6
 	args = append(args, limit)
 
 	var rows []errorFingerprintDTO
-	return rows, r.db.Select(ctx, &rows, query, args...)
+	return rows, r.db.Select(database.OverviewCtx(ctx), &rows, query, args...)
 }
 
 func (r *ClickHouseRepository) GetFingerprintTrend(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName, exceptionType, statusMessage string) ([]fingerprintTrendPointDTO, error) {
@@ -566,5 +566,5 @@ func (r *ClickHouseRepository) GetFingerprintTrend(ctx context.Context, teamID i
 	}
 
 	var rows []fingerprintTrendPointDTO
-	return rows, r.db.Select(ctx, &rows, query, args...)
+	return rows, r.db.Select(database.OverviewCtx(ctx), &rows, query, args...)
 }

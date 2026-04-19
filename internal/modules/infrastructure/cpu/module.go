@@ -1,8 +1,8 @@
 package cpu
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -15,7 +15,7 @@ func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-func NewHandler(db *dbutil.NativeQuerier, getTenant modulecommon.GetTenantFunc) *CPUHandler {
+func NewHandler(db clickhouse.Conn, getTenant modulecommon.GetTenantFunc) *CPUHandler {
 	return &CPUHandler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service:  NewService(NewRepository(db)),
@@ -36,7 +36,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *CPUHandler) {
 	g.GET("/by-instance", h.GetCPUByInstance)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
 	module := &cpuModule{}
 	module.configure(nativeQuerier, getTenant)
 	return module
@@ -49,7 +49,7 @@ type cpuModule struct {
 func (m *cpuModule) Name() string                      { return "cpu" }
 func (m *cpuModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *cpuModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+func (m *cpuModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = NewHandler(nativeQuerier, getTenant)
 }
 

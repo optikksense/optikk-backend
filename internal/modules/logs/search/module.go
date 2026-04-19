@@ -1,6 +1,7 @@
 package search
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
@@ -22,7 +23,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 }
 
 // NewModule constructs the log search module.
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
 	module := &logSearchModule{}
 	module.configure(nativeQuerier, getTenant)
 	return module
@@ -36,7 +37,7 @@ type logSearchModule struct {
 func (m *logSearchModule) Name() string                      { return "logSearch" }
 func (m *logSearchModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *logSearchModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+func (m *logSearchModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.service = NewService(NewRepository(nativeQuerier))
 	m.handler = &Handler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},

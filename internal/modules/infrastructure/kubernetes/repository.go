@@ -22,10 +22,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *dbutil.NativeQuerier) Repository {
+func NewRepository(db clickhouse.Conn) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -60,7 +60,7 @@ func (r *ClickHouseRepository) queryContainerBuckets(ctx context.Context, teamID
 	)
 	args := append(dbutil.SimpleBaseParams(teamID, startMs, endMs), nfArgs...)
 	var rows []containerBucketDTO
-	err := r.db.Select(ctx, &rows, query, args...)
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...)
 	return rows, err
 }
 
@@ -105,7 +105,7 @@ func (r *ClickHouseRepository) GetPodRestarts(ctx context.Context, teamID int64,
 	)
 	args := append(dbutil.SimpleBaseParams(teamID, startMs, endMs), nfArgs...)
 	var rows []podStatDTO
-	err := r.db.Select(ctx, &rows, query, args...)
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...)
 	return rows, err
 }
 
@@ -129,7 +129,7 @@ func (r *ClickHouseRepository) GetNodeAllocatable(ctx context.Context, teamID in
 	)
 	args := append(dbutil.SimpleBaseParams(teamID, startMs, endMs), nfArgs...)
 	var row nodeAllocatableDTO
-	err := r.db.QueryRow(ctx, &row, query, args...)
+	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&row)
 	return row, err
 }
 
@@ -155,7 +155,7 @@ func (r *ClickHouseRepository) GetPodPhases(ctx context.Context, teamID int64, s
 	)
 	args := append(dbutil.SimpleBaseParams(teamID, startMs, endMs), nfArgs...)
 	var rows []phaseStatDTO
-	err := r.db.Select(ctx, &rows, query, args...)
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...)
 	return rows, err
 }
 
@@ -184,7 +184,7 @@ func (r *ClickHouseRepository) GetReplicaStatus(ctx context.Context, teamID int6
 	)
 	args := append(dbutil.SimpleBaseParams(teamID, startMs, endMs), nfArgs...)
 	var rows []ReplicaStat
-	err := r.db.Select(ctx, &rows, query, args...)
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...)
 	return rows, err
 }
 
@@ -213,6 +213,6 @@ func (r *ClickHouseRepository) GetVolumeUsage(ctx context.Context, teamID int64,
 	)
 	args := append(dbutil.SimpleBaseParams(teamID, startMs, endMs), nfArgs...)
 	var rows []VolumeStat
-	err := r.db.Select(ctx, &rows, query, args...)
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...)
 	return rows, err
 }

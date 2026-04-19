@@ -1,11 +1,12 @@
 package metrics
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/gin-gonic/gin"
 )
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
 	module := &metricsExplorerModule{}
 	module.configure(nativeQuerier, getTenant)
 	return module
@@ -18,7 +19,7 @@ type metricsExplorerModule struct {
 func (m *metricsExplorerModule) Name() string                      { return "metricsExplorer" }
 func (m *metricsExplorerModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *metricsExplorerModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+func (m *metricsExplorerModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{
 		GetTenant: getTenant,
 		Service:   NewService(NewRepository(nativeQuerier)),

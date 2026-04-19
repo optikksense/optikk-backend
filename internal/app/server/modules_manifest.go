@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"strings"
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
@@ -52,7 +53,7 @@ import (
 )
 
 func configuredModules(
-	nativeQuerier *registry.NativeQuerier,
+	nativeQuerier clickhouse.Conn,
 	getTenant registry.GetTenantFunc,
 	appConfig registry.AppConfig,
 	infraDeps *Infra,

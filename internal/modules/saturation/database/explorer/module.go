@@ -1,6 +1,7 @@
 package explorer
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	dbconnections "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/connections"
 	dberrors "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/errors"
@@ -49,7 +50,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	v1.GET("/saturation/kafka/group/partitions", h.GetKafkaGroupPartitions)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
 	module := &saturationExplorerModule{}
 	module.configure(nativeQuerier, getTenant)
 	return module
@@ -62,7 +63,7 @@ type saturationExplorerModule struct {
 func (m *saturationExplorerModule) Name() string                      { return "saturationExplorer" }
 func (m *saturationExplorerModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *saturationExplorerModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+func (m *saturationExplorerModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service: NewService(

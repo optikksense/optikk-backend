@@ -1,6 +1,7 @@
 package explorer
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 	"strings"
@@ -12,10 +13,10 @@ import (
 const metricErrorRate = "error_rate"
 
 type logStatsRepository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
-func newLogStatsRepository(db *dbutil.NativeQuerier) *logStatsRepository {
+func newLogStatsRepository(db clickhouse.Conn) *logStatsRepository {
 	return &logStatsRepository{db: db}
 }
 
@@ -32,7 +33,7 @@ func (r *logStatsRepository) GetLogHistogram(ctx context.Context, f shared.LogFi
 		ORDER BY time_bucket ASC`, bucketExpr, where, bucketExpr)
 
 	var rows []logHistogramRowDTO
-	if err := r.db.SelectExplorer(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -57,7 +58,7 @@ func (r *logStatsRepository) GetLogVolume(ctx context.Context, f shared.LogFilte
 		ORDER BY time_bucket ASC`, bucketExpr, where, bucketExpr)
 
 	var rows []logVolumeRowDTO
-	if err := r.db.SelectExplorer(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -84,7 +85,7 @@ func (r *logStatsRepository) GetLogStats(ctx context.Context, f shared.LogFilter
 
 	mergedArgs := append(append(append(append(args, args...), args...), args...), args...)
 	var rows []facetRowDTO
-	if err := r.db.SelectExplorer(ctx, &rows, query, mergedArgs...); err != nil {
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, mergedArgs...); err != nil {
 		return nil, fmt.Errorf("logs: stats query: %w", err)
 	}
 	return rows, nil
@@ -98,7 +99,7 @@ func (r *logStatsRepository) GetLogFields(ctx context.Context, f shared.LogFilte
 		GROUP BY %s ORDER BY count DESC LIMIT 200`, col, where, col, col)
 
 	var rows []valueCountRowDTO
-	if err := r.db.SelectExplorer(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -129,7 +130,7 @@ func (r *logStatsRepository) GetTopGroups(ctx context.Context, f shared.LogFilte
 	}
 
 	var rows []topGroupRowDTO
-	if err := r.db.SelectExplorer(ctx, &rows, topQuery, args...); err != nil {
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, topQuery, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -177,7 +178,7 @@ func (r *logStatsRepository) GetAggregateSeries(ctx context.Context, f shared.Lo
 	}
 
 	var rows []logAggregateRowDTO
-	if err := r.db.SelectExplorer(ctx, &rows, sql, combinedArgs...); err != nil {
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, sql, combinedArgs...); err != nil {
 		return nil, err
 	}
 	return rows, nil

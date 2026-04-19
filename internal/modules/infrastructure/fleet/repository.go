@@ -24,10 +24,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -73,7 +73,7 @@ func (r *ClickHouseRepository) GetFleetPods(ctx context.Context, teamID int64, s
 	}
 
 	var dtos []fleetPodRowDTO
-	if err := r.db.Select(ctx, &dtos, query, params...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, params...); err != nil {
 		return nil, err
 	}
 

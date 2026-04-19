@@ -1,6 +1,7 @@
 package livetail
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/gin-gonic/gin"
 )
@@ -17,7 +18,7 @@ func DefaultConfig() Config {
 func RegisterRoutes(_ Config, _ *gin.RouterGroup) {}
 
 // NewModule constructs the traces live tail module. Pass a non-nil service to share the instance with live tail WebSocket.
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc, svc *Service) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc, svc *Service) registry.Module {
 	module := &liveTailModule{}
 	module.configure(nativeQuerier, getTenant, svc)
 	return module
@@ -30,7 +31,7 @@ type liveTailModule struct {
 func (m *liveTailModule) Name() string                      { return "liveTail" }
 func (m *liveTailModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *liveTailModule) configure(nativeQuerier *registry.NativeQuerier, _ registry.GetTenantFunc, svc *Service) {
+func (m *liveTailModule) configure(nativeQuerier clickhouse.Conn, _ registry.GetTenantFunc, svc *Service) {
 	if svc != nil {
 		m.service = svc
 	} else {

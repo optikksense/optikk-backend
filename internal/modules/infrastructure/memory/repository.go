@@ -22,10 +22,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *dbutil.NativeQuerier) Repository {
+func NewRepository(db clickhouse.Conn) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -44,7 +44,7 @@ func syncAverageExpr(parts ...string) string {
 
 func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
 	var rows []stateBucketDTO
-	if err := r.db.Select(ctx, &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -100,7 +100,7 @@ func (r *ClickHouseRepository) GetMemoryUsagePercentage(ctx context.Context, tea
 		infraconsts.ColMetricName, infraconsts.MetricSystemMemoryUtilization, infraconsts.MetricJVMMemoryUsed, infraconsts.MetricJVMMemoryMax,
 		aMem)
 	var rows []resourceBucketDTO
-	if err := r.db.Select(ctx, &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -209,7 +209,7 @@ func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64,
 		aMem)
 
 	var rows []serviceNameRow
-	err := r.db.Select(ctx, &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
 	if err != nil {
 		return nil, err
 	}
@@ -246,7 +246,7 @@ func (r *ClickHouseRepository) queryMemoryMetricByService(ctx context.Context, t
 		aMem)
 
 	var row memMetricRow
-	err := r.db.QueryRow(ctx, &row, query, serviceParams(teamID, serviceName, startMs, endMs)...)
+	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, serviceParams(teamID, serviceName, startMs, endMs)...).ScanStruct(&row)
 	if err != nil {
 		return nil, err
 	}
@@ -281,7 +281,7 @@ func (r *ClickHouseRepository) queryMemoryMetricByInstance(ctx context.Context, 
 		aMem)
 
 	var row memMetricRow
-	err := r.db.QueryRow(ctx, &row, query, instanceParams(teamID, host, pod, container, serviceName, startMs, endMs)...)
+	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, instanceParams(teamID, host, pod, container, serviceName, startMs, endMs)...).ScanStruct(&row)
 	if err != nil {
 		return nil, err
 	}

@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
@@ -62,7 +63,7 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(ctx context.Context, teamID 
 	args := append(r.baseParams(teamID, startMs, endMs), clickhouse.Named("durationSecs", durationSecs))
 	args = append(args, filterArgs...)
 	var result KafkaSummaryStats
-	return result, r.db.QueryRow(ctx, &result, query, args...)
+	return result, r.db.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&result)
 }
 
 func (r *ClickHouseRepository) GetProduceRateByTopic(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicRatePoint, error) {

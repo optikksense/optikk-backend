@@ -16,10 +16,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -38,7 +38,7 @@ func spanRangeArgs(teamID int64, startMs, endMs int64) []any {
 // double-counted.
 func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]nodeAggRow, error) {
 	var rows []nodeAggRow
-	err := r.db.Select(ctx, &rows, `
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT service_name,
 		       toInt64(count()) AS request_count,
 		       toInt64(countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400)) AS error_count,
@@ -60,7 +60,7 @@ func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID int64, start
 // with RED metrics computed on the callee (child) span.
 func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID int64, startMs, endMs int64) ([]edgeAggRow, error) {
 	var rows []edgeAggRow
-	err := r.db.Select(ctx, &rows, `
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT s.service_name AS source,
 		       c.service_name AS target,
 		       toInt64(count()) AS call_count,
