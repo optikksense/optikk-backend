@@ -30,9 +30,9 @@ func NewRepository(db clickhouse.Conn) Repository {
 func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (histogramSummaryDTO, error) {
 	query := fmt.Sprintf(`
 		SELECT
-		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
-		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
-		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99,
+		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
+		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
+		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99,
 		    avg(hist_sum / nullIf(hist_count, 0))                                     AS avg
 		FROM %s
 		WHERE %s = @teamID

@@ -44,6 +44,8 @@ This is **mandatory**, not optional. The documentation must always reflect the c
 - **Explorer**: analytics owned by logs/traces explorers (`POST /explorer/logs/analytics`, `POST /explorer/traces/analytics`); shared types in `explorer/analytics/`, query parser in `explorer/queryparser/`
 - **Traces**: `internal/modules/traces/{query,explorer,tracedetail,redmetrics,errorfingerprint,errortracking,tracecompare,livetail}/` — tracedetail includes `/traces/:traceId/logs` for trace-correlated log retrieval
 - **Config**: `internal/config/config.go` (loads `config.yml`; `redis.password` / `redis.db` optional for secured Redis)
+- **Sketches (percentile / cardinality)**: `internal/infra/sketch/` — t-digest (`caio/go-tdigest/v4`) + HLL (`axiomhq/hyperloglog`) aggregator fed by span + metrics consumers, persisted in Redis, read via `sketch.Querier`. **Never emit `quantileExact*` or `uniqExact*` in SQL**; use `quantileTDigest*` / `uniq` or go through `sketch.Querier`.
+- **Stats helpers**: `internal/infra/stats/` — stdlib-only `AvgNonNull` / `MaxNonNull` / `AvgNonNullPtr`, replaces `arrayReduce('avg', arrayFilter(isNotNull, [...]))` in infrastructure/cpu + infrastructure/memory.
 - **Sibling repo**: `optic-frontend` (see its `CODEBASE_INDEX.md`)
 
 ## Engineering principles

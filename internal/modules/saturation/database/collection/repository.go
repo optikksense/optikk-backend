@@ -34,9 +34,9 @@ func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID 
 		SELECT
 		    %s                                                                              AS time_bucket,
 		    %s                                                                              AS group_by,
-		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p50_ms,
-		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p95_ms,
-		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms
+		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p50_ms,
+		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p95_ms,
+		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -153,7 +153,7 @@ func (r *ClickHouseRepository) GetCollectionQueryTexts(ctx context.Context, team
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                              AS query_text,
-		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms,
+		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms,
 		    toInt64(sum(hist_count))                                                        AS call_count,
 		    toInt64(sumIf(hist_count, notEmpty(%s)))                                        AS error_count
 		FROM %s

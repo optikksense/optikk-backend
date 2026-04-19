@@ -69,7 +69,7 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 			SELECT toInt64(count())                                                             AS total_requests,
 			       toInt64(countIf(` + ErrorCondition() + `))                                  AS error_count,
 			       avg(s.duration_nano / 1000000.0)                                            AS avg_latency_ms,
-			       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency_ms
+			       quantileTDigest(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency_ms
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`
 	args := dbutil.SpanBaseParams(teamID, startMs, endMs)

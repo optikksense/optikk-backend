@@ -244,6 +244,23 @@ func (m *myModule) RegisterRoutes(group *gin.RouterGroup) {
 - `.GetBucketExpression()` — returns SQL expr for SELECT + GROUP BY
 - `.GetRawExpression(column)` — for custom column name
 
+### Percentiles / cardinality conventions
+
+**Never use exact or explicit-form quantile / uniq variants in SQL.** The refactor landed 2026-04-20 removes all 102 call sites of `quantileExact*` / bare `quantile(...)` in favor of t-digest, and provides an in-Go sketch pipeline for future per-module migration.
+
+Rules for any new SQL:
+- Percentiles → `quantileTDigest(q)(col)` (or `-Weighted`, `-WeightedIf` combinator). Never `quantileExact*` or bare `quantile(...)`.
+- Cardinality → `uniq(col)` (HLL, already approximate). Never `uniqExact*`. For hot paths, prefer `sketch.Querier.Cardinality(...)`.
+- Sample selection → `any(col)`. Never `(groupArray(col))[1]`.
+- Avg-of-non-null across candidate columns → use `internal/infra/stats.AvgNonNullPtr(...)` in service layer **or** the coalesce/nullIf pattern in SQL. Never `arrayReduce('avg', arrayFilter(isNotNull, [...]))`.
+
+The mergeable-sketch pipeline (`internal/infra/sketch/`):
+- Ingest consumers (`internal/ingestion/{spans,metrics}/consumer.go`) feed every record into an in-process `sketch.Aggregator` alongside the existing CH insert.
+- Aggregator flushes closed minute buckets to Redis every 15 s as t-digest (or HLL) binary. Keys: `optikk:sk:<kindID>:<teamID>:<dimHash>:<unixMinute>`, 15-day TTL.
+- `sketch.Querier` reads Redis by tenant + kind + range; merges sketches in Go; computes quantile / cardinality with the Go library (`caio/go-tdigest/v4` / `axiomhq/hyperloglog`).
+- `sketch.CHFallback` runs a narrow `quantileTDigest` / `uniq` query when Redis has no data for a dim — cold start + outage safety.
+- Kinds: `SpanLatencyService`, `SpanLatencyEndpoint`, `DbOpLatency`, `KafkaTopicLatency`, `NodePodCount`, `AiTraceCount` (extend `AllKinds` in `kind.go`, never renumber `ID`).
+
 ### Middleware stack (order in `routes.go`)
 
 1. `gin.Default()` — Logger + Recovery

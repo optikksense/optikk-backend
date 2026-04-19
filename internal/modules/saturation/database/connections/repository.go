@@ -226,9 +226,9 @@ func (r *ClickHouseRepository) poolLatency(ctx context.Context, teamID int64, st
 		SELECT
 		    %s                                                                              AS time_bucket,
 		    %s                                                                              AS pool_name,
-		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p50_ms,
-		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p95_ms,
-		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms
+		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p50_ms,
+		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p95_ms,
+		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end

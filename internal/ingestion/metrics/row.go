@@ -20,6 +20,41 @@ var Columns = []string{
 	"hist_sum", "hist_count", "hist_buckets", "hist_counts", "attributes",
 }
 
+// Metric names whose samples feed sketch aggregation.
+const (
+	MetricNameDbOpDuration  = "db.client.operation.duration"
+	MetricNameKafkaPublish  = "messaging.kafka.publish.latency"
+	MetricNameKafkaConsume  = "messaging.kafka.consume.latency"
+	MetricNameKafkaProduce  = "messaging.kafka.producer.latency"
+)
+
+// DbOpDim composes the dimension tuple used by DbOpLatency sketches:
+// db_system | operation | collection | namespace. Empty segments are preserved.
+func DbOpDim(r *Row) string {
+	a := r.GetAttributes()
+	return firstNonEmpty(a, "db.system", "db.system.name") + "|" +
+		firstNonEmpty(a, "db.operation.name", "db.operation") + "|" +
+		firstNonEmpty(a, "db.collection.name", "db.sql.table", "db.mongodb.collection") + "|" +
+		firstNonEmpty(a, "db.namespace", "db.name")
+}
+
+// KafkaTopicDim composes the dimension tuple used by KafkaTopicLatency
+// sketches: topic | client_id.
+func KafkaTopicDim(r *Row) string {
+	a := r.GetAttributes()
+	return firstNonEmpty(a, "messaging.destination.name", "messaging.kafka.topic") + "|" +
+		firstNonEmpty(a, "messaging.client.id", "messaging.kafka.client_id")
+}
+
+func firstNonEmpty(m map[string]string, keys ...string) string {
+	for _, k := range keys {
+		if v := m[k]; v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 // chValues returns positional values aligned with Columns for CH batch insert.
 func chValues(r *Row) []any {
 	return []any{

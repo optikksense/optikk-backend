@@ -3,6 +3,7 @@ package metrics
 import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	kafkainfra "github.com/Optikk-Org/optikk-backend/internal/infra/kafka"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 	"github.com/gin-gonic/gin"
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
 	"google.golang.org/grpc"
@@ -16,6 +17,7 @@ type Deps struct {
 	Producer          *Producer
 	CH                registry.ClickHouseConn
 	PersistenceClient *kafkainfra.Consumer
+	SketchStore       sketch.Store
 }
 
 // NewModule wires the handler and persistence consumer into a single
@@ -23,7 +25,7 @@ type Deps struct {
 func NewModule(d Deps) registry.Module {
 	return &Module{
 		handler:  NewHandler(d.Producer),
-		consumer: NewConsumer(d.PersistenceClient, d.CH),
+		consumer: NewConsumer(d.PersistenceClient, d.CH, d.SketchStore),
 	}
 }
 

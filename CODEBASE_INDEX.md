@@ -204,6 +204,8 @@ All under `/http/` prefix, Cached:
 | `middleware` | HTTP middleware: CORS, error recovery, tenant context, rate limiting middleware |
 | `session` | Default `scs/v2` session manager implementation; keys: `auth_user_id`, `auth_email`, `auth_role`, `auth_default_team_id`, `auth_team_ids` |
 | `utils` | String conversion and time parsing helpers |
+| `stats` | Stdlib-only numeric helpers (`AvgNonNull`, `MaxNonNull`, `AvgNonNullPtr`) — replaces SQL `arrayReduce('avg', arrayFilter(isNotNull, [...]))` patterns. |
+| `sketch` | Datadog-style mergeable distribution + cardinality sketches. `Digest` wraps `github.com/caio/go-tdigest/v4` (same algorithm as CH `quantileTDigest`); `HLL` wraps `github.com/axiomhq/hyperloglog` (same class as CH `uniq()`). `Aggregator` folds records in-process during ingest; `RedisStore` persists minute-bucketed sketches (`optikk:sk:<kindID>:<teamID>:<dimHash>:<unix>`); `Querier` + `CHFallback` power service-layer percentile / cardinality reads without heavy SQL. Used by `internal/ingestion/{spans,metrics}/consumer.go` today; available for repositories to adopt incrementally. |
 
 ## Module Anatomy (LLD)
 
@@ -312,6 +314,30 @@ Typed helpers: `database.SelectTyped[T]` / `database.QueryRowTyped[T]` — calle
 | `DefaultString(v, fallback)` | Return fallback if empty |
 
 **Time bucketing** (`internal/infra/timebucket/`): `timebucket.NewAdaptiveStrategy(startMs, endMs)` auto-picks minute/5min/15min/hour/day; use `.GetBucketExpression()` in SELECT and GROUP BY. `timebucket.ByName("15m")` for explicit step selection. Named params: `clickhouse.Named("teamID", teamID)` with `@teamID` in SQL.
+
+### Percentiles / cardinality conventions (2026-04-20 "compute-in-service" refactor)
+
+Heavy compute functions never use exact variants in SQL:
+
+| Never emit | Emit instead | Why |
+|---|---|---|
+| `quantile(...)` (ambiguous) | `quantileTDigest(...)` | Explicit t-digest is the same algorithm CH uses by default today, but pinning prevents surprise regressions if the alias ever changes. |
+| `quantileExact(...)` | `quantileTDigest(...)` | Exact percentile materializes every sample; t-digest is a ~1 KB sketch per group. 10–100× less memory/CPU, ≤1 % error. |
+| `quantileExactWeighted(...)` | `quantileTDigestWeighted(...)` | Same tradeoff for weighted histogram data. |
+| `quantileExactWeightedIf(...)` | `quantileTDigestWeightedIf(...)` | Same tradeoff with the `-If` combinator. |
+| `uniqExact(...)` / `uniqExactIf(...)` | `uniq(...)` / `uniqIf(...)` or `sketch.Querier.Cardinality` | CH `uniq*` is HLL — already approximate. Exact variants build a full hash table. |
+| `arrayReduce('avg', arrayFilter(isNotNull, [...]))` | `internal/infra/stats.AvgNonNullPtr(...)` in Go **or** `(coalesce(a,0)+coalesce(b,0)+…) / nullIf((if(a IS NULL,0,1)+if(b IS NULL,0,1)+…), 0)` in SQL | Array materialization per row is wasteful; stdlib helper is 10 lines. |
+| `(groupArray(col))[1]` as a sample picker | `any(col)` | `groupArray` collects the entire array in memory before indexing; `any()` picks one value with zero materialization. |
+
+For genuinely performance-critical quantile/cardinality paths, skip CH entirely and use `internal/infra/sketch`:
+
+1. Ingest (`internal/ingestion/{spans,metrics}/consumer.go`) feeds every record into `sketch.Aggregator.ObserveLatency` / `ObserveIdentity`.
+2. Aggregator ticks every 15 s, flushing minute-aligned closed buckets to Redis under `optikk:sk:<kindID>:<teamID>:<dimHash>:<unixMinute>` with a 15-day TTL.
+3. Service layer reads via `sketch.Querier.Percentiles(kind, teamID, startMs, endMs, qs...)` or `.Cardinality(...)`. ClickHouse fallback (`sketch.CHFallback`) activates when a dim has no sketch coverage (cold start, Redis outage); it issues a narrow `quantileTDigest` / `uniq` query.
+
+Sketch kinds today: `SpanLatencyService`, `SpanLatencyEndpoint`, `DbOpLatency`, `KafkaTopicLatency`, `NodePodCount`, `AiTraceCount` (see `internal/infra/sketch/kind.go`). Add a kind by appending to `AllKinds` — never renumber.
+
+Follow-up (tracked): per-repository migration to `sketch.Querier`-first reads. The tactical `quantileExact* → quantileTDigest*` swap in this PR harvests the algorithmic win while the per-module sketch-backed path is rolled out.
 
 **Spans table materialized attributes** (`observability.spans`, see `db/clickhouse_local.sql`): includes `mat_service_version` ← `attributes.\`service.version\``, `mat_deployment_environment` ← `attributes.\`deployment.environment\`` (bloom indexes), for deployment queries without JSON scans.
 

@@ -42,9 +42,9 @@ func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID int64, start
 		SELECT service_name,
 		       toInt64(count()) AS request_count,
 		       toInt64(countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400)) AS error_count,
-		       quantile(0.50)(duration_nano / 1000000.0) AS p50_ms,
-		       quantile(0.95)(duration_nano / 1000000.0) AS p95_ms,
-		       quantile(0.99)(duration_nano / 1000000.0) AS p99_ms
+		       quantileTDigest(0.50)(duration_nano / 1000000.0) AS p50_ms,
+		       quantileTDigest(0.95)(duration_nano / 1000000.0) AS p95_ms,
+		       quantileTDigest(0.99)(duration_nano / 1000000.0) AS p99_ms
 		FROM observability.spans
 		WHERE team_id = @teamID
 		  AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
@@ -65,8 +65,8 @@ func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID int64, start
 		       c.service_name AS target,
 		       toInt64(count()) AS call_count,
 		       toInt64(countIf(c.has_error = true OR toUInt16OrZero(c.response_status_code) >= 400)) AS error_count,
-		       quantile(0.50)(c.duration_nano / 1000000.0) AS p50_ms,
-		       quantile(0.95)(c.duration_nano / 1000000.0) AS p95_ms
+		       quantileTDigest(0.50)(c.duration_nano / 1000000.0) AS p50_ms,
+		       quantileTDigest(0.95)(c.duration_nano / 1000000.0) AS p95_ms
 		FROM observability.spans s
 		INNER JOIN observability.spans c
 		  ON s.span_id = c.parent_span_id AND s.trace_id = c.trace_id

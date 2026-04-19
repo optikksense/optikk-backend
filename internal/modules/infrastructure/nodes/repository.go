@@ -52,14 +52,14 @@ type infrastructureNodeServiceDTO struct {
 func (r *ClickHouseRepository) GetInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]InfrastructureNode, error) {
 	query := `
 		SELECT if(s.mat_host_name != '', s.mat_host_name, '` + DefaultUnknown + `') as host_name,
-		       toInt64(uniqExactIf(s.mat_k8s_pod_name, s.mat_k8s_pod_name != '')) as pod_count,
+		       toInt64(uniqIf(s.mat_k8s_pod_name, s.mat_k8s_pod_name != '')) as pod_count,
 		       toInt64(0) as container_count,
 		       arrayStringConcat(groupUniqArray(s.service_name), ',') as services_csv,
 		       toInt64(COUNT(*)) as request_count,
 		       toInt64(countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)) as error_count,
 		       if(COUNT(*) > 0, countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)*100.0/COUNT(*), 0) as error_rate,
 		       AVG(s.duration_nano / 1000000.0) as avg_latency,
-		       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) as p95_latency,
+		       quantileTDigest(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) as p95_latency,
 		       MAX(s.timestamp) as last_seen
 		FROM observability.spans s
 		WHERE s.team_id = @teamID
@@ -108,8 +108,8 @@ func (r *ClickHouseRepository) GetInfrastructureNodeServices(ctx context.Context
 		       toInt64(countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)) as error_count,
 		       if(COUNT(*) > 0, countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)*100.0/COUNT(*), 0) as error_rate,
 		       AVG(s.duration_nano / 1000000.0) as avg_latency,
-		       quantile(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) as p95_latency,
-		       toInt64(uniqExactIf(s.mat_k8s_pod_name, s.mat_k8s_pod_name != '')) as pod_count
+		       quantileTDigest(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) as p95_latency,
+		       toInt64(uniqIf(s.mat_k8s_pod_name, s.mat_k8s_pod_name != '')) as pod_count
 		FROM observability.spans s
 		WHERE s.team_id = @teamID
 		  AND if(s.mat_host_name != '', s.mat_host_name, '` + DefaultUnknown + `') = @host

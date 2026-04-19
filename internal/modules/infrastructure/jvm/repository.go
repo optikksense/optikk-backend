@@ -68,9 +68,9 @@ func (r *ClickHouseRepository) GetJVMMemory(ctx context.Context, teamID int64, s
 func (r *ClickHouseRepository) GetJVMGCDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error) {
 	query := fmt.Sprintf(`
 		SELECT
-			quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) as p50,
-			quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) as p95,
-			quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) as p99,
+			quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) as p50,
+			quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) as p95,
+			quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) as p99,
 			avg(hist_sum / nullIf(hist_count, 0)) as avg_val
 		FROM %s
 		WHERE %s = @teamID AND %s BETWEEN @start AND @end

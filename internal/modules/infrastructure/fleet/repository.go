@@ -52,7 +52,7 @@ func (r *ClickHouseRepository) GetFleetPods(ctx context.Context, teamID int64, s
 		       toInt64(countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)) as error_count,
 		       if(COUNT(*) > 0, countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)*100.0/COUNT(*), 0) as error_rate,
 		       AVG(s.duration_nano / 1000000.0) as avg_latency,
-		       quantile(` + fmt.Sprintf("%.2f", quantileP95) + `)(s.duration_nano / 1000000.0) as p95_latency,
+		       quantileTDigest(` + fmt.Sprintf("%.2f", quantileP95) + `)(s.duration_nano / 1000000.0) as p95_latency,
 		       MAX(s.timestamp) as last_seen
 		FROM observability.spans s
 		WHERE s.team_id = @teamID

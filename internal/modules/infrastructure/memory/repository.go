@@ -33,13 +33,17 @@ func bucket(startMs, endMs int64) string {
 	return infraconsts.TimeBucketExpression(startMs, endMs)
 }
 
+// syncAverageExpr builds an avg-of-non-null expression over the given column
+// expressions without arrayReduce/arrayFilter. Pure per-row expression, same
+// NULL-drop / empty-set-→-NULL semantics as the prior arrayReduce formulation.
 func syncAverageExpr(parts ...string) string {
-	joined := strings.Join(parts, ", ")
-	return `if(
-		length(arrayFilter(x -> isNotNull(x), [` + joined + `])) > 0,
-		arrayReduce('avg', arrayFilter(x -> isNotNull(x), [` + joined + `])),
-		NULL
-	)`
+	sum := make([]string, len(parts))
+	cnt := make([]string, len(parts))
+	for i, p := range parts {
+		sum[i] = "coalesce(" + p + ", 0)"
+		cnt[i] = "if(" + p + " IS NULL, 0, 1)"
+	}
+	return "(" + strings.Join(sum, " + ") + ") / nullIf(" + strings.Join(cnt, " + ") + ", 0)"
 }
 
 func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {

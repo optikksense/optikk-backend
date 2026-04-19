@@ -44,9 +44,9 @@ func NewRepository(db clickhouse.Conn) Repository {
 func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (HistogramSummary, error) {
 	query := fmt.Sprintf(`
 		SELECT
-		    quantileExactWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
-		    quantileExactWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
-		    quantileExactWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99,
+		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
+		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
+		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99,
 		    avg(hist_sum / nullIf(hist_count, 0))                                     AS avg
 		FROM %s
 		WHERE %s = @teamID
@@ -164,7 +164,7 @@ func (r *ClickHouseRepository) GetTopRoutesByLatency(ctx context.Context, teamID
 	query := fmt.Sprintf(`
 		SELECT mat_http_route AS route,
 		       toInt64(count()) AS req_count,
-		       quantileExact(0.95)(duration_nano / 1000000.0) AS p95_ms
+		       quantileTDigest(0.95)(duration_nano / 1000000.0) AS p95_ms
 		FROM %s
 		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
@@ -290,7 +290,7 @@ func (r *ClickHouseRepository) GetExternalHostLatency(ctx context.Context, teamI
 	query := fmt.Sprintf(`
 		SELECT http_host AS host,
 		       toInt64(count()) AS req_count,
-		       quantileExact(0.95)(duration_nano / 1000000.0) AS p95_ms
+		       quantileTDigest(0.95)(duration_nano / 1000000.0) AS p95_ms
 		FROM %s
 		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
