@@ -90,7 +90,7 @@ func configuredModules(
 		infraDeps.Ingest.Metrics,
 		infraDeps.Ingest.Spans,
 		overview_errors.NewModule(nativeQuerier, getTenant),
-		overview_overview.NewModule(nativeQuerier, getTenant),
+		overview_overview.NewModule(nativeQuerier, getTenant, infraDeps.SketchQuerier),
 		overview_redmetrics.NewModule(nativeQuerier, getTenant),
 		overview_slo.NewModule(nativeQuerier, getTenant),
 		saturation_explorer.NewModule(nativeQuerier, getTenant),
