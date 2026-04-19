@@ -1,6 +1,10 @@
 package overview
 
-import "context"
+import (
+	"context"
+
+	"golang.org/x/sync/errgroup"
+)
 
 type Service struct {
 	repo Repository
@@ -56,4 +60,38 @@ func (s *Service) GetSummary(ctx context.Context, teamID int64, startMs, endMs i
 		return GlobalSummary{}, err
 	}
 	return mapGlobalSummaryRow(row), nil
+}
+
+// GetBatchSummary runs the above-fold Summary-tab queries (global summary +
+// per-service metrics) concurrently and returns them in one payload. Collapses
+// 2 HTTP round-trips into 1; server-side fan-out via errgroup means response
+// time is bounded by max(child) instead of sum(child). The timeseries queries
+// stay separate so the frontend can defer them until charts scroll into view.
+func (s *Service) GetBatchSummary(ctx context.Context, teamID int64, startMs, endMs int64) (BatchSummaryResponse, error) {
+	g, gctx := errgroup.WithContext(ctx)
+
+	var (
+		summary  GlobalSummary
+		services []ServiceMetric
+	)
+
+	g.Go(func() error {
+		v, err := s.GetSummary(gctx, teamID, startMs, endMs)
+		summary = v
+		return err
+	})
+	g.Go(func() error {
+		v, err := s.GetServices(gctx, teamID, startMs, endMs)
+		services = v
+		return err
+	})
+
+	if err := g.Wait(); err != nil {
+		return BatchSummaryResponse{}, err
+	}
+
+	return BatchSummaryResponse{
+		Summary:  summary,
+		Services: services,
+	}, nil
 }
