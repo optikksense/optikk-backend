@@ -2,12 +2,18 @@ package shared
 
 import "time"
 
+// AICursor is the keyset pagination cursor for run searches.
+type AICursor struct {
+	StartTime time.Time `json:"t"`
+	SpanID    string    `json:"s"`
+}
+
 type QueryRequest struct {
 	StartTime int64  `json:"startTime"`
 	EndTime   int64  `json:"endTime"`
 	Query     string `json:"query"`
 	Limit     int    `json:"limit"`
-	Offset    int    `json:"offset"`
+	Cursor    string `json:"cursor,omitempty"`
 	Step      string `json:"step"`
 	OrderBy   string `json:"orderBy,omitempty"`
 	OrderDir  string `json:"orderDir,omitempty"`
@@ -19,10 +25,9 @@ type FacetBucket struct {
 }
 
 type AIPageInfo struct {
-	Total   uint64 `json:"total"`
-	Offset  int    `json:"offset"`
-	Limit   int    `json:"limit"`
-	HasMore bool   `json:"hasMore"`
+	Limit      int    `json:"limit"`
+	HasMore    bool   `json:"hasMore"`
+	NextCursor string `json:"nextCursor,omitempty"`
 }
 
 type AIOverview struct {

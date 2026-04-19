@@ -40,10 +40,7 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Re
 		direction = "desc"
 	}
 
-	cursor := logshared.LogCursor{Offset: req.Offset}
-	if parsedCursor, ok := logshared.ParseLogCursor(req.Cursor); ok {
-		cursor = parsedCursor
-	}
+	cursor, _ := logshared.ParseLogCursor(req.Cursor)
 
 	searchResult, err := s.searchService.GetLogs(ctx, filters, limit, direction, cursor)
 	if err != nil {
@@ -88,7 +85,7 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Re
 			ScopeName:   stats.Fields["scope_name"],
 		},
 		Trend:    volume,
-		PageInfo: PageInfo{Total: searchResult.Total, HasMore: searchResult.HasMore, NextCursor: searchResult.NextCursor, Offset: cursor.Offset, Limit: limit},
+		PageInfo: PageInfo{HasMore: searchResult.HasMore, NextCursor: searchResult.NextCursor, Limit: limit},
 		Correlations: ExplorerCorrelations{
 			ServiceErrorRate: aggregate,
 		},

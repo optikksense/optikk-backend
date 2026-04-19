@@ -7,5 +7,4 @@ type LogSearchResponse struct {
 	HasMore    bool         `json:"has_more"`
 	NextCursor string       `json:"next_cursor,omitempty"`
 	Limit      int          `json:"limit"`
-	Total      int64        `json:"total"`
 }

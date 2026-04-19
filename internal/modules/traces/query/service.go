@@ -2,11 +2,11 @@ package query
 
 import (
 	"context"
-	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"log/slog"
 	"time"
+
+	"github.com/Optikk-Org/optikk-backend/internal/infra/cursor"
 )
 
 type Service struct {
@@ -17,56 +17,34 @@ type TraceSearchResult struct {
 	Traces     []Trace
 	HasMore    bool
 	NextCursor string
-	Offset     int
 	Limit      int
-	Total      uint64
 	Summary    TraceSummary
-	UsesKeyset bool
 }
 
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
 }
 
-func (s *Service) SearchTraces(ctx context.Context, filters TraceFilters, limit int, cursorRaw string, offset int) (TraceSearchResult, error) {
-	if cursorRaw != "" || offset == 0 {
-		cursor := decodeCursor(cursorRaw)
-		rows, summaryRow, hasMore, err := s.repo.GetTracesKeyset(ctx, filters, limit, cursor)
-		if err != nil {
-			slog.Error("traces: SearchTraces keyset query failed", slog.Any("error", err), slog.Int64("team_id", filters.TeamID))
-			return TraceSearchResult{}, fmt.Errorf("traces.SearchTraces.Keyset: %w", err)
-		}
-		traces := traceRowsToModels(rows)
-		summary := mapTraceSummary(summaryRow)
-		result := TraceSearchResult{
-			Traces:     traces,
-			HasMore:    hasMore,
-			Limit:      limit,
-			Total:      summary.TotalTraces,
-			Summary:    summary,
-			UsesKeyset: true,
-		}
-		if hasMore && len(traces) > 0 {
-			last := traces[len(traces)-1]
-			result.NextCursor = encodeCursor(TraceCursor{Timestamp: last.StartTime, SpanID: last.SpanID})
-		}
-		return result, nil
-	}
-
-	rows, total, summaryRow, err := s.repo.GetTraces(ctx, filters, limit, offset)
+func (s *Service) SearchTraces(ctx context.Context, filters TraceFilters, limit int, cursorRaw string) (TraceSearchResult, error) {
+	cur, _ := cursor.Decode[TraceCursor](cursorRaw)
+	rows, summaryRow, hasMore, err := s.repo.GetTracesKeyset(ctx, filters, limit, cur)
 	if err != nil {
-		slog.Error("traces: SearchTraces offset query failed", slog.Any("error", err), slog.Int64("team_id", filters.TeamID))
-		return TraceSearchResult{}, fmt.Errorf("traces.SearchTraces.Offset: %w", err)
+		slog.Error("traces: SearchTraces keyset query failed", slog.Any("error", err), slog.Int64("team_id", filters.TeamID))
+		return TraceSearchResult{}, fmt.Errorf("traces.SearchTraces.Keyset: %w", err)
 	}
 	traces := traceRowsToModels(rows)
-	return TraceSearchResult{
+	summary := mapTraceSummary(summaryRow)
+	result := TraceSearchResult{
 		Traces:  traces,
-		HasMore: len(traces) >= limit,
-		Offset:  offset,
+		HasMore: hasMore,
 		Limit:   limit,
-		Total:   total,
-		Summary: mapTraceSummary(summaryRow),
-	}, nil
+		Summary: summary,
+	}
+	if hasMore && len(traces) > 0 {
+		last := traces[len(traces)-1]
+		result.NextCursor = cursor.Encode(TraceCursor{Timestamp: last.StartTime, SpanID: last.SpanID})
+	}
+	return result, nil
 }
 
 func (s *Service) GetTraceSpans(ctx context.Context, teamID int64, traceID string) ([]Span, error) {
@@ -143,24 +121,6 @@ func (s *Service) GetLatencyHeatmap(ctx context.Context, teamID int64, startMs, 
 		return nil, fmt.Errorf("traces.GetLatencyHeatmap: %w", err)
 	}
 	return latencyHeatmapRowsToModels(rows), nil
-}
-
-func encodeCursor(cur TraceCursor) string {
-	b, _ := json.Marshal(cur)
-	return base64.RawURLEncoding.EncodeToString(b)
-}
-
-func decodeCursor(raw string) TraceCursor {
-	if raw == "" {
-		return TraceCursor{}
-	}
-	b, err := base64.RawURLEncoding.DecodeString(raw)
-	if err != nil {
-		return TraceCursor{}
-	}
-	var cur TraceCursor
-	_ = json.Unmarshal(b, &cur) //nolint:errcheck // best-effort cursor parse; zero value is safe fallback
-	return cur
 }
 
 func traceRowsToModels(rows []traceRow) []Trace {

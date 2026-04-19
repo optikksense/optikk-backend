@@ -10,7 +10,6 @@ type QueryRequest struct {
 	EndTime   int64  `json:"endTime"`
 	Query     string `json:"query"`
 	Limit     int    `json:"limit"`
-	Offset    int    `json:"offset"`
 	Cursor    string `json:"cursor"`
 	Step      string `json:"step"`
 	OrderBy   string `json:"orderBy,omitempty"`
@@ -23,10 +22,8 @@ type FacetBucket struct {
 }
 
 type PageInfo struct {
-	Total      uint64 `json:"total"`
 	HasMore    bool   `json:"hasMore"`
 	NextCursor string `json:"nextCursor,omitempty"`
-	Offset     int    `json:"offset"`
 	Limit      int    `json:"limit"`
 }
 

@@ -1,13 +1,10 @@
 package shared
 
 import (
-	"context"
 	"fmt"
-	"log/slog"
 	"strings"
 	"time"
 
-	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
@@ -16,23 +13,6 @@ const LogColumns = `timestamp, observed_timestamp, severity_text, severity_numbe
 	service, host, pod, container, environment,
 	attributes_string, attributes_number, attributes_bool,
 	scope_name, scope_version`
-
-// - [x] Add drop detection and logging in `dispatcher.go`
-// - [x] Update `CHFlusher` to return errors for better diagnostics in `flusher.go`
-// - [x] Implement robust time-and-size-based batching in `workers.go`
-// - [x] Fix ClickHouse decimal overflow in logs `query.go`
-// - [x] Fix ClickHouse `DateTime64` scan error in `dto.go`
-// - [x] Fix ClickHouse `illegal types` error in `query.go`
-// - [ ] Verify build and monitoring logs
-
-func QueryCount(ctx context.Context, db *dbutil.NativeQuerier, query string, args ...any) int64 {
-	var row CountRow
-	if err := db.QueryRow(ctx, &row, query, args...); err != nil {
-		slog.Error("logs: count query failed", slog.Any("error", err))
-		return 0
-	}
-	return row.Count
-}
 
 func BuildLogWhere(f LogFilters) (where string, args []any) {
 	const maxTimeRangeMs = 30 * 24 * 60 * 60 * 1000

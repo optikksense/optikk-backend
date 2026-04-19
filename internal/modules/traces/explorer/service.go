@@ -10,7 +10,7 @@ import (
 )
 
 type tracesQueryService interface {
-	SearchTraces(ctx context.Context, filters spantraces.TraceFilters, limit int, cursorRaw string, offset int) (spantraces.TraceSearchResult, error)
+	SearchTraces(ctx context.Context, filters spantraces.TraceFilters, limit int, cursorRaw string) (spantraces.TraceSearchResult, error)
 	GetExplorerFacets(ctx context.Context, filters spantraces.TraceFilters) ([]spantraces.TraceFacet, error)
 	GetExplorerTrend(ctx context.Context, filters spantraces.TraceFilters, step string) ([]spantraces.TraceTrendBucket, error)
 }
@@ -36,7 +36,7 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Re
 		limit = 50
 	}
 
-	result, err := s.tracesService.SearchTraces(ctx, filters, limit, req.Cursor, req.Offset)
+	result, err := s.tracesService.SearchTraces(ctx, filters, limit, req.Cursor)
 	if err != nil {
 		return Response{}, fmt.Errorf("explorer.Query.SearchTraces: %w", err)
 	}
@@ -72,7 +72,7 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Re
 		Summary:  result.Summary,
 		Facets:   groupedFacets,
 		Trend:    trend,
-		PageInfo: PageInfo{Total: result.Total, HasMore: result.HasMore, NextCursor: result.NextCursor, Offset: result.Offset, Limit: limit},
+		PageInfo: PageInfo{HasMore: result.HasMore, NextCursor: result.NextCursor, Limit: limit},
 		Correlations: Correlations{
 			TopServices:   groupedFacets.ServiceName,
 			TopOperations: groupedFacets.OperationName,

@@ -20,7 +20,7 @@ type Repository interface {
 	GetTopModels(ctx context.Context, teamID, startMs, endMs int64, limit int) ([]AIModelBreakdown, error)
 	GetTopPrompts(ctx context.Context, teamID, startMs, endMs int64, limit int) ([]AIPromptBreakdown, error)
 	GetQualitySummary(ctx context.Context, teamID, startMs, endMs int64) (AIQualitySummary, error)
-	SearchRuns(ctx context.Context, q queryContext, limit, offset int, orderBy, orderDir string) ([]AIRunRow, uint64, error)
+	SearchRuns(ctx context.Context, q queryContext, limit int, cursor AICursor, orderBy, orderDir string) ([]AIRunRow, bool, error)
 	SummarizeRuns(ctx context.Context, q queryContext) (AIOverview, error)
 	TrendRuns(ctx context.Context, q queryContext, step string) ([]AITrendPoint, error)
 	FacetRuns(ctx context.Context, q queryContext) (AIExplorerFacets, error)
@@ -181,19 +181,27 @@ func (r *repository) GetQualitySummary(ctx context.Context, teamID, startMs, end
 	}, nil
 }
 
-func (r *repository) SearchRuns(ctx context.Context, q queryContext, limit, offset int, orderBy, orderDir string) ([]AIRunRow, uint64, error) {
+func (r *repository) SearchRuns(ctx context.Context, q queryContext, limit int, cursor AICursor, orderBy, orderDir string) ([]AIRunRow, bool, error) {
 	if limit <= 0 || limit > maxPageSize {
 		limit = defaultPageSize
-	}
-	if offset < 0 {
-		offset = 0
 	}
 
 	where, args := buildAIWhereClause(q)
 	orderExpr := resolveOrderBy(orderBy)
+	asc := strings.EqualFold(strings.TrimSpace(orderDir), "asc")
 	direction := "DESC"
-	if strings.EqualFold(strings.TrimSpace(orderDir), "asc") {
+	cmp := "<"
+	if asc {
 		direction = "ASC"
+		cmp = ">"
+	}
+
+	if !cursor.StartTime.IsZero() {
+		where += fmt.Sprintf(" AND (%s, ai.span_id) %s (@cursorTime, @cursorSpan)", orderExpr, cmp)
+		args = append(args,
+			clickhouse.Named("cursorTime", cursor.StartTime),
+			clickhouse.Named("cursorSpan", cursor.SpanID),
+		)
 	}
 
 	query := fmt.Sprintf(`
@@ -227,22 +235,20 @@ func (r *repository) SearchRuns(ctx context.Context, q queryContext, limit, offs
 			ai.quality_bucket
 		FROM %s ai
 		WHERE %s
-		ORDER BY %s %s, ai.run_id DESC
-		LIMIT %d OFFSET %d
-	`, aiRunsSubquery(), where, orderExpr, direction, limit, offset)
+		ORDER BY %s %s, ai.span_id %s
+		LIMIT %d
+	`, aiRunsSubquery(), where, orderExpr, direction, direction, limit+1)
 
 	var rows []AIRunRow
 	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
-		return nil, 0, err
+		return nil, false, err
 	}
 
-	countQuery := fmt.Sprintf(`SELECT count() FROM %s ai WHERE %s`, aiRunsSubquery(), where)
-	var total uint64
-	if err := r.db.QueryRow(ctx, &total, countQuery, args...); err != nil {
-		return nil, 0, err
+	hasMore := len(rows) > limit
+	if hasMore {
+		rows = rows[:limit]
 	}
-
-	return rows, total, nil
+	return rows, hasMore, nil
 }
 
 func (r *repository) SummarizeRuns(ctx context.Context, q queryContext) (AIOverview, error) {
