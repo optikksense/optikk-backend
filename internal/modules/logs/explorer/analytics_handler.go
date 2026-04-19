@@ -1,6 +1,7 @@
 package explorer
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 	"net/http"
@@ -33,7 +34,7 @@ func (h *Handler) Analytics(c *gin.Context) {
 	modulecommon.RespondOK(c, result)
 }
 
-func runLogsAnalytics(ctx context.Context, db *dbutil.NativeQuerier, teamID int64, req analytics.AnalyticsRequest) (*analytics.AnalyticsResult, error) {
+func runLogsAnalytics(ctx context.Context, db clickhouse.Conn, teamID int64, req analytics.AnalyticsRequest) (*analytics.AnalyticsResult, error) {
 	cfg := LogsScopeConfig()
 
 	origBase := cfg.BaseWhereFunc
@@ -64,7 +65,7 @@ func runLogsAnalytics(ctx context.Context, db *dbutil.NativeQuerier, teamID int6
 	}
 
 	var rows []analytics.AnalyticsRowDTO
-	if err := db.Select(ctx, &rows, sql, args...); err != nil {
+	if err := db.Select(dbutil.OverviewCtx(ctx), &rows, sql, args...); err != nil {
 		return nil, fmt.Errorf("analytics query failed: %w", err)
 	}
 

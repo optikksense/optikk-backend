@@ -19,10 +19,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -79,7 +79,7 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(ctx context.Context, teamI
 	}
 
 	var dtos []infrastructureNodeDTO
-	if err := r.db.Select(ctx, &dtos, query, params...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, params...); err != nil {
 		return nil, err
 	}
 
@@ -130,7 +130,7 @@ func (r *ClickHouseRepository) GetInfrastructureNodeServices(ctx context.Context
 	}
 
 	var dtos []infrastructureNodeServiceDTO
-	if err := r.db.Select(ctx, &dtos, query, params...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, params...); err != nil {
 		return nil, err
 	}
 

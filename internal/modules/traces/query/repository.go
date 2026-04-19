@@ -26,17 +26,17 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
 func (r *ClickHouseRepository) GetTracesKeyset(ctx context.Context, f TraceFilters, limit int, cursor TraceCursor) ([]traceRow, traceSummaryRow, bool, error) {
 	query, args := buildTracesQuery(f, limit, cursor)
 	var rows []traceRow
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, traceSummaryRow{}, false, err
 	}
 
@@ -52,27 +52,27 @@ func (r *ClickHouseRepository) GetTracesKeyset(ctx context.Context, f TraceFilte
 func (r *ClickHouseRepository) getTraceSummary(ctx context.Context, f TraceFilters) (traceSummaryRow, error) {
 	query, args := buildTracesSummaryQuery(f)
 	var res traceSummaryRow
-	err := r.db.QueryRow(ctx, &res, query, args...)
+	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&res)
 	return res, err
 }
 
 func (r *ClickHouseRepository) GetTraceFacets(ctx context.Context, f TraceFilters) ([]traceFacetRow, error) {
 	query, args := buildTraceFacetsQuery(f)
 	var rows []traceFacetRow
-	err := r.db.Select(ctx, &rows, query, args...)
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...)
 	return rows, err
 }
 
 func (r *ClickHouseRepository) GetTraceTrend(ctx context.Context, f TraceFilters, step string) ([]traceTrendRow, error) {
 	query, args := buildTraceTrendQuery(f, step)
 	var rows []traceTrendRow
-	err := r.db.Select(ctx, &rows, query, args...)
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...)
 	return rows, err
 }
 
 func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamID int64, traceID string) ([]spanRow, error) {
 	var rows []spanRow
-	err := r.db.Select(ctx, &rows, `
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT span_id, parent_span_id, trace_id, name AS operation_name, service_name, kind_string AS span_kind,
 		       timestamp AS start_time, toInt64(duration_nano) AS duration_nano, (duration_nano / 1000000.0) AS duration_ms, 
 		       status_code_string AS status, status_message, toJSONString(attributes) AS attributes,
@@ -88,8 +88,7 @@ func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamID int64, 
 
 func (r *ClickHouseRepository) GetSpanTree(ctx context.Context, teamID int64, spanID string) ([]spanRow, error) {
 	var traceID string
-	err := r.db.QueryRow(ctx, &traceID, "SELECT trace_id FROM observability.spans WHERE team_id = @teamID AND span_id = @spanID LIMIT 1",
-		clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("spanID", spanID)) //nolint:gosec // G115
+	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), "SELECT trace_id FROM observability.spans WHERE team_id = @teamID AND span_id = @spanID LIMIT 1", clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("spanID", spanID)).ScanStruct(&traceID) //nolint:gosec // G115
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +97,7 @@ func (r *ClickHouseRepository) GetSpanTree(ctx context.Context, teamID int64, sp
 
 func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorGroupRow, error) {
 	var rows []errorGroupRow
-	err := r.db.Select(ctx, &rows, `
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT service_name,
 		       name                                           AS operation_name,
 		       status_message,
@@ -143,7 +142,7 @@ func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamID in
 		ORDER BY timestamp ASC`, bucket)
 
 	var rows []errorTimeSeriesRow
-	err := r.db.Select(ctx, &rows, query,
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
@@ -156,7 +155,7 @@ func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamID in
 
 func (r *ClickHouseRepository) GetLatencyHistogram(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) ([]latencyHistogramRow, error) {
 	var rows []latencyHistogramRow
-	err := r.db.Select(ctx, &rows, `
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT
 		    concat(toString(floor(log10(duration_nano/1000000.0) * 10) / 10), ' - ', toString(floor(log10(duration_nano/1000000.0) * 10) / 10 + 0.1)) AS bucket_label,
 		    floor(log10(duration_nano/1000000.0) * 10) / 10 AS bucket_min,
@@ -204,7 +203,7 @@ func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int
                    ORDER BY time_bucket ASC, latency_bucket ASC`)
 
 	var rows []latencyHeatmapRow
-	return rows, r.db.Select(ctx, &rows, query, args...)
+	return rows, r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...)
 }
 
 // SQL Query Builders follow ...

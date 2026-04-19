@@ -1,6 +1,7 @@
 package errors
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
@@ -37,7 +38,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ErrorHandler) {
 	v1.GET("/errors/fingerprints/trend", h.GetFingerprintTrend)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
 	module := &overviewErrorsModule{}
 	module.configure(nativeQuerier, getTenant)
 	return module
@@ -50,7 +51,7 @@ type overviewErrorsModule struct {
 func (m *overviewErrorsModule) Name() string                      { return "overviewErrors" }
 func (m *overviewErrorsModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *overviewErrorsModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+func (m *overviewErrorsModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &ErrorHandler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service:  NewService(NewRepository(nativeQuerier)),

@@ -1,6 +1,7 @@
 package errors
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 
@@ -20,10 +21,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -59,7 +60,7 @@ func (r *ClickHouseRepository) errorSeriesByAttr(ctx context.Context, teamID int
 	)
 
 	var rows []ErrorTimeSeries
-	if err := r.db.Select(ctx, &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -112,7 +113,7 @@ func (r *ClickHouseRepository) GetErrorRatio(ctx context.Context, teamID int64, 
 	)
 
 	var rows []ErrorRatioPoint
-	if err := r.db.Select(ctx, &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
 		return nil, err
 	}
 	return rows, nil

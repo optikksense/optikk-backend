@@ -1,6 +1,7 @@
 package systems
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 	"time"
@@ -15,10 +16,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -55,7 +56,7 @@ func (r *ClickHouseRepository) GetDetectedSystems(ctx context.Context, teamID in
 	)
 
 	var dtos []detectedSystemDTO
-	if err := r.db.Select(ctx, &dtos, query, shared.BaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, shared.BaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 

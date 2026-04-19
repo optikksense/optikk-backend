@@ -1,6 +1,7 @@
 package slowqueries
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 
@@ -17,10 +18,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -60,7 +61,7 @@ func (r *ClickHouseRepository) GetSlowQueryPatterns(ctx context.Context, teamID 
 	)
 
 	var rows []SlowQueryPattern
-	if err := r.db.Select(ctx, &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -100,7 +101,7 @@ func (r *ClickHouseRepository) GetSlowestCollections(ctx context.Context, teamID
 	)
 
 	var rows []SlowCollectionRow
-	if err := r.db.Select(ctx, &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -134,7 +135,7 @@ func (r *ClickHouseRepository) GetSlowQueryRate(ctx context.Context, teamID int6
 	)
 
 	var rows []SlowRatePoint
-	if err := r.db.Select(ctx, &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -171,7 +172,7 @@ func (r *ClickHouseRepository) GetP99ByQueryText(ctx context.Context, teamID int
 	)
 
 	var rows []P99ByQueryText
-	if err := r.db.Select(ctx, &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
 		return nil, err
 	}
 	return rows, nil

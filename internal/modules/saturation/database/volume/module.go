@@ -1,6 +1,7 @@
 package volume
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
@@ -28,7 +29,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	})
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
 	module := &dbVolumeModule{}
 	module.configure(nativeQuerier, getTenant)
 	return module
@@ -41,7 +42,7 @@ type dbVolumeModule struct {
 func (m *dbVolumeModule) Name() string                      { return "dbVolume" }
 func (m *dbVolumeModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *dbVolumeModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+func (m *dbVolumeModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service:  NewService(NewRepository(nativeQuerier)),

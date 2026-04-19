@@ -13,7 +13,6 @@ import (
 )
 
 // EventStore persists alerting audit events (ClickHouse observability.alert_events).
-// Writes go through the native driver (Exec), reads through the NativeQuerier.
 type EventStore interface {
 	WriteEvent(ctx context.Context, ev shared.AlertEvent) error
 	ListEvents(ctx context.Context, teamID, alertID int64, limit int) ([]shared.AlertEvent, error)
@@ -37,13 +36,13 @@ type DataSource interface {
 // DataSource. Held as one type so wiring only needs two fields (*sql.DB is
 // not used here — MySQL persistence lives in rules.Repository).
 type chStore struct {
-	ch     *dbutil.NativeQuerier
+	ch     clickhouse.Conn
 	chConn clickhouse.Conn
 }
 
 // NewStore constructs the shared ClickHouse-backed event store + data source.
 // Callers can type-assert the returned value to EventStore or DataSource.
-func NewStore(ch *dbutil.NativeQuerier, chConn clickhouse.Conn) *chStore { //nolint:revive // ok
+func NewStore(ch clickhouse.Conn, chConn clickhouse.Conn) *chStore { //nolint:revive // ok
 	return &chStore{ch: ch, chConn: chConn}
 }
 
@@ -70,7 +69,7 @@ func (s *chStore) ListEvents(ctx context.Context, teamID, alertID int64, limit i
 		limit = 200
 	}
 	var rows []shared.AlertEvent
-	err := s.ch.SelectOverview(ctx, &rows, `
+	err := s.ch.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT ts, team_id, alert_id, instance_key, kind, from_state, to_state,
 		       values, actor_user_id, message, deploy_refs, transition_id
 		FROM observability.alert_events
@@ -89,7 +88,7 @@ func (s *chStore) ListRecentEvents(ctx context.Context, teamID int64, limit int)
 		limit = 100
 	}
 	var rows []shared.AlertEvent
-	err := s.ch.SelectOverview(ctx, &rows, `
+	err := s.ch.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT ts, team_id, alert_id, instance_key, kind, from_state, to_state,
 		       values, actor_user_id, message, deploy_refs, transition_id
 		FROM observability.alert_events
@@ -132,7 +131,7 @@ func (s *chStore) errorRateLast(ctx context.Context, teamID int64, serviceName s
 		Total float64 `ch:"total"`
 		Errs  float64 `ch:"errs"`
 	}
-	if err := s.ch.QueryRowOverview(ctx, &row, query, args...); err != nil {
+	if err := s.ch.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&row); err != nil {
 		return 0, false, err
 	}
 	if row.Total <= 0 {
@@ -163,7 +162,7 @@ func (s *chStore) ErrorRateHistorical(ctx context.Context, teamID int64, service
 		Total float64 `ch:"total"`
 		Errs  float64 `ch:"errs"`
 	}
-	if err := s.ch.QueryRowExplorer(ctx, &row, query, args...); err != nil {
+	if err := s.ch.QueryRow(dbutil.ExplorerCtx(ctx), query, args...).ScanStruct(&row); err != nil {
 		return 0, false, err
 	}
 	if row.Total <= 0 {
@@ -174,7 +173,7 @@ func (s *chStore) ErrorRateHistorical(ctx context.Context, teamID int64, service
 
 func (s *chStore) DeploysInRange(ctx context.Context, teamID int64, fromMs, toMs int64) ([]shared.DeployRef, error) {
 	var rows []shared.DeployRef
-	err := s.ch.SelectOverview(ctx, &rows, `
+	err := s.ch.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT s.service_name AS service_name,
 		       s.mat_service_version AS version,
 		       s.mat_deployment_environment AS environment,
@@ -235,7 +234,7 @@ func (s *chStore) queryAIMetric(ctx context.Context, metric, where string, args 
 		Val   float64 `ch:"val"`
 		Total uint64  `ch:"total"`
 	}
-	if err := s.ch.QueryRowOverview(ctx, &row, query, args...); err != nil {
+	if err := s.ch.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&row); err != nil {
 		return 0, false, err
 	}
 	if row.Total == 0 {

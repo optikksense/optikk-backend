@@ -23,10 +23,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *dbutil.NativeQuerier) Repository {
+func NewRepository(db clickhouse.Conn) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -45,7 +45,7 @@ func syncAverageExpr(parts ...string) string {
 
 func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
 	var rows []stateBucketDTO
-	if err := r.db.Select(ctx, &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -105,7 +105,7 @@ func (r *ClickHouseRepository) GetCPUUsagePercentage(ctx context.Context, teamID
 		infraconsts.ColMetricName, infraconsts.MetricSystemCPUUtilization, infraconsts.MetricSystemCPUUsage, infraconsts.MetricProcessCPUUsage,
 		aCPU)
 	var rows []resourceBucketDTO
-	if err := r.db.Select(ctx, &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -127,7 +127,7 @@ func (r *ClickHouseRepository) GetLoadAverage(ctx context.Context, teamID int64,
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricSystemCPULoadAvg1m, infraconsts.MetricSystemCPULoadAvg5m, infraconsts.MetricSystemCPULoadAvg15m)
 	var result loadAverageResultDTO
-	if err := r.db.QueryRow(ctx, &result, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...).ScanStruct(&result); err != nil {
 		return loadAverageResultDTO{}, err
 	}
 	return result, nil
@@ -237,7 +237,7 @@ func (r *ClickHouseRepository) queryCPUMetricByService(ctx context.Context, team
 		aCPU)
 
 	var row cpuMetricRow
-	err := r.db.QueryRow(ctx, &row, query, serviceParams(teamID, serviceName, startMs, endMs)...)
+	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, serviceParams(teamID, serviceName, startMs, endMs)...).ScanStruct(&row)
 	if err != nil {
 		return nil, err
 	}
@@ -268,7 +268,7 @@ func (r *ClickHouseRepository) queryCPUMetricByInstance(ctx context.Context, tea
 		aCPU)
 
 	var row cpuMetricRow
-	err := r.db.QueryRow(ctx, &row, query, instanceParams(teamID, host, pod, container, serviceName, startMs, endMs)...)
+	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, instanceParams(teamID, host, pod, container, serviceName, startMs, endMs)...).ScanStruct(&row)
 	if err != nil {
 		return nil, err
 	}
@@ -297,7 +297,7 @@ func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64,
 		aCPU)
 
 	var rows []serviceNameRow
-	err := r.db.Select(ctx, &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
 	if err != nil {
 		return nil, err
 	}
@@ -329,7 +329,7 @@ func (r *ClickHouseRepository) getInstanceList(ctx context.Context, teamID int64
 		aCPU)
 
 	var rows []instanceRow
-	err := r.db.Select(ctx, &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
 	return rows, err
 }
 

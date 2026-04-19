@@ -1,6 +1,7 @@
 package summary
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 
@@ -13,10 +14,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -47,7 +48,7 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 	)
 
 	var mainDTO summaryMainDTO
-	if err := r.db.QueryRow(ctx, &mainDTO, qMain, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
+	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), qMain, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...).ScanStruct(&mainDTO); err != nil {
 		return SummaryStats{}, err
 	}
 
@@ -76,7 +77,7 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 	var connDTO summaryConnDTO
 	activeConns := int64(0)
 	connArgs := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
-	if err := r.db.QueryRow(ctx, &connDTO, qConn, connArgs...); err == nil {
+	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), qConn, connArgs...).ScanStruct(&connDTO); err == nil {
 		activeConns = connDTO.UsedCount
 	}
 
@@ -103,7 +104,7 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 	var cacheDTO summaryCacheDTO
 	var cacheHitRate *float64
 	cacheArgs := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
-	if err := r.db.QueryRow(ctx, &cacheDTO, qCache, cacheArgs...); err == nil {
+	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), qCache, cacheArgs...).ScanStruct(&cacheDTO); err == nil {
 		if cacheDTO.TotalCount > 0 {
 			rate := float64(cacheDTO.SuccessCount) / float64(cacheDTO.TotalCount) * 100
 			cacheHitRate = &rate

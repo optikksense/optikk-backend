@@ -16,7 +16,6 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/alerting/engine"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/alerting/evaluators"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/alerting/incidents"
@@ -37,7 +36,7 @@ import (
 //   engine     → BackgroundRunner (evaluator loop + dispatcher + outbox relay)
 func NewModules(
 	db *sql.DB,
-	nativeQuerier *dbutil.NativeQuerier,
+	nativeQuerier clickhouse.Conn,
 	chConn clickhouse.Conn,
 	redisClient *goredis.Client,
 	getTenant registry.GetTenantFunc,

@@ -26,10 +26,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -61,7 +61,7 @@ func (r *ClickHouseRepository) GetRequestRate(ctx context.Context, teamID int64,
 		LIMIT 10000`, bucket)
 
 	var rows []requestRateRow
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -103,7 +103,7 @@ func (r *ClickHouseRepository) GetErrorRate(ctx context.Context, teamID int64, s
 		LIMIT 10000`, bucket)
 
 	var rows []errorRateRow
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -138,7 +138,7 @@ func (r *ClickHouseRepository) GetP95Latency(ctx context.Context, teamID int64, 
 		LIMIT 10000`, bucket)
 
 	var rows []p95LatencyRow
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -176,7 +176,7 @@ func (r *ClickHouseRepository) GetServices(ctx context.Context, teamID int64, st
 
 	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
 	var rows []serviceMetricRow
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -236,7 +236,7 @@ func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64
 		ORDER BY request_count DESC`
 
 	var rows []endpointMetricRow
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -258,7 +258,7 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 
 	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
 	var row serviceMetricRow
-	if err := r.db.QueryRow(ctx, &row, query, args...); err != nil {
+	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&row); err != nil {
 		return serviceMetricRow{}, err
 	}
 

@@ -12,7 +12,6 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/auth"
 	"github.com/Optikk-Org/optikk-backend/internal/config"
-	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/middleware"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
@@ -41,8 +40,7 @@ func New(cfg config.Config) (*App, error) {
 		return nil, fmt.Errorf("failed to initialize infrastructure: %w", err)
 	}
 
-	nativeQuerier := dbutil.NewNativeQuerier(infraDeps.CH)
-	modules := configuredModules(nativeQuerier, getTenant, cfg, infraDeps)
+	modules := configuredModules(infraDeps.CH, getTenant, cfg, infraDeps)
 
 	return &App{
 		Config:  cfg,

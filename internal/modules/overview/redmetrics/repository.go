@@ -25,16 +25,16 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
 func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) ([]redSummaryServiceRow, error) {
 	var rows []redSummaryServiceRow
-	err := r.db.Select(ctx, &rows, `
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT service_name,
 		       toInt64(count())                                                               AS total_count,
 		       toInt64(countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400)) AS error_count,
@@ -56,7 +56,7 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 
 func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]apdexRow, error) {
 	var rows []apdexRow
-	err := r.db.Select(ctx, &rows, `
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT s.service_name AS service_name,
 		       toInt64(countIf(s.duration_nano / 1000000.0 <= @satisfiedMs)) AS satisfied,
 		       toInt64(countIf(s.duration_nano / 1000000.0 > @satisfiedMs AND s.duration_nano / 1000000.0 <= @toleratingMs)) AS tolerating,
@@ -82,7 +82,7 @@ func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, start
 
 func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]slowOperationRow, error) {
 	var rows []slowOperationRow
-	err := r.db.Select(ctx, &rows, `
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT service_name,
 		       name                                           AS operation_name,
 		       toInt64(count())                               AS span_count,
@@ -107,7 +107,7 @@ func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID 
 
 func (r *ClickHouseRepository) GetTopErrorOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]errorOperationRow, error) {
 	var rows []errorOperationRow
-	err := r.db.Select(ctx, &rows, `
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT service_name,
 		       name             AS operation_name,
 		       toInt64(count()) AS total_count,
@@ -133,7 +133,7 @@ func (r *ClickHouseRepository) GetTopErrorOperations(ctx context.Context, teamID
 func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceRatePoint, error) {
 	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	var rows []ServiceRatePoint
-	err := r.db.Select(ctx, &rows, fmt.Sprintf(`
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, fmt.Sprintf(`
 		SELECT %s                               AS timestamp,
 		       service_name,
 		       toInt64(count()) / 60.0          AS rps
@@ -154,7 +154,7 @@ func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, tea
 func (r *ClickHouseRepository) GetErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceErrorRatePoint, error) {
 	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	var rows []ServiceErrorRatePoint
-	err := r.db.Select(ctx, &rows, fmt.Sprintf(`
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, fmt.Sprintf(`
 		SELECT %s                                                                      AS timestamp,
 		       service_name,
 		       toInt64(count())                                                        AS request_count,
@@ -177,7 +177,7 @@ func (r *ClickHouseRepository) GetErrorRateTimeSeries(ctx context.Context, teamI
 func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceLatencyPoint, error) {
 	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	var rows []ServiceLatencyPoint
-	err := r.db.Select(ctx, &rows, fmt.Sprintf(`
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, fmt.Sprintf(`
 		SELECT %s                                              AS timestamp,
 		       service_name,
 		       quantileExact(0.95)(duration_nano / 1000000.0) AS p95_ms
@@ -198,7 +198,7 @@ func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, team
 func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]SpanKindPoint, error) {
 	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	var rows []SpanKindPoint
-	err := r.db.Select(ctx, &rows, fmt.Sprintf(`
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, fmt.Sprintf(`
 		SELECT %s                        AS timestamp,
 		       kind_string               AS kind_string,
 		       toInt64(count())          AS span_count
@@ -219,7 +219,7 @@ func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID 
 func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorByRoutePoint, error) {
 	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
 	var rows []ErrorByRoutePoint
-	err := r.db.Select(ctx, &rows, fmt.Sprintf(`
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, fmt.Sprintf(`
 		SELECT %s                                                                      AS timestamp,
 		       mat_http_route                                                          AS http_route,
 		       toInt64(count())                                                        AS request_count,
@@ -241,7 +241,7 @@ func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int6
 
 func (r *ClickHouseRepository) GetLatencyBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]latencyBreakdownRow, error) {
 	var rows []latencyBreakdownRow
-	err := r.db.Select(ctx, &rows, `
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT
 			service_name,
 			avg(duration_nano / 1000000.0) AS total_ms,

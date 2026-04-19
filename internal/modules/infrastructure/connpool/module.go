@@ -1,8 +1,8 @@
 package connpool
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -15,7 +15,7 @@ func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-func NewHandler(db *dbutil.NativeQuerier, getTenant modulecommon.GetTenantFunc) *ConnPoolHandler {
+func NewHandler(db clickhouse.Conn, getTenant modulecommon.GetTenantFunc) *ConnPoolHandler {
 	return &ConnPoolHandler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service:  NewService(NewRepository(db)),
@@ -32,7 +32,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ConnPoolHandler) {
 	g.GET("/by-instance", h.GetConnPoolByInstance)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
 	module := &connpoolModule{}
 	module.configure(nativeQuerier, getTenant)
 	return module
@@ -45,7 +45,7 @@ type connpoolModule struct {
 func (m *connpoolModule) Name() string                      { return "connpool" }
 func (m *connpoolModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *connpoolModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+func (m *connpoolModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = NewHandler(nativeQuerier, getTenant)
 }
 

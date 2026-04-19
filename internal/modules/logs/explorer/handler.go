@@ -1,9 +1,9 @@
 package explorer
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"net/http"
 
-	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/logs/internal/shared"
 	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
 
@@ -15,10 +15,10 @@ type Handler struct {
 	modulecommon.DBTenant
 	Service  *Service
 	LogStats *LogStatsService
-	db       *dbutil.NativeQuerier
+	db       clickhouse.Conn
 }
 
-func NewHandler(getTenant modulecommon.GetTenantFunc, service *Service, logStats *LogStatsService, db *dbutil.NativeQuerier) *Handler {
+func NewHandler(getTenant modulecommon.GetTenantFunc, service *Service, logStats *LogStatsService, db clickhouse.Conn) *Handler {
 	return &Handler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service:  service,

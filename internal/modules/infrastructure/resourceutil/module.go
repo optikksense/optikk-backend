@@ -1,6 +1,7 @@
 package resourceutil //nolint:misspell
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/connpool"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/cpu"
@@ -35,7 +36,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ResourceUtilisationHandl
 	g.GET("/by-instance", h.GetByInstance)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
 	module := &resourceUtilisationModule{}
 	module.configure(nativeQuerier, getTenant)
 	return module
@@ -48,7 +49,7 @@ type resourceUtilisationModule struct {
 func (m *resourceUtilisationModule) Name() string                      { return "resourceUtilisation" }
 func (m *resourceUtilisationModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *resourceUtilisationModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+func (m *resourceUtilisationModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	repo := NewRepository(
 		cpu.NewRepository(nativeQuerier),
 		memory.NewRepository(nativeQuerier),

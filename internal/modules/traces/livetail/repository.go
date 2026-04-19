@@ -13,10 +13,10 @@ import (
 const maxSpansPerPoll = 100
 
 type Repository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *dbutil.NativeQuerier) *Repository {
+func NewRepository(db clickhouse.Conn) *Repository {
 	return &Repository{db: db}
 }
 
@@ -79,7 +79,7 @@ func (r *Repository) Poll(ctx context.Context, teamID int64, since time.Time, fi
 	args = append(args, maxSpansPerPoll+1)
 
 	var rows []liveSpanDTO
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 

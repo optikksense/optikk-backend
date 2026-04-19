@@ -1,6 +1,7 @@
 package connections
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 
@@ -21,10 +22,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *database.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *database.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -57,7 +58,7 @@ func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, tea
 
 	var rows []ConnectionCountPoint
 	args := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -107,7 +108,7 @@ func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, tea
 
 	var rows []ConnectionUtilPoint
 	args := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -142,7 +143,7 @@ func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID i
 
 	var rows []ConnectionLimits
 	args := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -175,7 +176,7 @@ func (r *ClickHouseRepository) GetPendingRequests(ctx context.Context, teamID in
 
 	var rows []PendingRequestsPoint
 	args := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -210,7 +211,7 @@ func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, tea
 
 	var rows []ConnectionTimeoutPoint
 	args := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -246,7 +247,7 @@ func (r *ClickHouseRepository) poolLatency(ctx context.Context, teamID int64, st
 
 	var rows []PoolLatencyPoint
 	args := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
-	if err := r.db.Select(ctx, &rows, query, args...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil

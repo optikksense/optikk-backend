@@ -1,6 +1,7 @@
 package kubernetes
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
@@ -30,7 +31,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *KubernetesHandler) {
 	k8s.GET("/volume-usage", h.GetVolumeUsage)
 }
 
-func NewModule(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
 	module := &kubernetesModule{}
 	module.configure(nativeQuerier, getTenant)
 	return module
@@ -43,7 +44,7 @@ type kubernetesModule struct {
 func (m *kubernetesModule) Name() string                      { return "kubernetes" }
 func (m *kubernetesModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *kubernetesModule) configure(nativeQuerier *registry.NativeQuerier, getTenant registry.GetTenantFunc) {
+func (m *kubernetesModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &KubernetesHandler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service:  NewService(NewRepository(nativeQuerier)),

@@ -1,6 +1,7 @@
 package volume
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 
@@ -19,10 +20,10 @@ type Repository interface {
 }
 
 type ClickHouseRepository struct {
-	db *dbutil.NativeQuerier
+	db clickhouse.Conn
 }
 
-func NewRepository(db *dbutil.NativeQuerier) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
@@ -53,7 +54,7 @@ func (r *ClickHouseRepository) opsSeriesByAttr(ctx context.Context, teamID int64
 	)
 
 	var dtos []opsRawDTO
-	if err := r.db.Select(ctx, &dtos, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
 		return nil, err
 	}
 
@@ -114,7 +115,7 @@ func (r *ClickHouseRepository) GetReadVsWrite(ctx context.Context, teamID int64,
 	)
 
 	var dtos []readWriteRawDTO
-	if err := r.db.Select(ctx, &dtos, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
 		return nil, err
 	}
 
