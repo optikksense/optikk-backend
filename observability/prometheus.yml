@@ -1,0 +1,34 @@
+# Prometheus scrape config for the local dev stack.
+#
+# External forwarding (Grafana Cloud, Datadog, Honeycomb, any Prometheus-remote-write
+# compatible backend): see docs/observability.md for the `remote_write` block to append.
+#
+# `host.docker.internal` resolves to the host machine from inside Docker Desktop on
+# macOS/Windows. Linux users: either run Docker with `--add-host=host.docker.internal:host-gateway`
+# (already set in docker-compose below) or replace with the container name/network IP.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    env: local
+    service: optikk
+
+scrape_configs:
+  # Prometheus itself — sanity check that scraping works end-to-end.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]
+
+  # Optikk API. The Go binary is assumed to run on the host (`go run ./cmd/server`);
+  # swap to the container name if you dockerize it.
+  - job_name: optikk-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["host.docker.internal:8080"]
+
+  # Redpanda (Kafka) — exposes /metrics natively on the admin API port.
+  - job_name: redpanda
+    metrics_path: /public_metrics
+    static_configs:
+      - targets: ["redpanda:9644"]

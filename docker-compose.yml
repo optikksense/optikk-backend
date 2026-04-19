@@ -66,8 +66,32 @@ services:
     volumes:
       - redpanda_data:/var/lib/redpanda/data
 
+  # Metrics scrape + optional remote_write to Grafana Cloud / Datadog / etc.
+  # See docs/observability.md for external-backend wiring.
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.enable-lifecycle
+    volumes:
+      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    extra_hosts:
+      # Makes `host.docker.internal` resolvable on Linux; no-op on macOS/Windows.
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "-", "http://localhost:9090/-/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
 volumes:
   clickhouse_data:
   mariadb_data:
   redis_data:
   redpanda_data:
+  prometheus_data:

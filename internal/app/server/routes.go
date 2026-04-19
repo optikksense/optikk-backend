@@ -9,6 +9,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/middleware"
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 var readyCache = newHealthCache()
@@ -19,9 +20,18 @@ func (a *App) Router() *gin.Engine {
 
 	a.setupGlobalMiddleware(r)
 	a.setupHealthRoutes(r)
+	a.setupMetricsRoute(r)
 	a.setupAPIRoutes(r)
 
 	return r
+}
+
+// setupMetricsRoute exposes Prometheus-format runtime metrics (go_*, process_*,
+// promhttp_*) at /metrics. A local Prometheus scrapes this; an external target
+// (e.g. Grafana Cloud) is configured via prometheus/prometheus.yml remote_write.
+// See docs/observability.md.
+func (a *App) setupMetricsRoute(r *gin.Engine) {
+	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
 }
 
 func (a *App) setupGlobalMiddleware(r *gin.Engine) {
