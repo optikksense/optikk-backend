@@ -6,7 +6,6 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/config"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/session"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 	"google.golang.org/grpc"
@@ -27,7 +26,6 @@ type ClickHouseConn = clickhouse.Conn
 type GetTenantFunc = modulecommon.GetTenantFunc
 type SessionManager = session.Manager
 type AppConfig = config.Config
-type SketchQuerier = *sketch.Querier
 
 // Module is the interface every feature module implements.
 type Module interface {

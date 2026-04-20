@@ -63,7 +63,7 @@ The web app lives in the sibling repo **`optikk-frontend`** (see that repo's `CO
 | **Saturation** (10) | `saturation/database/{collection,connections,errors,latency,slowqueries,summary,system,systems,volume}`, `saturation/kafka` | `/saturation/*` | V1 (db), Cached (kafka/summary) |
 | **Traces** (5) | `traces/{query,explorer,tracedetail,tracecompare,livetail}` (shared: `traces/shared`) | `/traces/*`, `/spans/*`, `/services/*`, `/latency/*`, `/errors/*`, `POST /explorer/traces/analytics` | Mixed |
 | **User** (3) | `user/auth`, `user/team`, `user/user` (shared: `user/internal`) | `/auth/*`, `/users/*`, `/teams/*`, `/settings/*` | V1 |
-| **Ingestion** (4) | via `internal/ingestion/otlp/{streamworkers,spans,logs,metrics}` | gRPC only (no HTTP routes) | — |
+| **Ingestion** (3) | `internal/ingestion/{spans,metrics,logs}` (each: `handler.go` + `mapper.go` + `producer.go` + `consumer.go` + optional `livetail.go` + `module.go`) | OTLP gRPC on `:4317` (no HTTP OTLP) | — |
 
 
 ### Overview module routes
@@ -173,12 +173,13 @@ All under `/http/` prefix, Cached:
 
 ## Ingestion
 
-- **OTLP Pipeline**: `internal/ingestion/otlp/` — gRPC export explicitly mapped to concrete structs (`LogRow`, `SpanRow`, `MetricRow`).
-- **Authentication**: `internal/ingestion/otlp/auth/` — team resolution via API keys; optional Redis cache (TTL) when Redis is enabled.
-- **Dispatch contracts & implementations**: `internal/ingestion/` — `Dispatcher[T]`, `TelemetryBatch[T]`, **`AckableBatch[T]`** (Phase 1: persistence channel now yields ack-carrying batches), OTLP dependency interfaces; `kafka_dispatcher.go` — Kafka-backed OTLP ingest queue with ack-gated offset commit + per-signal DLQ produce on flush failure.
-- **Kafka admin (topics)**: `internal/infra/kafka/topics.go` — `EnsureTopics`, `IngestTopicNames` (now also returns `.dlq` siblings per signal), `DLQTopicFor(topic)`.
-- **Background consumers**: `internal/ingestion/otlp/streamworkers/` — `BackgroundRunner` with separate routines per signal. Persistence is **per-AckableBatch** (one Kafka record = one CH insert = one Ack); no cross-record batching. **ClickHouse** writers use `CHFlusher[T].Flush(rows, dedupToken)` — `dedupToken` is the SHA-1 of the source Kafka record bytes and is passed as `insert_deduplication_token` so redelivered records collapse to a single write.
-- **Phase 1 data-loss guarantees** (2026-04-17 audit): no silent drops. Flush error → DLQ produce + offset commit. Crash between flush and commit → redelivery collapses via dedup token. CH schemas set `non_replicated_deduplication_window = 1000` (local) / `replicated_deduplication_window = 1000` (prod).
+See **[docs/hld/ingest/ingest.md](docs/hld/ingest/ingest.md)** for the end-to-end ingest HLD diagram.
+
+- **OTLP entry**: gRPC only on port `4317` (no OTLP HTTP variant). Authenticated via `internal/auth/` interceptors which resolve `team_id` from an API-key metadata header before any handler runs. No shared `internal/ingestion/otlp/` directory — each signal owns its own gRPC service implementation.
+- **Per-signal pipelines**: `internal/ingestion/spans/`, `internal/ingestion/metrics/`, `internal/ingestion/logs/`. Each directory contains: `handler.go` (gRPC `*ServiceServer` impl) → `mapper.go` (OTLP proto → signal-local `Row` protobuf) → `producer.go` (Kafka produce via `internal/infra/kafka/producer.go`) → `consumer.go` (Kafka poll + ClickHouse batch insert) → `module.go` (wiring). Spans and logs additionally ship `livetail.go` — a second Kafka consumer on the same topic with a different group that publishes to `livetail.Hub` for WebSocket subscribers.
+- **Kafka**: `github.com/twmb/franz-go/pkg/kgo`. Topics: `<prefix>.<signal>` (prefix from `cfg.KafkaTopicPrefix()`, default `optikk.ingest`). Consumer groups: `<base>.<signal>.<role>` where `role ∈ {persistence, livetail}` (default `base` is `optikk-ingest`). Five consumer clients (spans persistence + livetail, metrics persistence, logs persistence + livetail) plus one shared producer. Topics created idempotently at startup via `internal/infra/kafka/topics.go:EnsureTopics`.
+- **ClickHouse write**: each persistence `consumer.go` uses native `clickhouse-go/v2` batch API — `ch.PrepareBatch(ctx, insertSQL)` → `batch.Append(values...)` per row → `batch.Send()`. One Kafka poll-batch = one CH batch = one offset commit. 30 s insert timeout. At-least-once delivery; ClickHouse's own `non_replicated_deduplication_window = 1000` (local) / `replicated_deduplication_window = 1000` (prod) covers in-flight redeliveries. There is no separate `chbatch` / `CHFlusher` / `streamworkers` package in the current codebase — the driver's batch is the flusher.
+- **Sketch aggregator**: historically, the spans and metrics consumers each called `sketch.Aggregator.ObserveLatency(...)` / `ObserveIdentity(...)` after every CH flush, producing in-memory DDSketches that a 15 s flush loop persisted to Redis under `optikk:sk:*`. Phase 5 **removed** this — the new rollup MVs in ClickHouse (`spans_rollup_1m`, `metrics_histograms_rollup_1m`) take over.
 
 ## Infrastructure Layer (`internal/infra/`)
 

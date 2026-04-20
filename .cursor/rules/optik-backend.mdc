@@ -30,7 +30,7 @@ Ports deliberately shifted into the 1xxxx range to avoid collisions with Optikk'
 
 ## Scale & perf context
 
-Before perf-motivated changes read **`.agent/audits/2026-04-17-scalability-audit.md`** — documents the 15 Datadog-grade gaps (JSON-over-Kafka, pre-flush Kafka commit at [kafka_dispatcher.go:160](internal/ingestion/kafka_dispatcher.go#L160), silent CH flush drops at [workers.go:85](internal/ingestion/otlp/streamworkers/workers.go#L85), missing rollup MVs on `observability.spans`, in-process `livetail.Hub`, single-goroutine alerting evaluator, global rate limiter) and the ordered 5-phase refactor plan.
+Before perf-motivated changes read **`.agent/audits/2026-04-17-scalability-audit.md`** — documents the Datadog-grade gaps that drove the current refactor direction (JSON-over-Kafka, CH flush error handling in the per-signal consumers under `internal/ingestion/{spans,metrics,logs}/consumer.go`, missing rollup MVs on `observability.spans` — addressed by Phase 5, in-process `livetail.Hub`, single-goroutine alerting evaluator, global rate limiter). File paths in that audit reference a prior `internal/ingestion/otlp/streamworkers/` layout that has since been flattened into the per-signal directories — treat the audit's concepts as current, its file paths as historical pointers.
 
 ## Stack
 
@@ -124,10 +124,13 @@ Plus existing `alerting/evaluators/` (condition evaluators), `alerting/channels/
 
 ## Ingestion
 
-- OTLP: `internal/ingestion/otlp/` — gRPC → specifically mapped to `*LogRow`, `*SpanRow`, `*MetricRow` → generic channel `Dispatcher[T]` → `internal/ingestion/otlp/streamworkers/` background routines → `CHFlusher[T].Flush(rows, dedupToken)` (ClickHouse via `AppendStruct`) + livetail bridges. The legacy `ingest.Row` and `[]any` constructs are strictly prohibited to ensure type safety.
-- **Ack-gated Kafka commit** (Phase 1, 2026-04-17 audit): `Dispatcher[T].Persistence()` returns `<-chan AckableBatch[T]`. Each Kafka record is wrapped with an ack closure; the consumer commits the offset **only after** the worker invokes `Ack(err)`. `Ack(nil)` commits; `Ack(err)` produces the original record bytes to the per-signal DLQ topic (`<prefix>.<signal>.dlq` — `kafka.DLQTopicFor(topic)`) and then commits. No in-process retry. The DLQ is the retry surface.
-- **Insert dedup**: `AckableBatch.DedupToken` = `sha1(record.Value)`. Flusher passes it as `insert_deduplication_token` via `clickhouse.Context(ctx, clickhouse.WithSettings(...))`. CH schemas set `non_replicated_deduplication_window = 1000` (local MergeTree) / `replicated_deduplication_window = 1000` (prod ReplicatedMergeTree).
-- **Testing hook**: `streamworkers.RunPersistence[T](ctx, signal, dispatcher, flushFunc)` is exported for tests in `tests/ingestion/`. `FlushFunc[T]` is the narrow contract — real production path is `otlp.CHFlusher[T].Flush`.
+Canonical HLD: **[docs/hld/ingest/ingest.md](docs/hld/ingest/ingest.md)**.
+
+- **Entry**: OTLP gRPC on `:4317` only (no HTTP OTLP). Auth interceptors in `internal/auth/` resolve `team_id` from API-key metadata before any handler runs.
+- **Per-signal pipelines**: `internal/ingestion/{spans,metrics,logs}/`. Each directory owns its own `handler.go` (gRPC service impl) → `mapper.go` (OTLP proto → signal-local `Row` protobuf in `*_row.pb.go`) → `producer.go` (Kafka produce) → `consumer.go` (Kafka poll + ClickHouse batch insert) → `module.go`. Spans and logs additionally have `livetail.go` — a second Kafka consumer on the same topic, different group, publishing to `livetail.Hub` (Redis Streams).
+- **Kafka**: `github.com/twmb/franz-go/pkg/kgo`. Topic names from `internal/infra/kafka/topics.go:IngestTopic(prefix, signal)` → `<prefix>.<signal>`. Consumer groups from `GroupID(base, signal, role)` → `<base>.<signal>.<role>` where `role ∈ {persistence, livetail}`. Topics created idempotently at startup via `EnsureTopics`. Separate `kgo.Client` per role (shared producer + five consumer clients). There is no `kafka_dispatcher.go`, no `Dispatcher[T]`/`AckableBatch[T]`/`CHFlusher[T]` abstraction, no `internal/ingestion/otlp/` directory, no `streamworkers` package, no DLQ topic — those are legacy names from earlier iterations that have been removed.
+- **ClickHouse write**: each persistence `consumer.go` uses native `clickhouse-go/v2` batch — `ch.PrepareBatch(ctx, insertSQL)` → `batch.Append(values...)` per row → `batch.Send()`. One Kafka poll-batch = one CH batch = one commit. 30 s insert timeout. At-least-once delivery; CH's own dedup window (`non_replicated_deduplication_window = 1000` local / `replicated_deduplication_window = 1000` prod) covers redeliveries. The driver's batch is the flusher — no `chbatch` / `CHFlusher` / `AppendStruct` indirection.
+- **Sketch aggregator observe path** (historical): spans + metrics consumers previously called `sketch.Aggregator.ObserveLatency(...)` / `ObserveIdentity(...)` after each CH flush, feeding an in-process DDSketch + 15 s flush loop persisting to Redis (`optikk:sk:*`). Phase 5 **deletes** this; percentile reads come from CH rollup MVs (`spans_rollup_1m`, `metrics_histograms_rollup_1m`).
 - **No Dummy Values**: Telemetry attributes that arrive empty must remain empty. Do not inject placeholders like `"default"` or `"unknown"`. However, time fields required for ClickHouse partitioning must defensively fallback to `time.Now()`.
 
 ## Config

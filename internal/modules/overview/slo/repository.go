@@ -2,18 +2,18 @@ package slo
 
 import (
 	"context"
-	"fmt"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
-const serviceNameFilter = " AND s.service_name = @serviceName"
+// Reads target `observability.spans_rollup_1m` — see overview/repository.go
+// for the SQL discipline. SLO queries need count + error_count + duration_sum
+// + p95; every one of those is available as a state column + merge op, so the
+// query reduces to `sumMerge` and `quantilesTDigestWeightedMerge` calls.
 
-func sloBucketExpr(startMs, endMs int64) string {
-	return timebucket.ExprForColumn(startMs, endMs, "s.timestamp")
-}
+const serviceNameFilter = " AND service_name = @serviceName"
 
 type Repository interface {
 	GetSummary(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (Summary, error)
@@ -47,126 +47,161 @@ type BurnRate struct {
 	BudgetRemaining float64 `json:"budget_remaining_pct"`
 }
 
-// summaryRow is the DTO for GetSummary.
-type summaryRow struct {
-	TotalRequests       int64   `ch:"total_requests"`
-	ErrorCount          int64   `ch:"error_count"`
-	AvailabilityPercent float64 `ch:"availability_percent"`
-	AvgLatencyMs        float64 `ch:"avg_latency_ms"`
-	P95LatencyMs        float64 `ch:"p95_latency_ms"`
+func intervalMinutesFor(startMs, endMs int64) int64 {
+	hours := (endMs - startMs) / 3_600_000
+	switch {
+	case hours <= 3:
+		return 1
+	case hours <= 24:
+		return 5
+	case hours <= 168:
+		return 60
+	default:
+		return 1440
+	}
+}
+
+func rollupParams(teamID int64, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 — tenant ID fits uint32
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+}
+
+// summaryRawRow scans the rollup-merge output; Summary's derived fields
+// (availability, avg) are computed in Go to avoid SQL-side conditionals.
+type summaryRawRow struct {
+	RequestCount  uint64  `ch:"request_count"`
+	ErrorCount    uint64  `ch:"error_count"`
+	DurationMsSum float64 `ch:"duration_ms_sum"`
+	P95LatencyMs  float64 `ch:"p95_latency_ms"`
 }
 
 func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (Summary, error) {
 	query := `
-		SELECT total_requests,
-		       error_count,
-		       if(total_requests > 0,
-		          (total_requests-error_count)*100.0/total_requests,
-		          100.0)              AS availability_percent,
-		       avg_latency_ms,
-		       p95_latency_ms
-		FROM (
-			SELECT toInt64(count())                                                             AS total_requests,
-			       toInt64(countIf(` + ErrorCondition() + `))                                  AS error_count,
-			       avg(s.duration_nano / 1000000.0)                                            AS avg_latency_ms,
-			       quantileTDigest(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency_ms
-			FROM observability.spans s
-			WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`
-	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
+		SELECT sumMerge(request_count)                                            AS request_count,
+		       sumMerge(error_count)                                              AS error_count,
+		       sumMerge(duration_ms_sum)                                          AS duration_ms_sum,
+		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_latency_ms
+		FROM observability.spans_rollup_1m
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end`
+	args := rollupParams(teamID, startMs, endMs)
+	if serviceName != "" {
+		query += serviceNameFilter
+		args = append(args, clickhouse.Named("serviceName", serviceName))
+	}
+
+	var row summaryRawRow
+	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&row); err != nil {
+		return Summary{}, err
+	}
+
+	total := int64(row.RequestCount) //nolint:gosec // domain-bounded
+	errs := int64(row.ErrorCount)    //nolint:gosec // domain-bounded
+	availability := 100.0
+	if total > 0 {
+		availability = float64(total-errs) * 100.0 / float64(total)
+	}
+	avg := 0.0
+	if row.RequestCount > 0 {
+		avg = row.DurationMsSum / float64(row.RequestCount)
+	}
+
+	return Summary{
+		TotalRequests:       total,
+		ErrorCount:          errs,
+		AvailabilityPercent: availability,
+		AvgLatencyMs:        avg,
+		P95LatencyMs:        row.P95LatencyMs,
+	}, nil
+}
+
+// timeSliceRawRow is the per-bucket rollup merge output.
+type timeSliceRawRow struct {
+	TimeBucket    time.Time `ch:"time_bucket"`
+	RequestCount  uint64    `ch:"request_count"`
+	ErrorCount    uint64    `ch:"error_count"`
+	DurationMsSum float64   `ch:"duration_ms_sum"`
+}
+
+func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]TimeSlice, error) {
+	query := `
+		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		       sumMerge(request_count)                                      AS request_count,
+		       sumMerge(error_count)                                        AS error_count,
+		       sumMerge(duration_ms_sum)                                    AS duration_ms_sum
+		FROM observability.spans_rollup_1m
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end`
+	args := append(rollupParams(teamID, startMs, endMs),
+		clickhouse.Named("intervalMin", intervalMinutesFor(startMs, endMs)),
+	)
 	if serviceName != "" {
 		query += serviceNameFilter
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += `
-		)`
+		GROUP BY time_bucket
+		ORDER BY time_bucket ASC`
 
-	var row summaryRow
-	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&row); err != nil {
-		return Summary{}, err
-	}
-
-	return Summary(row), nil
-}
-
-// timeSliceRow is the DTO for GetTimeSeries.
-type timeSliceRow struct {
-	TimeBucket          string  `ch:"time_bucket"`
-	RequestCount        int64   `ch:"request_count"`
-	ErrorCount          int64   `ch:"error_count"`
-	AvailabilityPercent float64 `ch:"availability_percent"`
-	AvgLatencyMs        float64 `ch:"avg_latency_ms"`
-}
-
-func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]TimeSlice, error) {
-	bucket := sloBucketExpr(startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT time_bucket,
-		       request_count,
-		       error_count,
-		       if(request_count > 0,
-		          (request_count-error_count)*100.0/request_count,
-		          100.0)            AS availability_percent,
-		       avg_latency_ms
-		FROM (
-			SELECT %s                                   AS time_bucket,
-			       toInt64(count())                     AS request_count,
-			       toInt64(countIf(`+ErrorCondition()+`)) AS error_count,
-			       avg(s.duration_nano / 1000000.0)     AS avg_latency_ms
-			FROM observability.spans s
-			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
-	if serviceName != "" {
-		query += serviceNameFilter
-		args = append(args, clickhouse.Named("serviceName", serviceName))
-	}
-	query += ` GROUP BY 1
-		)
-		ORDER BY 1 ASC`
-
-	var rows []timeSliceRow
+	var rows []timeSliceRawRow
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 
 	slices := make([]TimeSlice, len(rows))
 	for i, row := range rows {
-		avg := row.AvgLatencyMs
+		total := int64(row.RequestCount) //nolint:gosec // domain-bounded
+		errs := int64(row.ErrorCount)    //nolint:gosec // domain-bounded
+		availability := 100.0
+		if total > 0 {
+			availability = float64(total-errs) * 100.0 / float64(total)
+		}
+		var avgPtr *float64
+		if row.RequestCount > 0 {
+			avg := row.DurationMsSum / float64(row.RequestCount)
+			avgPtr = &avg
+		}
 		slices[i] = TimeSlice{
-			Timestamp:           row.TimeBucket,
-			RequestCount:        row.RequestCount,
-			ErrorCount:          row.ErrorCount,
-			AvailabilityPercent: row.AvailabilityPercent,
-			AvgLatencyMs:        &avg,
+			Timestamp:           row.TimeBucket.UTC().Format(time.RFC3339),
+			RequestCount:        total,
+			ErrorCount:          errs,
+			AvailabilityPercent: availability,
+			AvgLatencyMs:        avgPtr,
 		}
 	}
 	return slices, nil
 }
 
-// burnDownRow is the DTO for the raw per-bucket row from ClickHouse.
-type burnDownRow struct {
-	TimeBucket   string `ch:"time_bucket"`
-	RequestCount int64  `ch:"request_count"`
-	ErrorCount   int64  `ch:"error_count"`
+// burnDownRawRow is the per-bucket request/error count from the rollup.
+type burnDownRawRow struct {
+	TimeBucket   time.Time `ch:"time_bucket"`
+	RequestCount uint64    `ch:"request_count"`
+	ErrorCount   uint64    `ch:"error_count"`
 }
 
 func (r *ClickHouseRepository) GetBurnDown(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]BurnDownPoint, error) {
-	bucket := sloBucketExpr(startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT %s AS time_bucket,
-		       toInt64(count())              AS request_count,
-		       toInt64(countIf(`+ErrorCondition()+`)) AS error_count
-		FROM observability.spans s
-		WHERE s.team_id = @teamID AND `+RootSpanCondition()+`
-		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
-		  AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
+	query := `
+		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		       sumMerge(request_count)                                      AS request_count,
+		       sumMerge(error_count)                                        AS error_count
+		FROM observability.spans_rollup_1m
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end`
+	args := append(rollupParams(teamID, startMs, endMs),
+		clickhouse.Named("intervalMin", intervalMinutesFor(startMs, endMs)),
+	)
 	if serviceName != "" {
 		query += serviceNameFilter
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
-	query += ` GROUP BY time_bucket ORDER BY time_bucket ASC`
+	query += `
+		GROUP BY time_bucket
+		ORDER BY time_bucket ASC`
 
-	var rows []burnDownRow
+	var rows []burnDownRawRow
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
@@ -175,8 +210,8 @@ func (r *ClickHouseRepository) GetBurnDown(ctx context.Context, teamID int64, st
 	var cumErrors, cumRequests int64
 	points := make([]BurnDownPoint, len(rows))
 	for i, row := range rows {
-		cumErrors += row.ErrorCount
-		cumRequests += row.RequestCount
+		cumErrors += int64(row.ErrorCount)     //nolint:gosec // domain-bounded
+		cumRequests += int64(row.RequestCount) //nolint:gosec // domain-bounded
 
 		var remaining float64
 		if cumRequests > 0 && totalBudget > 0 {
@@ -193,7 +228,7 @@ func (r *ClickHouseRepository) GetBurnDown(ctx context.Context, teamID int64, st
 		}
 
 		points[i] = BurnDownPoint{
-			Timestamp:               row.TimeBucket,
+			Timestamp:               row.TimeBucket.UTC().Format(time.RFC3339),
 			ErrorBudgetRemainingPct: remaining,
 			CumulativeErrorCount:    cumErrors,
 			CumulativeRequestCount:  cumRequests,
@@ -203,18 +238,15 @@ func (r *ClickHouseRepository) GetBurnDown(ctx context.Context, teamID int64, st
 }
 
 func (r *ClickHouseRepository) GetBurnRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (*BurnRate, error) {
-	// Fast burn: last 5 minutes error rate
 	fastRate, err := r.errorRateForWindow(ctx, teamID, 5, serviceName)
 	if err != nil {
 		return nil, err
 	}
-	// Slow burn: last 60 minutes error rate
 	slowRate, err := r.errorRateForWindow(ctx, teamID, 60, serviceName)
 	if err != nil {
 		return nil, err
 	}
 
-	// Overall budget remaining
 	summary, err := r.GetSummary(ctx, teamID, startMs, endMs, serviceName)
 	if err != nil {
 		return nil, err
@@ -229,26 +261,36 @@ func (r *ClickHouseRepository) GetBurnRate(ctx context.Context, teamID int64, st
 	}, nil
 }
 
-// errorRateRow is the DTO for scalar error rate queries.
-type errorRateRow struct {
-	ErrorRate float64 `ch:"error_rate"`
+type errorRateRawRow struct {
+	RequestCount uint64 `ch:"request_count"`
+	ErrorCount   uint64 `ch:"error_count"`
 }
 
 func (r *ClickHouseRepository) errorRateForWindow(ctx context.Context, teamID int64, minutes int, serviceName string) (float64, error) {
-	query := fmt.Sprintf(`
-		SELECT countIf(`+ErrorCondition()+`) * 100.0 / count() AS error_rate
-		FROM observability.spans s
-		WHERE s.team_id = @teamID AND `+RootSpanCondition()+`
-		  AND s.timestamp >= now() - INTERVAL %d MINUTE`, minutes)
-	args := []any{clickhouse.Named("teamID", uint32(teamID))} //nolint:gosec // G115
+	now := time.Now()
+	since := now.Add(-time.Duration(minutes) * time.Minute)
+	query := `
+		SELECT sumMerge(request_count) AS request_count,
+		       sumMerge(error_count)   AS error_count
+		FROM observability.spans_rollup_1m
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @since AND @nowTs`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("since", since),
+		clickhouse.Named("nowTs", now),
+	}
 	if serviceName != "" {
 		query += serviceNameFilter
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 
-	var row errorRateRow
+	var row errorRateRawRow
 	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&row); err != nil {
 		return 0, err
 	}
-	return row.ErrorRate, nil
+	if row.RequestCount == 0 {
+		return 0, nil
+	}
+	return float64(row.ErrorCount) * 100.0 / float64(row.RequestCount), nil
 }

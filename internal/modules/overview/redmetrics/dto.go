@@ -2,8 +2,8 @@ package redmetrics
 
 type redSummaryServiceRow struct {
 	ServiceName string  `ch:"service_name"`
-	TotalCount  int64   `ch:"total_count"`
-	ErrorCount  int64   `ch:"error_count"`
+	TotalCount  uint64  `ch:"total_count"`
+	ErrorCount  uint64  `ch:"error_count"`
 	P50Ms       float64 `ch:"p50_ms"`
 	P95Ms       float64 `ch:"p95_ms"`
 	P99Ms       float64 `ch:"p99_ms"`
@@ -26,7 +26,7 @@ type latencyBreakdownRow struct {
 type slowOperationRow struct {
 	ServiceName   string  `ch:"service_name"`
 	OperationName string  `ch:"operation_name"`
-	SpanCount     int64   `ch:"span_count"`
+	SpanCount     uint64  `ch:"span_count"`
 	P50Ms         float64 `ch:"p50_ms"`
 	P95Ms         float64 `ch:"p95_ms"`
 	P99Ms         float64 `ch:"p99_ms"`
