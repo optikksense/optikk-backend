@@ -1,36 +1,32 @@
 package httpmetrics
 
 import (
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-
 	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 type Repository interface {
-	GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]statusCodeBucketDTO, error)
-	GetRequestDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
-	GetActiveRequests(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketDTO, error)
-	GetRequestBodySize(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
-	GetResponseBodySize(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
-	GetClientDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
-	GetDNSDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
-	GetTLSDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
-	// Span-based route analysis
-	GetTopRoutesByVolume(ctx context.Context, teamID int64, startMs, endMs int64) ([]routeMetricDTO, error)
-	GetTopRoutesByLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]routeMetricDTO, error)
-	GetRouteErrorRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]routeMetricDTO, error)
-	GetRouteErrorTimeseries(ctx context.Context, teamID int64, startMs, endMs int64) ([]routeTimeseriesPointDTO, error)
-	// Span-based status / error analysis
-	GetStatusDistribution(ctx context.Context, teamID int64, startMs, endMs int64) ([]statusGroupBucketDTO, error)
-	GetErrorTimeseries(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorTimeseriesPointDTO, error)
-	// External / outbound host analysis (CLIENT spans)
-	GetTopExternalHosts(ctx context.Context, teamID int64, startMs, endMs int64) ([]externalHostMetricDTO, error)
-	GetExternalHostLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]externalHostMetricDTO, error)
-	GetExternalHostErrorRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]externalHostMetricDTO, error)
+	GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]StatusCodeBucket, error)
+	GetRequestDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error)
+	GetActiveRequests(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketRow, error)
+	GetRequestBodySize(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error)
+	GetResponseBodySize(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error)
+	GetClientDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error)
+	GetDNSDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error)
+	GetTLSDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error)
+	GetTopRoutesByVolume(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error)
+	GetTopRoutesByLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error)
+	GetRouteErrorRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error)
+	GetRouteErrorTimeseries(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteTimeseriesPoint, error)
+	GetStatusDistribution(ctx context.Context, teamID int64, startMs, endMs int64) ([]StatusGroupBucket, error)
+	GetErrorTimeseries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorTimeseriesPoint, error)
+	GetTopExternalHosts(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error)
+	GetExternalHostLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error)
+	GetExternalHostErrorRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error)
 }
 
 type ClickHouseRepository struct {
@@ -41,13 +37,30 @@ func NewRepository(db clickhouse.Conn) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (HistogramSummary, error) {
+// histogramSummaryRow carries sum/count totals so the service can compute avg
+// in Go; percentiles are filled from the matching sketch kind in service.go.
+type histogramSummaryRow struct {
+	HistSum   float64 `ch:"hist_sum"`
+	HistCount int64   `ch:"hist_count"`
+	P50       float64 `ch:"p50"`
+	P95       float64 `ch:"p95"`
+	P99       float64 `ch:"p99"`
+}
+
+// timeBucketRow carries sum/count per time bucket so the service can build
+// the avg per-bucket in Go.
+type timeBucketRow struct {
+	Timestamp string  `ch:"time_bucket"`
+	ValSum    float64 `ch:"val_sum"`
+	ValCount  int64   `ch:"val_count"`
+}
+
+func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (histogramSummaryRow, error) {
 	query := fmt.Sprintf(`
 		SELECT
-		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
-		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99,
-		    avg(hist_sum / nullIf(hist_count, 0))                                     AS avg
+		    sum(hist_sum)            AS hist_sum,
+		    toInt64(sum(hist_count)) AS hist_count,
+		    0 AS p50, 0 AS p95, 0 AS p99
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -57,9 +70,9 @@ func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID
 		TableMetrics, ColTeamID, ColTimestamp,
 		ColMetricName, metricName,
 	)
-	var row HistogramSummary
+	var row histogramSummaryRow
 	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...).ScanStruct(&row); err != nil {
-		return HistogramSummary{}, err
+		return histogramSummaryRow{}, err
 	}
 	return row, nil
 }
@@ -92,17 +105,18 @@ func (r *ClickHouseRepository) GetRequestRate(ctx context.Context, teamID int64,
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetRequestDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+func (r *ClickHouseRepository) GetRequestDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error) {
 	return r.queryHistogramSummary(ctx, teamID, startMs, endMs, MetricHTTPServerRequestDuration)
 }
 
-func (r *ClickHouseRepository) GetActiveRequests(ctx context.Context, teamID int64, startMs, endMs int64) ([]TimeBucket, error) {
+func (r *ClickHouseRepository) GetActiveRequests(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketRow, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s         AS time_bucket,
-		    avg(value) AS val
+		    %s               AS time_bucket,
+		    sum(value)       AS val_sum,
+		    toInt64(count()) AS val_count
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -115,30 +129,30 @@ func (r *ClickHouseRepository) GetActiveRequests(ctx context.Context, teamID int
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricHTTPServerActiveRequests,
 	)
-	var rows []TimeBucket
+	var rows []timeBucketRow
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetRequestBodySize(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+func (r *ClickHouseRepository) GetRequestBodySize(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error) {
 	return r.queryHistogramSummary(ctx, teamID, startMs, endMs, MetricHTTPServerRequestBodySize)
 }
 
-func (r *ClickHouseRepository) GetResponseBodySize(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+func (r *ClickHouseRepository) GetResponseBodySize(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error) {
 	return r.queryHistogramSummary(ctx, teamID, startMs, endMs, MetricHTTPServerResponseBodySize)
 }
 
-func (r *ClickHouseRepository) GetClientDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+func (r *ClickHouseRepository) GetClientDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error) {
 	return r.queryHistogramSummary(ctx, teamID, startMs, endMs, MetricHTTPClientRequestDuration)
 }
 
-func (r *ClickHouseRepository) GetDNSDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+func (r *ClickHouseRepository) GetDNSDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error) {
 	return r.queryHistogramSummary(ctx, teamID, startMs, endMs, MetricDNSLookupDuration)
 }
 
-func (r *ClickHouseRepository) GetTLSDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
+func (r *ClickHouseRepository) GetTLSDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error) {
 	return r.queryHistogramSummary(ctx, teamID, startMs, endMs, MetricTLSConnectDuration)
 }
 
@@ -161,16 +175,19 @@ func (r *ClickHouseRepository) GetTopRoutesByVolume(ctx context.Context, teamID 
 }
 
 func (r *ClickHouseRepository) GetTopRoutesByLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
+	// p95_ms comes from sketch.SpanLatencyEndpoint merged over the endpoint
+	// segment of the dim; SQL just fetches the route list with its volume so
+	// rows order is still predictable when the sketch isn't warm.
 	query := fmt.Sprintf(`
 		SELECT mat_http_route AS route,
 		       toInt64(count()) AS req_count,
-		       quantileTDigest(0.95)(duration_nano / 1000000.0) AS p95_ms
+		       0                AS p95_ms
 		FROM %s
 		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
 		  AND mat_http_route != ''
 		GROUP BY route
-		ORDER BY p95_ms DESC
+		ORDER BY req_count DESC
 		LIMIT 20
 	`, TableSpans)
 	var rows []RouteMetric
@@ -287,17 +304,20 @@ func (r *ClickHouseRepository) GetTopExternalHosts(ctx context.Context, teamID i
 }
 
 func (r *ClickHouseRepository) GetExternalHostLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
+	// p95_ms lands from sketch.HttpClientDuration merged by host-target segment;
+	// SQL returns just the host list with volume, sorted by that volume so the
+	// result stays deterministic when the sketch has no samples for a host.
 	query := fmt.Sprintf(`
 		SELECT http_host AS host,
 		       toInt64(count()) AS req_count,
-		       quantileTDigest(0.95)(duration_nano / 1000000.0) AS p95_ms
+		       0                AS p95_ms
 		FROM %s
 		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
 		  AND kind = 3
 		  AND http_host != ''
 		GROUP BY host
-		ORDER BY p95_ms DESC
+		ORDER BY req_count DESC
 		LIMIT 20
 	`, TableSpans)
 	var rows []ExternalHostMetric

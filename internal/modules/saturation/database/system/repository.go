@@ -27,17 +27,41 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
+type latencyDTO struct {
+	TimeBucket   string   `ch:"time_bucket"`
+	GroupBy      string   `ch:"group_by"`
+	LatencySum   float64  `ch:"latency_sum"`
+	LatencyCount int64    `ch:"latency_count"`
+	P50Ms        *float64 `ch:"p50_ms"`
+	P95Ms        *float64 `ch:"p95_ms"`
+	P99Ms        *float64 `ch:"p99_ms"`
+}
+
+type collectionRowDTO struct {
+	CollectionName string   `ch:"collection_name"`
+	LatencySum     float64  `ch:"latency_sum"`
+	LatencyCount   int64    `ch:"latency_count"`
+	P99Ms          *float64 `ch:"p99_ms"`
+	OpsPerSec      *float64 `ch:"ops_per_sec"`
+}
+
+// GetSystemLatency emits raw sum/count + p* placeholders for a given
+// db.system. Percentiles are attached by the service from the DbOpLatency
+// sketch keyed on operation (middle of dim tuple) — see service.go comment
+// for the limitation on per-operation percentiles.
 func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string, f shared.Filters) ([]LatencyTimeSeries, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	fc, fargs := shared.FilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                                              AS time_bucket,
-		    %s                                                                              AS group_by,
-		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p50_ms,
-		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p95_ms,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms
+		    %s                         AS time_bucket,
+		    %s                         AS group_by,
+		    sum(hist_sum)              AS latency_sum,
+		    toInt64(sum(hist_count))   AS latency_count,
+		    CAST(0 AS Nullable(Float64)) AS p50_ms,
+		    CAST(0 AS Nullable(Float64)) AS p95_ms,
+		    CAST(0 AS Nullable(Float64)) AS p99_ms
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -58,9 +82,21 @@ func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID int6
 
 	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
 	params = append(params, fargs...)
-	var rows []LatencyTimeSeries
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
+	var dtos []latencyDTO
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, params...); err != nil {
 		return nil, err
+	}
+	rows := make([]LatencyTimeSeries, len(dtos))
+	for i, d := range dtos {
+		rows[i] = LatencyTimeSeries{
+			TimeBucket:   d.TimeBucket,
+			GroupBy:      d.GroupBy,
+			P50Ms:        d.P50Ms,
+			P95Ms:        d.P95Ms,
+			P99Ms:        d.P99Ms,
+			LatencySum:   d.LatencySum,
+			LatencyCount: d.LatencyCount,
+		}
 	}
 	return rows, nil
 }
@@ -103,15 +139,23 @@ func (r *ClickHouseRepository) GetSystemOps(ctx context.Context, teamID int64, s
 	return rows, nil
 }
 
+// GetSystemTopCollectionsByLatency & ...ByVolume emit raw sum/count + a p99
+// placeholder that the service fills from the DbOpLatency sketch via a
+// per-collection dim prefix (`<system>|<any-op>|<collection>|`). Since dims
+// key on operation before collection, we can't prefix-scan to one
+// collection cleanly; the service loads the full tenant map and filters in
+// Go — acceptable at the ~20-row limit these endpoints return.
 func (r *ClickHouseRepository) GetSystemTopCollectionsByLatency(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]SystemCollectionRow, error) {
 	collAttr := shared.AttrString(shared.AttrDBCollectionName)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                                              AS collection_name,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms,
-		    toFloat64(sum(hist_count)) / %f                                                 AS ops_per_sec
+		    %s                               AS collection_name,
+		    sum(hist_sum)                    AS latency_sum,
+		    toInt64(sum(hist_count))         AS latency_count,
+		    CAST(0 AS Nullable(Float64))     AS p99_ms,
+		    toFloat64(sum(hist_count)) / %f  AS ops_per_sec
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -120,7 +164,7 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByLatency(ctx context.Cont
 		  AND %s = @dbSystem
 		  AND notEmpty(%s)
 		GROUP BY collection_name
-		ORDER BY p99_ms DESC
+		ORDER BY latency_count DESC
 		LIMIT 20
 	`,
 		collAttr,
@@ -133,9 +177,19 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByLatency(ctx context.Cont
 	)
 
 	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
-	var rows []SystemCollectionRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
+	var dtos []collectionRowDTO
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, params...); err != nil {
 		return nil, err
+	}
+	rows := make([]SystemCollectionRow, len(dtos))
+	for i, d := range dtos {
+		rows[i] = SystemCollectionRow{
+			CollectionName: d.CollectionName,
+			P99Ms:          d.P99Ms,
+			OpsPerSec:      d.OpsPerSec,
+			LatencySum:     d.LatencySum,
+			LatencyCount:   d.LatencyCount,
+		}
 	}
 	return rows, nil
 }
@@ -146,9 +200,11 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByVolume(ctx context.Conte
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                                              AS collection_name,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms,
-		    toFloat64(sum(hist_count)) / %f                                                 AS ops_per_sec
+		    %s                               AS collection_name,
+		    sum(hist_sum)                    AS latency_sum,
+		    toInt64(sum(hist_count))         AS latency_count,
+		    CAST(0 AS Nullable(Float64))     AS p99_ms,
+		    toFloat64(sum(hist_count)) / %f  AS ops_per_sec
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -170,9 +226,19 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByVolume(ctx context.Conte
 	)
 
 	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
-	var rows []SystemCollectionRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
+	var dtos []collectionRowDTO
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, params...); err != nil {
 		return nil, err
+	}
+	rows := make([]SystemCollectionRow, len(dtos))
+	for i, d := range dtos {
+		rows[i] = SystemCollectionRow{
+			CollectionName: d.CollectionName,
+			P99Ms:          d.P99Ms,
+			OpsPerSec:      d.OpsPerSec,
+			LatencySum:     d.LatencySum,
+			LatencyCount:   d.LatencyCount,
+		}
 	}
 	return rows, nil
 }

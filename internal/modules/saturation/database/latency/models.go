@@ -6,6 +6,11 @@ type LatencyTimeSeries struct {
 	P50Ms      *float64 `json:"p50_ms" ch:"p50_ms"`
 	P95Ms      *float64 `json:"p95_ms" ch:"p95_ms"`
 	P99Ms      *float64 `json:"p99_ms" ch:"p99_ms"`
+
+	// Raw sum/count are used by the service for avg computations on endpoints
+	// that surface avg. Not serialized.
+	LatencySum   float64 `json:"-" ch:"-"`
+	LatencyCount int64   `json:"-" ch:"-"`
 }
 
 type LatencyHeatmapBucket struct {

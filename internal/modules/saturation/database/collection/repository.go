@@ -26,17 +26,34 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
+type latencyDTO struct {
+	TimeBucket   string   `ch:"time_bucket"`
+	GroupBy      string   `ch:"group_by"`
+	LatencySum   float64  `ch:"latency_sum"`
+	LatencyCount int64    `ch:"latency_count"`
+	P50Ms        *float64 `ch:"p50_ms"`
+	P95Ms        *float64 `ch:"p95_ms"`
+	P99Ms        *float64 `ch:"p99_ms"`
+}
+
+func dbQueryFingerprintAttr() string { return shared.AttrString("db.query.text.fingerprint") }
+
+// GetCollectionLatency emits counts + p* placeholders. Service fills the
+// placeholders from the DbOpLatency sketch (merged across operations for
+// the given collection).
 func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID int64, startMs, endMs int64, collection string, f shared.Filters) ([]LatencyTimeSeries, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	fc, fargs := shared.FilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                                              AS time_bucket,
-		    %s                                                                              AS group_by,
-		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p50_ms,
-		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p95_ms,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms
+		    %s                             AS time_bucket,
+		    %s                             AS group_by,
+		    sum(hist_sum)                  AS latency_sum,
+		    toInt64(sum(hist_count))       AS latency_count,
+		    CAST(0 AS Nullable(Float64))   AS p50_ms,
+		    CAST(0 AS Nullable(Float64))   AS p95_ms,
+		    CAST(0 AS Nullable(Float64))   AS p99_ms
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -57,9 +74,21 @@ func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID 
 
 	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("collection", collection))
 	params = append(params, fargs...)
-	var rows []LatencyTimeSeries
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, params...); err != nil {
+	var dtos []latencyDTO
+	if err := r.db.Select(database.OverviewCtx(ctx), &dtos, query, params...); err != nil {
 		return nil, err
+	}
+	rows := make([]LatencyTimeSeries, len(dtos))
+	for i, d := range dtos {
+		rows[i] = LatencyTimeSeries{
+			TimeBucket:   d.TimeBucket,
+			GroupBy:      d.GroupBy,
+			P50Ms:        d.P50Ms,
+			P95Ms:        d.P95Ms,
+			P99Ms:        d.P99Ms,
+			LatencySum:   d.LatencySum,
+			LatencyCount: d.LatencyCount,
+		}
 	}
 	return rows, nil
 }
@@ -149,13 +178,17 @@ func (r *ClickHouseRepository) GetCollectionQueryTexts(ctx context.Context, team
 	fc, fargs := shared.FilterClauses(f)
 	queryAttr := shared.AttrString(shared.AttrDBQueryText)
 	errorAttr := shared.AttrString(shared.AttrErrorType)
+	systemAttr := shared.AttrString(shared.AttrDBSystem)
+	fpAttr := dbQueryFingerprintAttr()
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                                              AS query_text,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms,
-		    toInt64(sum(hist_count))                                                        AS call_count,
-		    toInt64(sumIf(hist_count, notEmpty(%s)))                                        AS error_count
+		    %s                                               AS query_text,
+		    %s                                               AS db_system,
+		    %s                                               AS query_fingerprint,
+		    CAST(0 AS Nullable(Float64))                     AS p99_ms,
+		    toInt64(sum(hist_count))                         AS call_count,
+		    toInt64(sumIf(hist_count, notEmpty(%s)))         AS error_count
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -164,11 +197,11 @@ func (r *ClickHouseRepository) GetCollectionQueryTexts(ctx context.Context, team
 		  AND %s = @collection
 		  AND notEmpty(%s)
 		  %s
-		GROUP BY query_text
-		ORDER BY p99_ms DESC
+		GROUP BY query_text, db_system, query_fingerprint
+		ORDER BY sum(hist_count) DESC
 		LIMIT %d
 	`,
-		queryAttr,
+		queryAttr, systemAttr, fpAttr,
 		errorAttr,
 		shared.TableMetrics,
 		shared.ColTeamID, shared.ColTimestamp,

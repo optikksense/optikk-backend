@@ -2,7 +2,9 @@ package topology
 
 import (
 	"context"
+	"fmt"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -18,12 +20,17 @@ type Service interface {
 }
 
 type topologyService struct {
-	repo Repository
+	repo    Repository
+	sketchQ *sketch.Querier
 }
 
-func NewService(repo Repository) Service {
-	return &topologyService{repo: repo}
+func NewService(repo Repository, sketchQ *sketch.Querier) Service {
+	return &topologyService{repo: repo, sketchQ: sketchQ}
 }
+
+// teamIDString converts the int64 tenant id to the string form used by all
+// sketch keys.
+func teamIDString(teamID int64) string { return fmt.Sprintf("%d", teamID) }
 
 func (s *topologyService) GetTopology(ctx context.Context, teamID int64, startMs, endMs int64, focusService string) (TopologyResponse, error) {
 	var (
@@ -50,6 +57,29 @@ func (s *topologyService) GetTopology(ctx context.Context, teamID int64, startMs
 	})
 	if err := g.Wait(); err != nil {
 		return TopologyResponse{}, err
+	}
+
+	// Attach percentiles from sketch.Querier. Nodes key by service name
+	// (SpanLatencyService). Edges key by the callee (child) service — the CH
+	// query groups by (source, target) using child-span latencies, so the
+	// per-target sketch is the correct aggregate to read for the edge p50/p95.
+	if s.sketchQ != nil && (len(nodeRows) > 0 || len(edgeRows) > 0) {
+		pcts, _ := s.sketchQ.Percentiles(ctx, sketch.SpanLatencyService, teamIDString(teamID), startMs, endMs, 0.5, 0.95, 0.99)
+		for i := range nodeRows {
+			dim := sketch.DimSpanService(nodeRows[i].ServiceName)
+			if v, ok := pcts[dim]; ok && len(v) == 3 {
+				nodeRows[i].P50Ms = v[0]
+				nodeRows[i].P95Ms = v[1]
+				nodeRows[i].P99Ms = v[2]
+			}
+		}
+		for i := range edgeRows {
+			dim := sketch.DimSpanService(edgeRows[i].Target)
+			if v, ok := pcts[dim]; ok && len(v) >= 2 {
+				edgeRows[i].P50Ms = v[0]
+				edgeRows[i].P95Ms = v[1]
+			}
+		}
 	}
 
 	nodes := buildNodes(nodeRows)

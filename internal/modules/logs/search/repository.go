@@ -23,7 +23,7 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) GetLogs(ctx context.Context, f shared.LogFilters, limit int, direction string, cursor shared.LogCursor) ([]shared.LogRowDTO, bool, error) {
-	where, args := shared.BuildLogWhere(f)
+	prewhere, where, args := shared.BuildLogWhereSplit(f)
 	orderDir := "DESC"
 	cmp := "<"
 	if direction == "asc" {
@@ -37,9 +37,13 @@ func (r *ClickHouseRepository) GetLogs(ctx context.Context, f shared.LogFilters,
 	}
 
 	orderBy := fmt.Sprintf(`timestamp %s, observed_timestamp %s, trace_id %s`, orderDir, orderDir, orderDir)
+	whereClause := ""
+	if where != "" {
+		whereClause = " WHERE" + where
+	}
 	query := fmt.Sprintf(
-		`SELECT %s FROM observability.logs WHERE%s ORDER BY %s LIMIT ?`,
-		shared.LogColumns, where, orderBy,
+		`SELECT %s FROM observability.logs PREWHERE%s%s ORDER BY %s LIMIT ?`,
+		shared.LogColumns, prewhere, whereClause, orderBy,
 	)
 	args = append(args, limit+1)
 

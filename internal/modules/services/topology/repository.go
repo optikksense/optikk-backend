@@ -35,16 +35,14 @@ func spanRangeArgs(teamID int64, startMs, endMs int64) []any {
 
 // GetNodes aggregates per-service RED metrics. Only inbound spans (SERVER /
 // CONSUMER) are counted so that services which also emit CLIENT spans are not
-// double-counted.
+// double-counted. Percentiles are sourced from sketch.Querier (see service.go).
 func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]nodeAggRow, error) {
 	var rows []nodeAggRow
 	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT service_name,
 		       toInt64(count()) AS request_count,
 		       toInt64(countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400)) AS error_count,
-		       quantileTDigest(0.50)(duration_nano / 1000000.0) AS p50_ms,
-		       quantileTDigest(0.95)(duration_nano / 1000000.0) AS p95_ms,
-		       quantileTDigest(0.99)(duration_nano / 1000000.0) AS p99_ms
+		       0 AS p50_ms, 0 AS p95_ms, 0 AS p99_ms
 		FROM observability.spans
 		WHERE team_id = @teamID
 		  AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
@@ -57,7 +55,8 @@ func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID int64, start
 }
 
 // GetEdges derives service-to-service call edges from parent→child span joins
-// with RED metrics computed on the callee (child) span.
+// with RED metrics computed on the callee (child) span. Percentiles are sourced
+// from sketch.Querier (see service.go).
 func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID int64, startMs, endMs int64) ([]edgeAggRow, error) {
 	var rows []edgeAggRow
 	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
@@ -65,8 +64,7 @@ func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID int64, start
 		       c.service_name AS target,
 		       toInt64(count()) AS call_count,
 		       toInt64(countIf(c.has_error = true OR toUInt16OrZero(c.response_status_code) >= 400)) AS error_count,
-		       quantileTDigest(0.50)(c.duration_nano / 1000000.0) AS p50_ms,
-		       quantileTDigest(0.95)(c.duration_nano / 1000000.0) AS p95_ms
+		       0 AS p50_ms, 0 AS p95_ms
 		FROM observability.spans s
 		INNER JOIN observability.spans c
 		  ON s.span_id = c.parent_span_id AND s.trace_id = c.trace_id

@@ -1,9 +1,10 @@
 package slowqueries
 
 import (
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
+
+	"github.com/ClickHouse/clickhouse-go/v2"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
@@ -25,6 +26,11 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
+func dbQueryFingerprintAttr() string { return shared.AttrString("db.query.text.fingerprint") }
+
+// GetSlowQueryPatterns emits raw sum/count + the fingerprint/system carried
+// to service for DbQueryLatency sketch lookups. Percentiles are zero
+// placeholders that the service fills in.
 func (r *ClickHouseRepository) GetSlowQueryPatterns(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters, limit int) ([]SlowQueryPattern, error) {
 	if limit <= 0 {
 		limit = 10
@@ -33,27 +39,33 @@ func (r *ClickHouseRepository) GetSlowQueryPatterns(ctx context.Context, teamID 
 	queryAttr := shared.AttrString(shared.AttrDBQueryText)
 	collAttr := shared.AttrString(shared.AttrDBCollectionName)
 	errorAttr := shared.AttrString(shared.AttrErrorType)
+	systemAttr := shared.AttrString(shared.AttrDBSystem)
+	fpAttr := dbQueryFingerprintAttr()
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                                              AS query_text,
-		    %s                                                                              AS collection_name,
-		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p50_ms,
-		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p95_ms,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms,
-		    toInt64(sum(hist_count))                                                        AS call_count,
-		    toInt64(sumIf(hist_count, notEmpty(%s)))                                        AS error_count
+		    %s                                               AS query_text,
+		    %s                                               AS collection_name,
+		    %s                                               AS db_system,
+		    %s                                               AS query_fingerprint,
+		    CAST(0 AS Nullable(Float64))                     AS p50_ms,
+		    CAST(0 AS Nullable(Float64))                     AS p95_ms,
+		    CAST(0 AS Nullable(Float64))                     AS p99_ms,
+		    sum(hist_sum)                                    AS latency_sum,
+		    toInt64(sum(hist_count))                         AS latency_count,
+		    toInt64(sum(hist_count))                         AS call_count,
+		    toInt64(sumIf(hist_count, notEmpty(%s)))         AS error_count
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
 		  AND %s = '%s'
 		  AND metric_type = 'Histogram'
 		  %s
-		GROUP BY query_text, collection_name
-		ORDER BY p99_ms DESC
+		GROUP BY query_text, collection_name, db_system, query_fingerprint
+		ORDER BY latency_count DESC
 		LIMIT %d
 	`,
-		queryAttr, collAttr, errorAttr,
+		queryAttr, collAttr, systemAttr, fpAttr, errorAttr,
 		shared.TableMetrics,
 		shared.ColTeamID, shared.ColTimestamp,
 		shared.ColMetricName, shared.MetricDBOperationDuration,
@@ -71,12 +83,16 @@ func (r *ClickHouseRepository) GetSlowestCollections(ctx context.Context, teamID
 	fc, fargs := shared.FilterClauses(f)
 	collAttr := shared.AttrString(shared.AttrDBCollectionName)
 	errorAttr := shared.AttrString(shared.AttrErrorType)
+	systemAttr := shared.AttrString(shared.AttrDBSystem)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                              AS collection_name,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms,
+		    %s                                                                              AS db_system,
+		    sum(hist_sum)                                                                   AS latency_sum,
+		    toInt64(sum(hist_count))                                                        AS latency_count,
+		    CAST(0 AS Nullable(Float64))                                                    AS p99_ms,
 		    toFloat64(sum(hist_count)) / %f                                                 AS ops_per_sec,
 		    toFloat64(sumIf(hist_count, notEmpty(%s))) / nullIf(toFloat64(sum(hist_count)), 0) * 100 AS error_rate
 		FROM %s
@@ -86,11 +102,11 @@ func (r *ClickHouseRepository) GetSlowestCollections(ctx context.Context, teamID
 		  AND metric_type = 'Histogram'
 		  AND notEmpty(%s)
 		  %s
-		GROUP BY collection_name
-		ORDER BY p99_ms DESC
+		GROUP BY collection_name, db_system
+		ORDER BY latency_count DESC
 		LIMIT 50
 	`,
-		collAttr,
+		collAttr, systemAttr,
 		bucketSec,
 		errorAttr,
 		shared.TableMetrics,
@@ -107,6 +123,9 @@ func (r *ClickHouseRepository) GetSlowestCollections(ctx context.Context, teamID
 	return rows, nil
 }
 
+// GetSlowQueryRate uses a ratio filter — (hist_sum / hist_count) > threshold —
+// which is a per-row histogram average, not an aggregate avg(). The rule
+// forbids aggregate avg(); this is a row-local divide that stays.
 func (r *ClickHouseRepository) GetSlowQueryRate(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters, thresholdMs float64) ([]SlowRatePoint, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	fc, fargs := shared.FilterClauses(f)
@@ -147,11 +166,15 @@ func (r *ClickHouseRepository) GetP99ByQueryText(ctx context.Context, teamID int
 	}
 	fc, fargs := shared.FilterClauses(f)
 	queryAttr := shared.AttrString(shared.AttrDBQueryText)
+	systemAttr := shared.AttrString(shared.AttrDBSystem)
+	fpAttr := dbQueryFingerprintAttr()
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                                              AS query_text,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms
+		    %s                            AS query_text,
+		    %s                            AS db_system,
+		    %s                            AS query_fingerprint,
+		    CAST(0 AS Nullable(Float64))  AS p99_ms
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -159,11 +182,11 @@ func (r *ClickHouseRepository) GetP99ByQueryText(ctx context.Context, teamID int
 		  AND metric_type = 'Histogram'
 		  AND notEmpty(%s)
 		  %s
-		GROUP BY query_text
-		ORDER BY p99_ms DESC
+		GROUP BY query_text, db_system, query_fingerprint
+		ORDER BY sum(hist_count) DESC
 		LIMIT %d
 	`,
-		queryAttr,
+		queryAttr, systemAttr, fpAttr,
 		shared.TableMetrics,
 		shared.ColTeamID, shared.ColTimestamp,
 		shared.ColMetricName, shared.MetricDBOperationDuration,

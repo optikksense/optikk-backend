@@ -21,12 +21,13 @@ type traceRow struct {
 }
 
 type traceSummaryRow struct {
-	TotalTraces uint64  `ch:"total_traces"`
-	ErrorTraces uint64  `ch:"error_traces"`
-	AvgDuration float64 `ch:"avg_duration"`
-	P50Duration float64 `ch:"p50_duration"`
-	P95Duration float64 `ch:"p95_duration"`
-	P99Duration float64 `ch:"p99_duration"`
+	TotalTraces     uint64  `ch:"total_traces"`
+	ErrorTraces     uint64  `ch:"error_traces"`
+	DurationMsSum   float64 `ch:"duration_ms_sum"`
+	DurationMsCount int64   `ch:"duration_ms_count"`
+	P50Duration     float64 `ch:"p50_duration"`
+	P95Duration     float64 `ch:"p95_duration"`
+	P99Duration     float64 `ch:"p99_duration"`
 }
 
 type traceCountRow struct {

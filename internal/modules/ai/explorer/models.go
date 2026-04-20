@@ -28,15 +28,22 @@ type aiCallRow struct {
 }
 
 // aiSummaryRow holds aggregated stats for the current query window.
+// AvgLatencyMs is computed in the service from LatencyMsSum/LatencyMsCount.
+// Percentile slots are zero-filled by CH and overwritten from sketch.Querier.
+// Services carries the set of service_names in scope so the service layer can
+// merge only relevant SpanLatencyService sketches.
 type aiSummaryRow struct {
-	TotalCalls       uint64  `ch:"total_calls"`
-	ErrorCalls       uint64  `ch:"error_calls"`
-	AvgLatencyMs     float64 `ch:"avg_latency_ms"`
-	P50LatencyMs     float64 `ch:"p50_latency_ms"`
-	P95LatencyMs     float64 `ch:"p95_latency_ms"`
-	P99LatencyMs     float64 `ch:"p99_latency_ms"`
-	TotalInputTokens float64 `ch:"total_input_tokens"`
-	TotalOutputTokens float64 `ch:"total_output_tokens"`
+	TotalCalls        uint64   `ch:"total_calls"`
+	ErrorCalls        uint64   `ch:"error_calls"`
+	LatencyMsSum      float64  `ch:"latency_ms_sum"`
+	LatencyMsCount    int64    `ch:"latency_ms_count"`
+	AvgLatencyMs      float64  // set by service
+	P50LatencyMs      float64  `ch:"p50_latency_ms"`
+	P95LatencyMs      float64  `ch:"p95_latency_ms"`
+	P99LatencyMs      float64  `ch:"p99_latency_ms"`
+	Services          []string `ch:"services"`
+	TotalInputTokens  float64  `ch:"total_input_tokens"`
+	TotalOutputTokens float64  `ch:"total_output_tokens"`
 }
 
 // aiFacetRow represents a single facet bucket returned by the UNION ALL facet query.
@@ -47,12 +54,15 @@ type aiFacetRow struct {
 }
 
 // aiTrendRow represents one time bucket in the trend timeseries.
+// AvgLatencyMs is computed in the service from LatencyMsSum/LatencyMsCount.
 type aiTrendRow struct {
-	TimeBucket   string  `ch:"time_bucket"`
-	TotalCalls   uint64  `ch:"total_calls"`
-	ErrorCalls   uint64  `ch:"error_calls"`
-	AvgLatencyMs float64 `ch:"avg_latency_ms"`
-	TotalTokens  float64 `ch:"total_tokens"`
+	TimeBucket     string  `ch:"time_bucket"`
+	TotalCalls     uint64  `ch:"total_calls"`
+	ErrorCalls     uint64  `ch:"error_calls"`
+	LatencyMsSum   float64 `ch:"latency_ms_sum"`
+	LatencyMsCount int64   `ch:"latency_ms_count"`
+	AvgLatencyMs   float64 // set by service
+	TotalTokens    float64 `ch:"total_tokens"`
 }
 
 // aiSessionRow is one grouped session/conversation bucket from GenAI spans.

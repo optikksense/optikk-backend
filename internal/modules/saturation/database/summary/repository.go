@@ -1,16 +1,19 @@
 package summary
 
 import (
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
+
+	"github.com/ClickHouse/clickhouse-go/v2"
 
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
 type Repository interface {
-	GetSummaryStats(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) (SummaryStats, error)
+	GetSummaryMain(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) (summaryMainDTO, error)
+	GetSummaryConn(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) (summaryConnDTO, error)
+	GetSummaryCache(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) (summaryCacheDTO, error)
 }
 
 type ClickHouseRepository struct {
@@ -21,18 +24,18 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) (SummaryStats, error) {
+// GetSummaryMain returns counters + raw sum/count for in-Go avg latency.
+// Percentiles (p50/p95/p99) are attached by the service layer from the
+// DbOpLatency sketch — zero quantile() calls here.
+func (r *ClickHouseRepository) GetSummaryMain(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) (summaryMainDTO, error) {
 	fc, fargs := shared.FilterClauses(f)
 
-	durationMs := max(float64(endMs-startMs)/1000.0, 1)
-
-	qMain := fmt.Sprintf(`
+	query := fmt.Sprintf(`
 		SELECT
-		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count)  AS p50,
-		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count)  AS p95,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count)  AS p99,
-		    toInt64(sum(hist_count))                                                    AS total_count,
-		    toInt64(sumIf(hist_count, notEmpty(%s)))                                    AS error_count
+		    sum(hist_sum)                                AS latency_sum,
+		    toInt64(sum(hist_count))                     AS latency_count,
+		    toInt64(sum(hist_count))                     AS total_count,
+		    toInt64(sumIf(hist_count, notEmpty(%s)))     AS error_count
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -47,19 +50,20 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 		fc,
 	)
 
-	var mainDTO summaryMainDTO
-	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), qMain, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...).ScanStruct(&mainDTO); err != nil {
-		return SummaryStats{}, err
-	}
+	var dto summaryMainDTO
+	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...).ScanStruct(&dto)
+	return dto, err
+}
 
-	var errorRatePtr *float64
-	if mainDTO.TotalCount > 0 {
-		rate := float64(mainDTO.ErrorCount) / durationMs
-		errorRatePtr = &rate
-	}
+// GetSummaryConn returns sum/count for gauge `value` so the service can
+// compute average active connections in Go (no SQL avg()).
+func (r *ClickHouseRepository) GetSummaryConn(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) (summaryConnDTO, error) {
+	fc, fargs := shared.FilterClauses(f)
 
-	qConn := fmt.Sprintf(`
-		SELECT toInt64(round(sum(value))) AS used_count
+	query := fmt.Sprintf(`
+		SELECT
+		    sum(value)               AS used_sum,
+		    toInt64(count())         AS used_count
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -74,14 +78,15 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 		fc,
 	)
 
-	var connDTO summaryConnDTO
-	activeConns := int64(0)
-	connArgs := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
-	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), qConn, connArgs...).ScanStruct(&connDTO); err == nil {
-		activeConns = connDTO.UsedCount
-	}
+	var dto summaryConnDTO
+	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...).ScanStruct(&dto)
+	return dto, err
+}
 
-	qCache := fmt.Sprintf(`
+func (r *ClickHouseRepository) GetSummaryCache(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) (summaryCacheDTO, error) {
+	fc, fargs := shared.FilterClauses(f)
+
+	query := fmt.Sprintf(`
 		SELECT
 		    toInt64(countIf(empty(%s))) AS success_count,
 		    toInt64(count())            AS total_count
@@ -101,23 +106,7 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 		fc,
 	)
 
-	var cacheDTO summaryCacheDTO
-	var cacheHitRate *float64
-	cacheArgs := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
-	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), qCache, cacheArgs...).ScanStruct(&cacheDTO); err == nil {
-		if cacheDTO.TotalCount > 0 {
-			rate := float64(cacheDTO.SuccessCount) / float64(cacheDTO.TotalCount) * 100
-			cacheHitRate = &rate
-		}
-	}
-
-	return SummaryStats{
-		AvgLatencyMs:      shared.ScaleToMs(mainDTO.P50),
-		P95LatencyMs:      shared.ScaleToMs(mainDTO.P95),
-		P99LatencyMs:      shared.ScaleToMs(mainDTO.P99),
-		SpanCount:         mainDTO.TotalCount,
-		ActiveConnections: activeConns,
-		ErrorRate:         errorRatePtr,
-		CacheHitRate:      cacheHitRate,
-	}, nil
+	var dto summaryCacheDTO
+	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...).ScanStruct(&dto)
+	return dto, err
 }

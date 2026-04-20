@@ -3,6 +3,7 @@ package slowqueries
 import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
@@ -29,8 +30,12 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 }
 
 func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
+	return NewModuleWithSketch(nativeQuerier, getTenant, nil)
+}
+
+func NewModuleWithSketch(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc, sketchQ *sketch.Querier) registry.Module {
 	module := &dbSlowModule{}
-	module.configure(nativeQuerier, getTenant)
+	module.configure(nativeQuerier, getTenant, sketchQ)
 	return module
 }
 
@@ -41,10 +46,10 @@ type dbSlowModule struct {
 func (m *dbSlowModule) Name() string                      { return "dbSlow" }
 func (m *dbSlowModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *dbSlowModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
+func (m *dbSlowModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc, sketchQ *sketch.Querier) {
 	m.handler = &Handler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  NewService(NewRepository(nativeQuerier)),
+		Service:  NewService(NewRepository(nativeQuerier), sketchQ),
 	}
 }
 

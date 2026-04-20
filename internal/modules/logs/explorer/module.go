@@ -37,7 +37,10 @@ type logsExplorerModule struct {
 }
 
 func (m *logsExplorerModule) Name() string                      { return "logsExplorer" }
-func (m *logsExplorerModule) RouteTarget() registry.RouteTarget { return registry.V1 }
+// Aggregates (histograms, facets, volume) are safe to cache for the same 30s
+// TTL other dashboards use — phase-2 logs perf pass promoted this route group
+// so dashboards polling every ~5s serve from Redis, not CH.
+func (m *logsExplorerModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *logsExplorerModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	searchService := logsearch.NewService(logsearch.NewRepository(nativeQuerier))

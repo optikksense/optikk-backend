@@ -226,12 +226,12 @@ func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64
 	if endMs <= startMs {
 		return impactAggRow{}, nil
 	}
+	// Percentiles come from sketch.Querier (SpanLatencyService) — see service.go.
 	var row impactAggRow
 	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), `
 		SELECT toInt64(count()) AS request_count,
 		       toInt64(countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)) AS error_count,
-		       quantileTDigest(0.95)(s.duration_nano / 1000000.0) AS p95_ms,
-		       quantileTDigest(0.99)(s.duration_nano / 1000000.0) AS p99_ms
+		       0 AS p95_ms, 0 AS p99_ms
 		FROM observability.spans s
 		WHERE s.team_id = @teamID
 		  AND s.service_name = @serviceName
@@ -308,6 +308,7 @@ func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID 
 }
 
 func (r *ClickHouseRepository) GetEndpointMetricsWindow(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64, limit int) ([]endpointMetricAggRow, error) {
+	// Percentiles come from sketch.Querier (SpanLatencyEndpoint) — see service.go.
 	var rows []endpointMetricAggRow
 	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT s.name AS operation_name,
@@ -315,8 +316,7 @@ func (r *ClickHouseRepository) GetEndpointMetricsWindow(ctx context.Context, tea
 		       s.http_method AS http_method,
 		       toInt64(count()) AS request_count,
 		       toInt64(countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)) AS error_count,
-		       quantileTDigest(`+fmt.Sprintf("%.2f", 0.95)+`)(s.duration_nano / 1000000.0) AS p95_ms,
-		       quantileTDigest(`+fmt.Sprintf("%.2f", 0.99)+`)(s.duration_nano / 1000000.0) AS p99_ms
+		       0 AS p95_ms, 0 AS p99_ms
 		FROM observability.spans s
 		WHERE s.team_id = @teamID
 		  AND s.service_name = @serviceName

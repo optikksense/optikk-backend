@@ -5,17 +5,23 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/explorer/queryparser"
 )
 
+// teamIDString converts the int64 tenant id to the string form used by all
+// sketch keys.
+func teamIDString(teamID int64) string { return fmt.Sprintf("%d", teamID) }
+
 // Service orchestrates the AI explorer query: search, facets, trend, and summary.
 type Service struct {
-	repo Repository
+	repo    Repository
+	sketchQ *sketch.Querier
 }
 
 // NewService creates a new AI explorer service.
-func NewService(repo Repository) *Service {
-	return &Service{repo: repo}
+func NewService(repo Repository, sketchQ *sketch.Querier) *Service {
+	return &Service{repo: repo, sketchQ: sketchQ}
 }
 
 // Query executes the full AI explorer query and assembles the response.
@@ -39,6 +45,7 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Re
 	if err != nil {
 		return Response{}, fmt.Errorf("ai.Query.GetAISummary: %w", err)
 	}
+	s.attachSummaryPercentiles(ctx, teamID, req.StartTime, req.EndTime, &summary)
 
 	facetRows, err := s.repo.GetAIFacets(ctx, teamID, req.StartTime, req.EndTime, filters)
 	if err != nil {
@@ -48,6 +55,11 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Re
 	trend, err := s.repo.GetAITrend(ctx, teamID, req.StartTime, req.EndTime, filters, req.Step)
 	if err != nil {
 		return Response{}, fmt.Errorf("ai.Query.GetAITrend: %w", err)
+	}
+	for i := range trend {
+		if trend[i].LatencyMsCount > 0 {
+			trend[i].AvgLatencyMs = trend[i].LatencyMsSum / float64(trend[i].LatencyMsCount)
+		}
 	}
 
 	return Response{
@@ -205,16 +217,60 @@ func toAICalls(rows []aiCallRow) []AICall {
 }
 
 func toAISummary(row aiSummaryRow) AISummary {
+	avg := row.AvgLatencyMs
+	if avg == 0 && row.LatencyMsCount > 0 {
+		avg = row.LatencyMsSum / float64(row.LatencyMsCount)
+	}
 	return AISummary{
 		TotalCalls:        row.TotalCalls,
 		ErrorCalls:        row.ErrorCalls,
-		AvgLatencyMs:      row.AvgLatencyMs,
+		AvgLatencyMs:      avg,
 		P50LatencyMs:      row.P50LatencyMs,
 		P95LatencyMs:      row.P95LatencyMs,
 		P99LatencyMs:      row.P99LatencyMs,
 		TotalInputTokens:  row.TotalInputTokens,
 		TotalOutputTokens: row.TotalOutputTokens,
 	}
+}
+
+// attachSummaryPercentiles fills p50/p95/p99 from SpanLatencyService sketches
+// for the service names present in the window. Caveat: SpanLatencyService dim
+// is not GenAI-filtered, so a service that mixes AI and non-AI traffic will
+// contribute all its latencies here. Documented trade-off.
+func (s *Service) attachSummaryPercentiles(ctx context.Context, teamID, startMs, endMs int64, row *aiSummaryRow) {
+	if s.sketchQ == nil || row == nil {
+		return
+	}
+	prefixes := []string{""}
+	if len(row.Services) > 0 {
+		prefixes = prefixes[:0]
+		for _, svc := range row.Services {
+			if svc != "" {
+				prefixes = append(prefixes, sketch.DimSpanService(svc))
+			}
+		}
+		if len(prefixes) == 0 {
+			prefixes = []string{""}
+		}
+	}
+	pcts, err := s.sketchQ.PercentilesByDimPrefix(ctx, sketch.SpanLatencyService, teamIDString(teamID), startMs, endMs, prefixes, 0.5, 0.95, 0.99)
+	if err != nil {
+		return
+	}
+	merged := make([]float64, 3)
+	for _, v := range pcts {
+		if len(v) != 3 {
+			continue
+		}
+		for i := range merged {
+			if v[i] > merged[i] {
+				merged[i] = v[i]
+			}
+		}
+	}
+	row.P50LatencyMs = merged[0]
+	row.P95LatencyMs = merged[1]
+	row.P99LatencyMs = merged[2]
 }
 
 func groupFacets(rows []aiFacetRow) AIExplorerFacets {
@@ -271,11 +327,15 @@ func toSessionRows(rows []aiSessionRow) []SessionRow {
 func toAITrend(rows []aiTrendRow) []AITrendBucket {
 	trend := make([]AITrendBucket, 0, len(rows))
 	for _, r := range rows {
+		avg := r.AvgLatencyMs
+		if avg == 0 && r.LatencyMsCount > 0 {
+			avg = r.LatencyMsSum / float64(r.LatencyMsCount)
+		}
 		trend = append(trend, AITrendBucket{
 			TimeBucket:   r.TimeBucket,
 			TotalCalls:   r.TotalCalls,
 			ErrorCalls:   r.ErrorCalls,
-			AvgLatencyMs: r.AvgLatencyMs,
+			AvgLatencyMs: avg,
 			TotalTokens:  r.TotalTokens,
 		})
 	}

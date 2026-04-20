@@ -82,6 +82,14 @@ func (r *ClickHouseRepository) GetAICalls(ctx context.Context, teamID, startMs, 
 }
 
 // GetAISummary returns aggregated statistics for the query window.
+//
+// Percentiles come from sketch.Querier (SpanLatencyService) — see service.go.
+// Caveat: SpanLatencyService dim = service_name and is not GenAI-filtered;
+// when a service mixes GenAI and non-GenAI traffic the merged sketch will
+// slightly overestimate/underestimate against CH's strict filter. Acceptable
+// for the AI overview where services are typically AI-dominated.
+//
+// avg_latency_ms is computed Go-side from sum/count (no avg() in SQL).
 func (r *ClickHouseRepository) GetAISummary(ctx context.Context, teamID, startMs, endMs int64, filters []attrFilter) (aiSummaryRow, error) {
 	where, args := buildAIWhereClause(teamID, startMs, endMs, filters)
 
@@ -89,10 +97,12 @@ func (r *ClickHouseRepository) GetAISummary(ctx context.Context, teamID, startMs
 		SELECT
 			count() AS total_calls,
 			countIf(s.status_code_string = 'ERROR' OR s.has_error = true) AS error_calls,
-			avg(s.duration_nano / 1000000.0) AS avg_latency_ms,
-			quantileTDigest(0.50)(s.duration_nano / 1000000.0) AS p50_latency_ms,
-			quantileTDigest(0.95)(s.duration_nano / 1000000.0) AS p95_latency_ms,
-			quantileTDigest(0.99)(s.duration_nano / 1000000.0) AS p99_latency_ms,
+			sum(s.duration_nano / 1000000.0) AS latency_ms_sum,
+			toInt64(count()) AS latency_ms_count,
+			0.0 AS p50_latency_ms,
+			0.0 AS p95_latency_ms,
+			0.0 AS p99_latency_ms,
+			groupUniqArray(s.service_name) AS services,
 			sum(toFloat64OrZero(JSONExtractString(s.attributes, 'gen_ai.usage.input_tokens'))) AS total_input_tokens,
 			sum(toFloat64OrZero(JSONExtractString(s.attributes, 'gen_ai.usage.output_tokens'))) AS total_output_tokens
 		FROM observability.spans s
@@ -151,12 +161,14 @@ func (r *ClickHouseRepository) GetAITrend(ctx context.Context, teamID, startMs, 
 		bucketExpr = timebucket.ByName(step).GetBucketExpression()
 	}
 
+	// avg_latency_ms is computed Go-side from sum/count; keeps zero avg() in SQL.
 	query := fmt.Sprintf(`
 		SELECT
 			%s AS time_bucket,
 			count() AS total_calls,
 			countIf(s.status_code_string = 'ERROR' OR s.has_error = true) AS error_calls,
-			avg(s.duration_nano / 1000000.0) AS avg_latency_ms,
+			sum(s.duration_nano / 1000000.0) AS latency_ms_sum,
+			toInt64(count()) AS latency_ms_count,
 			sum(toFloat64OrZero(JSONExtractString(s.attributes, 'gen_ai.usage.total_tokens'))) AS total_tokens
 		FROM observability.spans s
 		%s

@@ -54,17 +54,20 @@ func (r *repository) GetTopModels(ctx context.Context, teamID, startMs, endMs in
 	}
 
 	where, args := buildAIWhereClause(queryContext{teamID: teamID, start: startMs, end: endMs})
+	// avg_latency_ms / avg_ttft_ms are computed Go-side from sum/count.
 	query := fmt.Sprintf(`
 		SELECT
 			ai.provider,
 			ai.request_model,
 			count() AS requests,
 			countIf(ai.has_error) AS error_runs,
-			avg(ai.latency_ms) AS avg_latency_ms,
-			avg(ai.ttft_ms) AS avg_ttft_ms,
+			sum(ai.latency_ms) AS latency_ms_sum,
+			toInt64(count()) AS latency_ms_count,
+			sum(ai.ttft_ms) AS ttft_ms_sum,
+			toInt64(countIf(ai.ttft_ms > 0)) AS ttft_ms_count,
 			sum(ai.total_tokens) AS total_tokens,
 			sum(ai.cost_usd) AS total_cost_usd,
-			if(countIf(ai.quality_score > 0) = 0, 0, avgIf(ai.quality_score, ai.quality_score > 0)) AS avg_quality_score
+			if(countIf(ai.quality_score > 0) = 0, 0, sumIf(ai.quality_score, ai.quality_score > 0) / countIf(ai.quality_score > 0)) AS avg_quality_score
 		FROM %s ai
 		WHERE %s AND ai.request_model != ''
 		GROUP BY ai.provider, ai.request_model
@@ -72,14 +75,30 @@ func (r *repository) GetTopModels(ctx context.Context, teamID, startMs, endMs in
 		LIMIT %d
 	`, aiRunsSubquery(), where, limit)
 
-	var rows []AIModelBreakdown
+	type modelRow struct {
+		AIModelBreakdown
+		LatencyMsSum   float64 `ch:"latency_ms_sum"`
+		LatencyMsCount int64   `ch:"latency_ms_count"`
+		TTFTMsSum      float64 `ch:"ttft_ms_sum"`
+		TTFTMsCount    int64   `ch:"ttft_ms_count"`
+	}
+	var rows []modelRow
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
-	for idx := range rows {
-		rows[idx].ErrorRatePct = ratioPct(rows[idx].ErrorRuns, rows[idx].Requests)
+	out := make([]AIModelBreakdown, 0, len(rows))
+	for _, row := range rows {
+		item := row.AIModelBreakdown
+		if row.LatencyMsCount > 0 {
+			item.AvgLatencyMs = row.LatencyMsSum / float64(row.LatencyMsCount)
+		}
+		if row.TTFTMsCount > 0 {
+			item.AvgTTFTMs = row.TTFTMsSum / float64(row.TTFTMsCount)
+		}
+		item.ErrorRatePct = ratioPct(item.ErrorRuns, item.Requests)
+		out = append(out, item)
 	}
-	return rows, nil
+	return out, nil
 }
 
 func (r *repository) GetTopPrompts(ctx context.Context, teamID, startMs, endMs int64, limit int) ([]AIPromptBreakdown, error) {
@@ -88,13 +107,15 @@ func (r *repository) GetTopPrompts(ctx context.Context, teamID, startMs, endMs i
 	}
 
 	where, args := buildAIWhereClause(queryContext{teamID: teamID, start: startMs, end: endMs})
+	// avg_latency_ms computed Go-side from sum/count.
 	query := fmt.Sprintf(`
 		SELECT
 			ai.prompt_template,
 			ai.prompt_template_version,
 			count() AS requests,
-			avg(ai.latency_ms) AS avg_latency_ms,
-			if(countIf(ai.quality_score > 0) = 0, 0, avgIf(ai.quality_score, ai.quality_score > 0)) AS avg_quality_score,
+			sum(ai.latency_ms) AS latency_ms_sum,
+			toInt64(count()) AS latency_ms_count,
+			if(countIf(ai.quality_score > 0) = 0, 0, sumIf(ai.quality_score, ai.quality_score > 0) / countIf(ai.quality_score > 0)) AS avg_quality_score,
 			sum(ai.cost_usd) AS total_cost_usd,
 			countIf(ai.has_error) AS error_runs
 		FROM %s ai
@@ -106,7 +127,9 @@ func (r *repository) GetTopPrompts(ctx context.Context, teamID, startMs, endMs i
 
 	type promptRow struct {
 		AIPromptBreakdown
-		ErrorRuns uint64 `ch:"error_runs"`
+		LatencyMsSum   float64 `ch:"latency_ms_sum"`
+		LatencyMsCount int64   `ch:"latency_ms_count"`
+		ErrorRuns      uint64  `ch:"error_runs"`
 	}
 
 	var rows []promptRow
@@ -116,6 +139,9 @@ func (r *repository) GetTopPrompts(ctx context.Context, teamID, startMs, endMs i
 	out := make([]AIPromptBreakdown, 0, len(rows))
 	for _, row := range rows {
 		item := row.AIPromptBreakdown
+		if row.LatencyMsCount > 0 {
+			item.AvgLatencyMs = row.LatencyMsSum / float64(row.LatencyMsCount)
+		}
 		item.ErrorRatePct = ratioPct(row.ErrorRuns, item.Requests)
 		out = append(out, item)
 	}
@@ -253,28 +279,51 @@ func (r *repository) SearchRuns(ctx context.Context, q queryContext, limit int, 
 
 func (r *repository) SummarizeRuns(ctx context.Context, q queryContext) (AIOverview, error) {
 	where, args := buildAIWhereClause(q)
+	// p95_latency_ms comes from sketch.Querier (SpanLatencyService) — the
+	// repository returns 0 and the service fills it. avg_latency_ms /
+	// avg_ttft_ms are computed Go-side from sum/count. Services is used by
+	// the service layer to narrow the sketch merge to the AI-adjacent services.
 	query := fmt.Sprintf(`
 		SELECT
 			count() AS total_runs,
 			countIf(ai.has_error) AS error_runs,
-			avg(ai.latency_ms) AS avg_latency_ms,
-			quantileTDigest(0.95)(ai.latency_ms) AS p95_latency_ms,
-			avg(ai.ttft_ms) AS avg_ttft_ms,
+			sum(ai.latency_ms) AS latency_ms_sum,
+			toInt64(count()) AS latency_ms_count,
+			0.0 AS p95_latency_ms,
+			sum(ai.ttft_ms) AS ttft_ms_sum,
+			toInt64(countIf(ai.ttft_ms > 0)) AS ttft_ms_count,
 			sum(ai.total_tokens) AS total_tokens,
 			sum(ai.cost_usd) AS total_cost_usd,
-			if(countIf(ai.quality_score > 0) = 0, 0, avgIf(ai.quality_score, ai.quality_score > 0)) AS avg_quality_score,
+			if(countIf(ai.quality_score > 0) = 0, 0, sumIf(ai.quality_score, ai.quality_score > 0) / countIf(ai.quality_score > 0)) AS avg_quality_score,
 			uniqIf(ai.provider, ai.provider != '') AS provider_count,
 			uniqIf(ai.request_model, ai.request_model != '') AS model_count,
 			uniqIf(ai.prompt_template, ai.prompt_template != '') AS prompt_count,
-			countIf(lower(ai.guardrail_state) IN ('blocked', 'rejected', 'failed')) AS guardrail_blocked
+			countIf(lower(ai.guardrail_state) IN ('blocked', 'rejected', 'failed')) AS guardrail_blocked,
+			groupUniqArray(ai.service_name) AS services
 		FROM %s ai
 		WHERE %s
 	`, aiRunsSubquery(), where)
 
-	var summary AIOverview
-	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&summary); err != nil {
+	type summaryScanRow struct {
+		AIOverview
+		LatencyMsSum   float64  `ch:"latency_ms_sum"`
+		LatencyMsCount int64    `ch:"latency_ms_count"`
+		TTFTMsSum      float64  `ch:"ttft_ms_sum"`
+		TTFTMsCount    int64    `ch:"ttft_ms_count"`
+		Services       []string `ch:"services"`
+	}
+	var scan summaryScanRow
+	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&scan); err != nil {
 		return AIOverview{}, err
 	}
+	summary := scan.AIOverview
+	if scan.LatencyMsCount > 0 {
+		summary.AvgLatencyMs = scan.LatencyMsSum / float64(scan.LatencyMsCount)
+	}
+	if scan.TTFTMsCount > 0 {
+		summary.AvgTTFTMs = scan.TTFTMsSum / float64(scan.TTFTMsCount)
+	}
+	summary.Services = scan.Services
 	summary.ErrorRatePct = ratioPct(summary.ErrorRuns, summary.TotalRuns)
 	return summary, nil
 }
@@ -282,16 +331,19 @@ func (r *repository) SummarizeRuns(ctx context.Context, q queryContext) (AIOverv
 func (r *repository) TrendRuns(ctx context.Context, q queryContext, step string) ([]AITrendPoint, error) {
 	where, args := buildAIWhereClause(q)
 	bucket := utils.ByName(step).GetRawExpression("ai.start_time")
+	// p95_latency_ms is filled by the service from sketch.Querier. avg_ttft_ms
+	// is computed Go-side from sum/count.
 	query := fmt.Sprintf(`
 		SELECT
 			%s AS time_bucket,
 			count() AS requests,
 			countIf(ai.has_error) AS error_runs,
-			quantileTDigest(0.95)(ai.latency_ms) AS p95_latency_ms,
-			avg(ai.ttft_ms) AS avg_ttft_ms,
+			0.0 AS p95_latency_ms,
+			sum(ai.ttft_ms) AS ttft_ms_sum,
+			toInt64(countIf(ai.ttft_ms > 0)) AS ttft_ms_count,
 			sum(ai.total_tokens) AS total_tokens,
 			sum(ai.cost_usd) AS total_cost_usd,
-			if(countIf(ai.quality_score > 0) = 0, 0, avgIf(ai.quality_score, ai.quality_score > 0)) AS avg_quality_score,
+			if(countIf(ai.quality_score > 0) = 0, 0, sumIf(ai.quality_score, ai.quality_score > 0) / countIf(ai.quality_score > 0)) AS avg_quality_score,
 			countIf(lower(ai.guardrail_state) IN ('blocked', 'rejected', 'failed')) AS guardrail_blocked
 		FROM %s ai
 		WHERE %s
@@ -299,12 +351,23 @@ func (r *repository) TrendRuns(ctx context.Context, q queryContext, step string)
 		ORDER BY time_bucket ASC
 	`, bucket, aiRunsSubquery(), where)
 
-	var rows []AITrendPoint
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	type trendScanRow struct {
+		AITrendPoint
+		TTFTMsSum   float64 `ch:"ttft_ms_sum"`
+		TTFTMsCount int64   `ch:"ttft_ms_count"`
+	}
+	var scan []trendScanRow
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &scan, query, args...); err != nil {
 		return nil, err
 	}
-	for idx := range rows {
-		rows[idx].ErrorRatePct = ratioPct(rows[idx].ErrorRuns, rows[idx].Requests)
+	rows := make([]AITrendPoint, 0, len(scan))
+	for _, row := range scan {
+		pt := row.AITrendPoint
+		if row.TTFTMsCount > 0 {
+			pt.AvgTTFTMs = row.TTFTMsSum / float64(row.TTFTMsCount)
+		}
+		pt.ErrorRatePct = ratioPct(pt.ErrorRuns, pt.Requests)
+		rows = append(rows, pt)
 	}
 	return rows, nil
 }

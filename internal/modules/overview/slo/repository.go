@@ -16,10 +16,10 @@ func sloBucketExpr(startMs, endMs int64) string {
 }
 
 type Repository interface {
-	GetSummary(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (Summary, error)
-	GetTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]TimeSlice, error)
+	GetSummary(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (summaryRow, error)
+	GetTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]timeSliceRow, error)
 	GetBurnDown(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]BurnDownPoint, error)
-	GetBurnRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (*BurnRate, error)
+	ErrorRateForWindow(ctx context.Context, teamID int64, minutes int, serviceName string) (float64, error)
 }
 
 type ClickHouseRepository struct {
@@ -47,57 +47,53 @@ type BurnRate struct {
 	BudgetRemaining float64 `json:"budget_remaining_pct"`
 }
 
-// summaryRow is the DTO for GetSummary.
+// summaryRow is the DTO for GetSummary. LatencySumMs/LatencyCount power the
+// Go-side avg; P95 is filled by the service from sketches (sketch.SpanLatencyService).
 type summaryRow struct {
-	TotalRequests       int64   `ch:"total_requests"`
-	ErrorCount          int64   `ch:"error_count"`
-	AvailabilityPercent float64 `ch:"availability_percent"`
-	AvgLatencyMs        float64 `ch:"avg_latency_ms"`
-	P95LatencyMs        float64 `ch:"p95_latency_ms"`
+	TotalRequests  int64   `ch:"total_requests"`
+	ErrorCount     int64   `ch:"error_count"`
+	LatencySumMs   float64 `ch:"latency_sum_ms"`
+	LatencyCount   int64   `ch:"latency_count"`
+	P95LatencyMs   float64 `ch:"p95_latency_ms"`
 }
 
-func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (Summary, error) {
+func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (summaryRow, error) {
+	// p95 comes from sketch.Querier (SpanLatencyService) — see service.go.
+	// Avg is computed in Go from latency_sum_ms / latency_count.
 	query := `
-		SELECT total_requests,
-		       error_count,
-		       if(total_requests > 0,
-		          (total_requests-error_count)*100.0/total_requests,
-		          100.0)              AS availability_percent,
-		       avg_latency_ms,
-		       p95_latency_ms
-		FROM (
-			SELECT toInt64(count())                                                             AS total_requests,
-			       toInt64(countIf(` + ErrorCondition() + `))                                  AS error_count,
-			       avg(s.duration_nano / 1000000.0)                                            AS avg_latency_ms,
-			       quantileTDigest(` + fmt.Sprintf("%.2f", QuantileP95) + `)(s.duration_nano / 1000000.0) AS p95_latency_ms
-			FROM observability.spans s
-			WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`
+		SELECT toInt64(count())                                         AS total_requests,
+		       toInt64(countIf(` + ErrorCondition() + `))              AS error_count,
+		       sum(s.duration_nano / 1000000.0)                        AS latency_sum_ms,
+		       toInt64(count())                                         AS latency_count,
+		       0 AS p95_latency_ms
+		FROM observability.spans s
+		WHERE s.team_id = @teamID AND ` + RootSpanCondition() + ` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`
 	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
 		query += serviceNameFilter
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
-	query += `
-		)`
 
 	var row summaryRow
 	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&row); err != nil {
-		return Summary{}, err
+		return summaryRow{}, err
 	}
 
-	return Summary(row), nil
+	return row, nil
 }
 
-// timeSliceRow is the DTO for GetTimeSeries.
+// timeSliceRow is the DTO for GetTimeSeries. LatencySumMs/LatencyCount feed
+// the Go-side avg; no percentiles in the time series path.
 type timeSliceRow struct {
 	TimeBucket          string  `ch:"time_bucket"`
 	RequestCount        int64   `ch:"request_count"`
 	ErrorCount          int64   `ch:"error_count"`
 	AvailabilityPercent float64 `ch:"availability_percent"`
-	AvgLatencyMs        float64 `ch:"avg_latency_ms"`
+	LatencySumMs        float64 `ch:"latency_sum_ms"`
+	LatencyCount        int64   `ch:"latency_count"`
 }
 
-func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]TimeSlice, error) {
+func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]timeSliceRow, error) {
 	bucket := sloBucketExpr(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT time_bucket,
@@ -106,12 +102,14 @@ func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, 
 		       if(request_count > 0,
 		          (request_count-error_count)*100.0/request_count,
 		          100.0)            AS availability_percent,
-		       avg_latency_ms
+		       latency_sum_ms,
+		       latency_count
 		FROM (
 			SELECT %s                                   AS time_bucket,
 			       toInt64(count())                     AS request_count,
 			       toInt64(countIf(`+ErrorCondition()+`)) AS error_count,
-			       avg(s.duration_nano / 1000000.0)     AS avg_latency_ms
+			       sum(s.duration_nano / 1000000.0)     AS latency_sum_ms,
+			       toInt64(count())                     AS latency_count
 			FROM observability.spans s
 			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
 	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
@@ -127,19 +125,7 @@ func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, 
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
-
-	slices := make([]TimeSlice, len(rows))
-	for i, row := range rows {
-		avg := row.AvgLatencyMs
-		slices[i] = TimeSlice{
-			Timestamp:           row.TimeBucket,
-			RequestCount:        row.RequestCount,
-			ErrorCount:          row.ErrorCount,
-			AvailabilityPercent: row.AvailabilityPercent,
-			AvgLatencyMs:        &avg,
-		}
-	}
-	return slices, nil
+	return rows, nil
 }
 
 // burnDownRow is the DTO for the raw per-bucket row from ClickHouse.
@@ -202,39 +188,12 @@ func (r *ClickHouseRepository) GetBurnDown(ctx context.Context, teamID int64, st
 	return points, nil
 }
 
-func (r *ClickHouseRepository) GetBurnRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (*BurnRate, error) {
-	// Fast burn: last 5 minutes error rate
-	fastRate, err := r.errorRateForWindow(ctx, teamID, 5, serviceName)
-	if err != nil {
-		return nil, err
-	}
-	// Slow burn: last 60 minutes error rate
-	slowRate, err := r.errorRateForWindow(ctx, teamID, 60, serviceName)
-	if err != nil {
-		return nil, err
-	}
-
-	// Overall budget remaining
-	summary, err := r.GetSummary(ctx, teamID, startMs, endMs, serviceName)
-	if err != nil {
-		return nil, err
-	}
-
-	return &BurnRate{
-		FastBurnRate:    fastRate,
-		SlowBurnRate:    slowRate,
-		FastWindow:      "5m",
-		SlowWindow:      "1h",
-		BudgetRemaining: remainingErrorBudgetPercent(summary.AvailabilityPercent),
-	}, nil
-}
-
 // errorRateRow is the DTO for scalar error rate queries.
 type errorRateRow struct {
 	ErrorRate float64 `ch:"error_rate"`
 }
 
-func (r *ClickHouseRepository) errorRateForWindow(ctx context.Context, teamID int64, minutes int, serviceName string) (float64, error) {
+func (r *ClickHouseRepository) ErrorRateForWindow(ctx context.Context, teamID int64, minutes int, serviceName string) (float64, error) {
 	query := fmt.Sprintf(`
 		SELECT countIf(`+ErrorCondition()+`) * 100.0 / count() AS error_rate
 		FROM observability.spans s

@@ -1,11 +1,11 @@
 package systems
 
 import (
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
@@ -28,12 +28,15 @@ func (r *ClickHouseRepository) GetDetectedSystems(ctx context.Context, teamID in
 	serverAttr := shared.AttrString(shared.AttrServerAddress)
 	errorAttr := shared.AttrString(shared.AttrErrorType)
 
+	// Percentiles + avg come from sketch.Querier (DbOpLatency) in the service
+	// layer. SQL emits only raw counts + sum/count for in-Go avg.
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                             AS db_system,
 		    toInt64(sum(hist_count))                                                       AS span_count,
 		    toInt64(sumIf(hist_count, notEmpty(%s)))                                       AS error_count,
-		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS avg_latency_ms,
+		    sum(hist_sum)                                                                  AS latency_sum,
+		    toInt64(sum(hist_count))                                                       AS latency_count,
 		    toInt64(sum(hist_count))                                                       AS query_count,
 		    any(%s)                                                                        AS server_address,
 		    max(timestamp)                                                                 AS last_seen
@@ -66,7 +69,8 @@ func (r *ClickHouseRepository) GetDetectedSystems(ctx context.Context, teamID in
 			DBSystem:      d.DBSystem,
 			SpanCount:     d.SpanCount,
 			ErrorCount:    d.ErrorCount,
-			AvgLatencyMs:  d.AvgLatencyMs,
+			LatencySum:    d.LatencySum,
+			LatencyCount:  d.LatencyCount,
 			QueryCount:    d.QueryCount,
 			ServerAddress: d.ServerAddress,
 			LastSeen:      d.LastSeen.Format(time.RFC3339),

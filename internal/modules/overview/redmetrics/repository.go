@@ -18,7 +18,7 @@ type Repository interface {
 	GetTopErrorOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]errorOperationRow, error)
 	GetRequestRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceRatePoint, error)
 	GetErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceErrorRatePoint, error)
-	GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceLatencyPoint, error)
+	GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]p95LatencyTSRow, error)
 	GetSpanKindBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]SpanKindPoint, error)
 	GetErrorsByRoute(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorByRoutePoint, error)
 	GetLatencyBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]latencyBreakdownRow, error)
@@ -33,14 +33,13 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) ([]redSummaryServiceRow, error) {
+	// Percentiles come from sketch.Querier (SpanLatencyService) — see service.go.
 	var rows []redSummaryServiceRow
 	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT service_name,
 		       toInt64(count())                                                               AS total_count,
 		       toInt64(countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400)) AS error_count,
-		       quantileTDigest(0.50)(duration_nano / 1000000.0)                                AS p50_ms,
-		       quantileTDigest(0.95)(duration_nano / 1000000.0)                                AS p95_ms,
-		       quantileTDigest(0.99)(duration_nano / 1000000.0)                                AS p99_ms
+		       0 AS p50_ms, 0 AS p95_ms, 0 AS p99_ms
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND `+rootspan.Condition("s")+` AND s.timestamp BETWEEN @start AND @end
 		GROUP BY service_name
@@ -81,18 +80,20 @@ func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, start
 }
 
 func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]slowOperationRow, error) {
+	// Percentiles come from sketch.Querier (SpanLatencyEndpoint w/ prefix
+	// service|operation|) — see service.go. Ordering by span_count as a
+	// reasonable proxy at the SQL layer; the final p95-based sort + limit
+	// is applied in service.go after percentiles are filled in.
 	var rows []slowOperationRow
 	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT service_name,
 		       name                                           AS operation_name,
 		       toInt64(count())                               AS span_count,
-		       quantileTDigest(0.50)(duration_nano / 1000000.0) AS p50_ms,
-		       quantileTDigest(0.95)(duration_nano / 1000000.0) AS p95_ms,
-		       quantileTDigest(0.99)(duration_nano / 1000000.0) AS p99_ms
+		       0 AS p50_ms, 0 AS p95_ms, 0 AS p99_ms
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND `+rootspan.Condition("s")+` AND s.timestamp BETWEEN @start AND @end
 		GROUP BY service_name, operation_name
-		ORDER BY p95_ms DESC
+		ORDER BY span_count DESC
 		LIMIT @limit
 	`,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
@@ -174,13 +175,18 @@ func (r *ClickHouseRepository) GetErrorRateTimeSeries(ctx context.Context, teamI
 	return rows, err
 }
 
-func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceLatencyPoint, error) {
+// GetP95LatencyTimeSeries returns the list of (service_name, bucket) pairs that
+// have any root-span traffic. Percentile values are attached in service.go from
+// the sketch timeseries. Keeping the CH query as the coverage source means
+// services that exist in spans but not yet in the sketch still appear (with
+// zero percentiles) rather than silently disappearing.
+func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]p95LatencyTSRow, error) {
 	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
-	var rows []ServiceLatencyPoint
+	var rows []p95LatencyTSRow
 	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, fmt.Sprintf(`
-		SELECT %s                                              AS timestamp,
+		SELECT %s                               AS timestamp,
 		       service_name,
-		       quantileTDigest(0.95)(duration_nano / 1000000.0) AS p95_ms
+		       toInt64(count())                 AS span_count
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND `+rootspan.Condition("s")+` AND s.timestamp BETWEEN @start AND @end
 		GROUP BY timestamp, service_name
@@ -240,11 +246,12 @@ func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int6
 }
 
 func (r *ClickHouseRepository) GetLatencyBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]latencyBreakdownRow, error) {
+	// Mean replaced by sum + count; service.go divides to get the per-service mean.
 	var rows []latencyBreakdownRow
 	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT
 			service_name,
-			avg(duration_nano / 1000000.0) AS total_ms,
+			sum(duration_nano / 1000000.0) AS total_ms_sum,
 			toInt64(count())               AS span_count
 		FROM observability.spans s
 		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND `+rootspan.Condition("s")+` AND s.timestamp BETWEEN @start AND @end

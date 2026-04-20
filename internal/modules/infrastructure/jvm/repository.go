@@ -1,23 +1,23 @@
 package jvm
 
 import (
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 	"math"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
 type Repository interface {
-	GetJVMMemory(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmMemoryBucketDTO, error)
-	GetJVMGCDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
+	GetJVMMemory(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmMemoryBucketRow, error)
+	GetJVMGCDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error)
 	GetJVMGCCollections(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmGCCollectionBucketDTO, error)
-	GetJVMThreadCount(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmThreadBucketDTO, error)
-	GetJVMClasses(ctx context.Context, teamID int64, startMs, endMs int64) (jvmClassStatsDTO, error)
-	GetJVMCPU(ctx context.Context, teamID int64, startMs, endMs int64) (jvmCPUStatsDTO, error)
-	GetJVMBuffers(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmBufferBucketDTO, error)
+	GetJVMThreadCount(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmThreadBucketRow, error)
+	GetJVMClasses(ctx context.Context, teamID int64, startMs, endMs int64) (jvmClassStatsRow, error)
+	GetJVMCPU(ctx context.Context, teamID int64, startMs, endMs int64) (jvmCPUStatsRow, error)
+	GetJVMBuffers(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmBufferBucketRow, error)
 }
 
 type ClickHouseRepository struct {
@@ -32,7 +32,63 @@ func bucketExpr(startMs, endMs int64) string {
 	return infraconsts.TimeBucketExpression(startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetJVMMemory(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmMemoryBucketDTO, error) {
+// histogramSummaryRow carries the sum/count pair for histogram-backed metrics.
+// Percentiles come from sketch.Querier (JvmMetricLatency).
+type histogramSummaryRow struct {
+	HistSum   float64 `ch:"hist_sum"`
+	HistCount int64   `ch:"hist_count"`
+	P50       float64 `ch:"p50"`
+	P95       float64 `ch:"p95"`
+	P99       float64 `ch:"p99"`
+}
+
+// jvmMemoryBucketRow carries sum/count per memory kind so the service can
+// compute avg in Go (replaces three avgIf() calls in SQL).
+type jvmMemoryBucketRow struct {
+	Timestamp      string  `ch:"time_bucket"`
+	PoolName       string  `ch:"pool_name"`
+	MemType        string  `ch:"mem_type"`
+	UsedSum        float64 `ch:"used_sum"`
+	UsedCount      int64   `ch:"used_count"`
+	CommittedSum   float64 `ch:"committed_sum"`
+	CommittedCount int64   `ch:"committed_count"`
+	LimitSum       float64 `ch:"limit_sum"`
+	LimitCount     int64   `ch:"limit_count"`
+}
+
+// jvmThreadBucketRow carries sum/count per (bucket, daemon).
+type jvmThreadBucketRow struct {
+	Timestamp string  `ch:"time_bucket"`
+	Daemon    string  `ch:"daemon"`
+	ValSum    float64 `ch:"val_sum"`
+	ValCount  int64   `ch:"val_count"`
+}
+
+// jvmClassStatsRow carries totals; the service derives the final shape.
+type jvmClassStatsRow struct {
+	LoadedSum float64 `ch:"loaded_sum"`
+	CountSum  float64 `ch:"count_sum"`
+	CountN    int64   `ch:"count_n"`
+}
+
+// jvmCPUStatsRow — cpu_time is a running total (sumIf), cpu_util is an avg.
+type jvmCPUStatsRow struct {
+	CPUTimeSum  float64 `ch:"cpu_time_sum"`
+	CPUUtilSum  float64 `ch:"cpu_util_sum"`
+	CPUUtilN    int64   `ch:"cpu_util_n"`
+}
+
+// jvmBufferBucketRow carries sum/count pairs for memory_usage and count.
+type jvmBufferBucketRow struct {
+	Timestamp        string  `ch:"time_bucket"`
+	PoolName         string  `ch:"pool_name"`
+	MemoryUsageSum   float64 `ch:"memory_usage_sum"`
+	MemoryUsageCount int64   `ch:"memory_usage_count"`
+	BufCountSum      float64 `ch:"buf_count_sum"`
+	BufCountN        int64   `ch:"buf_count_n"`
+}
+
+func (r *ClickHouseRepository) GetJVMMemory(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmMemoryBucketRow, error) {
 	bucket := bucketExpr(startMs, endMs)
 	pool := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrJVMMemoryPoolName)
 	memType := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrJVMMemoryType)
@@ -41,44 +97,52 @@ func (r *ClickHouseRepository) GetJVMMemory(ctx context.Context, teamID int64, s
 			%s as time_bucket,
 			%s as pool_name,
 			%s as mem_type,
-			avgIf(%s, %s = '%s') as used,
-			avgIf(%s, %s = '%s') as committed,
-			avgIf(%s, %s = '%s') as limit_val
+			sumIf(%s, %s = '%s')          as used_sum,
+			toInt64(countIf(%s = '%s'))   as used_count,
+			sumIf(%s, %s = '%s')          as committed_sum,
+			toInt64(countIf(%s = '%s'))   as committed_count,
+			sumIf(%s, %s = '%s')          as limit_sum,
+			toInt64(countIf(%s = '%s'))   as limit_count
 		FROM %s
 		WHERE %s = @teamID AND %s BETWEEN @start AND @end
 		  AND %s IN ('%s', '%s', '%s')
 		GROUP BY 1, 2, 3 ORDER BY 1, 2, 3`,
 		bucket, pool, memType,
 		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJVMMemoryUsed,
+		infraconsts.ColMetricName, infraconsts.MetricJVMMemoryUsed,
 		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJVMMemoryCommitted,
+		infraconsts.ColMetricName, infraconsts.MetricJVMMemoryCommitted,
 		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJVMMemoryLimit,
+		infraconsts.ColMetricName, infraconsts.MetricJVMMemoryLimit,
 		infraconsts.TableMetrics,
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricJVMMemoryUsed, infraconsts.MetricJVMMemoryCommitted, infraconsts.MetricJVMMemoryLimit)
-	var rows []jvmMemoryBucketDTO
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
-	for i := range rows {
-		rows[i].Used = sanitizeFloatPtr(rows[i].Used)
-		rows[i].Committed = sanitizeFloatPtr(rows[i].Committed)
-		rows[i].Limit = sanitizeFloatPtr(rows[i].Limit)
+	var rows []jvmMemoryBucketRow
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+		return nil, err
 	}
-	return rows, err
+	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetJVMGCDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error) {
+func (r *ClickHouseRepository) GetJVMGCDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error) {
+	// Quantiles + avg both come from hist_sum / hist_count roll-ups via
+	// sketch.JvmMetricLatency. SQL only fetches the raw totals.
 	query := fmt.Sprintf(`
 		SELECT
-			quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) as p50,
-			quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) as p95,
-			quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) as p99,
-			avg(hist_sum / nullIf(hist_count, 0)) as avg_val
+			sum(hist_sum)            AS hist_sum,
+			toInt64(sum(hist_count)) AS hist_count,
+			0 AS p50, 0 AS p95, 0 AS p99
 		FROM %s
 		WHERE %s = @teamID AND %s BETWEEN @start AND @end
 		  AND %s = '%s' AND metric_type = 'Histogram'`,
 		infraconsts.TableMetrics,
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricJVMGCDuration)
-	return r.queryHistogramSummary(ctx, query, teamID, startMs, endMs)
+	var row histogramSummaryRow
+	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...).ScanStruct(&row); err != nil {
+		return histogramSummaryRow{}, err
+	}
+	return row, nil
 }
 
 func (r *ClickHouseRepository) GetJVMGCCollections(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmGCCollectionBucketDTO, error) {
@@ -94,101 +158,6 @@ func (r *ClickHouseRepository) GetJVMGCCollections(ctx context.Context, teamID i
 		infraconsts.TableMetrics,
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricJVMGCDuration)
-	return r.queryJVMGCCollectionBuckets(ctx, query, teamID, startMs, endMs)
-}
-
-func (r *ClickHouseRepository) GetJVMThreadCount(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmThreadBucketDTO, error) {
-	bucket := bucketExpr(startMs, endMs)
-	daemon := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrJVMThreadDaemon)
-	query := fmt.Sprintf(`
-		SELECT %s as time_bucket, %s as daemon, avg(%s) as metric_val
-		FROM %s
-		WHERE %s = @teamID AND %s BETWEEN @start AND @end AND %s = '%s'
-		GROUP BY 1, 2 ORDER BY 1, 2`,
-		bucket, daemon, infraconsts.ColValue,
-		infraconsts.TableMetrics,
-		infraconsts.ColTeamID, infraconsts.ColTimestamp, infraconsts.ColMetricName, infraconsts.MetricJVMThreadCount)
-	return r.queryJVMThreadBuckets(ctx, query, teamID, startMs, endMs)
-}
-
-func (r *ClickHouseRepository) GetJVMClasses(ctx context.Context, teamID int64, startMs, endMs int64) (jvmClassStatsDTO, error) {
-	loadedExpr := fmt.Sprintf("sumIf(%s, %s = '%s' AND isFinite(%s))", infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJVMClassLoaded, infraconsts.ColValue)
-	countExpr := fmt.Sprintf("avgIf(%s, %s = '%s' AND isFinite(%s))", infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJVMClassCount, infraconsts.ColValue)
-	query := fmt.Sprintf(`
-		SELECT
-			toInt64(if(isFinite(%s), round(%s), 0)) as loaded,
-			toInt64(if(isFinite(%s), round(%s), 0)) as count_val
-		FROM %s
-		WHERE %s = @teamID AND %s BETWEEN @start AND @end
-		  AND %s IN ('%s', '%s')`,
-		loadedExpr, loadedExpr,
-		countExpr, countExpr,
-		infraconsts.TableMetrics,
-		infraconsts.ColTeamID, infraconsts.ColTimestamp,
-		infraconsts.ColMetricName, infraconsts.MetricJVMClassLoaded, infraconsts.MetricJVMClassCount)
-	var row jvmClassStatsDTO
-	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...).ScanStruct(&row)
-	return row, err
-}
-
-func (r *ClickHouseRepository) GetJVMCPU(ctx context.Context, teamID int64, startMs, endMs int64) (jvmCPUStatsDTO, error) {
-	query := fmt.Sprintf(`
-		SELECT
-			sumIf(%s, %s = '%s') as cpu_time,
-			avgIf(%s, %s = '%s') as cpu_util
-		FROM %s
-		WHERE %s = @teamID AND %s BETWEEN @start AND @end
-		  AND %s IN ('%s', '%s')`,
-		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJVMCPUTime,
-		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJVMCPUUtilization,
-		infraconsts.TableMetrics,
-		infraconsts.ColTeamID, infraconsts.ColTimestamp,
-		infraconsts.ColMetricName, infraconsts.MetricJVMCPUTime, infraconsts.MetricJVMCPUUtilization)
-	var row jvmCPUStatsDTO
-	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...).ScanStruct(&row)
-	row.CPUTimeValue = sanitizeFloat(row.CPUTimeValue)
-	row.RecentUtilization = sanitizeFloat(row.RecentUtilization)
-	return row, err
-}
-
-func (r *ClickHouseRepository) GetJVMBuffers(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmBufferBucketDTO, error) {
-	bucket := bucketExpr(startMs, endMs)
-	pool := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrJVMBufferPoolName)
-	query := fmt.Sprintf(`
-		SELECT
-			%s as time_bucket,
-			%s as pool_name,
-			avgIf(%s, %s = '%s') as memory_usage,
-			avgIf(%s, %s = '%s') as buf_count
-		FROM %s
-		WHERE %s = @teamID AND %s BETWEEN @start AND @end
-		  AND %s IN ('%s', '%s')
-		GROUP BY 1, 2 ORDER BY 1, 2`,
-		bucket, pool,
-		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJVMBufferMemoryUsage,
-		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJVMBufferCount,
-		infraconsts.TableMetrics,
-		infraconsts.ColTeamID, infraconsts.ColTimestamp,
-		infraconsts.ColMetricName, infraconsts.MetricJVMBufferMemoryUsage, infraconsts.MetricJVMBufferCount)
-	var rows []JVMBufferBucket
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
-	for i := range rows {
-		rows[i].MemoryUsage = sanitizeFloatPtr(rows[i].MemoryUsage)
-		rows[i].Count = sanitizeFloatPtr(rows[i].Count)
-	}
-	return rows, err
-}
-
-func (r *ClickHouseRepository) queryJVMThreadBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]JVMThreadBucket, error) {
-	var rows []JVMThreadBucket
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
-	for i := range rows {
-		rows[i].Value = sanitizeFloatPtr(rows[i].Value)
-	}
-	return rows, err
-}
-
-func (r *ClickHouseRepository) queryJVMGCCollectionBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]JVMGCCollectionBucket, error) {
 	var rows []JVMGCCollectionBucket
 	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
 	for i := range rows {
@@ -197,14 +166,94 @@ func (r *ClickHouseRepository) queryJVMGCCollectionBuckets(ctx context.Context, 
 	return rows, err
 }
 
-func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, query string, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
-	var row HistogramSummary
+func (r *ClickHouseRepository) GetJVMThreadCount(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmThreadBucketRow, error) {
+	bucket := bucketExpr(startMs, endMs)
+	daemon := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrJVMThreadDaemon)
+	query := fmt.Sprintf(`
+		SELECT %s as time_bucket, %s as daemon,
+		       sum(%s)          as val_sum,
+		       toInt64(count()) as val_count
+		FROM %s
+		WHERE %s = @teamID AND %s BETWEEN @start AND @end AND %s = '%s'
+		GROUP BY 1, 2 ORDER BY 1, 2`,
+		bucket, daemon, infraconsts.ColValue,
+		infraconsts.TableMetrics,
+		infraconsts.ColTeamID, infraconsts.ColTimestamp, infraconsts.ColMetricName, infraconsts.MetricJVMThreadCount)
+	var rows []jvmThreadBucketRow
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func (r *ClickHouseRepository) GetJVMClasses(ctx context.Context, teamID int64, startMs, endMs int64) (jvmClassStatsRow, error) {
+	query := fmt.Sprintf(`
+		SELECT
+			sumIf(%s, %s = '%s' AND isFinite(%s))                 AS loaded_sum,
+			sumIf(%s, %s = '%s' AND isFinite(%s))                 AS count_sum,
+			toInt64(countIf(%s = '%s' AND isFinite(%s)))          AS count_n
+		FROM %s
+		WHERE %s = @teamID AND %s BETWEEN @start AND @end
+		  AND %s IN ('%s', '%s')`,
+		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJVMClassLoaded, infraconsts.ColValue,
+		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJVMClassCount, infraconsts.ColValue,
+		infraconsts.ColMetricName, infraconsts.MetricJVMClassCount, infraconsts.ColValue,
+		infraconsts.TableMetrics,
+		infraconsts.ColTeamID, infraconsts.ColTimestamp,
+		infraconsts.ColMetricName, infraconsts.MetricJVMClassLoaded, infraconsts.MetricJVMClassCount)
+	var row jvmClassStatsRow
 	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...).ScanStruct(&row)
-	row.P50 = sanitizeFloat(row.P50)
-	row.P95 = sanitizeFloat(row.P95)
-	row.P99 = sanitizeFloat(row.P99)
-	row.Avg = sanitizeFloat(row.Avg)
 	return row, err
+}
+
+func (r *ClickHouseRepository) GetJVMCPU(ctx context.Context, teamID int64, startMs, endMs int64) (jvmCPUStatsRow, error) {
+	query := fmt.Sprintf(`
+		SELECT
+			sumIf(%s, %s = '%s')                        AS cpu_time_sum,
+			sumIf(%s, %s = '%s')                        AS cpu_util_sum,
+			toInt64(countIf(%s = '%s'))                 AS cpu_util_n
+		FROM %s
+		WHERE %s = @teamID AND %s BETWEEN @start AND @end
+		  AND %s IN ('%s', '%s')`,
+		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJVMCPUTime,
+		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJVMCPUUtilization,
+		infraconsts.ColMetricName, infraconsts.MetricJVMCPUUtilization,
+		infraconsts.TableMetrics,
+		infraconsts.ColTeamID, infraconsts.ColTimestamp,
+		infraconsts.ColMetricName, infraconsts.MetricJVMCPUTime, infraconsts.MetricJVMCPUUtilization)
+	var row jvmCPUStatsRow
+	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...).ScanStruct(&row)
+	return row, err
+}
+
+func (r *ClickHouseRepository) GetJVMBuffers(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmBufferBucketRow, error) {
+	bucket := bucketExpr(startMs, endMs)
+	pool := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrJVMBufferPoolName)
+	query := fmt.Sprintf(`
+		SELECT
+			%s as time_bucket,
+			%s as pool_name,
+			sumIf(%s, %s = '%s')          as memory_usage_sum,
+			toInt64(countIf(%s = '%s'))   as memory_usage_count,
+			sumIf(%s, %s = '%s')          as buf_count_sum,
+			toInt64(countIf(%s = '%s'))   as buf_count_n
+		FROM %s
+		WHERE %s = @teamID AND %s BETWEEN @start AND @end
+		  AND %s IN ('%s', '%s')
+		GROUP BY 1, 2 ORDER BY 1, 2`,
+		bucket, pool,
+		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJVMBufferMemoryUsage,
+		infraconsts.ColMetricName, infraconsts.MetricJVMBufferMemoryUsage,
+		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJVMBufferCount,
+		infraconsts.ColMetricName, infraconsts.MetricJVMBufferCount,
+		infraconsts.TableMetrics,
+		infraconsts.ColTeamID, infraconsts.ColTimestamp,
+		infraconsts.ColMetricName, infraconsts.MetricJVMBufferMemoryUsage, infraconsts.MetricJVMBufferCount)
+	var rows []jvmBufferBucketRow
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 func sanitizeFloat(v float64) float64 {

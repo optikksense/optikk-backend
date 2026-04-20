@@ -230,13 +230,17 @@ func buildTracesQuery(f TraceFilters, limit int, cursor TraceCursor) (string, []
 
 func buildTracesSummaryQuery(f TraceFilters) (string, []any) {
 	where, args := buildWhereClause(f)
+	// Percentiles come from sketch.Querier (SpanLatencyService merged across
+	// all services matched by the filter) — see service.go. avg is computed
+	// Go-side from sum/count.
 	query := fmt.Sprintf(`
 		SELECT count() AS total_traces,
 		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) AS error_traces,
-		       avg(duration_nano / 1000000.0) AS avg_duration,
-		       quantileTDigest(0.5)(duration_nano / 1000000.0) AS p50_duration,
-		       quantileTDigest(0.95)(duration_nano / 1000000.0) AS p95_duration,
-		       quantileTDigest(0.99)(duration_nano / 1000000.0) AS p99_duration
+		       sum(duration_nano / 1000000.0) AS duration_ms_sum,
+		       toInt64(count()) AS duration_ms_count,
+		       0.0 AS p50_duration,
+		       0.0 AS p95_duration,
+		       0.0 AS p99_duration
 		FROM observability.spans s %s`, where)
 	return query, args
 }
@@ -255,11 +259,12 @@ func buildTraceFacetsQuery(f TraceFilters) (string, []any) {
 func buildTraceTrendQuery(f TraceFilters, step string) (string, []any) {
 	where, args := buildWhereClause(f)
 	bucket := timebucket.ByName(step).GetRawExpression("s.timestamp")
+	// P95 comes from sketch.Querier (SpanLatencyService timeseries) — see service.go.
 	query := fmt.Sprintf(`
 		SELECT %s AS time_bucket,
 		       count() AS total_traces,
 		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) AS error_traces,
-		       quantileTDigest(0.95)(duration_nano / 1000000.0) AS p95_duration
+		       0.0 AS p95_duration
 		FROM observability.spans s %s
 		GROUP BY time_bucket
 		ORDER BY time_bucket ASC`, bucket, where)
