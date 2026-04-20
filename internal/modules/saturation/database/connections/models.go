@@ -4,10 +4,10 @@ type ConnectionCountPoint struct {
 	TimeBucket string   `json:"time_bucket" ch:"time_bucket"`
 	PoolName   string   `json:"pool_name" ch:"pool_name"`
 	State      string   `json:"state" ch:"state"`
-	Count      *float64 `json:"count" ch:"count"`
+	Count      *float64 `json:"count"`
 
 	CountSum float64 `json:"-" ch:"value_sum"`
-	CountN   int64   `json:"-" ch:"value_count"`
+	CountN   uint64  `json:"-" ch:"value_count"`
 }
 
 // ConnectionUtilPoint carries raw used/max sum+count per (time_bucket,
@@ -16,28 +16,28 @@ type ConnectionCountPoint struct {
 //	used_avg = UsedSum / UsedN   ; max_avg = MaxSum / MaxN
 //	util_pct = used_avg / max_avg * 100
 type ConnectionUtilPoint struct {
-	TimeBucket string   `json:"time_bucket" ch:"time_bucket"`
-	PoolName   string   `json:"pool_name" ch:"pool_name"`
+	TimeBucket string   `json:"time_bucket"`
+	PoolName   string   `json:"pool_name"`
 	UtilPct    *float64 `json:"util_pct"`
 
-	UsedSum float64 `json:"-" ch:"used_sum"`
-	UsedN   int64   `json:"-" ch:"used_count"`
-	MaxSum  float64 `json:"-" ch:"max_sum"`
-	MaxN    int64   `json:"-" ch:"max_count"`
+	UsedSum float64 `json:"-"`
+	UsedN   int64   `json:"-"`
+	MaxSum  float64 `json:"-"`
+	MaxN    int64   `json:"-"`
 }
 
 type ConnectionLimits struct {
-	PoolName string   `json:"pool_name" ch:"pool_name"`
+	PoolName string   `json:"pool_name"`
 	Max      *float64 `json:"max"`
 	IdleMax  *float64 `json:"idle_max"`
 	IdleMin  *float64 `json:"idle_min"`
 
-	MaxSum     float64 `json:"-" ch:"max_sum"`
-	MaxN       int64   `json:"-" ch:"max_count"`
-	IdleMaxSum float64 `json:"-" ch:"idle_max_sum"`
-	IdleMaxN   int64   `json:"-" ch:"idle_max_count"`
-	IdleMinSum float64 `json:"-" ch:"idle_min_sum"`
-	IdleMinN   int64   `json:"-" ch:"idle_min_count"`
+	MaxSum     float64 `json:"-"`
+	MaxN       int64   `json:"-"`
+	IdleMaxSum float64 `json:"-"`
+	IdleMaxN   int64   `json:"-"`
+	IdleMinSum float64 `json:"-"`
+	IdleMinN   int64   `json:"-"`
 }
 
 type PendingRequestsPoint struct {
@@ -46,7 +46,7 @@ type PendingRequestsPoint struct {
 	Count      *float64 `json:"count"`
 
 	CountSum float64 `json:"-" ch:"value_sum"`
-	CountN   int64   `json:"-" ch:"value_count"`
+	CountN   uint64  `json:"-" ch:"value_count"`
 }
 
 type ConnectionTimeoutPoint struct {

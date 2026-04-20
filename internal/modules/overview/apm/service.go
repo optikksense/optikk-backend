@@ -114,8 +114,8 @@ func timeBucketsFrom(rows []timeBucketRow) []TimeBucket {
 	return out
 }
 
-func safeAvg(sum float64, count int64) float64 {
-	if count <= 0 {
+func safeAvg(sum float64, count uint64) float64 {
+	if count == 0 {
 		return 0
 	}
 	return sum / float64(count)

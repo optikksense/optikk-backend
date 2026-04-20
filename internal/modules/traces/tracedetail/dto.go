@@ -2,12 +2,14 @@ package tracedetail
 
 import "time"
 
-// spanKindDurationRow is the scan target for GetSpanKindBreakdown.
+// spanKindDurationRow is the scan target for GetSpanKindBreakdown. Count is
+// CH's native uint64 (count() return type); the service casts at the API
+// boundary when building SpanKindDuration.
 // PctOfTrace is computed in the service layer.
 type spanKindDurationRow struct {
 	SpanKind    string  `ch:"span_kind"`
 	TotalDuraMs float64 `ch:"total_duration_ms"`
-	SpanCount   int64   `ch:"span_count"`
+	SpanCount   uint64  `ch:"span_count"`
 }
 
 // criticalPathRow is the scan target for GetCriticalPath.
@@ -20,6 +22,22 @@ type criticalPathRow struct {
 	DurationMs    float64 `ch:"duration_ms"`
 	StartNs       int64   `ch:"start_ns"`
 	EndNs         int64   `ch:"end_ns"`
+}
+
+// spanSelfTotalRow is the per-span total-duration leg of GetSpanSelfTimes.
+// Self / child time are derived in Go from a second child-duration scan so
+// the SELECT stays coalesce-free for the LEFT JOIN NULL case.
+type spanSelfTotalRow struct {
+	SpanID          string  `ch:"span_id"`
+	OperationName   string  `ch:"operation_name"`
+	TotalDurationMs float64 `ch:"total_duration_ms"`
+}
+
+// spanChildDurationRow is the parent→sum(child_duration) lookup joined into
+// totals in Go by service.go.
+type spanChildDurationRow struct {
+	ParentSpanID    string  `ch:"parent_span_id"`
+	ChildDurationMs float64 `ch:"child_duration_ms"`
 }
 
 // errorPathRow is the scan target for GetErrorPath.

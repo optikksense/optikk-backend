@@ -13,20 +13,21 @@ type SummaryStats struct {
 // summaryMainDTO carries the counters used by the summary panel. Percentiles
 // (p50/p95/p99) and avg latency are computed in the service layer — from the
 // DbOpLatency sketch for percentiles and from LatencySum/LatencyCount for the
-// avg, respectively.
+// avg, respectively. Counts are scanned as uint64 (CH's native count() return
+// type) and cast to int64 at the service boundary.
 type summaryMainDTO struct {
 	LatencySum   float64 `ch:"latency_sum"`
-	LatencyCount int64   `ch:"latency_count"`
-	TotalCount   int64   `ch:"total_count"`
-	ErrorCount   int64   `ch:"error_count"`
+	LatencyCount uint64  `ch:"latency_count"`
+	TotalCount   uint64  `ch:"total_count"`
+	ErrorCount   uint64  `ch:"error_count"`
 }
 
 type summaryConnDTO struct {
 	UsedSum   float64 `ch:"used_sum"`
-	UsedCount int64   `ch:"used_count"`
+	UsedCount uint64  `ch:"used_count"`
 }
 
 type summaryCacheDTO struct {
-	SuccessCount int64 `ch:"success_count"`
-	TotalCount   int64 `ch:"total_count"`
+	SuccessCount uint64 `ch:"success_count"`
+	TotalCount   uint64 `ch:"total_count"`
 }

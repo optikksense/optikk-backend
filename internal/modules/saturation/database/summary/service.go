@@ -72,7 +72,7 @@ func (s *Service) GetSummaryStats(ctx context.Context, teamID int64, startMs, en
 		AvgLatencyMs:      avgLatencyMs,
 		P95LatencyMs:      p95Ms,
 		P99LatencyMs:      p99Ms,
-		SpanCount:         main.TotalCount,
+		SpanCount:         int64(main.TotalCount), //nolint:gosec // tenant-scoped span count fits int64
 		ActiveConnections: activeConns,
 		ErrorRate:         errorRatePtr,
 		CacheHitRate:      cacheHitRate,

@@ -4,12 +4,12 @@ import (
 	"context"
 	"fmt"
 	"math"
-	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
+	"golang.org/x/sync/errgroup"
 )
 
 type Repository interface {
@@ -34,36 +34,85 @@ func bucket(startMs, endMs int64) string {
 	return infraconsts.TimeBucketExpression(startMs, endMs)
 }
 
-// syncAverageExpr builds an avg-of-non-null expression over the given column
-// expressions without leaning on arrayReduce/arrayFilter. ClickHouse evaluates
-// this as a pure per-row expression — no array materialization.
-//
-// Semantics identical to the prior arrayReduce('avg', arrayFilter(isNotNull, […]))
-// formulation: nulls are dropped, mean is over the surviving values, and an
-// empty set returns NULL.
-func syncAverageExpr(parts ...string) string {
-	sum := make([]string, len(parts))
-	cnt := make([]string, len(parts))
-	for i, p := range parts {
-		sum[i] = "coalesce(" + p + ", 0)"
-		cnt[i] = "if(" + p + " IS NULL, 0, 1)"
-	}
-	return "(" + strings.Join(sum, " + ") + ") / nullIf(" + strings.Join(cnt, " + ") + ", 0)"
+// rescaleExpr emits a pure arithmetic rescale: if col<=1.0 multiply by 100,
+// else leave unchanged. Uses boolean→UInt8 coercion (no if/multiIf).
+func rescaleExpr(col string) string {
+	return fmt.Sprintf("(%s * (1 + 99 * (%s <= %.1f)))", col, col, infraconsts.PercentageThreshold)
 }
 
-func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	var rows []stateBucketDTO
+// sumCountRow is the canonical (sum,count) scan target for leg aggregates.
+type sumCountRow struct {
+	Sum   float64 `ch:"s"`
+	Count uint64  `ch:"c"`
+}
+
+// stateBucketSumCountRow pairs (bucket,state) with sum+count so the service
+// divides Go-side.
+type stateBucketSumCountRow struct {
+	Timestamp string  `ch:"time_bucket"`
+	State     string  `ch:"state"`
+	Sum       float64 `ch:"metric_sum"`
+	Count     uint64  `ch:"metric_count"`
+}
+
+// pctBucketRow is the per-(bucket, service) leg row for the usage-percentage
+// scans. Sum is the rescaled-then-summed value; Go divides by Count.
+type pctBucketRow struct {
+	Timestamp string  `ch:"time_bucket"`
+	Service   string  `ch:"pod"`
+	Sum       float64 `ch:"s"`
+	Count     uint64  `ch:"c"`
+}
+
+// loadLegRow holds one leg of the load-average split scan.
+type loadLegRow struct {
+	Sum   float64 `ch:"s"`
+	Count uint64  `ch:"c"`
+}
+
+// bucketMeta carries the (timestamp, service) pair alongside the composite
+// bucket-key used by the usage-percentage scan reducer.
+type bucketMeta struct {
+	ts, svc string
+}
+
+func divideOrNil(sum float64, count uint64) *float64 {
+	if count == 0 {
+		return nil
+	}
+	v := sum / float64(count)
+	return &v
+}
+
+// ---------------------------------------------------------------------------
+// CPU time / process count (bucket series)
+// ---------------------------------------------------------------------------
+
+func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64, isAvg bool) ([]stateBucketDTO, error) {
+	var rows []stateBucketSumCountRow
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
-	return rows, nil
+	out := make([]stateBucketDTO, len(rows))
+	for i, row := range rows {
+		var v *float64
+		if isAvg {
+			v = divideOrNil(row.Sum, row.Count)
+		} else {
+			// CPU time is a sum-type metric.
+			tmp := row.Sum
+			v = &tmp
+		}
+		out[i] = StateBucket{Timestamp: row.Timestamp, State: row.State, Value: v}
+	}
+	return out, nil
 }
 
 func (r *ClickHouseRepository) GetCPUTime(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
 	b := bucket(startMs, endMs)
 	state := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrSystemCPUState)
 	query := fmt.Sprintf(`
-		SELECT %s as time_bucket, %s as state, sum(%s) as metric_val
+		SELECT %s as time_bucket, %s as state, sum(%s) as metric_sum, count() as metric_count
 		FROM %s
 		WHERE %s = @teamID AND %s BETWEEN @start AND @end AND %s = '%s'
 		GROUP BY 1, 2 ORDER BY 1, 2`,
@@ -71,81 +120,14 @@ func (r *ClickHouseRepository) GetCPUTime(ctx context.Context, teamID int64, sta
 		infraconsts.TableMetrics,
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricSystemCPUTime)
-	return r.queryStateBuckets(ctx, query, teamID, startMs, endMs)
-}
-
-func (r *ClickHouseRepository) GetCPUUsagePercentage(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
-	b := bucket(startMs, endMs)
-	aCPU := infraconsts.AttrFloat(infraconsts.AttrSystemCPUUtilization)
-
-	cpuSystemCol := fmt.Sprintf(`if(countIf(%s IN ('%s', '%s') AND isFinite(%s) AND %s >= 0 AND %s <= %.1f) > 0, avgIf(%s * %.1f, %s IN ('%s', '%s') AND isFinite(%s) AND %s >= 0 AND %s <= %.1f), NULL)`,
-		infraconsts.ColMetricName, infraconsts.MetricSystemCPUUtilization, infraconsts.MetricSystemCPUUsage,
-		infraconsts.ColValue, infraconsts.ColValue, infraconsts.ColValue, infraconsts.PercentageThreshold,
-		infraconsts.ColValue, infraconsts.PercentageMultiplier,
-		infraconsts.ColMetricName, infraconsts.MetricSystemCPUUtilization, infraconsts.MetricSystemCPUUsage,
-		infraconsts.ColValue, infraconsts.ColValue, infraconsts.ColValue, infraconsts.PercentageThreshold)
-	cpuProcessCol := fmt.Sprintf(`if(countIf(%s = '%s' AND isFinite(%s) AND %s >= 0 AND %s <= %.1f) > 0, avgIf(%s * %.1f, %s = '%s' AND isFinite(%s) AND %s >= 0 AND %s <= %.1f), NULL)`,
-		infraconsts.ColMetricName, infraconsts.MetricProcessCPUUsage,
-		infraconsts.ColValue, infraconsts.ColValue, infraconsts.ColValue, infraconsts.PercentageThreshold,
-		infraconsts.ColValue, infraconsts.PercentageMultiplier,
-		infraconsts.ColMetricName, infraconsts.MetricProcessCPUUsage,
-		infraconsts.ColValue, infraconsts.ColValue, infraconsts.ColValue, infraconsts.PercentageThreshold)
-	cpuAttrCol := fmt.Sprintf(`if(countIf(%s >= 0 AND %s <= %.1f) > 0, avgIf(%s * %.1f, %s >= 0 AND %s <= %.1f), NULL)`,
-		aCPU, aCPU, infraconsts.PercentageThreshold,
-		aCPU, infraconsts.PercentageMultiplier, aCPU, aCPU, infraconsts.PercentageThreshold)
-	cpuCol := syncAverageExpr(cpuSystemCol, cpuProcessCol, cpuAttrCol)
-
-	query := fmt.Sprintf(`
-		SELECT %s as time_bucket,
-		       %s as pod,
-		       %s as metric_val
-		FROM %s
-		WHERE %s = @teamID AND %s BETWEEN @start AND @end
-		  AND (
-		      %s IN ('%s', '%s', '%s')
-		      OR %s > 0
-		  )
-		GROUP BY 1, 2
-		HAVING pod != ''
-		ORDER BY 1 ASC, 2 ASC
-	`, b, infraconsts.ColServiceName, cpuCol,
-		infraconsts.TableMetrics, infraconsts.ColTeamID, infraconsts.ColTimestamp,
-		infraconsts.ColMetricName, infraconsts.MetricSystemCPUUtilization, infraconsts.MetricSystemCPUUsage, infraconsts.MetricProcessCPUUsage,
-		aCPU)
-	var rows []resourceBucketDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
-		return nil, err
-	}
-	return rows, nil
-}
-
-func (r *ClickHouseRepository) GetLoadAverage(ctx context.Context, teamID int64, startMs, endMs int64) (loadAverageResultDTO, error) {
-	query := fmt.Sprintf(`
-		SELECT
-			avgIf(%s, %s = '%s') as load_1m,
-			avgIf(%s, %s = '%s') as load_5m,
-			avgIf(%s, %s = '%s') as load_15m
-		FROM %s
-		WHERE %s = @teamID AND %s BETWEEN @start AND @end
-		  AND %s IN ('%s', '%s', '%s')`,
-		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricSystemCPULoadAvg1m,
-		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricSystemCPULoadAvg5m,
-		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricSystemCPULoadAvg15m,
-		infraconsts.TableMetrics,
-		infraconsts.ColTeamID, infraconsts.ColTimestamp,
-		infraconsts.ColMetricName, infraconsts.MetricSystemCPULoadAvg1m, infraconsts.MetricSystemCPULoadAvg5m, infraconsts.MetricSystemCPULoadAvg15m)
-	var result loadAverageResultDTO
-	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...).ScanStruct(&result); err != nil {
-		return loadAverageResultDTO{}, err
-	}
-	return result, nil
+	return r.queryStateBuckets(ctx, query, teamID, startMs, endMs, false)
 }
 
 func (r *ClickHouseRepository) GetProcessCount(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
 	b := bucket(startMs, endMs)
 	status := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrProcessStatus)
 	query := fmt.Sprintf(`
-		SELECT %s as time_bucket, %s as state, avg(%s) as metric_val
+		SELECT %s as time_bucket, %s as state, sum(%s) as metric_sum, count() as metric_count
 		FROM %s
 		WHERE %s = @teamID AND %s BETWEEN @start AND @end AND %s = '%s'
 		GROUP BY 1, 2 ORDER BY 1, 2`,
@@ -153,15 +135,220 @@ func (r *ClickHouseRepository) GetProcessCount(ctx context.Context, teamID int64
 		infraconsts.TableMetrics,
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricSystemProcessCount)
-	return r.queryStateBuckets(ctx, query, teamID, startMs, endMs)
+	return r.queryStateBuckets(ctx, query, teamID, startMs, endMs, true)
 }
 
-// DTO for queries returning multiple computed metric columns.
-type cpuMetricRow struct {
-	SystemCPU  *float64 `ch:"system_cpu"`
-	ProcessCPU *float64 `ch:"process_cpu"`
-	AttrCPU    *float64 `ch:"attr_cpu"`
+// ---------------------------------------------------------------------------
+// CPU usage percentage (bucketed, per-pod)
+// ---------------------------------------------------------------------------
+
+func (r *ClickHouseRepository) GetCPUUsagePercentage(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
+	b := bucket(startMs, endMs)
+	aCPU := infraconsts.AttrFloat(infraconsts.AttrSystemCPUUtilization)
+
+	var (
+		sysRows     []pctBucketRow
+		processRows []pctBucketRow
+		attrRows    []pctBucketRow
+	)
+	g, gctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		query := fmt.Sprintf(`
+			SELECT %s as time_bucket, %s as pod,
+			       sum(%s) as s, count() as c
+			FROM %s
+			WHERE %s = @teamID AND %s BETWEEN @start AND @end
+			  AND %s IN ('%s', '%s')
+			  AND isFinite(%s)
+			  AND %s >= 0
+			  AND %s <= %.1f
+			GROUP BY 1, 2
+			HAVING pod != ''`,
+			b, infraconsts.ColServiceName,
+			rescaleExpr(infraconsts.ColValue),
+			infraconsts.TableMetrics,
+			infraconsts.ColTeamID, infraconsts.ColTimestamp,
+			infraconsts.ColMetricName, infraconsts.MetricSystemCPUUtilization, infraconsts.MetricSystemCPUUsage,
+			infraconsts.ColValue,
+			infraconsts.ColValue,
+			infraconsts.ColValue, infraconsts.PercentageThreshold)
+		return r.db.Select(dbutil.OverviewCtx(gctx), &sysRows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
+	})
+
+	g.Go(func() error {
+		query := fmt.Sprintf(`
+			SELECT %s as time_bucket, %s as pod,
+			       sum(%s) as s, count() as c
+			FROM %s
+			WHERE %s = @teamID AND %s BETWEEN @start AND @end
+			  AND %s = '%s'
+			  AND isFinite(%s)
+			  AND %s >= 0
+			  AND %s <= %.1f
+			GROUP BY 1, 2
+			HAVING pod != ''`,
+			b, infraconsts.ColServiceName,
+			rescaleExpr(infraconsts.ColValue),
+			infraconsts.TableMetrics,
+			infraconsts.ColTeamID, infraconsts.ColTimestamp,
+			infraconsts.ColMetricName, infraconsts.MetricProcessCPUUsage,
+			infraconsts.ColValue,
+			infraconsts.ColValue,
+			infraconsts.ColValue, infraconsts.PercentageThreshold)
+		return r.db.Select(dbutil.OverviewCtx(gctx), &processRows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
+	})
+
+	g.Go(func() error {
+		query := fmt.Sprintf(`
+			SELECT %s as time_bucket, %s as pod,
+			       sum(%s) as s, count() as c
+			FROM %s
+			WHERE %s = @teamID AND %s BETWEEN @start AND @end
+			  AND %s >= 0
+			  AND %s <= %.1f
+			GROUP BY 1, 2
+			HAVING pod != ''`,
+			b, infraconsts.ColServiceName,
+			rescaleExpr(aCPU),
+			infraconsts.TableMetrics,
+			infraconsts.ColTeamID, infraconsts.ColTimestamp,
+			aCPU,
+			aCPU, infraconsts.PercentageThreshold)
+		return r.db.Select(dbutil.OverviewCtx(gctx), &attrRows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
+	})
+
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	type cell struct {
+		sys, process, attr *float64
+	}
+
+	cells := make(map[string]*cell)
+	meta := make(map[string]bucketMeta)
+	keys := make([]string, 0)
+
+	getOrInit := func(ts, svc string) *cell {
+		k := ts + "|" + svc
+		if c, ok := cells[k]; ok {
+			return c
+		}
+		c := &cell{}
+		cells[k] = c
+		meta[k] = bucketMeta{ts: ts, svc: svc}
+		keys = append(keys, k)
+		return c
+	}
+
+	applyAvg := func(rows []pctBucketRow, which int) {
+		for _, row := range rows {
+			if row.Count == 0 {
+				continue
+			}
+			c := getOrInit(row.Timestamp, row.Service)
+			v := row.Sum / float64(row.Count)
+			switch which {
+			case 0:
+				c.sys = &v
+			case 1:
+				c.process = &v
+			case 2:
+				c.attr = &v
+			}
+		}
+	}
+	applyAvg(sysRows, 0)
+	applyAvg(processRows, 1)
+	applyAvg(attrRows, 2)
+
+	// Sort by (timestamp asc, service asc) to mirror the original ORDER BY.
+	sortedKeys := sortBucketKeys(keys, meta)
+
+	out := make([]resourceBucketDTO, 0, len(sortedKeys))
+	for _, k := range sortedKeys {
+		c := cells[k]
+		m := meta[k]
+		combined := calculateAverage(nullableToSlice(c.sys, c.process, c.attr))
+		out = append(out, ResourceBucket{
+			Timestamp: m.ts,
+			Pod:       m.svc,
+			Value:     combined,
+		})
+	}
+	return out, nil
 }
+
+func sortBucketKeys(keys []string, meta map[string]bucketMeta) []string {
+	// Simple insertion sort keeps a tiny dependency-free path; N is bucket * services.
+	result := make([]string, len(keys))
+	copy(result, keys)
+	for i := 1; i < len(result); i++ {
+		j := i
+		for j > 0 {
+			a, b := meta[result[j-1]], meta[result[j]]
+			if a.ts < b.ts || (a.ts == b.ts && a.svc <= b.svc) {
+				break
+			}
+			result[j-1], result[j] = result[j], result[j-1]
+			j--
+		}
+	}
+	return result
+}
+
+// ---------------------------------------------------------------------------
+// Load average (split scan, 3 legs)
+// ---------------------------------------------------------------------------
+
+func (r *ClickHouseRepository) GetLoadAverage(ctx context.Context, teamID int64, startMs, endMs int64) (loadAverageResultDTO, error) {
+	var (
+		leg1  loadLegRow
+		leg5  loadLegRow
+		leg15 loadLegRow
+	)
+	g, gctx := errgroup.WithContext(ctx)
+
+	runLeg := func(metric string, dest *loadLegRow) func() error {
+		return func() error {
+			query := fmt.Sprintf(`
+				SELECT sum(%s) as s, count() as c
+				FROM %s
+				WHERE %s = @teamID AND %s BETWEEN @start AND @end
+				  AND %s = '%s'`,
+				infraconsts.ColValue,
+				infraconsts.TableMetrics,
+				infraconsts.ColTeamID, infraconsts.ColTimestamp,
+				infraconsts.ColMetricName, metric)
+			return r.db.QueryRow(dbutil.OverviewCtx(gctx), query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...).ScanStruct(dest)
+		}
+	}
+	g.Go(runLeg(infraconsts.MetricSystemCPULoadAvg1m, &leg1))
+	g.Go(runLeg(infraconsts.MetricSystemCPULoadAvg5m, &leg5))
+	g.Go(runLeg(infraconsts.MetricSystemCPULoadAvg15m, &leg15))
+
+	if err := g.Wait(); err != nil {
+		return loadAverageResultDTO{}, err
+	}
+
+	pickAvg := func(l loadLegRow) float64 {
+		if l.Count == 0 {
+			return 0
+		}
+		return l.Sum / float64(l.Count)
+	}
+
+	return loadAverageResultDTO{
+		Load1m:  pickAvg(leg1),
+		Load5m:  pickAvg(leg5),
+		Load15m: pickAvg(leg15),
+	}, nil
+}
+
+// ---------------------------------------------------------------------------
+// Avg / by-service / by-instance helpers
+// ---------------------------------------------------------------------------
 
 type serviceNameRow struct {
 	ServiceName string `ch:"service_name"`
@@ -195,7 +382,6 @@ func instanceParams(teamID int64, host, pod, container, serviceName string, star
 	}
 }
 
-// nullableToSlice converts nullable float64 pointers to a []float64 of non-nil values.
 func nullableToSlice(ptrs ...*float64) []float64 {
 	out := make([]float64, 0, len(ptrs))
 	for _, p := range ptrs {
@@ -206,7 +392,6 @@ func nullableToSlice(ptrs ...*float64) []float64 {
 	return out
 }
 
-// calculateAverage computes the mean of valid (non-NaN, non-Inf, non-negative) values.
 func calculateAverage(values []float64) *float64 {
 	var sum float64
 	count := 0
@@ -223,66 +408,108 @@ func calculateAverage(values []float64) *float64 {
 	return &avg
 }
 
-func (r *ClickHouseRepository) queryCPUMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
+// queryCPUMetric runs the three legs (system, process, attribute) as parallel
+// errgroup scans with plain WHERE fragments + (sum,count) aggregates.
+// scopeWhere is caller-supplied (service- or instance-level).
+func (r *ClickHouseRepository) queryCPUMetric(ctx context.Context, scopeWhere string, args []any) (*float64, error) {
 	aCPU := infraconsts.AttrFloat(infraconsts.AttrSystemCPUUtilization)
-	query := fmt.Sprintf(`
-		SELECT
-			avgIf(%s * %.1f, %s IN ('%s', '%s') AND isFinite(%s) AND %s >= 0 AND %s <= %.1f) as system_cpu,
-			avgIf(%s * %.1f, %s = '%s' AND isFinite(%s) AND %s >= 0 AND %s <= %.1f) as process_cpu,
-			avgIf(%s * %.1f, %s >= 0 AND %s <= %.1f) as attr_cpu
-		FROM %s
-		WHERE %s = @teamID AND %s = @serviceName AND %s BETWEEN @start AND @end
-		  AND (
-		      %s IN ('%s', '%s', '%s')
-		      OR %s > 0
-		  )`,
-		infraconsts.ColValue, infraconsts.PercentageMultiplier, infraconsts.ColMetricName, infraconsts.MetricSystemCPUUtilization, infraconsts.MetricSystemCPUUsage, infraconsts.ColValue, infraconsts.ColValue, infraconsts.ColValue, infraconsts.PercentageThreshold,
-		infraconsts.ColValue, infraconsts.PercentageMultiplier, infraconsts.ColMetricName, infraconsts.MetricProcessCPUUsage, infraconsts.ColValue, infraconsts.ColValue, infraconsts.ColValue, infraconsts.PercentageThreshold,
-		aCPU, infraconsts.PercentageMultiplier, aCPU, aCPU, infraconsts.PercentageThreshold,
-		infraconsts.TableMetrics,
-		infraconsts.ColTeamID, infraconsts.ColServiceName, infraconsts.ColTimestamp,
-		infraconsts.ColMetricName, infraconsts.MetricSystemCPUUtilization, infraconsts.MetricSystemCPUUsage, infraconsts.MetricProcessCPUUsage,
-		aCPU)
 
-	var row cpuMetricRow
-	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, serviceParams(teamID, serviceName, startMs, endMs)...).ScanStruct(&row)
-	if err != nil {
+	var (
+		sys     sumCountRow
+		process sumCountRow
+		attr    sumCountRow
+	)
+	g, gctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		query := fmt.Sprintf(`
+			SELECT sum(%s) as s, count() as c
+			FROM %s
+			WHERE %s = @teamID AND %s BETWEEN @start AND @end
+			  AND %s IN ('%s', '%s')
+			  AND isFinite(%s)
+			  AND %s >= 0
+			  AND %s <= %.1f
+			  %s`,
+			rescaleExpr(infraconsts.ColValue),
+			infraconsts.TableMetrics,
+			infraconsts.ColTeamID, infraconsts.ColTimestamp,
+			infraconsts.ColMetricName, infraconsts.MetricSystemCPUUtilization, infraconsts.MetricSystemCPUUsage,
+			infraconsts.ColValue,
+			infraconsts.ColValue,
+			infraconsts.ColValue, infraconsts.PercentageThreshold,
+			scopeWhere)
+		return r.db.QueryRow(dbutil.OverviewCtx(gctx), query, args...).ScanStruct(&sys)
+	})
+
+	g.Go(func() error {
+		query := fmt.Sprintf(`
+			SELECT sum(%s) as s, count() as c
+			FROM %s
+			WHERE %s = @teamID AND %s BETWEEN @start AND @end
+			  AND %s = '%s'
+			  AND isFinite(%s)
+			  AND %s >= 0
+			  AND %s <= %.1f
+			  %s`,
+			rescaleExpr(infraconsts.ColValue),
+			infraconsts.TableMetrics,
+			infraconsts.ColTeamID, infraconsts.ColTimestamp,
+			infraconsts.ColMetricName, infraconsts.MetricProcessCPUUsage,
+			infraconsts.ColValue,
+			infraconsts.ColValue,
+			infraconsts.ColValue, infraconsts.PercentageThreshold,
+			scopeWhere)
+		return r.db.QueryRow(dbutil.OverviewCtx(gctx), query, args...).ScanStruct(&process)
+	})
+
+	g.Go(func() error {
+		query := fmt.Sprintf(`
+			SELECT sum(%s) as s, count() as c
+			FROM %s
+			WHERE %s = @teamID AND %s BETWEEN @start AND @end
+			  AND %s >= 0
+			  AND %s <= %.1f
+			  %s`,
+			rescaleExpr(aCPU),
+			infraconsts.TableMetrics,
+			infraconsts.ColTeamID, infraconsts.ColTimestamp,
+			aCPU,
+			aCPU, infraconsts.PercentageThreshold,
+			scopeWhere)
+		return r.db.QueryRow(dbutil.OverviewCtx(gctx), query, args...).ScanStruct(&attr)
+	})
+
+	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 
-	values := nullableToSlice(row.SystemCPU, row.ProcessCPU, row.AttrCPU)
-	return calculateAverage(values), nil
+	var sysPtr, processPtr, attrPtr *float64
+	if sys.Count > 0 {
+		v := sys.Sum / float64(sys.Count)
+		sysPtr = &v
+	}
+	if process.Count > 0 {
+		v := process.Sum / float64(process.Count)
+		processPtr = &v
+	}
+	if attr.Count > 0 {
+		v := attr.Sum / float64(attr.Count)
+		attrPtr = &v
+	}
+
+	return calculateAverage(nullableToSlice(sysPtr, processPtr, attrPtr)), nil
+}
+
+func (r *ClickHouseRepository) queryCPUMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
+	where := " AND " + infraconsts.ColServiceName + " = @serviceName"
+	return r.queryCPUMetric(ctx, where, serviceParams(teamID, serviceName, startMs, endMs))
 }
 
 func (r *ClickHouseRepository) queryCPUMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
-	aCPU := infraconsts.AttrFloat(infraconsts.AttrSystemCPUUtilization)
-	query := fmt.Sprintf(`
-		SELECT
-			avgIf(%s * %.1f, %s IN ('%s', '%s') AND isFinite(%s) AND %s >= 0 AND %s <= %.1f) as system_cpu,
-			avgIf(%s * %.1f, %s = '%s' AND isFinite(%s) AND %s >= 0 AND %s <= %.1f) as process_cpu,
-			avgIf(%s * %.1f, %s >= 0 AND %s <= %.1f) as attr_cpu
-		FROM %s
-		WHERE %s = @teamID AND %s = @host AND %s = @pod AND %s = @container AND %s = @serviceName AND %s BETWEEN @start AND @end
-		  AND (
-		      %s IN ('%s', '%s', '%s')
-		      OR %s > 0
-		  )`,
-		infraconsts.ColValue, infraconsts.PercentageMultiplier, infraconsts.ColMetricName, infraconsts.MetricSystemCPUUtilization, infraconsts.MetricSystemCPUUsage, infraconsts.ColValue, infraconsts.ColValue, infraconsts.ColValue, infraconsts.PercentageThreshold,
-		infraconsts.ColValue, infraconsts.PercentageMultiplier, infraconsts.ColMetricName, infraconsts.MetricProcessCPUUsage, infraconsts.ColValue, infraconsts.ColValue, infraconsts.ColValue, infraconsts.PercentageThreshold,
-		aCPU, infraconsts.PercentageMultiplier, aCPU, aCPU, infraconsts.PercentageThreshold,
-		infraconsts.TableMetrics,
-		infraconsts.ColTeamID, infraconsts.ColHost, infraconsts.ColPod, infraconsts.ColContainer, infraconsts.ColServiceName, infraconsts.ColTimestamp,
-		infraconsts.ColMetricName, infraconsts.MetricSystemCPUUtilization, infraconsts.MetricSystemCPUUsage, infraconsts.MetricProcessCPUUsage,
-		aCPU)
-
-	var row cpuMetricRow
-	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, instanceParams(teamID, host, pod, container, serviceName, startMs, endMs)...).ScanStruct(&row)
-	if err != nil {
-		return nil, err
-	}
-
-	values := nullableToSlice(row.SystemCPU, row.ProcessCPU, row.AttrCPU)
-	return calculateAverage(values), nil
+	where := fmt.Sprintf(" AND %s = @host AND %s = @pod AND %s = @container AND %s = @serviceName",
+		infraconsts.ColHost, infraconsts.ColPod, infraconsts.ColContainer, infraconsts.ColServiceName)
+	return r.queryCPUMetric(ctx, where, instanceParams(teamID, host, pod, container, serviceName, startMs, endMs))
 }
 
 func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64, startMs, endMs int64) ([]string, error) {

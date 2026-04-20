@@ -29,9 +29,10 @@ func NewRepository(db clickhouse.Conn) Repository {
 
 // histogramSummaryRow is the sum/count carrier for histogram-backed metrics.
 // Percentiles come from sketch.Querier; avg is computed from hist_sum/hist_count.
+// Count stays CH's native uint64; service casts at API boundary.
 type histogramSummaryRow struct {
 	HistSum   float64 `ch:"hist_sum"`
-	HistCount int64   `ch:"hist_count"`
+	HistCount uint64  `ch:"hist_count"`
 	// Placeholder slots preserved for parity with the old schema; service
 	// overwrites them from the matching sketch kind.
 	P50 float64 `ch:"p50"`
@@ -43,7 +44,7 @@ type histogramSummaryRow struct {
 type timeBucketRow struct {
 	Timestamp string  `ch:"time_bucket"`
 	ValSum    float64 `ch:"val_sum"`
-	ValCount  int64   `ch:"val_count"`
+	ValCount  uint64  `ch:"val_count"`
 }
 
 // stateBucketRow carries per-(bucket,state) sum/count for the Go-side avg.
@@ -51,15 +52,25 @@ type stateBucketRow struct {
 	Timestamp string  `ch:"time_bucket"`
 	State     string  `ch:"state"`
 	ValSum    float64 `ch:"val_sum"`
-	ValCount  int64   `ch:"val_count"`
+	ValCount  uint64  `ch:"val_count"`
 }
 
 // processMemoryRow carries the sum/count pair per memory kind (RSS, VMS).
+// Populated in service.go by merging two separate metric-filtered scans; the
+// SQL layer no longer uses sumIf/countIf combinators.
 type processMemoryRow struct {
-	RSSSum   float64 `ch:"rss_sum"`
-	RSSCount int64   `ch:"rss_count"`
-	VMSSum   float64 `ch:"vms_sum"`
-	VMSCount int64   `ch:"vms_count"`
+	RSSSum   float64
+	RSSCount uint64
+	VMSSum   float64
+	VMSCount uint64
+}
+
+// processMemoryLegRow is the per-metric (RSS or VMS) sum/count leg scanned
+// from a single metric_name filter. service.go combines two such scans into
+// processMemoryRow to replace the former sumIf/countIf-driven pivot.
+type processMemoryLegRow struct {
+	ValSum   float64 `ch:"val_sum"`
+	ValCount uint64  `ch:"val_count"`
 }
 
 func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (histogramSummaryRow, error) {
@@ -67,8 +78,8 @@ func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID
 	// so Go can compute avg = hist_sum / hist_count.
 	query := fmt.Sprintf(`
 		SELECT
-		    sum(hist_sum)                AS hist_sum,
-		    toInt64(sum(hist_count))     AS hist_count,
+		    sum(hist_sum)   AS hist_sum,
+		    sum(hist_count) AS hist_count,
 		    0 AS p50, 0 AS p95, 0 AS p99
 		FROM %s
 		WHERE %s = @teamID
@@ -90,9 +101,9 @@ func (r *ClickHouseRepository) queryTimeBucketsSumCount(ctx context.Context, tea
 	bucket := timebucket.Expression(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                        AS time_bucket,
-		    sum(value)                AS val_sum,
-		    toInt64(count())          AS val_count
+		    %s         AS time_bucket,
+		    sum(value) AS val_sum,
+		    count()    AS val_count
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -121,7 +132,7 @@ func (r *ClickHouseRepository) GetRPCRequestRate(ctx context.Context, teamID int
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                 AS time_bucket,
-		    toFloat64(count()) AS val
+		    count()::Float64   AS val
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -151,10 +162,10 @@ func (r *ClickHouseRepository) GetProcessCPU(ctx context.Context, teamID int64, 
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s               AS time_bucket,
-		    %s               AS state,
-		    sum(value)       AS val_sum,
-		    toInt64(count()) AS val_count
+		    %s         AS time_bucket,
+		    %s         AS state,
+		    sum(value) AS val_sum,
+		    count()    AS val_count
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -174,29 +185,44 @@ func (r *ClickHouseRepository) GetProcessCPU(ctx context.Context, teamID int64, 
 	return rows, nil
 }
 
+// GetProcessMemory scans RSS + VMS legs as two independent narrow-WHERE
+// queries and merges in Go. Replaces the prior sumIf/countIf pivot.
 func (r *ClickHouseRepository) GetProcessMemory(ctx context.Context, teamID int64, startMs, endMs int64) (processMemoryRow, error) {
+	rss, err := r.queryProcessMemoryLeg(ctx, teamID, startMs, endMs, MetricProcessMemoryUsage)
+	if err != nil {
+		return processMemoryRow{}, err
+	}
+	vms, err := r.queryProcessMemoryLeg(ctx, teamID, startMs, endMs, MetricProcessMemoryVirtual)
+	if err != nil {
+		return processMemoryRow{}, err
+	}
+	return processMemoryRow{
+		RSSSum:   rss.ValSum,
+		RSSCount: rss.ValCount,
+		VMSSum:   vms.ValSum,
+		VMSCount: vms.ValCount,
+	}, nil
+}
+
+// queryProcessMemoryLeg scans a single metric_name's sum(value) + count() so
+// the outer GetProcessMemory can merge RSS/VMS legs without CH combinators.
+func (r *ClickHouseRepository) queryProcessMemoryLeg(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (processMemoryLegRow, error) {
 	query := fmt.Sprintf(`
 		SELECT
-		    sumIf(value, %s = '%s')              AS rss_sum,
-		    toInt64(countIf(%s = '%s'))          AS rss_count,
-		    sumIf(value, %s = '%s')              AS vms_sum,
-		    toInt64(countIf(%s = '%s'))          AS vms_count
+		    sum(value) AS val_sum,
+		    count()    AS val_count
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
-		  AND %s IN ('%s', '%s')
+		  AND %s = '%s'
 	`,
-		ColMetricName, MetricProcessMemoryUsage,
-		ColMetricName, MetricProcessMemoryUsage,
-		ColMetricName, MetricProcessMemoryVirtual,
-		ColMetricName, MetricProcessMemoryVirtual,
 		TableMetrics,
 		ColTeamID, ColTimestamp,
-		ColMetricName, MetricProcessMemoryUsage, MetricProcessMemoryVirtual,
+		ColMetricName, metricName,
 	)
-	var row processMemoryRow
+	var row processMemoryLegRow
 	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...).ScanStruct(&row); err != nil {
-		return processMemoryRow{}, err
+		return processMemoryLegRow{}, err
 	}
 	return row, nil
 }

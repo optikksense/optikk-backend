@@ -17,13 +17,15 @@ type DetectedSystem struct {
 	LatencyCount int64   `json:"-"`
 }
 
+// detectedSystemDTO is the totals leg of GetDetectedSystems. Counts are
+// scanned as uint64 (CH's native count() return type) and cast to int64 at
+// the service boundary.
 type detectedSystemDTO struct {
 	DBSystem      string    `ch:"db_system"`
-	SpanCount     int64     `ch:"span_count"`
-	ErrorCount    int64     `ch:"error_count"`
+	SpanCount     uint64    `ch:"span_count"`
 	LatencySum    float64   `ch:"latency_sum"`
-	LatencyCount  int64     `ch:"latency_count"`
-	QueryCount    int64     `ch:"query_count"`
+	LatencyCount  uint64    `ch:"latency_count"`
+	QueryCount    uint64    `ch:"query_count"`
 	ServerAddress string    `ch:"server_address"`
 	LastSeen      time.Time `ch:"last_seen"`
 }

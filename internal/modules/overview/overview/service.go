@@ -3,6 +3,7 @@ package overview
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 	"golang.org/x/sync/errgroup"
@@ -37,10 +38,33 @@ func (s *Service) GetErrorRate(ctx context.Context, teamID int64, startMs, endMs
 	return mapErrorRateRows(rows), nil
 }
 
+// GetP95Latency reads per-minute SpanLatencyService sketches from Redis and
+// emits a p95-per-(service, bucket) time series. All compute happens in Go;
+// the repository's SQL path is a no-op placeholder.
 func (s *Service) GetP95Latency(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]P95LatencyPoint, error) {
-	rows, err := s.repo.GetP95Latency(ctx, teamID, startMs, endMs, serviceName)
+	if s.sketchQ == nil {
+		return nil, nil
+	}
+	const stepSecs = 60 // 1-minute buckets match SpanLatencyService's native grain
+	byDim, err := s.sketchQ.PercentilesTimeseries(ctx, sketch.SpanLatencyService, teamIDString(teamID), startMs, endMs, stepSecs, 0.95)
 	if err != nil {
 		return nil, err
+	}
+	rows := make([]p95LatencyRow, 0)
+	for dim, points := range byDim {
+		if serviceName != "" && dim != serviceName {
+			continue
+		}
+		for _, p := range points {
+			if len(p.Values) == 0 {
+				continue
+			}
+			rows = append(rows, p95LatencyRow{
+				Timestamp:   time.Unix(p.BucketTs, 0).UTC(),
+				ServiceName: dim,
+				P95:         p.Values[0],
+			})
+		}
 	}
 	return mapP95LatencyRows(rows), nil
 }

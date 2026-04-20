@@ -34,30 +34,39 @@ func teamIDString(teamID int64) string { return fmt.Sprintf("%d", teamID) }
 
 func (s *topologyService) GetTopology(ctx context.Context, teamID int64, startMs, endMs int64, focusService string) (TopologyResponse, error) {
 	var (
-		nodeRows []nodeAggRow
-		edgeRows []edgeAggRow
+		nodeTotals []nodeTotalRow
+		nodeErrs   []nodeErrorLegRow
+		edgeTotals []edgeTotalRow
+		edgeErrs   []edgeErrorLegRow
 	)
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
-		rows, err := s.repo.GetNodes(gctx, teamID, startMs, endMs)
-		if err != nil {
-			return err
-		}
-		nodeRows = rows
-		return nil
+		rows, err := s.repo.GetNodeTotals(gctx, teamID, startMs, endMs)
+		nodeTotals = rows
+		return err
 	})
 	g.Go(func() error {
-		rows, err := s.repo.GetEdges(gctx, teamID, startMs, endMs)
-		if err != nil {
-			return err
-		}
-		edgeRows = rows
-		return nil
+		rows, err := s.repo.GetNodeErrors(gctx, teamID, startMs, endMs)
+		nodeErrs = rows
+		return err
+	})
+	g.Go(func() error {
+		rows, err := s.repo.GetEdgeTotals(gctx, teamID, startMs, endMs)
+		edgeTotals = rows
+		return err
+	})
+	g.Go(func() error {
+		rows, err := s.repo.GetEdgeErrors(gctx, teamID, startMs, endMs)
+		edgeErrs = rows
+		return err
 	})
 	if err := g.Wait(); err != nil {
 		return TopologyResponse{}, err
 	}
+
+	nodeRows := mergeNodeLegs(nodeTotals, nodeErrs)
+	edgeRows := mergeEdgeLegs(edgeTotals, edgeErrs)
 
 	// Attach percentiles from sketch.Querier. Nodes key by service name
 	// (SpanLatencyService). Edges key by the callee (child) service — the CH
@@ -163,6 +172,42 @@ func addMissingEdgeNodes(nodes []ServiceNode, edges []ServiceEdge) []ServiceNode
 		}
 	}
 	return nodes
+}
+
+// mergeNodeLegs indexes the per-service error counts and joins them onto the
+// totals list so the service layer can build ServiceNode with error_rate.
+func mergeNodeLegs(totals []nodeTotalRow, errs []nodeErrorLegRow) []nodeAggRow {
+	errIdx := make(map[string]uint64, len(errs))
+	for _, e := range errs {
+		errIdx[e.ServiceName] = e.ErrorCount
+	}
+	out := make([]nodeAggRow, 0, len(totals))
+	for _, t := range totals {
+		out = append(out, nodeAggRow{
+			ServiceName:  t.ServiceName,
+			RequestCount: int64(t.RequestCount), //nolint:gosec // count() fits int64
+			ErrorCount:   int64(errIdx[t.ServiceName]), //nolint:gosec
+		})
+	}
+	return out
+}
+
+// mergeEdgeLegs joins the (source, target) error counts onto the call totals.
+func mergeEdgeLegs(totals []edgeTotalRow, errs []edgeErrorLegRow) []edgeAggRow {
+	errIdx := make(map[string]uint64, len(errs))
+	for _, e := range errs {
+		errIdx[e.Source+"|"+e.Target] = e.ErrorCount
+	}
+	out := make([]edgeAggRow, 0, len(totals))
+	for _, t := range totals {
+		out = append(out, edgeAggRow{
+			Source:     t.Source,
+			Target:     t.Target,
+			CallCount:  int64(t.CallCount), //nolint:gosec
+			ErrorCount: int64(errIdx[t.Source+"|"+t.Target]), //nolint:gosec
+		})
+	}
+	return out
 }
 
 // filterNeighborhood keeps only the focus service and its direct neighbors

@@ -10,9 +10,13 @@ import (
 )
 
 // Repository runs ClickHouse queries that power the runtime service topology.
+// Error-rate computation is combinator-free: totals + errors scans run in
+// parallel (errgroup) and are merged in Go (mirrors overview/errors).
 type Repository interface {
-	GetNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]nodeAggRow, error)
-	GetEdges(ctx context.Context, teamID int64, startMs, endMs int64) ([]edgeAggRow, error)
+	GetNodeTotals(ctx context.Context, teamID int64, startMs, endMs int64) ([]nodeTotalRow, error)
+	GetNodeErrors(ctx context.Context, teamID int64, startMs, endMs int64) ([]nodeErrorLegRow, error)
+	GetEdgeTotals(ctx context.Context, teamID int64, startMs, endMs int64) ([]edgeTotalRow, error)
+	GetEdgeErrors(ctx context.Context, teamID int64, startMs, endMs int64) ([]edgeErrorLegRow, error)
 }
 
 type ClickHouseRepository struct {
@@ -33,16 +37,14 @@ func spanRangeArgs(teamID int64, startMs, endMs int64) []any {
 	}
 }
 
-// GetNodes aggregates per-service RED metrics. Only inbound spans (SERVER /
-// CONSUMER) are counted so that services which also emit CLIENT spans are not
-// double-counted. Percentiles are sourced from sketch.Querier (see service.go).
-func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]nodeAggRow, error) {
-	var rows []nodeAggRow
+// GetNodeTotals scans per-service inbound totals. Only SERVER/CONSUMER spans
+// are counted so services that also emit CLIENT spans are not double-counted.
+// Count stays native uint64; service casts at boundary.
+func (r *ClickHouseRepository) GetNodeTotals(ctx context.Context, teamID int64, startMs, endMs int64) ([]nodeTotalRow, error) {
+	var rows []nodeTotalRow
 	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT service_name,
-		       toInt64(count()) AS request_count,
-		       toInt64(countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400)) AS error_count,
-		       0 AS p50_ms, 0 AS p95_ms, 0 AS p99_ms
+		       count() AS request_count
 		FROM observability.spans
 		WHERE team_id = @teamID
 		  AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
@@ -54,17 +56,33 @@ func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID int64, start
 	return rows, err
 }
 
-// GetEdges derives service-to-service call edges from parent→child span joins
-// with RED metrics computed on the callee (child) span. Percentiles are sourced
-// from sketch.Querier (see service.go).
-func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID int64, startMs, endMs int64) ([]edgeAggRow, error) {
-	var rows []edgeAggRow
+// GetNodeErrors scans per-service error counts. Uses a UInt16 comparison on
+// http_status_code (materialized column) so no toUInt16OrZero cast is needed.
+func (r *ClickHouseRepository) GetNodeErrors(ctx context.Context, teamID int64, startMs, endMs int64) ([]nodeErrorLegRow, error) {
+	var rows []nodeErrorLegRow
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
+		SELECT service_name,
+		       count() AS error_count
+		FROM observability.spans
+		WHERE team_id = @teamID
+		  AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
+		  AND timestamp BETWEEN @start AND @end
+		  AND kind_string IN ('SERVER', 'CONSUMER')
+		  AND service_name != ''
+		  AND (has_error = true OR http_status_code >= 400)
+		GROUP BY service_name
+	`, spanRangeArgs(teamID, startMs, endMs)...)
+	return rows, err
+}
+
+// GetEdgeTotals derives service-to-service call totals from parent→child span
+// joins. Percentiles come from sketch.Querier (see service.go).
+func (r *ClickHouseRepository) GetEdgeTotals(ctx context.Context, teamID int64, startMs, endMs int64) ([]edgeTotalRow, error) {
+	var rows []edgeTotalRow
 	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT s.service_name AS source,
 		       c.service_name AS target,
-		       toInt64(count()) AS call_count,
-		       toInt64(countIf(c.has_error = true OR toUInt16OrZero(c.response_status_code) >= 400)) AS error_count,
-		       0 AS p50_ms, 0 AS p95_ms
+		       count() AS call_count
 		FROM observability.spans s
 		INNER JOIN observability.spans c
 		  ON s.span_id = c.parent_span_id AND s.trace_id = c.trace_id
@@ -77,6 +95,31 @@ func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID int64, start
 		  AND c.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND s.timestamp BETWEEN @start AND @end
 		  AND c.timestamp BETWEEN @start AND @end
+		GROUP BY source, target
+	`, spanRangeArgs(teamID, startMs, endMs)...)
+	return rows, err
+}
+
+// GetEdgeErrors scans error-only parent→child joins to merge with edge totals.
+func (r *ClickHouseRepository) GetEdgeErrors(ctx context.Context, teamID int64, startMs, endMs int64) ([]edgeErrorLegRow, error) {
+	var rows []edgeErrorLegRow
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
+		SELECT s.service_name AS source,
+		       c.service_name AS target,
+		       count() AS error_count
+		FROM observability.spans s
+		INNER JOIN observability.spans c
+		  ON s.span_id = c.parent_span_id AND s.trace_id = c.trace_id
+		WHERE s.team_id = @teamID
+		  AND c.team_id = @teamID
+		  AND s.service_name != ''
+		  AND c.service_name != ''
+		  AND s.service_name != c.service_name
+		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
+		  AND c.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
+		  AND s.timestamp BETWEEN @start AND @end
+		  AND c.timestamp BETWEEN @start AND @end
+		  AND (c.has_error = true OR c.http_status_code >= 400)
 		GROUP BY source, target
 	`, spanRangeArgs(teamID, startMs, endMs)...)
 	return rows, err

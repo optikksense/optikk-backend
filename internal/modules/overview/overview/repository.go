@@ -185,38 +185,25 @@ func (r *ClickHouseRepository) GetErrorRate(ctx context.Context, teamID int64, s
 	return out, nil
 }
 
-// p95LatencyRow is the DTO for GetP95Latency.
+// p95LatencyRow is the DTO for GetP95Latency. Filled entirely by the service
+// layer from sketch.Querier.PercentilesTimeseries — no SQL executed here.
 type p95LatencyRow struct {
-	Timestamp   time.Time `ch:"time_bucket"`
-	ServiceName string    `ch:"service_name"`
-	P95         float64   `ch:"p95"`
+	Timestamp   time.Time
+	ServiceName string
+	P95         float64
 }
 
+// GetP95Latency is a deliberate no-op at the repository level: the service
+// calls sketch.Querier.PercentilesTimeseries(SpanLatencyService, …, step, 0.95)
+// and assembles rows there. Kept on the Repository interface so existing
+// callers compile; returns an empty slice so any accidental use is safe.
 func (r *ClickHouseRepository) GetP95Latency(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]p95LatencyRow, error) {
-	bucket := overviewBucketExpr(startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT %s AS time_bucket,
-		       s.service_name AS service_name,
-		       quantileTDigest(`+fmt.Sprintf("%.2f", QuantileP95)+`)(s.duration_nano / 1000000.0) AS p95
-		FROM observability.spans s
-		WHERE s.team_id = @teamID AND `+RootSpanCondition()+`
-		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
-		  AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := dbutil.SpanBaseParams(teamID, startMs, endMs)
-	if serviceName != "" {
-		query += serviceNameFilter
-		args = append(args, clickhouse.Named("serviceName", serviceName))
-	}
-	query += fmt.Sprintf(` GROUP BY %s, s.service_name
-		ORDER BY time_bucket ASC, service_name ASC
-		LIMIT 10000`, bucket)
-
-	var rows []p95LatencyRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
-		return nil, err
-	}
-
-	return rows, nil
+	_ = ctx
+	_ = teamID
+	_ = startMs
+	_ = endMs
+	_ = serviceName
+	return nil, nil
 }
 
 // serviceMetricRow is the DTO returned to the service layer.
