@@ -299,7 +299,9 @@ func (r *ClickHouseRepository) GetErrorGroupTimeseries(ctx context.Context, team
 	return rows, nil
 }
 
-// serviceErrorRateRow is the DTO for GetServiceErrorRate.
+// serviceErrorRateRow is the DTO for GetServiceErrorRate. Sourced from the
+// spans_rollup_1m root-span rollup; error_rate + avg_latency are derived
+// Go-side from the merged state columns.
 type serviceErrorRateRow struct {
 	ServiceName  string    `ch:"service_name"`
 	Timestamp    time.Time `ch:"timestamp"`
@@ -309,38 +311,60 @@ type serviceErrorRateRow struct {
 	AvgLatency   float64   `ch:"avg_latency"`
 }
 
+type serviceErrorRateRawRow struct {
+	ServiceName   string    `ch:"service_name"`
+	Timestamp     time.Time `ch:"timestamp"`
+	RequestCount  uint64    `ch:"request_count"`
+	ErrorCount    uint64    `ch:"error_count"`
+	DurationMsSum float64   `ch:"duration_ms_sum"`
+}
+
 func (r *ClickHouseRepository) GetServiceErrorRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]serviceErrorRateRow, error) {
-	bucket := errorBucketExpr(startMs, endMs)
-	query := fmt.Sprintf(`
+	query := `
 		SELECT service_name,
-		       timestamp,
-		       request_count,
-		       error_count,
-		       if(request_count > 0, error_count*100.0/request_count, 0) AS error_rate,
-		       avg_latency
-		FROM (
-			SELECT s.service_name AS service_name,
-			       %s AS timestamp,
-			       toInt64(count())                 AS request_count,
-			       toInt64(countIf(`+ErrorCondition()+`)) AS error_count,
-			       avg(s.duration_nano / 1000000.0) AS avg_latency
-			FROM observability.spans s
-			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := database.SpanBaseParams(teamID, startMs, endMs)
+		       toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
+		       sumMerge(request_count)   AS request_count,
+		       sumMerge(error_count)     AS error_count,
+		       sumMerge(duration_ms_sum) AS duration_ms_sum
+		FROM observability.spans_rollup_1m
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end`
+	args := rollupBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += serviceNameFilter
+		query += ` AND service_name = @serviceName`
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
-	query += fmt.Sprintf(` GROUP BY s.service_name, %s
-		)
+	query += `
+		GROUP BY service_name, timestamp
 		ORDER BY timestamp ASC
-		LIMIT 10000`, bucket)
+		LIMIT 10000`
 
-	var rows []serviceErrorRateRow
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	var raw []serviceErrorRateRawRow
+	if err := r.db.Select(database.OverviewCtx(ctx), &raw, query, args...); err != nil {
 		return nil, err
 	}
 
+	rows := make([]serviceErrorRateRow, len(raw))
+	for i, row := range raw {
+		total := int64(row.RequestCount) //nolint:gosec // domain-bounded
+		errs := int64(row.ErrorCount)    //nolint:gosec // domain-bounded
+		rate := 0.0
+		if total > 0 {
+			rate = float64(errs) * 100.0 / float64(total)
+		}
+		avg := 0.0
+		if row.RequestCount > 0 {
+			avg = row.DurationMsSum / float64(row.RequestCount)
+		}
+		rows[i] = serviceErrorRateRow{
+			ServiceName:  row.ServiceName,
+			Timestamp:    row.Timestamp,
+			RequestCount: total,
+			ErrorCount:   errs,
+			ErrorRate:    rate,
+			AvgLatency:   avg,
+		}
+	}
 	return rows, nil
 }
 
@@ -351,32 +375,46 @@ type errorVolumeRow struct {
 	ErrorCount  int64     `ch:"error_count"`
 }
 
+type errorVolumeRawRow struct {
+	ServiceName string    `ch:"service_name"`
+	Timestamp   time.Time `ch:"timestamp"`
+	ErrorCount  uint64    `ch:"error_count"`
+}
+
 func (r *ClickHouseRepository) GetErrorVolume(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]errorVolumeRow, error) {
-	bucket := errorBucketExpr(startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT service_name, timestamp, error_count
-		FROM (
-			SELECT s.service_name AS service_name,
-			       %s AS timestamp,
-			       toInt64(countIf(`+ErrorCondition()+`)) AS error_count
-			FROM observability.spans s
-			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := database.SpanBaseParams(teamID, startMs, endMs)
+	query := `
+		SELECT service_name,
+		       toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
+		       sumMerge(error_count) AS error_count
+		FROM observability.spans_rollup_1m
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end`
+	args := rollupBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += serviceNameFilter
+		query += ` AND service_name = @serviceName`
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
-	query += fmt.Sprintf(` GROUP BY s.service_name, %s
-		)
-		WHERE error_count > 0
+	query += `
+		GROUP BY service_name, timestamp
 		ORDER BY timestamp ASC
-		LIMIT 10000`, bucket)
+		LIMIT 10000`
 
-	var rows []errorVolumeRow
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	var raw []errorVolumeRawRow
+	if err := r.db.Select(database.OverviewCtx(ctx), &raw, query, args...); err != nil {
 		return nil, err
 	}
 
+	rows := make([]errorVolumeRow, 0, len(raw))
+	for _, row := range raw {
+		if row.ErrorCount == 0 {
+			continue
+		}
+		rows = append(rows, errorVolumeRow{
+			ServiceName: row.ServiceName,
+			Timestamp:   row.Timestamp,
+			ErrorCount:  int64(row.ErrorCount), //nolint:gosec // domain-bounded
+		})
+	}
 	return rows, nil
 }
 
@@ -390,34 +428,73 @@ type latencyErrorRow struct {
 }
 
 func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]latencyErrorRow, error) {
-	bucket := errorBucketExpr(startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT service_name, timestamp, request_count, error_count, avg_latency
-		FROM (
-			SELECT s.service_name AS service_name,
-			       %s AS timestamp,
-			       toInt64(count())                 AS request_count,
-			       toInt64(countIf(`+ErrorCondition()+`)) AS error_count,
-			       avg(s.duration_nano / 1000000.0) AS avg_latency
-			FROM observability.spans s
-			WHERE s.team_id = @teamID AND `+RootSpanCondition()+` AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end`, bucket)
-	args := database.SpanBaseParams(teamID, startMs, endMs)
+	query := `
+		SELECT service_name,
+		       toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
+		       sumMerge(request_count)   AS request_count,
+		       sumMerge(error_count)     AS error_count,
+		       sumMerge(duration_ms_sum) AS duration_ms_sum
+		FROM observability.spans_rollup_1m
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end`
+	args := rollupBaseParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += serviceNameFilter
+		query += ` AND service_name = @serviceName`
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
-	query += fmt.Sprintf(` GROUP BY s.service_name, %s
-		)
-		WHERE error_count > 0
+	query += `
+		GROUP BY service_name, timestamp
 		ORDER BY timestamp ASC
-		LIMIT 10000`, bucket)
+		LIMIT 10000`
 
-	var rows []latencyErrorRow
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	var raw []serviceErrorRateRawRow
+	if err := r.db.Select(database.OverviewCtx(ctx), &raw, query, args...); err != nil {
 		return nil, err
 	}
 
+	rows := make([]latencyErrorRow, 0, len(raw))
+	for _, row := range raw {
+		if row.ErrorCount == 0 {
+			continue
+		}
+		total := int64(row.RequestCount) //nolint:gosec // domain-bounded
+		errs := int64(row.ErrorCount)    //nolint:gosec // domain-bounded
+		avg := 0.0
+		if row.RequestCount > 0 {
+			avg = row.DurationMsSum / float64(row.RequestCount)
+		}
+		rows = append(rows, latencyErrorRow{
+			ServiceName:  row.ServiceName,
+			Timestamp:    row.Timestamp,
+			RequestCount: total,
+			ErrorCount:   errs,
+			AvgLatency:   avg,
+		})
+	}
 	return rows, nil
+}
+
+func rollupIntervalMinutesFor(startMs, endMs int64) int64 {
+	hours := (endMs - startMs) / 3_600_000
+	switch {
+	case hours <= 3:
+		return 1
+	case hours <= 24:
+		return 5
+	case hours <= 168:
+		return 60
+	default:
+		return 1440
+	}
+}
+
+func rollupBaseParams(teamID int64, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("intervalMin", rollupIntervalMinutesFor(startMs, endMs)),
+	}
 }
 
 // --- Migrated from errortracking ---

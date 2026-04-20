@@ -12,7 +12,6 @@ import (
 	kafkainfra "github.com/Optikk-Org/optikk-backend/internal/infra/kafka"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/redis"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/session"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 	ingestlogs "github.com/Optikk-Org/optikk-backend/internal/ingestion/logs"
 	ingestmetrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/metrics"
 	ingestspans "github.com/Optikk-Org/optikk-backend/internal/ingestion/spans"
@@ -41,7 +40,6 @@ type Infra struct {
 	RedisPool      *redigoredis.Pool
 	Authenticator  *auth.Authenticator
 	Ingest         IngestModules
-	SketchQuerier  *sketch.Querier
 
 	producerClient    *kgo.Client
 	consumerClients   []*kgo.Client // closed on shutdown alongside producer
@@ -92,10 +90,7 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 		return nil, fmt.Errorf("kafka ingest topics: %w", err)
 	}
 
-	sketchStore := sketch.NewRedisStore(redisClients.Client)
-	sketchQuerier := sketch.NewQuerier(sketchStore, sketch.NewCHFallback(chConn))
-
-	ingest, producerClient, consumerClients, err := buildIngestModules(cfg, kafkaCfg, prefix, chConn, liveTailHub, sketchStore)
+	ingest, producerClient, consumerClients, err := buildIngestModules(cfg, kafkaCfg, prefix, chConn, liveTailHub)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +106,6 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 		RedisPool:       redisClients.Pool,
 		Authenticator:   authenticator,
 		Ingest:          ingest,
-		SketchQuerier:   sketchQuerier,
 		producerClient:  producerClient,
 		consumerClients: consumerClients,
 	}, nil
@@ -129,7 +123,7 @@ func openClickHouse(cfg config.Config) (clickhouse.Conn, error) {
 // per-signal modules. The producer is a single kgo.Client shared across all
 // three signals (one TCP pool); each consumer is its own client because they
 // join different consumer groups.
-func buildIngestModules(cfg config.Config, kcfg kafkainfra.Config, prefix string, ch clickhouse.Conn, hub livetail.Hub, store sketch.Store) (IngestModules, *kgo.Client, []*kgo.Client, error) {
+func buildIngestModules(cfg config.Config, kcfg kafkainfra.Config, prefix string, ch clickhouse.Conn, hub livetail.Hub) (IngestModules, *kgo.Client, []*kgo.Client, error) {
 	producerClient, err := kafkainfra.NewProducerClient(kcfg)
 	if err != nil {
 		return IngestModules{}, nil, nil, fmt.Errorf("kafka producer client: %w", err)
@@ -191,7 +185,6 @@ func buildIngestModules(cfg config.Config, kcfg kafkainfra.Config, prefix string
 		Producer:          ingestmetrics.NewProducer(producer, prefix),
 		CH:                ch,
 		PersistenceClient: kafkainfra.NewConsumer(metricsPersist),
-		SketchStore:       store,
 	}).(*ingestmetrics.Module)
 
 	spansMod := ingestspans.NewModule(ingestspans.Deps{
@@ -200,7 +193,6 @@ func buildIngestModules(cfg config.Config, kcfg kafkainfra.Config, prefix string
 		PersistenceClient: kafkainfra.NewConsumer(spansPersist),
 		LivetailClient:    kafkainfra.NewConsumer(spansLive),
 		Hub:               hub,
-		SketchStore:       store,
 	}).(*ingestspans.Module)
 
 	return IngestModules{Logs: logsMod, Metrics: metricsMod, Spans: spansMod}, producerClient, consumerClients, nil

@@ -41,8 +41,8 @@ func (s *REDMetricsService) GetSummary(ctx context.Context, teamID int64, startM
 	var totalCount, totalErrors int64
 	var totalP50, totalP95, totalP99 float64
 	for _, row := range rows {
-		totalCount += row.TotalCount
-		totalErrors += row.ErrorCount
+		totalCount += int64(row.TotalCount) //nolint:gosec // domain-bounded
+		totalErrors += int64(row.ErrorCount) //nolint:gosec // domain-bounded
 		totalP50 += row.P50Ms
 		totalP95 += row.P95Ms
 		totalP99 += row.P99Ms
@@ -111,7 +111,7 @@ func (s *REDMetricsService) GetTopSlowOperations(ctx context.Context, teamID int
 			P50Ms:         row.P50Ms,
 			P95Ms:         row.P95Ms,
 			P99Ms:         row.P99Ms,
-			SpanCount:     row.SpanCount,
+			SpanCount:     int64(row.SpanCount), //nolint:gosec // domain-bounded
 		}
 	}
 	return result, nil
