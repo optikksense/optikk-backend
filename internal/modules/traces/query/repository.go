@@ -3,15 +3,43 @@ package query
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	rootspan "github.com/Optikk-Org/optikk-backend/internal/modules/traces/shared/rootspan"
 )
 
-const serviceNameFilter = " AND s.service_name = @serviceName"
+const (
+	serviceNameFilter = " AND s.service_name = @serviceName"
+	spansRollupPrefix = "observability.spans_rollup"
+)
+
+// queryIntervalMinutes returns the step (in minutes) for the query-time
+// `toStartOfInterval` group-by. Returns max(tierStep, dashboardStep) so the
+// step is never finer than the tier's native resolution. Copied from
+// overview/overview/repository.go.
+func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
+	hours := (endMs - startMs) / 3_600_000
+	var dashStep int64
+	switch {
+	case hours <= 3:
+		dashStep = 1
+	case hours <= 24:
+		dashStep = 5
+	case hours <= 168:
+		dashStep = 60
+	default:
+		dashStep = 1440
+	}
+	if tierStepMin > dashStep {
+		return tierStepMin
+	}
+	return dashStep
+}
 
 type Repository interface {
 	GetTracesKeyset(ctx context.Context, f TraceFilters, limit int, cursor TraceCursor) ([]traceRow, traceSummaryRow, bool, error)
@@ -33,6 +61,38 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
+// buildRollupWhere produces a minimal WHERE clause for reads from
+// `observability.spans_rollup_*`. Only rollup-dimensional filters are
+// honoured (team_id, bucket_ts, service_name, http_method, operation_name).
+// Filters that require raw span columns (TraceID, SearchText, attributes,
+// MinDuration, SpanKind…) are silently ignored — the rollup can't express
+// them. Keyset + explorer drill-down paths that need those filters continue
+// to read from `observability.spans` directly.
+func buildRollupWhere(f TraceFilters) (frag string, args []any) {
+	startMs, endMs := normalizeTimeRange(f.StartMs, f.EndMs)
+
+	frag = ` WHERE team_id = @teamID AND bucket_ts BETWEEN @start AND @end`
+	args = []any{
+		clickhouse.Named("teamID", uint32(f.TeamID)), //nolint:gosec // G115 — tenant ID fits uint32
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+
+	if len(f.Services) > 0 {
+		frag += ` AND service_name IN @services`
+		args = append(args, clickhouse.Named("services", f.Services))
+	}
+	if f.SpanName != "" {
+		frag += ` AND operation_name = @spanName`
+		args = append(args, clickhouse.Named("spanName", f.SpanName))
+	}
+	if f.HTTPMethod != "" {
+		frag += ` AND upper(http_method) = upper(@httpMethod)`
+		args = append(args, clickhouse.Named("httpMethod", f.HTTPMethod))
+	}
+	return frag, args
+}
+
 func (r *ClickHouseRepository) GetTracesKeyset(ctx context.Context, f TraceFilters, limit int, cursor TraceCursor) ([]traceRow, traceSummaryRow, bool, error) {
 	query, args := buildTracesQuery(f, limit, cursor)
 	var rows []traceRow
@@ -49,32 +109,104 @@ func (r *ClickHouseRepository) GetTracesKeyset(ctx context.Context, f TraceFilte
 	return rows, summary, hasMore, err
 }
 
+// getTraceSummary returns aggregate stats (total / error counts, latency
+// percentiles) for the requested window. Migrated to the `spans_rollup_*`
+// cascade; rollup-incompatible filters on f are dropped — see
+// buildRollupWhere.
 func (r *ClickHouseRepository) getTraceSummary(ctx context.Context, f TraceFilters) (traceSummaryRow, error) {
-	query, args := buildTracesSummaryQuery(f)
+	table, _ := rollup.TierTableFor(spansRollupPrefix, f.StartMs, f.EndMs)
+	where, args := buildRollupWhere(f)
+	query := fmt.Sprintf(`
+		SELECT sumMerge(request_count)                                              AS total_traces,
+		       sumMerge(error_count)                                                AS error_traces,
+		       if(sumMerge(request_count) = 0, 0,
+		          sumMerge(duration_ms_sum) / sumMerge(request_count))              AS avg_duration,
+		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1  AS p50_duration,
+		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2  AS p95_duration,
+		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3  AS p99_duration
+		FROM %s %s`, table, where)
+
 	var res traceSummaryRow
 	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&res)
 	return res, err
 }
 
+// GetTraceFacets returns service-name facet counts. Migrated to
+// `spans_rollup_*` cascade.
 func (r *ClickHouseRepository) GetTraceFacets(ctx context.Context, f TraceFilters) ([]traceFacetRow, error) {
-	query, args := buildTraceFacetsQuery(f)
+	table, _ := rollup.TierTableFor(spansRollupPrefix, f.StartMs, f.EndMs)
+	where, args := buildRollupWhere(f)
+	query := fmt.Sprintf(`
+		SELECT 'service_name'         AS facet_key,
+		       service_name           AS facet_value,
+		       sumMerge(request_count) AS count
+		FROM %s %s
+		GROUP BY service_name
+		ORDER BY count DESC
+		LIMIT 10`, table, where)
+
 	var rows []traceFacetRow
 	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...)
 	return rows, err
 }
 
+// GetTraceTrend returns time-bucketed trend data (total/error counts + p95)
+// from the `spans_rollup_*` cascade. `step` is honoured as the query-time
+// bucket width (clamped to the tier's native step).
 func (r *ClickHouseRepository) GetTraceTrend(ctx context.Context, f TraceFilters, step string) ([]traceTrendRow, error) {
-	query, args := buildTraceTrendQuery(f, step)
+	table, tierStep := rollup.TierTableFor(spansRollupPrefix, f.StartMs, f.EndMs)
+	where, args := buildRollupWhere(f)
+
+	stepMin := queryIntervalMinutes(tierStep, f.StartMs, f.EndMs)
+	if step != "" {
+		// Explicit step from caller (e.g. "5m"/"1h") — parse conservatively.
+		if s := stepFromName(step); s > 0 {
+			if s < tierStep {
+				s = tierStep
+			}
+			stepMin = s
+		}
+	}
+
+	query := fmt.Sprintf(`
+		SELECT formatDateTime(toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)), '%%Y-%%m-%%d %%H:%%i:00') AS time_bucket,
+		       sumMerge(request_count)                                             AS total_traces,
+		       sumMerge(error_count)                                               AS error_traces,
+		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_duration
+		FROM %s %s
+		GROUP BY time_bucket
+		ORDER BY time_bucket ASC`, table, where)
+	args = append(args, clickhouse.Named("intervalMin", stepMin))
+
 	var rows []traceTrendRow
 	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...)
 	return rows, err
+}
+
+// stepFromName maps explicit step tokens to minute widths. Unknown tokens
+// return 0 which signals "use the default (queryIntervalMinutes)".
+func stepFromName(step string) int64 {
+	switch step {
+	case "1m":
+		return 1
+	case "5m":
+		return 5
+	case "15m":
+		return 15
+	case "1h":
+		return 60
+	case "1d":
+		return 1440
+	default:
+		return 0
+	}
 }
 
 func (r *ClickHouseRepository) GetTraceSpans(ctx context.Context, teamID int64, traceID string) ([]spanRow, error) {
 	var rows []spanRow
 	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
 		SELECT span_id, parent_span_id, trace_id, name AS operation_name, service_name, kind_string AS span_kind,
-		       timestamp AS start_time, toInt64(duration_nano) AS duration_nano, (duration_nano / 1000000.0) AS duration_ms, 
+		       timestamp AS start_time, toInt64(duration_nano) AS duration_nano, (duration_nano / 1000000.0) AS duration_ms,
 		       status_code_string AS status, status_message, toJSONString(attributes) AS attributes,
 		       http_method, http_url, toUInt16OrZero(response_status_code) AS http_status_code,
 		       mat_host_name AS host, mat_k8s_pod_name AS pod
@@ -127,54 +259,90 @@ func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64,
 	return rows, err
 }
 
+// GetErrorTimeSeries returns per-service error/total counts time-bucketed
+// from the `spans_rollup_*` cascade. `error_rate` is computed in SQL from
+// the merged state columns.
 func (r *ClickHouseRepository) GetErrorTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]errorTimeSeriesRow, error) {
-	bucket := timebucket.ExprForColumnTime(startMs, endMs, "s.timestamp")
+	table, tierStep := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT %s AS timestamp,
+		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin))      AS timestamp,
 		       service_name,
-		       count()                              AS total_count,
-		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) AS error_count,
-		       error_count * 100.0 / total_count     AS error_rate
-		FROM observability.spans s
-		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
-		  AND s.service_name = if(@serviceName = '', s.service_name, @serviceName)
+		       sumMerge(request_count)                                           AS total_count,
+		       sumMerge(error_count)                                             AS error_count,
+		       if(sumMerge(request_count) = 0, 0,
+		          sumMerge(error_count) * 100.0 / sumMerge(request_count))      AS error_rate
+		FROM %s
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND service_name = if(@serviceName = '', service_name, @serviceName)
 		GROUP BY timestamp, service_name
-		ORDER BY timestamp ASC`, bucket)
+		ORDER BY timestamp ASC`, table)
 
 	var rows []errorTimeSeriesRow
 	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
 	)
 	return rows, err
 }
 
+// GetLatencyHistogram returns log10-width histogram buckets derived from the
+// `spans_rollup_*` t-digest. The rollup does not retain per-span durations,
+// so buckets are approximated from 10 equal-mass quantile samples and
+// `span_count` is distributed evenly. Shape + column semantics match the
+// legacy raw-scan contract.
 func (r *ClickHouseRepository) GetLatencyHistogram(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) ([]latencyHistogramRow, error) {
-	var rows []latencyHistogramRow
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
-		SELECT
-		    concat(toString(floor(log10(duration_nano/1000000.0) * 10) / 10), ' - ', toString(floor(log10(duration_nano/1000000.0) * 10) / 10 + 0.1)) AS bucket_label,
-		    floor(log10(duration_nano/1000000.0) * 10) / 10 AS bucket_min,
-		    count() AS span_count
-		FROM observability.spans s
-		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
-		  AND s.service_name = @serviceName AND s.name = @operationName
-		GROUP BY bucket_label, bucket_min
-		ORDER BY bucket_min ASC
-	`,
+	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	// `quantilesTDigestWeightedMerge(q0,q1,...)` returns Array(Float64); we
+	// pull p0..p1 in 0.1 steps (11 boundaries ⇒ 10 equal-mass buckets).
+	type histSampleRow struct {
+		Total     uint64    `ch:"total"`
+		Quantiles []float64 `ch:"quantiles"`
+	}
+	query := fmt.Sprintf(`
+		SELECT sumMerge(request_count) AS total,
+		       quantilesTDigestWeightedMerge(0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0)(latency_ms_digest) AS quantiles
+		FROM %s
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND service_name = @serviceName
+		  AND operation_name = @operationName`, table)
+
+	var sample histSampleRow
+	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("operationName", operationName),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
-	)
-	return rows, err
+	).ScanStruct(&sample); err != nil {
+		return nil, err
+	}
+	if sample.Total == 0 || len(sample.Quantiles) < 11 {
+		return []latencyHistogramRow{}, nil
+	}
+
+	perBucket := sample.Total / 10 //nolint:gosec // domain-bounded
+	rows := make([]latencyHistogramRow, 0, 10)
+	for i := 0; i < 10; i++ {
+		lo := sample.Quantiles[i]
+		hi := sample.Quantiles[i+1]
+		bucketMin := int64(0)
+		if lo > 0 {
+			// Match the legacy SQL shape: floor(log10(ms)*10)/10 stored as
+			// the integer-scaled bucket_min.
+			bucketMin = int64(math.Floor(math.Log10(lo) * 10))
+		}
+		rows = append(rows, latencyHistogramRow{
+			BucketLabel: fmt.Sprintf("%.1f - %.1f", lo, hi),
+			BucketMin:   bucketMin,
+			SpanCount:   perBucket,
+		})
+	}
+	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]latencyHeatmapRow, error) {
@@ -199,8 +367,8 @@ func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int
 		query += serviceNameFilter
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
-	query += fmt.Sprintf(`) GROUP BY time_bucket, latency_bucket
-                   ORDER BY time_bucket ASC, latency_bucket ASC`)
+	query += `) GROUP BY time_bucket, latency_bucket
+                   ORDER BY time_bucket ASC, latency_bucket ASC`
 
 	var rows []latencyHeatmapRow
 	return rows, r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...)
@@ -225,44 +393,6 @@ func buildTracesQuery(f TraceFilters, limit int, cursor TraceCursor) (string, []
 		query += fmt.Sprintf(" LIMIT %d", limit+1)
 	}
 
-	return query, args
-}
-
-func buildTracesSummaryQuery(f TraceFilters) (string, []any) {
-	where, args := buildWhereClause(f)
-	query := fmt.Sprintf(`
-		SELECT count() AS total_traces,
-		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) AS error_traces,
-		       avg(duration_nano / 1000000.0) AS avg_duration,
-		       quantileTDigest(0.5)(duration_nano / 1000000.0) AS p50_duration,
-		       quantileTDigest(0.95)(duration_nano / 1000000.0) AS p95_duration,
-		       quantileTDigest(0.99)(duration_nano / 1000000.0) AS p99_duration
-		FROM observability.spans s %s`, where)
-	return query, args
-}
-
-func buildTraceFacetsQuery(f TraceFilters) (string, []any) {
-	where, args := buildWhereClause(f)
-	// Example: just service name facets for now
-	query := fmt.Sprintf(`
-		SELECT 'service_name' AS facet_key, service_name AS facet_value, count() AS count
-		FROM observability.spans s %s
-		GROUP BY service_name
-		ORDER BY count DESC LIMIT 10`, where)
-	return query, args
-}
-
-func buildTraceTrendQuery(f TraceFilters, step string) (string, []any) {
-	where, args := buildWhereClause(f)
-	bucket := timebucket.ByName(step).GetRawExpression("s.timestamp")
-	query := fmt.Sprintf(`
-		SELECT %s AS time_bucket,
-		       count() AS total_traces,
-		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) AS error_traces,
-		       quantileTDigest(0.95)(duration_nano / 1000000.0) AS p95_duration
-		FROM observability.spans s %s
-		GROUP BY time_bucket
-		ORDER BY time_bucket ASC`, bucket, where)
 	return query, args
 }
 

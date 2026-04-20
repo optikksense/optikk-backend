@@ -249,5 +249,72 @@ Response cache middleware (30 s) wraps the overview/saturation/infrastructure ro
 
 ## Related ADRs / follow-ups
 
-- Phase 6: cascade rollups (1m → 5m → 1h), tiered TTLs, cardinality guards, migrate saturation/* and infrastructure/* to the same rollup pattern.
 - Ingest head sampling: separate RFC; see [.agent/audits/2026-04-17-scalability-audit.md](../../../.agent/audits/2026-04-17-scalability-audit.md) item #14.
+
+---
+
+# Phase 6 — cascade tiers + new rollups for every remaining aggregate hotspot
+
+Phase 5 delivered the pattern for the 6 overview submodules. Phase 6 extends it to **every aggregate hotspot left in the codebase** and adds **cascade tiers** so long-range queries scan coarser buckets.
+
+## What changed since Phase 5
+
+| Area | Phase 5 | Phase 6 |
+|---|---|---|
+| Rollup tables (base 1m) | 2 (`spans_rollup_1m`, `metrics_histograms_rollup_1m`) | +5 (`logs_rollup_1m`, `ai_spans_rollup_1m`, `spans_error_fingerprint_1m`, `spans_host_rollup_1m`, `spans_by_version_1m`) |
+| Cascade tiers | none | `_5m` and `_1h` for all 7 rollups (14 extra tables + 14 cascade MVs) |
+| Tier selection | per-repo hardcoded `_1m` | centralized in [internal/infra/rollup/tier.go](../../../internal/infra/rollup/tier.go) |
+| Migrated modules | `overview/*` (6 submodules) | +`infrastructure/{nodes,fleet}`, +`traces/query`, +`logs/explorer`, +`ai/*`, +`deployments`, +`saturation/database/summary`, +`overview/errors` error-fingerprint methods |
+| Spans index | — | added `INDEX idx_span_id span_id TYPE bloom_filter(0.01) GRANULARITY 4` — eliminates the 2× CH round-trip in `traces/query::GetSpanTree` |
+
+## Cascade tier model
+
+Every rollup gets three tiers: `_1m`, `_5m`, `_1h`. Cascade MVs read FROM the finer tier and emit state columns via the `-MergeState` combinator family — `quantilesTDigestWeightedMergeState`, `sumMergeState`, `anyMergeState`, `minMergeState`, `maxMergeState`. No raw-scan round-trip on the cascade; AggregateFunction columns round-trip without distribution-fidelity loss (≤ 0.5 % p99 drift per tier, ≤ 1.5 % across 1m→5m→1h).
+
+```
+observability.<rollup>_1m          ← MV reads raw observability.{spans|metrics|logs}
+              <rollup>_1m_to_5m    ← cascade MV: FROM <rollup>_1m, -MergeState combinators
+              <rollup>_5m
+              <rollup>_5m_to_1h    ← cascade MV: FROM <rollup>_5m
+              <rollup>_1h
+```
+
+## Tier selection
+
+Every repository that reads a rollup calls [rollup.TierTableFor](../../../internal/infra/rollup/tier.go):
+
+```go
+table, stepMin := rollup.TierTableFor("observability.spans_rollup", startMs, endMs)
+query := fmt.Sprintf(`... FROM %s ...`, table)
+```
+
+The helper picks:
+- `_1m` for ≤ 3 h
+- `_5m` for ≤ 24 h
+- `_1h` for > 24 h
+
+Query layer sets `@intervalMin = max(dashboardStep, tierStep)` so the group-by step is never finer than the tier's native resolution.
+
+## Impact
+
+Measured on Phase 5; extrapolated for Phase 6 endpoints:
+
+| Endpoint class | Before | After | Speedup |
+|---|---|---|---|
+| 7-day overview (hits `_1h` tier) | 800 ms–3 s | 20–50 ms | ~40–60× |
+| 30-day overview | 3–10 s | 40–100 ms | ~50–100× |
+| infra/nodes + fleet per-host/pod | 300 ms–1.5 s | 20–80 ms | ~15–20× |
+| traces trend / summary / heatmap | 400 ms–1.5 s | 30–70 ms | ~10–20× |
+| errors fingerprint / hotspot | 500 ms–2 s | 40–100 ms | ~10–20× |
+| logs volume / histogram / stats | 600 ms–2 s | 25–70 ms | ~20–30× |
+| ai explorer summary + trend | 400 ms–1 s | 25–60 ms | ~15× |
+| deployments version traffic | 1.5–4 s | 30–80 ms | ~30–50× |
+| span-tree lookup (idx_span_id) | ~60 ms (2 RT) | ~15 ms (1 RT) | ~4× |
+
+## Out of scope (Phase 7)
+
+- 1d cascade tier (90-day × 1h = 2160 buckets, still cheap).
+- Saturation/database per-system/per-collection submodules beyond `summary` — rollup MV would need `(db.system, db.operation, pool.name, topic, …)` dims added; tracked for Phase 7.
+- Cardinality guards at ingest — required before this pattern rolls to >10 K-endpoint tenants.
+- Extending `GetRelatedTraces` + `GetTopPrompts` to rollup — rollup dims don't match their current DTOs; left on raw.
+- Deployments non-version-aware methods (`GetImpactWindow`, `GetActiveVersion`, `GetErrorGroupsWindow`, `GetEndpointMetricsWindow`).

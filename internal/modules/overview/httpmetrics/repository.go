@@ -7,7 +7,13 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+)
+
+const (
+	spansRollupPrefix       = "observability.spans_rollup"
+	metricsHistRollupPrefix = "observability.metrics_histograms_rollup"
 )
 
 // Histogram-metric queries target `observability.metrics_histograms_rollup_1m`.
@@ -45,18 +51,23 @@ func NewRepository(db clickhouse.Conn) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-func intervalMinutesFor(startMs, endMs int64) int64 {
+func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 	hours := (endMs - startMs) / 3_600_000
+	var dashStep int64
 	switch {
 	case hours <= 3:
-		return 1
+		dashStep = 1
 	case hours <= 24:
-		return 5
+		dashStep = 5
 	case hours <= 168:
-		return 60
+		dashStep = 60
 	default:
-		return 1440
+		dashStep = 1440
 	}
+	if tierStepMin > dashStep {
+		return tierStepMin
+	}
+	return dashStep
 }
 
 func histRollupParams(teamID int64, startMs, endMs int64, metricName string) []any {
@@ -85,17 +96,18 @@ type histogramSummaryRawRow struct {
 }
 
 func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (HistogramSummary, error) {
-	query := `
+	table, _ := rollup.TierTableFor(metricsHistRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
 		SELECT
 		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 AS p50,
 		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95,
 		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 AS p99,
 		    sumMerge(hist_sum)                                                  AS hist_sum,
 		    sumMerge(hist_count)                                                AS hist_count
-		FROM observability.metrics_histograms_rollup_1m
+		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName`
+		  AND metric_name = @metricName`, table)
 
 	var raw histogramSummaryRawRow
 	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, histRollupParams(teamID, startMs, endMs, metricName)...).ScanStruct(&raw); err != nil {
@@ -201,16 +213,17 @@ func (r *ClickHouseRepository) GetTLSDuration(ctx context.Context, teamID int64,
 // root-only; HTTP server spans are root-scope, so coverage matches.
 
 func (r *ClickHouseRepository) GetTopRoutesByVolume(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
-	query := `
+	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
 		SELECT endpoint AS route,
 		       sumMerge(request_count) AS req_count
-		FROM observability.spans_rollup_1m
+		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
 		  AND endpoint != ''
 		GROUP BY route
 		ORDER BY req_count DESC
-		LIMIT 20`
+		LIMIT 20`, table)
 
 	var raw []struct {
 		Route    string `ch:"route"`
@@ -230,17 +243,18 @@ func (r *ClickHouseRepository) GetTopRoutesByVolume(ctx context.Context, teamID 
 }
 
 func (r *ClickHouseRepository) GetTopRoutesByLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
-	query := `
+	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
 		SELECT endpoint AS route,
 		       sumMerge(request_count) AS req_count,
 		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_ms
-		FROM observability.spans_rollup_1m
+		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
 		  AND endpoint != ''
 		GROUP BY route
 		ORDER BY p95_ms DESC
-		LIMIT 20`
+		LIMIT 20`, table)
 
 	var raw []struct {
 		Route    string  `ch:"route"`
@@ -262,17 +276,18 @@ func (r *ClickHouseRepository) GetTopRoutesByLatency(ctx context.Context, teamID
 }
 
 func (r *ClickHouseRepository) GetRouteErrorRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
-	query := `
+	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
 		SELECT endpoint AS route,
 		       sumMerge(request_count) AS req_count,
 		       sumMerge(error_count)   AS err_count
-		FROM observability.spans_rollup_1m
+		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
 		  AND endpoint != ''
 		GROUP BY route
 		ORDER BY err_count DESC
-		LIMIT 20`
+		LIMIT 20`, table)
 
 	var raw []struct {
 		Route    string `ch:"route"`
@@ -300,19 +315,20 @@ func (r *ClickHouseRepository) GetRouteErrorRate(ctx context.Context, teamID int
 }
 
 func (r *ClickHouseRepository) GetRouteErrorTimeseries(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteTimeseriesPoint, error) {
-	query := `
+	table, tierStep := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       endpoint                AS http_route,
 		       sumMerge(request_count) AS req_count,
 		       sumMerge(error_count)   AS err_count
-		FROM observability.spans_rollup_1m
+		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
 		  AND endpoint != ''
 		GROUP BY time_bucket, http_route
-		ORDER BY time_bucket ASC, err_count DESC`
+		ORDER BY time_bucket ASC, err_count DESC`, table)
 	args := append(spanRollupParams(teamID, startMs, endMs),
-		clickhouse.Named("intervalMin", intervalMinutesFor(startMs, endMs)),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
 	)
 
 	var raw []struct {
@@ -369,17 +385,18 @@ func (r *ClickHouseRepository) GetStatusDistribution(ctx context.Context, teamID
 }
 
 func (r *ClickHouseRepository) GetErrorTimeseries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorTimeseriesPoint, error) {
-	query := `
+	table, tierStep := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       sumMerge(request_count) AS req_count,
 		       sumMerge(error_count)   AS err_count
-		FROM observability.spans_rollup_1m
+		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
 		GROUP BY time_bucket
-		ORDER BY time_bucket ASC`
+		ORDER BY time_bucket ASC`, table)
 	args := append(spanRollupParams(teamID, startMs, endMs),
-		clickhouse.Named("intervalMin", intervalMinutesFor(startMs, endMs)),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
 	)
 
 	var raw []struct {

@@ -316,6 +316,28 @@ Typed helpers: `database.SelectTyped[T]` / `database.QueryRowTyped[T]` — calle
 
 **Time bucketing** (`internal/infra/timebucket/`): `timebucket.NewAdaptiveStrategy(startMs, endMs)` auto-picks minute/5min/15min/hour/day; use `.GetBucketExpression()` in SELECT and GROUP BY. `timebucket.ByName("15m")` for explicit step selection. Named params: `clickhouse.Named("teamID", teamID)` with `@teamID` in SQL.
 
+### Phase 6 — rollup-backed aggregate reads (2026-04-20)
+
+Five repository clusters now read from `observability.<kind>_rollup_{1m,5m,1h}` cascades via `rollup.TierTableFor(prefix, startMs, endMs)`:
+
+| Repo | Migrated methods | Target rollup |
+|------|------------------|---------------|
+| `infrastructure/nodes/repository.go` | `GetInfrastructureNodes`, `GetInfrastructureNodeServices` | `spans_host_rollup` |
+| `infrastructure/fleet/repository.go` | `GetFleetPods` | `spans_host_rollup` |
+| `traces/query/repository.go` | `getTraceSummary`, `GetTraceFacets`, `GetTraceTrend`, `GetErrorTimeSeries`, `GetLatencyHistogram` | `spans_rollup` |
+| `logs/explorer/repository.go` | `GetLogHistogram`, `GetLogVolume`, `GetLogStats`, `GetTopGroups`, `GetAggregateSeries` | `logs_rollup` |
+| `ai/explorer/repository.go` | `GetAISummary`, `GetAITrend` | `ai_spans_rollup` |
+| `ai/shared/repository.go` | `GetTopModels` | `ai_spans_rollup` |
+| `services/deployments/repository.go` | `ListDeployments`, `ListServiceDeployments`, `GetLatestDeploymentsByService`, `GetDeploysInRange`, `GetVersionTraffic` | `spans_by_version` |
+
+Each migrated file carries a local `queryIntervalMinutes(tierStepMin, startMs, endMs)` helper matching the pattern in `overview/overview/repository.go`. Drill-down/per-trace/per-span methods and queries that require attributes / body / per-span columns not carried by the rollup stay on the raw `observability.{spans,logs}` tables. Rollup-incompatible filters (attribute filters, body search, trace_id, min/max duration, span kind, etc.) are silently dropped when a migrated method is called.
+
+Known limitations (stay on raw due to DTO contract requiring per-span fields):
+- `traces/tracedetail.GetRelatedTraces` — DTO returns span_id/trace_id/start_time which the rollup does not retain.
+- `ai/shared.GetTopPrompts` — rollup does not carry `prompt_template` as a key dimension.
+
+`GetLatencyHistogram` is approximated from 10 equal-mass t-digest quantile samples (p0…p1 in 0.1 steps); `span_count` is evenly distributed across buckets so the shape of the returned DTO is preserved.
+
 ### Percentiles / cardinality conventions (2026-04-20 "compute-in-service" refactor)
 
 Heavy compute functions never use exact variants in SQL:
