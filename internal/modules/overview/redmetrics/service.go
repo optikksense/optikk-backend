@@ -2,7 +2,11 @@ package redmetrics
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"sort"
+
+	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 )
 
 type Service interface {
@@ -19,18 +23,35 @@ type Service interface {
 }
 
 type REDMetricsService struct {
-	repo Repository
+	repo    Repository
+	sketchQ *sketch.Querier
 }
 
-func NewService(repo Repository) Service {
-	return &REDMetricsService{repo: repo}
+func NewService(repo Repository, sketchQ *sketch.Querier) Service {
+	return &REDMetricsService{repo: repo, sketchQ: sketchQ}
 }
+
+// teamIDString converts the int64 tenant id to the string form used by all
+// sketch keys.
+func teamIDString(teamID int64) string { return fmt.Sprintf("%d", teamID) }
 
 func (s *REDMetricsService) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) (REDSummary, error) {
 	rows, err := s.repo.GetSummary(ctx, teamID, startMs, endMs)
 	if err != nil {
 		slog.Error("redmetrics: GetSummary failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return REDSummary{}, err
+	}
+
+	if s.sketchQ != nil && len(rows) > 0 {
+		pcts, _ := s.sketchQ.Percentiles(ctx, sketch.SpanLatencyService, teamIDString(teamID), startMs, endMs, 0.5, 0.95, 0.99)
+		for i := range rows {
+			dim := sketch.DimSpanService(rows[i].ServiceName)
+			if v, ok := pcts[dim]; ok && len(v) == 3 {
+				rows[i].P50Ms = v[0]
+				rows[i].P95Ms = v[1]
+				rows[i].P99Ms = v[2]
+			}
+		}
 	}
 
 	durationSec := float64(endMs-startMs) / 1000.0
@@ -98,11 +119,59 @@ func (s *REDMetricsService) GetApdex(ctx context.Context, teamID int64, startMs,
 }
 
 func (s *REDMetricsService) GetTopSlowOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]SlowOperation, error) {
-	rows, err := s.repo.GetTopSlowOperations(ctx, teamID, startMs, endMs, limit)
+	// Fetch a generous candidate set from CH (by traffic), then re-rank in Go
+	// by p95 after percentiles are merged from the endpoint-level sketch.
+	// We overshoot so that the final top-N by p95 is stable even when the
+	// highest-traffic operations are not the slowest.
+	candidateLimit := limit
+	if candidateLimit < 1 {
+		candidateLimit = 1
+	}
+	if candidateLimit < 100 {
+		candidateLimit = candidateLimit * 5
+	}
+	rows, err := s.repo.GetTopSlowOperations(ctx, teamID, startMs, endMs, candidateLimit)
 	if err != nil {
 		slog.Error("redmetrics: GetTopSlowOperations failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return nil, err
 	}
+
+	if s.sketchQ != nil && len(rows) > 0 {
+		// SpanLatencyEndpoint dim is service|operation|endpoint|method; collapse
+		// all endpoint/method variants under each (service, operation) by
+		// prefix-matching "service|operation|".
+		prefixes := make([]string, 0, len(rows))
+		seen := make(map[string]struct{}, len(rows))
+		for _, r := range rows {
+			p := r.ServiceName + "|" + r.OperationName + "|"
+			if _, ok := seen[p]; ok {
+				continue
+			}
+			seen[p] = struct{}{}
+			prefixes = append(prefixes, p)
+		}
+		pcts, _ := s.sketchQ.PercentilesByDimPrefix(ctx, sketch.SpanLatencyEndpoint, teamIDString(teamID), startMs, endMs, prefixes, 0.5, 0.95, 0.99)
+		for i := range rows {
+			p := rows[i].ServiceName + "|" + rows[i].OperationName + "|"
+			if v, ok := pcts[p]; ok && len(v) == 3 {
+				rows[i].P50Ms = v[0]
+				rows[i].P95Ms = v[1]
+				rows[i].P99Ms = v[2]
+			}
+		}
+	}
+
+	// Final sort by p95 desc; ties broken by span_count desc.
+	sort.SliceStable(rows, func(i, j int) bool {
+		if rows[i].P95Ms == rows[j].P95Ms {
+			return rows[i].SpanCount > rows[j].SpanCount
+		}
+		return rows[i].P95Ms > rows[j].P95Ms
+	})
+	if limit > 0 && len(rows) > limit {
+		rows = rows[:limit]
+	}
+
 	result := make([]SlowOperation, len(rows))
 	for i, row := range rows {
 		result[i] = SlowOperation{
@@ -144,8 +213,65 @@ func (s *REDMetricsService) GetErrorRateTimeSeries(ctx context.Context, teamID i
 	return s.repo.GetErrorRateTimeSeries(ctx, teamID, startMs, endMs)
 }
 
+// GetP95LatencyTimeSeries builds (service, bucket) coverage from CH, then
+// overlays p95 values from the sketch timeseries for the same range. Buckets
+// that exist in CH but have no sketch coverage (typical for cold starts) stay
+// with p95=0 so the chart still draws the traffic line.
 func (s *REDMetricsService) GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceLatencyPoint, error) {
-	return s.repo.GetP95LatencyTimeSeries(ctx, teamID, startMs, endMs)
+	rows, err := s.repo.GetP95LatencyTimeSeries(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return []ServiceLatencyPoint{}, nil
+	}
+
+	// Build sketch timeseries keyed by dim → bucket start (unix seconds) → p95.
+	type key struct {
+		dim string
+		ts  int64
+	}
+	valueByKey := make(map[key]float64)
+	if s.sketchQ != nil {
+		stepSecs := stepSecondsFor(startMs, endMs)
+		tsByDim, _ := s.sketchQ.PercentilesTimeseries(ctx, sketch.SpanLatencyService, teamIDString(teamID), startMs, endMs, stepSecs, 0.95)
+		for dim, points := range tsByDim {
+			for _, p := range points {
+				if len(p.Values) > 0 {
+					valueByKey[key{dim: dim, ts: p.BucketTs}] = p.Values[0]
+				}
+			}
+		}
+	}
+
+	out := make([]ServiceLatencyPoint, 0, len(rows))
+	for _, r := range rows {
+		dim := sketch.DimSpanService(r.ServiceName)
+		ts := r.Timestamp.Unix()
+		p95 := valueByKey[key{dim: dim, ts: ts}]
+		out = append(out, ServiceLatencyPoint{
+			Timestamp:   r.Timestamp,
+			ServiceName: r.ServiceName,
+			P95Ms:       p95,
+		})
+	}
+	return out, nil
+}
+
+// stepSecondsFor mirrors timebucket.ExprForColumnTime so the sketch timeseries
+// aligns with the CH bucket column (1m / 5m / 1h / 1d).
+func stepSecondsFor(startMs, endMs int64) int64 {
+	h := (endMs - startMs) / 3_600_000
+	switch {
+	case h <= 3:
+		return 60
+	case h <= 24:
+		return 300
+	case h <= 168:
+		return 3600
+	default:
+		return 86400
+	}
 }
 
 func (s *REDMetricsService) GetSpanKindBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]SpanKindPoint, error) {
@@ -163,13 +289,20 @@ func (s *REDMetricsService) GetLatencyBreakdown(ctx context.Context, teamID int6
 		return nil, err
 	}
 
+	// avg = sum/count in Go (div-by-zero guarded); TotalMs preserves the legacy
+	// field meaning (per-service mean latency ms) so the downstream pct-of-total
+	// math is unchanged.
 	var grandTotal float64
 	result := make([]LatencyBreakdown, len(rows))
 	for i, row := range rows {
-		grandTotal += row.TotalMs
+		avg := 0.0
+		if row.SpanCount > 0 {
+			avg = row.TotalMsSum / float64(row.SpanCount)
+		}
+		grandTotal += avg
 		result[i] = LatencyBreakdown{
 			ServiceName: row.ServiceName,
-			TotalMs:     row.TotalMs,
+			TotalMs:     avg,
 			SpanCount:   row.SpanCount,
 		}
 	}

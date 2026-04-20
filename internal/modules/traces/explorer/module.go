@@ -37,7 +37,10 @@ func (m *tracesExplorerModule) Name() string                      { return "trac
 func (m *tracesExplorerModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
 func (m *tracesExplorerModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
-	traceService := spantraces.NewService(spantraces.NewRepository(nativeQuerier))
+	// sketchQ is intentionally nil here: traces/explorer re-uses the base
+	// service only for keyset search + facets, none of which read p95. When
+	// the manifest wires sketchQ through, switch to a WithSketch variant.
+	traceService := spantraces.NewService(spantraces.NewRepository(nativeQuerier), nil)
 	m.handler = NewHandler(getTenant, NewService(traceService), nativeQuerier)
 }
 

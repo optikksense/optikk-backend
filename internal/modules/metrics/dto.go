@@ -12,9 +12,19 @@ type metricNameDTO struct {
 	Description string `ch:"description"`
 }
 
-// tagKeyDTO scans the result of ListTagKeys.
+// tagKeyDTO scans the result of ListTagKeys (legacy aggregation path — kept
+// so any other reader can still use the shape).
 type tagKeyDTO struct {
 	TagKey string `ch:"tag_key"`
+}
+
+// attributesRow is the scan target for the new ListTagKeys sampling path:
+// grab the attributes map for N recent rows, collect distinct keys in Go.
+// LIMIT on the sample is set in repository.go; 2000 matches the Datadog /
+// Prometheus tag-discovery default and trades <1-in-2000 miss rate for a
+// near-constant-time query.
+type attributesRow struct {
+	Attributes map[string]string `ch:"attributes"`
 }
 
 // tagValueDTO scans the result of ListTagValues.

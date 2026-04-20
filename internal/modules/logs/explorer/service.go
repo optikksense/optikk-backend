@@ -225,15 +225,42 @@ func newLogStatsService(db clickhouse.Conn) *LogStatsService {
 	return &LogStatsService{repo: newLogStatsRepository(db)}
 }
 
+// GetLogVolume pivots the raw (bucket, severity, count) rows returned by the
+// repository into per-bucket severity breakdowns. Keeps the SQL pure count()
+// by grouping; the severity→column pivot happens here, in Go.
 func (s *LogStatsService) GetLogVolume(ctx context.Context, f logshared.LogFilters, step string) (LogVolumeData, error) {
-	rows, err := s.repo.GetLogVolume(ctx, f, step)
+	raw, err := s.repo.GetLogVolume(ctx, f, step)
 	if err != nil {
 		return LogVolumeData{}, err
 	}
-	buckets := make([]LogVolumeBucket, len(rows))
-	for i, row := range rows {
-		buckets[i] = LogVolumeBucket(row)
+
+	// Preserve bucket ordering as CH returned it.
+	bucketIndex := make(map[string]int, len(raw))
+	buckets := make([]LogVolumeBucket, 0)
+
+	for _, row := range raw {
+		idx, ok := bucketIndex[row.TimeBucket]
+		if !ok {
+			bucketIndex[row.TimeBucket] = len(buckets)
+			buckets = append(buckets, LogVolumeBucket{TimeBucket: row.TimeBucket})
+			idx = len(buckets) - 1
+		}
+		n := int64(row.Count) //nolint:gosec // count is domain-bounded
+		buckets[idx].Total += n
+		switch strings.ToUpper(row.Severity) {
+		case "ERROR":
+			buckets[idx].Errors += n
+		case "WARN", "WARNING":
+			buckets[idx].Warnings += n
+		case "INFO":
+			buckets[idx].Infos += n
+		case "DEBUG":
+			buckets[idx].Debugs += n
+		case "FATAL":
+			buckets[idx].Fatals += n
+		}
 	}
+
 	return LogVolumeData{Buckets: buckets, Step: step}, nil
 }
 
@@ -294,17 +321,38 @@ func (s *LogStatsService) GetLogAggregate(ctx context.Context, f logshared.LogFi
 		}
 	}
 
-	rows, err := s.repo.GetAggregateSeries(ctx, f, query, groups)
+	// GetAggregateSeries fetches the "total count per (bucket, grp)" and —
+	// when metric=error_rate — a second scan narrowed to severity IN
+	// ('ERROR','FATAL'). Error rate is divided in Go. SQL never uses
+	// sumIf / if / multiIf.
+	totals, err := s.repo.GetAggregateSeries(ctx, f, query, groups, false)
 	if err != nil {
 		return LogAggregateResponse{}, err
 	}
-	respRows := make([]LogAggregateRow, len(rows))
-	for i, row := range rows {
+	var errorsByKey map[string]uint64
+	if query.Metric == metricErrorRate {
+		errorRows, eErr := s.repo.GetAggregateSeries(ctx, f, query, groups, true)
+		if eErr != nil {
+			return LogAggregateResponse{}, eErr
+		}
+		errorsByKey = make(map[string]uint64, len(errorRows))
+		for _, er := range errorRows {
+			errorsByKey[er.TimeBucket+"\x00"+er.GroupValue] = er.Count
+		}
+	}
+	respRows := make([]LogAggregateRow, len(totals))
+	for i, row := range totals {
+		count := int64(row.Count) //nolint:gosec // domain-bounded
+		var errRate float64
+		if query.Metric == metricErrorRate && row.Count > 0 {
+			errs := errorsByKey[row.TimeBucket+"\x00"+row.GroupValue]
+			errRate = float64(errs) * 100.0 / float64(row.Count)
+		}
 		respRows[i] = LogAggregateRow{
 			TimeBucket: utils.TimeFromAny(row.TimeBucket).UTC().Format(time.RFC3339),
 			GroupValue: row.GroupValue,
-			Count:      row.Count,
-			ErrorRate:  row.ErrorRate,
+			Count:      count,
+			ErrorRate:  errRate,
 		}
 	}
 

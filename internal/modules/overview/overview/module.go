@@ -3,6 +3,7 @@ package overview
 import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -29,9 +30,9 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *OverviewHandler) {
 	v1.GET("/overview/batch-summary", h.GetBatchSummary)
 }
 
-func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc, sketchQ *sketch.Querier) registry.Module {
 	module := &overviewModule{}
-	module.configure(nativeQuerier, getTenant)
+	module.configure(nativeQuerier, getTenant, sketchQ)
 	return module
 }
 
@@ -42,10 +43,10 @@ type overviewModule struct {
 func (m *overviewModule) Name() string                      { return "overview" }
 func (m *overviewModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *overviewModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
+func (m *overviewModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc, sketchQ *sketch.Querier) {
 	m.handler = &OverviewHandler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  NewService(NewRepository(nativeQuerier)),
+		Service:  NewService(NewRepository(nativeQuerier), sketchQ),
 	}
 }
 

@@ -3,13 +3,14 @@ package explorer
 import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 	"github.com/gin-gonic/gin"
 )
 
 // NewModule creates the AI explorer module, following the standard module pattern.
-func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc, sketchQ *sketch.Querier) registry.Module {
 	m := &aiExplorerModule{}
-	m.configure(nativeQuerier, getTenant)
+	m.configure(nativeQuerier, getTenant, sketchQ)
 	return m
 }
 
@@ -20,9 +21,9 @@ type aiExplorerModule struct {
 func (m *aiExplorerModule) Name() string                      { return "aiExplorer" }
 func (m *aiExplorerModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *aiExplorerModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
+func (m *aiExplorerModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc, sketchQ *sketch.Querier) {
 	repo := NewRepository(nativeQuerier)
-	svc := NewService(repo)
+	svc := NewService(repo, sketchQ)
 	m.handler = NewHandler(getTenant, svc)
 }
 

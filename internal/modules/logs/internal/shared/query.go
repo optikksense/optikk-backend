@@ -14,7 +14,33 @@ const LogColumns = `timestamp, observed_timestamp, severity_text, severity_numbe
 	attributes_string, attributes_number, attributes_bool,
 	scope_name, scope_version`
 
+// BuildLogWhere returns a combined WHERE clause + positional args.
+// Kept for callers that don't want the prewhere split; new code should prefer
+// BuildLogWhereSplit so CH can prune parts before evaluating non-indexed
+// filters.
 func BuildLogWhere(f LogFilters) (where string, args []any) {
+	prewhere, rest, allArgs := BuildLogWhereSplit(f)
+	// Merge prewhere + rest with AND for legacy callers; CH treats the result
+	// identically to a plain WHERE.
+	combined := prewhere
+	if rest != "" {
+		combined += " AND" + rest
+	}
+	return combined, allArgs
+}
+
+// BuildLogWhereSplit separates indexed-prefix predicates from the rest so
+// repositories can emit `PREWHERE <prefix> WHERE <rest>`. CH prunes parts on
+// PREWHERE before evaluating anything else — especially important for
+// text-search and custom-attribute filters that would otherwise scan every
+// row.
+//
+// The prefix includes everything that matches the MergeTree sort key prefix
+// (team_id, ts_bucket_start, timestamp) plus low-cardinality / indexed
+// columns (service, severity_text, host). Everything else — body text,
+// attributes_string regex, trace_id/span_id exact match — stays in the
+// regular WHERE.
+func BuildLogWhereSplit(f LogFilters) (prewhere, where string, args []any) {
 	const maxTimeRangeMs = 30 * 24 * 60 * 60 * 1000
 
 	startMs := f.StartMs
@@ -31,7 +57,7 @@ func BuildLogWhere(f LogFilters) (where string, args []any) {
 	startBucket := utils.LogsBucketStart(startMs / 1000)
 	endBucket := utils.LogsBucketStart(endMs / 1000)
 
-	where = ` team_id = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ?`
+	prewhere = ` team_id = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ?`
 	args = []any{
 		uint32(f.TeamID), //nolint:gosec // G115
 		startBucket,
@@ -40,27 +66,31 @@ func BuildLogWhere(f LogFilters) (where string, args []any) {
 		time.Unix(0, int64(endNs)),
 	}
 
-	appendInClause := func(column string, values []string, negated bool) {
+	appendIn := func(target *string, column string, values []string, negated bool) {
 		if len(values) == 0 {
 			return
 		}
 		if negated {
-			where += ` AND ` + column + ` NOT IN (?)`
+			*target += ` AND ` + column + ` NOT IN (?)`
 		} else {
-			where += ` AND ` + column + ` IN (?)`
+			*target += ` AND ` + column + ` IN (?)`
 		}
 		args = append(args, values)
 	}
 
-	appendInClause("severity_text", f.Severities, false)
-	appendInClause("service", f.Services, false)
-	appendInClause("host", f.Hosts, false)
-	appendInClause("pod", f.Pods, false)
-	appendInClause("container", f.Containers, false)
-	appendInClause("environment", f.Environments, false)
-	appendInClause("severity_text", f.ExcludeSeverities, true)
-	appendInClause("service", f.ExcludeServices, true)
-	appendInClause("host", f.ExcludeHosts, true)
+	// Indexed-prefix filters go to PREWHERE.
+	appendIn(&prewhere, "severity_text", f.Severities, false)
+	appendIn(&prewhere, "service", f.Services, false)
+	appendIn(&prewhere, "host", f.Hosts, false)
+	appendIn(&prewhere, "severity_text", f.ExcludeSeverities, true)
+	appendIn(&prewhere, "service", f.ExcludeServices, true)
+	appendIn(&prewhere, "host", f.ExcludeHosts, true)
+
+	// Pod / container / environment are materialized but sit outside the sort
+	// key prefix — keep them in WHERE (still indexed).
+	appendIn(&where, "pod", f.Pods, false)
+	appendIn(&where, "container", f.Containers, false)
+	appendIn(&where, "environment", f.Environments, false)
 
 	if f.TraceID != "" {
 		where += ` AND trace_id = ?`
@@ -93,7 +123,7 @@ func BuildLogWhere(f LogFilters) (where string, args []any) {
 		args = append(args, af.Key, af.Value)
 	}
 
-	return where, args
+	return prewhere, where, args
 }
 
 func LogBucketExpr(startMs, endMs int64) string {

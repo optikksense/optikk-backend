@@ -9,6 +9,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
+	"golang.org/x/sync/errgroup"
 )
 
 type Repository interface {
@@ -25,12 +26,20 @@ func NewRepository(db clickhouse.Conn) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-// DTO for queries returning multiple computed metric columns.
-type connMetricRow struct {
-	SystemConn *float64 `ch:"system_conn"`
-	HikariConn *float64 `ch:"hikari_conn"`
-	JDBCConn   *float64 `ch:"jdbc_conn"`
-	AttrConn   *float64 `ch:"attr_conn"`
+// rescaleExpr emits a pure arithmetic rescale: if col<=1.0 multiply by 100,
+// else leave unchanged. Uses boolean→UInt8 coercion so no if/multiIf is needed.
+func rescaleExpr(col string) string {
+	return fmt.Sprintf("(%s * (1 + 99 * (%s <= %.1f)))", col, col, infraconsts.PercentageThreshold)
+}
+
+type sumCountRow struct {
+	Sum   float64 `ch:"s"`
+	Count uint64  `ch:"c"`
+}
+
+type activeMaxRow struct {
+	ActiveSum float64 `ch:"active_sum"`
+	MaxSum    float64 `ch:"max_sum"`
 }
 
 type serviceNameRow struct {
@@ -65,7 +74,6 @@ func instanceParams(teamID int64, host, pod, container, serviceName string, star
 	}
 }
 
-// nullableToSlice converts nullable float64 pointers to a []float64 of non-nil values.
 func nullableToSlice(ptrs ...*float64) []float64 {
 	out := make([]float64, 0, len(ptrs))
 	for _, p := range ptrs {
@@ -76,7 +84,6 @@ func nullableToSlice(ptrs ...*float64) []float64 {
 	return out
 }
 
-// calculateAverage computes the mean of valid (non-NaN, non-Inf, non-negative) values.
 func calculateAverage(values []float64) *float64 {
 	var sum float64
 	count := 0
@@ -93,86 +100,130 @@ func calculateAverage(values []float64) *float64 {
 	return &avg
 }
 
-func (r *ClickHouseRepository) queryConnPoolMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
+// queryConnPoolMetric runs the four legs (system utilization, HikariCP ratio,
+// JDBC ratio, attribute utilization) as parallel errgroup scans. Each leg is
+// a plain filter + (sum, count) aggregate; the mean is composed in Go. No
+// sumIf/avgIf/if/nullIf/coalesce in SELECT.
+func (r *ClickHouseRepository) queryConnPoolMetric(ctx context.Context, scopeWhere string, args []any) (*float64, error) {
 	aConn := infraconsts.AttrFloat(infraconsts.AttrDBConnectionPoolUtilization)
-	query := fmt.Sprintf(`
-		SELECT
-			avgIf(if(%s <= %.1f, %s * %.1f, %s), %s = '%s' AND isFinite(%s)) as system_conn,
-			if(sumIf(%s, %s = '%s' AND %s > 0) > 0,
-			   %.1f * sumIf(%s, %s = '%s' AND %s >= 0) / nullIf(sumIf(%s, %s = '%s' AND %s > 0), 0),
-			   NULL) as hikari_conn,
-			if(sumIf(%s, %s = '%s' AND %s > 0) > 0,
-			   %.1f * sumIf(%s, %s = '%s' AND %s >= 0) / nullIf(sumIf(%s, %s = '%s' AND %s > 0), 0),
-			   NULL) as jdbc_conn,
-			avgIf(if(%s <= %.1f, %s * %.1f, %s), %s > 0) as attr_conn
-		FROM %s
-		WHERE %s = @teamID AND %s = @serviceName AND %s BETWEEN @start AND @end
-		  AND (
-		      %s IN ('%s', '%s', '%s', '%s', '%s')
-		      OR %s > 0
-		  )`,
-		infraconsts.ColValue, infraconsts.PercentageThreshold, infraconsts.ColValue, infraconsts.PercentageMultiplier, infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricDBConnectionPoolUtilization, infraconsts.ColValue,
-		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricHikariCPConnectionsMax, infraconsts.ColValue,
-		infraconsts.PercentageMultiplier, infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricHikariCPConnectionsActive, infraconsts.ColValue,
-		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricHikariCPConnectionsMax, infraconsts.ColValue,
-		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJDBCConnectionsMax, infraconsts.ColValue,
-		infraconsts.PercentageMultiplier, infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJDBCConnectionsActive, infraconsts.ColValue,
-		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJDBCConnectionsMax, infraconsts.ColValue,
-		aConn, infraconsts.PercentageThreshold, aConn, infraconsts.PercentageMultiplier, aConn, aConn,
-		infraconsts.TableMetrics,
-		infraconsts.ColTeamID, infraconsts.ColServiceName, infraconsts.ColTimestamp,
-		infraconsts.ColMetricName, infraconsts.MetricDBConnectionPoolUtilization, infraconsts.MetricHikariCPConnectionsActive, infraconsts.MetricHikariCPConnectionsMax, infraconsts.MetricJDBCConnectionsActive, infraconsts.MetricJDBCConnectionsMax,
-		aConn)
 
-	var row connMetricRow
-	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, serviceParams(teamID, serviceName, startMs, endMs)...).ScanStruct(&row)
-	if err != nil {
+	var (
+		sys    sumCountRow
+		attr   sumCountRow
+		hikari activeMaxRow
+		jdbc   activeMaxRow
+	)
+	g, gctx := errgroup.WithContext(ctx)
+
+	g.Go(func() error {
+		query := fmt.Sprintf(`
+			SELECT sum(%s) as s, count() as c
+			FROM %s
+			WHERE %s = @teamID AND %s BETWEEN @start AND @end
+			  AND %s = '%s'
+			  AND isFinite(%s)
+			  %s`,
+			rescaleExpr(infraconsts.ColValue),
+			infraconsts.TableMetrics,
+			infraconsts.ColTeamID, infraconsts.ColTimestamp,
+			infraconsts.ColMetricName, infraconsts.MetricDBConnectionPoolUtilization,
+			infraconsts.ColValue,
+			scopeWhere)
+		return r.db.QueryRow(dbutil.OverviewCtx(gctx), query, args...).ScanStruct(&sys)
+	})
+
+	g.Go(func() error {
+		// Hikari active + max legs: sum each separately so Go can derive
+		// util% = 100*active/max.
+		query := fmt.Sprintf(`
+			SELECT
+				sum(%s * (%s = '%s')) as active_sum,
+				sum(%s * (%s = '%s')) as max_sum
+			FROM %s
+			WHERE %s = @teamID AND %s BETWEEN @start AND @end
+			  AND %s IN ('%s', '%s')
+			  AND %s >= 0
+			  %s`,
+			infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricHikariCPConnectionsActive,
+			infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricHikariCPConnectionsMax,
+			infraconsts.TableMetrics,
+			infraconsts.ColTeamID, infraconsts.ColTimestamp,
+			infraconsts.ColMetricName, infraconsts.MetricHikariCPConnectionsActive, infraconsts.MetricHikariCPConnectionsMax,
+			infraconsts.ColValue,
+			scopeWhere)
+		return r.db.QueryRow(dbutil.OverviewCtx(gctx), query, args...).ScanStruct(&hikari)
+	})
+
+	g.Go(func() error {
+		query := fmt.Sprintf(`
+			SELECT
+				sum(%s * (%s = '%s')) as active_sum,
+				sum(%s * (%s = '%s')) as max_sum
+			FROM %s
+			WHERE %s = @teamID AND %s BETWEEN @start AND @end
+			  AND %s IN ('%s', '%s')
+			  AND %s >= 0
+			  %s`,
+			infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJDBCConnectionsActive,
+			infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJDBCConnectionsMax,
+			infraconsts.TableMetrics,
+			infraconsts.ColTeamID, infraconsts.ColTimestamp,
+			infraconsts.ColMetricName, infraconsts.MetricJDBCConnectionsActive, infraconsts.MetricJDBCConnectionsMax,
+			infraconsts.ColValue,
+			scopeWhere)
+		return r.db.QueryRow(dbutil.OverviewCtx(gctx), query, args...).ScanStruct(&jdbc)
+	})
+
+	g.Go(func() error {
+		query := fmt.Sprintf(`
+			SELECT sum(%s) as s, count() as c
+			FROM %s
+			WHERE %s = @teamID AND %s BETWEEN @start AND @end
+			  AND %s > 0
+			  AND isFinite(%s)
+			  %s`,
+			rescaleExpr(aConn),
+			infraconsts.TableMetrics,
+			infraconsts.ColTeamID, infraconsts.ColTimestamp,
+			aConn, aConn,
+			scopeWhere)
+		return r.db.QueryRow(dbutil.OverviewCtx(gctx), query, args...).ScanStruct(&attr)
+	})
+
+	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 
-	values := nullableToSlice(row.SystemConn, row.HikariConn, row.JDBCConn, row.AttrConn)
-	return calculateAverage(values), nil
+	var sysPtr, hikariPtr, jdbcPtr, attrPtr *float64
+	if sys.Count > 0 {
+		v := sys.Sum / float64(sys.Count)
+		sysPtr = &v
+	}
+	if attr.Count > 0 {
+		v := attr.Sum / float64(attr.Count)
+		attrPtr = &v
+	}
+	if hikari.MaxSum > 0 {
+		v := infraconsts.PercentageMultiplier * hikari.ActiveSum / hikari.MaxSum
+		hikariPtr = &v
+	}
+	if jdbc.MaxSum > 0 {
+		v := infraconsts.PercentageMultiplier * jdbc.ActiveSum / jdbc.MaxSum
+		jdbcPtr = &v
+	}
+
+	return calculateAverage(nullableToSlice(sysPtr, hikariPtr, jdbcPtr, attrPtr)), nil
+}
+
+func (r *ClickHouseRepository) queryConnPoolMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
+	where := " AND " + infraconsts.ColServiceName + " = @serviceName"
+	return r.queryConnPoolMetric(ctx, where, serviceParams(teamID, serviceName, startMs, endMs))
 }
 
 func (r *ClickHouseRepository) queryConnPoolMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
-	aConn := infraconsts.AttrFloat(infraconsts.AttrDBConnectionPoolUtilization)
-	query := fmt.Sprintf(`
-		SELECT
-			avgIf(if(%s <= %.1f, %s * %.1f, %s), %s = '%s' AND isFinite(%s)) as system_conn,
-			if(sumIf(%s, %s = '%s' AND %s > 0) > 0,
-			   %.1f * sumIf(%s, %s = '%s' AND %s >= 0) / nullIf(sumIf(%s, %s = '%s' AND %s > 0), 0),
-			   NULL) as hikari_conn,
-			if(sumIf(%s, %s = '%s' AND %s > 0) > 0,
-			   %.1f * sumIf(%s, %s = '%s' AND %s >= 0) / nullIf(sumIf(%s, %s = '%s' AND %s > 0), 0),
-			   NULL) as jdbc_conn,
-			avgIf(if(%s <= %.1f, %s * %.1f, %s), %s > 0) as attr_conn
-		FROM %s
-		WHERE %s = @teamID AND %s = @host AND %s = @pod AND %s = @container AND %s = @serviceName AND %s BETWEEN @start AND @end
-		  AND (
-		      %s IN ('%s', '%s', '%s', '%s', '%s')
-		      OR %s > 0
-		  )`,
-		infraconsts.ColValue, infraconsts.PercentageThreshold, infraconsts.ColValue, infraconsts.PercentageMultiplier, infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricDBConnectionPoolUtilization, infraconsts.ColValue,
-		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricHikariCPConnectionsMax, infraconsts.ColValue,
-		infraconsts.PercentageMultiplier, infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricHikariCPConnectionsActive, infraconsts.ColValue,
-		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricHikariCPConnectionsMax, infraconsts.ColValue,
-		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJDBCConnectionsMax, infraconsts.ColValue,
-		infraconsts.PercentageMultiplier, infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJDBCConnectionsActive, infraconsts.ColValue,
-		infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricJDBCConnectionsMax, infraconsts.ColValue,
-		aConn, infraconsts.PercentageThreshold, aConn, infraconsts.PercentageMultiplier, aConn, aConn,
-		infraconsts.TableMetrics,
-		infraconsts.ColTeamID, infraconsts.ColHost, infraconsts.ColPod, infraconsts.ColContainer, infraconsts.ColServiceName, infraconsts.ColTimestamp,
-		infraconsts.ColMetricName, infraconsts.MetricDBConnectionPoolUtilization, infraconsts.MetricHikariCPConnectionsActive, infraconsts.MetricHikariCPConnectionsMax, infraconsts.MetricJDBCConnectionsActive, infraconsts.MetricJDBCConnectionsMax,
-		aConn)
-
-	var row connMetricRow
-	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, instanceParams(teamID, host, pod, container, serviceName, startMs, endMs)...).ScanStruct(&row)
-	if err != nil {
-		return nil, err
-	}
-
-	values := nullableToSlice(row.SystemConn, row.HikariConn, row.JDBCConn, row.AttrConn)
-	return calculateAverage(values), nil
+	where := fmt.Sprintf(" AND %s = @host AND %s = @pod AND %s = @container AND %s = @serviceName",
+		infraconsts.ColHost, infraconsts.ColPod, infraconsts.ColContainer, infraconsts.ColServiceName)
+	return r.queryConnPoolMetric(ctx, where, instanceParams(teamID, host, pod, container, serviceName, startMs, endMs))
 }
 
 func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64, startMs, endMs int64) ([]string, error) {

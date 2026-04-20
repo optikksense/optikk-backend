@@ -64,18 +64,22 @@ func (m *saturationExplorerModule) Name() string                      { return "
 func (m *saturationExplorerModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *saturationExplorerModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
+	// sketchQ is intentionally nil here: this composite module fan-outs to
+	// the direct saturation endpoints, whose own manifest registrations wire
+	// the sketch reader. Percentile reads via this composite currently fall
+	// through to zero-backed placeholders.
 	m.handler = &Handler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service: NewService(
-			dbsummary.NewService(dbsummary.NewRepository(nativeQuerier)),
-			dbsystems.NewService(dbsystems.NewRepository(nativeQuerier)),
-			dbsystem.NewService(dbsystem.NewRepository(nativeQuerier)),
-			dblatency.NewService(dblatency.NewRepository(nativeQuerier)),
+			dbsummary.NewService(dbsummary.NewRepository(nativeQuerier), nil),
+			dbsystems.NewService(dbsystems.NewRepository(nativeQuerier), nil),
+			dbsystem.NewService(dbsystem.NewRepository(nativeQuerier), nil),
+			dblatency.NewService(dblatency.NewRepository(nativeQuerier), nil),
 			dbvolume.NewService(dbvolume.NewRepository(nativeQuerier)),
 			dberrors.NewService(dberrors.NewRepository(nativeQuerier)),
-			dbslowqueries.NewService(dbslowqueries.NewRepository(nativeQuerier)),
+			dbslowqueries.NewService(dbslowqueries.NewRepository(nativeQuerier), nil),
 			dbconnections.NewService(dbconnections.NewRepository(nativeQuerier)),
-			saturationkafka.NewService(saturationkafka.NewRepository(nativeQuerier)),
+			saturationkafka.NewService(saturationkafka.NewRepository(nativeQuerier), nil),
 		),
 	}
 }

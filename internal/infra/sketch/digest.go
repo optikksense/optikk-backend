@@ -1,75 +1,57 @@
 package sketch
 
 import (
-	"bytes"
 	"fmt"
 
-	tdigest "github.com/caio/go-tdigest/v4"
+	"github.com/DataDog/sketches-go/ddsketch"
+	"github.com/DataDog/sketches-go/ddsketch/mapping"
+	"github.com/DataDog/sketches-go/ddsketch/store"
 )
 
-// Digest is a mergeable quantile sketch (t-digest) — the same algorithm
-// ClickHouse uses for quantileTDigest. ≤1% error on p95/p99 for realistic
-// distributions, ~1 KB serialized.
-type Digest struct {
-	td *tdigest.TDigest
-}
+// relativeAccuracy is DDSketch's p95/p99 error bound. 0.01 = 1%. Matches
+// Datadog's default; do not change without understanding the wire-format
+// implications (index-mapping is tied to this value).
+const relativeAccuracy = 0.01
 
-// NewDigest returns an empty sketch with compression 100 — a good default
-// accuracy/size tradeoff matching ClickHouse's internal compression.
+// Digest is the canonical distribution sketch — a direct alias to
+// github.com/DataDog/sketches-go/ddsketch. The public surface of this package
+// is the library's public surface; no custom merge / compression / bucketing
+// logic lives in optikk-backend.
+type Digest = ddsketch.DDSketch
+
+// NewDigest returns an empty sketch configured with the package's default
+// relative accuracy. Panics only if the mapping constructor rejects the
+// accuracy (a fixed constant, so in practice never).
 func NewDigest() *Digest {
-	td, err := tdigest.New(tdigest.Compression(100))
+	d, err := ddsketch.NewDefaultDDSketch(relativeAccuracy)
 	if err != nil {
-		// tdigest.New only errors for invalid options; compression=100 is fixed.
-		panic(fmt.Sprintf("tdigest.New: %v", err))
+		panic(fmt.Sprintf("ddsketch.NewDefaultDDSketch: %v", err))
 	}
-	return &Digest{td: td}
+	return d
 }
 
-// Add records a single observation with the given weight (use weight=1 for
-// unweighted samples).
-func (d *Digest) Add(value float64, weight uint32) error {
-	if weight == 0 {
+// MarshalDigest serializes a sketch to bytes for Redis storage. Uses the
+// library's compact binary encoding (smaller than proto-marshal) and omits
+// the index-mapping because every sketch in this package uses the fixed
+// relativeAccuracy above.
+func MarshalDigest(d *Digest) []byte {
+	if d == nil {
 		return nil
 	}
-	return d.td.AddWeighted(value, uint64(weight))
+	var b []byte
+	d.Encode(&b, true) // omitIndexMapping=true
+	return b
 }
 
-// Merge folds another digest into d. Associative and commutative — safe to
-// call with sketches produced by different processes / time windows.
-func (d *Digest) Merge(other *Digest) error {
-	if other == nil || other.td == nil {
-		return nil
-	}
-	return d.td.Merge(other.td)
-}
-
-// Quantile returns the approximate q-th quantile (q in [0,1]).
-func (d *Digest) Quantile(q float64) float64 {
-	if d == nil || d.td == nil {
-		return 0
-	}
-	return d.td.Quantile(q)
-}
-
-// Quantiles returns approximate values for each q, in the same order.
-func (d *Digest) Quantiles(qs ...float64) []float64 {
-	out := make([]float64, len(qs))
-	for i, q := range qs {
-		out[i] = d.Quantile(q)
-	}
-	return out
-}
-
-// MarshalBinary serializes the digest for storage in Redis.
-func (d *Digest) MarshalBinary() ([]byte, error) {
-	return d.td.AsBytes()
-}
-
-// UnmarshalDigest reconstructs a digest from bytes produced by MarshalBinary.
+// UnmarshalDigest reconstructs a sketch from MarshalDigest bytes. The
+// index-mapping is supplied externally because MarshalDigest omits it.
 func UnmarshalDigest(b []byte) (*Digest, error) {
-	td, err := tdigest.FromBytes(bytes.NewReader(b))
-	if err != nil {
-		return nil, err
+	if len(b) == 0 {
+		return nil, fmt.Errorf("sketch: empty digest bytes")
 	}
-	return &Digest{td: td}, nil
+	m, err := mapping.NewLogarithmicMapping(relativeAccuracy)
+	if err != nil {
+		return nil, fmt.Errorf("sketch: build mapping: %w", err)
+	}
+	return ddsketch.DecodeDDSketch(b, store.DefaultProvider, m)
 }

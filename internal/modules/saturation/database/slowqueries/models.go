@@ -8,6 +8,14 @@ type SlowQueryPattern struct {
 	P99Ms          *float64 `json:"p99_ms" ch:"p99_ms"`
 	CallCount      int64    `json:"call_count" ch:"call_count"`
 	ErrorCount     int64    `json:"error_count" ch:"error_count"`
+
+	// System + fingerprint are needed by the service to look up the
+	// DbQueryLatency sketch; queryText and fingerprint are 1:1.
+	DBSystem             string `json:"-" ch:"db_system"`
+	QueryTextFingerprint string `json:"-" ch:"query_fingerprint"`
+
+	LatencySum   float64 `json:"-" ch:"-"`
+	LatencyCount int64   `json:"-" ch:"-"`
 }
 
 type SlowCollectionRow struct {
@@ -15,6 +23,12 @@ type SlowCollectionRow struct {
 	P99Ms          *float64 `json:"p99_ms" ch:"p99_ms"`
 	OpsPerSec      *float64 `json:"ops_per_sec" ch:"ops_per_sec"`
 	ErrorRate      *float64 `json:"error_rate" ch:"error_rate"`
+
+	// DBSystem is carried to the service so DbQueryLatency / DbOpLatency
+	// lookups can filter by system+collection. Not serialized.
+	DBSystem     string  `json:"-" ch:"db_system"`
+	LatencySum   float64 `json:"-" ch:"-"`
+	LatencyCount int64   `json:"-" ch:"-"`
 }
 
 type SlowRatePoint struct {
@@ -25,4 +39,7 @@ type SlowRatePoint struct {
 type P99ByQueryText struct {
 	QueryText string   `json:"query_text" ch:"query_text"`
 	P99Ms     *float64 `json:"p99_ms" ch:"p99_ms"`
+
+	DBSystem             string `json:"-" ch:"db_system"`
+	QueryTextFingerprint string `json:"-" ch:"query_fingerprint"`
 }

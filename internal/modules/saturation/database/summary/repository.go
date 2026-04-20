@@ -1,16 +1,20 @@
 package summary
 
 import (
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
+
+	"github.com/ClickHouse/clickhouse-go/v2"
+	"golang.org/x/sync/errgroup"
 
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
 type Repository interface {
-	GetSummaryStats(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) (SummaryStats, error)
+	GetSummaryMain(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) (summaryMainDTO, error)
+	GetSummaryConn(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) (summaryConnDTO, error)
+	GetSummaryCache(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) (summaryCacheDTO, error)
 }
 
 type ClickHouseRepository struct {
@@ -21,18 +25,33 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) (SummaryStats, error) {
+// summaryTotalsDTO is the totals leg of GetSummaryMain: one scan over all
+// histogram rows for this tenant. ErrorCount is filled by the errors leg
+// merge.
+type summaryTotalsDTO struct {
+	LatencySum   float64 `ch:"latency_sum"`
+	LatencyCount uint64  `ch:"latency_count"`
+	TotalCount   uint64  `ch:"total_count"`
+}
+
+type summaryErrorsDTO struct {
+	ErrorCount uint64 `ch:"error_count"`
+}
+
+// GetSummaryMain returns counters + raw sum/count for in-Go avg latency.
+// Percentiles (p50/p95/p99) are attached by the service layer from the
+// DbOpLatency sketch. The prior `sumIf` combinator is split into two
+// parallel scans — the error leg adds `AND notEmpty(error_type)` to the
+// WHERE clause so the aggregate stays a pure sum(hist_count).
+func (r *ClickHouseRepository) GetSummaryMain(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) (summaryMainDTO, error) {
 	fc, fargs := shared.FilterClauses(f)
+	params := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
 
-	durationMs := max(float64(endMs-startMs)/1000.0, 1)
-
-	qMain := fmt.Sprintf(`
+	totalsQuery := fmt.Sprintf(`
 		SELECT
-		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count)  AS p50,
-		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count)  AS p95,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count)  AS p99,
-		    toInt64(sum(hist_count))                                                    AS total_count,
-		    toInt64(sumIf(hist_count, notEmpty(%s)))                                    AS error_count
+		    sum(hist_sum)    AS latency_sum,
+		    sum(hist_count)  AS latency_count,
+		    sum(hist_count)  AS total_count
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -40,26 +59,62 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 		  AND metric_type = 'Histogram'
 		  %s
 	`,
-		shared.AttrString(shared.AttrErrorType),
 		shared.TableMetrics,
 		shared.ColTeamID, shared.ColTimestamp,
 		shared.ColMetricName, shared.MetricDBOperationDuration,
 		fc,
 	)
 
-	var mainDTO summaryMainDTO
-	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), qMain, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...).ScanStruct(&mainDTO); err != nil {
-		return SummaryStats{}, err
+	errorsQuery := fmt.Sprintf(`
+		SELECT
+		    sum(hist_count)  AS error_count
+		FROM %s
+		WHERE %s = @teamID
+		  AND %s BETWEEN @start AND @end
+		  AND %s = '%s'
+		  AND metric_type = 'Histogram'
+		  AND notEmpty(%s)
+		  %s
+	`,
+		shared.TableMetrics,
+		shared.ColTeamID, shared.ColTimestamp,
+		shared.ColMetricName, shared.MetricDBOperationDuration,
+		shared.AttrString(shared.AttrErrorType),
+		fc,
+	)
+
+	var (
+		totals summaryTotalsDTO
+		errs   summaryErrorsDTO
+	)
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		return r.db.QueryRow(dbutil.OverviewCtx(gctx), totalsQuery, params...).ScanStruct(&totals)
+	})
+	g.Go(func() error {
+		return r.db.QueryRow(dbutil.OverviewCtx(gctx), errorsQuery, params...).ScanStruct(&errs)
+	})
+	if err := g.Wait(); err != nil {
+		return summaryMainDTO{}, err
 	}
 
-	var errorRatePtr *float64
-	if mainDTO.TotalCount > 0 {
-		rate := float64(mainDTO.ErrorCount) / durationMs
-		errorRatePtr = &rate
-	}
+	return summaryMainDTO{
+		LatencySum:   totals.LatencySum,
+		LatencyCount: totals.LatencyCount,
+		TotalCount:   totals.TotalCount,
+		ErrorCount:   errs.ErrorCount,
+	}, nil
+}
 
-	qConn := fmt.Sprintf(`
-		SELECT toInt64(round(sum(value))) AS used_count
+// GetSummaryConn returns sum/count for gauge `value` so the service can
+// compute average active connections in Go (no SQL avg()).
+func (r *ClickHouseRepository) GetSummaryConn(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) (summaryConnDTO, error) {
+	fc, fargs := shared.FilterClauses(f)
+
+	query := fmt.Sprintf(`
+		SELECT
+		    sum(value)   AS used_sum,
+		    count()      AS used_count
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -74,17 +129,25 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 		fc,
 	)
 
-	var connDTO summaryConnDTO
-	activeConns := int64(0)
-	connArgs := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
-	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), qConn, connArgs...).ScanStruct(&connDTO); err == nil {
-		activeConns = connDTO.UsedCount
-	}
+	var dto summaryConnDTO
+	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...).ScanStruct(&dto)
+	return dto, err
+}
 
-	qCache := fmt.Sprintf(`
-		SELECT
-		    toInt64(countIf(empty(%s))) AS success_count,
-		    toInt64(count())            AS total_count
+type summaryCacheLegDTO struct {
+	N uint64 `ch:"n"`
+}
+
+// GetSummaryCache returns (success_count, total_count) for redis histograms.
+// The previous `countIf(empty(error_type))` is split into a totals scan and
+// a success scan (`AND empty(error_type)` in WHERE); each returns a pure
+// count().
+func (r *ClickHouseRepository) GetSummaryCache(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) (summaryCacheDTO, error) {
+	fc, fargs := shared.FilterClauses(f)
+	params := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
+
+	totalsQuery := fmt.Sprintf(`
+		SELECT count() AS n
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -93,7 +156,6 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 		  AND metric_type = 'Histogram'
 		  %s
 	`,
-		shared.AttrString(shared.AttrErrorType),
 		shared.TableMetrics,
 		shared.ColTeamID, shared.ColTimestamp,
 		shared.ColMetricName, shared.MetricDBOperationDuration,
@@ -101,23 +163,42 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 		fc,
 	)
 
-	var cacheDTO summaryCacheDTO
-	var cacheHitRate *float64
-	cacheArgs := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
-	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), qCache, cacheArgs...).ScanStruct(&cacheDTO); err == nil {
-		if cacheDTO.TotalCount > 0 {
-			rate := float64(cacheDTO.SuccessCount) / float64(cacheDTO.TotalCount) * 100
-			cacheHitRate = &rate
-		}
+	successQuery := fmt.Sprintf(`
+		SELECT count() AS n
+		FROM %s
+		WHERE %s = @teamID
+		  AND %s BETWEEN @start AND @end
+		  AND %s = '%s'
+		  AND %s = 'redis'
+		  AND metric_type = 'Histogram'
+		  AND empty(%s)
+		  %s
+	`,
+		shared.TableMetrics,
+		shared.ColTeamID, shared.ColTimestamp,
+		shared.ColMetricName, shared.MetricDBOperationDuration,
+		shared.AttrString(shared.AttrDBSystem),
+		shared.AttrString(shared.AttrErrorType),
+		fc,
+	)
+
+	var (
+		totals  summaryCacheLegDTO
+		success summaryCacheLegDTO
+	)
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		return r.db.QueryRow(dbutil.OverviewCtx(gctx), totalsQuery, params...).ScanStruct(&totals)
+	})
+	g.Go(func() error {
+		return r.db.QueryRow(dbutil.OverviewCtx(gctx), successQuery, params...).ScanStruct(&success)
+	})
+	if err := g.Wait(); err != nil {
+		return summaryCacheDTO{}, err
 	}
 
-	return SummaryStats{
-		AvgLatencyMs:      shared.ScaleToMs(mainDTO.P50),
-		P95LatencyMs:      shared.ScaleToMs(mainDTO.P95),
-		P99LatencyMs:      shared.ScaleToMs(mainDTO.P99),
-		SpanCount:         mainDTO.TotalCount,
-		ActiveConnections: activeConns,
-		ErrorRate:         errorRatePtr,
-		CacheHitRate:      cacheHitRate,
+	return summaryCacheDTO{
+		SuccessCount: success.N,
+		TotalCount:   totals.N,
 	}, nil
 }

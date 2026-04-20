@@ -69,23 +69,43 @@ func (s *Service) GetErrorGroupTimeseries(ctx context.Context, teamID int64, sta
 // Migrated from errortracking
 
 func (s *Service) GetExceptionRateByType(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]ExceptionRatePoint, error) {
-	return s.repo.GetExceptionRateByType(ctx, teamID, startMs, endMs, serviceName)
+	rows, err := s.repo.GetExceptionRateByType(ctx, teamID, startMs, endMs, serviceName)
+	if err != nil {
+		return nil, err
+	}
+	return mapExceptionRateRows(rows), nil
 }
 
 func (s *Service) GetErrorHotspot(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorHotspotCell, error) {
-	return s.repo.GetErrorHotspot(ctx, teamID, startMs, endMs)
+	rows, err := s.repo.GetErrorHotspot(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return nil, err
+	}
+	return mapErrorHotspotRows(rows), nil
 }
 
 func (s *Service) GetHTTP5xxByRoute(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]HTTP5xxByRoute, error) {
-	return s.repo.GetHTTP5xxByRoute(ctx, teamID, startMs, endMs, serviceName)
+	rows, err := s.repo.GetHTTP5xxByRoute(ctx, teamID, startMs, endMs, serviceName)
+	if err != nil {
+		return nil, err
+	}
+	return mapHTTP5xxByRouteRows(rows), nil
 }
 
 // Migrated from errorfingerprint
 
 func (s *Service) ListFingerprints(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorFingerprint, error) {
-	return s.repo.ListFingerprints(ctx, teamID, startMs, endMs, serviceName, limit)
+	rows, err := s.repo.ListFingerprints(ctx, teamID, startMs, endMs, serviceName, limit)
+	if err != nil {
+		return nil, err
+	}
+	return mapFingerprintRows(rows), nil
 }
 
 func (s *Service) GetFingerprintTrend(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName, exceptionType, statusMessage string) ([]FingerprintTrendPoint, error) {
-	return s.repo.GetFingerprintTrend(ctx, teamID, startMs, endMs, serviceName, operationName, exceptionType, statusMessage)
+	rows, err := s.repo.GetFingerprintTrend(ctx, teamID, startMs, endMs, serviceName, operationName, exceptionType, statusMessage)
+	if err != nil {
+		return nil, err
+	}
+	return mapFingerprintTrendRows(rows), nil
 }

@@ -106,7 +106,7 @@ func (s *TraceDetailService) GetSpanKindBreakdown(ctx context.Context, teamID in
 		result[i] = SpanKindDuration{
 			SpanKind:    row.SpanKind,
 			TotalDuraMs: row.TotalDuraMs,
-			SpanCount:   row.SpanCount,
+			SpanCount:   int64(row.SpanCount), //nolint:gosec // count() fits int64
 		}
 	}
 	if totalMs > 0 {

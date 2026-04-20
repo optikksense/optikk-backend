@@ -8,9 +8,14 @@ import (
 	"strings"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/cursor"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/explorer/queryparser"
 )
+
+// teamIDString converts the int64 tenant id to the string form used by all
+// sketch keys.
+func teamIDString(teamID int64) string { return fmt.Sprintf("%d", teamID) }
 
 type Service interface {
 	GetOverview(ctx context.Context, teamID, startMs, endMs int64) (AIOverview, error)
@@ -25,22 +30,127 @@ type Service interface {
 }
 
 type service struct {
-	repo Repository
+	repo    Repository
+	sketchQ *sketch.Querier
 }
 
-func NewService(repo Repository) Service {
-	return &service{repo: repo}
+func NewService(repo Repository, sketchQ *sketch.Querier) Service {
+	return &service{repo: repo, sketchQ: sketchQ}
 }
 
 func (s *service) GetOverview(ctx context.Context, teamID, startMs, endMs int64) (AIOverview, error) {
-	return s.repo.GetOverview(ctx, teamID, startMs, endMs)
+	summary, err := s.repo.GetOverview(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return summary, err
+	}
+	s.attachOverviewP95(ctx, teamID, startMs, endMs, &summary)
+	return summary, nil
 }
 
 func (s *service) GetOverviewTimeseries(ctx context.Context, teamID, startMs, endMs int64, step string) ([]AITrendPoint, error) {
 	if step == "" {
 		step = "5m"
 	}
-	return s.repo.GetOverviewTimeseries(ctx, teamID, startMs, endMs, step)
+	rows, err := s.repo.GetOverviewTimeseries(ctx, teamID, startMs, endMs, step)
+	if err != nil {
+		return rows, err
+	}
+	s.attachTrendP95(ctx, teamID, startMs, endMs, step, rows)
+	return rows, nil
+}
+
+// attachOverviewP95 merges SpanLatencyService sketches for the services
+// observed in the AI overview window and writes p95 into the summary.
+// Caveat: SpanLatencyService dim is not GenAI-filtered; it mirrors the
+// ai/explorer trade-off (service names that mix AI and non-AI traffic will
+// over-contribute). Documented in repository.go.
+func (s *service) attachOverviewP95(ctx context.Context, teamID, startMs, endMs int64, summary *AIOverview) {
+	if s.sketchQ == nil || summary == nil {
+		return
+	}
+	prefixes := prefixesForServices(summary.Services)
+	pcts, err := s.sketchQ.PercentilesByDimPrefix(ctx, sketch.SpanLatencyService, teamIDString(teamID), startMs, endMs, prefixes, 0.95)
+	if err != nil {
+		return
+	}
+	best := 0.0
+	for _, v := range pcts {
+		if len(v) == 1 && v[0] > best {
+			best = v[0]
+		}
+	}
+	summary.P95LatencyMs = best
+}
+
+// attachTrendP95 fills p95 per trend bucket using PercentilesTimeseries.
+// Buckets without coverage keep their zero p95.
+func (s *service) attachTrendP95(ctx context.Context, teamID, startMs, endMs int64, step string, rows []AITrendPoint) {
+	if s.sketchQ == nil || len(rows) == 0 {
+		return
+	}
+	series, err := s.sketchQ.PercentilesTimeseries(ctx, sketch.SpanLatencyService, teamIDString(teamID), startMs, endMs, stepSeconds(step), 0.95)
+	if err != nil || len(series) == 0 {
+		return
+	}
+	// Aggregate across all services per bucket — take the max as a
+	// conservative representative (service-level sketches can't be merged
+	// post-hoc without re-storing the sketch itself).
+	perTs := make(map[int64]float64)
+	for _, pts := range series {
+		for _, p := range pts {
+			if len(p.Values) == 0 {
+				continue
+			}
+			if p.Values[0] > perTs[p.BucketTs] {
+				perTs[p.BucketTs] = p.Values[0]
+			}
+		}
+	}
+	if len(perTs) == 0 {
+		return
+	}
+	for i := range rows {
+		ts := rows[i].TimeBucket.Unix()
+		if v, ok := perTs[ts]; ok {
+			rows[i].P95LatencyMs = v
+		}
+	}
+}
+
+func prefixesForServices(services []string) []string {
+	if len(services) == 0 {
+		return []string{""}
+	}
+	out := make([]string, 0, len(services))
+	for _, svc := range services {
+		if svc != "" {
+			out = append(out, sketch.DimSpanService(svc))
+		}
+	}
+	if len(out) == 0 {
+		return []string{""}
+	}
+	return out
+}
+
+// stepSeconds maps the handler-provided step name to a bucket size in seconds.
+// Unknown values fall through to 60s which matches SpanLatencyService's ingest
+// bucket.
+func stepSeconds(step string) int64 {
+	switch strings.ToLower(strings.TrimSpace(step)) {
+	case "1m", "minute":
+		return 60
+	case "5m":
+		return 300
+	case "15m":
+		return 900
+	case "1h", "hour":
+		return 3600
+	case "1d", "day":
+		return 86400
+	default:
+		return 60
+	}
 }
 
 func (s *service) GetTopModels(ctx context.Context, teamID, startMs, endMs int64) ([]AIModelBreakdown, error) {
@@ -88,11 +198,13 @@ func (s *service) QueryRuns(ctx context.Context, teamID int64, req QueryRequest)
 	if err != nil {
 		return AIExplorerResponse{}, err
 	}
+	s.attachOverviewP95(ctx, teamID, req.StartTime, req.EndTime, &summary)
 
 	trend, err := s.repo.TrendRuns(ctx, q, req.Step)
 	if err != nil {
 		return AIExplorerResponse{}, err
 	}
+	s.attachTrendP95(ctx, teamID, req.StartTime, req.EndTime, req.Step, trend)
 
 	facets, err := s.repo.FacetRuns(ctx, q)
 	if err != nil {

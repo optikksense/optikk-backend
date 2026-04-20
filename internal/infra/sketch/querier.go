@@ -41,9 +41,22 @@ func (q *Querier) Percentiles(ctx context.Context, kind Kind, teamID string, sta
 	for dim, ds := range groups {
 		merged := NewDigest()
 		for _, d := range ds {
-			_ = merged.Merge(d)
+			if d == nil {
+				continue
+			}
+			_ = merged.MergeWith(d)
 		}
-		out[dim] = merged.Quantiles(qs...)
+		if merged.IsEmpty() {
+			out[dim] = make([]float64, len(qs))
+			continue
+		}
+		vals, err := merged.GetValuesAtQuantiles(qs)
+		if err != nil {
+			slog.Debug("sketch: quantile compute failed", slog.String("kind", kind.ID), slog.Any("error", err))
+			out[dim] = make([]float64, len(qs))
+			continue
+		}
+		out[dim] = vals
 	}
 	return out, nil
 }
@@ -100,4 +113,250 @@ func (q *Querier) ZipPercentiles(ctx context.Context, rows []RowWithPercentiles,
 		}
 	}
 	return nil
+}
+
+// PercentilesByDimPrefix collapses every dim whose string starts with prefix
+// into a single merged sketch. Used by saturation sub-modules that read at
+// a coarser granularity than the ingest-side dim tuple — e.g. the `systems`
+// view wants one result per db_system, but DbOpLatency keys by
+// system|operation|collection|namespace. Service passes `system+"|"` and
+// gets the merged percentiles.
+func (q *Querier) PercentilesByDimPrefix(ctx context.Context, kind Kind, teamID string, startMs, endMs int64, prefixes []string, qs ...float64) (map[string][]float64, error) {
+	if q == nil || q.store == nil {
+		return nil, errors.New("sketch: querier not configured")
+	}
+	if kind.Family != FamilyDistribution {
+		return nil, errors.New("sketch: kind is not a distribution")
+	}
+	all, err := q.store.LoadDigests(ctx, kind, teamID, startMs, endMs)
+	if err != nil {
+		if q.fallback == nil {
+			return nil, err
+		}
+		return q.fallback.Quantiles(ctx, kind, teamID, startMs, endMs, qs...)
+	}
+	out := make(map[string][]float64, len(prefixes))
+	for _, prefix := range prefixes {
+		merged := NewDigest()
+		seen := false
+		for dim, ds := range all {
+			if !startsWith(dim, prefix) {
+				continue
+			}
+			for _, d := range ds {
+				if d == nil {
+					continue
+				}
+				if err := merged.MergeWith(d); err == nil {
+					seen = true
+				}
+			}
+		}
+		if !seen || merged.IsEmpty() {
+			out[prefix] = make([]float64, len(qs))
+			continue
+		}
+		vals, qErr := merged.GetValuesAtQuantiles(qs)
+		if qErr != nil {
+			out[prefix] = make([]float64, len(qs))
+			continue
+		}
+		out[prefix] = vals
+	}
+	return out, nil
+}
+
+// PercentilesByDimSegment merges every dim whose zero-indexed |-separated
+// segment at segmentIdx equals segmentValue into a single sketch per value.
+// It unblocks callers that view sketches at a coarser granularity than the
+// ingest-side tuple allowed — e.g. httpmetrics aggregates SpanLatencyEndpoint
+// (service|operation|endpoint|method) by route alone. Returns
+// {segmentValue -> [percentiles]}. Missing values get a zero-filled slice.
+func (q *Querier) PercentilesByDimSegment(ctx context.Context, kind Kind, teamID string, startMs, endMs int64, segmentIdx int, segmentValues []string, qs ...float64) (map[string][]float64, error) {
+	if q == nil || q.store == nil {
+		return nil, errors.New("sketch: querier not configured")
+	}
+	if kind.Family != FamilyDistribution {
+		return nil, errors.New("sketch: kind is not a distribution")
+	}
+	all, err := q.store.LoadDigests(ctx, kind, teamID, startMs, endMs)
+	if err != nil {
+		if q.fallback == nil {
+			return nil, err
+		}
+		return q.fallback.Quantiles(ctx, kind, teamID, startMs, endMs, qs...)
+	}
+	wanted := make(map[string]struct{}, len(segmentValues))
+	for _, v := range segmentValues {
+		wanted[v] = struct{}{}
+	}
+	merged := make(map[string]*Digest, len(segmentValues))
+	seen := make(map[string]bool, len(segmentValues))
+	for dim, ds := range all {
+		seg, ok := dimSegment(dim, segmentIdx)
+		if !ok {
+			continue
+		}
+		if _, want := wanted[seg]; !want {
+			continue
+		}
+		bucket, exists := merged[seg]
+		if !exists {
+			bucket = NewDigest()
+			merged[seg] = bucket
+		}
+		for _, d := range ds {
+			if d == nil {
+				continue
+			}
+			if err := bucket.MergeWith(d); err == nil {
+				seen[seg] = true
+			}
+		}
+	}
+	out := make(map[string][]float64, len(segmentValues))
+	for _, v := range segmentValues {
+		d, ok := merged[v]
+		if !ok || !seen[v] || d.IsEmpty() {
+			out[v] = make([]float64, len(qs))
+			continue
+		}
+		vals, qErr := d.GetValuesAtQuantiles(qs)
+		if qErr != nil {
+			out[v] = make([]float64, len(qs))
+			continue
+		}
+		out[v] = vals
+	}
+	return out, nil
+}
+
+// dimSegment returns the idx-th |-separated segment of the dim string, or
+// ("", false) when the dim has fewer segments.
+func dimSegment(dim string, idx int) (string, bool) {
+	start := 0
+	for i := 0; i < idx; i++ {
+		sep := indexByteFrom(dim, '|', start)
+		if sep < 0 {
+			return "", false
+		}
+		start = sep + 1
+	}
+	end := indexByteFrom(dim, '|', start)
+	if end < 0 {
+		return dim[start:], true
+	}
+	return dim[start:end], true
+}
+
+func indexByteFrom(s string, b byte, from int) int {
+	for i := from; i < len(s); i++ {
+		if s[i] == b {
+			return i
+		}
+	}
+	return -1
+}
+
+// CountRow is the minimal surface ZipCounts needs: a dim string + slots for
+// the percentile values it'll receive. Implementations are usually anonymous
+// structs in service.go.
+type CountRow interface {
+	Dim() string
+	SetPercentiles(vals []float64)
+}
+
+// ZipCounts fills the percentile slots of every row from the map produced
+// by Percentiles / PercentilesByDimPrefix. Returns the number of rows that
+// matched a sketch — useful for observability (low match rate → cold
+// sketches / wrong dim string / stale tenant).
+func (q *Querier) ZipCounts(rows []CountRow, pcts map[string][]float64) int {
+	matched := 0
+	for _, row := range rows {
+		if v, ok := pcts[row.Dim()]; ok {
+			row.SetPercentiles(v)
+			matched++
+		}
+	}
+	return matched
+}
+
+func startsWith(s, prefix string) bool {
+	if len(prefix) == 0 {
+		return true
+	}
+	if len(s) < len(prefix) {
+		return false
+	}
+	return s[:len(prefix)] == prefix
+}
+
+// TimeseriesPoint is one (bucketUnix, quantile-values) entry per (dim, step).
+type TimeseriesPoint struct {
+	BucketTs int64
+	Values   []float64 // aligned with qs passed to PercentilesTimeseries
+}
+
+// PercentilesTimeseries returns {dim → ordered []TimeseriesPoint} with
+// stepSecs-aligned buckets. Multiple ingest-bucket sketches inside the same
+// step window are merged into one sketch before quantile computation.
+// If stepSecs == 0 or < kind.Bucket, the kind's native bucket is used.
+// Falls through to CHFallback as a single aggregate (no time-series) when
+// sketch load fails — correct, slightly degraded on that path.
+func (q *Querier) PercentilesTimeseries(ctx context.Context, kind Kind, teamID string, startMs, endMs, stepSecs int64, qs ...float64) (map[string][]TimeseriesPoint, error) {
+	if q == nil || q.store == nil {
+		return nil, errors.New("sketch: querier not configured")
+	}
+	if kind.Family != FamilyDistribution {
+		return nil, errors.New("sketch: kind is not a distribution")
+	}
+	step := stepSecs
+	kindBucket := int64(kind.Bucket.Seconds())
+	if step < kindBucket {
+		step = kindBucket
+	}
+	bucketed, err := q.store.LoadDigestsBucketed(ctx, kind, teamID, startMs, endMs)
+	if err != nil {
+		slog.Warn("sketch: timeseries load failed", slog.String("kind", kind.ID), slog.Any("error", err))
+		return map[string][]TimeseriesPoint{}, nil
+	}
+	out := make(map[string][]TimeseriesPoint, len(bucketed))
+	for dim, byBucket := range bucketed {
+		stepGroup := make(map[int64]*Digest, len(byBucket))
+		for ts, d := range byBucket {
+			if d == nil {
+				continue
+			}
+			floor := (ts / step) * step
+			existing, ok := stepGroup[floor]
+			if !ok {
+				stepGroup[floor] = d
+				continue
+			}
+			_ = existing.MergeWith(d)
+		}
+		points := make([]TimeseriesPoint, 0, len(stepGroup))
+		for ts, merged := range stepGroup {
+			if merged == nil || merged.IsEmpty() {
+				continue
+			}
+			vals, qErr := merged.GetValuesAtQuantiles(qs)
+			if qErr != nil {
+				continue
+			}
+			points = append(points, TimeseriesPoint{BucketTs: ts, Values: vals})
+		}
+		sortPointsByTs(points)
+		out[dim] = points
+	}
+	return out, nil
+}
+
+func sortPointsByTs(points []TimeseriesPoint) {
+	// Small N per dim; insertion sort is fine and keeps this dependency-free.
+	for i := 1; i < len(points); i++ {
+		for j := i; j > 0 && points[j-1].BucketTs > points[j].BucketTs; j-- {
+			points[j-1], points[j] = points[j], points[j-1]
+		}
+	}
 }
