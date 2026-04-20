@@ -3,6 +3,8 @@ package httpmetrics
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strconv"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 )
@@ -50,8 +52,65 @@ const dimSpanEndpointRouteSegment = 2
 // (scope|*hostTarget*|method|statusCode).
 const dimHttpClientHostSegment = 1
 
+// topNErrorRoutes is the number of rows the client expects back from the
+// route/host error-rate endpoints. SQL no longer does the LIMIT because we
+// pivot raw rows and aggregate in Go.
+const topNErrorRoutes = 20
+
+// isErrorStatus is the canonical "this sample is an error" predicate. It
+// returns true when the span has the error flag set or when the numeric
+// response status is 400 or higher; empty or non-numeric status codes do not
+// count as errors.
+func isErrorStatus(hasError bool, statusCode string) bool {
+	if hasError {
+		return true
+	}
+	if statusCode == "" {
+		return false
+	}
+	code, err := strconv.Atoi(statusCode)
+	if err != nil {
+		return false
+	}
+	return code >= 400
+}
+
+// statusGroupFor maps a raw HTTP status code string to the bucket name used
+// by the status-distribution widget. Any non-numeric / zero code collapses to
+// "other", mirroring the CH behavior where a non-numeric status parses to 0.
+func statusGroupFor(statusCode string) string {
+	code, err := strconv.Atoi(statusCode)
+	if err != nil {
+		return "other"
+	}
+	switch {
+	case code >= 200 && code <= 299:
+		return "2xx"
+	case code >= 300 && code <= 399:
+		return "3xx"
+	case code >= 400 && code <= 499:
+		return "4xx"
+	case code >= 500:
+		return "5xx"
+	default:
+		return "other"
+	}
+}
+
 func (s *HTTPMetricsService) GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]StatusCodeBucket, error) {
-	return s.repo.GetRequestRate(ctx, teamID, startMs, endMs)
+	rows, err := s.repo.GetRequestRate(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]StatusCodeBucket, len(rows))
+	for i, row := range rows {
+		out[i] = StatusCodeBucket{
+			Timestamp:  row.Timestamp,
+			StatusCode: row.StatusCode,
+			Count:      row.ReqCount,
+		}
+	}
+	return out, nil
 }
 
 func (s *HTTPMetricsService) GetRequestDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
@@ -126,7 +185,15 @@ func (s *HTTPMetricsService) GetTLSDuration(ctx context.Context, teamID int64, s
 }
 
 func (s *HTTPMetricsService) GetTopRoutesByVolume(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
-	return s.repo.GetTopRoutesByVolume(ctx, teamID, startMs, endMs)
+	rows, err := s.repo.GetTopRoutesByVolume(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]RouteMetric, len(rows))
+	for i, row := range rows {
+		out[i] = RouteMetric{Route: row.Route, ReqCount: row.ReqCount}
+	}
+	return out, nil
 }
 
 func (s *HTTPMetricsService) GetTopRoutesByLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
@@ -134,39 +201,180 @@ func (s *HTTPMetricsService) GetTopRoutesByLatency(ctx context.Context, teamID i
 	if err != nil {
 		return nil, err
 	}
-	if s.sketchQ != nil && len(rows) > 0 {
-		routes := make([]string, len(rows))
-		for i, row := range rows {
+	out := make([]RouteMetric, len(rows))
+	for i, row := range rows {
+		out[i] = RouteMetric{Route: row.Route, ReqCount: row.ReqCount}
+	}
+	if s.sketchQ != nil && len(out) > 0 {
+		routes := make([]string, len(out))
+		for i, row := range out {
 			routes[i] = row.Route
 		}
 		pcts, _ := s.sketchQ.PercentilesByDimSegment(ctx, sketch.SpanLatencyEndpoint, teamIDString(teamID), startMs, endMs, dimSpanEndpointRouteSegment, routes, 0.95)
-		for i := range rows {
-			if v, ok := pcts[rows[i].Route]; ok && len(v) == 1 {
-				rows[i].P95Ms = v[0]
+		for i := range out {
+			if v, ok := pcts[out[i].Route]; ok && len(v) == 1 {
+				out[i].P95Ms = v[0]
 			}
 		}
 	}
-	return rows, nil
+	return out, nil
 }
 
 func (s *HTTPMetricsService) GetRouteErrorRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
-	return s.repo.GetRouteErrorRate(ctx, teamID, startMs, endMs)
+	rows, err := s.repo.GetRouteErrorPivot(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return nil, err
+	}
+	type agg struct {
+		req  uint64
+		errs uint64
+	}
+	byRoute := make(map[string]*agg, len(rows))
+	for _, row := range rows {
+		a, ok := byRoute[row.Route]
+		if !ok {
+			a = &agg{}
+			byRoute[row.Route] = a
+		}
+		a.req += row.SampleCount
+		if isErrorStatus(row.HasError, row.StatusCode) {
+			a.errs += row.SampleCount
+		}
+	}
+	out := make([]RouteMetric, 0, len(byRoute))
+	for route, a := range byRoute {
+		pct := 0.0
+		if a.req > 0 {
+			pct = float64(a.errs) * 100.0 / float64(a.req)
+		}
+		out = append(out, RouteMetric{Route: route, ReqCount: a.req, ErrorPct: pct})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ErrorPct != out[j].ErrorPct {
+			return out[i].ErrorPct > out[j].ErrorPct
+		}
+		return out[i].Route < out[j].Route
+	})
+	if len(out) > topNErrorRoutes {
+		out = out[:topNErrorRoutes]
+	}
+	return out, nil
 }
 
 func (s *HTTPMetricsService) GetRouteErrorTimeseries(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteTimeseriesPoint, error) {
-	return s.repo.GetRouteErrorTimeseries(ctx, teamID, startMs, endMs)
+	rows, err := s.repo.GetRouteErrorTimeseriesPivot(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return nil, err
+	}
+	type key struct {
+		ts    string
+		route string
+	}
+	type agg struct {
+		req  uint64
+		errs uint64
+	}
+	byBucket := make(map[key]*agg, len(rows))
+	for _, row := range rows {
+		k := key{ts: row.Timestamp, route: row.Route}
+		a, ok := byBucket[k]
+		if !ok {
+			a = &agg{}
+			byBucket[k] = a
+		}
+		a.req += row.SampleCount
+		if isErrorStatus(row.HasError, row.StatusCode) {
+			a.errs += row.SampleCount
+		}
+	}
+	out := make([]RouteTimeseriesPoint, 0, len(byBucket))
+	for k, a := range byBucket {
+		rate := 0.0
+		if a.req > 0 {
+			rate = float64(a.errs) * 100.0 / float64(a.req)
+		}
+		out = append(out, RouteTimeseriesPoint{
+			Timestamp:  k.ts,
+			HttpRoute:  k.route,
+			ReqCount:   a.req,
+			ErrorCount: a.errs,
+			ErrorRate:  rate,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Timestamp != out[j].Timestamp {
+			return out[i].Timestamp < out[j].Timestamp
+		}
+		return out[i].ErrorCount > out[j].ErrorCount
+	})
+	return out, nil
 }
 
 func (s *HTTPMetricsService) GetStatusDistribution(ctx context.Context, teamID int64, startMs, endMs int64) ([]StatusGroupBucket, error) {
-	return s.repo.GetStatusDistribution(ctx, teamID, startMs, endMs)
+	rows, err := s.repo.GetStatusCodeDistribution(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return nil, err
+	}
+	byGroup := make(map[string]uint64, 5)
+	for _, row := range rows {
+		byGroup[statusGroupFor(row.StatusCode)] += row.Count
+	}
+	out := make([]StatusGroupBucket, 0, len(byGroup))
+	for group, c := range byGroup {
+		out = append(out, StatusGroupBucket{StatusGroup: group, Count: c})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].StatusGroup < out[j].StatusGroup })
+	return out, nil
 }
 
 func (s *HTTPMetricsService) GetErrorTimeseries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorTimeseriesPoint, error) {
-	return s.repo.GetErrorTimeseries(ctx, teamID, startMs, endMs)
+	rows, err := s.repo.GetErrorTimeseriesPivot(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return nil, err
+	}
+	type agg struct {
+		req  uint64
+		errs uint64
+	}
+	byBucket := make(map[string]*agg)
+	for _, row := range rows {
+		a, ok := byBucket[row.Timestamp]
+		if !ok {
+			a = &agg{}
+			byBucket[row.Timestamp] = a
+		}
+		a.req += row.SampleCount
+		if isErrorStatus(row.HasError, row.StatusCode) {
+			a.errs += row.SampleCount
+		}
+	}
+	out := make([]ErrorTimeseriesPoint, 0, len(byBucket))
+	for ts, a := range byBucket {
+		rate := 0.0
+		if a.req > 0 {
+			rate = float64(a.errs) * 100.0 / float64(a.req)
+		}
+		out = append(out, ErrorTimeseriesPoint{
+			Timestamp:  ts,
+			ReqCount:   a.req,
+			ErrorCount: a.errs,
+			ErrorRate:  rate,
+		})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Timestamp < out[j].Timestamp })
+	return out, nil
 }
 
 func (s *HTTPMetricsService) GetTopExternalHosts(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
-	return s.repo.GetTopExternalHosts(ctx, teamID, startMs, endMs)
+	rows, err := s.repo.GetTopExternalHosts(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]ExternalHostMetric, len(rows))
+	for i, row := range rows {
+		out[i] = ExternalHostMetric{Host: row.Host, ReqCount: row.ReqCount}
+	}
+	return out, nil
 }
 
 func (s *HTTPMetricsService) GetExternalHostLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
@@ -174,23 +382,64 @@ func (s *HTTPMetricsService) GetExternalHostLatency(ctx context.Context, teamID 
 	if err != nil {
 		return nil, err
 	}
-	if s.sketchQ != nil && len(rows) > 0 {
-		hosts := make([]string, len(rows))
-		for i, row := range rows {
+	out := make([]ExternalHostMetric, len(rows))
+	for i, row := range rows {
+		out[i] = ExternalHostMetric{Host: row.Host, ReqCount: row.ReqCount}
+	}
+	if s.sketchQ != nil && len(out) > 0 {
+		hosts := make([]string, len(out))
+		for i, row := range out {
 			hosts[i] = row.Host
 		}
 		pcts, _ := s.sketchQ.PercentilesByDimSegment(ctx, sketch.HttpClientDuration, teamIDString(teamID), startMs, endMs, dimHttpClientHostSegment, hosts, 0.95)
-		for i := range rows {
-			if v, ok := pcts[rows[i].Host]; ok && len(v) == 1 {
-				rows[i].P95Ms = v[0]
+		for i := range out {
+			if v, ok := pcts[out[i].Host]; ok && len(v) == 1 {
+				out[i].P95Ms = v[0]
 			}
 		}
 	}
-	return rows, nil
+	return out, nil
 }
 
 func (s *HTTPMetricsService) GetExternalHostErrorRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
-	return s.repo.GetExternalHostErrorRate(ctx, teamID, startMs, endMs)
+	rows, err := s.repo.GetExternalHostErrorPivot(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return nil, err
+	}
+	type agg struct {
+		req  uint64
+		errs uint64
+	}
+	byHost := make(map[string]*agg, len(rows))
+	for _, row := range rows {
+		a, ok := byHost[row.Host]
+		if !ok {
+			a = &agg{}
+			byHost[row.Host] = a
+		}
+		a.req += row.SampleCount
+		if isErrorStatus(row.HasError, row.StatusCode) {
+			a.errs += row.SampleCount
+		}
+	}
+	out := make([]ExternalHostMetric, 0, len(byHost))
+	for host, a := range byHost {
+		pct := 0.0
+		if a.req > 0 {
+			pct = float64(a.errs) * 100.0 / float64(a.req)
+		}
+		out = append(out, ExternalHostMetric{Host: host, ReqCount: a.req, ErrorPct: pct})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].ErrorPct != out[j].ErrorPct {
+			return out[i].ErrorPct > out[j].ErrorPct
+		}
+		return out[i].Host < out[j].Host
+	})
+	if len(out) > topNErrorRoutes {
+		out = out[:topNErrorRoutes]
+	}
+	return out, nil
 }
 
 // fillSummaryFromKind merges every dim for the given kind and writes the
@@ -213,16 +462,11 @@ func summaryFromRow(row histogramSummaryRow) HistogramSummary {
 	if row.HistCount > 0 {
 		avg = row.HistSum / float64(row.HistCount)
 	}
-	return HistogramSummary{
-		P50: row.P50,
-		P95: row.P95,
-		P99: row.P99,
-		Avg: avg,
-	}
+	return HistogramSummary{Avg: avg}
 }
 
-func safeAvg(sum float64, count int64) float64 {
-	if count <= 0 {
+func safeAvg(sum float64, count uint64) float64 {
+	if count == 0 {
 		return 0
 	}
 	return sum / float64(count)

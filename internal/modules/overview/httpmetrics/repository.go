@@ -10,7 +10,7 @@ import (
 )
 
 type Repository interface {
-	GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]StatusCodeBucket, error)
+	GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]statusCodeBucketRow, error)
 	GetRequestDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error)
 	GetActiveRequests(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketRow, error)
 	GetRequestBodySize(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error)
@@ -18,15 +18,15 @@ type Repository interface {
 	GetClientDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error)
 	GetDNSDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error)
 	GetTLSDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error)
-	GetTopRoutesByVolume(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error)
-	GetTopRoutesByLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error)
-	GetRouteErrorRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error)
-	GetRouteErrorTimeseries(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteTimeseriesPoint, error)
-	GetStatusDistribution(ctx context.Context, teamID int64, startMs, endMs int64) ([]StatusGroupBucket, error)
-	GetErrorTimeseries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorTimeseriesPoint, error)
-	GetTopExternalHosts(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error)
-	GetExternalHostLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error)
-	GetExternalHostErrorRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error)
+	GetTopRoutesByVolume(ctx context.Context, teamID int64, startMs, endMs int64) ([]routeVolumeRow, error)
+	GetTopRoutesByLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]routeVolumeRow, error)
+	GetRouteErrorPivot(ctx context.Context, teamID int64, startMs, endMs int64) ([]routeStatusPivotRow, error)
+	GetRouteErrorTimeseriesPivot(ctx context.Context, teamID int64, startMs, endMs int64) ([]routeTimeseriesPivotRow, error)
+	GetStatusCodeDistribution(ctx context.Context, teamID int64, startMs, endMs int64) ([]statusCodeCountRow, error)
+	GetErrorTimeseriesPivot(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorTimeseriesPivotRow, error)
+	GetTopExternalHosts(ctx context.Context, teamID int64, startMs, endMs int64) ([]hostVolumeRow, error)
+	GetExternalHostLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]hostVolumeRow, error)
+	GetExternalHostErrorPivot(ctx context.Context, teamID int64, startMs, endMs int64) ([]hostStatusPivotRow, error)
 }
 
 type ClickHouseRepository struct {
@@ -41,10 +41,7 @@ func NewRepository(db clickhouse.Conn) Repository {
 // in Go; percentiles are filled from the matching sketch kind in service.go.
 type histogramSummaryRow struct {
 	HistSum   float64 `ch:"hist_sum"`
-	HistCount int64   `ch:"hist_count"`
-	P50       float64 `ch:"p50"`
-	P95       float64 `ch:"p95"`
-	P99       float64 `ch:"p99"`
+	HistCount uint64  `ch:"hist_count"`
 }
 
 // timeBucketRow carries sum/count per time bucket so the service can build
@@ -52,15 +49,78 @@ type histogramSummaryRow struct {
 type timeBucketRow struct {
 	Timestamp string  `ch:"time_bucket"`
 	ValSum    float64 `ch:"val_sum"`
-	ValCount  int64   `ch:"val_count"`
+	ValCount  uint64  `ch:"val_count"`
+}
+
+// statusCodeBucketRow is the raw per-(time_bucket, status_code) count for the
+// request-rate timeseries. StatusCode stays a string so no cast happens in SQL.
+type statusCodeBucketRow struct {
+	Timestamp  string `ch:"time_bucket"`
+	StatusCode string `ch:"status_code"`
+	ReqCount   uint64 `ch:"req_count"`
+}
+
+// routeVolumeRow is the raw per-route volume list used by both "top by volume"
+// and "top by latency" (latency p95 is merged from the sketch in Go).
+type routeVolumeRow struct {
+	Route    string `ch:"route"`
+	ReqCount uint64 `ch:"req_count"`
+}
+
+// hostVolumeRow is the raw per-host volume list for external hosts.
+type hostVolumeRow struct {
+	Host     string `ch:"host"`
+	ReqCount uint64 `ch:"req_count"`
+}
+
+// routeStatusPivotRow is the raw (route, has_error, response_status_code)
+// pivot that the service reduces in Go for route error-rate views.
+type routeStatusPivotRow struct {
+	Route        string `ch:"route"`
+	HasError     bool   `ch:"has_error"`
+	StatusCode   string `ch:"response_status_code"`
+	SampleCount  uint64 `ch:"sample_count"`
+}
+
+// hostStatusPivotRow mirrors routeStatusPivotRow but for external hosts.
+type hostStatusPivotRow struct {
+	Host         string `ch:"host"`
+	HasError     bool   `ch:"has_error"`
+	StatusCode   string `ch:"response_status_code"`
+	SampleCount  uint64 `ch:"sample_count"`
+}
+
+// routeTimeseriesPivotRow is the same pivot as routeStatusPivotRow with an
+// extra time bucket column for the timeseries variant.
+type routeTimeseriesPivotRow struct {
+	Timestamp   string `ch:"time_bucket"`
+	Route       string `ch:"route"`
+	HasError    bool   `ch:"has_error"`
+	StatusCode  string `ch:"response_status_code"`
+	SampleCount uint64 `ch:"sample_count"`
+}
+
+// errorTimeseriesPivotRow is the per-(time_bucket, has_error, status) pivot
+// used to compute the global error timeseries in Go.
+type errorTimeseriesPivotRow struct {
+	Timestamp   string `ch:"time_bucket"`
+	HasError    bool   `ch:"has_error"`
+	StatusCode  string `ch:"response_status_code"`
+	SampleCount uint64 `ch:"sample_count"`
+}
+
+// statusCodeCountRow is the raw (response_status_code, count) list used to
+// bucket 2xx/3xx/4xx/5xx/other in Go for the status-distribution view.
+type statusCodeCountRow struct {
+	StatusCode string `ch:"response_status_code"`
+	Count      uint64 `ch:"count"`
 }
 
 func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (histogramSummaryRow, error) {
 	query := fmt.Sprintf(`
 		SELECT
-		    sum(hist_sum)            AS hist_sum,
-		    toInt64(sum(hist_count)) AS hist_count,
-		    0 AS p50, 0 AS p95, 0 AS p99
+		    sum(hist_sum)   AS hist_sum,
+		    sum(hist_count) AS hist_count
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -77,15 +137,15 @@ func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID
 	return row, nil
 }
 
-func (r *ClickHouseRepository) GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]StatusCodeBucket, error) {
+func (r *ClickHouseRepository) GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]statusCodeBucketRow, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	statusAttr := attrString(AttrHTTPStatusCode)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                 AS time_bucket,
-		    %s                 AS status_code,
-		    toInt64(count())   AS req_count
+		    %s        AS time_bucket,
+		    %s        AS status_code,
+		    count()   AS req_count
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -98,7 +158,7 @@ func (r *ClickHouseRepository) GetRequestRate(ctx context.Context, teamID int64,
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricHTTPServerRequestDuration,
 	)
-	var rows []StatusCodeBucket
+	var rows []statusCodeBucketRow
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
@@ -114,9 +174,9 @@ func (r *ClickHouseRepository) GetActiveRequests(ctx context.Context, teamID int
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s               AS time_bucket,
-		    sum(value)       AS val_sum,
-		    toInt64(count()) AS val_count
+		    %s         AS time_bucket,
+		    sum(value) AS val_sum,
+		    count()    AS val_count
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -156,9 +216,10 @@ func (r *ClickHouseRepository) GetTLSDuration(ctx context.Context, teamID int64,
 	return r.queryHistogramSummary(ctx, teamID, startMs, endMs, MetricTLSConnectDuration)
 }
 
-func (r *ClickHouseRepository) GetTopRoutesByVolume(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
+func (r *ClickHouseRepository) GetTopRoutesByVolume(ctx context.Context, teamID int64, startMs, endMs int64) ([]routeVolumeRow, error) {
 	query := fmt.Sprintf(`
-		SELECT mat_http_route AS route, toInt64(count()) AS req_count
+		SELECT mat_http_route AS route,
+		       count()        AS req_count
 		FROM %s
 		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
@@ -167,21 +228,20 @@ func (r *ClickHouseRepository) GetTopRoutesByVolume(ctx context.Context, teamID 
 		ORDER BY req_count DESC
 		LIMIT 20
 	`, TableSpans)
-	var rows []RouteMetric
+	var rows []routeVolumeRow
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetTopRoutesByLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
+func (r *ClickHouseRepository) GetTopRoutesByLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]routeVolumeRow, error) {
 	// p95_ms comes from sketch.SpanLatencyEndpoint merged over the endpoint
 	// segment of the dim; SQL just fetches the route list with its volume so
 	// rows order is still predictable when the sketch isn't warm.
 	query := fmt.Sprintf(`
 		SELECT mat_http_route AS route,
-		       toInt64(count()) AS req_count,
-		       0                AS p95_ms
+		       count()        AS req_count
 		FROM %s
 		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
@@ -190,103 +250,103 @@ func (r *ClickHouseRepository) GetTopRoutesByLatency(ctx context.Context, teamID
 		ORDER BY req_count DESC
 		LIMIT 20
 	`, TableSpans)
-	var rows []RouteMetric
+	var rows []routeVolumeRow
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetRouteErrorRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
+// GetRouteErrorPivot returns a (route, has_error, response_status_code) pivot.
+// The service reduces this to per-route {req_count, error_count, error_pct}
+// in Go so the SQL stays free of -If combinators and status-code casts.
+func (r *ClickHouseRepository) GetRouteErrorPivot(ctx context.Context, teamID int64, startMs, endMs int64) ([]routeStatusPivotRow, error) {
 	query := fmt.Sprintf(`
-		SELECT mat_http_route AS route,
-		       toInt64(count()) AS req_count,
-		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) * 100.0 / count() AS error_pct
+		SELECT mat_http_route       AS route,
+		       has_error            AS has_error,
+		       response_status_code AS response_status_code,
+		       count()              AS sample_count
 		FROM %s
 		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
 		  AND mat_http_route != ''
-		GROUP BY route
-		ORDER BY error_pct DESC
-		LIMIT 20
+		GROUP BY route, has_error, response_status_code
 	`, TableSpans)
-	var rows []RouteMetric
+	var rows []routeStatusPivotRow
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetRouteErrorTimeseries(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteTimeseriesPoint, error) {
+// GetRouteErrorTimeseriesPivot is the timeseries variant of GetRouteErrorPivot.
+// Aggregation per (time_bucket, route) happens in Go.
+func (r *ClickHouseRepository) GetRouteErrorTimeseriesPivot(ctx context.Context, teamID int64, startMs, endMs int64) ([]routeTimeseriesPivotRow, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT %s AS time_bucket,
-		       mat_http_route AS http_route,
-		       toInt64(count()) AS req_count,
-		       toInt64(countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400)) AS error_count,
-		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) * 100.0 / count() AS error_rate
+		SELECT %s                   AS time_bucket,
+		       mat_http_route       AS route,
+		       has_error            AS has_error,
+		       response_status_code AS response_status_code,
+		       count()              AS sample_count
 		FROM %s
 		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
 		  AND mat_http_route != ''
-		GROUP BY time_bucket, http_route
-		ORDER BY time_bucket ASC, error_count DESC
+		GROUP BY time_bucket, route, has_error, response_status_code
 	`, bucket, TableSpans)
-	var rows []RouteTimeseriesPoint
+	var rows []routeTimeseriesPivotRow
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetStatusDistribution(ctx context.Context, teamID int64, startMs, endMs int64) ([]StatusGroupBucket, error) {
+// GetStatusCodeDistribution returns raw (response_status_code, count) rows;
+// the service groups them into 2xx/3xx/4xx/5xx/other in Go.
+func (r *ClickHouseRepository) GetStatusCodeDistribution(ctx context.Context, teamID int64, startMs, endMs int64) ([]statusCodeCountRow, error) {
 	query := fmt.Sprintf(`
-		SELECT multiIf(
-			toUInt16OrZero(response_status_code) BETWEEN 200 AND 299, '2xx',
-			toUInt16OrZero(response_status_code) BETWEEN 300 AND 399, '3xx',
-			toUInt16OrZero(response_status_code) BETWEEN 400 AND 499, '4xx',
-			toUInt16OrZero(response_status_code) >= 500, '5xx',
-			'other'
-		) AS status_group,
-		toInt64(count()) AS count
+		SELECT response_status_code AS response_status_code,
+		       count()              AS count
 		FROM %s
 		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
 		  AND response_status_code != ''
-		GROUP BY status_group
-		ORDER BY status_group ASC
+		GROUP BY response_status_code
 	`, TableSpans)
-	var rows []StatusGroupBucket
+	var rows []statusCodeCountRow
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetErrorTimeseries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorTimeseriesPoint, error) {
+// GetErrorTimeseriesPivot returns a (time_bucket, has_error,
+// response_status_code) pivot for the global error timeseries.
+func (r *ClickHouseRepository) GetErrorTimeseriesPivot(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorTimeseriesPivotRow, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT %s AS time_bucket,
-		       toInt64(count()) AS req_count,
-		       toInt64(countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400)) AS error_count,
-		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) * 100.0 / count() AS error_rate
+		SELECT %s                   AS time_bucket,
+		       has_error            AS has_error,
+		       response_status_code AS response_status_code,
+		       count()              AS sample_count
 		FROM %s
 		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
 		  AND response_status_code != ''
-		GROUP BY time_bucket
-		ORDER BY time_bucket ASC
+		GROUP BY time_bucket, has_error, response_status_code
 	`, bucket, TableSpans)
-	var rows []ErrorTimeseriesPoint
+	var rows []errorTimeseriesPivotRow
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetTopExternalHosts(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
+func (r *ClickHouseRepository) GetTopExternalHosts(ctx context.Context, teamID int64, startMs, endMs int64) ([]hostVolumeRow, error) {
 	query := fmt.Sprintf(`
-		SELECT http_host AS host, toInt64(count()) AS req_count
+		SELECT http_host AS host,
+		       count()   AS req_count
 		FROM %s
 		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
@@ -296,21 +356,20 @@ func (r *ClickHouseRepository) GetTopExternalHosts(ctx context.Context, teamID i
 		ORDER BY req_count DESC
 		LIMIT 20
 	`, TableSpans)
-	var rows []ExternalHostMetric
+	var rows []hostVolumeRow
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetExternalHostLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
+func (r *ClickHouseRepository) GetExternalHostLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]hostVolumeRow, error) {
 	// p95_ms lands from sketch.HttpClientDuration merged by host-target segment;
 	// SQL returns just the host list with volume, sorted by that volume so the
 	// result stays deterministic when the sketch has no samples for a host.
 	query := fmt.Sprintf(`
 		SELECT http_host AS host,
-		       toInt64(count()) AS req_count,
-		       0                AS p95_ms
+		       count()   AS req_count
 		FROM %s
 		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
@@ -320,28 +379,28 @@ func (r *ClickHouseRepository) GetExternalHostLatency(ctx context.Context, teamI
 		ORDER BY req_count DESC
 		LIMIT 20
 	`, TableSpans)
-	var rows []ExternalHostMetric
+	var rows []hostVolumeRow
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetExternalHostErrorRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
+// GetExternalHostErrorPivot is the per-host analogue of GetRouteErrorPivot.
+func (r *ClickHouseRepository) GetExternalHostErrorPivot(ctx context.Context, teamID int64, startMs, endMs int64) ([]hostStatusPivotRow, error) {
 	query := fmt.Sprintf(`
-		SELECT http_host AS host,
-		       toInt64(count()) AS req_count,
-		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) * 100.0 / count() AS error_pct
+		SELECT http_host            AS host,
+		       has_error            AS has_error,
+		       response_status_code AS response_status_code,
+		       count()              AS sample_count
 		FROM %s
 		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
 		  AND kind = 3
 		  AND http_host != ''
-		GROUP BY host
-		ORDER BY error_pct DESC
-		LIMIT 20
+		GROUP BY host, has_error, response_status_code
 	`, TableSpans)
-	var rows []ExternalHostMetric
+	var rows []hostStatusPivotRow
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}

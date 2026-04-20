@@ -79,7 +79,7 @@ func (m *saturationExplorerModule) configure(nativeQuerier clickhouse.Conn, getT
 			dberrors.NewService(dberrors.NewRepository(nativeQuerier)),
 			dbslowqueries.NewService(dbslowqueries.NewRepository(nativeQuerier), nil),
 			dbconnections.NewService(dbconnections.NewRepository(nativeQuerier)),
-			saturationkafka.NewService(saturationkafka.NewRepository(nativeQuerier)),
+			saturationkafka.NewService(saturationkafka.NewRepository(nativeQuerier), nil),
 		),
 	}
 }

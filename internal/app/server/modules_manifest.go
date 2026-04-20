@@ -103,7 +103,7 @@ func configuredModules(
 		saturation_database_system.NewModule(nativeQuerier, getTenant),
 		saturation_database_systems.NewModule(nativeQuerier, getTenant),
 		saturation_database_volume.NewModule(nativeQuerier, getTenant),
-		saturation_kafka.NewModule(nativeQuerier, getTenant),
+		saturation_kafka.NewModule(nativeQuerier, getTenant, infraDeps.SketchQuerier),
 		services_topology.NewModule(nativeQuerier, getTenant, infraDeps.SketchQuerier),
 		spans_explorer.NewModule(nativeQuerier, getTenant),
 		spans_livetail.NewModule(nativeQuerier, getTenant, nil),
