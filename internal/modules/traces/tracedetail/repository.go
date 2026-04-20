@@ -81,7 +81,7 @@ func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID 
 	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
 		SELECT kind_string                        AS span_kind,
 		       sum(duration_nano) / 1000000.0     AS total_duration_ms,
-		       count()                            AS span_count
+		       toInt64(count())                   AS span_count
 		FROM observability.spans
 		WHERE team_id = @teamID AND trace_id = @traceID
 		GROUP BY kind_string
@@ -162,21 +162,16 @@ func (r *ClickHouseRepository) GetRelatedTraces(ctx context.Context, teamID int6
 }
 
 // GetSpanEvents returns span specific events like exceptions.
-//
-// Fetches the full events array per span and unpacks in Go rather than relying
-// on CH arrayJoin — fewer bytes on the wire (no per-event repetition of
-// span_id/trace_id/timestamp) and zero CH CPU for the fan-out.
 func (r *ClickHouseRepository) GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]spanEventRow, []exceptionRow, error) {
-	var rawRows []spanEventsRawRow
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rawRows, `
-		SELECT span_id, trace_id, timestamp, events
+	var eventRows []spanEventRow
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &eventRows, `
+		SELECT span_id, trace_id, timestamp, arrayJoin(events) AS event_json
 		FROM observability.spans
 		WHERE team_id = @teamID AND trace_id = @traceID
 		  AND NOT empty(events)
 	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)); err != nil { //nolint:gosec // G115
 		return nil, nil, err
 	}
-	eventRows := unpackSpanEvents(rawRows)
 
 	var exceptionRows []exceptionRow
 	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &exceptionRows, `
@@ -195,31 +190,6 @@ func (r *ClickHouseRepository) GetSpanEvents(ctx context.Context, teamID int64, 
 	return eventRows, exceptionRows, nil
 }
 
-// unpackSpanEvents flattens one row per span with its events array into one
-// row per event, preserving the (span_id, trace_id, timestamp) association
-// that CH's arrayJoin used to produce. Empty / malformed entries are skipped.
-func unpackSpanEvents(rawRows []spanEventsRawRow) []spanEventRow {
-	n := 0
-	for _, r := range rawRows {
-		n += len(r.Events)
-	}
-	out := make([]spanEventRow, 0, n)
-	for _, r := range rawRows {
-		for _, ev := range r.Events {
-			if ev == "" {
-				continue
-			}
-			out = append(out, spanEventRow{
-				SpanID:    r.SpanID,
-				TraceID:   r.TraceID,
-				Timestamp: r.Timestamp,
-				EventJSON: ev,
-			})
-		}
-	}
-	return out
-}
-
 // GetFlamegraphData returns the raw spans for the flamegraph visualization.
 func (r *ClickHouseRepository) GetFlamegraphData(ctx context.Context, teamID int64, traceID string) ([]flamegraphRow, error) {
 	var rows []flamegraphRow
@@ -235,55 +205,26 @@ func (r *ClickHouseRepository) GetFlamegraphData(ctx context.Context, teamID int
 	return rows, err
 }
 
-// GetSpanSelfTimes returns the duration for each span. Self + child time are
-// computed in Go from total_duration_ms minus a per-parent child-duration
-// lookup scan; keeps the SELECT free of coalesce/CASE for the LEFT JOIN NULL.
+// GetSpanSelfTimes returns the duration for each span.
 func (r *ClickHouseRepository) GetSpanSelfTimes(ctx context.Context, teamID int64, traceID string) ([]SpanSelfTime, error) {
-	var totals []spanSelfTotalRow
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &totals, `
-		SELECT span_id,
-		       name AS operation_name,
-		       duration_nano / 1000000.0 AS total_duration_ms
-		FROM observability.spans
-		WHERE team_id = @teamID AND trace_id = @traceID
-		ORDER BY timestamp ASC
+	var rows []SpanSelfTime
+	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
+		SELECT s.span_id, s.name AS operation_name,
+		       s.duration_nano / 1000000.0 AS total_duration_ms,
+		       (s.duration_nano - coalesce(cs.child_duration, 0)) / 1000000.0 AS self_time_ms,
+		       coalesce(cs.child_duration, 0) / 1000000.0 AS child_time_ms
+		FROM observability.spans s
+		LEFT JOIN (
+			SELECT parent_span_id, sum(duration_nano) AS child_duration
+			FROM observability.spans
+			WHERE team_id = @teamID AND trace_id = @traceID
+			GROUP BY parent_span_id
+		) cs ON s.span_id = cs.parent_span_id
+		WHERE s.team_id = @teamID AND s.trace_id = @traceID
+		ORDER BY s.timestamp ASC
 		LIMIT 1000
-	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)); err != nil { //nolint:gosec // G115
-		return nil, err
-	}
-
-	var childLegs []spanChildDurationRow
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &childLegs, `
-		SELECT parent_span_id,
-		       sum(duration_nano) / 1000000.0 AS child_duration_ms
-		FROM observability.spans
-		WHERE team_id = @teamID AND trace_id = @traceID
-		  AND parent_span_id != ''
-		GROUP BY parent_span_id
-	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)); err != nil { //nolint:gosec // G115
-		return nil, err
-	}
-
-	childIdx := make(map[string]float64, len(childLegs))
-	for _, c := range childLegs {
-		childIdx[c.ParentSpanID] = c.ChildDurationMs
-	}
-	out := make([]SpanSelfTime, 0, len(totals))
-	for _, t := range totals {
-		child := childIdx[t.SpanID]
-		self := t.TotalDurationMs - child
-		if self < 0 {
-			self = 0
-		}
-		out = append(out, SpanSelfTime{
-			SpanID:        t.SpanID,
-			OperationName: t.OperationName,
-			TotalDuraMs:   t.TotalDurationMs,
-			SelfTimeMs:    self,
-			ChildTimeMs:   child,
-		})
-	}
-	return out, nil
+	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)) //nolint:gosec // G115
+	return rows, err
 }
 
 // GetErrorPath returns the path of spans that caused the error.

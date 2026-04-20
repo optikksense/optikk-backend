@@ -2,25 +2,17 @@ package overview
 
 import (
 	"context"
-	"fmt"
-	"time"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 	"golang.org/x/sync/errgroup"
 )
 
 type Service struct {
-	repo     Repository
-	sketchQ  *sketch.Querier
+	repo Repository
 }
 
-func NewService(repo Repository, sketchQ *sketch.Querier) *Service {
-	return &Service{repo: repo, sketchQ: sketchQ}
+func NewService(repo Repository) *Service {
+	return &Service{repo: repo}
 }
-
-// teamIDString converts the int64 tenant id to the string form used by all
-// sketch keys.
-func teamIDString(teamID int64) string { return fmt.Sprintf("%d", teamID) }
 
 func (s *Service) GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]RequestRatePoint, error) {
 	rows, err := s.repo.GetRequestRate(ctx, teamID, startMs, endMs, serviceName)
@@ -38,33 +30,10 @@ func (s *Service) GetErrorRate(ctx context.Context, teamID int64, startMs, endMs
 	return mapErrorRateRows(rows), nil
 }
 
-// GetP95Latency reads per-minute SpanLatencyService sketches from Redis and
-// emits a p95-per-(service, bucket) time series. All compute happens in Go;
-// the repository's SQL path is a no-op placeholder.
 func (s *Service) GetP95Latency(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]P95LatencyPoint, error) {
-	if s.sketchQ == nil {
-		return nil, nil
-	}
-	const stepSecs = 60 // 1-minute buckets match SpanLatencyService's native grain
-	byDim, err := s.sketchQ.PercentilesTimeseries(ctx, sketch.SpanLatencyService, teamIDString(teamID), startMs, endMs, stepSecs, 0.95)
+	rows, err := s.repo.GetP95Latency(ctx, teamID, startMs, endMs, serviceName)
 	if err != nil {
 		return nil, err
-	}
-	rows := make([]p95LatencyRow, 0)
-	for dim, points := range byDim {
-		if serviceName != "" && dim != serviceName {
-			continue
-		}
-		for _, p := range points {
-			if len(p.Values) == 0 {
-				continue
-			}
-			rows = append(rows, p95LatencyRow{
-				Timestamp:   time.Unix(p.BucketTs, 0).UTC(),
-				ServiceName: dim,
-				P95:         p.Values[0],
-			})
-		}
 	}
 	return mapP95LatencyRows(rows), nil
 }
@@ -74,17 +43,6 @@ func (s *Service) GetServices(ctx context.Context, teamID int64, startMs, endMs 
 	if err != nil {
 		return nil, err
 	}
-	if s.sketchQ != nil && len(rows) > 0 {
-		pcts, _ := s.sketchQ.Percentiles(ctx, sketch.SpanLatencyService, teamIDString(teamID), startMs, endMs, 0.5, 0.95, 0.99)
-		for i := range rows {
-			dim := sketch.DimSpanService(rows[i].ServiceName)
-			if v, ok := pcts[dim]; ok && len(v) == 3 {
-				rows[i].P50Latency = v[0]
-				rows[i].P95Latency = v[1]
-				rows[i].P99Latency = v[2]
-			}
-		}
-	}
 	return mapServiceMetricRows(rows), nil
 }
 
@@ -93,17 +51,6 @@ func (s *Service) GetTopEndpoints(ctx context.Context, teamID int64, startMs, en
 	if err != nil {
 		return nil, err
 	}
-	if s.sketchQ != nil && len(rows) > 0 {
-		pcts, _ := s.sketchQ.Percentiles(ctx, sketch.SpanLatencyEndpoint, teamIDString(teamID), startMs, endMs, 0.5, 0.95, 0.99)
-		for i := range rows {
-			dim := sketch.DimSpanEndpoint(rows[i].ServiceName, rows[i].OperationName, rows[i].EndpointName, rows[i].HTTPMethod)
-			if v, ok := pcts[dim]; ok && len(v) == 3 {
-				rows[i].P50Latency = v[0]
-				rows[i].P95Latency = v[1]
-				rows[i].P99Latency = v[2]
-			}
-		}
-	}
 	return mapEndpointMetricRows(rows), nil
 }
 
@@ -111,17 +58,6 @@ func (s *Service) GetSummary(ctx context.Context, teamID int64, startMs, endMs i
 	row, err := s.repo.GetSummary(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return GlobalSummary{}, err
-	}
-	if s.sketchQ != nil {
-		// Merge every SpanLatencyService dim for this tenant into a single
-		// sketch and read the aggregate percentiles. PercentilesByDimPrefix
-		// with an empty prefix = "match all dims".
-		pcts, _ := s.sketchQ.PercentilesByDimPrefix(ctx, sketch.SpanLatencyService, teamIDString(teamID), startMs, endMs, []string{""}, 0.5, 0.95, 0.99)
-		if v, ok := pcts[""]; ok && len(v) == 3 {
-			row.P50Latency = v[0]
-			row.P95Latency = v[1]
-			row.P99Latency = v[2]
-		}
 	}
 	return mapGlobalSummaryRow(row), nil
 }

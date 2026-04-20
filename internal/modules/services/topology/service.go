@@ -2,9 +2,7 @@ package topology
 
 import (
 	"context"
-	"fmt"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -20,75 +18,38 @@ type Service interface {
 }
 
 type topologyService struct {
-	repo    Repository
-	sketchQ *sketch.Querier
+	repo Repository
 }
 
-func NewService(repo Repository, sketchQ *sketch.Querier) Service {
-	return &topologyService{repo: repo, sketchQ: sketchQ}
+func NewService(repo Repository) Service {
+	return &topologyService{repo: repo}
 }
-
-// teamIDString converts the int64 tenant id to the string form used by all
-// sketch keys.
-func teamIDString(teamID int64) string { return fmt.Sprintf("%d", teamID) }
 
 func (s *topologyService) GetTopology(ctx context.Context, teamID int64, startMs, endMs int64, focusService string) (TopologyResponse, error) {
 	var (
-		nodeTotals []nodeTotalRow
-		nodeErrs   []nodeErrorLegRow
-		edgeTotals []edgeTotalRow
-		edgeErrs   []edgeErrorLegRow
+		nodeRows []nodeAggRow
+		edgeRows []edgeAggRow
 	)
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
-		rows, err := s.repo.GetNodeTotals(gctx, teamID, startMs, endMs)
-		nodeTotals = rows
-		return err
+		rows, err := s.repo.GetNodes(gctx, teamID, startMs, endMs)
+		if err != nil {
+			return err
+		}
+		nodeRows = rows
+		return nil
 	})
 	g.Go(func() error {
-		rows, err := s.repo.GetNodeErrors(gctx, teamID, startMs, endMs)
-		nodeErrs = rows
-		return err
-	})
-	g.Go(func() error {
-		rows, err := s.repo.GetEdgeTotals(gctx, teamID, startMs, endMs)
-		edgeTotals = rows
-		return err
-	})
-	g.Go(func() error {
-		rows, err := s.repo.GetEdgeErrors(gctx, teamID, startMs, endMs)
-		edgeErrs = rows
-		return err
+		rows, err := s.repo.GetEdges(gctx, teamID, startMs, endMs)
+		if err != nil {
+			return err
+		}
+		edgeRows = rows
+		return nil
 	})
 	if err := g.Wait(); err != nil {
 		return TopologyResponse{}, err
-	}
-
-	nodeRows := mergeNodeLegs(nodeTotals, nodeErrs)
-	edgeRows := mergeEdgeLegs(edgeTotals, edgeErrs)
-
-	// Attach percentiles from sketch.Querier. Nodes key by service name
-	// (SpanLatencyService). Edges key by the callee (child) service — the CH
-	// query groups by (source, target) using child-span latencies, so the
-	// per-target sketch is the correct aggregate to read for the edge p50/p95.
-	if s.sketchQ != nil && (len(nodeRows) > 0 || len(edgeRows) > 0) {
-		pcts, _ := s.sketchQ.Percentiles(ctx, sketch.SpanLatencyService, teamIDString(teamID), startMs, endMs, 0.5, 0.95, 0.99)
-		for i := range nodeRows {
-			dim := sketch.DimSpanService(nodeRows[i].ServiceName)
-			if v, ok := pcts[dim]; ok && len(v) == 3 {
-				nodeRows[i].P50Ms = v[0]
-				nodeRows[i].P95Ms = v[1]
-				nodeRows[i].P99Ms = v[2]
-			}
-		}
-		for i := range edgeRows {
-			dim := sketch.DimSpanService(edgeRows[i].Target)
-			if v, ok := pcts[dim]; ok && len(v) >= 2 {
-				edgeRows[i].P50Ms = v[0]
-				edgeRows[i].P95Ms = v[1]
-			}
-		}
 	}
 
 	nodes := buildNodes(nodeRows)
@@ -172,42 +133,6 @@ func addMissingEdgeNodes(nodes []ServiceNode, edges []ServiceEdge) []ServiceNode
 		}
 	}
 	return nodes
-}
-
-// mergeNodeLegs indexes the per-service error counts and joins them onto the
-// totals list so the service layer can build ServiceNode with error_rate.
-func mergeNodeLegs(totals []nodeTotalRow, errs []nodeErrorLegRow) []nodeAggRow {
-	errIdx := make(map[string]uint64, len(errs))
-	for _, e := range errs {
-		errIdx[e.ServiceName] = e.ErrorCount
-	}
-	out := make([]nodeAggRow, 0, len(totals))
-	for _, t := range totals {
-		out = append(out, nodeAggRow{
-			ServiceName:  t.ServiceName,
-			RequestCount: int64(t.RequestCount), //nolint:gosec // count() fits int64
-			ErrorCount:   int64(errIdx[t.ServiceName]), //nolint:gosec
-		})
-	}
-	return out
-}
-
-// mergeEdgeLegs joins the (source, target) error counts onto the call totals.
-func mergeEdgeLegs(totals []edgeTotalRow, errs []edgeErrorLegRow) []edgeAggRow {
-	errIdx := make(map[string]uint64, len(errs))
-	for _, e := range errs {
-		errIdx[e.Source+"|"+e.Target] = e.ErrorCount
-	}
-	out := make([]edgeAggRow, 0, len(totals))
-	for _, t := range totals {
-		out = append(out, edgeAggRow{
-			Source:     t.Source,
-			Target:     t.Target,
-			CallCount:  int64(t.CallCount), //nolint:gosec
-			ErrorCount: int64(errIdx[t.Source+"|"+t.Target]), //nolint:gosec
-		})
-	}
-	return out
 }
 
 // filterNeighborhood keeps only the focus service and its direct neighbors

@@ -6,9 +6,6 @@ type LatencyTimeSeries struct {
 	P50Ms      *float64 `json:"p50_ms" ch:"p50_ms"`
 	P95Ms      *float64 `json:"p95_ms" ch:"p95_ms"`
 	P99Ms      *float64 `json:"p99_ms" ch:"p99_ms"`
-
-	LatencySum   float64 `json:"-" ch:"-"`
-	LatencyCount int64   `json:"-" ch:"-"`
 }
 
 type OpsTimeSeries struct {
@@ -27,9 +24,6 @@ type SystemCollectionRow struct {
 	CollectionName string   `json:"collection_name" ch:"collection_name"`
 	P99Ms          *float64 `json:"p99_ms" ch:"p99_ms"`
 	OpsPerSec      *float64 `json:"ops_per_sec" ch:"ops_per_sec"`
-
-	LatencySum   float64 `json:"-" ch:"-"`
-	LatencyCount int64   `json:"-" ch:"-"`
 }
 
 type SystemNamespace struct {

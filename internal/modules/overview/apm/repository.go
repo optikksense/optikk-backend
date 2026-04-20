@@ -1,22 +1,22 @@
 package apm
 
 import (
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 
-	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 type Repository interface {
-	GetRPCDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error)
-	GetRPCRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]TimeBucket, error)
-	GetMessagingPublishDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error)
-	GetProcessCPU(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketRow, error)
-	GetProcessMemory(ctx context.Context, teamID int64, startMs, endMs int64) (processMemoryRow, error)
-	GetOpenFDs(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketRow, error)
-	GetUptime(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketRow, error)
+	GetRPCDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
+	GetRPCRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketDTO, error)
+	GetMessagingPublishDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
+	GetProcessCPU(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error)
+	GetProcessMemory(ctx context.Context, teamID int64, startMs, endMs int64) (processMemoryDTO, error)
+	GetOpenFDs(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketDTO, error)
+	GetUptime(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketDTO, error)
 }
 
 type ClickHouseRepository struct {
@@ -27,60 +27,13 @@ func NewRepository(db clickhouse.Conn) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-// histogramSummaryRow is the sum/count carrier for histogram-backed metrics.
-// Percentiles come from sketch.Querier; avg is computed from hist_sum/hist_count.
-// Count stays CH's native uint64; service casts at API boundary.
-type histogramSummaryRow struct {
-	HistSum   float64 `ch:"hist_sum"`
-	HistCount uint64  `ch:"hist_count"`
-	// Placeholder slots preserved for parity with the old schema; service
-	// overwrites them from the matching sketch kind.
-	P50 float64 `ch:"p50"`
-	P95 float64 `ch:"p95"`
-	P99 float64 `ch:"p99"`
-}
-
-// timeBucketRow carries per-bucket sum/count so the service can compute avg.
-type timeBucketRow struct {
-	Timestamp string  `ch:"time_bucket"`
-	ValSum    float64 `ch:"val_sum"`
-	ValCount  uint64  `ch:"val_count"`
-}
-
-// stateBucketRow carries per-(bucket,state) sum/count for the Go-side avg.
-type stateBucketRow struct {
-	Timestamp string  `ch:"time_bucket"`
-	State     string  `ch:"state"`
-	ValSum    float64 `ch:"val_sum"`
-	ValCount  uint64  `ch:"val_count"`
-}
-
-// processMemoryRow carries the sum/count pair per memory kind (RSS, VMS).
-// Populated in service.go by merging two separate metric-filtered scans; the
-// SQL layer no longer uses sumIf/countIf combinators.
-type processMemoryRow struct {
-	RSSSum   float64
-	RSSCount uint64
-	VMSSum   float64
-	VMSCount uint64
-}
-
-// processMemoryLegRow is the per-metric (RSS or VMS) sum/count leg scanned
-// from a single metric_name filter. service.go combines two such scans into
-// processMemoryRow to replace the former sumIf/countIf-driven pivot.
-type processMemoryLegRow struct {
-	ValSum   float64 `ch:"val_sum"`
-	ValCount uint64  `ch:"val_count"`
-}
-
-func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (histogramSummaryRow, error) {
-	// Quantiles come from sketch.Querier in service.go; CH just returns totals
-	// so Go can compute avg = hist_sum / hist_count.
+func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (histogramSummaryDTO, error) {
 	query := fmt.Sprintf(`
 		SELECT
-		    sum(hist_sum)   AS hist_sum,
-		    sum(hist_count) AS hist_count,
-		    0 AS p50, 0 AS p95, 0 AS p99
+		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
+		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
+		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99,
+		    avg(hist_sum / nullIf(hist_count, 0))                                     AS avg
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -90,20 +43,16 @@ func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID
 		TableMetrics, ColTeamID, ColTimestamp,
 		ColMetricName, metricName,
 	)
-	var row histogramSummaryRow
-	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...).ScanStruct(&row); err != nil {
-		return histogramSummaryRow{}, err
-	}
-	return row, nil
+	var result histogramSummaryDTO
+	return result, r.db.QueryRow(dbutil.OverviewCtx(ctx), query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...).ScanStruct(&result)
 }
 
-func (r *ClickHouseRepository) queryTimeBucketsSumCount(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]timeBucketRow, error) {
+func (r *ClickHouseRepository) queryTimeBuckets(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]timeBucketDTO, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT
 		    %s         AS time_bucket,
-		    sum(value) AS val_sum,
-		    count()    AS val_count
+		    avg(value) AS val
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -116,23 +65,20 @@ func (r *ClickHouseRepository) queryTimeBucketsSumCount(ctx context.Context, tea
 		ColTeamID, ColTimestamp,
 		ColMetricName, metricName,
 	)
-	var rows []timeBucketRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
-		return nil, err
-	}
-	return rows, nil
+	var rows []timeBucketDTO
+	return rows, r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
 }
 
-func (r *ClickHouseRepository) GetRPCDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error) {
+func (r *ClickHouseRepository) GetRPCDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error) {
 	return r.queryHistogramSummary(ctx, teamID, startMs, endMs, MetricRPCServerDuration)
 }
 
-func (r *ClickHouseRepository) GetRPCRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]TimeBucket, error) {
+func (r *ClickHouseRepository) GetRPCRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketDTO, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                 AS time_bucket,
-		    count()::Float64   AS val
+		    %s               AS time_bucket,
+		    toFloat64(count()) AS val
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -145,18 +91,15 @@ func (r *ClickHouseRepository) GetRPCRequestRate(ctx context.Context, teamID int
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricRPCServerDuration,
 	)
-	var rows []TimeBucket
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
-		return nil, err
-	}
-	return rows, nil
+	var rows []timeBucketDTO
+	return rows, r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
 }
 
-func (r *ClickHouseRepository) GetMessagingPublishDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryRow, error) {
+func (r *ClickHouseRepository) GetMessagingPublishDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error) {
 	return r.queryHistogramSummary(ctx, teamID, startMs, endMs, MetricMessagingPublishDuration)
 }
 
-func (r *ClickHouseRepository) GetProcessCPU(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketRow, error) {
+func (r *ClickHouseRepository) GetProcessCPU(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	stateAttr := attrString(AttrProcessCPUState)
 
@@ -164,8 +107,7 @@ func (r *ClickHouseRepository) GetProcessCPU(ctx context.Context, teamID int64, 
 		SELECT
 		    %s         AS time_bucket,
 		    %s         AS state,
-		    sum(value) AS val_sum,
-		    count()    AS val_count
+		    avg(value) AS val
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -178,59 +120,34 @@ func (r *ClickHouseRepository) GetProcessCPU(ctx context.Context, teamID int64, 
 		ColTeamID, ColTimestamp,
 		ColMetricName, MetricProcessCPUTime,
 	)
-	var rows []stateBucketRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
-		return nil, err
-	}
-	return rows, nil
+	var rows []StateBucket
+	return rows, r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
 }
 
-// GetProcessMemory scans RSS + VMS legs as two independent narrow-WHERE
-// queries and merges in Go. Replaces the prior sumIf/countIf pivot.
-func (r *ClickHouseRepository) GetProcessMemory(ctx context.Context, teamID int64, startMs, endMs int64) (processMemoryRow, error) {
-	rss, err := r.queryProcessMemoryLeg(ctx, teamID, startMs, endMs, MetricProcessMemoryUsage)
-	if err != nil {
-		return processMemoryRow{}, err
-	}
-	vms, err := r.queryProcessMemoryLeg(ctx, teamID, startMs, endMs, MetricProcessMemoryVirtual)
-	if err != nil {
-		return processMemoryRow{}, err
-	}
-	return processMemoryRow{
-		RSSSum:   rss.ValSum,
-		RSSCount: rss.ValCount,
-		VMSSum:   vms.ValSum,
-		VMSCount: vms.ValCount,
-	}, nil
-}
-
-// queryProcessMemoryLeg scans a single metric_name's sum(value) + count() so
-// the outer GetProcessMemory can merge RSS/VMS legs without CH combinators.
-func (r *ClickHouseRepository) queryProcessMemoryLeg(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (processMemoryLegRow, error) {
+func (r *ClickHouseRepository) GetProcessMemory(ctx context.Context, teamID int64, startMs, endMs int64) (processMemoryDTO, error) {
 	query := fmt.Sprintf(`
 		SELECT
-		    sum(value) AS val_sum,
-		    count()    AS val_count
+		    avgIf(value, %s = '%s') AS rss,
+		    avgIf(value, %s = '%s') AS vms
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
+		  AND %s IN ('%s', '%s')
 	`,
+		ColMetricName, MetricProcessMemoryUsage,
+		ColMetricName, MetricProcessMemoryVirtual,
 		TableMetrics,
 		ColTeamID, ColTimestamp,
-		ColMetricName, metricName,
+		ColMetricName, MetricProcessMemoryUsage, MetricProcessMemoryVirtual,
 	)
-	var row processMemoryLegRow
-	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...).ScanStruct(&row); err != nil {
-		return processMemoryLegRow{}, err
-	}
-	return row, nil
+	var result processMemoryDTO
+	return result, r.db.QueryRow(dbutil.OverviewCtx(ctx), query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...).ScanStruct(&result)
 }
 
-func (r *ClickHouseRepository) GetOpenFDs(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketRow, error) {
-	return r.queryTimeBucketsSumCount(ctx, teamID, startMs, endMs, MetricProcessOpenFDs)
+func (r *ClickHouseRepository) GetOpenFDs(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketDTO, error) {
+	return r.queryTimeBuckets(ctx, teamID, startMs, endMs, MetricProcessOpenFDs)
 }
 
-func (r *ClickHouseRepository) GetUptime(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketRow, error) {
-	return r.queryTimeBucketsSumCount(ctx, teamID, startMs, endMs, MetricProcessUptime)
+func (r *ClickHouseRepository) GetUptime(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketDTO, error) {
+	return r.queryTimeBuckets(ctx, teamID, startMs, endMs, MetricProcessUptime)
 }

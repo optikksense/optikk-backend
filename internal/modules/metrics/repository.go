@@ -14,16 +14,13 @@ const tableMetrics = "observability.metrics"
 
 // materializedDimensions maps user-facing tag key names to ClickHouse materialized
 // column names. These columns are extracted from attributes at insert time.
-// http_status_code is stored as UInt16; the ::String CAST operator (infix) is
-// permitted — converts without a toString() call so tag-value dedup + GROUP BY
-// can share a string key with the other dimensions.
 var materializedDimensions = map[string]string{
 	"service":          "service",
 	"host":             "host",
 	"environment":      "environment",
 	"k8s_namespace":    "k8s_namespace",
 	"http_method":      "http_method",
-	"http_status_code": "http_status_code::String",
+	"http_status_code": "toString(http_status_code)",
 }
 
 // allowedAggregations is the set of aggregation functions we support.
@@ -40,10 +37,7 @@ var allowedOperators = map[string]bool{
 
 type Repository interface {
 	ListMetricNames(ctx context.Context, teamID int64, startMs, endMs int64, search string) ([]MetricNameResult, error)
-	// ListAttributeSamples powers the service-layer tag-key discovery: grab
-	// the attributes map from the most recent rows, let Go collect distinct
-	// keys instead of running arrayJoin(mapKeys(JSON...)) per row in CH.
-	ListAttributeSamples(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]attributesRow, error)
+	ListTagKeys(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]TagKeyResult, error)
 	ListTagValues(ctx context.Context, teamID int64, startMs, endMs int64, metricName, tagKey string) ([]TagValueResult, error)
 	QueryTimeseries(ctx context.Context, teamID int64, startMs, endMs int64, query MetricQuery, step string) ([]TimeseriesPoint, error)
 }
@@ -92,35 +86,43 @@ func (r *ClickHouseRepository) ListMetricNames(ctx context.Context, teamID int64
 	return results, nil
 }
 
-// tagKeyAttributeSample is how many recent rows we pull for tag-key discovery.
-// Matches the Datadog / Prometheus default of ~2k; trades a <1-in-2000 miss
-// rate (keys present only in extremely rare rows) for near-constant-time
-// queries instead of the prior per-row arrayJoin(mapKeys(JSON...)) scan.
-const tagKeyAttributeSample = 2000
-
-// ListAttributeSamples fetches the raw attribute maps of the most recent
-// rows for the given metric. Tag-key de-duplication happens in the service
-// layer via service.distinctAttributeKeys — repository stays a thin scan.
-func (r *ClickHouseRepository) ListAttributeSamples(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]attributesRow, error) {
+func (r *ClickHouseRepository) ListTagKeys(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]TagKeyResult, error) {
+	// For native JSON columns, use mapKeys(JSONAllPathsWithTypes()) to extract
+	// dynamic attribute key names instead of JSONExtractKeys (which is for String JSON).
 	query := fmt.Sprintf(`
-		SELECT attributes
-		FROM %s
-		WHERE team_id = @teamID
-		  AND timestamp BETWEEN @start AND @end
-		  AND metric_name = @metricName
-		ORDER BY timestamp DESC
-		LIMIT %d
-	`, tableMetrics, tagKeyAttributeSample)
+		SELECT DISTINCT tag_key FROM (
+			SELECT DISTINCT arrayJoin(mapKeys(JSONAllPathsWithTypes(attributes))) AS tag_key
+			FROM %s
+			WHERE team_id = @teamID
+			  AND timestamp BETWEEN @start AND @end
+			  AND metric_name = @metricName
+			UNION ALL
+			SELECT * FROM (
+				SELECT 'service' AS tag_key
+				UNION ALL SELECT 'host'
+				UNION ALL SELECT 'environment'
+				UNION ALL SELECT 'k8s_namespace'
+				UNION ALL SELECT 'http_method'
+				UNION ALL SELECT 'http_status_code'
+			)
+		)
+		ORDER BY tag_key
+		LIMIT 200
+	`, tableMetrics)
 
 	params := append(dbutil.SimpleBaseParams(teamID, startMs, endMs),
 		clickhouse.Named("metricName", metricName),
 	)
 
-	var rows []attributesRow
+	var rows []tagKeyDTO
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
 		return nil, err
 	}
-	return rows, nil
+	results := make([]TagKeyResult, len(rows))
+	for i, r := range rows {
+		results[i] = TagKeyResult{TagKey: r.TagKey}
+	}
+	return results, nil
 }
 
 func (r *ClickHouseRepository) ListTagValues(ctx context.Context, teamID int64, startMs, endMs int64, metricName, tagKey string) ([]TagValueResult, error) {
@@ -162,22 +164,10 @@ func (r *ClickHouseRepository) ListTagValues(ctx context.Context, teamID int64, 
 
 // QueryTimeseries executes a time-series query. If step is non-empty, it is used
 // for time bucketing; otherwise adaptive bucketing is applied based on the time range.
-//
-// A pre-flight scan resolves the metric's `metric_type` so the aggregation
-// expression picks the correct source column (hist_sum/hist_count for
-// Histogram, value for Gauge/Counter) without CH `if`/`nullIf` conditionals
-// in the SELECT clause. Empty type ⇒ non-Histogram path (safe default:
-// treats the metric as a gauge/counter).
 func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, teamID int64, startMs, endMs int64, query MetricQuery, step string) ([]TimeseriesPoint, error) {
 	if !allowedAggregations[query.Aggregation] {
 		return nil, fmt.Errorf("unsupported aggregation: %s", query.Aggregation)
 	}
-
-	metricType, err := r.resolveMetricType(ctx, teamID, startMs, endMs, query.MetricName)
-	if err != nil {
-		return nil, err
-	}
-	isHist := metricType == "Histogram"
 
 	var bucket string
 	if step != "" {
@@ -186,7 +176,7 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, teamID int64
 		bucket = timebucket.Expression(startMs, endMs)
 	}
 
-	aggExpr := buildAggExpr(query.Aggregation, isHist, startMs, endMs, step)
+	aggExpr := buildAggExpr(query.Aggregation, startMs, endMs, step)
 
 	// Build GROUP BY columns
 	groupByCols := []string{"time_bucket"}
@@ -200,8 +190,7 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, teamID int64
 	}
 	selectCols = append(selectCols, fmt.Sprintf("%s AS agg_value", aggExpr))
 
-	// Build WHERE filter clauses. Narrowing by metric_type lets the SELECT
-	// pick the correct source column without conditional expressions.
+	// Build WHERE filter clauses
 	params := append(dbutil.SimpleBaseParams(teamID, startMs, endMs),
 		clickhouse.Named("metricName", query.MetricName),
 	)
@@ -211,14 +200,6 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, teamID int64
 	whereClause := `team_id = @teamID
 		  AND timestamp BETWEEN @start AND @end
 		  AND metric_name = @metricName`
-	if isHist {
-		whereClause += `
-		  AND metric_type = 'Histogram'
-		  AND hist_count > 0`
-	} else if metricType != "" {
-		whereClause += fmt.Sprintf(`
-		  AND metric_type = '%s'`, metricType)
-	}
 	if len(filterClauses) > 0 {
 		whereClause += "\n		  AND " + strings.Join(filterClauses, "\n		  AND ")
 	}
@@ -249,82 +230,32 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, teamID int64
 	return results, nil
 }
 
-// resolveMetricType fetches the metric_type for the requested metric so the
-// aggregation expression can pick between the histogram and value columns
-// without CH conditionals. Falls back to "" when no row exists in the range.
-func (r *ClickHouseRepository) resolveMetricType(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (string, error) {
-	query := fmt.Sprintf(`
-		SELECT any(metric_type) AS metric_type
-		FROM %s
-		WHERE team_id = @teamID
-		  AND timestamp BETWEEN @start AND @end
-		  AND metric_name = @metricName
-		LIMIT 1
-	`, tableMetrics)
-	params := append(dbutil.SimpleBaseParams(teamID, startMs, endMs),
-		clickhouse.Named("metricName", metricName),
-	)
-	var row struct {
-		MetricType string `ch:"metric_type"`
-	}
-	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, params...).ScanStruct(&row); err != nil {
-		return "", err
-	}
-	return row.MetricType, nil
-}
-
 // buildAggExpr returns the ClickHouse aggregation expression.
-//
-// The repo pre-resolves metric_type so this builder emits a single-branch
-// expression without the former if(metric_type='Histogram', …, value) guard.
-// For histogram metrics the per-row mean is `hist_sum / hist_count`; the
-// caller-level WHERE clause adds `hist_count > 0` so the division never hits
-// a zero denominator. For gauge/counter metrics the source column is plain
-// `value`. The sum/count pair is returned from SQL for `avg` and the
-// service-layer divides in Go (see assembleSeriesFromPoints); keeps SELECT
-// free of `avg(col)` per the combinator-free policy.
-func buildAggExpr(agg string, isHist bool, startMs, endMs int64, step string) string {
-	perRow := "value"
-	sumCol := "value"
-	countCol := "1"
-	if isHist {
-		perRow = "hist_sum / hist_count"
-		sumCol = "hist_sum"
-		countCol = "hist_count"
-	}
+func buildAggExpr(agg string, startMs, endMs int64, step string) string {
 	switch agg {
 	case "avg":
-		// sum/count pair; the frontend layer (buildColumnarResult /
-		// assembleSeriesFromPoints) does the divide. Emitting sum(perRow)
-		// here keeps SELECT free of avg(col).
-		return fmt.Sprintf("sum(%s) / greatest(count(), 1)", perRow)
+		return "avg(if(metric_type = 'Histogram', hist_sum / nullIf(hist_count, 0), value))"
 	case "sum":
-		return fmt.Sprintf("sum(%s)", sumCol)
+		return "sum(if(metric_type = 'Histogram', hist_sum, value))"
 	case "min":
-		return fmt.Sprintf("min(%s)", perRow)
+		return "min(if(metric_type = 'Histogram', hist_sum / nullIf(hist_count, 0), value))"
 	case "max":
-		return fmt.Sprintf("max(%s)", perRow)
+		return "max(if(metric_type = 'Histogram', hist_sum / nullIf(hist_count, 0), value))"
 	case "count":
-		if isHist {
-			return fmt.Sprintf("sum(%s)", countCol)
-		}
-		return "count()"
+		return "sum(if(metric_type = 'Histogram', hist_count, 1))"
 	case "rate":
 		bucketSeconds := bucketDurationSeconds(startMs, endMs, step)
-		if isHist {
-			return fmt.Sprintf("sum(%s) / %d", countCol, bucketSeconds)
-		}
-		return fmt.Sprintf("sum(%s) / %d", sumCol, bucketSeconds)
+		return fmt.Sprintf("sum(if(metric_type = 'Histogram', hist_count, value)) / %d", bucketSeconds)
 	case "p50":
-		return fmt.Sprintf("quantileTDigestWeighted(0.50)(%s, %s)", perRow, countCol)
+		return "quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), toUInt64(hist_count))"
 	case "p75":
-		return fmt.Sprintf("quantileTDigestWeighted(0.75)(%s, %s)", perRow, countCol)
+		return "quantileTDigestWeighted(0.75)(hist_sum / nullIf(hist_count, 0), toUInt64(hist_count))"
 	case "p95":
-		return fmt.Sprintf("quantileTDigestWeighted(0.95)(%s, %s)", perRow, countCol)
+		return "quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), toUInt64(hist_count))"
 	case "p99":
-		return fmt.Sprintf("quantileTDigestWeighted(0.99)(%s, %s)", perRow, countCol)
+		return "quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), toUInt64(hist_count))"
 	default:
-		return fmt.Sprintf("sum(%s) / greatest(count(), 1)", perRow)
+		return "avg(value)"
 	}
 }
 

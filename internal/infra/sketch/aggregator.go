@@ -60,10 +60,7 @@ func (a *Aggregator) ObserveLatency(kind Kind, teamID, dim string, value float64
 		a.digests[key] = d
 		a.dimLabels[key] = dim
 	}
-	if weight == 0 || value < 0 {
-		return
-	}
-	if err := d.AddWithCount(value, float64(weight)); err != nil {
+	if err := d.Add(value, weight); err != nil {
 		slog.Debug("sketch: add latency failed", slog.String("kind", kind.ID), slog.Any("error", err))
 	}
 }

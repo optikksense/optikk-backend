@@ -129,32 +129,20 @@ func (c *Consumer) flush(ctx context.Context, records []kafkainfra.Record) error
 }
 
 // observe routes a metric row to the correct sketch kind based on metric_name.
-// Non-matching metrics (CPU / memory / network / etc.) are ignored — sketches
-// are only maintained for distributions that repositories actively query.
+// Non-matching metrics (CPU / memory / JVM / etc.) are ignored — sketches are
+// only maintained for distributions that repositories actively query.
 func (c *Consumer) observe(row *Row) {
 	if c.agg == nil {
 		return
 	}
 	teamID := fmt.Sprintf("%d", row.GetTeamId())
 	tsUnix := row.GetTimestampNs() / int64(time.Second)
-	name := row.GetMetricName()
 
-	switch name {
+	switch row.GetMetricName() {
 	case MetricNameDbOpDuration:
 		c.observeLatencySample(sketch.DbOpLatency, teamID, DbOpDim(row), row, tsUnix)
-		if fp := row.GetAttributes()["db.query.text.fingerprint"]; fp != "" {
-			c.observeLatencySample(sketch.DbQueryLatency, teamID, DbQueryDim(row), row, tsUnix)
-		}
 	case MetricNameKafkaPublish, MetricNameKafkaConsume, MetricNameKafkaProduce:
 		c.observeLatencySample(sketch.KafkaTopicLatency, teamID, KafkaTopicDim(row), row, tsUnix)
-	case MetricNameHttpServer:
-		c.observeLatencySample(sketch.HttpServerDuration, teamID, HttpServerDim(row), row, tsUnix)
-	case MetricNameHttpClient:
-		c.observeLatencySample(sketch.HttpClientDuration, teamID, HttpClientDim(row), row, tsUnix)
-	default:
-		if IsJvmMetric(name) {
-			c.observeLatencySample(sketch.JvmMetricLatency, teamID, JvmMetricDim(row), row, tsUnix)
-		}
 	}
 }
 

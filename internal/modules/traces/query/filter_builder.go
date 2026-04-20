@@ -56,9 +56,7 @@ func buildWhereClause(f TraceFilters) (frag string, args []any) {
 	}
 	if f.Status != "" {
 		if f.Status == "ERROR" {
-			// Use the numeric http_status_code alias so the comparison stays
-			// integer-typed without an explicit cast.
-			frag += ` AND (s.has_error = true OR s.http_status_code >= 400)`
+			frag += ` AND (s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)`
 		} else {
 			frag += ` AND s.status_code_string = @status`
 			args = append(args, clickhouse.Named("status", f.Status))
@@ -105,13 +103,13 @@ func buildWhereClause(f TraceFilters) (frag string, args []any) {
 		valueName := fmt.Sprintf("attrValue%d", i)
 		switch af.Op {
 		case "neq":
-			frag += ` AND JSONExtractString(s.attributes, @` + keyName + `) != @` + valueName
+			frag += ` AND JSONExtractString(toJSONString(s.attributes), @` + keyName + `) != @` + valueName
 		case "contains":
-			frag += ` AND positionCaseInsensitive(JSONExtractString(s.attributes, @` + keyName + `), @` + valueName + `) > 0`
+			frag += ` AND positionCaseInsensitive(JSONExtractString(toJSONString(s.attributes), @` + keyName + `), @` + valueName + `) > 0`
 		case "regex":
-			frag += ` AND match(JSONExtractString(s.attributes, @` + keyName + `), @` + valueName + `)`
+			frag += ` AND match(JSONExtractString(toJSONString(s.attributes), @` + keyName + `), @` + valueName + `)`
 		default:
-			frag += ` AND JSONExtractString(s.attributes, @` + keyName + `) = @` + valueName
+			frag += ` AND JSONExtractString(toJSONString(s.attributes), @` + keyName + `) = @` + valueName
 		}
 		args = append(args, clickhouse.Named(keyName, af.Key), clickhouse.Named(valueName, af.Value))
 	}

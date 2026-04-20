@@ -5,16 +5,10 @@ import "time"
 // Kind identifies a family of sketches (distribution or cardinality) keyed by
 // a fixed dimension tuple and time bucket. Each Kind has a stable wire id that
 // shows up in Redis keys — add new kinds by appending, never by renumbering.
-//
-// IDs carry a _dd suffix: the wire format is DDSketch (via
-// github.com/DataDog/sketches-go), not t-digest. Pre-DDSketch ids (`sls`,
-// `sle`, `dbol`, `ktl`, `npc`, `atc`) were emitted briefly in PR #40; the
-// suffix ensures the old keys age out of Redis without colliding with the
-// new binary format.
 type Kind struct {
 	// ID is the short stable key segment for Redis keys. Must be unique.
 	ID string
-	// Family is either FamilyDistribution (DDSketch) or FamilyCardinality (HLL).
+	// Family is either FamilyDistribution (t-digest) or FamilyCardinality (HLL).
 	Family Family
 	// Bucket is the time granularity at which Observe() folds samples together.
 	Bucket time.Duration
@@ -29,73 +23,47 @@ const (
 	FamilyCardinality
 )
 
-const defaultTTL = 15 * 24 * time.Hour
-
-// Distribution sketch kinds (DDSketch).
+// Distribution sketch kinds (t-digest).
 var (
 	SpanLatencyService = Kind{
-		ID:     "sls_dd",
+		ID:     "sls",
 		Family: FamilyDistribution,
 		Bucket: time.Minute,
-		TTL:    defaultTTL,
+		TTL:    15 * 24 * time.Hour,
 	}
 	SpanLatencyEndpoint = Kind{
-		ID:     "sle_dd",
+		ID:     "sle",
 		Family: FamilyDistribution,
 		Bucket: 5 * time.Minute,
-		TTL:    defaultTTL,
+		TTL:    15 * 24 * time.Hour,
 	}
 	DbOpLatency = Kind{
-		ID:     "dbol_dd",
+		ID:     "dbol",
 		Family: FamilyDistribution,
 		Bucket: time.Minute,
-		TTL:    defaultTTL,
+		TTL:    15 * 24 * time.Hour,
 	}
 	KafkaTopicLatency = Kind{
-		ID:     "ktl_dd",
+		ID:     "ktl",
 		Family: FamilyDistribution,
 		Bucket: time.Minute,
-		TTL:    defaultTTL,
-	}
-	HttpServerDuration = Kind{
-		ID:     "hsd_dd",
-		Family: FamilyDistribution,
-		Bucket: time.Minute,
-		TTL:    defaultTTL,
-	}
-	HttpClientDuration = Kind{
-		ID:     "hcd_dd",
-		Family: FamilyDistribution,
-		Bucket: time.Minute,
-		TTL:    defaultTTL,
-	}
-	JvmMetricLatency = Kind{
-		ID:     "jvm_dd",
-		Family: FamilyDistribution,
-		Bucket: time.Minute,
-		TTL:    defaultTTL,
-	}
-	DbQueryLatency = Kind{
-		ID:     "dbq_dd",
-		Family: FamilyDistribution,
-		Bucket: time.Minute,
-		TTL:    defaultTTL,
+		TTL:    15 * 24 * time.Hour,
 	}
 )
 
 // Cardinality sketch kinds (HyperLogLog).
 var (
 	NodePodCount = Kind{
-		ID:     "npc_dd",
+		ID:     "npc",
 		Family: FamilyCardinality,
 		Bucket: time.Minute,
-		TTL:    defaultTTL,
+		TTL:    15 * 24 * time.Hour,
 	}
 	AiTraceCount = Kind{
-		ID:     "atc_dd",
+		ID:     "atc",
 		Family: FamilyCardinality,
 		Bucket: time.Minute,
-		TTL:    defaultTTL,
+		TTL:    15 * 24 * time.Hour,
 	}
 )
 
@@ -105,10 +73,6 @@ var AllKinds = []Kind{
 	SpanLatencyEndpoint,
 	DbOpLatency,
 	KafkaTopicLatency,
-	HttpServerDuration,
-	HttpClientDuration,
-	JvmMetricLatency,
-	DbQueryLatency,
 	NodePodCount,
 	AiTraceCount,
 }

@@ -3,7 +3,6 @@ package jvm
 import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -16,10 +15,10 @@ func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-func NewHandler(db clickhouse.Conn, getTenant modulecommon.GetTenantFunc, sketchQ *sketch.Querier) *JVMHandler {
+func NewHandler(db clickhouse.Conn, getTenant modulecommon.GetTenantFunc) *JVMHandler {
 	return &JVMHandler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  NewService(NewRepository(db), sketchQ),
+		Service:  NewService(NewRepository(db)),
 	}
 }
 
@@ -37,9 +36,9 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *JVMHandler) {
 	g.GET("/buffers", h.GetJVMBuffers)
 }
 
-func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc, sketchQ *sketch.Querier) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
 	module := &jvmModule{}
-	module.configure(nativeQuerier, getTenant, sketchQ)
+	module.configure(nativeQuerier, getTenant)
 	return module
 }
 
@@ -50,8 +49,8 @@ type jvmModule struct {
 func (m *jvmModule) Name() string                      { return "jvm" }
 func (m *jvmModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *jvmModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc, sketchQ *sketch.Querier) {
-	m.handler = NewHandler(nativeQuerier, getTenant, sketchQ)
+func (m *jvmModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
+	m.handler = NewHandler(nativeQuerier, getTenant)
 }
 
 func (m *jvmModule) RegisterRoutes(group *gin.RouterGroup) {

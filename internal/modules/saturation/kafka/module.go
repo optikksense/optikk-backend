@@ -3,7 +3,6 @@ package kafka
 import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -60,9 +59,9 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *KafkaHandler) {
 	v1.GET("/saturation/kafka/client-op-duration", h.GetClientOperationDuration)
 }
 
-func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc, sketchQ *sketch.Querier) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
 	module := &kafkaModule{}
-	module.configure(nativeQuerier, getTenant, sketchQ)
+	module.configure(nativeQuerier, getTenant)
 	return module
 }
 
@@ -73,10 +72,10 @@ type kafkaModule struct {
 func (m *kafkaModule) Name() string                      { return "kafka" }
 func (m *kafkaModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *kafkaModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc, sketchQ *sketch.Querier) {
+func (m *kafkaModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &KafkaHandler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  NewService(NewRepository(nativeQuerier), sketchQ),
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
 }
 
