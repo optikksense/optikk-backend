@@ -53,7 +53,7 @@ func (s *Service) GetJVMGCDuration(ctx context.Context, teamID int64, startMs, e
 		P50: sanitizeFloat(row.P50),
 		P95: sanitizeFloat(row.P95),
 		P99: sanitizeFloat(row.P99),
-		Avg: sanitizeFloat(safeAvgFloat(row.HistSum, row.HistCount)),
+		Avg: sanitizeFloat(safeAvgFloat(row.HistSum, int64(row.HistCount))), //nolint:gosec // count fits int64
 	}
 	if s.sketchQ != nil {
 		// JvmMetricLatency dim = <metric_name>|<service_name>|<pod>; merging
@@ -85,7 +85,7 @@ func (s *Service) GetJVMThreadCount(ctx context.Context, teamID int64, startMs, 
 	}
 	out := make([]JVMThreadBucket, len(rows))
 	for i, row := range rows {
-		v := avgPtr(row.ValSum, row.ValCount)
+		v := avgPtr(row.ValSum, int64(row.ValCount)) //nolint:gosec // count fits int64
 		out[i] = JVMThreadBucket{
 			Timestamp: row.Timestamp,
 			Daemon:    row.Daemon,

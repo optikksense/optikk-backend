@@ -344,10 +344,12 @@ func errorTimeSeriesRowsToModels(rows []errorTimeSeriesRow) []ErrorTimeSeries {
 func latencyHistogramRowsToModels(rows []latencyHistogramRow) []LatencyHistogramBucket {
 	result := make([]LatencyHistogramBucket, len(rows))
 	for i, row := range rows {
+		min := row.BucketMin
+		max := min + 0.1
 		result[i] = LatencyHistogramBucket{
-			BucketLabel: row.BucketLabel,
-			BucketMin:   row.BucketMin,
-			BucketMax:   row.BucketMin + 1,
+			BucketLabel: fmt.Sprintf("%g - %g", min, max),
+			BucketMin:   int64(min),
+			BucketMax:   int64(min) + 1,
 			SpanCount:   row.SpanCount,
 		}
 	}
@@ -357,7 +359,11 @@ func latencyHistogramRowsToModels(rows []latencyHistogramRow) []LatencyHistogram
 func latencyHeatmapRowsToModels(rows []latencyHeatmapRow) []LatencyHeatmapPoint {
 	result := make([]LatencyHeatmapPoint, len(rows))
 	for i, row := range rows {
-		result[i] = LatencyHeatmapPoint(row)
+		result[i] = LatencyHeatmapPoint{
+			TimeBucket:    row.TimeBucket,
+			LatencyBucket: fmt.Sprintf("%g", row.LatencyBucket),
+			SpanCount:     row.SpanCount,
+		}
 	}
 	return result
 }

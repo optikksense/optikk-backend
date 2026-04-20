@@ -3,7 +3,10 @@ package explorer
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/explorer/queryparser"
@@ -71,7 +74,9 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Re
 	}, nil
 }
 
-// QuerySessions returns paginated session aggregates for the LLM hub.
+// QuerySessions returns paginated session aggregates for the LLM hub. The
+// repository returns raw per-span rows; grouping + sort + paging happen here
+// so the SQL can stay free of branching/conditional-aggregator combinators.
 func (s *Service) QuerySessions(ctx context.Context, req SessionsQueryRequest, teamID int64) (SessionsResponse, error) {
 	filters, err := parseQueryToFilters(req.Query)
 	if err != nil {
@@ -83,15 +88,129 @@ func (s *Service) QuerySessions(ctx context.Context, req SessionsQueryRequest, t
 		limit = 50
 	}
 
-	rows, total, err := s.repo.GetAISessions(ctx, teamID, req.StartTime, req.EndTime, filters, limit, req.Offset)
+	rawRows, err := s.repo.GetAISessions(ctx, teamID, req.StartTime, req.EndTime, filters, limit, req.Offset)
 	if err != nil {
 		return SessionsResponse{}, fmt.Errorf("ai.QuerySessions.GetAISessions: %w", err)
 	}
 
+	sessions := aggregateSessions(rawRows)
+	total := uint64(len(sessions))
+
+	// Paginate the aggregated slice.
+	start := req.Offset
+	if start < 0 {
+		start = 0
+	}
+	if start > len(sessions) {
+		start = len(sessions)
+	}
+	end := start + limit
+	if end > len(sessions) {
+		end = len(sessions)
+	}
+	paged := sessions[start:end]
+
 	return SessionsResponse{
-		Results:  toSessionRows(rows),
+		Results:  toSessionRows(paged),
 		PageInfo: PageInfo{Total: total, Offset: req.Offset, Limit: limit},
 	}, nil
+}
+
+// pickSessionID returns the first non-empty session id candidate, replacing
+// the branching SQL expression that used to pick this in-database.
+func pickSessionID(primary, secondary, tertiary string) string {
+	if primary != "" {
+		return primary
+	}
+	if secondary != "" {
+		return secondary
+	}
+	return tertiary
+}
+
+// aggregateSessions groups raw GenAI span rows into session aggregates. The
+// rows are expected to be ordered by timestamp DESC so the latest row's
+// model/service wins as the "dominant" representative (argMax equivalent).
+func aggregateSessions(rows []aiSessionRawRow) []aiSessionRow {
+	type agg struct {
+		sessionID         string
+		genCount          uint64
+		traceSet          map[string]struct{}
+		firstStart        int64
+		lastStart         int64
+		totalIn           float64
+		totalOut          float64
+		errorCount        uint64
+		dominantModel     string
+		dominantService   string
+		dominantTimestamp int64
+	}
+
+	groups := make(map[string]*agg)
+	for _, r := range rows {
+		sid := pickSessionID(r.SessionIDPrimary, r.SessionIDSecondary, r.SessionIDTertiary)
+		if sid == "" {
+			continue
+		}
+		g, ok := groups[sid]
+		if !ok {
+			g = &agg{sessionID: sid, traceSet: map[string]struct{}{}, firstStart: r.StartTime.UnixNano(), lastStart: r.StartTime.UnixNano()}
+			groups[sid] = g
+		}
+		g.genCount++
+		if r.TraceID != "" {
+			g.traceSet[r.TraceID] = struct{}{}
+		}
+		ts := r.StartTime.UnixNano()
+		if ts < g.firstStart {
+			g.firstStart = ts
+		}
+		if ts > g.lastStart {
+			g.lastStart = ts
+		}
+		g.totalIn += parseFloatOrZero(r.InputTokensRaw)
+		g.totalOut += parseFloatOrZero(r.OutputTokensRaw)
+		if r.Status == "ERROR" || r.HasError {
+			g.errorCount++
+		}
+		if ts >= g.dominantTimestamp {
+			g.dominantTimestamp = ts
+			g.dominantModel = r.AIRequestModel
+			g.dominantService = r.ServiceName
+		}
+	}
+
+	out := make([]aiSessionRow, 0, len(groups))
+	for _, g := range groups {
+		out = append(out, aiSessionRow{
+			SessionID:         g.sessionID,
+			GenerationCount:   g.genCount,
+			TraceCount:        uint64(len(g.traceSet)),
+			FirstStart:        time.Unix(0, g.firstStart),
+			LastStart:         time.Unix(0, g.lastStart),
+			TotalInputTokens:  g.totalIn,
+			TotalOutputTokens: g.totalOut,
+			ErrorCount:        g.errorCount,
+			DominantModel:     g.dominantModel,
+			DominantService:   g.dominantService,
+		})
+	}
+	// Match the old ORDER BY last_start DESC.
+	sort.Slice(out, func(i, j int) bool { return out[i].LastStart.After(out[j].LastStart) })
+	return out
+}
+
+// parseFloatOrZero parses a raw JSON attribute string into a float64. Empty
+// or malformed values yield 0, matching the old or-zero cast behaviour.
+func parseFloatOrZero(s string) float64 {
+	if s == "" {
+		return 0
+	}
+	v, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return 0
+	}
+	return v
 }
 
 // parseQueryToFilters uses the shared queryparser to extract attribute filters
@@ -187,9 +306,11 @@ func mapAIFieldExists(field string) attrFilter {
 func toAICalls(rows []aiCallRow) []AICall {
 	calls := make([]AICall, 0, len(rows))
 	for _, r := range rows {
-		totalTokens := r.TotalTokens
-		if totalTokens == 0 {
-			totalTokens = r.InputTokens + r.OutputTokens
+		input := parseFloatOrZero(r.InputTokensRaw)
+		output := parseFloatOrZero(r.OutputTokensRaw)
+		total := parseFloatOrZero(r.TotalTokensRaw)
+		if total == 0 {
+			total = input + output
 		}
 		calls = append(calls, AICall{
 			SpanID:          r.SpanID,
@@ -204,9 +325,9 @@ func toAICalls(rows []aiCallRow) []AICall {
 			AIRequestModel:  r.AIRequestModel,
 			AIResponseModel: r.AIResponseModel,
 			AIOperation:     r.AIOperation,
-			InputTokens:     r.InputTokens,
-			OutputTokens:    r.OutputTokens,
-			TotalTokens:     totalTokens,
+			InputTokens:     input,
+			OutputTokens:    output,
+			TotalTokens:     total,
 			Temperature:     r.Temperature,
 			MaxTokens:       r.MaxTokens,
 			FinishReason:    r.FinishReason,

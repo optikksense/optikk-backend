@@ -16,7 +16,7 @@ type Repository interface {
 	GetLatencyByCollection(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyTimeSeries, error)
 	GetLatencyByNamespace(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyTimeSeries, error)
 	GetLatencyByServer(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyTimeSeries, error)
-	GetLatencyHeatmap(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyHeatmapBucket, error)
+	GetLatencyHeatmapSamples(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyHeatmapSample, error)
 }
 
 type ClickHouseRepository struct {
@@ -27,33 +27,28 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
+// latencyDTO scans sum/count per (time_bucket, group_by). CH returns count as
+// UInt64 natively — scan into uint64 and convert to int64 at the DTO boundary
+// in the service layer. Percentile columns are placeholder-less; the service
+// fills them from the DbOpLatency sketch where the dim-prefix supports it
+// (currently only by-system — see service.go).
 type latencyDTO struct {
-	TimeBucket   string   `ch:"time_bucket"`
-	GroupBy      string   `ch:"group_by"`
-	LatencySum   float64  `ch:"latency_sum"`
-	LatencyCount int64    `ch:"latency_count"`
-	P50Ms        *float64 `ch:"p50_ms"`
-	P95Ms        *float64 `ch:"p95_ms"`
-	P99Ms        *float64 `ch:"p99_ms"`
+	TimeBucket   string  `ch:"time_bucket"`
+	GroupBy      string  `ch:"group_by"`
+	LatencySum   float64 `ch:"latency_sum"`
+	LatencyCount uint64  `ch:"latency_count"`
 }
 
-// latencySeriesByAttr returns raw sum/count per (time_bucket, group_by).
-// Percentile columns (p50/p95/p99) are emitted as 0 placeholders so existing
-// scan shapes hold; service fills them from the DbOpLatency sketch where the
-// dim-prefix supports it (currently only by-system — see service.go).
 func (r *ClickHouseRepository) latencySeriesByAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]LatencyTimeSeries, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	fc, fargs := shared.FilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                        AS time_bucket,
-		    %s                        AS group_by,
-		    sum(hist_sum)             AS latency_sum,
-		    toInt64(sum(hist_count))  AS latency_count,
-		    CAST(0 AS Nullable(Float64)) AS p50_ms,
-		    CAST(0 AS Nullable(Float64)) AS p95_ms,
-		    CAST(0 AS Nullable(Float64)) AS p99_ms
+		    %s                AS time_bucket,
+		    %s                AS group_by,
+		    sum(hist_sum)     AS latency_sum,
+		    sum(hist_count)   AS latency_count
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -80,11 +75,8 @@ func (r *ClickHouseRepository) latencySeriesByAttr(ctx context.Context, teamID i
 		rows[i] = LatencyTimeSeries{
 			TimeBucket:   d.TimeBucket,
 			GroupBy:      d.GroupBy,
-			P50Ms:        d.P50Ms,
-			P95Ms:        d.P95Ms,
-			P99Ms:        d.P99Ms,
 			LatencySum:   d.LatencySum,
-			LatencyCount: d.LatencyCount,
+			LatencyCount: int64(d.LatencyCount), //nolint:gosec // bounded by ingest window
 		}
 	}
 	return rows, nil
@@ -110,26 +102,21 @@ func (r *ClickHouseRepository) GetLatencyByServer(ctx context.Context, teamID in
 	return r.latencySeriesByAttr(ctx, teamID, startMs, endMs, shared.AttrServerAddress, f)
 }
 
-func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyHeatmapBucket, error) {
+// GetLatencyHeatmapSamples returns raw (time_bucket, avg_sec, count) samples
+// without any server-side bucket classification. The service layer classifies
+// each sample into a latency bucket label in Go. The repository previously
+// used a conditional chain + null fallback in SELECT; both are banned in
+// this codebase. Filtering `hist_count > 0` in WHERE keeps the plain
+// division safe.
+func (r *ClickHouseRepository) GetLatencyHeatmapSamples(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyHeatmapSample, error) {
 	bucket := timebucket.Expression(startMs, endMs)
 	fc, fargs := shared.FilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                                    AS time_bucket,
-		    multiIf(
-		        hist_sum / nullIf(hist_count, 0) < 0.001,  '< 1ms',
-		        hist_sum / nullIf(hist_count, 0) < 0.005,  '1–5ms',
-		        hist_sum / nullIf(hist_count, 0) < 0.010,  '5–10ms',
-		        hist_sum / nullIf(hist_count, 0) < 0.025,  '10–25ms',
-		        hist_sum / nullIf(hist_count, 0) < 0.050,  '25–50ms',
-		        hist_sum / nullIf(hist_count, 0) < 0.100,  '50–100ms',
-		        hist_sum / nullIf(hist_count, 0) < 0.250,  '100–250ms',
-		        hist_sum / nullIf(hist_count, 0) < 0.500,  '250–500ms',
-		        hist_sum / nullIf(hist_count, 0) < 1.000,  '500ms–1s',
-		        '> 1s'
-		    )                                                                     AS bucket_label,
-		    toInt64(sum(hist_count))                                              AS count
+		    %s                     AS time_bucket,
+		    hist_sum / hist_count  AS avg_sec,
+		    hist_count             AS count
 		FROM %s
 		WHERE %s = @teamID
 		  AND %s BETWEEN @start AND @end
@@ -137,8 +124,7 @@ func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int
 		  AND metric_type = 'Histogram'
 		  AND hist_count > 0
 		  %s
-		GROUP BY time_bucket, bucket_label
-		ORDER BY time_bucket, bucket_label
+		ORDER BY time_bucket
 	`,
 		bucket,
 		shared.TableMetrics,
@@ -147,27 +133,17 @@ func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int
 		fc,
 	)
 
-	var dtos []latencyHeatmapDTO
+	var dtos []latencyHeatmapSampleDTO
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
 		return nil, err
 	}
 
-	counts := map[string]int64{}
-	for _, d := range dtos {
-		counts[d.TimeBucket] += d.Count
-	}
-
-	out := make([]LatencyHeatmapBucket, len(dtos))
+	out := make([]LatencyHeatmapSample, len(dtos))
 	for i, d := range dtos {
-		density := 0.0
-		if total := counts[d.TimeBucket]; total > 0 {
-			density = float64(d.Count) / float64(total)
-		}
-		out[i] = LatencyHeatmapBucket{
-			TimeBucket:  d.TimeBucket,
-			BucketLabel: d.BucketLabel,
-			Count:       d.Count,
-			Density:     density,
+		out[i] = LatencyHeatmapSample{
+			TimeBucket: d.TimeBucket,
+			AvgSec:     d.AvgSec,
+			Count:      int64(d.Count), //nolint:gosec // bounded by ingest window
 		}
 	}
 	return out, nil

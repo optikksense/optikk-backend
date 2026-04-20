@@ -13,6 +13,10 @@ type LatencyTimeSeries struct {
 	LatencyCount int64   `json:"-" ch:"-"`
 }
 
+// LatencyHeatmapBucket is the public per-(time_bucket, bucket_label) output
+// returned from the service. The service computes `bucket_label` + `density`
+// from a stream of raw LatencyHeatmapSample values in Go so the SQL stays
+// free of banned conditional / null-fallback combinators.
 type LatencyHeatmapBucket struct {
 	TimeBucket  string  `json:"time_bucket"`
 	BucketLabel string  `json:"bucket_label"`
@@ -20,8 +24,19 @@ type LatencyHeatmapBucket struct {
 	Density     float64 `json:"density"`
 }
 
-type latencyHeatmapDTO struct {
-	TimeBucket  string `ch:"time_bucket"`
-	BucketLabel string `ch:"bucket_label"`
-	Count       int64  `ch:"count"`
+// LatencyHeatmapSample is one raw (time_bucket, avg_sec, count) datapoint
+// returned by the repository. The service layer classifies each sample into
+// a labelled latency bucket.
+type LatencyHeatmapSample struct {
+	TimeBucket string
+	AvgSec     float64
+	Count      int64
+}
+
+// latencyHeatmapSampleDTO is the CH scan target for the heatmap query. CH
+// returns count() as UInt64 natively, so we scan into uint64 and convert.
+type latencyHeatmapSampleDTO struct {
+	TimeBucket string  `ch:"time_bucket"`
+	AvgSec     float64 `ch:"avg_sec"`
+	Count      uint64  `ch:"count"`
 }
