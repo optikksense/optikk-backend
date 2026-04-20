@@ -3,7 +3,6 @@ package collection
 import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
@@ -31,12 +30,8 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 }
 
 func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
-	return NewModuleWithSketch(nativeQuerier, getTenant, nil)
-}
-
-func NewModuleWithSketch(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc, sketchQ *sketch.Querier) registry.Module {
 	module := &dbCollectionModule{}
-	module.configure(nativeQuerier, getTenant, sketchQ)
+	module.configure(nativeQuerier, getTenant)
 	return module
 }
 
@@ -47,10 +42,10 @@ type dbCollectionModule struct {
 func (m *dbCollectionModule) Name() string                      { return "dbCollection" }
 func (m *dbCollectionModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *dbCollectionModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc, sketchQ *sketch.Querier) {
+func (m *dbCollectionModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  NewService(NewRepository(nativeQuerier), sketchQ),
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
 }
 

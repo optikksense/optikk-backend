@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"math"
 	"sort"
-
-	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 )
 
 const maxImpactDeployments = 10
@@ -29,17 +27,12 @@ type Service interface {
 }
 
 type deploymentService struct {
-	repo    Repository
-	sketchQ *sketch.Querier
+	repo Repository
 }
 
-func NewService(repo Repository, sketchQ *sketch.Querier) Service {
-	return &deploymentService{repo: repo, sketchQ: sketchQ}
+func NewService(repo Repository) Service {
+	return &deploymentService{repo: repo}
 }
-
-// teamIDString converts the int64 tenant id to the string form used by all
-// sketch keys.
-func teamIDString(teamID int64) string { return fmt.Sprintf("%d", teamID) }
 
 func (s *deploymentService) ListDeployments(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (ListDeploymentsResponse, error) {
 	rows, err := s.repo.ListDeployments(ctx, teamID, serviceName, startMs, endMs)
@@ -112,42 +105,13 @@ func (s *deploymentService) GetActiveVersion(ctx context.Context, teamID int64, 
 	return ActiveVersionResponse{Version: row.Version, Environment: row.Environment}, nil
 }
 
-// fillEndpointPercentiles overlays p95/p99 from the SpanLatencyEndpoint sketch
-// onto the CH aggregation. CH returns only the traffic/error counts; the
-// sketch carries the merged per-(service, operation, endpoint, method) digest.
-// Rows with no sketch coverage stay at zero so the delta math in
-// buildEndpointRegressions still works — a "no sketch data" window just
-// collapses to zero deltas rather than spurious spikes.
-func (s *deploymentService) fillEndpointPercentiles(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64, rows []endpointMetricAggRow) {
-	if s.sketchQ == nil || len(rows) == 0 {
-		return
-	}
-	pcts, _ := s.sketchQ.Percentiles(ctx, sketch.SpanLatencyEndpoint, teamIDString(teamID), startMs, endMs, 0.95, 0.99)
-	for i := range rows {
-		dim := sketch.DimSpanEndpoint(serviceName, rows[i].OperationName, rows[i].EndpointName, rows[i].HTTPMethod)
-		if v, ok := pcts[dim]; ok && len(v) == 2 {
-			rows[i].P95Ms = v[0]
-			rows[i].P99Ms = v[1]
-		}
-	}
-}
-
-func (s *deploymentService) windowMetrics(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (ImpactWindowMetrics, error) {
+func windowMetrics(ctx context.Context, repo Repository, teamID int64, serviceName string, startMs, endMs int64) (ImpactWindowMetrics, error) {
 	if endMs <= startMs {
 		return ImpactWindowMetrics{}, nil
 	}
-	row, err := s.repo.GetImpactWindow(ctx, teamID, serviceName, startMs, endMs)
+	row, err := repo.GetImpactWindow(ctx, teamID, serviceName, startMs, endMs)
 	if err != nil {
 		return ImpactWindowMetrics{}, err
-	}
-	// Percentiles from sketch.Querier — SpanLatencyService for the given
-	// service (CH only returns counts).
-	if s.sketchQ != nil {
-		pcts, _ := s.sketchQ.Percentiles(ctx, sketch.SpanLatencyService, teamIDString(teamID), startMs, endMs, 0.95, 0.99)
-		if v, ok := pcts[sketch.DimSpanService(serviceName)]; ok && len(v) == 2 {
-			row.P95Ms = v[0]
-			row.P99Ms = v[1]
-		}
 	}
 	sec := float64(endMs-startMs) / 1000.0
 	if sec <= 0 {
@@ -373,7 +337,7 @@ func (s *deploymentService) GetDeploymentImpact(ctx context.Context, teamID int6
 			if i+1 < len(rows) {
 				afterEnd = rows[i+1].FirstSeen.UnixMilli()
 			}
-			after, err := s.windowMetrics(ctx, teamID, serviceName, r.FirstSeen.UnixMilli(), afterEnd)
+			after, err := windowMetrics(ctx, s.repo, teamID, serviceName, r.FirstSeen.UnixMilli(), afterEnd)
 			if err != nil {
 				return DeploymentImpactResponse{}, err
 			}
@@ -392,11 +356,11 @@ func (s *deploymentService) GetDeploymentImpact(ctx context.Context, teamID int6
 			afterEnd = rows[i+1].FirstSeen.UnixMilli()
 		}
 
-		before, err := s.windowMetrics(ctx, teamID, serviceName, beforeStart, beforeEnd)
+		before, err := windowMetrics(ctx, s.repo, teamID, serviceName, beforeStart, beforeEnd)
 		if err != nil {
 			return DeploymentImpactResponse{}, err
 		}
-		after, err := s.windowMetrics(ctx, teamID, serviceName, afterStart, afterEnd)
+		after, err := windowMetrics(ctx, s.repo, teamID, serviceName, afterStart, afterEnd)
 		if err != nil {
 			return DeploymentImpactResponse{}, err
 		}
@@ -445,7 +409,7 @@ func (s *deploymentService) GetDeploymentCompare(ctx context.Context, teamID int
 		afterStart, afterEnd = normalizeWindow(selected.FirstSeen.UnixMilli(), rows[selectedIndex+1].FirstSeen.UnixMilli())
 	}
 
-	afterMetrics, err := s.windowMetrics(ctx, teamID, serviceName, afterStart, afterEnd)
+	afterMetrics, err := windowMetrics(ctx, s.repo, teamID, serviceName, afterStart, afterEnd)
 	if err != nil {
 		return DeploymentCompareResponse{}, err
 	}
@@ -456,7 +420,7 @@ func (s *deploymentService) GetDeploymentCompare(ctx context.Context, teamID int
 	if selectedIndex > 0 {
 		beforeStart, beforeEnd = normalizeWindow(rows[selectedIndex-1].FirstSeen.UnixMilli(), selected.FirstSeen.UnixMilli())
 		beforeWindow = &DeploymentCompareWindow{StartMs: beforeStart, EndMs: beforeEnd}
-		metrics, err := s.windowMetrics(ctx, teamID, serviceName, beforeStart, beforeEnd)
+		metrics, err := windowMetrics(ctx, s.repo, teamID, serviceName, beforeStart, beforeEnd)
 		if err != nil {
 			return DeploymentCompareResponse{}, err
 		}
@@ -474,7 +438,6 @@ func (s *deploymentService) GetDeploymentCompare(ctx context.Context, teamID int
 		if err != nil {
 			return DeploymentCompareResponse{}, err
 		}
-		s.fillEndpointPercentiles(ctx, teamID, serviceName, beforeStart, beforeEnd, beforeEndpoints)
 	}
 
 	afterErrors, err := s.repo.GetErrorGroupsWindow(ctx, teamID, serviceName, afterStart, afterEnd, maxCompareErrors*2)
@@ -485,7 +448,6 @@ func (s *deploymentService) GetDeploymentCompare(ctx context.Context, teamID int
 	if err != nil {
 		return DeploymentCompareResponse{}, err
 	}
-	s.fillEndpointPercentiles(ctx, teamID, serviceName, afterStart, afterEnd, afterEndpoints)
 
 	timelineStart := afterStart
 	if beforeWindow != nil {

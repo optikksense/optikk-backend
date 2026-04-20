@@ -86,60 +86,6 @@ func plan(kind Kind) (fallbackPlan, bool) {
 			filterExpr: "attributes['gen_ai.system'] != ''",
 			tsColumn:   "timestamp",
 		}, true
-	case HttpServerDuration.ID:
-		return fallbackPlan{
-			table:      "observability.metrics",
-			valueExpr:  "value",
-			weightExpr: "hist_count",
-			groupBy: []string{
-				"attributes['otel.scope.name']",
-				"attributes['http.route']",
-				"attributes['http.request.method']",
-				"toString(attributes['http.response.status_code'])",
-				"attributes['server.address']",
-			},
-			filterExpr: "metric_name = 'http.server.request.duration'",
-			tsColumn:   "timestamp",
-		}, true
-	case HttpClientDuration.ID:
-		return fallbackPlan{
-			table:      "observability.metrics",
-			valueExpr:  "value",
-			weightExpr: "hist_count",
-			groupBy: []string{
-				"attributes['otel.scope.name']",
-				"attributes['server.address']",
-				"attributes['http.request.method']",
-				"toString(attributes['http.response.status_code'])",
-			},
-			filterExpr: "metric_name = 'http.client.request.duration'",
-			tsColumn:   "timestamp",
-		}, true
-	case JvmMetricLatency.ID:
-		return fallbackPlan{
-			table:      "observability.metrics",
-			valueExpr:  "value",
-			weightExpr: "hist_count",
-			groupBy: []string{
-				"metric_name",
-				"attributes['service.name']",
-				"attributes['k8s.pod.name']",
-			},
-			filterExpr: "metric_name LIKE 'jvm.%'",
-			tsColumn:   "timestamp",
-		}, true
-	case DbQueryLatency.ID:
-		return fallbackPlan{
-			table:      "observability.metrics",
-			valueExpr:  "value",
-			weightExpr: "hist_count",
-			groupBy: []string{
-				"attributes['db.system']",
-				"attributes['db.query.text.fingerprint']",
-			},
-			filterExpr: "metric_name = 'db.client.operation.duration' AND attributes['db.query.text.fingerprint'] != ''",
-			tsColumn:   "timestamp",
-		}, true
 	}
 	return fallbackPlan{}, false
 }

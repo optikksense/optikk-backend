@@ -34,9 +34,9 @@ type AIOverview struct {
 	TotalRuns        uint64  `json:"total_runs" ch:"total_runs"`
 	ErrorRuns        uint64  `json:"error_runs" ch:"error_runs"`
 	ErrorRatePct     float64 `json:"error_rate_pct"`
-	AvgLatencyMs     float64 `json:"avg_latency_ms"`
-	P95LatencyMs     float64 `json:"p95_latency_ms"`
-	AvgTTFTMs        float64 `json:"avg_ttft_ms"`
+	AvgLatencyMs     float64 `json:"avg_latency_ms" ch:"avg_latency_ms"`
+	P95LatencyMs     float64 `json:"p95_latency_ms" ch:"p95_latency_ms"`
+	AvgTTFTMs        float64 `json:"avg_ttft_ms" ch:"avg_ttft_ms"`
 	TotalTokens      float64 `json:"total_tokens" ch:"total_tokens"`
 	TotalCostUSD     float64 `json:"total_cost_usd" ch:"total_cost_usd"`
 	AvgQualityScore  float64 `json:"avg_quality_score" ch:"avg_quality_score"`
@@ -44,10 +44,6 @@ type AIOverview struct {
 	ModelCount       uint64  `json:"model_count" ch:"model_count"`
 	PromptCount      uint64  `json:"prompt_count" ch:"prompt_count"`
 	GuardrailBlocked uint64  `json:"guardrail_blocked" ch:"guardrail_blocked"`
-	// Services lists the service_names observed in the window; used internally
-	// by the service layer to narrow SpanLatencyService sketch merges. Not
-	// serialized to API clients.
-	Services []string `json:"-"`
 }
 
 type AITrendPoint struct {
@@ -56,7 +52,7 @@ type AITrendPoint struct {
 	ErrorRuns        uint64    `json:"error_runs" ch:"error_runs"`
 	ErrorRatePct     float64   `json:"error_rate_pct"`
 	P95LatencyMs     float64   `json:"p95_latency_ms" ch:"p95_latency_ms"`
-	AvgTTFTMs        float64   `json:"avg_ttft_ms"`
+	AvgTTFTMs        float64   `json:"avg_ttft_ms" ch:"avg_ttft_ms"`
 	TotalTokens      float64   `json:"total_tokens" ch:"total_tokens"`
 	TotalCostUSD     float64   `json:"total_cost_usd" ch:"total_cost_usd"`
 	AvgQualityScore  float64   `json:"avg_quality_score" ch:"avg_quality_score"`
@@ -69,8 +65,8 @@ type AIModelBreakdown struct {
 	Requests        uint64  `json:"requests" ch:"requests"`
 	ErrorRuns       uint64  `json:"error_runs" ch:"error_runs"`
 	ErrorRatePct    float64 `json:"error_rate_pct"`
-	AvgLatencyMs    float64 `json:"avg_latency_ms"`
-	AvgTTFTMs       float64 `json:"avg_ttft_ms"`
+	AvgLatencyMs    float64 `json:"avg_latency_ms" ch:"avg_latency_ms"`
+	AvgTTFTMs       float64 `json:"avg_ttft_ms" ch:"avg_ttft_ms"`
 	TotalTokens     float64 `json:"total_tokens" ch:"total_tokens"`
 	TotalCostUSD    float64 `json:"total_cost_usd" ch:"total_cost_usd"`
 	AvgQualityScore float64 `json:"avg_quality_score" ch:"avg_quality_score"`
@@ -81,7 +77,7 @@ type AIPromptBreakdown struct {
 	PromptTemplateVersion string  `json:"prompt_template_version" ch:"prompt_template_version"`
 	Requests              uint64  `json:"requests" ch:"requests"`
 	ErrorRatePct          float64 `json:"error_rate_pct"`
-	AvgLatencyMs          float64 `json:"avg_latency_ms"`
+	AvgLatencyMs          float64 `json:"avg_latency_ms" ch:"avg_latency_ms"`
 	AvgQualityScore       float64 `json:"avg_quality_score" ch:"avg_quality_score"`
 	TotalCostUSD          float64 `json:"total_cost_usd" ch:"total_cost_usd"`
 }

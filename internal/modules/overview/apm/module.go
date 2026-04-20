@@ -3,7 +3,6 @@ package apm
 import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -30,9 +29,9 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *APMHandler) {
 	g.GET("/uptime", h.GetUptime)
 }
 
-func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc, sketchQ *sketch.Querier) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
 	module := &apmModule{}
-	module.configure(nativeQuerier, getTenant, sketchQ)
+	module.configure(nativeQuerier, getTenant)
 	return module
 }
 
@@ -43,10 +42,10 @@ type apmModule struct {
 func (m *apmModule) Name() string                      { return "apm" }
 func (m *apmModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
-func (m *apmModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc, sketchQ *sketch.Querier) {
+func (m *apmModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &APMHandler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  NewService(NewRepository(nativeQuerier), sketchQ),
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
 }
 

@@ -39,7 +39,7 @@ func (r *Repository) Poll(ctx context.Context, teamID int64, since time.Time, fi
 		args = append(args, filters.Services)
 	}
 	if filters.Status == "ERROR" {
-		frag += ` AND (s.has_error = true OR s.http_status_code >= 400)`
+		frag += ` AND (s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)`
 	} else if filters.Status != "" {
 		frag += ` AND s.status_code_string = ?`
 		args = append(args, filters.Status)

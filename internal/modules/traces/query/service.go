@@ -4,20 +4,13 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
-	"strings"
 	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/cursor"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/sketch"
 )
 
-// teamIDString converts the int64 tenant id to the string form used by all
-// sketch keys.
-func teamIDString(teamID int64) string { return fmt.Sprintf("%d", teamID) }
-
 type Service struct {
-	repo    Repository
-	sketchQ *sketch.Querier
+	repo Repository
 }
 
 type TraceSearchResult struct {
@@ -28,8 +21,8 @@ type TraceSearchResult struct {
 	Summary    TraceSummary
 }
 
-func NewService(repo Repository, sketchQ *sketch.Querier) *Service {
-	return &Service{repo: repo, sketchQ: sketchQ}
+func NewService(repo Repository) *Service {
+	return &Service{repo: repo}
 }
 
 func (s *Service) SearchTraces(ctx context.Context, filters TraceFilters, limit int, cursorRaw string) (TraceSearchResult, error) {
@@ -40,7 +33,6 @@ func (s *Service) SearchTraces(ctx context.Context, filters TraceFilters, limit 
 		return TraceSearchResult{}, fmt.Errorf("traces.SearchTraces.Keyset: %w", err)
 	}
 	traces := traceRowsToModels(rows)
-	s.attachSummaryPercentiles(ctx, filters, &summaryRow)
 	summary := mapTraceSummary(summaryRow)
 	result := TraceSearchResult{
 		Traces:  traces,
@@ -87,128 +79,7 @@ func (s *Service) GetExplorerTrend(ctx context.Context, filters TraceFilters, st
 	for index, row := range rows {
 		buckets[index] = TraceTrendBucket(row)
 	}
-	s.attachTrendPercentiles(ctx, filters, step, buckets)
 	return buckets, nil
-}
-
-// attachSummaryPercentiles merges every SpanLatencyService dim for the tenant
-// and writes the merged p50/p95/p99 into the summary row. Accepts that
-// service-name filtering on the dim is coarse — callers currently aggregate
-// across all services in the window when SearchMode=root.
-func (s *Service) attachSummaryPercentiles(ctx context.Context, filters TraceFilters, row *traceSummaryRow) {
-	if s.sketchQ == nil || row == nil {
-		return
-	}
-	prefixes := buildServicePrefixes(filters.Services)
-	pcts, err := s.sketchQ.PercentilesByDimPrefix(ctx, sketch.SpanLatencyService, teamIDString(filters.TeamID), filters.StartMs, filters.EndMs, prefixes, 0.5, 0.95, 0.99)
-	if err != nil {
-		return
-	}
-	merged := make([]float64, 3)
-	for _, v := range pcts {
-		if len(v) != 3 {
-			continue
-		}
-		for i := range merged {
-			if v[i] > merged[i] {
-				merged[i] = v[i]
-			}
-		}
-	}
-	row.P50Duration = merged[0]
-	row.P95Duration = merged[1]
-	row.P99Duration = merged[2]
-}
-
-// attachTrendPercentiles fills p95 per bucket from SpanLatencyService
-// timeseries. Buckets without sketch coverage keep their zero p95.
-func (s *Service) attachTrendPercentiles(ctx context.Context, filters TraceFilters, step string, buckets []TraceTrendBucket) {
-	if s.sketchQ == nil || len(buckets) == 0 {
-		return
-	}
-	series, err := s.sketchQ.PercentilesTimeseries(ctx, sketch.SpanLatencyService, teamIDString(filters.TeamID), filters.StartMs, filters.EndMs, stepSeconds(step), 0.95)
-	if err != nil || len(series) == 0 {
-		return
-	}
-	prefixes := buildServicePrefixes(filters.Services)
-	matched := make(map[int64]float64)
-	for dim, pts := range series {
-		if !dimMatchesAnyPrefix(dim, prefixes) {
-			continue
-		}
-		for _, p := range pts {
-			if len(p.Values) == 0 {
-				continue
-			}
-			if p.Values[0] > matched[p.BucketTs] {
-				matched[p.BucketTs] = p.Values[0]
-			}
-		}
-	}
-	if len(matched) == 0 {
-		return
-	}
-	for i := range buckets {
-		// TimeBucket is an opaque string rendered by ClickHouse (e.g. '2025-...').
-		// Without a round-trip parse, attach the single highest p95 seen for
-		// the window as a conservative fill. Per-bucket alignment is skipped
-		// because the upstream DTO lacks a unix-timestamp field.
-		var best float64
-		for _, v := range matched {
-			if v > best {
-				best = v
-			}
-		}
-		buckets[i].P95Duration = best
-	}
-}
-
-func buildServicePrefixes(services []string) []string {
-	if len(services) == 0 {
-		return []string{""} // empty prefix = match-all
-	}
-	out := make([]string, 0, len(services))
-	for _, svc := range services {
-		if svc != "" {
-			out = append(out, sketch.DimSpanService(svc))
-		}
-	}
-	if len(out) == 0 {
-		return []string{""}
-	}
-	return out
-}
-
-func dimMatchesAnyPrefix(dim string, prefixes []string) bool {
-	for _, p := range prefixes {
-		if p == "" {
-			return true
-		}
-		if len(dim) >= len(p) && dim[:len(p)] == p {
-			return true
-		}
-	}
-	return false
-}
-
-// stepSeconds maps the handler-provided step name to a bucket size in seconds.
-// Unknown values fall through to 60s which matches the SpanLatencyService
-// ingest bucket.
-func stepSeconds(step string) int64 {
-	switch strings.ToLower(strings.TrimSpace(step)) {
-	case "1m", "minute":
-		return 60
-	case "5m":
-		return 300
-	case "15m":
-		return 900
-	case "1h", "hour":
-		return 3600
-	case "1d", "day":
-		return 86400
-	default:
-		return 60
-	}
 }
 
 func (s *Service) GetSpanTree(ctx context.Context, teamID int64, spanID string) ([]Span, error) {
@@ -301,18 +172,7 @@ func spanRowsToModels(rows []spanRow) []Span {
 }
 
 func mapTraceSummary(row traceSummaryRow) TraceSummary {
-	avg := 0.0
-	if row.DurationMsCount > 0 {
-		avg = row.DurationMsSum / float64(row.DurationMsCount)
-	}
-	return TraceSummary{
-		TotalTraces: row.TotalTraces,
-		ErrorTraces: row.ErrorTraces,
-		AvgDuration: avg,
-		P50Duration: row.P50Duration,
-		P95Duration: row.P95Duration,
-		P99Duration: row.P99Duration,
-	}
+	return TraceSummary(row)
 }
 
 func errorGroupRowsToModels(rows []errorGroupRow) []ErrorGroup {
@@ -344,12 +204,10 @@ func errorTimeSeriesRowsToModels(rows []errorTimeSeriesRow) []ErrorTimeSeries {
 func latencyHistogramRowsToModels(rows []latencyHistogramRow) []LatencyHistogramBucket {
 	result := make([]LatencyHistogramBucket, len(rows))
 	for i, row := range rows {
-		min := row.BucketMin
-		max := min + 0.1
 		result[i] = LatencyHistogramBucket{
-			BucketLabel: fmt.Sprintf("%g - %g", min, max),
-			BucketMin:   int64(min),
-			BucketMax:   int64(min) + 1,
+			BucketLabel: row.BucketLabel,
+			BucketMin:   row.BucketMin,
+			BucketMax:   row.BucketMin + 1,
 			SpanCount:   row.SpanCount,
 		}
 	}
@@ -359,11 +217,7 @@ func latencyHistogramRowsToModels(rows []latencyHistogramRow) []LatencyHistogram
 func latencyHeatmapRowsToModels(rows []latencyHeatmapRow) []LatencyHeatmapPoint {
 	result := make([]LatencyHeatmapPoint, len(rows))
 	for i, row := range rows {
-		result[i] = LatencyHeatmapPoint{
-			TimeBucket:    row.TimeBucket,
-			LatencyBucket: fmt.Sprintf("%g", row.LatencyBucket),
-			SpanCount:     row.SpanCount,
-		}
+		result[i] = LatencyHeatmapPoint(row)
 	}
 	return result
 }

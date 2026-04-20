@@ -20,34 +20,17 @@ type traceRow struct {
 	SpanKind       string    `ch:"span_kind"`
 }
 
-// traceSummaryRow is the merged result of the totals + errors summary legs.
-// Percentile fields are zero-filled and overwritten from sketch.Querier.
-// AvgDuration is computed Go-side from DurationMsSum / DurationMsCount.
 type traceSummaryRow struct {
-	TotalTraces     uint64
-	ErrorTraces     uint64
-	DurationMsSum   float64
-	DurationMsCount uint64
-	P50Duration     float64
-	P95Duration     float64
-	P99Duration     float64
+	TotalTraces uint64  `ch:"total_traces"`
+	ErrorTraces uint64  `ch:"error_traces"`
+	AvgDuration float64 `ch:"avg_duration"`
+	P50Duration float64 `ch:"p50_duration"`
+	P95Duration float64 `ch:"p95_duration"`
+	P99Duration float64 `ch:"p99_duration"`
 }
 
-// traceSummaryTotalsRow is the scan target for the totals summary leg.
-type traceSummaryTotalsRow struct {
-	TotalTraces   uint64  `ch:"total_traces"`
-	DurationMsSum float64 `ch:"duration_ms_sum"`
-}
-
-// traceCountRow is a single-value count scan target used by both the errors
-// summary leg and paging totals.
 type traceCountRow struct {
 	Total uint64 `ch:"total"`
-}
-
-// spanTraceIDRow is the scan target for the GetSpanTree lookup.
-type spanTraceIDRow struct {
-	TraceID string `ch:"trace_id"`
 }
 
 type traceFacetRow struct {
@@ -56,25 +39,11 @@ type traceFacetRow struct {
 	Count uint64 `ch:"count"`
 }
 
-// traceTrendRow is the merged (totals + errors) trend bucket. P95Duration
-// is filled from sketch.Querier in the service layer.
 type traceTrendRow struct {
-	TimeBucket  string
-	TotalTraces uint64
-	ErrorTraces uint64
-	P95Duration float64
-}
-
-// traceTrendTotalsRow is the scan target for the totals trend leg.
-type traceTrendTotalsRow struct {
-	TimeBucket  string `ch:"time_bucket"`
-	TotalTraces uint64 `ch:"total_traces"`
-}
-
-// traceTrendErrorRow is the scan target for the error trend leg.
-type traceTrendErrorRow struct {
-	TimeBucket  string `ch:"time_bucket"`
-	ErrorTraces uint64 `ch:"error_traces"`
+	TimeBucket  string  `ch:"time_bucket"`
+	TotalTraces uint64  `ch:"total_traces"`
+	ErrorTraces uint64  `ch:"error_traces"`
+	P95Duration float64 `ch:"p95_duration"`
 }
 
 // spanRow is the scan target for GetTraceSpans / GetSpanTree.
@@ -110,42 +79,24 @@ type errorGroupRow struct {
 	SampleTraceID   string    `ch:"sample_trace_id"`
 }
 
-// errorTimeSeriesRow is the merged (totals + errors) per-(bucket, service)
-// error-rate row. ErrorRate is computed Go-side from the two legs.
 type errorTimeSeriesRow struct {
-	ServiceName string    `json:"service_name" ch:"service_name"`
-	Timestamp   time.Time `json:"timestamp"    ch:"timestamp"`
-	TotalCount  uint64    `json:"total_count"  ch:"total_count"`
-	ErrorCount  uint64    `json:"error_count"  ch:"error_count"`
-	ErrorRate   float64   `json:"error_rate"   ch:"error_rate"`
-}
-
-// errorTimeSeriesTotalsRow is the scan target for the totals leg.
-type errorTimeSeriesTotalsRow struct {
 	ServiceName string    `ch:"service_name"`
 	Timestamp   time.Time `ch:"timestamp"`
 	TotalCount  uint64    `ch:"total_count"`
-}
-
-// errorTimeSeriesErrorRow is the scan target for the error-only leg.
-type errorTimeSeriesErrorRow struct {
-	ServiceName string    `ch:"service_name"`
-	Timestamp   time.Time `ch:"timestamp"`
 	ErrorCount  uint64    `ch:"error_count"`
+	ErrorRate   float64   `ch:"error_rate"`
 }
 
-// latencyHistogramRow is the scan target for GetLatencyHistogram. The
-// bucket label string is formatted Go-side from BucketMin so no string
-// cast is needed in SQL.
+// latencyHistogramRow is the scan target for GetLatencyHistogram.
+// BucketMax is set by the service (BucketMin + 1).
 type latencyHistogramRow struct {
-	BucketMin float64 `ch:"bucket_min"`
-	SpanCount uint64  `ch:"span_count"`
+	BucketLabel string `ch:"bucket_label"`
+	BucketMin   int64  `ch:"bucket_min"`
+	SpanCount   uint64 `ch:"span_count"`
 }
 
-// latencyHeatmapRow carries the numeric latency_bucket (log10 * 10 / 10).
-// The service formats it to the old string label so SQL stays combinator-free.
 type latencyHeatmapRow struct {
 	TimeBucket    time.Time `ch:"time_bucket"`
-	LatencyBucket float64   `ch:"latency_bucket"`
+	LatencyBucket string    `ch:"latency_bucket"`
 	SpanCount     uint64    `ch:"span_count"`
 }

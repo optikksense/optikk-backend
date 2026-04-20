@@ -8,15 +8,10 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
-	"golang.org/x/sync/errgroup"
 )
 
 // genAIBaseFilter ensures we only query spans with a non-empty gen_ai.system attribute.
 const genAIBaseFilter = `JSONExtractString(s.attributes, 'gen_ai.system') != ''`
-
-// errorPredicate identifies GenAI error spans. Lives in the base WHERE on the
-// error-leg scans so no combinator is ever needed in SELECT.
-const errorPredicate = `(s.status_code_string = 'ERROR' OR s.has_error = true)`
 
 // Repository defines the data-access interface for AI explorer queries.
 type Repository interface {
@@ -24,7 +19,7 @@ type Repository interface {
 	GetAISummary(ctx context.Context, teamID, startMs, endMs int64, attrFilters []attrFilter) (aiSummaryRow, error)
 	GetAIFacets(ctx context.Context, teamID, startMs, endMs int64, attrFilters []attrFilter) ([]aiFacetRow, error)
 	GetAITrend(ctx context.Context, teamID, startMs, endMs int64, attrFilters []attrFilter, step string) ([]aiTrendRow, error)
-	GetAISessions(ctx context.Context, teamID, startMs, endMs int64, attrFilters []attrFilter, limit, offset int) ([]aiSessionRawRow, error)
+	GetAISessions(ctx context.Context, teamID, startMs, endMs int64, attrFilters []attrFilter, limit, offset int) ([]aiSessionRow, uint64, error)
 }
 
 // attrFilter represents a single custom attribute filter extracted from the query string.
@@ -44,9 +39,6 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-// aiSelectColumns projects the row-level GenAI span columns. Token fields
-// come back as raw strings; the service parses them to float64 Go-side so
-// no float cast is needed in SQL.
 const aiSelectColumns = `
 	s.span_id,
 	s.trace_id,
@@ -60,9 +52,9 @@ const aiSelectColumns = `
 	JSONExtractString(s.attributes, 'gen_ai.request.model') AS ai_request_model,
 	JSONExtractString(s.attributes, 'gen_ai.response.model') AS ai_response_model,
 	JSONExtractString(s.attributes, 'gen_ai.operation.name') AS ai_operation,
-	JSONExtractString(s.attributes, 'gen_ai.usage.input_tokens') AS input_tokens_raw,
-	JSONExtractString(s.attributes, 'gen_ai.usage.output_tokens') AS output_tokens_raw,
-	JSONExtractString(s.attributes, 'gen_ai.usage.total_tokens') AS total_tokens_raw,
+	toFloat64OrZero(JSONExtractString(s.attributes, 'gen_ai.usage.input_tokens')) AS input_tokens,
+	toFloat64OrZero(JSONExtractString(s.attributes, 'gen_ai.usage.output_tokens')) AS output_tokens,
+	toFloat64OrZero(JSONExtractString(s.attributes, 'gen_ai.usage.total_tokens')) AS total_tokens,
 	JSONExtractString(s.attributes, 'gen_ai.request.temperature') AS temperature,
 	JSONExtractString(s.attributes, 'gen_ai.request.max_tokens') AS max_tokens,
 	JSONExtractString(s.attributes, 'gen_ai.response.finish_reasons') AS finish_reason,
@@ -73,90 +65,44 @@ func (r *ClickHouseRepository) GetAICalls(ctx context.Context, teamID, startMs, 
 	where, args := buildAIWhereClause(teamID, startMs, endMs, filters)
 
 	query := fmt.Sprintf(`SELECT %s FROM observability.spans s %s ORDER BY s.timestamp DESC LIMIT @limit OFFSET @offset`, aiSelectColumns, where)
-	pagedArgs := append(append([]any{}, args...), clickhouse.Named("limit", limit), clickhouse.Named("offset", offset))
+	args = append(args, clickhouse.Named("limit", limit), clickhouse.Named("offset", offset))
 
 	var rows []aiCallRow
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, pagedArgs...); err != nil {
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
 		return nil, 0, fmt.Errorf("ai.GetAICalls: %w", err)
 	}
 
-	countQuery := fmt.Sprintf(`SELECT count() AS total FROM observability.spans s %s`, where)
-	var cnt aiCountRow
-	if err := r.db.QueryRow(dbutil.ExplorerCtx(ctx), countQuery, args...).ScanStruct(&cnt); err != nil {
+	countQuery := fmt.Sprintf(`SELECT count() FROM observability.spans s %s`, where)
+	var total uint64
+	if err := r.db.QueryRow(dbutil.ExplorerCtx(ctx), countQuery, args[:len(args)-2]...).ScanStruct(&total); err != nil {
 		return nil, 0, fmt.Errorf("ai.GetAICalls.count: %w", err)
 	}
 
-	return rows, cnt.Total, nil
+	return rows, total, nil
 }
 
 // GetAISummary returns aggregated statistics for the query window.
-//
-// Percentiles come from sketch.Querier (SpanLatencyService) — see service.go.
-// Combinators (conditional aggregators / distinct-array builders) are
-// replaced with three narrow-WHERE scans run in parallel: totals
-// (count/latency-sum/token-sums), errors (error-only count), and services
-// (distinct service_name list).
-//
-// avg_latency_ms is computed Go-side from sum / count (no SQL-side average).
 func (r *ClickHouseRepository) GetAISummary(ctx context.Context, teamID, startMs, endMs int64, filters []attrFilter) (aiSummaryRow, error) {
 	where, args := buildAIWhereClause(teamID, startMs, endMs, filters)
 
-	var (
-		totals   aiSummaryTotalsRow
-		errCount aiCountRow
-		svcRows  []aiServiceRow
-	)
-	g, gctx := errgroup.WithContext(ctx)
+	query := fmt.Sprintf(`
+		SELECT
+			count() AS total_calls,
+			countIf(s.status_code_string = 'ERROR' OR s.has_error = true) AS error_calls,
+			avg(s.duration_nano / 1000000.0) AS avg_latency_ms,
+			quantileTDigest(0.50)(s.duration_nano / 1000000.0) AS p50_latency_ms,
+			quantileTDigest(0.95)(s.duration_nano / 1000000.0) AS p95_latency_ms,
+			quantileTDigest(0.99)(s.duration_nano / 1000000.0) AS p99_latency_ms,
+			sum(toFloat64OrZero(JSONExtractString(s.attributes, 'gen_ai.usage.input_tokens'))) AS total_input_tokens,
+			sum(toFloat64OrZero(JSONExtractString(s.attributes, 'gen_ai.usage.output_tokens'))) AS total_output_tokens
+		FROM observability.spans s
+		%s`, where)
 
-	g.Go(func() error {
-		q := fmt.Sprintf(`
-			SELECT
-				count() AS total_calls,
-				sum(s.duration_nano / 1000000.0) AS latency_ms_sum,
-				sum(JSONExtractFloat(s.attributes, 'gen_ai.usage.input_tokens')) AS total_input_tokens,
-				sum(JSONExtractFloat(s.attributes, 'gen_ai.usage.output_tokens')) AS total_output_tokens
-			FROM observability.spans s
-			%s`, where)
-		return r.db.QueryRow(dbutil.ExplorerCtx(gctx), q, args...).ScanStruct(&totals)
-	})
-
-	g.Go(func() error {
-		q := fmt.Sprintf(`
-			SELECT count() AS total
-			FROM observability.spans s
-			%s AND `+errorPredicate, where)
-		return r.db.QueryRow(dbutil.ExplorerCtx(gctx), q, args...).ScanStruct(&errCount)
-	})
-
-	g.Go(func() error {
-		q := fmt.Sprintf(`
-			SELECT s.service_name AS service_name
-			FROM observability.spans s
-			%s
-			GROUP BY s.service_name`, where)
-		return r.db.Select(dbutil.ExplorerCtx(gctx), &svcRows, q, args...)
-	})
-
-	if err := g.Wait(); err != nil {
+	var row aiSummaryRow
+	if err := r.db.QueryRow(dbutil.ExplorerCtx(ctx), query, args...).ScanStruct(&row); err != nil {
 		return aiSummaryRow{}, fmt.Errorf("ai.GetAISummary: %w", err)
 	}
-
-	services := make([]string, 0, len(svcRows))
-	for _, s := range svcRows {
-		if s.ServiceName != "" {
-			services = append(services, s.ServiceName)
-		}
-	}
-
-	return aiSummaryRow{
-		TotalCalls:        totals.TotalCalls,
-		ErrorCalls:        errCount.Total,
-		LatencyMsSum:      totals.LatencyMsSum,
-		LatencyMsCount:    totals.TotalCalls,
-		Services:          services,
-		TotalInputTokens:  totals.TotalInputTokens,
-		TotalOutputTokens: totals.TotalOutputTokens,
-	}, nil
+	return row, nil
 }
 
 // GetAIFacets returns facet buckets for AI-specific dimensions.
@@ -197,9 +143,6 @@ func (r *ClickHouseRepository) GetAIFacets(ctx context.Context, teamID, startMs,
 }
 
 // GetAITrend returns time-bucketed trend data.
-//
-// Totals + errors are fetched via two parallel narrow-WHERE scans and merged
-// per-bucket Go-side. avg_latency_ms is computed Go-side from sum/count.
 func (r *ClickHouseRepository) GetAITrend(ctx context.Context, teamID, startMs, endMs int64, filters []attrFilter, step string) ([]aiTrendRow, error) {
 	where, args := buildAIWhereClause(teamID, startMs, endMs, filters)
 
@@ -208,95 +151,83 @@ func (r *ClickHouseRepository) GetAITrend(ctx context.Context, teamID, startMs, 
 		bucketExpr = timebucket.ByName(step).GetBucketExpression()
 	}
 
-	var (
-		totals []aiTrendTotalsRow
-		errs   []aiTrendErrorRow
-	)
-	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		q := fmt.Sprintf(`
-			SELECT
-				%s AS time_bucket,
-				count() AS total_calls,
-				sum(s.duration_nano / 1000000.0) AS latency_ms_sum,
-				sum(JSONExtractFloat(s.attributes, 'gen_ai.usage.total_tokens')) AS total_tokens
-			FROM observability.spans s
-			%s
-			GROUP BY time_bucket
-			ORDER BY time_bucket`, bucketExpr, where)
-		return r.db.Select(dbutil.ExplorerCtx(gctx), &totals, q, args...)
-	})
-	g.Go(func() error {
-		q := fmt.Sprintf(`
-			SELECT
-				%s AS time_bucket,
-				count() AS error_calls
-			FROM observability.spans s
-			%s AND `+errorPredicate+`
-			GROUP BY time_bucket`, bucketExpr, where)
-		return r.db.Select(dbutil.ExplorerCtx(gctx), &errs, q, args...)
-	})
-	if err := g.Wait(); err != nil {
-		return nil, fmt.Errorf("ai.GetAITrend: %w", err)
-	}
-
-	errIdx := make(map[string]uint64, len(errs))
-	for _, e := range errs {
-		errIdx[e.TimeBucket] = e.ErrorCalls
-	}
-	out := make([]aiTrendRow, 0, len(totals))
-	for _, t := range totals {
-		out = append(out, aiTrendRow{
-			TimeBucket:     t.TimeBucket,
-			TotalCalls:     t.TotalCalls,
-			ErrorCalls:     errIdx[t.TimeBucket],
-			LatencyMsSum:   t.LatencyMsSum,
-			LatencyMsCount: t.TotalCalls,
-			TotalTokens:    t.TotalTokens,
-		})
-	}
-	return out, nil
-}
-
-// GetAISessions returns raw per-span rows scoped to GenAI spans. Session
-// aggregation + pagination happens Go-side (service.go) so the CH SELECT
-// stays free of branching / conditional-aggregator / argMax combinators.
-//
-// Note: limit/offset are applied in Go post-grouping; this repo method
-// bounds the scan with the input limit ceiling to keep memory sane.
-func (r *ClickHouseRepository) GetAISessions(ctx context.Context, teamID, startMs, endMs int64, filters []attrFilter, limit, offset int) ([]aiSessionRawRow, error) {
-	where, args := buildAIWhereClause(teamID, startMs, endMs, filters)
-
-	// Hard row-cap for session aggregation scans; tune if/when we hit real
-	// tenants with high-volume GenAI traffic. Matches the logs/traces
-	// keyset-style safety cap.
-	const sessionScanCap = 100_000
-	_ = limit
-	_ = offset
-
 	query := fmt.Sprintf(`
 		SELECT
-			JSONExtractString(s.attributes, 'gen_ai.session.id') AS session_id_primary,
-			JSONExtractString(s.attributes, 'gen_ai.conversation.id') AS session_id_secondary,
-			JSONExtractString(s.attributes, 'session.id') AS session_id_tertiary,
+			%s AS time_bucket,
+			count() AS total_calls,
+			countIf(s.status_code_string = 'ERROR' OR s.has_error = true) AS error_calls,
+			avg(s.duration_nano / 1000000.0) AS avg_latency_ms,
+			sum(toFloat64OrZero(JSONExtractString(s.attributes, 'gen_ai.usage.total_tokens'))) AS total_tokens
+		FROM observability.spans s
+		%s
+		GROUP BY time_bucket
+		ORDER BY time_bucket`, bucketExpr, where)
+
+	var rows []aiTrendRow
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
+		return nil, fmt.Errorf("ai.GetAITrend: %w", err)
+	}
+	return rows, nil
+}
+
+// sessionIDInnerSelect is the GenAI span subquery column that picks a stable session key from OTel attributes.
+const sessionIDInnerSelect = `multiIf(
+  JSONExtractString(s.attributes, 'gen_ai.session.id') != '', JSONExtractString(s.attributes, 'gen_ai.session.id'),
+  JSONExtractString(s.attributes, 'gen_ai.conversation.id') != '', JSONExtractString(s.attributes, 'gen_ai.conversation.id'),
+  JSONExtractString(s.attributes, 'session.id') != '', JSONExtractString(s.attributes, 'session.id'),
+  ''
+) AS session_id`
+
+// GetAISessions aggregates GenAI spans by session/conversation id (non-empty session_id only).
+func (r *ClickHouseRepository) GetAISessions(ctx context.Context, teamID, startMs, endMs int64, filters []attrFilter, limit, offset int) ([]aiSessionRow, uint64, error) {
+	where, args := buildAIWhereClause(teamID, startMs, endMs, filters)
+
+	inner := fmt.Sprintf(`
+		SELECT
+			%s,
 			s.trace_id AS trace_id,
 			s.timestamp AS start_time,
 			s.status_code_string AS status,
 			s.has_error AS has_error,
-			JSONExtractString(s.attributes, 'gen_ai.usage.input_tokens') AS input_tokens_raw,
-			JSONExtractString(s.attributes, 'gen_ai.usage.output_tokens') AS output_tokens_raw,
+			toFloat64OrZero(JSONExtractString(s.attributes, 'gen_ai.usage.input_tokens')) AS input_tokens,
+			toFloat64OrZero(JSONExtractString(s.attributes, 'gen_ai.usage.output_tokens')) AS output_tokens,
 			JSONExtractString(s.attributes, 'gen_ai.request.model') AS ai_request_model,
 			s.service_name AS service_name
 		FROM observability.spans s
-		%s
-		ORDER BY s.timestamp DESC
-		LIMIT %d`, where, sessionScanCap)
+		%s`, sessionIDInnerSelect, where)
 
-	var rows []aiSessionRawRow
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
-		return nil, fmt.Errorf("ai.GetAISessions: %w", err)
+	grouped := fmt.Sprintf(`
+		SELECT
+			session_id,
+			count() AS generation_count,
+			uniq(trace_id) AS trace_count,
+			min(start_time) AS first_start,
+			max(start_time) AS last_start,
+			sum(input_tokens) AS total_input_tokens,
+			sum(output_tokens) AS total_output_tokens,
+			countIf(status = 'ERROR' OR has_error = true) AS error_count,
+			argMax(ai_request_model, start_time) AS dominant_model,
+			argMax(service_name, start_time) AS dominant_service
+		FROM (%s) AS t
+		WHERE session_id != ''
+		GROUP BY session_id
+		ORDER BY last_start DESC`, inner)
+
+	query := fmt.Sprintf(`%s LIMIT @limit OFFSET @offset`, grouped)
+	argsWithPaging := append(append([]any{}, args...), clickhouse.Named("limit", limit), clickhouse.Named("offset", offset))
+
+	var rows []aiSessionRow
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, argsWithPaging...); err != nil {
+		return nil, 0, fmt.Errorf("ai.GetAISessions: %w", err)
 	}
-	return rows, nil
+
+	countQuery := fmt.Sprintf(`SELECT count() FROM (%s)`, grouped)
+	var total uint64
+	if err := r.db.QueryRow(dbutil.ExplorerCtx(ctx), countQuery, args...).ScanStruct(&total); err != nil {
+		return nil, 0, fmt.Errorf("ai.GetAISessions.count: %w", err)
+	}
+
+	return rows, total, nil
 }
 
 // buildAIWhereClause constructs the WHERE clause for AI explorer queries.

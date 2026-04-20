@@ -58,46 +58,47 @@ func flatten(slices ...[]string) []string {
 	return out
 }
 
-// The attribute alias fallback that coalesce(nullIf(...), ...) once provided
-// is removed here — sketches and ingest-side fallback already canonicalise
-// aliases (internal/ingestion/metrics/row.go), so query-side expressions can
-// stick to the canonical OpenTelemetry key and stay free of coalesce / nullIf
-// / if. attrString lives in otel_conventions.go.
+func attrStringAny(attrNames ...string) string {
+	if len(attrNames) == 0 {
+		return "''"
+	}
+
+	parts := make([]string, 0, len(attrNames))
+	for _, attrName := range attrNames {
+		parts = append(parts, fmt.Sprintf("nullIf(attributes.'%s'::String, '')", attrName))
+	}
+	return fmt.Sprintf("coalesce(%s, '')", strings.Join(parts, ", "))
+}
 
 func topicExpr() string {
-	return attrString(AttrMessagingDestinationName)
+	return attrStringAny(topicAttributeAliases...)
 }
 
 func consumerGroupExpr() string {
-	return attrString(AttrMessagingConsumerGroupName)
+	return attrStringAny(consumerGroupAttributeAliases...)
 }
 
 func operationExpr() string {
-	return attrString(AttrMessagingOperationName)
+	return attrStringAny(operationAttributeAliases...)
 }
 
 func clientIDExpr() string {
-	return attrString("messaging.client.id")
+	return attrStringAny("client-id")
 }
 
 func messagingSystemExpr() string {
-	return attrString(AttrMessagingSystem)
+	return attrStringAny(AttrMessagingSystem)
 }
 
 func topicPartitionExpr() string {
-	return attrString(AttrMessagingKafkaDestinationPartition)
+	return attrStringAny(partitionAttributeAliases...)
 }
 
 func nodeIDExpr() string {
-	return attrString("node-id")
+	return attrStringAny("node-id")
 }
 
-// publishDurationPredicate is a plain WHERE predicate matching publish-side
-// histogram rows: dedicated publish.duration OR generic client.operation.duration
-// with operation_name in the publish aliases. lower() is a simple scalar
-// function — not in the forbidden aggregate list — so we keep the case-insensitive
-// match for operation names.
-func publishDurationPredicate() string {
+func publishDurationCondition() string {
 	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) IN @publishOps))",
 		ColMetricName, MetricPublishDuration,
 		ColMetricName, MetricClientOperationDuration,
@@ -105,7 +106,7 @@ func publishDurationPredicate() string {
 	)
 }
 
-func receiveDurationPredicate() string {
+func receiveDurationCondition() string {
 	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) IN @receiveOps))",
 		ColMetricName, MetricReceiveDuration,
 		ColMetricName, MetricClientOperationDuration,
@@ -113,7 +114,7 @@ func receiveDurationPredicate() string {
 	)
 }
 
-func processDurationPredicate() string {
+func processDurationCondition() string {
 	return fmt.Sprintf("(%s = '%s' OR (%s = '%s' AND lower(%s) IN @processOps))",
 		ColMetricName, MetricProcessDuration,
 		ColMetricName, MetricClientOperationDuration,
@@ -131,7 +132,7 @@ type KafkaFilters struct {
 func kafkaFilterClauses(f KafkaFilters) (frag string, args []any) {
 	var sb strings.Builder
 
-	fmt.Fprintf(&sb, " AND %s = '%s'", messagingSystemExpr(), MessagingSystemKafka)
+	fmt.Fprintf(&sb, " AND lower(%s) = '%s'", messagingSystemExpr(), MessagingSystemKafka)
 	if f.Topic != "" {
 		fmt.Fprintf(&sb, " AND %s = @topicFilter", topicExpr())
 		args = append(args, clickhouse.Named("topicFilter", f.Topic))
