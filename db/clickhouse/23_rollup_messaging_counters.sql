@@ -1,10 +1,18 @@
--- messaging_counters_rollup — messaging counter + gauge metrics
--- (metric_type IN ('Gauge','Sum')) excluded from the histogram-only
--- `messaging_histograms_rollup`.
--- Keys include broker + partition + error_type so rate / error / lag /
--- per-partition panels can drop to the rollup.
+-- messaging_counters_rollup — universal messaging-metric rollup (counters +
+-- gauges + histograms). Keys include broker + partition + error_type so rate
+-- / error / lag / per-partition / per-error-type panels can drop to it.
+--
+-- Sample count semantics: `sample_count` stores `hist_count` for histogram
+-- rows (number of operations represented) and 1 for counter/gauge rows
+-- (number of samples). `sumMerge(sample_count) / bucketSecs` gives ops/sec.
+--
+-- `value_sum` is sum(value) — meaningful for counters (messages observed),
+-- 0 for histogram rows. Counter-style rate panels use value_sum; error-count
+-- panels over histograms use sample_count.
+--
 -- Powers: saturation/kafka rate + error + lag + broker-connection + rebalance
--- + per-partition panels.
+-- + per-partition + per-error-type panels. Histogram-latency methods continue
+-- to read messaging_histograms_rollup (digest-bearing rollup).
 
 CREATE TABLE IF NOT EXISTS observability.messaging_counters_rollup_1m (
     team_id                UInt32 CODEC(T64, ZSTD(1)),
@@ -45,14 +53,12 @@ SELECT
     attributes.`messaging.kafka.destination.partition`::String                             AS partition,
     attributes.`error.type`::String                                                        AS error_type,
     sumState(value)                                                                        AS value_sum,
-    sumState(toUInt64(1))                                                                  AS sample_count,
+    sumState(if(hist_count > 0, hist_count, toUInt64(1)))                                  AS sample_count,
     argMaxState(value, timestamp)                                                          AS value_last,
     maxState(value)                                                                        AS value_max,
     sumState(value)                                                                        AS value_avg_num
 FROM observability.metrics
-WHERE metric_type IN ('Gauge','Sum')
-  AND hist_count = 0
-  AND metric_name LIKE 'messaging.%';
+WHERE metric_name LIKE 'messaging.%';
 
 CREATE TABLE IF NOT EXISTS observability.messaging_counters_rollup_5m (
     team_id                UInt32 CODEC(T64, ZSTD(1)),

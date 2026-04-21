@@ -217,3 +217,20 @@ func rollupTopicGroupArgs(f KafkaFilters) []any {
 	}
 	return args
 }
+
+// rollupInventoryFilter mirrors kafkaInventoryFilterClauses but targets rollup
+// columns. No messaging_system predicate (inventory queries span all systems).
+func rollupInventoryFilter(f KafkaFilters) string {
+	var sb strings.Builder
+	if f.Topic != "" {
+		sb.WriteString(" AND messaging_destination = @topicFilter")
+	}
+	if f.Group != "" {
+		sb.WriteString(" AND consumer_group = @groupFilter")
+	}
+	return sb.String()
+}
+
+func rollupInventoryArgs(f KafkaFilters) []any {
+	return rollupTopicGroupArgs(f)
+}
