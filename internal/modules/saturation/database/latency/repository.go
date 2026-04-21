@@ -1,13 +1,12 @@
 package latency
 
 import (
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
@@ -29,34 +28,32 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) latencySeriesByAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]LatencyTimeSeries, error) {
-	bucket := timebucket.Expression(startMs, endMs)
-	fc, fargs := shared.FilterClauses(f)
+	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	fc, fargs := shared.RollupFilterClauses(f)
+	groupCol := shared.GroupColumnFor(groupAttr)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                                               AS time_bucket,
-		    %s                                                                               AS group_by,
-		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p50_ms,
-		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p95_ms,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms
+		    %s                                                                          AS time_bucket,
+		    %s                                                                          AS group_by,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 * 1000  AS p50_ms,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 * 1000  AS p95_ms,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 * 1000  AS p99_ms
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
-		  AND metric_type = 'Histogram'
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket, group_by
 		ORDER BY time_bucket, group_by
-	`,
-		bucket, shared.AttrString(groupAttr),
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBOperationDuration,
-		fc,
-	)
+	`, shared.BucketTimeExpr, groupCol, table, fc)
 
+	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
+		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
+	)
+	args = append(args, fargs...)
 	var rows []LatencyTimeSeries
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -82,45 +79,55 @@ func (r *ClickHouseRepository) GetLatencyByServer(ctx context.Context, teamID in
 	return r.latencySeriesByAttr(ctx, teamID, startMs, endMs, shared.AttrServerAddress, f)
 }
 
+// GetLatencyHeatmap bins bucket-level avg latency (hist_sum/hist_count) into
+// coarse latency ranges. The rollup state loses per-row latency, so we
+// approximate at the tier's native bucket granularity — accurate at rollup
+// resolution, coarser than the old per-row query but preserves the chart.
 func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyHeatmapBucket, error) {
-	bucket := timebucket.Expression(startMs, endMs)
-	fc, fargs := shared.FilterClauses(f)
+	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	fc, fargs := shared.RollupFilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                                    AS time_bucket,
+		    time_bucket,
 		    multiIf(
-		        hist_sum / nullIf(hist_count, 0) < 0.001,  '< 1ms',
-		        hist_sum / nullIf(hist_count, 0) < 0.005,  '1–5ms',
-		        hist_sum / nullIf(hist_count, 0) < 0.010,  '5–10ms',
-		        hist_sum / nullIf(hist_count, 0) < 0.025,  '10–25ms',
-		        hist_sum / nullIf(hist_count, 0) < 0.050,  '25–50ms',
-		        hist_sum / nullIf(hist_count, 0) < 0.100,  '50–100ms',
-		        hist_sum / nullIf(hist_count, 0) < 0.250,  '100–250ms',
-		        hist_sum / nullIf(hist_count, 0) < 0.500,  '250–500ms',
-		        hist_sum / nullIf(hist_count, 0) < 1.000,  '500ms–1s',
+		        avg_sec < 0.001,  '< 1ms',
+		        avg_sec < 0.005,  '1-5ms',
+		        avg_sec < 0.010,  '5-10ms',
+		        avg_sec < 0.025,  '10-25ms',
+		        avg_sec < 0.050,  '25-50ms',
+		        avg_sec < 0.100,  '50-100ms',
+		        avg_sec < 0.250,  '100-250ms',
+		        avg_sec < 0.500,  '250-500ms',
+		        avg_sec < 1.000,  '500ms-1s',
 		        '> 1s'
-		    )                                                                     AS bucket_label,
-		    toInt64(sum(hist_count))                                              AS count
-		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
-		  AND metric_type = 'Histogram'
-		  AND hist_count > 0
-		  %s
+		    )                                                         AS bucket_label,
+		    toInt64(sum(hc))                                          AS count
+		FROM (
+		    SELECT
+		        %s                                                        AS time_bucket,
+		        sumMerge(hist_count)                                      AS hc,
+		        sumMerge(hist_sum)                                        AS hs,
+		        hs / nullIf(hc, 0)                                        AS avg_sec
+		    FROM %s
+		    WHERE team_id = @teamID
+		      AND bucket_ts BETWEEN @start AND @end
+		      AND metric_name = @metricName
+		      %s
+		    GROUP BY time_bucket, db_system, db_operation, db_collection, db_namespace, pool_name, error_type, server_address
+		    HAVING hc > 0
+		)
 		GROUP BY time_bucket, bucket_label
 		ORDER BY time_bucket, bucket_label
-	`,
-		bucket,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBOperationDuration,
-		fc,
+	`, shared.BucketTimeExpr, table, fc)
+
+	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
+		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
 	)
+	args = append(args, fargs...)
 
 	var dtos []latencyHeatmapDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, args...); err != nil {
 		return nil, err
 	}
 

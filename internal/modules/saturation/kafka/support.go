@@ -173,3 +173,64 @@ func (r *ClickHouseRepository) baseParams(teamID int64, startMs, endMs int64) []
 		clickhouse.Named("processMetrics", ProcessMetrics),
 	}
 }
+
+// rollupBaseParams binds the shared named params every rollup-backed latency
+// query needs. Scope is narrower than baseParams — rollup queries don't need
+// rate/lag/rebalance metric lists (those stay on raw metrics_*).
+func (r *ClickHouseRepository) rollupBaseParams(teamID int64, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("publishDuration", MetricPublishDuration),
+		clickhouse.Named("receiveDuration", MetricReceiveDuration),
+		clickhouse.Named("processDuration", MetricProcessDuration),
+		clickhouse.Named("opDuration", MetricClientOperationDuration),
+		clickhouse.Named("publishOps", publishOperationAliases),
+		clickhouse.Named("receiveOps", receiveOperationAliases),
+		clickhouse.Named("processOps", processOperationAliases),
+	}
+}
+
+// rollupTopicGroupFilter emits WHERE clauses against the rollup's canonical
+// dims (no attribute coalescing — the rollup MV already stored the canonical
+// attribute).
+func rollupTopicGroupFilter(f KafkaFilters) string {
+	var sb strings.Builder
+	sb.WriteString(" AND lower(messaging_system) = 'kafka'")
+	if f.Topic != "" {
+		sb.WriteString(" AND messaging_destination = @topicFilter")
+	}
+	if f.Group != "" {
+		sb.WriteString(" AND consumer_group = @groupFilter")
+	}
+	return sb.String()
+}
+
+func rollupTopicGroupArgs(f KafkaFilters) []any {
+	var args []any
+	if f.Topic != "" {
+		args = append(args, clickhouse.Named("topicFilter", f.Topic))
+	}
+	if f.Group != "" {
+		args = append(args, clickhouse.Named("groupFilter", f.Group))
+	}
+	return args
+}
+
+// rollupInventoryFilter mirrors kafkaInventoryFilterClauses but targets rollup
+// columns. No messaging_system predicate (inventory queries span all systems).
+func rollupInventoryFilter(f KafkaFilters) string {
+	var sb strings.Builder
+	if f.Topic != "" {
+		sb.WriteString(" AND messaging_destination = @topicFilter")
+	}
+	if f.Group != "" {
+		sb.WriteString(" AND consumer_group = @groupFilter")
+	}
+	return sb.String()
+}
+
+func rollupInventoryArgs(f KafkaFilters) []any {
+	return rollupTopicGroupArgs(f)
+}

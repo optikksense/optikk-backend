@@ -1,12 +1,16 @@
+// Package slowqueries serves the slow-query panels. GetSlowQueryRate reads
+// `db_histograms_rollup`. GetSlowQueryPatterns + GetP99ByQueryText group by
+// `attributes.db.query.text` — high-cardinality free-text; rolling up would
+// just mirror raw. Permanent raw (same rationale as collection.GetCollectionQueryTexts).
 package slowqueries
 
 import (
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
@@ -68,74 +72,71 @@ func (r *ClickHouseRepository) GetSlowQueryPatterns(ctx context.Context, teamID 
 }
 
 func (r *ClickHouseRepository) GetSlowestCollections(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]SlowCollectionRow, error) {
-	fc, fargs := shared.FilterClauses(f)
-	collAttr := shared.AttrString(shared.AttrDBCollectionName)
-	errorAttr := shared.AttrString(shared.AttrErrorType)
+	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	fc, fargs := shared.RollupFilterClauses(f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                                              AS collection_name,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms,
-		    toFloat64(sum(hist_count)) / %f                                                 AS ops_per_sec,
-		    toFloat64(sumIf(hist_count, notEmpty(%s))) / nullIf(toFloat64(sum(hist_count)), 0) * 100 AS error_rate
+		    db_collection                                                               AS collection_name,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 * 1000  AS p99_ms,
+		    toFloat64(sumMerge(hist_count)) / %f                                        AS ops_per_sec,
+		    toFloat64(sumMergeIf(hist_count, notEmpty(error_type))) / nullIf(toFloat64(sumMerge(hist_count)), 0) * 100 AS error_rate
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
-		  AND metric_type = 'Histogram'
-		  AND notEmpty(%s)
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
+		  AND notEmpty(db_collection)
 		  %s
 		GROUP BY collection_name
 		ORDER BY p99_ms DESC
 		LIMIT 50
-	`,
-		collAttr,
-		bucketSec,
-		errorAttr,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBOperationDuration,
-		collAttr,
-		fc,
-	)
+	`, bucketSec, table, fc)
 
+	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
+		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
+	)
+	args = append(args, fargs...)
 	var rows []SlowCollectionRow
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
+// GetSlowQueryRate approximates slow-ops/sec via `db_histograms_rollup`'s
+// t-digest merge: whole buckets whose p95 exceeds the threshold contribute
+// their full `hist_count` as slow; faster buckets are filtered out via
+// HAVING. Coarser than the raw per-row `sumIf(hist_count, latency>threshold)`
+// (which the rollup can't express because per-row latencies collapse into the
+// digest), but bucket-level accurate and rollup-compatible.
 func (r *ClickHouseRepository) GetSlowQueryRate(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters, thresholdMs float64) ([]SlowRatePoint, error) {
-	bucket := timebucket.Expression(startMs, endMs)
-	fc, fargs := shared.FilterClauses(f)
+	table, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	fc, fargs := shared.RollupFilterClauses(f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
-	thresholdSec := thresholdMs / 1000.0
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                                                    AS time_bucket,
-		    toFloat64(sumIf(hist_count, (hist_sum / nullIf(hist_count, 0)) > %f)) / %f           AS slow_per_sec
+		    %s                                                                  AS time_bucket,
+		    toFloat64(sumMerge(hist_count)) / %f                                AS slow_per_sec
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
-		  AND metric_type = 'Histogram'
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket
+		HAVING quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 > @thresholdMs
 		ORDER BY time_bucket
 	`,
-		bucket,
-		thresholdSec, bucketSec,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBOperationDuration,
-		fc,
+		shared.BucketTimeExpr, bucketSec, table, fc,
 	)
-
+	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
+		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(60, startMs, endMs)),
+		clickhouse.Named("thresholdMs", thresholdMs),
+	)
+	args = append(args, fargs...)
 	var rows []SlowRatePoint
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil

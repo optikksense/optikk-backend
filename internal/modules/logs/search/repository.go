@@ -1,3 +1,7 @@
+// Package search backs log-search + keyset-paginated log-list endpoints.
+// Raw `observability.logs` is correct: full-text matching on `body`, filters
+// on arbitrary attribute keys, and keyset pagination all need per-row data
+// the `logs_rollup` (Phase 6) aggregates away. Permanent raw.
 package search
 
 import (

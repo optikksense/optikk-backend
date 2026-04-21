@@ -1,5 +1,26 @@
 package tracedetail
 
+// All methods in this repository intentionally read raw `observability.spans`
+// (or `observability.logs` for trace-correlated logs) rather than a rollup.
+// The tracedetail page is per-trace drill-down — every query is bounded by
+// `trace_id = @tid` (hitting the `idx_trace_id` bloom filter, GRAN 4) or by
+// `service_name + name` (hitting `idx_service_name` + `idx_span_name`). With
+// those indexes a single drill-in touches at most a few hundred rows.
+// Rollups aggregate per-span fields (span_id, parent_span_id, status,
+// attributes, body) away, so they cannot serve this page.
+//
+// If rollup migration becomes attractive later, the only candidates are:
+//
+//   - GetRelatedTraces: returns per-root-span rows (trace_id, span_id,
+//     duration_ms, status, timestamp). The DTO shape forces raw reads — the
+//     spans rollup collapses (service_name, operation_name) ↦ percentile
+//     state, losing the per-span identifiers. Stays raw.
+//   - GetSpanKindBreakdown: group by (trace_id, kind_string) with
+//     sum(duration). Trace-scoped; fits a per-trace map-reduce, not a rollup.
+//
+// See [docs/hld/ingest/ingest.md](../../../../../docs/hld/ingest/ingest.md)
+// "Phase 6 — what stays raw" for the full catalog.
+
 import (
 	"context"
 	"regexp"

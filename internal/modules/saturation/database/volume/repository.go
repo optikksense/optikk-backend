@@ -1,13 +1,12 @@
 package volume
 
 import (
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
@@ -28,33 +27,34 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) opsSeriesByAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]OpsTimeSeries, error) {
-	bucket := timebucket.Expression(startMs, endMs)
-	fc, fargs := shared.FilterClauses(f)
-	groupExpr := shared.AttrString(groupAttr)
+	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	fc, fargs := shared.RollupFilterClauses(f)
+	groupCol := shared.GroupColumnFor(groupAttr)
+	if groupCol == "" {
+		groupCol = "db_operation"
+	}
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                        AS time_bucket,
-		    %s                        AS group_by,
-		    toInt64(sum(hist_count))  AS op_count
+		    %s                             AS time_bucket,
+		    %s                             AS group_by,
+		    toInt64(sumMerge(hist_count))  AS op_count
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
-		  AND metric_type = 'Histogram'
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket, group_by
 		ORDER BY time_bucket, group_by
-	`,
-		bucket, groupExpr,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBOperationDuration,
-		fc,
+	`, shared.BucketTimeExpr, groupCol, table, fc)
+
+	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
+		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
 	)
+	args = append(args, fargs...)
 
 	var dtos []opsRawDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -88,34 +88,30 @@ func (r *ClickHouseRepository) GetOpsByNamespace(ctx context.Context, teamID int
 }
 
 func (r *ClickHouseRepository) GetReadVsWrite(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ReadWritePoint, error) {
-	bucket := timebucket.Expression(startMs, endMs)
-	fc, fargs := shared.FilterClauses(f)
-	opAttr := shared.AttrString(shared.AttrDBOperationName)
+	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	fc, fargs := shared.RollupFilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                                            AS time_bucket,
-		    toInt64(sumIf(hist_count, upper(%s) IN ('SELECT', 'FIND', 'GET')))           AS read_count,
-		    toInt64(sumIf(hist_count, upper(%s) IN ('INSERT', 'UPDATE', 'DELETE', 'REPLACE', 'UPSERT', 'SET', 'PUT', 'AGGREGATE'))) AS write_count
+		    %s                                                                                     AS time_bucket,
+		    toInt64(sumMergeIf(hist_count, upper(db_operation) IN ('SELECT', 'FIND', 'GET')))     AS read_count,
+		    toInt64(sumMergeIf(hist_count, upper(db_operation) IN ('INSERT', 'UPDATE', 'DELETE', 'REPLACE', 'UPSERT', 'SET', 'PUT', 'AGGREGATE'))) AS write_count
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
-		  AND metric_type = 'Histogram'
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket
 		ORDER BY time_bucket
-	`,
-		bucket,
-		opAttr, opAttr,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBOperationDuration,
-		fc,
+	`, shared.BucketTimeExpr, table, fc)
+
+	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
+		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
 	)
+	args = append(args, fargs...)
 
 	var dtos []readWriteRawDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, args...); err != nil {
 		return nil, err
 	}
 
