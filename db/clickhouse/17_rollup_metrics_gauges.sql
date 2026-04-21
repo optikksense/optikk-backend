@@ -184,6 +184,8 @@ SELECT
             attributes.`system.network.direction`::String,
         metric_name = 'system.network.connections',
             attributes.`system.network.state`::String,
+        metric_name = 'system.process.count',
+            attributes.`process.status`::String,
         metric_name IN ('system.filesystem.usage','system.filesystem.utilization'),
             attributes.`system.filesystem.mountpoint`::String,
         metric_name IN ('jvm.memory.used','jvm.memory.committed','jvm.memory.limit','jvm.memory.used_after_last_gc'),
