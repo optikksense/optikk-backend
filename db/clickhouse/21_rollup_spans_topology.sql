@@ -32,7 +32,8 @@ SELECT
     sumState(toUInt64(1))                                                                  AS request_count,
     sumState(toUInt64(has_error OR toUInt16OrZero(response_status_code) >= 500))           AS error_count
 FROM observability.spans
-WHERE kind = 3 AND mat_peer_service != ''; -- SPAN_KIND_CLIENT = 3
+WHERE kind = 3 AND mat_peer_service != '' -- SPAN_KIND_CLIENT = 3
+GROUP BY team_id, bucket_ts, client_service, server_service, operation;
 
 CREATE TABLE IF NOT EXISTS observability.spans_topology_rollup_5m (
     team_id         UInt32 CODEC(T64, ZSTD(1)),

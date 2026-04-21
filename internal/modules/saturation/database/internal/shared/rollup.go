@@ -6,15 +6,10 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 )
 
-// DBHistRollupPrefix is the CH table prefix for the db histogram rollup
-// cascade. Callers pass it to rollup.TierTableFor to pick a tier.
+// DBHistRollupPrefix is the CH table prefix for the unified db histogram rollup
+// cascade (histogram + gauge rows; keys include db_connection_state and
+// db_response_status_code). Callers pass it to rollup.TierTableFor.
 const DBHistRollupPrefix = "observability.db_histograms_rollup"
-
-// DBHistRollupV2Prefix is the v2 cascade — superset of v1 adding
-// `db_connection_state` + `db_response_status_code` keys + gauge-row state
-// columns (value_sum / sample_count / value_last). Used by
-// saturation/database/connections + errors::GetErrorsByResponseStatus.
-const DBHistRollupV2Prefix = "observability.db_histograms_rollup_v2"
 
 // QueryIntervalMinutes returns the group-by step (in minutes) for rollup
 // reads. It is max(tierStep, dashboardStep) so the step is never finer than

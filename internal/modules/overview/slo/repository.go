@@ -8,6 +8,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 // Reads target `observability.spans_rollup_{1m,5m,1h}` — Phase 6 cascade
@@ -94,7 +95,7 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		SELECT sumMerge(request_count)                                            AS request_count,
 		       sumMerge(error_count)                                              AS error_count,
 		       sumMerge(duration_ms_sum)                                          AS duration_ms_sum,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_latency_ms
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_latency_ms
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end`, table)
@@ -125,7 +126,7 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		ErrorCount:          errs,
 		AvailabilityPercent: availability,
 		AvgLatencyMs:        avg,
-		P95LatencyMs:        row.P95LatencyMs,
+		P95LatencyMs:        utils.SanitizeFloat(row.P95LatencyMs),
 	}, nil
 }
 

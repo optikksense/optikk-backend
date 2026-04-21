@@ -2,11 +2,8 @@ package server
 
 import (
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"strings"
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	ai_factory "github.com/Optikk-Org/optikk-backend/internal/modules/ai/factory"
-	alerting_factory "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/factory"
 
 	infrastructure_connpool "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/connpool"
 	infrastructure_cpu "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/cpu"
@@ -40,11 +37,7 @@ import (
 	saturation_kafka "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/services/deployments"
 	services_topology "github.com/Optikk-Org/optikk-backend/internal/modules/services/topology"
-	ai_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/ai/explorer"
-	llm_hub "github.com/Optikk-Org/optikk-backend/internal/modules/llm/hub"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/livetail"
 	spans_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
-	spans_livetail "github.com/Optikk-Org/optikk-backend/internal/modules/traces/livetail"
 	spans_traces "github.com/Optikk-Org/optikk-backend/internal/modules/traces/query"
 	spans_tracedetail "github.com/Optikk-Org/optikk-backend/internal/modules/traces/tracedetail"
 	user_auth "github.com/Optikk-Org/optikk-backend/internal/modules/user/auth"
@@ -58,12 +51,7 @@ func configuredModules(
 	appConfig registry.AppConfig,
 	infraDeps *Infra,
 ) []registry.Module {
-	alertingModules := alerting_factory.NewModules(infraDeps.DB, nativeQuerier, infraDeps.CH, infraDeps.RedisClient, getTenant, "", appConfig.AlertingMaxEnabledRules())
-	aiModules := ai_factory.NewModules(nativeQuerier, infraDeps.DB, getTenant)
-
-	core := []registry.Module{
-		ai_explorer.NewModule(nativeQuerier, getTenant),
-		llm_hub.NewModule(infraDeps.DB, getTenant),
+	return []registry.Module{
 		apm.NewModule(nativeQuerier, getTenant),
 		deployments.NewModule(nativeQuerier, getTenant),
 		httpmetrics.NewModule(nativeQuerier, getTenant),
@@ -80,11 +68,6 @@ func configuredModules(
 		infrastructure_resource_utilisation.NewModule(nativeQuerier, getTenant),
 		log_explorer.NewModule(nativeQuerier, getTenant),
 		log_search.NewModule(nativeQuerier, getTenant),
-		livetail.NewModule(livetail.Config{
-			Hub:            infraDeps.LiveTailHub,
-			AllowedOrigins: splitAllowedOrigins(appConfig.Server.AllowedOrigins),
-			Sessions:       infraDeps.SessionManager,
-		}),
 		metrics.NewModule(nativeQuerier, getTenant),
 		infraDeps.Ingest.Logs,
 		infraDeps.Ingest.Metrics,
@@ -106,25 +89,10 @@ func configuredModules(
 		saturation_kafka.NewModule(nativeQuerier, getTenant),
 		services_topology.NewModule(nativeQuerier, getTenant),
 		spans_explorer.NewModule(nativeQuerier, getTenant),
-		spans_livetail.NewModule(nativeQuerier, getTenant, nil),
 		spans_tracedetail.NewModule(nativeQuerier, getTenant),
 		spans_traces.NewModule(nativeQuerier, getTenant),
 		user_auth.NewModule(infraDeps.DB, getTenant, infraDeps.SessionManager, appConfig),
 		user_team.NewModule(infraDeps.DB, getTenant, appConfig),
 		user_user.NewModule(infraDeps.DB, getTenant, appConfig),
 	}
-	out := append(core, alertingModules...)
-	out = append(out, aiModules...)
-	return out
-}
-
-func splitAllowedOrigins(allowed string) []string {
-	var out []string
-	for _, o := range strings.Split(allowed, ",") {
-		o = strings.TrimSpace(o)
-		if o != "" {
-			out = append(out, o)
-		}
-	}
-	return out
 }

@@ -1,11 +1,12 @@
 package explorer
 
 import (
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/ClickHouse/clickhouse-go/v2"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	queryparser "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/queryparser"
@@ -28,7 +29,7 @@ func NewService(searchService *logsearch.Service, logStats *LogStatsService) *Se
 func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Response, error) {
 	filters, err := buildFiltersFromQuery(req, teamID)
 	if err != nil {
-		return Response{}, fmt.Errorf("logExplorer.Query.parseQuery: %w", err)
+		return Response{}, fmt.Errorf("logs.Query.parseQuery: %w", err)
 	}
 
 	limit := req.Limit
@@ -44,17 +45,17 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Re
 
 	searchResult, err := s.searchService.GetLogs(ctx, filters, limit, direction, cursor)
 	if err != nil {
-		return Response{}, fmt.Errorf("logExplorer.Query.GetLogs: %w", err)
+		return Response{}, fmt.Errorf("logs.Query.GetLogs: %w", err)
 	}
 
 	stats, err := s.logStats.GetLogStats(ctx, filters)
 	if err != nil {
-		return Response{}, fmt.Errorf("logExplorer.Query.GetStats: %w", err)
+		return Response{}, fmt.Errorf("logs.Query.GetStats: %w", err)
 	}
 
 	volume, err := s.logStats.GetLogVolume(ctx, filters, req.Step)
 	if err != nil {
-		return Response{}, fmt.Errorf("logExplorer.Query.GetVolume: %w", err)
+		return Response{}, fmt.Errorf("logs.Query.GetVolume: %w", err)
 	}
 
 	aggregate, err := s.logStats.GetLogAggregate(ctx, filters, LogAggregateRequest{

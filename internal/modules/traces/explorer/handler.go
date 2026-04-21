@@ -1,7 +1,6 @@
 package explorer
 
 import (
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"net/http"
 
 	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
@@ -13,14 +12,12 @@ import (
 type Handler struct {
 	modulecommon.DBTenant
 	Service *Service
-	db      clickhouse.Conn
 }
 
-func NewHandler(getTenant modulecommon.GetTenantFunc, service *Service, db clickhouse.Conn) *Handler {
+func NewHandler(getTenant modulecommon.GetTenantFunc, service *Service) *Handler {
 	return &Handler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service:  service,
-		db:       db,
 	}
 }
 
@@ -37,7 +34,7 @@ func (h *Handler) Query(c *gin.Context) {
 
 	resp, err := h.Service.Query(c.Request.Context(), req, h.GetTenant(c).TeamID)
 	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query traces explorer", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query traces", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)

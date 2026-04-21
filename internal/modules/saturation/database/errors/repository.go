@@ -34,14 +34,7 @@ type errorRawRow struct {
 }
 
 func (r *ClickHouseRepository) errorSeriesByAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]ErrorTimeSeries, error) {
-	// v2 rollup is required when grouping on `db_response_status_code`
-	// (phase-9 addition); v1 covers the rest. Both share the same state
-	// columns for the hist_count / error_type filter used here.
-	prefix := shared.DBHistRollupPrefix
-	if groupAttr == shared.AttrDBResponseStatus || groupAttr == shared.AttrConnectionState {
-		prefix = shared.DBHistRollupV2Prefix
-	}
-	table, tierStep := rollup.TierTableFor(prefix, startMs, endMs)
+	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
 	fc, fargs := shared.RollupFilterClauses(f)
 	groupCol := shared.GroupColumnFor(groupAttr)
 
@@ -99,8 +92,7 @@ func (r *ClickHouseRepository) GetErrorsByCollection(ctx context.Context, teamID
 	return r.errorSeriesByAttr(ctx, teamID, startMs, endMs, shared.AttrDBCollectionName, f)
 }
 
-// GetErrorsByResponseStatus groups by `db_response_status_code`, a v2-only
-// rollup key added in Phase 9. Reads from `db_histograms_rollup_v2`.
+// GetErrorsByResponseStatus groups by `db_response_status_code` on db_histograms_rollup.
 func (r *ClickHouseRepository) GetErrorsByResponseStatus(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ErrorTimeSeries, error) {
 	return r.errorSeriesByAttr(ctx, teamID, startMs, endMs, shared.AttrDBResponseStatus, f)
 }

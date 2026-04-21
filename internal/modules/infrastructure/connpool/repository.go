@@ -12,14 +12,14 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
-// metricsGaugesV2Prefix — Phase-9 rollup with extended state_dim coverage.
+// metrics_gauges_rollup — extended state_dim (db.client.connections.state, …).
 // connpool reads gauge values (Hikari/JDBC active/max + generic
 // db.client.connection_pool.utilization) per service/instance and folds
 // them client-side. The `db.connection_pool.utilization` attribute-based
 // fallback in the prior raw query is dropped — that attribute isn't keyed
 // in any rollup. In typical OTel-for-DB setups ingestion emits one of the
 // canonical metric_names, so loss is bounded.
-const metricsGaugesV2Prefix = "observability.metrics_gauges_rollup_v2"
+const metricsGaugesRollupPrefix = "observability.metrics_gauges_rollup"
 
 type Repository interface {
 	GetAvgConnPool(ctx context.Context, teamID int64, startMs, endMs int64) (metricValueDTO, error)
@@ -108,7 +108,7 @@ func foldConnPoolMetrics(rows []metricValueRow) *float64 {
 }
 
 func (r *ClickHouseRepository) queryConnPoolMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesV2Prefix, startMs, endMs)
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT
 		    metric_name                                                                AS metric_name,
@@ -136,7 +136,7 @@ func (r *ClickHouseRepository) queryConnPoolMetricByService(ctx context.Context,
 }
 
 func (r *ClickHouseRepository) queryConnPoolMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesV2Prefix, startMs, endMs)
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	// Rollup has host + pod + service as keys; container isn't a key there
 	// (that's only in metrics_k8s_rollup). Filter on host+pod+service; the
 	// container arg is ignored. Acceptable because conn-pool utilization is
@@ -177,7 +177,7 @@ type serviceNameRow struct {
 }
 
 func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64, startMs, endMs int64) ([]string, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesV2Prefix, startMs, endMs)
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT DISTINCT service AS service_name
 		FROM %s
@@ -205,7 +205,7 @@ func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64,
 }
 
 func (r *ClickHouseRepository) getInstanceList(ctx context.Context, teamID int64, startMs, endMs int64) ([]instanceRow, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesV2Prefix, startMs, endMs)
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	// container isn't a rollup key (see note on queryConnPoolMetricByInstance);
 	// returned as empty string.
 	query := fmt.Sprintf(`
@@ -229,18 +229,27 @@ func (r *ClickHouseRepository) getInstanceList(ctx context.Context, teamID int64
 }
 
 func (r *ClickHouseRepository) GetAvgConnPool(ctx context.Context, teamID int64, startMs, endMs int64) (metricValueDTO, error) {
-	services, err := r.getServiceList(ctx, teamID, startMs, endMs)
-	if err != nil {
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT metric_name,
+		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,
+		       toFloat64(sumMerge(value_sum))                                          AS val_sum
+		FROM %s
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name IN @metricNames
+		GROUP BY metric_name`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricNames", connpoolMetrics),
+	}
+	var rows []metricValueRow
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return MetricValue{Value: 0}, err
 	}
-	var values []float64
-	for _, service := range services {
-		connVal, err := r.queryConnPoolMetricByService(ctx, teamID, service, startMs, endMs)
-		if err == nil && connVal != nil && *connVal >= 0 {
-			values = append(values, *connVal)
-		}
-	}
-	avg := calculateAverage(values)
+	avg := foldConnPoolMetrics(rows)
 	if avg == nil {
 		return MetricValue{Value: 0}, nil
 	}
@@ -248,36 +257,112 @@ func (r *ClickHouseRepository) GetAvgConnPool(ctx context.Context, teamID int64,
 }
 
 func (r *ClickHouseRepository) GetConnPoolByService(ctx context.Context, teamID int64, startMs, endMs int64) ([]connPoolServiceMetricDTO, error) {
-	services, err := r.getServiceList(ctx, teamID, startMs, endMs)
-	if err != nil {
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT service AS service_name,
+		       metric_name,
+		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,
+		       toFloat64(sumMerge(value_sum))                                          AS val_sum
+		FROM %s
+		WHERE team_id = @teamID
+		  AND service != ''
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name IN @metricNames
+		GROUP BY service_name, metric_name
+		ORDER BY service_name`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricNames", connpoolMetrics),
+	}
+	type serviceMetricRow struct {
+		ServiceName string  `ch:"service_name"`
+		MetricName  string  `ch:"metric_name"`
+		ValAvg      float64 `ch:"val_avg"`
+		ValSum      float64 `ch:"val_sum"`
+	}
+	var rows []serviceMetricRow
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
-	result := make([]connPoolServiceMetricDTO, len(services))
-	for i, serviceName := range services {
-		connVal, _ := r.queryConnPoolMetricByService(ctx, teamID, serviceName, startMs, endMs)
-		result[i] = connPoolServiceMetricDTO{
-			ServiceName: serviceName,
-			Value:       connVal,
+	byService := map[string][]metricValueRow{}
+	order := []string{}
+	for _, row := range rows {
+		if _, ok := byService[row.ServiceName]; !ok {
+			order = append(order, row.ServiceName)
 		}
+		byService[row.ServiceName] = append(byService[row.ServiceName], metricValueRow{
+			MetricName: row.MetricName,
+			ValAvg:     row.ValAvg,
+			ValSum:     row.ValSum,
+		})
+	}
+	result := make([]connPoolServiceMetricDTO, 0, len(order))
+	for _, name := range order {
+		result = append(result, connPoolServiceMetricDTO{
+			ServiceName: name,
+			Value:       foldConnPoolMetrics(byService[name]),
+		})
 	}
 	return result, nil
 }
 
 func (r *ClickHouseRepository) GetConnPoolByInstance(ctx context.Context, teamID int64, startMs, endMs int64) ([]connPoolInstanceMetricDTO, error) {
-	instances, err := r.getInstanceList(ctx, teamID, startMs, endMs)
-	if err != nil {
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT host, pod, service AS service_name,
+		       metric_name,
+		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,
+		       toFloat64(sumMerge(value_sum))                                          AS val_sum
+		FROM %s
+		WHERE team_id = @teamID
+		  AND service != ''
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name IN @metricNames
+		GROUP BY host, pod, service_name, metric_name
+		ORDER BY host, pod, service_name
+		LIMIT 1000`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricNames", connpoolMetrics),
+	}
+	type instanceMetricRow struct {
+		Host        string  `ch:"host"`
+		Pod         string  `ch:"pod"`
+		ServiceName string  `ch:"service_name"`
+		MetricName  string  `ch:"metric_name"`
+		ValAvg      float64 `ch:"val_avg"`
+		ValSum      float64 `ch:"val_sum"`
+	}
+	var rows []instanceMetricRow
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
-	result := make([]connPoolInstanceMetricDTO, len(instances))
-	for i, inst := range instances {
-		connVal, _ := r.queryConnPoolMetricByInstance(ctx, teamID, inst.Host, inst.Pod, inst.Container, inst.ServiceName, startMs, endMs)
-		result[i] = connPoolInstanceMetricDTO{
-			Host:        inst.Host,
-			Pod:         inst.Pod,
-			Container:   inst.Container,
-			ServiceName: inst.ServiceName,
-			Value:       connVal,
+	type instKey struct{ Host, Pod, Service string }
+	byInst := map[instKey][]metricValueRow{}
+	order := []instKey{}
+	for _, row := range rows {
+		k := instKey{row.Host, row.Pod, row.ServiceName}
+		if _, ok := byInst[k]; !ok {
+			order = append(order, k)
 		}
+		byInst[k] = append(byInst[k], metricValueRow{
+			MetricName: row.MetricName,
+			ValAvg:     row.ValAvg,
+			ValSum:     row.ValSum,
+		})
+	}
+	result := make([]connPoolInstanceMetricDTO, 0, len(order))
+	for _, k := range order {
+		result = append(result, connPoolInstanceMetricDTO{
+			Host:        k.Host,
+			Pod:         k.Pod,
+			ServiceName: k.Service,
+			Value:       foldConnPoolMetrics(byInst[k]),
+		})
 	}
 	return result, nil
 }

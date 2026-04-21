@@ -31,7 +31,7 @@ CREATE TABLE IF NOT EXISTS observability.logs (
 ) ENGINE = MergeTree()
 PARTITION BY toYYYYMM(toDateTime(ts_bucket_start))
 ORDER BY (team_id, ts_bucket_start, service, timestamp)
-TTL timestamp + INTERVAL 1 HOUR DELETE
+TTL timestamp + INTERVAL 30 DAY DELETE
 SETTINGS
     index_granularity = 8192,
     non_replicated_deduplication_window = 1000;

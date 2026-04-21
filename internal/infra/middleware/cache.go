@@ -182,7 +182,7 @@ func cacheKey(c *gin.Context) string {
 	raw := strings.Join([]string{
 		c.Request.Method,
 		c.Request.URL.Path,
-		c.Request.URL.RawQuery,
+		normalizeTimeParams(c.Request.URL.RawQuery),
 		c.GetHeader("Accept"),
 		c.GetHeader("X-Team-Id"),
 		strings.TrimSpace(tenant.UserRole),
@@ -192,6 +192,55 @@ func cacheKey(c *gin.Context) string {
 
 	sum := sha256.Sum256([]byte(raw))
 	return hex.EncodeToString(sum[:])
+}
+
+// cacheKeyTimeBucketMs is the bucket width applied to epoch-ms time params in
+// the cache key. LIVE mode (5s refresh) would otherwise shift `to=<now>` on
+// every tick, giving a unique key per request and bypassing the 30s TTL. 60s
+// aligns with the coarsest-tier rollup step (1m) used for ≤3h windows, so
+// rounding introduces no accuracy loss for the queries served from cache.
+const cacheKeyTimeBucketMs int64 = 60_000
+
+// timeParamNames are query-string keys that carry epoch-ms time bounds. They
+// get rounded to cacheKeyTimeBucketMs before hashing the cache key so adjacent
+// LIVE ticks collapse to the same key.
+var timeParamNames = map[string]struct{}{
+	"from":    {},
+	"to":      {},
+	"startMs": {},
+	"endMs":   {},
+	"start":   {},
+	"end":     {},
+}
+
+// normalizeTimeParams parses rawQuery and rewrites any epoch-ms values under
+// timeParamNames to their floor-rounded cacheKeyTimeBucketMs bucket. Non-time
+// params are left exactly as-is (order preserved) so unrelated query params
+// still differentiate the cache key.
+func normalizeTimeParams(rawQuery string) string {
+	if rawQuery == "" {
+		return rawQuery
+	}
+	pairs := strings.Split(rawQuery, "&")
+	for i, pair := range pairs {
+		eq := strings.IndexByte(pair, '=')
+		if eq <= 0 {
+			continue
+		}
+		name := pair[:eq]
+		if _, ok := timeParamNames[name]; !ok {
+			continue
+		}
+		value := pair[eq+1:]
+		ms, err := strconv.ParseInt(value, 10, 64)
+		if err != nil {
+			// Non-numeric (e.g. "now-30m") — leave untouched.
+			continue
+		}
+		bucketed := ms - (ms % cacheKeyTimeBucketMs)
+		pairs[i] = name + "=" + strconv.FormatInt(bucketed, 10)
+	}
+	return strings.Join(pairs, "&")
 }
 
 func strconvInt64(v int64) string {

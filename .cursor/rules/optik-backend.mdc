@@ -11,272 +11,86 @@ alwaysApply: true
 4. **After every iteration (mandatory):** Review and update if anything changed:
    - **`CODEBASE_INDEX.md`** — new modules, endpoints, helpers, config, cross-repo contracts
    - **This file** (`.cursor/rules/optik-backend.mdc`) — new patterns, conventions, LLD details
-   - **`.agent/SKILL.md`** and **`CLAUDE.md`** — keep aligned
+   - **`CLAUDE.md`** — keep aligned
 
-   Documentation must always reflect current architecture. Always check, even for small changes.
-
-## Canonical map
-
-**`CODEBASE_INDEX.md`** (repo root) lists the full module tree (including the alerting and AI subpackage splits from Phase 3 + Phase 6), ingestion, and the cross-repo map to **optikk-frontend**.
-
-## Observability stack (docker-compose)
-
-`docker compose up` now also brings:
-- **Prometheus** on host port `19091` — remote-write receiver fed by the OTel collector. Acts as the metrics UI until Grafana is re-added.
-- **OTel Collector** on host ports `14317` (gRPC) + `14318` (HTTP) + `13133` (health). Config at `docker/otel-collector/config.yaml`.
-- **Grafana is not started** — dropped from `docker-compose.yml` after a local Docker TLS/corporate-proxy issue blocked the image pull. Provisioning files under `docker/grafana/provisioning/` are preserved so the service can be re-added as a single block once image pulls work.
-
-Ports deliberately shifted into the 1xxxx range to avoid collisions with Optikk's own OTLP ingest (`4317`), the frontend dev server (`3000`), and ClickHouse (`9000`/`8123`).
-
-## Scale & perf context
-
-Before perf-motivated changes read **`.agent/audits/2026-04-17-scalability-audit.md`** — documents the Datadog-grade gaps that drove the current refactor direction (JSON-over-Kafka, CH flush error handling in the per-signal consumers under `internal/ingestion/{spans,metrics,logs}/consumer.go`, missing rollup MVs on `observability.spans` — addressed by Phase 5, in-process `livetail.Hub`, single-goroutine alerting evaluator, global rate limiter). File paths in that audit reference a prior `internal/ingestion/otlp/streamworkers/` layout that has since been flattened into the per-signal directories — treat the audit's concepts as current, its file paths as historical pointers.
+Documentation must always reflect current architecture. Always check, even for small changes.
 
 ## Stack
 
-Go 1.25, Gin, ClickHouse, MySQL, Redis, WebSocket live tail (`/api/v1/ws/live`), OTLP ingestion.
+Go 1.25, Gin, ClickHouse, MySQL, Redis, Kafka, OTLP gRPC.
 
 ## Entry / wiring
 
-- Server entry: `cmd/server/main.go`
-- Module registration: `internal/app/server/modules_manifest.go` — **`configuredModules()`** lists all `registry.Module` constructors; new HTTP domains go here.
-- Shared deps: `internal/app/registry/registry.go`
-- App wiring: `internal/app/server/app.go`
+- **Server entry**: `cmd/server/main.go`
+- **Module registration**: `internal/app/server/modules_manifest.go` — **`configuredModules()`** lists all `registry.Module` constructors; new HTTP domains go here.
+- **Shared deps**: `internal/app/registry/registry.go`
+- **App wiring**: `internal/app/server/app.go`
 
-## Overview & dashboards (frontend-owned)
+## Directory Structure & Modules
 
-- **optikk-frontend** owns overview hub layout, tabs, and panel wiring. This repo has **no** `internal/infra/dashboardcfg` and **no** `/api/v1/default-config` routes.
-- Backend data only: `internal/modules/overview/*` (`/overview/...`, `/errors/...`, `/spans/red/...`, `/apm/*`, etc.).
+Feature modules live under `internal/modules/`. Each follows a strict 6-file pattern:
+1. `handler.go`: HTTP endpoints, param parsing.
+2. `service.go`: Business logic, interface definition.
+3. `repository.go`: Database queries (ClickHouse/MySQL). **Required: All SQL queries stay here.**
+4. `module.go`: Registry implementation, route definitions.
+5. `dto.go`: JSON request/response structures.
+6. `models.go`: Internal domain models and constants.
 
-## Deployments module
+### Key Module Areas
+- **Overview**: Global dashboards, RED metrics, SLOs (`internal/modules/overview/`).
+- **Traces**: Search, detail, and analytics for spans (`internal/modules/traces/`).
+- **Logs**: Search and exploration for log data (`internal/modules/logs/`).
+- **Infrastructure**: Metrics for nodes, pods, and K8s (`internal/modules/infrastructure/`).
+- **Saturation**: Database and Kafka health metrics (`internal/modules/saturation/`).
+- **Services**: Topology and deployment tracking (`internal/modules/services/`).
 
-- **`internal/modules/deployments/`** — `GET /api/v1/deployments/list|timeline|impact|active-version` (query `serviceName`, range `start`/`end`); **`registry.Cached`** (30s). Uses **`observability.spans`** with `mat_service_version` / `mat_deployment_environment` materialized columns.
+## Ingestion Pipeline
 
-## Service Topology module
+- **OTLP gRPC**: Entry point for spans, metrics, and logs on port `4317`.
+- **Pipeline**: `internal/ingestion/`Signal`/{handler, mapper, producer, consumer}.go`.
+- **Flow**: gRPC Handler -> Mapper -> Kafka Producer -> Kafka Persistence Consumer -> ClickHouse Batch Insert.
+- **Live Tail**: Spans and logs are streamed to Redis for real-time WebSocket display (`/api/v1/ws/live`).
 
-- **`internal/modules/services/topology/`** — `GET /api/v1/services/topology` (range `startMs`/`endMs`, optional `?service=<name>` for 1-hop neighborhood). Returns `{nodes, edges}` with RED metrics per service and per edge. Nodes aggregate inbound spans (`kind_string IN ('SERVER','CONSUMER')`); edges are parent→child span joins. `registry.Cached` (30s). Health thresholds: errorRate >5% unhealthy, >1% degraded.
+## ClickHouse Strategy
 
-## HTTP Metrics module
+### Rollups (Analytics Performance)
+- **Tables**: Raw data is mirrored into `_1m`, `_5m`, and `_1h` rollup tables.
+- **Querying**: Use `internal/infra/rollup/tier.go:TierTableFor(prefix, startMs, endMs)` to select the best table for the query range.
+- **Aggregates**: Use `quantilesTDigestWeightedMerge` for percentiles and `sumMerge` for counters when reading from rollups.
 
-- **`internal/modules/httpmetrics/`** — Cached. Routes under `/http/*`:
-  - Root: `request-rate`, `request-duration`, `active-requests`, `body-sizes`, `dns-duration`, `tls-duration`, `status-distribution`, `error-timeseries`
-  - `/http/routes/`: `top-by-volume`, `top-by-latency`, `error-rate`, `error-timeseries`
-  - `/http/external/`: `top-hosts`, `host-latency`, `error-rate`
+### Query Helpers (`internal/infra/database/`)
+- **Query Budgets**: Wrap contexts with `database.OverviewCtx(ctx)` (15s) or `database.ExplorerCtx(ctx)` (60s).
+- **Execution**: Use `dbutil.QueryMaps`, `dbutil.QueryCount`, and typed extraction helpers like `Int64FromAny`.
+- **Time Bucketing**: Use `internal/infra/timebucket/` for adaptive chart binning.
 
-## Infrastructure modules
-
-8 submodules under `internal/modules/infrastructure/`, all Cached, routes under `/infrastructure/*`:
-- `cpu`, `disk`, `jvm`, `kubernetes`, `memory`, `network`, `nodes`, `resourceutil`
-- Shared constants: `infrastructure/infraconsts/`
-
-## Saturation modules
-
-10 submodules (9 database + 1 kafka):
-- Database: `saturation/database/{collection,connections,errors,latency,slowqueries,summary,system,systems,volume}` — routes under `/saturation/*`
-- Kafka: `saturation/kafka/` — routes under `/saturation/kafka/*` (Cached)
-
-## Overview module
-
-4 submodules under `internal/modules/overview/`, all Cached:
-- `overview/overview` — `/overview/request-rate`, `/overview/error-rate`, `/overview/p95-latency`, `/overview/services`, `/overview/top-endpoints`, `/overview/endpoints/metrics`, `/overview/endpoints/timeseries`, `/overview/summary`
-- `overview/errors` — `/overview/errors/*`, `/errors/groups/:groupId/*`
-- `overview/slo` — `/overview/slo`, `/overview/slo/stats`, `/overview/slo/burn-down`, `/overview/slo/burn-rate`
-- `overview/redmetrics` — `/spans/red/*`, `/spans/latency-breakdown`
-
-## Alerting module
-
-`internal/modules/alerting/` is **decomposed into five subpackages** (Phase 3 of 2026-04-17 audit). Each is a proper directory with its own `module.go`:
-
-- `alerting/rules/` — `/alerts/rules/*`, mute, test, backtest, audit
-- `alerting/incidents/` — `/alerts/incidents`, `/activity`, `/instances/:id/{ack,snooze}`
-- `alerting/silences/` — `/alerts/silences/*`
-- `alerting/slack/` — `/alerts/slack/test`, `/callback/slack`
-- `alerting/engine/` — `registry.BackgroundRunner` wrapping the evaluator loop + dispatcher + outbox relay (no HTTP routes)
-
-Plus existing `alerting/evaluators/` (condition evaluators), `alerting/channels/` (Slack delivery), `alerting/shared/` (Rule/Instance/Silence/AlertEvent types + DTOs + definition + statemachine + template + helpers — all shared across subpackages), and `alerting/factory/` (composes the five submodules into `[]registry.Module` for `modules_manifest.go`).
-
-**Parent `alerting/` has NO .go files** — it is a pure directory container. All code lives in `shared/` or one of the five concern subpackages. Import graph is one-directional: factory → submodules; submodules → shared (+ rules for incidents/silences, + engine for slack). Modules 52 → 56.
-
-- **Storage**: single MySQL table `observability.alerts` — rule config + per-instance runtime state + silences all live inline as JSON columns. Append-only ClickHouse `observability.alert_events` (MergeTree, `PARTITION BY toYYYYMM(ts) ORDER BY (team_id, alert_id, ts)`) holds audit + transition history.
-- **Routes**: `POST/GET/PATCH/DELETE /alerts/rules[/:id]`, `POST /alerts/rules/:id/{mute,test,backtest}`, `GET /alerts/rules/:id/audit`, `GET /alerts/incidents`, `POST /alerts/instances/:id/{ack,snooze}`, `GET/POST/PATCH/DELETE /alerts/silences[/:id]`, `POST /alerts/callback/slack`.
-- **Evaluator loop** (`service.go:EvaluatorLoop.run`): 30s tick → `ListEnabledRules` → for each rule call `evaluators.Registry.Get(rule.ConditionType).Evaluate()` → `Decide()` (pure state machine in `statemachine.go`; states `ok|no_data|warn|alert|muted`, honors `for_secs`/`recover_for_secs`/`no_data_secs`/`mute_until`/`snoozed_until`) → on transition write `alert_events`, enqueue to in-memory `Dispatcher` (with deploy correlation via `DeploysInRange`), persist `SaveRuleRuntime`.
-- **Dispatcher** (`dispatcher.go`): worker goroutine consumes a bounded Go channel, de-duplicates via `alert_id:instance_key:transition_seq`, renders notification via `text/template` in `template.go`, posts to Slack webhook via `channels.Slack`. Failures append `dispatch_failed` events.
-- **Evaluators** (`evaluators/`): `SLOBurnRate`, `ErrorRate` — both wrap the shared repository DataSource (`SLOErrorRate`, `ServiceErrorRate`, `ErrorRateHistorical`) so they hit `observability.spans` through the same root-span definition used by `overview/slo`. New condition types = new struct + `NewRegistry` entry; no schema change.
-- **Backtest**: `backtest.go:RunBacktest` loops `Evaluator.EvaluateAt` across a historical range without persisting state or dispatching — powers `POST /alerts/rules/:id/backtest`.
-- **Deploy correlation**: `deployments.Repository.GetDeploysInRange` returns all root-span deploy markers in [start,end] across services for a team; alerting calls it on every transition to attach `deploy_refs` to the event + dispatch payload.
-- **Error codes**: `errorcode.AlertRuleNotFound`, `AlertRuleInvalidCondition`, `AlertInstanceNotFound`, `AlertChannelNotFound`, `AlertSilenceNotFound`.
-- **Module wiring**: `alerting.NewModule(sqlDB, nativeQuerier, clickHouseConn, redisClient, getTenant, baseURL, maxEnabledRules)` — registered in `modules_manifest.go:configuredModules()`. `Start/Stop` fan out to evaluator + dispatcher + **outbox relay** so the module slots into the existing `BackgroundRunner` lifecycle in `app.go`.
-- **Phase 3 HA (2026-04-17 audit)**:
-  - Redis lease (`lease.go`) guards `evalRule` — `SET NX PX 60000` on `alerting:lease:<rule_id>` so only one pod evaluates a rule per tick.
-  - Durable outbox (`outbox.go`) — evaluator writes to MySQL `observability.alert_outbox` on every transition; `Dispatcher` fast-path sends Slack and marks the row delivered; `OutboxRelay` polls every 15s (`SELECT ... FOR UPDATE SKIP LOCKED`), exponential backoff on failures. Survives pod crash + webhook outage. Dedup via unique key `(alert_id, instance_key, transition_seq)`.
-  - **Deferred**: the submodule structural split (`rules/`, `incidents/`, `silences/`, `slack/`, `engine/`, `shared/`) — tracked in the Phase 3 plan for a dedicated follow-up session to avoid risk of regressing the HA work above.
-
-## Realtime
-
-- Live tail WebSocket: `internal/modules/livetail/` — `GET /api/v1/ws/live` (`subscribe:logs` / `subscribe:spans` JSON protocol).
-- **Redis-only hub** (Phase 2, 2026-04-17 audit): `livetail.NewHub(redisClient, maxLen)` returns a `redisHub` backed by Redis Streams (`optikk:livetail:<teamID>`). Any pod can `XADD`; any WS client on any pod sees events via blocking `XREAD`. LocalHub removed — Redis is a hard dependency.
-
-## Logs live tail
-
-- **`internal/modules/logs/search/livetail_run.go`** — `RunLogsLiveTail()`: subscribes to Redis Stream (`livetailredis.LogsStreamKey(teamID)`), heartbeat every 15s
-- **`internal/modules/logs/search/livetail_payload.go`** — `SubscribeLogsPayload` filter fields: Severities, Services, Hosts, Pods, Containers, Environments, TraceID, SpanID, Search, AttributeFilters
-- No ClickHouse polling — reads from Redis ingest fan-out stream
-
-## Ingestion
-
-Canonical HLD: **[docs/hld/ingest/ingest.md](docs/hld/ingest/ingest.md)**.
-
-- **Entry**: OTLP gRPC on `:4317` only (no HTTP OTLP). Auth interceptors in `internal/auth/` resolve `team_id` from API-key metadata before any handler runs.
-- **Per-signal pipelines**: `internal/ingestion/{spans,metrics,logs}/`. Each directory owns its own `handler.go` (gRPC service impl) → `mapper.go` (OTLP proto → signal-local `Row` protobuf in `*_row.pb.go`) → `producer.go` (Kafka produce) → `consumer.go` (Kafka poll + ClickHouse batch insert) → `module.go`. Spans and logs additionally have `livetail.go` — a second Kafka consumer on the same topic, different group, publishing to `livetail.Hub` (Redis Streams).
-- **Kafka**: `github.com/twmb/franz-go/pkg/kgo`. Topic names from `internal/infra/kafka/topics.go:IngestTopic(prefix, signal)` → `<prefix>.<signal>`. Consumer groups from `GroupID(base, signal, role)` → `<base>.<signal>.<role>` where `role ∈ {persistence, livetail}`. Topics created idempotently at startup via `EnsureTopics`. Separate `kgo.Client` per role (shared producer + five consumer clients). There is no `kafka_dispatcher.go`, no `Dispatcher[T]`/`AckableBatch[T]`/`CHFlusher[T]` abstraction, no `internal/ingestion/otlp/` directory, no `streamworkers` package, no DLQ topic — those are legacy names from earlier iterations that have been removed.
-- **ClickHouse write**: each persistence `consumer.go` uses native `clickhouse-go/v2` batch — `ch.PrepareBatch(ctx, insertSQL)` → `batch.Append(values...)` per row → `batch.Send()`. One Kafka poll-batch = one CH batch = one commit. 30 s insert timeout. At-least-once delivery; CH's own dedup window (`non_replicated_deduplication_window = 1000` local / `replicated_deduplication_window = 1000` prod) covers redeliveries. The driver's batch is the flusher — no `chbatch` / `CHFlusher` / `AppendStruct` indirection.
-- **Sketch aggregator observe path** (historical): spans + metrics consumers previously called `sketch.Aggregator.ObserveLatency(...)` / `ObserveIdentity(...)` after each CH flush, feeding an in-process DDSketch + 15 s flush loop persisting to Redis (`optikk:sk:*`). Phase 5 **deletes** this; percentile reads come from CH rollup MVs (`spans_rollup_1m`, `metrics_histograms_rollup_1m`).
-- **No Dummy Values**: Telemetry attributes that arrive empty must remain empty. Do not inject placeholders like `"default"` or `"unknown"`. However, time fields required for ClickHouse partitioning must defensively fallback to `time.Now()`.
-
-## Config
-
-- `internal/config/config.go` — loads `config.yml`; struct sections: `ServerConfig`, `MySQLConfig`, `ClickHouseConfig`, `SessionConfig`, `RedisConfig`, `OtlRedisStream`, `OTLPConfig`, `RetentionConfig`, `AppConfig`, `CircuitBreakerConfig`
-
----
-
-## Low-Level Design Patterns
-
-### Handler pattern
+## Handler Pattern
 
 ```go
-type Handler struct {
-    GetTenant httputil.GetTenantFunc
-    Service   Service // interface, not concrete
-}
-
-func (h *Handler) SomeEndpoint(c *gin.Context) {
+func (h *Handler) GetSomething(c *gin.Context) {
     teamID := h.GetTenant(c).TeamID
-    startMs, endMs, ok := httputil.ParseRequiredRange(c)
-    if !ok { return } // error already written
+    startMs, endMs, ok := httputil.ParseRequiredRange(c) // writes 400 if missing
+    if !ok { return }
 
-    result, err := h.Service.DoSomething(c.Request.Context(), teamID, startMs, endMs)
+    result, err := h.Service.GetSomething(c.Request.Context(), teamID, startMs, endMs)
     if err != nil {
-        httputil.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "failed to do something", err)
+        httputil.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "failed", err)
         return
     }
     httputil.RespondOK(c, result)
 }
 ```
 
-- **Import alias**: `modulecommon "github.com/.../internal/shared/httputil"`
-- `ParseRequiredRange(c)` — returns `(startMs, endMs int64, ok bool)`; writes 400 if missing
-- `ParseRange(c)` — returns `(startMs, endMs int64, err error)` for manual handling
-- `ParseComparisonRange(c, startMs, endMs)` — optional comparison window (`previous_period`, `previous_day`, `previous_week`)
-- `WithComparison(c, startMs, endMs, queryFn)` — runs query for primary + optional comparison range
-- `ParseInt64Param`, `ParseIntParam`, `ParseFloatParam`, `ParseListParam` — query param helpers
-- `ParsePageSize(c, key, fallback)` — capped at `MaxPageSize` (200)
+## Middleware Stack (Order)
 
-### Module architecture (Strict 6-file pattern)
+1. Logger & Recovery
+2. CORS
+3. Tenant Resolution (`middleware.TenantMiddleware`)
+4. Rate Limiting
+5. Response Caching (optional per module)
 
-Every feature module under `internal/modules/` **must** follow the strict 6-file pattern. No fragmented implementation files are allowed. Redundant duplicate files, functions, or variables must be removed immediately to maintain codebase integrity.
+## Engineering Principles
 
-| File | Purpose |
-|------|---------|
-| `handler.go` | HTTP handlers — param parsing, response writing |
-| `service.go` | Interface + concrete impl — business logic, orchestration |
-| `repository.go` | Interface + concrete impl — raw ClickHouse/MySQL queries (**all methods here**) |
-| `module.go` | `NewModule()` constructor, `RegisterRoutes()`, registry wiring |
-| `dto.go` | Request/response DTOs and Row types |
-| `models.go` | Domain models and constants |
-
-### Service / Repository separation
-
-- **Service** = interface + concrete struct; business logic, orchestration.
-- **Repository** = interface + concrete struct; raw ClickHouse/MySQL queries.
-- Constructor chain: `NewService(NewRepository(nativeQuerier))`.
-
-### Module registration flow
-
-```go
-// module.go
-import (
-    "github.com/ClickHouse/clickhouse-go/v2"
-    "github.com/Optikk-Org/optikk-backend/internal/app/registry"
-)
-
-func NewModule(ch clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
-    m := &myModule{}
-    m.handler = &Handler{
-        GetTenant: getTenant,
-        Service:   NewService(NewRepository(ch)),
-    }
-    return m
-}
-
-func (m *myModule) Name() string                      { return "moduleName" }
-func (m *myModule) RouteTarget() registry.RouteTarget { return registry.V1 }
-func (m *myModule) RegisterRoutes(group *gin.RouterGroup) {
-    g := group.Group("/my-endpoint")
-    g.GET("/list", m.handler.List)
-    g.POST("/query", m.handler.Query)
-}
-```
-
-- Add constructor to `modules_manifest.go:configuredModules()`
-- Extension interfaces: `Module` (HTTP), `GRPCRegistrar`, `BackgroundRunner`
-
-### ClickHouse query helpers (`internal/infra/database/`)
-
-**Query budgets** (Phase 4, 2026-04-17 audit): repositories hold `clickhouse.Conn` (native driver) directly. Budget is applied per-query by wrapping the request ctx with `database.OverviewCtx(ctx)` (15s/100M/2GB) or `database.ExplorerCtx(ctx)` (60s/1B/8GB) before calling `.Select` / `.QueryRow`. Overview for dashboards + infra + saturation + HTTP + services; Explorer for logs/traces/ai explorer + tracedetail + metrics timeseries. Settings ride on the ctx via `clickhouse.WithSettings`. Typed helpers: `database.SelectTyped[T]` / `database.QueryRowTyped[T]` — caller chooses ctx.
-
-**Query execution** (`query.go`):
-- `dbutil.QueryMaps(querier, sql, args...)` — returns `[]map[string]any` (10K row limit)
-- `dbutil.QueryMapsLimit(querier, limit, sql, args...)` — custom limit
-- `dbutil.QueryMap(querier, sql, args...)` — single row
-- `dbutil.QueryCount(querier, sql, args...)` — COUNT → int64
-- `dbutil.InClause([]string)` / `InClauseInt64([]int64)` — positional `(?,?,?)`
-- `dbutil.NamedInClause(prefix, []string)` / `NamedInClauseInt64(prefix, []int64)` — named `(@p0,@p1)`
-- Named params: `clickhouse.Named("teamID", teamID)` with `@teamID` in SQL
-
-**Type-safe extraction** (`utils.go`):
-- `dbutil.SqlTime(ms)` → `time.Time` UTC
-- `dbutil.Int64FromAny`, `Float64FromAny`, `StringFromAny`, `BoolFromAny`, `TimeFromAny`
-- Nullable: `NullableStringFromAny` → `*string`, `NullableFloat64FromAny` → `*float64`, `NullableTimeFromAny` → `*time.Time`
-- `NormalizeRows(rows)` — sanitize NaN/Inf for JSON
-- `ToInt64Slice(v)` — `[]any` → `[]int64`
-
-### Time bucketing (`internal/infra/timebucket/`)
-
-- `timebucket.NewAdaptiveStrategy(startMs, endMs)` — picks minute/5min/15min/hour/day based on range
-- `timebucket.ByName("15m")` — explicit step selection (1m/5m/15m/1h/1d)
-- `.GetBucketExpression()` — returns SQL expr for SELECT + GROUP BY
-- `.GetRawExpression(column)` — for custom column name
-
-### Percentiles / cardinality conventions
-
-**Never use exact or explicit-form quantile / uniq variants in SQL.** The refactor landed 2026-04-20 removes all 102 call sites of `quantileExact*` / bare `quantile(...)` in favor of t-digest, and provides an in-Go sketch pipeline for future per-module migration.
-
-Rules for any new SQL:
-- Percentiles → `quantileTDigest(q)(col)` (or `-Weighted`, `-WeightedIf` combinator). Never `quantileExact*` or bare `quantile(...)`.
-- Cardinality → `uniq(col)` (HLL, already approximate). Never `uniqExact*`. For hot paths, prefer `sketch.Querier.Cardinality(...)`.
-- Sample selection → `any(col)`. Never `(groupArray(col))[1]`.
-- Avg-of-non-null across candidate columns → use `internal/infra/stats.AvgNonNullPtr(...)` in service layer **or** the coalesce/nullIf pattern in SQL. Never `arrayReduce('avg', arrayFilter(isNotNull, [...]))`.
-
-The mergeable-sketch pipeline (`internal/infra/sketch/`):
-- Ingest consumers (`internal/ingestion/{spans,metrics}/consumer.go`) feed every record into an in-process `sketch.Aggregator` alongside the existing CH insert.
-- Aggregator flushes closed minute buckets to Redis every 15 s as t-digest (or HLL) binary. Keys: `optikk:sk:<kindID>:<teamID>:<dimHash>:<unixMinute>`, 15-day TTL.
-- `sketch.Querier` reads Redis by tenant + kind + range; merges sketches in Go; computes quantile / cardinality with the Go library (`caio/go-tdigest/v4` / `axiomhq/hyperloglog`).
-- `sketch.CHFallback` runs a narrow `quantileTDigest` / `uniq` query when Redis has no data for a dim — cold start + outage safety.
-- Kinds: `SpanLatencyService`, `SpanLatencyEndpoint`, `DbOpLatency`, `KafkaTopicLatency`, `NodePodCount`, `AiTraceCount` (extend `AllKinds` in `kind.go`, never renumber `ID`).
-
-### Middleware stack (order in `routes.go`)
-
-1. `gin.Default()` — Logger + Recovery
-2. `middleware.ErrorRecovery()` — custom panic to `contracts.Failure`
-3. `middleware.CORSMiddleware(allowedOrigins)` — origin allowlist, credentials
-4. `/api/v1` group: `middleware.TenantMiddleware(sessionManager)` — session auth + team resolution
-5. Rate limiter — Redis-backed (`NewRedisRateLimiter`) or in-memory (`NewRateLimiter`); 2000 req/s
-6. Optional `cache.CacheResponse(cache, 30s)` for modules with `RouteTarget() == registry.Cached`
-
-**Public prefixes** (skip TenantMiddleware): `/api/v1/auth/login`, `/otlp/`, `/health`
-
-### API response envelope
-
-- Shape: `contracts.APIResponse{Success bool, Data any, Error *ErrorDetail}`
-- `contracts.Success(data)` / `contracts.Failure(code, msg, path)`
-- Error codes (`errorcode` package): `BadRequest`, `Validation`, `Unauthorized`, `Forbidden`, `NotFound`, `Conflict`, `RateLimited`, `Internal`, `QueryFailed`, `QueryTimeout`, `ConnectionError`, `Unavailable`, `CircuitOpen`
+- **No placeholders**: Leave missing telemetry attributes empty; do not inject "unknown".
+- **Strict Repository**: No SQL outside of `repository.go`.
+- **Approximate Queries**: Prefer `quantileTDigest` over `quantileExact` for performance.
+- **No unsolicited tests**: Do not add tests unless explicitly requested.

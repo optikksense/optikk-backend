@@ -27,7 +27,8 @@ SELECT
     pod                                                                                            AS pod,
     sumState(toUInt64(1))                                                                          AS log_count,
     sumState(toUInt64(severity_text IN ('ERROR','FATAL','CRITICAL','SEVERE') OR severity_number >= 17)) AS error_count
-FROM observability.logs;
+FROM observability.logs
+GROUP BY team_id, bucket_ts, severity_text, service, host, pod;
 
 CREATE TABLE IF NOT EXISTS observability.logs_rollup_5m (
     team_id       UInt32 CODEC(T64, ZSTD(1)),

@@ -8,6 +8,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 // Reads target the `observability.spans_rollup_{1m,5m,1h}` cascade — tier
@@ -76,32 +77,38 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		SELECT service_name,
 		       sumMerge(request_count)                                            AS total_count,
 		       sumMerge(error_count)                                              AS error_count,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 AS p50_ms,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_ms,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 AS p99_ms
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) AS p50_ms,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_ms,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) AS p99_ms
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
 		GROUP BY service_name`, table)
 
-	var rows []redSummaryServiceRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, rollupParams(teamID, startMs, endMs)...); err != nil {
+	var raw []struct {
+		ServiceName string  `ch:"service_name"`
+		TotalCount  uint64  `ch:"total_count"`
+		ErrorCount  uint64  `ch:"error_count"`
+		P50Ms       float64 `ch:"p50_ms"`
+		P95Ms       float64 `ch:"p95_ms"`
+		P99Ms       float64 `ch:"p99_ms"`
+	}
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, rollupParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
-	return rows, nil
-}
 
-// apdexRawRow pulls the per-service duration-sum + count + percentile tuple
-// from the rollup; the Apdex bucket splits (satisfied/tolerating/frustrated)
-// are derived in Go from the percentile tuple vs. the user-supplied
-// thresholds. Perfect-fidelity bucket counts require raw spans; this
-// approximation is within 1% in practice and stays within rollup discipline.
-type apdexRawRow struct {
-	ServiceName  string  `ch:"service_name"`
-	RequestCount uint64  `ch:"request_count"`
-	P50Ms        float64 `ch:"p50_ms"`
-	P95Ms        float64 `ch:"p95_ms"`
-	P99Ms        float64 `ch:"p99_ms"`
+	rows := make([]redSummaryServiceRow, len(raw))
+	for i, row := range raw {
+		rows[i] = redSummaryServiceRow{
+			ServiceName: row.ServiceName,
+			TotalCount:  row.TotalCount,
+			ErrorCount:  row.ErrorCount,
+			P50Ms:       utils.SanitizeFloat(row.P50Ms),
+			P95Ms:       utils.SanitizeFloat(row.P95Ms),
+			P99Ms:       utils.SanitizeFloat(row.P99Ms),
+		}
+	}
+	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]apdexRow, error) {
@@ -109,9 +116,9 @@ func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, start
 	query := fmt.Sprintf(`
 		SELECT service_name,
 		       sumMerge(request_count)                                            AS request_count,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 AS p50_ms,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_ms,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 AS p99_ms
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) AS p50_ms,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_ms,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) AS p99_ms
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end`, table)
@@ -124,18 +131,27 @@ func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, start
 		GROUP BY service_name
 		ORDER BY request_count DESC`
 
-	var raw []apdexRawRow
+	var raw []struct {
+		ServiceName  string  `ch:"service_name"`
+		RequestCount uint64  `ch:"request_count"`
+		P50Ms        float64 `ch:"p50_ms"`
+		P95Ms        float64 `ch:"p95_ms"`
+		P99Ms        float64 `ch:"p99_ms"`
+	}
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
 		return nil, err
 	}
 
 	rows := make([]apdexRow, len(raw))
 	for i, row := range raw {
+		p50 := utils.SanitizeFloat(row.P50Ms)
+		p95 := utils.SanitizeFloat(row.P95Ms)
+		p99 := utils.SanitizeFloat(row.P99Ms)
 		total := int64(row.RequestCount) //nolint:gosec // domain-bounded
 		// Approximate apdex buckets from percentile tuple vs thresholds.
 		// p50 below satisfied → roughly half is satisfied; p95 above tolerating → ~5% frustrated, etc.
-		satisfiedFrac := percentileBelow(row.P50Ms, row.P95Ms, row.P99Ms, satisfiedMs)
-		toleratingFrac := percentileBelow(row.P50Ms, row.P95Ms, row.P99Ms, toleratingMs) - satisfiedFrac
+		satisfiedFrac := percentileBelow(p50, p95, p99, satisfiedMs)
+		toleratingFrac := percentileBelow(p50, p95, p99, toleratingMs) - satisfiedFrac
 		if toleratingFrac < 0 {
 			toleratingFrac = 0
 		}
@@ -181,28 +197,72 @@ func percentileBelow(p50, p95, p99, threshold float64) float64 {
 	}
 }
 
+// slowOpsCandidatePoolMultiplier is the oversample factor used to build the
+// candidate pool in GetTopSlowOperations. Operations ranked below
+// `limit * multiplier` by traffic cannot be in the final top-N by p95 for any
+// reasonable dashboard — they are dropped before the expensive tDigest merge
+// so ClickHouse does not compute percentiles for every cardinality group.
+const slowOpsCandidatePoolMultiplier = 20
+
 func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]slowOperationRow, error) {
 	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	// Two-step: the CTE picks the top-K by request count using only the cheap
+	// `sum` state column, then the outer query computes tDigest percentiles
+	// for that bounded candidate set. Avoids ORDER BY on a computed tDigest
+	// quantile, which would otherwise force per-group percentile computation
+	// across every (service, operation) pair in the rollup.
 	query := fmt.Sprintf(`
-		SELECT service_name,
-		       operation_name,
-		       sumMerge(request_count)                                            AS span_count,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 AS p50_ms,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_ms,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 AS p99_ms
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		GROUP BY service_name, operation_name
+		WITH candidates AS (
+		    SELECT service_name,
+		           operation_name,
+		           sumMerge(request_count) AS span_count
+		    FROM %[1]s
+		    WHERE team_id = @teamID
+		      AND bucket_ts BETWEEN @start AND @end
+		    GROUP BY service_name, operation_name
+		    ORDER BY span_count DESC
+		    LIMIT @candidateLimit
+		)
+		SELECT s.service_name,
+		       s.operation_name,
+		       sumMerge(s.request_count)                                            AS span_count,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(s.latency_ms_digest)[1]) AS p50_ms,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(s.latency_ms_digest)[2]) AS p95_ms,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(s.latency_ms_digest)[3]) AS p99_ms
+		FROM %[1]s s
+		WHERE s.team_id = @teamID
+		  AND s.bucket_ts BETWEEN @start AND @end
+		  AND (s.service_name, s.operation_name) IN (SELECT service_name, operation_name FROM candidates)
+		GROUP BY s.service_name, s.operation_name
 		ORDER BY p95_ms DESC
 		LIMIT @limit`, table)
 	args := append(rollupParams(teamID, startMs, endMs),
 		clickhouse.Named("limit", limit),
+		clickhouse.Named("candidateLimit", limit*slowOpsCandidatePoolMultiplier),
 	)
 
-	var rows []slowOperationRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	var raw []struct {
+		ServiceName   string  `ch:"service_name"`
+		OperationName string  `ch:"operation_name"`
+		SpanCount     uint64  `ch:"span_count"`
+		P50Ms         float64 `ch:"p50_ms"`
+		P95Ms         float64 `ch:"p95_ms"`
+		P99Ms         float64 `ch:"p99_ms"`
+	}
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
 		return nil, err
+	}
+
+	rows := make([]slowOperationRow, len(raw))
+	for i, row := range raw {
+		rows[i] = slowOperationRow{
+			ServiceName:   row.ServiceName,
+			OperationName: row.OperationName,
+			SpanCount:     row.SpanCount,
+			P50Ms:         utils.SanitizeFloat(row.P50Ms),
+			P95Ms:         utils.SanitizeFloat(row.P95Ms),
+			P99Ms:         utils.SanitizeFloat(row.P99Ms),
+		}
 	}
 	return rows, nil
 }
@@ -351,7 +411,7 @@ func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, team
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
 		       service_name,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_ms
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_ms
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -361,9 +421,22 @@ func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, team
 		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
 	)
 
-	var rows []ServiceLatencyPoint
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	var raw []struct {
+		Timestamp   time.Time `ch:"timestamp"`
+		ServiceName string    `ch:"service_name"`
+		P95Ms       float64   `ch:"p95_ms"`
+	}
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
 		return nil, err
+	}
+
+	rows := make([]ServiceLatencyPoint, len(raw))
+	for i, row := range raw {
+		rows[i] = ServiceLatencyPoint{
+			Timestamp:   row.Timestamp,
+			ServiceName: row.ServiceName,
+			P95Ms:       utils.SanitizeFloat(row.P95Ms),
+		}
 	}
 	return rows, nil
 }
@@ -473,7 +546,7 @@ func (r *ClickHouseRepository) GetLatencyBreakdown(ctx context.Context, teamID i
 	for i, row := range raw {
 		rows[i] = latencyBreakdownRow{
 			ServiceName: row.ServiceName,
-			TotalMs:     row.TotalMs,
+			TotalMs:     utils.SanitizeFloat(row.TotalMs),
 			SpanCount:   int64(row.SpanCount), //nolint:gosec // domain-bounded
 		}
 	}

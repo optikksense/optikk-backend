@@ -275,7 +275,7 @@ func (r *ClickHouseRepository) GetVersionTraffic(ctx context.Context, teamID int
 //   - spans_by_version          — last_seen / version-environment association
 //   - spans_error_fingerprint   — grouped error spans with sample trace_id
 //
-// No raw span reads remain in this file. Tracedetail / livetail remain raw
+// No raw span reads remain in this file. Tracedetail remains raw
 // (per-trace drill-down, bounded by idx_trace_id).
 
 func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (impactAggRow, error) {
@@ -287,8 +287,8 @@ func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64
 	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), fmt.Sprintf(`
 		SELECT toInt64(sumMerge(request_count)) AS request_count,
 		       toInt64(sumMerge(error_count))   AS error_count,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_ms,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 AS p99_ms
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_ms,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) AS p99_ms
 		FROM %s
 		WHERE team_id = @teamID
 		  AND service_name = @serviceName
@@ -381,8 +381,8 @@ func (r *ClickHouseRepository) GetEndpointMetricsWindow(ctx context.Context, tea
 		       http_method                                                              AS http_method,
 		       toInt64(sumMerge(request_count))                                         AS request_count,
 		       toInt64(sumMerge(error_count))                                           AS error_count,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2      AS p95_ms,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3      AS p99_ms
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])      AS p95_ms,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3])      AS p99_ms
 		FROM %s
 		WHERE team_id = @teamID
 		  AND service_name = @serviceName

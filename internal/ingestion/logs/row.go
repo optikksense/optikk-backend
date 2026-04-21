@@ -1,5 +1,5 @@
 // Package logs is the log-ingest module. Files in this directory are flat by
-// design: producer.go, consumer.go, livetail.go, handler.go, mapper.go, and
+// design: producer.go, consumer.go, handler.go, mapper.go, and
 // row.go sit side-by-side so the full pipeline for one signal is visible at a
 // glance.
 //

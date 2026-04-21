@@ -38,6 +38,14 @@ func (s *Service) GetP95Latency(ctx context.Context, teamID int64, startMs, endM
 	return mapP95LatencyRows(rows), nil
 }
 
+func (s *Service) GetChartMetrics(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]ChartMetricsPoint, error) {
+	rows, err := s.repo.GetChartMetrics(ctx, teamID, startMs, endMs, serviceName)
+	if err != nil {
+		return nil, err
+	}
+	return mapChartMetricsRows(rows), nil
+}
+
 func (s *Service) GetServices(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceMetric, error) {
 	rows, err := s.repo.GetServices(ctx, teamID, startMs, endMs)
 	if err != nil {

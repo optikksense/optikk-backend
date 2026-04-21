@@ -71,6 +71,25 @@ func (h *OverviewHandler) GetP95Latency(c *gin.Context) {
 	modulecommon.RespondOK(c, resp)
 }
 
+func (h *OverviewHandler) GetChartMetrics(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+	serviceName := c.Query("serviceName")
+
+	resp, err := modulecommon.WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
+		return h.Service.GetChartMetrics(c.Request.Context(), teamID, s, e, serviceName)
+	})
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview chart metrics", err)
+		return
+	}
+
+	modulecommon.RespondOK(c, resp)
+}
+
 func (h *OverviewHandler) GetServices(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)

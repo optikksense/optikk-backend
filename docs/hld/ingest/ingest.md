@@ -261,7 +261,7 @@ Phase 5 delivered the pattern for the 6 overview submodules. Phase 6 extends it 
 
 | Area | Phase 5 | Phase 6 |
 |---|---|---|
-| Rollup tables (base 1m) | 2 (`spans_rollup_1m`, `metrics_histograms_rollup_1m`) | +5 (`logs_rollup_1m`, `ai_spans_rollup_1m`, `spans_error_fingerprint_1m`, `spans_host_rollup_1m`, `spans_by_version_1m`) |
+| Rollup tables (base 1m) | 2 (`spans_rollup_1m`, `metrics_histograms_rollup_1m`) | +4 (`logs_rollup_1m`, `spans_error_fingerprint_1m`, `spans_host_rollup_1m`, `spans_by_version_1m`) |
 | Cascade tiers | none | `_5m` and `_1h` for all 7 rollups (14 extra tables + 14 cascade MVs) |
 | Tier selection | per-repo hardcoded `_1m` | centralized in [internal/infra/rollup/tier.go](../../../internal/infra/rollup/tier.go) |
 | Migrated modules | `overview/*` (6 submodules) | +`infrastructure/{nodes,fleet}`, +`traces/query`, +`logs/explorer`, +`ai/*`, +`deployments`, +`saturation/database/summary`, +`overview/errors` error-fingerprint methods |

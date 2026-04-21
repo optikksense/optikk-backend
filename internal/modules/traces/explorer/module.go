@@ -19,8 +19,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}
-	v1.POST("/traces/explorer/query", h.Query)
-	v1.POST("/explorer/traces/analytics", h.Analytics)
+	v1.POST("/traces/query", h.Query)
 }
 
 func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
@@ -33,12 +32,12 @@ type tracesExplorerModule struct {
 	handler *Handler
 }
 
-func (m *tracesExplorerModule) Name() string                      { return "tracesExplorer" }
+func (m *tracesExplorerModule) Name() string                      { return "tracesHub" }
 func (m *tracesExplorerModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
 func (m *tracesExplorerModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	traceService := spantraces.NewService(spantraces.NewRepository(nativeQuerier))
-	m.handler = NewHandler(getTenant, NewService(traceService), nativeQuerier)
+	m.handler = NewHandler(getTenant, NewService(traceService))
 }
 
 func (m *tracesExplorerModule) RegisterRoutes(group *gin.RouterGroup) {

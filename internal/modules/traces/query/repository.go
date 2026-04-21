@@ -131,9 +131,9 @@ func (r *ClickHouseRepository) getTraceSummary(ctx context.Context, f TraceFilte
 		       sumMerge(error_count)                                                AS error_traces,
 		       if(sumMerge(request_count) = 0, 0,
 		          sumMerge(duration_ms_sum) / sumMerge(request_count))              AS avg_duration,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1  AS p50_duration,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2  AS p95_duration,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3  AS p99_duration
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1])  AS p50_duration,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])  AS p95_duration,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3])  AS p99_duration
 		FROM %s %s`, table, where)
 
 	var res traceSummaryRow
@@ -182,7 +182,7 @@ func (r *ClickHouseRepository) GetTraceTrend(ctx context.Context, f TraceFilters
 		SELECT formatDateTime(toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)), '%%Y-%%m-%%d %%H:%%i:00') AS time_bucket,
 		       sumMerge(request_count)                                             AS total_traces,
 		       sumMerge(error_count)                                               AS error_traces,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_duration
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_duration
 		FROM %s %s
 		GROUP BY time_bucket
 		ORDER BY time_bucket ASC`, table, where)

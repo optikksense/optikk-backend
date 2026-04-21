@@ -5,6 +5,7 @@ package otlp
 
 import (
 	"encoding/hex"
+	"fmt"
 	"hash/fnv"
 	"strconv"
 	"time"
@@ -12,11 +13,14 @@ import (
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 )
 
-// AnyValueString converts a proto AnyValue to its string representation.
 func AnyValueString(v *commonpb.AnyValue) string {
 	if v == nil {
 		return ""
 	}
+	return pcommonValueToString(v)
+}
+
+func pcommonValueToString(v *commonpb.AnyValue) string {
 	switch val := v.Value.(type) {
 	case *commonpb.AnyValue_StringValue:
 		return val.StringValue
@@ -25,18 +29,15 @@ func AnyValueString(v *commonpb.AnyValue) string {
 	case *commonpb.AnyValue_DoubleValue:
 		return strconv.FormatFloat(val.DoubleValue, 'f', -1, 64)
 	case *commonpb.AnyValue_BoolValue:
-		if val.BoolValue {
-			return "true"
-		}
-		return "false"
+		return strconv.FormatBool(val.BoolValue)
 	case *commonpb.AnyValue_BytesValue:
-		return string(val.BytesValue)
+		return hex.EncodeToString(val.BytesValue)
 	default:
-		return ""
+		// For maps and arrays, we use the pdata-like string representation
+		return fmt.Sprintf("%v", v.Value)
 	}
 }
 
-// AttrsToMap converts proto KeyValue pairs to a string map.
 func AttrsToMap(kvs []*commonpb.KeyValue) map[string]string {
 	m := make(map[string]string, len(kvs))
 	for _, kv := range kvs {
@@ -45,9 +46,6 @@ func AttrsToMap(kvs []*commonpb.KeyValue) map[string]string {
 	return m
 }
 
-// MergeAttrsMap merges a resource map with proto datapoint attributes.
-// The returned map is always safe to mutate; when dpAttrs is empty we still
-// return a copy so callers cannot clobber the shared resource map.
 func MergeAttrsMap(resMap map[string]string, dpAttrs []*commonpb.KeyValue) map[string]string {
 	merged := make(map[string]string, len(resMap)+len(dpAttrs))
 	for k, v := range resMap {

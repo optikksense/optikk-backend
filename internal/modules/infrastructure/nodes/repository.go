@@ -41,8 +41,9 @@ func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 }
 
 type Repository interface {
-	GetInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]infrastructureNodeRecordDTO, error)
-	GetInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]infrastructureNodeServiceRecordDTO, error)
+	GetInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]InfrastructureNode, error)
+	GetInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (InfrastructureNodeSummary, error)
+	GetInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error)
 }
 
 type ClickHouseRepository struct {
@@ -78,11 +79,9 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(ctx context.Context, teamI
 	query := fmt.Sprintf(`
 		SELECT if(host_name != '', host_name, '%s') AS host_name,
 		       uniqIf(pod_name, pod_name != '')                                  AS pod_count,
-		       arrayStringConcat(groupUniqArray(service_name), ',')              AS services_csv,
 		       sumMerge(request_count)                                           AS request_count,
 		       sumMerge(error_count)                                             AS error_count,
 		       sumMerge(duration_ms_sum)                                         AS duration_ms_sum,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_latency,
 		       max(bucket_ts)                                                    AS last_seen
 		FROM %s
 		WHERE team_id = @teamID
@@ -114,18 +113,64 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(ctx context.Context, teamI
 		}
 		nodes[i] = InfrastructureNode{
 			Host:           d.HostName,
-			PodCount:       int64(d.PodCount),     //nolint:gosec // domain-bounded
-			ContainerCount: 0,                     // rollup does not carry container cardinality
-			Services:       splitCSV(d.ServicesCSV),
-			RequestCount:   int64(d.RequestCount), //nolint:gosec // domain-bounded
-			ErrorCount:     int64(d.ErrorCount),   //nolint:gosec // domain-bounded
+			PodCount:       int64(d.PodCount), //nolint:gosec // domain-bounded
+			ContainerCount: 0,                 // rollup does not carry container cardinality
+			Services:       []string{},        // no longer fetched for fleet view performance
+			RequestCount:   int64(d.RequestCount),
+			ErrorCount:     int64(d.ErrorCount),
 			ErrorRate:      errorRate,
 			AvgLatencyMs:   avgLatency,
-			P95LatencyMs:   d.P95Latency,
+			P95LatencyMs:   0, // no longer fetched for fleet view performance
 			LastSeen:       d.LastSeen.Format(time.RFC3339),
 		}
 	}
 	return nodes, nil
+}
+
+func (r *ClickHouseRepository) GetInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (InfrastructureNodeSummary, error) {
+	table, _ := rollup.TierTableFor(spansHostRollupPrefix, startMs, endMs)
+	// Dedicated summary query that avoids the MaxNodes limit and executes a 
+	// single pass over host-level aggregates to categorize health.
+	query := fmt.Sprintf(`
+		SELECT
+		    countIf(error_rate > 10)                        AS unhealthy_nodes,
+		    countIf(error_rate > 2 AND error_rate <= 10)    AS degraded_nodes,
+		    countIf(error_rate <= 2)                        AS healthy_nodes,
+		    sum(pod_count)                                  AS total_pods
+		FROM (
+		    SELECT
+		        host_name,
+		        (sumMerge(error_count) * 100.0 / nullIf(toFloat64(sumMerge(request_count)), 0)) AS error_rate,
+		        uniqIf(pod_name, pod_name != '')                                             AS pod_count
+		    FROM %s
+		    WHERE team_id = @teamID
+		      AND bucket_ts BETWEEN @start AND @end
+		    GROUP BY host_name
+		)`, table)
+
+	params := []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+
+	var row struct {
+		HealthyNodes   int64 `ch:"healthy_nodes"`
+		DegradedNodes  int64 `ch:"degraded_nodes"`
+		UnhealthyNodes int64 `ch:"unhealthy_nodes"`
+		TotalPods      int64 `ch:"total_pods"`
+	}
+
+	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, params...).ScanStruct(&row); err != nil {
+		return InfrastructureNodeSummary{}, err
+	}
+
+	return InfrastructureNodeSummary{
+		HealthyNodes:   row.HealthyNodes,
+		DegradedNodes:  row.DegradedNodes,
+		UnhealthyNodes: row.UnhealthyNodes,
+		TotalPods:      row.TotalPods,
+	}, nil
 }
 
 func (r *ClickHouseRepository) GetInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error) {
@@ -135,7 +180,7 @@ func (r *ClickHouseRepository) GetInfrastructureNodeServices(ctx context.Context
 		       sumMerge(request_count)                                           AS request_count,
 		       sumMerge(error_count)                                             AS error_count,
 		       sumMerge(duration_ms_sum)                                         AS duration_ms_sum,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_latency,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_latency,
 		       uniqIf(pod_name, pod_name != '')                                  AS pod_count
 		FROM %s
 		WHERE team_id = @teamID

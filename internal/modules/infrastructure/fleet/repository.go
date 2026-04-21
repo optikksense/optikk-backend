@@ -74,7 +74,7 @@ func (r *ClickHouseRepository) GetFleetPods(ctx context.Context, teamID int64, s
 		       sumMerge(request_count)                                           AS request_count,
 		       sumMerge(error_count)                                             AS error_count,
 		       sumMerge(duration_ms_sum)                                         AS duration_ms_sum,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_latency,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_latency,
 		       max(bucket_ts)                                                    AS last_seen
 		FROM %s
 		WHERE team_id = @teamID

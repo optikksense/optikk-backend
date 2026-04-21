@@ -1,5 +1,5 @@
 // Package metrics is the metric-ingest module. Files are flat: producer.go,
-// consumer.go, livetail.go, handler.go, mapper.go (+ mapper_points.go), and
+// consumer.go, handler.go, mapper.go (+ mapper_points.go), and
 // row.go live side-by-side so the full pipeline for one signal is obvious.
 //
 // Regenerate row.pb.go after editing row.proto:

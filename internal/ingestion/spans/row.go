@@ -1,5 +1,5 @@
 // Package spans is the span-ingest module. Files are flat: producer.go,
-// consumer.go, livetail.go, handler.go, mapper.go (+ mapper_attrs.go,
+// consumer.go, handler.go, mapper.go (+ mapper_attrs.go,
 // mapper_status.go), and row.go live side-by-side so the full pipeline for
 // one signal is obvious.
 //

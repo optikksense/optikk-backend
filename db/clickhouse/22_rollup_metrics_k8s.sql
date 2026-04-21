@@ -54,7 +54,8 @@ SELECT
 FROM observability.metrics
 WHERE metric_type IN ('Gauge','Sum')
   AND hist_count = 0
-  AND (metric_name LIKE 'k8s.%' OR metric_name LIKE 'container.%' OR attributes.`k8s.container.name`::String != '');
+  AND (metric_name LIKE 'k8s.%' OR metric_name LIKE 'container.%' OR attributes.`k8s.container.name`::String != '')
+GROUP BY team_id, bucket_ts, metric_name, service, host, pod, container, namespace, state_dim;
 
 CREATE TABLE IF NOT EXISTS observability.metrics_k8s_rollup_5m (
     team_id       UInt32 CODEC(T64, ZSTD(1)),

@@ -25,7 +25,8 @@ SELECT
     attributes.`http.status_code`::String                         AS http_status_code,
     sumState(toUInt64(1))                                         AS sample_count
 FROM observability.metrics
-WHERE metric_name IN ('http.server.request.duration','http.server.request.size','http.client.request.duration');
+WHERE metric_name IN ('http.server.request.duration','http.server.request.size','http.client.request.duration')
+GROUP BY team_id, bucket_ts, metric_name, service, http_status_code;
 
 CREATE TABLE IF NOT EXISTS observability.metrics_gauges_by_status_rollup_5m (
     team_id          UInt32 CODEC(T64, ZSTD(1)),

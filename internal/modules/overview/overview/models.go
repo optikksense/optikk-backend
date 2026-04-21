@@ -32,6 +32,19 @@ type P95LatencyPoint struct {
 	P95         float64   `json:"p95"`
 }
 
+// ChartMetricsPoint is the per-bucket per-service row returned by
+// /overview/chart-metrics. Combines the three Summary-tab chart queries
+// (request rate, error rate, p95 latency) into one payload so the frontend
+// replaces three round-trips and three rollup scans with one.
+type ChartMetricsPoint struct {
+	Timestamp    time.Time `json:"timestamp"`
+	ServiceName  string    `json:"service_name,omitempty"`
+	RequestCount int64     `json:"request_count"`
+	ErrorCount   int64     `json:"error_count"`
+	ErrorRate    float64   `json:"error_rate"`
+	P95          float64   `json:"p95"`
+}
+
 type ServiceMetric struct {
 	ServiceName  string  `json:"service_name"`
 	RequestCount int64   `json:"request_count"`

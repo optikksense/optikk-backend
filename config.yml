@@ -21,6 +21,7 @@ clickhouse:
   user: default
   password: clickhouse123
   secure: false
+  auto_migrate: true
 
 session:
   lifetime_ms: 86400000

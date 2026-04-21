@@ -28,14 +28,19 @@ func BuildLogWhere(f LogFilters) (where string, args []any) {
 
 	startNs := uint64(startMs) * 1_000_000 //nolint:gosec // G115 - domain-constrained value
 	endNs := uint64(endMs) * 1_000_000     //nolint:gosec // G115 - domain-constrained value
-	startBucket := utils.LogsBucketStart(startMs / 1000)
-	endBucket := utils.LogsBucketStart(endMs / 1000)
+
+	// Filter by team_id + ts_bucket_start range + timestamp range.
+	// ts_bucket_start is the second column in the primary key
+	// (team_id, ts_bucket_start, service, timestamp). Without it, ClickHouse
+	// skips the index for service and timestamp, leading to full-table scans.
+	bucketStart := utils.LogsBucketStart(startMs / 1000)
+	bucketEnd := utils.LogsBucketStart(endMs / 1000)
 
 	where = ` team_id = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ?`
 	args = []any{
 		uint32(f.TeamID), //nolint:gosec // G115
-		startBucket,
-		endBucket,
+		bucketStart,
+		bucketEnd,
 		time.Unix(0, int64(startNs)),
 		time.Unix(0, int64(endNs)),
 	}

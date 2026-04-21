@@ -24,23 +24,10 @@ func (s *NodeService) GetInfrastructureNodes(ctx context.Context, teamID int64, 
 }
 
 func (s *NodeService) GetInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (InfrastructureNodeSummary, error) {
-	nodes, err := s.repo.GetInfrastructureNodes(ctx, teamID, startMs, endMs)
+	summary, err := s.repo.GetInfrastructureNodeSummary(ctx, teamID, startMs, endMs)
 	if err != nil {
 		slog.Error("nodes: GetInfrastructureNodeSummary failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return InfrastructureNodeSummary{}, err
-	}
-
-	summary := InfrastructureNodeSummary{}
-	for _, node := range nodes {
-		switch {
-		case node.ErrorRate > 10:
-			summary.UnhealthyNodes++
-		case node.ErrorRate > 2:
-			summary.DegradedNodes++
-		default:
-			summary.HealthyNodes++
-		}
-		summary.TotalPods += node.PodCount
 	}
 	return summary, nil
 }

@@ -20,7 +20,6 @@ import (
 	ingestlogs "github.com/Optikk-Org/optikk-backend/internal/ingestion/logs"
 	ingestmetrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/metrics"
 	ingestspans "github.com/Optikk-Org/optikk-backend/internal/ingestion/spans"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/livetail"
 	"github.com/twmb/franz-go/pkg/kgo"
 	redigoredis "github.com/gomodule/redigo/redis"
 	goredis "github.com/redis/go-redis/v9"
@@ -40,7 +39,6 @@ type Infra struct {
 	DB             *sql.DB
 	CH             clickhouse.Conn
 	SessionManager session.Manager
-	LiveTailHub    livetail.Hub
 	RedisClient    *goredis.Client
 	RedisPool      *redigoredis.Pool
 	Authenticator  *auth.Authenticator
@@ -87,15 +85,13 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 		return nil, err
 	}
 
-	liveTailHub := livetail.NewHub(redisClients.Client, 0)
-
 	prefix := cfg.KafkaTopicPrefix()
 	kafkaCfg := kafkainfra.Config{Brokers: cfg.KafkaBrokers()}
 	if err := kafkainfra.EnsureTopics(kafkaCfg.Brokers, kafkainfra.IngestTopics(prefix)); err != nil {
 		return nil, fmt.Errorf("kafka ingest topics: %w", err)
 	}
 
-	ingest, producerClient, consumerClients, err := buildIngestModules(cfg, kafkaCfg, prefix, chConn, liveTailHub)
+	ingest, producerClient, consumerClients, err := buildIngestModules(cfg, kafkaCfg, prefix, chConn)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +102,6 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 		DB:              dbConn,
 		CH:              chConn,
 		SessionManager:  sessionManager,
-		LiveTailHub:     liveTailHub,
 		RedisClient:     redisClients.Client,
 		RedisPool:       redisClients.Pool,
 		Authenticator:   authenticator,
@@ -154,14 +149,14 @@ func runAutoMigrate(conn clickhouse.Conn, database string) error {
 // per-signal modules. The producer is a single kgo.Client shared across all
 // three signals (one TCP pool); each consumer is its own client because they
 // join different consumer groups.
-func buildIngestModules(cfg config.Config, kcfg kafkainfra.Config, prefix string, ch clickhouse.Conn, hub livetail.Hub) (IngestModules, *kgo.Client, []*kgo.Client, error) {
+func buildIngestModules(cfg config.Config, kcfg kafkainfra.Config, prefix string, ch clickhouse.Conn) (IngestModules, *kgo.Client, []*kgo.Client, error) {
 	producerClient, err := kafkainfra.NewProducerClient(kcfg)
 	if err != nil {
 		return IngestModules{}, nil, nil, fmt.Errorf("kafka producer client: %w", err)
 	}
 	producer := kafkainfra.NewProducer(producerClient)
 
-	consumerClients := make([]*kgo.Client, 0, 5)
+	consumerClients := make([]*kgo.Client, 0, 3)
 	closeOnErr := func() {
 		for _, c := range consumerClients {
 			c.Close()
@@ -175,13 +170,6 @@ func buildIngestModules(cfg config.Config, kcfg kafkainfra.Config, prefix string
 		return IngestModules{}, nil, nil, err
 	}
 	consumerClients = append(consumerClients, logsPersist)
-
-	logsLive, err := newConsumer(kcfg, cfg.KafkaConsumerGroup(), prefix, kafkainfra.SignalLogs, "livetail")
-	if err != nil {
-		closeOnErr()
-		return IngestModules{}, nil, nil, err
-	}
-	consumerClients = append(consumerClients, logsLive)
 
 	metricsPersist, err := newConsumer(kcfg, cfg.KafkaConsumerGroup(), prefix, kafkainfra.SignalMetrics, "persistence")
 	if err != nil {
@@ -197,19 +185,10 @@ func buildIngestModules(cfg config.Config, kcfg kafkainfra.Config, prefix string
 	}
 	consumerClients = append(consumerClients, spansPersist)
 
-	spansLive, err := newConsumer(kcfg, cfg.KafkaConsumerGroup(), prefix, kafkainfra.SignalSpans, "livetail")
-	if err != nil {
-		closeOnErr()
-		return IngestModules{}, nil, nil, err
-	}
-	consumerClients = append(consumerClients, spansLive)
-
 	logsMod := ingestlogs.NewModule(ingestlogs.Deps{
 		Producer:          ingestlogs.NewProducer(producer, prefix),
 		CH:                ch,
 		PersistenceClient: kafkainfra.NewConsumer(logsPersist),
-		LivetailClient:    kafkainfra.NewConsumer(logsLive),
-		Hub:               hub,
 	}).(*ingestlogs.Module)
 
 	metricsMod := ingestmetrics.NewModule(ingestmetrics.Deps{
@@ -222,16 +201,13 @@ func buildIngestModules(cfg config.Config, kcfg kafkainfra.Config, prefix string
 		Producer:          ingestspans.NewProducer(producer, prefix),
 		CH:                ch,
 		PersistenceClient: kafkainfra.NewConsumer(spansPersist),
-		LivetailClient:    kafkainfra.NewConsumer(spansLive),
-		Hub:               hub,
 	}).(*ingestspans.Module)
 
 	return IngestModules{Logs: logsMod, Metrics: metricsMod, Spans: spansMod}, producerClient, consumerClients, nil
 }
 
 // newConsumer builds a Kafka consumer client for one signal + role pair.
-// The role ("persistence" | "livetail") appears in the group id so each role
-// tracks offsets independently.
+// The role (e.g. "persistence") appears in the group id.
 func newConsumer(kcfg kafkainfra.Config, groupBase, prefix, signal, role string) (*kgo.Client, error) {
 	topic := kafkainfra.IngestTopic(prefix, signal)
 	groupID := kafkainfra.GroupID(groupBase, signal, role)

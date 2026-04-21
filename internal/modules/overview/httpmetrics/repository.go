@@ -101,9 +101,9 @@ func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID
 	table, _ := rollup.TierTableFor(metricsHistRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 AS p50,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 AS p99,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) AS p50,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) AS p99,
 		    sumMerge(hist_sum)                                                  AS hist_sum,
 		    sumMerge(hist_count)                                                AS hist_count
 		FROM %s
@@ -274,7 +274,7 @@ func (r *ClickHouseRepository) GetTopRoutesByLatency(ctx context.Context, teamID
 	query := fmt.Sprintf(`
 		SELECT endpoint AS route,
 		       sumMerge(request_count) AS req_count,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_ms
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_ms
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -488,7 +488,7 @@ func (r *ClickHouseRepository) GetExternalHostLatency(ctx context.Context, teamI
 	query := fmt.Sprintf(`
 		SELECT host_name                                                                   AS host,
 		       toInt64(sumMerge(request_count))                                            AS req_count,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2         AS p95_ms
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])         AS p95_ms
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end

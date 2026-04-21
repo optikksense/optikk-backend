@@ -28,6 +28,7 @@ type Repository interface {
 	GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]requestRateRow, error)
 	GetErrorRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]errorRateRow, error)
 	GetP95Latency(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]p95LatencyRow, error)
+	GetChartMetrics(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]chartMetricsRow, error)
 	GetServices(ctx context.Context, teamID int64, startMs, endMs int64) ([]serviceMetricRow, error)
 	GetTopEndpoints(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]endpointMetricRow, error)
 	GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) (serviceMetricRow, error)
@@ -155,12 +156,54 @@ type p95LatencyRow struct {
 	P95         float64   `ch:"p95"`
 }
 
+// chartMetricsRow is the DTO for GetChartMetrics. Combines request count,
+// error count and p95 latency per (time_bucket, service_name) in a single
+// rollup scan so the Summary-tab below-fold charts can use one endpoint and
+// one CH query instead of three parallel queries against the same table.
+type chartMetricsRow struct {
+	Timestamp    time.Time `ch:"time_bucket"`
+	ServiceName  string    `ch:"service_name"`
+	RequestCount uint64    `ch:"request_count"`
+	ErrorCount   uint64    `ch:"error_count"`
+	P95          float64   `ch:"p95"`
+}
+
+func (r *ClickHouseRepository) GetChartMetrics(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]chartMetricsRow, error) {
+	table, tierStep := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		       service_name,
+		       sumMerge(request_count)                                            AS request_count,
+		       sumMerge(error_count)                                              AS error_count,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95
+		FROM %s
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end`, table)
+	args := append(rollupParams(teamID, startMs, endMs),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
+	)
+	if serviceName != "" {
+		query += serviceNameFilter
+		args = append(args, clickhouse.Named("serviceName", serviceName))
+	}
+	query += `
+		GROUP BY time_bucket, service_name
+		ORDER BY time_bucket ASC, service_name ASC
+		LIMIT 10000`
+
+	var rows []chartMetricsRow
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
 func (r *ClickHouseRepository) GetP95Latency(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]p95LatencyRow, error) {
 	table, tierStep := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       service_name,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end`, table)
@@ -201,13 +244,14 @@ func (r *ClickHouseRepository) GetServices(ctx context.Context, teamID int64, st
 		       sumMerge(request_count)                                            AS request_count,
 		       sumMerge(error_count)                                              AS error_count,
 		       sumMerge(duration_ms_sum)                                          AS duration_ms_sum,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 AS p50_latency,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_latency,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 AS p99_latency
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) AS p50_latency,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_latency,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) AS p99_latency
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
 		GROUP BY service_name
+		HAVING request_count > 0
 		ORDER BY request_count DESC`, table)
 
 	var rows []serviceMetricRow
@@ -241,9 +285,9 @@ func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64
 		       sumMerge(request_count)                                            AS request_count,
 		       sumMerge(error_count)                                              AS error_count,
 		       sumMerge(duration_ms_sum)                                          AS duration_ms_sum,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 AS p50_latency,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_latency,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 AS p99_latency
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) AS p50_latency,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_latency,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) AS p99_latency
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -255,6 +299,7 @@ func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64
 	}
 	query += `
 		GROUP BY service_name, operation_name, endpoint, http_method
+		HAVING request_count > 0
 		ORDER BY request_count DESC
 		LIMIT 100`
 
@@ -272,9 +317,9 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		       sumMerge(request_count)                                            AS request_count,
 		       sumMerge(error_count)                                              AS error_count,
 		       sumMerge(duration_ms_sum)                                          AS duration_ms_sum,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 AS p50_latency,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_latency,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 AS p99_latency
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) AS p50_latency,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_latency,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) AS p99_latency
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end`, table)

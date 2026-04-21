@@ -16,7 +16,7 @@ import (
 // JVM metrics read from the Phase-9 cascade:
 //
 //   - gauge metrics (jvm.memory.*, jvm.thread.count, jvm.classes.*, jvm.cpu.*,
-//     jvm.buffer.*) → `metrics_gauges_rollup_v2` via extended state_dim
+//     jvm.buffer.*) → metrics_gauges_rollup via extended state_dim
 //     extractor (pool.name | type, thread.daemon, buffer.pool.name).
 //   - histogram metrics (jvm.gc.duration) → `metrics_histograms_rollup`.
 //
@@ -24,7 +24,7 @@ import (
 // rollup dim (the histograms rollup keys only metric_name + service). Future
 // work: extend metrics_histograms_rollup with a generic-attribute dim column.
 const (
-	metricsGaugesV2Prefix = "observability.metrics_gauges_rollup_v2"
+	metricsGaugesRollupPrefix = "observability.metrics_gauges_rollup"
 	metricsHistPrefix     = "observability.metrics_histograms_rollup"
 )
 
@@ -54,7 +54,7 @@ func bucketExpr(startMs, endMs int64) string {
 // column (MV emits `concat(pool, '|', type)`). Values split across 3
 // metric_names; folded client-side.
 func (r *ClickHouseRepository) GetJVMMemory(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmMemoryBucketDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesV2Prefix, startMs, endMs)
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                         AS time_bucket,
@@ -114,9 +114,9 @@ func (r *ClickHouseRepository) GetJVMGCDuration(ctx context.Context, teamID int6
 	table, _ := rollup.TierTableFor(metricsHistPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1  AS p50,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2  AS p95,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3  AS p99,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1])  AS p50,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])  AS p95,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3])  AS p99,
 		    sumMerge(hist_sum) / nullIf(toFloat64(sumMerge(hist_count)), 0)      AS avg_val
 		FROM %s
 		WHERE team_id = @teamID
@@ -161,7 +161,7 @@ func (r *ClickHouseRepository) GetJVMGCCollections(ctx context.Context, teamID i
 }
 
 func (r *ClickHouseRepository) GetJVMThreadCount(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmThreadBucketDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesV2Prefix, startMs, endMs)
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                         AS time_bucket,
@@ -185,7 +185,7 @@ func (r *ClickHouseRepository) GetJVMThreadCount(ctx context.Context, teamID int
 }
 
 func (r *ClickHouseRepository) GetJVMClasses(ctx context.Context, teamID int64, startMs, endMs int64) (jvmClassStatsDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesV2Prefix, startMs, endMs)
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT metric_name                                                             AS metric_name,
 		       sumMerge(value_sum)                                                     AS val_sum,
@@ -224,7 +224,7 @@ func (r *ClickHouseRepository) GetJVMClasses(ctx context.Context, teamID int64, 
 }
 
 func (r *ClickHouseRepository) GetJVMCPU(ctx context.Context, teamID int64, startMs, endMs int64) (jvmCPUStatsDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesV2Prefix, startMs, endMs)
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT metric_name                                                             AS metric_name,
 		       sumMerge(value_sum)                                                     AS val_sum,
@@ -259,7 +259,7 @@ func (r *ClickHouseRepository) GetJVMCPU(ctx context.Context, teamID int64, star
 }
 
 func (r *ClickHouseRepository) GetJVMBuffers(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmBufferBucketDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesV2Prefix, startMs, endMs)
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                         AS time_bucket,
