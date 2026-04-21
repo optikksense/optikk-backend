@@ -7,22 +7,22 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 )
 
-// Reads target `observability.spans_rollup_1m` — an AggregatingMergeTree
-// populated by the `spans_to_rollup_1m` MV at ingest. State columns store the
-// t-digest + sum states; `quantileTDigestMerge(...)` and `sumMerge(...)` merge
-// them server-side at query time. Query cost is O(buckets_in_range × dims),
-// not O(raw_spans_in_range) — ~100–1000× fewer rows scanned vs. the prior
-// quantileTDigest-on-raw shape.
+// Reads target the `observability.spans_rollup_{1m,5m,1h}` cascade — Phase 6
+// adds the `_5m` and `_1h` tiers so long-range queries scan a few hundred
+// coarser rollup rows instead of 10k+ 1-minute buckets. `rollup.TierTableFor`
+// picks the tier by range; `@intervalMin` defines the query-time step (>= the
+// tier's native step when the dashboard wants coarser buckets).
 //
-// SQL discipline in this file: only `quantileTDigestMerge`, `sumMerge`,
-// `toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin))`, plain
-// column references, and `@name` bindings. No `quantileTDigest(raw)`, no
-// `sumIf`/`countIf`/`avgIf`/`avg(col)`, no `toInt64`/`toFloat64`/`toUInt*`
-// casts, no `if`/`multiIf`/`CASE`, no `coalesce`/`nullIf` (the coalesce that
-// produces `endpoint` happens at MV time, once per ingest, not per query).
-const serviceNameFilter = " AND service_name = @serviceName"
+// SQL discipline: only `quantilesTDigestWeightedMerge`, `sumMerge`,
+// `toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin))`, plain column
+// references, and `@name` bindings.
+const (
+	serviceNameFilter = " AND service_name = @serviceName"
+	spansRollupPrefix = "observability.spans_rollup"
+)
 
 type Repository interface {
 	GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]requestRateRow, error)
@@ -41,22 +41,27 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-// intervalMinutesFor returns the adaptive step for bucket aggregation matching
-// the prior `timebucket.ExprForColumnTime` semantics. The rollup table is
-// 1-minute granular; callers re-aggregate to coarser steps via
-// `toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin))` at read time.
-func intervalMinutesFor(startMs, endMs int64) int64 {
+// queryIntervalMinutes returns the step (in minutes) for the query-time
+// `toStartOfInterval` group-by. Returns max(tierStep, dashboardStep) so the
+// step is never finer than the tier's native resolution. The dashboard steps
+// 1/5/60/1440 match the pre-Phase-6 `intervalMinutesFor` shape.
+func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 	hours := (endMs - startMs) / 3_600_000
+	var dashStep int64
 	switch {
 	case hours <= 3:
-		return 1
+		dashStep = 1
 	case hours <= 24:
-		return 5
+		dashStep = 5
 	case hours <= 168:
-		return 60
+		dashStep = 60
 	default:
-		return 1440
+		dashStep = 1440
 	}
+	if tierStepMin > dashStep {
+		return tierStepMin
+	}
+	return dashStep
 }
 
 // rollupParams returns the named parameters common to rollup reads: teamID +
@@ -78,15 +83,16 @@ type requestRateRow struct {
 }
 
 func (r *ClickHouseRepository) GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]requestRateRow, error) {
-	query := `
+	table, tierStep := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       service_name,
 		       sumMerge(request_count) AS request_count
-		FROM observability.spans_rollup_1m
+		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end`
+		  AND bucket_ts BETWEEN @start AND @end`, table)
 	args := append(rollupParams(teamID, startMs, endMs),
-		clickhouse.Named("intervalMin", intervalMinutesFor(startMs, endMs)),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
 	)
 	if serviceName != "" {
 		query += serviceNameFilter
@@ -114,16 +120,17 @@ type errorRateRow struct {
 }
 
 func (r *ClickHouseRepository) GetErrorRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]errorRateRow, error) {
-	query := `
+	table, tierStep := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       service_name,
 		       sumMerge(request_count) AS request_count,
 		       sumMerge(error_count)   AS error_count
-		FROM observability.spans_rollup_1m
+		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end`
+		  AND bucket_ts BETWEEN @start AND @end`, table)
 	args := append(rollupParams(teamID, startMs, endMs),
-		clickhouse.Named("intervalMin", intervalMinutesFor(startMs, endMs)),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
 	)
 	if serviceName != "" {
 		query += serviceNameFilter
@@ -149,19 +156,16 @@ type p95LatencyRow struct {
 }
 
 func (r *ClickHouseRepository) GetP95Latency(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]p95LatencyRow, error) {
-	// quantileTDigestMerge indexes into the quantilesTDigestWeightedState by position:
-	// the MV stores (0.5, 0.95, 0.99); index 2 is p95. (CH returns a tuple; we pick
-	// element 2 with `.2` — 1-based.) Using the positional accessor avoids the need
-	// for a second `quantileTDigestMerge` with a different arg.
+	table, tierStep := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       service_name,
 		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95
-		FROM observability.spans_rollup_1m
+		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end`)
+		  AND bucket_ts BETWEEN @start AND @end`, table)
 	args := append(rollupParams(teamID, startMs, endMs),
-		clickhouse.Named("intervalMin", intervalMinutesFor(startMs, endMs)),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
 	)
 	if serviceName != "" {
 		query += serviceNameFilter
@@ -179,22 +183,20 @@ func (r *ClickHouseRepository) GetP95Latency(ctx context.Context, teamID int64, 
 	return rows, nil
 }
 
-// serviceMetricRow is the DTO for GetServices + GetSummary. The three
-// percentile columns come from a single `quantilesTDigestWeightedMerge` tuple
-// (CH returns the quantiles in one pass; Go destructures via three separate
-// fields with tuple-element accessors in the SELECT).
+// serviceMetricRow is the DTO for GetServices + GetSummary.
 type serviceMetricRow struct {
-	ServiceName    string  `ch:"service_name"`
-	RequestCount   uint64  `ch:"request_count"`
-	ErrorCount     uint64  `ch:"error_count"`
-	DurationMsSum  float64 `ch:"duration_ms_sum"`
-	P50Latency     float64 `ch:"p50_latency"`
-	P95Latency     float64 `ch:"p95_latency"`
-	P99Latency     float64 `ch:"p99_latency"`
+	ServiceName   string  `ch:"service_name"`
+	RequestCount  uint64  `ch:"request_count"`
+	ErrorCount    uint64  `ch:"error_count"`
+	DurationMsSum float64 `ch:"duration_ms_sum"`
+	P50Latency    float64 `ch:"p50_latency"`
+	P95Latency    float64 `ch:"p95_latency"`
+	P99Latency    float64 `ch:"p99_latency"`
 }
 
 func (r *ClickHouseRepository) GetServices(ctx context.Context, teamID int64, startMs, endMs int64) ([]serviceMetricRow, error) {
-	query := `
+	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
 		SELECT service_name,
 		       sumMerge(request_count)                                            AS request_count,
 		       sumMerge(error_count)                                              AS error_count,
@@ -202,11 +204,11 @@ func (r *ClickHouseRepository) GetServices(ctx context.Context, teamID int64, st
 		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 AS p50_latency,
 		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_latency,
 		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 AS p99_latency
-		FROM observability.spans_rollup_1m
+		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
 		GROUP BY service_name
-		ORDER BY request_count DESC`
+		ORDER BY request_count DESC`, table)
 
 	var rows []serviceMetricRow
 	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, rollupParams(teamID, startMs, endMs)...); err != nil {
@@ -215,24 +217,23 @@ func (r *ClickHouseRepository) GetServices(ctx context.Context, teamID int64, st
 	return rows, nil
 }
 
-// endpointMetricRow is the DTO for GetTopEndpoints. Endpoint string is
-// coalesced at MV time (route → target → name), so the rollup stores it
-// directly — no runtime fallback here.
+// endpointMetricRow is the DTO for GetTopEndpoints.
 type endpointMetricRow struct {
-	ServiceName    string  `ch:"service_name"`
-	OperationName  string  `ch:"operation_name"`
-	EndpointName   string  `ch:"endpoint"`
-	HTTPMethod     string  `ch:"http_method"`
-	RequestCount   uint64  `ch:"request_count"`
-	ErrorCount     uint64  `ch:"error_count"`
-	DurationMsSum  float64 `ch:"duration_ms_sum"`
-	P50Latency     float64 `ch:"p50_latency"`
-	P95Latency     float64 `ch:"p95_latency"`
-	P99Latency     float64 `ch:"p99_latency"`
+	ServiceName   string  `ch:"service_name"`
+	OperationName string  `ch:"operation_name"`
+	EndpointName  string  `ch:"endpoint"`
+	HTTPMethod    string  `ch:"http_method"`
+	RequestCount  uint64  `ch:"request_count"`
+	ErrorCount    uint64  `ch:"error_count"`
+	DurationMsSum float64 `ch:"duration_ms_sum"`
+	P50Latency    float64 `ch:"p50_latency"`
+	P95Latency    float64 `ch:"p95_latency"`
+	P99Latency    float64 `ch:"p99_latency"`
 }
 
 func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]endpointMetricRow, error) {
-	query := `
+	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
 		SELECT service_name,
 		       operation_name,
 		       endpoint,
@@ -243,10 +244,10 @@ func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64
 		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 AS p50_latency,
 		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_latency,
 		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 AS p99_latency
-		FROM observability.spans_rollup_1m
+		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
-		  AND endpoint != ''`
+		  AND endpoint != ''`, table)
 	args := rollupParams(teamID, startMs, endMs)
 	if serviceName != "" {
 		query += serviceNameFilter
@@ -265,7 +266,8 @@ func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64
 }
 
 func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) (serviceMetricRow, error) {
-	query := `
+	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
 		SELECT '' AS service_name,
 		       sumMerge(request_count)                                            AS request_count,
 		       sumMerge(error_count)                                              AS error_count,
@@ -273,9 +275,9 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 AS p50_latency,
 		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_latency,
 		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 AS p99_latency
-		FROM observability.spans_rollup_1m
+		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end`
+		  AND bucket_ts BETWEEN @start AND @end`, table)
 
 	var row serviceMetricRow
 	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, rollupParams(teamID, startMs, endMs)...).ScanStruct(&row); err != nil {

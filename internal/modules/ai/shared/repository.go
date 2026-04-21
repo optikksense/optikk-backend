@@ -10,9 +10,48 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/explorer/analytics"
 )
+
+// aiSpansRollupPrefix backs the migrated aggregate AI reads. Rollup is
+// keyed (team_id, bucket_ts, ai_system, ai_model, ai_operation,
+// service_name) and carries request/error counts, token sums, and a
+// t-digest latency state. Fields not represented by the rollup — TTFT,
+// cost, quality score, prompt template — surface as zero.
+const aiSpansRollupPrefix = "observability.ai_spans_rollup"
+
+// queryIntervalMinutes mirrors overview/overview/repository.go — returns
+// max(tierStep, dashboardStep) for the rollup query-time step.
+func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
+	hours := (endMs - startMs) / 3_600_000
+	var dashStep int64
+	switch {
+	case hours <= 3:
+		dashStep = 1
+	case hours <= 24:
+		dashStep = 5
+	case hours <= 168:
+		dashStep = 60
+	default:
+		dashStep = 1440
+	}
+	if tierStepMin > dashStep {
+		return tierStepMin
+	}
+	return dashStep
+}
+
+// aiRollupParams returns the named parameters for rollup reads:
+// teamID + DateTime-aligned start/end bucket_ts bounds.
+func aiRollupParams(teamID, startMs, endMs int64) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 - tenant id fits uint32
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+}
 
 type Repository interface {
 	GetOverview(ctx context.Context, teamID, startMs, endMs int64) (AIOverview, error)
@@ -48,32 +87,38 @@ func (r *repository) GetOverviewTimeseries(ctx context.Context, teamID, startMs,
 	return r.TrendRuns(ctx, queryContext{teamID: teamID, start: startMs, end: endMs}, step)
 }
 
+// GetTopModels aggregates request/error/latency/token state per (provider,
+// request_model). Sourced from the `ai_spans_rollup_*` cascade; TTFT,
+// cost, and quality score are not carried by the rollup so those fields
+// come back as zero.
 func (r *repository) GetTopModels(ctx context.Context, teamID, startMs, endMs int64, limit int) ([]AIModelBreakdown, error) {
 	if limit <= 0 {
 		limit = defaultBreakdownLimit
 	}
 
-	where, args := buildAIWhereClause(queryContext{teamID: teamID, start: startMs, end: endMs})
+	table, _ := rollup.TierTableFor(aiSpansRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT
-			ai.provider,
-			ai.request_model,
-			count() AS requests,
-			countIf(ai.has_error) AS error_runs,
-			avg(ai.latency_ms) AS avg_latency_ms,
-			avg(ai.ttft_ms) AS avg_ttft_ms,
-			sum(ai.total_tokens) AS total_tokens,
-			sum(ai.cost_usd) AS total_cost_usd,
-			if(countIf(ai.quality_score > 0) = 0, 0, avgIf(ai.quality_score, ai.quality_score > 0)) AS avg_quality_score
-		FROM %s ai
-		WHERE %s AND ai.request_model != ''
-		GROUP BY ai.provider, ai.request_model
+			ai_system                                                           AS provider,
+			ai_model                                                            AS request_model,
+			sumMerge(request_count)                                             AS requests,
+			sumMerge(error_count)                                               AS error_runs,
+			quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 AS avg_latency_ms,
+			toFloat64(0)                                                        AS avg_ttft_ms,
+			toFloat64(sumMerge(input_tokens_sum) + sumMerge(output_tokens_sum)) AS total_tokens,
+			toFloat64(0)                                                        AS total_cost_usd,
+			toFloat64(0)                                                        AS avg_quality_score
+		FROM %s
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND ai_model != ''
+		GROUP BY ai_system, ai_model
 		ORDER BY requests DESC
 		LIMIT %d
-	`, aiRunsSubquery(), where, limit)
+	`, table, limit)
 
 	var rows []AIModelBreakdown
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, aiRollupParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	for idx := range rows {

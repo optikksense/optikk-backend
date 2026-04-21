@@ -4,14 +4,75 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 )
 
 // genAIBaseFilter ensures we only query spans with a non-empty gen_ai.system attribute.
 const genAIBaseFilter = `JSONExtractString(s.attributes, 'gen_ai.system') != ''`
+
+// aiSpansRollupPrefix backs the migrated aggregate reads. Rollup schema is
+// keyed on (team_id, bucket_ts, ai_system, ai_model, ai_operation,
+// service_name) and stores request/error counts, input/output token sums,
+// plus a t-digest latency state.
+const aiSpansRollupPrefix = "observability.ai_spans_rollup"
+
+// queryIntervalMinutes returns max(tierStep, dashboardStep) for the rollup
+// query-time step. Mirrors overview/overview/repository.go.
+func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
+	hours := (endMs - startMs) / 3_600_000
+	var dashStep int64
+	switch {
+	case hours <= 3:
+		dashStep = 1
+	case hours <= 24:
+		dashStep = 5
+	case hours <= 168:
+		dashStep = 60
+	default:
+		dashStep = 1440
+	}
+	if tierStepMin > dashStep {
+		return tierStepMin
+	}
+	return dashStep
+}
+
+// buildAIRollupWhere produces a WHERE clause for the AI-spans rollup.
+// Only rollup-dimensional filters survive — attribute-map filters (prompt
+// template, provider-specific flags, session IDs, etc.) are dropped.
+func buildAIRollupWhere(teamID, startMs, endMs int64, filters []attrFilter) (string, []any) {
+	frag := ` WHERE team_id = @teamID AND bucket_ts BETWEEN @start AND @end`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 - tenant id fits uint32
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+
+	for i, af := range filters {
+		valueName := fmt.Sprintf("fValue%d", i)
+		switch af.Key {
+		case "__service_name":
+			frag += fmt.Sprintf(` AND service_name = @%s`, valueName)
+			args = append(args, clickhouse.Named(valueName, af.Value))
+		case "gen_ai.system", "ai_system":
+			frag += fmt.Sprintf(` AND ai_system = @%s`, valueName)
+			args = append(args, clickhouse.Named(valueName, af.Value))
+		case "gen_ai.request.model", "gen_ai.response.model", "ai_model":
+			frag += fmt.Sprintf(` AND ai_model = @%s`, valueName)
+			args = append(args, clickhouse.Named(valueName, af.Value))
+		case "gen_ai.operation.name", "ai_operation":
+			frag += fmt.Sprintf(` AND ai_operation = @%s`, valueName)
+			args = append(args, clickhouse.Named(valueName, af.Value))
+		}
+		// All other filters (prompt template, status, session, etc.) cannot
+		// be expressed against the rollup and are silently dropped.
+	}
+	return frag, args
+}
 
 // Repository defines the data-access interface for AI explorer queries.
 type Repository interface {
@@ -81,22 +142,26 @@ func (r *ClickHouseRepository) GetAICalls(ctx context.Context, teamID, startMs, 
 	return rows, total, nil
 }
 
-// GetAISummary returns aggregated statistics for the query window.
+// GetAISummary returns aggregated statistics for the query window, sourced
+// from the `ai_spans_rollup_*` cascade. `avg_latency_ms` is derived in SQL
+// via duration_ms is not carried per-row — we surface the p50 t-digest
+// value as the avg proxy, which is close enough for a UI summary card.
 func (r *ClickHouseRepository) GetAISummary(ctx context.Context, teamID, startMs, endMs int64, filters []attrFilter) (aiSummaryRow, error) {
-	where, args := buildAIWhereClause(teamID, startMs, endMs, filters)
+	table, _ := rollup.TierTableFor(aiSpansRollupPrefix, startMs, endMs)
+	where, args := buildAIRollupWhere(teamID, startMs, endMs, filters)
 
 	query := fmt.Sprintf(`
 		SELECT
-			count() AS total_calls,
-			countIf(s.status_code_string = 'ERROR' OR s.has_error = true) AS error_calls,
-			avg(s.duration_nano / 1000000.0) AS avg_latency_ms,
-			quantileTDigest(0.50)(s.duration_nano / 1000000.0) AS p50_latency_ms,
-			quantileTDigest(0.95)(s.duration_nano / 1000000.0) AS p95_latency_ms,
-			quantileTDigest(0.99)(s.duration_nano / 1000000.0) AS p99_latency_ms,
-			sum(toFloat64OrZero(JSONExtractString(s.attributes, 'gen_ai.usage.input_tokens'))) AS total_input_tokens,
-			sum(toFloat64OrZero(JSONExtractString(s.attributes, 'gen_ai.usage.output_tokens'))) AS total_output_tokens
-		FROM observability.spans s
-		%s`, where)
+			sumMerge(request_count)                                              AS total_calls,
+			sumMerge(error_count)                                                AS error_calls,
+			quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1  AS avg_latency_ms,
+			quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1  AS p50_latency_ms,
+			quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2  AS p95_latency_ms,
+			quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3  AS p99_latency_ms,
+			toFloat64(sumMerge(input_tokens_sum))                                AS total_input_tokens,
+			toFloat64(sumMerge(output_tokens_sum))                               AS total_output_tokens
+		FROM %s
+		%s`, table, where)
 
 	var row aiSummaryRow
 	if err := r.db.QueryRow(dbutil.ExplorerCtx(ctx), query, args...).ScanStruct(&row); err != nil {
@@ -142,32 +207,59 @@ func (r *ClickHouseRepository) GetAIFacets(ctx context.Context, teamID, startMs,
 	return rows, nil
 }
 
-// GetAITrend returns time-bucketed trend data.
+// GetAITrend returns time-bucketed trend data from the `ai_spans_rollup_*`
+// cascade. `avg_latency_ms` uses the p50 t-digest value as the summary
+// statistic (the rollup does not carry duration_ms_sum for AI spans); other
+// fields come from merged state columns.
 func (r *ClickHouseRepository) GetAITrend(ctx context.Context, teamID, startMs, endMs int64, filters []attrFilter, step string) ([]aiTrendRow, error) {
-	where, args := buildAIWhereClause(teamID, startMs, endMs, filters)
+	table, tierStep := rollup.TierTableFor(aiSpansRollupPrefix, startMs, endMs)
+	where, args := buildAIRollupWhere(teamID, startMs, endMs, filters)
 
-	bucketExpr := timebucket.Expression(startMs, endMs)
-	if step != "" {
-		bucketExpr = timebucket.ByName(step).GetBucketExpression()
+	stepMin := queryIntervalMinutes(tierStep, startMs, endMs)
+	if s := strings.TrimSpace(step); s != "" {
+		if explicit := aiStepFromName(s); explicit > 0 {
+			if explicit < tierStep {
+				explicit = tierStep
+			}
+			stepMin = explicit
+		}
 	}
 
 	query := fmt.Sprintf(`
 		SELECT
-			%s AS time_bucket,
-			count() AS total_calls,
-			countIf(s.status_code_string = 'ERROR' OR s.has_error = true) AS error_calls,
-			avg(s.duration_nano / 1000000.0) AS avg_latency_ms,
-			sum(toFloat64OrZero(JSONExtractString(s.attributes, 'gen_ai.usage.total_tokens'))) AS total_tokens
-		FROM observability.spans s
+			formatDateTime(toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)), '%%Y-%%m-%%d %%H:%%i:00') AS time_bucket,
+			sumMerge(request_count)                                              AS total_calls,
+			sumMerge(error_count)                                                AS error_calls,
+			quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1  AS avg_latency_ms,
+			toFloat64(sumMerge(input_tokens_sum) + sumMerge(output_tokens_sum))  AS total_tokens
+		FROM %s
 		%s
 		GROUP BY time_bucket
-		ORDER BY time_bucket`, bucketExpr, where)
+		ORDER BY time_bucket`, table, where)
+	args = append(args, clickhouse.Named("intervalMin", stepMin))
 
 	var rows []aiTrendRow
 	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
 		return nil, fmt.Errorf("ai.GetAITrend: %w", err)
 	}
 	return rows, nil
+}
+
+func aiStepFromName(step string) int64 {
+	switch step {
+	case "1m":
+		return 1
+	case "5m":
+		return 5
+	case "15m":
+		return 15
+	case "1h":
+		return 60
+	case "1d":
+		return 1440
+	default:
+		return 0
+	}
 }
 
 // sessionIDInnerSelect is the GenAI span subquery column that picks a stable session key from OTel attributes.

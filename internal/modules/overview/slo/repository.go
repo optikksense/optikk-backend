@@ -2,18 +2,23 @@ package slo
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 )
 
-// Reads target `observability.spans_rollup_1m` — see overview/repository.go
-// for the SQL discipline. SLO queries need count + error_count + duration_sum
-// + p95; every one of those is available as a state column + merge op, so the
-// query reduces to `sumMerge` and `quantilesTDigestWeightedMerge` calls.
+// Reads target `observability.spans_rollup_{1m,5m,1h}` — Phase 6 cascade
+// tiers picked via rollup.TierTableFor. SLO queries need count + error_count
+// + duration_sum + p95; every one of those is available as a state column +
+// merge op, so the query reduces to `sumMerge` and `quantilesTDigestWeightedMerge`.
 
-const serviceNameFilter = " AND service_name = @serviceName"
+const (
+	serviceNameFilter = " AND service_name = @serviceName"
+	spansRollupPrefix = "observability.spans_rollup"
+)
 
 type Repository interface {
 	GetSummary(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (Summary, error)
@@ -47,18 +52,23 @@ type BurnRate struct {
 	BudgetRemaining float64 `json:"budget_remaining_pct"`
 }
 
-func intervalMinutesFor(startMs, endMs int64) int64 {
+func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 	hours := (endMs - startMs) / 3_600_000
+	var dashStep int64
 	switch {
 	case hours <= 3:
-		return 1
+		dashStep = 1
 	case hours <= 24:
-		return 5
+		dashStep = 5
 	case hours <= 168:
-		return 60
+		dashStep = 60
 	default:
-		return 1440
+		dashStep = 1440
 	}
+	if tierStepMin > dashStep {
+		return tierStepMin
+	}
+	return dashStep
 }
 
 func rollupParams(teamID int64, startMs, endMs int64) []any {
@@ -79,14 +89,15 @@ type summaryRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (Summary, error) {
-	query := `
+	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
 		SELECT sumMerge(request_count)                                            AS request_count,
 		       sumMerge(error_count)                                              AS error_count,
 		       sumMerge(duration_ms_sum)                                          AS duration_ms_sum,
 		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_latency_ms
-		FROM observability.spans_rollup_1m
+		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end`
+		  AND bucket_ts BETWEEN @start AND @end`, table)
 	args := rollupParams(teamID, startMs, endMs)
 	if serviceName != "" {
 		query += serviceNameFilter
@@ -127,16 +138,17 @@ type timeSliceRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]TimeSlice, error) {
-	query := `
+	table, tierStep := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       sumMerge(request_count)                                      AS request_count,
 		       sumMerge(error_count)                                        AS error_count,
 		       sumMerge(duration_ms_sum)                                    AS duration_ms_sum
-		FROM observability.spans_rollup_1m
+		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end`
+		  AND bucket_ts BETWEEN @start AND @end`, table)
 	args := append(rollupParams(teamID, startMs, endMs),
-		clickhouse.Named("intervalMin", intervalMinutesFor(startMs, endMs)),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
 	)
 	if serviceName != "" {
 		query += serviceNameFilter
@@ -183,15 +195,16 @@ type burnDownRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetBurnDown(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]BurnDownPoint, error) {
-	query := `
+	table, tierStep := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       sumMerge(request_count)                                      AS request_count,
 		       sumMerge(error_count)                                        AS error_count
-		FROM observability.spans_rollup_1m
+		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end`
+		  AND bucket_ts BETWEEN @start AND @end`, table)
 	args := append(rollupParams(teamID, startMs, endMs),
-		clickhouse.Named("intervalMin", intervalMinutesFor(startMs, endMs)),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
 	)
 	if serviceName != "" {
 		query += serviceNameFilter
@@ -269,12 +282,14 @@ type errorRateRawRow struct {
 func (r *ClickHouseRepository) errorRateForWindow(ctx context.Context, teamID int64, minutes int, serviceName string) (float64, error) {
 	now := time.Now()
 	since := now.Add(-time.Duration(minutes) * time.Minute)
-	query := `
+	// fast burn rates use short windows (5m / 1h) — always pins to the _1m tier.
+	table, _ := rollup.TierTableFor(spansRollupPrefix, since.UnixMilli(), now.UnixMilli())
+	query := fmt.Sprintf(`
 		SELECT sumMerge(request_count) AS request_count,
 		       sumMerge(error_count)   AS error_count
-		FROM observability.spans_rollup_1m
+		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @since AND @nowTs`
+		  AND bucket_ts BETWEEN @since AND @nowTs`, table)
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("since", since),

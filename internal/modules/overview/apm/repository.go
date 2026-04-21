@@ -7,8 +7,33 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
+
+const metricsHistRollupPrefix = "observability.metrics_histograms_rollup"
+
+// queryIntervalMinutes returns the group-by step (in minutes) for rollup
+// reads. It is max(tierStep, dashboardStep) so the step is never finer than
+// the selected tier's native resolution.
+func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
+	hours := (endMs - startMs) / 3_600_000
+	var dashStep int64
+	switch {
+	case hours <= 3:
+		dashStep = 1
+	case hours <= 24:
+		dashStep = 5
+	case hours <= 168:
+		dashStep = 60
+	default:
+		dashStep = 1440
+	}
+	if tierStepMin > dashStep {
+		return tierStepMin
+	}
+	return dashStep
+}
 
 type Repository interface {
 	GetRPCDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
@@ -40,17 +65,18 @@ type histogramSummaryRawRow struct {
 }
 
 func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (histogramSummaryDTO, error) {
-	query := `
+	table, _ := rollup.TierTableFor(metricsHistRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
 		SELECT
 		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 AS p50,
 		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95,
 		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 AS p99,
 		    sumMerge(hist_sum)                                                  AS hist_sum,
 		    sumMerge(hist_count)                                                AS hist_count
-		FROM observability.metrics_histograms_rollup_1m
+		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName`
+		  AND metric_name = @metricName`, table)
 
 	var raw histogramSummaryRawRow
 	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, rollupParams(teamID, startMs, endMs, metricName)...).ScanStruct(&raw)
@@ -101,21 +127,25 @@ func (r *ClickHouseRepository) GetRPCDuration(ctx context.Context, teamID int64,
 
 func (r *ClickHouseRepository) GetRPCRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketDTO, error) {
 	// Pre-aggregated call count from the histogram rollup's `hist_count` state.
-	query := `
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(1)) AS time_bucket,
+	table, tierStep := rollup.TierTableFor(metricsHistRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       sumMerge(hist_count) AS val_u64
-		FROM observability.metrics_histograms_rollup_1m
+		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		GROUP BY time_bucket
-		ORDER BY time_bucket`
+		ORDER BY time_bucket`, table)
+	args := append(rollupParams(teamID, startMs, endMs, MetricRPCServerDuration),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
+	)
 
 	var raw []struct {
 		Timestamp time.Time `ch:"time_bucket"`
 		ValU64    uint64    `ch:"val_u64"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, rollupParams(teamID, startMs, endMs, MetricRPCServerDuration)...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]timeBucketDTO, len(raw))
