@@ -10,6 +10,12 @@ import (
 // cascade. Callers pass it to rollup.TierTableFor to pick a tier.
 const DBHistRollupPrefix = "observability.db_histograms_rollup"
 
+// DBHistRollupV2Prefix is the v2 cascade — superset of v1 adding
+// `db_connection_state` + `db_response_status_code` keys + gauge-row state
+// columns (value_sum / sample_count / value_last). Used by
+// saturation/database/connections + errors::GetErrorsByResponseStatus.
+const DBHistRollupV2Prefix = "observability.db_histograms_rollup_v2"
+
 // QueryIntervalMinutes returns the group-by step (in minutes) for rollup
 // reads. It is max(tierStep, dashboardStep) so the step is never finer than
 // the selected tier's native resolution.
@@ -79,6 +85,10 @@ func GroupColumnFor(attr string) string {
 		return "error_type"
 	case AttrPoolName:
 		return "pool_name"
+	case AttrConnectionState:
+		return "db_connection_state"
+	case AttrDBResponseStatus:
+		return "db_response_status_code"
 	}
 	return ""
 }

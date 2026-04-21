@@ -16,6 +16,7 @@ import (
 const (
 	spansRollupPrefix    = "observability.spans_rollup"
 	spansByVersionPrefix = "observability.spans_by_version"
+	aiSpansRollupV2Prefix = "observability.ai_spans_rollup_v2"
 )
 
 // EventStore persists alerting audit events (ClickHouse observability.alert_events).
@@ -196,26 +197,71 @@ func (s *chStore) AIMetric(ctx context.Context, teamID int64, targetRef json.Raw
 	if windowSecs <= 0 {
 		windowSecs = 300
 	}
-	where, args := shared.BuildAIWhereFromRef(teamID, targetRef)
-	where += fmt.Sprintf(" AND s.timestamp >= now() - INTERVAL %d SECOND", windowSecs)
-	return s.queryAIMetric(ctx, metric, where, args)
+	nowMs := time.Now().UnixMilli()
+	startMs := nowMs - windowSecs*1000
+	return s.aiMetricRange(ctx, teamID, targetRef, metric, startMs, nowMs)
 }
 
 func (s *chStore) AIMetricHistorical(ctx context.Context, teamID int64, targetRef json.RawMessage, metric string, fromMs, toMs, windowSecs int64) (float64, bool, error) {
 	_ = windowSecs
+	return s.aiMetricRange(ctx, teamID, targetRef, metric, fromMs, toMs)
+}
+
+// aiMetricRange serves AI metrics from `ai_spans_rollup_v2_*` when the target
+// filter is expressible in rollup keys (service / provider / model). Falls
+// back to raw when the filter uses `prompt_template` (not rollup-keyed).
+func (s *chStore) aiMetricRange(ctx context.Context, teamID int64, targetRef json.RawMessage, metric string, startMs, endMs int64) (float64, bool, error) {
+	if where, args, ok := shared.BuildAIRollupWhereFromRef(teamID, targetRef); ok {
+		return s.queryAIMetricRollup(ctx, metric, where, args, startMs, endMs)
+	}
 	where, args := shared.BuildAIWhereFromRef(teamID, targetRef)
 	where += " AND s.timestamp BETWEEN @start AND @end"
 	args = append(args,
-		clickhouse.Named("start", time.UnixMilli(fromMs)),
-		clickhouse.Named("end", time.UnixMilli(toMs)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
-	return s.queryAIMetric(ctx, metric, where, args)
+	return s.queryAIMetricRaw(ctx, metric, where, args)
 }
 
-// queryAIMetric stays on raw spans — `ai_spans_rollup` doesn't materialize
-// cost_usd or quality.score attributes needed here. Migrating requires a new
-// rollup shape; deferred.
-func (s *chStore) queryAIMetric(ctx context.Context, metric, where string, args []any) (float64, bool, error) {
+func (s *chStore) queryAIMetricRollup(ctx context.Context, metric, where string, args []any, startMs, endMs int64) (float64, bool, error) {
+	var selectExpr string
+	switch metric {
+	case "error_rate_pct":
+		selectExpr = "toFloat64(sumMerge(error_count)) * 100.0 / nullIf(toFloat64(sumMerge(request_count)), 0)"
+	case "cost_usd":
+		selectExpr = "sumMerge(cost_usd_sum)"
+	case "latency_ms":
+		selectExpr = "quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1"
+	case "quality_score":
+		selectExpr = "sumMerge(quality_score_sum) / nullIf(toFloat64(sumMerge(quality_score_count)), 0)"
+	default:
+		return 0, false, fmt.Errorf("unsupported AI metric: %q", metric)
+	}
+	table, _ := rollup.TierTableFor(aiSpansRollupV2Prefix, startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT toFloat64(%s) AS val, toFloat64(sumMerge(request_count)) AS total
+		FROM %s
+		WHERE %s AND bucket_ts BETWEEN @start AND @end`, selectExpr, table, where)
+	args = append(args,
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	)
+	var row struct {
+		Val   float64 `ch:"val"`
+		Total float64 `ch:"total"`
+	}
+	if err := s.ch.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&row); err != nil {
+		return 0, false, err
+	}
+	if row.Total <= 0 {
+		return 0, true, nil
+	}
+	return row.Val, false, nil
+}
+
+// queryAIMetricRaw is the fallback for rules that target prompt_template —
+// a dim the rollup doesn't key. Scans raw spans with the full WHERE builder.
+func (s *chStore) queryAIMetricRaw(ctx context.Context, metric, where string, args []any) (float64, bool, error) {
 	var selectExpr string
 	switch metric {
 	case "error_rate_pct":

@@ -14,10 +14,13 @@ import (
 // selected by `rollup.TierTableFor` based on range. Percentiles come from
 // `quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)` with
 // tuple accessors; counts/sums from `sumMerge`. Derived quantities (apdex,
-// error_rate, RPS) are computed Go-side. Span-kind breakdown queries the raw
-// table because `kind_string` is not a rollup dimension.
+// error_rate, RPS) are computed Go-side. Span-kind breakdown reads from the
+// dedicated `spans_kind_rollup` (Phase 9).
 
-const spansRollupPrefix = "observability.spans_rollup"
+const (
+	spansRollupPrefix     = "observability.spans_rollup"
+	spansKindRollupPrefix = "observability.spans_kind_rollup"
+)
 
 type Repository interface {
 	GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) ([]redSummaryServiceRow, error)
@@ -375,17 +378,18 @@ type spanKindRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]SpanKindPoint, error) {
-	query := `
-		SELECT toStartOfInterval(timestamp, toIntervalMinute(@intervalMin)) AS timestamp,
+	table, tierStep := rollup.TierTableFor(spansKindRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
 		       kind_string,
-		       count() AS span_count
-		FROM observability.spans
+		       toInt64(sumMerge(request_count)) AS span_count
+		FROM %s
 		WHERE team_id = @teamID
-		  AND timestamp BETWEEN @start AND @end
+		  AND bucket_ts BETWEEN @start AND @end
 		GROUP BY timestamp, kind_string
-		ORDER BY timestamp ASC`
+		ORDER BY timestamp ASC`, table)
 	args := append(rollupParams(teamID, startMs, endMs),
-		clickhouse.Named("intervalMin", queryIntervalMinutes(1, startMs, endMs)),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
 	)
 
 	var raw []spanKindRawRow

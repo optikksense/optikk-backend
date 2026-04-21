@@ -34,7 +34,14 @@ type errorRawRow struct {
 }
 
 func (r *ClickHouseRepository) errorSeriesByAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]ErrorTimeSeries, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	// v2 rollup is required when grouping on `db_response_status_code`
+	// (phase-9 addition); v1 covers the rest. Both share the same state
+	// columns for the hist_count / error_type filter used here.
+	prefix := shared.DBHistRollupPrefix
+	if groupAttr == shared.AttrDBResponseStatus || groupAttr == shared.AttrConnectionState {
+		prefix = shared.DBHistRollupV2Prefix
+	}
+	table, tierStep := rollup.TierTableFor(prefix, startMs, endMs)
 	fc, fargs := shared.RollupFilterClauses(f)
 	groupCol := shared.GroupColumnFor(groupAttr)
 
@@ -92,16 +99,20 @@ func (r *ClickHouseRepository) GetErrorsByCollection(ctx context.Context, teamID
 	return r.errorSeriesByAttr(ctx, teamID, startMs, endMs, shared.AttrDBCollectionName, f)
 }
 
-// GetErrorsByResponseStatus groups by db.response.status_code, which is not a
-// rollup key column. Keep on raw metrics until the rollup is extended or
-// status_code is dropped from the dashboard.
-// TODO(phase8): add response_status to db_histograms_rollup key or drop panel.
+// GetErrorsByResponseStatus groups by `db_response_status_code`, a v2-only
+// rollup key added in Phase 9. Reads from `db_histograms_rollup_v2`.
 func (r *ClickHouseRepository) GetErrorsByResponseStatus(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ErrorTimeSeries, error) {
-	return r.errorSeriesByRawAttr(ctx, teamID, startMs, endMs, shared.AttrDBResponseStatus, f)
+	return r.errorSeriesByAttr(ctx, teamID, startMs, endMs, shared.AttrDBResponseStatus, f)
+}
+
+// errorSeriesByRawAttr is retained as a safety fallback for future attributes
+// not yet added to the rollup. No current caller.
+func (r *ClickHouseRepository) errorSeriesByRawAttr_unused(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]ErrorTimeSeries, error) { //nolint:unused
+	return r.errorSeriesByRawAttr(ctx, teamID, startMs, endMs, groupAttr, f)
 }
 
 // errorSeriesByRawAttr is the legacy raw-metrics path, retained only for
-// dimensions not present in db_histograms_rollup (see TODO phase8 above).
+// dimensions not present in db_histograms_rollup (see errorSeriesByRawAttr_unused).
 func (r *ClickHouseRepository) errorSeriesByRawAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]ErrorTimeSeries, error) {
 	fc, fargs := shared.FilterClauses(f)
 	groupExpr := shared.AttrString(groupAttr)
