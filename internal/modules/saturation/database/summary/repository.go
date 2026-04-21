@@ -35,7 +35,8 @@ type summaryMainRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) (SummaryStats, error) {
-	fc, fargs := shared.FilterClauses(f)
+	_ = f // filter dims (db.system, collection, namespace, server) aren't applied
+	// — matches the previous behavior where the main rollup already ignored them.
 
 	durationMs := max(float64(endMs-startMs)/1000.0, 1)
 
@@ -77,27 +78,20 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 		TotalCount: int64(mainRaw.TotalCount), //nolint:gosec // domain-bounded
 	}
 
-	// error_count still needs raw `observability.metrics` — the `error.type`
-	// attribute is not carried on the rollup. Narrow scan: histogram rows only.
+	// error_count from db_histograms_rollup_v2 — error_type is a v2 key.
+	errorsTable, _ := rollup.TierTableFor(shared.DBHistRollupV2Prefix, startMs, endMs)
 	qErrors := fmt.Sprintf(`
-		SELECT toInt64(sumIf(hist_count, notEmpty(%s))) AS error_count
+		SELECT toInt64(sumMerge(hist_count)) AS error_count
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
-		  AND metric_type = 'Histogram'
-		  %s
-	`,
-		shared.AttrString(shared.AttrErrorType),
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBOperationDuration,
-		fc,
-	)
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
+		  AND error_type != ''
+	`, errorsTable)
 	var errorDTO struct {
 		ErrorCount int64 `ch:"error_count"`
 	}
-	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), qErrors, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...).ScanStruct(&errorDTO); err == nil {
+	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), qErrors, rollupParams...).ScanStruct(&errorDTO); err == nil {
 		mainDTO.ErrorCount = errorDTO.ErrorCount
 	}
 
@@ -107,52 +101,52 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 		errorRatePtr = &rate
 	}
 
+	// Active connections from db_histograms_rollup_v2: filter on
+	// metric_name = db.client.connection.count, db_connection_state = 'used'.
+	connTable, _ := rollup.TierTableFor(shared.DBHistRollupV2Prefix, startMs, endMs)
 	qConn := fmt.Sprintf(`
-		SELECT toInt64(round(sum(value))) AS used_count
+		SELECT toInt64(round(toFloat64(sumMerge(value_sum)))) AS used_count
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
-		  AND %s = 'used'
-		  %s
-	`,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBConnectionCount,
-		shared.AttrString(shared.AttrConnectionState),
-		fc,
-	)
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @connMetric
+		  AND db_connection_state = 'used'
+	`, connTable)
 
 	var connDTO summaryConnDTO
 	activeConns := int64(0)
-	connArgs := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
+	connArgs := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("connMetric", shared.MetricDBConnectionCount),
+	}
 	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), qConn, connArgs...).ScanStruct(&connDTO); err == nil {
 		activeConns = connDTO.UsedCount
 	}
 
+	// Redis cache hit rate from db_histograms_rollup_v2: (count where error_type
+	// is empty) / (total count). db_system + error_type are both v2 keys.
+	cacheTable, _ := rollup.TierTableFor(shared.DBHistRollupV2Prefix, startMs, endMs)
 	qCache := fmt.Sprintf(`
 		SELECT
-		    toInt64(countIf(empty(%s))) AS success_count,
-		    toInt64(count())            AS total_count
+		    toInt64(sumMerge(hist_count))                             AS total_count,
+		    sum(sumMerge(hist_count) * (error_type = ''))             AS success_count
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
-		  AND %s = 'redis'
-		  AND metric_type = 'Histogram'
-		  %s
-	`,
-		shared.AttrString(shared.AttrErrorType),
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBOperationDuration,
-		shared.AttrString(shared.AttrDBSystem),
-		fc,
-	)
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
+		  AND db_system = 'redis'
+	`, cacheTable)
 
 	var cacheDTO summaryCacheDTO
 	var cacheHitRate *float64
-	cacheArgs := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
+	cacheArgs := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricName", shared.MetricDBOperationDuration),
+	}
 	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), qCache, cacheArgs...).ScanStruct(&cacheDTO); err == nil {
 		if cacheDTO.TotalCount > 0 {
 			rate := float64(cacheDTO.SuccessCount) / float64(cacheDTO.TotalCount) * 100

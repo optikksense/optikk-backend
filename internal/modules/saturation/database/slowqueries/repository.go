@@ -7,7 +7,6 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
@@ -101,35 +100,39 @@ func (r *ClickHouseRepository) GetSlowestCollections(ctx context.Context, teamID
 	return rows, nil
 }
 
+// GetSlowQueryRate approximates slow-ops/sec via `db_histograms_rollup`'s
+// t-digest merge: whole buckets whose p95 exceeds the threshold contribute
+// their full `hist_count` as slow; faster buckets are filtered out via
+// HAVING. Coarser than the raw per-row `sumIf(hist_count, latency>threshold)`
+// (which the rollup can't express because per-row latencies collapse into the
+// digest), but bucket-level accurate and rollup-compatible.
 func (r *ClickHouseRepository) GetSlowQueryRate(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters, thresholdMs float64) ([]SlowRatePoint, error) {
-	bucket := timebucket.Expression(startMs, endMs)
-	fc, fargs := shared.FilterClauses(f)
+	table, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	fc, fargs := shared.RollupFilterClauses(f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
-	thresholdSec := thresholdMs / 1000.0
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                                                    AS time_bucket,
-		    toFloat64(sumIf(hist_count, (hist_sum / nullIf(hist_count, 0)) > %f)) / %f           AS slow_per_sec
+		    %s                                                                  AS time_bucket,
+		    toFloat64(sumMerge(hist_count)) / %f                                AS slow_per_sec
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
-		  AND metric_type = 'Histogram'
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket
+		HAVING quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 > @thresholdMs
 		ORDER BY time_bucket
 	`,
-		bucket,
-		thresholdSec, bucketSec,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBOperationDuration,
-		fc,
+		shared.BucketTimeExpr, bucketSec, table, fc,
 	)
-
+	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
+		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(60, startMs, endMs)),
+		clickhouse.Named("thresholdMs", thresholdMs),
+	)
+	args = append(args, fargs...)
 	var rows []SlowRatePoint
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
+	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
