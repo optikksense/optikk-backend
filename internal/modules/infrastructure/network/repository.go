@@ -12,7 +12,10 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
-const metricsGaugesRollupPrefix = "observability.metrics_gauges_rollup"
+const (
+	metricsGaugesRollupPrefix   = "observability.metrics_gauges_rollup"
+	metricsGaugesV2RollupPrefix = "observability.metrics_gauges_rollup_v2"
+)
 
 // queryIntervalMinutes returns the group-by step (in minutes) for rollup reads.
 // It is max(tierStep, dashboardStep) so the step is never finer than the
@@ -229,20 +232,31 @@ func (r *ClickHouseRepository) GetNetworkDropped(ctx context.Context, teamID int
 	return rows, nil
 }
 
-// TODO(phase8): rollup migration requires multi-metric fallback logic not yet supported by metrics_gauges_rollup
+// GetNetworkConnections reads per-network-state avg from
+// metrics_gauges_rollup_v2. `state_dim` extracts
+// `attributes.'system.network.state'` for the system.network.connections
+// metric (added in Phase-9 v2 extractor).
 func (r *ClickHouseRepository) GetNetworkConnections(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	b := bucket(startMs, endMs)
-	state := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrSystemNetworkState)
+	table, tierStep := rollup.TierTableFor(metricsGaugesV2RollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT %s as time_bucket, %s as state, avg(%s) as metric_val
+		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		       state_dim                                                    AS state,
+		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS metric_val
 		FROM %s
-		WHERE %s = @teamID AND %s BETWEEN @start AND @end AND %s = '%s'
-		GROUP BY 1, 2 ORDER BY 1, 2`,
-		b, state, infraconsts.ColValue,
-		infraconsts.TableMetrics,
-		infraconsts.ColTeamID, infraconsts.ColTimestamp,
-		infraconsts.ColMetricName, infraconsts.MetricSystemNetworkConnections)
-	return r.queryStateBuckets(ctx, query, teamID, startMs, endMs)
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
+		GROUP BY time_bucket, state
+		ORDER BY time_bucket, state`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricName", infraconsts.MetricSystemNetworkConnections),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
+	}
+	var rows []stateBucketDTO
+	return rows, r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...)
 }
 
 // ---------------------------------------------------------------------------
@@ -312,28 +326,26 @@ const (
 	colContainerCoalesce = "coalesce(nullIf(attributes.`container.name`::String, ''), nullIf(attributes.`k8s.container.name`::String, ''), '')"
 )
 
-func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64, startMs, endMs int64) ([]string, error) {
-	aNet := infraconsts.AttrFloat(infraconsts.AttrSystemNetworkUtilization)
-	query := fmt.Sprintf(`
-		SELECT DISTINCT %s as service_name
-		FROM %s
-		WHERE %s = @teamID AND %s BETWEEN @start AND @end
-		  AND %s != ''
-		  AND (
-		      %s = '%s'
-		      OR %s > 0
-		  )
-		ORDER BY service_name`,
-		infraconsts.ColServiceName,
-		infraconsts.TableMetrics,
-		infraconsts.ColTeamID, infraconsts.ColTimestamp,
-		infraconsts.ColServiceName,
-		infraconsts.ColMetricName, infraconsts.MetricSystemNetworkUtilization,
-		aNet)
+var netMetricNames = []string{infraconsts.MetricSystemNetworkUtilization}
 
+func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64, startMs, endMs int64) ([]string, error) {
+	table, _ := rollup.TierTableFor(metricsGaugesV2RollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT DISTINCT service AS service_name
+		FROM %s
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND service != ''
+		  AND metric_name IN @metricNames
+		ORDER BY service_name`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricNames", netMetricNames),
+	}
 	var rows []serviceNameRow
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
-	if err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	services := make([]string, len(rows))
@@ -343,62 +355,71 @@ func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64,
 	return services, nil
 }
 
-func (r *ClickHouseRepository) queryNetworkMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	aNet := infraconsts.AttrFloat(infraconsts.AttrSystemNetworkUtilization)
-	query := fmt.Sprintf(`
-		SELECT
-			avgIf(if(%s <= %s, %s * %s, %s), %s = '%s' AND isFinite(%s)) as system_net,
-			avgIf(if(%s <= %s, %s * %s, %s), %s > 0) as attr_net
-		FROM %s
-		WHERE %s = @teamID AND %s = @serviceName AND %s BETWEEN @start AND @end
-		  AND (
-		      %s = '%s'
-		      OR %s > 0
-		  )`,
-		infraconsts.ColValue, fmt.Sprintf("%.1f", infraconsts.PercentageThreshold), infraconsts.ColValue, fmt.Sprintf("%.1f", infraconsts.PercentageMultiplier), infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricSystemNetworkUtilization, infraconsts.ColValue,
-		aNet, fmt.Sprintf("%.1f", infraconsts.PercentageThreshold), aNet, fmt.Sprintf("%.1f", infraconsts.PercentageMultiplier), aNet, aNet,
-		infraconsts.TableMetrics,
-		infraconsts.ColTeamID, infraconsts.ColServiceName, infraconsts.ColTimestamp,
-		infraconsts.ColMetricName, infraconsts.MetricSystemNetworkUtilization,
-		aNet)
+type netMetricValueRow struct {
+	ValAvg float64 `ch:"val_avg"`
+}
 
-	var row netMetricRow
-	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, serviceParams(teamID, serviceName, startMs, endMs)...).ScanStruct(&row)
-	if err != nil {
+// netFoldValue normalizes the single metric (system.network.utilization)
+// via the <=1.0 → *100 logic.
+func netFoldValue(v float64) *float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
+		return nil
+	}
+	if v <= infraconsts.PercentageThreshold {
+		v = v * infraconsts.PercentageMultiplier
+	}
+	return &v
+}
+
+func (r *ClickHouseRepository) queryNetworkMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
+	table, _ := rollup.TierTableFor(metricsGaugesV2RollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS val_avg
+		FROM %s
+		WHERE team_id = @teamID
+		  AND service = @serviceName
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("serviceName", serviceName),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricName", infraconsts.MetricSystemNetworkUtilization),
+	}
+	var row netMetricValueRow
+	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&row); err != nil {
 		return nil, err
 	}
-
-	values := nullableToSlice(row.SystemNet, row.AttrNet)
-	return calculateAverage(values), nil
+	return netFoldValue(row.ValAvg), nil
 }
 
 func (r *ClickHouseRepository) queryNetworkMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
-	aNet := infraconsts.AttrFloat(infraconsts.AttrSystemNetworkUtilization)
+	_ = container
+	table, _ := rollup.TierTableFor(metricsGaugesV2RollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT
-			avgIf(if(%s <= %s, %s * %s, %s), %s = '%s' AND isFinite(%s)) as system_net,
-			avgIf(if(%s <= %s, %s * %s, %s), %s > 0) as attr_net
+		SELECT sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS val_avg
 		FROM %s
-		WHERE %s = @teamID AND %s = @host AND %s = @pod AND %s = @container AND %s = @serviceName AND %s BETWEEN @start AND @end
-		  AND (
-		      %s = '%s'
-		      OR %s > 0
-		  )`,
-		infraconsts.ColValue, fmt.Sprintf("%.1f", infraconsts.PercentageThreshold), infraconsts.ColValue, fmt.Sprintf("%.1f", infraconsts.PercentageMultiplier), infraconsts.ColValue, infraconsts.ColMetricName, infraconsts.MetricSystemNetworkUtilization, infraconsts.ColValue,
-		aNet, fmt.Sprintf("%.1f", infraconsts.PercentageThreshold), aNet, fmt.Sprintf("%.1f", infraconsts.PercentageMultiplier), aNet, aNet,
-		infraconsts.TableMetrics,
-		infraconsts.ColTeamID, colHostCoalesce, colPodCoalesce, colContainerCoalesce, infraconsts.ColServiceName, infraconsts.ColTimestamp,
-		infraconsts.ColMetricName, infraconsts.MetricSystemNetworkUtilization,
-		aNet)
-
-	var row netMetricRow
-	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, instanceParams(teamID, host, pod, container, serviceName, startMs, endMs)...).ScanStruct(&row)
-	if err != nil {
+		WHERE team_id = @teamID
+		  AND host = @host
+		  AND pod = @pod
+		  AND service = @serviceName
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("host", host),
+		clickhouse.Named("pod", pod),
+		clickhouse.Named("serviceName", serviceName),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricName", infraconsts.MetricSystemNetworkUtilization),
+	}
+	var row netMetricValueRow
+	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&row); err != nil {
 		return nil, err
 	}
-
-	values := nullableToSlice(row.SystemNet, row.AttrNet)
-	return calculateAverage(values), nil
+	return netFoldValue(row.ValAvg), nil
 }
 
 // TODO(phase8): rollup migration requires multi-metric fallback logic not yet supported by metrics_gauges_rollup
