@@ -8,8 +8,6 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
-	rootspan "github.com/Optikk-Org/optikk-backend/internal/modules/traces/shared/rootspan"
 )
 
 // Repository runs ClickHouse queries for deployment detection.
@@ -39,7 +37,11 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 // error_count (sum), latency_ms_digest (t-digest) plus any-state commit_sha,
 // commit_author, repo_url, pr_url. span_count is derived from
 // `sumMerge(request_count)`.
-const spansByVersionPrefix = "observability.spans_by_version"
+const (
+	spansByVersionPrefix     = "observability.spans_by_version"
+	spansRollupPrefix        = "observability.spans_rollup"
+	errFingerprintRollupPrefix = "observability.spans_error_fingerprint"
+)
 
 // queryIntervalMinutes returns max(tierStep, dashboardStep). Copied from
 // overview/overview/repository.go.
@@ -265,52 +267,63 @@ func (r *ClickHouseRepository) GetVersionTraffic(ctx context.Context, teamID int
 	return rows, err
 }
 
-// --- Raw-scan drill-down queries (unchanged) ---
+// --- Drill-window queries: rollup-backed (Phase 9) ---
+//
+// Every drill-window method below fits an existing rollup. Each composes its
+// answer from one of:
+//   - spans_rollup              — RED per (service, operation, endpoint, method)
+//   - spans_by_version          — last_seen / version-environment association
+//   - spans_error_fingerprint   — grouped error spans with sample trace_id
+//
+// No raw span reads remain in this file. Tracedetail / livetail remain raw
+// (per-trace drill-down, bounded by idx_trace_id).
 
 func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (impactAggRow, error) {
 	if endMs <= startMs {
 		return impactAggRow{}, nil
 	}
+	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
 	var row impactAggRow
-	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), `
-		SELECT toInt64(count()) AS request_count,
-		       toInt64(countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)) AS error_count,
-		       quantileTDigest(0.95)(s.duration_nano / 1000000.0) AS p95_ms,
-		       quantileTDigest(0.99)(s.duration_nano / 1000000.0) AS p99_ms
-		FROM observability.spans s
-		WHERE s.team_id = @teamID
-		  AND s.service_name = @serviceName
-		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
-		  AND s.timestamp >= @start AND s.timestamp < @end
-		  AND `+rootspan.Condition("s")+`
-		  AND s.mat_service_version != ''
-	`, clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("serviceName", serviceName), clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)), clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)), clickhouse.Named("start", time.UnixMilli(startMs)), clickhouse.Named("end", time.UnixMilli(endMs)), ).ScanStruct(&row)
+	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), fmt.Sprintf(`
+		SELECT toInt64(sumMerge(request_count)) AS request_count,
+		       toInt64(sumMerge(error_count))   AS error_count,
+		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95_ms,
+		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 AS p99_ms
+		FROM %s
+		WHERE team_id = @teamID
+		  AND service_name = @serviceName
+		  AND bucket_ts BETWEEN @start AND @end
+	`, table),
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("serviceName", serviceName),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	).ScanStruct(&row)
 	if err != nil {
 		return impactAggRow{}, err
 	}
 	return row, nil
 }
 
+// GetActiveVersion returns the most-recently-seen (version, environment) for
+// a service inside the window. Uses `spans_by_version_1m` + argMax on
+// `last_seen`; 1m tier because we want exact max, not summary.
 func (r *ClickHouseRepository) GetActiveVersion(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (activeVersionRow, error) {
 	var rows []activeVersionRow
 	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
-		SELECT s.mat_service_version AS version,
-		       s.mat_deployment_environment AS environment
-		FROM observability.spans s
-		WHERE s.team_id = @teamID
-		  AND s.service_name = @serviceName
-		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
-		  AND s.timestamp BETWEEN @start AND @end
-		  AND `+rootspan.Condition("s")+`
-		  AND s.mat_service_version != ''
-		ORDER BY s.timestamp DESC
+		SELECT service_version AS version,
+		       environment     AS environment
+		FROM observability.spans_by_version_1m
+		WHERE team_id = @teamID
+		  AND service_name = @serviceName
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND service_version != ''
+		GROUP BY version, environment
+		ORDER BY maxMerge(last_seen) DESC
 		LIMIT 1
 	`,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
@@ -320,31 +333,35 @@ func (r *ClickHouseRepository) GetActiveVersion(ctx context.Context, teamID int6
 	return rows[0], nil
 }
 
+// GetErrorGroupsWindow returns top error groups inside a deploy window via
+// `spans_error_fingerprint` (same rollup overview/errors uses). Rollup keys
+// include service_name + operation_name + exception_type + status_message_hash
+// + http_status_bucket; state carries sample_trace_id + last_seen. `group_id`
+// is the fingerprint hash, rendered as a hex string for client use.
 func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64, limit int) ([]errorGroupAggRow, error) {
+	table, _ := rollup.TierTableFor(errFingerprintRollupPrefix, startMs, endMs)
 	var rows []errorGroupAggRow
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
-		SELECT s.service_name AS service_name,
-		       '' AS group_id,
-		       s.name AS operation_name,
-		       s.status_message AS status_message,
-		       toUInt16OrZero(s.response_status_code) AS http_status_code,
-		       count() AS error_count,
-		       max(s.timestamp) AS last_occurrence,
-		       argMax(s.trace_id, s.timestamp) AS sample_trace_id
-		FROM observability.spans s
-		WHERE s.team_id = @teamID
-		  AND s.service_name = @serviceName
-		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
-		  AND s.timestamp >= @start AND s.timestamp < @end
-		  AND (s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)
-		GROUP BY service_name, operation_name, status_message, http_status_code
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, fmt.Sprintf(`
+		SELECT service_name                                AS service_name,
+		       hex(status_message_hash)                    AS group_id,
+		       operation_name                              AS operation_name,
+		       anyMerge(sample_status_message)             AS status_message,
+		       toInt32(multiIf(http_status_bucket = '5xx', 500,
+		                       http_status_bucket = '4xx', 400,
+		                       0))                         AS http_status_code,
+		       sumMerge(error_count)                       AS error_count,
+		       maxMerge(last_seen)                         AS last_occurrence,
+		       anyMerge(sample_trace_id)                   AS sample_trace_id
+		FROM %s
+		WHERE team_id = @teamID
+		  AND service_name = @serviceName
+		  AND bucket_ts BETWEEN @start AND @end
+		GROUP BY service_name, status_message_hash, operation_name, http_status_bucket
 		ORDER BY error_count DESC
 		LIMIT @limit
-	`,
+	`, table),
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("limit", limit),
@@ -352,30 +369,30 @@ func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID 
 	return rows, err
 }
 
+// GetEndpointMetricsWindow reads per-endpoint RED from `spans_rollup`. The
+// rollup's endpoint column already carries the coalesce of mat_http_route /
+// mat_http_target / name that the raw query was doing at read time.
 func (r *ClickHouseRepository) GetEndpointMetricsWindow(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64, limit int) ([]endpointMetricAggRow, error) {
+	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
 	var rows []endpointMetricAggRow
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
-		SELECT s.name AS operation_name,
-		       coalesce(nullIf(s.mat_http_route, ''), nullIf(s.mat_http_target, ''), s.name) AS endpoint_name,
-		       s.http_method AS http_method,
-		       toInt64(count()) AS request_count,
-		       toInt64(countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 400)) AS error_count,
-		       quantileTDigest(`+fmt.Sprintf("%.2f", 0.95)+`)(s.duration_nano / 1000000.0) AS p95_ms,
-		       quantileTDigest(`+fmt.Sprintf("%.2f", 0.99)+`)(s.duration_nano / 1000000.0) AS p99_ms
-		FROM observability.spans s
-		WHERE s.team_id = @teamID
-		  AND s.service_name = @serviceName
-		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
-		  AND s.timestamp >= @start AND s.timestamp < @end
-		  AND `+rootspan.Condition("s")+`
+	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, fmt.Sprintf(`
+		SELECT operation_name                                                           AS operation_name,
+		       endpoint                                                                 AS endpoint_name,
+		       http_method                                                              AS http_method,
+		       toInt64(sumMerge(request_count))                                         AS request_count,
+		       toInt64(sumMerge(error_count))                                           AS error_count,
+		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2      AS p95_ms,
+		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3      AS p99_ms
+		FROM %s
+		WHERE team_id = @teamID
+		  AND service_name = @serviceName
+		  AND bucket_ts BETWEEN @start AND @end
 		GROUP BY operation_name, endpoint_name, http_method
 		ORDER BY request_count DESC
 		LIMIT @limit
-	`,
+	`, table),
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("limit", limit),
