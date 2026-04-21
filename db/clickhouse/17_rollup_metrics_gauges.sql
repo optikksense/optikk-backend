@@ -127,3 +127,148 @@ SELECT team_id,
        argMaxMergeState(value_last)   AS value_last
 FROM observability.metrics_gauges_rollup_5m
 GROUP BY team_id, bucket_ts, metric_name, service, host, pod, state_dim;
+
+-- ---------------------------------------------------------------------------
+-- metrics_gauges_rollup_v2 — same schema as v1, extended state_dim extractor
+-- covering:
+--   + system.network.state    → system.network.connections
+--   + system.filesystem.mountpoint  → system.filesystem.usage / .utilization
+--   + jvm.memory.type         → jvm.memory.used / committed / limit
+--   + jvm.thread.daemon       → jvm.thread.count
+--   + db.client.connections.state  → db.client.connections.*
+-- Unlocks infrastructure/jvm (partial) + infrastructure/connpool +
+-- saturation/database/connections gauge methods + infra fallback queries.
+-- Consumers migrate from metrics_gauges_rollup → metrics_gauges_rollup_v2 as
+-- they adopt the extended dims. v1 retained during 90-day TTL window.
+-- ---------------------------------------------------------------------------
+
+CREATE TABLE IF NOT EXISTS observability.metrics_gauges_rollup_v2_1m (
+    team_id        UInt32 CODEC(T64, ZSTD(1)),
+    bucket_ts      DateTime CODEC(DoubleDelta, LZ4),
+    metric_name    LowCardinality(String),
+    service        LowCardinality(String),
+    host           LowCardinality(String),
+    pod            LowCardinality(String),
+    state_dim      LowCardinality(String),
+    value_sum      AggregateFunction(sum, Float64),
+    value_avg_num  AggregateFunction(sum, Float64),
+    sample_count   AggregateFunction(sum, UInt64),
+    value_max      AggregateFunction(max, Float64),
+    value_min      AggregateFunction(min, Float64),
+    value_last     AggregateFunction(argMax, Float64, DateTime64(3))
+) ENGINE = AggregatingMergeTree()
+PARTITION BY toYYYYMM(bucket_ts)
+ORDER BY (team_id, bucket_ts, metric_name, service, host, pod, state_dim)
+TTL bucket_ts + INTERVAL 90 DAY DELETE
+SETTINGS index_granularity = 8192;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS observability.metrics_gauges_to_rollup_v2_1m
+TO observability.metrics_gauges_rollup_v2_1m AS
+SELECT
+    team_id,
+    toStartOfMinute(timestamp)                                                   AS bucket_ts,
+    metric_name                                                                  AS metric_name,
+    service                                                                      AS service,
+    host                                                                         AS host,
+    attributes.`k8s.pod.name`::String                                            AS pod,
+    multiIf(
+        metric_name IN ('system.cpu.time','system.cpu.utilization'),
+            attributes.`system.cpu.state`::String,
+        metric_name = 'process.cpu.time',
+            attributes.`process.cpu.state`::String,
+        metric_name IN ('system.memory.usage','system.memory.utilization'),
+            attributes.`system.memory.state`::String,
+        metric_name IN ('system.disk.io','system.disk.operations'),
+            attributes.`system.disk.direction`::String,
+        metric_name IN ('system.network.io','system.network.packets','system.network.errors'),
+            attributes.`system.network.direction`::String,
+        metric_name = 'system.network.connections',
+            attributes.`system.network.state`::String,
+        metric_name IN ('system.filesystem.usage','system.filesystem.utilization'),
+            attributes.`system.filesystem.mountpoint`::String,
+        metric_name IN ('jvm.memory.used','jvm.memory.committed','jvm.memory.limit','jvm.memory.used_after_last_gc'),
+            concat(attributes.`jvm.memory.pool.name`::String, '|', attributes.`jvm.memory.type`::String),
+        metric_name = 'jvm.gc.duration',
+            attributes.`jvm.gc.name`::String,
+        metric_name = 'jvm.thread.count',
+            attributes.`jvm.thread.daemon`::String,
+        metric_name LIKE 'db.client.connections.%',
+            attributes.`db.client.connections.state`::String,
+        ''
+    )                                                                            AS state_dim,
+    sumState(value)                                                              AS value_sum,
+    sumState(value)                                                              AS value_avg_num,
+    sumState(toUInt64(1))                                                        AS sample_count,
+    maxState(value)                                                              AS value_max,
+    minState(value)                                                              AS value_min,
+    argMaxState(value, timestamp)                                                AS value_last
+FROM observability.metrics
+WHERE metric_type IN ('Gauge','Sum') AND hist_count = 0;
+
+CREATE TABLE IF NOT EXISTS observability.metrics_gauges_rollup_v2_5m (
+    team_id        UInt32 CODEC(T64, ZSTD(1)),
+    bucket_ts      DateTime CODEC(DoubleDelta, LZ4),
+    metric_name    LowCardinality(String),
+    service        LowCardinality(String),
+    host           LowCardinality(String),
+    pod            LowCardinality(String),
+    state_dim      LowCardinality(String),
+    value_sum      AggregateFunction(sum, Float64),
+    value_avg_num  AggregateFunction(sum, Float64),
+    sample_count   AggregateFunction(sum, UInt64),
+    value_max      AggregateFunction(max, Float64),
+    value_min      AggregateFunction(min, Float64),
+    value_last     AggregateFunction(argMax, Float64, DateTime64(3))
+) ENGINE = AggregatingMergeTree()
+PARTITION BY toYYYYMM(bucket_ts)
+ORDER BY (team_id, bucket_ts, metric_name, service, host, pod, state_dim)
+TTL bucket_ts + INTERVAL 90 DAY DELETE
+SETTINGS index_granularity = 8192;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS observability.metrics_gauges_rollup_v2_1m_to_5m
+TO observability.metrics_gauges_rollup_v2_5m AS
+SELECT team_id,
+       toStartOfInterval(bucket_ts, toIntervalMinute(5)) AS bucket_ts,
+       metric_name, service, host, pod, state_dim,
+       sumMergeState(value_sum)       AS value_sum,
+       sumMergeState(value_avg_num)   AS value_avg_num,
+       sumMergeState(sample_count)    AS sample_count,
+       maxMergeState(value_max)       AS value_max,
+       minMergeState(value_min)       AS value_min,
+       argMaxMergeState(value_last)   AS value_last
+FROM observability.metrics_gauges_rollup_v2_1m
+GROUP BY team_id, bucket_ts, metric_name, service, host, pod, state_dim;
+
+CREATE TABLE IF NOT EXISTS observability.metrics_gauges_rollup_v2_1h (
+    team_id        UInt32 CODEC(T64, ZSTD(1)),
+    bucket_ts      DateTime CODEC(DoubleDelta, LZ4),
+    metric_name    LowCardinality(String),
+    service        LowCardinality(String),
+    host           LowCardinality(String),
+    pod            LowCardinality(String),
+    state_dim      LowCardinality(String),
+    value_sum      AggregateFunction(sum, Float64),
+    value_avg_num  AggregateFunction(sum, Float64),
+    sample_count   AggregateFunction(sum, UInt64),
+    value_max      AggregateFunction(max, Float64),
+    value_min      AggregateFunction(min, Float64),
+    value_last     AggregateFunction(argMax, Float64, DateTime64(3))
+) ENGINE = AggregatingMergeTree()
+PARTITION BY toYYYYMM(bucket_ts)
+ORDER BY (team_id, bucket_ts, metric_name, service, host, pod, state_dim)
+TTL bucket_ts + INTERVAL 90 DAY DELETE
+SETTINGS index_granularity = 8192;
+
+CREATE MATERIALIZED VIEW IF NOT EXISTS observability.metrics_gauges_rollup_v2_5m_to_1h
+TO observability.metrics_gauges_rollup_v2_1h AS
+SELECT team_id,
+       toStartOfHour(bucket_ts) AS bucket_ts,
+       metric_name, service, host, pod, state_dim,
+       sumMergeState(value_sum)       AS value_sum,
+       sumMergeState(value_avg_num)   AS value_avg_num,
+       sumMergeState(sample_count)    AS sample_count,
+       maxMergeState(value_max)       AS value_max,
+       minMergeState(value_min)       AS value_min,
+       argMaxMergeState(value_last)   AS value_last
+FROM observability.metrics_gauges_rollup_v2_5m
+GROUP BY team_id, bucket_ts, metric_name, service, host, pod, state_dim;
