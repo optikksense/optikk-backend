@@ -5,9 +5,10 @@
 package search
 
 import (
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
+
+	"github.com/ClickHouse/clickhouse-go/v2"
 
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 

@@ -1,11 +1,12 @@
 package explorer
 
 import (
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/ClickHouse/clickhouse-go/v2"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	queryparser "github.com/Optikk-Org/optikk-backend/internal/modules/explorer/queryparser"
