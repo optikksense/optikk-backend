@@ -1,3 +1,10 @@
+// Package explorer backs the AI explorer UI. Aggregate panels (GetAISummary,
+// GetAITrend) read `ai_spans_rollup`. Drill-down methods (GetAICalls,
+// GetAISessions) serve keyset-paginated lists of raw gen_ai-tagged spans —
+// they return per-span fields (trace_id, span_id, attributes.gen_ai.*) that
+// the rollup collapses. GetAIFacets enumerates distinct values for a
+// user-selected facet_key; that key isn't a rollup column by construction.
+// Permanent raw.
 package explorer
 
 import (

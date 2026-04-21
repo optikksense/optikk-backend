@@ -1,13 +1,13 @@
 package systems
 
 import (
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 	"time"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-
+	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
@@ -24,39 +24,34 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) GetDetectedSystems(ctx context.Context, teamID int64, startMs, endMs int64) ([]DetectedSystem, error) {
-	systemAttr := shared.AttrString(shared.AttrDBSystem)
-	serverAttr := shared.AttrString(shared.AttrServerAddress)
-	errorAttr := shared.AttrString(shared.AttrErrorType)
+	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
 
+	// last_seen is derived from bucket_ts (the rollup's minute-aligned bucket) —
+	// within one-minute precision of the raw max(timestamp) it replaced.
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                                             AS db_system,
-		    toInt64(sum(hist_count))                                                       AS span_count,
-		    toInt64(sumIf(hist_count, notEmpty(%s)))                                       AS error_count,
-		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS avg_latency_ms,
-		    toInt64(sum(hist_count))                                                       AS query_count,
-		    any(%s)                                                                        AS server_address,
-		    max(timestamp)                                                                 AS last_seen
+		    db_system                                                                   AS db_system,
+		    toInt64(sumMerge(hist_count))                                               AS span_count,
+		    toInt64(sumMergeIf(hist_count, notEmpty(error_type)))                       AS error_count,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 * 1000  AS avg_latency_ms,
+		    toInt64(sumMerge(hist_count))                                               AS query_count,
+		    any(server_address)                                                         AS server_address,
+		    max(bucket_ts)                                                              AS last_seen
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
-		  AND metric_type = 'Histogram'
-		  AND notEmpty(%s)
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
+		  AND notEmpty(db_system)
 		GROUP BY db_system
 		ORDER BY span_count DESC
-	`,
-		systemAttr,
-		errorAttr,
-		serverAttr,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBOperationDuration,
-		systemAttr,
+	`, table)
+
+	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
+		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
 	)
 
 	var dtos []detectedSystemDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, shared.BaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, args...); err != nil {
 		return nil, err
 	}
 

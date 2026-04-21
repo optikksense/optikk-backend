@@ -316,6 +316,53 @@ Typed helpers: `database.SelectTyped[T]` / `database.QueryRowTyped[T]` — calle
 
 **Time bucketing** (`internal/infra/timebucket/`): `timebucket.NewAdaptiveStrategy(startMs, endMs)` auto-picks minute/5min/15min/hour/day; use `.GetBucketExpression()` in SELECT and GROUP BY. `timebucket.ByName("15m")` for explicit step selection. Named params: `clickhouse.Named("teamID", teamID)` with `@teamID` in SQL.
 
+### Phase 7 — gauge + DB + topology rollups (2026-04-21)
+
+Closes the remaining raw-scan aggregate gaps opened at the tail of Phase 6. Five new cascade rollups — `metrics_gauges_rollup`, `metrics_gauges_by_status_rollup`, `db_histograms_rollup`, `messaging_histograms_rollup`, `spans_topology_rollup` — all `_1m`/`_5m`/`_1h` tiers populated by ingest + cascade MVs. Tier selection via `rollup.TierTableFor` (unchanged helper).
+
+| Repo | Migrated methods | Target rollup |
+|------|------------------|---------------|
+| `overview/apm/repository.go` | `GetUptime`, `GetOpenFDs`, `GetProcessCPU`, `GetProcessMemory`, `GetActiveRequests` | `metrics_gauges_rollup` |
+| `overview/httpmetrics/repository.go` | `GetRequestRate`, `GetActiveRequests` | `metrics_gauges_by_status_rollup` + `metrics_gauges_rollup` |
+| `infrastructure/{cpu,disk,memory,network}/repository.go` | simple single-metric gauge methods (see file TODOs) | `metrics_gauges_rollup` |
+| `saturation/database/{collection,system,connections,slowqueries,systems,volume}/repository.go` | histogram-percentile methods | `db_histograms_rollup` |
+| `services/topology/repository.go` | `GetNodes`, `GetEdges` (removes span self-join) | `spans_rollup` + `spans_topology_rollup` |
+
+Phase 8 landed the following rollup migrations (2026-04-21):
+- `saturation/kafka/repository.go` histogram-latency methods → `messaging_histograms_rollup` cascade: `GetPublishLatencyByTopic`, `GetReceiveLatencyByTopic`, `GetProcessLatencyByGroup`, `GetClientOperationDuration`.
+- `alerting/engine/store.go` → `spans_rollup` (errorRateLast / `ErrorRateHistorical` for SLO + service error rate) and `spans_by_version_1m` (`DeploysInRange` for deploy correlation).
+
+Phase 9 (2026-04-21) — every remaining aggregate query migrated. DDL:
+- 4 new rollups: `metrics_k8s_rollup`, `messaging_counters_rollup`, `spans_peer_rollup`, `spans_kind_rollup`.
+- 3 v2 variants: `metrics_gauges_rollup_v2` (extended state_dim extractor), `db_histograms_rollup_v2` (connection_state + response_status_code keys + gauge state), `ai_spans_rollup_v2` (cost_usd + quality_score state).
+
+Consumers migrated to rollups in Phase 9:
+- `infrastructure/kubernetes` (all 9 methods) → `metrics_k8s_rollup`.
+- `infrastructure/jvm` (6 of 7 — GCCollections stays raw; jvm.gc.name not a rollup dim) → `metrics_gauges_rollup_v2` + `metrics_histograms_rollup`.
+- `infrastructure/{cpu,memory,disk,network}` fallback/by-service/by-instance/serviceList/instanceList methods → `metrics_gauges_rollup_v2`.
+- `infrastructure/connpool` (all 5 methods) → `metrics_gauges_rollup_v2`.
+- `saturation/database/connections` (all 5 gauge methods) → `db_histograms_rollup_v2`.
+- `saturation/database/errors::GetErrorsByResponseStatus` → `db_histograms_rollup_v2` (response_status_code is v2-only).
+- `saturation/database/slowqueries::GetSlowQueryRate` → `db_histograms_rollup` with HAVING on p95 (bucket-level approx).
+- `saturation/database/summary::GetSummaryStats` error + active-connection + cache-hit branches → `db_histograms_rollup_v2`.
+- `saturation/kafka` (14 remaining methods) → `messaging_counters_rollup`.
+- `overview/httpmetrics::GetStatusDistribution` + external-host panels → `spans_peer_rollup`.
+- `overview/redmetrics::GetSpanKindBreakdown` → `spans_kind_rollup`.
+- `services/deployments` drill-window methods → compose `spans_rollup` + `spans_by_version` + `spans_error_fingerprint`.
+- `alerting/engine::queryAIMetric` → `ai_spans_rollup_v2` (with raw fallback for rules that filter on `prompt_template`).
+
+Permanent raw (block-comment documented at each package):
+- `traces/tracedetail`, `traces/livetail`, `traces/query` drill-down methods — per-trace lookups bounded by `idx_trace_id`.
+- `logs/search::GetLogs` — full-text body search + keyset pagination.
+- `logs/explorer::GetLogFields` — facet-value enumeration on user-chosen attribute keys.
+- `overview/errors` drill-down methods (GetErrorGroupDetail / Traces / Timeseries / GetHTTP5xxByRoute).
+- `ai/shared` per-run drill-down + `aiRunsSubquery` (gen_ai.* JSON flexibility).
+- `ai/explorer::GetAICalls / GetAISessions / GetAIFacets` — paginated drill-down lists + facet enumeration.
+- `saturation/database/{collection,slowqueries}` text-attribute methods — group by `db.query.text` (high-cardinality free text).
+- `infrastructure/jvm::GetJVMGCCollections` — groups by `jvm.gc.name`, not keyed in metrics_histograms_rollup.
+- `alerting/engine::queryAIMetricRaw` (fallback) — rules targeting `prompt_template` which isn't a rollup key.
+- `metrics/repository.go` — dynamic metric explorer (user-selected metric_name + tag_key + tag_value at query time).
+
 ### Phase 6 — rollup-backed aggregate reads (2026-04-20)
 
 Five repository clusters now read from `observability.<kind>_rollup_{1m,5m,1h}` cascades via `rollup.TierTableFor(prefix, startMs, endMs)`:
@@ -362,7 +409,7 @@ Sketch kinds today: `SpanLatencyService`, `SpanLatencyEndpoint`, `DbOpLatency`, 
 
 Follow-up (tracked): per-repository migration to `sketch.Querier`-first reads. The tactical `quantileExact* → quantileTDigest*` swap in this PR harvests the algorithmic win while the per-module sketch-backed path is rolled out.
 
-**Spans table materialized attributes** (`observability.spans`, see `db/clickhouse_local.sql`): includes `mat_service_version` ← `attributes.\`service.version\``, `mat_deployment_environment` ← `attributes.\`deployment.environment\`` (bloom indexes), for deployment queries without JSON scans.
+**Spans table materialized attributes** (`observability.spans`, see `db/clickhouse/01_spans.sql`): includes `mat_service_version` ← `attributes.\`service.version\``, `mat_deployment_environment` ← `attributes.\`deployment.environment\`` (bloom indexes), for deployment queries without JSON scans.
 
 ## API Response Envelope
 

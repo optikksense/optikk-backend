@@ -4,7 +4,7 @@
 // calls TierTableFor with its table prefix + the caller's time range. The
 // helper returns the coarsest tier whose bucket count stays below the CH
 // "cheap scan" threshold (~1k–2k buckets), matching the cascade MV chain in
-// db/clickhouse_local.sql (1m → 5m → 1h).
+// db/clickhouse/ (1m → 5m → 1h).
 package rollup
 
 // StepMinutes is the bucket width of a tier, in minutes. Callers use it to

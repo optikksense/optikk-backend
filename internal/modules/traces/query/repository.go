@@ -1,3 +1,13 @@
+// Package query backs /v1/traces/* trace-list and trace-structure endpoints.
+//
+// Raw-read rationale: aggregate methods (trace-summary counters, error timeseries,
+// latency histograms) read rollups. Drill-down methods (GetTraceSpans,
+// GetSpanTree, GetErrorGroups details, GetLatencyHeatmap) stay on raw
+// `observability.spans` because they need per-span structure — span_id,
+// parent_span_id, status_message, attributes, body — that rollup aggregation
+// collapses away. Every drill-down is bounded by trace_id (hits `idx_trace_id`
+// bloom-filter, GRAN 4) or a narrow service+name window, so raw reads stay
+// cheap.
 package query
 
 import (

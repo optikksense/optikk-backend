@@ -8,12 +8,14 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 const (
-	spansRollupPrefix       = "observability.spans_rollup"
-	metricsHistRollupPrefix = "observability.metrics_histograms_rollup"
+	spansRollupPrefix             = "observability.spans_rollup"
+	spansPeerRollupPrefix         = "observability.spans_peer_rollup"
+	metricsHistRollupPrefix       = "observability.metrics_histograms_rollup"
+	metricsGaugesRollupPrefix     = "observability.metrics_gauges_rollup"
+	metricsGaugesByStatusPrefix   = "observability.metrics_gauges_by_status_rollup"
 )
 
 // Histogram-metric queries target `observability.metrics_histograms_rollup_1m`.
@@ -120,39 +122,42 @@ func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID
 	return HistogramSummary{P50: raw.P50, P95: raw.P95, P99: raw.P99, Avg: avg}, nil
 }
 
-// GetRequestRate groups by status_code attribute — not a rollup dimension.
-// Stays on raw metrics; `attrString` pulls the label from JSON attrs.
+// GetRequestRate reads the Phase-7 `metrics_gauges_by_status_rollup` which
+// pre-aggregates `http.server.request.duration` samples by status_code. The MV
+// extracts `attributes.http.status_code` at ingest so we read a single key'd
+// rollup row per bucket × status.
 func (r *ClickHouseRepository) GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]StatusCodeBucket, error) {
-	bucket := timebucket.Expression(startMs, endMs)
-	statusAttr := attrString(AttrHTTPStatusCode)
-
+	table, tierStep := rollup.TierTableFor(metricsGaugesByStatusPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT %s AS time_bucket,
-		       %s AS status_code,
-		       count() AS req_count
+		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		       http_status_code    AS status_code,
+		       sumMerge(sample_count) AS req_count
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
 		GROUP BY time_bucket, status_code
-		ORDER BY time_bucket, status_code`,
-		bucket, statusAttr,
-		TableMetrics,
-		ColTeamID, ColTimestamp,
-		ColMetricName, MetricHTTPServerRequestDuration,
-	)
-	var raw []struct {
-		Timestamp  string `ch:"time_bucket"`
-		StatusCode string `ch:"status_code"`
-		ReqCount   uint64 `ch:"req_count"`
+		ORDER BY time_bucket, status_code`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricName", MetricHTTPServerRequestDuration),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+
+	var raw []struct {
+		Timestamp  time.Time `ch:"time_bucket"`
+		StatusCode string    `ch:"status_code"`
+		ReqCount   uint64    `ch:"req_count"`
+	}
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]StatusCodeBucket, len(raw))
 	for i, row := range raw {
 		rows[i] = StatusCodeBucket{
-			Timestamp:  row.Timestamp,
+			Timestamp:  row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
 			StatusCode: row.StatusCode,
 			Count:      int64(row.ReqCount), //nolint:gosec // domain-bounded
 		}
@@ -164,26 +169,48 @@ func (r *ClickHouseRepository) GetRequestDuration(ctx context.Context, teamID in
 	return r.queryHistogramSummary(ctx, teamID, startMs, endMs, MetricHTTPServerRequestDuration)
 }
 
-// GetActiveRequests is a gauge metric — not in histogram rollup. Stays on raw.
+// GetActiveRequests reads the Phase-7 gauges rollup. MV entry emits a `Gauge`
+// metric row with no state_dim, so we just sum avg_num / count across all
+// host+pod rows for the time bucket.
 func (r *ClickHouseRepository) GetActiveRequests(ctx context.Context, teamID int64, startMs, endMs int64) ([]TimeBucket, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT %s AS time_bucket,
-		       avg(value) AS val
+		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		       sumMerge(value_avg_num) AS value_num,
+		       sumMerge(sample_count)  AS value_cnt
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
 		GROUP BY time_bucket
-		ORDER BY time_bucket`,
-		bucket,
-		TableMetrics,
-		ColTeamID, ColTimestamp,
-		ColMetricName, MetricHTTPServerActiveRequests,
-	)
-	var rows []TimeBucket
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+		ORDER BY time_bucket`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricName", MetricHTTPServerActiveRequests),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
+	}
+
+	var raw []struct {
+		Timestamp time.Time `ch:"time_bucket"`
+		ValueNum  float64   `ch:"value_num"`
+		ValueCnt  uint64    `ch:"value_cnt"`
+	}
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
 		return nil, err
+	}
+	rows := make([]TimeBucket, len(raw))
+	for i, row := range raw {
+		var valPtr *float64
+		if row.ValueCnt > 0 {
+			v := row.ValueNum / float64(row.ValueCnt)
+			valPtr = &v
+		}
+		rows[i] = TimeBucket{
+			Timestamp: row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			Value:     valPtr,
+		}
 	}
 	return rows, nil
 }
@@ -359,26 +386,29 @@ func (r *ClickHouseRepository) GetRouteErrorTimeseries(ctx context.Context, team
 	return rows, nil
 }
 
-// Status-code group bucketing needs the raw response_status_code column — not
-// a rollup dim. Stays on raw spans.
+// GetStatusDistribution counts CLIENT spans per HTTP-status bucket via
+// `spans_peer_rollup` (http_status_bucket is a rollup key). Server-side spans
+// contribute via the root-level `spans_error_fingerprint` which also buckets
+// status_code — but the existing panel is client-call distribution so peer
+// rollup is the right source.
 func (r *ClickHouseRepository) GetStatusDistribution(ctx context.Context, teamID int64, startMs, endMs int64) ([]StatusGroupBucket, error) {
+	table, _ := rollup.TierTableFor(spansPeerRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT multiIf(
-			toUInt16OrZero(response_status_code) BETWEEN 200 AND 299, '2xx',
-			toUInt16OrZero(response_status_code) BETWEEN 300 AND 399, '3xx',
-			toUInt16OrZero(response_status_code) BETWEEN 400 AND 499, '4xx',
-			toUInt16OrZero(response_status_code) >= 500, '5xx',
-			'other'
-		) AS status_group,
-		toInt64(count()) AS count
+		SELECT http_status_bucket              AS status_group,
+		       toInt64(sumMerge(request_count)) AS count
 		FROM %s
-		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
-		  AND timestamp BETWEEN @start AND @end
-		  AND response_status_code != ''
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND http_status_bucket != 'other'
 		GROUP BY status_group
-		ORDER BY status_group ASC`, TableSpans)
+		ORDER BY status_group ASC`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
 	var rows []StatusGroupBucket
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -425,62 +455,79 @@ func (r *ClickHouseRepository) GetErrorTimeseries(ctx context.Context, teamID in
 	return rows, nil
 }
 
-// External host (kind=3 CLIENT span) queries need `http_host` + non-root
-// spans. Rollup is root-only and doesn't carry host. Stays on raw spans.
+// External host (CLIENT-kind span) queries read `spans_peer_rollup` — Phase-9
+// addition keyed on (service, peer_service, host_name, http_status_bucket).
+// MV filters `kind = 3` so only CLIENT spans contribute.
 
 func (r *ClickHouseRepository) GetTopExternalHosts(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
+	table, _ := rollup.TierTableFor(spansPeerRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT http_host AS host, toInt64(count()) AS req_count
+		SELECT host_name                        AS host,
+		       toInt64(sumMerge(request_count)) AS req_count
 		FROM %s
-		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
-		  AND timestamp BETWEEN @start AND @end
-		  AND kind = 3
-		  AND http_host != ''
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND host_name != ''
 		GROUP BY host
 		ORDER BY req_count DESC
-		LIMIT 20`, TableSpans)
+		LIMIT 20`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
 	var rows []ExternalHostMetric
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetExternalHostLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
+	table, _ := rollup.TierTableFor(spansPeerRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT http_host AS host,
-		       toInt64(count()) AS req_count,
-		       quantileTDigest(0.95)(duration_nano / 1000000.0) AS p95_ms
+		SELECT host_name                                                                   AS host,
+		       toInt64(sumMerge(request_count))                                            AS req_count,
+		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2         AS p95_ms
 		FROM %s
-		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
-		  AND timestamp BETWEEN @start AND @end
-		  AND kind = 3
-		  AND http_host != ''
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND host_name != ''
 		GROUP BY host
 		ORDER BY p95_ms DESC
-		LIMIT 20`, TableSpans)
+		LIMIT 20`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
 	var rows []ExternalHostMetric
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetExternalHostErrorRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
+	table, _ := rollup.TierTableFor(spansPeerRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT http_host AS host,
-		       toInt64(count()) AS req_count,
-		       countIf(has_error = true OR toUInt16OrZero(response_status_code) >= 400) * 100.0 / count() AS error_pct
+		SELECT host_name                                                                   AS host,
+		       toInt64(sumMerge(request_count))                                            AS req_count,
+		       toFloat64(sumMerge(error_count)) * 100.0 / nullIf(toFloat64(sumMerge(request_count)), 0) AS error_pct
 		FROM %s
-		WHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
-		  AND timestamp BETWEEN @start AND @end
-		  AND kind = 3
-		  AND http_host != ''
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND host_name != ''
 		GROUP BY host
 		ORDER BY error_pct DESC
-		LIMIT 20`, TableSpans)
+		LIMIT 20`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
 	var rows []ExternalHostMetric
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SpanBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil

@@ -1,3 +1,9 @@
+// Package livetail serves /v1/traces/live — a short-window keyset-paginated
+// stream of recent spans. Raw `observability.spans` is correct here: every
+// poll is bounded by `ts_bucket_start` (hot tail) plus optional filters on
+// kind_string, name, or free-text search against status_message / trace_id.
+// Rollups would collapse the per-span fields the stream returns (trace_id,
+// span_id, status_message, kind_string). Permanent raw.
 package livetail
 
 import (

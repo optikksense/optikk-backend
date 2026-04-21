@@ -242,7 +242,7 @@ Response cache middleware (30 s) wraps the overview/saturation/infrastructure ro
 - Auth interceptor: [internal/auth/](../../../internal/auth/)
 - Kafka abstractions: [internal/infra/kafka/{client.go, consumer.go, producer.go, topics.go}](../../../internal/infra/kafka/)
 - Signal pipelines: [internal/ingestion/{spans, metrics, logs}/](../../../internal/ingestion/)
-- DDL (raw tables + Phase-5 MVs and rollups): [db/clickhouse_local.sql](../../../db/clickhouse_local.sql)
+- DDL (raw tables + Phase-5 MVs and rollups): [db/clickhouse/](../../../db/clickhouse/)
 - Read layer for overview: [internal/modules/overview/{overview, slo, redmetrics, errors, apm, httpmetrics}/repository.go](../../../internal/modules/overview/)
 - Response cache: [internal/infra/middleware/cache/](../../../internal/infra/middleware/cache/)
 - Live tail hub: [internal/modules/livetail/redis_hub.go](../../../internal/modules/livetail/redis_hub.go)
@@ -318,3 +318,60 @@ Measured on Phase 5; extrapolated for Phase 6 endpoints:
 - Cardinality guards at ingest — required before this pattern rolls to >10 K-endpoint tenants.
 - Extending `GetRelatedTraces` + `GetTopPrompts` to rollup — rollup dims don't match their current DTOs; left on raw.
 - Deployments non-version-aware methods (`GetImpactWindow`, `GetActiveVersion`, `GetErrorGroupsWindow`, `GetEndpointMetricsWindow`).
+
+---
+
+# Phase 7 — finish-the-job rollups for infrastructure / apm-gauges / DB / topology
+
+Phase 6 covered dashboard-scale span / histogram aggregates with cascade tiers. Phase 7 closes the remaining raw-scan aggregate gaps: gauge-type metric panels (infrastructure, apm, httpmetrics), saturation DB per-domain percentile breakdowns, and service-to-service topology edges.
+
+## New rollup tables
+
+All AggregatingMergeTree, `_1m` + `_5m` + `_1h` cascade, 90-day TTL.
+
+| Rollup | Grouping key | State cols | Source filter |
+|---|---|---|---|
+| `metrics_gauges_rollup` | (metric_name, service, host, pod, state_dim) | value_sum, value_avg_num, sample_count, value_max, value_min, value_last (argMax) | `metric_type IN ('Gauge','Sum') AND hist_count = 0`. `state_dim` extracted via `multiIf` per metric family — cpu.state / memory.state / disk.direction / network.direction / jvm.memory.pool.name / jvm.gc.name / process.cpu.state; empty for unkeyed metrics. |
+| `metrics_gauges_by_status_rollup` | (metric_name, service, http_status_code) | sample_count | HTTP duration metric names. Single-purpose — status-code dim too narrow for gauges rollup. |
+| `db_histograms_rollup` | (metric_name, service, db_system, db_operation, db_collection, db_namespace, pool_name, error_type, server_address) | latency_ms_digest, hist_count, hist_sum | `metric_type='Histogram' AND hist_count > 0 AND (metric_name LIKE 'db.%' OR 'pool.%')`. |
+| `messaging_histograms_rollup` | (metric_name, service, messaging_system, messaging_destination, messaging_operation, consumer_group) | same | `metric_name LIKE 'messaging.%'`. DDL in place; consumers deferred to Phase 8 (multi-alias kafka attribute coalesce needs a dedicated migration). |
+| `spans_topology_rollup` | (client_service, server_service, operation) | latency_ms_digest, request_count, error_count | `kind = 3 AND mat_peer_service != ''` (SPAN_KIND_CLIENT with peer service populated). |
+
+## Phase 7 consumers
+
+| Repository | Rollup | Methods migrated |
+|---|---|---|
+| `overview/apm/repository.go` | `metrics_gauges_rollup` | `GetUptime`, `GetOpenFDs`, `GetProcessCPU`, `GetProcessMemory`, `GetActiveRequests` (+ new `queryGaugeTimeBuckets` helper) |
+| `overview/httpmetrics/repository.go` | `metrics_gauges_rollup` + `metrics_gauges_by_status_rollup` | `GetActiveRequests`, `GetRequestRate` |
+| `infrastructure/cpu/repository.go` | `metrics_gauges_rollup` | `GetCPUTime` (simple single-metric methods migrated; multi-metric utilization / service breakdowns TODO'd) |
+| `infrastructure/disk/repository.go` | `metrics_gauges_rollup` | `GetDiskIO`, `GetDiskOperations`, `GetDiskIOTime`, `GetFilesystemUtilization` (mountpoint / per-service / per-instance TODO'd) |
+| `infrastructure/memory/repository.go` | `metrics_gauges_rollup` | `GetMemoryUsage` (percentage / swap / per-service / per-instance TODO'd) |
+| `infrastructure/network/repository.go` | `metrics_gauges_rollup` | `GetNetworkIO`, `GetNetworkPackets`, `GetNetworkErrors`, `GetNetworkDropped` (connections state / per-service / per-instance TODO'd) |
+| `infrastructure/{jvm,kubernetes,connpool}/repository.go` | — | Left on raw (multi-metric avgIf / groups on attributes outside state_dim map). Track as Phase 8. |
+| `saturation/database/{collection,system,connections,slowqueries,systems,volume}/repository.go` | `db_histograms_rollup` | Every histogram-percentile method migrated. Gauge-type methods (connection count / pending / timeout) + text-attribute methods (`GetCollectionQueryTexts`, `GetP99ByQueryText`) left on raw — db_histograms_rollup is histogram-only and doesn't carry `db.query.text` as a key. |
+| `saturation/kafka/repository.go` | — | Left on raw. Phase 8 item: the module aliases multiple topic/operation attribute names (`topicAttributeAliases`, `operationAttributeAliases`) and the MV extracts a single `messaging.destination.name` — migration requires deciding the canonical alias set first. |
+| `services/topology/repository.go` | `spans_rollup` (nodes) + `spans_topology_rollup` (edges) | `GetNodes`, `GetEdges`. Removes the span self-join entirely; edges are now populated at ingest via the Phase-7 CLIENT-span MV. |
+
+## Impact (extrapolated)
+
+| Endpoint class | Before | After | Speedup |
+|---|---|---|---|
+| apm process panels (uptime, fds, cpu, memory, active reqs) | 300–800 ms | 15–40 ms | ~15–25× |
+| httpmetrics request-rate by status (7d) | 2–5 s | 30–70 ms | ~30–60× |
+| infra cpu/disk/memory/network 1h panels | 500 ms–1.5 s | 20–60 ms | ~15–25× |
+| saturation DB per-system/collection latency | 500 ms–2 s | 20–50 ms | ~20–40× |
+| saturation DB slowest-collections | 1–3 s | 30–70 ms | ~20–40× |
+| services/topology graph (service-to-service edges) | 2–6 s (with span self-join) | 30–80 ms | ~40–70× |
+
+## Out of scope (Phase 8)
+
+- Infrastructure percentage/utilization methods (`GetCPUUsagePercentage`, `GetMemoryUsagePercentage`, etc.) — multi-metric fallback logic with per-row validation that the gauge rollup doesn't model. TODO'd in-file.
+- Per-service / per-instance breakdowns in infrastructure modules (where raw queries pick best-metric-per-service with fallbacks).
+- Saturation Kafka migration (`messaging_histograms_rollup` DDL is ready but consumer migration needs alias-canonicalization first).
+- Infrastructure JVM (histograms for GC duration), Kubernetes (container/pod/namespace group-bys not in state_dim), connection pool (hikari / jdbc multi-metric composition).
+- `GetSlowQueryPatterns`, `GetP99ByQueryText` (group by `db.query.text` — too high-cardinality for a rollup key).
+- Connection-count gauge methods (pool_name + connection.state aren't in the generic `metrics_gauges_rollup` state_dim).
+
+## Rollback posture
+
+Additive-only DDL. Migrated repositories fall back behaviourally to raw if the cascade tier returns empty (rollup backfill hasn't run yet). Revert = Go commits only; new rollup tables cost disk + small MV CPU.

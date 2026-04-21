@@ -112,6 +112,49 @@ func BuildAIWhereFromRef(teamID int64, targetRef json.RawMessage) (string, []any
 	return where, args
 }
 
+// BuildAIRollupWhereFromRef builds a rollup-keyed WHERE clause against
+// `observability.ai_spans_rollup_v2_*`. Returns (where, args, ok) — ok=false
+// when targetRef uses a dim the rollup doesn't key (prompt_template), in
+// which case callers should fall back to raw via BuildAIWhereFromRef.
+func BuildAIRollupWhereFromRef(teamID int64, targetRef json.RawMessage) (string, []any, bool) {
+	where := "team_id = @teamID"
+	args := []any{clickhouse.Named("teamID", uint32(teamID))} //nolint:gosec
+
+	if len(targetRef) == 0 {
+		return where, args, true
+	}
+	m := targetRefMap(targetRef)
+
+	for _, k := range []string{"prompt_template", "promptTemplate"} {
+		if v, ok := m[k].(string); ok && v != "" {
+			return "", nil, false
+		}
+	}
+
+	for _, k := range []string{"service_name", "service", "serviceName"} {
+		if v, ok := m[k].(string); ok && v != "" {
+			where += " AND service_name = @serviceName"
+			args = append(args, clickhouse.Named("serviceName", v))
+			break
+		}
+	}
+
+	if v, ok := m["provider"].(string); ok && v != "" {
+		where += " AND ai_system = @provider"
+		args = append(args, clickhouse.Named("provider", v))
+	}
+
+	for _, k := range []string{"model", "request_model", "requestModel"} {
+		if v, ok := m[k].(string); ok && v != "" {
+			where += " AND ai_model = @model"
+			args = append(args, clickhouse.Named("model", v))
+			break
+		}
+	}
+
+	return where, args, true
+}
+
 // RenderRuleNotification re-exports the unexported render helper so engine's
 // dispatcher can build notifications. Returns the same channels.Rendered the
 // Slack channel consumes downstream.
