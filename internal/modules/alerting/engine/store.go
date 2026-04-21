@@ -9,7 +9,13 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/alerting/shared"
+)
+
+const (
+	spansRollupPrefix    = "observability.spans_rollup"
+	spansByVersionPrefix = "observability.spans_by_version"
 )
 
 // EventStore persists alerting audit events (ClickHouse observability.alert_events).
@@ -115,23 +121,36 @@ func (s *chStore) errorRateLast(ctx context.Context, teamID int64, serviceName s
 	if windowSecs <= 0 {
 		windowSecs = 300
 	}
+	nowMs := time.Now().UnixMilli()
+	startMs := nowMs - windowSecs*1000
+	return s.errorRateRange(ctx, teamID, serviceName, startMs, nowMs, dbutil.OverviewCtx)
+}
+
+// errorRateRange reads root-span error rate from the spans_rollup cascade.
+// Rollup MV already filters on `parent_span_id = '' OR '0000…0000'`, so the
+// semantics match the historical raw query.
+func (s *chStore) errorRateRange(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64, ctxWrap func(context.Context) context.Context) (float64, bool, error) {
+	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT toFloat64(count()) AS total,
-		       toFloat64(countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 500)) AS errs
-		FROM observability.spans s
-		WHERE s.team_id = @teamID
-		  AND s.timestamp >= now() - INTERVAL %d SECOND
-		  AND s.parent_span_id = ''`, windowSecs)
-	args := []any{clickhouse.Named("teamID", uint32(teamID))} //nolint:gosec
+		SELECT toFloat64(sumMerge(request_count)) AS total,
+		       toFloat64(sumMerge(error_count))   AS errs
+		FROM %s
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
 	if strings.TrimSpace(serviceName) != "" {
-		query += ` AND s.service_name = @serviceName`
+		query += ` AND service_name = @serviceName`
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	var row struct {
 		Total float64 `ch:"total"`
 		Errs  float64 `ch:"errs"`
 	}
-	if err := s.ch.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&row); err != nil {
+	if err := s.ch.QueryRow(ctxWrap(ctx), query, args...).ScanStruct(&row); err != nil {
 		return 0, false, err
 	}
 	if row.Total <= 0 {
@@ -142,49 +161,30 @@ func (s *chStore) errorRateLast(ctx context.Context, teamID int64, serviceName s
 
 func (s *chStore) ErrorRateHistorical(ctx context.Context, teamID int64, serviceName string, fromMs, toMs, windowSecs int64) (float64, bool, error) {
 	_ = windowSecs
-	query := `
-		SELECT toFloat64(count()) AS total,
-		       toFloat64(countIf(s.has_error = true OR toUInt16OrZero(s.response_status_code) >= 500)) AS errs
-		FROM observability.spans s
-		WHERE s.team_id = @teamID
-		  AND s.timestamp BETWEEN @start AND @end
-		  AND s.parent_span_id = ''`
-	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
-		clickhouse.Named("start", time.UnixMilli(fromMs)),
-		clickhouse.Named("end", time.UnixMilli(toMs)),
-	}
-	if strings.TrimSpace(serviceName) != "" {
-		query += ` AND s.service_name = @serviceName`
-		args = append(args, clickhouse.Named("serviceName", serviceName))
-	}
-	var row struct {
-		Total float64 `ch:"total"`
-		Errs  float64 `ch:"errs"`
-	}
-	if err := s.ch.QueryRow(dbutil.ExplorerCtx(ctx), query, args...).ScanStruct(&row); err != nil {
-		return 0, false, err
-	}
-	if row.Total <= 0 {
-		return 0, true, nil
-	}
-	return row.Errs * 100.0 / row.Total, false, nil
+	return s.errorRateRange(ctx, teamID, serviceName, fromMs, toMs, dbutil.ExplorerCtx)
 }
 
+// DeploysInRange reads first-seen per (service, version, environment) from
+// `spans_by_version_*`. 1m tier — deploy windows are minute-scale.
+// Uses `HAVING first_seen BETWEEN @startNs AND @endNs` so a version that has
+// been seen for weeks but emits spans inside the window doesn't register as a
+// new deploy (semantic parity with the prior raw `min(timestamp)` + time-range
+// filter).
 func (s *chStore) DeploysInRange(ctx context.Context, teamID int64, fromMs, toMs int64) ([]shared.DeployRef, error) {
+	table, _ := rollup.TierTableFor(spansByVersionPrefix, fromMs, toMs)
 	var rows []shared.DeployRef
-	err := s.ch.Select(dbutil.OverviewCtx(ctx), &rows, `
-		SELECT s.service_name AS service_name,
-		       s.mat_service_version AS version,
-		       s.mat_deployment_environment AS environment,
-		       min(s.timestamp) AS first_seen
-		FROM observability.spans s
-		WHERE s.team_id = @teamID
-		  AND s.timestamp BETWEEN @start AND @end
-		  AND s.parent_span_id = ''
-		  AND s.mat_service_version != ''
+	err := s.ch.Select(dbutil.OverviewCtx(ctx), &rows, fmt.Sprintf(`
+		SELECT service_name                  AS service_name,
+		       service_version               AS version,
+		       environment                   AS environment,
+		       minMerge(first_seen)          AS first_seen
+		FROM %s
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND service_version != ''
 		GROUP BY service_name, version, environment
-		ORDER BY first_seen ASC`,
+		HAVING first_seen BETWEEN @start AND @end
+		ORDER BY first_seen ASC`, table),
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
 		clickhouse.Named("start", time.UnixMilli(fromMs)),
 		clickhouse.Named("end", time.UnixMilli(toMs)),
@@ -212,6 +212,9 @@ func (s *chStore) AIMetricHistorical(ctx context.Context, teamID int64, targetRe
 	return s.queryAIMetric(ctx, metric, where, args)
 }
 
+// queryAIMetric stays on raw spans — `ai_spans_rollup` doesn't materialize
+// cost_usd or quality.score attributes needed here. Migrating requires a new
+// rollup shape; deferred.
 func (s *chStore) queryAIMetric(ctx context.Context, metric, where string, args []any) (float64, bool, error) {
 	var selectExpr string
 	switch metric {

@@ -328,13 +328,18 @@ Closes the remaining raw-scan aggregate gaps opened at the tail of Phase 6. Five
 | `saturation/database/{collection,system,connections,slowqueries,systems,volume}/repository.go` | histogram-percentile methods | `db_histograms_rollup` |
 | `services/topology/repository.go` | `GetNodes`, `GetEdges` (removes span self-join) | `spans_rollup` + `spans_topology_rollup` |
 
-Deferred to Phase 8 (documented in-file with `// TODO(phase8):`):
+Phase 8 landed the following rollup migrations (2026-04-21):
+- `saturation/kafka/repository.go` histogram-latency methods → `messaging_histograms_rollup` cascade: `GetPublishLatencyByTopic`, `GetReceiveLatencyByTopic`, `GetProcessLatencyByGroup`, `GetClientOperationDuration`.
+- `alerting/engine/store.go` → `spans_rollup` (errorRateLast / `ErrorRateHistorical` for SLO + service error rate) and `spans_by_version_1m` (`DeploysInRange` for deploy correlation).
+
+Still deferred (documented in-file with `// TODO(phase9):`):
 - Infrastructure utilization/percentage methods (multi-metric avgIf fallbacks that the gauge rollup can't model without carrying more state).
 - `infrastructure/{jvm,kubernetes,connpool}` — multi-metric composition + attribute group-bys outside `state_dim`.
-- `saturation/kafka` — multi-alias topic/operation attribute coalesce.
-- `saturation/database/slowqueries.GetSlowQueryPatterns` + `GetP99ByQueryText` — group by high-cardinality `db.query.text`.
-- `GetCollectionQueryTexts` — same reason.
+- `saturation/kafka` rate + error + lag + broker/partition methods — counter/gauge metrics outside `messaging_histograms_rollup` + dims outside its key set.
+- `saturation/database/slowqueries.GetSlowQueryPatterns` + `GetP99ByQueryText` — group by high-cardinality `db.query.text` (permanent raw).
+- `GetCollectionQueryTexts` — same reason (permanent raw).
 - Connection-count / connection-timeout gauge queries in `saturation/database/connections` — pool_name + state aren't in the generic gauge `state_dim`.
+- `alerting/engine/store.go::queryAIMetric` — `cost_usd` / `quality.score` span attributes not in `ai_spans_rollup`.
 
 ### Phase 6 — rollup-backed aggregate reads (2026-04-20)
 

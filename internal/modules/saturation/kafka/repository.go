@@ -6,8 +6,17 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
+
+const messagingRollupPrefix = "observability.messaging_histograms_rollup"
+
+// rollupLatencyBucket returns a bucket expression that works on the rollup's
+// `bucket_ts` column. Matches the raw-path `timebucket.Expression` step.
+func rollupLatencyBucket(startMs, endMs int64) string {
+	return timebucket.ExprForColumnTime(startMs, endMs, "bucket_ts")
+}
 
 // timeBucketExpr returns the adaptive time-bucket expression for the metrics table timestamp column.
 func timeBucketExpr(startMs, endMs int64) string {
@@ -24,6 +33,29 @@ func bucketSecs(startMs, endMs int64) float64 {
 	}
 	return 3600.0
 }
+
+// NOTE: the histogram-latency methods (`GetPublishLatencyByTopic`,
+// `GetReceiveLatencyByTopic`, `GetProcessLatencyByGroup`,
+// `GetClientOperationDuration`) read the `messaging_histograms_rollup_*`
+// cascade.
+//
+// The remaining methods below intentionally stay on raw `observability.metrics`
+// for one of three reasons:
+//
+//  1. Counter metrics (publish/receive/process message counts, error counts):
+//     `messaging_histograms_rollup` filters `metric_type = 'Histogram'` so
+//     counter rows never land there. Migrating requires a new rollup shape.
+//
+//  2. Gauge metrics (consumer lag, broker connections, rebalance counts,
+//     assigned partitions): same metric_type filter — not in the rollup.
+//
+//  3. Dims outside the rollup's key set (broker / server.address, partition,
+//     node_id, error.type, client-id): the rollup would collapse these, so
+//     broker-scoped / partition-scoped / error-typed queries can't use it.
+//
+// Consolidating these requires either a new messaging-counters rollup or an
+// extension of `messaging_histograms_rollup` key columns. Deferred to a
+// follow-up.
 
 func (r *ClickHouseRepository) GetKafkaSummaryStats(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) (KafkaSummaryStats, error) {
 	durationSecs := float64(endMs-startMs) / 1000.0
@@ -92,31 +124,36 @@ func (r *ClickHouseRepository) GetProduceRateByTopic(ctx context.Context, teamID
 	return out, r.db.Select(ctx, &out, query, args...)
 }
 
+// GetPublishLatencyByTopic reads publish-duration percentiles from
+// `messaging_histograms_rollup_*` grouped by topic (= `messaging_destination`).
+// Semantic note: the rollup's `messaging_destination` comes from the canonical
+// `messaging.destination.name` attribute only — topic aliases captured by
+// `topicExpr()` are lost. If ingestion writes only non-canonical topic keys,
+// this query returns empty. Verify at rollup.
 func (r *ClickHouseRepository) GetPublishLatencyByTopic(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicLatencyPoint, error) {
-	bucket := timeBucketExpr(startMs, endMs)
-	topic := topicExpr()
-	filterSQL, filterArgs := kafkaFilterClauses(f)
+	table, _ := rollup.TierTableFor(messagingRollupPrefix, startMs, endMs)
+	bucket := rollupLatencyBucket(startMs, endMs)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s AS time_bucket,
-		    %s AS topic,
-		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
-		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99
+		    %s                                                                   AS time_bucket,
+		    messaging_destination                                                AS topic,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1  AS p50,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2  AS p95,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3  AS p99
 		FROM %s
 		WHERE team_id = @teamID
-		  AND timestamp BETWEEN @start AND @end
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND (metric_name = @publishDuration
+		       OR (metric_name = @opDuration AND lower(messaging_operation) IN @publishOps))
 		  %s
-		  AND %s
-		  AND metric_type = 'Histogram'
 		GROUP BY time_bucket, topic
 		ORDER BY time_bucket ASC, topic ASC
-	`, bucket, topic, TableMetrics, filterSQL, publishDurationCondition())
+	`, bucket, table, rollupTopicGroupFilter(f))
 
-	args := append(r.baseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
 	var out []TopicLatencyPoint
-	return out, r.db.Select(ctx, &out, query, args...)
+	return out, r.db.Select(dbutil.OverviewCtx(ctx), &out, query, args...)
 }
 
 func (r *ClickHouseRepository) GetConsumeRateByTopic(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicRatePoint, error) {
@@ -145,31 +182,31 @@ func (r *ClickHouseRepository) GetConsumeRateByTopic(ctx context.Context, teamID
 	return out, r.db.Select(ctx, &out, query, args...)
 }
 
+// GetReceiveLatencyByTopic — rollup-backed, see comment on GetPublishLatencyByTopic.
 func (r *ClickHouseRepository) GetReceiveLatencyByTopic(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicLatencyPoint, error) {
-	bucket := timeBucketExpr(startMs, endMs)
-	topic := topicExpr()
-	filterSQL, filterArgs := kafkaFilterClauses(f)
+	table, _ := rollup.TierTableFor(messagingRollupPrefix, startMs, endMs)
+	bucket := rollupLatencyBucket(startMs, endMs)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s AS time_bucket,
-		    %s AS topic,
-		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
-		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99
+		    %s                                                                   AS time_bucket,
+		    messaging_destination                                                AS topic,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1  AS p50,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2  AS p95,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3  AS p99
 		FROM %s
 		WHERE team_id = @teamID
-		  AND timestamp BETWEEN @start AND @end
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND (metric_name = @receiveDuration
+		       OR (metric_name = @opDuration AND lower(messaging_operation) IN @receiveOps))
 		  %s
-		  AND %s
-		  AND metric_type = 'Histogram'
 		GROUP BY time_bucket, topic
 		ORDER BY time_bucket ASC, topic ASC
-	`, bucket, topic, TableMetrics, filterSQL, receiveDurationCondition())
+	`, bucket, table, rollupTopicGroupFilter(f))
 
-	args := append(r.baseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
 	var out []TopicLatencyPoint
-	return out, r.db.Select(ctx, &out, query, args...)
+	return out, r.db.Select(dbutil.OverviewCtx(ctx), &out, query, args...)
 }
 
 func (r *ClickHouseRepository) GetConsumeRateByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupRatePoint, error) {
@@ -224,31 +261,33 @@ func (r *ClickHouseRepository) GetProcessRateByGroup(ctx context.Context, teamID
 	return out, r.db.Select(ctx, &out, query, args...)
 }
 
+// GetProcessLatencyByGroup — rollup-backed. Semantic note: rollup's
+// `consumer_group` is populated from `messaging.kafka.consumer.group` only;
+// other aliases coalesced by `consumerGroupExpr()` are lost.
 func (r *ClickHouseRepository) GetProcessLatencyByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupLatencyPoint, error) {
-	bucket := timeBucketExpr(startMs, endMs)
-	group := consumerGroupExpr()
-	filterSQL, filterArgs := kafkaFilterClauses(f)
+	table, _ := rollup.TierTableFor(messagingRollupPrefix, startMs, endMs)
+	bucket := rollupLatencyBucket(startMs, endMs)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s AS time_bucket,
-		    %s AS consumer_group,
-		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
-		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99
+		    %s                                                                   AS time_bucket,
+		    consumer_group                                                       AS consumer_group,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1  AS p50,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2  AS p95,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3  AS p99
 		FROM %s
 		WHERE team_id = @teamID
-		  AND timestamp BETWEEN @start AND @end
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND (metric_name = @processDuration
+		       OR (metric_name = @opDuration AND lower(messaging_operation) IN @processOps))
 		  %s
-		  AND %s
-		  AND metric_type = 'Histogram'
 		GROUP BY time_bucket, consumer_group
 		ORDER BY time_bucket ASC, consumer_group ASC
-	`, bucket, group, TableMetrics, filterSQL, processDurationCondition())
+	`, bucket, table, rollupTopicGroupFilter(f))
 
-	args := append(r.baseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
 	var out []GroupLatencyPoint
-	return out, r.db.Select(ctx, &out, query, args...)
+	return out, r.db.Select(dbutil.OverviewCtx(ctx), &out, query, args...)
 }
 
 func (r *ClickHouseRepository) GetConsumerLagByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]LagPoint, error) {
@@ -470,31 +509,31 @@ func (r *ClickHouseRepository) GetBrokerConnections(ctx context.Context, teamID 
 	return out, r.db.Select(ctx, &out, query, args...)
 }
 
+// GetClientOperationDuration — rollup-backed. operation_name comes from the
+// canonical `messaging.operation` attribute on the rollup.
 func (r *ClickHouseRepository) GetClientOperationDuration(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ClientOpDurationPoint, error) {
-	bucket := timeBucketExpr(startMs, endMs)
-	opName := operationExpr()
-	filterSQL, filterArgs := kafkaFilterClauses(f)
+	table, _ := rollup.TierTableFor(messagingRollupPrefix, startMs, endMs)
+	bucket := rollupLatencyBucket(startMs, endMs)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s AS time_bucket,
-		    %s AS operation_name,
-		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) AS p50,
-		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) AS p95,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) AS p99
+		    %s                                                                   AS time_bucket,
+		    messaging_operation                                                  AS operation_name,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1  AS p50,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2  AS p95,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3  AS p99
 		FROM %s
 		WHERE team_id = @teamID
-		  AND timestamp BETWEEN @start AND @end
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @opDuration
 		  %s
-		  AND %s = '%s'
-		  AND metric_type = 'Histogram'
 		GROUP BY time_bucket, operation_name
 		ORDER BY time_bucket ASC, operation_name ASC
-	`, bucket, opName, TableMetrics, filterSQL, ColMetricName, MetricClientOperationDuration)
+	`, bucket, table, rollupTopicGroupFilter(f))
 
-	args := append(r.baseParams(teamID, startMs, endMs), filterArgs...)
+	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
 	var out []ClientOpDurationPoint
-	return out, r.db.Select(ctx, &out, query, args...)
+	return out, r.db.Select(dbutil.OverviewCtx(ctx), &out, query, args...)
 }
 
 func (r *ClickHouseRepository) getErrorRates(ctx context.Context, teamID int64, startMs, endMs int64, metricName, _ string, caller string, f KafkaFilters) ([]ErrorRatePoint, error) {
