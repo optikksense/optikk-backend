@@ -8,12 +8,13 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 const (
-	spansRollupPrefix       = "observability.spans_rollup"
-	metricsHistRollupPrefix = "observability.metrics_histograms_rollup"
+	spansRollupPrefix             = "observability.spans_rollup"
+	metricsHistRollupPrefix       = "observability.metrics_histograms_rollup"
+	metricsGaugesRollupPrefix     = "observability.metrics_gauges_rollup"
+	metricsGaugesByStatusPrefix   = "observability.metrics_gauges_by_status_rollup"
 )
 
 // Histogram-metric queries target `observability.metrics_histograms_rollup_1m`.
@@ -120,39 +121,42 @@ func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID
 	return HistogramSummary{P50: raw.P50, P95: raw.P95, P99: raw.P99, Avg: avg}, nil
 }
 
-// GetRequestRate groups by status_code attribute — not a rollup dimension.
-// Stays on raw metrics; `attrString` pulls the label from JSON attrs.
+// GetRequestRate reads the Phase-7 `metrics_gauges_by_status_rollup` which
+// pre-aggregates `http.server.request.duration` samples by status_code. The MV
+// extracts `attributes.http.status_code` at ingest so we read a single key'd
+// rollup row per bucket × status.
 func (r *ClickHouseRepository) GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]StatusCodeBucket, error) {
-	bucket := timebucket.Expression(startMs, endMs)
-	statusAttr := attrString(AttrHTTPStatusCode)
-
+	table, tierStep := rollup.TierTableFor(metricsGaugesByStatusPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT %s AS time_bucket,
-		       %s AS status_code,
-		       count() AS req_count
+		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		       http_status_code    AS status_code,
+		       sumMerge(sample_count) AS req_count
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
 		GROUP BY time_bucket, status_code
-		ORDER BY time_bucket, status_code`,
-		bucket, statusAttr,
-		TableMetrics,
-		ColTeamID, ColTimestamp,
-		ColMetricName, MetricHTTPServerRequestDuration,
-	)
-	var raw []struct {
-		Timestamp  string `ch:"time_bucket"`
-		StatusCode string `ch:"status_code"`
-		ReqCount   uint64 `ch:"req_count"`
+		ORDER BY time_bucket, status_code`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricName", MetricHTTPServerRequestDuration),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+
+	var raw []struct {
+		Timestamp  time.Time `ch:"time_bucket"`
+		StatusCode string    `ch:"status_code"`
+		ReqCount   uint64    `ch:"req_count"`
+	}
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]StatusCodeBucket, len(raw))
 	for i, row := range raw {
 		rows[i] = StatusCodeBucket{
-			Timestamp:  row.Timestamp,
+			Timestamp:  row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
 			StatusCode: row.StatusCode,
 			Count:      int64(row.ReqCount), //nolint:gosec // domain-bounded
 		}
@@ -164,26 +168,48 @@ func (r *ClickHouseRepository) GetRequestDuration(ctx context.Context, teamID in
 	return r.queryHistogramSummary(ctx, teamID, startMs, endMs, MetricHTTPServerRequestDuration)
 }
 
-// GetActiveRequests is a gauge metric — not in histogram rollup. Stays on raw.
+// GetActiveRequests reads the Phase-7 gauges rollup. MV entry emits a `Gauge`
+// metric row with no state_dim, so we just sum avg_num / count across all
+// host+pod rows for the time bucket.
 func (r *ClickHouseRepository) GetActiveRequests(ctx context.Context, teamID int64, startMs, endMs int64) ([]TimeBucket, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT %s AS time_bucket,
-		       avg(value) AS val
+		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		       sumMerge(value_avg_num) AS value_num,
+		       sumMerge(sample_count)  AS value_cnt
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
 		GROUP BY time_bucket
-		ORDER BY time_bucket`,
-		bucket,
-		TableMetrics,
-		ColTeamID, ColTimestamp,
-		ColMetricName, MetricHTTPServerActiveRequests,
-	)
-	var rows []TimeBucket
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+		ORDER BY time_bucket`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricName", MetricHTTPServerActiveRequests),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
+	}
+
+	var raw []struct {
+		Timestamp time.Time `ch:"time_bucket"`
+		ValueNum  float64   `ch:"value_num"`
+		ValueCnt  uint64    `ch:"value_cnt"`
+	}
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
 		return nil, err
+	}
+	rows := make([]TimeBucket, len(raw))
+	for i, row := range raw {
+		var valPtr *float64
+		if row.ValueCnt > 0 {
+			v := row.ValueNum / float64(row.ValueCnt)
+			valPtr = &v
+		}
+		rows[i] = TimeBucket{
+			Timestamp: row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			Value:     valPtr,
+		}
 	}
 	return rows, nil
 }

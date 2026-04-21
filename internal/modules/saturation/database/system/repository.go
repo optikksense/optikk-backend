@@ -6,7 +6,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
@@ -27,220 +27,190 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
+// systemFilter augments the shared rollup filters with a concrete db_system pin.
+func systemFilter(dbSystem string, f shared.Filters) (string, []any) {
+	frag, args := shared.RollupFilterClauses(f)
+	frag += ` AND db_system = @dbSystem`
+	args = append(args, clickhouse.Named("dbSystem", dbSystem))
+	return frag, args
+}
+
 func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string, f shared.Filters) ([]LatencyTimeSeries, error) {
-	bucket := timebucket.Expression(startMs, endMs)
-	fc, fargs := shared.FilterClauses(f)
+	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	fc, fargs := systemFilter(dbSystem, f)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                                              AS time_bucket,
-		    %s                                                                              AS group_by,
-		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p50_ms,
-		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p95_ms,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms
+		    %s                                                                          AS time_bucket,
+		    db_operation                                                                AS group_by,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 * 1000  AS p50_ms,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 * 1000  AS p95_ms,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 * 1000  AS p99_ms
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
-		  AND metric_type = 'Histogram'
-		  AND %s = @dbSystem
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket, group_by
 		ORDER BY time_bucket, group_by
-	`,
-		bucket, shared.AttrString(shared.AttrDBOperationName),
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBOperationDuration,
-		shared.AttrString(shared.AttrDBSystem),
-		fc,
-	)
+	`, shared.BucketTimeExpr, table, fc)
 
-	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
-	params = append(params, fargs...)
+	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
+		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
+	)
+	args = append(args, fargs...)
 	var rows []LatencyTimeSeries
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetSystemOps(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string, f shared.Filters) ([]OpsTimeSeries, error) {
-	bucket := timebucket.Expression(startMs, endMs)
-	fc, fargs := shared.FilterClauses(f)
+	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	fc, fargs := systemFilter(dbSystem, f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                               AS time_bucket,
-		    %s                               AS group_by,
-		    toFloat64(sum(hist_count)) / %f  AS ops_per_sec
+		    %s                                   AS time_bucket,
+		    db_operation                         AS group_by,
+		    toFloat64(sumMerge(hist_count)) / %f AS ops_per_sec
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
-		  AND metric_type = 'Histogram'
-		  AND %s = @dbSystem
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket, group_by
 		ORDER BY time_bucket, group_by
-	`,
-		bucket, shared.AttrString(shared.AttrDBOperationName),
-		bucketSec,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBOperationDuration,
-		shared.AttrString(shared.AttrDBSystem),
-		fc,
-	)
+	`, shared.BucketTimeExpr, bucketSec, table, fc)
 
-	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
-	params = append(params, fargs...)
+	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
+		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
+	)
+	args = append(args, fargs...)
 	var rows []OpsTimeSeries
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetSystemTopCollectionsByLatency(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]SystemCollectionRow, error) {
-	collAttr := shared.AttrString(shared.AttrDBCollectionName)
+	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                                              AS collection_name,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms,
-		    toFloat64(sum(hist_count)) / %f                                                 AS ops_per_sec
+		    db_collection                                                               AS collection_name,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 * 1000  AS p99_ms,
+		    toFloat64(sumMerge(hist_count)) / %f                                        AS ops_per_sec
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
-		  AND metric_type = 'Histogram'
-		  AND %s = @dbSystem
-		  AND notEmpty(%s)
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
+		  AND db_system = @dbSystem
+		  AND notEmpty(db_collection)
 		GROUP BY collection_name
 		ORDER BY p99_ms DESC
 		LIMIT 20
-	`,
-		collAttr,
-		bucketSec,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBOperationDuration,
-		shared.AttrString(shared.AttrDBSystem),
-		collAttr,
-	)
+	`, bucketSec, table)
 
-	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
+	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
+		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
+		clickhouse.Named("dbSystem", dbSystem),
+	)
 	var rows []SystemCollectionRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetSystemTopCollectionsByVolume(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]SystemCollectionRow, error) {
-	collAttr := shared.AttrString(shared.AttrDBCollectionName)
+	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                                              AS collection_name,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms,
-		    toFloat64(sum(hist_count)) / %f                                                 AS ops_per_sec
+		    db_collection                                                               AS collection_name,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 * 1000  AS p99_ms,
+		    toFloat64(sumMerge(hist_count)) / %f                                        AS ops_per_sec
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
-		  AND metric_type = 'Histogram'
-		  AND %s = @dbSystem
-		  AND notEmpty(%s)
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
+		  AND db_system = @dbSystem
+		  AND notEmpty(db_collection)
 		GROUP BY collection_name
 		ORDER BY ops_per_sec DESC
 		LIMIT 20
-	`,
-		collAttr,
-		bucketSec,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBOperationDuration,
-		shared.AttrString(shared.AttrDBSystem),
-		collAttr,
-	)
+	`, bucketSec, table)
 
-	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
+	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
+		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
+		clickhouse.Named("dbSystem", dbSystem),
+	)
 	var rows []SystemCollectionRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetSystemErrors(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]ErrorTimeSeries, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                               AS time_bucket,
-		    %s                               AS group_by,
-		    toFloat64(sum(hist_count)) / %f  AS errors_per_sec
+		    %s                                   AS time_bucket,
+		    db_operation                         AS group_by,
+		    toFloat64(sumMerge(hist_count)) / %f AS errors_per_sec
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
-		  AND metric_type = 'Histogram'
-		  AND %s = @dbSystem
-		  AND notEmpty(%s)
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
+		  AND db_system = @dbSystem
+		  AND notEmpty(error_type)
 		GROUP BY time_bucket, group_by
 		ORDER BY time_bucket, group_by
-	`,
-		bucket, shared.AttrString(shared.AttrDBOperationName),
-		bucketSec,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBOperationDuration,
-		shared.AttrString(shared.AttrDBSystem),
-		shared.AttrString(shared.AttrErrorType),
-	)
+	`, shared.BucketTimeExpr, bucketSec, table)
 
-	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
+	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
+		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
+		clickhouse.Named("dbSystem", dbSystem),
+	)
 	var rows []ErrorTimeSeries
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetSystemNamespaces(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]SystemNamespace, error) {
-	nsAttr := shared.AttrString(shared.AttrDBNamespace)
+	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                       AS namespace,
-		    toInt64(sum(hist_count)) AS span_count
+		    db_namespace             AS namespace,
+		    toInt64(sumMerge(hist_count)) AS span_count
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
-		  AND metric_type = 'Histogram'
-		  AND %s = @dbSystem
-		  AND notEmpty(%s)
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
+		  AND db_system = @dbSystem
+		  AND notEmpty(db_namespace)
 		GROUP BY namespace
 		ORDER BY span_count DESC
-	`,
-		nsAttr,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBOperationDuration,
-		shared.AttrString(shared.AttrDBSystem),
-		nsAttr,
-	)
+	`, table)
 
-	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
+	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
+		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
+		clickhouse.Named("dbSystem", dbSystem),
+	)
 	var rows []SystemNamespace
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil

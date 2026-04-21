@@ -316,6 +316,26 @@ Typed helpers: `database.SelectTyped[T]` / `database.QueryRowTyped[T]` — calle
 
 **Time bucketing** (`internal/infra/timebucket/`): `timebucket.NewAdaptiveStrategy(startMs, endMs)` auto-picks minute/5min/15min/hour/day; use `.GetBucketExpression()` in SELECT and GROUP BY. `timebucket.ByName("15m")` for explicit step selection. Named params: `clickhouse.Named("teamID", teamID)` with `@teamID` in SQL.
 
+### Phase 7 — gauge + DB + topology rollups (2026-04-21)
+
+Closes the remaining raw-scan aggregate gaps opened at the tail of Phase 6. Five new cascade rollups — `metrics_gauges_rollup`, `metrics_gauges_by_status_rollup`, `db_histograms_rollup`, `messaging_histograms_rollup`, `spans_topology_rollup` — all `_1m`/`_5m`/`_1h` tiers populated by ingest + cascade MVs. Tier selection via `rollup.TierTableFor` (unchanged helper).
+
+| Repo | Migrated methods | Target rollup |
+|------|------------------|---------------|
+| `overview/apm/repository.go` | `GetUptime`, `GetOpenFDs`, `GetProcessCPU`, `GetProcessMemory`, `GetActiveRequests` | `metrics_gauges_rollup` |
+| `overview/httpmetrics/repository.go` | `GetRequestRate`, `GetActiveRequests` | `metrics_gauges_by_status_rollup` + `metrics_gauges_rollup` |
+| `infrastructure/{cpu,disk,memory,network}/repository.go` | simple single-metric gauge methods (see file TODOs) | `metrics_gauges_rollup` |
+| `saturation/database/{collection,system,connections,slowqueries,systems,volume}/repository.go` | histogram-percentile methods | `db_histograms_rollup` |
+| `services/topology/repository.go` | `GetNodes`, `GetEdges` (removes span self-join) | `spans_rollup` + `spans_topology_rollup` |
+
+Deferred to Phase 8 (documented in-file with `// TODO(phase8):`):
+- Infrastructure utilization/percentage methods (multi-metric avgIf fallbacks that the gauge rollup can't model without carrying more state).
+- `infrastructure/{jvm,kubernetes,connpool}` — multi-metric composition + attribute group-bys outside `state_dim`.
+- `saturation/kafka` — multi-alias topic/operation attribute coalesce.
+- `saturation/database/slowqueries.GetSlowQueryPatterns` + `GetP99ByQueryText` — group by high-cardinality `db.query.text`.
+- `GetCollectionQueryTexts` — same reason.
+- Connection-count / connection-timeout gauge queries in `saturation/database/connections` — pool_name + state aren't in the generic gauge `state_dim`.
+
 ### Phase 6 — rollup-backed aggregate reads (2026-04-20)
 
 Five repository clusters now read from `observability.<kind>_rollup_{1m,5m,1h}` cascades via `rollup.TierTableFor(prefix, startMs, endMs)`:

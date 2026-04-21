@@ -8,10 +8,12 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
-const metricsHistRollupPrefix = "observability.metrics_histograms_rollup"
+const (
+	metricsHistRollupPrefix   = "observability.metrics_histograms_rollup"
+	metricsGaugesRollupPrefix = "observability.metrics_gauges_rollup"
+)
 
 // queryIntervalMinutes returns the group-by step (in minutes) for rollup
 // reads. It is max(tierStep, dashboardStep) so the step is never finer than
@@ -53,9 +55,6 @@ func NewRepository(db clickhouse.Conn) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-// histogramSummaryRawRow scans merged sketch-tuple output plus the
-// duration-sum / count state columns; the service's `avg` is derived
-// Go-side from sum/count.
 type histogramSummaryRawRow struct {
 	P50     float64 `ch:"p50"`
 	P95     float64 `ch:"p95"`
@@ -99,26 +98,47 @@ func rollupParams(teamID int64, startMs, endMs int64, metricName string) []any {
 	}
 }
 
-func (r *ClickHouseRepository) queryTimeBuckets(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]timeBucketDTO, error) {
-	bucket := timebucket.Expression(startMs, endMs)
+// queryGaugeTimeBuckets reads a single gauge metric from the gauge cascade
+// rollup and returns bucketed avg(value) as a timeBucketDTO slice. No state
+// breakdown — empty `state_dim = ''` filter so we don't mix in metric families
+// that happen to share the table but carry a state dim.
+func (r *ClickHouseRepository) queryGaugeTimeBuckets(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]timeBucketDTO, error) {
+	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT
-		    %s         AS time_bucket,
-		    avg(value) AS val
+		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		       sumMerge(value_avg_num) AS value_num,
+		       sumMerge(sample_count)  AS value_cnt
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
 		GROUP BY time_bucket
-		ORDER BY time_bucket
-	`,
-		bucket,
-		TableMetrics,
-		ColTeamID, ColTimestamp,
-		ColMetricName, metricName,
+		ORDER BY time_bucket`, table)
+	args := append(rollupParams(teamID, startMs, endMs, metricName),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
 	)
-	var rows []timeBucketDTO
-	return rows, r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
+
+	var raw []struct {
+		Timestamp time.Time `ch:"time_bucket"`
+		ValueNum  float64   `ch:"value_num"`
+		ValueCnt  uint64    `ch:"value_cnt"`
+	}
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+		return nil, err
+	}
+	rows := make([]timeBucketDTO, len(raw))
+	for i, row := range raw {
+		var valPtr *float64
+		if row.ValueCnt > 0 {
+			v := row.ValueNum / float64(row.ValueCnt)
+			valPtr = &v
+		}
+		rows[i] = timeBucketDTO{
+			Timestamp: row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			Value:     valPtr,
+		}
+	}
+	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetRPCDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error) {
@@ -160,55 +180,101 @@ func (r *ClickHouseRepository) GetMessagingPublishDuration(ctx context.Context, 
 	return r.queryHistogramSummary(ctx, teamID, startMs, endMs, MetricMessagingPublishDuration)
 }
 
+// GetProcessCPU uses the gauge rollup's `state_dim` column which the MV
+// populates from `attributes.process.cpu.state` for the `process.cpu.time`
+// metric. Per-state time series of bucketed avg(value).
 func (r *ClickHouseRepository) GetProcessCPU(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	bucket := timebucket.Expression(startMs, endMs)
-	stateAttr := attrString(AttrProcessCPUState)
-
+	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT
-		    %s         AS time_bucket,
-		    %s         AS state,
-		    avg(value) AS val
+		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		       state_dim               AS state,
+		       sumMerge(value_avg_num) AS value_num,
+		       sumMerge(sample_count)  AS value_cnt
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
+		  AND state_dim != ''
 		GROUP BY time_bucket, state
-		ORDER BY time_bucket, state
-	`,
-		bucket, stateAttr,
-		TableMetrics,
-		ColTeamID, ColTimestamp,
-		ColMetricName, MetricProcessCPUTime,
+		ORDER BY time_bucket, state`, table)
+	args := append(rollupParams(teamID, startMs, endMs, MetricProcessCPUTime),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
 	)
-	var rows []StateBucket
-	return rows, r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
+
+	var raw []struct {
+		Timestamp time.Time `ch:"time_bucket"`
+		State     string    `ch:"state"`
+		ValueNum  float64   `ch:"value_num"`
+		ValueCnt  uint64    `ch:"value_cnt"`
+	}
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+		return nil, err
+	}
+	rows := make([]StateBucket, len(raw))
+	for i, row := range raw {
+		var valPtr *float64
+		if row.ValueCnt > 0 {
+			v := row.ValueNum / float64(row.ValueCnt)
+			valPtr = &v
+		}
+		rows[i] = StateBucket{
+			Timestamp: row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			State:     row.State,
+			Value:     valPtr,
+		}
+	}
+	return rows, nil
 }
 
+// GetProcessMemory merges two metrics (usage + virtual) from the gauge
+// rollup, averaged over the range. Equivalent to the prior avgIf query on raw.
 func (r *ClickHouseRepository) GetProcessMemory(ctx context.Context, teamID int64, startMs, endMs int64) (processMemoryDTO, error) {
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT
-		    avgIf(value, %s = '%s') AS rss,
-		    avgIf(value, %s = '%s') AS vms
+		SELECT metric_name,
+		       sumMerge(value_avg_num) AS value_num,
+		       sumMerge(sample_count)  AS value_cnt
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s IN ('%s', '%s')
-	`,
-		ColMetricName, MetricProcessMemoryUsage,
-		ColMetricName, MetricProcessMemoryVirtual,
-		TableMetrics,
-		ColTeamID, ColTimestamp,
-		ColMetricName, MetricProcessMemoryUsage, MetricProcessMemoryVirtual,
-	)
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name IN (@usage, @virtual)
+		GROUP BY metric_name`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("usage", MetricProcessMemoryUsage),
+		clickhouse.Named("virtual", MetricProcessMemoryVirtual),
+	}
+
+	var raw []struct {
+		MetricName string  `ch:"metric_name"`
+		ValueNum   float64 `ch:"value_num"`
+		ValueCnt   uint64  `ch:"value_cnt"`
+	}
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+		return processMemoryDTO{}, err
+	}
 	var result processMemoryDTO
-	return result, r.db.QueryRow(dbutil.OverviewCtx(ctx), query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...).ScanStruct(&result)
+	for _, row := range raw {
+		if row.ValueCnt == 0 {
+			continue
+		}
+		avg := row.ValueNum / float64(row.ValueCnt)
+		switch row.MetricName {
+		case MetricProcessMemoryUsage:
+			result.RSS = avg
+		case MetricProcessMemoryVirtual:
+			result.VMS = avg
+		}
+	}
+	return result, nil
 }
 
 func (r *ClickHouseRepository) GetOpenFDs(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketDTO, error) {
-	return r.queryTimeBuckets(ctx, teamID, startMs, endMs, MetricProcessOpenFDs)
+	return r.queryGaugeTimeBuckets(ctx, teamID, startMs, endMs, MetricProcessOpenFDs)
 }
 
 func (r *ClickHouseRepository) GetUptime(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketDTO, error) {
-	return r.queryTimeBuckets(ctx, teamID, startMs, endMs, MetricProcessUptime)
+	return r.queryGaugeTimeBuckets(ctx, teamID, startMs, endMs, MetricProcessUptime)
 }

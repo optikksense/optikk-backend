@@ -9,8 +9,33 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
+
+const metricsGaugesRollupPrefix = "observability.metrics_gauges_rollup"
+
+// queryIntervalMinutes returns the group-by step (in minutes) for rollup reads.
+// It is max(tierStep, dashboardStep) so the step is never finer than the
+// selected tier's native resolution.
+func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
+	hours := (endMs - startMs) / 3_600_000
+	var dashStep int64
+	switch {
+	case hours <= 3:
+		dashStep = 1
+	case hours <= 24:
+		dashStep = 5
+	case hours <= 168:
+		dashStep = 60
+	default:
+		dashStep = 1440
+	}
+	if tierStepMin > dashStep {
+		return tierStepMin
+	}
+	return dashStep
+}
 
 type Repository interface {
 	GetMemoryUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error)
@@ -55,20 +80,53 @@ func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query stri
 }
 
 func (r *ClickHouseRepository) GetMemoryUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	b := bucket(startMs, endMs)
-	state := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrSystemMemoryState)
+	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT %s as time_bucket, %s as state, avg(%s) as metric_val
+		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		       state_dim                AS state,
+		       sumMerge(value_avg_num)  AS value_num,
+		       sumMerge(sample_count)   AS value_cnt
 		FROM %s
-		WHERE %s = @teamID AND %s BETWEEN @start AND @end AND %s = '%s'
-		GROUP BY 1, 2 ORDER BY 1, 2`,
-		b, state, infraconsts.ColValue,
-		infraconsts.TableMetrics,
-		infraconsts.ColTeamID, infraconsts.ColTimestamp,
-		infraconsts.ColMetricName, infraconsts.MetricSystemMemoryUsage)
-	return r.queryStateBuckets(ctx, query, teamID, startMs, endMs)
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
+		  AND state_dim != ''
+		GROUP BY time_bucket, state
+		ORDER BY time_bucket, state`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // domain-bounded
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricName", infraconsts.MetricSystemMemoryUsage),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
+	}
+
+	var raw []struct {
+		Timestamp time.Time `ch:"time_bucket"`
+		State     string    `ch:"state"`
+		ValueNum  float64   `ch:"value_num"`
+		ValueCnt  uint64    `ch:"value_cnt"`
+	}
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+		return nil, err
+	}
+	rows := make([]stateBucketDTO, len(raw))
+	for i, row := range raw {
+		var valPtr *float64
+		if row.ValueCnt > 0 {
+			v := row.ValueNum / float64(row.ValueCnt)
+			valPtr = &v
+		}
+		rows[i] = StateBucket{
+			Timestamp: row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			State:     row.State,
+			Value:     valPtr,
+		}
+	}
+	return rows, nil
 }
 
+// TODO(phase8): rollup migration requires multi-metric fallback logic not yet supported by metrics_gauges_rollup
 func (r *ClickHouseRepository) GetMemoryUsagePercentage(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
 	b := bucket(startMs, endMs)
 	aMem := infraconsts.AttrFloat(infraconsts.AttrSystemMemoryUtilization)
@@ -110,6 +168,7 @@ func (r *ClickHouseRepository) GetMemoryUsagePercentage(ctx context.Context, tea
 	return rows, nil
 }
 
+// TODO(phase8): rollup migration requires multi-metric fallback logic not yet supported by metrics_gauges_rollup
 func (r *ClickHouseRepository) GetSwapUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
 	b := bucket(startMs, endMs)
 	state := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrSystemMemoryState)
@@ -294,6 +353,7 @@ func (r *ClickHouseRepository) queryMemoryMetricByInstance(ctx context.Context, 
 	return calculateAverage(values), nil
 }
 
+// TODO(phase8): rollup migration requires multi-metric fallback logic not yet supported by metrics_gauges_rollup
 func (r *ClickHouseRepository) GetAvgMemory(ctx context.Context, teamID int64, startMs, endMs int64) (metricValueDTO, error) {
 	services, err := r.getServiceList(ctx, teamID, startMs, endMs)
 	if err != nil {
@@ -315,10 +375,12 @@ func (r *ClickHouseRepository) GetAvgMemory(ctx context.Context, teamID int64, s
 	return MetricValue{Value: *avg}, nil
 }
 
+// TODO(phase8): rollup migration requires multi-metric fallback logic not yet supported by metrics_gauges_rollup
 func (r *ClickHouseRepository) GetMemoryByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
 	return r.queryMemoryMetricByService(ctx, teamID, serviceName, startMs, endMs)
 }
 
+// TODO(phase8): rollup migration requires multi-metric fallback logic not yet supported by metrics_gauges_rollup
 func (r *ClickHouseRepository) GetMemoryByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	return r.queryMemoryMetricByInstance(ctx, teamID, host, pod, container, serviceName, startMs, endMs)
 }

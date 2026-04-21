@@ -8,8 +8,33 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
+
+const metricsGaugesRollupPrefix = "observability.metrics_gauges_rollup"
+
+// queryIntervalMinutes returns the group-by step (in minutes) for rollup reads.
+// It is max(tierStep, dashboardStep) so the step is never finer than the
+// selected tier's native resolution.
+func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
+	hours := (endMs - startMs) / 3_600_000
+	var dashStep int64
+	switch {
+	case hours <= 3:
+		dashStep = 1
+	case hours <= 24:
+		dashStep = 5
+	case hours <= 168:
+		dashStep = 60
+	default:
+		dashStep = 1440
+	}
+	if tierStepMin > dashStep {
+		return tierStepMin
+	}
+	return dashStep
+}
 
 type Repository interface {
 	GetNetworkIO(ctx context.Context, teamID int64, startMs, endMs int64) ([]directionBucketDTO, error)
@@ -58,65 +83,153 @@ func (r *ClickHouseRepository) queryResourceBuckets(ctx context.Context, query s
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetNetworkIO(ctx context.Context, teamID int64, startMs, endMs int64) ([]directionBucketDTO, error) {
-	b := bucket(startMs, endMs)
-	dir := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrSystemNetworkDirection)
+func (r *ClickHouseRepository) queryDirectionBucketsFromRollup(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]directionBucketDTO, error) {
+	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT %s as time_bucket, %s as direction, sum(%s) as metric_val
+		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		       state_dim                AS direction,
+		       sumMerge(value_sum)      AS value_sum_val,
+		       sumMerge(sample_count)   AS value_cnt
 		FROM %s
-		WHERE %s = @teamID AND %s BETWEEN @start AND @end AND %s = '%s'
-		GROUP BY 1, 2 ORDER BY 1, 2`,
-		b, dir, infraconsts.ColValue,
-		infraconsts.TableMetrics,
-		infraconsts.ColTeamID, infraconsts.ColTimestamp,
-		infraconsts.ColMetricName, infraconsts.MetricSystemNetworkIO)
-	return r.queryDirectionBuckets(ctx, query, teamID, startMs, endMs)
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
+		  AND state_dim != ''
+		GROUP BY time_bucket, direction
+		ORDER BY time_bucket, direction`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // domain-bounded
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricName", metricName),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
+	}
+
+	var raw []struct {
+		Timestamp time.Time `ch:"time_bucket"`
+		Direction string    `ch:"direction"`
+		ValueSum  float64   `ch:"value_sum_val"`
+		ValueCnt  uint64    `ch:"value_cnt"`
+	}
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+		return nil, err
+	}
+	rows := make([]directionBucketDTO, len(raw))
+	for i, row := range raw {
+		var valPtr *float64
+		if row.ValueCnt > 0 {
+			v := row.ValueSum
+			valPtr = &v
+		}
+		rows[i] = DirectionBucket{
+			Timestamp: row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			Direction: row.Direction,
+			Value:     valPtr,
+		}
+	}
+	return rows, nil
+}
+
+func (r *ClickHouseRepository) GetNetworkIO(ctx context.Context, teamID int64, startMs, endMs int64) ([]directionBucketDTO, error) {
+	return r.queryDirectionBucketsFromRollup(ctx, teamID, startMs, endMs, infraconsts.MetricSystemNetworkIO)
 }
 
 func (r *ClickHouseRepository) GetNetworkPackets(ctx context.Context, teamID int64, startMs, endMs int64) ([]directionBucketDTO, error) {
-	b := bucket(startMs, endMs)
-	dir := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrSystemNetworkDirection)
-	query := fmt.Sprintf(`
-		SELECT %s as time_bucket, %s as direction, sum(%s) as metric_val
-		FROM %s
-		WHERE %s = @teamID AND %s BETWEEN @start AND @end AND %s = '%s'
-		GROUP BY 1, 2 ORDER BY 1, 2`,
-		b, dir, infraconsts.ColValue,
-		infraconsts.TableMetrics,
-		infraconsts.ColTeamID, infraconsts.ColTimestamp,
-		infraconsts.ColMetricName, infraconsts.MetricSystemNetworkPackets)
-	return r.queryDirectionBuckets(ctx, query, teamID, startMs, endMs)
+	return r.queryDirectionBucketsFromRollup(ctx, teamID, startMs, endMs, infraconsts.MetricSystemNetworkPackets)
 }
 
 func (r *ClickHouseRepository) GetNetworkErrors(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	b := bucket(startMs, endMs)
-	dir := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrSystemNetworkDirection)
+	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT %s as time_bucket, %s as state, sum(%s) as metric_val
+		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		       state_dim                AS state,
+		       sumMerge(value_sum)      AS value_sum_val,
+		       sumMerge(sample_count)   AS value_cnt
 		FROM %s
-		WHERE %s = @teamID AND %s BETWEEN @start AND @end AND %s = '%s'
-		GROUP BY 1, 2 ORDER BY 1, 2`,
-		b, dir, infraconsts.ColValue,
-		infraconsts.TableMetrics,
-		infraconsts.ColTeamID, infraconsts.ColTimestamp,
-		infraconsts.ColMetricName, infraconsts.MetricSystemNetworkErrors)
-	return r.queryStateBuckets(ctx, query, teamID, startMs, endMs)
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
+		  AND state_dim != ''
+		GROUP BY time_bucket, state
+		ORDER BY time_bucket, state`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // domain-bounded
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricName", infraconsts.MetricSystemNetworkErrors),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
+	}
+
+	var raw []struct {
+		Timestamp time.Time `ch:"time_bucket"`
+		State     string    `ch:"state"`
+		ValueSum  float64   `ch:"value_sum_val"`
+		ValueCnt  uint64    `ch:"value_cnt"`
+	}
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+		return nil, err
+	}
+	rows := make([]stateBucketDTO, len(raw))
+	for i, row := range raw {
+		var valPtr *float64
+		if row.ValueCnt > 0 {
+			v := row.ValueSum
+			valPtr = &v
+		}
+		rows[i] = StateBucket{
+			Timestamp: row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			State:     row.State,
+			Value:     valPtr,
+		}
+	}
+	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetNetworkDropped(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
-	b := bucket(startMs, endMs)
+	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT %s as time_bucket, '' as pod, sum(%s) as metric_val
+		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		       sumMerge(value_sum)      AS value_sum_val,
+		       sumMerge(sample_count)   AS value_cnt
 		FROM %s
-		WHERE %s = @teamID AND %s BETWEEN @start AND @end AND %s = '%s'
-		GROUP BY 1 ORDER BY 1`,
-		b, infraconsts.ColValue,
-		infraconsts.TableMetrics,
-		infraconsts.ColTeamID, infraconsts.ColTimestamp,
-		infraconsts.ColMetricName, infraconsts.MetricSystemNetworkDropped)
-	return r.queryResourceBuckets(ctx, query, teamID, startMs, endMs)
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
+		GROUP BY time_bucket
+		ORDER BY time_bucket`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // domain-bounded
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricName", infraconsts.MetricSystemNetworkDropped),
+		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
+	}
+
+	var raw []struct {
+		Timestamp time.Time `ch:"time_bucket"`
+		ValueSum  float64   `ch:"value_sum_val"`
+		ValueCnt  uint64    `ch:"value_cnt"`
+	}
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+		return nil, err
+	}
+	rows := make([]resourceBucketDTO, len(raw))
+	for i, row := range raw {
+		var valPtr *float64
+		if row.ValueCnt > 0 {
+			v := row.ValueSum
+			valPtr = &v
+		}
+		rows[i] = ResourceBucket{
+			Timestamp: row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			Pod:       "",
+			Value:     valPtr,
+		}
+	}
+	return rows, nil
 }
 
+// TODO(phase8): rollup migration requires multi-metric fallback logic not yet supported by metrics_gauges_rollup
 func (r *ClickHouseRepository) GetNetworkConnections(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
 	b := bucket(startMs, endMs)
 	state := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrSystemNetworkState)
@@ -288,6 +401,7 @@ func (r *ClickHouseRepository) queryNetworkMetricByInstance(ctx context.Context,
 	return calculateAverage(values), nil
 }
 
+// TODO(phase8): rollup migration requires multi-metric fallback logic not yet supported by metrics_gauges_rollup
 func (r *ClickHouseRepository) GetAvgNetwork(ctx context.Context, teamID int64, startMs, endMs int64) (metricValueDTO, error) {
 	services, err := r.getServiceList(ctx, teamID, startMs, endMs)
 	if err != nil {
@@ -309,10 +423,12 @@ func (r *ClickHouseRepository) GetAvgNetwork(ctx context.Context, teamID int64, 
 	return MetricValue{Value: *avg}, nil
 }
 
+// TODO(phase8): rollup migration requires multi-metric fallback logic not yet supported by metrics_gauges_rollup
 func (r *ClickHouseRepository) GetNetworkByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
 	return r.queryNetworkMetricByService(ctx, teamID, serviceName, startMs, endMs)
 }
 
+// TODO(phase8): rollup migration requires multi-metric fallback logic not yet supported by metrics_gauges_rollup
 func (r *ClickHouseRepository) GetNetworkByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	return r.queryNetworkMetricByInstance(ctx, teamID, host, pod, container, serviceName, startMs, endMs)
 }

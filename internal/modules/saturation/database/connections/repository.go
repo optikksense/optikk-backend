@@ -1,11 +1,12 @@
 package connections
 
 import (
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"context"
 	"fmt"
 
+	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
@@ -218,35 +219,30 @@ func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, tea
 }
 
 func (r *ClickHouseRepository) poolLatency(ctx context.Context, teamID int64, startMs, endMs int64, metricName string, f shared.Filters) ([]PoolLatencyPoint, error) {
-	bucket := timebucket.Expression(startMs, endMs)
-	poolAttr := shared.AttrString(shared.AttrPoolName)
-	fc, fargs := shared.FilterClauses(f)
+	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	fc, fargs := shared.RollupFilterClauses(f)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                                              AS time_bucket,
-		    %s                                                                              AS pool_name,
-		    quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p50_ms,
-		    quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p95_ms,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms
+		    %s                                                                          AS time_bucket,
+		    pool_name                                                                   AS pool_name,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 * 1000  AS p50_ms,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 * 1000  AS p95_ms,
+		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 * 1000  AS p99_ms
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
-		  AND metric_type = 'Histogram'
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket, pool_name
 		ORDER BY time_bucket, pool_name
-	`,
-		bucket, poolAttr,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, metricName,
-		fc,
-	)
+	`, shared.BucketTimeExpr, table, fc)
 
+	args := append(shared.RollupBaseParams(teamID, startMs, endMs, metricName),
+		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
+	)
+	args = append(args, fargs...)
 	var rows []PoolLatencyPoint
-	args := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
 	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return nil, err
 	}
