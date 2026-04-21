@@ -117,7 +117,6 @@ TTL timestamp + INTERVAL 1 HOUR DELETE
 SETTINGS
     index_granularity = 8192,
     non_replicated_deduplication_window = 1000;
-
 CREATE TABLE IF NOT EXISTS observability.logs (
     team_id              UInt32 CODEC(T64, ZSTD(1)),
     ts_bucket_start      UInt32 CODEC(Delta(4), LZ4),
@@ -155,7 +154,6 @@ TTL timestamp + INTERVAL 1 HOUR DELETE
 SETTINGS
     index_granularity = 8192,
     non_replicated_deduplication_window = 1000;
-
 CREATE TABLE IF NOT EXISTS observability.metrics (
     team_id              UInt32 CODEC(T64, ZSTD(1)),
     env                  LowCardinality(String) DEFAULT 'default',
@@ -196,7 +194,6 @@ SETTINGS
     index_granularity = 8192,
     enable_mixed_granularity_parts = 1,
     non_replicated_deduplication_window = 1000;
-
 CREATE TABLE IF NOT EXISTS observability.alert_events (
     ts             DateTime64(3) CODEC(DoubleDelta, LZ4),
     team_id        UInt32 CODEC(T64, ZSTD(1)),
@@ -214,7 +211,6 @@ CREATE TABLE IF NOT EXISTS observability.alert_events (
 PARTITION BY toYYYYMM(ts)
 ORDER BY (team_id, alert_id, ts)
 SETTINGS index_granularity = 8192;
-
 -- ---------------------------------------------------------------------------
 -- Phase 5 — AggregatingMergeTree rollups for Datadog-pattern pre-aggregation.
 --
@@ -308,7 +304,6 @@ SELECT
     sumState(hist_sum)                                                                  AS hist_sum
 FROM observability.metrics
 WHERE metric_type = 'Histogram' AND hist_count > 0;
-
 -- =============================================================================
 -- Phase 6 — new 1m rollup tables + MVs (§B of the plan)
 -- =============================================================================
@@ -939,7 +934,6 @@ SELECT team_id,
        anyMergeState(pr_url)         AS pr_url
 FROM observability.spans_by_version_5m
 GROUP BY team_id, bucket_ts, service_name, service_version, environment;
-
 
 -- =============================================================================
 -- Phase 7 — finish-the-job rollups: gauges, DB, messaging, topology
