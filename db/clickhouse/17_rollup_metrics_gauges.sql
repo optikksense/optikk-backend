@@ -188,10 +188,10 @@ SELECT
             attributes.`system.filesystem.mountpoint`::String,
         metric_name IN ('jvm.memory.used','jvm.memory.committed','jvm.memory.limit','jvm.memory.used_after_last_gc'),
             concat(attributes.`jvm.memory.pool.name`::String, '|', attributes.`jvm.memory.type`::String),
-        metric_name = 'jvm.gc.duration',
-            attributes.`jvm.gc.name`::String,
         metric_name = 'jvm.thread.count',
             attributes.`jvm.thread.daemon`::String,
+        metric_name IN ('jvm.buffer.memory.usage','jvm.buffer.count','jvm.buffer.memory.limit'),
+            attributes.`jvm.buffer.pool.name`::String,
         metric_name LIKE 'db.client.connections.%',
             attributes.`db.client.connections.state`::String,
         ''
