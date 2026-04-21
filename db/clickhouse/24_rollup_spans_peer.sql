@@ -29,8 +29,7 @@ SELECT
     toStartOfMinute(timestamp)                                                             AS bucket_ts,
     service_name                                                                           AS service_name,
     mat_peer_service                                                                       AS peer_service,
-    coalesce(nullIf(attributes.`http.url.host`::String, ''),
-             attributes.`net.peer.name`::String)                                           AS host_name,
+    http_host                                                                              AS host_name,
     multiIf(
         toUInt16OrZero(response_status_code) BETWEEN 200 AND 299, '2xx',
         toUInt16OrZero(response_status_code) BETWEEN 300 AND 399, '3xx',
