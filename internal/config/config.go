@@ -24,7 +24,6 @@ type Config struct {
 	Retention      RetentionConfig  `yaml:"retention"`
 	App            AppConfig        `yaml:"app"`
 	Ingestion      IngestionConfig  `yaml:"ingestion"`
-	Alerting       AlertingConfig   `yaml:"alerting"`
 }
 
 // Load reads configuration from a YAML file with environment variable overrides.
@@ -171,9 +170,6 @@ func setDefaults(v *viper.Viper) {
 	// ingestion
 	v.SetDefault("ingestion.spans_bucket_seconds", 0)
 	v.SetDefault("ingestion.logs_bucket_seconds", 0)
-
-	// alerting
-	v.SetDefault("alerting.max_enabled_rules", 0)
 }
 
 func (c Config) validate() error {

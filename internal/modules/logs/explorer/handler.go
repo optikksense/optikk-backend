@@ -1,7 +1,6 @@
 package explorer
 
 import (
-	"github.com/ClickHouse/clickhouse-go/v2"
 	"net/http"
 
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/logs/internal/shared"
@@ -15,15 +14,13 @@ type Handler struct {
 	modulecommon.DBTenant
 	Service  *Service
 	LogStats *LogStatsService
-	db       clickhouse.Conn
 }
 
-func NewHandler(getTenant modulecommon.GetTenantFunc, service *Service, logStats *LogStatsService, db clickhouse.Conn) *Handler {
+func NewHandler(getTenant modulecommon.GetTenantFunc, service *Service, logStats *LogStatsService) *Handler {
 	return &Handler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service:  service,
 		LogStats: logStats,
-		db:       db,
 	}
 }
 
@@ -40,7 +37,7 @@ func (h *Handler) Query(c *gin.Context) {
 
 	resp, err := h.Service.Query(c.Request.Context(), req, h.GetTenant(c).TeamID)
 	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query logs explorer", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query logs", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)

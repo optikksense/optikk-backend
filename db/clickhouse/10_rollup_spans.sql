@@ -34,7 +34,8 @@ SELECT
     sumState(toUInt64(has_error OR toUInt16OrZero(response_status_code) >= 500))        AS error_count,
     sumState(duration_nano / 1000000.0)                                                 AS duration_ms_sum
 FROM observability.spans
-WHERE (parent_span_id = '' OR parent_span_id = '0000000000000000');
+WHERE (parent_span_id = '' OR parent_span_id = '0000000000000000')
+GROUP BY team_id, bucket_ts, service_name, operation_name, endpoint, http_method;
 
 CREATE TABLE IF NOT EXISTS observability.spans_rollup_5m (
     team_id          UInt32            CODEC(T64, ZSTD(1)),

@@ -67,9 +67,9 @@ func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID
 	table, _ := rollup.TierTableFor(metricsHistRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 AS p50,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 AS p99,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) AS p50,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) AS p99,
 		    sumMerge(hist_sum)                                                  AS hist_sum,
 		    sumMerge(hist_count)                                                AS hist_count
 		FROM %s

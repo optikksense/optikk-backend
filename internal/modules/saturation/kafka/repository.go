@@ -120,7 +120,7 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(ctx context.Context, teamID 
 	histQuery := fmt.Sprintf(`
 		SELECT
 		    metric_name                                                           AS metric_name,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2   AS p95
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])   AS p95
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -333,7 +333,7 @@ func (r *ClickHouseRepository) GetE2ELatency(ctx context.Context, teamID int64, 
 		    %s                                                                   AS time_bucket,
 		    messaging_destination                                                AS topic,
 		    metric_name                                                          AS metric_name,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2  AS p95
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])  AS p95
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -462,9 +462,9 @@ func (r *ClickHouseRepository) topicLatency(ctx context.Context, teamID int64, s
 		SELECT
 		    %s                                                                   AS time_bucket,
 		    messaging_destination                                                AS topic,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1  AS p50,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2  AS p95,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3  AS p99
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1])  AS p50,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])  AS p95,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3])  AS p99
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -489,9 +489,9 @@ func (r *ClickHouseRepository) GetProcessLatencyByGroup(ctx context.Context, tea
 		SELECT
 		    %s                                                                   AS time_bucket,
 		    consumer_group                                                       AS consumer_group,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1  AS p50,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2  AS p95,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3  AS p99
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1])  AS p50,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])  AS p95,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3])  AS p99
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -512,9 +512,9 @@ func (r *ClickHouseRepository) GetClientOperationDuration(ctx context.Context, t
 		SELECT
 		    %s                                                                   AS time_bucket,
 		    messaging_operation                                                  AS operation_name,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1  AS p50,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2  AS p95,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3  AS p99
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1])  AS p50,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])  AS p95,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3])  AS p99
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end

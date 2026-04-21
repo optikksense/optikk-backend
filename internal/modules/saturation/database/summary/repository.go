@@ -50,9 +50,9 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 	mainTable, _ := rollup.TierTableFor(metricsHistogramsRollupPrefix, startMs, endMs)
 	qMain := fmt.Sprintf(`
 		SELECT
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 AS p50,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 AS p95,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 AS p99,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) AS p50,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) AS p99,
 		    sumMerge(hist_count)                                                AS total_count
 		FROM %s
 		WHERE team_id = @teamID
@@ -78,8 +78,8 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 		TotalCount: int64(mainRaw.TotalCount), //nolint:gosec // domain-bounded
 	}
 
-	// error_count from db_histograms_rollup_v2 — error_type is a v2 key.
-	errorsTable, _ := rollup.TierTableFor(shared.DBHistRollupV2Prefix, startMs, endMs)
+	// error_count from db_histograms_rollup.
+	errorsTable, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
 	qErrors := fmt.Sprintf(`
 		SELECT toInt64(sumMerge(hist_count)) AS error_count
 		FROM %s
@@ -101,9 +101,8 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 		errorRatePtr = &rate
 	}
 
-	// Active connections from db_histograms_rollup_v2: filter on
-	// metric_name = db.client.connection.count, db_connection_state = 'used'.
-	connTable, _ := rollup.TierTableFor(shared.DBHistRollupV2Prefix, startMs, endMs)
+	// Active connections: metric_name = db.client.connection.count, db_connection_state = 'used'.
+	connTable, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
 	qConn := fmt.Sprintf(`
 		SELECT toInt64(round(toFloat64(sumMerge(value_sum)))) AS used_count
 		FROM %s
@@ -125,9 +124,8 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 		activeConns = connDTO.UsedCount
 	}
 
-	// Redis cache hit rate from db_histograms_rollup_v2: (count where error_type
-	// is empty) / (total count). db_system + error_type are both v2 keys.
-	cacheTable, _ := rollup.TierTableFor(shared.DBHistRollupV2Prefix, startMs, endMs)
+	// Redis cache hit rate: (count where error_type is empty) / (total count).
+	cacheTable, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
 	qCache := fmt.Sprintf(`
 		SELECT
 		    toInt64(sumMerge(hist_count))                             AS total_count,

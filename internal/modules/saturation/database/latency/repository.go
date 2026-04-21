@@ -36,9 +36,9 @@ func (r *ClickHouseRepository) latencySeriesByAttr(ctx context.Context, teamID i
 		SELECT
 		    %s                                                                          AS time_bucket,
 		    %s                                                                          AS group_by,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 * 1000  AS p50_ms,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 * 1000  AS p95_ms,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 * 1000  AS p99_ms
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) * 1000  AS p50_ms,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) * 1000  AS p95_ms,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) * 1000  AS p99_ms
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end

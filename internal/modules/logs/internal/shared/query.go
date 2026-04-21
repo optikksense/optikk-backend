@@ -28,14 +28,14 @@ func BuildLogWhere(f LogFilters) (where string, args []any) {
 
 	startNs := uint64(startMs) * 1_000_000 //nolint:gosec // G115 - domain-constrained value
 	endNs := uint64(endMs) * 1_000_000     //nolint:gosec // G115 - domain-constrained value
-	startBucket := utils.LogsBucketStart(startMs / 1000)
-	endBucket := utils.LogsBucketStart(endMs / 1000)
 
-	where = ` team_id = ? AND ts_bucket_start BETWEEN ? AND ? AND timestamp BETWEEN ? AND ?`
+	// Filter by team_id + timestamp only. Rows must still match ingest shape
+	// (ts_bucket_start = floor bucket of event time), but an extra
+	// ts_bucket_start BETWEEN predicate could exclude valid rows when the
+	// column was mis-set (manual inserts) or drifted from timestamp.
+	where = ` team_id = ? AND timestamp BETWEEN ? AND ?`
 	args = []any{
 		uint32(f.TeamID), //nolint:gosec // G115
-		startBucket,
-		endBucket,
 		time.Unix(0, int64(startNs)),
 		time.Unix(0, int64(endNs)),
 	}

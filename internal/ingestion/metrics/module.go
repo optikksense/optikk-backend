@@ -8,10 +8,7 @@ import (
 	"google.golang.org/grpc"
 )
 
-// Deps collects everything NewModule needs. The metric signal has no UI
-// live-tail surface today, so there is no LivetailClient here — if a live
-// metrics tail ships later, add it alongside PersistenceClient without
-// touching the rest of the module.
+// Deps collects everything NewModule needs.
 type Deps struct {
 	Producer          *Producer
 	CH                registry.ClickHouseConn

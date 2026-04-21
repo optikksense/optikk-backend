@@ -12,7 +12,7 @@ import (
 // Handler is the gRPC LogsServiceServer. It does no auth itself: the team id
 // was resolved by auth.UnaryInterceptor and is read from ctx. The only work
 // the handler does on the hot path is map OTLP → Row → Produce. Persistence
-// and livetail happen out-of-band in consumer.go / livetail.go.
+// happen out-of-band in consumer.go.
 type Handler struct {
 	logspb.UnimplementedLogsServiceServer
 	producer *Producer

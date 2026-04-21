@@ -79,7 +79,7 @@ func (r *ClickHouseRepository) GetSlowestCollections(ctx context.Context, teamID
 	query := fmt.Sprintf(`
 		SELECT
 		    db_collection                                                               AS collection_name,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 * 1000  AS p99_ms,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) * 1000  AS p99_ms,
 		    toFloat64(sumMerge(hist_count)) / %f                                        AS ops_per_sec,
 		    toFloat64(sumMergeIf(hist_count, notEmpty(error_type))) / nullIf(toFloat64(sumMerge(hist_count)), 0) * 100 AS error_rate
 		FROM %s
@@ -125,7 +125,7 @@ func (r *ClickHouseRepository) GetSlowQueryRate(ctx context.Context, teamID int6
 		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket
-		HAVING quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 > @thresholdMs
+		HAVING toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) > @thresholdMs
 		ORDER BY time_bucket
 	`,
 		shared.BucketTimeExpr, bucketSec, table, fc,

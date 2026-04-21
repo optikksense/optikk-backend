@@ -42,7 +42,8 @@ SELECT
     minState(timestamp)                                                                        AS first_seen,
     maxState(timestamp)                                                                        AS last_seen
 FROM observability.spans
-WHERE has_error = true OR toUInt16OrZero(response_status_code) >= 400;
+WHERE has_error = true OR toUInt16OrZero(response_status_code) >= 400
+GROUP BY team_id, bucket_ts, service_name, operation_name, exception_type, status_message_hash, http_status_bucket;
 
 CREATE TABLE IF NOT EXISTS observability.spans_error_fingerprint_5m (
     team_id              UInt32 CODEC(T64, ZSTD(1)),

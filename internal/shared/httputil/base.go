@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -188,25 +189,44 @@ type ComparisonResponse struct {
 }
 
 // WithComparison executes a query for the primary range and optionally for the comparison range.
-// Returns a ComparisonResponse containing both results.
+// Returns a ComparisonResponse containing both results. Primary and comparison
+// queries run concurrently when comparison is active so total latency is
+// bounded by max(primary, comparison) instead of their sum.
 func WithComparison(c *gin.Context, startMs, endMs int64, queryFn func(s, e int64) (any, error)) (ComparisonResponse, error) {
-	primary, err := queryFn(startMs, endMs)
-	if err != nil {
-		return ComparisonResponse{}, err
+	cmpStart, cmpEnd, hasCmp := ParseComparisonRange(c, startMs, endMs)
+
+	if !hasCmp {
+		primary, err := queryFn(startMs, endMs)
+		if err != nil {
+			return ComparisonResponse{}, err
+		}
+		return ComparisonResponse{Data: primary}, nil
+	}
+
+	var (
+		primary, comparison any
+		primaryErr, cmpErr  error
+		wg                  sync.WaitGroup
+	)
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		primary, primaryErr = queryFn(startMs, endMs)
+	}()
+	go func() {
+		defer wg.Done()
+		comparison, cmpErr = queryFn(cmpStart, cmpEnd)
+	}()
+	wg.Wait()
+
+	if primaryErr != nil {
+		return ComparisonResponse{}, primaryErr
 	}
 
 	resp := ComparisonResponse{Data: primary}
-
-	cmpStart, cmpEnd, hasCmp := ParseComparisonRange(c, startMs, endMs)
-	if hasCmp {
-		comparison, err := queryFn(cmpStart, cmpEnd)
-		if err != nil {
-			//nolint:nilerr // non-fatal: return primary result without comparison data
-			return resp, nil
-		}
+	if cmpErr == nil {
 		resp.Comparison = comparison
 	}
-
 	return resp, nil
 }
 

@@ -12,10 +12,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
-const (
-	metricsGaugesRollupPrefix   = "observability.metrics_gauges_rollup"
-	metricsGaugesV2RollupPrefix = "observability.metrics_gauges_rollup_v2"
-)
+const metricsGaugesRollupPrefix = "observability.metrics_gauges_rollup"
 
 // queryIntervalMinutes returns the group-by step (in minutes) for rollup reads.
 // It is max(tierStep, dashboardStep) so the step is never finer than the
@@ -232,12 +229,10 @@ func (r *ClickHouseRepository) GetNetworkDropped(ctx context.Context, teamID int
 	return rows, nil
 }
 
-// GetNetworkConnections reads per-network-state avg from
-// metrics_gauges_rollup_v2. `state_dim` extracts
-// `attributes.'system.network.state'` for the system.network.connections
-// metric (added in Phase-9 v2 extractor).
+// GetNetworkConnections reads per-network-state avg from metrics_gauges_rollup.
+// `state_dim` uses system.network.state with fallback to direction for connections.
 func (r *ClickHouseRepository) GetNetworkConnections(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesV2RollupPrefix, startMs, endMs)
+	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       state_dim                                                    AS state,
@@ -268,9 +263,6 @@ type netMetricRow struct {
 	AttrNet   *float64 `ch:"attr_net"`
 }
 
-type serviceNameRow struct {
-	ServiceName string `ch:"service_name"`
-}
 
 func serviceParams(teamID int64, serviceName string, startMs, endMs int64) []any {
 	return []any{
@@ -326,34 +318,6 @@ const (
 	colContainerCoalesce = "coalesce(nullIf(attributes.`container.name`::String, ''), nullIf(attributes.`k8s.container.name`::String, ''), '')"
 )
 
-var netMetricNames = []string{infraconsts.MetricSystemNetworkUtilization}
-
-func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64, startMs, endMs int64) ([]string, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesV2RollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT DISTINCT service AS service_name
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND service != ''
-		  AND metric_name IN @metricNames
-		ORDER BY service_name`, table)
-	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("metricNames", netMetricNames),
-	}
-	var rows []serviceNameRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
-		return nil, err
-	}
-	services := make([]string, len(rows))
-	for i, row := range rows {
-		services[i] = row.ServiceName
-	}
-	return services, nil
-}
 
 type netMetricValueRow struct {
 	ValAvg float64 `ch:"val_avg"`
@@ -372,7 +336,7 @@ func netFoldValue(v float64) *float64 {
 }
 
 func (r *ClickHouseRepository) queryNetworkMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesV2RollupPrefix, startMs, endMs)
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS val_avg
 		FROM %s
@@ -396,7 +360,7 @@ func (r *ClickHouseRepository) queryNetworkMetricByService(ctx context.Context, 
 
 func (r *ClickHouseRepository) queryNetworkMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	_ = container
-	table, _ := rollup.TierTableFor(metricsGaugesV2RollupPrefix, startMs, endMs)
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS val_avg
 		FROM %s
@@ -422,17 +386,41 @@ func (r *ClickHouseRepository) queryNetworkMetricByInstance(ctx context.Context,
 	return netFoldValue(row.ValAvg), nil
 }
 
-// TODO(phase8): rollup migration requires multi-metric fallback logic not yet supported by metrics_gauges_rollup
+// GetAvgNetwork returns the mean of per-service network utilization across
+// every service emitting system.network.utilization in the window. One CH
+// query (`GROUP BY service`) replaces the former N+1 pattern (listServices
+// then per-service lookup). netFoldValue is applied per service before
+// averaging so the <=1.0 -> *100 normalization is preserved.
 func (r *ClickHouseRepository) GetAvgNetwork(ctx context.Context, teamID int64, startMs, endMs int64) (metricValueDTO, error) {
-	services, err := r.getServiceList(ctx, teamID, startMs, endMs)
-	if err != nil {
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT service,
+		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS val_avg
+		FROM %s
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND service != ''
+		  AND metric_name = @metricName
+		GROUP BY service
+		HAVING val_avg IS NOT NULL`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricName", infraconsts.MetricSystemNetworkUtilization),
+	}
+
+	var rows []struct {
+		Service string  `ch:"service"`
+		ValAvg  float64 `ch:"val_avg"`
+	}
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return MetricValue{Value: 0}, err
 	}
 
-	var values []float64
-	for _, svc := range services {
-		netVal, err := r.queryNetworkMetricByService(ctx, teamID, svc, startMs, endMs)
-		if err == nil && netVal != nil && *netVal >= 0 {
+	values := make([]float64, 0, len(rows))
+	for _, row := range rows {
+		if netVal := netFoldValue(row.ValAvg); netVal != nil && *netVal >= 0 {
 			values = append(values, *netVal)
 		}
 	}

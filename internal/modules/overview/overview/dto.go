@@ -1,9 +1,8 @@
 package overview
 
-// All computed fields (ErrorRate, AvgLatency) are derived in this mapping
-// layer from the raw aggregates in the rollup-backed scan struct. The
-// repository query returns pure sums/percentiles; Go does the ratio and
-// average divisions so the SELECT stays free of conditional math.
+import (
+	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+)
 
 func mapRequestRateRows(rows []requestRateRow) []RequestRatePoint {
 	points := make([]RequestRatePoint, len(rows))
@@ -11,7 +10,7 @@ func mapRequestRateRows(rows []requestRateRow) []RequestRatePoint {
 		points[i] = RequestRatePoint{
 			Timestamp:    row.Timestamp,
 			ServiceName:  row.ServiceName,
-			RequestCount: int64(row.RequestCount), //nolint:gosec // domain-bounded
+			RequestCount: int64(row.RequestCount),
 		}
 	}
 	return points
@@ -20,8 +19,8 @@ func mapRequestRateRows(rows []requestRateRow) []RequestRatePoint {
 func mapErrorRateRows(rows []errorRateRow) []ErrorRatePoint {
 	points := make([]ErrorRatePoint, len(rows))
 	for i, row := range rows {
-		reqCount := int64(row.RequestCount) //nolint:gosec // domain-bounded
-		errCount := int64(row.ErrorCount)   //nolint:gosec // domain-bounded
+		reqCount := int64(row.RequestCount)
+		errCount := int64(row.ErrorCount)
 		var rate float64
 		if reqCount > 0 {
 			rate = float64(errCount) * 100.0 / float64(reqCount)
@@ -40,7 +39,32 @@ func mapErrorRateRows(rows []errorRateRow) []ErrorRatePoint {
 func mapP95LatencyRows(rows []p95LatencyRow) []P95LatencyPoint {
 	points := make([]P95LatencyPoint, len(rows))
 	for i, row := range rows {
-		points[i] = P95LatencyPoint(row)
+		points[i] = P95LatencyPoint{
+			Timestamp:   row.Timestamp,
+			ServiceName: row.ServiceName,
+			P95:         utils.SanitizeFloat(row.P95),
+		}
+	}
+	return points
+}
+
+func mapChartMetricsRows(rows []chartMetricsRow) []ChartMetricsPoint {
+	points := make([]ChartMetricsPoint, len(rows))
+	for i, row := range rows {
+		reqCount := int64(row.RequestCount)
+		errCount := int64(row.ErrorCount)
+		var rate float64
+		if reqCount > 0 {
+			rate = float64(errCount) * 100.0 / float64(reqCount)
+		}
+		points[i] = ChartMetricsPoint{
+			Timestamp:    row.Timestamp,
+			ServiceName:  row.ServiceName,
+			RequestCount: reqCount,
+			ErrorCount:   errCount,
+			ErrorRate:    rate,
+			P95:          utils.SanitizeFloat(row.P95),
+		}
 	}
 	return points
 }
@@ -50,12 +74,12 @@ func mapServiceMetricRows(rows []serviceMetricRow) []ServiceMetric {
 	for i, row := range rows {
 		services[i] = ServiceMetric{
 			ServiceName:  row.ServiceName,
-			RequestCount: int64(row.RequestCount), //nolint:gosec // domain-bounded
-			ErrorCount:   int64(row.ErrorCount),   //nolint:gosec // domain-bounded
-			AvgLatency:   avgLatency(row.DurationMsSum, row.RequestCount),
-			P50Latency:   row.P50Latency,
-			P95Latency:   row.P95Latency,
-			P99Latency:   row.P99Latency,
+			RequestCount: int64(row.RequestCount),
+			ErrorCount:   int64(row.ErrorCount),
+			AvgLatency:   utils.SanitizeFloat(avgLatency(row.DurationMsSum, row.RequestCount)),
+			P50Latency:   utils.SanitizeFloat(row.P50Latency),
+			P95Latency:   utils.SanitizeFloat(row.P95Latency),
+			P99Latency:   utils.SanitizeFloat(row.P99Latency),
 		}
 	}
 	return services
@@ -69,12 +93,12 @@ func mapEndpointMetricRows(rows []endpointMetricRow) []EndpointMetric {
 			OperationName: row.OperationName,
 			EndpointName:  row.EndpointName,
 			HTTPMethod:    row.HTTPMethod,
-			RequestCount:  int64(row.RequestCount), //nolint:gosec // domain-bounded
-			ErrorCount:    int64(row.ErrorCount),   //nolint:gosec // domain-bounded
-			AvgLatency:    avgLatency(row.DurationMsSum, row.RequestCount),
-			P50Latency:    row.P50Latency,
-			P95Latency:    row.P95Latency,
-			P99Latency:    row.P99Latency,
+			RequestCount:  int64(row.RequestCount),
+			ErrorCount:    int64(row.ErrorCount),
+			AvgLatency:    utils.SanitizeFloat(avgLatency(row.DurationMsSum, row.RequestCount)),
+			P50Latency:    utils.SanitizeFloat(row.P50Latency),
+			P95Latency:    utils.SanitizeFloat(row.P95Latency),
+			P99Latency:    utils.SanitizeFloat(row.P99Latency),
 		}
 	}
 	return metrics
@@ -82,12 +106,12 @@ func mapEndpointMetricRows(rows []endpointMetricRow) []EndpointMetric {
 
 func mapGlobalSummaryRow(row serviceMetricRow) GlobalSummary {
 	return GlobalSummary{
-		TotalRequests: int64(row.RequestCount), //nolint:gosec // domain-bounded
-		ErrorCount:    int64(row.ErrorCount),   //nolint:gosec // domain-bounded
-		AvgLatency:    avgLatency(row.DurationMsSum, row.RequestCount),
-		P50Latency:    row.P50Latency,
-		P95Latency:    row.P95Latency,
-		P99Latency:    row.P99Latency,
+		TotalRequests: int64(row.RequestCount),
+		ErrorCount:    int64(row.ErrorCount),
+		AvgLatency:    utils.SanitizeFloat(avgLatency(row.DurationMsSum, row.RequestCount)),
+		P50Latency:    utils.SanitizeFloat(row.P50Latency),
+		P95Latency:    utils.SanitizeFloat(row.P95Latency),
+		P99Latency:    utils.SanitizeFloat(row.P99Latency),
 	}
 }
 

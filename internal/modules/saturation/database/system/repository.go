@@ -43,9 +43,9 @@ func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID int6
 		SELECT
 		    %s                                                                          AS time_bucket,
 		    db_operation                                                                AS group_by,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 * 1000  AS p50_ms,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 * 1000  AS p95_ms,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 * 1000  AS p99_ms
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) * 1000  AS p50_ms,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) * 1000  AS p95_ms,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) * 1000  AS p99_ms
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -103,7 +103,7 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByLatency(ctx context.Cont
 	query := fmt.Sprintf(`
 		SELECT
 		    db_collection                                                               AS collection_name,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 * 1000  AS p99_ms,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) * 1000  AS p99_ms,
 		    toFloat64(sumMerge(hist_count)) / %f                                        AS ops_per_sec
 		FROM %s
 		WHERE team_id = @teamID
@@ -134,7 +134,7 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByVolume(ctx context.Conte
 	query := fmt.Sprintf(`
 		SELECT
 		    db_collection                                                               AS collection_name,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 * 1000  AS p99_ms,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) * 1000  AS p99_ms,
 		    toFloat64(sumMerge(hist_count)) / %f                                        AS ops_per_sec
 		FROM %s
 		WHERE team_id = @teamID

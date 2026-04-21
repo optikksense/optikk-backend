@@ -47,9 +47,9 @@ func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID int64, start
 		SELECT service_name                                                            AS service_name,
 		       toInt64(sumMerge(request_count))                                        AS request_count,
 		       toInt64(sumMerge(error_count))                                          AS error_count,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1     AS p50_ms,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2     AS p95_ms,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3     AS p99_ms
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1])     AS p50_ms,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])     AS p95_ms,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3])     AS p99_ms
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -73,8 +73,8 @@ func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID int64, start
 		       server_service                                                         AS target,
 		       toInt64(sumMerge(request_count))                                       AS call_count,
 		       toInt64(sumMerge(error_count))                                         AS error_count,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1    AS p50_ms,
-		       quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2    AS p95_ms
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1])    AS p50_ms,
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])    AS p95_ms
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end

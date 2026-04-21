@@ -28,7 +28,7 @@ func NewService(tracesService tracesQueryService) *Service {
 func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Response, error) {
 	filters, err := buildFiltersFromQuery(req, teamID)
 	if err != nil {
-		return Response{}, fmt.Errorf("explorer.Query.parseQuery: %w", err)
+		return Response{}, fmt.Errorf("traces.Query.parseQuery: %w", err)
 	}
 
 	limit := req.Limit
@@ -38,12 +38,12 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Re
 
 	result, err := s.tracesService.SearchTraces(ctx, filters, limit, req.Cursor)
 	if err != nil {
-		return Response{}, fmt.Errorf("explorer.Query.SearchTraces: %w", err)
+		return Response{}, fmt.Errorf("traces.Query.SearchTraces: %w", err)
 	}
 
 	facets, err := s.tracesService.GetExplorerFacets(ctx, filters)
 	if err != nil {
-		return Response{}, fmt.Errorf("explorer.Query.GetFacets: %w", err)
+		return Response{}, fmt.Errorf("traces.Query.GetFacets: %w", err)
 	}
 	groupedFacets := ExplorerFacets{
 		ServiceName:   []FacetBucket{},
@@ -64,7 +64,7 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Re
 
 	trend, err := s.tracesService.GetExplorerTrend(ctx, filters, req.Step)
 	if err != nil {
-		return Response{}, fmt.Errorf("explorer.Query.GetTrend: %w", err)
+		return Response{}, fmt.Errorf("traces.Query.GetTrend: %w", err)
 	}
 
 	return Response{

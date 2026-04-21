@@ -25,7 +25,8 @@ SELECT
     quantilesTDigestWeightedState(0.5, 0.95, 0.99)(duration_nano / 1000000.0, toUInt64(1)) AS latency_ms_digest,
     sumState(toUInt64(1))                                                                  AS request_count,
     sumState(duration_nano / 1000000.0)                                                    AS duration_ms_sum
-FROM observability.spans;
+FROM observability.spans
+GROUP BY team_id, bucket_ts, service_name, kind_string;
 
 CREATE TABLE IF NOT EXISTS observability.spans_kind_rollup_5m (
     team_id         UInt32 CODEC(T64, ZSTD(1)),

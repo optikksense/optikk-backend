@@ -30,20 +30,29 @@ SELECT
     toStartOfMinute(timestamp)                                                             AS bucket_ts,
     metric_name                                                                            AS metric_name,
     service                                                                                AS service,
-    attributes.`messaging.system`::String                                                  AS messaging_system,
-    attributes.`messaging.destination.name`::String                                        AS messaging_destination,
-    attributes.`messaging.operation`::String                                               AS messaging_operation,
-    attributes.`messaging.kafka.consumer.group`::String                                    AS consumer_group,
+    messaging_system,
+    messaging_destination,
+    messaging_operation,
+    consumer_group,
     quantilesTDigestWeightedState(0.5, 0.95, 0.99)(
-        hist_sum / if(hist_count = 0, 1, hist_count),
-        hist_count
+        hsum / toFloat64(hcount),
+        toUInt64(hcount)
     )                                                                                      AS latency_ms_digest,
-    sumState(hist_count)                                                                   AS hist_count,
-    sumState(hist_sum)                                                                     AS hist_sum
-FROM observability.metrics
-WHERE metric_type = 'Histogram'
-  AND hist_count > 0
-  AND metric_name LIKE 'messaging.%';
+    sumState(hcount)                                                                       AS hist_count,
+    sumState(hsum)                                                                         AS hist_sum
+FROM (
+    SELECT team_id, timestamp, metric_name, service,
+           attributes.`messaging.system`::String                       AS messaging_system,
+           attributes.`messaging.destination.name`::String             AS messaging_destination,
+           attributes.`messaging.operation`::String                    AS messaging_operation,
+           attributes.`messaging.kafka.consumer.group`::String         AS consumer_group,
+           hist_count AS hcount, hist_sum AS hsum
+    FROM observability.metrics
+    WHERE metric_type = 'Histogram'
+      AND hist_count > 0
+      AND metric_name LIKE 'messaging.%'
+)
+GROUP BY team_id, bucket_ts, metric_name, service, messaging_system, messaging_destination, messaging_operation, consumer_group;
 
 CREATE TABLE IF NOT EXISTS observability.messaging_histograms_rollup_5m (
     team_id               UInt32 CODEC(T64, ZSTD(1)),

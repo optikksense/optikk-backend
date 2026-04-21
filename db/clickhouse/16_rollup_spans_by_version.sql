@@ -42,7 +42,8 @@ SELECT
     anyState(attributes.`vcs.pr.url`::String)                                                  AS pr_url
 FROM observability.spans
 WHERE mat_service_version != ''
-  AND (parent_span_id = '' OR parent_span_id = '0000000000000000');
+  AND (parent_span_id = '' OR parent_span_id = '0000000000000000')
+GROUP BY team_id, bucket_ts, service_name, service_version, environment;
 
 CREATE TABLE IF NOT EXISTS observability.spans_by_version_5m (
     team_id         UInt32 CODEC(T64, ZSTD(1)),

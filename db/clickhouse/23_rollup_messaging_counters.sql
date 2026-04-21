@@ -58,7 +58,8 @@ SELECT
     maxState(value)                                                                        AS value_max,
     sumState(value)                                                                        AS value_avg_num
 FROM observability.metrics
-WHERE metric_name LIKE 'messaging.%';
+WHERE metric_name LIKE 'messaging.%'
+GROUP BY team_id, bucket_ts, metric_name, service, messaging_system, messaging_destination, messaging_operation, consumer_group, broker, partition, error_type;
 
 CREATE TABLE IF NOT EXISTS observability.messaging_counters_rollup_5m (
     team_id                UInt32 CODEC(T64, ZSTD(1)),

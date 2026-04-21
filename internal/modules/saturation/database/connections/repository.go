@@ -11,7 +11,7 @@ import (
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
-// Connection panels read the Phase-9 `db_histograms_rollup_v2` which carries:
+// Connection panels read `db_histograms_rollup` which carries:
 //   - `pool_name` + `db_connection_state` as keys (v2 additions)
 //   - `value_sum` / `sample_count` / `value_last` state (v2 gauge rows)
 //   - `latency_ms_digest` / `hist_count` / `hist_sum` state (v1 histogram)
@@ -41,7 +41,7 @@ func bucketExpr(startMs, endMs int64) string {
 }
 
 func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionCountPoint, error) {
-	table, _ := rollup.TierTableFor(shared.DBHistRollupV2Prefix, startMs, endMs)
+	table, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
 	fc, fargs := shared.RollupFilterClauses(f)
 	query := fmt.Sprintf(`
 		SELECT
@@ -66,7 +66,7 @@ func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, tea
 // db.client.connection.max) per bucket+pool in Go. Previously did a
 // correlated subquery against raw metrics.
 func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionUtilPoint, error) {
-	table, _ := rollup.TierTableFor(shared.DBHistRollupV2Prefix, startMs, endMs)
+	table, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
 	fc, fargs := shared.RollupFilterClauses(f)
 	query := fmt.Sprintf(`
 		SELECT
@@ -130,7 +130,7 @@ func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, tea
 }
 
 func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionLimits, error) {
-	table, _ := rollup.TierTableFor(shared.DBHistRollupV2Prefix, startMs, endMs)
+	table, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
 	fc, fargs := shared.RollupFilterClauses(f)
 	query := fmt.Sprintf(`
 		SELECT
@@ -184,7 +184,7 @@ func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID i
 }
 
 func (r *ClickHouseRepository) GetPendingRequests(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PendingRequestsPoint, error) {
-	table, _ := rollup.TierTableFor(shared.DBHistRollupV2Prefix, startMs, endMs)
+	table, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
 	fc, fargs := shared.RollupFilterClauses(f)
 	query := fmt.Sprintf(`
 		SELECT
@@ -205,7 +205,7 @@ func (r *ClickHouseRepository) GetPendingRequests(ctx context.Context, teamID in
 }
 
 func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionTimeoutPoint, error) {
-	table, _ := rollup.TierTableFor(shared.DBHistRollupV2Prefix, startMs, endMs)
+	table, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 	fc, fargs := shared.RollupFilterClauses(f)
 	query := fmt.Sprintf(`
@@ -234,9 +234,9 @@ func (r *ClickHouseRepository) poolLatency(ctx context.Context, teamID int64, st
 		SELECT
 		    %s                                                                          AS time_bucket,
 		    pool_name                                                                   AS pool_name,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).1 * 1000  AS p50_ms,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).2 * 1000  AS p95_ms,
-		    quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest).3 * 1000  AS p99_ms
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) * 1000  AS p50_ms,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) * 1000  AS p95_ms,
+		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) * 1000  AS p99_ms
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end

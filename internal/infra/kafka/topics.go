@@ -75,9 +75,7 @@ func IngestTopic(prefix, signal string) string {
 	return normalizeIngestPrefix(prefix) + "." + signal
 }
 
-// GroupID builds the canonical per-signal, per-role consumer group id. Role
-// separates persistence (CH writer) from livetail (hub broadcaster) so each
-// tracks independent offsets on the same topic.
+// GroupID builds the canonical per-signal, per-role consumer group id.
 func GroupID(base, signal, role string) string {
 	b := strings.TrimSpace(base)
 	if b == "" {

@@ -13,8 +13,7 @@ import (
 )
 
 const (
-	metricsGaugesRollupPrefix   = "observability.metrics_gauges_rollup"
-	metricsGaugesV2RollupPrefix = "observability.metrics_gauges_rollup_v2"
+	metricsGaugesRollupPrefix = "observability.metrics_gauges_rollup"
 )
 
 func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
@@ -154,7 +153,7 @@ func (r *ClickHouseRepository) GetMemoryUsage(ctx context.Context, teamID int64,
 }
 
 func (r *ClickHouseRepository) GetMemoryUsagePercentage(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesV2RollupPrefix, startMs, endMs)
+	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT
 		    toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
@@ -208,7 +207,7 @@ func (r *ClickHouseRepository) GetMemoryUsagePercentage(ctx context.Context, tea
 }
 
 func (r *ClickHouseRepository) GetSwapUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesV2RollupPrefix, startMs, endMs)
+	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       state_dim                                                    AS state,
@@ -231,7 +230,7 @@ func (r *ClickHouseRepository) GetSwapUsage(ctx context.Context, teamID int64, s
 }
 
 func (r *ClickHouseRepository) queryMemoryMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesV2RollupPrefix, startMs, endMs)
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT metric_name                                                             AS metric_name,
 		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,
@@ -258,7 +257,7 @@ func (r *ClickHouseRepository) queryMemoryMetricByService(ctx context.Context, t
 
 func (r *ClickHouseRepository) queryMemoryMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	_ = container
-	table, _ := rollup.TierTableFor(metricsGaugesV2RollupPrefix, startMs, endMs)
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT metric_name                                                             AS metric_name,
 		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,
@@ -292,7 +291,7 @@ type serviceNameRow struct {
 }
 
 func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64, startMs, endMs int64) ([]string, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesV2RollupPrefix, startMs, endMs)
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT DISTINCT service AS service_name
 		FROM %s
@@ -319,18 +318,27 @@ func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64,
 }
 
 func (r *ClickHouseRepository) GetAvgMemory(ctx context.Context, teamID int64, startMs, endMs int64) (metricValueDTO, error) {
-	services, err := r.getServiceList(ctx, teamID, startMs, endMs)
-	if err != nil {
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT metric_name,
+		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS val_avg,
+		       toFloat64(sumMerge(value_sum))                                          AS val_sum
+		FROM %s
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name IN @metricNames
+		GROUP BY metric_name`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricNames", memMetricNames),
+	}
+	var rows []metricValueRow
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
 		return MetricValue{Value: 0}, err
 	}
-	var values []float64
-	for _, service := range services {
-		memVal, err := r.queryMemoryMetricByService(ctx, teamID, service, startMs, endMs)
-		if err == nil && memVal != nil && *memVal >= 0 {
-			values = append(values, *memVal)
-		}
-	}
-	avg := calculateAverage(values)
+	avg := memFoldMetricRows(rows)
 	if avg == nil {
 		return MetricValue{Value: 0}, nil
 	}
@@ -338,9 +346,57 @@ func (r *ClickHouseRepository) GetAvgMemory(ctx context.Context, teamID int64, s
 }
 
 func (r *ClickHouseRepository) GetMemoryByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	return r.queryMemoryMetricByService(ctx, teamID, serviceName, startMs, endMs)
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT metric_name,
+		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,
+		       toFloat64(sumMerge(value_sum))                                          AS val_sum
+		FROM %s
+		WHERE team_id = @teamID
+		  AND service = @serviceName
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name IN @metricNames
+		GROUP BY metric_name`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("serviceName", serviceName),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricNames", memMetricNames),
+	}
+	var rows []metricValueRow
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+		return nil, err
+	}
+	return memFoldMetricRows(rows), nil
 }
 
 func (r *ClickHouseRepository) GetMemoryByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
-	return r.queryMemoryMetricByInstance(ctx, teamID, host, pod, container, serviceName, startMs, endMs)
+	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	query := fmt.Sprintf(`
+		SELECT metric_name,
+		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,
+		       toFloat64(sumMerge(value_sum))                                          AS val_sum
+		FROM %s
+		WHERE team_id = @teamID
+		  AND host = @host
+		  AND pod = @pod
+		  AND service = @serviceName
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name IN @metricNames
+		GROUP BY metric_name`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("host", host),
+		clickhouse.Named("pod", pod),
+		clickhouse.Named("serviceName", serviceName),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricNames", memMetricNames),
+	}
+	var rows []metricValueRow
+	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+		return nil, err
+	}
+	return memFoldMetricRows(rows), nil
 }

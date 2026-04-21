@@ -3,6 +3,8 @@ package redmetrics
 import (
 	"context"
 	"log/slog"
+
+	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 type Service interface {
@@ -64,11 +66,11 @@ func (s *REDMetricsService) GetSummary(ctx context.Context, teamID int64, startM
 	return REDSummary{
 		ServiceCount:   serviceCount,
 		TotalSpanCount: totalCount,
-		TotalRPS:       float64(totalCount) / durationSec,
-		AvgErrorPct:    avgErrorPct,
-		AvgP50Ms:       avgP50,
-		AvgP95Ms:       avgP95,
-		AvgP99Ms:       avgP99,
+		TotalRPS:       utils.SanitizeFloat(float64(totalCount) / durationSec),
+		AvgErrorPct:    utils.SanitizeFloat(avgErrorPct),
+		AvgP50Ms:       utils.SanitizeFloat(avgP50),
+		AvgP95Ms:       utils.SanitizeFloat(avgP95),
+		AvgP99Ms:       utils.SanitizeFloat(avgP99),
 	}, nil
 }
 
