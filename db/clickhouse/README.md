@@ -33,11 +33,37 @@ Each `*_rollup_*.sql` file is self-contained — all three tiers (`_1m`, `_5m`, 
 ## Applying the schema
 
 ```sh
-cat db/clickhouse/*.sql | clickhouse-client --multiquery
+go run ./cmd/migrate up       # apply all pending migrations
+go run ./cmd/migrate status   # list applied / pending files
 ```
 
-The glob expands in lexical order, so the numeric prefixes drive the right sequence.
+The migrator embeds every `db/clickhouse/*.sql` file into the Go binary, applies them in lexical order, and records each file's basename in `observability.schema_migrations`. Re-runs are idempotent — already-applied files are skipped.
+
+First-time setup after `docker-compose up -d clickhouse` (or any fresh cluster):
+
+```sh
+go run ./cmd/migrate up
+```
+
+For ad-hoc one-shot applies without the CLI (e.g. debugging on a remote host), the flat `cat | clickhouse-client` form still works because every `CREATE` uses `IF NOT EXISTS`, but it won't update `schema_migrations` — prefer the CLI.
 
 ## Adding a new rollup
 
-Drop a new `NN_rollup_<name>.sql` at the next available slot. Include all three tiers + their MVs in the single file. Don't retcon earlier files — treat them as append-only migrations.
+Drop a new `NN_rollup_<name>.sql` at the next available slot. Include all three tiers + their MVs in the single file. Don't retcon earlier files — treat them as append-only migrations. On next `migrate up` the new file is picked up automatically.
+
+## Schema tracker
+
+`observability.schema_migrations` is created by the runner. Schema:
+
+```sql
+CREATE TABLE observability.schema_migrations (
+    version    String,                   -- file basename, e.g. "10_rollup_spans.sql"
+    applied_at DateTime DEFAULT now()
+) ENGINE = MergeTree ORDER BY version
+```
+
+Query with:
+
+```sh
+clickhouse-client -q "SELECT version, applied_at FROM observability.schema_migrations ORDER BY version"
+```
