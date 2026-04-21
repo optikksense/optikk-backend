@@ -1,3 +1,10 @@
+// Package explorer aggregates logs for dashboard histograms / volume panels
+// (migrated to `logs_rollup` in Phase 6) + enumerates facet values on
+// arbitrary attribute keys. GetLogFields is the remaining raw read — it
+// powers the "add a filter" UI by listing distinct values for user-chosen
+// attribute names (scope_name, container, environment, attributes_*). Those
+// dims aren't in any rollup key set — and can't be, since the key is
+// user-supplied at query time. Permanent raw.
 package explorer
 
 import (

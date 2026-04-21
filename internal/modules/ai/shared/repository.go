@@ -1,3 +1,10 @@
+// Package shared carries the AI explorer + alerting common read paths.
+// Aggregate queries (GetTopModels, SummarizeRuns, TrendRuns, GetQualitySummary)
+// read `ai_spans_rollup`. Per-run drill-down (GetRunDetail, GetRunLogs,
+// aiRunsSubquery and its callers) stays on raw spans because per-span JSON
+// attribute flexibility (`gen_ai.*` family with many alias keys) plus
+// trace_id+span_id drill-down can't be compressed into the rollup's fixed
+// key set. Permanent raw.
 package shared
 
 import (

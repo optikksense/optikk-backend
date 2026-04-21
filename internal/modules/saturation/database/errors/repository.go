@@ -105,49 +105,6 @@ func (r *ClickHouseRepository) GetErrorsByResponseStatus(ctx context.Context, te
 	return r.errorSeriesByAttr(ctx, teamID, startMs, endMs, shared.AttrDBResponseStatus, f)
 }
 
-// errorSeriesByRawAttr is retained as a safety fallback for future attributes
-// not yet added to the rollup. No current caller.
-func (r *ClickHouseRepository) errorSeriesByRawAttr_unused(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]ErrorTimeSeries, error) { //nolint:unused
-	return r.errorSeriesByRawAttr(ctx, teamID, startMs, endMs, groupAttr, f)
-}
-
-// errorSeriesByRawAttr is the legacy raw-metrics path, retained only for
-// dimensions not present in db_histograms_rollup (see errorSeriesByRawAttr_unused).
-func (r *ClickHouseRepository) errorSeriesByRawAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]ErrorTimeSeries, error) {
-	fc, fargs := shared.FilterClauses(f)
-	groupExpr := shared.AttrString(groupAttr)
-	errorAttr := shared.AttrString(shared.AttrErrorType)
-	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
-
-	query := fmt.Sprintf(`
-		SELECT
-		    formatDateTime(toStartOfMinute(timestamp), '%%Y-%%m-%%d %%H:%%i:00') AS time_bucket,
-		    %s                                                                   AS group_by,
-		    toFloat64(sum(hist_count)) / %f                                      AS errors_per_sec
-		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
-		  AND metric_type = 'Histogram'
-		  AND notEmpty(%s)
-		  %s
-		GROUP BY time_bucket, group_by
-		ORDER BY time_bucket, group_by
-	`,
-		groupExpr, bucketSec,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBOperationDuration,
-		errorAttr, fc,
-	)
-
-	var rows []ErrorTimeSeries
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
-		return nil, err
-	}
-	return rows, nil
-}
-
 type errorRatioRawRow struct {
 	TimeBucket string `ch:"time_bucket"`
 	ErrCount   uint64 `ch:"err_count"`

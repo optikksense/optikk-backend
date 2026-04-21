@@ -332,14 +332,36 @@ Phase 8 landed the following rollup migrations (2026-04-21):
 - `saturation/kafka/repository.go` histogram-latency methods → `messaging_histograms_rollup` cascade: `GetPublishLatencyByTopic`, `GetReceiveLatencyByTopic`, `GetProcessLatencyByGroup`, `GetClientOperationDuration`.
 - `alerting/engine/store.go` → `spans_rollup` (errorRateLast / `ErrorRateHistorical` for SLO + service error rate) and `spans_by_version_1m` (`DeploysInRange` for deploy correlation).
 
-Still deferred (documented in-file with `// TODO(phase9):`):
-- Infrastructure utilization/percentage methods (multi-metric avgIf fallbacks that the gauge rollup can't model without carrying more state).
-- `infrastructure/{jvm,kubernetes,connpool}` — multi-metric composition + attribute group-bys outside `state_dim`.
-- `saturation/kafka` rate + error + lag + broker/partition methods — counter/gauge metrics outside `messaging_histograms_rollup` + dims outside its key set.
-- `saturation/database/slowqueries.GetSlowQueryPatterns` + `GetP99ByQueryText` — group by high-cardinality `db.query.text` (permanent raw).
-- `GetCollectionQueryTexts` — same reason (permanent raw).
-- Connection-count / connection-timeout gauge queries in `saturation/database/connections` — pool_name + state aren't in the generic gauge `state_dim`.
-- `alerting/engine/store.go::queryAIMetric` — `cost_usd` / `quality.score` span attributes not in `ai_spans_rollup`.
+Phase 9 (2026-04-21) — every remaining aggregate query migrated. DDL:
+- 4 new rollups: `metrics_k8s_rollup`, `messaging_counters_rollup`, `spans_peer_rollup`, `spans_kind_rollup`.
+- 3 v2 variants: `metrics_gauges_rollup_v2` (extended state_dim extractor), `db_histograms_rollup_v2` (connection_state + response_status_code keys + gauge state), `ai_spans_rollup_v2` (cost_usd + quality_score state).
+
+Consumers migrated to rollups in Phase 9:
+- `infrastructure/kubernetes` (all 9 methods) → `metrics_k8s_rollup`.
+- `infrastructure/jvm` (6 of 7 — GCCollections stays raw; jvm.gc.name not a rollup dim) → `metrics_gauges_rollup_v2` + `metrics_histograms_rollup`.
+- `infrastructure/{cpu,memory,disk,network}` fallback/by-service/by-instance/serviceList/instanceList methods → `metrics_gauges_rollup_v2`.
+- `infrastructure/connpool` (all 5 methods) → `metrics_gauges_rollup_v2`.
+- `saturation/database/connections` (all 5 gauge methods) → `db_histograms_rollup_v2`.
+- `saturation/database/errors::GetErrorsByResponseStatus` → `db_histograms_rollup_v2` (response_status_code is v2-only).
+- `saturation/database/slowqueries::GetSlowQueryRate` → `db_histograms_rollup` with HAVING on p95 (bucket-level approx).
+- `saturation/database/summary::GetSummaryStats` error + active-connection + cache-hit branches → `db_histograms_rollup_v2`.
+- `saturation/kafka` (14 remaining methods) → `messaging_counters_rollup`.
+- `overview/httpmetrics::GetStatusDistribution` + external-host panels → `spans_peer_rollup`.
+- `overview/redmetrics::GetSpanKindBreakdown` → `spans_kind_rollup`.
+- `services/deployments` drill-window methods → compose `spans_rollup` + `spans_by_version` + `spans_error_fingerprint`.
+- `alerting/engine::queryAIMetric` → `ai_spans_rollup_v2` (with raw fallback for rules that filter on `prompt_template`).
+
+Permanent raw (block-comment documented at each package):
+- `traces/tracedetail`, `traces/livetail`, `traces/query` drill-down methods — per-trace lookups bounded by `idx_trace_id`.
+- `logs/search::GetLogs` — full-text body search + keyset pagination.
+- `logs/explorer::GetLogFields` — facet-value enumeration on user-chosen attribute keys.
+- `overview/errors` drill-down methods (GetErrorGroupDetail / Traces / Timeseries / GetHTTP5xxByRoute).
+- `ai/shared` per-run drill-down + `aiRunsSubquery` (gen_ai.* JSON flexibility).
+- `ai/explorer::GetAICalls / GetAISessions / GetAIFacets` — paginated drill-down lists + facet enumeration.
+- `saturation/database/{collection,slowqueries}` text-attribute methods — group by `db.query.text` (high-cardinality free text).
+- `infrastructure/jvm::GetJVMGCCollections` — groups by `jvm.gc.name`, not keyed in metrics_histograms_rollup.
+- `alerting/engine::queryAIMetricRaw` (fallback) — rules targeting `prompt_template` which isn't a rollup key.
+- `metrics/repository.go` — dynamic metric explorer (user-selected metric_name + tag_key + tag_value at query time).
 
 ### Phase 6 — rollup-backed aggregate reads (2026-04-20)
 

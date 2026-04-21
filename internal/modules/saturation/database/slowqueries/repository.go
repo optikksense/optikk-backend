@@ -1,3 +1,7 @@
+// Package slowqueries serves the slow-query panels. GetSlowQueryRate reads
+// `db_histograms_rollup`. GetSlowQueryPatterns + GetP99ByQueryText group by
+// `attributes.db.query.text` — high-cardinality free-text; rolling up would
+// just mirror raw. Permanent raw (same rationale as collection.GetCollectionQueryTexts).
 package slowqueries
 
 import (

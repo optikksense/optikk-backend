@@ -1,3 +1,9 @@
+// Package collection serves DB-collection-scoped panels. Aggregate methods
+// (GetCollectionLatency / GetCollectionOps / GetCollectionErrors /
+// GetCollectionReadVsWrite) read `db_histograms_rollup`. GetCollectionQueryTexts
+// groups by `attributes.db.query.text` — a free-text field whose cardinality
+// equals the number of distinct queries observed (often millions). Rolling
+// that up would simply mirror raw. Permanent raw.
 package collection
 
 import (

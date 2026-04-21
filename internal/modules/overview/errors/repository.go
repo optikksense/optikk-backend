@@ -1,3 +1,13 @@
+// Package errors powers the Overview > Errors panels. Aggregate methods
+// (GetServiceErrorRate, GetErrorVolume, GetExceptionRateByType, GetErrorHotspot,
+// ListFingerprints, GetFingerprintTrend) read `spans_rollup` or
+// `spans_error_fingerprint`. Drill-down methods (GetErrorGroupDetail,
+// GetErrorGroupTraces, GetErrorGroupTimeseries, GetHTTP5xxByRoute) stay on
+// raw `observability.spans` because they fetch per-span fields — status_message,
+// trace_id, exception_stacktrace, mat_http_route — that the error-fingerprint
+// rollup carries only as state (sample trace_id + status_message hash).
+// Each drill-down is bounded by group_id → exception_type + status_message_hash
+// narrowing, keeping raw scans cheap. Permanent raw.
 package errors
 
 import (
