@@ -27,13 +27,3 @@ The glob expands in lexical order, so the numeric prefixes drive the right seque
 ### Adding a new phase
 
 Drop a new file at the appropriate prefix slot (e.g. `40_phase8_rollups.sql`). Keep one logical group per file; split base tables from cascade tiers if the phase adds >200 lines. Don't retcon earlier files — treat them as append-only migrations.
-
-### Single-file compat
-
-`db/clickhouse_local.sql` remains as the flat concatenation for tooling that expects a single artifact. Regenerate with:
-
-```sh
-cat db/clickhouse/*.sql > db/clickhouse_local.sql
-```
-
-CI should verify the two are in sync.

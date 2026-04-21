@@ -382,7 +382,7 @@ Sketch kinds today: `SpanLatencyService`, `SpanLatencyEndpoint`, `DbOpLatency`, 
 
 Follow-up (tracked): per-repository migration to `sketch.Querier`-first reads. The tactical `quantileExact* → quantileTDigest*` swap in this PR harvests the algorithmic win while the per-module sketch-backed path is rolled out.
 
-**Spans table materialized attributes** (`observability.spans`, see `db/clickhouse_local.sql`): includes `mat_service_version` ← `attributes.\`service.version\``, `mat_deployment_environment` ← `attributes.\`deployment.environment\`` (bloom indexes), for deployment queries without JSON scans.
+**Spans table materialized attributes** (`observability.spans`, see `db/clickhouse/01_spans.sql`): includes `mat_service_version` ← `attributes.\`service.version\``, `mat_deployment_environment` ← `attributes.\`deployment.environment\`` (bloom indexes), for deployment queries without JSON scans.
 
 ## API Response Envelope
 

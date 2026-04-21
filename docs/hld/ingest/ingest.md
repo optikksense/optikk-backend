@@ -242,7 +242,7 @@ Response cache middleware (30 s) wraps the overview/saturation/infrastructure ro
 - Auth interceptor: [internal/auth/](../../../internal/auth/)
 - Kafka abstractions: [internal/infra/kafka/{client.go, consumer.go, producer.go, topics.go}](../../../internal/infra/kafka/)
 - Signal pipelines: [internal/ingestion/{spans, metrics, logs}/](../../../internal/ingestion/)
-- DDL (raw tables + Phase-5 MVs and rollups): [db/clickhouse_local.sql](../../../db/clickhouse_local.sql)
+- DDL (raw tables + Phase-5 MVs and rollups): [db/clickhouse/](../../../db/clickhouse/)
 - Read layer for overview: [internal/modules/overview/{overview, slo, redmetrics, errors, apm, httpmetrics}/repository.go](../../../internal/modules/overview/)
 - Response cache: [internal/infra/middleware/cache/](../../../internal/infra/middleware/cache/)
 - Live tail hub: [internal/modules/livetail/redis_hub.go](../../../internal/modules/livetail/redis_hub.go)
