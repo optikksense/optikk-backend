@@ -11,6 +11,12 @@ import (
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
+// Connection panels read the Phase-9 `db_histograms_rollup_v2` which carries:
+//   - `pool_name` + `db_connection_state` as keys (v2 additions)
+//   - `value_sum` / `sample_count` / `value_last` state (v2 gauge rows)
+//   - `latency_ms_digest` / `hist_count` / `hist_sum` state (v1 histogram)
+// so every method below runs through the rollup.
+
 type Repository interface {
 	GetConnectionCountSeries(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionCountPoint, error)
 	GetConnectionUtilization(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionUtilPoint, error)
@@ -30,192 +36,194 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionCountPoint, error) {
-	bucket := timebucket.Expression(startMs, endMs)
-	poolAttr := shared.AttrString(shared.AttrPoolName)
-	stateAttr := shared.AttrString(shared.AttrConnectionState)
-	fc, fargs := shared.FilterClauses(f)
+func bucketExpr(startMs, endMs int64) string {
+	return timebucket.ExprForColumnTime(startMs, endMs, "bucket_ts")
+}
 
+func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionCountPoint, error) {
+	table, _ := rollup.TierTableFor(shared.DBHistRollupV2Prefix, startMs, endMs)
+	fc, fargs := shared.RollupFilterClauses(f)
 	query := fmt.Sprintf(`
 		SELECT
-		    %s               AS time_bucket,
-		    %s               AS pool_name,
-		    %s               AS state,
-		    avg(value)       AS count
+		    %s                                                                          AS time_bucket,
+		    pool_name                                                                   AS pool_name,
+		    db_connection_state                                                         AS state,
+		    sumMerge(value_sum) / nullIf(toFloat64(sumMerge(sample_count)), 0)          AS count
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket, pool_name, state
 		ORDER BY time_bucket, pool_name, state
-	`,
-		bucket, poolAttr, stateAttr,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBConnectionCount,
-		fc,
-	)
-
+	`, bucketExpr(startMs, endMs), table, fc)
+	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBConnectionCount), fargs...)
 	var rows []ConnectionCountPoint
-	args := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
-		return nil, err
-	}
-	return rows, nil
+	return rows, r.db.Select(database.OverviewCtx(ctx), &rows, query, args...)
 }
 
+// GetConnectionUtilization folds `used` (state=used) vs `max` (metric_name=
+// db.client.connection.max) per bucket+pool in Go. Previously did a
+// correlated subquery against raw metrics.
 func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionUtilPoint, error) {
-	bucket := timebucket.Expression(startMs, endMs)
-	poolAttr := shared.AttrString(shared.AttrPoolName)
-	stateAttr := shared.AttrString(shared.AttrConnectionState)
-	fc, fargs := shared.FilterClauses(f)
-
+	table, _ := rollup.TierTableFor(shared.DBHistRollupV2Prefix, startMs, endMs)
+	fc, fargs := shared.RollupFilterClauses(f)
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                                           AS time_bucket,
-		    %s                                                           AS pool_name,
-		    avgIf(value, %s = 'used')                                   AS used_avg,
-		    (
-		        SELECT avg(value)
-		        FROM %s AS mx
-		        WHERE mx.%s = @teamID
-		          AND mx.%s BETWEEN @start AND @end
-		          AND mx.%s = '%s'
-		          AND mx.%s = %s
-		          %s
-		    )                                                             AS max_val,
-		    if(max_val > 0, used_avg / max_val * 100, NULL)             AS util_pct
-		FROM %s AS m
-		WHERE m.%s = @teamID
-		  AND m.%s BETWEEN @start AND @end
-		  AND m.%s = '%s'
+		    %s                                                                          AS time_bucket,
+		    pool_name                                                                   AS pool_name,
+		    metric_name                                                                 AS metric_name,
+		    db_connection_state                                                         AS state,
+		    sumMerge(value_sum) / nullIf(toFloat64(sumMerge(sample_count)), 0)          AS val_avg
+		FROM %s
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name IN (@countMetric, @maxMetric)
 		  %s
-		GROUP BY time_bucket, pool_name
-		ORDER BY time_bucket, pool_name
-	`,
-		bucket, poolAttr, stateAttr,
-		shared.TableMetrics,
-		shared.ColTeamID,
-		shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBConnectionMax,
-		poolAttr, poolAttr,
-		fc,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBConnectionCount,
-		fc,
+		GROUP BY time_bucket, pool_name, metric_name, state
+	`, bucketExpr(startMs, endMs), table, fc)
+	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBConnectionCount),
+		clickhouse.Named("countMetric", shared.MetricDBConnectionCount),
+		clickhouse.Named("maxMetric", shared.MetricDBConnectionMax),
 	)
-
-	var rows []ConnectionUtilPoint
-	args := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	args = append(args, fargs...)
+	var metricRows []struct {
+		TimeBucket string  `ch:"time_bucket"`
+		PoolName   string  `ch:"pool_name"`
+		MetricName string  `ch:"metric_name"`
+		State      string  `ch:"state"`
+		ValAvg     float64 `ch:"val_avg"`
+	}
+	if err := r.db.Select(database.OverviewCtx(ctx), &metricRows, query, args...); err != nil {
 		return nil, err
+	}
+	type key struct{ bucket, pool string }
+	type agg struct {
+		used, max *float64
+	}
+	folded := map[key]*agg{}
+	for _, mr := range metricRows {
+		k := key{mr.TimeBucket, mr.PoolName}
+		a, ok := folded[k]
+		if !ok {
+			a = &agg{}
+			folded[k] = a
+		}
+		v := mr.ValAvg
+		switch {
+		case mr.MetricName == shared.MetricDBConnectionCount && mr.State == "used":
+			a.used = &v
+		case mr.MetricName == shared.MetricDBConnectionMax:
+			a.max = &v
+		}
+	}
+	rows := make([]ConnectionUtilPoint, 0, len(folded))
+	for k, a := range folded {
+		pt := ConnectionUtilPoint{TimeBucket: k.bucket, PoolName: k.pool}
+		if a.used != nil && a.max != nil && *a.max > 0 {
+			u := *a.used / *a.max * 100.0
+			pt.UtilPct = &u
+		}
+		rows = append(rows, pt)
 	}
 	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionLimits, error) {
-	poolAttr := shared.AttrString(shared.AttrPoolName)
-	fc, fargs := shared.FilterClauses(f)
-
+	table, _ := rollup.TierTableFor(shared.DBHistRollupV2Prefix, startMs, endMs)
+	fc, fargs := shared.RollupFilterClauses(f)
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                                               AS pool_name,
-		    avgIf(value, metric_name = '%s')                AS max_val,
-		    avgIf(value, metric_name = '%s')                AS idle_max,
-		    avgIf(value, metric_name = '%s')                AS idle_min
+		    pool_name                                                                   AS pool_name,
+		    metric_name                                                                 AS metric_name,
+		    sumMerge(value_sum) / nullIf(toFloat64(sumMerge(sample_count)), 0)          AS val_avg
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s IN ('%s', '%s', '%s')
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name IN (@maxMetric, @idleMax, @idleMin)
 		  %s
-		GROUP BY pool_name
+		GROUP BY pool_name, metric_name
 		ORDER BY pool_name
-	`,
-		poolAttr,
-		shared.MetricDBConnectionMax, shared.MetricDBConnectionIdleMax, shared.MetricDBConnectionIdleMin,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName,
-		shared.MetricDBConnectionMax, shared.MetricDBConnectionIdleMax, shared.MetricDBConnectionIdleMin,
-		fc,
+	`, table, fc)
+	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBConnectionMax),
+		clickhouse.Named("maxMetric", shared.MetricDBConnectionMax),
+		clickhouse.Named("idleMax", shared.MetricDBConnectionIdleMax),
+		clickhouse.Named("idleMin", shared.MetricDBConnectionIdleMin),
 	)
-
-	var rows []ConnectionLimits
-	args := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	args = append(args, fargs...)
+	var metricRows []struct {
+		PoolName   string  `ch:"pool_name"`
+		MetricName string  `ch:"metric_name"`
+		ValAvg     float64 `ch:"val_avg"`
+	}
+	if err := r.db.Select(database.OverviewCtx(ctx), &metricRows, query, args...); err != nil {
 		return nil, err
+	}
+	out := map[string]*ConnectionLimits{}
+	for _, mr := range metricRows {
+		lim, ok := out[mr.PoolName]
+		if !ok {
+			lim = &ConnectionLimits{PoolName: mr.PoolName}
+			out[mr.PoolName] = lim
+		}
+		v := mr.ValAvg
+		switch mr.MetricName {
+		case shared.MetricDBConnectionMax:
+			lim.Max = &v
+		case shared.MetricDBConnectionIdleMax:
+			lim.IdleMax = &v
+		case shared.MetricDBConnectionIdleMin:
+			lim.IdleMin = &v
+		}
+	}
+	rows := make([]ConnectionLimits, 0, len(out))
+	for _, lim := range out {
+		rows = append(rows, *lim)
 	}
 	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetPendingRequests(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PendingRequestsPoint, error) {
-	bucket := timebucket.Expression(startMs, endMs)
-	poolAttr := shared.AttrString(shared.AttrPoolName)
-	fc, fargs := shared.FilterClauses(f)
-
+	table, _ := rollup.TierTableFor(shared.DBHistRollupV2Prefix, startMs, endMs)
+	fc, fargs := shared.RollupFilterClauses(f)
 	query := fmt.Sprintf(`
 		SELECT
-		    %s             AS time_bucket,
-		    %s             AS pool_name,
-		    avg(value)     AS count
+		    %s                                                                          AS time_bucket,
+		    pool_name                                                                   AS pool_name,
+		    sumMerge(value_sum) / nullIf(toFloat64(sumMerge(sample_count)), 0)          AS count
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket, pool_name
 		ORDER BY time_bucket, pool_name
-	`,
-		bucket, poolAttr,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBConnectionPendReqs,
-		fc,
-	)
-
+	`, bucketExpr(startMs, endMs), table, fc)
+	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBConnectionPendReqs), fargs...)
 	var rows []PendingRequestsPoint
-	args := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
-		return nil, err
-	}
-	return rows, nil
+	return rows, r.db.Select(database.OverviewCtx(ctx), &rows, query, args...)
 }
 
 func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionTimeoutPoint, error) {
-	bucket := timebucket.Expression(startMs, endMs)
-	poolAttr := shared.AttrString(shared.AttrPoolName)
+	table, _ := rollup.TierTableFor(shared.DBHistRollupV2Prefix, startMs, endMs)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
-	fc, fargs := shared.FilterClauses(f)
-
+	fc, fargs := shared.RollupFilterClauses(f)
 	query := fmt.Sprintf(`
 		SELECT
-		    %s                               AS time_bucket,
-		    %s                               AS pool_name,
-		    toFloat64(sum(value)) / %f        AS timeout_rate
+		    %s                                                  AS time_bucket,
+		    pool_name                                           AS pool_name,
+		    toFloat64(sumMerge(value_sum)) / %f                 AS timeout_rate
 		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket, pool_name
 		ORDER BY time_bucket, pool_name
-	`,
-		bucket, poolAttr,
-		bucketSec,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBConnectionTimeouts,
-		fc,
-	)
-
+	`, bucketExpr(startMs, endMs), bucketSec, table, fc)
+	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBConnectionTimeouts), fargs...)
 	var rows []ConnectionTimeoutPoint
-	args := append(shared.BaseParams(teamID, startMs, endMs), fargs...)
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
-		return nil, err
-	}
-	return rows, nil
+	return rows, r.db.Select(database.OverviewCtx(ctx), &rows, query, args...)
 }
 
 func (r *ClickHouseRepository) poolLatency(ctx context.Context, teamID int64, startMs, endMs int64, metricName string, f shared.Filters) ([]PoolLatencyPoint, error) {
