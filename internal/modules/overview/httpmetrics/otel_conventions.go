@@ -19,7 +19,7 @@ const (
 	AttrHTTPRoute      = "http.route"
 
 	TableMetrics = "observability.metrics"
-	TableSpans   = "observability.spans"
+	TableSpans   = "observability.spans_v2"
 
 	ColMetricName = "metric_name"
 	ColTeamID     = "team_id"

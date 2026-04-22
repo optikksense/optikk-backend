@@ -19,7 +19,7 @@ import (
 // dedicated `spans_kind_rollup` (Phase 9).
 
 const (
-	spansRollupPrefix     = "observability.spans_rollup"
+	spansRollupPrefix     = "observability.spans_rollup_v2"
 	spansKindRollupPrefix = "observability.spans_kind_rollup"
 )
 

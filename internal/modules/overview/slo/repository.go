@@ -18,7 +18,7 @@ import (
 
 const (
 	serviceNameFilter = " AND service_name = @serviceName"
-	spansRollupPrefix = "observability.spans_rollup"
+	spansRollupPrefix = "observability.spans_rollup_v2"
 )
 
 type Repository interface {
