@@ -3,6 +3,8 @@
 // 	protoc-gen-go v1.36.11
 // 	protoc        v6.31.1
 // source: internal/ingestion/logs/log_row.proto
+//
+// TODO: regenerate via 'make proto' — scope_string field was removed from .proto; this file is stale until regeneration.
 
 package logs
 
@@ -21,21 +23,18 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Row is the wire format on Kafka. One record == one log row bound for
-// observability.logs. The field order mirrors the ClickHouse column order
-// declared in row.go Columns so the consumer can build positional CH values
-// without a lookup map.
+// Row is the wire format on Kafka. See log_row.proto for field docs.
 type Row struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
 	TeamId              uint32                 `protobuf:"varint,1,opt,name=team_id,json=teamId,proto3" json:"team_id,omitempty"`
 	TsBucketStart       uint32                 `protobuf:"varint,2,opt,name=ts_bucket_start,json=tsBucketStart,proto3" json:"ts_bucket_start,omitempty"`
-	TimestampNs         int64                  `protobuf:"varint,3,opt,name=timestamp_ns,json=timestampNs,proto3" json:"timestamp_ns,omitempty"` // time.Time at CH boundary
+	TimestampNs         int64                  `protobuf:"varint,3,opt,name=timestamp_ns,json=timestampNs,proto3" json:"timestamp_ns,omitempty"`
 	ObservedTimestampNs uint64                 `protobuf:"varint,4,opt,name=observed_timestamp_ns,json=observedTimestampNs,proto3" json:"observed_timestamp_ns,omitempty"`
 	TraceId             string                 `protobuf:"bytes,5,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
 	SpanId              string                 `protobuf:"bytes,6,opt,name=span_id,json=spanId,proto3" json:"span_id,omitempty"`
 	TraceFlags          uint32                 `protobuf:"varint,7,opt,name=trace_flags,json=traceFlags,proto3" json:"trace_flags,omitempty"`
 	SeverityText        string                 `protobuf:"bytes,8,opt,name=severity_text,json=severityText,proto3" json:"severity_text,omitempty"`
-	SeverityNumber      uint32                 `protobuf:"varint,9,opt,name=severity_number,json=severityNumber,proto3" json:"severity_number,omitempty"` // uint8 at CH; narrow at boundary
+	SeverityNumber      uint32                 `protobuf:"varint,9,opt,name=severity_number,json=severityNumber,proto3" json:"severity_number,omitempty"`
 	Body                string                 `protobuf:"bytes,10,opt,name=body,proto3" json:"body,omitempty"`
 	AttributesString    map[string]string      `protobuf:"bytes,11,rep,name=attributes_string,json=attributesString,proto3" json:"attributes_string,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	AttributesNumber    map[string]float64     `protobuf:"bytes,12,rep,name=attributes_number,json=attributesNumber,proto3" json:"attributes_number,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"fixed64,2,opt,name=value"`
@@ -44,7 +43,6 @@ type Row struct {
 	ResourceFingerprint string                 `protobuf:"bytes,15,opt,name=resource_fingerprint,json=resourceFingerprint,proto3" json:"resource_fingerprint,omitempty"`
 	ScopeName           string                 `protobuf:"bytes,16,opt,name=scope_name,json=scopeName,proto3" json:"scope_name,omitempty"`
 	ScopeVersion        string                 `protobuf:"bytes,17,opt,name=scope_version,json=scopeVersion,proto3" json:"scope_version,omitempty"`
-	ScopeString         map[string]string      `protobuf:"bytes,18,rep,name=scope_string,json=scopeString,proto3" json:"scope_string,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	unknownFields       protoimpl.UnknownFields
 	sizeCache           protoimpl.SizeCache
 }
@@ -56,9 +54,7 @@ func (x *Row) Reset() {
 	ms.StoreMessageInfo(mi)
 }
 
-func (x *Row) String() string {
-	return protoimpl.X.MessageStringOf(x)
-}
+func (x *Row) String() string { return protoimpl.X.MessageStringOf(x) }
 
 func (*Row) ProtoMessage() {}
 
@@ -198,18 +194,11 @@ func (x *Row) GetScopeVersion() string {
 	return ""
 }
 
-func (x *Row) GetScopeString() map[string]string {
-	if x != nil {
-		return x.ScopeString
-	}
-	return nil
-}
-
 var File_internal_ingestion_logs_log_row_proto protoreflect.FileDescriptor
 
 const file_internal_ingestion_logs_log_row_proto_rawDesc = "" +
 	"\n" +
-	"%internal/ingestion/logs/log_row.proto\x12\x15optikk.ingest.logs.v1\"\xc2\t\n" +
+	"%internal/ingestion/logs/log_row.proto\x12\x15optikk.ingest.logs.v1\"\xf2\b\n" +
 	"\x03Row\x12\x17\n" +
 	"\ateam_id\x18\x01 \x01(\rR\x06teamId\x12&\n" +
 	"\x0fts_bucket_start\x18\x02 \x01(\rR\rtsBucketStart\x12!\n" +
@@ -230,8 +219,7 @@ const file_internal_ingestion_logs_log_row_proto_rawDesc = "" +
 	"\x14resource_fingerprint\x18\x0f \x01(\tR\x13resourceFingerprint\x12\x1d\n" +
 	"\n" +
 	"scope_name\x18\x10 \x01(\tR\tscopeName\x12#\n" +
-	"\rscope_version\x18\x11 \x01(\tR\fscopeVersion\x12N\n" +
-	"\fscope_string\x18\x12 \x03(\v2+.optikk.ingest.logs.v1.Row.ScopeStringEntryR\vscopeString\x1aC\n" +
+	"\rscope_version\x18\x11 \x01(\tR\fscopeVersion\x1aC\n" +
 	"\x15AttributesStringEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aC\n" +
@@ -242,9 +230,6 @@ const file_internal_ingestion_logs_log_row_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\bR\x05value:\x028\x01\x1a;\n" +
 	"\rResourceEntry\x12\x10\n" +
-	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a>\n" +
-	"\x10ScopeStringEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01BCZAgithub.com/Optikk-Org/optikk-backend/internal/ingestion/logs;logsb\x06proto3"
 
@@ -260,26 +245,24 @@ func file_internal_ingestion_logs_log_row_proto_rawDescGZIP() []byte {
 	return file_internal_ingestion_logs_log_row_proto_rawDescData
 }
 
-var file_internal_ingestion_logs_log_row_proto_msgTypes = make([]protoimpl.MessageInfo, 6)
+var file_internal_ingestion_logs_log_row_proto_msgTypes = make([]protoimpl.MessageInfo, 5)
 var file_internal_ingestion_logs_log_row_proto_goTypes = []any{
 	(*Row)(nil), // 0: optikk.ingest.logs.v1.Row
 	nil,         // 1: optikk.ingest.logs.v1.Row.AttributesStringEntry
 	nil,         // 2: optikk.ingest.logs.v1.Row.AttributesNumberEntry
 	nil,         // 3: optikk.ingest.logs.v1.Row.AttributesBoolEntry
 	nil,         // 4: optikk.ingest.logs.v1.Row.ResourceEntry
-	nil,         // 5: optikk.ingest.logs.v1.Row.ScopeStringEntry
 }
 var file_internal_ingestion_logs_log_row_proto_depIdxs = []int32{
 	1, // 0: optikk.ingest.logs.v1.Row.attributes_string:type_name -> optikk.ingest.logs.v1.Row.AttributesStringEntry
 	2, // 1: optikk.ingest.logs.v1.Row.attributes_number:type_name -> optikk.ingest.logs.v1.Row.AttributesNumberEntry
 	3, // 2: optikk.ingest.logs.v1.Row.attributes_bool:type_name -> optikk.ingest.logs.v1.Row.AttributesBoolEntry
 	4, // 3: optikk.ingest.logs.v1.Row.resource:type_name -> optikk.ingest.logs.v1.Row.ResourceEntry
-	5, // 4: optikk.ingest.logs.v1.Row.scope_string:type_name -> optikk.ingest.logs.v1.Row.ScopeStringEntry
-	5, // [5:5] is the sub-list for method output_type
-	5, // [5:5] is the sub-list for method input_type
-	5, // [5:5] is the sub-list for extension type_name
-	5, // [5:5] is the sub-list for extension extendee
-	0, // [0:5] is the sub-list for field type_name
+	4, // [4:4] is the sub-list for method output_type
+	4, // [4:4] is the sub-list for method input_type
+	4, // [4:4] is the sub-list for extension type_name
+	4, // [4:4] is the sub-list for extension extendee
+	0, // [0:4] is the sub-list for field type_name
 }
 
 func init() { file_internal_ingestion_logs_log_row_proto_init() }
@@ -293,7 +276,7 @@ func file_internal_ingestion_logs_log_row_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_internal_ingestion_logs_log_row_proto_rawDesc), len(file_internal_ingestion_logs_log_row_proto_rawDesc)),
 			NumEnums:      0,
-			NumMessages:   6,
+			NumMessages:   5,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

@@ -20,6 +20,7 @@ import (
 	ingestlogs "github.com/Optikk-Org/optikk-backend/internal/ingestion/logs"
 	ingestmetrics "github.com/Optikk-Org/optikk-backend/internal/ingestion/metrics"
 	ingestspans "github.com/Optikk-Org/optikk-backend/internal/ingestion/spans"
+	indexer "github.com/Optikk-Org/optikk-backend/internal/ingestion/spans/indexer"
 	"github.com/twmb/franz-go/pkg/kgo"
 	redigoredis "github.com/gomodule/redigo/redis"
 	goredis "github.com/redis/go-redis/v9"
@@ -87,7 +88,15 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 
 	prefix := cfg.KafkaTopicPrefix()
 	kafkaCfg := kafkainfra.Config{Brokers: cfg.KafkaBrokers()}
-	if err := kafkainfra.EnsureTopics(kafkaCfg.Brokers, kafkainfra.IngestTopics(prefix)); err != nil {
+	rf := int16(cfg.KafkaReplicationFactor()) //nolint:gosec // small positive int
+	specs := []kafkainfra.TopicSpec{
+		{Name: kafkainfra.IngestTopic(prefix, kafkainfra.SignalLogs), Partitions: int32(cfg.KafkaPartitions("logs")), ReplicationFactor: rf},       //nolint:gosec
+		{Name: kafkainfra.IngestTopic(prefix, kafkainfra.SignalSpans), Partitions: int32(cfg.KafkaPartitions("spans")), ReplicationFactor: rf},     //nolint:gosec
+		{Name: kafkainfra.IngestTopic(prefix, kafkainfra.SignalMetrics), Partitions: int32(cfg.KafkaPartitions("metrics")), ReplicationFactor: rf}, //nolint:gosec
+		{Name: kafkainfra.DLQTopic(prefix, kafkainfra.SignalLogs), Partitions: 4, ReplicationFactor: rf},
+		{Name: kafkainfra.DLQTopic(prefix, kafkainfra.SignalSpans), Partitions: 4, ReplicationFactor: rf},
+	}
+	if err := kafkainfra.EnsureTopics(kafkaCfg.Brokers, specs); err != nil {
 		return nil, fmt.Errorf("kafka ingest topics: %w", err)
 	}
 
@@ -189,6 +198,8 @@ func buildIngestModules(cfg config.Config, kcfg kafkainfra.Config, prefix string
 		Producer:          ingestlogs.NewProducer(producer, prefix),
 		CH:                ch,
 		PersistenceClient: kafkainfra.NewConsumer(logsPersist),
+		KafkaBase:         producer,
+		TopicPrefix:       prefix,
 	}).(*ingestlogs.Module)
 
 	metricsMod := ingestmetrics.NewModule(ingestmetrics.Deps{
@@ -197,10 +208,19 @@ func buildIngestModules(cfg config.Config, kcfg kafkainfra.Config, prefix string
 		PersistenceClient: kafkainfra.NewConsumer(metricsPersist),
 	}).(*ingestmetrics.Module)
 
+	idxCfg := cfg.SpansIndexerConfig()
 	spansMod := ingestspans.NewModule(ingestspans.Deps{
 		Producer:          ingestspans.NewProducer(producer, prefix),
 		CH:                ch,
 		PersistenceClient: kafkainfra.NewConsumer(spansPersist),
+		KafkaBase:         producer,
+		TopicPrefix:       prefix,
+		IndexerConfig: indexer.Config{
+			Capacity:    idxCfg.Capacity,
+			QuietWindow: time.Duration(idxCfg.QuietWindowMs) * time.Millisecond,
+			HardTimeout: time.Duration(idxCfg.HardTimeoutMs) * time.Millisecond,
+			SweepEvery:  time.Duration(idxCfg.SweepEveryMs) * time.Millisecond,
+		},
 	}).(*ingestspans.Module)
 
 	return IngestModules{Logs: logsMod, Metrics: metricsMod, Spans: spansMod}, producerClient, consumerClients, nil

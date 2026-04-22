@@ -13,8 +13,10 @@ import (
 	"time"
 )
 
-// CHTable is the ClickHouse destination table for the span signal.
-const CHTable = "observability.spans"
+// CHTable is the ClickHouse destination table for the span signal — the v2
+// table introduced by migration 37_spans_v2.sql. Schema shape is identical
+// so Columns + chValues carry over unchanged.
+const CHTable = "observability.spans_v2"
 
 // Columns is the insert column order for CHTable. Mirrors Row's proto fields
 // one-for-one so chValues can emit positional values without a lookup.

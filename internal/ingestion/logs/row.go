@@ -10,17 +10,19 @@ package logs
 
 import "time"
 
-// CHTable is the ClickHouse destination table for the log signal.
-const CHTable = "observability.logs"
+// CHTable is the ClickHouse destination table for the log signal — the v2
+// table introduced by migration 31_logs_v2.sql.
+const CHTable = "observability.logs_v2"
 
 // Columns is the insert column order for CHTable. Mirrors Row's proto fields
-// one-for-one so chValues can emit positional values without a lookup.
+// one-for-one so chValues can emit positional values without a lookup. The
+// legacy `scope_string` column was dropped in the ingest rewrite.
 var Columns = []string{
 	"team_id", "ts_bucket_start", "timestamp", "observed_timestamp",
 	"trace_id", "span_id", "trace_flags", "severity_text", "severity_number", "body",
 	"attributes_string", "attributes_number", "attributes_bool",
 	"resource", "resource_fingerprint",
-	"scope_name", "scope_version", "scope_string",
+	"scope_name", "scope_version",
 }
 
 // chValues returns positional values aligned with Columns for CH batch insert.
@@ -45,6 +47,5 @@ func chValues(r *Row) []any {
 		r.GetResourceFingerprint(),
 		r.GetScopeName(),
 		r.GetScopeVersion(),
-		r.GetScopeString(),
 	}
 }
