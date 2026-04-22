@@ -26,17 +26,17 @@ func ErrorGroupID(service, operation, statusMessage string, httpCode int) string
 }
 
 type ErrorGroupDetail struct {
-	GroupID         string    `json:"group_id"`
-	ServiceName     string    `json:"service_name"`
-	OperationName   string    `json:"operation_name"`
-	StatusMessage   string    `json:"status_message"`
-	HTTPStatusCode  int       `json:"http_status_code"`
-	ErrorCount      int64     `json:"error_count"`
-	LastOccurrence  time.Time `json:"last_occurrence"`
-	FirstOccurrence time.Time `json:"first_occurrence"`
-	SampleTraceID   string    `json:"sample_trace_id"`
-	StackTrace      string    `json:"stack_trace,omitempty"`
-	ExceptionType   string    `json:"exception_type,omitempty"`
+	GroupID          string    `json:"group_id"`
+	ServiceName      string    `json:"service_name"`
+	OperationName    string    `json:"operation_name"`
+	StatusMessage    string    `json:"status_message"`
+	HTTPStatusCode   int       `json:"http_status_code"`
+	ErrorCount       int64     `json:"error_count"`
+	LastOccurrence   time.Time `json:"last_occurrence"`
+	FirstOccurrence  time.Time `json:"first_occurrence"`
+	SampleTraceID    string    `json:"sample_trace_id"`
+	SampleStacktrace string    `json:"sample_stacktrace,omitempty"`
+	ExceptionType    string    `json:"exception_type,omitempty"`
 }
 
 type ErrorGroupTrace struct {

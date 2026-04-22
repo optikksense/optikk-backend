@@ -22,10 +22,16 @@ type SummaryRow struct {
 	Warns  uint64 `ch:"warns"`
 }
 
+// TrendRow is one display-grain bucket carrying the total count plus per-tier
+// countIf aggregates. Tier thresholds mirror the Summary query so total ==
+// error + warn + info + debug.
 type TrendRow struct {
-	TimeBucket     time.Time `ch:"time_bucket"`
-	SeverityBucket uint8     `ch:"severity_bucket"`
-	Count          uint64    `ch:"count"`
+	TimeBucket time.Time `ch:"time_bucket"`
+	Total      uint64    `ch:"total"`
+	Error      uint64    `ch:"error"`
+	Warn       uint64    `ch:"warn"`
+	Info       uint64    `ch:"info"`
+	Debug      uint64    `ch:"debug"`
 }
 
 // Summary readers come in two shapes: with-CTE (when a resource-side
@@ -81,6 +87,10 @@ func (r *Repository) Summary(ctx context.Context, f filter.Filters) (SummaryRow,
 // to the specific toStartOf{Minute,FiveMinutes,Hour,Day} per window — 10–15%
 // faster than the generic toStartOfInterval form for our 4 fixed grains.
 //
+// One row per display bucket carrying total + per-severity-tier countIf
+// aggregates (severity-stacked trend). Tier thresholds mirror the Summary
+// query so total == error + warn + info + debug.
+//
 // Mirrors Summary's shape: head ends at `WHERE timestamp BETWEEN …` so the
 // row-side `where` from filter.BuildClauses (trace_id, span_id, severities,
 // search, attributes) appends cleanly before GROUP BY/ORDER BY.
@@ -91,8 +101,15 @@ const trendCTEHead = `
 	    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd`
 
 const trendGroupOrder = `
-	GROUP BY time_bucket, severity_bucket
-	ORDER BY time_bucket ASC, severity_bucket ASC`
+	GROUP BY time_bucket
+	ORDER BY time_bucket ASC`
+
+const trendSelectTail = ` AS time_bucket,
+	       count()                       AS total,
+	       countIf(severity_bucket >= 4) AS error,
+	       countIf(severity_bucket = 3)  AS warn,
+	       countIf(severity_bucket = 2)  AS info,
+	       countIf(severity_bucket <= 1) AS debug`
 
 func (r *Repository) Trend(ctx context.Context, f filter.Filters) ([]TrendRow, error) {
 	resourceWhere, where, args := filter.BuildClauses(f)
@@ -100,9 +117,7 @@ func (r *Repository) Trend(ctx context.Context, f filter.Filters) ([]TrendRow, e
 
 	trendCTETail := `
 	)
-	SELECT ` + grainSQL + ` AS time_bucket,
-	       severity_bucket,
-	       count() AS count
+	SELECT ` + grainSQL + trendSelectTail + `
 	FROM observability.logs
 	PREWHERE team_id = @teamID
 	     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -110,9 +125,7 @@ func (r *Repository) Trend(ctx context.Context, f filter.Filters) ([]TrendRow, e
 	     AND fingerprint IN active_fps
 	WHERE timestamp BETWEEN @start AND @end`
 	trendBareHead := `
-	SELECT ` + grainSQL + ` AS time_bucket,
-	       severity_bucket,
-	       count() AS count
+	SELECT ` + grainSQL + trendSelectTail + `
 	FROM observability.logs
 	PREWHERE team_id = @teamID
 	     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd

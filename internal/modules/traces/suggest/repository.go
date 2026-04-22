@@ -69,8 +69,7 @@ func (r *ClickHouseRepository) SuggestAttribute(ctx context.Context, teamID, sta
 
 // suggestArgs binds the 6 parameters both suggest queries share. bucketEnd
 // adds one bucket beyond the last covering bucket so endMs at a 5-minute
-// boundary doesn't drop the final bucket — same shape as services/latency
-// and topology.
+// boundary doesn't drop the final bucket — same shape as topology.
 func suggestArgs(teamID, startMs, endMs int64, prefix string, limit int) []any {
 	return []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115

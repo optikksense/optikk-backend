@@ -11,8 +11,8 @@ import (
 const defaultRelatedLimit = 10
 
 // Handler hosts every route on the trace-detail page: per-trace summary,
-// per-span events/attributes, related-traces window query, the per-trace
-// spans list, and the per-span subtree.
+// per-span events/attributes, related-traces window query, and the per-trace
+// spans list.
 type Handler struct {
 	modulecommon.DBTenant
 	Service Service
@@ -126,18 +126,3 @@ func (h *Handler) GetTraceSpans(c *gin.Context) {
 	}
 	modulecommon.RespondOK(c, gin.H{"spans": items})
 }
-
-func (h *Handler) GetSpanTree(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	spanID := c.Param("spanId")
-	items, err := h.Service.ListSpanSubtree(c.Request.Context(), teamID, spanID)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to list span subtree", err)
-		return
-	}
-	if items == nil {
-		items = []SpanListItem{}
-	}
-	modulecommon.RespondOK(c, gin.H{"spans": items})
-}
-

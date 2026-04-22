@@ -3,6 +3,7 @@ package cpu
 import (
 	"context"
 	"math"
+	"sort"
 
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
@@ -53,6 +54,36 @@ func (s *Service) GetCPUByInstance(ctx context.Context, teamID int64, startMs, e
 			ServiceName: k.service,
 			Value:       foldCPUMetricRows(byInst[k]),
 		})
+	}
+	return out, nil
+}
+
+// GetCPUTopHosts returns the top-N hosts by blended CPU utilization, ranked
+// DESC. The 3-metric blend is Go-side, so ranking happens after the fold.
+func (s *Service) GetCPUTopHosts(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]HostValue, error) {
+	rows, err := s.repo.QueryCPUByHost(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return nil, err
+	}
+	byHost := map[string][]CPUMetricNameRow{}
+	order := []string{}
+	for _, r := range rows {
+		if _, ok := byHost[r.Host]; !ok {
+			order = append(order, r.Host)
+		}
+		byHost[r.Host] = append(byHost[r.Host], CPUMetricNameRow{MetricName: r.MetricName, Value: r.Value})
+	}
+	out := make([]HostValue, 0, len(order))
+	for _, host := range order {
+		v := foldCPUMetricRows(byHost[host])
+		if v == nil {
+			continue
+		}
+		out = append(out, HostValue{Host: host, Value: *v})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Value > out[j].Value })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
 	}
 	return out, nil
 }

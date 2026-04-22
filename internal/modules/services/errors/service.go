@@ -151,17 +151,17 @@ func (s *Service) GetErrorGroupDetail(ctx context.Context, teamID int64, startMs
 		return nil, nil
 	}
 	return &ErrorGroupDetail{
-		GroupID:         groupID,
-		ServiceName:     row.ServiceName,
-		OperationName:   row.OperationName,
-		StatusMessage:   row.StatusMessage,
-		HTTPStatusCode:  int(row.HTTPStatusCode),
-		ErrorCount:      int64(row.ErrorCount), //nolint:gosec // domain-bounded
-		LastOccurrence:  row.LastOccurrence,
-		FirstOccurrence: row.FirstOccurrence,
-		SampleTraceID:   row.SampleTraceID,
-		ExceptionType:   row.ExceptionType,
-		StackTrace:      row.StackTrace,
+		GroupID:          groupID,
+		ServiceName:      row.ServiceName,
+		OperationName:    row.OperationName,
+		StatusMessage:    row.StatusMessage,
+		HTTPStatusCode:   int(row.HTTPStatusCode),
+		ErrorCount:       int64(row.ErrorCount), //nolint:gosec // domain-bounded
+		LastOccurrence:   row.LastOccurrence,
+		FirstOccurrence:  row.FirstOccurrence,
+		SampleTraceID:    row.SampleTraceID,
+		ExceptionType:    row.ExceptionType,
+		SampleStacktrace: row.StackTrace,
 	}, nil
 }
 
