@@ -149,7 +149,16 @@ func (a *App) addGRPCServerActor(g *run.Group) error {
 	g.Add(func() error {
 		return grpcSrv.Serve(lis)
 	}, func(error) {
-		grpcSrv.GracefulStop()
+		done := make(chan struct{})
+		go func() {
+			grpcSrv.GracefulStop()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			grpcSrv.Stop()
+		}
 	})
 	return nil
 }

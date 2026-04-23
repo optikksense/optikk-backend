@@ -66,7 +66,7 @@ func buildSelectAndGrouping(
 ) ([]string, []string) {
 	var selectParts []string
 	if req.VizMode == "timeseries" {
-		bucketExpr := utils.ExprForColumn(f.StartMs, f.EndMs, "toDateTime(intDiv(start_ms, 1000))")
+		bucketExpr := fmt.Sprintf("toInt64(toUnixTimestamp(%s))", utils.ExprForColumnTime(f.StartMs, f.EndMs, "toDateTime(intDiv(start_ms, 1000))"))
 		selectParts = append(selectParts, bucketExpr+" AS time_bucket")
 	}
 	selectParts = append(selectParts, groupCols...)

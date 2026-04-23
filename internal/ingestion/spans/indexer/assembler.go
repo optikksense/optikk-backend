@@ -104,7 +104,9 @@ func (a *Assembler) Start() {
 		for {
 			select {
 			case <-ctx.Done():
-				a.drain(context.Background())
+				drainCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				a.drain(drainCtx)
 				return
 			case <-ticker.C:
 				a.sweep(context.Background())

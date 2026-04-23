@@ -68,7 +68,9 @@ func (w *Worker[T]) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			w.flushAll(context.Background())
+			flushCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer cancel()
+			w.flushAll(flushCtx)
 			return
 		case it := <-w.in:
 			if batch, _, ok := w.acc.Add(it); ok {
