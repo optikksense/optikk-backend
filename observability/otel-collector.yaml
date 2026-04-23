@@ -1,6 +1,14 @@
-# OpenTelemetry Collector config for the LGTM monitoring stack.
-# Receives traces/logs/metrics from the backend SDK and the browser
-# FetchInstrumentation, routes each signal to the right sink.
+# OpenTelemetry Collector config — forwards self-telemetry to Grafana Cloud.
+#
+# Backend SDK ─OTLP gRPC :4317──┐
+# Browser ─OTLP HTTP :4318──────┤
+#                               └─► Grafana Cloud OTLP gateway
+#                                   (traces, logs, metrics — one endpoint)
+#
+# Credentials come from docker-compose env (see .env / .env.example):
+#   GRAFANA_CLOUD_OTLP_ENDPOINT
+#   GRAFANA_CLOUD_OTLP_AUTH
+# The collector expands ${ENV:-default} at start; a missing var fails fast.
 
 receivers:
   otlp:
@@ -17,6 +25,16 @@ receivers:
             - "http://localhost:5173"
           allowed_headers:
             - "*"
+  # Scrape Go runtime metrics from the backend /metrics endpoint so
+  # Grafana Cloud gets RED + runtime panels without a separate Prometheus.
+  prometheus:
+    config:
+      scrape_configs:
+        - job_name: optikk-api
+          scrape_interval: 15s
+          metrics_path: /metrics
+          static_configs:
+            - targets: ["host.docker.internal:8080"]
 
 processors:
   memory_limiter:
@@ -27,35 +45,34 @@ processors:
     timeout: 2s
     send_batch_size: 1024
     send_batch_max_size: 2048
+  # Grafana Cloud requires a `service.name` attribute; stamp a sensible
+  # default for anything that arrives without one (notably browser spans).
+  resource/defaults:
+    attributes:
+      - key: service.namespace
+        value: optikk
+        action: upsert
 
 exporters:
-  # Traces -> Tempo via OTLP HTTP.
-  otlphttp/tempo:
-    endpoint: http://tempo:4318
-    tls:
-      insecure: true
-  # Logs -> Loki.
-  otlphttp/loki:
-    endpoint: http://loki:3100/otlp
-    tls:
-      insecure: true
-  # Metrics exposed as Prometheus scrape endpoint on :8889.
-  prometheus:
-    endpoint: 0.0.0.0:8889
-    resource_to_telemetry_conversion:
-      enabled: true
+  otlphttp/grafana-cloud:
+    endpoint: ${env:GRAFANA_CLOUD_OTLP_ENDPOINT}
+    headers:
+      Authorization: ${env:GRAFANA_CLOUD_OTLP_AUTH}
 
 service:
   pipelines:
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
-      exporters: [otlphttp/tempo]
+      processors: [memory_limiter, resource/defaults, batch]
+      exporters: [otlphttp/grafana-cloud]
     logs:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
-      exporters: [otlphttp/loki]
+      processors: [memory_limiter, resource/defaults, batch]
+      exporters: [otlphttp/grafana-cloud]
     metrics:
-      receivers: [otlp]
-      processors: [memory_limiter, batch]
-      exporters: [prometheus]
+      receivers: [otlp, prometheus]
+      processors: [memory_limiter, resource/defaults, batch]
+      exporters: [otlphttp/grafana-cloud]
+  telemetry:
+    logs:
+      level: info

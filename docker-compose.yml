@@ -72,79 +72,29 @@ services:
       timeout: 5s
       retries: 10
 
-  # --- LGTM monitoring stack for the app itself. ---
+  # --- Self-telemetry to Grafana Cloud. ---
   # Separate from the customer-facing OTLP receiver on :4317 so a customer
-  # ingest outage cannot break our own observability.
-
-  # Receives traces/logs/metrics from the backend SDK (gRPC :14317) and
-  # the browser FetchInstrumentation (HTTP :14318). Routes each signal to
-  # the right storage backend (tempo / loki / prometheus).
+  # ingest outage cannot break our own observability. Traces/logs/metrics
+  # are forwarded to the Grafana Cloud OTLP gateway — there is no local
+  # Tempo/Loki/Prometheus/Grafana deployment. Credentials come from `.env`
+  # (gitignored); see .env.example.
   otel-collector:
     image: otel/opentelemetry-collector-contrib:0.115.0
     command: ["--config=/etc/otel-collector.yaml"]
     volumes:
       - ./observability/otel-collector.yaml:/etc/otel-collector.yaml:ro
+    env_file:
+      - .env
     ports:
-      - "14317:4317"  # OTLP gRPC
-      - "14318:4318"  # OTLP HTTP
-      - "8889:8889"   # Prometheus scrape exposition
-    depends_on:
-      - tempo
-      - loki
-
-  tempo:
-    image: grafana/tempo:2.6.0
-    command: ["-config.file=/etc/tempo.yaml"]
-    volumes:
-      - ./observability/tempo.yaml:/etc/tempo.yaml:ro
-      - tempo_data:/var/tempo
-    ports:
-      - "3200:3200"  # HTTP query
-
-  loki:
-    image: grafana/loki:3.3.0
-    command: ["-config.file=/etc/loki/local-config.yaml"]
-    volumes:
-      - ./observability/loki.yaml:/etc/loki/local-config.yaml:ro
-      - loki_data:/loki
-    ports:
-      - "3100:3100"
-
-  prometheus:
-    image: prom/prometheus:v2.55.0
-    command:
-      - "--config.file=/etc/prometheus/prometheus.yml"
-      - "--storage.tsdb.path=/prometheus"
-    volumes:
-      - ./observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - prometheus_data:/prometheus
-    ports:
-      - "9090:9090"
-
-  grafana:
-    image: grafana/grafana:11.3.0
-    environment:
-      GF_INSTALL_PLUGINS: "grafana-clickhouse-datasource"
-      GF_AUTH_ANONYMOUS_ENABLED: "true"
-      GF_AUTH_ANONYMOUS_ORG_ROLE: "Admin"
-      GF_AUTH_DISABLE_LOGIN_FORM: "true"
-    volumes:
-      - ./observability/grafana/provisioning:/etc/grafana/provisioning:ro
-      - ./observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
-      - grafana_data:/var/lib/grafana
-    ports:
-      - "3001:3000"
-    depends_on:
-      - tempo
-      - loki
-      - prometheus
+      - "14317:4317"  # OTLP gRPC (backend SDK)
+      - "14318:4318"  # OTLP HTTP (browser FetchInstrumentation)
+    # host.docker.internal is needed by the prometheus receiver so the
+    # collector can scrape the Go `/metrics` endpoint from the host.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
 
 volumes:
   clickhouse_data:
   mariadb_data:
   redis_data:
   kafka_data:
-  tempo_data:
-  loki_data:
-  prometheus_data:
-  grafana_data:

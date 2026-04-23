@@ -45,16 +45,14 @@ Current queueing model is Kafka-backed, not Redis-stream-backed. Local developme
 
 ### Observability / monitoring stack
 
-Separate LGTM deployment (Tempo + Loki + Prometheus + Grafana) that sits alongside the app in `docker-compose.yml`. Intentionally NOT routed through the app's own OTLP receiver on `:4317`; monitoring the app is a distinct concern from the customer-facing observability product.
+Self-telemetry forwards to **Grafana Cloud** via a thin `otel-collector` running in `docker-compose.yml`. Intentionally NOT routed through the app's own OTLP receiver on `:4317`; monitoring the app is a distinct concern from the customer-facing observability product.
 
-- `docker-compose.yml` services: `otel-collector` (host `:14317` gRPC, `:14318` HTTP, `:8889` Prometheus scrape), `tempo` (`:3200`), `loki` (`:3100`), `prometheus` (`:9090`), `grafana` (`:3001`).
-- `observability/otel-collector.yaml` — receivers + exporters routing traces → Tempo, logs → Loki, metrics → Prometheus scrape.
-- `observability/tempo.yaml`, `observability/loki.yaml` — local filesystem storage.
-- `observability/prometheus.yml` — scrape jobs: `optikk-api` (Go runtime via `/metrics`), `otel-collector:8889`, `redpanda:9644`.
-- `observability/grafana/provisioning/datasources/datasources.yaml` — Tempo / Loki / Prometheus (with derived-field trace→log correlation).
-- `observability/grafana/provisioning/dashboards/dashboards.yaml` — filesystem provider.
-- `observability/grafana/dashboards/` — `api-latency.json` (per-endpoint p50/p95/p99 from Tempo), `clickhouse-perf.json` (child-span CH query perf), `system-health.json` (Go runtime + HTTP RED + collector health).
-- `config.yml` → `telemetry.otel` block controls SDK enablement, endpoint, sample ratio, service name.
+- `docker-compose.yml` `otel-collector` service — host ports `:14317` (OTLP gRPC for backend SDK), `:14318` (OTLP HTTP for browser FetchInstrumentation). Reads credentials from `.env` via `env_file`. No local Tempo/Loki/Prometheus/Grafana.
+- `observability/otel-collector.yaml` — receivers: `otlp` (gRPC + HTTP) + `prometheus` (scrapes backend `/metrics` on `host.docker.internal:8080`). Exporter: `otlphttp/grafana-cloud` with `${env:GRAFANA_CLOUD_OTLP_ENDPOINT}` + `Authorization: ${env:GRAFANA_CLOUD_OTLP_AUTH}`. One pipeline per signal (traces, logs, metrics), all → Grafana Cloud.
+- `.env` (gitignored) — `GRAFANA_CLOUD_OTLP_ENDPOINT` + `GRAFANA_CLOUD_OTLP_AUTH`. Shape documented in committed `.env.example`.
+- `observability/prometheus.yml` — retained as scrape-config documentation (metric endpoints inventory); not consumed by the compose stack.
+- `config.yml` → `telemetry.otel` block controls SDK enablement, endpoint (default `127.0.0.1:14317` → collector), sample ratio, service name.
+- Dashboards + alert rules live in Grafana Cloud (provisioned there, not in this repo).
 
 ### Traces read path (split into sibling submodules)
 

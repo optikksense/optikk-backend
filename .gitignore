@@ -25,3 +25,8 @@ bin/
 examples/python-observability-demo/.env
 examples/python-observability-demo/.env.generated
 examples/python-observability-demo/.venv/
+
+# Grafana Cloud credentials (Basic auth token) + any other secrets sourced
+# by docker-compose. Copy .env.example to .env and fill in.
+.env
+.env.local
