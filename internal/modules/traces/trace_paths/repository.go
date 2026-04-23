@@ -23,6 +23,8 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) GetCriticalPath(ctx context.Context, teamID int64, traceID string) ([]criticalPathRow, error) {
+	// Phase 7: read from spans_by_trace_index MV — narrow range scan keyed on
+	// (team_id, trace_id, span_id) instead of a bloom-filter guess on raw spans.
 	var rows []criticalPathRow
 	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
 		SELECT s.span_id, s.parent_span_id,
@@ -31,8 +33,9 @@ func (r *ClickHouseRepository) GetCriticalPath(ctx context.Context, teamID int64
 		       s.duration_nano / 1000000.0 AS duration_ms,
 		       toUnixTimestamp64Nano(s.timestamp) AS start_ns,
 		       toUnixTimestamp64Nano(s.timestamp) + s.duration_nano AS end_ns
-		FROM observability.spans s
-		WHERE s.team_id = @teamID AND `+traceidmatch.WhereTraceIDMatchesCH("s.trace_id", "traceID")+`
+		FROM observability.spans_by_trace_index s
+		PREWHERE s.team_id = @teamID
+		WHERE `+traceidmatch.WhereTraceIDMatchesCH("s.trace_id", "traceID")+`
 		ORDER BY start_ns ASC
 		LIMIT 5000
 	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)) //nolint:gosec // G115

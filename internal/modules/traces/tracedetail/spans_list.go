@@ -50,18 +50,24 @@ type spansRepo struct{ db clickhouse.Conn }
 // existing interface surface.
 func NewTraceSpansService(db clickhouse.Conn) TraceSpansService { return &spansRepo{db: db} }
 
-const spansRawTable = "observability.spans"
+const (
+	spansRawTable     = "observability.spans"
+	spansByTraceTable = "observability.spans_by_trace_index"
+)
 
 func (r *spansRepo) ListByTrace(ctx context.Context, teamID int64, traceID string) ([]SpanListItem, error) {
+	// Phase 7: read from the MV keyed on (team_id, trace_id, span_id) —
+	// narrow range scan instead of a bloom-filter guess on the 100M-row spans.
 	query := fmt.Sprintf(`
 		SELECT span_id, parent_span_id, trace_id, service_name, name,
 			kind_string, status_code_string, has_error,
 			duration_nano / 1000000.0 AS duration_ms,
 			toUnixTimestamp64Nano(timestamp) AS start_ns
 		FROM %s
-		WHERE team_id = @teamID AND %s
+		PREWHERE team_id = @teamID
+		WHERE %s
 		ORDER BY start_ns ASC
-		LIMIT 5000`, spansRawTable, traceidmatch.WhereTraceIDMatchesCH("trace_id", "traceID"))
+		LIMIT 5000`, spansByTraceTable, traceidmatch.WhereTraceIDMatchesCH("trace_id", "traceID"))
 	var rows []SpanListItem
 	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115

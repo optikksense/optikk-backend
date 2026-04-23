@@ -30,7 +30,6 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
-	rootspan "github.com/Optikk-Org/optikk-backend/internal/modules/traces/shared/rootspan"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/shared/traceidmatch"
 )
 
@@ -70,6 +69,9 @@ const (
 )
 
 // GetTraceLogs returns the logs associated with a particular trace.
+// Phase 7: reads from observability.logs_by_trace_index — a per-trace
+// projection keyed on (team_id, trace_id, span_id, timestamp) — so the query
+// becomes a narrow keyset scan instead of a bloom-filter scan of raw logs.
 func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, traceID string) ([]traceLogRow, error) {
 	var rows []traceLogRow
 	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
@@ -78,8 +80,9 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, t
 			service, host, pod, container, environment,
 			attributes_string, attributes_number, attributes_bool,
 			scope_name, scope_version
-		FROM observability.logs
-		WHERE team_id = @teamID AND `+traceidmatch.WhereTraceIDMatchesCH("trace_id", "traceID")+`
+		FROM observability.logs_by_trace_index
+		PREWHERE team_id = @teamID
+		WHERE `+traceidmatch.WhereTraceIDMatchesCH("trace_id", "traceID")+`
 		ORDER BY timestamp ASC
 		LIMIT 1000
 	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)); err != nil { //nolint:gosec // G115
@@ -88,8 +91,9 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, t
 	return rows, nil
 }
 
-// GetSpanLogs returns the logs for a specific span within a trace. Used by the
-// Logs tab in the span detail drawer (O8).
+// GetSpanLogs returns the logs for a specific span within a trace (O8).
+// Phase 7: reads from logs_by_trace_index; PK prefix (team_id, trace_id, span_id)
+// makes this a tight range scan.
 func (r *ClickHouseRepository) GetSpanLogs(ctx context.Context, teamID int64, traceID, spanID string) ([]traceLogRow, error) {
 	var rows []traceLogRow
 	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
@@ -98,9 +102,9 @@ func (r *ClickHouseRepository) GetSpanLogs(ctx context.Context, teamID int64, tr
 			service, host, pod, container, environment,
 			attributes_string, attributes_number, attributes_bool,
 			scope_name, scope_version
-		FROM observability.logs
-		WHERE team_id = @teamID AND `+traceidmatch.WhereTraceIDMatchesCH("trace_id", "traceID")+`
-		  AND span_id = @spanID
+		FROM observability.logs_by_trace_index
+		PREWHERE team_id = @teamID AND span_id = @spanID
+		WHERE `+traceidmatch.WhereTraceIDMatchesCH("trace_id", "traceID")+`
 		ORDER BY timestamp ASC
 		LIMIT 500
 	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID), clickhouse.Named("spanID", spanID)); err != nil { //nolint:gosec // G115
@@ -134,21 +138,22 @@ func (r *ClickHouseRepository) GetSpanAttributes(ctx context.Context, teamID int
 }
 
 // GetRelatedTraces returns other traces from the same service and operation.
+// Phase 7: reads from observability.root_spans_index — only root rows, keyed
+// on (team_id, service_name, name, ts_bucket_start, timestamp) so the query
+// becomes a narrow keyset scan instead of the previous `rootspan.Condition`
+// function predicate over raw spans.
 func (r *ClickHouseRepository) GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
 	var rows []RelatedTrace
 	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
-		SELECT s.span_id, s.trace_id, s.name AS operation_name, s.service_name,
-		       s.duration_nano / 1000000.0 AS duration_ms,
-		       s.status_code_string AS status, s.timestamp AS start_time
-		FROM observability.spans s
-		WHERE s.team_id = @teamID
-		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
-		  AND s.timestamp BETWEEN @start AND @end
-		  AND `+rootspan.Condition("s")+`
-		  AND s.service_name = @serviceName
-		  AND s.name = @operationName
-		  AND s.trace_id != @excludeTraceID
-		ORDER BY s.timestamp DESC
+		SELECT span_id, trace_id, name AS operation_name, service_name,
+		       duration_nano / 1000000.0 AS duration_ms,
+		       status_code_string AS status, timestamp AS start_time
+		FROM observability.root_spans_index
+		PREWHERE team_id = @teamID AND service_name = @serviceName AND name = @operationName
+		WHERE ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
+		  AND timestamp BETWEEN @start AND @end
+		  AND trace_id != @excludeTraceID
+		ORDER BY timestamp DESC
 		LIMIT @limit
 	`,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115

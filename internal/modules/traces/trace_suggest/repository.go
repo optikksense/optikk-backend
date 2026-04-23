@@ -67,38 +67,33 @@ func (r *ClickHouseRepository) SuggestScalar(ctx context.Context, teamID int64, 
 	return rows, err
 }
 
-// SuggestAttribute reads top values for a custom span attribute key from the
-// raw spans table. More expensive than scalar — we cap limit hard and keep the
-// time window tight; callers should debounce typing before hitting this path.
+// SuggestAttribute reads top values for a custom span attribute key.
+// Phase 7: reads from observability.trace_attribute_values_5m — a pre-bucketed
+// (team_id, attribute_key, bucket_ts, value) MV — instead of scanning raw
+// spans with positionCaseInsensitive(). Narrow range scan on the ordering
+// key + prefix filter on the already-summarised values.
 func (r *ClickHouseRepository) SuggestAttribute(ctx context.Context, teamID int64, startMs, endMs int64, attrKey, prefix string, limit int) ([]suggestionRow, error) {
 	var rows []suggestionRow
 	key := strings.TrimPrefix(attrKey, "@")
-	query := fmt.Sprintf(`
-		SELECT CAST(attributes.%s, 'String') AS value, count() AS count
-		FROM %s
-		WHERE team_id = @teamID
-		  AND timestamp BETWEEN fromUnixTimestamp64Milli(@startMs) AND fromUnixTimestamp64Milli(@endMs)
-		  AND value != ''
-		  AND positionCaseInsensitive(value, @prefix) > 0
+	query := `
+		SELECT value, toUInt64(sumMerge(count_agg)) AS count
+		FROM observability.trace_attribute_values_5m
+		PREWHERE team_id = @teamID AND attribute_key = @attrKey
+		WHERE bucket_ts BETWEEN fromUnixTimestamp64Milli(@startMs) AND fromUnixTimestamp64Milli(@endMs)
+		  AND (length(@prefix) = 0 OR positionCaseInsensitive(value, @prefix) > 0)
 		GROUP BY value
 		ORDER BY count DESC
 		LIMIT @limit
-	`, chAttrPath(key), spansRawTable)
+	`
 	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("attrKey", key),
 		clickhouse.Named("startMs", startMs),
 		clickhouse.Named("endMs", endMs),
 		clickhouse.Named("prefix", prefix),
 		clickhouse.Named("limit", uint64(limit)), //nolint:gosec // G115
 	)
 	return rows, err
-}
-
-// chAttrPath renders an attribute key as a ClickHouse JSON dot-path, escaping
-// backticks in the key to keep the query identifier safe.
-func chAttrPath(key string) string {
-	safe := strings.ReplaceAll(key, "`", "")
-	return "`" + safe + "`"
 }
 
 // IsScalarField lets the service layer pick the scalar vs attribute path.

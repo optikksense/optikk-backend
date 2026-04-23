@@ -60,10 +60,11 @@ func (r *Repository) listTracesIndex(ctx context.Context, f querycompiler.Filter
 	return rows, hasMore, compiled.DroppedClauses, nil
 }
 
-// GetByID reads a single trace summary from traces_index.
+// GetByID reads a single trace summary from traces_index. PREWHERE on team_id
+// so partition elimination happens before the bloom filter on trace_id kicks in.
 func (r *Repository) GetByID(ctx context.Context, teamID int64, traceID string) (*traceIndexRowDTO, error) {
 	query := fmt.Sprintf(
-		`SELECT %s FROM %s WHERE team_id = @teamID AND trace_id = @traceID ORDER BY last_seen_ms DESC LIMIT 1`,
+		`SELECT %s FROM %s PREWHERE team_id = @teamID WHERE trace_id = @traceID ORDER BY last_seen_ms DESC LIMIT 1`,
 		traceIndexColumns, tracesIndexTable,
 	)
 	args := []any{

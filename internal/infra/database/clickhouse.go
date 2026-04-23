@@ -55,10 +55,13 @@ type QueryBudget struct {
 	ResultOverflowMode  string
 	ReadOverflowMode    string
 	OptimizeReadInOrder int
+	// UseQueryCache turns on the CH server-side query cache for this budget.
+	// Safe for tenant-scoped reads where the same (team_id, query) is hit often.
+	UseQueryCache bool
 }
 
 func (b QueryBudget) settings() clickhouse.Settings {
-	return clickhouse.Settings{
+	s := clickhouse.Settings{
 		"max_execution_time":     b.MaxExecutionTime,
 		"max_rows_to_read":       b.MaxRowsToRead,
 		"max_memory_usage":       b.MaxMemoryUsage,
@@ -67,6 +70,13 @@ func (b QueryBudget) settings() clickhouse.Settings {
 		"read_overflow_mode":     b.ReadOverflowMode,
 		"optimize_read_in_order": b.OptimizeReadInOrder,
 	}
+	if b.UseQueryCache {
+		s["use_query_cache"] = 1
+		s["query_cache_ttl"] = 60
+		// Keep results per-team; trace reads are tenant-scoped.
+		s["query_cache_share_between_users"] = 0
+	}
+	return s
 }
 
 // Ctx returns a ctx with this budget attached. Repositories call OverviewCtx
@@ -97,6 +107,10 @@ var Explorer = QueryBudget{
 	ResultOverflowMode:  "break",
 	ReadOverflowMode:    "break",
 	OptimizeReadInOrder: 1,
+	// Trace reads are tenant-scoped and repeat-heavy (users re-opening the same
+	// trace, rapid list-page interactions). CH's query cache makes hot-path
+	// hits free. TTL 60s is short enough that new ingest shows up quickly.
+	UseQueryCache: true,
 }
 
 // OverviewCtx returns ctx with the overview query budget attached.

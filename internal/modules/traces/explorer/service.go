@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
+	"golang.org/x/sync/errgroup"
 )
 
 // Service orchestrates traces explorer read paths. List + facets + trend
@@ -17,6 +18,18 @@ type Service struct {
 
 func NewService(repo *Repository) *Service { return &Service{repo: repo} }
 
+// queryParts carries the slots that each parallel fetch fills in. The list
+// fetch is always run; summary/facets/trend slots stay nil when the caller
+// didn't ask for them via req.Include.
+type queryParts struct {
+	rows    []traceIndexRowDTO
+	hasMore bool
+	warns   []string
+	summary *Summary
+	facets  *Facets
+	trend   []TrendBucket
+}
+
 func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (QueryResponse, error) {
 	filters, err := querycompiler.FromStructured(req.Filters, teamID, req.StartTime, req.EndTime)
 	if err != nil {
@@ -24,47 +37,86 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Qu
 	}
 	limit := pickLimit(req.Limit, 50, 500)
 	cur, _ := DecodeCursor(req.Cursor)
-
-	rows, hasMore, warns, err := s.repo.ListTraces(ctx, filters, limit, cur)
+	parts, err := s.fetchQueryParts(ctx, filters, limit, cur, toSet(req.Include))
 	if err != nil {
-		return QueryResponse{}, fmt.Errorf("traces.Query.list: %w", err)
-	}
-
-	resp := QueryResponse{
-		Results:  mapTraces(rows),
-		PageInfo: buildPageInfo(rows, hasMore, limit),
-		Warnings: warns,
-	}
-	if err := s.applyIncludes(ctx, &resp, req.Include, filters); err != nil {
 		return QueryResponse{}, err
 	}
-	return resp, nil
+	return QueryResponse{
+		Results:  mapTraces(parts.rows),
+		PageInfo: buildPageInfo(parts.rows, parts.hasMore, limit),
+		Warnings: parts.warns,
+		Summary:  parts.summary,
+		Facets:   parts.facets,
+		Trend:    parts.trend,
+	}, nil
 }
 
-func (s *Service) applyIncludes(ctx context.Context, resp *QueryResponse, include []string, f querycompiler.Filters) error {
-	want := toSet(include)
+// fetchQueryParts fans list + summary + facets + trend out in parallel via
+// errgroup. Perf note: turned what used to be 4 sequential ClickHouse queries
+// into max(list, summary, facets, trend).
+func (s *Service) fetchQueryParts(
+	ctx context.Context, f querycompiler.Filters, limit int, cur TraceCursor, want map[string]bool,
+) (queryParts, error) {
+	var p queryParts
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(s.listJob(gctx, f, limit, cur, &p))
 	if want["summary"] {
-		summary, err := s.repo.Summarize(ctx, f)
+		g.Go(s.summaryJob(gctx, f, &p))
+	}
+	if want["facets"] {
+		g.Go(s.facetsJob(gctx, f, &p))
+	}
+	if want["trend"] {
+		g.Go(s.trendJob(gctx, f, &p))
+	}
+	if err := g.Wait(); err != nil {
+		return queryParts{}, err
+	}
+	return p, nil
+}
+
+func (s *Service) listJob(ctx context.Context, f querycompiler.Filters, limit int, cur TraceCursor, p *queryParts) func() error {
+	return func() error {
+		r, hm, w, err := s.repo.ListTraces(ctx, f, limit, cur)
+		if err != nil {
+			return fmt.Errorf("traces.Query.list: %w", err)
+		}
+		p.rows, p.hasMore, p.warns = r, hm, w
+		return nil
+	}
+}
+
+func (s *Service) summaryJob(ctx context.Context, f querycompiler.Filters, p *queryParts) func() error {
+	return func() error {
+		sm, err := s.repo.Summarize(ctx, f)
 		if err != nil {
 			return fmt.Errorf("traces.Query.summary: %w", err)
 		}
-		resp.Summary = &summary
+		p.summary = &sm
+		return nil
 	}
-	if want["facets"] {
-		facets, err := s.repo.Facets(ctx, f)
+}
+
+func (s *Service) facetsJob(ctx context.Context, f querycompiler.Filters, p *queryParts) func() error {
+	return func() error {
+		fc, err := s.repo.Facets(ctx, f)
 		if err != nil {
 			return fmt.Errorf("traces.Query.facets: %w", err)
 		}
-		resp.Facets = &facets
+		p.facets = &fc
+		return nil
 	}
-	if want["trend"] {
-		trend, err := s.repo.Trend(ctx, f)
+}
+
+func (s *Service) trendJob(ctx context.Context, f querycompiler.Filters, p *queryParts) func() error {
+	return func() error {
+		tr, err := s.repo.Trend(ctx, f)
 		if err != nil {
 			return fmt.Errorf("traces.Query.trend: %w", err)
 		}
-		resp.Trend = trend
+		p.trend = tr
+		return nil
 	}
-	return nil
 }
 
 func (s *Service) GetByID(ctx context.Context, teamID int64, traceID string) (*Trace, error) {
