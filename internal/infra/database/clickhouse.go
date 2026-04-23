@@ -66,15 +66,18 @@ func (b QueryBudget) settings() clickhouse.Settings {
 		"max_rows_to_read":       b.MaxRowsToRead,
 		"max_memory_usage":       b.MaxMemoryUsage,
 		"max_result_rows":        b.MaxResultRows,
-		"result_overflow_mode":   b.ResultOverflowMode,
-		"read_overflow_mode":     b.ReadOverflowMode,
 		"optimize_read_in_order": b.OptimizeReadInOrder,
 	}
 	if b.UseQueryCache {
+		// query cache requires overflow_mode = throw (the CH default); omit explicit
+		// overflow_mode settings so they stay at their default "throw" value.
 		s["use_query_cache"] = 1
 		s["query_cache_ttl"] = 60
 		// Keep results per-team; trace reads are tenant-scoped.
 		s["query_cache_share_between_users"] = 0
+	} else {
+		s["result_overflow_mode"] = b.ResultOverflowMode
+		s["read_overflow_mode"] = b.ReadOverflowMode
 	}
 	return s
 }

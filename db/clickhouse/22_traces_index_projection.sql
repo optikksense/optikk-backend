@@ -5,9 +5,12 @@
 -- root_service between team_id and start_ms, so list-by-time reads scan wide.
 
 ALTER TABLE observability.traces_index
+    MODIFY SETTING deduplicate_merge_projection_mode = 'drop';
+
+ALTER TABLE observability.traces_index
     ADD PROJECTION IF NOT EXISTS by_start_desc (
         SELECT *
-        ORDER BY team_id, start_ms DESC, trace_id DESC
+        ORDER BY team_id, start_ms, trace_id
     );
 
 -- Materialise against existing parts. New parts get the projection automatically.
