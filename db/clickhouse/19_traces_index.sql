@@ -1,5 +1,5 @@
--- traces_index — per-trace summary row emitted by the new spans indexer
--- (internal/ingestion/spans/indexer). Explorer trace-list reads from here
+-- traces_index — per-trace summary from internal/ingestion/spans/indexer.
+-- Explorer trace-list reads from here
 -- instead of raw spans, cutting row count by ~2 orders of magnitude. The
 -- indexer has at-least-once semantics (trace rows can be re-emitted as late
 -- spans arrive), so the engine is ReplacingMergeTree keyed on

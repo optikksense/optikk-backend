@@ -23,7 +23,7 @@ The backend is a modular monolith with two main responsibilities:
 - ClickHouse: analytical store for traces, logs, metrics, and rollups
 - MySQL/MariaDB: users, teams, sessions metadata, and other relational application data
 - Redis: required for sessions and response caching
-- Kafka/Redpanda: required OTLP ingest queue between handlers and persistence consumers
+- Kafka: required OTLP ingest queue between handlers and persistence consumers
 
 ## Module map
 
@@ -78,10 +78,10 @@ Important local defaults:
 
 - HTTP port: `19090`
 - OTLP gRPC port: `4317`
-- ClickHouse: `127.0.0.1:9000`
-- MariaDB: `127.0.0.1:3306`
-- Redis: `127.0.0.1:6379`
-- Kafka broker: `localhost:19092`
+- ClickHouse: `127.0.0.1:19000` (HTTP: `127.0.0.1:18123`)
+- MariaDB: `127.0.0.1:13306`
+- Redis: `127.0.0.1:16379`
+- Kafka broker: `127.0.0.1:19092`
 
 ### Run the backend
 

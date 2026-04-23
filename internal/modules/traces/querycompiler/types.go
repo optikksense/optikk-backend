@@ -1,5 +1,5 @@
 // Package querycompiler compiles structured trace filters into parameterized
-// CH WHERE clauses for traces_index / spans_v2 / spans_rollup_v2 / facets.
+// CH WHERE clauses for traces_index / spans / spans_rollup / facets.
 // Mirrors the logs querycompiler shape. DroppedClauses surfaces to the UI
 // as `warnings[]` when a target can't honour every filter (e.g. span-attr
 // filter dropped on the traces_index path).
@@ -11,9 +11,9 @@ const (
 	// TargetTracesIndex compiles for observability.traces_index (per-trace
 	// summary rows; fastest list path).
 	TargetTracesIndex Target = iota
-	// TargetSpansRaw compiles for observability.spans_v2 (full fidelity).
+	// TargetSpansRaw compiles for observability.spans (full fidelity).
 	TargetSpansRaw
-	// TargetSpansRollup compiles for spans_rollup_v2_{1m,5m,1h}.
+	// TargetSpansRollup compiles for spans_rollup_{1m,5m,1h}.
 	TargetSpansRollup
 	// TargetFacetRollup compiles for traces_facets_rollup_5m.
 	TargetFacetRollup
@@ -55,6 +55,7 @@ type Filters struct {
 }
 
 type Compiled struct {
+	PreWhere       string
 	Where          string
 	Args           []any
 	DroppedClauses []string

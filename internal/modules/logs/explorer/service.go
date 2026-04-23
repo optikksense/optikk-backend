@@ -2,6 +2,7 @@ package explorer
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 
@@ -147,8 +148,15 @@ func buildPageInfo(rows []logRowDTO, hasMore bool, limit int) PageInfo {
 	return info
 }
 
+// encodeLogListID matches GET /logs/:id decoding (trace_id:span_id:ts_ns as base64url).
+func encodeLogListID(d logRowDTO) string {
+	raw := fmt.Sprintf("%s:%s:%d", d.TraceID, d.SpanID, d.Timestamp.UnixNano())
+	return base64.RawURLEncoding.EncodeToString([]byte(raw))
+}
+
 func mapLog(d logRowDTO) Log {
 	return Log{
+		ID:                encodeLogListID(d),
 		Timestamp:         uint64(d.Timestamp.UnixNano()), //nolint:gosec // G115 domain-bounded
 		ObservedTimestamp: d.ObservedTimestamp,
 		SeverityText:      d.SeverityText,

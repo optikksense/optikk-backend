@@ -12,8 +12,8 @@ import (
 
 // Analytics runs a group-by + aggregation query over the logs corpus. When the
 // filters + group-by dims are expressible against the rollup cascade we hit
-// `logs_rollup_v2_{1m,5m,1h}` via rollup.TierTableFor; otherwise we fall back
-// to raw `observability.logs_v2`. Returns the materialized rows + the step
+// `logs_rollup_{1m,5m,1h}` via rollup.TierTableFor; otherwise we fall back
+// to raw `observability.logs`. Returns the materialized rows + the step
 // token used (client aligns x-axis) + compile warnings.
 func (r *Repository) Analytics(ctx context.Context, f querycompiler.Filters, req AnalyticsRequest) ([]AnalyticsRow, string, []string, error) {
 	viz := normalizeVizMode(req.VizMode)

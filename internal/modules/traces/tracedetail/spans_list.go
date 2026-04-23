@@ -49,7 +49,7 @@ type spansRepo struct{ db clickhouse.Conn }
 // existing interface surface.
 func NewTraceSpansService(db clickhouse.Conn) TraceSpansService { return &spansRepo{db: db} }
 
-const spansV2Table = "observability.spans_v2"
+const spansRawTable = "observability.spans"
 
 func (r *spansRepo) ListByTrace(ctx context.Context, teamID int64, traceID string) ([]SpanListItem, error) {
 	query := fmt.Sprintf(`
@@ -58,9 +58,9 @@ func (r *spansRepo) ListByTrace(ctx context.Context, teamID int64, traceID strin
 			duration_nano / 1000000.0 AS duration_ms,
 			toUnixTimestamp64Nano(timestamp) AS start_ns
 		FROM %s
-		WHERE team_id = @teamID AND trace_id = @traceID
+		WHERE team_id = @teamID AND %s
 		ORDER BY start_ns ASC
-		LIMIT 5000`, spansV2Table)
+		LIMIT 5000`, spansRawTable, whereTraceIDMatchesCH("trace_id", "traceID"))
 	var rows []SpanListItem
 	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
@@ -82,7 +82,7 @@ func (r *spansRepo) Subtree(ctx context.Context, teamID int64, spanID string) ([
 		FROM %s s
 		WHERE s.team_id = @teamID AND s.trace_id IN (SELECT trace_id FROM start)
 		ORDER BY start_ns ASC
-		LIMIT 5000`, spansV2Table, spansV2Table)
+		LIMIT 5000`, spansRawTable, spansRawTable)
 	var rows []SpanListItem
 	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
@@ -132,6 +132,9 @@ func (h *SpansHandler) GetTraceSpans(c *gin.Context) {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to list trace spans", err)
 		return
 	}
+	if items == nil {
+		items = []SpanListItem{}
+	}
 	modulecommon.RespondOK(c, gin.H{"spans": items})
 }
 
@@ -142,6 +145,9 @@ func (h *SpansHandler) GetSpanTree(c *gin.Context) {
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to list span subtree", err)
 		return
+	}
+	if items == nil {
+		items = []SpanListItem{}
 	}
 	modulecommon.RespondOK(c, gin.H{"spans": items})
 }

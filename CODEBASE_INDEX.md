@@ -42,6 +42,13 @@ Current queueing model is Kafka-backed, not Redis-stream-backed. Local developme
 - `internal/infra/rollup/`: time-range-aware rollup tier selection
 - `internal/infra/cursor/`: cursor helpers for explorer-style APIs
 
+### Traces explorer read path
+
+- `internal/modules/traces/explorer/` serves `POST /api/v1/traces/query`, `POST /api/v1/traces/analytics`, and `GET /api/v1/traces/:traceId`.
+- It reads `observability.traces_index` directly rather than scanning raw spans for list/detail.
+- The table uses unsigned ClickHouse columns for `start_ms`, `end_ms`, `duration_ns`, `last_seen_ms`, and `root_http_status`; the module’s DB-facing DTO/model/cursor types must stay aligned with those unsigned shapes.
+- Mixed-type facet output should be normalized in SQL before scanning, such as casting `root_http_status` with `toString(...)` for the shared facet bucket DTO.
+
 ### Module shape
 
 Most feature modules still follow the familiar package split:

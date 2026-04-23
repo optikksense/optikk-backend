@@ -1,5 +1,5 @@
 // Package explorer backs the POST /logs/query + /logs/analytics + GET
-// /logs/:id read paths. CH reads split between raw `observability.logs_v2`
+// /logs/:id read paths. CH reads split between raw `observability.logs`
 // (list, get-by-id, body-search + attribute-filter paths) and the rollup
 // cascade (volume trend, facets, rollup-friendly aggregations). Dispatch
 // happens in querycompiler + the Target passed to Compile.
@@ -9,9 +9,10 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log/slog"
+	"os"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
@@ -19,8 +20,8 @@ import (
 )
 
 const (
-	rawLogsTable       = "observability.logs_v2"
-	logsRollupPrefix   = "observability.logs_rollup_v2"
+	rawLogsTable       = "observability.logs"
+	logsRollupPrefix   = "observability.logs_rollup"
 	logsFacetRollupTbl = "observability.logs_facets_rollup_5m"
 	logColumns         = `timestamp, observed_timestamp, severity_text, severity_number, severity_bucket,
 			body, trace_id, span_id, trace_flags,
@@ -36,7 +37,7 @@ type Repository struct {
 
 func NewRepository(db clickhouse.Conn) *Repository { return &Repository{db: db} }
 
-// ListLogs runs a keyset-paginated scan of raw logs_v2.
+// ListLogs runs a keyset-paginated scan of raw logs.
 func (r *Repository) ListLogs(ctx context.Context, f querycompiler.Filters, limit int, cur Cursor) ([]logRowDTO, bool, error) {
 	compiled := querycompiler.Compile(f, querycompiler.TargetRaw)
 	where := compiled.Where
@@ -62,20 +63,33 @@ func (r *Repository) ListLogs(ctx context.Context, f querycompiler.Filters, limi
 	if hasMore {
 		rows = rows[:limit]
 	}
+	if os.Getenv("OPTIKK_DEBUG_LOGS_LIST") == "1" {
+		slog.Info("logs ListLogs",
+			"team_id", f.TeamID,
+			"start_ms", f.StartMs,
+			"end_ms", f.EndMs,
+			"returned_rows", len(rows),
+			"where", compiled.Where,
+		)
+	}
 	return rows, hasMore, nil
 }
 
 // GetByID reads a single log by its deep-link key triple.
 func (r *Repository) GetByID(ctx context.Context, teamID int64, traceID, spanID string, tsNs int64) (*logRowDTO, error) {
+	// Compare timestamps in nanoseconds on the CH side. Binding DateTime64(9) from
+	// Go time.Time can diverge slightly from toUnixTimestamp64Nano(timestamp) in
+	// edge cases; list ids are built from scanned UnixNano, so this predicate
+	// matches the encoded id reliably.
 	query := fmt.Sprintf(
-		`SELECT %s FROM %s WHERE team_id = @teamID AND trace_id = @traceID AND span_id = @spanID AND timestamp = @ts LIMIT 1`,
+		`SELECT %s FROM %s WHERE team_id = @teamID AND trace_id = @traceID AND span_id = @spanID AND toUnixTimestamp64Nano(timestamp) = @tsNs LIMIT 1`,
 		logColumns, rawLogsTable,
 	)
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("traceID", traceID),
 		clickhouse.Named("spanID", spanID),
-		clickhouse.Named("ts", time.Unix(0, tsNs)),
+		clickhouse.Named("tsNs", tsNs),
 	}
 	var rows []logRowDTO
 	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {

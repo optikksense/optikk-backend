@@ -87,6 +87,7 @@ func rowToSpan(r *Row) indexer.Span {
 		StatusCode:    r.GetStatusCodeString(),
 		PeerService:   attrs["peer.service"],
 		ErrorFp:       r.GetExceptionType(),
-		TsBucketStart: uint32(r.GetTsBucketStart()), //nolint:gosec // bucket start fits u32
+		Environment:   attrs["deployment.environment"],
+		TsBucketStart: r.GetTsBucketStart(),
 	}
 }

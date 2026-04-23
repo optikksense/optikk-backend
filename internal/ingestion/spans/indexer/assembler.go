@@ -26,7 +26,8 @@ type Span struct {
 	StatusCode     string
 	PeerService    string
 	ErrorFp        string
-	TsBucketStart  uint32
+	Environment    string
+	TsBucketStart  uint64
 }
 
 // Assembler groups raw spans by trace_id, maintains a bounded pending set,
@@ -106,7 +107,7 @@ func (a *Assembler) Start() {
 				a.drain(context.Background())
 				return
 			case <-ticker.C:
-				a.sweep(ctx)
+				a.sweep(context.Background())
 			}
 		}
 	}()
@@ -181,5 +182,8 @@ func mergeSpan(p *pending, s Span) {
 		p.rootStatus = s.StatusCode
 		p.rootHTTPMethod = s.HTTPMethod
 		p.rootHTTPStatus = s.HTTPStatus
+		if s.Environment != "" {
+			p.environment = s.Environment
+		}
 	}
 }

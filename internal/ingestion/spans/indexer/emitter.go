@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 )
@@ -25,7 +26,7 @@ var chColumns = []string{
 	"root_http_method", "root_http_status",
 	"span_count", "has_error", "error_count",
 	"service_set", "peer_service_set", "error_fingerprint",
-	"truncated", "last_seen_ms",
+	"environment", "truncated", "last_seen_ms",
 }
 
 // CHEmitter wraps a clickhouse.Conn and appends rows one-at-a-time. The
@@ -65,15 +66,43 @@ func (e *CHEmitter) Emit(ctx context.Context, row TraceIndexRow) error {
 	return nil
 }
 
+// parseRootHTTPStatusUInt16 maps OTLP/HTTP textual status (e.g. "200", "404 Not Found") to
+// traces_index.root_http_status (UInt16). Non-numeric / empty → 0.
+func parseRootHTTPStatusUInt16(s string) uint16 {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return 0
+	}
+	i := 0
+	for i < len(s) && (s[i] < '0' || s[i] > '9') {
+		i++
+	}
+	s = s[i:]
+	if s == "" {
+		return 0
+	}
+	var n uint64
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			break
+		}
+		n = n*10 + uint64(c-'0')
+		if n > 65535 {
+			return 65535
+		}
+	}
+	return uint16(n)
+}
+
 func rowValues(r TraceIndexRow) []any {
 	return []any{
 		r.TeamID, r.TsBucketStart, r.TraceID,
 		r.StartMs, r.EndMs, r.DurationNs,
 		r.RootService, r.RootOperation, r.RootStatus,
-		r.RootHTTPMethod, r.RootHTTPStatus,
+		r.RootHTTPMethod, parseRootHTTPStatusUInt16(r.RootHTTPStatus),
 		r.SpanCount, r.HasError, r.ErrorCount,
 		r.ServiceSet, r.PeerServiceSet, r.ErrorFp,
-		r.Truncated, r.LastSeenMs,
+		r.Environment, r.Truncated, uint64(r.LastSeenMs.UnixMilli()),
 	}
 }
 

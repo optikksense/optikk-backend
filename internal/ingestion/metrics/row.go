@@ -5,6 +5,7 @@
 // Regenerate row.pb.go after editing row.proto:
 //
 //	protoc --proto_path=. --go_out=. --go_opt=paths=source_relative row.proto
+//go:generate protoc --go_out=. --go_opt=paths=source_relative metric_row.proto
 package metrics
 
 import "time"

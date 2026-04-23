@@ -2,8 +2,8 @@ services:
   clickhouse:
     image: clickhouse/clickhouse-server:latest
     ports:
-      - "8123:8123"
-      - "9000:9000"
+      - "18123:8123"
+      - "19000:9000"
     environment:
       CLICKHOUSE_DB: observability
       CLICKHOUSE_USER: default
@@ -19,7 +19,7 @@ services:
   mariadb:
     image: mariadb:latest
     ports:
-      - "3306:3306"
+      - "13306:3306"
     environment:
       MARIADB_ROOT_PASSWORD: root123
       MARIADB_DATABASE: observability
@@ -34,7 +34,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "16379:6379"
     command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redis_data:/data
@@ -44,30 +44,36 @@ services:
       timeout: 3s
       retries: 10
 
-  # OTLP ingest queue (Kafka/Redpanda; API must use kafka.broker_list reachable from the host, e.g. localhost:19092).
-  redpanda:
-    image: docker.redpanda.com/redpandadata/redpanda:v24.2.11
-    command:
-      - redpanda
-      - start
-      - --kafka-addr
-      - internal://0.0.0.0:9092,external://0.0.0.0:19092
-      - --advertise-kafka-addr
-      - internal://redpanda:9092,external://localhost:19092
-      - --smp
-      - "1"
-      - --memory
-      - 1G
-      - --mode
-      - dev-container
-      - --default-log-level=warn
+  # OTLP ingest queue; API must use kafka.broker_list reachable from the host, e.g. 127.0.0.1:19092.
+  kafka:
+    image: confluentinc/cp-kafka:7.7.1
+    hostname: kafka
     ports:
       - "19092:19092"
+    environment:
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENERS: PLAINTEXT://kafka:9092,CONTROLLER://kafka:9093,PLAINTEXT_HOST://0.0.0.0:19092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://127.0.0.1:19092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     volumes:
-      - redpanda_data:/var/lib/redpanda/data
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server kafka:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
 volumes:
   clickhouse_data:
   mariadb_data:
   redis_data:
-  redpanda_data:
+  kafka_data:

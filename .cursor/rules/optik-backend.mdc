@@ -62,6 +62,7 @@ Feature modules live under `internal/modules/`. Each follows a strict 6-file pat
 - **Query Budgets**: Wrap contexts with `database.OverviewCtx(ctx)` (15s) or `database.ExplorerCtx(ctx)` (60s).
 - **Execution**: Use `dbutil.QueryMaps`, `dbutil.QueryCount`, and typed extraction helpers like `Int64FromAny`.
 - **Time Bucketing**: Use `internal/infra/timebucket/` for adaptive chart binning.
+- **Traces explorer note**: `internal/modules/traces/explorer/` reads `observability.traces_index`, whose `start_ms`, `end_ms`, `duration_ns`, `last_seen_ms`, and `root_http_status` columns are unsigned. Keep DB scan structs/cursors unsigned there, and cast mixed facet values like `root_http_status` to `String` in SQL before scanning into shared bucket DTOs.
 
 ## Handler Pattern
 

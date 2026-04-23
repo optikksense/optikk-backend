@@ -39,7 +39,7 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 // `sumMerge(request_count)`.
 const (
 	spansByVersionPrefix     = "observability.spans_by_version"
-	spansRollupPrefix        = "observability.spans_rollup_v2"
+	spansRollupPrefix        = "observability.spans_rollup"
 	errFingerprintRollupPrefix = "observability.spans_error_fingerprint"
 )
 

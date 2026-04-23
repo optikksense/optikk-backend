@@ -1,8 +1,4 @@
--- logs_facets_rollup_5m — HLL facet sketches keyed by
--- (team_id, bucket_ts, severity_bucket, service, environment). Stores
--- uniqHLL12 states for host / pod / trace_id plus sum(log_count) so the
--- explorer's facet rail can answer wide-window (7d+) questions without
--- scanning raw logs_v2. Sourced from logs_v2 raw at 5m granularity.
+-- logs_facets_rollup_5m — facet sketches from observability.logs.
 
 CREATE TABLE IF NOT EXISTS observability.logs_facets_rollup_5m (
     team_id         UInt32 CODEC(T64, ZSTD(1)),
@@ -20,7 +16,7 @@ ORDER BY (team_id, bucket_ts, severity_bucket, service, environment)
 TTL bucket_ts + INTERVAL 90 DAY DELETE
 SETTINGS index_granularity = 8192;
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS observability.logs_v2_to_facets_rollup_5m
+CREATE MATERIALIZED VIEW IF NOT EXISTS observability.logs_to_facets_rollup_5m
 TO observability.logs_facets_rollup_5m AS
 SELECT
     team_id,
@@ -32,5 +28,5 @@ SELECT
     uniqHLL12State(host)                               AS host_hll,
     uniqHLL12State(pod)                                AS pod_hll,
     uniqHLL12State(trace_id)                           AS trace_id_hll
-FROM observability.logs_v2
+FROM observability.logs
 GROUP BY team_id, bucket_ts, severity_bucket, service, environment;

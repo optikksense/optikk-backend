@@ -17,7 +17,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	}
 	v1.POST("/traces/query", h.Query)
 	v1.POST("/traces/analytics", h.Analytics)
-	v1.GET("/traces/:id", h.GetByID)
+	v1.GET("/traces/:traceId", h.GetByID)
 }
 
 func NewModule(db clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
@@ -31,7 +31,7 @@ type tracesExplorerModule struct {
 }
 
 func (m *tracesExplorerModule) Name() string                      { return "tracesExplorer" }
-func (m *tracesExplorerModule) RouteTarget() registry.RouteTarget { return registry.V1 }
+func (m *tracesExplorerModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *tracesExplorerModule) configure(db clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	repo := NewRepository(db)

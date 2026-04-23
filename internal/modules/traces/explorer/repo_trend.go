@@ -10,14 +10,16 @@ import (
 )
 
 // Trend computes a time-bucketed total + error count over the window,
-// reading from traces_index.
+// reading from traces_index (one-row-per-trace summary table).
+// The spans_rollup_* tables aggregate by service/operation and use
+// AggregateFunction state columns, making them unsuitable for global trend.
 func (r *Repository) Trend(ctx context.Context, f querycompiler.Filters) ([]TrendBucket, error) {
 	compiled := querycompiler.Compile(f, querycompiler.TargetTracesIndex)
 	bucketExpr := utils.ExprForColumn(f.StartMs, f.EndMs, "toDateTime(intDiv(start_ms, 1000))")
 	query := fmt.Sprintf(`
 		SELECT %s AS time_bucket, countIf(NOT has_error) AS total, countIf(has_error) AS errors
-		FROM %s WHERE %s GROUP BY time_bucket ORDER BY time_bucket ASC`,
-		bucketExpr, tracesIndexTable, compiled.Where,
+		FROM %s PREWHERE %s WHERE %s GROUP BY time_bucket ORDER BY time_bucket ASC`,
+		bucketExpr, tracesIndexTable, compiled.PreWhere, compiled.Where,
 	)
 	rows, err := r.db.Query(dbutil.ExplorerCtx(ctx), query, compiled.Args...)
 	if err != nil {
@@ -26,11 +28,8 @@ func (r *Repository) Trend(ctx context.Context, f querycompiler.Filters) ([]Tren
 	defer rows.Close()
 	var out []TrendBucket
 	for rows.Next() {
-		var (
-			ts     string
-			total  uint64
-			errCnt uint64
-		)
+		var ts string
+		var total, errCnt uint64
 		if err := rows.Scan(&ts, &total, &errCnt); err != nil {
 			return nil, err
 		}

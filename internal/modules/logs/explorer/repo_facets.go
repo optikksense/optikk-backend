@@ -21,7 +21,16 @@ func (r *Repository) Facets(ctx context.Context, f querycompiler.Filters) (Facet
 	return groupFacets(rows), compiled.DroppedClauses, nil
 }
 
+// fetchFacetRows unions facet dimensions from two backends:
+//   - logs_facets_rollup_5m holds severity_bucket, service, environment as real
+//     GROUP BY keys plus HLL sketches (not top-N facet values) for host/pod.
+//   - logs_rollup_1m is used for host + pod facets: it is the only rollup
+//     tier that defines `pod`, and the shared compileRollup WHERE clause may
+//     reference `pod` whenever the user filters by pod — that predicate is
+//     invalid on 5m/1h rollups (see db/clickhouse/17_rollup_logs.sql).
 func (r *Repository) fetchFacetRows(ctx context.Context, compiled querycompiler.Compiled) ([]facetRowDTO, error) {
+	hostPodTbl := logsRollupPrefix + "_1m"
+
 	query := fmt.Sprintf(`
 		SELECT dim, value, count
 		FROM (
@@ -43,8 +52,8 @@ func (r *Repository) fetchFacetRows(ctx context.Context, compiled querycompiler.
 		logsFacetRollupTbl, compiled.Where,
 		logsFacetRollupTbl, compiled.Where,
 		logsFacetRollupTbl, compiled.Where,
-		logsFacetRollupTbl, compiled.Where,
-		logsFacetRollupTbl, compiled.Where,
+		hostPodTbl, compiled.Where,
+		hostPodTbl, compiled.Where,
 	)
 	args := repeatArgs(compiled.Args, 5)
 	var rows []facetRowDTO

@@ -54,7 +54,7 @@ func (h *Handler) Analytics(c *gin.Context) {
 }
 
 func (h *Handler) GetByID(c *gin.Context) {
-	traceID := c.Param("id")
+	traceID := c.Param("traceId")
 	if traceID == "" {
 		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "trace id required")
 		return

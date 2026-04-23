@@ -11,7 +11,7 @@ import (
 )
 
 const (
-	spansRollupPrefix             = "observability.spans_rollup_v2"
+	spansRollupPrefix             = "observability.spans_rollup"
 	spansPeerRollupPrefix         = "observability.spans_peer_rollup"
 	metricsHistRollupPrefix       = "observability.metrics_histograms_rollup"
 	metricsGaugesRollupPrefix     = "observability.metrics_gauges_rollup"

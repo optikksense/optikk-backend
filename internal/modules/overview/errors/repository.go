@@ -24,7 +24,7 @@ import (
 
 const (
 	serviceNameFilter            = " AND s.service_name = @serviceName"
-	spansRollupPrefix            = "observability.spans_rollup_v2"
+	spansRollupPrefix            = "observability.spans_rollup"
 	errorFingerprintRollupPrefix = "observability.spans_error_fingerprint"
 )
 
@@ -247,7 +247,7 @@ func (r *ClickHouseRepository) GetErrorGroupDetail(ctx context.Context, teamID i
 		       any(s.trace_id) AS sample_trace_id,
 		       any(s.exception_type) AS exception_type,
 		       any(s.exception_stacktrace) AS stack_trace
-		FROM observability.spans_v2 s
+		FROM observability.spans s
 		WHERE s.team_id = @teamID AND (` + ErrorCondition() + `)
 		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND s.timestamp BETWEEN @start AND @end
@@ -291,7 +291,7 @@ func (r *ClickHouseRepository) GetErrorGroupTraces(ctx context.Context, teamID i
 		SELECT s.trace_id, s.span_id, s.timestamp,
 		       s.duration_nano / 1000000.0 AS duration_ms,
 		       s.status_code_string AS status_code
-		FROM observability.spans_v2 s
+		FROM observability.spans s
 		WHERE s.team_id = @teamID AND (` + ErrorCondition() + `)
 		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND s.timestamp BETWEEN @start AND @end
@@ -334,7 +334,7 @@ func (r *ClickHouseRepository) GetErrorGroupTimeseries(ctx context.Context, team
 	query := fmt.Sprintf(`
 		SELECT %s AS timestamp,
 		       toInt64(COUNT(*)) AS error_count
-		FROM observability.spans_v2 s
+		FROM observability.spans s
 		WHERE s.team_id = @teamID AND (`+ErrorCondition()+`)
 		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND s.timestamp BETWEEN @start AND @end
@@ -697,7 +697,7 @@ func (r *ClickHouseRepository) GetHTTP5xxByRoute(ctx context.Context, teamID int
 		SELECT s.mat_http_route AS http_route,
 		       s.service_name   AS service_name,
 		       toInt64(count()) AS count_5xx
-		FROM observability.spans_v2 s
+		FROM observability.spans s
 		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
 		  AND toUInt16OrZero(s.response_status_code) >= 500`
 	args := []any{

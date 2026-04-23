@@ -29,7 +29,7 @@ func Compile(f Filters, tgt Target) Compiled {
 func compileTracesIndex(f Filters, startMs, endMs int64) Compiled {
 	var sb strings.Builder
 	args := baseSpanArgs(f.TeamID, startMs, endMs, "start_ms")
-	sb.WriteString(` team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND start_ms BETWEEN @startMs AND @endMs`)
+	sb.WriteString(`ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND start_ms BETWEEN @startMs AND @endMs`)
 	appendInList(&sb, &args, "root_service", f.Services, false)
 	appendInList(&sb, &args, "root_service", f.ExcludeServices, true)
 	appendInList(&sb, &args, "root_operation", f.Operations, false)
@@ -49,13 +49,13 @@ func compileTracesIndex(f Filters, startMs, endMs int64) Compiled {
 	}
 	appendSearchIndex(&sb, &args, f.Search)
 	dropped := tracesIndexDropped(f)
-	return Compiled{Where: sb.String(), Args: args, DroppedClauses: dropped}
+	return Compiled{PreWhere: "team_id = @teamID", Where: sb.String(), Args: args, DroppedClauses: dropped}
 }
 
 func compileSpansRaw(f Filters, startMs, endMs int64) Compiled {
 	var sb strings.Builder
 	args := baseSpanArgs(f.TeamID, startMs, endMs, "")
-	sb.WriteString(` team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND timestamp BETWEEN @start AND @end`)
+	sb.WriteString(`ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND timestamp BETWEEN @start AND @end`)
 	appendInList(&sb, &args, "service_name", f.Services, false)
 	appendInList(&sb, &args, "service_name", f.ExcludeServices, true)
 	appendInList(&sb, &args, "name", f.Operations, false)
@@ -78,19 +78,19 @@ func compileSpansRaw(f Filters, startMs, endMs int64) Compiled {
 	}
 	appendSpanSearch(&sb, &args, f.Search)
 	appendAttrs(&sb, &args, f.Attributes)
-	return Compiled{Where: sb.String(), Args: args}
+	return Compiled{PreWhere: "team_id = @teamID", Where: sb.String(), Args: args}
 }
 
 func compileRollup(f Filters, startMs, endMs int64) Compiled {
 	var sb strings.Builder
 	args := baseRollupArgs(f.TeamID, startMs, endMs)
-	sb.WriteString(` team_id = @teamID AND bucket_ts BETWEEN @start AND @end`)
+	sb.WriteString(`bucket_ts BETWEEN @start AND @end`)
 	appendInList(&sb, &args, "service", f.Services, false)
 	appendInList(&sb, &args, "service", f.ExcludeServices, true)
 	appendInList(&sb, &args, "operation", f.Operations, false)
 	appendInList(&sb, &args, "http_method", f.HTTPMethods, false)
 	dropped := rollupDropped(f)
-	return Compiled{Where: sb.String(), Args: args, DroppedClauses: dropped}
+	return Compiled{PreWhere: "team_id = @teamID", Where: sb.String(), Args: args, DroppedClauses: dropped}
 }
 
 func tracesIndexDropped(f Filters) []string {

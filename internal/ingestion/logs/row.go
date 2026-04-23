@@ -6,13 +6,14 @@
 // Regenerate row.pb.go after editing row.proto:
 //
 //	protoc --proto_path=. --go_out=. --go_opt=paths=source_relative row.proto
+//go:generate protoc --go_out=. --go_opt=paths=source_relative log_row.proto
 package logs
 
 import "time"
 
 // CHTable is the ClickHouse destination table for the log signal — the v2
-// table introduced by migration 31_logs_v2.sql.
-const CHTable = "observability.logs_v2"
+// observability.logs — DDL in db/clickhouse/02_logs.sql.
+const CHTable = "observability.logs"
 
 // Columns is the insert column order for CHTable. Mirrors Row's proto fields
 // one-for-one so chValues can emit positional values without a lookup. The

@@ -9,7 +9,7 @@ import (
 )
 
 // buildAggsRollup constructs aggSpec{alias,expr} for aggregations pushed down
-// onto the logs_rollup_v2 cascade. sumState/uniqHLL12State merges go here.
+// onto the logs_rollup cascade. sumState/uniqHLL12State merges go here.
 func buildAggsRollup(in []Aggregation) []aggSpec {
 	if len(in) == 0 {
 		return []aggSpec{{alias: "count", expr: "sumMerge(log_count)"}}
@@ -30,7 +30,7 @@ func buildAggsRollup(in []Aggregation) []aggSpec {
 	return out
 }
 
-// buildAggsRaw constructs aggSpec for raw logs_v2 reads (full fidelity).
+// buildAggsRaw constructs aggSpec for raw logs reads (full fidelity).
 func buildAggsRaw(in []Aggregation) []aggSpec {
 	if len(in) == 0 {
 		return []aggSpec{{alias: "count", expr: "count()"}}

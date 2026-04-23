@@ -1,10 +1,6 @@
 package explorer
 
-import (
-	"time"
-
-	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
-)
+import "github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
 
 // QueryRequest is the wire payload for POST /api/v1/traces/query.
 type QueryRequest struct {
@@ -54,21 +50,21 @@ type AnalyticsResponse struct {
 
 // traceIndexRowDTO scans rows from observability.traces_index.
 type traceIndexRowDTO struct {
-	TraceID        string    `ch:"trace_id"`
-	StartMs        int64     `ch:"start_ms"`
-	EndMs          int64     `ch:"end_ms"`
-	DurationNs     int64     `ch:"duration_ns"`
-	RootService    string    `ch:"root_service"`
-	RootOperation  string    `ch:"root_operation"`
-	RootStatus     string    `ch:"root_status"`
-	RootHTTPMethod string    `ch:"root_http_method"`
-	RootHTTPStatus string    `ch:"root_http_status"`
-	SpanCount      uint32    `ch:"span_count"`
-	HasError       bool      `ch:"has_error"`
-	ErrorCount     uint32    `ch:"error_count"`
-	ServiceSet     []string  `ch:"service_set"`
-	Truncated      bool      `ch:"truncated"`
-	LastSeenMs     time.Time `ch:"last_seen_ms"`
+	TraceID        string   `ch:"trace_id"`
+	StartMs        uint64   `ch:"start_ms"`
+	EndMs          uint64   `ch:"end_ms"`
+	DurationNs     uint64   `ch:"duration_ns"`
+	RootService    string   `ch:"root_service"`
+	RootOperation  string   `ch:"root_operation"`
+	RootStatus     string   `ch:"root_status"`
+	RootHTTPMethod string   `ch:"root_http_method"`
+	RootHTTPStatus uint16   `ch:"root_http_status"`
+	SpanCount      uint32   `ch:"span_count"`
+	HasError       bool     `ch:"has_error"`
+	ErrorCount     uint32   `ch:"error_count"`
+	ServiceSet     []string `ch:"service_set"`
+	Truncated      bool     `ch:"truncated"`
+	LastSeenMs     uint64   `ch:"last_seen_ms"`
 }
 
 type trendRowDTO struct {

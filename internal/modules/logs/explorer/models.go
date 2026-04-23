@@ -8,8 +8,9 @@ import (
 
 // Log is the JSON model for a single log row returned by list + detail.
 type Log struct {
-	Timestamp         uint64             `json:"timestamp"`
-	ObservedTimestamp uint64             `json:"observed_timestamp"`
+	ID                string             `json:"id"`
+	Timestamp         uint64             `json:"timestamp,string"`
+	ObservedTimestamp uint64             `json:"observed_timestamp,string"`
 	SeverityText      string             `json:"severity_text"`
 	SeverityNumber    uint8              `json:"severity_number"`
 	SeverityBucket    uint8              `json:"severity_bucket"`

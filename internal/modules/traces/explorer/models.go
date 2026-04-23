@@ -4,14 +4,14 @@ import "github.com/Optikk-Org/optikk-backend/internal/infra/cursor"
 
 type Trace struct {
 	TraceID        string   `json:"trace_id"`
-	StartMs        int64    `json:"start_ms"`
-	EndMs          int64    `json:"end_ms"`
+	StartMs        uint64   `json:"start_ms"`
+	EndMs          uint64   `json:"end_ms"`
 	DurationMs     float64  `json:"duration_ms"`
 	RootService    string   `json:"root_service"`
 	RootOperation  string   `json:"root_operation"`
 	RootStatus     string   `json:"root_status,omitempty"`
 	RootHTTPMethod string   `json:"root_http_method,omitempty"`
-	RootHTTPStatus string   `json:"root_http_status,omitempty"`
+	RootHTTPStatus uint16   `json:"root_http_status,omitempty"`
 	SpanCount      uint32   `json:"span_count"`
 	HasError       bool     `json:"has_error"`
 	ErrorCount     uint32   `json:"error_count"`
@@ -22,7 +22,7 @@ type Trace struct {
 type Summary struct {
 	TotalTraces   uint64 `json:"total_traces"`
 	TotalErrors   uint64 `json:"total_errors"`
-	TotalDuration int64  `json:"total_duration_ns"`
+	TotalDuration uint64 `json:"total_duration_ns"` // sum(duration_ns) is UInt64 in ClickHouse
 }
 
 type FacetBucket struct {
@@ -53,7 +53,7 @@ type PageInfo struct {
 type AnalyticsRow map[string]any
 
 type TraceCursor struct {
-	StartMs int64  `json:"s"`
+	StartMs uint64 `json:"s"`
 	TraceID string `json:"t"`
 }
 

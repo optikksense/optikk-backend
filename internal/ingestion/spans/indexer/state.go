@@ -17,7 +17,7 @@ import (
 )
 
 // TraceIndexRow is the wire shape emitted to observability.traces_index.
-// Mirrors the schema in 38_traces_index.sql.
+// Mirrors the schema in db/clickhouse/19_traces_index.sql.
 type TraceIndexRow struct {
 	TeamID         uint32
 	TraceID        string
@@ -35,9 +35,10 @@ type TraceIndexRow struct {
 	ServiceSet     []string
 	PeerServiceSet []string
 	ErrorFp        string
+	Environment    string
 	Truncated      bool
 	LastSeenMs     time.Time
-	TsBucketStart  uint32
+	TsBucketStart  uint64
 }
 
 // pending is the in-memory accumulator for one in-flight trace.
@@ -47,7 +48,7 @@ type pending struct {
 	firstSeen     time.Time
 	lastSeen      time.Time
 	rootSeen      bool
-	tsBucketStart uint32
+	tsBucketStart uint64
 
 	// Populated from the root span (when seen).
 	rootService    string
@@ -55,6 +56,7 @@ type pending struct {
 	rootStatus     string
 	rootHTTPMethod string
 	rootHTTPStatus string
+	environment    string
 	startMs        int64
 	endMs          int64
 
@@ -92,7 +94,7 @@ func (s *state) Len() int {
 // Upsert fetches or creates the pending entry for (teamID, traceID). Returns
 // the pending plus an `evicted` slice of entries the caller should emit as
 // truncated so the memory bound is respected.
-func (s *state) Upsert(teamID uint32, traceID string, now time.Time, tsBucketStart uint32) (*pending, []*pending) {
+func (s *state) Upsert(teamID uint32, traceID string, now time.Time, tsBucketStart uint64) (*pending, []*pending) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	p, ok := s.byTrace[traceID]
@@ -177,6 +179,7 @@ func (p *pending) ToRow(truncated bool) TraceIndexRow {
 		ServiceSet:     services,
 		PeerServiceSet: peers,
 		ErrorFp:        p.errorFp,
+		Environment:    p.environment,
 		Truncated:      truncated,
 		LastSeenMs:     p.lastSeen,
 		TsBucketStart:  p.tsBucketStart,

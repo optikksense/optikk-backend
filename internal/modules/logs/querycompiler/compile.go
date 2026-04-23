@@ -7,6 +7,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/logs/enrich"
 )
 
 const maxTimeRangeMs = 30 * 24 * 60 * 60 * 1000
@@ -46,12 +47,12 @@ func compileRollup(f Filters, startMs, endMs int64, _ Target) Compiled {
 	var sb strings.Builder
 	args := baseRollupArgs(f.TeamID, startMs, endMs)
 	sb.WriteString(` team_id = @teamID AND bucket_ts BETWEEN @start AND @end`)
-	appendInList(&sb, &args, "severity_text", f.Severities, false)
+	appendSeverityBucketList(&sb, &args, f.Severities, false)
 	appendInList(&sb, &args, "service", f.Services, false)
 	appendInList(&sb, &args, "environment", f.Environments, false)
 	appendInList(&sb, &args, "host", f.Hosts, false)
 	appendInList(&sb, &args, "pod", f.Pods, false)
-	appendInList(&sb, &args, "severity_text", f.ExcludeSeverities, true)
+	appendSeverityBucketList(&sb, &args, f.ExcludeSeverities, true)
 	appendInList(&sb, &args, "service", f.ExcludeServices, true)
 	appendInList(&sb, &args, "host", f.ExcludeHosts, true)
 	dropped := rollupDroppedClauses(f)
@@ -106,6 +107,32 @@ func clampRange(startMs, endMs int64) (int64, int64) {
 		startMs = endMs - maxTimeRangeMs
 	}
 	return startMs, endMs
+}
+
+// appendSeverityBucketList maps OTLP-style severity labels to logs /
+// rollup `severity_bucket` UInt8 values (see enrich.BucketFor).
+func appendSeverityBucketList(sb *strings.Builder, args *[]any, labels []string, negated bool) {
+	if len(labels) == 0 {
+		return
+	}
+	seen := make(map[uint8]struct{}, len(labels))
+	buckets := make([]uint8, 0, len(labels))
+	for _, s := range labels {
+		b := enrich.BucketFor(s, 0)
+		if _, ok := seen[b]; ok {
+			continue
+		}
+		seen[b] = struct{}{}
+		buckets = append(buckets, b)
+	}
+	name := fmt.Sprintf("severity_bucket_%d", len(*args))
+	if negated {
+		sb.WriteString(" AND severity_bucket NOT IN @")
+	} else {
+		sb.WriteString(" AND severity_bucket IN @")
+	}
+	sb.WriteString(name)
+	*args = append(*args, clickhouse.Named(name, buckets))
 }
 
 func appendInList(sb *strings.Builder, args *[]any, col string, vals []string, negated bool) {

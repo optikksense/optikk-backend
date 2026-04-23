@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -87,9 +88,13 @@ func writeCached(c *gin.Context, cached *cachedResponse) {
 	c.Abort()
 }
 
+func cacheable(method string) bool {
+	return method == http.MethodGet || method == http.MethodPost
+}
+
 func CacheMiddleware(store ResponseCacheStore, ttl time.Duration) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if store == nil || c.Request.Method != http.MethodGet {
+		if store == nil || !cacheable(c.Request.Method) {
 			c.Next()
 			return
 		}
@@ -188,9 +193,26 @@ func cacheKey(c *gin.Context) string {
 		strings.TrimSpace(tenant.UserRole),
 		strconvInt64(tenant.TeamID),
 		strconvInt64(tenant.UserID),
+		postBodyHash(c),
 	}, "|")
 
 	sum := sha256.Sum256([]byte(raw))
+	return hex.EncodeToString(sum[:])
+}
+
+// postBodyHash reads the POST body, computes its SHA256, re-attaches the body
+// so downstream handlers can still read it, and returns the hex digest.
+// Returns "" for non-POST requests.
+func postBodyHash(c *gin.Context) string {
+	if c.Request.Method != http.MethodPost || c.Request.Body == nil {
+		return ""
+	}
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		return ""
+	}
+	c.Request.Body = io.NopCloser(bytes.NewReader(body))
+	sum := sha256.Sum256(body)
 	return hex.EncodeToString(sum[:])
 }
 

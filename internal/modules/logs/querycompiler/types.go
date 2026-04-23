@@ -11,9 +11,9 @@ package querycompiler
 type Target int
 
 const (
-	// TargetRaw compiles for observability.logs_v2 (full fidelity).
+	// TargetRaw compiles for observability.logs (full fidelity).
 	TargetRaw Target = iota
-	// TargetRollup compiles for logs_rollup_v2_{1m,5m,1h}. Only rollup-key
+	// TargetRollup compiles for logs_rollup_{1m,5m,1h}. Only rollup-key
 	// dims (severity_bucket, service, environment, host, pod) survive.
 	TargetRollup
 	// TargetFacetRollup compiles for logs_facets_rollup_5m. Same key set as

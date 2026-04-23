@@ -15,7 +15,7 @@ go run ./cmd/server
 ```
 
 Prometheus UI: http://localhost:9090 → Status → Targets. You should see
-`optikk-api`, `redpanda`, and `prometheus` as `UP`.
+`optikk-api` and `prometheus` as `UP`.
 
 Sanity-check a query:
 ```
@@ -29,7 +29,6 @@ rate(promhttp_metric_handler_requests_total[1m])
 | Job | Target | Notes |
 |---|---|---|
 | `optikk-api` | `host.docker.internal:8080/metrics` | Go runtime + HTTP + custom app metrics. |
-| `redpanda` | `redpanda:9644/public_metrics` | Exposed natively by Redpanda. |
 | `prometheus` | `localhost:9090/metrics` | Scrape loop sanity check. |
 
 ClickHouse and MariaDB are not scraped by default — add a

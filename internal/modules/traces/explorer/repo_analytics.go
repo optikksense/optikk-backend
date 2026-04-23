@@ -42,9 +42,9 @@ func (r *Repository) Analytics(ctx context.Context, req AnalyticsRequest, f quer
 	if limit <= 0 {
 		limit = 100
 	}
-	query := fmt.Sprintf(`SELECT %s FROM %s WHERE %s%s%s LIMIT %d`,
+	query := fmt.Sprintf(`SELECT %s FROM %s PREWHERE %s WHERE %s%s%s LIMIT %d`,
 		strings.Join(selectParts, ", "),
-		tracesIndexTable, compiled.Where, groupClause, orderBy, limit,
+		tracesIndexTable, compiled.PreWhere, compiled.Where, groupClause, orderBy, limit,
 	)
 
 	rows, err := r.db.Query(dbutil.ExplorerCtx(ctx), query, compiled.Args...)
