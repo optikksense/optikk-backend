@@ -1,4 +1,4 @@
-package explorer
+package trace_shape //nolint:revive,stylecheck
 
 import (
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -15,30 +15,31 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}
-	v1.POST("/traces/query", h.Query)
-	v1.GET("/traces/:traceId", h.GetByID)
+	v1.GET("/traces/:traceId/span-kind-breakdown", h.GetSpanKindBreakdown)
+	v1.GET("/traces/:traceId/span-self-times", h.GetSpanSelfTimes)
+	v1.GET("/traces/:traceId/flamegraph", h.GetFlamegraphData)
 }
 
 func NewModule(db clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
-	m := &tracesExplorerModule{}
+	m := &module{}
 	m.configure(db, getTenant)
 	return m
 }
 
-type tracesExplorerModule struct {
+type module struct {
 	handler *Handler
 }
 
-func (m *tracesExplorerModule) Name() string                      { return "tracesExplorer" }
-func (m *tracesExplorerModule) RouteTarget() registry.RouteTarget { return registry.Cached }
+func (m *module) Name() string                      { return "traceShape" }
+func (m *module) RouteTarget() registry.RouteTarget { return registry.V1 }
 
-func (m *tracesExplorerModule) configure(db clickhouse.Conn, getTenant registry.GetTenantFunc) {
+func (m *module) configure(db clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	repo := NewRepository(db)
 	svc := NewService(repo)
 	m.handler = NewHandler(getTenant, svc)
 }
 
-func (m *tracesExplorerModule) RegisterRoutes(group *gin.RouterGroup) {
+func (m *module) RegisterRoutes(group *gin.RouterGroup) {
 	RegisterRoutes(DefaultConfig(), group, m.handler)
 }
 

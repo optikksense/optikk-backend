@@ -2,39 +2,6 @@ package tracedetail
 
 import "time"
 
-// spanKindDurationRow is the scan target for GetSpanKindBreakdown.
-// PctOfTrace is computed in the service layer.
-type spanKindDurationRow struct {
-	SpanKind    string  `ch:"span_kind"`
-	TotalDuraMs float64 `ch:"total_duration_ms"`
-	SpanCount   int64   `ch:"span_count"`
-}
-
-// criticalPathRow is the scan target for GetCriticalPath.
-// The graph traversal algorithm runs in the service layer.
-type criticalPathRow struct {
-	SpanID        string  `ch:"span_id"`
-	ParentSpanID  string  `ch:"parent_span_id"`
-	OperationName string  `ch:"operation_name"`
-	ServiceName   string  `ch:"service_name"`
-	DurationMs    float64 `ch:"duration_ms"`
-	StartNs       int64   `ch:"start_ns"`
-	EndNs         int64   `ch:"end_ns"`
-}
-
-// errorPathRow is the scan target for GetErrorPath.
-// The chain traversal algorithm runs in the service layer.
-type errorPathRow struct {
-	SpanID        string    `ch:"span_id"`
-	ParentSpanID  string    `ch:"parent_span_id"`
-	OperationName string    `ch:"operation_name"`
-	ServiceName   string    `ch:"service_name"`
-	Status        string    `ch:"status"`
-	StatusMessage string    `ch:"status_message"`
-	StartTime     time.Time `ch:"start_time"`
-	DurationMs    float64   `ch:"duration_ms"`
-}
-
 // traceLogRow is the scan target for GetTraceLogs.
 type traceLogRow struct {
 	Timestamp         time.Time          `ch:"timestamp"`
@@ -55,19 +22,6 @@ type traceLogRow struct {
 	AttributesBool    map[string]bool    `ch:"attributes_bool"`
 	ScopeName         string             `ch:"scope_name"`
 	ScopeVersion      string             `ch:"scope_version"`
-}
-
-// flamegraphRow is the scan target for GetFlamegraphData.
-// Name, Level, and SelfTimeMs are computed in the service layer.
-type flamegraphRow struct {
-	SpanID        string  `ch:"span_id"`
-	ParentSpanID  string  `ch:"parent_span_id"`
-	OperationName string  `ch:"operation_name"`
-	ServiceName   string  `ch:"service_name"`
-	SpanKind      string  `ch:"span_kind"`
-	DurationMs    float64 `ch:"duration_ms"`
-	StartNs       int64   `ch:"start_ns"`
-	HasError      bool    `ch:"has_error"`
 }
 
 // spanEventRow is the scan target for the events ARRAY JOIN query.
@@ -114,4 +68,5 @@ type spanAttributeRow struct {
 	DBSystem            string            `ch:"db_system"`
 	DBName              string            `ch:"db_name"`
 	DBStatement         string            `ch:"db_statement"`
+	Links               string            `ch:"links"`
 }

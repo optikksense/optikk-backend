@@ -67,23 +67,6 @@ func (s *Service) applyIncludes(ctx context.Context, resp *QueryResponse, includ
 	return nil
 }
 
-func (s *Service) Analytics(ctx context.Context, req AnalyticsRequest, teamID int64) (AnalyticsResponse, error) {
-	filters, err := querycompiler.FromStructured(req.Filters, teamID, req.StartTime, req.EndTime)
-	if err != nil {
-		return AnalyticsResponse{}, fmt.Errorf("traces.Analytics.parse: %w", err)
-	}
-	rows, warns, err := s.repo.Analytics(ctx, req, filters)
-	if err != nil {
-		return AnalyticsResponse{}, fmt.Errorf("traces.Analytics.query: %w", err)
-	}
-	return AnalyticsResponse{
-		VizMode:  normalizeViz(req.VizMode),
-		Step:     req.Step,
-		Rows:     rows,
-		Warnings: warns,
-	}, nil
-}
-
 func (s *Service) GetByID(ctx context.Context, teamID int64, traceID string) (*Trace, error) {
 	row, err := s.repo.GetByID(ctx, teamID, traceID)
 	if err != nil {
@@ -104,15 +87,6 @@ func pickLimit(v, def, maxLimit int) int {
 		return maxLimit
 	}
 	return v
-}
-
-func normalizeViz(v string) string {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "topn", "table", "pie":
-		return strings.ToLower(v)
-	default:
-		return "timeseries"
-	}
 }
 
 func toSet(items []string) map[string]bool {

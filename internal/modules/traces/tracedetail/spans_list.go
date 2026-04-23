@@ -15,6 +15,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/shared/traceidmatch"
 	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
@@ -60,7 +61,7 @@ func (r *spansRepo) ListByTrace(ctx context.Context, teamID int64, traceID strin
 		FROM %s
 		WHERE team_id = @teamID AND %s
 		ORDER BY start_ns ASC
-		LIMIT 5000`, spansRawTable, whereTraceIDMatchesCH("trace_id", "traceID"))
+		LIMIT 5000`, spansRawTable, traceidmatch.WhereTraceIDMatchesCH("trace_id", "traceID"))
 	var rows []SpanListItem
 	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115

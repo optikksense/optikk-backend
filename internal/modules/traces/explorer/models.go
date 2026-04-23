@@ -50,8 +50,6 @@ type PageInfo struct {
 	Limit      int    `json:"limit"`
 }
 
-type AnalyticsRow map[string]any
-
 type TraceCursor struct {
 	StartMs uint64 `json:"s"`
 	TraceID string `json:"t"`

@@ -22,32 +22,6 @@ type QueryResponse struct {
 	Warnings []string      `json:"warnings,omitempty"`
 }
 
-type Aggregation struct {
-	Fn    string `json:"fn"`
-	Field string `json:"field"`
-	Alias string `json:"alias"`
-}
-
-// AnalyticsRequest is the wire payload for POST /api/v1/traces/analytics.
-type AnalyticsRequest struct {
-	StartTime    int64                            `json:"startTime"`
-	EndTime      int64                            `json:"endTime"`
-	Filters      []querycompiler.StructuredFilter `json:"filters"`
-	GroupBy      []string                         `json:"groupBy"`
-	Aggregations []Aggregation                    `json:"aggregations"`
-	Step         string                           `json:"step"`
-	VizMode      string                           `json:"vizMode"`
-	Limit        int                              `json:"limit"`
-	OrderBy      string                           `json:"orderBy"`
-}
-
-type AnalyticsResponse struct {
-	VizMode  string         `json:"vizMode"`
-	Step     string         `json:"step,omitempty"`
-	Rows     []AnalyticsRow `json:"rows"`
-	Warnings []string       `json:"warnings,omitempty"`
-}
-
 // traceIndexRowDTO scans rows from observability.traces_index.
 type traceIndexRowDTO struct {
 	TraceID        string   `ch:"trace_id"`

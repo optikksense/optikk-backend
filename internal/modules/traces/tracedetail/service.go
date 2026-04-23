@@ -10,14 +10,10 @@ import (
 
 type Service interface {
 	GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]SpanEvent, error)
-	GetSpanKindBreakdown(ctx context.Context, teamID int64, traceID string) ([]SpanKindDuration, error)
-	GetCriticalPath(ctx context.Context, teamID int64, traceID string) ([]CriticalPathSpan, error)
-	GetSpanSelfTimes(ctx context.Context, teamID int64, traceID string) ([]SpanSelfTime, error)
-	GetErrorPath(ctx context.Context, teamID int64, traceID string) ([]ErrorPathSpan, error)
 	GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*SpanAttributes, error)
 	GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
-	GetFlamegraphData(ctx context.Context, teamID int64, traceID string) ([]FlamegraphFrame, error)
 	GetTraceLogs(ctx context.Context, teamID int64, traceID string) (*TraceLogsResponse, error)
+	GetSpanLogs(ctx context.Context, teamID int64, traceID, spanID string) (*TraceLogsResponse, error)
 }
 
 type TraceDetailService struct {
@@ -92,53 +88,6 @@ func (s *TraceDetailService) GetSpanEvents(ctx context.Context, teamID int64, tr
 	return events, nil
 }
 
-func (s *TraceDetailService) GetSpanKindBreakdown(ctx context.Context, teamID int64, traceID string) ([]SpanKindDuration, error) {
-	rows, err := s.repo.GetSpanKindBreakdown(ctx, teamID, traceID)
-	if err != nil {
-		slog.Error("tracedetail: GetSpanKindBreakdown failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
-		return nil, err
-	}
-
-	var totalMs float64
-	result := make([]SpanKindDuration, len(rows))
-	for i, row := range rows {
-		totalMs += row.TotalDuraMs
-		result[i] = SpanKindDuration{
-			SpanKind:    row.SpanKind,
-			TotalDuraMs: row.TotalDuraMs,
-			SpanCount:   row.SpanCount,
-		}
-	}
-	if totalMs > 0 {
-		for i := range result {
-			result[i].PctOfTrace = result[i].TotalDuraMs * 100.0 / totalMs
-		}
-	}
-	return result, nil
-}
-
-func (s *TraceDetailService) GetCriticalPath(ctx context.Context, teamID int64, traceID string) ([]CriticalPathSpan, error) {
-	rows, err := s.repo.GetCriticalPath(ctx, teamID, traceID)
-	if err != nil {
-		slog.Error("tracedetail: GetCriticalPath failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
-		return nil, err
-	}
-	return buildCriticalPath(rows), nil
-}
-
-func (s *TraceDetailService) GetSpanSelfTimes(ctx context.Context, teamID int64, traceID string) ([]SpanSelfTime, error) {
-	return s.repo.GetSpanSelfTimes(ctx, teamID, traceID)
-}
-
-func (s *TraceDetailService) GetErrorPath(ctx context.Context, teamID int64, traceID string) ([]ErrorPathSpan, error) {
-	rows, err := s.repo.GetErrorPath(ctx, teamID, traceID)
-	if err != nil {
-		slog.Error("tracedetail: GetErrorPath failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
-		return nil, err
-	}
-	return buildErrorPath(rows), nil
-}
-
 func (s *TraceDetailService) GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*SpanAttributes, error) {
 	row, err := s.repo.GetSpanAttributes(ctx, teamID, traceID, spanID)
 	if err != nil {
@@ -172,6 +121,7 @@ func (s *TraceDetailService) GetSpanAttributes(ctx context.Context, teamID int64
 		DBName:                row.DBName,
 		DBStatement:           row.DBStatement,
 		DBStatementNormalized: normalizeDBStatement(row.DBStatement),
+		Links:                 parseSpanLinks(row.Links),
 	}, nil
 }
 
@@ -214,15 +164,6 @@ func (s *TraceDetailService) GetTraceLogs(ctx context.Context, teamID int64, tra
 	}, nil
 }
 
-func (s *TraceDetailService) GetFlamegraphData(ctx context.Context, teamID int64, traceID string) ([]FlamegraphFrame, error) {
-	rows, err := s.repo.GetFlamegraphData(ctx, teamID, traceID)
-	if err != nil {
-		slog.Error("tracedetail: GetFlamegraphData failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
-		return nil, err
-	}
-	return buildFlamegraph(rows), nil
-}
-
 // parseEventJSON extracts the event name and attributes JSON from an event
 // string stored in the events column. New format events are JSON objects:
 //
@@ -254,214 +195,4 @@ func parseEventJSON(raw string) (name string, attrs string) {
 	return obj.Name, string(b)
 }
 
-// buildCriticalPath runs the longest-path graph algorithm on the raw DB rows.
-func buildCriticalPath(rows []criticalPathRow) []CriticalPathSpan {
-	type node struct {
-		row        criticalPathRow
-		subtreeEnd int64
-		children   []string
-	}
-
-	nodes := make(map[string]*node, len(rows))
-	var roots []string
-	for _, row := range rows {
-		nodes[row.SpanID] = &node{row: row, subtreeEnd: row.EndNs}
-		if isRootParentSpanID(row.ParentSpanID) {
-			roots = append(roots, row.SpanID)
-		}
-	}
-	for sid, n := range nodes {
-		if !isRootParentSpanID(n.row.ParentSpanID) {
-			if parent, ok := nodes[n.row.ParentSpanID]; ok {
-				parent.children = append(parent.children, sid)
-			}
-		}
-	}
-
-	type frame struct {
-		spanID   string
-		childIdx int
-	}
-	for _, root := range roots {
-		stack := []frame{{spanID: root}}
-		for len(stack) > 0 {
-			top := &stack[len(stack)-1]
-			n := nodes[top.spanID]
-			if top.childIdx < len(n.children) {
-				cid := n.children[top.childIdx]
-				top.childIdx++
-				stack = append(stack, frame{spanID: cid})
-			} else {
-				for _, cid := range n.children {
-					if child := nodes[cid]; child.subtreeEnd > n.subtreeEnd {
-						n.subtreeEnd = child.subtreeEnd
-					}
-				}
-				stack = stack[:len(stack)-1]
-			}
-		}
-	}
-
-	var bestRoot string
-	var bestEnd int64
-	for _, root := range roots {
-		if n := nodes[root]; n.subtreeEnd > bestEnd {
-			bestEnd = n.subtreeEnd
-			bestRoot = root
-		}
-	}
-
-	var result []CriticalPathSpan
-	cur := bestRoot
-	for cur != "" {
-		n, ok := nodes[cur]
-		if !ok {
-			break
-		}
-		result = append(result, CriticalPathSpan{
-			SpanID:        n.row.SpanID,
-			OperationName: n.row.OperationName,
-			ServiceName:   n.row.ServiceName,
-			DurationMs:    n.row.DurationMs,
-		})
-		if len(n.children) == 0 {
-			break
-		}
-		var bestChild string
-		var bestChildEnd, bestChildStart int64
-		for _, cid := range n.children {
-			child := nodes[cid]
-			if child.subtreeEnd > bestChildEnd || (child.subtreeEnd == bestChildEnd && child.row.StartNs > bestChildStart) {
-				bestChildEnd = child.subtreeEnd
-				bestChildStart = child.row.StartNs
-				bestChild = cid
-			}
-		}
-		cur = bestChild
-	}
-	return result
-}
-
-// buildErrorPath builds the root→leaf error chain from raw error span rows.
-func buildErrorPath(rows []errorPathRow) []ErrorPathSpan {
-	type eSpan struct {
-		row errorPathRow
-	}
-	spans := make(map[string]*eSpan, len(rows))
-	for i := range rows {
-		spans[rows[i].SpanID] = &eSpan{row: rows[i]}
-	}
-
-	childOf := make(map[string]bool, len(rows))
-	for _, s := range spans {
-		if s.row.ParentSpanID != "" {
-			childOf[s.row.ParentSpanID] = true
-		}
-	}
-	var leafID string
-	for sid := range spans {
-		if !childOf[sid] {
-			leafID = sid
-			break
-		}
-	}
-	if leafID == "" {
-		return []ErrorPathSpan{}
-	}
-
-	var chain []ErrorPathSpan
-	cur := leafID
-	for cur != "" {
-		s, ok := spans[cur]
-		if !ok {
-			break
-		}
-		chain = append(chain, ErrorPathSpan{
-			SpanID:        s.row.SpanID,
-			ParentSpanID:  s.row.ParentSpanID,
-			OperationName: s.row.OperationName,
-			ServiceName:   s.row.ServiceName,
-			Status:        s.row.Status,
-			StatusMessage: s.row.StatusMessage,
-			StartTime:     s.row.StartTime,
-			DurationMs:    s.row.DurationMs,
-		})
-		cur = s.row.ParentSpanID
-	}
-
-	for i, j := 0, len(chain)-1; i < j; i, j = i+1, j-1 {
-		chain[i], chain[j] = chain[j], chain[i]
-	}
-	return chain
-}
-
-// buildFlamegraph builds depth-first flamegraph frames from raw span rows.
-func buildFlamegraph(rows []flamegraphRow) []FlamegraphFrame {
-	type spanNode struct {
-		row      flamegraphRow
-		children []string
-	}
-
-	nodes := make(map[string]*spanNode, len(rows))
-	var roots []string
-	for i := range rows {
-		row := &rows[i]
-		nodes[row.SpanID] = &spanNode{row: *row}
-		if row.ParentSpanID == "" {
-			roots = append(roots, row.SpanID)
-		}
-	}
-	for sid, n := range nodes {
-		if n.row.ParentSpanID != "" {
-			if p, ok := nodes[n.row.ParentSpanID]; ok {
-				p.children = append(p.children, sid)
-			}
-		}
-	}
-
-	childSum := make(map[string]float64, len(nodes))
-	for _, n := range nodes {
-		if n.row.ParentSpanID != "" {
-			childSum[n.row.ParentSpanID] += n.row.DurationMs
-		}
-	}
-
-	type dfsFrame struct {
-		spanID string
-		level  int
-	}
-	var stack []dfsFrame
-	for i := len(roots) - 1; i >= 0; i-- {
-		stack = append(stack, dfsFrame{spanID: roots[i], level: 0})
-	}
-
-	var frames []FlamegraphFrame
-	for len(stack) > 0 {
-		top := stack[len(stack)-1]
-		stack = stack[:len(stack)-1]
-		n, ok := nodes[top.spanID]
-		if !ok {
-			continue
-		}
-		selfMs := n.row.DurationMs - childSum[n.row.SpanID]
-		if selfMs < 0 {
-			selfMs = 0
-		}
-		frames = append(frames, FlamegraphFrame{
-			SpanID:     n.row.SpanID,
-			Name:       n.row.ServiceName + " :: " + n.row.OperationName,
-			Service:    n.row.ServiceName,
-			Operation:  n.row.OperationName,
-			DurationMs: n.row.DurationMs,
-			SelfTimeMs: selfMs,
-			Level:      top.level,
-			SpanKind:   n.row.SpanKind,
-			HasError:   n.row.HasError,
-		})
-		for i := len(n.children) - 1; i >= 0; i-- {
-			stack = append(stack, dfsFrame{spanID: n.children[i], level: top.level + 1})
-		}
-	}
-	return frames
-}
 

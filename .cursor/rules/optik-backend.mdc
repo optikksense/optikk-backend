@@ -63,6 +63,16 @@ Feature modules live under `internal/modules/`. Each follows a strict 6-file pat
 - **Execution**: Use `dbutil.QueryMaps`, `dbutil.QueryCount`, and typed extraction helpers like `Int64FromAny`.
 - **Time Bucketing**: Use `internal/infra/timebucket/` for adaptive chart binning.
 - **Traces explorer note**: `internal/modules/traces/explorer/` reads `observability.traces_index`, whose `start_ms`, `end_ms`, `duration_ns`, `last_seen_ms`, and `root_http_status` columns are unsigned. Keep DB scan structs/cursors unsigned there, and cast mixed facet values like `root_http_status` to `String` in SQL before scanning into shared bucket DTOs.
+- **Traces submodule layout**: the trace read surface is split into sibling packages under `internal/modules/traces/`, each a self-contained 6-file module:
+  - `explorer` — `POST /traces/query`, `GET /traces/:id` (list + single, from traces_index).
+  - `trace_analytics` — `POST /traces/analytics` (group-by + aggregations).
+  - `span_query` — `POST /spans/query` (span-level list from raw spans).
+  - `tracedetail` — span-events, span attributes, trace logs, related, spans list/tree.
+  - `trace_shape` — flamegraph, span-kind-breakdown, span-self-times.
+  - `trace_paths` — critical-path, error-path.
+  - `trace_servicemap` — service-map, trace errors.
+  - `trace_suggest` — `POST /traces/suggest` (DSL autocomplete: scalar fields from traces_index, `@attribute` values from raw spans).
+  - Shared `trace_id` predicate lives in `modules/traces/shared/traceidmatch` — use `traceidmatch.WhereTraceIDMatchesCH(column, param)` in any new trace-scoped query.
 
 ## Handler Pattern
 

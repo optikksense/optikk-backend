@@ -42,10 +42,19 @@ Current queueing model is Kafka-backed, not Redis-stream-backed. Local developme
 - `internal/infra/rollup/`: time-range-aware rollup tier selection
 - `internal/infra/cursor/`: cursor helpers for explorer-style APIs
 
-### Traces explorer read path
+### Traces read path (split into sibling submodules)
 
-- `internal/modules/traces/explorer/` serves `POST /api/v1/traces/query`, `POST /api/v1/traces/analytics`, and `GET /api/v1/traces/:traceId`.
-- It reads `observability.traces_index` directly rather than scanning raw spans for list/detail.
+The trace read surface used to live in two monoliths (`explorer` + `tracedetail`); it is now split by concern so each submodule owns its own `dto/handler/models/module/repository/service` bundle:
+
+- `internal/modules/traces/explorer/` — core list + single: `POST /api/v1/traces/query`, `GET /api/v1/traces/:traceId`. Reads `observability.traces_index`.
+- `internal/modules/traces/trace_analytics/` — `POST /api/v1/traces/analytics` (group-by + aggregations over traces_index).
+- `internal/modules/traces/span_query/` — `POST /api/v1/spans/query` (span-level explorer view over `observability.spans`).
+- `internal/modules/traces/tracedetail/` — per-span drill-downs: `/traces/:id/span-events`, `/traces/:id/spans/:spanId/attributes`, `/traces/:id/logs`, `/traces/:id/related`, plus the spans list/tree (`/traces/:id/spans`, `/spans/:id/tree`).
+- `internal/modules/traces/trace_shape/` — "shape" of a trace: `/traces/:id/flamegraph`, `/traces/:id/span-kind-breakdown`, `/traces/:id/span-self-times`.
+- `internal/modules/traces/trace_paths/` — chain analysis: `/traces/:id/critical-path`, `/traces/:id/error-path`.
+- `internal/modules/traces/trace_servicemap/` — per-trace aggregates: `/traces/:id/service-map`, `/traces/:id/errors`.
+- `internal/modules/traces/trace_suggest/` — DSL autocomplete: `POST /traces/suggest` for field/attribute value completion on the traces query bar.
+- `internal/modules/traces/shared/traceidmatch/` — shared ClickHouse predicate (`WhereTraceIDMatchesCH`) so every trace-scoped reader normalizes trace_id identically.
 ### Data Type Consistency
 
 To maintain a clean and predictable codebase, follow these type-alignment rules:
@@ -94,7 +103,7 @@ Modules choose the target group through the registry contract.
 From the live module manifest:
 
 - overview: `overview`, `redmetrics`, `httpmetrics`, `errors`, `slo`, `apm`
-- traces: `query`, `explorer`, `tracedetail`
+- traces: `explorer`, `trace_analytics`, `span_query`, `tracedetail`, `trace_shape`, `trace_paths`, `trace_servicemap`, `trace_suggest`, `errors`, `latency`
 - logs: `search`, `explorer`
 - metrics
 - services: `topology`, `deployments`

@@ -31,6 +31,7 @@ import (
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	rootspan "github.com/Optikk-Org/optikk-backend/internal/modules/traces/shared/rootspan"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/shared/traceidmatch"
 )
 
 var reNumberLiteral = regexp.MustCompile(`\b\d+(\.\d+)?\b`)
@@ -47,22 +48,12 @@ func normalizeDBStatement(stmt string) string {
 	return strings.TrimSpace(s)
 }
 
-func isRootParentSpanID(parentID string) bool {
-	trimmed := strings.Trim(parentID, "\x00")
-	return trimmed == "" || trimmed == "0000000000000000"
-}
-
 type Repository interface {
 	GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]spanEventRow, []exceptionRow, error)
-	GetSpanKindBreakdown(ctx context.Context, teamID int64, traceID string) ([]spanKindDurationRow, error)
-	GetCriticalPath(ctx context.Context, teamID int64, traceID string) ([]criticalPathRow, error)
-	GetSpanSelfTimes(ctx context.Context, teamID int64, traceID string) ([]SpanSelfTime, error)
-	GetErrorPath(ctx context.Context, teamID int64, traceID string) ([]errorPathRow, error)
 	GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*spanAttributeRow, error)
 	GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
-	GetFlamegraphData(ctx context.Context, teamID int64, traceID string) ([]flamegraphRow, error)
 	GetTraceLogs(ctx context.Context, teamID int64, traceID string) ([]traceLogRow, error)
-
+	GetSpanLogs(ctx context.Context, teamID int64, traceID, spanID string) ([]traceLogRow, error)
 }
 
 type ClickHouseRepository struct {
@@ -88,7 +79,7 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, t
 			attributes_string, attributes_number, attributes_bool,
 			scope_name, scope_version
 		FROM observability.logs
-		WHERE team_id = @teamID AND `+whereTraceIDMatchesCH("trace_id", "traceID")+`
+		WHERE team_id = @teamID AND `+traceidmatch.WhereTraceIDMatchesCH("trace_id", "traceID")+`
 		ORDER BY timestamp ASC
 		LIMIT 1000
 	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)); err != nil { //nolint:gosec // G115
@@ -97,40 +88,29 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, t
 	return rows, nil
 }
 
-// GetSpanKindBreakdown returns a breakdown of traces by their span kind.
-func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID int64, traceID string) ([]spanKindDurationRow, error) {
-	var rows []spanKindDurationRow
-	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
-		SELECT kind_string                        AS span_kind,
-		       sum(duration_nano) / 1000000.0     AS total_duration_ms,
-		       toInt64(count())                   AS span_count
-		FROM observability.spans
-		WHERE team_id = @teamID AND `+whereTraceIDMatchesCH("trace_id", "traceID")+`
-		GROUP BY kind_string
-		ORDER BY total_duration_ms DESC
-	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)) //nolint:gosec // G115
-	return rows, err
+// GetSpanLogs returns the logs for a specific span within a trace. Used by the
+// Logs tab in the span detail drawer (O8).
+func (r *ClickHouseRepository) GetSpanLogs(ctx context.Context, teamID int64, traceID, spanID string) ([]traceLogRow, error) {
+	var rows []traceLogRow
+	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
+		SELECT timestamp, observed_timestamp, severity_text, severity_number,
+			body, trace_id, span_id, trace_flags,
+			service, host, pod, container, environment,
+			attributes_string, attributes_number, attributes_bool,
+			scope_name, scope_version
+		FROM observability.logs
+		WHERE team_id = @teamID AND `+traceidmatch.WhereTraceIDMatchesCH("trace_id", "traceID")+`
+		  AND span_id = @spanID
+		ORDER BY timestamp ASC
+		LIMIT 500
+	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID), clickhouse.Named("spanID", spanID)); err != nil { //nolint:gosec // G115
+		return nil, err
+	}
+	return rows, nil
 }
 
-// GetCriticalPath finds the critical path in the trace.
-func (r *ClickHouseRepository) GetCriticalPath(ctx context.Context, teamID int64, traceID string) ([]criticalPathRow, error) {
-	var rows []criticalPathRow
-	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
-		SELECT s.span_id, s.parent_span_id,
-		       s.name AS operation_name,
-		       s.service_name,
-		       s.duration_nano / 1000000.0 AS duration_ms,
-		       toUnixTimestamp64Nano(s.timestamp) AS start_ns,
-		       toUnixTimestamp64Nano(s.timestamp) + s.duration_nano AS end_ns
-		FROM observability.spans s
-		WHERE s.team_id = @teamID AND `+whereTraceIDMatchesCH("s.trace_id", "traceID")+`
-		ORDER BY start_ns ASC
-		LIMIT 5000
-	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)) //nolint:gosec // G115
-	return rows, err
-}
-
-// GetSpanAttributes returns all attributes for a given span.
+// GetSpanAttributes returns all attributes for a given span. Also returns the
+// serialized OTLP span `links` string so the drawer can render linked traces (O13).
 func (r *ClickHouseRepository) GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*spanAttributeRow, error) {
 	var rows []spanAttributeRow
 	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
@@ -138,9 +118,10 @@ func (r *ClickHouseRepository) GetSpanAttributes(ctx context.Context, teamID int
 		       CAST(s.attributes, 'Map(String, String)') AS attributes_string,
 		       CAST(map(), 'Map(String, String)') AS resource_attributes,
 		       s.exception_type, s.exception_message, s.exception_stacktrace,
-		       s.mat_db_system AS db_system, s.mat_db_name AS db_name, s.mat_db_statement AS db_statement
+		       s.mat_db_system AS db_system, s.mat_db_name AS db_name, s.mat_db_statement AS db_statement,
+		       s.links AS links
 		FROM observability.spans s
-		WHERE s.team_id = @teamID AND `+whereTraceIDMatchesCH("s.trace_id", "traceID")+` AND s.span_id = @spanID
+		WHERE s.team_id = @teamID AND `+traceidmatch.WhereTraceIDMatchesCH("s.trace_id", "traceID")+` AND s.span_id = @spanID
 		LIMIT 1
 	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID), clickhouse.Named("spanID", spanID)); err != nil { //nolint:gosec // G115
 		return nil, err
@@ -191,7 +172,7 @@ func (r *ClickHouseRepository) GetSpanEvents(ctx context.Context, teamID int64, 
 		       exception_type, exception_message, exception_stacktrace
 		FROM observability.spans
 		PREWHERE team_id = @teamID
-		WHERE `+whereTraceIDMatchesCH("trace_id", "traceID")+`
+		WHERE `+traceidmatch.WhereTraceIDMatchesCH("trace_id", "traceID")+`
 		  AND (NOT empty(events) OR NOT empty(exception_type))
 	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)); err != nil { //nolint:gosec // G115
 		return nil, nil, err
@@ -223,55 +204,3 @@ func splitSpanEventRows(rows []spanEventCombinedRow) ([]spanEventRow, []exceptio
 	return events, exceptions, nil
 }
 
-// GetFlamegraphData returns the raw spans for the flamegraph visualization.
-func (r *ClickHouseRepository) GetFlamegraphData(ctx context.Context, teamID int64, traceID string) ([]flamegraphRow, error) {
-	var rows []flamegraphRow
-	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
-		SELECT span_id, parent_span_id, name AS operation_name, service_name,
-		       kind_string AS span_kind, duration_nano / 1000000.0 AS duration_ms,
-		       toUnixTimestamp64Nano(timestamp) AS start_ns, has_error
-		FROM observability.spans
-		WHERE team_id = @teamID AND `+whereTraceIDMatchesCH("trace_id", "traceID")+`
-		ORDER BY start_ns ASC
-		LIMIT 10000
-	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)) //nolint:gosec // G115
-	return rows, err
-}
-
-// GetSpanSelfTimes returns the duration for each span.
-func (r *ClickHouseRepository) GetSpanSelfTimes(ctx context.Context, teamID int64, traceID string) ([]SpanSelfTime, error) {
-	var rows []SpanSelfTime
-	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
-		SELECT s.span_id, s.name AS operation_name,
-		       s.duration_nano / 1000000.0 AS total_duration_ms,
-		       (s.duration_nano - coalesce(cs.child_duration, 0)) / 1000000.0 AS self_time_ms,
-		       coalesce(cs.child_duration, 0) / 1000000.0 AS child_time_ms
-		FROM observability.spans s
-		LEFT JOIN (
-			SELECT parent_span_id, sum(duration_nano) AS child_duration
-			FROM observability.spans
-			WHERE team_id = @teamID AND `+whereTraceIDMatchesCH("trace_id", "traceID")+`
-			GROUP BY parent_span_id
-		) cs ON s.span_id = cs.parent_span_id
-		WHERE s.team_id = @teamID AND `+whereTraceIDMatchesCH("s.trace_id", "traceID")+`
-		ORDER BY s.timestamp ASC
-		LIMIT 1000
-	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)) //nolint:gosec // G115
-	return rows, err
-}
-
-// GetErrorPath returns the path of spans that caused the error.
-func (r *ClickHouseRepository) GetErrorPath(ctx context.Context, teamID int64, traceID string) ([]errorPathRow, error) {
-	var rows []errorPathRow
-	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
-		SELECT s.span_id, s.parent_span_id, s.name AS operation_name,
-		       s.service_name AS service_name, s.status_code_string AS status, s.status_message,
-		       s.timestamp AS start_time, s.duration_nano / 1000000.0 AS duration_ms
-		FROM observability.spans s
-		WHERE s.team_id = @teamID AND `+whereTraceIDMatchesCH("s.trace_id", "traceID")+`
-		  AND (s.has_error = true OR s.status_code_string = 'ERROR')
-		ORDER BY s.timestamp ASC
-		LIMIT 1000
-	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID)) //nolint:gosec // G115
-	return rows, err
-}
