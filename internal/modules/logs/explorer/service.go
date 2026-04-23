@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/querycompiler"
+	"golang.org/x/sync/errgroup"
 )
 
 // Service orchestrates logs explorer read paths. Thin wrapper over the
@@ -18,8 +19,23 @@ type Service struct {
 
 func NewService(repo *Repository) *Service { return &Service{repo: repo} }
 
+// queryParts carries the slots each parallel fetch fills. The list fetch
+// is always run; summary/facets/trend slots stay empty when the caller
+// didn't ask for them via req.Include. Jobs write disjoint slots so we
+// don't need a lock — warnings are concatenated in Query() after Wait().
+type queryParts struct {
+	rows         []logRowDTO
+	hasMore      bool
+	summary      *Summary
+	facets       *Facets
+	trend        []TrendBucket
+	facetsWarns  []string
+	trendWarns   []string
+}
+
 // Query is the list-first path. `include` opt-ins unlock facets / trend /
-// summary blocks so page-turns stay fast by default.
+// summary blocks. List + asked-for includes run in parallel via errgroup
+// so the response = max(list, summary, facets, trend), not sum.
 func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (QueryResponse, error) {
 	filters, err := querycompiler.FromStructured(req.Filters, teamID, req.StartTime, req.EndTime)
 	if err != nil {
@@ -27,50 +43,87 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Qu
 	}
 	limit := pickLimit(req.Limit, 50, 500)
 	cur, _ := DecodeCursor(req.Cursor)
-
-	rows, hasMore, err := s.repo.ListLogs(ctx, filters, limit, cur)
+	parts, err := s.fetchQueryParts(ctx, filters, limit, cur, toSet(req.Include))
 	if err != nil {
-		return QueryResponse{}, fmt.Errorf("logs.Query.list: %w", err)
-	}
-
-	resp := QueryResponse{
-		Results:  mapLogs(rows),
-		PageInfo: buildPageInfo(rows, hasMore, limit),
-	}
-	if err := s.applyIncludes(ctx, &resp, req.Include, filters); err != nil {
 		return QueryResponse{}, err
 	}
-	return resp, nil
+	return QueryResponse{
+		Results:  mapLogs(parts.rows),
+		PageInfo: buildPageInfo(parts.rows, parts.hasMore, limit),
+		Summary:  parts.summary,
+		Facets:   parts.facets,
+		Trend:    parts.trend,
+		Warnings: append(parts.facetsWarns, parts.trendWarns...),
+	}, nil
 }
 
-// applyIncludes attaches optional response blocks (facets/trend/summary).
-// Compile warnings from the rollup path bubble up into resp.Warnings.
-func (s *Service) applyIncludes(ctx context.Context, resp *QueryResponse, include []string, f querycompiler.Filters) error {
-	want := toSet(include)
+// fetchQueryParts fans list + summary + facets + trend out in parallel.
+// Perf note: replaced four sequential ClickHouse reads with max-of-four.
+func (s *Service) fetchQueryParts(
+	ctx context.Context, f querycompiler.Filters, limit int, cur Cursor, want map[string]bool,
+) (queryParts, error) {
+	var p queryParts
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(s.listJob(gctx, f, limit, cur, &p))
 	if want["summary"] {
-		summary, err := s.repo.Summary(ctx, f)
+		g.Go(s.summaryJob(gctx, f, &p))
+	}
+	if want["facets"] {
+		g.Go(s.facetsJob(gctx, f, &p))
+	}
+	if want["trend"] {
+		g.Go(s.trendJob(gctx, f, &p))
+	}
+	if err := g.Wait(); err != nil {
+		return queryParts{}, err
+	}
+	return p, nil
+}
+
+func (s *Service) listJob(ctx context.Context, f querycompiler.Filters, limit int, cur Cursor, p *queryParts) func() error {
+	return func() error {
+		rows, hasMore, err := s.repo.ListLogs(ctx, f, limit, cur)
+		if err != nil {
+			return fmt.Errorf("logs.Query.list: %w", err)
+		}
+		p.rows, p.hasMore = rows, hasMore
+		return nil
+	}
+}
+
+func (s *Service) summaryJob(ctx context.Context, f querycompiler.Filters, p *queryParts) func() error {
+	return func() error {
+		sm, err := s.repo.Summary(ctx, f)
 		if err != nil {
 			return fmt.Errorf("logs.Query.summary: %w", err)
 		}
-		resp.Summary = &summary
+		p.summary = &sm
+		return nil
 	}
-	if want["facets"] {
-		facets, warns, err := s.repo.Facets(ctx, f)
+}
+
+func (s *Service) facetsJob(ctx context.Context, f querycompiler.Filters, p *queryParts) func() error {
+	return func() error {
+		fc, warns, err := s.repo.Facets(ctx, f)
 		if err != nil {
 			return fmt.Errorf("logs.Query.facets: %w", err)
 		}
-		resp.Facets = &facets
-		resp.Warnings = append(resp.Warnings, warns...)
+		p.facets = &fc
+		p.facetsWarns = warns
+		return nil
 	}
-	if want["trend"] {
-		trend, warns, err := s.repo.Trend(ctx, f, "")
+}
+
+func (s *Service) trendJob(ctx context.Context, f querycompiler.Filters, p *queryParts) func() error {
+	return func() error {
+		tr, warns, err := s.repo.Trend(ctx, f, "")
 		if err != nil {
 			return fmt.Errorf("logs.Query.trend: %w", err)
 		}
-		resp.Trend = trend
-		resp.Warnings = append(resp.Warnings, warns...)
+		p.trend = tr
+		p.trendWarns = warns
+		return nil
 	}
-	return nil
 }
 
 // Analytics dispatches to rollup when filters allow, raw otherwise.

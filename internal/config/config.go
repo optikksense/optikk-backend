@@ -24,6 +24,7 @@ type Config struct {
 	Retention      RetentionConfig  `yaml:"retention"`
 	App            AppConfig        `yaml:"app"`
 	Ingestion      IngestionConfig  `yaml:"ingestion"`
+	Telemetry      TelemetryConfig  `yaml:"telemetry"`
 }
 
 // Load reads configuration from a YAML file with environment variable overrides.
@@ -170,6 +171,12 @@ func setDefaults(v *viper.Viper) {
 	// ingestion
 	v.SetDefault("ingestion.spans_bucket_seconds", 0)
 	v.SetDefault("ingestion.logs_bucket_seconds", 0)
+
+	// telemetry.otel — self-telemetry to monitoring stack
+	v.SetDefault("telemetry.otel.enabled", false)
+	v.SetDefault("telemetry.otel.endpoint", "127.0.0.1:14317")
+	v.SetDefault("telemetry.otel.sample_ratio", 1.0)
+	v.SetDefault("telemetry.otel.service_name", "optikk-backend")
 }
 
 func (c Config) validate() error {

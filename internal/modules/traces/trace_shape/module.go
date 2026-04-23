@@ -16,7 +16,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 		return
 	}
 	v1.GET("/traces/:traceId/span-kind-breakdown", h.GetSpanKindBreakdown)
-	v1.GET("/traces/:traceId/span-self-times", h.GetSpanSelfTimes)
 	v1.GET("/traces/:traceId/flamegraph", h.GetFlamegraphData)
 }
 

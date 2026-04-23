@@ -28,17 +28,6 @@ func (h *Handler) GetSpanKindBreakdown(c *gin.Context) {
 	modulecommon.RespondOK(c, b)
 }
 
-func (h *Handler) GetSpanSelfTimes(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	traceID := c.Param("traceId")
-	t, err := h.svc.GetSpanSelfTimes(c.Request.Context(), teamID, traceID)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query span self times", err)
-		return
-	}
-	modulecommon.RespondOK(c, t)
-}
-
 func (h *Handler) GetFlamegraphData(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")

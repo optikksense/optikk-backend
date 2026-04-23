@@ -1,0 +1,83 @@
+{
+  "title": "Optikk — ClickHouse Query Performance",
+  "uid": "optikk-ch-perf",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "tags": ["optikk", "clickhouse"],
+  "timezone": "browser",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "p95 — all CH reads",
+      "id": 1,
+      "gridPos": { "x": 0, "y": 0, "w": 8, "h": 4 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceqlMetrics",
+          "query": "{ span.db.system=\"clickhouse\" } | quantile_over_time(duration, 0.95)"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "Reads / sec",
+      "id": 2,
+      "gridPos": { "x": 8, "y": 0, "w": 8, "h": 4 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceqlMetrics",
+          "query": "{ span.db.system=\"clickhouse\" } | rate()"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "CH error rate",
+      "id": 3,
+      "gridPos": { "x": 16, "y": 0, "w": 8, "h": 4 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceqlMetrics",
+          "query": "{ span.db.system=\"clickhouse\" && status=error } | rate()"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "Duration heatmap by op",
+      "id": 10,
+      "gridPos": { "x": 0, "y": 4, "w": 24, "h": 10 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceqlMetrics",
+          "query": "{ span.db.system=\"clickhouse\" } | quantile_over_time(duration, 0.95) by (span.db.operation)"
+        }
+      ]
+    },
+    {
+      "type": "table",
+      "title": "Top-20 slowest CH reads (last hour)",
+      "id": 20,
+      "gridPos": { "x": 0, "y": 14, "w": 24, "h": 10 },
+      "datasource": { "type": "tempo", "uid": "tempo" },
+      "targets": [
+        {
+          "refId": "A",
+          "queryType": "traceql",
+          "query": "{ span.db.system=\"clickhouse\" } >> { duration > 100ms }",
+          "limit": 20
+        }
+      ]
+    }
+  ]
+}

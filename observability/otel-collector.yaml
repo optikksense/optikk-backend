@@ -1,0 +1,61 @@
+# OpenTelemetry Collector config for the LGTM monitoring stack.
+# Receives traces/logs/metrics from the backend SDK and the browser
+# FetchInstrumentation, routes each signal to the right sink.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+        # Browser OTLP needs CORS — otherwise the preflight from the FE
+        # origin (5173 / 3000) is rejected.
+        cors:
+          allowed_origins:
+            - "http://localhost:3000"
+            - "http://localhost:5173"
+          allowed_headers:
+            - "*"
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 20
+  batch:
+    timeout: 2s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+
+exporters:
+  # Traces -> Tempo via OTLP HTTP.
+  otlphttp/tempo:
+    endpoint: http://tempo:4318
+    tls:
+      insecure: true
+  # Logs -> Loki.
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+    tls:
+      insecure: true
+  # Metrics exposed as Prometheus scrape endpoint on :8889.
+  prometheus:
+    endpoint: 0.0.0.0:8889
+    resource_to_telemetry_conversion:
+      enabled: true
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/tempo]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/loki]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]

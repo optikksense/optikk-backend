@@ -7,7 +7,6 @@ import (
 
 type Service interface {
 	GetSpanKindBreakdown(ctx context.Context, teamID int64, traceID string) ([]SpanKindDuration, error)
-	GetSpanSelfTimes(ctx context.Context, teamID int64, traceID string) ([]SpanSelfTime, error)
 	GetFlamegraphData(ctx context.Context, teamID int64, traceID string) ([]FlamegraphFrame, error)
 }
 
@@ -35,10 +34,6 @@ func (s *service) GetSpanKindBreakdown(ctx context.Context, teamID int64, traceI
 		}
 	}
 	return result, nil
-}
-
-func (s *service) GetSpanSelfTimes(ctx context.Context, teamID int64, traceID string) ([]SpanSelfTime, error) {
-	return s.repo.GetSpanSelfTimes(ctx, teamID, traceID)
 }
 
 func (s *service) GetFlamegraphData(ctx context.Context, teamID int64, traceID string) ([]FlamegraphFrame, error) {

@@ -33,7 +33,7 @@ type logsExplorerModule struct {
 }
 
 func (m *logsExplorerModule) Name() string                      { return "logsExplorer" }
-func (m *logsExplorerModule) RouteTarget() registry.RouteTarget { return registry.V1 }
+func (m *logsExplorerModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *logsExplorerModule) configure(db clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	repo := NewRepository(db)

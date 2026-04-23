@@ -31,6 +31,19 @@ type AppConfig struct {
 	Region string `yaml:"region"`
 }
 
+// TelemetryConfig wires the self-telemetry OTel SDK (traces). Metrics
+// stay on the existing Prometheus `/metrics` endpoint.
+type TelemetryConfig struct {
+	OTel OTelConfig `yaml:"otel"`
+}
+
+type OTelConfig struct {
+	Enabled     bool    `yaml:"enabled"`
+	Endpoint    string  `yaml:"endpoint"`
+	SampleRatio float64 `yaml:"sample_ratio"`
+	ServiceName string  `yaml:"service_name"`
+}
+
 func (c Config) SessionLifetime() time.Duration {
 	return time.Duration(c.Session.LifetimeMs) * time.Millisecond
 }

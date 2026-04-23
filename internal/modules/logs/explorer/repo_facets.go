@@ -31,23 +31,27 @@ func (r *Repository) Facets(ctx context.Context, f querycompiler.Filters) (Facet
 func (r *Repository) fetchFacetRows(ctx context.Context, compiled querycompiler.Compiled) ([]facetRowDTO, error) {
 	hostPodTbl := logsRollupPrefix + "_1m"
 
+	// PREWHERE on (team_id, bucket_ts) leads the MergeTree sort key on
+	// every rollup leg. Same predicates also live inside compiled.Where;
+	// CH dedupes them at plan time.
+	const pw = `PREWHERE team_id = @teamID AND bucket_ts BETWEEN @start AND @end`
 	query := fmt.Sprintf(`
 		SELECT dim, value, count
 		FROM (
 			SELECT 'severity_bucket' AS dim, toString(severity_bucket) AS value, sumMerge(log_count) AS count
-			FROM %s WHERE %s GROUP BY severity_bucket
+			FROM %s `+pw+` WHERE %s GROUP BY severity_bucket
 			UNION ALL
 			SELECT 'service' AS dim, service AS value, sumMerge(log_count) AS count
-			FROM %s WHERE %s GROUP BY service
+			FROM %s `+pw+` WHERE %s GROUP BY service
 			UNION ALL
 			SELECT 'environment' AS dim, environment AS value, sumMerge(log_count) AS count
-			FROM %s WHERE %s AND environment != '' GROUP BY environment
+			FROM %s `+pw+` WHERE %s AND environment != '' GROUP BY environment
 			UNION ALL
 			SELECT 'host' AS dim, host AS value, sumMerge(log_count) AS count
-			FROM %s WHERE %s AND host != '' GROUP BY host
+			FROM %s `+pw+` WHERE %s AND host != '' GROUP BY host
 			UNION ALL
 			SELECT 'pod' AS dim, pod AS value, sumMerge(log_count) AS count
-			FROM %s WHERE %s AND pod != '' GROUP BY pod
+			FROM %s `+pw+` WHERE %s AND pod != '' GROUP BY pod
 		) ORDER BY dim ASC, count DESC`,
 		logsFacetRollupTbl, compiled.Where,
 		logsFacetRollupTbl, compiled.Where,

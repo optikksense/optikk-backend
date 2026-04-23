@@ -60,7 +60,10 @@ func CORSMiddleware(allowedOrigins string) gin.HandlerFunc {
 
 		if c.Request.Method == http.MethodOptions {
 			headers.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Team-Id, X-User-Id, X-User-Email, X-User-Role")
+			// traceparent + tracestate added so browser FetchInstrumentation
+			// can propagate W3C trace context to the backend without tripping
+			// CORS preflight. See optikk-frontend/src/shared/telemetry/browserOtel.ts.
+			headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Team-Id, X-User-Id, X-User-Email, X-User-Role, traceparent, tracestate")
 			headers.Set("Access-Control-Allow-Credentials", "true")
 			c.AbortWithStatus(http.StatusNoContent)
 			return

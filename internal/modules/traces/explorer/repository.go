@@ -49,8 +49,11 @@ func (r *Repository) listTracesIndex(ctx context.Context, f querycompiler.Filter
 		traceIndexColumns, tracesIndexTable, compiled.PreWhere, where,
 	)
 	args = append(args, clickhouse.Named("pgLimit", uint64(limit+1))) //nolint:gosec
+	qctx, done := dbutil.Traced(ctx, "traces.ListTraces", query)
 	var rows []traceIndexRowDTO
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
+	err := r.db.Select(dbutil.ExplorerCtx(qctx), &rows, query, args...)
+	done(err)
+	if err != nil {
 		return nil, false, compiled.DroppedClauses, err
 	}
 	hasMore := len(rows) > limit

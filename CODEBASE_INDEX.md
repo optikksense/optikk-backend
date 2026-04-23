@@ -34,13 +34,27 @@ Current queueing model is Kafka-backed, not Redis-stream-backed. Local developme
 
 ### Data and platform infrastructure
 
-- `internal/infra/database/`: MySQL and ClickHouse clients, migration helpers
+- `internal/infra/database/`: MySQL and ClickHouse clients, migration helpers; `clickhouse_otel.go` exposes `Traced(ctx, op, stmt)` for wrapping CH reads with OTel spans (used on hot paths: traces.ListTraces, logs.ListLogs — extend as needed).
 - `internal/infra/kafka/`: broker client, producers, consumers, topic helpers
 - `internal/infra/redis/`: Redis client
 - `internal/infra/session/`: session persistence and middleware integration
-- `internal/infra/middleware/`: recovery, CORS, tenant, body limit, response cache
+- `internal/infra/middleware/`: recovery, CORS (allows `traceparent`/`tracestate` for W3C propagation), tenant, body limit, response cache
 - `internal/infra/rollup/`: time-range-aware rollup tier selection
 - `internal/infra/cursor/`: cursor helpers for explorer-style APIs
+- `internal/infra/otel/`: self-telemetry OTel SDK bootstrap (`provider.go` — OTLP gRPC exporter to the monitoring collector at `127.0.0.1:14317`) + gin middleware re-export. Wired in `app.go:New`.
+
+### Observability / monitoring stack
+
+Separate LGTM deployment (Tempo + Loki + Prometheus + Grafana) that sits alongside the app in `docker-compose.yml`. Intentionally NOT routed through the app's own OTLP receiver on `:4317`; monitoring the app is a distinct concern from the customer-facing observability product.
+
+- `docker-compose.yml` services: `otel-collector` (host `:14317` gRPC, `:14318` HTTP, `:8889` Prometheus scrape), `tempo` (`:3200`), `loki` (`:3100`), `prometheus` (`:9090`), `grafana` (`:3001`).
+- `observability/otel-collector.yaml` — receivers + exporters routing traces → Tempo, logs → Loki, metrics → Prometheus scrape.
+- `observability/tempo.yaml`, `observability/loki.yaml` — local filesystem storage.
+- `observability/prometheus.yml` — scrape jobs: `optikk-api` (Go runtime via `/metrics`), `otel-collector:8889`, `redpanda:9644`.
+- `observability/grafana/provisioning/datasources/datasources.yaml` — Tempo / Loki / Prometheus (with derived-field trace→log correlation).
+- `observability/grafana/provisioning/dashboards/dashboards.yaml` — filesystem provider.
+- `observability/grafana/dashboards/` — `api-latency.json` (per-endpoint p50/p95/p99 from Tempo), `clickhouse-perf.json` (child-span CH query perf), `system-health.json` (Go runtime + HTTP RED + collector health).
+- `config.yml` → `telemetry.otel` block controls SDK enablement, endpoint, sample ratio, service name.
 
 ### Traces read path (split into sibling submodules)
 
@@ -50,11 +64,18 @@ The trace read surface used to live in two monoliths (`explorer` + `tracedetail`
 - `internal/modules/traces/trace_analytics/` — `POST /api/v1/traces/analytics` (group-by + aggregations over traces_index).
 - `internal/modules/traces/span_query/` — `POST /api/v1/spans/query` (span-level explorer view over `observability.spans`).
 - `internal/modules/traces/tracedetail/` — per-span drill-downs: `/traces/:id/span-events`, `/traces/:id/spans/:spanId/attributes`, `/traces/:id/logs`, `/traces/:id/related`, plus the spans list/tree (`/traces/:id/spans`, `/spans/:id/tree`).
-- `internal/modules/traces/trace_shape/` — "shape" of a trace: `/traces/:id/flamegraph`, `/traces/:id/span-kind-breakdown`, `/traces/:id/span-self-times`.
+- `internal/modules/traces/trace_shape/` — "shape" of a trace: `/traces/:id/flamegraph`, `/traces/:id/span-kind-breakdown`. Self-times are computed on the frontend from the span list returned by `/traces/:id/bundle`; there is no server-side `/traces/:id/span-self-times` endpoint.
 - `internal/modules/traces/trace_paths/` — chain analysis: `/traces/:id/critical-path`, `/traces/:id/error-path`.
 - `internal/modules/traces/trace_servicemap/` — per-trace aggregates: `/traces/:id/service-map`, `/traces/:id/errors`.
 - `internal/modules/traces/trace_suggest/` — DSL autocomplete: `POST /traces/suggest` for field/attribute value completion on the traces query bar.
 - `internal/modules/traces/shared/traceidmatch/` — shared ClickHouse predicate (`WhereTraceIDMatchesCH`) so every trace-scoped reader normalizes trace_id identically.
+
+### Logs read path
+
+- `internal/modules/logs/explorer/` — `POST /api/v1/logs/query`, `POST /api/v1/logs/analytics`, `GET /api/v1/logs/:id`. `RouteTarget = Cached` so reads pass through the Redis response-cache + the ClickHouse query-cache layer (via the `Explorer` query-budget context). `Query` fans `summary / facets / trend` plus the base list fetch out in parallel via `errgroup.Group`; response = max of all branches, not sum.
+- `internal/modules/logs/explorer/repository.go` — `ListLogs` + `GetByID` use `PREWHERE team_id = @teamID AND ts_bucket_start BETWEEN …` so partition pruning runs before the rest of the predicates. `repo_facets.go` unions 5 rollup legs — each leg has the same `PREWHERE` on `(team_id, bucket_ts)` as the lead.
+- `internal/modules/logs/querycompiler/` — `Compile(Filters, Target)` → `Compiled{Where, Args, DroppedClauses}`. Targets: `TargetRaw` (observability.logs), `TargetRollup` (logs_rollup_{1m,5m,1h}), `TargetFacetRollup` (logs_facets_rollup_5m).
+
 ### Data Type Consistency
 
 To maintain a clean and predictable codebase, follow these type-alignment rules:

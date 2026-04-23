@@ -58,3 +58,13 @@ kafka:
 
 app:
   region: us-east-1
+
+# Self-telemetry to the LGTM monitoring stack. Intentionally NOT routed
+# through this process's own OTLP receiver on :4317 — see
+# internal/infra/otel/provider.go doc for why.
+telemetry:
+  otel:
+    enabled: true
+    endpoint: "127.0.0.1:14317"
+    sample_ratio: 1.0
+    service_name: optikk-backend

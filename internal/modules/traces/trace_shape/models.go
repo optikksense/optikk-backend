@@ -1,6 +1,7 @@
 // Package trace_shape exposes the "shape/distribution of a trace" endpoints
-// (flamegraph, span-kind breakdown, span self-times) split out of the legacy
-// tracedetail module.
+// (flamegraph, span-kind breakdown) split out of the legacy tracedetail module.
+// Self-times are computed on the frontend from the span list returned by
+// /traces/:id/bundle — no server-side endpoint.
 package trace_shape //nolint:revive,stylecheck
 
 type SpanKindDuration struct {
@@ -8,15 +9,6 @@ type SpanKindDuration struct {
 	TotalDuraMs float64 `json:"total_duration_ms" ch:"total_duration_ms"`
 	SpanCount   int64   `json:"span_count"        ch:"span_count"`
 	PctOfTrace  float64 `json:"pct_of_trace"`
-}
-
-// SpanSelfTime breaks down a span's self time vs total time.
-type SpanSelfTime struct {
-	SpanID        string  `json:"span_id"           ch:"span_id"`
-	OperationName string  `json:"operation_name"    ch:"operation_name"`
-	TotalDuraMs   float64 `json:"total_duration_ms" ch:"total_duration_ms"`
-	SelfTimeMs    float64 `json:"self_time_ms"      ch:"self_time_ms"`
-	ChildTimeMs   float64 `json:"child_time_ms"     ch:"child_time_ms"`
 }
 
 // FlamegraphFrame represents a single frame in a flamegraph visualization.
