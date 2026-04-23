@@ -34,7 +34,7 @@ receivers:
           scrape_interval: 15s
           metrics_path: /metrics
           static_configs:
-            - targets: ["host.docker.internal:8080"]
+            - targets: ["host.docker.internal:19090"]
 
 processors:
   memory_limiter:
@@ -43,6 +43,10 @@ processors:
     spike_limit_percentage: 20
   batch:
     timeout: 2s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+  batch/metrics:
+    timeout: 30s
     send_batch_size: 1024
     send_batch_max_size: 2048
   # Grafana Cloud requires a `service.name` attribute; stamp a sensible
@@ -71,8 +75,10 @@ service:
       exporters: [otlphttp/grafana-cloud]
     metrics:
       receivers: [otlp, prometheus]
-      processors: [memory_limiter, resource/defaults, batch]
+      processors: [memory_limiter, resource/defaults, batch/metrics]
       exporters: [otlphttp/grafana-cloud]
   telemetry:
     logs:
       level: info
+    metrics:
+      level: none

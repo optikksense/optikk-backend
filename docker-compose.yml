@@ -79,7 +79,7 @@ services:
   # Tempo/Loki/Prometheus/Grafana deployment. Credentials come from `.env`
   # (gitignored); see .env.example.
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.115.0
+    image: otel/opentelemetry-collector-contrib:0.150.1
     command: ["--config=/etc/otel-collector.yaml"]
     volumes:
       - ./observability/otel-collector.yaml:/etc/otel-collector.yaml:ro

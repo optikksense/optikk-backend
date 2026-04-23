@@ -45,7 +45,7 @@ func (a *App) setupGlobalMiddleware(r *gin.Engine) {
 	r.Use(middleware.BodyLimitMiddleware(10 * 1024 * 1024)) // 10 MB
 	// gzip the response body for list/facet/trend payloads; default
 	// compression level keeps CPU overhead minimal on small payloads.
-	r.Use(gzip.Gzip(gzip.DefaultCompression))
+	r.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/metrics"})))
 }
 
 func (a *App) setupHealthRoutes(r *gin.Engine) {

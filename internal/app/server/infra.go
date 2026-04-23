@@ -88,17 +88,6 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 
 	prefix := cfg.KafkaTopicPrefix()
 	kafkaCfg := kafkainfra.Config{Brokers: cfg.KafkaBrokers()}
-	rf := int16(cfg.KafkaReplicationFactor()) //nolint:gosec // small positive int
-	specs := []kafkainfra.TopicSpec{
-		{Name: kafkainfra.IngestTopic(prefix, kafkainfra.SignalLogs), Partitions: int32(cfg.KafkaPartitions("logs")), ReplicationFactor: rf},       //nolint:gosec
-		{Name: kafkainfra.IngestTopic(prefix, kafkainfra.SignalSpans), Partitions: int32(cfg.KafkaPartitions("spans")), ReplicationFactor: rf},     //nolint:gosec
-		{Name: kafkainfra.IngestTopic(prefix, kafkainfra.SignalMetrics), Partitions: int32(cfg.KafkaPartitions("metrics")), ReplicationFactor: rf}, //nolint:gosec
-		{Name: kafkainfra.DLQTopic(prefix, kafkainfra.SignalLogs), Partitions: 4, ReplicationFactor: rf},
-		{Name: kafkainfra.DLQTopic(prefix, kafkainfra.SignalSpans), Partitions: 4, ReplicationFactor: rf},
-	}
-	if err := kafkainfra.EnsureTopics(kafkaCfg.Brokers, specs); err != nil {
-		return nil, fmt.Errorf("kafka ingest topics: %w", err)
-	}
 
 	ingest, producerClient, consumerClients, err := buildIngestModules(cfg, kafkaCfg, prefix, chConn)
 	if err != nil {
