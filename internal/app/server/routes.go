@@ -11,6 +11,7 @@ import (
 	appotel "github.com/Optikk-Org/optikk-backend/internal/infra/otel"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -33,7 +34,7 @@ func (a *App) Router() *gin.Engine {
 // (e.g. Grafana Cloud) is configured via prometheus/prometheus.yml remote_write.
 // See docs/observability.md.
 func (a *App) setupMetricsRoute(r *gin.Engine) {
-	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	r.GET("/metrics", gin.WrapH(promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{DisableCompression: true})))
 }
 
 func (a *App) setupGlobalMiddleware(r *gin.Engine) {
