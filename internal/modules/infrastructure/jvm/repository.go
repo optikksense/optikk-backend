@@ -47,7 +47,7 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 func bucketExpr(startMs, endMs int64) string {
-	return timebucket.ExprForColumnTime(startMs, endMs, "bucket_ts")
+	return timebucket.ExprForColumn(startMs, endMs, "bucket_ts")
 }
 
 // GetJVMMemory groups by (pool_name, mem_type) from the combined `state_dim`

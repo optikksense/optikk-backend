@@ -133,10 +133,10 @@ func (r *ClickHouseRepository) GetInfrastructureNodeSummary(ctx context.Context,
 	// single pass over host-level aggregates to categorize health.
 	query := fmt.Sprintf(`
 		SELECT
-		    countIf(error_rate > 10)                        AS unhealthy_nodes,
-		    countIf(error_rate > 2 AND error_rate <= 10)    AS degraded_nodes,
-		    countIf(error_rate <= 2)                        AS healthy_nodes,
-		    sum(pod_count)                                  AS total_pods
+		    toInt64(countIf(error_rate > 10))                        AS unhealthy_nodes,
+		    toInt64(countIf(error_rate > 2 AND error_rate <= 10))    AS degraded_nodes,
+		    toInt64(countIf(error_rate <= 2))                        AS healthy_nodes,
+		    toInt64(sum(pod_count))                                  AS total_pods
 		FROM (
 		    SELECT
 		        host_name,

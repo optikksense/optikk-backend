@@ -46,8 +46,15 @@ Current queueing model is Kafka-backed, not Redis-stream-backed. Local developme
 
 - `internal/modules/traces/explorer/` serves `POST /api/v1/traces/query`, `POST /api/v1/traces/analytics`, and `GET /api/v1/traces/:traceId`.
 - It reads `observability.traces_index` directly rather than scanning raw spans for list/detail.
-- The table uses unsigned ClickHouse columns for `start_ms`, `end_ms`, `duration_ns`, `last_seen_ms`, and `root_http_status`; the module’s DB-facing DTO/model/cursor types must stay aligned with those unsigned shapes.
-- Mixed-type facet output should be normalized in SQL before scanning, such as casting `root_http_status` with `toString(...)` for the shared facet bucket DTO.
+### Data Type Consistency
+
+To maintain a clean and predictable codebase, follow these type-alignment rules:
+
+- **Integers**: Use `int64` as the default type for all counts, IDs, and metrics in domain models and API responses. This avoids unsigned underflow bugs and aligns with ~90% of the existing code.
+- **ClickHouse Scanning**:
+  - **Unsigned Parity**: The `clickhouse-go/v2` driver is strict. To scan a `UInt64` (from `count`, `sum`, etc.) into an `int64` Go field, you **must** use `toInt64(...)` in the SQL query.
+  - **Timestamps**: If the Go field is a `string`, use `formatDateTime(...)` in SQL (via the `timebucket.ExprForColumn` helper). If the Go field is a `time.Time`, use native `DateTime` (via the `timebucket.ExprForColumnTime` helper).
+  - **Facet Normalization**: Mixed-type facet output should be normalized in SQL before scanning, such as casting `root_http_status` with `toString(...)` for shared facet bucket DTOs.
 
 ### Module shape
 
