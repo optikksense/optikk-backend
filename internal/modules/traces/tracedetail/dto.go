@@ -88,6 +88,17 @@ type exceptionRow struct {
 	ExceptionStacktrace string    `ch:"exception_stacktrace"`
 }
 
+// spanEventCombinedRow fetches events (as array) and exception fields in one scan.
+type spanEventCombinedRow struct {
+	SpanID              string    `ch:"span_id"`
+	TraceID             string    `ch:"trace_id"`
+	Timestamp           time.Time `ch:"timestamp"`
+	Events              []string  `ch:"events"`
+	ExceptionType       string    `ch:"exception_type"`
+	ExceptionMessage    string    `ch:"exception_message"`
+	ExceptionStacktrace string    `ch:"exception_stacktrace"`
+}
+
 // spanAttributeRow is the scan target for GetSpanAttributes.
 // Merged Attributes map and DBStatementNormalized are built in the service layer.
 type spanAttributeRow struct {

@@ -7,7 +7,7 @@ server:
 
 mysql:
   host: "127.0.0.1"
-  port: "3306"
+  port: "13306"
   database: observability
   user: root
   password: root123
@@ -16,7 +16,7 @@ mysql:
 
 clickhouse:
   host: "127.0.0.1"
-  port: "9000"
+  port: "19000"
   database: observability
   user: default
   password: clickhouse123
@@ -36,7 +36,7 @@ session:
 redis:
   enabled: true
   host: "127.0.0.1"
-  port: "6379"
+  port: "16379"
   password: ""
   db: 0
 
@@ -51,10 +51,10 @@ ingestion:
 
 # OTLP ingest uses Kafka. Brokers must be reachable from this process (e.g. host port when API runs on host).
 kafka:
-  broker_list: "localhost:19092" # or OPTIKK_KAFKA_BROKER_LIST; docker-compose redpanda external port
+  broker_list: "127.0.0.1:19092" # or OPTIKK_KAFKA_BROKER_LIST; docker-compose kafka external port
   consumer_group: optikk-ingest # optional; default optikk-ingest
   topic_prefix: optikk.ingest # optional; topics: {prefix}.logs|.spans|.metrics
+  replication_factor: 1
 
 app:
   region: us-east-1
-

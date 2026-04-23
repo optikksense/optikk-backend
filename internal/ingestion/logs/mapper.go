@@ -6,6 +6,7 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/otlp"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/logs/enrich"
 	logspb "go.opentelemetry.io/proto/otlp/collector/logs/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	logv1 "go.opentelemetry.io/proto/otlp/logs/v1"
@@ -26,9 +27,9 @@ func MapRequest(teamID int64, req *logspb.ExportLogsServiceRequest) []*Row {
 		resourceMap := otlp.AttrsToMap(resAttrs)
 		fingerprint := strconv.FormatUint(otlp.ResourceFingerprint(resAttrs), 16)
 		for _, sl := range rl.GetScopeLogs() {
-			scopeName, scopeVersion, scopeMap := extractScope(sl.GetScope())
+			scopeName, scopeVersion := extractScope(sl.GetScope())
 			for _, lr := range sl.GetLogRecords() {
-				rows = append(rows, buildRow(teamID, resourceMap, fingerprint, scopeName, scopeVersion, scopeMap, lr))
+				rows = append(rows, buildRow(teamID, resourceMap, fingerprint, scopeName, scopeVersion, lr))
 			}
 		}
 	}
@@ -37,30 +38,32 @@ func MapRequest(teamID int64, req *logspb.ExportLogsServiceRequest) []*Row {
 
 // buildRow maps a single OTLP log record into a wire Row. Attribute capping is
 // kept inside mapper_attrs.go so this function stays under the 40-LOC cap.
-func buildRow(teamID int64, resource map[string]string, fingerprint, scopeName, scopeVersion string, scopeMap map[string]string, lr *logv1.LogRecord) *Row {
+// The result is routed through enrich.Enrich so downstream consumers see the
+// same normalized shape whether the row came from OTLP or a reprocessing tool.
+func buildRow(teamID int64, resource map[string]string, fingerprint, scopeName, scopeVersion string, lr *logv1.LogRecord) *Row {
 	tsNs, observedNs := resolveTimestamps(lr)
 	tsBucket := utils.LogsBucketStart(int64(tsNs / nsPerSecond))
 	attrStr, attrNum, attrBool := typedAttrs(lr.GetAttributes())
 	attrStr = capStringAttrs(attrStr, teamID)
+	sevNum := uint32(lr.GetSeverityNumber()) //nolint:gosec // OTLP 0..24
 	return &Row{
 		TeamId:              uint32(teamID), //nolint:gosec // G115 team_id
 		TsBucketStart:       tsBucket,
 		TimestampNs:         int64(tsNs), //nolint:gosec // ns fits int64
 		ObservedTimestampNs: observedNs,
-		TraceId:             otlp.BytesToHex(lr.GetTraceId()),
-		SpanId:              otlp.BytesToHex(lr.GetSpanId()),
+		TraceId:             enrich.ZeroTraceID(otlp.BytesToHex(lr.GetTraceId())),
+		SpanId:              enrich.ZeroSpanID(otlp.BytesToHex(lr.GetSpanId())),
 		TraceFlags:          lr.GetFlags(),
-		SeverityText:        resolveSeverity(lr),
-		SeverityNumber:      uint32(lr.GetSeverityNumber()), //nolint:gosec // OTLP 0..24
+		SeverityText:        enrich.NormalizeSeverityText(resolveSeverity(lr), sevNum),
+		SeverityNumber:      sevNum,
 		Body:                otlp.AnyValueString(lr.GetBody()),
 		AttributesString:    attrStr,
 		AttributesNumber:    attrNum,
 		AttributesBool:      attrBool,
-		Resource:            resource,
+		Resource:            enrich.FillResourceFallbacks(resource, attrStr),
 		ResourceFingerprint: fingerprint,
 		ScopeName:           scopeName,
 		ScopeVersion:        scopeVersion,
-		ScopeString:         scopeMap,
 	}
 }
 
@@ -88,16 +91,14 @@ func resolveSeverity(lr *logv1.LogRecord) string {
 	return severityNumberToLevel(lr.GetSeverityNumber())
 }
 
-// extractScope flattens an instrumentation scope into (name, version, attrs).
-func extractScope(scope *commonpb.InstrumentationScope) (string, string, map[string]string) {
+// extractScope flattens an instrumentation scope into (name, version). The
+// old (name, version, attrs) form is retired alongside the `scope_string`
+// column drop — the attrs map was a duplicate of name and unused downstream.
+func extractScope(scope *commonpb.InstrumentationScope) (string, string) {
 	if scope == nil {
-		return "", "", map[string]string{}
+		return "", ""
 	}
-	attrs := map[string]string{}
-	if scope.GetName() != "" {
-		attrs["name"] = scope.GetName()
-	}
-	return scope.GetName(), scope.GetVersion(), attrs
+	return scope.GetName(), scope.GetVersion()
 }
 
 func severityNumberToLevel(n logv1.SeverityNumber) string {

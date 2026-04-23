@@ -6,6 +6,7 @@
 // Regenerate row.pb.go after editing row.proto:
 //
 //	protoc --proto_path=. --go_out=. --go_opt=paths=source_relative row.proto
+//go:generate protoc --go_out=. --go_opt=paths=source_relative span_row.proto
 package spans
 
 import (
@@ -13,7 +14,8 @@ import (
 	"time"
 )
 
-// CHTable is the ClickHouse destination table for the span signal.
+// CHTable is the ClickHouse destination table for the span signal — the v2
+// observability.spans — DDL in db/clickhouse/01_spans.sql.
 const CHTable = "observability.spans"
 
 // Columns is the insert column order for CHTable. Mirrors Row's proto fields

@@ -15,7 +15,7 @@ func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *TraceDetailHandler) {
+func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *TraceDetailHandler, sh *SpansHandler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}
@@ -28,6 +28,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *TraceDetailHandler) {
 	v1.GET("/traces/:traceId/flamegraph", h.GetFlamegraphData)
 	v1.GET("/traces/:traceId/logs", h.GetTraceLogs)
 	v1.GET("/traces/:traceId/related", h.GetRelatedTraces)
+	if sh != nil {
+		v1.GET("/traces/:traceId/spans", sh.GetTraceSpans)
+		v1.GET("/spans/:spanId/tree", sh.GetSpanTree)
+	}
 }
 
 func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
@@ -37,7 +41,8 @@ func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) 
 }
 
 type traceDetailModule struct {
-	handler *TraceDetailHandler
+	handler      *TraceDetailHandler
+	spansHandler *SpansHandler
 }
 
 func (m *traceDetailModule) Name() string                      { return "traceDetail" }
@@ -48,8 +53,9 @@ func (m *traceDetailModule) configure(nativeQuerier clickhouse.Conn, getTenant r
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service:  NewService(NewRepository(nativeQuerier)),
 	}
+	m.spansHandler = NewSpansHandler(getTenant, NewTraceSpansService(nativeQuerier))
 }
 
 func (m *traceDetailModule) RegisterRoutes(group *gin.RouterGroup) {
-	RegisterRoutes(DefaultConfig(), group, m.handler)
+	RegisterRoutes(DefaultConfig(), group, m.handler, m.spansHandler)
 }

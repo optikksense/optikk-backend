@@ -5,163 +5,156 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Optikk-Org/optikk-backend/internal/modules/explorer/queryparser"
-	spantraces "github.com/Optikk-Org/optikk-backend/internal/modules/traces/query"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
 )
 
-type tracesQueryService interface {
-	SearchTraces(ctx context.Context, filters spantraces.TraceFilters, limit int, cursorRaw string) (spantraces.TraceSearchResult, error)
-	GetExplorerFacets(ctx context.Context, filters spantraces.TraceFilters) ([]spantraces.TraceFacet, error)
-	GetExplorerTrend(ctx context.Context, filters spantraces.TraceFilters, step string) ([]spantraces.TraceTrendBucket, error)
-}
-
+// Service orchestrates traces explorer read paths. List + facets + trend
+// read traces_index; analytics also reads traces_index (raw-span fallback
+// arrives with later features).
 type Service struct {
-	tracesService tracesQueryService
+	repo *Repository
 }
 
-func NewService(tracesService tracesQueryService) *Service {
-	return &Service{
-		tracesService: tracesService,
+func NewService(repo *Repository) *Service { return &Service{repo: repo} }
+
+func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (QueryResponse, error) {
+	filters, err := querycompiler.FromStructured(req.Filters, teamID, req.StartTime, req.EndTime)
+	if err != nil {
+		return QueryResponse{}, fmt.Errorf("traces.Query.parse: %w", err)
 	}
+	limit := pickLimit(req.Limit, 50, 500)
+	cur, _ := DecodeCursor(req.Cursor)
+
+	rows, hasMore, warns, err := s.repo.ListTraces(ctx, filters, limit, cur)
+	if err != nil {
+		return QueryResponse{}, fmt.Errorf("traces.Query.list: %w", err)
+	}
+
+	resp := QueryResponse{
+		Results:  mapTraces(rows),
+		PageInfo: buildPageInfo(rows, hasMore, limit),
+		Warnings: warns,
+	}
+	if err := s.applyIncludes(ctx, &resp, req.Include, filters); err != nil {
+		return QueryResponse{}, err
+	}
+	return resp, nil
 }
 
-func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Response, error) {
-	filters, err := buildFiltersFromQuery(req, teamID)
-	if err != nil {
-		return Response{}, fmt.Errorf("traces.Query.parseQuery: %w", err)
-	}
-
-	limit := req.Limit
-	if limit <= 0 || limit > 500 {
-		limit = 50
-	}
-
-	result, err := s.tracesService.SearchTraces(ctx, filters, limit, req.Cursor)
-	if err != nil {
-		return Response{}, fmt.Errorf("traces.Query.SearchTraces: %w", err)
-	}
-
-	facets, err := s.tracesService.GetExplorerFacets(ctx, filters)
-	if err != nil {
-		return Response{}, fmt.Errorf("traces.Query.GetFacets: %w", err)
-	}
-	groupedFacets := ExplorerFacets{
-		ServiceName:   []FacetBucket{},
-		Status:        []FacetBucket{},
-		OperationName: []FacetBucket{},
-	}
-	for _, facet := range facets {
-		bucket := FacetBucket{Value: facet.Value, Count: facet.Count}
-		switch facet.Key {
-		case "service_name":
-			groupedFacets.ServiceName = append(groupedFacets.ServiceName, bucket)
-		case "status":
-			groupedFacets.Status = append(groupedFacets.Status, bucket)
-		case "operation_name":
-			groupedFacets.OperationName = append(groupedFacets.OperationName, bucket)
+func (s *Service) applyIncludes(ctx context.Context, resp *QueryResponse, include []string, f querycompiler.Filters) error {
+	want := toSet(include)
+	if want["summary"] {
+		summary, err := s.repo.Summarize(ctx, f)
+		if err != nil {
+			return fmt.Errorf("traces.Query.summary: %w", err)
 		}
+		resp.Summary = &summary
 	}
+	if want["facets"] {
+		facets, err := s.repo.Facets(ctx, f)
+		if err != nil {
+			return fmt.Errorf("traces.Query.facets: %w", err)
+		}
+		resp.Facets = &facets
+	}
+	if want["trend"] {
+		trend, err := s.repo.Trend(ctx, f)
+		if err != nil {
+			return fmt.Errorf("traces.Query.trend: %w", err)
+		}
+		resp.Trend = trend
+	}
+	return nil
+}
 
-	trend, err := s.tracesService.GetExplorerTrend(ctx, filters, req.Step)
+func (s *Service) Analytics(ctx context.Context, req AnalyticsRequest, teamID int64) (AnalyticsResponse, error) {
+	filters, err := querycompiler.FromStructured(req.Filters, teamID, req.StartTime, req.EndTime)
 	if err != nil {
-		return Response{}, fmt.Errorf("traces.Query.GetTrend: %w", err)
+		return AnalyticsResponse{}, fmt.Errorf("traces.Analytics.parse: %w", err)
 	}
-
-	return Response{
-		Results:  result.Traces,
-		Summary:  result.Summary,
-		Facets:   groupedFacets,
-		Trend:    trend,
-		PageInfo: PageInfo{HasMore: result.HasMore, NextCursor: result.NextCursor, Limit: limit},
-		Correlations: Correlations{
-			TopServices:   groupedFacets.ServiceName,
-			TopOperations: groupedFacets.OperationName,
-		},
+	rows, warns, err := s.repo.Analytics(ctx, req, filters)
+	if err != nil {
+		return AnalyticsResponse{}, fmt.Errorf("traces.Analytics.query: %w", err)
+	}
+	return AnalyticsResponse{
+		VizMode:  normalizeViz(req.VizMode),
+		Step:     req.Step,
+		Rows:     rows,
+		Warnings: warns,
 	}, nil
 }
 
-// buildFiltersFromQuery parses the query string into TraceFilters.
-func buildFiltersFromQuery(req QueryRequest, teamID int64) (spantraces.TraceFilters, error) {
-	filters := spantraces.TraceFilters{
-		TeamID:     teamID,
-		StartMs:    req.StartTime,
-		EndMs:      req.EndTime,
-		SearchMode: "all",
-	}
-
-	if req.Query == "" {
-		return filters, nil
-	}
-
-	node, err := queryparser.Parse(req.Query)
+func (s *Service) GetByID(ctx context.Context, teamID int64, traceID string) (*Trace, error) {
+	row, err := s.repo.GetByID(ctx, teamID, traceID)
 	if err != nil {
-		return filters, fmt.Errorf("invalid query: %w", err)
+		return nil, err
 	}
-	if node == nil {
-		return filters, nil
+	if row == nil {
+		return nil, nil
 	}
-
-	extractTraceFilters(node, &filters)
-	return filters, nil
+	t := mapTrace(*row)
+	return &t, nil
 }
 
-// extractTraceFilters walks simple field:value nodes and populates TraceFilters.
-func extractTraceFilters(node queryparser.Node, f *spantraces.TraceFilters) {
-	switch n := node.(type) {
-	case *queryparser.AndNode:
-		for _, child := range n.Children {
-			extractTraceFilters(child, f)
-		}
-	case *queryparser.FieldMatch:
-		mapTraceField(n.Field, n.Value, f)
-	case *queryparser.FreeText:
-		if f.SearchText == "" {
-			f.SearchText = n.Text
-		} else {
-			f.SearchText += " " + n.Text
-		}
-	case *queryparser.ComparisonMatch:
-		mapTraceComparison(n.Field, n.Op, n.Value, f)
+func pickLimit(v, def, maxLimit int) int {
+	if v <= 0 {
+		return def
 	}
+	if v > maxLimit {
+		return maxLimit
+	}
+	return v
 }
 
-func mapTraceField(field, value string, f *spantraces.TraceFilters) {
-	lower := strings.ToLower(field)
-	switch lower {
-	case "service", "service_name":
-		f.Services = append(f.Services, value)
-	case "status":
-		f.Status = value
-	case "operation", "operation_name":
-		f.Operation = value
-	case "http.method":
-		f.HTTPMethod = value
-	case "http.status_code":
-		f.HTTPStatus = value
-	case "span.kind", "kind":
-		f.SpanKind = value
-	case "name":
-		f.SpanName = value
-	case "trace_id":
-		f.TraceID = value
+func normalizeViz(v string) string {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "topn", "table", "pie":
+		return strings.ToLower(v)
 	default:
-		if strings.HasPrefix(field, "@") {
-			f.AttributeFilters = append(f.AttributeFilters, spantraces.SpanAttributeFilter{
-				Key: field[1:], Value: value, Op: "eq",
-			})
-		}
+		return "timeseries"
 	}
 }
 
-func mapTraceComparison(field string, op queryparser.ComparisonOp, value string, f *spantraces.TraceFilters) {
-	lower := strings.ToLower(field)
-	switch lower {
-	case "duration":
-		switch op {
-		case queryparser.OpGT, queryparser.OpGTE:
-			f.MinDuration = value
-		case queryparser.OpLT, queryparser.OpLTE:
-			f.MaxDuration = value
-		}
+func toSet(items []string) map[string]bool {
+	out := make(map[string]bool, len(items))
+	for _, it := range items {
+		out[strings.ToLower(strings.TrimSpace(it))] = true
 	}
+	return out
+}
+
+func buildPageInfo(rows []traceIndexRowDTO, hasMore bool, limit int) PageInfo {
+	info := PageInfo{HasMore: hasMore, Limit: limit}
+	if hasMore && len(rows) > 0 {
+		last := rows[len(rows)-1]
+		info.NextCursor = TraceCursor{StartMs: last.StartMs, TraceID: last.TraceID}.Encode()
+	}
+	return info
+}
+
+func mapTrace(d traceIndexRowDTO) Trace {
+	return Trace{
+		TraceID:        d.TraceID,
+		StartMs:        d.StartMs,
+		EndMs:          d.EndMs,
+		DurationMs:     float64(d.DurationNs) / 1_000_000,
+		RootService:    d.RootService,
+		RootOperation:  d.RootOperation,
+		RootStatus:     d.RootStatus,
+		RootHTTPMethod: d.RootHTTPMethod,
+		RootHTTPStatus: d.RootHTTPStatus,
+		SpanCount:      d.SpanCount,
+		HasError:       d.HasError,
+		ErrorCount:     d.ErrorCount,
+		ServiceSet:     d.ServiceSet,
+		Truncated:      d.Truncated,
+	}
+}
+
+func mapTraces(rows []traceIndexRowDTO) []Trace {
+	out := make([]Trace, len(rows))
+	for i, r := range rows {
+		out[i] = mapTrace(r)
+	}
+	return out
 }

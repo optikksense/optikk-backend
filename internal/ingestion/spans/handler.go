@@ -5,6 +5,7 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/auth"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
+	"log/slog"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
@@ -26,10 +27,12 @@ func (h *Handler) Export(ctx context.Context, req *tracepb.ExportTraceServiceReq
 		return nil, status.Error(codes.Unauthenticated, "team id missing from context")
 	}
 	rows := MapRequest(teamID, req)
+	slog.Info("spans handler: received request", slog.Int("rows", len(rows)))
 	if len(rows) == 0 {
 		return &tracepb.ExportTraceServiceResponse{}, nil
 	}
 	if err := h.producer.Publish(ctx, rows); err != nil {
+		slog.Error("spans handler: publish failed", slog.Any("error", err))
 		return nil, status.Error(codes.Unavailable, err.Error())
 	}
 	return &tracepb.ExportTraceServiceResponse{}, nil

@@ -3,39 +3,35 @@ package explorer
 import (
 	"net/http"
 
-	shared "github.com/Optikk-Org/optikk-backend/internal/modules/logs/internal/shared"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
-
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
 	"github.com/gin-gonic/gin"
 )
 
 type Handler struct {
 	modulecommon.DBTenant
-	Service  *Service
-	LogStats *LogStatsService
+	svc *Service
 }
 
-func NewHandler(getTenant modulecommon.GetTenantFunc, service *Service, logStats *LogStatsService) *Handler {
+func NewHandler(getTenant modulecommon.GetTenantFunc, svc *Service) *Handler {
 	return &Handler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  service,
-		LogStats: logStats,
+		svc:      svc,
 	}
 }
 
+// Query powers POST /api/v1/logs/query (list + optional include blocks).
 func (h *Handler) Query(c *gin.Context) {
 	var req QueryRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Invalid request body")
 		return
 	}
-	if req.StartTime <= 0 || req.EndTime <= 0 || req.StartTime >= req.EndTime {
+	if !validRange(req.StartTime, req.EndTime) {
 		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Valid startTime and endTime are required")
 		return
 	}
-
-	resp, err := h.Service.Query(c.Request.Context(), req, h.GetTenant(c).TeamID)
+	resp, err := h.svc.Query(c.Request.Context(), req, h.GetTenant(c).TeamID)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query logs", err)
 		return
@@ -43,47 +39,45 @@ func (h *Handler) Query(c *gin.Context) {
 	modulecommon.RespondOK(c, resp)
 }
 
-func (h *Handler) GetLogVolume(c *gin.Context) {
-	filters, ok := shared.EnrichFilters(c, h.GetTenant(c).TeamID)
-	if !ok {
+// Analytics powers POST /api/v1/logs/analytics.
+func (h *Handler) Analytics(c *gin.Context) {
+	var req AnalyticsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Invalid request body")
 		return
 	}
-	resp, err := h.LogStats.GetLogVolume(c.Request.Context(), filters, c.Query("step"))
+	if !validRange(req.StartTime, req.EndTime) {
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Valid startTime and endTime are required")
+		return
+	}
+	resp, err := h.svc.Analytics(c.Request.Context(), req, h.GetTenant(c).TeamID)
 	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query log volume", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query logs analytics", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)
 }
 
-func (h *Handler) GetLogStats(c *gin.Context) {
-	filters, ok := shared.EnrichFilters(c, h.GetTenant(c).TeamID)
-	if !ok {
+// GetByID powers GET /api/v1/logs/:id (single-log deep link). The `id`
+// segment is `<trace_id>:<span_id>:<timestamp_ns>` base64url.
+func (h *Handler) GetByID(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "log id required")
 		return
 	}
-	resp, err := h.LogStats.GetLogStats(c.Request.Context(), filters)
+	resp, err := h.svc.GetByID(c.Request.Context(), h.GetTenant(c).TeamID, id)
 	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query log stats", err)
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to fetch log", err)
+		return
+	}
+	if resp == nil {
+		modulecommon.RespondError(c, http.StatusNotFound, errorcode.NotFound, "log not found")
 		return
 	}
 	modulecommon.RespondOK(c, resp)
 }
 
-func (h *Handler) GetLogAggregate(c *gin.Context) {
-	filters, ok := shared.EnrichFilters(c, h.GetTenant(c).TeamID)
-	if !ok {
-		return
-	}
-	var req LogAggregateRequest
-	_ = c.ShouldBindQuery(&req) //nolint:errcheck // validation handled by buildLogAggregateQuery below
-	if _, err := buildLogAggregateQuery(req); err != nil {
-		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, err.Error())
-		return
-	}
-	resp, err := h.LogStats.GetLogAggregate(c.Request.Context(), filters, req)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query log aggregate", err)
-		return
-	}
-	modulecommon.RespondOK(c, resp)
+func validRange(start, end int64) bool {
+	return start > 0 && end > 0 && start < end
 }

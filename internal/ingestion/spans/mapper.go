@@ -6,6 +6,7 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/otlp"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/spans/enrich"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	trace "go.opentelemetry.io/proto/otlp/trace/v1"
@@ -46,9 +47,9 @@ func buildRow(teamID int64, resMap map[string]string, s *trace.Span) *Row {
 		TsBucketStart:       tsBucket,
 		TeamId:              uint32(teamID), //nolint:gosec // G115 team_id
 		TimestampNs:         int64(timestampNs), //nolint:gosec
-		TraceId:             otlp.BytesToHex(s.GetTraceId()),
-		SpanId:              otlp.BytesToHex(s.GetSpanId()),
-		ParentSpanId:        otlp.BytesToHex(s.GetParentSpanId()),
+		TraceId:             enrich.ZeroTraceID(otlp.BytesToHex(s.GetTraceId())),
+		SpanId:              enrich.ZeroSpanID(otlp.BytesToHex(s.GetSpanId())),
+		ParentSpanId:        enrich.ZeroSpanID(otlp.BytesToHex(s.GetParentSpanId())),
 		TraceState:          s.GetTraceState(),
 		Flags:               s.GetFlags(),
 		Name:                s.GetName(),

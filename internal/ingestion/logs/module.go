@@ -8,27 +8,29 @@ import (
 	"google.golang.org/grpc"
 )
 
-// Deps collects everything NewModule needs. Keeping a struct here keeps the
-// call-site in modules_manifest.go readable as the deps list grows.
+// Deps collects everything NewModule needs.
 type Deps struct {
 	Producer          *Producer
 	CH                registry.ClickHouseConn
 	PersistenceClient *kafkainfra.Consumer
+	KafkaBase         *kafkainfra.Producer
+	TopicPrefix       string
 }
 
-// NewModule wires the handler and persistence consumer into a single
-// registry.Module so the gRPC server + background runners both get registered
-// from one call in modules_manifest.go.
+// NewModule wires the handler + dispatcher (generic PollFetches + per-partition
+// worker + retrying CH writer + DLQ). The legacy single-goroutine Consumer
+// stays compiled for rollback but is no longer on the hot path.
 func NewModule(d Deps) registry.Module {
+	dlq := NewDLQProducer(d.KafkaBase, d.TopicPrefix)
 	return &Module{
-		handler:  NewHandler(d.Producer),
-		consumer: NewConsumer(d.PersistenceClient, d.CH),
+		handler:    NewHandler(d.Producer),
+		dispatcher: NewDispatcher(d.PersistenceClient, d.CH, dlq),
 	}
 }
 
 type Module struct {
-	handler  *Handler
-	consumer *Consumer
+	handler    *Handler
+	dispatcher *Dispatcher
 }
 
 func (m *Module) Name() string                      { return "logs" }
@@ -40,12 +42,11 @@ func (m *Module) RegisterGRPC(srv *grpc.Server) {
 }
 
 func (m *Module) Start() {
-	m.consumer.Start()
+	m.dispatcher.Start()
 }
 
 func (m *Module) Stop() error {
-	_ = m.consumer.Stop() //nolint:errcheck // returns nil
-	return nil
+	return m.dispatcher.Stop()
 }
 
 var (

@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	kafkainfra "github.com/Optikk-Org/optikk-backend/internal/infra/kafka"
+	"github.com/twmb/franz-go/pkg/kgo"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -23,21 +24,27 @@ func NewProducer(kafka *kafkainfra.Producer, topicPrefix string) *Producer {
 	}
 }
 
-// Publish serialises each row as protobuf and produces it to the span ingest
-// topic. Keying on team_id preserves ordering per team.
+// Publish batches every row into one async Produce call so the OTLP handler
+// pays one round-trip for the whole request instead of one per row.
+// Partitioning keys on team_id to preserve per-team ordering.
 func (p *Producer) Publish(ctx context.Context, rows []*Row) error {
 	if len(rows) == 0 {
 		return nil
 	}
+	records := make([]*kgo.Record, 0, len(rows))
 	for _, r := range rows {
 		value, err := proto.Marshal(r)
 		if err != nil {
 			return fmt.Errorf("spans producer: marshal: %w", err)
 		}
-		key := []byte(strconv.FormatUint(uint64(r.GetTeamId()), 10))
-		if err := p.kafka.Produce(ctx, p.topic, key, value); err != nil {
-			return fmt.Errorf("spans producer: produce: %w", err)
-		}
+		records = append(records, &kgo.Record{
+			Topic: p.topic,
+			Key:   []byte(strconv.FormatUint(uint64(r.GetTeamId()), 10)),
+			Value: value,
+		})
+	}
+	if err := p.kafka.PublishBatch(ctx, records); err != nil {
+		return fmt.Errorf("spans producer: publish batch: %w", err)
 	}
 	return nil
 }

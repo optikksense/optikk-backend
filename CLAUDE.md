@@ -31,6 +31,7 @@ This is **mandatory**. Documentation must always reflect the current architectur
 - **Middleware**: `internal/infra/middleware/` — public prefixes: `/api/v1/auth/login`, `/otlp/`, `/health`.
 - **Ingestion**: `internal/ingestion/{spans,metrics,logs}/` — handler → mapper → kafka producer → kafka persistence consumer → clickhouse.
 - **Schema migrations**: `db/clickhouse/*.sql` applied via `internal/infra/database/chmigrate`.
+- **Traces explorer contract**: `internal/modules/traces/explorer/` reads `observability.traces_index` directly. Keep DB scan structs aligned with ClickHouse unsigned types (`start_ms`, `end_ms`, `duration_ns`, `last_seen_ms`, `root_http_status`) and normalize mixed facet types at the SQL boundary (for example `toString(root_http_status)` in facet queries).
 
 ## Engineering principles
 

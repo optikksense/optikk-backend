@@ -1,3 +1,4 @@
+-- Raw OTLP spans (single schema; formerly split across legacy 01 + spans_v2 cutover).
 CREATE TABLE IF NOT EXISTS observability.spans (
     ts_bucket_start                       UInt64          CODEC(DoubleDelta, LZ4),
     team_id                               UInt32          CODEC(T64, ZSTD(1)),
@@ -22,7 +23,7 @@ CREATE TABLE IF NOT EXISTS observability.spans (
     external_http_url                     LowCardinality(String) CODEC(ZSTD(1)),
     external_http_method                  LowCardinality(String) CODEC(ZSTD(1)),
     response_status_code                  LowCardinality(String) CODEC(ZSTD(1)),
-    attributes                            JSON(max_dynamic_paths = 50) CODEC(ZSTD(1)),
+    attributes                            JSON(max_dynamic_paths = 100) CODEC(ZSTD(1)),
     events                                Array(String)   CODEC(ZSTD(2)),
     links                                 String          CODEC(ZSTD(1)),
     exception_type                        LowCardinality(String) CODEC(ZSTD(1)),
@@ -93,25 +94,28 @@ CREATE TABLE IF NOT EXISTS observability.spans (
                                     MATERIALIZED attributes.`service.version`::String          CODEC(ZSTD(1)),
     mat_deployment_environment LowCardinality(String)
                                     MATERIALIZED attributes.`deployment.environment`::String    CODEC(ZSTD(1)),
-    INDEX idx_service_name          service_name            TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_trace_id              trace_id                TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_span_id               span_id                 TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_span_name             name                    TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_mat_http_route        mat_http_route          TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_mat_http_status_code  mat_http_status_code    TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_mat_db_system         mat_db_system           TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_mat_db_name           mat_db_name             TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_mat_rpc_service       mat_rpc_service         TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_mat_peer_service      mat_peer_service        TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_mat_exception_type    mat_exception_type      TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_mat_host_name         mat_host_name           TYPE bloom_filter(0.01) GRANULARITY 4,
-    INDEX idx_mat_k8s_pod_name      mat_k8s_pod_name        TYPE bloom_filter(0.01) GRANULARITY 4,
+    INDEX idx_service_name          service_name            TYPE bloom_filter(0.01)      GRANULARITY 4,
+    INDEX idx_trace_id              trace_id                TYPE bloom_filter(0.01)      GRANULARITY 4,
+    INDEX idx_trace_id_token        trace_id                TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 4,
+    INDEX idx_span_id               span_id                 TYPE bloom_filter(0.01)      GRANULARITY 4,
+    INDEX idx_span_name             name                    TYPE bloom_filter(0.01)      GRANULARITY 4,
+    INDEX idx_has_error             has_error               TYPE set(2)                  GRANULARITY 4,
+    INDEX idx_mat_http_route        mat_http_route          TYPE bloom_filter(0.01)      GRANULARITY 4,
+    INDEX idx_mat_http_status_code  mat_http_status_code    TYPE bloom_filter(0.01)      GRANULARITY 4,
+    INDEX idx_mat_db_system         mat_db_system           TYPE bloom_filter(0.01)      GRANULARITY 4,
+    INDEX idx_mat_db_name           mat_db_name             TYPE bloom_filter(0.01)      GRANULARITY 4,
+    INDEX idx_mat_rpc_service       mat_rpc_service         TYPE bloom_filter(0.01)      GRANULARITY 4,
+    INDEX idx_mat_peer_service      mat_peer_service        TYPE bloom_filter(0.01)      GRANULARITY 4,
+    INDEX idx_mat_exception_type    mat_exception_type      TYPE bloom_filter(0.01)      GRANULARITY 4,
+    INDEX idx_mat_host_name         mat_host_name           TYPE bloom_filter(0.01)      GRANULARITY 4,
+    INDEX idx_mat_k8s_pod_name      mat_k8s_pod_name        TYPE bloom_filter(0.01)      GRANULARITY 4,
     INDEX idx_mat_service_version        mat_service_version        TYPE bloom_filter(0.01) GRANULARITY 4,
     INDEX idx_mat_deployment_environment mat_deployment_environment TYPE bloom_filter(0.01) GRANULARITY 4
 ) ENGINE = MergeTree()
-PARTITION BY toYYYYMM(timestamp)
+PARTITION BY toYYYYMMDD(timestamp)
 ORDER BY (team_id, ts_bucket_start, service_name, name, timestamp)
-TTL timestamp + INTERVAL 1 HOUR DELETE
+TTL timestamp + INTERVAL 30 DAY DELETE
 SETTINGS
     index_granularity = 8192,
-    non_replicated_deduplication_window = 1000;
+    non_replicated_deduplication_window = 1000,
+    ttl_only_drop_parts = 1;

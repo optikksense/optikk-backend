@@ -1,119 +1,97 @@
 package explorer
 
 import (
-	logshared "github.com/Optikk-Org/optikk-backend/internal/modules/logs/internal/shared"
+	"time"
+
+	"github.com/Optikk-Org/optikk-backend/internal/infra/cursor"
 )
 
-// QueryRequest is the new unified explorer request.
-type QueryRequest struct {
-	StartTime int64  `json:"startTime"`
-	EndTime   int64  `json:"endTime"`
-	Query     string `json:"query"`
-	Limit     int    `json:"limit"`
-	Cursor    string `json:"cursor"`
-	Direction string `json:"direction"`
-	Step      string `json:"step"`
-	OrderBy   string `json:"orderBy,omitempty"`
-	OrderDir  string `json:"orderDir,omitempty"`
+// Log is the JSON model for a single log row returned by list + detail.
+type Log struct {
+	ID                string             `json:"id"`
+	Timestamp         uint64             `json:"timestamp,string"`
+	ObservedTimestamp uint64             `json:"observed_timestamp,string"`
+	SeverityText      string             `json:"severity_text"`
+	SeverityNumber    uint8              `json:"severity_number"`
+	SeverityBucket    uint8              `json:"severity_bucket"`
+	Body              string             `json:"body"`
+	TraceID           string             `json:"trace_id"`
+	SpanID            string             `json:"span_id"`
+	TraceFlags        uint32             `json:"trace_flags"`
+	ServiceName       string             `json:"service_name"`
+	Host              string             `json:"host"`
+	Pod               string             `json:"pod"`
+	Container         string             `json:"container"`
+	Environment       string             `json:"environment"`
+	AttributesString  map[string]string  `json:"attributes_string,omitempty"`
+	AttributesNumber  map[string]float64 `json:"attributes_number,omitempty"`
+	AttributesBool    map[string]bool    `json:"attributes_bool,omitempty"`
+	ScopeName         string             `json:"scope_name"`
+	ScopeVersion      string             `json:"scope_version"`
 }
 
+// Cursor keyset-paginates raw logs ordered by (timestamp, observed_timestamp,
+// trace_id) DESC. Zero cursor means "first page".
+type Cursor struct {
+	Timestamp         time.Time `json:"ts"`
+	ObservedTimestamp uint64    `json:"ots"`
+	TraceID           string    `json:"tid"`
+}
+
+func (c Cursor) IsZero() bool {
+	return c.Timestamp.IsZero() && c.ObservedTimestamp == 0 && c.TraceID == ""
+}
+
+func (c Cursor) Encode() string {
+	if c.IsZero() {
+		return ""
+	}
+	return cursor.Encode(c)
+}
+
+func DecodeCursor(raw string) (Cursor, bool) {
+	return cursor.Decode[Cursor](raw)
+}
+
+// TrendBucket is a single severity-bucketed histogram bar.
+type TrendBucket struct {
+	TimeBucket string `json:"time_bucket"`
+	Severity   uint8  `json:"severity_bucket"`
+	Count      uint64 `json:"count"`
+}
+
+// FacetValue is one bucket in a facet group.
+type FacetValue struct {
+	Value string `json:"value"`
+	Count uint64 `json:"count"`
+}
+
+// Facets groups per-dim top-N counts.
+type Facets struct {
+	Severity    []FacetValue `json:"severity_bucket"`
+	Service     []FacetValue `json:"service"`
+	Host        []FacetValue `json:"host,omitempty"`
+	Pod         []FacetValue `json:"pod,omitempty"`
+	Environment []FacetValue `json:"environment,omitempty"`
+}
+
+// Summary captures compact KPIs for the list view header.
 type Summary struct {
-	TotalLogs  int64 `json:"total_logs"`
-	ErrorLogs  int64 `json:"error_logs"`
-	WarnLogs   int64 `json:"warn_logs"`
-	ServiceCnt int   `json:"service_count"`
+	Total  uint64 `json:"total"`
+	Errors uint64 `json:"errors"`
+	Warns  uint64 `json:"warns"`
 }
 
+// PageInfo carries cursor state.
 type PageInfo struct {
 	HasMore    bool   `json:"hasMore"`
 	NextCursor string `json:"nextCursor,omitempty"`
 	Limit      int    `json:"limit"`
 }
 
-// Response is returned when vizMode is empty or "list".
-type Response struct {
-	Results      []logshared.Log      `json:"results"`
-	Summary      Summary              `json:"summary"`
-	Facets       ExplorerFacets       `json:"facets"`
-	Trend        LogVolumeData        `json:"trend"`
-	PageInfo     PageInfo             `json:"pageInfo"`
-	Correlations ExplorerCorrelations `json:"correlations,omitempty"`
-}
-
-type ExplorerFacets struct {
-	Level       []Facet `json:"level"`
-	ServiceName []Facet `json:"service_name"`
-	Host        []Facet `json:"host,omitempty"`
-	Pod         []Facet `json:"pod,omitempty"`
-	Container   []Facet `json:"container,omitempty"`
-	Environment []Facet `json:"environment,omitempty"`
-	ScopeName   []Facet `json:"scope_name,omitempty"`
-}
-
-type ExplorerCorrelations struct {
-	ServiceErrorRate LogAggregateResponse `json:"serviceErrorRate,omitempty"`
-}
-
-// JSON response types for log stats / histogram / volume / aggregate APIs (formerly logs/analytics).
-
-type LogHistogramBucket struct {
-	TimeBucket string `json:"time_bucket"`
-	Severity   string `json:"severity"`
-	Count      int64  `json:"count"`
-}
-
-type LogHistogramData struct {
-	Buckets []LogHistogramBucket `json:"buckets"`
-	Step    string               `json:"step"`
-}
-
-type LogVolumeBucket struct {
-	TimeBucket string `json:"time_bucket"`
-	Total      int64  `json:"total"`
-	Errors     int64  `json:"errors"`
-	Warnings   int64  `json:"warnings"`
-	Infos      int64  `json:"infos"`
-	Debugs     int64  `json:"debugs"`
-	Fatals     int64  `json:"fatals"`
-}
-
-type LogVolumeData struct {
-	Buckets []LogVolumeBucket `json:"buckets"`
-	Step    string            `json:"step"`
-}
-
-type LogStats struct {
-	Total  int64              `json:"total"`
-	Fields map[string][]Facet `json:"fields"`
-}
-
-type Facet struct {
-	Value string `json:"value"`
-	Count int64  `json:"count"`
-}
-
-type FieldValuesResponse struct {
-	Field  string  `json:"field"`
-	Values []Facet `json:"values"`
-}
-
-type LogAggregateRequest struct {
-	GroupBy string `json:"group_by" form:"group_by"`
-	Step    string `json:"step" form:"step"`
-	TopN    int    `json:"top_n" form:"top_n"`
-	Metric  string `json:"metric" form:"metric"`
-}
-
-type LogAggregateRow struct {
-	TimeBucket string  `json:"time_bucket"`
-	GroupValue string  `json:"group_value"`
-	Count      int64   `json:"count"`
-	ErrorRate  float64 `json:"error_rate,omitempty"`
-}
-
-type LogAggregateResponse struct {
-	GroupBy string            `json:"group_by"`
-	Step    string            `json:"step"`
-	Metric  string            `json:"metric"`
-	Rows    []LogAggregateRow `json:"rows"`
+// AnalyticsRow is a single row of the analytics result grid.
+type AnalyticsRow struct {
+	TimeBucket string             `json:"time_bucket,omitempty"`
+	Group      map[string]string  `json:"group,omitempty"`
+	Values     map[string]float64 `json:"values"`
 }

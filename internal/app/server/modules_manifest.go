@@ -16,7 +16,6 @@ import (
 	infrastructure_nodes "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/nodes"
 	infrastructure_resource_utilisation "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/resourceutil"
 	log_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/logs/explorer"
-	log_search "github.com/Optikk-Org/optikk-backend/internal/modules/logs/search"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/metrics"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/overview/apm"
 	overview_errors "github.com/Optikk-Org/optikk-backend/internal/modules/overview/errors"
@@ -37,8 +36,9 @@ import (
 	saturation_kafka "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/services/deployments"
 	services_topology "github.com/Optikk-Org/optikk-backend/internal/modules/services/topology"
+	traces_errors "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errors"
 	spans_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
-	spans_traces "github.com/Optikk-Org/optikk-backend/internal/modules/traces/query"
+	traces_latency "github.com/Optikk-Org/optikk-backend/internal/modules/traces/latency"
 	spans_tracedetail "github.com/Optikk-Org/optikk-backend/internal/modules/traces/tracedetail"
 	user_auth "github.com/Optikk-Org/optikk-backend/internal/modules/user/auth"
 	user_team "github.com/Optikk-Org/optikk-backend/internal/modules/user/team"
@@ -67,7 +67,6 @@ func configuredModules(
 		infrastructure_nodes.NewModule(nativeQuerier, getTenant),
 		infrastructure_resource_utilisation.NewModule(nativeQuerier, getTenant),
 		log_explorer.NewModule(nativeQuerier, getTenant),
-		log_search.NewModule(nativeQuerier, getTenant),
 		metrics.NewModule(nativeQuerier, getTenant),
 		infraDeps.Ingest.Logs,
 		infraDeps.Ingest.Metrics,
@@ -90,7 +89,8 @@ func configuredModules(
 		services_topology.NewModule(nativeQuerier, getTenant),
 		spans_explorer.NewModule(nativeQuerier, getTenant),
 		spans_tracedetail.NewModule(nativeQuerier, getTenant),
-		spans_traces.NewModule(nativeQuerier, getTenant),
+		traces_errors.NewModule(nativeQuerier, getTenant),
+		traces_latency.NewModule(nativeQuerier, getTenant),
 		user_auth.NewModule(infraDeps.DB, getTenant, infraDeps.SessionManager, appConfig),
 		user_team.NewModule(infraDeps.DB, getTenant, appConfig),
 		user_user.NewModule(infraDeps.DB, getTenant, appConfig),

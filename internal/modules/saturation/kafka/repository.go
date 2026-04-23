@@ -20,7 +20,7 @@ import (
 //     Used by every rate / lag / rebalance / error / broker / sample method.
 //
 // `sample_count` in the counters rollup stores `hist_count` for histogram rows
-// and 1 for counter rows (see MV in db/clickhouse/23_rollup_messaging_counters.sql),
+// and 1 for counter rows (see MV in db/clickhouse/14_rollup_messaging_counters.sql),
 // so `sumMerge(sample_count) / @bucketSecs` is an operation-rate across both
 // types.
 //
@@ -395,7 +395,7 @@ func (r *ClickHouseRepository) GetProcessErrors(ctx context.Context, teamID int6
 // GetClientOpErrors groups by (operation, error_type) for the
 // `messaging.client.operation.duration` metric. It's a histogram, but
 // messaging_counters_rollup carries its error-tagged rows via `sample_count`
-// (see MV in db/clickhouse/23_rollup_messaging_counters.sql). Rate is
+// (see MV in db/clickhouse/14_rollup_messaging_counters.sql). Rate is
 // errored-ops / bucketSecs.
 func (r *ClickHouseRepository) GetClientOpErrors(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
 	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
