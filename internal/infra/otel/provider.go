@@ -1,9 +1,12 @@
 // Package otel bootstraps the OpenTelemetry SDK for self-telemetry.
-// Traces + logs flow to the separate otel-collector (docker-compose
-// `otel-collector` on host port 14317) which forwards to Grafana Cloud.
-// We intentionally do NOT route through the app's own OTLP receiver on
-// :4317 — the two stacks stay isolated so a customer ingest outage does
-// not blind us to our own behaviour.
+// Metrics are exposed on /metrics and scraped by the local Prometheus +
+// Grafana stack (deploy/monitoring/stack/). OTel trace/log export is
+// disabled by default (telemetry.otel.enabled: false in config.yml) — no
+// remote collector is running. To enable distributed tracing, point
+// telemetry.otel.endpoint at a local Tempo instance or otel-collector
+// and set enabled: true. The OTel SDK is still initialised (no-op
+// providers) so W3C trace-context propagation and slog trace_id injection
+// continue to work regardless.
 package otel
 
 import (

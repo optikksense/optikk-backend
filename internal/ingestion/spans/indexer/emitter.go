@@ -66,6 +66,27 @@ func (e *CHEmitter) Emit(ctx context.Context, row TraceIndexRow) error {
 	return nil
 }
 
+// EmitBatch appends multiple rows in a single PrepareBatch/Send round-trip.
+// Used by the assembler drain path on shutdown to avoid per-row overhead.
+func (e *CHEmitter) EmitBatch(ctx context.Context, rows []TraceIndexRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	batch, err := e.ch.PrepareBatch(ctx, e.query)
+	if err != nil {
+		return fmt.Errorf("indexer CH prepare: %w", err)
+	}
+	for _, row := range rows {
+		if err := batch.Append(rowValues(row)...); err != nil {
+			return fmt.Errorf("indexer CH append: %w", err)
+		}
+	}
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("indexer CH send: %w", err)
+	}
+	return nil
+}
+
 // parseRootHTTPStatusUInt16 maps OTLP/HTTP textual status (e.g. "200", "404 Not Found") to
 // traces_index.root_http_status (UInt16). Non-numeric / empty → 0.
 func parseRootHTTPStatusUInt16(s string) uint16 {

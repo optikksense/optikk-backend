@@ -149,7 +149,12 @@ func (d *Dispatcher[T]) decodeAndDispatch(ctx context.Context, r *kgo.Record, w 
 			slog.String("signal", d.name), slog.Any("error", err))
 		return
 	}
-	w.Inbox() <- Item[T]{Payload: payload, Raw: r}
+	select {
+	case w.Inbox() <- Item[T]{Payload: payload, Raw: r}:
+	case <-ctx.Done():
+		// Dispatcher is shutting down; drop this record.
+		// At-least-once: offset not committed, will be re-consumed on next startup.
+	}
 }
 
 func (d *Dispatcher[T]) workerFor(parent context.Context, k partKey) *Worker[T] {

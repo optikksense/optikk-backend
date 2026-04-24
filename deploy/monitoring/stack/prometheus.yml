@@ -1,9 +1,7 @@
 # Prometheus scrape config for the local ingest-pipeline monitoring stack.
 #
-# This file is for the `deploy/monitoring/docker-compose.yml` stack only —
-# the root `observability/prometheus.yml` continues to drive the otel-collector
-# pipeline that forwards to Grafana Cloud. The two run side by side without
-# interference.
+# This file is for the `deploy/monitoring/stack/docker-compose.yml` stack only.
+# It scrapes the backend's /metrics endpoint directly — no otel-collector needed.
 #
 # `host.docker.internal` resolves to the host machine from inside the
 # Prometheus container (see `extra_hosts` in the compose file). This keeps

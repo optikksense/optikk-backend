@@ -78,11 +78,23 @@ func (w *Worker[T]) Run(ctx context.Context) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	for {
+		// Priority check: if ctx is already canceled don't let the ticker or
+		// inbox case win the next select. Without this, the Go runtime can
+		// non-deterministically pick the ticker case when both ctx.Done() and
+		// ticker.C are ready, causing flush() to be called with a canceled ctx.
+		// That fails immediately, the batch is dropped from the accumulator, and
+		// a misleading "offsets NOT committed" warning is logged — all before
+		// flushAll() on the shutdown path ever runs.
 		select {
 		case <-ctx.Done():
-			flushCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-			defer cancel()
-			w.flushAll(flushCtx)
+			w.drainOnShutdown()
+			return
+		default:
+		}
+
+		select {
+		case <-ctx.Done():
+			w.drainOnShutdown()
 			return
 		case it := <-w.in:
 			if batch, reason, ok := w.acc.Add(it); ok {
@@ -95,6 +107,12 @@ func (w *Worker[T]) Run(ctx context.Context) {
 			}
 		}
 	}
+}
+
+func (w *Worker[T]) drainOnShutdown() {
+	flushCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	w.flushAll(flushCtx)
 }
 
 func (w *Worker[T]) observeDepth() {

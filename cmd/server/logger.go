@@ -15,7 +15,7 @@ import (
 //	TraceAttrHandler            — injects trace_id / span_id from ctx
 //	└─ FanoutHandler
 //	   ├─ stdout (tint / JSON)  — human-readable local dev + kubectl logs
-//	   └─ OTel logs bridge      — ships each record to the otel-collector → Loki
+//	   └─ OTel logs bridge      — no-op when OTel disabled; active when a collector is wired
 //
 // The bridge leg is attached lazily so it picks up whatever logger
 // provider `internal/infra/otel` installs at app boot. If OTel is

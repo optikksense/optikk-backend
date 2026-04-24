@@ -136,10 +136,30 @@ func (a *Assembler) sweep(ctx context.Context) {
 	}
 }
 
-// drain on shutdown emits whatever is in flight as truncated. Bound by
-// ShutdownTimeout on the outer module.
+// batchEmitter is satisfied by CHEmitter; test stubs that only implement
+// Emitter fall through to the one-at-a-time path.
+type batchEmitter interface {
+	EmitBatch(ctx context.Context, rows []TraceIndexRow) error
+}
+
+// drain on shutdown emits whatever is in flight as truncated. Uses a single
+// batch insert when the emitter supports it (CHEmitter) so that N pending
+// traces cost 2 round trips total instead of 2N.
 func (a *Assembler) drain(ctx context.Context) {
 	done := a.state.Sweep(time.Now().Add(1*time.Hour), 0, 0)
+	if len(done) == 0 {
+		return
+	}
+	if be, ok := a.emitter.(batchEmitter); ok {
+		rows := make([]TraceIndexRow, len(done))
+		for i, p := range done {
+			rows[i] = p.ToRow(true)
+		}
+		if err := be.EmitBatch(ctx, rows); err != nil {
+			slog.WarnContext(ctx, "indexer: drain batch emit failed", slog.Any("error", err))
+		}
+		return
+	}
 	for _, p := range done {
 		a.emit(ctx, p, true)
 	}

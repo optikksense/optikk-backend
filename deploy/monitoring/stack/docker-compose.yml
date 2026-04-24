@@ -10,8 +10,7 @@
 #
 # Non-default host ports (13001 / 19091) avoid colliding with the root
 # docker-compose.yml, which already binds backend :19090 for /metrics,
-# :13306 (MariaDB), :19000 (ClickHouse), :14317/:14318 (otel-collector),
-# :16379 (Redis), :19092 (Redpanda).
+# :13306 (MariaDB), :19000 (ClickHouse), :16379 (Redis), :19092 (Kafka).
 #
 # Directory layout (flat-vs-nested rule: monitoring/ holds only subdirs):
 #   deploy/monitoring/stack/    → this file + prometheus.yml

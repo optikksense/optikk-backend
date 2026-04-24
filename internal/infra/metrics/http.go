@@ -4,8 +4,8 @@
 // Collectors are registered via `promauto` against
 // `prometheus.DefaultRegisterer` at package init, so the existing
 // `/metrics` endpoint (see internal/app/server/routes.go) exposes them
-// without further wiring. The otel-collector's `prometheus` receiver
-// scrapes `/metrics` and forwards to Grafana Cloud Mimir.
+// without further wiring. The local Prometheus stack (deploy/monitoring/stack/)
+// scrapes `/metrics` directly.
 package metrics
 
 import (

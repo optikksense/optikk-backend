@@ -21,22 +21,41 @@ Orientation for [optikk-backend](/Users/ramantayal/Desktop/pro/optikk-backend). 
 
 ### Ingestion
 
-`internal/ingestion/` owns OTLP ingest for spans, logs, and metrics. **All three signals share the same generic pipeline** (`Dispatcher[T] → Worker[T] → Accumulator[T] → Writer[T]` in `internal/infra/kafka_ingest/`): the legacy single-goroutine `metrics/consumer.go` was retired in the ingest refactor round.
+`internal/ingestion/` owns OTLP ingest for spans, logs, and metrics. **All three signals share the same generic pipeline** (`Dispatcher[T] → Worker[T] → Accumulator[T] → Writer[T]` in `internal/infra/kafka/ingest/`): the legacy single-goroutine `metrics/consumer.go` was retired in the ingest refactor round.
 
-Per-signal files (flat directory, shape-symmetric across logs/spans/metrics):
+Each signal lives under its own subdirectory with a consistent package hierarchy:
 
-- `handler.go`: gRPC-facing OTLP handler; instruments `optikk_ingest_{mapper_duration,mapper_rows_per_request,handler_publish_duration}` per request.
-- `mapper*.go`: OTLP → internal Row; uses shared `otlp.TypedAttrs` (logs) or `otlp.CapStringMap` (spans) for deterministic, sort-stable attribute capping. `time.Now()` is resolved once per request and threaded down.
-- `producer.go`: Kafka publish with pooled proto `MarshalAppend` scratch buffer (see `kafka/ingest/pools.go`).
-- `dispatcher.go`: wraps `ingest.Dispatcher[*Row]`; configures Pause/Resume thresholds from per-signal `IngestPipelineConfig`.
-- `worker.go`: composes `ingest.Worker[*Row]` with the signal's size function and the per-signal accumulator config.
-- `writer.go`: `ingest.Writer[*Row]` with CH batch insert; wraps attempt ctx with `clickhouse.WithSettings(async_insert=1, wait_for_async_insert=1)` when `pipeline.{signal}.async_insert` is true.
-- `dlq.go`: DLQ topic writer with rate-limited warn (10s cooldown) + `optikk_ingest_writer_dlq_publish_failed_total` counter — a dead DLQ broker can't flood stderr at 200k rps.
-- `module.go`: module registration + `Deps` struct carrying the pipeline config.
+```
+internal/ingestion/{spans,logs,metrics}/
+  ingress/   handler.go, producer.go         — gRPC handler + Kafka publish
+  mapper/    mapper.go (+ signal-specific files below)
+  consumer/  dispatcher.go, worker.go, writer.go
+  dlq/       dlq.go
+  enrich/    enrich.go, severity.go          — spans + logs only
+  indexer/   assembler.go, emitter.go, state.go  — spans only (trace-assembly)
+  schema/    *_row.pb.go, row.go
+  module/    module.go
+```
+
+Signal-specific mapper extras:
+- **spans**: `mapper_attrs.go` (attribute capping via `otlp.TypedAttrs`), `mapper_status.go` (HTTP/error status normalization)
+- **metrics**: `mapper_points.go` (gauge/histogram/sum point projection)
+- **logs**: single `mapper.go`
+
+Key per-package roles:
+- `ingress/handler.go`: gRPC-facing OTLP export handler; instruments `optikk_ingest_{mapper_duration,mapper_rows_per_request,handler_publish_duration}` per request.
+- `ingress/producer.go`: Kafka publish with pooled proto `MarshalAppend` scratch buffer (see `kafka/ingest/pools.go`).
+- `enrich/enrich.go`: attribute normalization, exception-to-error promotion (spans), severity level resolution (logs + spans).
+- `consumer/dispatcher.go`: wraps `ingest.Dispatcher[*Row]`; configures Pause/Resume thresholds from per-signal `IngestPipelineConfig`.
+- `consumer/worker.go`: composes `ingest.Worker[*Row]` with the signal's size function and the per-signal accumulator config.
+- `consumer/writer.go`: `ingest.Writer[*Row]` with CH batch insert; wraps attempt ctx with `clickhouse.WithSettings(async_insert=1, wait_for_async_insert=1)` when `pipeline.{signal}.async_insert` is true. For spans, also feeds written rows into the Trace Assembler.
+- `dlq/dlq.go`: DLQ topic writer with rate-limited warn (10s cooldown) + `optikk_ingest_writer_dlq_publish_failed_total` counter — a dead DLQ broker can't flood stderr at 200k rps.
+- `indexer/assembler.go`: stateful in-memory LRU buffer keyed by `(teamID, traceID)`. Emits a `TraceIndexRow` to `observability.traces_index` when root span observed + 10s quiet window elapses, or 60s hard timeout fires. Partial traces marked `truncated=true`.
+- `module/module.go`: module registration + `Deps` struct carrying the pipeline config.
 
 Pipeline tuning (YAML under `ingestion.pipeline.{logs,spans,metrics}`): `max_rows`, `max_bytes`, `max_age_ms`, `worker_queue_size`, `pause_depth_ratio`, `resume_depth_ratio`, `writer_{max_attempts,base_backoff_ms,max_backoff_ms,attempt_timeout_ms}`, `async_insert`. Defaults (`config.DefaultIngestPipelineConfig`): 10k rows / 16 MiB / 250ms, 4096 queue, 80%/40% pause/resume, 5-attempt retry 100ms→5s, 30s attempt timeout, async_insert on.
 
-Shared ingest infra in `internal/infra/kafka_ingest/`:
+Shared ingest infra in `internal/infra/kafka/ingest/`:
 
 - `accumulator.go` — size/bytes/time triggers; `FlushReason` enum (size/bytes/time/stop) feeds the Prometheus `reason` label; `BytesAtFlush()` feeds the `worker_flush_bytes` histogram.
 - `worker.go` — one goroutine per (topic, partition); samples `optikk_ingest_worker_queue_depth{signal,partition}` on every tick, emits `worker_flush_{duration,rows,bytes}` on every flush.
@@ -55,18 +74,20 @@ Current queueing model is Kafka-backed, not Redis-stream-backed. Local developme
 
 ### Data and platform infrastructure
 
-- `internal/infra/database/`: MySQL and ClickHouse clients, migration helpers; `clickhouse_otel.go` exposes `Traced(ctx, op, stmt)` for wrapping CH reads with OTel spans (used on hot paths: traces.ListTraces, logs.ListLogs — extend as needed).
-- `internal/infra/kafka/`: broker client, producers, consumers, topic helpers
+- `internal/infra/database/`: MySQL and ClickHouse clients; `{clickhouse,mysql}_instrument.go` + `instrument_common.go` provide the `SelectCH/QueryCH/ExecCH` + `SelectSQL/GetSQL/ExecSQL` seam that every repository uses for automatic OTel span wrapping.
+- `internal/infra/kafka/`: broker client, producers, consumers, topic helpers; `ingest/` sub-package contains the shared generic pipeline (`dispatcher.go`, `worker.go`, `accumulator.go`, `writer.go`, `metrics.go`, `pools.go`, `pipeline_cfg.go`).
 - `internal/infra/redis/`: Redis client
 - `internal/infra/session/`: session persistence and middleware integration
 - `internal/infra/middleware/`: recovery, CORS (allows `traceparent`/`tracestate` for W3C propagation), tenant, body limit, response cache
 - `internal/infra/rollup/`: time-range-aware rollup tier selection
 - `internal/infra/cursor/`: cursor helpers for explorer-style APIs
-- `internal/infra/otel/`: self-telemetry OTel SDK bootstrap (`provider.go` — OTLP gRPC exporter to the monitoring collector at `127.0.0.1:14317`) + gin middleware re-export. Wired in `app.go:New`.
+- `internal/infra/otel/`: self-telemetry OTel SDK bootstrap (`provider.go` — disabled by default; enable via `telemetry.otel.enabled: true` + point `endpoint` at a local collector). Installs no-op providers when disabled so W3C propagation and `trace_id` log injection still work. Wired in `app.go:New`.
+- `internal/infra/stats/`: lightweight Go-side numeric aggregation helpers (`AvgNonNull`, `MaxNonNull`, etc.) used where ClickHouse aggregation is too expensive or not applicable.
+- `internal/infra/utils/`: time-bucketing and unit-conversion helpers shared across modules.
 
 ### Local monitoring stack (opt-in)
 
-Side-by-side with Grafana Cloud, `deploy/monitoring/` ships a standalone Prometheus + Grafana pair for ingest-pipeline dashboards:
+`deploy/monitoring/` ships a local Prometheus + Grafana pair for ingest-pipeline dashboards:
 
 - **Ports (bespoke — chosen to avoid colliding with the main compose)**: Prometheus `:19091`, Grafana `:13001`.
 - **Bring-up**: `docker compose -f deploy/monitoring/stack/docker-compose.yml up -d`.
@@ -76,32 +97,32 @@ Side-by-side with Grafana Cloud, `deploy/monitoring/` ships a standalone Prometh
   - `deploy/monitoring/grafana/dashboards/optikk_ingest.json` — starter dashboard (ingest rate, handler/worker/CH latency, queue depth, paused partitions, flush reasons, DLQ rate, consumer lag, attr drops).
   - `deploy/monitoring/grafana/provisioning/{datasources,dashboards}/*.yml` — auto-registration so no UI setup is needed.
 
-Complements (does not replace) the Grafana Cloud pipeline — both run simultaneously, the local stack gives sub-minute resolution on ingest panels without the Grafana Cloud ingest cost.
+This is the primary monitoring stack for local development — all ingest metrics flow here via Prometheus scrape.
 
 ### Observability / monitoring stack
 
-Self-telemetry forwards to **Grafana Cloud** via a thin `otel-collector` running in `docker-compose.yml`. Intentionally NOT routed through the app's own OTLP receiver on `:4317`; monitoring the app is a distinct concern from the customer-facing observability product. Three signals, one collector:
+Self-telemetry uses two paths that are completely independent of the customer-facing OTLP receiver on `:4317`:
 
-- **Traces** — emitted by `internal/infra/otel` + `otelgin` (HTTP) + `otelgrpc` (gRPC) + `redisotel` (Redis) + the DB instrument seam (`dbutil.{Select,Query,Exec}CH` for ClickHouse and `{Get,Select,Exec}SQL` for MariaDB).
-- **Logs** — `slog.InfoContext/…Context` records fan to stdout (tint/JSON) AND the OTel logs bridge via `internal/shared/slogx.{TraceAttrHandler,FanoutHandler}` + `contrib/bridges/otelslog`. `trace_id`/`span_id` injected from ctx.
-- **Metrics** — `promauto` collectors under `internal/infra/metrics/` (`http.go/grpc.go/db.go/kafka.go/auth.go/ingest.go`) + Redis-specific collectors in `internal/infra/redis/metrics_hook.go`; exposed on `/metrics`, scraped by the collector's `prometheus` receiver.
+**Metrics (primary)** — `promauto` collectors exposed on `/metrics`, scraped by the local Prometheus + Grafana stack (`deploy/monitoring/stack/`).
 
-Key wiring points:
+- `internal/infra/metrics/` — `http.go`, `grpc.go`, `db.go`, `kafka.go`, `auth.go`, `ingest.go` — all `promauto`-registered collectors.
+- `internal/infra/redis/metrics_hook.go` — Redis-specific collectors via `kgo.Hooks`.
+- `internal/infra/middleware/observability.go` — HTTP Prom metrics + per-request access log; wired after `otelgin` in `routes.go`.
+- `internal/infra/grpcutil/observability.go` — gRPC unary + stream interceptors (Prom timing + per-RPC log).
+- `internal/infra/kafka/observability.go` — franz-go `kgo.Hooks` (produce/fetch/broker/group-error) + `LagPoller` (`optikk_kafka_consumer_lag_records` via raw `kmsg` calls). One `LagPoller.Run(ctx)` per ingest consumer, started by `app.Start`.
 
-- `docker-compose.yml` `otel-collector` — host ports `:14317` (OTLP gRPC for backend SDK), `:14318` (OTLP HTTP for browser). Reads creds from `.env` via `env_file`.
-- `observability/otel-collector.yaml` — OTLP receivers + prometheus scrape receiver; single `otlphttp/grafana-cloud` exporter with `${env:GRAFANA_CLOUD_OTLP_ENDPOINT}` + `Authorization: ${env:GRAFANA_CLOUD_OTLP_AUTH}`. One pipeline per signal.
-- `.env` (gitignored) — `GRAFANA_CLOUD_OTLP_*` creds; shape in `.env.example`.
-- `internal/infra/otel/provider.go` — bootstraps both tracer + logger providers + W3C propagator; combined shutdown wired into `app.Start`.
-- `internal/infra/middleware/observability.go` — HTTP Prom + per-request access log; wired after `otelgin` in `routes.go`.
-- `internal/infra/grpcutil/observability.go` — gRPC unary + stream interceptors (Prom timing + per-RPC log), chained with `auth` interceptors alongside `grpc.StatsHandler(otelgrpc.NewServerHandler())`.
-- `internal/infra/kafka/observability.go` — franz-go `kgo.Hooks` (produce/fetch/broker/group-error) + `LagPoller` (populates `optikk_kafka_consumer_lag_records` via raw `kmsg` protocol calls — Metadata/OffsetFetch/ListOffsets — so no `kadm` top-level dep). Wired through `Hooks()` in `client.go`; one `LagPoller.Run(ctx)` actor per ingest consumer is started by `app.Start`.
-- `internal/infra/kafka/tracecontext.go` — W3C `traceparent` inject on produce (`Producer.Produce` + `Producer.PublishBatch`) and extract on consume (`ingest/dispatcher.go` opens a `kafka.consume <signal>` span per record). Keeps producer ↔ consumer trace-linked across the Kafka boundary.
-- `internal/infra/database/{clickhouse,mysql}_instrument.go` + `instrument_common.go` — the seam every repository method uses (`SelectCH/QueryCH/ExecCH` + `SelectSQL/GetSQL/ExecSQL`). Replaced the earlier `Traced()` helper (now deleted).
-- `internal/infra/redis/client.go` — `redisotel.InstrumentTracing` + `client.AddHook(metricsHook{})`.
-- `cmd/server/logger.go` — composes the `TraceAttrHandler(FanoutHandler{stdout, otelBridge})` root.
-- `config.yml` → `telemetry.otel` — enablement, endpoint, sample ratio, service name.
+**Logs** — `slog.InfoContext/…Context` records fan to stdout (tint/JSON) AND the OTel logs bridge via `internal/shared/slogx.{TraceAttrHandler,FanoutHandler}` + `contrib/bridges/otelslog`. `trace_id`/`span_id` are injected from ctx regardless of whether OTel export is enabled.
 
-See `docs/ops/observability.md` for the full metric catalogue, label conventions, and logging contract.
+**Traces / OTel SDK** (`config.yml` → `telemetry.otel`):
+- OTel export is **disabled by default** (`enabled: false`) — there is no remote collector. The SDK is still initialised as a no-op so W3C trace-context propagation and `trace_id` injection in logs continue to work.
+- To enable: point `endpoint` at a local Tempo instance or otel-collector and set `enabled: true`.
+- `internal/infra/otel/provider.go` — bootstraps tracer + logger providers + W3C propagator; combined shutdown wired into `app.Start`.
+- `internal/infra/kafka/tracecontext.go` — W3C `traceparent` inject on produce, extract on consume (links producer ↔ consumer spans across the Kafka boundary).
+- `internal/infra/database/{clickhouse,mysql}_instrument.go` + `instrument_common.go` — `SelectCH/QueryCH/ExecCH` + `SelectSQL/GetSQL/ExecSQL` seam used by every repository.
+- `internal/infra/redis/client.go` — `redisotel.InstrumentTracing` + metrics hook.
+- `cmd/server/logger.go` — composes `TraceAttrHandler(FanoutHandler{stdout, otelBridge})` root logger.
+
+See `deploy/monitoring/grafana/dashboards/optikk_ingest.json` for the ingest-pipeline Grafana dashboard (ingest rate, handler/worker/CH latency, queue depth, paused partitions, flush reasons, DLQ rate, consumer lag, attr drops).
 
 ### Traces read path (split into sibling submodules)
 
@@ -171,11 +192,11 @@ Modules choose the target group through the registry contract.
 From the live module manifest:
 
 - overview: `overview`, `redmetrics`, `httpmetrics`, `errors`, `slo`, `apm`
-- traces: `explorer`, `trace_analytics`, `span_query`, `tracedetail`, `trace_shape`, `trace_paths`, `trace_servicemap`, `trace_suggest`, `errors`, `latency`
-- logs: `search`, `explorer`
+- traces: `explorer`, `trace_analytics`, `span_query`, `tracedetail`, `trace_shape`, `trace_paths`, `trace_servicemap`, `trace_suggest`, `errors`, `latency`, `querycompiler`
+- logs: `explorer`, `querycompiler`
 - metrics
 - services: `topology`, `deployments`
-- infrastructure: `connpool`, `cpu`, `disk`, `fleet`, `jvm`, `kubernetes`, `memory`, `network`, `nodes`, `resourceutil`
+- infrastructure: `connpool`, `cpu`, `disk`, `fleet`, `jvm`, `kubernetes`, `memory`, `network`, `nodes`, `resourceutil`, `infraconsts` (shared constants, not a routable module)
 - saturation: `kafka`, `database/collection`, `connections`, `errors`, `explorer`, `latency`, `slowqueries`, `summary`, `system`, `systems`, `volume`
 - user: `auth`, `team`, `user`
 - ingestion: spans, logs, metrics
@@ -222,5 +243,6 @@ go test ./...
 ## Related docs
 
 - Overview doc: [README.md](/Users/ramantayal/Desktop/pro/optikk-backend/README.md)
-- Observability doc: [docs/ops/observability.md](/Users/ramantayal/Desktop/pro/optikk-backend/docs/ops/observability.md)
+- Flow diagrams: [docs/flows/](/Users/ramantayal/Desktop/pro/optikk-backend/docs/flows/) — ingestion, auth, http-request, trace-assembly
+- Ingest dashboard: [deploy/monitoring/grafana/dashboards/optikk_ingest.json](/Users/ramantayal/Desktop/pro/optikk-backend/deploy/monitoring/grafana/dashboards/optikk_ingest.json)
 - Frontend sibling repo: [../optikk-frontend/README.md](/Users/ramantayal/Desktop/pro/optikk-frontend/README.md)
