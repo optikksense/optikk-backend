@@ -78,7 +78,7 @@ func (r *ClickHouseRepository) queryContainerBuckets(ctx context.Context, teamID
 	args := append(dbutil.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("metricName", metricName))
 	args = append(args, nfArgs...)
 	var rows []containerBucketDTO
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...)
+	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kubernetes.queryContainerBuckets", &rows, query, args...)
 	return rows, err
 }
 
@@ -118,7 +118,7 @@ func (r *ClickHouseRepository) GetPodRestarts(ctx context.Context, teamID int64,
 	args := append(dbutil.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("metricName", MetricK8sContainerRestarts))
 	args = append(args, nfArgs...)
 	var rows []podStatDTO
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...)
+	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kubernetes.GetPodRestarts", &rows, query, args...)
 	return rows, err
 }
 
@@ -145,10 +145,10 @@ func (r *ClickHouseRepository) GetNodeAllocatable(ctx context.Context, teamID in
 	)
 	args = append(args, nfArgs...)
 	var metricRows []struct {
-		MetricName string  `ch:"metric_name"`
-		AvgVal     float64 `ch:"avg_val"`
+		MetricName	string	`ch:"metric_name"`
+		AvgVal		float64	`ch:"avg_val"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &metricRows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kubernetes.GetNodeAllocatable", &metricRows, query, args...); err != nil {
 		return nodeAllocatableDTO{}, err
 	}
 	var row nodeAllocatableDTO
@@ -184,7 +184,7 @@ func (r *ClickHouseRepository) GetPodPhases(ctx context.Context, teamID int64, s
 	args := append(dbutil.SimpleBaseParams(teamID, startMs, endMs), clickhouse.Named("metricName", MetricK8sPodPhase))
 	args = append(args, nfArgs...)
 	var rows []phaseStatDTO
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...)
+	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kubernetes.GetPodPhases", &rows, query, args...)
 	return rows, err
 }
 
@@ -212,11 +212,11 @@ func (r *ClickHouseRepository) GetReplicaStatus(ctx context.Context, teamID int6
 	)
 	args = append(args, nfArgs...)
 	var metricRows []struct {
-		ReplicaSet string  `ch:"replica_set"`
-		MetricName string  `ch:"metric_name"`
-		AvgVal     float64 `ch:"avg_val"`
+		ReplicaSet	string	`ch:"replica_set"`
+		MetricName	string	`ch:"metric_name"`
+		AvgVal		float64	`ch:"avg_val"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &metricRows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kubernetes.GetReplicaStatus", &metricRows, query, args...); err != nil {
 		return nil, err
 	}
 	out := map[string]*ReplicaStat{}
@@ -262,11 +262,11 @@ func (r *ClickHouseRepository) GetVolumeUsage(ctx context.Context, teamID int64,
 	)
 	args = append(args, nfArgs...)
 	var metricRows []struct {
-		VolumeName string  `ch:"volume_name"`
-		MetricName string  `ch:"metric_name"`
-		AvgVal     float64 `ch:"avg_val"`
+		VolumeName	string	`ch:"volume_name"`
+		MetricName	string	`ch:"metric_name"`
+		AvgVal		float64	`ch:"avg_val"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &metricRows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kubernetes.GetVolumeUsage", &metricRows, query, args...); err != nil {
 		return nil, err
 	}
 	out := map[string]*VolumeStat{}

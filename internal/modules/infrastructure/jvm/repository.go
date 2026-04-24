@@ -24,8 +24,8 @@ import (
 // rollup dim (the histograms rollup keys only metric_name + service). Future
 // work: extend metrics_histograms_rollup with a generic-attribute dim column.
 const (
-	metricsGaugesRollupPrefix = "observability.metrics_gauges_rollup"
-	metricsHistPrefix     = "observability.metrics_histograms_rollup"
+	metricsGaugesRollupPrefix	= "observability.metrics_gauges_rollup"
+	metricsHistPrefix		= "observability.metrics_histograms_rollup"
 )
 
 type Repository interface {
@@ -74,12 +74,12 @@ func (r *ClickHouseRepository) GetJVMMemory(ctx context.Context, teamID int64, s
 		clickhouse.Named("limit", infraconsts.MetricJVMMemoryLimit),
 	)
 	var metricRows []struct {
-		TimeBucket string  `ch:"time_bucket"`
-		StateDim   string  `ch:"state_dim"`
-		MetricName string  `ch:"metric_name"`
-		Val        float64 `ch:"val"`
+		TimeBucket	string	`ch:"time_bucket"`
+		StateDim	string	`ch:"state_dim"`
+		MetricName	string	`ch:"metric_name"`
+		Val		float64	`ch:"val"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &metricRows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "jvm.GetJVMMemory", &metricRows, query, args...); err != nil {
 		return nil, err
 	}
 	// Fold per (time_bucket, pool_name, mem_type).
@@ -153,7 +153,7 @@ func (r *ClickHouseRepository) GetJVMGCCollections(ctx context.Context, teamID i
 		infraconsts.ColTeamID, infraconsts.ColTimestamp,
 		infraconsts.ColMetricName, infraconsts.MetricJVMGCDuration)
 	var rows []JVMGCCollectionBucket
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
+	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "jvm.GetJVMGCCollections", &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
 	for i := range rows {
 		rows[i].Value = sanitizeFloatPtr(rows[i].Value)
 	}
@@ -177,7 +177,7 @@ func (r *ClickHouseRepository) GetJVMThreadCount(ctx context.Context, teamID int
 		clickhouse.Named("metricName", infraconsts.MetricJVMThreadCount),
 	)
 	var rows []JVMThreadBucket
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...)
+	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "jvm.GetJVMThreadCount", &rows, query, args...)
 	for i := range rows {
 		rows[i].Value = sanitizeFloatPtr(rows[i].Value)
 	}
@@ -200,11 +200,11 @@ func (r *ClickHouseRepository) GetJVMClasses(ctx context.Context, teamID int64, 
 		clickhouse.Named("countMetric", infraconsts.MetricJVMClassCount),
 	)
 	var metricRows []struct {
-		MetricName string  `ch:"metric_name"`
-		ValSum     float64 `ch:"val_sum"`
-		ValAvg     float64 `ch:"val_avg"`
+		MetricName	string	`ch:"metric_name"`
+		ValSum		float64	`ch:"val_sum"`
+		ValAvg		float64	`ch:"val_avg"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &metricRows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "jvm.GetJVMClasses", &metricRows, query, args...); err != nil {
 		return jvmClassStatsDTO{}, err
 	}
 	var row jvmClassStatsDTO
@@ -239,11 +239,11 @@ func (r *ClickHouseRepository) GetJVMCPU(ctx context.Context, teamID int64, star
 		clickhouse.Named("util", infraconsts.MetricJVMCPUUtilization),
 	)
 	var metricRows []struct {
-		MetricName string  `ch:"metric_name"`
-		ValSum     float64 `ch:"val_sum"`
-		ValAvg     float64 `ch:"val_avg"`
+		MetricName	string	`ch:"metric_name"`
+		ValSum		float64	`ch:"val_sum"`
+		ValAvg		float64	`ch:"val_avg"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &metricRows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "jvm.GetJVMCPU", &metricRows, query, args...); err != nil {
 		return jvmCPUStatsDTO{}, err
 	}
 	var row jvmCPUStatsDTO
@@ -277,12 +277,12 @@ func (r *ClickHouseRepository) GetJVMBuffers(ctx context.Context, teamID int64, 
 		clickhouse.Named("cnt", infraconsts.MetricJVMBufferCount),
 	)
 	var metricRows []struct {
-		TimeBucket string  `ch:"time_bucket"`
-		PoolName   string  `ch:"pool_name"`
-		MetricName string  `ch:"metric_name"`
-		Val        float64 `ch:"val"`
+		TimeBucket	string	`ch:"time_bucket"`
+		PoolName	string	`ch:"pool_name"`
+		MetricName	string	`ch:"metric_name"`
+		Val		float64	`ch:"val"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &metricRows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "jvm.GetJVMBuffers", &metricRows, query, args...); err != nil {
 		return nil, err
 	}
 	type key struct{ bucket, pool string }

@@ -61,7 +61,7 @@ func (r *Repository) fetchFacetRows(ctx context.Context, compiled querycompiler.
 	)
 	args := repeatArgs(compiled.Args, 5)
 	var rows []facetRowDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "explorer.fetchFacetRows", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil

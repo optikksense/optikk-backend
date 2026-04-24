@@ -55,23 +55,23 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 type infrastructureNodeDTO struct {
-	HostName      string    `ch:"host_name"`
-	PodCount      uint64    `ch:"pod_count"`
-	ServicesCSV   string    `ch:"services_csv"`
-	RequestCount  uint64    `ch:"request_count"`
-	ErrorCount    uint64    `ch:"error_count"`
-	DurationMsSum float64   `ch:"duration_ms_sum"`
-	P95Latency    float64   `ch:"p95_latency"`
-	LastSeen      time.Time `ch:"last_seen"`
+	HostName	string		`ch:"host_name"`
+	PodCount	uint64		`ch:"pod_count"`
+	ServicesCSV	string		`ch:"services_csv"`
+	RequestCount	uint64		`ch:"request_count"`
+	ErrorCount	uint64		`ch:"error_count"`
+	DurationMsSum	float64		`ch:"duration_ms_sum"`
+	P95Latency	float64		`ch:"p95_latency"`
+	LastSeen	time.Time	`ch:"last_seen"`
 }
 
 type infrastructureNodeServiceDTO struct {
-	ServiceName   string  `ch:"service_name"`
-	RequestCount  uint64  `ch:"request_count"`
-	ErrorCount    uint64  `ch:"error_count"`
-	DurationMsSum float64 `ch:"duration_ms_sum"`
-	P95Latency    float64 `ch:"p95_latency"`
-	PodCount      uint64  `ch:"pod_count"`
+	ServiceName	string	`ch:"service_name"`
+	RequestCount	uint64	`ch:"request_count"`
+	ErrorCount	uint64	`ch:"error_count"`
+	DurationMsSum	float64	`ch:"duration_ms_sum"`
+	P95Latency	float64	`ch:"p95_latency"`
+	PodCount	uint64	`ch:"pod_count"`
 }
 
 func (r *ClickHouseRepository) GetInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]InfrastructureNode, error) {
@@ -91,13 +91,13 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(ctx context.Context, teamI
 		LIMIT `+strconv.Itoa(MaxNodes), DefaultUnknown, table)
 
 	params := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 - domain-bounded
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115 - domain-bounded
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
 
 	var dtos []infrastructureNodeDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, params...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "nodes.GetInfrastructureNodes", &dtos, query, params...); err != nil {
 		return nil, err
 	}
 
@@ -112,16 +112,16 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(ctx context.Context, teamI
 			avgLatency = d.DurationMsSum / float64(d.RequestCount)
 		}
 		nodes[i] = InfrastructureNode{
-			Host:           d.HostName,
-			PodCount:       int64(d.PodCount), //nolint:gosec // domain-bounded
-			ContainerCount: 0,                 // rollup does not carry container cardinality
-			Services:       []string{},        // no longer fetched for fleet view performance
-			RequestCount:   int64(d.RequestCount),
-			ErrorCount:     int64(d.ErrorCount),
-			ErrorRate:      errorRate,
-			AvgLatencyMs:   avgLatency,
-			P95LatencyMs:   0, // no longer fetched for fleet view performance
-			LastSeen:       d.LastSeen.Format(time.RFC3339),
+			Host:		d.HostName,
+			PodCount:	int64(d.PodCount),	//nolint:gosec // domain-bounded
+			ContainerCount:	0,			// rollup does not carry container cardinality
+			Services:	[]string{},		// no longer fetched for fleet view performance
+			RequestCount:	int64(d.RequestCount),
+			ErrorCount:	int64(d.ErrorCount),
+			ErrorRate:	errorRate,
+			AvgLatencyMs:	avgLatency,
+			P95LatencyMs:	0,	// no longer fetched for fleet view performance
+			LastSeen:	d.LastSeen.Format(time.RFC3339),
 		}
 	}
 	return nodes, nil
@@ -129,7 +129,7 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(ctx context.Context, teamI
 
 func (r *ClickHouseRepository) GetInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (InfrastructureNodeSummary, error) {
 	table, _ := rollup.TierTableFor(spansHostRollupPrefix, startMs, endMs)
-	// Dedicated summary query that avoids the MaxNodes limit and executes a 
+	// Dedicated summary query that avoids the MaxNodes limit and executes a
 	// single pass over host-level aggregates to categorize health.
 	query := fmt.Sprintf(`
 		SELECT
@@ -155,10 +155,10 @@ func (r *ClickHouseRepository) GetInfrastructureNodeSummary(ctx context.Context,
 	}
 
 	var row struct {
-		HealthyNodes   int64 `ch:"healthy_nodes"`
-		DegradedNodes  int64 `ch:"degraded_nodes"`
-		UnhealthyNodes int64 `ch:"unhealthy_nodes"`
-		TotalPods      int64 `ch:"total_pods"`
+		HealthyNodes	int64	`ch:"healthy_nodes"`
+		DegradedNodes	int64	`ch:"degraded_nodes"`
+		UnhealthyNodes	int64	`ch:"unhealthy_nodes"`
+		TotalPods	int64	`ch:"total_pods"`
 	}
 
 	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, params...).ScanStruct(&row); err != nil {
@@ -166,10 +166,10 @@ func (r *ClickHouseRepository) GetInfrastructureNodeSummary(ctx context.Context,
 	}
 
 	return InfrastructureNodeSummary{
-		HealthyNodes:   row.HealthyNodes,
-		DegradedNodes:  row.DegradedNodes,
-		UnhealthyNodes: row.UnhealthyNodes,
-		TotalPods:      row.TotalPods,
+		HealthyNodes:	row.HealthyNodes,
+		DegradedNodes:	row.DegradedNodes,
+		UnhealthyNodes:	row.UnhealthyNodes,
+		TotalPods:	row.TotalPods,
 	}, nil
 }
 
@@ -191,14 +191,14 @@ func (r *ClickHouseRepository) GetInfrastructureNodeServices(ctx context.Context
 		LIMIT `+strconv.Itoa(MaxServices), table, DefaultUnknown)
 
 	params := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("host", host),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
 
 	var dtos []infrastructureNodeServiceDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, params...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "nodes.GetInfrastructureNodeServices", &dtos, query, params...); err != nil {
 		return nil, err
 	}
 
@@ -213,13 +213,13 @@ func (r *ClickHouseRepository) GetInfrastructureNodeServices(ctx context.Context
 			avgLatency = d.DurationMsSum / float64(d.RequestCount)
 		}
 		services[i] = InfrastructureNodeService{
-			ServiceName:  d.ServiceName,
-			RequestCount: int64(d.RequestCount), //nolint:gosec // domain-bounded
-			ErrorCount:   int64(d.ErrorCount),   //nolint:gosec // domain-bounded
-			ErrorRate:    errorRate,
-			AvgLatencyMs: avgLatency,
-			P95LatencyMs: d.P95Latency,
-			PodCount:     int64(d.PodCount), //nolint:gosec // domain-bounded
+			ServiceName:	d.ServiceName,
+			RequestCount:	int64(d.RequestCount),	//nolint:gosec // domain-bounded
+			ErrorCount:	int64(d.ErrorCount),	//nolint:gosec // domain-bounded
+			ErrorRate:	errorRate,
+			AvgLatencyMs:	avgLatency,
+			P95LatencyMs:	d.P95Latency,
+			PodCount:	int64(d.PodCount),	//nolint:gosec // domain-bounded
 		}
 	}
 	return services, nil

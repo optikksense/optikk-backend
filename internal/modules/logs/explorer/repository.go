@@ -20,10 +20,10 @@ import (
 )
 
 const (
-	rawLogsTable       = "observability.logs"
-	logsRollupPrefix   = "observability.logs_rollup"
-	logsFacetRollupTbl = "observability.logs_facets_rollup_5m"
-	logColumns         = `timestamp, observed_timestamp, severity_text, severity_number, severity_bucket,
+	rawLogsTable		= "observability.logs"
+	logsRollupPrefix	= "observability.logs_rollup"
+	logsFacetRollupTbl	= "observability.logs_facets_rollup_5m"
+	logColumns		= `timestamp, observed_timestamp, severity_text, severity_number, severity_bucket,
 			body, trace_id, span_id, trace_flags,
 			service, host, pod, container, environment,
 			attributes_string, attributes_number, attributes_bool,
@@ -35,7 +35,7 @@ type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *Repository { return &Repository{db: db} }
+func NewRepository(db clickhouse.Conn) *Repository	{ return &Repository{db: db} }
 
 // ListLogs runs a keyset-paginated scan of raw logs.
 func (r *Repository) ListLogs(ctx context.Context, f querycompiler.Filters, limit int, cur Cursor) ([]logRowDTO, bool, error) {
@@ -62,11 +62,8 @@ func (r *Repository) ListLogs(ctx context.Context, f querycompiler.Filters, limi
 		logColumns, rawLogsTable, where,
 	)
 	args = append(args, clickhouse.Named("pgLimit", uint64(limit+1)))
-	qctx, done := dbutil.Traced(ctx, "logs.ListLogs", query)
 	var rows []logRowDTO
-	err := r.db.Select(dbutil.ExplorerCtx(qctx), &rows, query, args...)
-	done(err)
-	if err != nil {
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "logs.ListLogs", &rows, query, args...); err != nil {
 		return nil, false, err
 	}
 	hasMore := len(rows) > limit
@@ -74,7 +71,7 @@ func (r *Repository) ListLogs(ctx context.Context, f querycompiler.Filters, limi
 		rows = rows[:limit]
 	}
 	if os.Getenv("OPTIKK_DEBUG_LOGS_LIST") == "1" {
-		slog.Info("logs ListLogs",
+		slog.InfoContext(ctx, "logs ListLogs",
 			"team_id", f.TeamID,
 			"start_ms", f.StartMs,
 			"end_ms", f.EndMs,
@@ -98,13 +95,13 @@ func (r *Repository) GetByID(ctx context.Context, teamID int64, traceID, spanID 
 		logColumns, rawLogsTable,
 	)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("traceID", traceID),
 		clickhouse.Named("spanID", spanID),
 		clickhouse.Named("tsNs", tsNs),
 	}
 	var rows []logRowDTO
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "explorer.GetByID", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	if len(rows) == 0 {

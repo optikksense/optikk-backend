@@ -1,4 +1,4 @@
-package trace_analytics //nolint:revive,stylecheck
+package trace_analytics	//nolint:revive,stylecheck
 
 import (
 	"context"
@@ -29,7 +29,7 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 func (r *ClickHouseRepository) Analytics(ctx context.Context, req AnalyticsRequest, f querycompiler.Filters) ([]AnalyticsRow, []string, error) {
 	compiled := querycompiler.Compile(f, querycompiler.TargetTracesIndex)
 	query := buildAnalyticsQuery(req, f, compiled)
-	rows, err := r.db.Query(dbutil.ExplorerCtx(ctx), query, compiled.Args...)
+	rows, err := dbutil.QueryCH(dbutil.ExplorerCtx(ctx), r.db, "trace_analytics.Analytics", query, compiled.Args...)
 	if err != nil {
 		return nil, compiled.DroppedClauses, err
 	}

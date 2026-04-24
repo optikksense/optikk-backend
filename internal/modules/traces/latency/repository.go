@@ -14,7 +14,7 @@ const spansRawTable = "observability.spans"
 
 type Repository struct{ db clickhouse.Conn }
 
-func NewRepository(db clickhouse.Conn) *Repository { return &Repository{db: db} }
+func NewRepository(db clickhouse.Conn) *Repository	{ return &Repository{db: db} }
 
 func (r *Repository) Histogram(ctx context.Context, teamID int64, req HistogramRequest) (histogramRow, error) {
 	where, args := baseFilter(teamID, req.StartMs, req.EndMs, req.ServiceName)
@@ -30,7 +30,7 @@ func (r *Repository) Histogram(ctx context.Context, teamID int64, req HistogramR
 		max(duration_nano)/1e6 AS max,
 		avg(duration_nano)/1e6 AS avg
 		FROM %s WHERE %s`, spansRawTable, where)
-	rows, err := r.db.Query(dbutil.ExplorerCtx(ctx), query, args...)
+	rows, err := dbutil.QueryCH(dbutil.ExplorerCtx(ctx), r.db, "latency.Histogram", query, args...)
 	if err != nil {
 		return histogramRow{}, err
 	}
@@ -54,7 +54,7 @@ func (r *Repository) Heatmap(ctx context.Context, teamID int64, req HeatmapReque
 		bucketExpr, spansRawTable, where,
 	)
 	var rows []heatmapRow
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "latency.Heatmap", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -62,7 +62,7 @@ func (r *Repository) Heatmap(ctx context.Context, teamID int64, req HeatmapReque
 
 func baseFilter(teamID int64, startMs, endMs int64, service string) (string, []any) {
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.Unix(0, startMs*1_000_000)),

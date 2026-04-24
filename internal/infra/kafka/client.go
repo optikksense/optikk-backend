@@ -35,6 +35,7 @@ func NewProducerClient(cfg Config) (*kgo.Client, error) {
 		kgo.RequiredAcks(kgo.AllISRAcks()),
 		kgo.ProducerBatchCompression(compressionOf(cfg.Compression)),
 		kgo.RecordPartitioner(kgo.StickyKeyPartitioner(nil)),
+		Hooks(),
 	}
 	return kgo.NewClient(opts...)
 }
@@ -60,6 +61,7 @@ func NewConsumerClient(cfg Config, groupID, topic string) (*kgo.Client, error) {
 		kgo.DisableAutoCommit(),
 		kgo.Balancers(kgo.CooperativeStickyBalancer()),
 		kgo.FetchMaxWait(2*time.Second),
+		Hooks(),
 	)
 }
 

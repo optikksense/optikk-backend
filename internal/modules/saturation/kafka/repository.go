@@ -33,8 +33,8 @@ import (
 // return empty.
 
 const (
-	messagingRollupPrefix         = "observability.messaging_histograms_rollup"
-	messagingCountersRollupPrefix = "observability.messaging_counters_rollup"
+	messagingRollupPrefix		= "observability.messaging_histograms_rollup"
+	messagingCountersRollupPrefix	= "observability.messaging_counters_rollup"
 )
 
 // rollupBucketExpr bucketizes the rollup's DateTime `bucket_ts` column.
@@ -81,9 +81,9 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(ctx context.Context, teamID 
 		GROUP BY metric_name
 	`, countersTable, rollupTopicGroupFilter(f))
 	var rateRows []struct {
-		MetricName string  `ch:"metric_name"`
-		VSum       float64 `ch:"v_sum"`
-		VMax       float64 `ch:"v_max"`
+		MetricName	string	`ch:"metric_name"`
+		VSum		float64	`ch:"v_sum"`
+		VMax		float64	`ch:"v_max"`
 	}
 	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
 	args = append(args,
@@ -91,7 +91,7 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(ctx context.Context, teamID 
 		clickhouse.Named("consumerMetrics", ConsumerMetrics),
 		clickhouse.Named("lagMetrics", ConsumerLagMetrics),
 	)
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rateRows, countersQuery, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetKafkaSummaryStats", &rateRows, countersQuery, args...); err != nil {
 		return stats, err
 	}
 	prod := stringSet(ProducerMetrics)
@@ -129,11 +129,11 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(ctx context.Context, teamID 
 		GROUP BY metric_name
 	`, histTable, rollupTopicGroupFilter(f))
 	var histRows []struct {
-		MetricName string  `ch:"metric_name"`
-		P95        float64 `ch:"p95"`
+		MetricName	string	`ch:"metric_name"`
+		P95		float64	`ch:"p95"`
 	}
 	histArgs := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &histRows, histQuery, histArgs...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetKafkaSummaryStats", &histRows, histQuery, histArgs...); err != nil {
 		return stats, err
 	}
 	for _, row := range histRows {
@@ -177,7 +177,7 @@ func (r *ClickHouseRepository) topicRate(ctx context.Context, teamID int64, star
 	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
 	args = append(args, clickhouse.Named("bucketSecs", bucketSecs(startMs, endMs)), clickhouse.Named("metrics", metrics))
 	var out []TopicRatePoint
-	return out, r.db.Select(dbutil.OverviewCtx(ctx), &out, query, args...)
+	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.topicRate", &out, query, args...)
 }
 
 func (r *ClickHouseRepository) GetConsumeRateByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupRatePoint, error) {
@@ -206,7 +206,7 @@ func (r *ClickHouseRepository) groupRate(ctx context.Context, teamID int64, star
 	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
 	args = append(args, clickhouse.Named("bucketSecs", bucketSecs(startMs, endMs)), clickhouse.Named("metrics", metrics))
 	var out []GroupRatePoint
-	return out, r.db.Select(dbutil.OverviewCtx(ctx), &out, query, args...)
+	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.groupRate", &out, query, args...)
 }
 
 // ---------------------------------------------------------------------------
@@ -232,7 +232,7 @@ func (r *ClickHouseRepository) GetConsumerLagByGroup(ctx context.Context, teamID
 	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
 	args = append(args, clickhouse.Named("lagMetrics", ConsumerLagMetrics))
 	var out []LagPoint
-	return out, r.db.Select(dbutil.OverviewCtx(ctx), &out, query, args...)
+	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetConsumerLagByGroup", &out, query, args...)
 }
 
 func (r *ClickHouseRepository) GetConsumerLagPerPartition(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]PartitionLag, error) {
@@ -255,7 +255,7 @@ func (r *ClickHouseRepository) GetConsumerLagPerPartition(ctx context.Context, t
 	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
 	args = append(args, clickhouse.Named("lagMetrics", ConsumerLagMetrics))
 	var out []PartitionLag
-	return out, r.db.Select(dbutil.OverviewCtx(ctx), &out, query, args...)
+	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetConsumerLagPerPartition", &out, query, args...)
 }
 
 // ---------------------------------------------------------------------------
@@ -282,13 +282,13 @@ func (r *ClickHouseRepository) GetRebalanceSignals(ctx context.Context, teamID i
 	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
 	args = append(args, clickhouse.Named("rebalanceMetrics", RebalanceMetrics))
 	var metricRows []struct {
-		TimeBucket    string  `ch:"time_bucket"`
-		ConsumerGroup string  `ch:"consumer_group"`
-		MetricName    string  `ch:"metric_name"`
-		VSum          float64 `ch:"v_sum"`
-		VAvg          float64 `ch:"v_avg"`
+		TimeBucket	string	`ch:"time_bucket"`
+		ConsumerGroup	string	`ch:"consumer_group"`
+		MetricName	string	`ch:"metric_name"`
+		VSum		float64	`ch:"v_sum"`
+		VAvg		float64	`ch:"v_avg"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &metricRows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetRebalanceSignals", &metricRows, query, args...); err != nil {
 		return nil, err
 	}
 	type key struct{ bucket, group string }
@@ -343,12 +343,12 @@ func (r *ClickHouseRepository) GetE2ELatency(ctx context.Context, teamID int64, 
 	`, rollupBucketExpr(startMs, endMs), table, rollupTopicGroupFilter(f))
 	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
 	var metricRows []struct {
-		TimeBucket string  `ch:"time_bucket"`
-		Topic      string  `ch:"topic"`
-		MetricName string  `ch:"metric_name"`
-		P95        float64 `ch:"p95"`
+		TimeBucket	string	`ch:"time_bucket"`
+		Topic		string	`ch:"topic"`
+		MetricName	string	`ch:"metric_name"`
+		P95		float64	`ch:"p95"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &metricRows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetE2ELatency", &metricRows, query, args...); err != nil {
 		return nil, err
 	}
 	type key struct{ bucket, topic string }
@@ -417,7 +417,7 @@ func (r *ClickHouseRepository) GetClientOpErrors(ctx context.Context, teamID int
 	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
 	args = append(args, clickhouse.Named("bucketSecs", bucketSecs(startMs, endMs)))
 	var out []ErrorRatePoint
-	return out, r.db.Select(dbutil.OverviewCtx(ctx), &out, query, args...)
+	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetClientOpErrors", &out, query, args...)
 }
 
 func (r *ClickHouseRepository) GetBrokerConnections(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]BrokerConnectionPoint, error) {
@@ -438,7 +438,7 @@ func (r *ClickHouseRepository) GetBrokerConnections(ctx context.Context, teamID 
 	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
 	args = append(args, clickhouse.Named("metricName", MetricClientConnections))
 	var out []BrokerConnectionPoint
-	return out, r.db.Select(dbutil.OverviewCtx(ctx), &out, query, args...)
+	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetBrokerConnections", &out, query, args...)
 }
 
 // ---------------------------------------------------------------------------
@@ -480,7 +480,7 @@ func (r *ClickHouseRepository) topicLatency(ctx context.Context, teamID int64, s
 		clickhouse.Named("opAliases", opAliases),
 	)
 	var out []TopicLatencyPoint
-	return out, r.db.Select(dbutil.OverviewCtx(ctx), &out, query, args...)
+	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.topicLatency", &out, query, args...)
 }
 
 func (r *ClickHouseRepository) GetProcessLatencyByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupLatencyPoint, error) {
@@ -503,7 +503,7 @@ func (r *ClickHouseRepository) GetProcessLatencyByGroup(ctx context.Context, tea
 	`, rollupBucketExpr(startMs, endMs), table, rollupTopicGroupFilter(f))
 	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
 	var out []GroupLatencyPoint
-	return out, r.db.Select(dbutil.OverviewCtx(ctx), &out, query, args...)
+	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetProcessLatencyByGroup", &out, query, args...)
 }
 
 func (r *ClickHouseRepository) GetClientOperationDuration(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ClientOpDurationPoint, error) {
@@ -525,7 +525,7 @@ func (r *ClickHouseRepository) GetClientOperationDuration(ctx context.Context, t
 	`, rollupBucketExpr(startMs, endMs), table, rollupTopicGroupFilter(f))
 	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
 	var out []ClientOpDurationPoint
-	return out, r.db.Select(dbutil.OverviewCtx(ctx), &out, query, args...)
+	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetClientOperationDuration", &out, query, args...)
 }
 
 // ---------------------------------------------------------------------------
@@ -555,7 +555,7 @@ func (r *ClickHouseRepository) getTopicErrorRates(ctx context.Context, teamID in
 		clickhouse.Named("bucketSecs", bucketSecs(startMs, endMs)),
 	)
 	var out []ErrorRatePoint
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &out, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.getTopicErrorRates", &out, query, args...); err != nil {
 		return nil, fmt.Errorf("%s: %w", caller, err)
 	}
 	return out, nil
@@ -584,7 +584,7 @@ func (r *ClickHouseRepository) getGroupErrorRates(ctx context.Context, teamID in
 		clickhouse.Named("bucketSecs", bucketSecs(startMs, endMs)),
 	)
 	var out []ErrorRatePoint
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &out, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.getGroupErrorRates", &out, query, args...); err != nil {
 		return nil, fmt.Errorf("%s: %w", caller, err)
 	}
 	return out, nil
@@ -621,7 +621,7 @@ func (r *ClickHouseRepository) GetConsumerMetricSamples(ctx context.Context, tea
 	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupInventoryArgs(f)...)
 	args = append(args, clickhouse.Named("metricNames", metricNames))
 	var out []ConsumerMetricSample
-	return out, r.db.Select(dbutil.OverviewCtx(ctx), &out, query, args...)
+	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetConsumerMetricSamples", &out, query, args...)
 }
 
 func (r *ClickHouseRepository) GetTopicMetricSamples(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters, metricNames []string) ([]TopicMetricSample, error) {
@@ -648,7 +648,7 @@ func (r *ClickHouseRepository) GetTopicMetricSamples(ctx context.Context, teamID
 	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupInventoryArgs(f)...)
 	args = append(args, clickhouse.Named("metricNames", metricNames))
 	var out []TopicMetricSample
-	return out, r.db.Select(dbutil.OverviewCtx(ctx), &out, query, args...)
+	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetTopicMetricSamples", &out, query, args...)
 }
 
 // stringSet builds a lookup set from a slice for O(1) metric-name classification.

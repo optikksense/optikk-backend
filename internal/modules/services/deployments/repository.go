@@ -38,9 +38,9 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 // commit_author, repo_url, pr_url. span_count is derived from
 // `sumMerge(request_count)`.
 const (
-	spansByVersionPrefix     = "observability.spans_by_version"
-	spansRollupPrefix        = "observability.spans_rollup"
-	errFingerprintRollupPrefix = "observability.spans_error_fingerprint"
+	spansByVersionPrefix		= "observability.spans_by_version"
+	spansRollupPrefix		= "observability.spans_rollup"
+	errFingerprintRollupPrefix	= "observability.spans_error_fingerprint"
 )
 
 // queryIntervalMinutes returns max(tierStep, dashboardStep). Copied from
@@ -69,10 +69,10 @@ func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 // `GetErrorGroupsWindow`, `GetEndpointMetricsWindow`) which still reach
 // into the base `observability.spans` table.
 const (
-	attrCommitSHA    = "attributes.`git.commit.sha`::String"
-	attrCommitAuthor = "attributes.`git.commit.author.name`::String"
-	attrRepoURL      = "attributes.`scm.repository.url`::String"
-	attrPRURL        = "attributes.`git.pull_request.url`::String"
+	attrCommitSHA		= "attributes.`git.commit.sha`::String"
+	attrCommitAuthor	= "attributes.`git.commit.author.name`::String"
+	attrRepoURL		= "attributes.`scm.repository.url`::String"
+	attrPRURL		= "attributes.`git.pull_request.url`::String"
 )
 
 // commitMetaSelectRaw is the SELECT fragment for the four optional git/VCS
@@ -123,8 +123,8 @@ func (r *ClickHouseRepository) ListDeployments(ctx context.Context, teamID int64
 		ORDER BY first_seen ASC`, commitMetaSelectRollup, table)
 
 	var rows []deploymentAggRow
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 - tenant id fits uint32
+	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.ListDeployments", &rows, query,
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115 - tenant id fits uint32
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
@@ -155,8 +155,8 @@ func (r *ClickHouseRepository) ListServiceDeployments(ctx context.Context, teamI
 		ORDER BY first_seen ASC`, commitMetaSelectRollup, table)
 
 	var rows []deploymentAggRow
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.ListServiceDeployments", &rows, query,
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
 	)
 	return rows, err
@@ -202,8 +202,8 @@ func (r *ClickHouseRepository) GetLatestDeploymentsByService(ctx context.Context
 		ORDER BY deployments.service_name ASC`, commitMetaSelectRollup, table)
 
 	var rows []deploymentAggRow
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetLatestDeploymentsByService", &rows, query,
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 	)
 	return rows, err
 }
@@ -228,8 +228,8 @@ func (r *ClickHouseRepository) GetDeploysInRange(ctx context.Context, teamID int
 		ORDER BY first_seen ASC`, commitMetaSelectRollup, table)
 
 	var rows []deploymentAggRow
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetDeploysInRange", &rows, query,
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
@@ -256,9 +256,9 @@ func (r *ClickHouseRepository) GetVersionTraffic(ctx context.Context, teamID int
 		GROUP BY timestamp, version
 		ORDER BY timestamp ASC, version ASC`, table)
 	var rows []VersionTrafficPoint
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query,
+	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetVersionTraffic", &rows, query,
 		clickhouse.Named("bucketSeconds", bs),
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
@@ -294,7 +294,7 @@ func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64
 		  AND service_name = @serviceName
 		  AND bucket_ts BETWEEN @start AND @end
 	`, table),
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
@@ -310,7 +310,7 @@ func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64
 // `last_seen`; 1m tier because we want exact max, not summary.
 func (r *ClickHouseRepository) GetActiveVersion(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (activeVersionRow, error) {
 	var rows []activeVersionRow
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, `
+	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetActiveVersion", &rows, `
 		SELECT service_version AS version,
 		       environment     AS environment
 		FROM observability.spans_by_version_1m
@@ -322,7 +322,7 @@ func (r *ClickHouseRepository) GetActiveVersion(ctx context.Context, teamID int6
 		ORDER BY maxMerge(last_seen) DESC
 		LIMIT 1
 	`,
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
@@ -341,7 +341,7 @@ func (r *ClickHouseRepository) GetActiveVersion(ctx context.Context, teamID int6
 func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64, limit int) ([]errorGroupAggRow, error) {
 	table, _ := rollup.TierTableFor(errFingerprintRollupPrefix, startMs, endMs)
 	var rows []errorGroupAggRow
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, fmt.Sprintf(`
+	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetErrorGroupsWindow", &rows, fmt.Sprintf(`
 		SELECT service_name                                AS service_name,
 		       hex(status_message_hash)                    AS group_id,
 		       operation_name                              AS operation_name,
@@ -360,7 +360,7 @@ func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID 
 		ORDER BY error_count DESC
 		LIMIT @limit
 	`, table),
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
@@ -375,7 +375,7 @@ func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID 
 func (r *ClickHouseRepository) GetEndpointMetricsWindow(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64, limit int) ([]endpointMetricAggRow, error) {
 	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
 	var rows []endpointMetricAggRow
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, fmt.Sprintf(`
+	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetEndpointMetricsWindow", &rows, fmt.Sprintf(`
 		SELECT operation_name                                                           AS operation_name,
 		       endpoint                                                                 AS endpoint_name,
 		       http_method                                                              AS http_method,
@@ -391,7 +391,7 @@ func (r *ClickHouseRepository) GetEndpointMetricsWindow(ctx context.Context, tea
 		ORDER BY request_count DESC
 		LIMIT @limit
 	`, table),
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),

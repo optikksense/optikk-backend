@@ -27,7 +27,7 @@ func NewService(repo Repository) Service {
 func (s *TraceDetailService) GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]SpanEvent, error) {
 	eventRows, exceptionRows, err := s.repo.GetSpanEvents(ctx, teamID, traceID)
 	if err != nil {
-		slog.Error("tracedetail: GetSpanEvents failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
+		slog.ErrorContext(ctx, "tracedetail: GetSpanEvents failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
 		return nil, err
 	}
 
@@ -39,11 +39,11 @@ func (s *TraceDetailService) GetSpanEvents(ctx context.Context, teamID int64, tr
 			seenException[row.SpanID] = true
 		}
 		events = append(events, SpanEvent{
-			SpanID:     row.SpanID,
-			TraceID:    row.TraceID,
-			EventName:  name,
-			Timestamp:  row.Timestamp,
-			Attributes: attrJSON,
+			SpanID:		row.SpanID,
+			TraceID:	row.TraceID,
+			EventName:	name,
+			Timestamp:	row.Timestamp,
+			Attributes:	attrJSON,
 		})
 	}
 
@@ -68,11 +68,11 @@ func (s *TraceDetailService) GetSpanEvents(ctx context.Context, teamID int64, tr
 			}
 		}
 		events = append(events, SpanEvent{
-			SpanID:     row.SpanID,
-			TraceID:    row.TraceID,
-			EventName:  "exception",
-			Timestamp:  row.Timestamp,
-			Attributes: attrJSON,
+			SpanID:		row.SpanID,
+			TraceID:	row.TraceID,
+			EventName:	"exception",
+			Timestamp:	row.Timestamp,
+			Attributes:	attrJSON,
 		})
 	}
 
@@ -91,7 +91,7 @@ func (s *TraceDetailService) GetSpanEvents(ctx context.Context, teamID int64, tr
 func (s *TraceDetailService) GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*SpanAttributes, error) {
 	row, err := s.repo.GetSpanAttributes(ctx, teamID, traceID, spanID)
 	if err != nil {
-		slog.Error("tracedetail: GetSpanAttributes failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID), slog.String("span_id", spanID))
+		slog.ErrorContext(ctx, "tracedetail: GetSpanAttributes failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID), slog.String("span_id", spanID))
 		return nil, err
 	}
 	if row == nil {
@@ -107,21 +107,21 @@ func (s *TraceDetailService) GetSpanAttributes(ctx context.Context, teamID int64
 	}
 
 	return &SpanAttributes{
-		SpanID:                row.SpanID,
-		TraceID:               row.TraceID,
-		OperationName:         row.OperationName,
-		ServiceName:           row.ServiceName,
-		AttributesString:      row.AttributesString,
-		ResourceAttrs:         row.ResourceAttrs,
-		Attributes:            merged,
-		ExceptionType:         row.ExceptionType,
-		ExceptionMessage:      row.ExceptionMessage,
-		ExceptionStacktrace:   row.ExceptionStacktrace,
-		DBSystem:              row.DBSystem,
-		DBName:                row.DBName,
-		DBStatement:           row.DBStatement,
-		DBStatementNormalized: normalizeDBStatement(row.DBStatement),
-		Links:                 parseSpanLinks(row.Links),
+		SpanID:			row.SpanID,
+		TraceID:		row.TraceID,
+		OperationName:		row.OperationName,
+		ServiceName:		row.ServiceName,
+		AttributesString:	row.AttributesString,
+		ResourceAttrs:		row.ResourceAttrs,
+		Attributes:		merged,
+		ExceptionType:		row.ExceptionType,
+		ExceptionMessage:	row.ExceptionMessage,
+		ExceptionStacktrace:	row.ExceptionStacktrace,
+		DBSystem:		row.DBSystem,
+		DBName:			row.DBName,
+		DBStatement:		row.DBStatement,
+		DBStatementNormalized:	normalizeDBStatement(row.DBStatement),
+		Links:			parseSpanLinks(row.Links),
 	}, nil
 }
 
@@ -132,35 +132,35 @@ func (s *TraceDetailService) GetRelatedTraces(ctx context.Context, teamID int64,
 func (s *TraceDetailService) GetTraceLogs(ctx context.Context, teamID int64, traceID string) (*TraceLogsResponse, error) {
 	rows, err := s.repo.GetTraceLogs(ctx, teamID, traceID)
 	if err != nil {
-		slog.Error("tracedetail: GetTraceLogs failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
+		slog.ErrorContext(ctx, "tracedetail: GetTraceLogs failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
 		return nil, err
 	}
 	logs := make([]TraceLog, len(rows))
 	for i, row := range rows {
 		logs[i] = TraceLog{
-			Timestamp:         uint64(row.Timestamp.UnixNano()),
-			ObservedTimestamp: row.ObservedTimestamp,
-			SeverityText:      row.SeverityText,
-			SeverityNumber:    row.SeverityNumber,
-			Body:              row.Body,
-			TraceID:           row.TraceID,
-			SpanID:            row.SpanID,
-			TraceFlags:        row.TraceFlags,
-			ServiceName:       row.ServiceName,
-			Host:              row.Host,
-			Pod:               row.Pod,
-			Container:         row.Container,
-			Environment:       row.Environment,
-			AttributesString:  row.AttributesString,
-			AttributesNumber:  row.AttributesNumber,
-			AttributesBool:    row.AttributesBool,
-			ScopeName:         row.ScopeName,
-			ScopeVersion:      row.ScopeVersion,
+			Timestamp:		uint64(row.Timestamp.UnixNano()),
+			ObservedTimestamp:	row.ObservedTimestamp,
+			SeverityText:		row.SeverityText,
+			SeverityNumber:		row.SeverityNumber,
+			Body:			row.Body,
+			TraceID:		row.TraceID,
+			SpanID:			row.SpanID,
+			TraceFlags:		row.TraceFlags,
+			ServiceName:		row.ServiceName,
+			Host:			row.Host,
+			Pod:			row.Pod,
+			Container:		row.Container,
+			Environment:		row.Environment,
+			AttributesString:	row.AttributesString,
+			AttributesNumber:	row.AttributesNumber,
+			AttributesBool:		row.AttributesBool,
+			ScopeName:		row.ScopeName,
+			ScopeVersion:		row.ScopeVersion,
 		}
 	}
 	return &TraceLogsResponse{
-		Logs:          logs,
-		IsSpeculative: false,
+		Logs:		logs,
+		IsSpeculative:	false,
 	}, nil
 }
 
@@ -179,8 +179,8 @@ func parseEventJSON(raw string) (name string, attrs string) {
 		return raw, "{}"
 	}
 	var obj struct {
-		Name       string            `json:"name"`
-		Attributes map[string]string `json:"attributes"`
+		Name		string			`json:"name"`
+		Attributes	map[string]string	`json:"attributes"`
 	}
 	if err := json.Unmarshal([]byte(raw), &obj); err != nil {
 		return raw, "{}"
@@ -194,5 +194,3 @@ func parseEventJSON(raw string) (name string, attrs string) {
 	}
 	return obj.Name, string(b)
 }
-
-

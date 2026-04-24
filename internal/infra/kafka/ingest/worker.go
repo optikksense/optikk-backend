@@ -12,8 +12,8 @@ import (
 // the worker can commit offsets after the CH write succeeds. Raw may be nil
 // during tests.
 type Item[T any] struct {
-	Payload T
-	Raw     *kgo.Record
+	Payload	T
+	Raw	*kgo.Record
 }
 
 // Committer is the narrow interface the worker needs to commit offsets after a
@@ -25,11 +25,11 @@ type Committer interface {
 // Worker owns one partition. Add() is called by the dispatcher to hand over
 // records; tick + flush run inside Run().
 type Worker[T any] struct {
-	name      string
-	in        chan Item[T]
-	writer    *Writer[T]
-	acc       *Accumulator[Item[T]]
-	committer Committer
+	name		string
+	in		chan Item[T]
+	writer		*Writer[T]
+	acc		*Accumulator[Item[T]]
+	committer	Committer
 }
 
 // NewWorker builds a worker. queueSize caps the in-flight records awaiting
@@ -46,20 +46,20 @@ func NewWorker[T any](
 		queueSize = 1024
 	}
 	return &Worker[T]{
-		name:      name,
-		in:        make(chan Item[T], queueSize),
-		writer:    writer,
-		acc:       NewAccumulator[Item[T]](cfg, sizeFn),
-		committer: committer,
+		name:		name,
+		in:		make(chan Item[T], queueSize),
+		writer:		writer,
+		acc:		NewAccumulator[Item[T]](cfg, sizeFn),
+		committer:	committer,
 	}
 }
 
 // Inbox exposes the channel so the dispatcher can enqueue items.
-func (w *Worker[T]) Inbox() chan<- Item[T] { return w.in }
+func (w *Worker[T]) Inbox() chan<- Item[T]	{ return w.in }
 
 // Depth returns the approximate number of pending items awaiting flush. Used
 // by the dispatcher as the backpressure signal for Pause/Resume.
-func (w *Worker[T]) Depth() int { return len(w.in) }
+func (w *Worker[T]) Depth() int	{ return len(w.in) }
 
 // Run blocks until ctx is canceled. One goroutine per worker per partition.
 func (w *Worker[T]) Run(ctx context.Context) {
@@ -93,7 +93,7 @@ func (w *Worker[T]) flush(ctx context.Context, batch []Item[T]) {
 		payloads[i] = it.Payload
 	}
 	if err := w.writer.Write(ctx, payloads); err != nil {
-		slog.Warn("ingest worker: write error; offsets NOT committed",
+		slog.WarnContext(ctx, "ingest worker: write error; offsets NOT committed",
 			slog.String("signal", w.name), slog.Any("error", err))
 		return
 	}
@@ -114,7 +114,7 @@ func (w *Worker[T]) commit(ctx context.Context, batch []Item[T]) {
 		return
 	}
 	if err := w.committer.CommitRecords(ctx, raws...); err != nil {
-		slog.Warn("ingest worker: commit failed",
+		slog.WarnContext(ctx, "ingest worker: commit failed",
 			slog.String("signal", w.name), slog.Any("error", err))
 	}
 }

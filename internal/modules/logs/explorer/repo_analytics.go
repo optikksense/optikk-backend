@@ -36,23 +36,23 @@ func normalizeVizMode(v string) string {
 }
 
 type analyticsPlan struct {
-	table     string
-	where     string
-	baseArgs  []any
-	groupBy   []string
-	aggs      []aggSpec
-	viz       string
-	stepMin   int64
-	stepToken string
-	limit     int
-	orderBy   string
-	rollup    bool
-	dropped   []string
+	table		string
+	where		string
+	baseArgs	[]any
+	groupBy		[]string
+	aggs		[]aggSpec
+	viz		string
+	stepMin		int64
+	stepToken	string
+	limit		int
+	orderBy		string
+	rollup		bool
+	dropped		[]string
 }
 
 type aggSpec struct {
-	alias string
-	expr  string
+	alias	string
+	expr	string
 }
 
 // planAnalytics decides rollup-vs-raw + resolves group-by columns, aggs, step.
@@ -62,21 +62,21 @@ func planAnalytics(f querycompiler.Filters, req AnalyticsRequest, viz string) an
 		table, tierStep := rollup.TierTableFor(logsRollupPrefix, f.StartMs, f.EndMs)
 		compiled := querycompiler.Compile(f, querycompiler.TargetRollup)
 		return analyticsPlan{
-			table: table, where: compiled.Where, baseArgs: compiled.Args,
-			groupBy: groupBy, aggs: buildAggsRollup(req.Aggregations), viz: viz,
-			stepMin:   resolveStepMinutes(req.Step, tierStep, f.StartMs, f.EndMs),
-			stepToken: req.Step, limit: pickAnaLimit(req.Limit), orderBy: req.OrderBy,
-			rollup: true, dropped: compiled.DroppedClauses,
+			table:	table, where: compiled.Where, baseArgs: compiled.Args,
+			groupBy:	groupBy, aggs: buildAggsRollup(req.Aggregations), viz: viz,
+			stepMin:	resolveStepMinutes(req.Step, tierStep, f.StartMs, f.EndMs),
+			stepToken:	req.Step, limit: pickAnaLimit(req.Limit), orderBy: req.OrderBy,
+			rollup:	true, dropped: compiled.DroppedClauses,
 		}
 	}
 	compiled := querycompiler.Compile(f, querycompiler.TargetRaw)
 	groupByRaw, _ := normalizeGroupBy(req.GroupBy, false)
 	return analyticsPlan{
-		table: rawLogsTable, where: compiled.Where, baseArgs: compiled.Args,
-		groupBy: groupByRaw, aggs: buildAggsRaw(req.Aggregations), viz: viz,
-		stepMin:   resolveStepMinutes(req.Step, 1, f.StartMs, f.EndMs),
-		stepToken: req.Step, limit: pickAnaLimit(req.Limit), orderBy: req.OrderBy,
-		rollup: false, dropped: compiled.DroppedClauses,
+		table:	rawLogsTable, where: compiled.Where, baseArgs: compiled.Args,
+		groupBy:	groupByRaw, aggs: buildAggsRaw(req.Aggregations), viz: viz,
+		stepMin:	resolveStepMinutes(req.Step, 1, f.StartMs, f.EndMs),
+		stepToken:	req.Step, limit: pickAnaLimit(req.Limit), orderBy: req.OrderBy,
+		rollup:	false, dropped: compiled.DroppedClauses,
 	}
 }
 
@@ -99,18 +99,18 @@ func canUseRollup(f querycompiler.Filters) bool {
 }
 
 var rollupKeyDims = map[string]string{
-	"severity_bucket": "severity_bucket", "severity": "severity_bucket",
-	"service": "service", "service_name": "service",
-	"environment": "environment", "env": "environment",
-	"host": "host", "pod": "pod",
+	"severity_bucket":	"severity_bucket", "severity": "severity_bucket",
+	"service":	"service", "service_name": "service",
+	"environment":	"environment", "env": "environment",
+	"host":	"host", "pod": "pod",
 }
 
 var rawKeyDims = map[string]string{
-	"severity_bucket": "severity_bucket", "severity": "severity_text",
-	"service": "service", "service_name": "service",
-	"environment": "environment", "env": "environment",
-	"host": "host", "pod": "pod", "container": "container",
-	"trace_id": "trace_id", "span_id": "span_id",
+	"severity_bucket":	"severity_bucket", "severity": "severity_text",
+	"service":	"service", "service_name": "service",
+	"environment":	"environment", "env": "environment",
+	"host":	"host", "pod": "pod", "container": "container",
+	"trace_id":	"trace_id", "span_id": "span_id",
 }
 
 func normalizeGroupBy(in []string, rollupOnly bool) ([]string, bool) {
@@ -185,11 +185,11 @@ func analyticsOrder(p analyticsPlan) string {
 // runAnalyticsQuery scans the dynamic-shape result into AnalyticsRow via the
 // generic Query() path + rows.Scan on per-column `any` pointers.
 func (r *Repository) runAnalyticsQuery(ctx context.Context, query string, args []any, p analyticsPlan) ([]AnalyticsRow, error) {
-	rows, err := r.db.Query(dbutil.OverviewCtx(ctx), query, args...)
+	rows, err := dbutil.QueryCH(dbutil.OverviewCtx(ctx), r.db, "explorer.runAnalyticsQuery", query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("logs.analytics.query: %w", err)
 	}
-	defer rows.Close() //nolint:errcheck
+	defer rows.Close()	//nolint:errcheck
 
 	cols := rows.Columns()
 	aggSet := aggAliasSet(p.aggs)

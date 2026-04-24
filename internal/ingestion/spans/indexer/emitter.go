@@ -33,8 +33,8 @@ var chColumns = []string{
 // assembler calls Emit per completed trace; bulk batching lives inside the
 // clickhouse-go async insert path (enabled at client construction).
 type CHEmitter struct {
-	ch    clickhouse.Conn
-	query string
+	ch	clickhouse.Conn
+	query	string
 }
 
 func NewCHEmitter(ch clickhouse.Conn) *CHEmitter {
@@ -110,8 +110,8 @@ func rowValues(r TraceIndexRow) []any {
 // offline reprocessing). Keeps the Assembler loop wired without writes.
 type LoggingEmitter struct{}
 
-func (LoggingEmitter) Emit(_ context.Context, row TraceIndexRow) error {
-	slog.Debug("indexer: emit (logging only)",
+func (LoggingEmitter) Emit(ctx context.Context, row TraceIndexRow) error {
+	slog.DebugContext(ctx, "indexer: emit (logging only)",
 		slog.String("trace_id", row.TraceID),
 		slog.Uint64("span_count", uint64(row.SpanCount)),
 		slog.Bool("has_error", row.HasError),

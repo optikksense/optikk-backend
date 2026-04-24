@@ -31,7 +31,7 @@ func NewService(repo Repository) Service {
 func (s *REDMetricsService) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) (REDSummary, error) {
 	rows, err := s.repo.GetSummary(ctx, teamID, startMs, endMs)
 	if err != nil {
-		slog.Error("redmetrics: GetSummary failed", slog.Any("error", err), slog.Int64("team_id", teamID))
+		slog.ErrorContext(ctx, "redmetrics: GetSummary failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return REDSummary{}, err
 	}
 
@@ -43,8 +43,8 @@ func (s *REDMetricsService) GetSummary(ctx context.Context, teamID int64, startM
 	var totalCount, totalErrors int64
 	var totalP50, totalP95, totalP99 float64
 	for _, row := range rows {
-		totalCount += int64(row.TotalCount) //nolint:gosec // domain-bounded
-		totalErrors += int64(row.ErrorCount) //nolint:gosec // domain-bounded
+		totalCount += int64(row.TotalCount)	//nolint:gosec // domain-bounded
+		totalErrors += int64(row.ErrorCount)	//nolint:gosec // domain-bounded
 		totalP50 += row.P50Ms
 		totalP95 += row.P95Ms
 		totalP99 += row.P99Ms
@@ -64,20 +64,20 @@ func (s *REDMetricsService) GetSummary(ctx context.Context, teamID int64, startM
 		avgP99 = totalP99 / float64(serviceCount)
 	}
 	return REDSummary{
-		ServiceCount:   serviceCount,
-		TotalSpanCount: totalCount,
-		TotalRPS:       utils.SanitizeFloat(float64(totalCount) / durationSec),
-		AvgErrorPct:    utils.SanitizeFloat(avgErrorPct),
-		AvgP50Ms:       utils.SanitizeFloat(avgP50),
-		AvgP95Ms:       utils.SanitizeFloat(avgP95),
-		AvgP99Ms:       utils.SanitizeFloat(avgP99),
+		ServiceCount:	serviceCount,
+		TotalSpanCount:	totalCount,
+		TotalRPS:	utils.SanitizeFloat(float64(totalCount) / durationSec),
+		AvgErrorPct:	utils.SanitizeFloat(avgErrorPct),
+		AvgP50Ms:	utils.SanitizeFloat(avgP50),
+		AvgP95Ms:	utils.SanitizeFloat(avgP95),
+		AvgP99Ms:	utils.SanitizeFloat(avgP99),
 	}, nil
 }
 
 func (s *REDMetricsService) GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]ApdexScore, error) {
 	rows, err := s.repo.GetApdex(ctx, teamID, startMs, endMs, satisfiedMs, toleratingMs, serviceName)
 	if err != nil {
-		slog.Error("redmetrics: GetApdex failed", slog.Any("error", err), slog.Int64("team_id", teamID))
+		slog.ErrorContext(ctx, "redmetrics: GetApdex failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return nil, err
 	}
 
@@ -88,12 +88,12 @@ func (s *REDMetricsService) GetApdex(ctx context.Context, teamID int64, startMs,
 			apdex = (float64(row.Satisfied) + float64(row.Tolerating)*0.5) / float64(row.TotalCount)
 		}
 		result[i] = ApdexScore{
-			ServiceName: row.ServiceName,
-			Apdex:       apdex,
-			Satisfied:   row.Satisfied,
-			Tolerating:  row.Tolerating,
-			Frustrated:  row.Frustrated,
-			TotalCount:  row.TotalCount,
+			ServiceName:	row.ServiceName,
+			Apdex:		apdex,
+			Satisfied:	row.Satisfied,
+			Tolerating:	row.Tolerating,
+			Frustrated:	row.Frustrated,
+			TotalCount:	row.TotalCount,
 		}
 	}
 	return result, nil
@@ -102,18 +102,18 @@ func (s *REDMetricsService) GetApdex(ctx context.Context, teamID int64, startMs,
 func (s *REDMetricsService) GetTopSlowOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]SlowOperation, error) {
 	rows, err := s.repo.GetTopSlowOperations(ctx, teamID, startMs, endMs, limit)
 	if err != nil {
-		slog.Error("redmetrics: GetTopSlowOperations failed", slog.Any("error", err), slog.Int64("team_id", teamID))
+		slog.ErrorContext(ctx, "redmetrics: GetTopSlowOperations failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return nil, err
 	}
 	result := make([]SlowOperation, len(rows))
 	for i, row := range rows {
 		result[i] = SlowOperation{
-			OperationName: row.OperationName,
-			ServiceName:   row.ServiceName,
-			P50Ms:         row.P50Ms,
-			P95Ms:         row.P95Ms,
-			P99Ms:         row.P99Ms,
-			SpanCount:     int64(row.SpanCount), //nolint:gosec // domain-bounded
+			OperationName:	row.OperationName,
+			ServiceName:	row.ServiceName,
+			P50Ms:		row.P50Ms,
+			P95Ms:		row.P95Ms,
+			P99Ms:		row.P99Ms,
+			SpanCount:	int64(row.SpanCount),	//nolint:gosec // domain-bounded
 		}
 	}
 	return result, nil
@@ -122,17 +122,17 @@ func (s *REDMetricsService) GetTopSlowOperations(ctx context.Context, teamID int
 func (s *REDMetricsService) GetTopErrorOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]ErrorOperation, error) {
 	rows, err := s.repo.GetTopErrorOperations(ctx, teamID, startMs, endMs, limit)
 	if err != nil {
-		slog.Error("redmetrics: GetTopErrorOperations failed", slog.Any("error", err), slog.Int64("team_id", teamID))
+		slog.ErrorContext(ctx, "redmetrics: GetTopErrorOperations failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return nil, err
 	}
 	result := make([]ErrorOperation, len(rows))
 	for i, row := range rows {
 		result[i] = ErrorOperation{
-			OperationName: row.OperationName,
-			ServiceName:   row.ServiceName,
-			ErrorRate:     row.ErrorRate,
-			ErrorCount:    row.ErrorCount,
-			TotalCount:    row.TotalCount,
+			OperationName:	row.OperationName,
+			ServiceName:	row.ServiceName,
+			ErrorRate:	row.ErrorRate,
+			ErrorCount:	row.ErrorCount,
+			TotalCount:	row.TotalCount,
 		}
 	}
 	return result, nil
@@ -161,7 +161,7 @@ func (s *REDMetricsService) GetErrorsByRoute(ctx context.Context, teamID int64, 
 func (s *REDMetricsService) GetLatencyBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]LatencyBreakdown, error) {
 	rows, err := s.repo.GetLatencyBreakdown(ctx, teamID, startMs, endMs)
 	if err != nil {
-		slog.Error("redmetrics: GetLatencyBreakdown failed", slog.Any("error", err), slog.Int64("team_id", teamID))
+		slog.ErrorContext(ctx, "redmetrics: GetLatencyBreakdown failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return nil, err
 	}
 
@@ -170,9 +170,9 @@ func (s *REDMetricsService) GetLatencyBreakdown(ctx context.Context, teamID int6
 	for i, row := range rows {
 		grandTotal += row.TotalMs
 		result[i] = LatencyBreakdown{
-			ServiceName: row.ServiceName,
-			TotalMs:     row.TotalMs,
-			SpanCount:   row.SpanCount,
+			ServiceName:	row.ServiceName,
+			TotalMs:	row.TotalMs,
+			SpanCount:	row.SpanCount,
 		}
 	}
 	if grandTotal > 0 {

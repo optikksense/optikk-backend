@@ -18,19 +18,19 @@ import (
 // CH batch insert → commit. The old sketch aggregator was removed in Phase 5;
 // histogram percentiles are served by `metrics_histograms_rollup_1m` + MV.
 type Consumer struct {
-	kafka *kafkainfra.Consumer
-	ch    clickhouse.Conn
-	query string
+	kafka	*kafkainfra.Consumer
+	ch	clickhouse.Conn
+	query	string
 
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	cancel	context.CancelFunc
+	wg	sync.WaitGroup
 }
 
 func NewConsumer(kafka *kafkainfra.Consumer, ch clickhouse.Conn) *Consumer {
 	return &Consumer{
-		kafka: kafka,
-		ch:    ch,
-		query: "INSERT INTO " + CHTable + " (" + strings.Join(Columns, ", ") + ")",
+		kafka:	kafka,
+		ch:	ch,
+		query:	"INSERT INTO " + CHTable + " (" + strings.Join(Columns, ", ") + ")",
 	}
 }
 
@@ -60,19 +60,19 @@ func (c *Consumer) run(ctx context.Context) {
 			if errors.Is(err, context.Canceled) {
 				return
 			}
-			slog.Warn("metrics consumer: poll error", slog.Any("error", err))
+			slog.WarnContext(ctx, "metrics consumer: poll error", slog.Any("error", err))
 			continue
 		}
 		if len(records) == 0 {
 			continue
 		}
 		if err := c.flush(ctx, records); err != nil {
-			slog.Error("metrics consumer: flush failed; offsets NOT committed",
+			slog.ErrorContext(ctx, "metrics consumer: flush failed; offsets NOT committed",
 				slog.Int("records", len(records)), slog.Any("error", err))
 			continue
 		}
 		if err := c.kafka.Commit(ctx, records); err != nil {
-			slog.Warn("metrics consumer: commit failed", slog.Any("error", err))
+			slog.WarnContext(ctx, "metrics consumer: commit failed", slog.Any("error", err))
 		}
 	}
 }
@@ -82,7 +82,7 @@ func (c *Consumer) flush(ctx context.Context, records []kafkainfra.Record) error
 	for _, r := range records {
 		row := &Row{}
 		if err := proto.Unmarshal(r.Value, row); err != nil {
-			slog.Warn("metrics consumer: unmarshal dropped one record", slog.Any("error", err))
+			slog.WarnContext(ctx, "metrics consumer: unmarshal dropped one record", slog.Any("error", err))
 			continue
 		}
 		rows = append(rows, row)
@@ -104,6 +104,6 @@ func (c *Consumer) flush(ctx context.Context, records []kafkainfra.Record) error
 	if err := batch.Send(); err != nil {
 		return fmt.Errorf("send: %w", err)
 	}
-	slog.Info("metrics consumer: flushed", slog.Int("rows", len(rows)))
+	slog.InfoContext(ctx, "metrics consumer: flushed", slog.Int("rows", len(rows)))
 	return nil
 }

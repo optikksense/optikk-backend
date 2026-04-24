@@ -19,11 +19,11 @@ func (r *Repository) Summary(ctx context.Context, f querycompiler.Filters) (Summ
 		SELECT severity_bucket AS sb, sumMerge(log_count) AS c
 		FROM %s WHERE %s GROUP BY sb`, table, compiled.Where)
 	type row struct {
-		Sb uint8  `ch:"sb"`
-		C  uint64 `ch:"c"`
+		Sb	uint8	`ch:"sb"`
+		C	uint64	`ch:"c"`
 	}
 	var rows []row
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, compiled.Args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "explorer.Summary", &rows, query, compiled.Args...); err != nil {
 		return Summary{}, err
 	}
 	var s Summary
@@ -57,7 +57,7 @@ func (r *Repository) Trend(ctx context.Context, f querycompiler.Filters, step st
 		GROUP BY time_bucket, severity_bucket
 		ORDER BY time_bucket ASC`, bucketExpr, table, compiled.Where)
 	var rows []trendRowDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, compiled.Args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "explorer.Trend", &rows, query, compiled.Args...); err != nil {
 		return nil, nil, err
 	}
 	buckets := make([]TrendBucket, len(rows))
@@ -101,4 +101,3 @@ func adaptiveStepMin(tierStepMin int64, startMs, endMs int64) int64 {
 	}
 	return desired
 }
-

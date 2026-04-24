@@ -9,11 +9,11 @@ import (
 )
 
 type topKRow struct {
-	TopServices     []string `ch:"top_services"`
-	TopOperations   []string `ch:"top_operations"`
-	TopHTTPMethods  []string `ch:"top_http_methods"`
-	TopHTTPStatuses []string `ch:"top_http_statuses"`
-	TopStatuses     []string `ch:"top_statuses"`
+	TopServices	[]string	`ch:"top_services"`
+	TopOperations	[]string	`ch:"top_operations"`
+	TopHTTPMethods	[]string	`ch:"top_http_methods"`
+	TopHTTPStatuses	[]string	`ch:"top_http_statuses"`
+	TopStatuses	[]string	`ch:"top_statuses"`
 }
 
 // Facets returns counts per dim from traces_index for the given window.
@@ -30,7 +30,7 @@ func (r *Repository) Facets(ctx context.Context, f querycompiler.Filters) (Facet
 		FROM %s PREWHERE %s WHERE %s
 	`, tracesIndexTable, compiled.PreWhere, compiled.Where)
 	var rows []topKRow
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, compiled.Args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "explorer.Facets", &rows, query, compiled.Args...); err != nil {
 		return Facets{}, err
 	}
 	if len(rows) == 0 {
@@ -50,10 +50,10 @@ func pivotTopK(row topKRow) Facets {
 		return out
 	}
 	return Facets{
-		Service:    toFacetBuckets(row.TopServices),
-		Operation:  toFacetBuckets(row.TopOperations),
-		HTTPMethod: toFacetBuckets(row.TopHTTPMethods),
-		HTTPStatus: toFacetBuckets(row.TopHTTPStatuses),
-		Status:     toFacetBuckets(row.TopStatuses),
+		Service:	toFacetBuckets(row.TopServices),
+		Operation:	toFacetBuckets(row.TopOperations),
+		HTTPMethod:	toFacetBuckets(row.TopHTTPMethods),
+		HTTPStatus:	toFacetBuckets(row.TopHTTPStatuses),
+		Status:		toFacetBuckets(row.TopStatuses),
 	}
 }

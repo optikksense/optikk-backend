@@ -1,4 +1,4 @@
-package trace_suggest //nolint:revive,stylecheck
+package trace_suggest	//nolint:revive,stylecheck
 
 import (
 	"context"
@@ -10,19 +10,19 @@ import (
 )
 
 const (
-	tracesIndexTable = "observability.traces_index"
-	spansRawTable    = "observability.spans"
+	tracesIndexTable	= "observability.traces_index"
+	spansRawTable		= "observability.spans"
 )
 
 // scalarColumns maps the DSL field key to the traces_index column that backs
 // suggestions for it. Attribute keys (prefixed `@`) take a different path.
 var scalarColumns = map[string]string{
-	"service":     "root_service",
-	"operation":   "root_operation",
-	"http_method": "root_http_method",
-	"http_status": "toString(root_http_status)",
-	"status":      "root_status",
-	"environment": "environment",
+	"service":	"root_service",
+	"operation":	"root_operation",
+	"http_method":	"root_http_method",
+	"http_status":	"toString(root_http_status)",
+	"status":	"root_status",
+	"environment":	"environment",
 }
 
 type Repository interface {
@@ -57,12 +57,12 @@ func (r *ClickHouseRepository) SuggestScalar(ctx context.Context, teamID int64, 
 		ORDER BY count DESC
 		LIMIT @limit
 	`, col, tracesIndexTable, col, col)
-	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("startMs", uint64(startMs)), //nolint:gosec // G115
-		clickhouse.Named("endMs", uint64(endMs)), //nolint:gosec // G115
+	err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "trace_suggest.SuggestScalar", &rows, query,
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
+		clickhouse.Named("startMs", uint64(startMs)),	//nolint:gosec // G115
+		clickhouse.Named("endMs", uint64(endMs)),	//nolint:gosec // G115
 		clickhouse.Named("prefix", prefix),
-		clickhouse.Named("limit", uint64(limit)), //nolint:gosec // G115
+		clickhouse.Named("limit", uint64(limit)),	//nolint:gosec // G115
 	)
 	return rows, err
 }
@@ -85,13 +85,13 @@ func (r *ClickHouseRepository) SuggestAttribute(ctx context.Context, teamID int6
 		ORDER BY count DESC
 		LIMIT @limit
 	`
-	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+	err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "trace_suggest.SuggestAttribute", &rows, query,
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("attrKey", key),
 		clickhouse.Named("startMs", startMs),
 		clickhouse.Named("endMs", endMs),
 		clickhouse.Named("prefix", prefix),
-		clickhouse.Named("limit", uint64(limit)), //nolint:gosec // G115
+		clickhouse.Named("limit", uint64(limit)),	//nolint:gosec // G115
 	)
 	return rows, err
 }

@@ -8,6 +8,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/config"
 	redigoredis "github.com/gomodule/redigo/redis"
 	goredis "github.com/redis/go-redis/v9"
+	"github.com/redis/go-redis/extra/redisotel/v9"
 )
 
 type Clients struct {
@@ -28,6 +29,14 @@ func NewClients(cfg config.Config) (*Clients, error) {
 		MinIdleConns: 20,
 		PoolTimeout:  2 * time.Second,
 	})
+
+	// redisotel ships a per-command OTel span; our own hook ships Prom
+	// counters + histograms. Run both so traces + metrics correlate.
+	if err := redisotel.InstrumentTracing(client); err != nil {
+		client.Close()
+		return nil, fmt.Errorf("redis: instrument tracing: %w", err)
+	}
+	client.AddHook(metricsHook{})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()

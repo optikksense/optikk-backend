@@ -12,11 +12,13 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/auth"
 	"github.com/Optikk-Org/optikk-backend/internal/config"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/grpcutil"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/middleware"
 	appotel "github.com/Optikk-Org/optikk-backend/internal/infra/otel"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/oklog/run"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 	"google.golang.org/grpc"
@@ -25,10 +27,10 @@ import (
 )
 
 type App struct {
-	Config       config.Config
-	Infra        *Infra
-	Modules      []registry.Module
-	otelShutdown func(context.Context) error
+	Config		config.Config
+	Infra		*Infra
+	Modules		[]registry.Module
+	otelShutdown	func(context.Context) error
 }
 
 func New(cfg config.Config) (*App, error) {
@@ -55,10 +57,10 @@ func New(cfg config.Config) (*App, error) {
 	modules := configuredModules(infraDeps.CH, getTenant, cfg, infraDeps)
 
 	return &App{
-		Config:       cfg,
-		Infra:        infraDeps,
-		Modules:      modules,
-		otelShutdown: otelShutdown,
+		Config:		cfg,
+		Infra:		infraDeps,
+		Modules:	modules,
+		otelShutdown:	otelShutdown,
 	}, nil
 }
 
@@ -76,12 +78,12 @@ func (a *App) Start(ctx context.Context) error {
 	err := g.Run()
 	a.stopBackgroundModules()
 	if closeErr := a.Infra.Close(); closeErr != nil {
-		slog.Warn("error closing infrastructure", slog.Any("error", closeErr))
+		slog.WarnContext(ctx, "error closing infrastructure", slog.Any("error", closeErr))
 	}
 	if a.otelShutdown != nil {
 		shutCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		if shutErr := a.otelShutdown(shutCtx); shutErr != nil {
-			slog.Warn("error shutting down otel", slog.Any("error", shutErr))
+			slog.WarnContext(ctx, "error shutting down otel", slog.Any("error", shutErr))
 		}
 		cancel()
 	}
@@ -116,11 +118,11 @@ func runAddContextCancelActor(g *run.Group, ctx context.Context) {
 
 func (a *App) addHTTPServerActor(g *run.Group) {
 	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%s", a.Config.Server.Port),
-		Handler:      h2c.NewHandler(a.Infra.SessionManager.Wrap(a.Router()), &http2.Server{}),
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 60 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:		fmt.Sprintf(":%s", a.Config.Server.Port),
+		Handler:	h2c.NewHandler(a.Infra.SessionManager.Wrap(a.Router()), &http2.Server{}),
+		ReadTimeout:	30 * time.Second,
+		WriteTimeout:	60 * time.Second,
+		IdleTimeout:	120 * time.Second,
 	}
 	g.Add(func() error {
 		return srv.ListenAndServe()
@@ -151,15 +153,27 @@ func (a *App) addGRPCServerActor(g *run.Group) error {
 		grpc.MaxConcurrentStreams(100),
 		grpc.ConnectionTimeout(30*time.Second),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
-			Time:    20 * time.Second,
-			Timeout: 10 * time.Second,
+			Time:		20 * time.Second,
+			Timeout:	10 * time.Second,
 		}),
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
-			MinTime:             10 * time.Second,
-			PermitWithoutStream: true,
+			MinTime:		10 * time.Second,
+			PermitWithoutStream:	true,
 		}),
-		grpc.UnaryInterceptor(auth.UnaryInterceptor(a.Infra.Authenticator)),
-		grpc.StreamInterceptor(auth.StreamInterceptor(a.Infra.Authenticator)),
+		// otelgrpc's stats handler extracts server-side trace context
+		// from incoming metadata and starts an OTel span per RPC.
+		grpc.StatsHandler(otelgrpc.NewServerHandler()),
+		// Observability interceptors run first so they time the auth
+		// interceptor + handler together; auth unauthorised denials
+		// still show up in the metrics with code=Unauthenticated.
+		grpc.ChainUnaryInterceptor(
+			grpcutil.UnaryObservability(),
+			auth.UnaryInterceptor(a.Infra.Authenticator),
+		),
+		grpc.ChainStreamInterceptor(
+			grpcutil.StreamObservability(),
+			auth.StreamInterceptor(a.Infra.Authenticator),
+		),
 	)
 	for _, mod := range a.Modules {
 		if r, ok := mod.(registry.GRPCRegistrar); ok {

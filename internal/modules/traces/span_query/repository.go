@@ -1,4 +1,4 @@
-package span_query //nolint:revive,stylecheck
+package span_query	//nolint:revive,stylecheck
 
 import (
 	"context"
@@ -44,9 +44,9 @@ func (r *ClickHouseRepository) ListSpans(ctx context.Context, f querycompiler.Fi
 		`SELECT %s FROM %s PREWHERE %s WHERE %s ORDER BY timestamp DESC, span_id DESC LIMIT @pgLimit`,
 		spanRowColumns, spansRawTable, compiled.PreWhere, where,
 	)
-	args = append(args, clickhouse.Named("pgLimit", uint64(limit+1))) //nolint:gosec
+	args = append(args, clickhouse.Named("pgLimit", uint64(limit+1)))	//nolint:gosec
 	var rows []spanRowDTO
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "span_query.ListSpans", &rows, query, args...); err != nil {
 		return nil, false, compiled.DroppedClauses, err
 	}
 	hasMore := len(rows) > limit

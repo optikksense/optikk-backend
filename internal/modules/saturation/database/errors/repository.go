@@ -28,9 +28,9 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 type errorRawRow struct {
-	TimeBucket string `ch:"time_bucket"`
-	GroupBy    string `ch:"group_by"`
-	ErrCount   uint64 `ch:"err_count"`
+	TimeBucket	string	`ch:"time_bucket"`
+	GroupBy		string	`ch:"group_by"`
+	ErrCount	uint64	`ch:"err_count"`
 }
 
 func (r *ClickHouseRepository) errorSeriesByAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]ErrorTimeSeries, error) {
@@ -59,18 +59,18 @@ func (r *ClickHouseRepository) errorSeriesByAttr(ctx context.Context, teamID int
 	args = append(args, fargs...)
 
 	var raw []errorRawRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.errorSeriesByAttr", &raw, query, args...); err != nil {
 		return nil, err
 	}
 
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 	out := make([]ErrorTimeSeries, len(raw))
 	for i, row := range raw {
-		rate := float64(row.ErrCount) / bucketSec //nolint:gosec // domain-bounded hist_count
+		rate := float64(row.ErrCount) / bucketSec	//nolint:gosec // domain-bounded hist_count
 		out[i] = ErrorTimeSeries{
-			TimeBucket:   row.TimeBucket,
-			GroupBy:      row.GroupBy,
-			ErrorsPerSec: &rate,
+			TimeBucket:	row.TimeBucket,
+			GroupBy:	row.GroupBy,
+			ErrorsPerSec:	&rate,
 		}
 	}
 	return out, nil
@@ -98,9 +98,9 @@ func (r *ClickHouseRepository) GetErrorsByResponseStatus(ctx context.Context, te
 }
 
 type errorRatioRawRow struct {
-	TimeBucket string `ch:"time_bucket"`
-	ErrCount   uint64 `ch:"err_count"`
-	TotalCount uint64 `ch:"total_count"`
+	TimeBucket	string	`ch:"time_bucket"`
+	ErrCount	uint64	`ch:"err_count"`
+	TotalCount	uint64	`ch:"total_count"`
 }
 
 func (r *ClickHouseRepository) GetErrorRatio(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ErrorRatioPoint, error) {
@@ -137,7 +137,7 @@ func (r *ClickHouseRepository) GetErrorRatio(ctx context.Context, teamID int64, 
 	args = append(args, fargs...)
 
 	var raw []errorRatioRawRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetErrorRatio", &raw, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -145,12 +145,12 @@ func (r *ClickHouseRepository) GetErrorRatio(ctx context.Context, teamID int64, 
 	for i, row := range raw {
 		var pct *float64
 		if row.TotalCount > 0 {
-			p := float64(row.ErrCount) / float64(row.TotalCount) * 100.0 //nolint:gosec // domain-bounded hist_count
+			p := float64(row.ErrCount) / float64(row.TotalCount) * 100.0	//nolint:gosec // domain-bounded hist_count
 			pct = &p
 		}
 		out[i] = ErrorRatioPoint{
-			TimeBucket:    row.TimeBucket,
-			ErrorRatioPct: pct,
+			TimeBucket:	row.TimeBucket,
+			ErrorRatioPct:	pct,
 		}
 	}
 	return out, nil

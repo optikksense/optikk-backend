@@ -26,7 +26,7 @@ func (s *NodeService) GetInfrastructureNodes(ctx context.Context, teamID int64, 
 func (s *NodeService) GetInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (InfrastructureNodeSummary, error) {
 	summary, err := s.repo.GetInfrastructureNodeSummary(ctx, teamID, startMs, endMs)
 	if err != nil {
-		slog.Error("nodes: GetInfrastructureNodeSummary failed", slog.Any("error", err), slog.Int64("team_id", teamID))
+		slog.ErrorContext(ctx, "nodes: GetInfrastructureNodeSummary failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return InfrastructureNodeSummary{}, err
 	}
 	return summary, nil

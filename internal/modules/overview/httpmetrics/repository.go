@@ -11,11 +11,11 @@ import (
 )
 
 const (
-	spansRollupPrefix             = "observability.spans_rollup"
-	spansPeerRollupPrefix         = "observability.spans_peer_rollup"
-	metricsHistRollupPrefix       = "observability.metrics_histograms_rollup"
-	metricsGaugesRollupPrefix     = "observability.metrics_gauges_rollup"
-	metricsGaugesByStatusPrefix   = "observability.metrics_gauges_by_status_rollup"
+	spansRollupPrefix		= "observability.spans_rollup"
+	spansPeerRollupPrefix		= "observability.spans_peer_rollup"
+	metricsHistRollupPrefix		= "observability.metrics_histograms_rollup"
+	metricsGaugesRollupPrefix	= "observability.metrics_gauges_rollup"
+	metricsGaugesByStatusPrefix	= "observability.metrics_gauges_by_status_rollup"
 )
 
 // Histogram-metric queries target `observability.metrics_histograms_rollup_1m`.
@@ -74,7 +74,7 @@ func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 
 func histRollupParams(teamID int64, startMs, endMs int64, metricName string) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricName", metricName),
@@ -83,18 +83,18 @@ func histRollupParams(teamID int64, startMs, endMs int64, metricName string) []a
 
 func spanRollupParams(teamID int64, startMs, endMs int64) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
 }
 
 type histogramSummaryRawRow struct {
-	P50     float64 `ch:"p50"`
-	P95     float64 `ch:"p95"`
-	P99     float64 `ch:"p99"`
-	HistSum float64 `ch:"hist_sum"`
-	HistCnt uint64  `ch:"hist_count"`
+	P50	float64	`ch:"p50"`
+	P95	float64	`ch:"p95"`
+	P99	float64	`ch:"p99"`
+	HistSum	float64	`ch:"hist_sum"`
+	HistCnt	uint64	`ch:"hist_count"`
 }
 
 func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (HistogramSummary, error) {
@@ -139,7 +139,7 @@ func (r *ClickHouseRepository) GetRequestRate(ctx context.Context, teamID int64,
 		GROUP BY time_bucket, status_code
 		ORDER BY time_bucket, status_code`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricName", MetricHTTPServerRequestDuration),
@@ -147,19 +147,19 @@ func (r *ClickHouseRepository) GetRequestRate(ctx context.Context, teamID int64,
 	}
 
 	var raw []struct {
-		Timestamp  time.Time `ch:"time_bucket"`
-		StatusCode string    `ch:"status_code"`
-		ReqCount   uint64    `ch:"req_count"`
+		Timestamp	time.Time	`ch:"time_bucket"`
+		StatusCode	string		`ch:"status_code"`
+		ReqCount	uint64		`ch:"req_count"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "httpmetrics.GetRequestRate", &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]StatusCodeBucket, len(raw))
 	for i, row := range raw {
 		rows[i] = StatusCodeBucket{
-			Timestamp:  row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
-			StatusCode: row.StatusCode,
-			Count:      int64(row.ReqCount), //nolint:gosec // domain-bounded
+			Timestamp:	row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			StatusCode:	row.StatusCode,
+			Count:		int64(row.ReqCount),	//nolint:gosec // domain-bounded
 		}
 	}
 	return rows, nil
@@ -185,7 +185,7 @@ func (r *ClickHouseRepository) GetActiveRequests(ctx context.Context, teamID int
 		GROUP BY time_bucket
 		ORDER BY time_bucket`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricName", MetricHTTPServerActiveRequests),
@@ -193,11 +193,11 @@ func (r *ClickHouseRepository) GetActiveRequests(ctx context.Context, teamID int
 	}
 
 	var raw []struct {
-		Timestamp time.Time `ch:"time_bucket"`
-		ValueNum  float64   `ch:"value_num"`
-		ValueCnt  uint64    `ch:"value_cnt"`
+		Timestamp	time.Time	`ch:"time_bucket"`
+		ValueNum	float64		`ch:"value_num"`
+		ValueCnt	uint64		`ch:"value_cnt"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "httpmetrics.GetActiveRequests", &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]TimeBucket, len(raw))
@@ -208,8 +208,8 @@ func (r *ClickHouseRepository) GetActiveRequests(ctx context.Context, teamID int
 			valPtr = &v
 		}
 		rows[i] = TimeBucket{
-			Timestamp: row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
-			Value:     valPtr,
+			Timestamp:	row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			Value:		valPtr,
 		}
 	}
 	return rows, nil
@@ -253,17 +253,17 @@ func (r *ClickHouseRepository) GetTopRoutesByVolume(ctx context.Context, teamID 
 		LIMIT 20`, table)
 
 	var raw []struct {
-		Route    string `ch:"route"`
-		ReqCount uint64 `ch:"req_count"`
+		Route		string	`ch:"route"`
+		ReqCount	uint64	`ch:"req_count"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, spanRollupParams(teamID, startMs, endMs)...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "httpmetrics.GetTopRoutesByVolume", &raw, query, spanRollupParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	rows := make([]RouteMetric, len(raw))
 	for i, row := range raw {
 		rows[i] = RouteMetric{
-			Route:    row.Route,
-			ReqCount: int64(row.ReqCount), //nolint:gosec // domain-bounded
+			Route:		row.Route,
+			ReqCount:	int64(row.ReqCount),	//nolint:gosec // domain-bounded
 		}
 	}
 	return rows, nil
@@ -284,19 +284,19 @@ func (r *ClickHouseRepository) GetTopRoutesByLatency(ctx context.Context, teamID
 		LIMIT 20`, table)
 
 	var raw []struct {
-		Route    string  `ch:"route"`
-		ReqCount uint64  `ch:"req_count"`
-		P95Ms    float64 `ch:"p95_ms"`
+		Route		string	`ch:"route"`
+		ReqCount	uint64	`ch:"req_count"`
+		P95Ms		float64	`ch:"p95_ms"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, spanRollupParams(teamID, startMs, endMs)...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "httpmetrics.GetTopRoutesByLatency", &raw, query, spanRollupParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	rows := make([]RouteMetric, len(raw))
 	for i, row := range raw {
 		rows[i] = RouteMetric{
-			Route:    row.Route,
-			ReqCount: int64(row.ReqCount), //nolint:gosec // domain-bounded
-			P95Ms:    row.P95Ms,
+			Route:		row.Route,
+			ReqCount:	int64(row.ReqCount),	//nolint:gosec // domain-bounded
+			P95Ms:		row.P95Ms,
 		}
 	}
 	return rows, nil
@@ -317,25 +317,25 @@ func (r *ClickHouseRepository) GetRouteErrorRate(ctx context.Context, teamID int
 		LIMIT 20`, table)
 
 	var raw []struct {
-		Route    string `ch:"route"`
-		ReqCount uint64 `ch:"req_count"`
-		ErrCount uint64 `ch:"err_count"`
+		Route		string	`ch:"route"`
+		ReqCount	uint64	`ch:"req_count"`
+		ErrCount	uint64	`ch:"err_count"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, spanRollupParams(teamID, startMs, endMs)...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "httpmetrics.GetRouteErrorRate", &raw, query, spanRollupParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	rows := make([]RouteMetric, 0, len(raw))
 	for _, row := range raw {
-		total := int64(row.ReqCount) //nolint:gosec // domain-bounded
-		errs := int64(row.ErrCount)  //nolint:gosec // domain-bounded
+		total := int64(row.ReqCount)	//nolint:gosec // domain-bounded
+		errs := int64(row.ErrCount)	//nolint:gosec // domain-bounded
 		pct := 0.0
 		if total > 0 {
 			pct = float64(errs) * 100.0 / float64(total)
 		}
 		rows = append(rows, RouteMetric{
-			Route:    row.Route,
-			ReqCount: total,
-			ErrorPct: pct,
+			Route:		row.Route,
+			ReqCount:	total,
+			ErrorPct:	pct,
 		})
 	}
 	return rows, nil
@@ -359,28 +359,28 @@ func (r *ClickHouseRepository) GetRouteErrorTimeseries(ctx context.Context, team
 	)
 
 	var raw []struct {
-		Timestamp time.Time `ch:"time_bucket"`
-		HttpRoute string    `ch:"http_route"`
-		ReqCount  uint64    `ch:"req_count"`
-		ErrCount  uint64    `ch:"err_count"`
+		Timestamp	time.Time	`ch:"time_bucket"`
+		HttpRoute	string		`ch:"http_route"`
+		ReqCount	uint64		`ch:"req_count"`
+		ErrCount	uint64		`ch:"err_count"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "httpmetrics.GetRouteErrorTimeseries", &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]RouteTimeseriesPoint, len(raw))
 	for i, row := range raw {
-		total := int64(row.ReqCount) //nolint:gosec // domain-bounded
-		errs := int64(row.ErrCount)  //nolint:gosec // domain-bounded
+		total := int64(row.ReqCount)	//nolint:gosec // domain-bounded
+		errs := int64(row.ErrCount)	//nolint:gosec // domain-bounded
 		rate := 0.0
 		if total > 0 {
 			rate = float64(errs) * 100.0 / float64(total)
 		}
 		rows[i] = RouteTimeseriesPoint{
-			Timestamp:  row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
-			HttpRoute:  row.HttpRoute,
-			ReqCount:   total,
-			ErrorCount: errs,
-			ErrorRate:  rate,
+			Timestamp:	row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			HttpRoute:	row.HttpRoute,
+			ReqCount:	total,
+			ErrorCount:	errs,
+			ErrorRate:	rate,
 		}
 	}
 	return rows, nil
@@ -403,12 +403,12 @@ func (r *ClickHouseRepository) GetStatusDistribution(ctx context.Context, teamID
 		GROUP BY status_group
 		ORDER BY status_group ASC`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
 	var rows []StatusGroupBucket
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "httpmetrics.GetStatusDistribution", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -430,26 +430,26 @@ func (r *ClickHouseRepository) GetErrorTimeseries(ctx context.Context, teamID in
 	)
 
 	var raw []struct {
-		Timestamp time.Time `ch:"time_bucket"`
-		ReqCount  uint64    `ch:"req_count"`
-		ErrCount  uint64    `ch:"err_count"`
+		Timestamp	time.Time	`ch:"time_bucket"`
+		ReqCount	uint64		`ch:"req_count"`
+		ErrCount	uint64		`ch:"err_count"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "httpmetrics.GetErrorTimeseries", &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]ErrorTimeseriesPoint, len(raw))
 	for i, row := range raw {
-		total := int64(row.ReqCount) //nolint:gosec // domain-bounded
-		errs := int64(row.ErrCount)  //nolint:gosec // domain-bounded
+		total := int64(row.ReqCount)	//nolint:gosec // domain-bounded
+		errs := int64(row.ErrCount)	//nolint:gosec // domain-bounded
 		rate := 0.0
 		if total > 0 {
 			rate = float64(errs) * 100.0 / float64(total)
 		}
 		rows[i] = ErrorTimeseriesPoint{
-			Timestamp:  row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
-			ReqCount:   total,
-			ErrorCount: errs,
-			ErrorRate:  rate,
+			Timestamp:	row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			ReqCount:	total,
+			ErrorCount:	errs,
+			ErrorRate:	rate,
 		}
 	}
 	return rows, nil
@@ -472,12 +472,12 @@ func (r *ClickHouseRepository) GetTopExternalHosts(ctx context.Context, teamID i
 		ORDER BY req_count DESC
 		LIMIT 20`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
 	var rows []ExternalHostMetric
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "httpmetrics.GetTopExternalHosts", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -497,12 +497,12 @@ func (r *ClickHouseRepository) GetExternalHostLatency(ctx context.Context, teamI
 		ORDER BY p95_ms DESC
 		LIMIT 20`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
 	var rows []ExternalHostMetric
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "httpmetrics.GetExternalHostLatency", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -522,12 +522,12 @@ func (r *ClickHouseRepository) GetExternalHostErrorRate(ctx context.Context, tea
 		ORDER BY error_pct DESC
 		LIMIT 20`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
 	var rows []ExternalHostMetric
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "httpmetrics.GetExternalHostErrorRate", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil

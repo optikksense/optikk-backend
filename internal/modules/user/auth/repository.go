@@ -9,6 +9,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 )
 
 type Repository interface {
@@ -30,7 +31,7 @@ func NewRepository(db *sql.DB, appConfig registry.AppConfig) *MySQLRepository {
 
 func (r *MySQLRepository) FindActiveUserByID(userID int64) (usershared.UserRecord, error) {
 	var u usershared.UserRecord
-	err := r.db.GetContext(context.Background(), &u, `
+	err := dbutil.GetSQL(context.Background(), r.db, "auth.FindActiveUserByID", &u, `
 		SELECT id, email, name, avatar_url, teams, active, last_login_at, created_at
 		FROM users
 		WHERE id = ? AND active = 1
@@ -41,7 +42,7 @@ func (r *MySQLRepository) FindActiveUserByID(userID int64) (usershared.UserRecor
 
 func (r *MySQLRepository) FindActiveUserByEmail(email string) (usershared.AuthUser, error) {
 	var u usershared.AuthUser
-	err := r.db.GetContext(context.Background(), &u, `
+	err := dbutil.GetSQL(context.Background(), r.db, "auth.FindActiveUserByEmail", &u, `
 		SELECT id, email, password_hash, name, avatar_url, teams
 		FROM users
 		WHERE email = ? AND active = 1
@@ -65,14 +66,13 @@ func (r *MySQLRepository) ListActiveTeamsByIDs(teamIDs []int64) ([]usershared.Te
 	}
 	query = r.db.Rebind(query)
 	var records []usershared.TeamRecord
-	if err := r.db.SelectContext(context.Background(), &records, query, args...); err != nil {
+	if err := dbutil.SelectSQL(context.Background(), r.db, "auth.ListActiveTeamsByIDs", &records, query, args...); err != nil {
 		return nil, err
 	}
 	return records, nil
 }
 
 func (r *MySQLRepository) UpdateUserLastLogin(userID int64, at time.Time) error {
-	_, err := r.db.ExecContext(context.Background(),
-		`UPDATE users SET last_login_at = ? WHERE id = ?`, at, userID)
+	_, err := dbutil.ExecSQL(context.Background(), r.db, "auth.UpdateUserLastLogin", `UPDATE users SET last_login_at = ? WHERE id = ?`, at, userID)
 	return err
 }

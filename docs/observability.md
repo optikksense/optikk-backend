@@ -1,183 +1,155 @@
-# Observability — Prometheus & external forwarding
+# Observability — Self-telemetry pipeline
 
-The backend exposes Prometheus-format runtime metrics (Go runtime, process
-stats, HTTP handler stats) at `GET /metrics`. A Prometheus instance ships in
-`docker-compose.yml` for local development; the same config forwards to any
-Prometheus-remote-write-compatible vendor (Grafana Cloud, Datadog, Honeycomb,
-Chronosphere, Mimir) by appending one `remote_write` block.
+This doc describes how the Optikk backend observes itself. It does NOT
+cover the customer-facing OTLP ingest; that's a separate pipeline on
+`:4317` which persists to ClickHouse.
 
-## Quick start (local)
+## Architecture
 
-```bash
-docker compose up -d prometheus
-# then run the API:
-go run ./cmd/server
+```
+Go backend ──OTLP gRPC :14317 (traces + logs)──┐
+                                               │
+Go backend ──HTTP /metrics :19090 (scrape)────┐│
+                                              ↓↓
+                                   otel-collector (docker-compose)
+                                              │
+                                              ▼
+                                        Grafana Cloud
+                                     (Tempo · Loki · Mimir)
 ```
 
-Prometheus UI: http://localhost:9090 → Status → Targets. You should see
-`optikk-api` and `prometheus` as `UP`.
+Three signals, one collector:
 
-Sanity-check a query:
-```
-rate(promhttp_metric_handler_requests_total[1m])
-```
+1. **Traces** — emitted by `internal/infra/otel` via `otelgin` (HTTP),
+   `otelgrpc` (gRPC), `redisotel` (Redis) and our custom
+   `dbutil.SelectCH/QueryCH/ExecCH` (ClickHouse) + `SelectSQL/GetSQL/ExecSQL`
+   (MariaDB) wrappers. Shipped OTLP-gRPC to the collector.
+2. **Logs** — emitted by `slog.InfoContext/WarnContext/…`. The root
+   handler (see `cmd/server/logger.go`) fans to stdout (tint / JSON) AND
+   through `contrib/bridges/otelslog` → collector → Loki. Every record
+   that has an active OTel context is decorated with `trace_id`/`span_id`
+   by `internal/shared/slogx.TraceAttrHandler`.
+3. **Metrics** — Prometheus `promauto` collectors exposed at `/metrics`;
+   the collector's `prometheus` receiver scrapes them and forwards to
+   Grafana Cloud Mimir. No OTel metrics SDK — we deliberately single-source.
 
-## What gets scraped
+The `.env` file (gitignored) carries the Grafana Cloud credentials; see
+`.env.example`.
 
-`observability/prometheus.yml`:
+## Metric catalogue
 
-| Job | Target | Notes |
+All metrics share the `optikk_` namespace. Registered collectors live in
+`internal/infra/metrics/` (one file per subsystem) except for Redis,
+which owns its own collectors inside `internal/infra/redis/metrics_hook.go`
+to avoid a go-redis dep leak into the metrics package.
+
+### HTTP (`internal/infra/middleware/observability.go`)
+
+| Metric | Type | Labels | Notes |
+|---|---|---|---|
+| `optikk_http_requests_total` | counter | `route`, `method`, `status_class` | `status_class` ∈ {1xx,2xx,3xx,4xx,5xx} to bound cardinality. |
+| `optikk_http_request_duration_seconds` | histogram | `route`, `method` | Buckets 5 ms → 5 s. |
+| `optikk_http_in_flight_requests` | gauge | — | Incremented on entry, decremented on exit. |
+
+`route` is Gin's `FullPath()` template (e.g. `/api/v1/traces/:traceId`),
+not the raw request path. Unmatched → `"unmatched"`.
+
+### gRPC (`internal/infra/grpcutil/observability.go`)
+
+| Metric | Type | Labels |
 |---|---|---|
-| `optikk-api` | `host.docker.internal:8080/metrics` | Go runtime + HTTP + custom app metrics. |
-| `prometheus` | `localhost:9090/metrics` | Scrape loop sanity check. |
+| `optikk_grpc_started_total` | counter | `method` |
+| `optikk_grpc_handled_total` | counter | `method`, `code` |
+| `optikk_grpc_handling_duration_seconds` | histogram | `method` |
 
-ClickHouse and MariaDB are not scraped by default — add a
-`clickhouse-exporter` / `mysqld-exporter` sidecar if you need those.
+Plus the standard otelgrpc span recorded per RPC by the `grpc.StatsHandler`.
 
-## Forward to Grafana Cloud
+### DB (`internal/infra/database/{clickhouse,mysql}_instrument.go`)
 
-1. In Grafana Cloud → **Connections → Add new connection → Hosted
-   Prometheus metrics**, copy:
-   - Remote-write endpoint (e.g. `https://prometheus-prod-XX.grafana.net/api/prom/push`)
-   - Username (numeric instance ID)
-   - API token (use a "MetricsPublisher" role)
+| Metric | Type | Labels |
+|---|---|---|
+| `optikk_db_query_duration_seconds` | histogram | `system` (clickhouse/mysql), `op` |
+| `optikk_db_queries_total` | counter | `system`, `op`, `result` (ok/err) |
 
-2. Store them as env vars (don't commit):
-   ```bash
-   export GC_PROM_URL='https://prometheus-prod-XX.grafana.net/api/prom/push'
-   export GC_PROM_USER='123456'
-   export GC_PROM_TOKEN='glc_xxx...'
-   ```
+`op` label convention: `<module>.<MethodName>`, e.g. `"logs.ListLogs"`,
+`"auth.FindActiveUserByID"`. Every call site in
+`internal/modules/**/repository.go` routes through the seam so this
+label is always populated.
 
-3. Append to `observability/prometheus.yml`:
-   ```yaml
-   remote_write:
-     - url: ${GC_PROM_URL}
-       basic_auth:
-         username: ${GC_PROM_USER}
-         password: ${GC_PROM_TOKEN}
-       # Optional: drop high-cardinality series before shipping.
-       # write_relabel_configs:
-       #   - source_labels: [__name__]
-       #     regex: "go_gc_pauses_seconds_bucket"
-       #     action: drop
-   ```
+### Kafka (`internal/infra/kafka/observability.go`)
 
-4. Enable env-var expansion in the Prometheus command line — replace the
-   compose `command:` for the prometheus service with:
-   ```yaml
-   command:
-     - --config.file=/etc/prometheus/prometheus.yml
-     - --enable-feature=expand-external-labels
-     - --web.enable-lifecycle
-     - --storage.tsdb.path=/prometheus
-     - --storage.tsdb.retention.time=2h   # shrink local TSDB if remote is source of truth
-   ```
-   And pass the env vars through:
-   ```yaml
-   environment:
-     GC_PROM_URL: ${GC_PROM_URL}
-     GC_PROM_USER: ${GC_PROM_USER}
-     GC_PROM_TOKEN: ${GC_PROM_TOKEN}
-   ```
+| Metric | Type | Labels |
+|---|---|---|
+| `optikk_kafka_produced_total` | counter | `topic`, `result` (ok/err) |
+| `optikk_kafka_produce_duration_seconds` | histogram | `topic` |
+| `optikk_kafka_consumed_total` | counter | `topic` |
+| `optikk_kafka_consumer_lag_records` | gauge | `topic`, `partition`, `group` |
+| `optikk_kafka_rebalances_total` | counter | `reason` |
+| `optikk_kafka_broker_connects_total` | counter | `result` |
 
-5. Reload in place (no restart):
-   ```bash
-   curl -X POST http://localhost:9090/-/reload
-   ```
+Wired via `kgo.WithHooks(obsHooks{})` at client construction (both
+producer and consumer, see `internal/infra/kafka/client.go`). Consumer
+lag gauge is published by `LagPoller` on a 15 s ticker.
 
-   In Grafana Cloud → Explore, metrics should appear within ~30 s.
+### Redis (`internal/infra/redis/metrics_hook.go`)
 
-## Forward to Datadog
+| Metric | Type | Labels |
+|---|---|---|
+| `optikk_redis_commands_total` | counter | `cmd`, `result` |
+| `optikk_redis_command_duration_seconds` | histogram | `cmd` |
 
-Datadog Agent accepts Prometheus remote_write on its OpenMetrics endpoint,
-but the idiomatic path is **OpenTelemetry**: point the OTel Collector at
-Datadog's OTLP intake. For metrics-only on a Prometheus stack:
+Redis also gets spans via `redisotel.InstrumentTracing`. Pipelines
+collapse under `cmd="pipeline"` to cap cardinality.
 
-```yaml
-remote_write:
-  - url: https://api.datadoghq.com/api/v1/series
-    authorization:
-      credentials: ${DD_API_KEY}
-```
+### Auth (`internal/infra/middleware/middleware.go`)
 
-(Uses Datadog's Prometheus Remote Write API; see
-https://docs.datadoghq.com/integrations/prometheus_remote_write/.)
+| Metric | Type | Labels |
+|---|---|---|
+| `optikk_auth_denied_total` | counter | `reason` (unauthorized/missing_team/forbidden_team/forbidden_role) |
+| `optikk_auth_authenticated_total` | counter | — |
 
-## Forward to Honeycomb / Chronosphere / Mimir / self-hosted
+### Ingest (`internal/ingestion/{spans,logs,metrics}/handler.go`)
 
-Identical pattern — any Prometheus-remote-write endpoint:
+| Metric | Type | Labels |
+|---|---|---|
+| `optikk_ingest_records_total` | counter | `signal` (spans/logs/metrics), `result` |
+| `optikk_ingest_record_bytes_total` | counter | `signal` |
+
+## Logging contract
+
+- Every log line flows through `internal/shared/slogx.TraceAttrHandler`
+  → `FanoutHandler{stdout, otelBridge}`. Stdout shape depends on
+  `LOG_FORMAT` (`json` for prod, tint-coloured text otherwise).
+- Records emitted with `*Context(ctx, …)` variants automatically carry
+  `trace_id` + `span_id` when the ctx has an OTel span. Use `slog.*Context`
+  at every boundary — the sweep already migrated the major call sites.
+- HTTP middleware reserves these fields on the request log line:
+  `method, route, status, duration_ms, remote_ip, user_agent, team_id,
+  trace_id, span_id`.
+- gRPC interceptor reserves: `method, code, duration_ms, trace_id, span_id`.
+- DB instrument helpers log one `db query failed` (ClickHouse) /
+  `mysql query failed` line per error with `op, duration_s, error`.
+
+## Configuration
+
+`config.yml` → `telemetry.otel`:
 
 ```yaml
-remote_write:
-  - url: https://api.honeycomb.io/v1/metrics
-    authorization:
-      credentials: ${HONEYCOMB_API_KEY}
-    headers:
-      X-Honeycomb-Dataset: optikk
+telemetry:
+  otel:
+    enabled: true
+    endpoint: 127.0.0.1:14317
+    sample_ratio: 1.0
+    service_name: optikk-backend
 ```
 
-## Multiple destinations
+`LOG_LEVEL` env var controls both the stdout handler and the bridge
+handler's floor. `LOG_FORMAT=json` switches stdout to structured.
 
-`remote_write` is a list — add as many entries as you like. A common pattern
-is ship to Grafana Cloud (long-term) and keep a local Prometheus (14d) for
-debugging; both are already wired above.
+## Out of scope
 
-## Drop high-cardinality series before shipping
-
-`write_relabel_configs` runs per-sample before remote_write. Classic wins:
-
-```yaml
-write_relabel_configs:
-  # Drop per-goroutine histograms (huge cardinality, rarely queried).
-  - source_labels: [__name__]
-    regex: "go_gc_pauses_seconds_bucket|go_sched_latencies_seconds_bucket"
-    action: drop
-
-  # Only ship span/trace metrics, drop Go runtime noise.
-  # - source_labels: [__name__]
-  #   regex: "optikk_.*|process_.*"
-  #   action: keep
-```
-
-## Adding app-specific metrics
-
-Use the default Prometheus client — register at init, increment/observe at
-call sites:
-
-```go
-// internal/modules/foo/metrics.go
-package foo
-
-import (
-    "github.com/prometheus/client_golang/prometheus"
-    "github.com/prometheus/client_golang/prometheus/promauto"
-)
-
-var fooLatency = promauto.NewHistogramVec(
-    prometheus.HistogramOpts{
-        Name: "optikk_foo_duration_seconds",
-        Help: "Latency of Foo operations.",
-        Buckets: prometheus.DefBuckets,
-    },
-    []string{"op"},
-)
-```
-
-Then in the handler:
-```go
-timer := prometheus.NewTimer(fooLatency.WithLabelValues("query"))
-defer timer.ObserveDuration()
-```
-
-Metrics are automatically picked up by the `/metrics` endpoint on next scrape.
-
-## Troubleshooting
-
-- **`optikk-api` target `DOWN`**: the Go app isn't running on port 8080,
-  OR you're on Linux without `host.docker.internal` (check the `extra_hosts`
-  block in docker-compose; we set `host-gateway` which should resolve it).
-- **`remote_write` failures**: Prometheus logs them at WARN — `docker compose
-  logs prometheus | grep remote_write`.
-- **Series stopped appearing remotely**: check the `prometheus_remote_storage_samples_dropped_total`
-  metric on the local Prometheus.
+- `redigo` session pool — only the `go-redis/v9` client is hooked;
+  redigo callers stay unmeasured until migrated.
+- MySQL slow-query log integration.
+- Dashboards + alert rules — those live in Grafana Cloud, provisioned
+  there rather than in-repo.

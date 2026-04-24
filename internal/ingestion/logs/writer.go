@@ -48,6 +48,6 @@ func insertBatch(ctx context.Context, ch clickhouse.Conn, query string, rows []*
 	if err := batch.Send(); err != nil {
 		return fmt.Errorf("send: %w", err)
 	}
-	slog.Info("logs writer: flushed", slog.Int("rows", len(rows)))
+	slog.InfoContext(ctx, "logs writer: flushed", slog.Int("rows", len(rows)))
 	return nil
 }

@@ -1,4 +1,4 @@
-package trace_shape //nolint:revive,stylecheck
+package trace_shape	//nolint:revive,stylecheck
 
 import (
 	"context"
@@ -24,7 +24,7 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID int64, traceID string) ([]spanKindDurationRow, error) {
 	// Phase 7: narrow range scan on spans_by_trace_index.
 	var rows []spanKindDurationRow
-	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
+	err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "trace_shape.GetSpanKindBreakdown", &rows, `
 		SELECT kind_string                        AS span_kind,
 		       sum(duration_nano) / 1000000.0     AS total_duration_ms,
 		       toInt64(count())                   AS span_count
@@ -40,7 +40,7 @@ func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID 
 func (r *ClickHouseRepository) GetFlamegraphData(ctx context.Context, teamID int64, traceID string) ([]flamegraphRow, error) {
 	// Phase 7: narrow range scan on spans_by_trace_index.
 	var rows []flamegraphRow
-	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
+	err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "trace_shape.GetFlamegraphData", &rows, `
 		SELECT span_id, parent_span_id, name AS operation_name, service_name,
 		       kind_string AS span_kind, duration_nano / 1000000.0 AS duration_ms,
 		       toUnixTimestamp64Nano(timestamp) AS start_ns, has_error

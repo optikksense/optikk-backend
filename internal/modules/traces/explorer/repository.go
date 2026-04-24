@@ -14,11 +14,11 @@ import (
 )
 
 const (
-	tracesIndexTable   = "observability.traces_index"
-	spansRawTable      = "observability.spans"
-	spansRollupPrefix  = "observability.spans_rollup"
-	tracesFacetRollup  = "observability.traces_facets_rollup_5m"
-	traceIndexColumns  = `trace_id, start_ms, end_ms, duration_ns, root_service, root_operation, root_status,
+	tracesIndexTable	= "observability.traces_index"
+	spansRawTable		= "observability.spans"
+	spansRollupPrefix	= "observability.spans_rollup"
+	tracesFacetRollup	= "observability.traces_facets_rollup_5m"
+	traceIndexColumns	= `trace_id, start_ms, end_ms, duration_ns, root_service, root_operation, root_status,
 			root_http_method, root_http_status, span_count, has_error, error_count, service_set, truncated, last_seen_ms`
 )
 
@@ -26,7 +26,7 @@ type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *Repository { return &Repository{db: db} }
+func NewRepository(db clickhouse.Conn) *Repository	{ return &Repository{db: db} }
 
 // ListTraces reads observability.traces_index (per-trace summaries from the spans indexer).
 func (r *Repository) ListTraces(ctx context.Context, f querycompiler.Filters, limit int, cur TraceCursor) ([]traceIndexRowDTO, bool, []string, error) {
@@ -49,11 +49,8 @@ func (r *Repository) listTracesIndex(ctx context.Context, f querycompiler.Filter
 		traceIndexColumns, tracesIndexTable, compiled.PreWhere, where,
 	)
 	args = append(args, clickhouse.Named("pgLimit", uint64(limit+1))) //nolint:gosec
-	qctx, done := dbutil.Traced(ctx, "traces.ListTraces", query)
 	var rows []traceIndexRowDTO
-	err := r.db.Select(dbutil.ExplorerCtx(qctx), &rows, query, args...)
-	done(err)
-	if err != nil {
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "traces.ListTraces", &rows, query, args...); err != nil {
 		return nil, false, compiled.DroppedClauses, err
 	}
 	hasMore := len(rows) > limit
@@ -71,11 +68,11 @@ func (r *Repository) GetByID(ctx context.Context, teamID int64, traceID string) 
 		traceIndexColumns, tracesIndexTable,
 	)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("traceID", traceID),
 	}
 	var rows []traceIndexRowDTO
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "explorer.GetByID", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	if len(rows) == 0 {
@@ -96,11 +93,11 @@ func (r *Repository) summarizeTracesIndex(ctx context.Context, f querycompiler.F
 		tracesIndexTable, compiled.PreWhere, compiled.Where,
 	)
 	var row struct {
-		T uint64 `ch:"t"`
-		E uint64 `ch:"e"`
-		D uint64 `ch:"d"`
+		T	uint64	`ch:"t"`
+		E	uint64	`ch:"e"`
+		D	uint64	`ch:"d"`
 	}
-	rows, err := r.db.Query(dbutil.ExplorerCtx(ctx), query, compiled.Args...)
+	rows, err := dbutil.QueryCH(dbutil.ExplorerCtx(ctx), r.db, "explorer.summarizeTracesIndex", query, compiled.Args...)
 	if err != nil {
 		return Summary{}, err
 	}

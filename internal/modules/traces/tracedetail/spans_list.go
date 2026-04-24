@@ -25,16 +25,16 @@ import (
 // /spans/:spanId/tree. Compact on purpose — detail comes from the existing
 // GetSpanAttributes endpoint.
 type SpanListItem struct {
-	SpanID        string  `json:"span_id" ch:"span_id"`
-	ParentSpanID  string  `json:"parent_span_id" ch:"parent_span_id"`
-	TraceID       string  `json:"trace_id" ch:"trace_id"`
-	ServiceName   string  `json:"service_name" ch:"service_name"`
-	OperationName string  `json:"operation_name" ch:"name"`
-	KindString    string  `json:"kind" ch:"kind_string"`
-	StatusCode    string  `json:"status_code" ch:"status_code_string"`
-	HasError      bool    `json:"has_error" ch:"has_error"`
-	DurationMs    float64 `json:"duration_ms" ch:"duration_ms"`
-	StartNs       int64   `json:"start_ns" ch:"start_ns"`
+	SpanID		string	`json:"span_id" ch:"span_id"`
+	ParentSpanID	string	`json:"parent_span_id" ch:"parent_span_id"`
+	TraceID		string	`json:"trace_id" ch:"trace_id"`
+	ServiceName	string	`json:"service_name" ch:"service_name"`
+	OperationName	string	`json:"operation_name" ch:"name"`
+	KindString	string	`json:"kind" ch:"kind_string"`
+	StatusCode	string	`json:"status_code" ch:"status_code_string"`
+	HasError	bool	`json:"has_error" ch:"has_error"`
+	DurationMs	float64	`json:"duration_ms" ch:"duration_ms"`
+	StartNs		int64	`json:"start_ns" ch:"start_ns"`
 }
 
 // TraceSpansService is the read surface for the two absorbed endpoints.
@@ -48,11 +48,11 @@ type spansRepo struct{ db clickhouse.Conn }
 // NewTraceSpansService wires a fresh in-module service backed by CH directly;
 // kept separate from the primary tracedetail Service to avoid disturbing the
 // existing interface surface.
-func NewTraceSpansService(db clickhouse.Conn) TraceSpansService { return &spansRepo{db: db} }
+func NewTraceSpansService(db clickhouse.Conn) TraceSpansService	{ return &spansRepo{db: db} }
 
 const (
-	spansRawTable     = "observability.spans"
-	spansByTraceTable = "observability.spans_by_trace_index"
+	spansRawTable		= "observability.spans"
+	spansByTraceTable	= "observability.spans_by_trace_index"
 )
 
 func (r *spansRepo) ListByTrace(ctx context.Context, teamID int64, traceID string) ([]SpanListItem, error) {
@@ -69,8 +69,8 @@ func (r *spansRepo) ListByTrace(ctx context.Context, teamID int64, traceID strin
 		ORDER BY start_ns ASC
 		LIMIT 5000`, spansByTraceTable, traceidmatch.WhereTraceIDMatchesCH("trace_id", "traceID"))
 	var rows []SpanListItem
-	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+	err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "tracedetail.ListByTrace", &rows, query,
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("traceID", traceID),
 	)
 	return rows, err
@@ -91,8 +91,8 @@ func (r *spansRepo) Subtree(ctx context.Context, teamID int64, spanID string) ([
 		ORDER BY start_ns ASC
 		LIMIT 5000`, spansRawTable, spansRawTable)
 	var rows []SpanListItem
-	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+	err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "tracedetail.Subtree", &rows, query,
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("spanID", spanID),
 	)
 	return filterSubtree(rows, spanID), err
@@ -124,7 +124,7 @@ func filterSubtree(rows []SpanListItem, rootID string) []SpanListItem {
 // TraceDetailHandler so the existing 9 endpoints' wiring is untouched.
 type SpansHandler struct {
 	modulecommon.DBTenant
-	svc TraceSpansService
+	svc	TraceSpansService
 }
 
 func NewSpansHandler(getTenant modulecommon.GetTenantFunc, svc TraceSpansService) *SpansHandler {

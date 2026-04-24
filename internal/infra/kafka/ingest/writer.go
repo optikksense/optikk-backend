@@ -9,20 +9,20 @@ import (
 
 // WriterConfig bounds retry behavior for the CH batch send.
 type WriterConfig struct {
-	MaxAttempts int           // total tries (default 5)
-	BaseBackoff time.Duration // first backoff (default 100ms)
-	MaxBackoff  time.Duration // cap (default 5s)
-	Timeout     time.Duration // per-attempt ctx timeout (default 30s)
+	MaxAttempts	int		// total tries (default 5)
+	BaseBackoff	time.Duration	// first backoff (default 100ms)
+	MaxBackoff	time.Duration	// cap (default 5s)
+	Timeout		time.Duration	// per-attempt ctx timeout (default 30s)
 }
 
 // DefaultWriterConfig returns the plan-mandated retry schedule: 5 attempts,
 // 100ms → 5s exponential backoff, 30s per-attempt timeout.
 func DefaultWriterConfig() WriterConfig {
 	return WriterConfig{
-		MaxAttempts: 5,
-		BaseBackoff: 100 * time.Millisecond,
-		MaxBackoff:  5 * time.Second,
-		Timeout:     30 * time.Second,
+		MaxAttempts:	5,
+		BaseBackoff:	100 * time.Millisecond,
+		MaxBackoff:	5 * time.Second,
+		Timeout:	30 * time.Second,
 	}
 }
 
@@ -39,10 +39,10 @@ type DLQSink[T any] func(ctx context.Context, items []T, reason error)
 
 // Writer ties retry + DLQ around a BatchSender for a single worker.
 type Writer[T any] struct {
-	cfg  WriterConfig
-	send BatchSender[T]
-	dlq  DLQSink[T]
-	name string // "logs" | "spans" for logs
+	cfg	WriterConfig
+	send	BatchSender[T]
+	dlq	DLQSink[T]
+	name	string	// "logs" | "spans" for logs
 }
 
 // NewWriter constructs a retrying writer. name labels log lines.
@@ -75,7 +75,7 @@ func (w *Writer[T]) Write(ctx context.Context, items []T) error {
 			}
 		}
 	}
-	slog.Error("ingest writer: exhausted retries; routing to DLQ",
+	slog.ErrorContext(ctx, "ingest writer: exhausted retries; routing to DLQ",
 		slog.String("signal", w.name),
 		slog.Int("items", len(items)),
 		slog.Any("error", last))

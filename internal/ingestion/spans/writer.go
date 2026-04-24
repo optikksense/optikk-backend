@@ -60,7 +60,7 @@ func insertBatch(ctx context.Context, ch clickhouse.Conn, query string, rows []*
 	if err := batch.Send(); err != nil {
 		return fmt.Errorf("send: %w", err)
 	}
-	slog.Info("spans writer: flushed", slog.Int("rows", len(rows)))
+	slog.InfoContext(ctx, "spans writer: flushed", slog.Int("rows", len(rows)))
 	return nil
 }
 
@@ -70,24 +70,24 @@ func rowToSpan(r *Row) indexer.Span {
 	attrs := r.GetAttributes()
 	isRoot := enrich.ZeroSpanID(r.GetParentSpanId()) == ""
 	startMs := r.GetTimestampNs() / 1_000_000
-	endMs := startMs + int64(r.GetDurationNano()/1_000_000) //nolint:gosec // duration fits int64
+	endMs := startMs + int64(r.GetDurationNano()/1_000_000)	//nolint:gosec // duration fits int64
 	return indexer.Span{
-		TeamID:        r.GetTeamId(),
-		TraceID:       enrich.ZeroTraceID(r.GetTraceId()),
-		SpanID:        enrich.ZeroSpanID(r.GetSpanId()),
-		ParentSpanID:  enrich.ZeroSpanID(r.GetParentSpanId()),
-		Service:       ServiceName(r),
-		Name:          r.GetName(),
-		StartMs:       startMs,
-		EndMs:         endMs,
-		IsRoot:        isRoot,
-		IsError:       r.GetHasError(),
-		HTTPMethod:    r.GetHttpMethod(),
-		HTTPStatus:    r.GetResponseStatusCode(),
-		StatusCode:    r.GetStatusCodeString(),
-		PeerService:   attrs["peer.service"],
-		ErrorFp:       r.GetExceptionType(),
-		Environment:   attrs["deployment.environment"],
-		TsBucketStart: r.GetTsBucketStart(),
+		TeamID:		r.GetTeamId(),
+		TraceID:	enrich.ZeroTraceID(r.GetTraceId()),
+		SpanID:		enrich.ZeroSpanID(r.GetSpanId()),
+		ParentSpanID:	enrich.ZeroSpanID(r.GetParentSpanId()),
+		Service:	ServiceName(r),
+		Name:		r.GetName(),
+		StartMs:	startMs,
+		EndMs:		endMs,
+		IsRoot:		isRoot,
+		IsError:	r.GetHasError(),
+		HTTPMethod:	r.GetHttpMethod(),
+		HTTPStatus:	r.GetResponseStatusCode(),
+		StatusCode:	r.GetStatusCodeString(),
+		PeerService:	attrs["peer.service"],
+		ErrorFp:	r.GetExceptionType(),
+		Environment:	attrs["deployment.environment"],
+		TsBucketStart:	r.GetTsBucketStart(),
 	}
 }

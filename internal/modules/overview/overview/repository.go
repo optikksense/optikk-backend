@@ -20,8 +20,8 @@ import (
 // `toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin))`, plain column
 // references, and `@name` bindings.
 const (
-	serviceNameFilter = " AND service_name = @serviceName"
-	spansRollupPrefix = "observability.spans_rollup"
+	serviceNameFilter	= " AND service_name = @serviceName"
+	spansRollupPrefix	= "observability.spans_rollup"
 )
 
 type Repository interface {
@@ -70,7 +70,7 @@ func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 // (team_id, bucket_ts, ...), so bucket_ts filtering drives part pruning.
 func rollupParams(teamID int64, startMs, endMs int64) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 — tenant ID fits uint32
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115 — tenant ID fits uint32
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
@@ -78,9 +78,9 @@ func rollupParams(teamID int64, startMs, endMs int64) []any {
 
 // requestRateRow is the DTO for GetRequestRate.
 type requestRateRow struct {
-	Timestamp    time.Time `ch:"time_bucket"`
-	ServiceName  string    `ch:"service_name"`
-	RequestCount uint64    `ch:"request_count"`
+	Timestamp	time.Time	`ch:"time_bucket"`
+	ServiceName	string		`ch:"service_name"`
+	RequestCount	uint64		`ch:"request_count"`
 }
 
 func (r *ClickHouseRepository) GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]requestRateRow, error) {
@@ -105,7 +105,7 @@ func (r *ClickHouseRepository) GetRequestRate(ctx context.Context, teamID int64,
 		LIMIT 10000`
 
 	var rows []requestRateRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "overview.GetRequestRate", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -114,10 +114,10 @@ func (r *ClickHouseRepository) GetRequestRate(ctx context.Context, teamID int64,
 // errorRateRow is the DTO for GetErrorRate. `ErrorRate` is derived in the
 // service from RequestCount / ErrorCount — no SQL-side conditional division.
 type errorRateRow struct {
-	Timestamp    time.Time `ch:"time_bucket"`
-	ServiceName  string    `ch:"service_name"`
-	RequestCount uint64    `ch:"request_count"`
-	ErrorCount   uint64    `ch:"error_count"`
+	Timestamp	time.Time	`ch:"time_bucket"`
+	ServiceName	string		`ch:"service_name"`
+	RequestCount	uint64		`ch:"request_count"`
+	ErrorCount	uint64		`ch:"error_count"`
 }
 
 func (r *ClickHouseRepository) GetErrorRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]errorRateRow, error) {
@@ -143,7 +143,7 @@ func (r *ClickHouseRepository) GetErrorRate(ctx context.Context, teamID int64, s
 		LIMIT 10000`
 
 	var rows []errorRateRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "overview.GetErrorRate", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -151,9 +151,9 @@ func (r *ClickHouseRepository) GetErrorRate(ctx context.Context, teamID int64, s
 
 // p95LatencyRow is the DTO for GetP95Latency.
 type p95LatencyRow struct {
-	Timestamp   time.Time `ch:"time_bucket"`
-	ServiceName string    `ch:"service_name"`
-	P95         float64   `ch:"p95"`
+	Timestamp	time.Time	`ch:"time_bucket"`
+	ServiceName	string		`ch:"service_name"`
+	P95		float64		`ch:"p95"`
 }
 
 // chartMetricsRow is the DTO for GetChartMetrics. Combines request count,
@@ -161,11 +161,11 @@ type p95LatencyRow struct {
 // rollup scan so the Summary-tab below-fold charts can use one endpoint and
 // one CH query instead of three parallel queries against the same table.
 type chartMetricsRow struct {
-	Timestamp    time.Time `ch:"time_bucket"`
-	ServiceName  string    `ch:"service_name"`
-	RequestCount uint64    `ch:"request_count"`
-	ErrorCount   uint64    `ch:"error_count"`
-	P95          float64   `ch:"p95"`
+	Timestamp	time.Time	`ch:"time_bucket"`
+	ServiceName	string		`ch:"service_name"`
+	RequestCount	uint64		`ch:"request_count"`
+	ErrorCount	uint64		`ch:"error_count"`
+	P95		float64		`ch:"p95"`
 }
 
 func (r *ClickHouseRepository) GetChartMetrics(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]chartMetricsRow, error) {
@@ -192,7 +192,7 @@ func (r *ClickHouseRepository) GetChartMetrics(ctx context.Context, teamID int64
 		LIMIT 10000`
 
 	var rows []chartMetricsRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "overview.GetChartMetrics", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -220,7 +220,7 @@ func (r *ClickHouseRepository) GetP95Latency(ctx context.Context, teamID int64, 
 		LIMIT 10000`
 
 	var rows []p95LatencyRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "overview.GetP95Latency", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -228,13 +228,13 @@ func (r *ClickHouseRepository) GetP95Latency(ctx context.Context, teamID int64, 
 
 // serviceMetricRow is the DTO for GetServices + GetSummary.
 type serviceMetricRow struct {
-	ServiceName   string  `ch:"service_name"`
-	RequestCount  uint64  `ch:"request_count"`
-	ErrorCount    uint64  `ch:"error_count"`
-	DurationMsSum float64 `ch:"duration_ms_sum"`
-	P50Latency    float64 `ch:"p50_latency"`
-	P95Latency    float64 `ch:"p95_latency"`
-	P99Latency    float64 `ch:"p99_latency"`
+	ServiceName	string	`ch:"service_name"`
+	RequestCount	uint64	`ch:"request_count"`
+	ErrorCount	uint64	`ch:"error_count"`
+	DurationMsSum	float64	`ch:"duration_ms_sum"`
+	P50Latency	float64	`ch:"p50_latency"`
+	P95Latency	float64	`ch:"p95_latency"`
+	P99Latency	float64	`ch:"p99_latency"`
 }
 
 func (r *ClickHouseRepository) GetServices(ctx context.Context, teamID int64, startMs, endMs int64) ([]serviceMetricRow, error) {
@@ -255,7 +255,7 @@ func (r *ClickHouseRepository) GetServices(ctx context.Context, teamID int64, st
 		ORDER BY request_count DESC`, table)
 
 	var rows []serviceMetricRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, rollupParams(teamID, startMs, endMs)...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "overview.GetServices", &rows, query, rollupParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -263,16 +263,16 @@ func (r *ClickHouseRepository) GetServices(ctx context.Context, teamID int64, st
 
 // endpointMetricRow is the DTO for GetTopEndpoints.
 type endpointMetricRow struct {
-	ServiceName   string  `ch:"service_name"`
-	OperationName string  `ch:"operation_name"`
-	EndpointName  string  `ch:"endpoint"`
-	HTTPMethod    string  `ch:"http_method"`
-	RequestCount  uint64  `ch:"request_count"`
-	ErrorCount    uint64  `ch:"error_count"`
-	DurationMsSum float64 `ch:"duration_ms_sum"`
-	P50Latency    float64 `ch:"p50_latency"`
-	P95Latency    float64 `ch:"p95_latency"`
-	P99Latency    float64 `ch:"p99_latency"`
+	ServiceName	string	`ch:"service_name"`
+	OperationName	string	`ch:"operation_name"`
+	EndpointName	string	`ch:"endpoint"`
+	HTTPMethod	string	`ch:"http_method"`
+	RequestCount	uint64	`ch:"request_count"`
+	ErrorCount	uint64	`ch:"error_count"`
+	DurationMsSum	float64	`ch:"duration_ms_sum"`
+	P50Latency	float64	`ch:"p50_latency"`
+	P95Latency	float64	`ch:"p95_latency"`
+	P99Latency	float64	`ch:"p99_latency"`
 }
 
 func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]endpointMetricRow, error) {
@@ -304,7 +304,7 @@ func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64
 		LIMIT 100`
 
 	var rows []endpointMetricRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "overview.GetTopEndpoints", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil

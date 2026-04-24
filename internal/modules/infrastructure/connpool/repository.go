@@ -36,10 +36,10 @@ func NewRepository(db clickhouse.Conn) Repository {
 }
 
 type instanceRow struct {
-	Host        string `ch:"host"`
-	Pod         string `ch:"pod"`
-	Container   string `ch:"container"`
-	ServiceName string `ch:"service_name"`
+	Host		string	`ch:"host"`
+	Pod		string	`ch:"pod"`
+	Container	string	`ch:"container"`
+	ServiceName	string	`ch:"service_name"`
 }
 
 // calculateAverage computes the mean of valid (non-NaN, non-Inf, non-negative) values.
@@ -70,9 +70,9 @@ var connpoolMetrics = []string{
 
 // metricValueRow captures per-metric-name avg+sum from the rollup scan.
 type metricValueRow struct {
-	MetricName string  `ch:"metric_name"`
-	ValAvg     float64 `ch:"val_avg"`
-	ValSum     float64 `ch:"val_sum"`
+	MetricName	string	`ch:"metric_name"`
+	ValAvg		float64	`ch:"val_avg"`
+	ValSum		float64	`ch:"val_sum"`
 }
 
 // foldConnPoolMetrics converts per-metric-name rollup rows into a single
@@ -122,14 +122,14 @@ func (r *ClickHouseRepository) queryConnPoolMetricByService(ctx context.Context,
 		GROUP BY metric_name
 	`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricNames", connpoolMetrics),
 	}
 	var rows []metricValueRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connpool.queryConnPoolMetricByService", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return foldConnPoolMetrics(rows), nil
@@ -157,7 +157,7 @@ func (r *ClickHouseRepository) queryConnPoolMetricByInstance(ctx context.Context
 		GROUP BY metric_name
 	`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("host", host),
 		clickhouse.Named("pod", pod),
 		clickhouse.Named("serviceName", serviceName),
@@ -166,7 +166,7 @@ func (r *ClickHouseRepository) queryConnPoolMetricByInstance(ctx context.Context
 		clickhouse.Named("metricNames", connpoolMetrics),
 	}
 	var rows []metricValueRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connpool.queryConnPoolMetricByInstance", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return foldConnPoolMetrics(rows), nil
@@ -188,13 +188,13 @@ func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64,
 		ORDER BY service_name
 	`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricNames", connpoolMetrics),
 	}
 	var rows []serviceNameRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connpool.getServiceList", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	services := make([]string, len(rows))
@@ -218,13 +218,13 @@ func (r *ClickHouseRepository) getInstanceList(ctx context.Context, teamID int64
 		LIMIT 200
 	`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricNames", connpoolMetrics),
 	}
 	var rows []instanceRow
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...)
+	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connpool.getInstanceList", &rows, query, args...)
 	return rows, err
 }
 
@@ -246,7 +246,7 @@ func (r *ClickHouseRepository) GetAvgConnPool(ctx context.Context, teamID int64,
 		clickhouse.Named("metricNames", connpoolMetrics),
 	}
 	var rows []metricValueRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connpool.GetAvgConnPool", &rows, query, args...); err != nil {
 		return MetricValue{Value: 0}, err
 	}
 	avg := foldConnPoolMetrics(rows)
@@ -277,13 +277,13 @@ func (r *ClickHouseRepository) GetConnPoolByService(ctx context.Context, teamID 
 		clickhouse.Named("metricNames", connpoolMetrics),
 	}
 	type serviceMetricRow struct {
-		ServiceName string  `ch:"service_name"`
-		MetricName  string  `ch:"metric_name"`
-		ValAvg      float64 `ch:"val_avg"`
-		ValSum      float64 `ch:"val_sum"`
+		ServiceName	string	`ch:"service_name"`
+		MetricName	string	`ch:"metric_name"`
+		ValAvg		float64	`ch:"val_avg"`
+		ValSum		float64	`ch:"val_sum"`
 	}
 	var rows []serviceMetricRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connpool.GetConnPoolByService", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	byService := map[string][]metricValueRow{}
@@ -293,16 +293,16 @@ func (r *ClickHouseRepository) GetConnPoolByService(ctx context.Context, teamID 
 			order = append(order, row.ServiceName)
 		}
 		byService[row.ServiceName] = append(byService[row.ServiceName], metricValueRow{
-			MetricName: row.MetricName,
-			ValAvg:     row.ValAvg,
-			ValSum:     row.ValSum,
+			MetricName:	row.MetricName,
+			ValAvg:		row.ValAvg,
+			ValSum:		row.ValSum,
 		})
 	}
 	result := make([]connPoolServiceMetricDTO, 0, len(order))
 	for _, name := range order {
 		result = append(result, connPoolServiceMetricDTO{
-			ServiceName: name,
-			Value:       foldConnPoolMetrics(byService[name]),
+			ServiceName:	name,
+			Value:		foldConnPoolMetrics(byService[name]),
 		})
 	}
 	return result, nil
@@ -330,15 +330,15 @@ func (r *ClickHouseRepository) GetConnPoolByInstance(ctx context.Context, teamID
 		clickhouse.Named("metricNames", connpoolMetrics),
 	}
 	type instanceMetricRow struct {
-		Host        string  `ch:"host"`
-		Pod         string  `ch:"pod"`
-		ServiceName string  `ch:"service_name"`
-		MetricName  string  `ch:"metric_name"`
-		ValAvg      float64 `ch:"val_avg"`
-		ValSum      float64 `ch:"val_sum"`
+		Host		string	`ch:"host"`
+		Pod		string	`ch:"pod"`
+		ServiceName	string	`ch:"service_name"`
+		MetricName	string	`ch:"metric_name"`
+		ValAvg		float64	`ch:"val_avg"`
+		ValSum		float64	`ch:"val_sum"`
 	}
 	var rows []instanceMetricRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connpool.GetConnPoolByInstance", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	type instKey struct{ Host, Pod, Service string }
@@ -350,18 +350,18 @@ func (r *ClickHouseRepository) GetConnPoolByInstance(ctx context.Context, teamID
 			order = append(order, k)
 		}
 		byInst[k] = append(byInst[k], metricValueRow{
-			MetricName: row.MetricName,
-			ValAvg:     row.ValAvg,
-			ValSum:     row.ValSum,
+			MetricName:	row.MetricName,
+			ValAvg:		row.ValAvg,
+			ValSum:		row.ValSum,
 		})
 	}
 	result := make([]connPoolInstanceMetricDTO, 0, len(order))
 	for _, k := range order {
 		result = append(result, connPoolInstanceMetricDTO{
-			Host:        k.Host,
-			Pod:         k.Pod,
-			ServiceName: k.Service,
-			Value:       foldConnPoolMetrics(byInst[k]),
+			Host:		k.Host,
+			Pod:		k.Pod,
+			ServiceName:	k.Service,
+			Value:		foldConnPoolMetrics(byInst[k]),
 		})
 	}
 	return result, nil

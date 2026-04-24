@@ -10,6 +10,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 )
 
 type Repository interface {
@@ -35,7 +36,7 @@ func NewRepository(db *sql.DB, appConfig registry.AppConfig) *MySQLRepository {
 
 func (r *MySQLRepository) FindUserByID(userID int64) (usershared.UserRecord, error) {
 	var u usershared.UserRecord
-	err := r.db.GetContext(context.Background(), &u, `
+	err := dbutil.GetSQL(context.Background(), r.db, "user.FindUserByID", &u, `
 		SELECT id, email, name, avatar_url, teams, active, last_login_at, created_at
 		FROM users
 		WHERE id = ?
@@ -46,7 +47,7 @@ func (r *MySQLRepository) FindUserByID(userID int64) (usershared.UserRecord, err
 
 func (r *MySQLRepository) FindActiveUserByID(userID int64) (usershared.UserRecord, error) {
 	var u usershared.UserRecord
-	err := r.db.GetContext(context.Background(), &u, `
+	err := dbutil.GetSQL(context.Background(), r.db, "user.FindActiveUserByID", &u, `
 		SELECT id, email, name, avatar_url, teams, active, last_login_at, created_at
 		FROM users
 		WHERE id = ? AND active = 1
@@ -57,7 +58,7 @@ func (r *MySQLRepository) FindActiveUserByID(userID int64) (usershared.UserRecor
 
 func (r *MySQLRepository) FindTeamByID(teamID int64) (usershared.TeamRecord, error) {
 	var t usershared.TeamRecord
-	err := r.db.GetContext(context.Background(), &t, `
+	err := dbutil.GetSQL(context.Background(), r.db, "user.FindTeamByID", &t, `
 		SELECT id, org_name, name, slug, description, active, color, icon, api_key, created_at
 		FROM teams
 		WHERE id = ?
@@ -68,7 +69,7 @@ func (r *MySQLRepository) FindTeamByID(teamID int64) (usershared.TeamRecord, err
 
 func (r *MySQLRepository) ListActiveTeamsByOrganization(orgName string) ([]usershared.TeamRecord, error) {
 	var records []usershared.TeamRecord
-	err := r.db.SelectContext(context.Background(), &records, `
+	err := dbutil.SelectSQL(context.Background(), r.db, "user.ListActiveTeamsByOrganization", &records, `
 		SELECT id, org_name, name, slug, description, active, color, icon, api_key, created_at
 		FROM teams
 		WHERE org_name = ? AND active = 1
@@ -92,7 +93,7 @@ func (r *MySQLRepository) ListActiveTeamsByIDs(teamIDs []int64) ([]usershared.Te
 	}
 	query = r.db.Rebind(query)
 	var records []usershared.TeamRecord
-	if err := r.db.SelectContext(context.Background(), &records, query, args...); err != nil {
+	if err := dbutil.SelectSQL(context.Background(), r.db, "user.ListActiveTeamsByIDs", &records, query, args...); err != nil {
 		return nil, err
 	}
 	return records, nil
@@ -112,7 +113,7 @@ func (r *MySQLRepository) ListActiveUsersByTeamIDs(teamIDs []int64, limit, offse
 	args = append(args, limit, offset)
 
 	var records []usershared.UserRecord
-	err := r.db.SelectContext(context.Background(), &records, fmt.Sprintf(`
+	err := dbutil.SelectSQL(context.Background(), r.db, "user.ListActiveUsersByTeamIDs", &records, fmt.Sprintf(`
 		SELECT id, email, name, avatar_url, teams, active, last_login_at, created_at
 		FROM users
 		WHERE (%s) AND active = 1
@@ -123,7 +124,7 @@ func (r *MySQLRepository) ListActiveUsersByTeamIDs(teamIDs []int64, limit, offse
 }
 
 func (r *MySQLRepository) CreateUser(email, passwordHash, name string, avatarURL, teamsJSON *string, createdAt time.Time) (int64, error) {
-	res, err := r.db.ExecContext(context.Background(), `
+	res, err := dbutil.ExecSQL(context.Background(), r.db, "user.CreateUser", `
 		INSERT INTO users (email, password_hash, name, avatar_url, teams, active, created_at)
 		VALUES (?, ?, ?, ?, ?, 1, ?)
 	`, email, usershared.NullableString(passwordHash), name, avatarURL, teamsJSON, createdAt)
@@ -134,7 +135,7 @@ func (r *MySQLRepository) CreateUser(email, passwordHash, name string, avatarURL
 }
 
 func (r *MySQLRepository) UpdateUserProfile(userID int64, name, avatarURL *string) error {
-	_, err := r.db.ExecContext(context.Background(), `
+	_, err := dbutil.ExecSQL(context.Background(), r.db, "user.UpdateUserProfile", `
 		UPDATE users
 		SET name = COALESCE(?, name), avatar_url = COALESCE(?, avatar_url)
 		WHERE id = ?

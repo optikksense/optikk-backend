@@ -61,7 +61,7 @@ func bucket(startMs, endMs int64) string {
 
 func (r *ClickHouseRepository) queryDirectionBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]directionBucketDTO, error) {
 	var rows []directionBucketDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "network.queryDirectionBuckets", &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -69,7 +69,7 @@ func (r *ClickHouseRepository) queryDirectionBuckets(ctx context.Context, query 
 
 func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
 	var rows []stateBucketDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "network.queryStateBuckets", &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -77,7 +77,7 @@ func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query stri
 
 func (r *ClickHouseRepository) queryResourceBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
 	var rows []resourceBucketDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "network.queryResourceBuckets", &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -98,7 +98,7 @@ func (r *ClickHouseRepository) queryDirectionBucketsFromRollup(ctx context.Conte
 		GROUP BY time_bucket, direction
 		ORDER BY time_bucket, direction`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // domain-bounded
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // domain-bounded
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricName", metricName),
@@ -106,12 +106,12 @@ func (r *ClickHouseRepository) queryDirectionBucketsFromRollup(ctx context.Conte
 	}
 
 	var raw []struct {
-		Timestamp time.Time `ch:"time_bucket"`
-		Direction string    `ch:"direction"`
-		ValueSum  float64   `ch:"value_sum_val"`
-		ValueCnt  uint64    `ch:"value_cnt"`
+		Timestamp	time.Time	`ch:"time_bucket"`
+		Direction	string		`ch:"direction"`
+		ValueSum	float64		`ch:"value_sum_val"`
+		ValueCnt	uint64		`ch:"value_cnt"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "network.queryDirectionBucketsFromRollup", &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]directionBucketDTO, len(raw))
@@ -122,9 +122,9 @@ func (r *ClickHouseRepository) queryDirectionBucketsFromRollup(ctx context.Conte
 			valPtr = &v
 		}
 		rows[i] = DirectionBucket{
-			Timestamp: row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
-			Direction: row.Direction,
-			Value:     valPtr,
+			Timestamp:	row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			Direction:	row.Direction,
+			Value:		valPtr,
 		}
 	}
 	return rows, nil
@@ -153,7 +153,7 @@ func (r *ClickHouseRepository) GetNetworkErrors(ctx context.Context, teamID int6
 		GROUP BY time_bucket, state
 		ORDER BY time_bucket, state`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // domain-bounded
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // domain-bounded
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricName", infraconsts.MetricSystemNetworkErrors),
@@ -161,12 +161,12 @@ func (r *ClickHouseRepository) GetNetworkErrors(ctx context.Context, teamID int6
 	}
 
 	var raw []struct {
-		Timestamp time.Time `ch:"time_bucket"`
-		State     string    `ch:"state"`
-		ValueSum  float64   `ch:"value_sum_val"`
-		ValueCnt  uint64    `ch:"value_cnt"`
+		Timestamp	time.Time	`ch:"time_bucket"`
+		State		string		`ch:"state"`
+		ValueSum	float64		`ch:"value_sum_val"`
+		ValueCnt	uint64		`ch:"value_cnt"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "network.GetNetworkErrors", &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]stateBucketDTO, len(raw))
@@ -177,9 +177,9 @@ func (r *ClickHouseRepository) GetNetworkErrors(ctx context.Context, teamID int6
 			valPtr = &v
 		}
 		rows[i] = StateBucket{
-			Timestamp: row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
-			State:     row.State,
-			Value:     valPtr,
+			Timestamp:	row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			State:		row.State,
+			Value:		valPtr,
 		}
 	}
 	return rows, nil
@@ -198,7 +198,7 @@ func (r *ClickHouseRepository) GetNetworkDropped(ctx context.Context, teamID int
 		GROUP BY time_bucket
 		ORDER BY time_bucket`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // domain-bounded
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // domain-bounded
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricName", infraconsts.MetricSystemNetworkDropped),
@@ -206,11 +206,11 @@ func (r *ClickHouseRepository) GetNetworkDropped(ctx context.Context, teamID int
 	}
 
 	var raw []struct {
-		Timestamp time.Time `ch:"time_bucket"`
-		ValueSum  float64   `ch:"value_sum_val"`
-		ValueCnt  uint64    `ch:"value_cnt"`
+		Timestamp	time.Time	`ch:"time_bucket"`
+		ValueSum	float64		`ch:"value_sum_val"`
+		ValueCnt	uint64		`ch:"value_cnt"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "network.GetNetworkDropped", &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]resourceBucketDTO, len(raw))
@@ -221,9 +221,9 @@ func (r *ClickHouseRepository) GetNetworkDropped(ctx context.Context, teamID int
 			valPtr = &v
 		}
 		rows[i] = ResourceBucket{
-			Timestamp: row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
-			Pod:       "",
-			Value:     valPtr,
+			Timestamp:	row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			Pod:		"",
+			Value:		valPtr,
 		}
 	}
 	return rows, nil
@@ -244,14 +244,14 @@ func (r *ClickHouseRepository) GetNetworkConnections(ctx context.Context, teamID
 		GROUP BY time_bucket, state
 		ORDER BY time_bucket, state`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricName", infraconsts.MetricSystemNetworkConnections),
 		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
 	}
 	var rows []stateBucketDTO
-	return rows, r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...)
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "network.GetNetworkConnections", &rows, query, args...)
 }
 
 // ---------------------------------------------------------------------------
@@ -259,14 +259,13 @@ func (r *ClickHouseRepository) GetNetworkConnections(ctx context.Context, teamID
 // ---------------------------------------------------------------------------
 
 type netMetricRow struct {
-	SystemNet *float64 `ch:"system_net"`
-	AttrNet   *float64 `ch:"attr_net"`
+	SystemNet	*float64	`ch:"system_net"`
+	AttrNet		*float64	`ch:"attr_net"`
 }
-
 
 func serviceParams(teamID int64, serviceName string, startMs, endMs int64) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
@@ -275,7 +274,7 @@ func serviceParams(teamID int64, serviceName string, startMs, endMs int64) []any
 
 func instanceParams(teamID int64, host, pod, container, serviceName string, startMs, endMs int64) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("host", host),
 		clickhouse.Named("pod", pod),
 		clickhouse.Named("container", container),
@@ -313,11 +312,10 @@ func nullableToSlice(ptrs ...*float64) []float64 {
 
 // Column expressions matching resourceutil for instance-level queries
 const (
-	colHostCoalesce      = "coalesce(nullIf(host, ''), nullIf(attributes.`host.name`::String, ''), nullIf(attributes.`server.address`::String, ''), 'unknown')"
-	colPodCoalesce       = "coalesce(nullIf(attributes.`k8s.pod.name`::String, ''), '')"
-	colContainerCoalesce = "coalesce(nullIf(attributes.`container.name`::String, ''), nullIf(attributes.`k8s.container.name`::String, ''), '')"
+	colHostCoalesce		= "coalesce(nullIf(host, ''), nullIf(attributes.`host.name`::String, ''), nullIf(attributes.`server.address`::String, ''), 'unknown')"
+	colPodCoalesce		= "coalesce(nullIf(attributes.`k8s.pod.name`::String, ''), '')"
+	colContainerCoalesce	= "coalesce(nullIf(attributes.`container.name`::String, ''), nullIf(attributes.`k8s.container.name`::String, ''), '')"
 )
-
 
 type netMetricValueRow struct {
 	ValAvg float64 `ch:"val_avg"`
@@ -345,7 +343,7 @@ func (r *ClickHouseRepository) queryNetworkMetricByService(ctx context.Context, 
 		  AND bucket_ts BETWEEN @start AND @end
 		  AND metric_name = @metricName`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
@@ -371,7 +369,7 @@ func (r *ClickHouseRepository) queryNetworkMetricByInstance(ctx context.Context,
 		  AND bucket_ts BETWEEN @start AND @end
 		  AND metric_name = @metricName`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("host", host),
 		clickhouse.Named("pod", pod),
 		clickhouse.Named("serviceName", serviceName),
@@ -404,17 +402,17 @@ func (r *ClickHouseRepository) GetAvgNetwork(ctx context.Context, teamID int64, 
 		GROUP BY service
 		HAVING val_avg IS NOT NULL`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricName", infraconsts.MetricSystemNetworkUtilization),
 	}
 
 	var rows []struct {
-		Service string  `ch:"service"`
-		ValAvg  float64 `ch:"val_avg"`
+		Service	string	`ch:"service"`
+		ValAvg	float64	`ch:"val_avg"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "network.GetAvgNetwork", &rows, query, args...); err != nil {
 		return MetricValue{Value: 0}, err
 	}
 

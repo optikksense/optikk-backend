@@ -60,7 +60,7 @@ func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID int6
 	)
 	args = append(args, fargs...)
 	var rows []LatencyTimeSeries
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "system.GetSystemLatency", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -90,7 +90,7 @@ func (r *ClickHouseRepository) GetSystemOps(ctx context.Context, teamID int64, s
 	)
 	args = append(args, fargs...)
 	var rows []OpsTimeSeries
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "system.GetSystemOps", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -121,7 +121,7 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByLatency(ctx context.Cont
 		clickhouse.Named("dbSystem", dbSystem),
 	)
 	var rows []SystemCollectionRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "system.GetSystemTopCollectionsByLatency", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -152,7 +152,7 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByVolume(ctx context.Conte
 		clickhouse.Named("dbSystem", dbSystem),
 	)
 	var rows []SystemCollectionRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "system.GetSystemTopCollectionsByVolume", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -182,7 +182,7 @@ func (r *ClickHouseRepository) GetSystemErrors(ctx context.Context, teamID int64
 		clickhouse.Named("dbSystem", dbSystem),
 	)
 	var rows []ErrorTimeSeries
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "system.GetSystemErrors", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -210,7 +210,7 @@ func (r *ClickHouseRepository) GetSystemNamespaces(ctx context.Context, teamID i
 		clickhouse.Named("dbSystem", dbSystem),
 	)
 	var rows []SystemNamespace
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "system.GetSystemNamespaces", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil

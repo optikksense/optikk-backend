@@ -1,4 +1,4 @@
-package trace_paths //nolint:revive,stylecheck
+package trace_paths	//nolint:revive,stylecheck
 
 import (
 	"context"
@@ -26,7 +26,7 @@ func (r *ClickHouseRepository) GetCriticalPath(ctx context.Context, teamID int64
 	// Phase 7: read from spans_by_trace_index MV — narrow range scan keyed on
 	// (team_id, trace_id, span_id) instead of a bloom-filter guess on raw spans.
 	var rows []criticalPathRow
-	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
+	err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "trace_paths.GetCriticalPath", &rows, `
 		SELECT s.span_id, s.parent_span_id,
 		       s.name AS operation_name,
 		       s.service_name,
@@ -44,7 +44,7 @@ func (r *ClickHouseRepository) GetCriticalPath(ctx context.Context, teamID int64
 
 func (r *ClickHouseRepository) GetErrorPath(ctx context.Context, teamID int64, traceID string) ([]errorPathRow, error) {
 	var rows []errorPathRow
-	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
+	err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "trace_paths.GetErrorPath", &rows, `
 		SELECT s.span_id, s.parent_span_id, s.name AS operation_name,
 		       s.service_name AS service_name, s.status_code_string AS status, s.status_message,
 		       s.timestamp AS start_time, s.duration_nano / 1000000.0 AS duration_ms

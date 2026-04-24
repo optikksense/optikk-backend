@@ -1,4 +1,4 @@
-package trace_suggest //nolint:revive,stylecheck
+package trace_suggest	//nolint:revive,stylecheck
 
 import (
 	"context"
@@ -7,8 +7,8 @@ import (
 )
 
 const (
-	defaultLimit = 10
-	maxLimit     = 50
+	defaultLimit	= 10
+	maxLimit	= 50
 )
 
 type Service interface {
@@ -19,13 +19,13 @@ type service struct {
 	repo Repository
 }
 
-func NewService(repo Repository) Service { return &service{repo: repo} }
+func NewService(repo Repository) Service	{ return &service{repo: repo} }
 
 func (s *service) Suggest(ctx context.Context, req SuggestRequest, teamID int64) (SuggestResponse, error) {
 	limit := pickLimit(req.Limit)
 	rows, err := s.fetch(ctx, teamID, req, limit)
 	if err != nil {
-		slog.Error("trace_suggest: Suggest failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("field", req.Field))
+		slog.ErrorContext(ctx, "trace_suggest: Suggest failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("field", req.Field))
 		return SuggestResponse{}, err
 	}
 	return SuggestResponse{Suggestions: toSuggestions(rows)}, nil

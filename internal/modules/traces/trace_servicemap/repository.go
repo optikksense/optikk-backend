@@ -1,4 +1,4 @@
-package trace_servicemap //nolint:revive,stylecheck
+package trace_servicemap	//nolint:revive,stylecheck
 
 import (
 	"context"
@@ -25,7 +25,7 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 // per-trace service map (client→server graph) in the service layer.
 func (r *ClickHouseRepository) GetServiceMapSpans(ctx context.Context, teamID int64, traceID string) ([]serviceMapSpanRow, error) {
 	var rows []serviceMapSpanRow
-	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
+	err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "trace_servicemap.GetServiceMapSpans", &rows, `
 		SELECT span_id, parent_span_id, service_name,
 		       duration_nano / 1000000.0 AS duration_ms, has_error
 		FROM observability.spans
@@ -40,7 +40,7 @@ func (r *ClickHouseRepository) GetServiceMapSpans(ctx context.Context, teamID in
 // groups by exception_type happens in the service layer.
 func (r *ClickHouseRepository) GetTraceErrors(ctx context.Context, teamID int64, traceID string) ([]traceErrorRow, error) {
 	var rows []traceErrorRow
-	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
+	err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "trace_servicemap.GetTraceErrors", &rows, `
 		SELECT span_id, service_name, name AS operation_name,
 		       exception_type, exception_message, status_message,
 		       timestamp AS start_time, duration_nano / 1000000.0 AS duration_ms

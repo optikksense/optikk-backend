@@ -13,18 +13,18 @@ import (
 // dependency surface narrow lets tests substitute fake records without
 // pulling in the Kafka client.
 type Record struct {
-	Topic     string
-	Partition int32
-	Offset    int64
-	Key       []byte
-	Value     []byte
-	raw       *kgo.Record
+	Topic		string
+	Partition	int32
+	Offset		int64
+	Key		[]byte
+	Value		[]byte
+	raw		*kgo.Record
 }
 
 // Raw exposes the underlying *kgo.Record for consumers that need to pass it
 // back to Kafka-native APIs (e.g. the new ingest dispatcher). Tests can leave
 // this nil; callers must handle nil gracefully.
-func (r Record) Raw() *kgo.Record { return r.raw }
+func (r Record) Raw() *kgo.Record	{ return r.raw }
 
 // Consumer wraps a single-topic, single-group franz-go client. The new ingest
 // pipeline uses PollFetches directly through Client() for per-partition fanout;
@@ -62,7 +62,7 @@ func (c *Consumer) PollBatch(ctx context.Context) ([]Record, error) {
 		}
 	}
 	fetches.EachError(func(topic string, p int32, err error) {
-		slog.Warn("kafka: partition fetch error",
+		slog.WarnContext(ctx, "kafka: partition fetch error",
 			slog.String("topic", topic),
 			slog.Int("partition", int(p)),
 			slog.Any("error", err))
@@ -72,8 +72,8 @@ func (c *Consumer) PollBatch(ctx context.Context) ([]Record, error) {
 	for !iter.Done() {
 		r := iter.Next()
 		out = append(out, Record{
-			Topic: r.Topic, Partition: r.Partition, Offset: r.Offset,
-			Key: r.Key, Value: r.Value, raw: r,
+			Topic:	r.Topic, Partition: r.Partition, Offset: r.Offset,
+			Key:	r.Key, Value: r.Value, raw: r,
 		})
 	}
 	return out, nil

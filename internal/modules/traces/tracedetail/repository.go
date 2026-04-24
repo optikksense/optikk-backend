@@ -64,8 +64,8 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 const (
-	tableSpans = "observability.spans"
-	tableLogs  = "observability.logs"
+	tableSpans	= "observability.spans"
+	tableLogs	= "observability.logs"
 )
 
 // GetTraceLogs returns the logs associated with a particular trace.
@@ -74,7 +74,7 @@ const (
 // becomes a narrow keyset scan instead of a bloom-filter scan of raw logs.
 func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, traceID string) ([]traceLogRow, error) {
 	var rows []traceLogRow
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "tracedetail.GetTraceLogs", &rows, `
 		SELECT timestamp, observed_timestamp, severity_text, severity_number,
 			body, trace_id, span_id, trace_flags,
 			service, host, pod, container, environment,
@@ -96,7 +96,7 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, t
 // makes this a tight range scan.
 func (r *ClickHouseRepository) GetSpanLogs(ctx context.Context, teamID int64, traceID, spanID string) ([]traceLogRow, error) {
 	var rows []traceLogRow
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "tracedetail.GetSpanLogs", &rows, `
 		SELECT timestamp, observed_timestamp, severity_text, severity_number,
 			body, trace_id, span_id, trace_flags,
 			service, host, pod, container, environment,
@@ -117,7 +117,7 @@ func (r *ClickHouseRepository) GetSpanLogs(ctx context.Context, teamID int64, tr
 // serialized OTLP span `links` string so the drawer can render linked traces (O13).
 func (r *ClickHouseRepository) GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*spanAttributeRow, error) {
 	var rows []spanAttributeRow
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "tracedetail.GetSpanAttributes", &rows, `
 		SELECT s.span_id, s.trace_id, s.name AS operation_name, s.service_name,
 		       CAST(s.attributes, 'Map(String, String)') AS attributes_string,
 		       CAST(map(), 'Map(String, String)') AS resource_attributes,
@@ -144,7 +144,7 @@ func (r *ClickHouseRepository) GetSpanAttributes(ctx context.Context, teamID int
 // function predicate over raw spans.
 func (r *ClickHouseRepository) GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
 	var rows []RelatedTrace
-	err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
+	err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "tracedetail.GetRelatedTraces", &rows, `
 		SELECT span_id, trace_id, name AS operation_name, service_name,
 		       duration_nano / 1000000.0 AS duration_ms,
 		       status_code_string AS status, timestamp AS start_time
@@ -156,7 +156,7 @@ func (r *ClickHouseRepository) GetRelatedTraces(ctx context.Context, teamID int6
 		ORDER BY timestamp DESC
 		LIMIT @limit
 	`,
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -172,7 +172,7 @@ func (r *ClickHouseRepository) GetRelatedTraces(ctx context.Context, teamID int6
 // GetSpanEvents returns span events and exceptions in a single scan.
 func (r *ClickHouseRepository) GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]spanEventRow, []exceptionRow, error) {
 	var rows []spanEventCombinedRow
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, `
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "tracedetail.GetSpanEvents", &rows, `
 		SELECT span_id, trace_id, timestamp, events,
 		       exception_type, exception_message, exception_stacktrace
 		FROM observability.spans
@@ -191,14 +191,14 @@ func splitSpanEventRows(rows []spanEventCombinedRow) ([]spanEventRow, []exceptio
 	for _, r := range rows {
 		for _, ev := range r.Events {
 			events = append(events, spanEventRow{
-				SpanID: r.SpanID, TraceID: r.TraceID, Timestamp: r.Timestamp, EventJSON: ev,
+				SpanID:	r.SpanID, TraceID: r.TraceID, Timestamp: r.Timestamp, EventJSON: ev,
 			})
 		}
 		if r.ExceptionType != "" {
 			exceptions = append(exceptions, exceptionRow{
-				SpanID: r.SpanID, TraceID: r.TraceID, Timestamp: r.Timestamp,
-				ExceptionType: r.ExceptionType, ExceptionMessage: r.ExceptionMessage,
-				ExceptionStacktrace: r.ExceptionStacktrace,
+				SpanID:	r.SpanID, TraceID: r.TraceID, Timestamp: r.Timestamp,
+				ExceptionType:	r.ExceptionType, ExceptionMessage: r.ExceptionMessage,
+				ExceptionStacktrace:	r.ExceptionStacktrace,
 			})
 		}
 	}
@@ -208,4 +208,3 @@ func splitSpanEventRows(rows []spanEventCombinedRow) ([]spanEventRow, []exceptio
 	}
 	return events, exceptions, nil
 }
-

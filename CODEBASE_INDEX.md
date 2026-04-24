@@ -45,14 +45,27 @@ Current queueing model is Kafka-backed, not Redis-stream-backed. Local developme
 
 ### Observability / monitoring stack
 
-Self-telemetry forwards to **Grafana Cloud** via a thin `otel-collector` running in `docker-compose.yml`. Intentionally NOT routed through the app's own OTLP receiver on `:4317`; monitoring the app is a distinct concern from the customer-facing observability product.
+Self-telemetry forwards to **Grafana Cloud** via a thin `otel-collector` running in `docker-compose.yml`. Intentionally NOT routed through the app's own OTLP receiver on `:4317`; monitoring the app is a distinct concern from the customer-facing observability product. Three signals, one collector:
 
-- `docker-compose.yml` `otel-collector` service — host ports `:14317` (OTLP gRPC for backend SDK), `:14318` (OTLP HTTP for browser FetchInstrumentation). Reads credentials from `.env` via `env_file`. No local Tempo/Loki/Prometheus/Grafana.
-- `observability/otel-collector.yaml` — receivers: `otlp` (gRPC + HTTP) + `prometheus` (scrapes backend `/metrics` on `host.docker.internal:8080`). Exporter: `otlphttp/grafana-cloud` with `${env:GRAFANA_CLOUD_OTLP_ENDPOINT}` + `Authorization: ${env:GRAFANA_CLOUD_OTLP_AUTH}`. One pipeline per signal (traces, logs, metrics), all → Grafana Cloud.
-- `.env` (gitignored) — `GRAFANA_CLOUD_OTLP_ENDPOINT` + `GRAFANA_CLOUD_OTLP_AUTH`. Shape documented in committed `.env.example`.
-- `observability/prometheus.yml` — retained as scrape-config documentation (metric endpoints inventory); not consumed by the compose stack.
-- `config.yml` → `telemetry.otel` block controls SDK enablement, endpoint (default `127.0.0.1:14317` → collector), sample ratio, service name.
-- Dashboards + alert rules live in Grafana Cloud (provisioned there, not in this repo).
+- **Traces** — emitted by `internal/infra/otel` + `otelgin` (HTTP) + `otelgrpc` (gRPC) + `redisotel` (Redis) + the DB instrument seam (`dbutil.{Select,Query,Exec}CH` for ClickHouse and `{Get,Select,Exec}SQL` for MariaDB).
+- **Logs** — `slog.InfoContext/…Context` records fan to stdout (tint/JSON) AND the OTel logs bridge via `internal/shared/slogx.{TraceAttrHandler,FanoutHandler}` + `contrib/bridges/otelslog`. `trace_id`/`span_id` injected from ctx.
+- **Metrics** — `promauto` collectors under `internal/infra/metrics/` (`http.go/grpc.go/db.go/kafka.go/auth.go/ingest.go`) + Redis-specific collectors in `internal/infra/redis/metrics_hook.go`; exposed on `/metrics`, scraped by the collector's `prometheus` receiver.
+
+Key wiring points:
+
+- `docker-compose.yml` `otel-collector` — host ports `:14317` (OTLP gRPC for backend SDK), `:14318` (OTLP HTTP for browser). Reads creds from `.env` via `env_file`.
+- `observability/otel-collector.yaml` — OTLP receivers + prometheus scrape receiver; single `otlphttp/grafana-cloud` exporter with `${env:GRAFANA_CLOUD_OTLP_ENDPOINT}` + `Authorization: ${env:GRAFANA_CLOUD_OTLP_AUTH}`. One pipeline per signal.
+- `.env` (gitignored) — `GRAFANA_CLOUD_OTLP_*` creds; shape in `.env.example`.
+- `internal/infra/otel/provider.go` — bootstraps both tracer + logger providers + W3C propagator; combined shutdown wired into `app.Start`.
+- `internal/infra/middleware/observability.go` — HTTP Prom + per-request access log; wired after `otelgin` in `routes.go`.
+- `internal/infra/grpcutil/observability.go` — gRPC unary + stream interceptors (Prom timing + per-RPC log), chained with `auth` interceptors alongside `grpc.StatsHandler(otelgrpc.NewServerHandler())`.
+- `internal/infra/kafka/observability.go` — franz-go `kgo.Hooks` (produce/fetch/broker/group-error) + `LagPoller`; wired through `Hooks()` in `client.go`.
+- `internal/infra/database/{clickhouse,mysql}_instrument.go` + `instrument_common.go` — the seam every repository method uses (`SelectCH/QueryCH/ExecCH` + `SelectSQL/GetSQL/ExecSQL`). Replaced the earlier `Traced()` helper (now deleted).
+- `internal/infra/redis/client.go` — `redisotel.InstrumentTracing` + `client.AddHook(metricsHook{})`.
+- `cmd/server/logger.go` — composes the `TraceAttrHandler(FanoutHandler{stdout, otelBridge})` root.
+- `config.yml` → `telemetry.otel` — enablement, endpoint, sample ratio, service name.
+
+See `docs/observability.md` for the full metric catalogue, label conventions, and logging contract.
 
 ### Traces read path (split into sibling submodules)
 

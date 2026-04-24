@@ -22,32 +22,32 @@ type WorkerFactory[T any] func() *Worker[T]
 // per-partition workers. The hot path is intentionally simple — all retry +
 // batching + commit logic lives in Worker and Writer.
 type Dispatcher[T any] struct {
-	name    string
-	client  *kgo.Client
-	decode  Decoder[T]
-	factory WorkerFactory[T]
+	name	string
+	client	*kgo.Client
+	decode	Decoder[T]
+	factory	WorkerFactory[T]
 
 	// pauseDepth triggers Pause once a worker's inbox goes above this. Set via
 	// DefaultDispatcherOptions. Pause/Resume are keyed by (topic, partition).
-	pauseDepth  int
-	resumeDepth int
+	pauseDepth	int
+	resumeDepth	int
 
-	mu      sync.Mutex
-	workers map[partKey]*Worker[T]
-	paused  map[partKey]struct{}
-	cancels map[partKey]context.CancelFunc
-	wg      sync.WaitGroup
+	mu	sync.Mutex
+	workers	map[partKey]*Worker[T]
+	paused	map[partKey]struct{}
+	cancels	map[partKey]context.CancelFunc
+	wg	sync.WaitGroup
 }
 
 type partKey struct {
-	topic     string
-	partition int32
+	topic		string
+	partition	int32
 }
 
 // DispatcherOptions tunes backpressure thresholds.
 type DispatcherOptions struct {
-	PauseDepth  int
-	ResumeDepth int
+	PauseDepth	int
+	ResumeDepth	int
 }
 
 // DefaultDispatcherOptions pauses at 80% and resumes at 40% of the default
@@ -63,11 +63,11 @@ func NewDispatcher[T any](name string, client *kgo.Client, decode Decoder[T], fa
 		opts = DefaultDispatcherOptions()
 	}
 	return &Dispatcher[T]{
-		name: name, client: client, decode: decode, factory: factory,
-		pauseDepth: opts.PauseDepth, resumeDepth: opts.ResumeDepth,
-		workers: map[partKey]*Worker[T]{},
-		paused:  map[partKey]struct{}{},
-		cancels: map[partKey]context.CancelFunc{},
+		name:	name, client: client, decode: decode, factory: factory,
+		pauseDepth:	opts.PauseDepth, resumeDepth: opts.ResumeDepth,
+		workers:	map[partKey]*Worker[T]{},
+		paused:		map[partKey]struct{}{},
+		cancels:	map[partKey]context.CancelFunc{},
 	}
 }
 
@@ -87,7 +87,7 @@ func (d *Dispatcher[T]) Run(ctx context.Context) {
 			}
 		}
 		fetches.EachError(func(topic string, p int32, err error) {
-			slog.Warn("ingest dispatcher: partition fetch error",
+			slog.WarnContext(ctx, "ingest dispatcher: partition fetch error",
 				slog.String("signal", d.name),
 				slog.String("topic", topic),
 				slog.Int("partition", int(p)),
@@ -108,7 +108,7 @@ func (d *Dispatcher[T]) route(ctx context.Context, p kgo.FetchTopicPartition) {
 	for _, r := range p.Records {
 		payload, err := d.decode(r)
 		if err != nil {
-			slog.Warn("ingest dispatcher: decode dropped one record",
+			slog.WarnContext(ctx, "ingest dispatcher: decode dropped one record",
 				slog.String("signal", d.name), slog.Any("error", err))
 			continue
 		}
