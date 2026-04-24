@@ -6,12 +6,17 @@ import (
 	"log/slog"
 	"net"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/metrics"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
 )
+
+// brokerConnectLogged dedups the first-success INFO log per broker host so
+// franz-go's normal reconnects don't flood.
+var brokerConnectLogged sync.Map // map[string]struct{}
 
 // obsHooks implements the franz-go hook interfaces we care about. Each
 // hook is a plain method; embedding only the interfaces we need keeps the
@@ -30,7 +35,9 @@ func (obsHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
 	result := "ok"
 	if err != nil {
 		result = "err"
-		slog.Warn("kafka produce failed",
+		// Debug-level only: metrics.KafkaProduced{result="err"} is the triage
+		// signal. Per-record logs here flood under broker outage.
+		slog.Debug("kafka produce failed",
 			slog.String("topic", r.Topic),
 			slog.Int("partition", int(r.Partition)),
 			slog.Any("error", err),
@@ -46,10 +53,20 @@ func (obsHooks) OnFetchRecordUnbuffered(r *kgo.Record, _ bool) {
 	metrics.KafkaConsumed.WithLabelValues(r.Topic).Inc()
 }
 
-func (obsHooks) OnBrokerConnect(_ kgo.BrokerMetadata, _ time.Duration, _ net.Conn, err error) {
+func (obsHooks) OnBrokerConnect(meta kgo.BrokerMetadata, _ time.Duration, _ net.Conn, err error) {
 	result := "ok"
+	host := net.JoinHostPort(meta.Host, strconv.Itoa(int(meta.Port)))
 	if err != nil {
 		result = "err"
+		slog.Warn("kafka broker connect failed",
+			slog.String("host", host),
+			slog.Any("error", err),
+		)
+	} else if _, loaded := brokerConnectLogged.LoadOrStore(host, struct{}{}); !loaded {
+		slog.Info("kafka broker connected",
+			slog.String("host", host),
+			slog.Int("broker_id", int(meta.NodeID)),
+		)
 	}
 	metrics.KafkaBrokerConnects.WithLabelValues(result).Inc()
 }

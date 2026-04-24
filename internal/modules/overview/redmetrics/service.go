@@ -2,7 +2,6 @@ package redmetrics
 
 import (
 	"context"
-	"log/slog"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
@@ -31,7 +30,6 @@ func NewService(repo Repository) Service {
 func (s *REDMetricsService) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) (REDSummary, error) {
 	rows, err := s.repo.GetSummary(ctx, teamID, startMs, endMs)
 	if err != nil {
-		slog.ErrorContext(ctx, "redmetrics: GetSummary failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return REDSummary{}, err
 	}
 
@@ -77,7 +75,6 @@ func (s *REDMetricsService) GetSummary(ctx context.Context, teamID int64, startM
 func (s *REDMetricsService) GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]ApdexScore, error) {
 	rows, err := s.repo.GetApdex(ctx, teamID, startMs, endMs, satisfiedMs, toleratingMs, serviceName)
 	if err != nil {
-		slog.ErrorContext(ctx, "redmetrics: GetApdex failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return nil, err
 	}
 
@@ -102,7 +99,6 @@ func (s *REDMetricsService) GetApdex(ctx context.Context, teamID int64, startMs,
 func (s *REDMetricsService) GetTopSlowOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]SlowOperation, error) {
 	rows, err := s.repo.GetTopSlowOperations(ctx, teamID, startMs, endMs, limit)
 	if err != nil {
-		slog.ErrorContext(ctx, "redmetrics: GetTopSlowOperations failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return nil, err
 	}
 	result := make([]SlowOperation, len(rows))
@@ -122,7 +118,6 @@ func (s *REDMetricsService) GetTopSlowOperations(ctx context.Context, teamID int
 func (s *REDMetricsService) GetTopErrorOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]ErrorOperation, error) {
 	rows, err := s.repo.GetTopErrorOperations(ctx, teamID, startMs, endMs, limit)
 	if err != nil {
-		slog.ErrorContext(ctx, "redmetrics: GetTopErrorOperations failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return nil, err
 	}
 	result := make([]ErrorOperation, len(rows))
@@ -161,7 +156,6 @@ func (s *REDMetricsService) GetErrorsByRoute(ctx context.Context, teamID int64, 
 func (s *REDMetricsService) GetLatencyBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]LatencyBreakdown, error) {
 	rows, err := s.repo.GetLatencyBreakdown(ctx, teamID, startMs, endMs)
 	if err != nil {
-		slog.ErrorContext(ctx, "redmetrics: GetLatencyBreakdown failed", slog.Any("error", err), slog.Int64("team_id", teamID))
 		return nil, err
 	}
 
