@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"fmt"
 	"log/slog"
+	"net"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -65,6 +66,11 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("mysql: %w", err)
 	}
+	slog.Info("mysql connected",
+		slog.String("addr", net.JoinHostPort(cfg.MySQL.Host, cfg.MySQL.Port)),
+		slog.String("database", cfg.MySQL.Database),
+		slog.Int("max_open_conns", cfg.MySQL.MaxOpenConns),
+	)
 	defer func() {
 		if err != nil {
 			_ = dbConn.Close() //nolint:errcheck // cleanup after failed init
@@ -75,6 +81,10 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 	if err != nil {
 		return nil, err
 	}
+	slog.Info("clickhouse connected",
+		slog.String("addr", net.JoinHostPort(cfg.ClickHouse.Host, cfg.ClickHouse.Port)),
+		slog.String("database", cfg.ClickHouse.Database),
+	)
 	defer func() {
 		if err != nil {
 			_ = chConn.Close() //nolint:errcheck // cleanup after failed init
@@ -85,6 +95,10 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 	if err != nil {
 		return nil, err
 	}
+	slog.Info("redis connected",
+		slog.String("addr", cfg.RedisAddr()),
+		slog.Int("db", cfg.Redis.DB),
+	)
 	defer func() {
 		if err != nil {
 			redisClients.Pool.Close()
@@ -164,6 +178,7 @@ func buildIngestModules(cfg config.Config, kcfg kclient.Config, prefix string, c
 	if err != nil {
 		return IngestModules{}, nil, nil, nil, fmt.Errorf("kafka producer client: %w", err)
 	}
+	slog.Info("kafka producer client connected", slog.Any("brokers", kcfg.Brokers))
 	producer := kproducer.NewProducer(producerClient)
 
 	consumerClients := make([]*kgo.Client, 0, 3)
@@ -257,31 +272,46 @@ func newConsumer(kcfg kclient.Config, groupBase, prefix, signal, role string) (*
 	if err != nil {
 		return nil, fmt.Errorf("kafka consumer %s/%s: %w", signal, role, err)
 	}
+	slog.Info("kafka consumer client connected",
+		slog.String("signal", signal),
+		slog.String("group", groupID),
+		slog.String("topic", topic),
+	)
 	return client, nil
 }
 
 // Close releases every resource the Infra owns. Best-effort; errors are logged
-// by callers but not returned — shutdown must proceed.
+// by callers but not returned — shutdown must proceed. Ordering mirrors the
+// reverse of newInfra so consumers stop reading before the CH/producer sinks
+// they feed go away.
 func (i *Infra) Close() error {
 	if i == nil {
 		return nil
 	}
-	// Consumers are closed by each module's Stop(); producer client is the
-	// only Kafka resource Infra owns directly.
+	if n := len(i.consumerClients); n > 0 {
+		for _, c := range i.consumerClients {
+			c.Close()
+		}
+		slog.Info("kafka consumers closed", slog.Int("count", n))
+	}
 	if i.producerClient != nil {
 		i.producerClient.Close()
+		slog.Info("kafka producer closed")
 	}
 	if i.RedisPool != nil {
 		_ = i.RedisPool.Close() //nolint:errcheck
 	}
 	if i.RedisClient != nil {
 		_ = i.RedisClient.Close() //nolint:errcheck
+		slog.Info("redis connection closed")
 	}
 	if i.CH != nil {
 		_ = i.CH.Close() //nolint:errcheck
+		slog.Info("clickhouse connection closed")
 	}
 	if i.DB != nil {
 		_ = i.DB.Close() //nolint:errcheck
+		slog.Info("mysql connection closed")
 	}
 	return nil
 }

@@ -2,7 +2,6 @@ package slo
 
 import (
 	"context"
-	"log/slog"
 )
 
 const (
@@ -27,13 +26,11 @@ func NewService(repo Repository) Service {
 func (s *SLOService) GetSloSli(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (*Response, error) {
 	summary, err := s.repo.GetSummary(ctx, teamID, startMs, endMs, serviceName)
 	if err != nil {
-		slog.ErrorContext(ctx, "slo: GetSloSli summary failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("service", serviceName))
 		return nil, err
 	}
 
 	timeseries, err := s.repo.GetTimeSeries(ctx, teamID, startMs, endMs, serviceName)
 	if err != nil {
-		slog.ErrorContext(ctx, "slo: GetSloSli timeseries failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("service", serviceName))
 		return nil, err
 	}
 
