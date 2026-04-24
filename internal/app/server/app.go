@@ -74,6 +74,7 @@ func (a *App) Start(ctx context.Context) error {
 		a.stopBackgroundModules()
 		return err
 	}
+	a.addLagPollerActors(&g, ctx)
 
 	err := g.Run()
 	a.stopBackgroundModules()
@@ -114,6 +115,21 @@ func runAddContextCancelActor(g *run.Group, ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	g.Add(func() error { <-ctx.Done(); return ctx.Err() },
 		func(error) { cancel() })
+}
+
+// addLagPollerActors wires one run.Group actor per Kafka consumer-lag
+// poller so each one runs alongside the HTTP + gRPC servers and stops
+// cleanly on shutdown. Pollers publish `optikk_kafka_consumer_lag_records`
+// every 15 s via raw `kmsg` calls against the existing consumer client.
+func (a *App) addLagPollerActors(g *run.Group, parentCtx context.Context) {
+	for _, p := range a.Infra.LagPollers {
+		p := p
+		pollCtx, cancel := context.WithCancel(parentCtx)
+		g.Add(func() error {
+			p.Run(pollCtx)
+			return nil
+		}, func(error) { cancel() })
+	}
 }
 
 func (a *App) addHTTPServerActor(g *run.Group) {

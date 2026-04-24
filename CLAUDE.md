@@ -23,14 +23,15 @@ This is **mandatory**. Documentation must always reflect the current architectur
 - **Server entry**: `cmd/server/main.go`
 - **Module registration**: `internal/app/server/modules_manifest.go` → `configuredModules()`.
 - **Handler helpers**: `internal/shared/httputil/base.go` — `RespondOK`, `RespondErrorWithCause`, `ParseRequiredRange`.
-- **Error codes**: `internal/shared/contracts/errorcode/codes.go`.
+- **Error codes**: `internal/shared/errorcode/codes.go`.
 - **ClickHouse helpers**: `internal/infra/database/` — `QueryMaps`, `QueryCount`, `SqlTime`, type extractors.
 - **Time bucketing**: `internal/infra/timebucket/timebucket.go` — adaptive (1m/5m/15m/1h/1d).
 - **Rollup Selection**: `internal/infra/rollup/tier.go` — `TierTableFor(prefix, startMs, endMs)` for smart table choice.
 - **Session**: `internal/infra/session/manager.go`.
 - **Middleware**: `internal/infra/middleware/` — public prefixes: `/api/v1/auth/login`, `/otlp/`, `/health`.
-- **Ingestion**: `internal/ingestion/{spans,metrics,logs}/` — handler → mapper → kafka producer → kafka persistence consumer → clickhouse.
-- **Schema migrations**: `db/clickhouse/*.sql` applied via `internal/infra/database/chmigrate`.
+- **Ingestion**: `internal/ingestion/{spans,metrics,logs}/` — handler → mapper → kafka producer → dispatcher → per-partition worker → writer (CH batch + retry + DLQ). Shared generics in `internal/infra/kafka_ingest/` (`dispatcher.go`, `worker.go`, `writer.go`, `accumulator.go`, `metrics.go`, `pools.go`, `pipeline_cfg.go`). Tuning knobs live in `internal/config/ingestion.go` → `IngestPipelineConfig` (per-signal YAML overrides).
+- **Local monitoring**: `deploy/monitoring/stack/docker-compose.yml` — Prometheus `:19091`, Grafana `:13001`; `deploy/monitoring/grafana/dashboards/optikk_ingest.json` is the starter dashboard for the ingest pipeline.
+- **Schema migrations**: `db/clickhouse/*.sql` applied via `internal/infra/database_chmigrate`.
 - **Traces explorer contract**: `internal/modules/traces/explorer/` reads `observability.traces_index` directly. Keep DB scan structs aligned with ClickHouse unsigned types (`start_ms`, `end_ms`, `duration_ns`, `last_seen_ms`, `root_http_status`) and normalize mixed facet types at the SQL boundary (for example `toString(root_http_status)` in facet queries).
 
 ## Engineering principles

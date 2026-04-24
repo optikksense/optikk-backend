@@ -1,7 +1,7 @@
 # Prometheus scrape config for the local dev stack.
 #
 # External forwarding (Grafana Cloud, Datadog, Honeycomb, any Prometheus-remote-write
-# compatible backend): see docs/observability.md for the `remote_write` block to append.
+# compatible backend): see docs/ops/observability.md for the `remote_write` block to append.
 #
 # `host.docker.internal` resolves to the host machine from inside Docker Desktop on
 # macOS/Windows. Linux users: either run Docker with `--add-host=host.docker.internal:host-gateway`

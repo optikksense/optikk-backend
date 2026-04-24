@@ -6,8 +6,18 @@ import (
 	"log/slog"
 	"sync"
 
+	kobserv "github.com/Optikk-Org/optikk-backend/internal/infra/kafka/observability"
 	"github.com/twmb/franz-go/pkg/kgo"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
+
+// consumeTracer owns the `kafka.consume` span emitted per record. Pulled
+// from the global provider the otel.Init bootstrap installed, so OTel
+// disabled → no-op spans.
+var consumeTracer = otel.Tracer("optikk-backend/kafka-ingest")
 
 // Decoder converts a raw Kafka record to a signal-specific payload. Returning
 // err drops the record with a log line (malformed protobuf is not retriable).
@@ -22,39 +32,41 @@ type WorkerFactory[T any] func() *Worker[T]
 // per-partition workers. The hot path is intentionally simple — all retry +
 // batching + commit logic lives in Worker and Writer.
 type Dispatcher[T any] struct {
-	name	string
-	client	*kgo.Client
-	decode	Decoder[T]
-	factory	WorkerFactory[T]
+	name    string
+	client  *kgo.Client
+	decode  Decoder[T]
+	factory WorkerFactory[T]
 
 	// pauseDepth triggers Pause once a worker's inbox goes above this. Set via
-	// DefaultDispatcherOptions. Pause/Resume are keyed by (topic, partition).
-	pauseDepth	int
-	resumeDepth	int
+	// DispatcherOptions. Pause/Resume are keyed by (topic, partition).
+	pauseDepth  int
+	resumeDepth int
 
-	mu	sync.Mutex
-	workers	map[partKey]*Worker[T]
-	paused	map[partKey]struct{}
-	cancels	map[partKey]context.CancelFunc
-	wg	sync.WaitGroup
+	mu      sync.Mutex
+	workers map[partKey]*Worker[T]
+	paused  map[partKey]struct{}
+	cancels map[partKey]context.CancelFunc
+	wg      sync.WaitGroup
 }
 
 type partKey struct {
-	topic		string
-	partition	int32
+	topic     string
+	partition int32
 }
 
-// DispatcherOptions tunes backpressure thresholds.
+// DispatcherOptions tunes backpressure thresholds. Callers typically derive
+// these from the worker queue size times the pause/resume ratios carried on
+// IngestPipelineConfig.
 type DispatcherOptions struct {
-	PauseDepth	int
-	ResumeDepth	int
+	PauseDepth  int
+	ResumeDepth int
 }
 
 // DefaultDispatcherOptions pauses at 80% and resumes at 40% of the default
-// worker queue size (1024). Those percentages keep Pause/Resume from
+// worker queue size (4096). Those percentages keep Pause/Resume from
 // flapping under steady load.
 func DefaultDispatcherOptions() DispatcherOptions {
-	return DispatcherOptions{PauseDepth: 819, ResumeDepth: 410}
+	return DispatcherOptions{PauseDepth: 3276, ResumeDepth: 1638}
 }
 
 // NewDispatcher constructs a dispatcher around an existing kgo.Client.
@@ -63,11 +75,11 @@ func NewDispatcher[T any](name string, client *kgo.Client, decode Decoder[T], fa
 		opts = DefaultDispatcherOptions()
 	}
 	return &Dispatcher[T]{
-		name:	name, client: client, decode: decode, factory: factory,
-		pauseDepth:	opts.PauseDepth, resumeDepth: opts.ResumeDepth,
-		workers:	map[partKey]*Worker[T]{},
-		paused:		map[partKey]struct{}{},
-		cancels:	map[partKey]context.CancelFunc{},
+		name: name, client: client, decode: decode, factory: factory,
+		pauseDepth: opts.PauseDepth, resumeDepth: opts.ResumeDepth,
+		workers: map[partKey]*Worker[T]{},
+		paused:  map[partKey]struct{}{},
+		cancels: map[partKey]context.CancelFunc{},
 	}
 }
 
@@ -106,14 +118,38 @@ func (d *Dispatcher[T]) route(ctx context.Context, p kgo.FetchTopicPartition) {
 	}
 	w := d.workerFor(ctx, partKey{p.Topic, p.Partition})
 	for _, r := range p.Records {
-		payload, err := d.decode(r)
-		if err != nil {
-			slog.WarnContext(ctx, "ingest dispatcher: decode dropped one record",
-				slog.String("signal", d.name), slog.Any("error", err))
-			continue
-		}
-		w.Inbox() <- Item[T]{Payload: payload, Raw: r}
+		d.decodeAndDispatch(ctx, r, w)
 	}
+}
+
+// decodeAndDispatch opens a short-lived `kafka.consume` span whose
+// parent context is read from the record's `traceparent` header (if
+// any). The span ends right after decode — we don't thread it through
+// the Worker batch pipeline in this phase. Result: Grafana Tempo still
+// shows the producer ↔ consumer link via matching trace_id even though
+// the downstream DB write is a separate trace root.
+func (d *Dispatcher[T]) decodeAndDispatch(ctx context.Context, r *kgo.Record, w *Worker[T]) {
+	recCtx := kobserv.ExtractTraceContext(ctx, r.Headers)
+	_, span := consumeTracer.Start(recCtx, "kafka.consume "+d.name,
+		trace.WithSpanKind(trace.SpanKindConsumer),
+		trace.WithAttributes(
+			attribute.String("messaging.system", "kafka"),
+			attribute.String("messaging.destination", r.Topic),
+			attribute.Int64("messaging.kafka.partition", int64(r.Partition)),
+			attribute.Int64("messaging.kafka.offset", r.Offset),
+		),
+	)
+	defer span.End()
+
+	payload, err := d.decode(r)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+		slog.WarnContext(ctx, "ingest dispatcher: decode dropped one record",
+			slog.String("signal", d.name), slog.Any("error", err))
+		return
+	}
+	w.Inbox() <- Item[T]{Payload: payload, Raw: r}
 }
 
 func (d *Dispatcher[T]) workerFor(parent context.Context, k partKey) *Worker[T] {
@@ -123,6 +159,7 @@ func (d *Dispatcher[T]) workerFor(parent context.Context, k partKey) *Worker[T] 
 		return w
 	}
 	w := d.factory()
+	w.SetPartition(k.partition)
 	d.workers[k] = w
 	wctx, cancel := context.WithCancel(parent)
 	d.cancels[k] = cancel
@@ -150,6 +187,7 @@ func (d *Dispatcher[T]) evaluatePauseResume() {
 			d.paused[k] = struct{}{}
 		}
 	}
+	PausedPartitions.WithLabelValues(d.name).Set(float64(len(d.paused)))
 }
 
 func (d *Dispatcher[T]) shutdown() {

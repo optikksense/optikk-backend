@@ -32,7 +32,7 @@ func (a *App) Router() *gin.Engine {
 // setupMetricsRoute exposes Prometheus-format runtime metrics (go_*, process_*,
 // promhttp_*) at /metrics. A local Prometheus scrapes this; an external target
 // (e.g. Grafana Cloud) is configured via prometheus/prometheus.yml remote_write.
-// See docs/observability.md.
+// See docs/ops/observability.md.
 func (a *App) setupMetricsRoute(r *gin.Engine) {
 	r.GET("/metrics", gin.WrapH(promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{DisableCompression: true})))
 }

@@ -22,7 +22,7 @@ import (
 	chembed "github.com/Optikk-Org/optikk-backend/db/clickhouse"
 	"github.com/Optikk-Org/optikk-backend/internal/config"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/database/chmigrate"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/database_chmigrate"
 )
 
 func main() {

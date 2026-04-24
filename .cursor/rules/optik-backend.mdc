@@ -47,9 +47,14 @@ Feature modules live under `internal/modules/`. Each follows a strict 6-file pat
 ## Ingestion Pipeline
 
 - **OTLP gRPC**: Entry point for spans, metrics, and logs on port `4317`.
-- **Pipeline**: `internal/ingestion/`Signal`/{handler, mapper, producer, consumer}.go`.
-- **Flow**: gRPC Handler -> Mapper -> Kafka Producer -> Kafka Persistence Consumer -> ClickHouse Batch Insert.
+- **Per-signal files** (flat dir, shape-symmetric across logs/spans/metrics): `handler.go → mapper*.go → producer.go → dispatcher.go → worker.go → writer.go → dlq.go → module.go`.
+- **Flow**: gRPC Handler → Mapper → Kafka Producer → Kafka Dispatcher → per-partition Worker → Accumulator → Writer (CH batch insert + retry + DLQ).
+- **Shared infra**: `internal/infra/kafka_ingest/` owns the generic `Dispatcher[T] / Worker[T] / Accumulator[T] / Writer[T]` pipeline plus Prometheus collectors (`metrics.go`), sync.Pool helpers (`pools.go`), and `IngestPipelineConfig` projections (`pipeline_cfg.go`). Metrics migrated onto this pipeline in the ingest refactor — the legacy single-goroutine `consumer.go` is gone.
+- **Pipeline tuning**: YAML under `ingestion.pipeline.{logs,spans,metrics}` — `max_rows`, `max_bytes`, `max_age_ms`, `worker_queue_size`, `pause_depth_ratio`, `resume_depth_ratio`, `writer_{max_attempts,base_backoff_ms,max_backoff_ms,attempt_timeout_ms}`, `async_insert`. Defaults in `config.DefaultIngestPipelineConfig`: 10k rows / 16 MiB / 250ms accumulator, 4096 queue, 80/40 backpressure, 5-attempt retry 100ms→5s, 30s attempt timeout, `async_insert=1`.
+- **async_insert**: writer wraps the CH attempt ctx with `clickhouse.WithSettings({async_insert=1, wait_for_async_insert=1})` when the pipeline toggle is on. Server-side batching across connections; `wait_for_async_insert=1` preserves at-least-once.
+- **DLQ**: every signal has `{prefix}.dlq.{logs,spans,metrics}`. Publish failures are metric-counted (`optikk_ingest_writer_dlq_publish_failed_total`) + rate-limited-logged (10s cooldown) so a broken DLQ broker can't flood stderr at 200k rps.
 - **Live Tail**: Spans and logs are streamed to Redis for real-time WebSocket display (`/api/v1/ws/live`).
+- **Local monitoring**: `docker compose -f deploy/monitoring/stack/docker-compose.yml up -d` brings up Prometheus (`:19091`) + Grafana (`:13001`) with a pre-provisioned "Optikk Ingest" dashboard for the `optikk_ingest_*` metric families.
 
 ## ClickHouse Strategy
 

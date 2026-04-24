@@ -8,7 +8,7 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/metrics"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/session"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/errorcode"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	types "github.com/Optikk-Org/optikk-backend/internal/shared/contracts"

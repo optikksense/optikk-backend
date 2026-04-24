@@ -17,7 +17,7 @@ import (
 
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	types "github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/errorcode"
 )
 
 type GetTenantFunc func(*gin.Context) types.TenantContext
