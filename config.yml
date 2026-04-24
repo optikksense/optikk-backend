@@ -59,13 +59,5 @@ kafka:
 app:
   region: us-east-1
 
-# Self-telemetry. Metrics are exposed on /metrics and scraped by the local
-# Prometheus+Grafana stack (deploy/monitoring/stack/). OTel trace/log export
-# is disabled — there is no remote collector; enable and point endpoint at a
-# local Tempo/collector instance if distributed tracing is needed.
-telemetry:
-  otel:
-    enabled: false
-    endpoint: "127.0.0.1:14317"
-    sample_ratio: 1.0
-    service_name: optikk-backend
+# Self-telemetry: Prometheus metrics are exposed on /metrics and scraped by
+# the local Prometheus+Grafana stack (deploy/monitoring/stack/).

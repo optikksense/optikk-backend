@@ -38,6 +38,10 @@ func (a *App) setupMetricsRoute(r *gin.Engine) {
 
 func (a *App) setupGlobalMiddleware(r *gin.Engine) {
 	r.Use(middleware.ErrorRecovery())
+	// HTTPMetricsMiddleware must sit before handlers so it observes status +
+	// duration, but after ErrorRecovery so panics still surface in metrics
+	// as 5xx via the recovered response.
+	r.Use(middleware.HTTPMetricsMiddleware())
 	r.Use(middleware.CORSMiddleware(a.Config.Server.AllowedOrigins))
 	r.Use(middleware.BodyLimitMiddleware(10 * 1024 * 1024))	// 10 MB
 	// gzip the response body for list/facet/trend payloads; default

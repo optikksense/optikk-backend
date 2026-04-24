@@ -1,5 +1,5 @@
 // Package producer wraps *kgo.Client with a narrow PublishBatch / Produce
-// surface and auto-injects OTel trace context into every record's headers.
+// surface used by every ingest path.
 package producer
 
 import (
@@ -8,7 +8,6 @@ import (
 	"sync"
 	"sync/atomic"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/kafka/observability"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -31,7 +30,6 @@ func (p *Producer) Produce(ctx context.Context, topic string, key, value []byte)
 		return fmt.Errorf("kafka: nil producer")
 	}
 	record := &kgo.Record{Topic: topic, Key: key, Value: value}
-	observability.InjectTraceContext(ctx, record)
 	res := p.client.ProduceSync(ctx, record)
 	return res.FirstErr()
 }
@@ -49,12 +47,6 @@ func (p *Producer) PublishBatch(ctx context.Context, records []*kgo.Record) erro
 	}
 	if len(records) == 0 {
 		return nil
-	}
-	// Decorate every record with the current W3C traceparent so consumer-
-	// side spans link back to the producer's. Cheap — a few bytes per
-	// record, no network round-trip.
-	for _, r := range records {
-		observability.InjectTraceContext(ctx, r)
 	}
 	var (
 		wg      sync.WaitGroup

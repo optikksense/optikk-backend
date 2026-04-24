@@ -1,7 +1,4 @@
-// Package stats contains tiny stdlib-only numeric helpers used to replace
-// heavy in-query aggregations (arrayReduce, arrayFilter, etc.) with a few
-// lines of Go. Keep it small and dependency-free.
-package stats
+package utils
 
 import "math"
 

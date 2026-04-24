@@ -1,3 +1,6 @@
+// Package observability holds the Kafka-client cross-cuts: franz-go hook
+// instrumentation and the lag poller that publishes
+// `optikk_kafka_consumer_lag_records`.
 package observability
 
 import (

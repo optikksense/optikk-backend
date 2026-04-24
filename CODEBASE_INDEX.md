@@ -74,16 +74,14 @@ Current queueing model is Kafka-backed, not Redis-stream-backed. Local developme
 
 ### Data and platform infrastructure
 
-- `internal/infra/database/`: MySQL and ClickHouse clients; `{clickhouse,mysql}_instrument.go` + `instrument_common.go` provide the `SelectCH/QueryCH/ExecCH` + `SelectSQL/GetSQL/ExecSQL` seam that every repository uses for automatic OTel span wrapping.
+- `internal/infra/database/`: MySQL and ClickHouse clients; `{clickhouse,mysql}_instrument.go` + `instrument_common.go` provide the `SelectCH/QueryCH/ExecCH` + `SelectSQL/GetSQL/ExecSQL` seam that every repository uses — each call emits `optikk_db_{queries_total,query_duration_seconds}` labelled by `system` + `op`.
 - `internal/infra/kafka/`: broker client, producers, consumers, topic helpers; `ingest/` sub-package contains the shared generic pipeline (`dispatcher.go`, `worker.go`, `accumulator.go`, `writer.go`, `metrics.go`, `pools.go`, `pipeline_cfg.go`).
-- `internal/infra/redis/`: Redis client
+- `internal/infra/redis/`: Redis client with a go-redis metrics hook feeding `optikk_redis_{commands_total,command_duration_seconds}`.
 - `internal/infra/session/`: session persistence and middleware integration
-- `internal/infra/middleware/`: recovery, CORS (allows `traceparent`/`tracestate` for W3C propagation), tenant, body limit, response cache
+- `internal/infra/middleware/`: recovery, HTTP Prometheus metrics (`metrics.go`), CORS, tenant, body limit, response cache
 - `internal/infra/rollup/`: time-range-aware rollup tier selection
 - `internal/infra/cursor/`: cursor helpers for explorer-style APIs
-- `internal/infra/otel/`: self-telemetry OTel SDK bootstrap (`provider.go` — disabled by default; enable via `telemetry.otel.enabled: true` + point `endpoint` at a local collector). Installs no-op providers when disabled so W3C propagation and `trace_id` log injection still work. Wired in `app.go:New`.
-- `internal/infra/stats/`: lightweight Go-side numeric aggregation helpers (`AvgNonNull`, `MaxNonNull`, etc.) used where ClickHouse aggregation is too expensive or not applicable.
-- `internal/infra/utils/`: time-bucketing and unit-conversion helpers shared across modules.
+- `internal/infra/utils/`: time-bucketing, unit-conversion, and numeric aggregation helpers (`AvgNonNull`, `MaxNonNull`, `AvgNonNullPtr` in `agg.go`) shared across modules.
 
 ### Local monitoring stack (opt-in)
 
@@ -101,28 +99,27 @@ This is the primary monitoring stack for local development — all ingest metric
 
 ### Observability / monitoring stack
 
-Self-telemetry uses two paths that are completely independent of the customer-facing OTLP receiver on `:4317`:
+Self-telemetry is Prometheus-only. The customer-facing OTLP receiver on `:4317` is unrelated — it ingests external spans/metrics/logs from clients and has its own pipeline (`internal/ingestion/`).
 
-**Metrics (primary)** — `promauto` collectors exposed on `/metrics`, scraped by the local Prometheus + Grafana stack (`deploy/monitoring/stack/`).
+**Metrics** — `promauto` collectors exposed on `/metrics`, scraped by the local Prometheus + Grafana stack (`deploy/monitoring/stack/`).
 
 - `internal/infra/metrics/` — `http.go`, `grpc.go`, `db.go`, `kafka.go`, `auth.go`, `ingest.go` — all `promauto`-registered collectors.
-- `internal/infra/redis/metrics_hook.go` — Redis-specific collectors via `kgo.Hooks`.
-- `internal/infra/middleware/observability.go` — HTTP Prom metrics + per-request access log; wired after `otelgin` in `routes.go`.
-- `internal/infra/grpcutil/observability.go` — gRPC unary + stream interceptors (Prom timing + per-RPC log).
-- `internal/infra/kafka/observability.go` — franz-go `kgo.Hooks` (produce/fetch/broker/group-error) + `LagPoller` (`optikk_kafka_consumer_lag_records` via raw `kmsg` calls). One `LagPoller.Run(ctx)` per ingest consumer, started by `app.Start`.
+- `internal/infra/redis/metrics_hook.go` — Redis-specific collectors via a `goredis.Hook`.
+- `internal/infra/middleware/metrics.go` — `HTTPMetricsMiddleware` populates `optikk_http_*` (route label = Gin `FullPath()` template, method, status class).
+- `internal/app/server/grpc_metrics.go` — unary + stream interceptors populate `optikk_grpc_*` (full method, canonical gRPC code).
+- `internal/infra/kafka/observability/observability.go` — franz-go `kgo.Hooks` (produce/fetch/broker/group-error) + `LagPoller` (`optikk_kafka_consumer_lag_records` via raw `kmsg` calls). One `LagPoller.Run(ctx)` per ingest consumer, started by `app.Start`.
+- `internal/infra/database/{clickhouse,mysql}_instrument.go` + `instrument_common.go` — `SelectCH/QueryCH/ExecCH` + `SelectSQL/GetSQL/ExecSQL` seam that emits `optikk_db_*` for every query.
 
-**Logs** — `slog.InfoContext/…Context` records fan to stdout (tint/JSON) AND the OTel logs bridge via `internal/shared/slogx.{TraceAttrHandler,FanoutHandler}` + `contrib/bridges/otelslog`. `trace_id`/`span_id` are injected from ctx regardless of whether OTel export is enabled.
+**Logs** — `slog.InfoContext/…Context` records fan out through `internal/shared/slogx.FanoutHandler` so additional sinks (file, syslog) can be added without touching call sites. Currently the fanout wraps a single stdout leg (tint for local dev, JSON when `LOG_FORMAT=json`).
 
-**Traces / OTel SDK** (`config.yml` → `telemetry.otel`):
-- OTel export is **disabled by default** (`enabled: false`) — there is no remote collector. The SDK is still initialised as a no-op so W3C trace-context propagation and `trace_id` injection in logs continue to work.
-- To enable: point `endpoint` at a local Tempo instance or otel-collector and set `enabled: true`.
-- `internal/infra/otel/provider.go` — bootstraps tracer + logger providers + W3C propagator; combined shutdown wired into `app.Start`.
-- `internal/infra/kafka/tracecontext.go` — W3C `traceparent` inject on produce, extract on consume (links producer ↔ consumer spans across the Kafka boundary).
-- `internal/infra/database/{clickhouse,mysql}_instrument.go` + `instrument_common.go` — `SelectCH/QueryCH/ExecCH` + `SelectSQL/GetSQL/ExecSQL` seam used by every repository.
-- `internal/infra/redis/client.go` — `redisotel.InstrumentTracing` + metrics hook.
-- `cmd/server/logger.go` — composes `TraceAttrHandler(FanoutHandler{stdout, otelBridge})` root logger.
-
-See `deploy/monitoring/grafana/dashboards/optikk_ingest.json` for the ingest-pipeline Grafana dashboard (ingest rate, handler/worker/CH latency, queue depth, paused partitions, flush reasons, DLQ rate, consumer lag, attr drops).
+**Grafana dashboards** (`deploy/monitoring/grafana/dashboards/`) — provisioned read-only, one file per concern:
+- `optikk_overview.json` — service-wide health tiles + top-level timeseries (start here).
+- `optikk_http_api.json` — **per-API** HTTP dashboard: QPS/latency/error rate with route + method template variables; top-10 slowest and error-prone routes.
+- `optikk_grpc.json` — per-method gRPC dashboard (OTLP ingest surface + any other gRPC).
+- `optikk_db.json` — MySQL + ClickHouse query rate/latency/errors split by `system` + `op`.
+- `optikk_redis.json` — Redis commands/sec, latency, error ratio (from the metrics hook).
+- `optikk_kafka.json` — produce/consume rate, produce latency, consumer lag per partition, rebalances, broker connects.
+- `optikk_ingest.json` — OTLP ingest pipeline (records/sec by signal, handler/worker/CH latency, queue depth, paused partitions, DLQ rate, attr drops).
 
 ### Traces read path (split into sibling submodules)
 

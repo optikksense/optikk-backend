@@ -10,24 +10,13 @@ import (
 	"github.com/lmittmann/tint"
 )
 
-// initLogger builds the app's root slog handler:
-//
-//	TraceAttrHandler            — injects trace_id / span_id from ctx
-//	└─ FanoutHandler
-//	   ├─ stdout (tint / JSON)  — human-readable local dev + kubectl logs
-//	   └─ OTel logs bridge      — no-op when OTel disabled; active when a collector is wired
-//
-// The bridge leg is attached lazily so it picks up whatever logger
-// provider `internal/infra/otel` installs at app boot. If OTel is
-// disabled in config the bridge is a cheap no-op (global.GetLoggerProvider
-// returns a noop provider) so there is no separate code path.
+// initLogger builds the app's root slog handler. A FanoutHandler wraps a
+// single stdout leg today; new sinks (file, syslog) can be added by
+// appending handlers without touching call sites.
 func initLogger() {
 	level := resolveLevel()
 	stdout := resolveStdoutHandler(level)
-	bridge := slogx.NewOtelBridgeHandler("optikk-backend")
-
-	fan := slogx.NewFanoutHandler(stdout, bridge)
-	root := slogx.NewTraceAttrHandler(fan)
+	root := slogx.NewFanoutHandler(stdout)
 	slog.SetDefault(slog.New(root))
 }
 

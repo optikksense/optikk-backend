@@ -19,7 +19,7 @@ This is **mandatory**. Documentation must always reflect the current architectur
 
 ## Quick reference
 
-- **Stack**: Go 1.25, Gin, ClickHouse, MySQL, Redis, Kafka, OTLP gRPC.
+- **Stack**: Go 1.25, Gin, ClickHouse, MySQL, Redis, Kafka, OTLP gRPC (ingest surface only — self-telemetry is Prometheus-only).
 - **Server entry**: `cmd/server/main.go`
 - **Module registration**: `internal/app/server/modules_manifest.go` → `configuredModules()`.
 - **Handler helpers**: `internal/shared/httputil/base.go` — `RespondOK`, `RespondErrorWithCause`, `ParseRequiredRange`.
@@ -30,7 +30,7 @@ This is **mandatory**. Documentation must always reflect the current architectur
 - **Session**: `internal/infra/session/manager.go`.
 - **Middleware**: `internal/infra/middleware/` — public prefixes: `/api/v1/auth/login`, `/otlp/`, `/health`.
 - **Ingestion**: `internal/ingestion/{spans,metrics,logs}/` — handler → mapper → kafka producer → dispatcher → per-partition worker → writer (CH batch + retry + DLQ). Shared generics in `internal/infra/kafka_ingest/` (`dispatcher.go`, `worker.go`, `writer.go`, `accumulator.go`, `metrics.go`, `pools.go`, `pipeline_cfg.go`). Tuning knobs live in `internal/config/ingestion.go` → `IngestPipelineConfig` (per-signal YAML overrides).
-- **Local monitoring**: `deploy/monitoring/stack/docker-compose.yml` — Prometheus `:19091`, Grafana `:13001`; `deploy/monitoring/grafana/dashboards/optikk_ingest.json` is the starter dashboard for the ingest pipeline.
+- **Local monitoring**: `deploy/monitoring/stack/docker-compose.yml` — Prometheus `:19091`, Grafana `:13001`. Dashboards in `deploy/monitoring/grafana/dashboards/`: `optikk_overview`, `optikk_http_api` (per-API drill-down), `optikk_grpc`, `optikk_db`, `optikk_redis`, `optikk_kafka`, `optikk_ingest`. All Prometheus-sourced; there is no OTel collector or Tempo — the `/metrics` endpoint is the only self-telemetry surface.
 - **Schema migrations**: `db/clickhouse/*.sql` applied via `internal/infra/database_chmigrate`.
 - **Traces explorer contract**: `internal/modules/traces/explorer/` reads `observability.traces_index` directly. Keep DB scan structs aligned with ClickHouse unsigned types (`start_ms`, `end_ms`, `duration_ns`, `last_seen_ms`, `root_http_status`) and normalize mixed facet types at the SQL boundary (for example `toString(root_http_status)` in facet queries).
 

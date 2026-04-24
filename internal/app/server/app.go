@@ -158,9 +158,11 @@ func (a *App) addGRPCServerActor(g *run.Group) error {
 		// interceptor + handler together; auth unauthorised denials
 		// still show up in the metrics with code=Unauthenticated.
 		grpc.ChainUnaryInterceptor(
+			grpcMetricsUnary(),
 			auth.UnaryInterceptor(a.Infra.Authenticator),
 		),
 		grpc.ChainStreamInterceptor(
+			grpcMetricsStream(),
 			auth.StreamInterceptor(a.Infra.Authenticator),
 		),
 	)
