@@ -81,7 +81,7 @@ Current queueing model is Kafka-backed, not Redis-stream-backed. Local developme
 - `internal/infra/middleware/`: recovery, HTTP Prometheus metrics (`metrics.go`), CORS, tenant, body limit, response cache
 - `internal/infra/rollup/`: time-range-aware rollup tier selection
 - `internal/infra/cursor/`: cursor helpers for explorer-style APIs
-- `internal/infra/utils/`: time-bucketing, unit-conversion, and numeric aggregation helpers (`AvgNonNull`, `MaxNonNull`, `AvgNonNullPtr` in `agg.go`) shared across modules.
+- `internal/infra/utils/`: time-bucketing (`timeutil.go`) and unit-conversion (`conv.go`) helpers shared across modules.
 
 ### Local monitoring stack (opt-in)
 

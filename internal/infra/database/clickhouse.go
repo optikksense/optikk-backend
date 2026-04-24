@@ -122,22 +122,6 @@ func OverviewCtx(ctx context.Context) context.Context { return Overview.Ctx(ctx)
 // ExplorerCtx returns ctx with the explorer query budget attached.
 func ExplorerCtx(ctx context.Context) context.Context { return Explorer.Ctx(ctx) }
 
-// SelectTyped executes a SELECT and scans into a typed slice. Callers must
-// pass a ctx already wrapped with OverviewCtx or ExplorerCtx.
-func SelectTyped[T any](ctx context.Context, db clickhouse.Conn, query string, args ...any) ([]T, error) {
-	var rows []T
-	err := db.Select(ctx, &rows, query, args...)
-	return rows, err
-}
-
-// QueryRowTyped executes a single-row SELECT and scans into a typed struct.
-// Callers must pass a ctx already wrapped with OverviewCtx or ExplorerCtx.
-func QueryRowTyped[T any](ctx context.Context, db clickhouse.Conn, query string, args ...any) (T, error) {
-	var row T
-	err := db.QueryRow(ctx, query, args...).ScanStruct(&row)
-	return row, err
-}
-
 // SpanBaseParams returns the standard named parameters for span queries:
 // team_id, ts_bucket_start range, and timestamp range.
 func SpanBaseParams(teamID int64, startMs, endMs int64) []any {
