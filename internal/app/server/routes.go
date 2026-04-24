@@ -8,7 +8,6 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/middleware"
-	appotel "github.com/Optikk-Org/optikk-backend/internal/infra/otel"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
@@ -39,13 +38,6 @@ func (a *App) setupMetricsRoute(r *gin.Engine) {
 
 func (a *App) setupGlobalMiddleware(r *gin.Engine) {
 	r.Use(middleware.ErrorRecovery())
-	// otelgin runs before CORS so span context is attached even to
-	// OPTIONS preflight requests — helpful for diagnosing CORS failures.
-	r.Use(appotel.Middleware())
-	// Observability middleware records Prom timing + emits an access log
-	// line per request. Must run after otelgin so trace_id/span_id are
-	// attached to the ctx when we log.
-	r.Use(middleware.ObservabilityMiddleware())
 	r.Use(middleware.CORSMiddleware(a.Config.Server.AllowedOrigins))
 	r.Use(middleware.BodyLimitMiddleware(10 * 1024 * 1024))	// 10 MB
 	// gzip the response body for list/facet/trend payloads; default

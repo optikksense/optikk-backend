@@ -42,11 +42,7 @@
         "multi": true,
         "name": "signal",
         "options": [],
-        "query": {
-          "qryType": 1,
-          "query": "label_values(optikk_ingest_records_total, signal)",
-          "refId": "PrometheusVariableQueryEditor-VariableQuery"
-        },
+        "query": "label_values(optikk_ingest_records_total, signal)",
         "refresh": 2,
         "regex": "",
         "skipUrlSync": false,
