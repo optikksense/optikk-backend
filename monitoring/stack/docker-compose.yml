@@ -1,0 +1,59 @@
+# Local Prometheus + Grafana for ingest-pipeline dashboards.
+#
+# Opt-in: this file is NOT stitched into the main docker-compose.yml so the
+# backend boots without it. Start with:
+#
+#     docker compose -f monitoring/stack/docker-compose.yml up -d
+#
+# Grafana    → http://localhost:13001   (admin / admin unless .env overrides)
+# Prometheus → http://localhost:19091
+#
+# Non-default host ports (13001 / 19091) avoid colliding with the root
+# docker-compose.yml, which already binds backend :19090 for /metrics,
+# :13306 (MariaDB), :19000 (ClickHouse), :16379 (Redis), :19092 (Kafka).
+#
+# Directory layout (flat-vs-nested rule: monitoring/ holds only subdirs):
+#   monitoring/stack/    → this file + prometheus.yml
+#   monitoring/grafana/  → provisioning + dashboards/
+
+services:
+  prometheus:
+    image: prom/prometheus:v2.54.1
+    container_name: optikk-monitoring-prometheus
+    restart: unless-stopped
+    ports:
+      - "19091:9090"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus-data:/prometheus
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.enable-lifecycle"
+
+  grafana:
+    image: grafana/grafana:11.2.0
+    container_name: optikk-monitoring-grafana
+    restart: unless-stopped
+    ports:
+      - "13001:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GF_SECURITY_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GF_SECURITY_ADMIN_PASSWORD:-admin}
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_FEATURE_TOGGLES_ENABLE: publicDashboards
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ../grafana/provisioning:/etc/grafana/provisioning:ro
+      - ../grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+
+volumes:
+  prometheus-data:
+  grafana-data:
