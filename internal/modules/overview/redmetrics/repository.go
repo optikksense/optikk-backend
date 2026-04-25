@@ -19,8 +19,8 @@ import (
 // dedicated `spans_kind_rollup` (Phase 9).
 
 const (
-	spansRollupPrefix	= "observability.spans_rollup"
-	spansKindRollupPrefix	= "observability.spans_kind_rollup"
+	spansRollupPrefix	= rollup.FamilySpansRED
+	spansKindRollupPrefix	= rollup.FamilySpansKind
 )
 
 type Repository interface {
@@ -44,6 +44,9 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
+// queryIntervalMinutes chooses a dashboard step based on window width, then
+// coarsens to the tier's native step if needed. Routes through
+// rollup.BucketInterval for the tier floor.
 func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 	hours := (endMs - startMs) / 3_600_000
 	var dashStep int64
@@ -57,10 +60,7 @@ func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 	default:
 		dashStep = 1440
 	}
-	if tierStepMin > dashStep {
-		return tierStepMin
-	}
-	return dashStep
+	return rollup.BucketInterval(rollup.Tier{StepMin: tierStepMin}, dashStep)
 }
 
 func rollupParams(teamID int64, startMs, endMs int64) []any {
@@ -494,13 +494,13 @@ func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int6
 	table, tierStep := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
-		       endpoint                                                     AS http_route,
+		       operation_name                                               AS http_route,
 		       sumMerge(request_count)                                      AS request_count,
 		       sumMerge(error_count)                                        AS error_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
-		  AND endpoint != ''
+		  AND operation_name != ''
 		GROUP BY timestamp, http_route
 		ORDER BY timestamp ASC, error_count DESC`, table)
 	args := append(rollupParams(teamID, startMs, endMs),

@@ -24,8 +24,8 @@ import (
 
 const (
 	serviceNameFilter		= " AND s.service_name = @serviceName"
-	spansRollupPrefix		= "observability.spans_rollup"
-	errorFingerprintRollupPrefix	= "observability.spans_error_fingerprint"
+	spansRollupPrefix		= rollup.FamilySpansRED
+	errorFingerprintRollupPrefix	= rollup.FamilySpansErrors
 )
 
 // httpStatusBucketToCode maps the rollup's coarse http_status_bucket

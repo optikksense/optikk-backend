@@ -11,11 +11,11 @@ import (
 )
 
 const (
-	spansRollupPrefix		= "observability.spans_rollup"
-	spansPeerRollupPrefix		= "observability.spans_peer_rollup"
-	metricsHistRollupPrefix		= "observability.metrics_histograms_rollup"
-	metricsGaugesRollupPrefix	= "observability.metrics_gauges_rollup"
-	metricsGaugesByStatusPrefix	= "observability.metrics_gauges_by_status_rollup"
+	spansRollupPrefix		= rollup.FamilySpansRED
+	spansPeerRollupPrefix		= rollup.FamilySpansPeer
+	metricsHistRollupPrefix		= rollup.FamilyMetricsHist
+	metricsGaugesRollupPrefix	= rollup.FamilyMetricsGauges
+	metricsGaugesByStatusPrefix	= rollup.FamilyMetricsGaugesByStatus
 )
 
 // Histogram-metric queries target `observability.metrics_histograms_rollup_1m`.
@@ -242,12 +242,12 @@ func (r *ClickHouseRepository) GetTLSDuration(ctx context.Context, teamID int64,
 func (r *ClickHouseRepository) GetTopRoutesByVolume(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
 	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT endpoint AS route,
+		SELECT operation_name AS route,
 		       sumMerge(request_count) AS req_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
-		  AND endpoint != ''
+		  AND operation_name != ''
 		GROUP BY route
 		ORDER BY req_count DESC
 		LIMIT 20`, table)
@@ -272,13 +272,13 @@ func (r *ClickHouseRepository) GetTopRoutesByVolume(ctx context.Context, teamID 
 func (r *ClickHouseRepository) GetTopRoutesByLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
 	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT endpoint AS route,
+		SELECT operation_name AS route,
 		       sumMerge(request_count) AS req_count,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_ms
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
-		  AND endpoint != ''
+		  AND operation_name != ''
 		GROUP BY route
 		ORDER BY p95_ms DESC
 		LIMIT 20`, table)
@@ -305,13 +305,13 @@ func (r *ClickHouseRepository) GetTopRoutesByLatency(ctx context.Context, teamID
 func (r *ClickHouseRepository) GetRouteErrorRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
 	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT endpoint AS route,
+		SELECT operation_name AS route,
 		       sumMerge(request_count) AS req_count,
 		       sumMerge(error_count)   AS err_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
-		  AND endpoint != ''
+		  AND operation_name != ''
 		GROUP BY route
 		ORDER BY err_count DESC
 		LIMIT 20`, table)
@@ -345,13 +345,13 @@ func (r *ClickHouseRepository) GetRouteErrorTimeseries(ctx context.Context, team
 	table, tierStep := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
-		       endpoint                AS http_route,
+		       operation_name          AS http_route,
 		       sumMerge(request_count) AS req_count,
 		       sumMerge(error_count)   AS err_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
-		  AND endpoint != ''
+		  AND operation_name != ''
 		GROUP BY time_bucket, http_route
 		ORDER BY time_bucket ASC, err_count DESC`, table)
 	args := append(spanRollupParams(teamID, startMs, endMs),

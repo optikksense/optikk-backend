@@ -79,7 +79,7 @@ Current queueing model is Kafka-backed, not Redis-stream-backed. Local developme
 - `internal/infra/redis/`: Redis client with a go-redis metrics hook feeding `optikk_redis_{commands_total,command_duration_seconds}`.
 - `internal/infra/session/`: session persistence and middleware integration
 - `internal/infra/middleware/`: recovery, HTTP Prometheus metrics (`metrics.go`), CORS, tenant, body limit, response cache
-- `internal/infra/rollup/`: time-range-aware rollup tier selection
+- `internal/infra/rollup/`: TTL-aware rollup tier selection. Families registered in `families.go`; `For(family, startMs, endMs)` returns a `Tier{Table, StepMin, BucketExpr}`; `BucketInterval(tier, uiStep)` replaces the pre-rewrite duplicated helpers. Tier TTLs: `_1m`=72h, `_5m`=14d, `_1h`=90d. See `db/clickhouse/README.md` for the full family map.
 - `internal/infra/cursor/`: cursor helpers for explorer-style APIs
 - `internal/infra/utils/`: time-bucketing (`timeutil.go`) and unit-conversion (`conv.go`) helpers shared across modules.
 
@@ -139,7 +139,7 @@ The trace read surface used to live in two monoliths (`explorer` + `tracedetail`
 
 - `internal/modules/logs/explorer/` — `POST /api/v1/logs/query`, `POST /api/v1/logs/analytics`, `GET /api/v1/logs/:id`. `RouteTarget = Cached` so reads pass through the Redis response-cache + the ClickHouse query-cache layer (via the `Explorer` query-budget context). `Query` fans `summary / facets / trend` plus the base list fetch out in parallel via `errgroup.Group`; response = max of all branches, not sum.
 - `internal/modules/logs/explorer/repository.go` — `ListLogs` + `GetByID` use `PREWHERE team_id = @teamID AND ts_bucket_start BETWEEN …` so partition pruning runs before the rest of the predicates. `repo_facets.go` unions 5 rollup legs — each leg has the same `PREWHERE` on `(team_id, bucket_ts)` as the lead.
-- `internal/modules/logs/querycompiler/` — `Compile(Filters, Target)` → `Compiled{Where, Args, DroppedClauses}`. Targets: `TargetRaw` (observability.logs), `TargetRollup` (logs_rollup_{1m,5m,1h}), `TargetFacetRollup` (logs_facets_rollup_5m).
+- `internal/modules/logs/querycompiler/` — `Compile(Filters, Target)` → `Compiled{Where, Args, DroppedClauses}`. Targets: `TargetRaw` (observability.logs), `TargetRollup` (logs_volume_{1m,5m,1h}), `TargetFacetRollup` (logs_facets_{1m,5m,1h}).
 
 ### Data Type Consistency
 
@@ -202,8 +202,7 @@ From the live module manifest:
 
 | Path | Purpose |
 |------|---------|
-| `cmd/server/` | Main server binary |
-| `cmd/migrate/` | ClickHouse migration entrypoint |
+| `cmd/server/` | Main server binary. ClickHouse migrations run automatically on boot before the HTTP/gRPC servers start. |
 | `db/clickhouse/` | ClickHouse schema and migration files |
 | `internal/app/` | App composition and registry |
 | `internal/auth/` | HTTP/gRPC auth helpers |

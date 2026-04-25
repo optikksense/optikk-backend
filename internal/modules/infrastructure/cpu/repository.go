@@ -12,7 +12,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
-const metricsGaugesRollupPrefix = "observability.metrics_gauges_rollup"
+const metricsGaugesRollupPrefix = rollup.FamilyMetricsGauges
 
 func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 	hours := (endMs - startMs) / 3_600_000

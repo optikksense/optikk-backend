@@ -21,8 +21,10 @@ import (
 
 const (
 	rawLogsTable		= "observability.logs"
-	logsRollupPrefix	= "observability.logs_rollup"
-	logsFacetRollupTbl	= "observability.logs_facets_rollup_5m"
+	// logsRollupPrefix/logsFacetRollupPrefix are rollup family constants — pass them
+	// to rollup.TierTableFor / rollup.For for tier resolution.
+	logsRollupPrefix	= "logs_volume"
+	logsFacetRollupPrefix	= "logs_facets"
 	logColumns		= `timestamp, observed_timestamp, severity_text, severity_number, severity_bucket,
 			body, trace_id, span_id, trace_flags,
 			service, host, pod, container, environment,

@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	metricsGaugesRollupPrefix = "observability.metrics_gauges_rollup"
+	metricsGaugesRollupPrefix = rollup.FamilyMetricsGauges
 )
 
 func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {

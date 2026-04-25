@@ -10,14 +10,17 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
 )
 
 const (
 	tracesIndexTable	= "observability.traces_index"
 	spansRawTable		= "observability.spans"
-	spansRollupPrefix	= "observability.spans_rollup"
-	tracesFacetRollup	= "observability.traces_facets_rollup_5m"
+	spansRollupPrefix	= rollup.FamilySpansRED
+	// Traces facets pinned to _5m until callers plumb startMs/endMs for tier
+	// selection; rollup exists at all three tiers now.
+	tracesFacetRollup	= "observability.traces_facets_5m"
 	traceIndexColumns	= `trace_id, start_ms, end_ms, duration_ns, root_service, root_operation, root_status,
 			root_http_method, root_http_status, span_count, has_error, error_count, service_set, truncated, last_seen_ms`
 )

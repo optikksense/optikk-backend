@@ -29,7 +29,11 @@ func (r *Repository) Facets(ctx context.Context, f querycompiler.Filters) (Facet
 //     reference `pod` whenever the user filters by pod — that predicate is
 //     invalid on 5m/1h rollups (see db/clickhouse/17_rollup_logs.sql).
 func (r *Repository) fetchFacetRows(ctx context.Context, compiled querycompiler.Compiled) ([]facetRowDTO, error) {
-	hostPodTbl := logsRollupPrefix + "_1m"
+	// Facets still pin to 5m until the caller propagates startMs/endMs here
+	// for proper tier selection — the rollup exists at 3 tiers but the facet
+	// path has no time-window plumbing today.
+	hostPodTbl := "observability." + logsRollupPrefix + "_1m"
+	logsFacetRollupTbl := "observability." + logsFacetRollupPrefix + "_5m"
 
 	// PREWHERE on (team_id, bucket_ts) leads the MergeTree sort key on
 	// every rollup leg. Same predicates also live inside compiled.Where;

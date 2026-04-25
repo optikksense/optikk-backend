@@ -12,7 +12,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
-const metricsGaugesRollupPrefix = "observability.metrics_gauges_rollup"
+const metricsGaugesRollupPrefix = rollup.FamilyMetricsGauges
 
 // queryIntervalMinutes returns the group-by step (in minutes) for rollup reads.
 // It is max(tierStep, dashboardStep) so the step is never finer than the

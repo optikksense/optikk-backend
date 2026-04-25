@@ -140,19 +140,17 @@ func openClickHouse(cfg config.Config) (clickhouse.Conn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("clickhouse: %w", err)
 	}
-	if cfg.ClickHouse.AutoMigrate {
-		if err := runAutoMigrate(chConn, cfg.ClickHouse.Database); err != nil {
-			_ = chConn.Close() //nolint:errcheck
-			return nil, fmt.Errorf("clickhouse auto-migrate: %w", err)
-		}
+	if err := runMigrate(chConn, cfg.ClickHouse.Database); err != nil {
+		_ = chConn.Close() //nolint:errcheck
+		return nil, fmt.Errorf("clickhouse migrate: %w", err)
 	}
 	return chConn, nil
 }
 
-// runAutoMigrate applies pending DDL from the embedded `db/clickhouse/*.sql`
-// fileset. Called only when `clickhouse.auto_migrate` is true in config —
-// production deploys should prefer the explicit `./migrate up` CLI.
-func runAutoMigrate(conn clickhouse.Conn, database string) error {
+// runMigrate applies pending DDL from the embedded `db/clickhouse/*.sql`
+// fileset. Always runs at server boot — schema is a hard prerequisite for
+// serving traffic and the migrator is a no-op when there is nothing to apply.
+func runMigrate(conn clickhouse.Conn, database string) error {
 	m := &chmigrate.Migrator{
 		DB:       conn,
 		FS:       chembed.FS,
@@ -165,7 +163,7 @@ func runAutoMigrate(conn clickhouse.Conn, database string) error {
 	if err != nil {
 		return err
 	}
-	slog.Info("chmigrate: auto-migrate complete", slog.Int("applied", applied), slog.Int("skipped", skipped))
+	slog.Info("chmigrate: complete", slog.Int("applied", applied), slog.Int("skipped", skipped))
 	return nil
 }
 

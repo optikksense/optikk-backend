@@ -11,7 +11,7 @@ import (
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
-const metricsHistogramsRollupPrefix = "observability.metrics_histograms_rollup"
+const metricsHistogramsRollupPrefix = rollup.FamilyMetricsHist
 
 type Repository interface {
 	GetSummaryStats(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) (SummaryStats, error)

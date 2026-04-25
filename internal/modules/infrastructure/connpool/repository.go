@@ -19,7 +19,7 @@ import (
 // fallback in the prior raw query is dropped — that attribute isn't keyed
 // in any rollup. In typical OTel-for-DB setups ingestion emits one of the
 // canonical metric_names, so loss is bounded.
-const metricsGaugesRollupPrefix = "observability.metrics_gauges_rollup"
+const metricsGaugesRollupPrefix = rollup.FamilyMetricsGauges
 
 type Repository interface {
 	GetAvgConnPool(ctx context.Context, teamID int64, startMs, endMs int64) (metricValueDTO, error)

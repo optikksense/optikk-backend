@@ -16,7 +16,7 @@ import (
 // Phase 6 per-pod RED aggregates. Rollup keyed by
 // (team_id, bucket_ts, host_name, pod_name, service_name).
 const (
-	spansHostRollupPrefix	= "observability.spans_host_rollup"
+	spansHostRollupPrefix	= rollup.FamilySpansHost
 	maxFleetPods		= 200
 	defaultUnknown		= "unknown"
 )

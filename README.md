@@ -102,8 +102,7 @@ make vet
 ```text
 optikk-backend/
 ├── cmd/
-│   ├── server/          # Main backend process
-│   └── migrate/         # ClickHouse migration utility
+│   └── server/          # Main backend process (runs ClickHouse migrations on boot)
 ├── db/
 │   └── clickhouse/      # Embedded ClickHouse schema and migrations
 ├── docs/                # Focused design and ops docs

@@ -21,7 +21,7 @@ import (
 // references, and `@name` bindings.
 const (
 	serviceNameFilter	= " AND service_name = @serviceName"
-	spansRollupPrefix	= "observability.spans_rollup"
+	spansRollupPrefix	= rollup.FamilySpansRED
 )
 
 type Repository interface {
@@ -280,7 +280,7 @@ func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64
 	query := fmt.Sprintf(`
 		SELECT service_name,
 		       operation_name,
-		       endpoint,
+		       operation_name                                                     AS endpoint,
 		       http_method,
 		       sumMerge(request_count)                                            AS request_count,
 		       sumMerge(error_count)                                              AS error_count,
@@ -291,14 +291,14 @@ func (r *ClickHouseRepository) GetTopEndpoints(ctx context.Context, teamID int64
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
-		  AND endpoint != ''`, table)
+		  AND operation_name != ''`, table)
 	args := rollupParams(teamID, startMs, endMs)
 	if serviceName != "" {
 		query += serviceNameFilter
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += `
-		GROUP BY service_name, operation_name, endpoint, http_method
+		GROUP BY service_name, operation_name, http_method
 		HAVING request_count > 0
 		ORDER BY request_count DESC
 		LIMIT 100`

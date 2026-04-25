@@ -33,8 +33,9 @@ import (
 // return empty.
 
 const (
-	messagingRollupPrefix		= "observability.messaging_histograms_rollup"
-	messagingCountersRollupPrefix	= "observability.messaging_counters_rollup"
+	// Histograms and counters consolidated into the unified messaging family.
+	messagingRollupPrefix		= rollup.FamilyMessaging
+	messagingCountersRollupPrefix	= rollup.FamilyMessaging
 )
 
 // rollupBucketExpr bucketizes the rollup's DateTime `bucket_ts` column.

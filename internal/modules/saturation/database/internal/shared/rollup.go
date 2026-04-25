@@ -4,12 +4,13 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 )
 
-// DBHistRollupPrefix is the CH table prefix for the unified db histogram rollup
-// cascade (histogram + gauge rows; keys include db_connection_state and
-// db_response_status_code). Callers pass it to rollup.TierTableFor.
-const DBHistRollupPrefix = "observability.db_histograms_rollup"
+// DBHistRollupPrefix is the rollup family constant for the unified db
+// saturation rollup (histogram + gauge rows; keys include db_connection_state
+// and db_response_status_code). Callers pass it to rollup.TierTableFor.
+const DBHistRollupPrefix = rollup.FamilyDBSaturation
 
 // QueryIntervalMinutes returns the group-by step (in minutes) for rollup
 // reads. It is max(tierStep, dashboardStep) so the step is never finer than
@@ -27,10 +28,7 @@ func QueryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 	default:
 		dashStep = 1440
 	}
-	if tierStepMin > dashStep {
-		return tierStepMin
-	}
-	return dashStep
+	return rollup.BucketInterval(rollup.Tier{StepMin: tierStepMin}, dashStep)
 }
 
 // RollupFilterClauses translates Filters into db_histograms_rollup column

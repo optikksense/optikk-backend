@@ -24,8 +24,8 @@ import (
 // rollup dim (the histograms rollup keys only metric_name + service). Future
 // work: extend metrics_histograms_rollup with a generic-attribute dim column.
 const (
-	metricsGaugesRollupPrefix	= "observability.metrics_gauges_rollup"
-	metricsHistPrefix		= "observability.metrics_histograms_rollup"
+	metricsGaugesRollupPrefix	= rollup.FamilyMetricsGauges
+	metricsHistPrefix		= rollup.FamilyMetricsHist
 )
 
 type Repository interface {

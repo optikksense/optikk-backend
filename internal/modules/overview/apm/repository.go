@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	metricsHistRollupPrefix		= "observability.metrics_histograms_rollup"
-	metricsGaugesRollupPrefix	= "observability.metrics_gauges_rollup"
+	metricsHistRollupPrefix		= rollup.FamilyMetricsHist
+	metricsGaugesRollupPrefix	= rollup.FamilyMetricsGauges
 )
 
 // queryIntervalMinutes returns the group-by step (in minutes) for rollup

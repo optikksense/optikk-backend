@@ -38,9 +38,9 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 // commit_author, repo_url, pr_url. span_count is derived from
 // `sumMerge(request_count)`.
 const (
-	spansByVersionPrefix		= "observability.spans_by_version"
-	spansRollupPrefix		= "observability.spans_rollup"
-	errFingerprintRollupPrefix	= "observability.spans_error_fingerprint"
+	spansByVersionPrefix		= rollup.FamilySpansVersion
+	spansRollupPrefix		= rollup.FamilySpansRED
+	errFingerprintRollupPrefix	= rollup.FamilySpansErrors
 )
 
 // queryIntervalMinutes returns max(tierStep, dashboardStep). Copied from
@@ -83,12 +83,41 @@ var commitMetaSelectRaw = fmt.Sprintf(
 	attrCommitSHA, attrCommitAuthor, attrRepoURL, attrPRURL,
 )
 
-// commitMetaSelectRollup is the equivalent for rollup reads — the any-state
-// aggregates already live in the rollup and only need an `-Merge` combinator.
-const commitMetaSelectRollup = `anyMerge(commit_sha) AS commit_sha,
-anyMerge(commit_author) AS commit_author,
-anyMerge(repo_url) AS repo_url,
-anyMerge(pr_url) AS pr_url`
+// deploymentsJoinSelect is the SELECT + FROM fragment used by every
+// rollup-backed list query. It aggregates the rollup by deployment_id, then
+// LEFT JOINs observability.deployments (the dim table) to pull VCS metadata
+// (service_version, environment, commit_sha, commit_author, repo_url, pr_url).
+// Callers supply `{table}` (the tier-specific rollup table), a WHERE clause
+// for the CTE, and ORDER BY.
+//
+// The dim table is ReplacingMergeTree(last_seen) keyed on
+// (team_id, service_name, service_version, environment); FINAL collapses
+// duplicates on read.
+const deploymentsJoinSelect = `
+	WITH rollup_agg AS (
+		SELECT service_name,
+		       deployment_id,
+		       minMerge(first_seen)              AS first_seen,
+		       maxMerge(last_seen)               AS last_seen,
+		       toInt64(sumMerge(request_count))  AS span_count
+		FROM %s
+		WHERE %s
+		GROUP BY service_name, deployment_id
+	)
+	SELECT r.service_name                        AS service_name,
+	       d.service_version                     AS version,
+	       d.environment                         AS environment,
+	       r.first_seen                          AS first_seen,
+	       r.last_seen                           AS last_seen,
+	       r.span_count                          AS span_count,
+	       d.commit_sha                          AS commit_sha,
+	       d.commit_author                       AS commit_author,
+	       d.repo_url                            AS repo_url,
+	       d.pr_url                              AS pr_url
+	FROM rollup_agg AS r
+	LEFT JOIN observability.deployments FINAL AS d
+	  ON d.deployment_id = r.deployment_id
+	 AND d.team_id = @teamID`
 
 func bucketSecs(startMs, endMs int64) float64 {
 	h := (endMs - startMs) / 3_600_000
@@ -103,24 +132,11 @@ func bucketSecs(startMs, endMs int64) float64 {
 }
 
 // ListDeployments returns per-(version, environment) rollup of deploys for a
-// single service, sourced from `spans_by_version_*` cascade.
+// single service, sourced from the spans_version cascade + deployments dim.
 func (r *ClickHouseRepository) ListDeployments(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) ([]deploymentAggRow, error) {
 	table, _ := rollup.TierTableFor(spansByVersionPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT service_name                                 AS service_name,
-		       service_version                              AS version,
-		       environment                                  AS environment,
-		       minMerge(first_seen)                         AS first_seen,
-		       maxMerge(last_seen)                          AS last_seen,
-		       toInt64(sumMerge(request_count))             AS span_count,
-		       %s
-		FROM %s
-		WHERE team_id = @teamID
-		  AND service_name = @serviceName
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND service_version != ''
-		GROUP BY service_name, version, environment
-		ORDER BY first_seen ASC`, commitMetaSelectRollup, table)
+	where := `team_id = @teamID AND service_name = @serviceName AND bucket_ts BETWEEN @start AND @end`
+	query := fmt.Sprintf(deploymentsJoinSelect+" ORDER BY r.first_seen ASC", table, where)
 
 	var rows []deploymentAggRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.ListDeployments", &rows, query,
@@ -132,27 +148,14 @@ func (r *ClickHouseRepository) ListDeployments(ctx context.Context, teamID int64
 	return rows, err
 }
 
-// ListServiceDeployments returns every distinct (version, environment)
-// deployment for a service across the entire rollup retention window.
+// ListServiceDeployments returns every distinct deployment for a service
+// across the entire rollup retention window. Pins to the _1h tier (90-day
+// retention) rather than calling TierTableFor since the caller does not
+// bound the window.
 func (r *ClickHouseRepository) ListServiceDeployments(ctx context.Context, teamID int64, serviceName string) ([]deploymentAggRow, error) {
-	// `spans_by_version_1h` gives us the whole 90-day retention in the
-	// cheapest form; explicitly pin to it rather than calling TierTableFor
-	// since the caller does not bound the window.
-	table := spansByVersionPrefix + "_1h"
-	query := fmt.Sprintf(`
-		SELECT service_name                                 AS service_name,
-		       service_version                              AS version,
-		       environment                                  AS environment,
-		       minMerge(first_seen)                         AS first_seen,
-		       maxMerge(last_seen)                          AS last_seen,
-		       toInt64(sumMerge(request_count))             AS span_count,
-		       %s
-		FROM %s
-		WHERE team_id = @teamID
-		  AND service_name = @serviceName
-		  AND service_version != ''
-		GROUP BY service_name, version, environment
-		ORDER BY first_seen ASC`, commitMetaSelectRollup, table)
+	table := "observability." + spansByVersionPrefix + "_1h"
+	where := `team_id = @teamID AND service_name = @serviceName`
+	query := fmt.Sprintf(deploymentsJoinSelect+" ORDER BY r.first_seen ASC", table, where)
 
 	var rows []deploymentAggRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.ListServiceDeployments", &rows, query,
@@ -163,43 +166,43 @@ func (r *ClickHouseRepository) ListServiceDeployments(ctx context.Context, teamI
 }
 
 // GetLatestDeploymentsByService returns the most recent (by first_seen)
-// deployment per service across all teams' services.
+// deployment per service for a team, across the 90-day _1h tier.
 func (r *ClickHouseRepository) GetLatestDeploymentsByService(ctx context.Context, teamID int64) ([]deploymentAggRow, error) {
-	table := spansByVersionPrefix + "_1h"
+	table := "observability." + spansByVersionPrefix + "_1h"
 	query := fmt.Sprintf(`
-		WITH deployments AS (
-			SELECT service_name                         AS service_name,
-			       service_version                      AS version,
-			       environment                          AS environment,
-			       minMerge(first_seen)                 AS first_seen,
-			       maxMerge(last_seen)                  AS last_seen,
-			       toInt64(sumMerge(request_count))     AS span_count,
-			       %s
+		WITH rollup_agg AS (
+			SELECT service_name,
+			       deployment_id,
+			       minMerge(first_seen)             AS first_seen,
+			       maxMerge(last_seen)              AS last_seen,
+			       toInt64(sumMerge(request_count)) AS span_count
 			FROM %s
 			WHERE team_id = @teamID
-			  AND service_version != ''
-			GROUP BY service_name, version, environment
+			GROUP BY service_name, deployment_id
 		),
 		latest AS (
 			SELECT service_name, max(first_seen) AS max_first_seen
-			FROM deployments
+			FROM rollup_agg
 			GROUP BY service_name
 		)
-		SELECT deployments.service_name  AS service_name,
-		       deployments.version        AS version,
-		       deployments.environment    AS environment,
-		       deployments.first_seen     AS first_seen,
-		       deployments.last_seen      AS last_seen,
-		       deployments.span_count     AS span_count,
-		       deployments.commit_sha     AS commit_sha,
-		       deployments.commit_author  AS commit_author,
-		       deployments.repo_url       AS repo_url,
-		       deployments.pr_url         AS pr_url
-		FROM deployments
+		SELECT r.service_name                        AS service_name,
+		       d.service_version                     AS version,
+		       d.environment                         AS environment,
+		       r.first_seen                          AS first_seen,
+		       r.last_seen                           AS last_seen,
+		       r.span_count                          AS span_count,
+		       d.commit_sha                          AS commit_sha,
+		       d.commit_author                       AS commit_author,
+		       d.repo_url                            AS repo_url,
+		       d.pr_url                              AS pr_url
+		FROM rollup_agg AS r
 		INNER JOIN latest
-		  ON deployments.service_name = latest.service_name
-		 AND deployments.first_seen = latest.max_first_seen
-		ORDER BY deployments.service_name ASC`, commitMetaSelectRollup, table)
+		  ON r.service_name = latest.service_name
+		 AND r.first_seen = latest.max_first_seen
+		LEFT JOIN observability.deployments FINAL AS d
+		  ON d.deployment_id = r.deployment_id
+		 AND d.team_id = @teamID
+		ORDER BY r.service_name ASC`, table)
 
 	var rows []deploymentAggRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetLatestDeploymentsByService", &rows, query,
@@ -212,20 +215,8 @@ func (r *ClickHouseRepository) GetLatestDeploymentsByService(ctx context.Context
 // service for a team. Used by alerting for fire/resolve deploy correlation.
 func (r *ClickHouseRepository) GetDeploysInRange(ctx context.Context, teamID int64, startMs, endMs int64) ([]deploymentAggRow, error) {
 	table, _ := rollup.TierTableFor(spansByVersionPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT service_name                                 AS service_name,
-		       service_version                              AS version,
-		       environment                                  AS environment,
-		       minMerge(first_seen)                         AS first_seen,
-		       maxMerge(last_seen)                          AS last_seen,
-		       toInt64(sumMerge(request_count))             AS span_count,
-		       %s
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND service_version != ''
-		GROUP BY service_name, version, environment
-		ORDER BY first_seen ASC`, commitMetaSelectRollup, table)
+	where := `team_id = @teamID AND bucket_ts BETWEEN @start AND @end`
+	query := fmt.Sprintf(deploymentsJoinSelect+" ORDER BY r.first_seen ASC", table, where)
 
 	var rows []deploymentAggRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetDeploysInRange", &rows, query,
@@ -236,24 +227,31 @@ func (r *ClickHouseRepository) GetDeploysInRange(ctx context.Context, teamID int
 	return rows, err
 }
 
-// GetVersionTraffic returns per-version request rate time series. Sourced
-// from `spans_by_version_*` — the rollup's `request_count` merged state
-// gives us the per-bucket count; we divide by the bucket width to derive
-// RPS.
+// GetVersionTraffic returns per-version request rate time series. Groups the
+// rollup by (bucket, deployment_id), then joins the dim table to expose
+// service_version as the DTO's "version" field.
 func (r *ClickHouseRepository) GetVersionTraffic(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) ([]VersionTrafficPoint, error) {
 	bs := bucketSecs(startMs, endMs)
 	table, tierStep := rollup.TierTableFor(spansByVersionPrefix, startMs, endMs)
 	stepMin := queryIntervalMinutes(tierStep, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
-		       service_version                                               AS version,
-		       sumMerge(request_count) / @bucketSeconds                      AS rps
-		FROM %s
-		WHERE team_id = @teamID
-		  AND service_name = @serviceName
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND service_version != ''
-		GROUP BY timestamp, version
+		WITH agg AS (
+			SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
+			       deployment_id,
+			       sumMerge(request_count) / @bucketSeconds                      AS rps
+			FROM %s
+			WHERE team_id = @teamID
+			  AND service_name = @serviceName
+			  AND bucket_ts BETWEEN @start AND @end
+			GROUP BY timestamp, deployment_id
+		)
+		SELECT agg.timestamp                 AS timestamp,
+		       d.service_version             AS version,
+		       agg.rps                       AS rps
+		FROM agg
+		LEFT JOIN observability.deployments FINAL AS d
+		  ON d.deployment_id = agg.deployment_id
+		 AND d.team_id = @teamID
 		ORDER BY timestamp ASC, version ASC`, table)
 	var rows []VersionTrafficPoint
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetVersionTraffic", &rows, query,
@@ -306,20 +304,27 @@ func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64
 }
 
 // GetActiveVersion returns the most-recently-seen (version, environment) for
-// a service inside the window. Uses `spans_by_version_1m` + argMax on
-// `last_seen`; 1m tier because we want exact max, not summary.
+// a service inside the window. Uses the 1m rollup (exact max, not summary),
+// joined with the deployments dim for the version string.
 func (r *ClickHouseRepository) GetActiveVersion(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (activeVersionRow, error) {
 	var rows []activeVersionRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetActiveVersion", &rows, `
-		SELECT service_version AS version,
-		       environment     AS environment
-		FROM observability.spans_by_version_1m
-		WHERE team_id = @teamID
-		  AND service_name = @serviceName
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND service_version != ''
-		GROUP BY version, environment
-		ORDER BY maxMerge(last_seen) DESC
+		WITH agg AS (
+			SELECT deployment_id,
+			       maxMerge(last_seen) AS last_seen
+			FROM observability.spans_version_1m
+			WHERE team_id = @teamID
+			  AND service_name = @serviceName
+			  AND bucket_ts BETWEEN @start AND @end
+			GROUP BY deployment_id
+		)
+		SELECT d.service_version AS version,
+		       d.environment     AS environment
+		FROM agg
+		LEFT JOIN observability.deployments FINAL AS d
+		  ON d.deployment_id = agg.deployment_id
+		 AND d.team_id = @teamID
+		ORDER BY agg.last_seen DESC
 		LIMIT 1
 	`,
 		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
@@ -369,15 +374,16 @@ func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID 
 	return rows, err
 }
 
-// GetEndpointMetricsWindow reads per-endpoint RED from `spans_rollup`. The
-// rollup's endpoint column already carries the coalesce of mat_http_route /
-// mat_http_target / name that the raw query was doing at read time.
+// GetEndpointMetricsWindow reads per-endpoint RED from the spans_red rollup.
+// spans_red keys by (service, operation, http_method, http_status_bucket);
+// the previous `endpoint` dim was a duplicate of operation_name and is now
+// surfaced as such in the DTO.
 func (r *ClickHouseRepository) GetEndpointMetricsWindow(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64, limit int) ([]endpointMetricAggRow, error) {
 	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
 	var rows []endpointMetricAggRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetEndpointMetricsWindow", &rows, fmt.Sprintf(`
 		SELECT operation_name                                                           AS operation_name,
-		       endpoint                                                                 AS endpoint_name,
+		       operation_name                                                           AS endpoint_name,
 		       http_method                                                              AS http_method,
 		       toInt64(sumMerge(request_count))                                         AS request_count,
 		       toInt64(sumMerge(error_count))                                           AS error_count,
@@ -387,7 +393,7 @@ func (r *ClickHouseRepository) GetEndpointMetricsWindow(ctx context.Context, tea
 		WHERE team_id = @teamID
 		  AND service_name = @serviceName
 		  AND bucket_ts BETWEEN @start AND @end
-		GROUP BY operation_name, endpoint_name, http_method
+		GROUP BY operation_name, http_method
 		ORDER BY request_count DESC
 		LIMIT @limit
 	`, table),

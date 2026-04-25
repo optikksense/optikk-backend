@@ -19,7 +19,7 @@ import (
 // `attributes.'host.name'` at ingest). In typical OTel setups `host.name`
 // and `k8s.node.name` agree; if they diverge on a tenant the panel returns a
 // subset. Document on the dashboard.
-const metricsK8sRollupPrefix = "observability.metrics_k8s_rollup"
+const metricsK8sRollupPrefix = rollup.FamilyMetricsK8s
 
 type Repository interface {
 	GetContainerCPU(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]containerBucketDTO, error)

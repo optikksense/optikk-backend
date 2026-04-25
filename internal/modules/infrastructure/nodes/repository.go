@@ -16,7 +16,7 @@ import (
 // Phase 6 per-host RED aggregates. Rollup is keyed by
 // (team_id, bucket_ts, host_name, pod_name, service_name) so pod + service
 // cardinality comes from `uniq()` on the grouping dims.
-const spansHostRollupPrefix = "observability.spans_host_rollup"
+const spansHostRollupPrefix = rollup.FamilySpansHost
 
 // queryIntervalMinutes returns max(tierStep, dashboardStep) so the query-time
 // step is never finer than the tier's native resolution. Matches the helper

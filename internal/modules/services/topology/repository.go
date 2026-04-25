@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	spansRollupPrefix	= "observability.spans_rollup"
-	topologyRollupPrefix	= "observability.spans_topology_rollup"
+	spansRollupPrefix	= rollup.FamilySpansRED
+	topologyRollupPrefix	= rollup.FamilySpansTopology
 )
 
 // Repository runs ClickHouse queries that power the runtime service topology.
