@@ -41,10 +41,10 @@ func StreamInterceptor(resolver TeamResolver) grpc.StreamServerInterceptor {
 
 type wrappedStream struct {
 	grpc.ServerStream
-	ctx context.Context
+	ctx	context.Context
 }
 
-func (w *wrappedStream) Context() context.Context { return w.ctx }
+func (w *wrappedStream) Context() context.Context	{ return w.ctx }
 
 func resolveFromContext(ctx context.Context, resolver TeamResolver) (int64, error) {
 	md, ok := metadata.FromIncomingContext(ctx)
@@ -58,7 +58,7 @@ func resolveFromContext(ctx context.Context, resolver TeamResolver) (int64, erro
 	apiKey := keys[0]
 	teamID, err := resolver.ResolveTeamID(ctx, apiKey)
 	if err != nil {
-		slog.Warn("ingest auth failed", slog.String("apiKey", maskKey(apiKey)), slog.Any("error", err))
+		slog.WarnContext(ctx, "ingest auth failed", slog.String("apiKey", maskKey(apiKey)), slog.Any("error", err))
 		if errors.Is(err, ErrMissingAPIKey) || errors.Is(err, ErrInvalidAPIKey) {
 			return 0, status.Error(codes.Unauthenticated, err.Error())
 		}

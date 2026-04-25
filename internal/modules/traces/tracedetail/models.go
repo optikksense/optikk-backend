@@ -10,40 +10,6 @@ type SpanEvent struct {
 	Attributes string    `json:"attributes"`
 }
 
-type SpanKindDuration struct {
-	SpanKind    string  `json:"span_kind"         ch:"span_kind"`
-	TotalDuraMs float64 `json:"total_duration_ms" ch:"total_duration_ms"`
-	SpanCount   int64   `json:"span_count"        ch:"span_count"`
-	PctOfTrace  float64 `json:"pct_of_trace"`
-}
-
-type CriticalPathSpan struct {
-	SpanID        string  `json:"span_id"        ch:"span_id"`
-	OperationName string  `json:"operation_name" ch:"operation_name"`
-	ServiceName   string  `json:"service_name"   ch:"service_name"`
-	DurationMs    float64 `json:"duration_ms"    ch:"duration_ms"`
-}
-
-// SpanSelfTime breaks down a span's self time vs total time.
-type SpanSelfTime struct {
-	SpanID        string  `json:"span_id"           ch:"span_id"`
-	OperationName string  `json:"operation_name"    ch:"operation_name"`
-	TotalDuraMs   float64 `json:"total_duration_ms" ch:"total_duration_ms"`
-	SelfTimeMs    float64 `json:"self_time_ms"      ch:"self_time_ms"`
-	ChildTimeMs   float64 `json:"child_time_ms"     ch:"child_time_ms"`
-}
-
-type ErrorPathSpan struct {
-	SpanID        string    `json:"span_id"        ch:"span_id"`
-	ParentSpanID  string    `json:"parent_span_id" ch:"parent_span_id"`
-	OperationName string    `json:"operation_name" ch:"operation_name"`
-	ServiceName   string    `json:"service_name"   ch:"service_name"`
-	Status        string    `json:"status"         ch:"status"`
-	StatusMessage string    `json:"status_message" ch:"status_message"`
-	StartTime     time.Time `json:"start_time"     ch:"start_time"`
-	DurationMs    float64   `json:"duration_ms"    ch:"duration_ms"`
-}
-
 type SpanAttributes struct {
 	SpanID           string            `json:"span_id"`
 	TraceID          string            `json:"trace_id"`
@@ -64,20 +30,17 @@ type SpanAttributes struct {
 
 	// Merged attributes map (attributesString + resourceAttrs merged for convenience)
 	Attributes map[string]string `json:"attributes,omitempty"`
+
+	// Parsed OTLP span links pointing at other traces/spans (O13).
+	Links []SpanLink `json:"links,omitempty"`
 }
 
-// FlamegraphFrame represents a single frame in a flamegraph visualization.
-// Frames are ordered depth-first with self-time computed.
-type FlamegraphFrame struct {
-	SpanID     string  `json:"span_id"`
-	Name       string  `json:"name"` // "service :: operation"
-	Service    string  `json:"service"`
-	Operation  string  `json:"operation"`
-	DurationMs float64 `json:"duration_ms"`
-	SelfTimeMs float64 `json:"self_time_ms"`
-	Level      int     `json:"level"`
-	SpanKind   string  `json:"span_kind"`
-	HasError   bool    `json:"has_error"`
+// SpanLink is a typed OpenTelemetry span link. See spans schema `links` column.
+type SpanLink struct {
+	TraceID    string            `json:"trace_id"`
+	SpanID     string            `json:"span_id"`
+	TraceState string            `json:"trace_state,omitempty"`
+	Attributes map[string]string `json:"attributes,omitempty"`
 }
 
 // TraceLog is the JSON response model for a log entry associated with a trace.

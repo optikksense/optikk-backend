@@ -39,6 +39,12 @@ import (
 	traces_errors "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errors"
 	spans_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
 	traces_latency "github.com/Optikk-Org/optikk-backend/internal/modules/traces/latency"
+	span_query "github.com/Optikk-Org/optikk-backend/internal/modules/traces/span_query"
+	trace_analytics "github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_analytics"
+	trace_paths "github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_paths"
+	trace_servicemap "github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_servicemap"
+	trace_shape "github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_shape"
+	trace_suggest "github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_suggest"
 	spans_tracedetail "github.com/Optikk-Org/optikk-backend/internal/modules/traces/tracedetail"
 	user_auth "github.com/Optikk-Org/optikk-backend/internal/modules/user/auth"
 	user_team "github.com/Optikk-Org/optikk-backend/internal/modules/user/team"
@@ -89,6 +95,12 @@ func configuredModules(
 		services_topology.NewModule(nativeQuerier, getTenant),
 		spans_explorer.NewModule(nativeQuerier, getTenant),
 		spans_tracedetail.NewModule(nativeQuerier, getTenant),
+		span_query.NewModule(nativeQuerier, getTenant),
+		trace_analytics.NewModule(nativeQuerier, getTenant),
+		trace_paths.NewModule(nativeQuerier, getTenant),
+		trace_servicemap.NewModule(nativeQuerier, getTenant),
+		trace_shape.NewModule(nativeQuerier, getTenant),
+		trace_suggest.NewModule(nativeQuerier, getTenant),
 		traces_errors.NewModule(nativeQuerier, getTenant),
 		traces_latency.NewModule(nativeQuerier, getTenant),
 		user_auth.NewModule(infraDeps.DB, getTenant, infraDeps.SessionManager, appConfig),

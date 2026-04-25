@@ -8,6 +8,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
 	"github.com/jmoiron/sqlx"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 )
 
 type Repository interface {
@@ -34,7 +35,7 @@ func NewRepository(db *sql.DB, appConfig registry.AppConfig) *MySQLRepository {
 
 func (r *MySQLRepository) FindUserByID(userID int64) (usershared.UserRecord, error) {
 	var u usershared.UserRecord
-	err := r.db.GetContext(context.Background(), &u, `
+	err := dbutil.GetSQL(context.Background(), r.db, "team.FindUserByID", &u, `
 		SELECT id, email, name, avatar_url, teams, active, last_login_at, created_at
 		FROM users
 		WHERE id = ?
@@ -45,7 +46,7 @@ func (r *MySQLRepository) FindUserByID(userID int64) (usershared.UserRecord, err
 
 func (r *MySQLRepository) FindActiveUserByID(userID int64) (usershared.UserRecord, error) {
 	var u usershared.UserRecord
-	err := r.db.GetContext(context.Background(), &u, `
+	err := dbutil.GetSQL(context.Background(), r.db, "team.FindActiveUserByID", &u, `
 		SELECT id, email, name, avatar_url, teams, active, last_login_at, created_at
 		FROM users
 		WHERE id = ? AND active = 1
@@ -56,7 +57,7 @@ func (r *MySQLRepository) FindActiveUserByID(userID int64) (usershared.UserRecor
 
 func (r *MySQLRepository) FindTeamByID(teamID int64) (usershared.TeamRecord, error) {
 	var t usershared.TeamRecord
-	err := r.db.GetContext(context.Background(), &t, `
+	err := dbutil.GetSQL(context.Background(), r.db, "team.FindTeamByID", &t, `
 		SELECT id, org_name, name, slug, description, active, color, icon, api_key, created_at
 		FROM teams
 		WHERE id = ?
@@ -67,7 +68,7 @@ func (r *MySQLRepository) FindTeamByID(teamID int64) (usershared.TeamRecord, err
 
 func (r *MySQLRepository) FindTeamBySlug(orgName, slug string) (usershared.TeamRecord, error) {
 	var t usershared.TeamRecord
-	err := r.db.GetContext(context.Background(), &t, `
+	err := dbutil.GetSQL(context.Background(), r.db, "team.FindTeamBySlug", &t, `
 		SELECT id, org_name, name, slug, description, active, color, icon, api_key, created_at
 		FROM teams
 		WHERE org_name = ? AND slug = ?
@@ -78,7 +79,7 @@ func (r *MySQLRepository) FindTeamBySlug(orgName, slug string) (usershared.TeamR
 
 func (r *MySQLRepository) FindTeamByOrgAndName(orgName, teamName string) (usershared.TeamRecord, error) {
 	var t usershared.TeamRecord
-	err := r.db.GetContext(context.Background(), &t, `
+	err := dbutil.GetSQL(context.Background(), r.db, "team.FindTeamByOrgAndName", &t, `
 		SELECT id, org_name, name, slug, description, active, color, icon, api_key, created_at
 		FROM teams
 		WHERE org_name = ? AND name = ? AND active = 1
@@ -89,7 +90,7 @@ func (r *MySQLRepository) FindTeamByOrgAndName(orgName, teamName string) (usersh
 
 func (r *MySQLRepository) ListActiveTeamsByOrganization(orgName string) ([]usershared.TeamRecord, error) {
 	var records []usershared.TeamRecord
-	err := r.db.SelectContext(context.Background(), &records, `
+	err := dbutil.SelectSQL(context.Background(), r.db, "team.ListActiveTeamsByOrganization", &records, `
 		SELECT id, org_name, name, slug, description, active, color, icon, api_key, created_at
 		FROM teams
 		WHERE org_name = ? AND active = 1
@@ -113,20 +114,19 @@ func (r *MySQLRepository) ListActiveTeamsByIDs(teamIDs []int64) ([]usershared.Te
 	}
 	query = r.db.Rebind(query)
 	var records []usershared.TeamRecord
-	if err := r.db.SelectContext(context.Background(), &records, query, args...); err != nil {
+	if err := dbutil.SelectSQL(context.Background(), r.db, "team.ListActiveTeamsByIDs", &records, query, args...); err != nil {
 		return nil, err
 	}
 	return records, nil
 }
 
 func (r *MySQLRepository) UpdateUserTeams(userID int64, teamsJSON string) error {
-	_, err := r.db.ExecContext(context.Background(),
-		`UPDATE users SET teams = ? WHERE id = ?`, teamsJSON, userID)
+	_, err := dbutil.ExecSQL(context.Background(), r.db, "team.UpdateUserTeams", `UPDATE users SET teams = ? WHERE id = ?`, teamsJSON, userID)
 	return err
 }
 
 func (r *MySQLRepository) CreateTeam(orgName, name, slug string, description, icon *string, color, apiKey string, createdAt time.Time) (int64, error) {
-	res, err := r.db.ExecContext(context.Background(), `
+	res, err := dbutil.ExecSQL(context.Background(), r.db, "team.CreateTeam", `
 		INSERT INTO teams (org_name, name, slug, description, icon, active, color, api_key, created_at)
 		VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
 	`, orgName, name, slug, description, icon, color, apiKey, createdAt)

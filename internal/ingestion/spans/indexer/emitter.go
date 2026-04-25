@@ -33,8 +33,8 @@ var chColumns = []string{
 // assembler calls Emit per completed trace; bulk batching lives inside the
 // clickhouse-go async insert path (enabled at client construction).
 type CHEmitter struct {
-	ch    clickhouse.Conn
-	query string
+	ch	clickhouse.Conn
+	query	string
 }
 
 func NewCHEmitter(ch clickhouse.Conn) *CHEmitter {
@@ -59,6 +59,27 @@ func (e *CHEmitter) Emit(ctx context.Context, row TraceIndexRow) error {
 	}
 	if err := batch.Append(rowValues(row)...); err != nil {
 		return fmt.Errorf("indexer CH append: %w", err)
+	}
+	if err := batch.Send(); err != nil {
+		return fmt.Errorf("indexer CH send: %w", err)
+	}
+	return nil
+}
+
+// EmitBatch appends multiple rows in a single PrepareBatch/Send round-trip.
+// Used by the assembler drain path on shutdown to avoid per-row overhead.
+func (e *CHEmitter) EmitBatch(ctx context.Context, rows []TraceIndexRow) error {
+	if len(rows) == 0 {
+		return nil
+	}
+	batch, err := e.ch.PrepareBatch(ctx, e.query)
+	if err != nil {
+		return fmt.Errorf("indexer CH prepare: %w", err)
+	}
+	for _, row := range rows {
+		if err := batch.Append(rowValues(row)...); err != nil {
+			return fmt.Errorf("indexer CH append: %w", err)
+		}
 	}
 	if err := batch.Send(); err != nil {
 		return fmt.Errorf("indexer CH send: %w", err)
@@ -110,8 +131,8 @@ func rowValues(r TraceIndexRow) []any {
 // offline reprocessing). Keeps the Assembler loop wired without writes.
 type LoggingEmitter struct{}
 
-func (LoggingEmitter) Emit(_ context.Context, row TraceIndexRow) error {
-	slog.Debug("indexer: emit (logging only)",
+func (LoggingEmitter) Emit(ctx context.Context, row TraceIndexRow) error {
+	slog.DebugContext(ctx, "indexer: emit (logging only)",
 		slog.String("trace_id", row.TraceID),
 		slog.Uint64("span_count", uint64(row.SpanCount)),
 		slog.Bool("has_error", row.HasError),

@@ -20,10 +20,12 @@ import (
 )
 
 const (
-	rawLogsTable       = "observability.logs"
-	logsRollupPrefix   = "observability.logs_rollup"
-	logsFacetRollupTbl = "observability.logs_facets_rollup_5m"
-	logColumns         = `timestamp, observed_timestamp, severity_text, severity_number, severity_bucket,
+	rawLogsTable		= "observability.logs"
+	// logsRollupPrefix/logsFacetRollupPrefix are rollup family constants — pass them
+	// to rollup.TierTableFor / rollup.For for tier resolution.
+	logsRollupPrefix	= "logs_volume"
+	logsFacetRollupPrefix	= "logs_facets"
+	logColumns		= `timestamp, observed_timestamp, severity_text, severity_number, severity_bucket,
 			body, trace_id, span_id, trace_flags,
 			service, host, pod, container, environment,
 			attributes_string, attributes_number, attributes_bool,
@@ -35,7 +37,7 @@ type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *Repository { return &Repository{db: db} }
+func NewRepository(db clickhouse.Conn) *Repository	{ return &Repository{db: db} }
 
 // ListLogs runs a keyset-paginated scan of raw logs.
 func (r *Repository) ListLogs(ctx context.Context, f querycompiler.Filters, limit int, cur Cursor) ([]logRowDTO, bool, error) {
@@ -50,13 +52,20 @@ func (r *Repository) ListLogs(ctx context.Context, f querycompiler.Filters, limi
 			clickhouse.Named("curTid", cur.TraceID),
 		)
 	}
+	// PREWHERE on (team_id, ts_bucket_start) prunes partitions before the
+	// rest of the predicates run — these two columns lead the MergeTree
+	// sort key so the engine skips whole granules. The same predicates
+	// still appear inside `where`; CH's optimiser dedupes at plan time.
 	query := fmt.Sprintf(
-		`SELECT %s FROM %s WHERE %s ORDER BY timestamp DESC, observed_timestamp DESC, trace_id DESC LIMIT @pgLimit`,
+		`SELECT %s FROM %s
+		PREWHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
+		WHERE %s
+		ORDER BY timestamp DESC, observed_timestamp DESC, trace_id DESC LIMIT @pgLimit`,
 		logColumns, rawLogsTable, where,
 	)
 	args = append(args, clickhouse.Named("pgLimit", uint64(limit+1)))
 	var rows []logRowDTO
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "logs.ListLogs", &rows, query, args...); err != nil {
 		return nil, false, err
 	}
 	hasMore := len(rows) > limit
@@ -64,7 +73,7 @@ func (r *Repository) ListLogs(ctx context.Context, f querycompiler.Filters, limi
 		rows = rows[:limit]
 	}
 	if os.Getenv("OPTIKK_DEBUG_LOGS_LIST") == "1" {
-		slog.Info("logs ListLogs",
+		slog.InfoContext(ctx, "logs ListLogs",
 			"team_id", f.TeamID,
 			"start_ms", f.StartMs,
 			"end_ms", f.EndMs,
@@ -82,17 +91,19 @@ func (r *Repository) GetByID(ctx context.Context, teamID int64, traceID, spanID 
 	// edge cases; list ids are built from scanned UnixNano, so this predicate
 	// matches the encoded id reliably.
 	query := fmt.Sprintf(
-		`SELECT %s FROM %s WHERE team_id = @teamID AND trace_id = @traceID AND span_id = @spanID AND toUnixTimestamp64Nano(timestamp) = @tsNs LIMIT 1`,
+		`SELECT %s FROM %s
+		PREWHERE team_id = @teamID AND trace_id = @traceID AND span_id = @spanID
+		WHERE toUnixTimestamp64Nano(timestamp) = @tsNs LIMIT 1`,
 		logColumns, rawLogsTable,
 	)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("traceID", traceID),
 		clickhouse.Named("spanID", spanID),
 		clickhouse.Named("tsNs", tsNs),
 	}
 	var rows []logRowDTO
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "explorer.GetByID", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	if len(rows) == 0 {

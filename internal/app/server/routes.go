@@ -8,7 +8,9 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/middleware"
+	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
@@ -29,15 +31,22 @@ func (a *App) Router() *gin.Engine {
 // setupMetricsRoute exposes Prometheus-format runtime metrics (go_*, process_*,
 // promhttp_*) at /metrics. A local Prometheus scrapes this; an external target
 // (e.g. Grafana Cloud) is configured via prometheus/prometheus.yml remote_write.
-// See docs/observability.md.
+// See docs/ops/observability.md.
 func (a *App) setupMetricsRoute(r *gin.Engine) {
-	r.GET("/metrics", gin.WrapH(promhttp.Handler()))
+	r.GET("/metrics", gin.WrapH(promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{DisableCompression: true})))
 }
 
 func (a *App) setupGlobalMiddleware(r *gin.Engine) {
 	r.Use(middleware.ErrorRecovery())
+	// HTTPMetricsMiddleware must sit before handlers so it observes status +
+	// duration, but after ErrorRecovery so panics still surface in metrics
+	// as 5xx via the recovered response.
+	r.Use(middleware.HTTPMetricsMiddleware())
 	r.Use(middleware.CORSMiddleware(a.Config.Server.AllowedOrigins))
-	r.Use(middleware.BodyLimitMiddleware(10 * 1024 * 1024)) // 10 MB
+	r.Use(middleware.BodyLimitMiddleware(10 * 1024 * 1024))	// 10 MB
+	// gzip the response body for list/facet/trend payloads; default
+	// compression level keeps CPU overhead minimal on small payloads.
+	r.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/metrics"})))
 }
 
 func (a *App) setupHealthRoutes(r *gin.Engine) {
@@ -102,7 +111,7 @@ func (a *App) probeReady(ctx context.Context) *healthResult {
 		return res
 	}
 	if err := a.Infra.CH.Ping(ctx); err != nil {
-		slog.Error("health check failed", slog.String("service", "clickhouse"), slog.String("error", err.Error()))
+		slog.ErrorContext(ctx, "health check failed", slog.String("service", "clickhouse"), slog.String("error", err.Error()))
 		res.chErr = err.Error()
 		return res
 	}
@@ -111,12 +120,10 @@ func (a *App) probeReady(ctx context.Context) *healthResult {
 		return res
 	}
 	if err := a.Infra.RedisClient.Ping(ctx).Err(); err != nil {
-		slog.Error("health check failed", slog.String("service", "redis"), slog.String("error", err.Error()))
+		slog.ErrorContext(ctx, "health check failed", slog.String("service", "redis"), slog.String("error", err.Error()))
 		res.redisErr = err.Error()
 		return res
 	}
 	res.ready = true
 	return res
 }
-
-

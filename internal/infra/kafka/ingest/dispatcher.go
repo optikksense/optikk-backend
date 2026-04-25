@@ -28,7 +28,7 @@ type Dispatcher[T any] struct {
 	factory WorkerFactory[T]
 
 	// pauseDepth triggers Pause once a worker's inbox goes above this. Set via
-	// DefaultDispatcherOptions. Pause/Resume are keyed by (topic, partition).
+	// DispatcherOptions. Pause/Resume are keyed by (topic, partition).
 	pauseDepth  int
 	resumeDepth int
 
@@ -44,17 +44,19 @@ type partKey struct {
 	partition int32
 }
 
-// DispatcherOptions tunes backpressure thresholds.
+// DispatcherOptions tunes backpressure thresholds. Callers typically derive
+// these from the worker queue size times the pause/resume ratios carried on
+// IngestPipelineConfig.
 type DispatcherOptions struct {
 	PauseDepth  int
 	ResumeDepth int
 }
 
 // DefaultDispatcherOptions pauses at 80% and resumes at 40% of the default
-// worker queue size (1024). Those percentages keep Pause/Resume from
+// worker queue size (4096). Those percentages keep Pause/Resume from
 // flapping under steady load.
 func DefaultDispatcherOptions() DispatcherOptions {
-	return DispatcherOptions{PauseDepth: 819, ResumeDepth: 410}
+	return DispatcherOptions{PauseDepth: 3276, ResumeDepth: 1638}
 }
 
 // NewDispatcher constructs a dispatcher around an existing kgo.Client.
@@ -87,7 +89,7 @@ func (d *Dispatcher[T]) Run(ctx context.Context) {
 			}
 		}
 		fetches.EachError(func(topic string, p int32, err error) {
-			slog.Warn("ingest dispatcher: partition fetch error",
+			slog.WarnContext(ctx, "ingest dispatcher: partition fetch error",
 				slog.String("signal", d.name),
 				slog.String("topic", topic),
 				slog.Int("partition", int(p)),
@@ -106,13 +108,22 @@ func (d *Dispatcher[T]) route(ctx context.Context, p kgo.FetchTopicPartition) {
 	}
 	w := d.workerFor(ctx, partKey{p.Topic, p.Partition})
 	for _, r := range p.Records {
-		payload, err := d.decode(r)
-		if err != nil {
-			slog.Warn("ingest dispatcher: decode dropped one record",
-				slog.String("signal", d.name), slog.Any("error", err))
-			continue
-		}
-		w.Inbox() <- Item[T]{Payload: payload, Raw: r}
+		d.decodeAndDispatch(ctx, r, w)
+	}
+}
+
+func (d *Dispatcher[T]) decodeAndDispatch(ctx context.Context, r *kgo.Record, w *Worker[T]) {
+	payload, err := d.decode(r)
+	if err != nil {
+		slog.WarnContext(ctx, "ingest dispatcher: decode dropped one record",
+			slog.String("signal", d.name), slog.Any("error", err))
+		return
+	}
+	select {
+	case w.Inbox() <- Item[T]{Payload: payload, Raw: r}:
+	case <-ctx.Done():
+		// Dispatcher is shutting down; drop this record.
+		// At-least-once: offset not committed, will be re-consumed on next startup.
 	}
 }
 
@@ -123,6 +134,7 @@ func (d *Dispatcher[T]) workerFor(parent context.Context, k partKey) *Worker[T] 
 		return w
 	}
 	w := d.factory()
+	w.SetPartition(k.partition)
 	d.workers[k] = w
 	wctx, cancel := context.WithCancel(parent)
 	d.cancels[k] = cancel
@@ -150,6 +162,7 @@ func (d *Dispatcher[T]) evaluatePauseResume() {
 			d.paused[k] = struct{}{}
 		}
 	}
+	PausedPartitions.WithLabelValues(d.name).Set(float64(len(d.paused)))
 }
 
 func (d *Dispatcher[T]) shutdown() {

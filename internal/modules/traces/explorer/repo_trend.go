@@ -21,7 +21,7 @@ func (r *Repository) Trend(ctx context.Context, f querycompiler.Filters) ([]Tren
 		FROM %s PREWHERE %s WHERE %s GROUP BY time_bucket ORDER BY time_bucket ASC`,
 		bucketExpr, tracesIndexTable, compiled.PreWhere, compiled.Where,
 	)
-	rows, err := r.db.Query(dbutil.ExplorerCtx(ctx), query, compiled.Args...)
+	rows, err := dbutil.QueryCH(dbutil.ExplorerCtx(ctx), r.db, "explorer.Trend", query, compiled.Args...)
 	if err != nil {
 		return nil, err
 	}

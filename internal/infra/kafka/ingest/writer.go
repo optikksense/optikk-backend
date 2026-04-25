@@ -28,7 +28,7 @@ func DefaultWriterConfig() WriterConfig {
 
 // BatchSender is the signal-specific CH insert closure. Return nil on success.
 // Callers are expected to construct a fresh CH batch inside the closure each
-// call so retries are safe.
+// call so retries are safe. Wrapped by the instrumented attempt().
 type BatchSender[T any] func(ctx context.Context, items []T) error
 
 // DLQSink is called once when every retry fails. Implementation writes the
@@ -42,10 +42,11 @@ type Writer[T any] struct {
 	cfg  WriterConfig
 	send BatchSender[T]
 	dlq  DLQSink[T]
-	name string // "logs" | "spans" for logs
+	name string // "logs" | "spans" | "metrics"
 }
 
-// NewWriter constructs a retrying writer. name labels log lines.
+// NewWriter constructs a retrying writer. name labels log lines AND every
+// Prometheus metric emitted from the shared ingest.metrics collectors.
 func NewWriter[T any](name string, cfg WriterConfig, send BatchSender[T], dlq DLQSink[T]) *Writer[T] {
 	if cfg.MaxAttempts == 0 {
 		cfg = DefaultWriterConfig()
@@ -63,9 +64,14 @@ func (w *Writer[T]) Write(ctx context.Context, items []T) error {
 	}
 	var last error
 	for attempt := 1; attempt <= w.cfg.MaxAttempts; attempt++ {
+		if attempt > 1 {
+			RetryAttempts.WithLabelValues(w.name).Inc()
+		}
 		if err := w.attempt(ctx, items); err == nil {
+			CHRowsTotal.WithLabelValues(w.name, "ok").Add(float64(len(items)))
 			return nil
 		} else {
+			CHRowsTotal.WithLabelValues(w.name, "err").Add(float64(len(items)))
 			last = err
 			if errors.Is(err, context.Canceled) {
 				return err
@@ -75,20 +81,30 @@ func (w *Writer[T]) Write(ctx context.Context, items []T) error {
 			}
 		}
 	}
-	slog.Error("ingest writer: exhausted retries; routing to DLQ",
+	slog.ErrorContext(ctx, "ingest writer: exhausted retries; routing to DLQ",
 		slog.String("signal", w.name),
 		slog.Int("items", len(items)),
 		slog.Any("error", last))
+	DLQSent.WithLabelValues(w.name, reasonCode(last)).Add(float64(len(items)))
 	if w.dlq != nil {
 		w.dlq(ctx, items, last)
 	}
 	return nil
 }
 
+// attempt runs one CH batch send with a per-attempt timeout + duration metric.
 func (w *Writer[T]) attempt(ctx context.Context, items []T) error {
 	attemptCtx, cancel := context.WithTimeout(ctx, w.cfg.Timeout)
 	defer cancel()
-	return w.send(attemptCtx, items)
+	start := time.Now()
+	err := w.send(attemptCtx, items)
+	elapsed := time.Since(start).Seconds()
+	result := "ok"
+	if err != nil {
+		result = "err"
+	}
+	CHInsertDuration.WithLabelValues(w.name, result).Observe(elapsed)
+	return err
 }
 
 // backoff returns the sleep for attempt N (1-based): base * 2^(N-1), capped.
@@ -98,6 +114,22 @@ func (w *Writer[T]) backoff(attempt int) time.Duration {
 		return w.cfg.MaxBackoff
 	}
 	return d
+}
+
+// reasonCode maps a retry-exhaustion error to a short, low-cardinality label
+// for the DLQ counter. Unknown errors roll up under "other" so the counter
+// can't blow up Prometheus cardinality when CH returns unique messages.
+func reasonCode(err error) string {
+	switch {
+	case err == nil:
+		return "ok"
+	case errors.Is(err, context.DeadlineExceeded):
+		return "timeout"
+	case errors.Is(err, context.Canceled):
+		return "canceled"
+	default:
+		return "other"
+	}
 }
 
 func sleepBackoff(ctx context.Context, d time.Duration) {

@@ -3,6 +3,8 @@ package tracedetail
 import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_paths"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_shape"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -15,22 +17,21 @@ func DefaultConfig() Config {
 	return Config{Enabled: true}
 }
 
-func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *TraceDetailHandler, sh *SpansHandler) {
+func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *TraceDetailHandler, sh *SpansHandler, bh *BundleHandler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}
 	v1.GET("/traces/:traceId/span-events", h.GetSpanEvents)
-	v1.GET("/traces/:traceId/span-kind-breakdown", h.GetSpanKindBreakdown)
-	v1.GET("/traces/:traceId/critical-path", h.GetCriticalPath)
-	v1.GET("/traces/:traceId/span-self-times", h.GetSpanSelfTimes)
-	v1.GET("/traces/:traceId/error-path", h.GetErrorPath)
 	v1.GET("/traces/:traceId/spans/:spanId/attributes", h.GetSpanAttributes)
-	v1.GET("/traces/:traceId/flamegraph", h.GetFlamegraphData)
+	v1.GET("/traces/:traceId/spans/:spanId/logs", h.GetSpanLogs)
 	v1.GET("/traces/:traceId/logs", h.GetTraceLogs)
 	v1.GET("/traces/:traceId/related", h.GetRelatedTraces)
 	if sh != nil {
 		v1.GET("/traces/:traceId/spans", sh.GetTraceSpans)
 		v1.GET("/spans/:spanId/tree", sh.GetSpanTree)
+	}
+	if bh != nil {
+		v1.GET("/traces/:traceId/bundle", bh.GetBundle)
 	}
 }
 
@@ -41,21 +42,28 @@ func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) 
 }
 
 type traceDetailModule struct {
-	handler      *TraceDetailHandler
-	spansHandler *SpansHandler
+	handler       *TraceDetailHandler
+	spansHandler  *SpansHandler
+	bundleHandler *BundleHandler
 }
 
 func (m *traceDetailModule) Name() string                      { return "traceDetail" }
 func (m *traceDetailModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
 func (m *traceDetailModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
-	m.handler = &TraceDetailHandler{
+	svc := NewService(NewRepository(nativeQuerier))
+	spans := NewTraceSpansService(nativeQuerier)
+	m.handler = &TraceDetailHandler{DBTenant: modulecommon.DBTenant{GetTenant: getTenant}, Service: svc}
+	m.spansHandler = NewSpansHandler(getTenant, spans)
+	// Bundle composes the five always-on reads from sibling trace_* modules.
+	paths := trace_paths.NewService(trace_paths.NewRepository(nativeQuerier))
+	shape := trace_shape.NewService(trace_shape.NewRepository(nativeQuerier))
+	m.bundleHandler = &BundleHandler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  NewService(NewRepository(nativeQuerier)),
+		Service:  NewBundleService(svc, spans, paths, shape),
 	}
-	m.spansHandler = NewSpansHandler(getTenant, NewTraceSpansService(nativeQuerier))
 }
 
 func (m *traceDetailModule) RegisterRoutes(group *gin.RouterGroup) {
-	RegisterRoutes(DefaultConfig(), group, m.handler, m.spansHandler)
+	RegisterRoutes(DefaultConfig(), group, m.handler, m.spansHandler, m.bundleHandler)
 }

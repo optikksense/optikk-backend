@@ -3,11 +3,8 @@ package metrics
 import (
 	"context"
 	"fmt"
-	"math"
 	"sort"
 	"time"
-
-	"github.com/Optikk-Org/optikk-backend/internal/shared/exprparser"
 )
 
 type Service interface {
@@ -15,7 +12,6 @@ type Service interface {
 	ListTagKeys(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]TagKeyResult, error)
 	ListTagValues(ctx context.Context, teamID int64, startMs, endMs int64, metricName, tagKey string) ([]TagValueResult, error)
 	ListTags(ctx context.Context, teamID int64, startMs, endMs int64, metricName, tagKey string) ([]FETagEntry, error)
-	Query(ctx context.Context, teamID int64, startMs, endMs int64, req ExplorerQueryRequest) (*ExplorerQueryResult, error)
 	QueryForFrontend(ctx context.Context, teamID int64, req FEQueryRequest) (*FEQueryResponse, error)
 }
 
@@ -72,34 +68,6 @@ func (s *MetricsExplorerService) ListTags(ctx context.Context, teamID int64, sta
 		tags = append(tags, FETagEntry{Key: k.TagKey, Values: vals})
 	}
 	return tags, nil
-}
-
-func (s *MetricsExplorerService) Query(ctx context.Context, teamID int64, startMs, endMs int64, req ExplorerQueryRequest) (*ExplorerQueryResult, error) {
-	queryResults := make(map[string][]SeriesResult, len(req.Queries))
-
-	for _, q := range req.Queries {
-		points, err := s.repo.QueryTimeseries(ctx, teamID, startMs, endMs, q, "")
-		if err != nil {
-			return nil, fmt.Errorf("query %q: %w", q.Name, err)
-		}
-		series := assembleSeriesFromPoints(q, points)
-		queryResults[q.Name] = series
-	}
-
-	var allSeries []SeriesResult
-	for _, series := range queryResults {
-		allSeries = append(allSeries, series...)
-	}
-
-	for _, f := range req.Formulas {
-		formulaSeries, err := evaluateFormula(f, queryResults)
-		if err != nil {
-			return nil, fmt.Errorf("formula %q: %w", f.Name, err)
-		}
-		allSeries = append(allSeries, formulaSeries...)
-	}
-
-	return &ExplorerQueryResult{Series: allSeries}, nil
 }
 
 // QueryForFrontend executes queries and returns results in the frontend-expected format.
@@ -253,57 +221,4 @@ func assembleSeriesFromPoints(q MetricQuery, points []TimeseriesPoint) []SeriesR
 		GroupTags:  map[string]string{},
 		Datapoints: datapoints,
 	}}
-}
-
-// evaluateFormula computes a formula across query results.
-func evaluateFormula(f Formula, queryResults map[string][]SeriesResult) ([]SeriesResult, error) {
-	refs := exprparser.ExtractVariables(f.Expression)
-	if len(refs) == 0 {
-		return nil, fmt.Errorf("no query references found in expression %q", f.Expression)
-	}
-
-	valueMaps := make(map[string]map[string]float64, len(refs))
-	var timestamps []string
-
-	for _, ref := range refs {
-		series, ok := queryResults[ref]
-		if !ok || len(series) == 0 {
-			return nil, fmt.Errorf("referenced query %q not found or empty", ref)
-		}
-		vm := make(map[string]float64, len(series[0].Datapoints))
-		for _, dp := range series[0].Datapoints {
-			vm[dp.Timestamp] = dp.Value
-		}
-		valueMaps[ref] = vm
-
-		if timestamps == nil {
-			timestamps = make([]string, len(series[0].Datapoints))
-			for i, dp := range series[0].Datapoints {
-				timestamps[i] = dp.Timestamp
-			}
-		}
-	}
-
-	datapoints := make([]Datapoint, 0, len(timestamps))
-	for _, ts := range timestamps {
-		val, err := exprparser.Evaluate(f.Expression, func(ref string) float64 {
-			if vm, ok := valueMaps[ref]; ok {
-				return vm[ts]
-			}
-			return 0
-		})
-		if err != nil {
-			continue
-		}
-		if math.IsNaN(val) || math.IsInf(val, 0) {
-			val = 0
-		}
-		datapoints = append(datapoints, Datapoint{Timestamp: ts, Value: val})
-	}
-
-	return []SeriesResult{{
-		Name:       f.Name,
-		GroupTags:  map[string]string{},
-		Datapoints: datapoints,
-	}}, nil
 }

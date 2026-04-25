@@ -16,9 +16,9 @@ import (
 // Phase 6 per-pod RED aggregates. Rollup keyed by
 // (team_id, bucket_ts, host_name, pod_name, service_name).
 const (
-	spansHostRollupPrefix = "observability.spans_host_rollup"
-	maxFleetPods          = 200
-	defaultUnknown        = "unknown"
+	spansHostRollupPrefix	= rollup.FamilySpansHost
+	maxFleetPods		= 200
+	defaultUnknown		= "unknown"
 )
 
 // queryIntervalMinutes returns max(tierStep, dashboardStep). Matches the
@@ -55,14 +55,14 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 type fleetPodRowDTO struct {
-	PodName       string    `ch:"pod_name"`
-	HostName      string    `ch:"host_name"`
-	ServicesCSV   string    `ch:"services_csv"`
-	RequestCount  uint64    `ch:"request_count"`
-	ErrorCount    uint64    `ch:"error_count"`
-	DurationMsSum float64   `ch:"duration_ms_sum"`
-	P95Latency    float64   `ch:"p95_latency"`
-	LastSeen      time.Time `ch:"last_seen"`
+	PodName		string		`ch:"pod_name"`
+	HostName	string		`ch:"host_name"`
+	ServicesCSV	string		`ch:"services_csv"`
+	RequestCount	uint64		`ch:"request_count"`
+	ErrorCount	uint64		`ch:"error_count"`
+	DurationMsSum	float64		`ch:"duration_ms_sum"`
+	P95Latency	float64		`ch:"p95_latency"`
+	LastSeen	time.Time	`ch:"last_seen"`
 }
 
 func (r *ClickHouseRepository) GetFleetPods(ctx context.Context, teamID int64, startMs, endMs int64) ([]FleetPod, error) {
@@ -85,13 +85,13 @@ func (r *ClickHouseRepository) GetFleetPods(ctx context.Context, teamID int64, s
 		LIMIT `+strconv.Itoa(maxFleetPods), defaultUnknown, table)
 
 	params := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 - domain-bounded
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115 - domain-bounded
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
 
 	var dtos []fleetPodRowDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, params...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "fleet.GetFleetPods", &dtos, query, params...); err != nil {
 		return nil, err
 	}
 
@@ -106,15 +106,15 @@ func (r *ClickHouseRepository) GetFleetPods(ctx context.Context, teamID int64, s
 			avgLatency = d.DurationMsSum / float64(d.RequestCount)
 		}
 		out[i] = FleetPod{
-			PodName:      d.PodName,
-			Host:         d.HostName,
-			Services:     splitCSV(d.ServicesCSV),
-			RequestCount: int64(d.RequestCount), //nolint:gosec // domain-bounded
-			ErrorCount:   int64(d.ErrorCount),   //nolint:gosec // domain-bounded
-			ErrorRate:    errorRate,
-			AvgLatencyMs: avgLatency,
-			P95LatencyMs: d.P95Latency,
-			LastSeen:     d.LastSeen.Format(time.RFC3339),
+			PodName:	d.PodName,
+			Host:		d.HostName,
+			Services:	splitCSV(d.ServicesCSV),
+			RequestCount:	int64(d.RequestCount),	//nolint:gosec // domain-bounded
+			ErrorCount:	int64(d.ErrorCount),	//nolint:gosec // domain-bounded
+			ErrorRate:	errorRate,
+			AvgLatencyMs:	avgLatency,
+			P95LatencyMs:	d.P95Latency,
+			LastSeen:	d.LastSeen.Format(time.RFC3339),
 		}
 	}
 	return out, nil

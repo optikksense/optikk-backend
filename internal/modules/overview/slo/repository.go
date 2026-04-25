@@ -17,8 +17,8 @@ import (
 // merge op, so the query reduces to `sumMerge` and `quantilesTDigestWeightedMerge`.
 
 const (
-	serviceNameFilter = " AND service_name = @serviceName"
-	spansRollupPrefix = "observability.spans_rollup"
+	serviceNameFilter	= " AND service_name = @serviceName"
+	spansRollupPrefix	= rollup.FamilySpansRED
 )
 
 type Repository interface {
@@ -38,19 +38,19 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 
 // BurnDownPoint represents a single point on the error budget burn-down chart.
 type BurnDownPoint struct {
-	Timestamp               string  `json:"timestamp"`
-	ErrorBudgetRemainingPct float64 `json:"error_budget_remaining_pct"`
-	CumulativeErrorCount    int64   `json:"cumulative_error_count"`
-	CumulativeRequestCount  int64   `json:"cumulative_request_count"`
+	Timestamp		string	`json:"timestamp"`
+	ErrorBudgetRemainingPct	float64	`json:"error_budget_remaining_pct"`
+	CumulativeErrorCount	int64	`json:"cumulative_error_count"`
+	CumulativeRequestCount	int64	`json:"cumulative_request_count"`
 }
 
 // BurnRate holds the current fast and slow burn rates.
 type BurnRate struct {
-	FastBurnRate    float64 `json:"fast_burn_rate"`
-	SlowBurnRate    float64 `json:"slow_burn_rate"`
-	FastWindow      string  `json:"fast_window"`
-	SlowWindow      string  `json:"slow_window"`
-	BudgetRemaining float64 `json:"budget_remaining_pct"`
+	FastBurnRate	float64	`json:"fast_burn_rate"`
+	SlowBurnRate	float64	`json:"slow_burn_rate"`
+	FastWindow	string	`json:"fast_window"`
+	SlowWindow	string	`json:"slow_window"`
+	BudgetRemaining	float64	`json:"budget_remaining_pct"`
 }
 
 func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
@@ -74,7 +74,7 @@ func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 
 func rollupParams(teamID int64, startMs, endMs int64) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 — tenant ID fits uint32
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115 — tenant ID fits uint32
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
@@ -83,10 +83,10 @@ func rollupParams(teamID int64, startMs, endMs int64) []any {
 // summaryRawRow scans the rollup-merge output; Summary's derived fields
 // (availability, avg) are computed in Go to avoid SQL-side conditionals.
 type summaryRawRow struct {
-	RequestCount  uint64  `ch:"request_count"`
-	ErrorCount    uint64  `ch:"error_count"`
-	DurationMsSum float64 `ch:"duration_ms_sum"`
-	P95LatencyMs  float64 `ch:"p95_latency_ms"`
+	RequestCount	uint64	`ch:"request_count"`
+	ErrorCount	uint64	`ch:"error_count"`
+	DurationMsSum	float64	`ch:"duration_ms_sum"`
+	P95LatencyMs	float64	`ch:"p95_latency_ms"`
 }
 
 func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (Summary, error) {
@@ -110,8 +110,8 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		return Summary{}, err
 	}
 
-	total := int64(row.RequestCount) //nolint:gosec // domain-bounded
-	errs := int64(row.ErrorCount)    //nolint:gosec // domain-bounded
+	total := int64(row.RequestCount)	//nolint:gosec // domain-bounded
+	errs := int64(row.ErrorCount)		//nolint:gosec // domain-bounded
 	availability := 100.0
 	if total > 0 {
 		availability = float64(total-errs) * 100.0 / float64(total)
@@ -122,20 +122,20 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 	}
 
 	return Summary{
-		TotalRequests:       total,
-		ErrorCount:          errs,
-		AvailabilityPercent: availability,
-		AvgLatencyMs:        avg,
-		P95LatencyMs:        utils.SanitizeFloat(row.P95LatencyMs),
+		TotalRequests:		total,
+		ErrorCount:		errs,
+		AvailabilityPercent:	availability,
+		AvgLatencyMs:		avg,
+		P95LatencyMs:		utils.SanitizeFloat(row.P95LatencyMs),
 	}, nil
 }
 
 // timeSliceRawRow is the per-bucket rollup merge output.
 type timeSliceRawRow struct {
-	TimeBucket    time.Time `ch:"time_bucket"`
-	RequestCount  uint64    `ch:"request_count"`
-	ErrorCount    uint64    `ch:"error_count"`
-	DurationMsSum float64   `ch:"duration_ms_sum"`
+	TimeBucket	time.Time	`ch:"time_bucket"`
+	RequestCount	uint64		`ch:"request_count"`
+	ErrorCount	uint64		`ch:"error_count"`
+	DurationMsSum	float64		`ch:"duration_ms_sum"`
 }
 
 func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]TimeSlice, error) {
@@ -160,14 +160,14 @@ func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, 
 		ORDER BY time_bucket ASC`
 
 	var rows []timeSliceRawRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "slo.GetTimeSeries", &rows, query, args...); err != nil {
 		return nil, err
 	}
 
 	slices := make([]TimeSlice, len(rows))
 	for i, row := range rows {
-		total := int64(row.RequestCount) //nolint:gosec // domain-bounded
-		errs := int64(row.ErrorCount)    //nolint:gosec // domain-bounded
+		total := int64(row.RequestCount)	//nolint:gosec // domain-bounded
+		errs := int64(row.ErrorCount)		//nolint:gosec // domain-bounded
 		availability := 100.0
 		if total > 0 {
 			availability = float64(total-errs) * 100.0 / float64(total)
@@ -178,11 +178,11 @@ func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, 
 			avgPtr = &avg
 		}
 		slices[i] = TimeSlice{
-			Timestamp:           row.TimeBucket.UTC().Format(time.RFC3339),
-			RequestCount:        total,
-			ErrorCount:          errs,
-			AvailabilityPercent: availability,
-			AvgLatencyMs:        avgPtr,
+			Timestamp:		row.TimeBucket.UTC().Format(time.RFC3339),
+			RequestCount:		total,
+			ErrorCount:		errs,
+			AvailabilityPercent:	availability,
+			AvgLatencyMs:		avgPtr,
 		}
 	}
 	return slices, nil
@@ -190,9 +190,9 @@ func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, 
 
 // burnDownRawRow is the per-bucket request/error count from the rollup.
 type burnDownRawRow struct {
-	TimeBucket   time.Time `ch:"time_bucket"`
-	RequestCount uint64    `ch:"request_count"`
-	ErrorCount   uint64    `ch:"error_count"`
+	TimeBucket	time.Time	`ch:"time_bucket"`
+	RequestCount	uint64		`ch:"request_count"`
+	ErrorCount	uint64		`ch:"error_count"`
 }
 
 func (r *ClickHouseRepository) GetBurnDown(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]BurnDownPoint, error) {
@@ -216,7 +216,7 @@ func (r *ClickHouseRepository) GetBurnDown(ctx context.Context, teamID int64, st
 		ORDER BY time_bucket ASC`
 
 	var rows []burnDownRawRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "slo.GetBurnDown", &rows, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -224,8 +224,8 @@ func (r *ClickHouseRepository) GetBurnDown(ctx context.Context, teamID int64, st
 	var cumErrors, cumRequests int64
 	points := make([]BurnDownPoint, len(rows))
 	for i, row := range rows {
-		cumErrors += int64(row.ErrorCount)     //nolint:gosec // domain-bounded
-		cumRequests += int64(row.RequestCount) //nolint:gosec // domain-bounded
+		cumErrors += int64(row.ErrorCount)	//nolint:gosec // domain-bounded
+		cumRequests += int64(row.RequestCount)	//nolint:gosec // domain-bounded
 
 		var remaining float64
 		if cumRequests > 0 && totalBudget > 0 {
@@ -242,10 +242,10 @@ func (r *ClickHouseRepository) GetBurnDown(ctx context.Context, teamID int64, st
 		}
 
 		points[i] = BurnDownPoint{
-			Timestamp:               row.TimeBucket.UTC().Format(time.RFC3339),
-			ErrorBudgetRemainingPct: remaining,
-			CumulativeErrorCount:    cumErrors,
-			CumulativeRequestCount:  cumRequests,
+			Timestamp:			row.TimeBucket.UTC().Format(time.RFC3339),
+			ErrorBudgetRemainingPct:	remaining,
+			CumulativeErrorCount:		cumErrors,
+			CumulativeRequestCount:		cumRequests,
 		}
 	}
 	return points, nil
@@ -267,17 +267,17 @@ func (r *ClickHouseRepository) GetBurnRate(ctx context.Context, teamID int64, st
 	}
 
 	return &BurnRate{
-		FastBurnRate:    fastRate,
-		SlowBurnRate:    slowRate,
-		FastWindow:      "5m",
-		SlowWindow:      "1h",
-		BudgetRemaining: remainingErrorBudgetPercent(summary.AvailabilityPercent),
+		FastBurnRate:		fastRate,
+		SlowBurnRate:		slowRate,
+		FastWindow:		"5m",
+		SlowWindow:		"1h",
+		BudgetRemaining:	remainingErrorBudgetPercent(summary.AvailabilityPercent),
 	}, nil
 }
 
 type errorRateRawRow struct {
-	RequestCount uint64 `ch:"request_count"`
-	ErrorCount   uint64 `ch:"error_count"`
+	RequestCount	uint64	`ch:"request_count"`
+	ErrorCount	uint64	`ch:"error_count"`
 }
 
 func (r *ClickHouseRepository) errorRateForWindow(ctx context.Context, teamID int64, minutes int, serviceName string) (float64, error) {
@@ -292,7 +292,7 @@ func (r *ClickHouseRepository) errorRateForWindow(ctx context.Context, teamID in
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @since AND @nowTs`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("since", since),
 		clickhouse.Named("nowTs", now),
 	}

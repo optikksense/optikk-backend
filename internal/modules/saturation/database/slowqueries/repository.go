@@ -9,7 +9,7 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
@@ -65,7 +65,7 @@ func (r *ClickHouseRepository) GetSlowQueryPatterns(ctx context.Context, teamID 
 	)
 
 	var rows []SlowQueryPattern
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "slowqueries.GetSlowQueryPatterns", &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -98,7 +98,7 @@ func (r *ClickHouseRepository) GetSlowestCollections(ctx context.Context, teamID
 	)
 	args = append(args, fargs...)
 	var rows []SlowCollectionRow
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "slowqueries.GetSlowestCollections", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -136,7 +136,7 @@ func (r *ClickHouseRepository) GetSlowQueryRate(ctx context.Context, teamID int6
 	)
 	args = append(args, fargs...)
 	var rows []SlowRatePoint
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "slowqueries.GetSlowQueryRate", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -173,7 +173,7 @@ func (r *ClickHouseRepository) GetP99ByQueryText(ctx context.Context, teamID int
 	)
 
 	var rows []P99ByQueryText
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "slowqueries.GetP99ByQueryText", &rows, query, append(shared.BaseParams(teamID, startMs, endMs), fargs...)...); err != nil {
 		return nil, err
 	}
 	return rows, nil

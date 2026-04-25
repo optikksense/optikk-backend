@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	metricsGaugesRollupPrefix = "observability.metrics_gauges_rollup"
+	metricsGaugesRollupPrefix = rollup.FamilyMetricsGauges
 )
 
 // queryIntervalMinutes returns the group-by step (in minutes) for rollup reads.
@@ -63,7 +63,7 @@ func bucket(startMs, endMs int64) string {
 
 func (r *ClickHouseRepository) queryDirectionBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]directionBucketDTO, error) {
 	var rows []directionBucketDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "disk.queryDirectionBuckets", &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -71,7 +71,7 @@ func (r *ClickHouseRepository) queryDirectionBuckets(ctx context.Context, query 
 
 func (r *ClickHouseRepository) queryResourceBuckets(ctx context.Context, query string, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
 	var rows []resourceBucketDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "disk.queryResourceBuckets", &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -92,7 +92,7 @@ func (r *ClickHouseRepository) queryDirectionBucketsFromRollup(ctx context.Conte
 		GROUP BY time_bucket, direction
 		ORDER BY time_bucket, direction`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // domain-bounded
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // domain-bounded
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricName", metricName),
@@ -100,12 +100,12 @@ func (r *ClickHouseRepository) queryDirectionBucketsFromRollup(ctx context.Conte
 	}
 
 	var raw []struct {
-		Timestamp time.Time `ch:"time_bucket"`
-		Direction string    `ch:"direction"`
-		ValueSum  float64   `ch:"value_sum_val"`
-		ValueCnt  uint64    `ch:"value_cnt"`
+		Timestamp	time.Time	`ch:"time_bucket"`
+		Direction	string		`ch:"direction"`
+		ValueSum	float64		`ch:"value_sum_val"`
+		ValueCnt	uint64		`ch:"value_cnt"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "disk.queryDirectionBucketsFromRollup", &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]directionBucketDTO, len(raw))
@@ -116,9 +116,9 @@ func (r *ClickHouseRepository) queryDirectionBucketsFromRollup(ctx context.Conte
 			valPtr = &v
 		}
 		rows[i] = DirectionBucket{
-			Timestamp: row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
-			Direction: row.Direction,
-			Value:     valPtr,
+			Timestamp:	row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			Direction:	row.Direction,
+			Value:		valPtr,
 		}
 	}
 	return rows, nil
@@ -145,7 +145,7 @@ func (r *ClickHouseRepository) GetDiskIOTime(ctx context.Context, teamID int64, 
 		GROUP BY time_bucket
 		ORDER BY time_bucket`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // domain-bounded
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // domain-bounded
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricName", infraconsts.MetricSystemDiskIOTime),
@@ -153,11 +153,11 @@ func (r *ClickHouseRepository) GetDiskIOTime(ctx context.Context, teamID int64, 
 	}
 
 	var raw []struct {
-		Timestamp time.Time `ch:"time_bucket"`
-		ValueSum  float64   `ch:"value_sum_val"`
-		ValueCnt  uint64    `ch:"value_cnt"`
+		Timestamp	time.Time	`ch:"time_bucket"`
+		ValueSum	float64		`ch:"value_sum_val"`
+		ValueCnt	uint64		`ch:"value_cnt"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "disk.GetDiskIOTime", &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]resourceBucketDTO, len(raw))
@@ -168,9 +168,9 @@ func (r *ClickHouseRepository) GetDiskIOTime(ctx context.Context, teamID int64, 
 			valPtr = &v
 		}
 		rows[i] = ResourceBucket{
-			Timestamp: row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
-			Pod:       "",
-			Value:     valPtr,
+			Timestamp:	row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			Pod:		"",
+			Value:		valPtr,
 		}
 	}
 	return rows, nil
@@ -192,14 +192,14 @@ func (r *ClickHouseRepository) GetFilesystemUsage(ctx context.Context, teamID in
 		GROUP BY time_bucket, mountpoint
 		ORDER BY time_bucket, mountpoint`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricName", infraconsts.MetricSystemFilesystemUsage),
 		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
 	}
 	var rows []mountpointBucketDTO
-	return rows, r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...)
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "disk.GetFilesystemUsage", &rows, query, args...)
 }
 
 func (r *ClickHouseRepository) GetFilesystemUtilization(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
@@ -215,7 +215,7 @@ func (r *ClickHouseRepository) GetFilesystemUtilization(ctx context.Context, tea
 		GROUP BY time_bucket
 		ORDER BY time_bucket`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // domain-bounded
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // domain-bounded
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricName", infraconsts.MetricSystemFilesystemUtil),
@@ -223,11 +223,11 @@ func (r *ClickHouseRepository) GetFilesystemUtilization(ctx context.Context, tea
 	}
 
 	var raw []struct {
-		Timestamp time.Time `ch:"time_bucket"`
-		ValueNum  float64   `ch:"value_num"`
-		ValueCnt  uint64    `ch:"value_cnt"`
+		Timestamp	time.Time	`ch:"time_bucket"`
+		ValueNum	float64		`ch:"value_num"`
+		ValueCnt	uint64		`ch:"value_cnt"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "disk.GetFilesystemUtilization", &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]resourceBucketDTO, len(raw))
@@ -238,9 +238,9 @@ func (r *ClickHouseRepository) GetFilesystemUtilization(ctx context.Context, tea
 			valPtr = &v
 		}
 		rows[i] = ResourceBucket{
-			Timestamp: row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
-			Pod:       "",
-			Value:     valPtr,
+			Timestamp:	row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			Pod:		"",
+			Value:		valPtr,
 		}
 	}
 	return rows, nil
@@ -251,9 +251,9 @@ func (r *ClickHouseRepository) GetFilesystemUtilization(ctx context.Context, tea
 // ---------------------------------------------------------------------------
 
 type diskMetricRow struct {
-	SystemDisk *float64 `ch:"system_disk"`
-	RatioDisk  *float64 `ch:"ratio_disk"`
-	AttrDisk   *float64 `ch:"attr_disk"`
+	SystemDisk	*float64	`ch:"system_disk"`
+	RatioDisk	*float64	`ch:"ratio_disk"`
+	AttrDisk	*float64	`ch:"attr_disk"`
 }
 
 type serviceNameRow struct {
@@ -262,7 +262,7 @@ type serviceNameRow struct {
 
 func serviceParams(teamID int64, serviceName string, startMs, endMs int64) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
@@ -271,7 +271,7 @@ func serviceParams(teamID int64, serviceName string, startMs, endMs int64) []any
 
 func instanceParams(teamID int64, host, pod, container, serviceName string, startMs, endMs int64) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("host", host),
 		clickhouse.Named("pod", pod),
 		clickhouse.Named("container", container),
@@ -324,13 +324,13 @@ func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64,
 		  AND metric_name IN @metricNames
 		ORDER BY service_name`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricNames", diskMetricNames),
 	}
 	var rows []serviceNameRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "disk.getServiceList", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	services := make([]string, len(rows))
@@ -341,9 +341,9 @@ func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64,
 }
 
 type diskMetricValueRow struct {
-	MetricName string  `ch:"metric_name"`
-	ValAvg     float64 `ch:"val_avg"`
-	ValSum     float64 `ch:"val_sum"`
+	MetricName	string	`ch:"metric_name"`
+	ValAvg		float64	`ch:"val_avg"`
+	ValSum		float64	`ch:"val_sum"`
 }
 
 // diskFoldMetricRows converts per-metric rows into a single disk-utilization
@@ -387,14 +387,14 @@ func (r *ClickHouseRepository) queryDiskMetricByService(ctx context.Context, tea
 		  AND metric_name IN @metricNames
 		GROUP BY metric_name`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricNames", diskMetricNames),
 	}
 	var rows []diskMetricValueRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "disk.queryDiskMetricByService", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return diskFoldMetricRows(rows), nil
@@ -416,7 +416,7 @@ func (r *ClickHouseRepository) queryDiskMetricByInstance(ctx context.Context, te
 		  AND metric_name IN @metricNames
 		GROUP BY metric_name`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("host", host),
 		clickhouse.Named("pod", pod),
 		clickhouse.Named("serviceName", serviceName),
@@ -425,7 +425,7 @@ func (r *ClickHouseRepository) queryDiskMetricByInstance(ctx context.Context, te
 		clickhouse.Named("metricNames", diskMetricNames),
 	}
 	var rows []diskMetricValueRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "disk.queryDiskMetricByInstance", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return diskFoldMetricRows(rows), nil
@@ -450,7 +450,7 @@ func (r *ClickHouseRepository) GetAvgDisk(ctx context.Context, teamID int64, sta
 		clickhouse.Named("metricNames", diskMetricNames),
 	}
 	var rows []diskMetricValueRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "disk.GetAvgDisk", &rows, query, args...); err != nil {
 		return MetricValue{Value: 0}, err
 	}
 	avg := diskFoldMetricRows(rows)
@@ -481,7 +481,7 @@ func (r *ClickHouseRepository) GetDiskByService(ctx context.Context, teamID int6
 		clickhouse.Named("metricNames", diskMetricNames),
 	}
 	var rows []diskMetricValueRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "disk.GetDiskByService", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return diskFoldMetricRows(rows), nil
@@ -512,7 +512,7 @@ func (r *ClickHouseRepository) GetDiskByInstance(ctx context.Context, teamID int
 		clickhouse.Named("metricNames", diskMetricNames),
 	}
 	var rows []diskMetricValueRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "disk.GetDiskByInstance", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return diskFoldMetricRows(rows), nil

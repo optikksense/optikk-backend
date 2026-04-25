@@ -19,8 +19,8 @@ import (
 // dedicated `spans_kind_rollup` (Phase 9).
 
 const (
-	spansRollupPrefix     = "observability.spans_rollup"
-	spansKindRollupPrefix = "observability.spans_kind_rollup"
+	spansRollupPrefix	= rollup.FamilySpansRED
+	spansKindRollupPrefix	= rollup.FamilySpansKind
 )
 
 type Repository interface {
@@ -44,6 +44,9 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
+// queryIntervalMinutes chooses a dashboard step based on window width, then
+// coarsens to the tier's native step if needed. Routes through
+// rollup.BucketInterval for the tier floor.
 func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 	hours := (endMs - startMs) / 3_600_000
 	var dashStep int64
@@ -57,15 +60,12 @@ func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 	default:
 		dashStep = 1440
 	}
-	if tierStepMin > dashStep {
-		return tierStepMin
-	}
-	return dashStep
+	return rollup.BucketInterval(rollup.Tier{StepMin: tierStepMin}, dashStep)
 }
 
 func rollupParams(teamID int64, startMs, endMs int64) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 — tenant ID fits uint32
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115 — tenant ID fits uint32
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
@@ -86,26 +86,26 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		GROUP BY service_name`, table)
 
 	var raw []struct {
-		ServiceName string  `ch:"service_name"`
-		TotalCount  uint64  `ch:"total_count"`
-		ErrorCount  uint64  `ch:"error_count"`
-		P50Ms       float64 `ch:"p50_ms"`
-		P95Ms       float64 `ch:"p95_ms"`
-		P99Ms       float64 `ch:"p99_ms"`
+		ServiceName	string	`ch:"service_name"`
+		TotalCount	uint64	`ch:"total_count"`
+		ErrorCount	uint64	`ch:"error_count"`
+		P50Ms		float64	`ch:"p50_ms"`
+		P95Ms		float64	`ch:"p95_ms"`
+		P99Ms		float64	`ch:"p99_ms"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, rollupParams(teamID, startMs, endMs)...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetSummary", &raw, query, rollupParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 
 	rows := make([]redSummaryServiceRow, len(raw))
 	for i, row := range raw {
 		rows[i] = redSummaryServiceRow{
-			ServiceName: row.ServiceName,
-			TotalCount:  row.TotalCount,
-			ErrorCount:  row.ErrorCount,
-			P50Ms:       utils.SanitizeFloat(row.P50Ms),
-			P95Ms:       utils.SanitizeFloat(row.P95Ms),
-			P99Ms:       utils.SanitizeFloat(row.P99Ms),
+			ServiceName:	row.ServiceName,
+			TotalCount:	row.TotalCount,
+			ErrorCount:	row.ErrorCount,
+			P50Ms:		utils.SanitizeFloat(row.P50Ms),
+			P95Ms:		utils.SanitizeFloat(row.P95Ms),
+			P99Ms:		utils.SanitizeFloat(row.P99Ms),
 		}
 	}
 	return rows, nil
@@ -132,13 +132,13 @@ func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, start
 		ORDER BY request_count DESC`
 
 	var raw []struct {
-		ServiceName  string  `ch:"service_name"`
-		RequestCount uint64  `ch:"request_count"`
-		P50Ms        float64 `ch:"p50_ms"`
-		P95Ms        float64 `ch:"p95_ms"`
-		P99Ms        float64 `ch:"p99_ms"`
+		ServiceName	string	`ch:"service_name"`
+		RequestCount	uint64	`ch:"request_count"`
+		P50Ms		float64	`ch:"p50_ms"`
+		P95Ms		float64	`ch:"p95_ms"`
+		P99Ms		float64	`ch:"p99_ms"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetApdex", &raw, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -147,7 +147,7 @@ func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, start
 		p50 := utils.SanitizeFloat(row.P50Ms)
 		p95 := utils.SanitizeFloat(row.P95Ms)
 		p99 := utils.SanitizeFloat(row.P99Ms)
-		total := int64(row.RequestCount) //nolint:gosec // domain-bounded
+		total := int64(row.RequestCount)	//nolint:gosec // domain-bounded
 		// Approximate apdex buckets from percentile tuple vs thresholds.
 		// p50 below satisfied → roughly half is satisfied; p95 above tolerating → ~5% frustrated, etc.
 		satisfiedFrac := percentileBelow(p50, p95, p99, satisfiedMs)
@@ -160,11 +160,11 @@ func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, start
 			frustratedFrac = 0
 		}
 		rows[i] = apdexRow{
-			ServiceName: row.ServiceName,
-			Satisfied:   int64(float64(total) * satisfiedFrac),
-			Tolerating:  int64(float64(total) * toleratingFrac),
-			Frustrated:  int64(float64(total) * frustratedFrac),
-			TotalCount:  total,
+			ServiceName:	row.ServiceName,
+			Satisfied:	int64(float64(total) * satisfiedFrac),
+			Tolerating:	int64(float64(total) * toleratingFrac),
+			Frustrated:	int64(float64(total) * frustratedFrac),
+			TotalCount:	total,
 		}
 	}
 	return rows, nil
@@ -242,26 +242,26 @@ func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID 
 	)
 
 	var raw []struct {
-		ServiceName   string  `ch:"service_name"`
-		OperationName string  `ch:"operation_name"`
-		SpanCount     uint64  `ch:"span_count"`
-		P50Ms         float64 `ch:"p50_ms"`
-		P95Ms         float64 `ch:"p95_ms"`
-		P99Ms         float64 `ch:"p99_ms"`
+		ServiceName	string	`ch:"service_name"`
+		OperationName	string	`ch:"operation_name"`
+		SpanCount	uint64	`ch:"span_count"`
+		P50Ms		float64	`ch:"p50_ms"`
+		P95Ms		float64	`ch:"p95_ms"`
+		P99Ms		float64	`ch:"p99_ms"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetTopSlowOperations", &raw, query, args...); err != nil {
 		return nil, err
 	}
 
 	rows := make([]slowOperationRow, len(raw))
 	for i, row := range raw {
 		rows[i] = slowOperationRow{
-			ServiceName:   row.ServiceName,
-			OperationName: row.OperationName,
-			SpanCount:     row.SpanCount,
-			P50Ms:         utils.SanitizeFloat(row.P50Ms),
-			P95Ms:         utils.SanitizeFloat(row.P95Ms),
-			P99Ms:         utils.SanitizeFloat(row.P99Ms),
+			ServiceName:	row.ServiceName,
+			OperationName:	row.OperationName,
+			SpanCount:	row.SpanCount,
+			P50Ms:		utils.SanitizeFloat(row.P50Ms),
+			P95Ms:		utils.SanitizeFloat(row.P95Ms),
+			P99Ms:		utils.SanitizeFloat(row.P99Ms),
 		}
 	}
 	return rows, nil
@@ -285,12 +285,12 @@ func (r *ClickHouseRepository) GetTopErrorOperations(ctx context.Context, teamID
 	)
 
 	var raw []struct {
-		ServiceName   string `ch:"service_name"`
-		OperationName string `ch:"operation_name"`
-		TotalCount    uint64 `ch:"total_count"`
-		ErrorCount    uint64 `ch:"error_count"`
+		ServiceName	string	`ch:"service_name"`
+		OperationName	string	`ch:"operation_name"`
+		TotalCount	uint64	`ch:"total_count"`
+		ErrorCount	uint64	`ch:"error_count"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetTopErrorOperations", &raw, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -299,27 +299,27 @@ func (r *ClickHouseRepository) GetTopErrorOperations(ctx context.Context, teamID
 		if row.ErrorCount == 0 {
 			continue
 		}
-		total := int64(row.TotalCount) //nolint:gosec // domain-bounded
-		errs := int64(row.ErrorCount)  //nolint:gosec // domain-bounded
+		total := int64(row.TotalCount)	//nolint:gosec // domain-bounded
+		errs := int64(row.ErrorCount)	//nolint:gosec // domain-bounded
 		rate := 0.0
 		if total > 0 {
 			rate = float64(errs) / float64(total)
 		}
 		rows = append(rows, errorOperationRow{
-			ServiceName:   row.ServiceName,
-			OperationName: row.OperationName,
-			TotalCount:    total,
-			ErrorCount:    errs,
-			ErrorRate:     rate,
+			ServiceName:	row.ServiceName,
+			OperationName:	row.OperationName,
+			TotalCount:	total,
+			ErrorCount:	errs,
+			ErrorRate:	rate,
 		})
 	}
 	return rows, nil
 }
 
 type requestRateRawRow struct {
-	Timestamp    time.Time `ch:"timestamp"`
-	ServiceName  string    `ch:"service_name"`
-	RequestCount uint64    `ch:"request_count"`
+	Timestamp	time.Time	`ch:"timestamp"`
+	ServiceName	string		`ch:"service_name"`
+	RequestCount	uint64		`ch:"request_count"`
 }
 
 func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceRatePoint, error) {
@@ -339,7 +339,7 @@ func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, tea
 	)
 
 	var raw []requestRateRawRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetRequestRateTimeSeries", &raw, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -351,19 +351,19 @@ func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, tea
 			rps = float64(row.RequestCount) / intervalSec
 		}
 		rows[i] = ServiceRatePoint{
-			Timestamp:   row.Timestamp,
-			ServiceName: row.ServiceName,
-			RPS:         rps,
+			Timestamp:	row.Timestamp,
+			ServiceName:	row.ServiceName,
+			RPS:		rps,
 		}
 	}
 	return rows, nil
 }
 
 type errorRateRawRow struct {
-	Timestamp    time.Time `ch:"timestamp"`
-	ServiceName  string    `ch:"service_name"`
-	RequestCount uint64    `ch:"request_count"`
-	ErrorCount   uint64    `ch:"error_count"`
+	Timestamp	time.Time	`ch:"timestamp"`
+	ServiceName	string		`ch:"service_name"`
+	RequestCount	uint64		`ch:"request_count"`
+	ErrorCount	uint64		`ch:"error_count"`
 }
 
 func (r *ClickHouseRepository) GetErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceErrorRatePoint, error) {
@@ -383,24 +383,24 @@ func (r *ClickHouseRepository) GetErrorRateTimeSeries(ctx context.Context, teamI
 	)
 
 	var raw []errorRateRawRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetErrorRateTimeSeries", &raw, query, args...); err != nil {
 		return nil, err
 	}
 
 	rows := make([]ServiceErrorRatePoint, len(raw))
 	for i, row := range raw {
-		total := int64(row.RequestCount) //nolint:gosec // domain-bounded
-		errs := int64(row.ErrorCount)    //nolint:gosec // domain-bounded
+		total := int64(row.RequestCount)	//nolint:gosec // domain-bounded
+		errs := int64(row.ErrorCount)		//nolint:gosec // domain-bounded
 		pct := 0.0
 		if total > 0 {
 			pct = float64(errs) * 100.0 / float64(total)
 		}
 		rows[i] = ServiceErrorRatePoint{
-			Timestamp:    row.Timestamp,
-			ServiceName:  row.ServiceName,
-			RequestCount: total,
-			ErrorCount:   errs,
-			ErrorPct:     pct,
+			Timestamp:	row.Timestamp,
+			ServiceName:	row.ServiceName,
+			RequestCount:	total,
+			ErrorCount:	errs,
+			ErrorPct:	pct,
 		}
 	}
 	return rows, nil
@@ -422,20 +422,20 @@ func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, team
 	)
 
 	var raw []struct {
-		Timestamp   time.Time `ch:"timestamp"`
-		ServiceName string    `ch:"service_name"`
-		P95Ms       float64   `ch:"p95_ms"`
+		Timestamp	time.Time	`ch:"timestamp"`
+		ServiceName	string		`ch:"service_name"`
+		P95Ms		float64		`ch:"p95_ms"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetP95LatencyTimeSeries", &raw, query, args...); err != nil {
 		return nil, err
 	}
 
 	rows := make([]ServiceLatencyPoint, len(raw))
 	for i, row := range raw {
 		rows[i] = ServiceLatencyPoint{
-			Timestamp:   row.Timestamp,
-			ServiceName: row.ServiceName,
-			P95Ms:       utils.SanitizeFloat(row.P95Ms),
+			Timestamp:	row.Timestamp,
+			ServiceName:	row.ServiceName,
+			P95Ms:		utils.SanitizeFloat(row.P95Ms),
 		}
 	}
 	return rows, nil
@@ -445,9 +445,9 @@ func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, team
 // dimension. Bounded by time range + team_id part-pruning; grouping count is
 // tiny (handful of distinct kinds × bucket count), so scan stays cheap.
 type spanKindRawRow struct {
-	Timestamp  time.Time `ch:"timestamp"`
-	KindString string    `ch:"kind_string"`
-	SpanCount  uint64    `ch:"span_count"`
+	Timestamp	time.Time	`ch:"timestamp"`
+	KindString	string		`ch:"kind_string"`
+	SpanCount	uint64		`ch:"span_count"`
 }
 
 func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]SpanKindPoint, error) {
@@ -466,25 +466,25 @@ func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID 
 	)
 
 	var raw []spanKindRawRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetSpanKindBreakdown", &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]SpanKindPoint, len(raw))
 	for i, row := range raw {
 		rows[i] = SpanKindPoint{
-			Timestamp:  row.Timestamp,
-			KindString: row.KindString,
-			SpanCount:  int64(row.SpanCount), //nolint:gosec // domain-bounded
+			Timestamp:	row.Timestamp,
+			KindString:	row.KindString,
+			SpanCount:	int64(row.SpanCount),	//nolint:gosec // domain-bounded
 		}
 	}
 	return rows, nil
 }
 
 type errorByRouteRawRow struct {
-	Timestamp    time.Time `ch:"timestamp"`
-	HttpRoute    string    `ch:"http_route"`
-	RequestCount uint64    `ch:"request_count"`
-	ErrorCount   uint64    `ch:"error_count"`
+	Timestamp	time.Time	`ch:"timestamp"`
+	HttpRoute	string		`ch:"http_route"`
+	RequestCount	uint64		`ch:"request_count"`
+	ErrorCount	uint64		`ch:"error_count"`
 }
 
 func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorByRoutePoint, error) {
@@ -494,13 +494,13 @@ func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int6
 	table, tierStep := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
-		       endpoint                                                     AS http_route,
+		       operation_name                                               AS http_route,
 		       sumMerge(request_count)                                      AS request_count,
 		       sumMerge(error_count)                                        AS error_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
-		  AND endpoint != ''
+		  AND operation_name != ''
 		GROUP BY timestamp, http_route
 		ORDER BY timestamp ASC, error_count DESC`, table)
 	args := append(rollupParams(teamID, startMs, endMs),
@@ -508,16 +508,16 @@ func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int6
 	)
 
 	var raw []errorByRouteRawRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetErrorsByRoute", &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]ErrorByRoutePoint, len(raw))
 	for i, row := range raw {
 		rows[i] = ErrorByRoutePoint{
-			Timestamp:    row.Timestamp,
-			HttpRoute:    row.HttpRoute,
-			RequestCount: int64(row.RequestCount), //nolint:gosec // domain-bounded
-			ErrorCount:   int64(row.ErrorCount),   //nolint:gosec // domain-bounded
+			Timestamp:	row.Timestamp,
+			HttpRoute:	row.HttpRoute,
+			RequestCount:	int64(row.RequestCount),	//nolint:gosec // domain-bounded
+			ErrorCount:	int64(row.ErrorCount),		//nolint:gosec // domain-bounded
 		}
 	}
 	return rows, nil
@@ -535,19 +535,19 @@ func (r *ClickHouseRepository) GetLatencyBreakdown(ctx context.Context, teamID i
 		GROUP BY service_name`, table)
 
 	var raw []struct {
-		ServiceName string  `ch:"service_name"`
-		TotalMs     float64 `ch:"total_ms"`
-		SpanCount   uint64  `ch:"span_count"`
+		ServiceName	string	`ch:"service_name"`
+		TotalMs		float64	`ch:"total_ms"`
+		SpanCount	uint64	`ch:"span_count"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, rollupParams(teamID, startMs, endMs)...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetLatencyBreakdown", &raw, query, rollupParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	rows := make([]latencyBreakdownRow, len(raw))
 	for i, row := range raw {
 		rows[i] = latencyBreakdownRow{
-			ServiceName: row.ServiceName,
-			TotalMs:     utils.SanitizeFloat(row.TotalMs),
-			SpanCount:   int64(row.SpanCount), //nolint:gosec // domain-bounded
+			ServiceName:	row.ServiceName,
+			TotalMs:	utils.SanitizeFloat(row.TotalMs),
+			SpanCount:	int64(row.SpanCount),	//nolint:gosec // domain-bounded
 		}
 	}
 	return rows, nil

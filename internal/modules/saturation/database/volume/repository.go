@@ -54,7 +54,7 @@ func (r *ClickHouseRepository) opsSeriesByAttr(ctx context.Context, teamID int64
 	args = append(args, fargs...)
 
 	var dtos []opsRawDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "volume.opsSeriesByAttr", &dtos, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -63,9 +63,9 @@ func (r *ClickHouseRepository) opsSeriesByAttr(ctx context.Context, teamID int64
 	for i, d := range dtos {
 		rate := float64(d.OpCount) / bucketSec
 		out[i] = OpsTimeSeries{
-			TimeBucket: d.TimeBucket,
-			GroupBy:    d.GroupBy,
-			OpsPerSec:  &rate,
+			TimeBucket:	d.TimeBucket,
+			GroupBy:	d.GroupBy,
+			OpsPerSec:	&rate,
 		}
 	}
 	return out, nil
@@ -111,7 +111,7 @@ func (r *ClickHouseRepository) GetReadVsWrite(ctx context.Context, teamID int64,
 	args = append(args, fargs...)
 
 	var dtos []readWriteRawDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "volume.GetReadVsWrite", &dtos, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -121,9 +121,9 @@ func (r *ClickHouseRepository) GetReadVsWrite(ctx context.Context, teamID int64,
 		readRate := float64(d.ReadCount) / bucketSec
 		writeRate := float64(d.WriteCount) / bucketSec
 		out[i] = ReadWritePoint{
-			TimeBucket:     d.TimeBucket,
-			ReadOpsPerSec:  &readRate,
-			WriteOpsPerSec: &writeRate,
+			TimeBucket:	d.TimeBucket,
+			ReadOpsPerSec:	&readRate,
+			WriteOpsPerSec:	&writeRate,
 		}
 	}
 	return out, nil

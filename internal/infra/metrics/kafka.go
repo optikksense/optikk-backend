@@ -1,0 +1,56 @@
+package metrics
+
+import (
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+)
+
+// Kafka produce buckets: tighter low end than HTTP since per-record
+// publish latency is mostly local enqueue. Consumer lag is a gauge —
+// no histogram needed.
+var kafkaProduceBuckets = []float64{.0005, .001, .005, .01, .025, .05, .1, .25, .5}
+
+var (
+	KafkaProduced = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "optikk",
+		Subsystem: "kafka",
+		Name:      "produced_total",
+		Help:      "Kafka records produced, by topic and result (ok/err).",
+	}, []string{"topic", "result"})
+
+	KafkaProduceDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
+		Namespace: "optikk",
+		Subsystem: "kafka",
+		Name:      "produce_duration_seconds",
+		Help:      "Kafka produce-record latency in seconds, by topic.",
+		Buckets:   kafkaProduceBuckets,
+	}, []string{"topic"})
+
+	KafkaConsumed = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "optikk",
+		Subsystem: "kafka",
+		Name:      "consumed_total",
+		Help:      "Kafka records fetched, by topic.",
+	}, []string{"topic"})
+
+	KafkaConsumerLag = promauto.NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "optikk",
+		Subsystem: "kafka",
+		Name:      "consumer_lag_records",
+		Help:      "Consumer-group lag in records per (topic, partition, group). Updated by a background poller.",
+	}, []string{"topic", "partition", "group"})
+
+	KafkaRebalances = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "optikk",
+		Subsystem: "kafka",
+		Name:      "rebalances_total",
+		Help:      "Consumer-group rebalance events, by reason.",
+	}, []string{"reason"})
+
+	KafkaBrokerConnects = promauto.NewCounterVec(prometheus.CounterOpts{
+		Namespace: "optikk",
+		Subsystem: "kafka",
+		Name:      "broker_connects_total",
+		Help:      "Kafka broker connection events, by outcome (ok/err).",
+	}, []string{"result"})
+)

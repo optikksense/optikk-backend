@@ -16,7 +16,7 @@ type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *Repository { return &Repository{db: db} }
+func NewRepository(db clickhouse.Conn) *Repository	{ return &Repository{db: db} }
 
 func (r *Repository) ErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, service string, limit int) ([]errorGroupRow, error) {
 	if limit <= 0 {
@@ -34,7 +34,7 @@ func (r *Repository) ErrorGroups(ctx context.Context, teamID int64, startMs, end
 		GROUP BY mat_exception_type, status_message, service_name
 		ORDER BY count DESC LIMIT %d`, spansRawTable, where, limit)
 	var rows []errorGroupRow
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "errors.ErrorGroups", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -53,7 +53,7 @@ func (r *Repository) Timeseries(ctx context.Context, teamID int64, startMs, endM
 		FROM %s WHERE %s GROUP BY time_bucket ORDER BY time_bucket ASC`,
 		bucket, spansRawTable, where)
 	var rows []timeseriesRow
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "errors.Timeseries", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -61,7 +61,7 @@ func (r *Repository) Timeseries(ctx context.Context, teamID int64, startMs, endM
 
 func baseArgs(teamID int64, startMs, endMs int64) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.Unix(0, startMs*1_000_000)),

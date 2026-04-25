@@ -29,25 +29,33 @@ func (r *Repository) Facets(ctx context.Context, f querycompiler.Filters) (Facet
 //     reference `pod` whenever the user filters by pod — that predicate is
 //     invalid on 5m/1h rollups (see db/clickhouse/17_rollup_logs.sql).
 func (r *Repository) fetchFacetRows(ctx context.Context, compiled querycompiler.Compiled) ([]facetRowDTO, error) {
-	hostPodTbl := logsRollupPrefix + "_1m"
+	// Facets still pin to 5m until the caller propagates startMs/endMs here
+	// for proper tier selection — the rollup exists at 3 tiers but the facet
+	// path has no time-window plumbing today.
+	hostPodTbl := "observability." + logsRollupPrefix + "_1m"
+	logsFacetRollupTbl := "observability." + logsFacetRollupPrefix + "_5m"
 
+	// PREWHERE on (team_id, bucket_ts) leads the MergeTree sort key on
+	// every rollup leg. Same predicates also live inside compiled.Where;
+	// CH dedupes them at plan time.
+	const pw = `PREWHERE team_id = @teamID AND bucket_ts BETWEEN @start AND @end`
 	query := fmt.Sprintf(`
 		SELECT dim, value, count
 		FROM (
 			SELECT 'severity_bucket' AS dim, toString(severity_bucket) AS value, sumMerge(log_count) AS count
-			FROM %s WHERE %s GROUP BY severity_bucket
+			FROM %s `+pw+` WHERE %s GROUP BY severity_bucket
 			UNION ALL
 			SELECT 'service' AS dim, service AS value, sumMerge(log_count) AS count
-			FROM %s WHERE %s GROUP BY service
+			FROM %s `+pw+` WHERE %s GROUP BY service
 			UNION ALL
 			SELECT 'environment' AS dim, environment AS value, sumMerge(log_count) AS count
-			FROM %s WHERE %s AND environment != '' GROUP BY environment
+			FROM %s `+pw+` WHERE %s AND environment != '' GROUP BY environment
 			UNION ALL
 			SELECT 'host' AS dim, host AS value, sumMerge(log_count) AS count
-			FROM %s WHERE %s AND host != '' GROUP BY host
+			FROM %s `+pw+` WHERE %s AND host != '' GROUP BY host
 			UNION ALL
 			SELECT 'pod' AS dim, pod AS value, sumMerge(log_count) AS count
-			FROM %s WHERE %s AND pod != '' GROUP BY pod
+			FROM %s `+pw+` WHERE %s AND pod != '' GROUP BY pod
 		) ORDER BY dim ASC, count DESC`,
 		logsFacetRollupTbl, compiled.Where,
 		logsFacetRollupTbl, compiled.Where,
@@ -57,7 +65,7 @@ func (r *Repository) fetchFacetRows(ctx context.Context, compiled querycompiler.
 	)
 	args := repeatArgs(compiled.Args, 5)
 	var rows []facetRowDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "explorer.fetchFacetRows", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil

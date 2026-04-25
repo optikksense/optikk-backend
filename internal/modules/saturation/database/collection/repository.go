@@ -11,7 +11,7 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
@@ -67,7 +67,7 @@ func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID 
 	)
 	args = append(args, fargs...)
 	var rows []LatencyTimeSeries
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionLatency", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -97,7 +97,7 @@ func (r *ClickHouseRepository) GetCollectionOps(ctx context.Context, teamID int6
 	)
 	args = append(args, fargs...)
 	var rows []OpsTimeSeries
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionOps", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -128,7 +128,7 @@ func (r *ClickHouseRepository) GetCollectionErrors(ctx context.Context, teamID i
 	)
 	args = append(args, fargs...)
 	var rows []ErrorTimeSeries
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionErrors", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -176,7 +176,7 @@ func (r *ClickHouseRepository) GetCollectionQueryTexts(ctx context.Context, team
 	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("collection", collectionName))
 	params = append(params, fargs...)
 	var rows []CollectionTopQuery
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, params...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionQueryTexts", &rows, query, params...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -205,7 +205,7 @@ func (r *ClickHouseRepository) GetCollectionReadVsWrite(ctx context.Context, tea
 		clickhouse.Named("collection", collectionName),
 	)
 	var rows []ReadWritePoint
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionReadVsWrite", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil

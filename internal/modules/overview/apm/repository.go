@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	metricsHistRollupPrefix   = "observability.metrics_histograms_rollup"
-	metricsGaugesRollupPrefix = "observability.metrics_gauges_rollup"
+	metricsHistRollupPrefix		= rollup.FamilyMetricsHist
+	metricsGaugesRollupPrefix	= rollup.FamilyMetricsGauges
 )
 
 // queryIntervalMinutes returns the group-by step (in minutes) for rollup
@@ -56,11 +56,11 @@ func NewRepository(db clickhouse.Conn) Repository {
 }
 
 type histogramSummaryRawRow struct {
-	P50     float64 `ch:"p50"`
-	P95     float64 `ch:"p95"`
-	P99     float64 `ch:"p99"`
-	HistSum float64 `ch:"hist_sum"`
-	HistCnt uint64  `ch:"hist_count"`
+	P50	float64	`ch:"p50"`
+	P95	float64	`ch:"p95"`
+	P99	float64	`ch:"p99"`
+	HistSum	float64	`ch:"hist_sum"`
+	HistCnt	uint64	`ch:"hist_count"`
 }
 
 func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (histogramSummaryDTO, error) {
@@ -91,7 +91,7 @@ func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID
 
 func rollupParams(teamID int64, startMs, endMs int64, metricName string) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricName", metricName),
@@ -100,7 +100,7 @@ func rollupParams(teamID int64, startMs, endMs int64, metricName string) []any {
 
 // queryGaugeTimeBuckets reads a single gauge metric from the gauge cascade
 // rollup and returns bucketed avg(value) as a timeBucketDTO slice. No state
-// breakdown — empty `state_dim = ''` filter so we don't mix in metric families
+// breakdown — empty `state_dim = ”` filter so we don't mix in metric families
 // that happen to share the table but carry a state dim.
 func (r *ClickHouseRepository) queryGaugeTimeBuckets(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]timeBucketDTO, error) {
 	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
@@ -119,11 +119,11 @@ func (r *ClickHouseRepository) queryGaugeTimeBuckets(ctx context.Context, teamID
 	)
 
 	var raw []struct {
-		Timestamp time.Time `ch:"time_bucket"`
-		ValueNum  float64   `ch:"value_num"`
-		ValueCnt  uint64    `ch:"value_cnt"`
+		Timestamp	time.Time	`ch:"time_bucket"`
+		ValueNum	float64		`ch:"value_num"`
+		ValueCnt	uint64		`ch:"value_cnt"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "apm.queryGaugeTimeBuckets", &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]timeBucketDTO, len(raw))
@@ -134,8 +134,8 @@ func (r *ClickHouseRepository) queryGaugeTimeBuckets(ctx context.Context, teamID
 			valPtr = &v
 		}
 		rows[i] = timeBucketDTO{
-			Timestamp: row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
-			Value:     valPtr,
+			Timestamp:	row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			Value:		valPtr,
 		}
 	}
 	return rows, nil
@@ -162,10 +162,10 @@ func (r *ClickHouseRepository) GetRPCRequestRate(ctx context.Context, teamID int
 	)
 
 	var raw []struct {
-		Timestamp time.Time `ch:"time_bucket"`
-		ValU64    uint64    `ch:"val_u64"`
+		Timestamp	time.Time	`ch:"time_bucket"`
+		ValU64		uint64		`ch:"val_u64"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "apm.GetRPCRequestRate", &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]timeBucketDTO, len(raw))
@@ -202,12 +202,12 @@ func (r *ClickHouseRepository) GetProcessCPU(ctx context.Context, teamID int64, 
 	)
 
 	var raw []struct {
-		Timestamp time.Time `ch:"time_bucket"`
-		State     string    `ch:"state"`
-		ValueNum  float64   `ch:"value_num"`
-		ValueCnt  uint64    `ch:"value_cnt"`
+		Timestamp	time.Time	`ch:"time_bucket"`
+		State		string		`ch:"state"`
+		ValueNum	float64		`ch:"value_num"`
+		ValueCnt	uint64		`ch:"value_cnt"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "apm.GetProcessCPU", &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]StateBucket, len(raw))
@@ -218,9 +218,9 @@ func (r *ClickHouseRepository) GetProcessCPU(ctx context.Context, teamID int64, 
 			valPtr = &v
 		}
 		rows[i] = StateBucket{
-			Timestamp: row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
-			State:     row.State,
-			Value:     valPtr,
+			Timestamp:	row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			State:		row.State,
+			Value:		valPtr,
 		}
 	}
 	return rows, nil
@@ -240,7 +240,7 @@ func (r *ClickHouseRepository) GetProcessMemory(ctx context.Context, teamID int6
 		  AND metric_name IN (@usage, @virtual)
 		GROUP BY metric_name`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("usage", MetricProcessMemoryUsage),
@@ -248,11 +248,11 @@ func (r *ClickHouseRepository) GetProcessMemory(ctx context.Context, teamID int6
 	}
 
 	var raw []struct {
-		MetricName string  `ch:"metric_name"`
-		ValueNum   float64 `ch:"value_num"`
-		ValueCnt   uint64  `ch:"value_cnt"`
+		MetricName	string	`ch:"metric_name"`
+		ValueNum	float64	`ch:"value_num"`
+		ValueCnt	uint64	`ch:"value_cnt"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "apm.GetProcessMemory", &raw, query, args...); err != nil {
 		return processMemoryDTO{}, err
 	}
 	var result processMemoryDTO

@@ -53,7 +53,7 @@ func (r *ClickHouseRepository) latencySeriesByAttr(ctx context.Context, teamID i
 	)
 	args = append(args, fargs...)
 	var rows []LatencyTimeSeries
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "latency.latencySeriesByAttr", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -127,7 +127,7 @@ func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int
 	args = append(args, fargs...)
 
 	var dtos []latencyHeatmapDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "latency.GetLatencyHeatmap", &dtos, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -143,10 +143,10 @@ func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int
 			density = float64(d.Count) / float64(total)
 		}
 		out[i] = LatencyHeatmapBucket{
-			TimeBucket:  d.TimeBucket,
-			BucketLabel: d.BucketLabel,
-			Count:       d.Count,
-			Density:     density,
+			TimeBucket:	d.TimeBucket,
+			BucketLabel:	d.BucketLabel,
+			Count:		d.Count,
+			Density:	density,
 		}
 	}
 	return out, nil

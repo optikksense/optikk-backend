@@ -10,15 +10,18 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
 )
 
 const (
-	tracesIndexTable   = "observability.traces_index"
-	spansRawTable      = "observability.spans"
-	spansRollupPrefix  = "observability.spans_rollup"
-	tracesFacetRollup  = "observability.traces_facets_rollup_5m"
-	traceIndexColumns  = `trace_id, start_ms, end_ms, duration_ns, root_service, root_operation, root_status,
+	tracesIndexTable	= "observability.traces_index"
+	spansRawTable		= "observability.spans"
+	spansRollupPrefix	= rollup.FamilySpansRED
+	// Traces facets pinned to _5m until callers plumb startMs/endMs for tier
+	// selection; rollup exists at all three tiers now.
+	tracesFacetRollup	= "observability.traces_facets_5m"
+	traceIndexColumns	= `trace_id, start_ms, end_ms, duration_ns, root_service, root_operation, root_status,
 			root_http_method, root_http_status, span_count, has_error, error_count, service_set, truncated, last_seen_ms`
 )
 
@@ -26,7 +29,7 @@ type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *Repository { return &Repository{db: db} }
+func NewRepository(db clickhouse.Conn) *Repository	{ return &Repository{db: db} }
 
 // ListTraces reads observability.traces_index (per-trace summaries from the spans indexer).
 func (r *Repository) ListTraces(ctx context.Context, f querycompiler.Filters, limit int, cur TraceCursor) ([]traceIndexRowDTO, bool, []string, error) {
@@ -50,7 +53,7 @@ func (r *Repository) listTracesIndex(ctx context.Context, f querycompiler.Filter
 	)
 	args = append(args, clickhouse.Named("pgLimit", uint64(limit+1))) //nolint:gosec
 	var rows []traceIndexRowDTO
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "traces.ListTraces", &rows, query, args...); err != nil {
 		return nil, false, compiled.DroppedClauses, err
 	}
 	hasMore := len(rows) > limit
@@ -60,18 +63,19 @@ func (r *Repository) listTracesIndex(ctx context.Context, f querycompiler.Filter
 	return rows, hasMore, compiled.DroppedClauses, nil
 }
 
-// GetByID reads a single trace summary from traces_index.
+// GetByID reads a single trace summary from traces_index. PREWHERE on team_id
+// so partition elimination happens before the bloom filter on trace_id kicks in.
 func (r *Repository) GetByID(ctx context.Context, teamID int64, traceID string) (*traceIndexRowDTO, error) {
 	query := fmt.Sprintf(
-		`SELECT %s FROM %s WHERE team_id = @teamID AND trace_id = @traceID ORDER BY last_seen_ms DESC LIMIT 1`,
+		`SELECT %s FROM %s PREWHERE team_id = @teamID WHERE trace_id = @traceID ORDER BY last_seen_ms DESC LIMIT 1`,
 		traceIndexColumns, tracesIndexTable,
 	)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("traceID", traceID),
 	}
 	var rows []traceIndexRowDTO
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "explorer.GetByID", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	if len(rows) == 0 {
@@ -92,11 +96,11 @@ func (r *Repository) summarizeTracesIndex(ctx context.Context, f querycompiler.F
 		tracesIndexTable, compiled.PreWhere, compiled.Where,
 	)
 	var row struct {
-		T uint64 `ch:"t"`
-		E uint64 `ch:"e"`
-		D uint64 `ch:"d"`
+		T	uint64	`ch:"t"`
+		E	uint64	`ch:"e"`
+		D	uint64	`ch:"d"`
 	}
-	rows, err := r.db.Query(dbutil.ExplorerCtx(ctx), query, compiled.Args...)
+	rows, err := dbutil.QueryCH(dbutil.ExplorerCtx(ctx), r.db, "explorer.summarizeTracesIndex", query, compiled.Args...)
 	if err != nil {
 		return Summary{}, err
 	}

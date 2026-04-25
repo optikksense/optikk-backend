@@ -55,18 +55,31 @@ type QueryBudget struct {
 	ResultOverflowMode  string
 	ReadOverflowMode    string
 	OptimizeReadInOrder int
+	// UseQueryCache turns on the CH server-side query cache for this budget.
+	// Safe for tenant-scoped reads where the same (team_id, query) is hit often.
+	UseQueryCache bool
 }
 
 func (b QueryBudget) settings() clickhouse.Settings {
-	return clickhouse.Settings{
+	s := clickhouse.Settings{
 		"max_execution_time":     b.MaxExecutionTime,
 		"max_rows_to_read":       b.MaxRowsToRead,
 		"max_memory_usage":       b.MaxMemoryUsage,
 		"max_result_rows":        b.MaxResultRows,
-		"result_overflow_mode":   b.ResultOverflowMode,
-		"read_overflow_mode":     b.ReadOverflowMode,
 		"optimize_read_in_order": b.OptimizeReadInOrder,
 	}
+	if b.UseQueryCache {
+		// query cache requires overflow_mode = throw (the CH default); omit explicit
+		// overflow_mode settings so they stay at their default "throw" value.
+		s["use_query_cache"] = 1
+		s["query_cache_ttl"] = 60
+		// Keep results per-team; trace reads are tenant-scoped.
+		s["query_cache_share_between_users"] = 0
+	} else {
+		s["result_overflow_mode"] = b.ResultOverflowMode
+		s["read_overflow_mode"] = b.ReadOverflowMode
+	}
+	return s
 }
 
 // Ctx returns a ctx with this budget attached. Repositories call OverviewCtx
@@ -97,6 +110,10 @@ var Explorer = QueryBudget{
 	ResultOverflowMode:  "break",
 	ReadOverflowMode:    "break",
 	OptimizeReadInOrder: 1,
+	// Trace reads are tenant-scoped and repeat-heavy (users re-opening the same
+	// trace, rapid list-page interactions). CH's query cache makes hot-path
+	// hits free. TTL 60s is short enough that new ingest shows up quickly.
+	UseQueryCache: true,
 }
 
 // OverviewCtx returns ctx with the overview query budget attached.
@@ -104,22 +121,6 @@ func OverviewCtx(ctx context.Context) context.Context { return Overview.Ctx(ctx)
 
 // ExplorerCtx returns ctx with the explorer query budget attached.
 func ExplorerCtx(ctx context.Context) context.Context { return Explorer.Ctx(ctx) }
-
-// SelectTyped executes a SELECT and scans into a typed slice. Callers must
-// pass a ctx already wrapped with OverviewCtx or ExplorerCtx.
-func SelectTyped[T any](ctx context.Context, db clickhouse.Conn, query string, args ...any) ([]T, error) {
-	var rows []T
-	err := db.Select(ctx, &rows, query, args...)
-	return rows, err
-}
-
-// QueryRowTyped executes a single-row SELECT and scans into a typed struct.
-// Callers must pass a ctx already wrapped with OverviewCtx or ExplorerCtx.
-func QueryRowTyped[T any](ctx context.Context, db clickhouse.Conn, query string, args ...any) (T, error) {
-	var row T
-	err := db.QueryRow(ctx, query, args...).ScanStruct(&row)
-	return row, err
-}
 
 // SpanBaseParams returns the standard named parameters for span queries:
 // team_id, ts_bucket_start range, and timestamp range.

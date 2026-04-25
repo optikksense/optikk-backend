@@ -51,20 +51,20 @@ func (r *ClickHouseRepository) GetDetectedSystems(ctx context.Context, teamID in
 	)
 
 	var dtos []detectedSystemDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &dtos, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "systems.GetDetectedSystems", &dtos, query, args...); err != nil {
 		return nil, err
 	}
 
 	out := make([]DetectedSystem, len(dtos))
 	for i, d := range dtos {
 		out[i] = DetectedSystem{
-			DBSystem:      d.DBSystem,
-			SpanCount:     d.SpanCount,
-			ErrorCount:    d.ErrorCount,
-			AvgLatencyMs:  d.AvgLatencyMs,
-			QueryCount:    d.QueryCount,
-			ServerAddress: d.ServerAddress,
-			LastSeen:      d.LastSeen.Format(time.RFC3339),
+			DBSystem:	d.DBSystem,
+			SpanCount:	d.SpanCount,
+			ErrorCount:	d.ErrorCount,
+			AvgLatencyMs:	d.AvgLatencyMs,
+			QueryCount:	d.QueryCount,
+			ServerAddress:	d.ServerAddress,
+			LastSeen:	d.LastSeen.Format(time.RFC3339),
 		}
 	}
 	return out, nil

@@ -15,24 +15,24 @@ const tableMetrics = "observability.metrics"
 // materializedDimensions maps user-facing tag key names to ClickHouse materialized
 // column names. These columns are extracted from attributes at insert time.
 var materializedDimensions = map[string]string{
-	"service":          "service",
-	"host":             "host",
-	"environment":      "environment",
-	"k8s_namespace":    "k8s_namespace",
-	"http_method":      "http_method",
-	"http_status_code": "toString(http_status_code)",
+	"service":		"service",
+	"host":			"host",
+	"environment":		"environment",
+	"k8s_namespace":	"k8s_namespace",
+	"http_method":		"http_method",
+	"http_status_code":	"toString(http_status_code)",
 }
 
 // allowedAggregations is the set of aggregation functions we support.
 var allowedAggregations = map[string]bool{
-	"avg": true, "sum": true, "min": true, "max": true, "count": true,
-	"p50": true, "p75": true, "p95": true, "p99": true,
-	"rate": true,
+	"avg":	true, "sum": true, "min": true, "max": true, "count": true,
+	"p50":	true, "p75": true, "p95": true, "p99": true,
+	"rate":	true,
 }
 
 // allowedOperators is the set of filter operators we support.
 var allowedOperators = map[string]bool{
-	"=": true, "!=": true, "IN": true, "NOT IN": true,
+	"=":	true, "!=": true, "IN": true, "NOT IN": true,
 }
 
 type Repository interface {
@@ -71,16 +71,16 @@ func (r *ClickHouseRepository) ListMetricNames(ctx context.Context, teamID int64
 	)
 
 	var rows []metricNameDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "metrics.ListMetricNames", &rows, query, params...); err != nil {
 		return nil, err
 	}
 	results := make([]MetricNameResult, len(rows))
 	for i, r := range rows {
 		results[i] = MetricNameResult{
-			MetricName:  r.MetricName,
-			MetricType:  r.MetricType,
-			Unit:        r.Unit,
-			Description: r.Description,
+			MetricName:	r.MetricName,
+			MetricType:	r.MetricType,
+			Unit:		r.Unit,
+			Description:	r.Description,
 		}
 	}
 	return results, nil
@@ -115,7 +115,7 @@ func (r *ClickHouseRepository) ListTagKeys(ctx context.Context, teamID int64, st
 	)
 
 	var rows []tagKeyDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "metrics.ListTagKeys", &rows, query, params...); err != nil {
 		return nil, err
 	}
 	results := make([]TagKeyResult, len(rows))
@@ -152,7 +152,7 @@ func (r *ClickHouseRepository) ListTagValues(ctx context.Context, teamID int64, 
 	)
 
 	var rows []tagValueDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, params...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "metrics.ListTagValues", &rows, query, params...); err != nil {
 		return nil, err
 	}
 	results := make([]TagValueResult, len(rows))
@@ -220,7 +220,7 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, teamID int64
 	)
 
 	var rows []timeseriesPointDTO
-	if err := r.db.Select(dbutil.ExplorerCtx(ctx), &rows, sql, params...); err != nil {
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "metrics.QueryTimeseries", &rows, sql, params...); err != nil {
 		return nil, err
 	}
 	results := make([]TimeseriesPoint, len(rows))

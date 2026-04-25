@@ -11,54 +11,54 @@ import (
 // adapt their concrete Row type into this struct so the indexer doesn't
 // depend on the outer `spans` package (import-cycle avoidance).
 type Span struct {
-	TeamID         uint32
-	TraceID        string
-	SpanID         string
-	ParentSpanID   string
-	Service        string
-	Name           string
-	StartMs        int64
-	EndMs          int64
-	IsRoot         bool
-	IsError        bool
-	HTTPMethod     string
-	HTTPStatus     string
-	StatusCode     string
-	PeerService    string
-	ErrorFp        string
-	Environment    string
-	TsBucketStart  uint64
+	TeamID		uint32
+	TraceID		string
+	SpanID		string
+	ParentSpanID	string
+	Service		string
+	Name		string
+	StartMs		int64
+	EndMs		int64
+	IsRoot		bool
+	IsError		bool
+	HTTPMethod	string
+	HTTPStatus	string
+	StatusCode	string
+	PeerService	string
+	ErrorFp		string
+	Environment	string
+	TsBucketStart	uint64
 }
 
 // Assembler groups raw spans by trace_id, maintains a bounded pending set,
 // and emits TraceIndexRow via the injected Emitter when a trace is complete.
 // Completion: root observed AND 10s quiet, OR 60s hard timeout.
 type Assembler struct {
-	state    *state
-	emitter  Emitter
-	quiet    time.Duration
-	hardTO   time.Duration
-	sweepInt time.Duration
+	state		*state
+	emitter		Emitter
+	quiet		time.Duration
+	hardTO		time.Duration
+	sweepInt	time.Duration
 
-	cancel context.CancelFunc
-	wg     sync.WaitGroup
+	cancel	context.CancelFunc
+	wg	sync.WaitGroup
 }
 
 // Config controls the bounded state + sweep cadence. Zero values pick sane
 // defaults (100k entries, 10s quiet, 60s hard timeout, 5s sweep).
 type Config struct {
-	Capacity     int
-	QuietWindow  time.Duration
-	HardTimeout  time.Duration
-	SweepEvery   time.Duration
+	Capacity	int
+	QuietWindow	time.Duration
+	HardTimeout	time.Duration
+	SweepEvery	time.Duration
 }
 
 func DefaultConfig() Config {
 	return Config{
-		Capacity:    100_000,
-		QuietWindow: 10 * time.Second,
-		HardTimeout: 60 * time.Second,
-		SweepEvery:  5 * time.Second,
+		Capacity:	100_000,
+		QuietWindow:	10 * time.Second,
+		HardTimeout:	60 * time.Second,
+		SweepEvery:	5 * time.Second,
 	}
 }
 
@@ -73,11 +73,11 @@ func New(emitter Emitter, cfg Config) *Assembler {
 		cfg.SweepEvery = 5 * time.Second
 	}
 	return &Assembler{
-		state:    newState(cfg.Capacity),
-		emitter:  emitter,
-		quiet:    cfg.QuietWindow,
-		hardTO:   cfg.HardTimeout,
-		sweepInt: cfg.SweepEvery,
+		state:		newState(cfg.Capacity),
+		emitter:	emitter,
+		quiet:		cfg.QuietWindow,
+		hardTO:		cfg.HardTimeout,
+		sweepInt:	cfg.SweepEvery,
 	}
 }
 
@@ -104,7 +104,9 @@ func (a *Assembler) Start() {
 		for {
 			select {
 			case <-ctx.Done():
-				a.drain(context.Background())
+				drainCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				a.drain(drainCtx)
 				return
 			case <-ticker.C:
 				a.sweep(context.Background())
@@ -122,7 +124,7 @@ func (a *Assembler) Stop() error {
 }
 
 // Len exposes pending-trace count for metrics.
-func (a *Assembler) Len() int { return a.state.Len() }
+func (a *Assembler) Len() int	{ return a.state.Len() }
 
 func (a *Assembler) sweep(ctx context.Context) {
 	now := time.Now()
@@ -134,10 +136,30 @@ func (a *Assembler) sweep(ctx context.Context) {
 	}
 }
 
-// drain on shutdown emits whatever is in flight as truncated. Bound by
-// ShutdownTimeout on the outer module.
+// batchEmitter is satisfied by CHEmitter; test stubs that only implement
+// Emitter fall through to the one-at-a-time path.
+type batchEmitter interface {
+	EmitBatch(ctx context.Context, rows []TraceIndexRow) error
+}
+
+// drain on shutdown emits whatever is in flight as truncated. Uses a single
+// batch insert when the emitter supports it (CHEmitter) so that N pending
+// traces cost 2 round trips total instead of 2N.
 func (a *Assembler) drain(ctx context.Context) {
 	done := a.state.Sweep(time.Now().Add(1*time.Hour), 0, 0)
+	if len(done) == 0 {
+		return
+	}
+	if be, ok := a.emitter.(batchEmitter); ok {
+		rows := make([]TraceIndexRow, len(done))
+		for i, p := range done {
+			rows[i] = p.ToRow(true)
+		}
+		if err := be.EmitBatch(ctx, rows); err != nil {
+			slog.WarnContext(ctx, "indexer: drain batch emit failed", slog.Any("error", err))
+		}
+		return
+	}
 	for _, p := range done {
 		a.emit(ctx, p, true)
 	}
@@ -149,7 +171,7 @@ func (a *Assembler) emit(ctx context.Context, p *pending, truncated bool) {
 	}
 	row := p.ToRow(truncated)
 	if err := a.emitter.Emit(ctx, row); err != nil {
-		slog.Warn("indexer: emit failed",
+		slog.WarnContext(ctx, "indexer: emit failed",
 			slog.String("trace_id", p.traceID), slog.Any("error", err))
 	}
 }

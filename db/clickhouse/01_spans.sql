@@ -94,6 +94,17 @@ CREATE TABLE IF NOT EXISTS observability.spans (
                                     MATERIALIZED attributes.`service.version`::String          CODEC(ZSTD(1)),
     mat_deployment_environment LowCardinality(String)
                                     MATERIALIZED attributes.`deployment.environment`::String    CODEC(ZSTD(1)),
+    -- http_status_bucket: computed once at raw insert; fans into spans_red, spans_peer,
+    -- spans_errors. Replaces per-MV multiIf from the pre-rewrite schema.
+    http_status_bucket        LowCardinality(String)
+                                    MATERIALIZED multiIf(
+                                        toUInt16OrZero(response_status_code) >= 500, '5xx',
+                                        toUInt16OrZero(response_status_code) >= 400, '4xx',
+                                        toUInt16OrZero(response_status_code) >= 300, '3xx',
+                                        toUInt16OrZero(response_status_code) >= 200, '2xx',
+                                        has_error, 'err',
+                                        'other'
+                                    ) CODEC(ZSTD(1)),
     INDEX idx_service_name          service_name            TYPE bloom_filter(0.01)      GRANULARITY 4,
     INDEX idx_trace_id              trace_id                TYPE bloom_filter(0.01)      GRANULARITY 4,
     INDEX idx_trace_id_token        trace_id                TYPE tokenbf_v1(32768, 3, 0) GRANULARITY 4,

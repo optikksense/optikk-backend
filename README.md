@@ -102,8 +102,7 @@ make vet
 ```text
 optikk-backend/
 ├── cmd/
-│   ├── server/          # Main backend process
-│   └── migrate/         # ClickHouse migration utility
+│   └── server/          # Main backend process (runs ClickHouse migrations on boot)
 ├── db/
 │   └── clickhouse/      # Embedded ClickHouse schema and migrations
 ├── docs/                # Focused design and ops docs
@@ -119,5 +118,5 @@ optikk-backend/
 ## Related docs
 
 - Codebase map: [CODEBASE_INDEX.md](/Users/ramantayal/Desktop/pro/optikk-backend/CODEBASE_INDEX.md)
-- Runtime metrics / Prometheus: [docs/observability.md](/Users/ramantayal/Desktop/pro/optikk-backend/docs/observability.md)
+- Runtime metrics / Prometheus: [docs/ops/observability.md](/Users/ramantayal/Desktop/pro/optikk-backend/docs/ops/observability.md)
 - ClickHouse notes: [db/clickhouse/README.md](/Users/ramantayal/Desktop/pro/optikk-backend/db/clickhouse/README.md)

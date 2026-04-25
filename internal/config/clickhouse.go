@@ -3,13 +3,12 @@ package config
 import "fmt"
 
 type ClickHouseConfig struct {
-	Host        string `yaml:"host"`
-	Port        string `yaml:"port"`
-	Database    string `yaml:"database"`
-	User        string `yaml:"user"`
-	Password    string `yaml:"password"`
-	Secure      bool   `yaml:"secure"`
-	AutoMigrate bool   `yaml:"auto_migrate"`
+	Host     string `yaml:"host"`
+	Port     string `yaml:"port"`
+	Database string `yaml:"database"`
+	User     string `yaml:"user"`
+	Password string `yaml:"password"`
+	Secure   bool   `yaml:"secure"`
 }
 
 func (c Config) ClickHouseDSN() string {

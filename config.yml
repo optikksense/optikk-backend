@@ -21,7 +21,6 @@ clickhouse:
   user: default
   password: clickhouse123
   secure: false
-  auto_migrate: true
 
 session:
   lifetime_ms: 86400000
@@ -58,3 +57,6 @@ kafka:
 
 app:
   region: us-east-1
+
+# Self-telemetry: Prometheus metrics are exposed on /metrics and scraped by
+# the local Prometheus+Grafana stack (deploy/monitoring/stack/).

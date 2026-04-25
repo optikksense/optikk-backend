@@ -2,12 +2,11 @@ package slo
 
 import (
 	"context"
-	"log/slog"
 )
 
 const (
-	availabilityTarget = 99.9
-	p95LatencyTargetMs = 300.0
+	availabilityTarget	= 99.9
+	p95LatencyTargetMs	= 300.0
 )
 
 type Service interface {
@@ -27,13 +26,11 @@ func NewService(repo Repository) Service {
 func (s *SLOService) GetSloSli(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (*Response, error) {
 	summary, err := s.repo.GetSummary(ctx, teamID, startMs, endMs, serviceName)
 	if err != nil {
-		slog.Error("slo: GetSloSli summary failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("service", serviceName))
 		return nil, err
 	}
 
 	timeseries, err := s.repo.GetTimeSeries(ctx, teamID, startMs, endMs, serviceName)
 	if err != nil {
-		slog.Error("slo: GetSloSli timeseries failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("service", serviceName))
 		return nil, err
 	}
 
@@ -41,17 +38,17 @@ func (s *SLOService) GetSloSli(ctx context.Context, teamID int64, startMs, endMs
 
 	return &Response{
 		Objectives: Objectives{
-			AvailabilityTarget: availabilityTarget,
-			P95LatencyTargetMs: p95LatencyTargetMs,
+			AvailabilityTarget:	availabilityTarget,
+			P95LatencyTargetMs:	p95LatencyTargetMs,
 		},
 		Status: Status{
-			AvailabilityPercent:         summary.AvailabilityPercent,
-			P95LatencyMs:                summary.P95LatencyMs,
-			ErrorBudgetRemainingPercent: errorBudgetRemaining,
-			Compliant:                   summary.AvailabilityPercent >= availabilityTarget && summary.P95LatencyMs <= p95LatencyTargetMs,
+			AvailabilityPercent:		summary.AvailabilityPercent,
+			P95LatencyMs:			summary.P95LatencyMs,
+			ErrorBudgetRemainingPercent:	errorBudgetRemaining,
+			Compliant:			summary.AvailabilityPercent >= availabilityTarget && summary.P95LatencyMs <= p95LatencyTargetMs,
 		},
-		Summary:    summary,
-		Timeseries: timeseries,
+		Summary:	summary,
+		Timeseries:	timeseries,
 	}, nil
 }
 

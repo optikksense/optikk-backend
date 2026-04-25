@@ -4,7 +4,7 @@ import (
 	"net/http"
 
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/errorcode"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 
 	"github.com/gin-gonic/gin"

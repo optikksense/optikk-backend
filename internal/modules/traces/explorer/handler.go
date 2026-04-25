@@ -3,7 +3,7 @@ package explorer
 import (
 	"net/http"
 
-	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/errorcode"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -30,24 +30,6 @@ func (h *Handler) Query(c *gin.Context) {
 	resp, err := h.svc.Query(c.Request.Context(), req, h.GetTenant(c).TeamID)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query traces", err)
-		return
-	}
-	modulecommon.RespondOK(c, resp)
-}
-
-func (h *Handler) Analytics(c *gin.Context) {
-	var req AnalyticsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Invalid request body")
-		return
-	}
-	if !validRange(req.StartTime, req.EndTime) {
-		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Valid startTime and endTime are required")
-		return
-	}
-	resp, err := h.svc.Analytics(c.Request.Context(), req, h.GetTenant(c).TeamID)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query traces analytics", err)
 		return
 	}
 	modulecommon.RespondOK(c, resp)

@@ -17,15 +17,15 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	utils "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 const (
-	serviceNameFilter            = " AND s.service_name = @serviceName"
-	spansRollupPrefix            = "observability.spans_rollup"
-	errorFingerprintRollupPrefix = "observability.spans_error_fingerprint"
+	serviceNameFilter		= " AND s.service_name = @serviceName"
+	spansRollupPrefix		= rollup.FamilySpansRED
+	errorFingerprintRollupPrefix	= rollup.FamilySpansErrors
 )
 
 // httpStatusBucketToCode maps the rollup's coarse http_status_bucket
@@ -51,13 +51,13 @@ func httpStatusBucketToCode(bucket string) int {
 const groupResolveCacheTTL = 60 * time.Second
 
 type groupResolveEntry struct {
-	groups    []errorGroupRow
-	expiresAt time.Time
+	groups		[]errorGroupRow
+	expiresAt	time.Time
 }
 
 var (
-	groupResolveMu    sync.Mutex
-	groupResolveStore = make(map[string]groupResolveEntry)
+	groupResolveMu		sync.Mutex
+	groupResolveStore	= make(map[string]groupResolveEntry)
 )
 
 func groupResolveKey(teamID int64, startMs, endMs int64) string {
@@ -99,28 +99,28 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 // errorGroupRow is the DTO for scanning error group rows from ClickHouse.
 // GroupID is computed in Go from the other fields, so we use a DTO (Rule B).
 type errorGroupRow struct {
-	ServiceName     string    `ch:"service_name"`
-	OperationName   string    `ch:"operation_name"`
-	StatusMessage   string    `ch:"status_message"`
-	HTTPStatusCode  uint16    `ch:"http_status_code"`
-	ErrorCount      int64     `ch:"error_count"`
-	LastOccurrence  time.Time `ch:"last_occurrence"`
-	FirstOccurrence time.Time `ch:"first_occurrence"`
-	SampleTraceID   string    `ch:"sample_trace_id"`
+	ServiceName	string		`ch:"service_name"`
+	OperationName	string		`ch:"operation_name"`
+	StatusMessage	string		`ch:"status_message"`
+	HTTPStatusCode	uint16		`ch:"http_status_code"`
+	ErrorCount	int64		`ch:"error_count"`
+	LastOccurrence	time.Time	`ch:"last_occurrence"`
+	FirstOccurrence	time.Time	`ch:"first_occurrence"`
+	SampleTraceID	string		`ch:"sample_trace_id"`
 }
 
 // errorGroupRawRow scans the rollup aggregate shape before we cast/derive
 // the DTO fields the service layer expects (string status message, uint16
 // http_status_code).
 type errorGroupRawRow struct {
-	ServiceName      string    `ch:"service_name"`
-	OperationName    string    `ch:"operation_name"`
-	StatusMessage    string    `ch:"status_message"`
-	HTTPStatusBucket string    `ch:"http_status_bucket"`
-	ErrorCount       uint64    `ch:"error_count"`
-	LastOccurrence   time.Time `ch:"last_occurrence"`
-	FirstOccurrence  time.Time `ch:"first_occurrence"`
-	SampleTraceID    string    `ch:"sample_trace_id"`
+	ServiceName		string		`ch:"service_name"`
+	OperationName		string		`ch:"operation_name"`
+	StatusMessage		string		`ch:"status_message"`
+	HTTPStatusBucket	string		`ch:"http_status_bucket"`
+	ErrorCount		uint64		`ch:"error_count"`
+	LastOccurrence		time.Time	`ch:"last_occurrence"`
+	FirstOccurrence		time.Time	`ch:"first_occurrence"`
+	SampleTraceID		string		`ch:"sample_trace_id"`
 }
 
 func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorGroupRow, error) {
@@ -148,21 +148,21 @@ func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64,
 	args = append(args, clickhouse.Named("limit", limit))
 
 	var raw []errorGroupRawRow
-	if err := r.db.Select(database.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetErrorGroups", &raw, query, args...); err != nil {
 		return nil, err
 	}
 
 	rows := make([]errorGroupRow, len(raw))
 	for i, row := range raw {
 		rows[i] = errorGroupRow{
-			ServiceName:     row.ServiceName,
-			OperationName:   row.OperationName,
-			StatusMessage:   row.StatusMessage,
-			HTTPStatusCode:  uint16(httpStatusBucketToCode(row.HTTPStatusBucket)), //nolint:gosec // domain-bounded
-			ErrorCount:      int64(row.ErrorCount),                                //nolint:gosec // domain-bounded
-			LastOccurrence:  row.LastOccurrence,
-			FirstOccurrence: row.FirstOccurrence,
-			SampleTraceID:   row.SampleTraceID,
+			ServiceName:		row.ServiceName,
+			OperationName:		row.OperationName,
+			StatusMessage:		row.StatusMessage,
+			HTTPStatusCode:		uint16(httpStatusBucketToCode(row.HTTPStatusBucket)),	//nolint:gosec // domain-bounded
+			ErrorCount:		int64(row.ErrorCount),					//nolint:gosec // domain-bounded
+			LastOccurrence:		row.LastOccurrence,
+			FirstOccurrence:	row.FirstOccurrence,
+			SampleTraceID:		row.SampleTraceID,
 		}
 	}
 	return rows, nil
@@ -220,16 +220,16 @@ func (r *ClickHouseRepository) cachedErrorGroups(ctx context.Context, teamID int
 
 // errorGroupDetailRow is the DTO for GetErrorGroupDetail.
 type errorGroupDetailRow struct {
-	ServiceName     string    `ch:"service_name"`
-	OperationName   string    `ch:"operation_name"`
-	StatusMessage   string    `ch:"status_message"`
-	HTTPStatusCode  uint16    `ch:"http_status_code"`
-	ErrorCount      int64     `ch:"error_count"`
-	LastOccurrence  time.Time `ch:"last_occurrence"`
-	FirstOccurrence time.Time `ch:"first_occurrence"`
-	SampleTraceID   string    `ch:"sample_trace_id"`
-	ExceptionType   string    `ch:"exception_type"`
-	StackTrace      string    `ch:"stack_trace"`
+	ServiceName	string		`ch:"service_name"`
+	OperationName	string		`ch:"operation_name"`
+	StatusMessage	string		`ch:"status_message"`
+	HTTPStatusCode	uint16		`ch:"http_status_code"`
+	ErrorCount	int64		`ch:"error_count"`
+	LastOccurrence	time.Time	`ch:"last_occurrence"`
+	FirstOccurrence	time.Time	`ch:"first_occurrence"`
+	SampleTraceID	string		`ch:"sample_trace_id"`
+	ExceptionType	string		`ch:"exception_type"`
+	StackTrace	string		`ch:"stack_trace"`
 }
 
 func (r *ClickHouseRepository) GetErrorGroupDetail(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (*errorGroupDetailRow, error) {
@@ -257,7 +257,7 @@ func (r *ClickHouseRepository) GetErrorGroupDetail(ctx context.Context, teamID i
 		  AND toUInt16OrZero(s.response_status_code) = @groupHTTPStatusCode
 		GROUP BY s.service_name, s.name, s.status_message, toUInt16OrZero(s.response_status_code)`
 
-	args := append(database.SpanBaseParams(teamID, startMs, endMs),
+	args := append(dbutil.SpanBaseParams(teamID, startMs, endMs),
 		clickhouse.Named("groupServiceName", svc),
 		clickhouse.Named("groupOperationName", op),
 		clickhouse.Named("groupStatusMessage", msg),
@@ -265,7 +265,7 @@ func (r *ClickHouseRepository) GetErrorGroupDetail(ctx context.Context, teamID i
 	)
 
 	var row errorGroupDetailRow
-	if err := r.db.QueryRow(database.OverviewCtx(ctx), query, args...).ScanStruct(&row); err != nil {
+	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&row); err != nil {
 		return nil, err
 	}
 
@@ -274,11 +274,11 @@ func (r *ClickHouseRepository) GetErrorGroupDetail(ctx context.Context, teamID i
 
 // errorGroupTraceRow is the DTO for GetErrorGroupTraces.
 type errorGroupTraceRow struct {
-	TraceID    string    `ch:"trace_id"`
-	SpanID     string    `ch:"span_id"`
-	Timestamp  time.Time `ch:"timestamp"`
-	DurationMs float64   `ch:"duration_ms"`
-	StatusCode string    `ch:"status_code"`
+	TraceID		string		`ch:"trace_id"`
+	SpanID		string		`ch:"span_id"`
+	Timestamp	time.Time	`ch:"timestamp"`
+	DurationMs	float64		`ch:"duration_ms"`
+	StatusCode	string		`ch:"status_code"`
 }
 
 func (r *ClickHouseRepository) GetErrorGroupTraces(ctx context.Context, teamID int64, startMs, endMs int64, groupID string, limit int) ([]errorGroupTraceRow, error) {
@@ -302,7 +302,7 @@ func (r *ClickHouseRepository) GetErrorGroupTraces(ctx context.Context, teamID i
 		ORDER BY s.timestamp DESC
 		LIMIT @limit`
 
-	args := append(database.SpanBaseParams(teamID, startMs, endMs),
+	args := append(dbutil.SpanBaseParams(teamID, startMs, endMs),
 		clickhouse.Named("groupServiceName", svc),
 		clickhouse.Named("groupOperationName", op),
 		clickhouse.Named("groupStatusMessage", msg),
@@ -311,7 +311,7 @@ func (r *ClickHouseRepository) GetErrorGroupTraces(ctx context.Context, teamID i
 	)
 
 	var rows []errorGroupTraceRow
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetErrorGroupTraces", &rows, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -320,8 +320,8 @@ func (r *ClickHouseRepository) GetErrorGroupTraces(ctx context.Context, teamID i
 
 // errorGroupTSRow is the DTO for GetErrorGroupTimeseries.
 type errorGroupTSRow struct {
-	Timestamp  time.Time `ch:"timestamp"`
-	ErrorCount int64     `ch:"error_count"`
+	Timestamp	time.Time	`ch:"timestamp"`
+	ErrorCount	int64		`ch:"error_count"`
 }
 
 func (r *ClickHouseRepository) GetErrorGroupTimeseries(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) ([]errorGroupTSRow, error) {
@@ -345,7 +345,7 @@ func (r *ClickHouseRepository) GetErrorGroupTimeseries(ctx context.Context, team
 		GROUP BY timestamp
 		ORDER BY timestamp ASC`, bucket)
 
-	args := append(database.SpanBaseParams(teamID, startMs, endMs),
+	args := append(dbutil.SpanBaseParams(teamID, startMs, endMs),
 		clickhouse.Named("groupServiceName", svc),
 		clickhouse.Named("groupOperationName", op),
 		clickhouse.Named("groupStatusMessage", msg),
@@ -353,7 +353,7 @@ func (r *ClickHouseRepository) GetErrorGroupTimeseries(ctx context.Context, team
 	)
 
 	var rows []errorGroupTSRow
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetErrorGroupTimeseries", &rows, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -364,20 +364,20 @@ func (r *ClickHouseRepository) GetErrorGroupTimeseries(ctx context.Context, team
 // spans_rollup_1m root-span rollup; error_rate + avg_latency are derived
 // Go-side from the merged state columns.
 type serviceErrorRateRow struct {
-	ServiceName  string    `ch:"service_name"`
-	Timestamp    time.Time `ch:"timestamp"`
-	RequestCount int64     `ch:"request_count"`
-	ErrorCount   int64     `ch:"error_count"`
-	ErrorRate    float64   `ch:"error_rate"`
-	AvgLatency   float64   `ch:"avg_latency"`
+	ServiceName	string		`ch:"service_name"`
+	Timestamp	time.Time	`ch:"timestamp"`
+	RequestCount	int64		`ch:"request_count"`
+	ErrorCount	int64		`ch:"error_count"`
+	ErrorRate	float64		`ch:"error_rate"`
+	AvgLatency	float64		`ch:"avg_latency"`
 }
 
 type serviceErrorRateRawRow struct {
-	ServiceName   string    `ch:"service_name"`
-	Timestamp     time.Time `ch:"timestamp"`
-	RequestCount  uint64    `ch:"request_count"`
-	ErrorCount    uint64    `ch:"error_count"`
-	DurationMsSum float64   `ch:"duration_ms_sum"`
+	ServiceName	string		`ch:"service_name"`
+	Timestamp	time.Time	`ch:"timestamp"`
+	RequestCount	uint64		`ch:"request_count"`
+	ErrorCount	uint64		`ch:"error_count"`
+	DurationMsSum	float64		`ch:"duration_ms_sum"`
 }
 
 func (r *ClickHouseRepository) GetServiceErrorRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]serviceErrorRateRow, error) {
@@ -404,14 +404,14 @@ func (r *ClickHouseRepository) GetServiceErrorRate(ctx context.Context, teamID i
 		LIMIT 10000`
 
 	var raw []serviceErrorRateRawRow
-	if err := r.db.Select(database.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetServiceErrorRate", &raw, query, args...); err != nil {
 		return nil, err
 	}
 
 	rows := make([]serviceErrorRateRow, len(raw))
 	for i, row := range raw {
-		total := int64(row.RequestCount) //nolint:gosec // domain-bounded
-		errs := int64(row.ErrorCount)    //nolint:gosec // domain-bounded
+		total := int64(row.RequestCount)	//nolint:gosec // domain-bounded
+		errs := int64(row.ErrorCount)		//nolint:gosec // domain-bounded
 		rate := 0.0
 		if total > 0 {
 			rate = float64(errs) * 100.0 / float64(total)
@@ -421,12 +421,12 @@ func (r *ClickHouseRepository) GetServiceErrorRate(ctx context.Context, teamID i
 			avg = row.DurationMsSum / float64(row.RequestCount)
 		}
 		rows[i] = serviceErrorRateRow{
-			ServiceName:  row.ServiceName,
-			Timestamp:    row.Timestamp,
-			RequestCount: total,
-			ErrorCount:   errs,
-			ErrorRate:    rate,
-			AvgLatency:   avg,
+			ServiceName:	row.ServiceName,
+			Timestamp:	row.Timestamp,
+			RequestCount:	total,
+			ErrorCount:	errs,
+			ErrorRate:	rate,
+			AvgLatency:	avg,
 		}
 	}
 	return rows, nil
@@ -434,15 +434,15 @@ func (r *ClickHouseRepository) GetServiceErrorRate(ctx context.Context, teamID i
 
 // errorVolumeRow is the DTO for GetErrorVolume.
 type errorVolumeRow struct {
-	ServiceName string    `ch:"service_name"`
-	Timestamp   time.Time `ch:"timestamp"`
-	ErrorCount  int64     `ch:"error_count"`
+	ServiceName	string		`ch:"service_name"`
+	Timestamp	time.Time	`ch:"timestamp"`
+	ErrorCount	int64		`ch:"error_count"`
 }
 
 type errorVolumeRawRow struct {
-	ServiceName string    `ch:"service_name"`
-	Timestamp   time.Time `ch:"timestamp"`
-	ErrorCount  uint64    `ch:"error_count"`
+	ServiceName	string		`ch:"service_name"`
+	Timestamp	time.Time	`ch:"timestamp"`
+	ErrorCount	uint64		`ch:"error_count"`
 }
 
 func (r *ClickHouseRepository) GetErrorVolume(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]errorVolumeRow, error) {
@@ -467,7 +467,7 @@ func (r *ClickHouseRepository) GetErrorVolume(ctx context.Context, teamID int64,
 		LIMIT 10000`
 
 	var raw []errorVolumeRawRow
-	if err := r.db.Select(database.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetErrorVolume", &raw, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -477,9 +477,9 @@ func (r *ClickHouseRepository) GetErrorVolume(ctx context.Context, teamID int64,
 			continue
 		}
 		rows = append(rows, errorVolumeRow{
-			ServiceName: row.ServiceName,
-			Timestamp:   row.Timestamp,
-			ErrorCount:  int64(row.ErrorCount), //nolint:gosec // domain-bounded
+			ServiceName:	row.ServiceName,
+			Timestamp:	row.Timestamp,
+			ErrorCount:	int64(row.ErrorCount),	//nolint:gosec // domain-bounded
 		})
 	}
 	return rows, nil
@@ -487,11 +487,11 @@ func (r *ClickHouseRepository) GetErrorVolume(ctx context.Context, teamID int64,
 
 // latencyErrorRow is the DTO for GetLatencyDuringErrorWindows.
 type latencyErrorRow struct {
-	ServiceName  string    `ch:"service_name"`
-	Timestamp    time.Time `ch:"timestamp"`
-	RequestCount int64     `ch:"request_count"`
-	ErrorCount   int64     `ch:"error_count"`
-	AvgLatency   float64   `ch:"avg_latency"`
+	ServiceName	string		`ch:"service_name"`
+	Timestamp	time.Time	`ch:"timestamp"`
+	RequestCount	int64		`ch:"request_count"`
+	ErrorCount	int64		`ch:"error_count"`
+	AvgLatency	float64		`ch:"avg_latency"`
 }
 
 func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]latencyErrorRow, error) {
@@ -518,7 +518,7 @@ func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(ctx context.Context,
 		LIMIT 10000`
 
 	var raw []serviceErrorRateRawRow
-	if err := r.db.Select(database.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetLatencyDuringErrorWindows", &raw, query, args...); err != nil {
 		return nil, err
 	}
 
@@ -527,18 +527,18 @@ func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(ctx context.Context,
 		if row.ErrorCount == 0 {
 			continue
 		}
-		total := int64(row.RequestCount) //nolint:gosec // domain-bounded
-		errs := int64(row.ErrorCount)    //nolint:gosec // domain-bounded
+		total := int64(row.RequestCount)	//nolint:gosec // domain-bounded
+		errs := int64(row.ErrorCount)		//nolint:gosec // domain-bounded
 		avg := 0.0
 		if row.RequestCount > 0 {
 			avg = row.DurationMsSum / float64(row.RequestCount)
 		}
 		rows = append(rows, latencyErrorRow{
-			ServiceName:  row.ServiceName,
-			Timestamp:    row.Timestamp,
-			RequestCount: total,
-			ErrorCount:   errs,
-			AvgLatency:   avg,
+			ServiceName:	row.ServiceName,
+			Timestamp:	row.Timestamp,
+			RequestCount:	total,
+			ErrorCount:	errs,
+			AvgLatency:	avg,
 		})
 	}
 	return rows, nil
@@ -573,7 +573,7 @@ func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 // rollup reads: teamID + start/end.
 func errFingerprintRollupParams(teamID int64, startMs, endMs int64) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 — tenant ID fits uint32
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115 — tenant ID fits uint32
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
@@ -581,7 +581,7 @@ func errFingerprintRollupParams(teamID int64, startMs, endMs int64) []any {
 
 func rollupBaseParams(teamID int64, startMs, endMs int64) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
@@ -592,9 +592,9 @@ func rollupBaseParams(teamID int64, startMs, endMs int64) []any {
 // exceptionRateRawRow scans the time-bucketed exception-type counts from the
 // fingerprint rollup; the UInt64 count is cast down to int64 for the DTO.
 type exceptionRateRawRow struct {
-	Timestamp     time.Time `ch:"time_bucket"`
-	ExceptionType string    `ch:"exception_type"`
-	Count         uint64    `ch:"event_count"`
+	Timestamp	time.Time	`ch:"time_bucket"`
+	ExceptionType	string		`ch:"exception_type"`
+	Count		uint64		`ch:"event_count"`
 }
 
 func (r *ClickHouseRepository) GetExceptionRateByType(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]exceptionRatePointDTO, error) {
@@ -617,15 +617,15 @@ func (r *ClickHouseRepository) GetExceptionRateByType(ctx context.Context, teamI
 	query += ` GROUP BY time_bucket, exception_type ORDER BY time_bucket ASC`
 
 	var raw []exceptionRateRawRow
-	if err := r.db.Select(database.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetExceptionRateByType", &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]exceptionRatePointDTO, len(raw))
 	for i, row := range raw {
 		rows[i] = exceptionRatePointDTO{
-			Timestamp:     row.Timestamp,
-			ExceptionType: row.ExceptionType,
-			Count:         int64(row.Count), //nolint:gosec // domain-bounded
+			Timestamp:	row.Timestamp,
+			ExceptionType:	row.ExceptionType,
+			Count:		int64(row.Count),	//nolint:gosec // domain-bounded
 		}
 	}
 	return rows, nil
@@ -634,10 +634,10 @@ func (r *ClickHouseRepository) GetExceptionRateByType(ctx context.Context, teamI
 // errorHotspotRawRow scans the fingerprint-rollup error counts joined with
 // the spans rollup's request totals; error_rate is derived Go-side.
 type errorHotspotRawRow struct {
-	ServiceName   string `ch:"service_name"`
-	OperationName string `ch:"operation_name"`
-	ErrorCount    uint64 `ch:"error_count"`
-	TotalCount    uint64 `ch:"total_count"`
+	ServiceName	string	`ch:"service_name"`
+	OperationName	string	`ch:"operation_name"`
+	ErrorCount	uint64	`ch:"error_count"`
+	TotalCount	uint64	`ch:"total_count"`
 }
 
 func (r *ClickHouseRepository) GetErrorHotspot(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorHotspotCellDTO, error) {
@@ -670,23 +670,23 @@ func (r *ClickHouseRepository) GetErrorHotspot(ctx context.Context, teamID int64
 	`, errTable, spansTable)
 
 	var raw []errorHotspotRawRow
-	if err := r.db.Select(database.OverviewCtx(ctx), &raw, query, errFingerprintRollupParams(teamID, startMs, endMs)...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetErrorHotspot", &raw, query, errFingerprintRollupParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	rows := make([]errorHotspotCellDTO, len(raw))
 	for i, row := range raw {
-		total := int64(row.TotalCount) //nolint:gosec // domain-bounded
-		errs := int64(row.ErrorCount)  //nolint:gosec // domain-bounded
+		total := int64(row.TotalCount)	//nolint:gosec // domain-bounded
+		errs := int64(row.ErrorCount)	//nolint:gosec // domain-bounded
 		rate := 0.0
 		if total > 0 {
 			rate = float64(errs) * 100.0 / float64(total)
 		}
 		rows[i] = errorHotspotCellDTO{
-			ServiceName:   row.ServiceName,
-			OperationName: row.OperationName,
-			ErrorRate:     rate,
-			ErrorCount:    errs,
-			TotalCount:    total,
+			ServiceName:	row.ServiceName,
+			OperationName:	row.OperationName,
+			ErrorRate:	rate,
+			ErrorCount:	errs,
+			TotalCount:	total,
 		}
 	}
 	return rows, nil
@@ -701,7 +701,7 @@ func (r *ClickHouseRepository) GetHTTP5xxByRoute(ctx context.Context, teamID int
 		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
 		  AND toUInt16OrZero(s.response_status_code) >= 500`
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -714,7 +714,7 @@ func (r *ClickHouseRepository) GetHTTP5xxByRoute(ctx context.Context, teamID int
 	query += ` GROUP BY http_route, s.service_name ORDER BY count_5xx DESC LIMIT 100`
 
 	var rows []http5xxByRouteDTO
-	return rows, r.db.Select(database.OverviewCtx(ctx), &rows, query, args...)
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetHTTP5xxByRoute", &rows, query, args...)
 }
 
 // --- Migrated from errorfingerprint ---
@@ -722,15 +722,15 @@ func (r *ClickHouseRepository) GetHTTP5xxByRoute(ctx context.Context, teamID int
 // errorFingerprintRawRow scans the rollup aggregate shape; Count is UInt64
 // in the rollup and is cast to int64 for the DTO below.
 type errorFingerprintRawRow struct {
-	Fingerprint   string    `ch:"fingerprint"`
-	ServiceName   string    `ch:"service_name"`
-	OperationName string    `ch:"operation_name"`
-	ExceptionType string    `ch:"exception_type"`
-	StatusMessage string    `ch:"status_message"`
-	FirstSeen     time.Time `ch:"first_seen"`
-	LastSeen      time.Time `ch:"last_seen"`
-	Count         uint64    `ch:"cnt"`
-	SampleTraceID string    `ch:"sample_trace_id"`
+	Fingerprint	string		`ch:"fingerprint"`
+	ServiceName	string		`ch:"service_name"`
+	OperationName	string		`ch:"operation_name"`
+	ExceptionType	string		`ch:"exception_type"`
+	StatusMessage	string		`ch:"status_message"`
+	FirstSeen	time.Time	`ch:"first_seen"`
+	LastSeen	time.Time	`ch:"last_seen"`
+	Count		uint64		`ch:"cnt"`
+	SampleTraceID	string		`ch:"sample_trace_id"`
 }
 
 func (r *ClickHouseRepository) ListFingerprints(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorFingerprintDTO, error) {
@@ -760,21 +760,21 @@ func (r *ClickHouseRepository) ListFingerprints(ctx context.Context, teamID int6
 	args = append(args, clickhouse.Named("limit", limit))
 
 	var raw []errorFingerprintRawRow
-	if err := r.db.Select(database.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.ListFingerprints", &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]errorFingerprintDTO, len(raw))
 	for i, row := range raw {
 		rows[i] = errorFingerprintDTO{
-			Fingerprint:   row.Fingerprint,
-			ServiceName:   row.ServiceName,
-			OperationName: row.OperationName,
-			ExceptionType: row.ExceptionType,
-			StatusMessage: row.StatusMessage,
-			FirstSeen:     row.FirstSeen,
-			LastSeen:      row.LastSeen,
-			Count:         int64(row.Count), //nolint:gosec // domain-bounded
-			SampleTraceID: row.SampleTraceID,
+			Fingerprint:	row.Fingerprint,
+			ServiceName:	row.ServiceName,
+			OperationName:	row.OperationName,
+			ExceptionType:	row.ExceptionType,
+			StatusMessage:	row.StatusMessage,
+			FirstSeen:	row.FirstSeen,
+			LastSeen:	row.LastSeen,
+			Count:		int64(row.Count),	//nolint:gosec // domain-bounded
+			SampleTraceID:	row.SampleTraceID,
 		}
 	}
 	return rows, nil
@@ -783,8 +783,8 @@ func (r *ClickHouseRepository) ListFingerprints(ctx context.Context, teamID int6
 // fingerprintTrendRawRow scans the rollup aggregate shape before casting the
 // UInt64 count to int64 for the DTO.
 type fingerprintTrendRawRow struct {
-	Timestamp time.Time `ch:"ts"`
-	Count     uint64    `ch:"cnt"`
+	Timestamp	time.Time	`ch:"ts"`
+	Count		uint64		`ch:"cnt"`
 }
 
 func (r *ClickHouseRepository) GetFingerprintTrend(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName, exceptionType, statusMessage string) ([]fingerprintTrendPointDTO, error) {
@@ -811,14 +811,14 @@ func (r *ClickHouseRepository) GetFingerprintTrend(ctx context.Context, teamID i
 	)
 
 	var raw []fingerprintTrendRawRow
-	if err := r.db.Select(database.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetFingerprintTrend", &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]fingerprintTrendPointDTO, len(raw))
 	for i, row := range raw {
 		rows[i] = fingerprintTrendPointDTO{
-			Timestamp: row.Timestamp,
-			Count:     int64(row.Count), //nolint:gosec // domain-bounded
+			Timestamp:	row.Timestamp,
+			Count:		int64(row.Count),	//nolint:gosec // domain-bounded
 		}
 	}
 	return rows, nil

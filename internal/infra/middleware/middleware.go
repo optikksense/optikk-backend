@@ -6,8 +6,9 @@ import (
 	"runtime/debug"
 	"strings"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/metrics"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/session"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/contracts/errorcode"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/errorcode"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	types "github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
@@ -60,7 +61,10 @@ func CORSMiddleware(allowedOrigins string) gin.HandlerFunc {
 
 		if c.Request.Method == http.MethodOptions {
 			headers.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Team-Id, X-User-Id, X-User-Email, X-User-Role")
+			// traceparent + tracestate added so browser FetchInstrumentation
+			// can propagate W3C trace context to the backend without tripping
+			// CORS preflight. See optikk-frontend/src/shared/telemetry/browserOtel.ts.
+			headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Team-Id, X-User-Id, X-User-Email, X-User-Role, traceparent, tracestate")
 			headers.Set("Access-Control-Allow-Credentials", "true")
 			c.AbortWithStatus(http.StatusNoContent)
 			return
@@ -133,21 +137,24 @@ func isPublicRequest(method, path string) bool {
 }
 
 func abortUnauthorized(c *gin.Context) {
-	slog.Warn("AUTH_DENIED", slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path), slog.String("code", "UNAUTHORIZED"), slog.String("ip", c.ClientIP()))
+	metrics.AuthDenied.WithLabelValues("unauthorized").Inc()
+	slog.WarnContext(c.Request.Context(), "AUTH_DENIED", slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path), slog.String("code", "UNAUTHORIZED"), slog.String("ip", c.ClientIP()))
 	c.AbortWithStatusJSON(http.StatusUnauthorized, types.Failure(
 		errorcode.Unauthorized, "Valid authentication is required", c.Request.URL.Path,
 	))
 }
 
 func abortMissingTeam(c *gin.Context, email string) {
-	slog.Warn("AUTH_DENIED", slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path), slog.String("code", "MISSING_TEAM"), slog.String("user", email), slog.String("ip", c.ClientIP()))
+	metrics.AuthDenied.WithLabelValues("missing_team").Inc()
+	slog.WarnContext(c.Request.Context(), "AUTH_DENIED", slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path), slog.String("code", "MISSING_TEAM"), slog.String("user", email), slog.String("ip", c.ClientIP()))
 	c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
 		"MISSING_TEAM", "Session does not contain a valid team_id", c.Request.URL.Path,
 	))
 }
 
 func abortForbiddenTeam(c *gin.Context, email string, requestedTeamID int64) {
-	slog.Warn("AUTH_DENIED", slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path), slog.String("code", "FORBIDDEN_TEAM"), slog.String("user", email), slog.Int64("requested_team", requestedTeamID), slog.String("ip", c.ClientIP()))
+	metrics.AuthDenied.WithLabelValues("forbidden_team").Inc()
+	slog.WarnContext(c.Request.Context(), "AUTH_DENIED", slog.String("method", c.Request.Method), slog.String("path", c.Request.URL.Path), slog.String("code", "FORBIDDEN_TEAM"), slog.String("user", email), slog.Int64("requested_team", requestedTeamID), slog.String("ip", c.ClientIP()))
 	c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
 		"FORBIDDEN_TEAM", "You are not a member of the requested team", c.Request.URL.Path,
 	))
@@ -199,6 +206,7 @@ func TenantMiddleware(sessions session.Manager) gin.HandlerFunc {
 			UserEmail: authState.Email,
 			UserRole:  role,
 		})
+		metrics.AuthAuthenticated.Inc()
 		c.Next()
 	}
 }
@@ -225,7 +233,8 @@ func RequireRole(allowed ...string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		tenant := GetTenant(c)
 		if _, ok := roleSet[tenant.UserRole]; !ok {
-			slog.Warn("RBAC_DENIED",
+			metrics.AuthDenied.WithLabelValues("forbidden_role").Inc()
+			slog.WarnContext(c.Request.Context(), "RBAC_DENIED",
 				slog.String("method", c.Request.Method),
 				slog.String("path", c.Request.URL.Path),
 				slog.String("role", tenant.UserRole),

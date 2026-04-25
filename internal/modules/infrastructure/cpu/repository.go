@@ -12,7 +12,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
-const metricsGaugesRollupPrefix = "observability.metrics_gauges_rollup"
+const metricsGaugesRollupPrefix = rollup.FamilyMetricsGauges
 
 func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 	hours := (endMs - startMs) / 3_600_000
@@ -53,7 +53,7 @@ func NewRepository(db clickhouse.Conn) Repository {
 
 func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query string, args []any) ([]stateBucketDTO, error) {
 	var rows []stateBucketDTO
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "cpu.queryStateBuckets", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -74,19 +74,19 @@ func (r *ClickHouseRepository) GetCPUTime(ctx context.Context, teamID int64, sta
 		GROUP BY time_bucket, state
 		ORDER BY time_bucket, state`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricName", infraconsts.MetricSystemCPUTime),
 		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
 	}
 	var raw []struct {
-		Timestamp time.Time `ch:"time_bucket"`
-		State     string    `ch:"state"`
-		ValueSum  float64   `ch:"value_sum_val"`
-		ValueCnt  uint64    `ch:"value_cnt"`
+		Timestamp	time.Time	`ch:"time_bucket"`
+		State		string		`ch:"state"`
+		ValueSum	float64		`ch:"value_sum_val"`
+		ValueCnt	uint64		`ch:"value_cnt"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "cpu.GetCPUTime", &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]stateBucketDTO, len(raw))
@@ -97,9 +97,9 @@ func (r *ClickHouseRepository) GetCPUTime(ctx context.Context, teamID int64, sta
 			valPtr = &v
 		}
 		rows[i] = StateBucket{
-			Timestamp: row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
-			State:     row.State,
-			Value:     valPtr,
+			Timestamp:	row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
+			State:		row.State,
+			Value:		valPtr,
 		}
 	}
 	return rows, nil
@@ -126,7 +126,7 @@ func (r *ClickHouseRepository) GetCPUUsagePercentage(ctx context.Context, teamID
 		ORDER BY time_bucket, pod
 	`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
@@ -137,19 +137,19 @@ func (r *ClickHouseRepository) GetCPUUsagePercentage(ctx context.Context, teamID
 		}),
 	}
 	var metricRows []struct {
-		Timestamp  time.Time `ch:"time_bucket"`
-		Pod        string    `ch:"pod"`
-		MetricName string    `ch:"metric_name"`
-		Val        float64   `ch:"val"`
+		Timestamp	time.Time	`ch:"time_bucket"`
+		Pod		string		`ch:"pod"`
+		MetricName	string		`ch:"metric_name"`
+		Val		float64		`ch:"val"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &metricRows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "cpu.GetCPUUsagePercentage", &metricRows, query, args...); err != nil {
 		return nil, err
 	}
 	// Fold per (bucket, pod): apply the <=1.0 → *100 conversion per row, then
 	// average the non-nil per-metric values to get a single CPU percentage.
 	type key struct {
-		t   time.Time
-		pod string
+		t	time.Time
+		pod	string
 	}
 	folded := map[key][]float64{}
 	for _, mr := range metricRows {
@@ -167,9 +167,9 @@ func (r *ClickHouseRepository) GetCPUUsagePercentage(ctx context.Context, teamID
 	for k, vals := range folded {
 		avg := calculateAverage(vals)
 		rows = append(rows, ResourceBucket{
-			Timestamp: k.t.UTC().Format("2006-01-02 15:04:05"),
-			Pod:       k.pod,
-			Value:     avg,
+			Timestamp:	k.t.UTC().Format("2006-01-02 15:04:05"),
+			Pod:		k.pod,
+			Value:		avg,
 		})
 	}
 	return rows, nil
@@ -186,7 +186,7 @@ func (r *ClickHouseRepository) GetLoadAverage(ctx context.Context, teamID int64,
 		  AND metric_name IN @metricNames
 		GROUP BY metric_name`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricNames", []string{
@@ -196,10 +196,10 @@ func (r *ClickHouseRepository) GetLoadAverage(ctx context.Context, teamID int64,
 		}),
 	}
 	var metricRows []struct {
-		MetricName string  `ch:"metric_name"`
-		Val        float64 `ch:"val"`
+		MetricName	string	`ch:"metric_name"`
+		Val		float64	`ch:"val"`
 	}
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &metricRows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "cpu.GetLoadAverage", &metricRows, query, args...); err != nil {
 		return loadAverageResultDTO{}, err
 	}
 	var result loadAverageResultDTO
@@ -232,7 +232,7 @@ func (r *ClickHouseRepository) GetProcessCount(ctx context.Context, teamID int64
 		GROUP BY time_bucket, state
 		ORDER BY time_bucket, state`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricName", infraconsts.MetricSystemProcessCount),
@@ -246,10 +246,10 @@ type serviceNameRow struct {
 }
 
 type instanceRow struct {
-	Host        string `ch:"host"`
-	Pod         string `ch:"pod"`
-	Container   string `ch:"container"`
-	ServiceName string `ch:"service_name"`
+	Host		string	`ch:"host"`
+	Pod		string	`ch:"pod"`
+	Container	string	`ch:"container"`
+	ServiceName	string	`ch:"service_name"`
 }
 
 // cpuMetricNames drives service/instance DISTINCT + fold queries.
@@ -314,8 +314,8 @@ func cpuFoldMetricRows(rows []metricValueRow) *float64 {
 }
 
 type metricValueRow struct {
-	MetricName string  `ch:"metric_name"`
-	ValAvg     float64 `ch:"val_avg"`
+	MetricName	string	`ch:"metric_name"`
+	ValAvg		float64	`ch:"val_avg"`
 }
 
 func (r *ClickHouseRepository) queryCPUMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
@@ -330,21 +330,21 @@ func (r *ClickHouseRepository) queryCPUMetricByService(ctx context.Context, team
 		  AND metric_name IN @metricNames
 		GROUP BY metric_name`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricNames", cpuMetricNames),
 	}
 	var rows []metricValueRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "cpu.queryCPUMetricByService", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return cpuFoldMetricRows(rows), nil
 }
 
 func (r *ClickHouseRepository) queryCPUMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
-	_ = container // container not keyed on metrics_gauges_rollup; see connpool notes.
+	_ = container	// container not keyed on metrics_gauges_rollup; see connpool notes.
 	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT metric_name                                                             AS metric_name,
@@ -358,7 +358,7 @@ func (r *ClickHouseRepository) queryCPUMetricByInstance(ctx context.Context, tea
 		  AND metric_name IN @metricNames
 		GROUP BY metric_name`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("host", host),
 		clickhouse.Named("pod", pod),
 		clickhouse.Named("serviceName", serviceName),
@@ -367,7 +367,7 @@ func (r *ClickHouseRepository) queryCPUMetricByInstance(ctx context.Context, tea
 		clickhouse.Named("metricNames", cpuMetricNames),
 	}
 	var rows []metricValueRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "cpu.queryCPUMetricByInstance", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return cpuFoldMetricRows(rows), nil
@@ -384,13 +384,13 @@ func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64,
 		  AND metric_name IN @metricNames
 		ORDER BY service_name`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricNames", cpuMetricNames),
 	}
 	var rows []serviceNameRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "cpu.getServiceList", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	services := make([]string, len(rows))
@@ -411,13 +411,13 @@ func (r *ClickHouseRepository) getInstanceList(ctx context.Context, teamID int64
 		  AND metric_name IN @metricNames
 		LIMIT 200`, table)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("metricNames", cpuMetricNames),
 	}
 	var rows []instanceRow
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...)
+	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "cpu.getInstanceList", &rows, query, args...)
 	return rows, err
 }
 
@@ -438,7 +438,7 @@ func (r *ClickHouseRepository) GetAvgCPU(ctx context.Context, teamID int64, star
 		clickhouse.Named("metricNames", cpuMetricNames),
 	}
 	var rows []metricValueRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "cpu.GetAvgCPU", &rows, query, args...); err != nil {
 		return MetricValue{Value: 0}, err
 	}
 	avg := cpuFoldMetricRows(rows)
@@ -468,12 +468,12 @@ func (r *ClickHouseRepository) GetCPUByService(ctx context.Context, teamID int64
 		clickhouse.Named("metricNames", cpuMetricNames),
 	}
 	type serviceMetricRow struct {
-		ServiceName string  `ch:"service_name"`
-		MetricName  string  `ch:"metric_name"`
-		ValAvg      float64 `ch:"val_avg"`
+		ServiceName	string	`ch:"service_name"`
+		MetricName	string	`ch:"metric_name"`
+		ValAvg		float64	`ch:"val_avg"`
 	}
 	var rows []serviceMetricRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "cpu.GetCPUByService", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	byService := map[string][]metricValueRow{}
@@ -483,15 +483,15 @@ func (r *ClickHouseRepository) GetCPUByService(ctx context.Context, teamID int64
 			order = append(order, row.ServiceName)
 		}
 		byService[row.ServiceName] = append(byService[row.ServiceName], metricValueRow{
-			MetricName: row.MetricName,
-			ValAvg:     row.ValAvg,
+			MetricName:	row.MetricName,
+			ValAvg:		row.ValAvg,
 		})
 	}
 	result := make([]cpuServiceMetricDTO, 0, len(order))
 	for _, name := range order {
 		result = append(result, cpuServiceMetricDTO{
-			ServiceName: name,
-			Value:       cpuFoldMetricRows(byService[name]),
+			ServiceName:	name,
+			Value:		cpuFoldMetricRows(byService[name]),
 		})
 	}
 	return result, nil
@@ -518,14 +518,14 @@ func (r *ClickHouseRepository) GetCPUByInstance(ctx context.Context, teamID int6
 		clickhouse.Named("metricNames", cpuMetricNames),
 	}
 	type instanceMetricRow struct {
-		Host        string  `ch:"host"`
-		Pod         string  `ch:"pod"`
-		ServiceName string  `ch:"service_name"`
-		MetricName  string  `ch:"metric_name"`
-		ValAvg      float64 `ch:"val_avg"`
+		Host		string	`ch:"host"`
+		Pod		string	`ch:"pod"`
+		ServiceName	string	`ch:"service_name"`
+		MetricName	string	`ch:"metric_name"`
+		ValAvg		float64	`ch:"val_avg"`
 	}
 	var rows []instanceMetricRow
-	if err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "cpu.GetCPUByInstance", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	type instKey struct{ Host, Pod, Service string }
@@ -537,17 +537,17 @@ func (r *ClickHouseRepository) GetCPUByInstance(ctx context.Context, teamID int6
 			order = append(order, k)
 		}
 		byInst[k] = append(byInst[k], metricValueRow{
-			MetricName: row.MetricName,
-			ValAvg:     row.ValAvg,
+			MetricName:	row.MetricName,
+			ValAvg:		row.ValAvg,
 		})
 	}
 	result := make([]cpuInstanceMetricDTO, 0, len(order))
 	for _, k := range order {
 		result = append(result, cpuInstanceMetricDTO{
-			Host:        k.Host,
-			Pod:         k.Pod,
-			ServiceName: k.Service,
-			Value:       cpuFoldMetricRows(byInst[k]),
+			Host:		k.Host,
+			Pod:		k.Pod,
+			ServiceName:	k.Service,
+			Value:		cpuFoldMetricRows(byInst[k]),
 		})
 	}
 	return result, nil

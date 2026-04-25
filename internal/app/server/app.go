@@ -24,9 +24,9 @@ import (
 )
 
 type App struct {
-	Config  config.Config
-	Infra   *Infra
-	Modules []registry.Module
+	Config	config.Config
+	Infra	*Infra
+	Modules	[]registry.Module
 }
 
 func New(cfg config.Config) (*App, error) {
@@ -43,9 +43,9 @@ func New(cfg config.Config) (*App, error) {
 	modules := configuredModules(infraDeps.CH, getTenant, cfg, infraDeps)
 
 	return &App{
-		Config:  cfg,
-		Infra:   infraDeps,
-		Modules: modules,
+		Config:		cfg,
+		Infra:		infraDeps,
+		Modules:	modules,
 	}, nil
 }
 
@@ -59,11 +59,12 @@ func (a *App) Start(ctx context.Context) error {
 		a.stopBackgroundModules()
 		return err
 	}
+	a.addLagPollerActors(&g, ctx)
 
 	err := g.Run()
 	a.stopBackgroundModules()
 	if closeErr := a.Infra.Close(); closeErr != nil {
-		slog.Warn("error closing infrastructure", slog.Any("error", closeErr))
+		slog.WarnContext(ctx, "error closing infrastructure", slog.Any("error", closeErr))
 	}
 
 	return normalizeRunError(err)
@@ -94,13 +95,28 @@ func runAddContextCancelActor(g *run.Group, ctx context.Context) {
 		func(error) { cancel() })
 }
 
+// addLagPollerActors wires one run.Group actor per Kafka consumer-lag
+// poller so each one runs alongside the HTTP + gRPC servers and stops
+// cleanly on shutdown. Pollers publish `optikk_kafka_consumer_lag_records`
+// every 15 s via raw `kmsg` calls against the existing consumer client.
+func (a *App) addLagPollerActors(g *run.Group, parentCtx context.Context) {
+	for _, p := range a.Infra.LagPollers {
+		p := p
+		pollCtx, cancel := context.WithCancel(parentCtx)
+		g.Add(func() error {
+			p.Run(pollCtx)
+			return nil
+		}, func(error) { cancel() })
+	}
+}
+
 func (a *App) addHTTPServerActor(g *run.Group) {
 	srv := &http.Server{
-		Addr:         fmt.Sprintf(":%s", a.Config.Server.Port),
-		Handler:      h2c.NewHandler(a.Infra.SessionManager.Wrap(a.Router()), &http2.Server{}),
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 60 * time.Second,
-		IdleTimeout:  120 * time.Second,
+		Addr:		fmt.Sprintf(":%s", a.Config.Server.Port),
+		Handler:	h2c.NewHandler(a.Infra.SessionManager.Wrap(a.Router()), &http2.Server{}),
+		ReadTimeout:	30 * time.Second,
+		WriteTimeout:	60 * time.Second,
+		IdleTimeout:	120 * time.Second,
 	}
 	g.Add(func() error {
 		return srv.ListenAndServe()
@@ -131,15 +147,24 @@ func (a *App) addGRPCServerActor(g *run.Group) error {
 		grpc.MaxConcurrentStreams(100),
 		grpc.ConnectionTimeout(30*time.Second),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
-			Time:    20 * time.Second,
-			Timeout: 10 * time.Second,
+			Time:		20 * time.Second,
+			Timeout:	10 * time.Second,
 		}),
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
-			MinTime:             10 * time.Second,
-			PermitWithoutStream: true,
+			MinTime:		10 * time.Second,
+			PermitWithoutStream:	true,
 		}),
-		grpc.UnaryInterceptor(auth.UnaryInterceptor(a.Infra.Authenticator)),
-		grpc.StreamInterceptor(auth.StreamInterceptor(a.Infra.Authenticator)),
+		// Observability interceptors run first so they time the auth
+		// interceptor + handler together; auth unauthorised denials
+		// still show up in the metrics with code=Unauthenticated.
+		grpc.ChainUnaryInterceptor(
+			grpcMetricsUnary(),
+			auth.UnaryInterceptor(a.Infra.Authenticator),
+		),
+		grpc.ChainStreamInterceptor(
+			grpcMetricsStream(),
+			auth.StreamInterceptor(a.Infra.Authenticator),
+		),
 	)
 	for _, mod := range a.Modules {
 		if r, ok := mod.(registry.GRPCRegistrar); ok {
@@ -149,7 +174,16 @@ func (a *App) addGRPCServerActor(g *run.Group) error {
 	g.Add(func() error {
 		return grpcSrv.Serve(lis)
 	}, func(error) {
-		grpcSrv.GracefulStop()
+		done := make(chan struct{})
+		go func() {
+			grpcSrv.GracefulStop()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+			grpcSrv.Stop()
+		}
 	})
 	return nil
 }

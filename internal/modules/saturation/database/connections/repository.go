@@ -5,7 +5,7 @@ import (
 	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
@@ -59,7 +59,7 @@ func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, tea
 	`, bucketExpr(startMs, endMs), table, fc)
 	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBConnectionCount), fargs...)
 	var rows []ConnectionCountPoint
-	return rows, r.db.Select(database.OverviewCtx(ctx), &rows, query, args...)
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connections.GetConnectionCountSeries", &rows, query, args...)
 }
 
 // GetConnectionUtilization folds `used` (state=used) vs `max` (metric_name=
@@ -88,13 +88,13 @@ func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, tea
 	)
 	args = append(args, fargs...)
 	var metricRows []struct {
-		TimeBucket string  `ch:"time_bucket"`
-		PoolName   string  `ch:"pool_name"`
-		MetricName string  `ch:"metric_name"`
-		State      string  `ch:"state"`
-		ValAvg     float64 `ch:"val_avg"`
+		TimeBucket	string	`ch:"time_bucket"`
+		PoolName	string	`ch:"pool_name"`
+		MetricName	string	`ch:"metric_name"`
+		State		string	`ch:"state"`
+		ValAvg		float64	`ch:"val_avg"`
 	}
-	if err := r.db.Select(database.OverviewCtx(ctx), &metricRows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connections.GetConnectionUtilization", &metricRows, query, args...); err != nil {
 		return nil, err
 	}
 	type key struct{ bucket, pool string }
@@ -152,11 +152,11 @@ func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID i
 	)
 	args = append(args, fargs...)
 	var metricRows []struct {
-		PoolName   string  `ch:"pool_name"`
-		MetricName string  `ch:"metric_name"`
-		ValAvg     float64 `ch:"val_avg"`
+		PoolName	string	`ch:"pool_name"`
+		MetricName	string	`ch:"metric_name"`
+		ValAvg		float64	`ch:"val_avg"`
 	}
-	if err := r.db.Select(database.OverviewCtx(ctx), &metricRows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connections.GetConnectionLimits", &metricRows, query, args...); err != nil {
 		return nil, err
 	}
 	out := map[string]*ConnectionLimits{}
@@ -201,7 +201,7 @@ func (r *ClickHouseRepository) GetPendingRequests(ctx context.Context, teamID in
 	`, bucketExpr(startMs, endMs), table, fc)
 	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBConnectionPendReqs), fargs...)
 	var rows []PendingRequestsPoint
-	return rows, r.db.Select(database.OverviewCtx(ctx), &rows, query, args...)
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connections.GetPendingRequests", &rows, query, args...)
 }
 
 func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionTimeoutPoint, error) {
@@ -223,7 +223,7 @@ func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, tea
 	`, bucketExpr(startMs, endMs), bucketSec, table, fc)
 	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBConnectionTimeouts), fargs...)
 	var rows []ConnectionTimeoutPoint
-	return rows, r.db.Select(database.OverviewCtx(ctx), &rows, query, args...)
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connections.GetConnectionTimeoutRate", &rows, query, args...)
 }
 
 func (r *ClickHouseRepository) poolLatency(ctx context.Context, teamID int64, startMs, endMs int64, metricName string, f shared.Filters) ([]PoolLatencyPoint, error) {
@@ -251,7 +251,7 @@ func (r *ClickHouseRepository) poolLatency(ctx context.Context, teamID int64, st
 	)
 	args = append(args, fargs...)
 	var rows []PoolLatencyPoint
-	if err := r.db.Select(database.OverviewCtx(ctx), &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connections.poolLatency", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil

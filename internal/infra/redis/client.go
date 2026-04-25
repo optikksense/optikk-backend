@@ -29,6 +29,8 @@ func NewClients(cfg config.Config) (*Clients, error) {
 		PoolTimeout:  2 * time.Second,
 	})
 
+	client.AddHook(metricsHook{})
+
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 	if err := client.Ping(ctx).Err(); err != nil {

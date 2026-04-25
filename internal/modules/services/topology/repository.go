@@ -11,8 +11,8 @@ import (
 )
 
 const (
-	spansRollupPrefix   = "observability.spans_rollup"
-	topologyRollupPrefix = "observability.spans_topology_rollup"
+	spansRollupPrefix	= rollup.FamilySpansRED
+	topologyRollupPrefix	= rollup.FamilySpansTopology
 )
 
 // Repository runs ClickHouse queries that power the runtime service topology.
@@ -31,7 +31,7 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 
 func topologyParams(teamID int64, startMs, endMs int64) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
@@ -58,7 +58,7 @@ func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID int64, start
 	`, table)
 
 	var rows []nodeAggRow
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, topologyParams(teamID, startMs, endMs)...)
+	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "topology.GetNodes", &rows, query, topologyParams(teamID, startMs, endMs)...)
 	return rows, err
 }
 
@@ -85,6 +85,6 @@ func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID int64, start
 	`, table)
 
 	var rows []edgeAggRow
-	err := r.db.Select(dbutil.OverviewCtx(ctx), &rows, query, topologyParams(teamID, startMs, endMs)...)
+	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "topology.GetEdges", &rows, query, topologyParams(teamID, startMs, endMs)...)
 	return rows, err
 }
