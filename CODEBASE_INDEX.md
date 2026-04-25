@@ -236,6 +236,32 @@ make vet
 go test ./...
 ```
 
+## Load test (query-side)
+
+`loadtest/` is a top-level k6 project parallel to `internal/` that exercises every read endpoint on the running backend. Ingestion-side load generation is out of scope and lives in a separate tool.
+
+```
+loadtest/
+  lib/         shared helpers — config, bootstrap, auth, client, payloads, summary
+  scenarios/   one subdir per backend module (traces, logs, metrics, overview,
+               infrastructure, saturation, services). Each .js file owns 1–10
+               related endpoints and exports named exec functions.
+  entrypoints/ one .js per scope: smoke, all, traces, logs, metrics,
+               overview, infrastructure, saturation, services. Each composes
+               an options.scenarios{} block from its scenario imports.
+  docs/        README.md
+```
+
+Bootstrap (`lib/bootstrap.js`) is idempotent: it logs in first, and only
+falls through to `POST /api/v1/teams` + `POST /api/v1/users` against
+the public auth surface if no user exists. A safety rail blocks the
+create flow on non-localhost hosts unless `ALLOW_REMOTE_BOOTSTRAP=1`.
+
+Run via `make loadtest-smoke|loadtest-all|loadtest-<module>`. Output:
+stdout summary, live ticker, optional `JSON_OUT=...` results file, and
+optional Prometheus remote-write to `:19091/api/v1/write` (the local
+stack now ships with `--web.enable-remote-write-receiver`).
+
 ## Related docs
 
 - Overview doc: [README.md](/Users/ramantayal/Desktop/pro/optikk-backend/README.md)
