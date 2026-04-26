@@ -274,14 +274,14 @@ func (r *ClickHouseRepository) GetTopErrorOperations(ctx context.Context, teamID
 		SELECT service_name,
 		       operation_name,
 		       sumMerge(request_count)                                                         AS total_count,
-		       sumMerge(error_count)                                                           AS error_count,
-		       toFloat64(sumMerge(error_count)) / nullIf(toFloat64(sumMerge(request_count)), 0) AS error_rate
+		       sumMerge(error_count)                                                           AS err_count,
+		       toFloat64(err_count) / nullIf(toFloat64(total_count), 0) AS error_rate
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
 		GROUP BY service_name, operation_name
-		HAVING error_count > 0
-		ORDER BY error_count DESC
+		HAVING err_count > 0
+		ORDER BY err_count DESC
 		LIMIT @limit`, table)
 	args := append(rollupParams(teamID, startMs, endMs),
 		clickhouse.Named("limit", limit),
@@ -291,7 +291,7 @@ func (r *ClickHouseRepository) GetTopErrorOperations(ctx context.Context, teamID
 		ServiceName   string  `ch:"service_name"`
 		OperationName string  `ch:"operation_name"`
 		TotalCount    uint64  `ch:"total_count"`
-		ErrorCount    uint64  `ch:"error_count"`
+		ErrorCount    uint64  `ch:"err_count"`
 		ErrorRate     *float64 `ch:"error_rate"`
 	}
 	if err := dbutil.SelectCH(dbutil.DashboardCtx(ctx), r.db, "redmetrics.GetTopErrorOperations", &raw, query, args...); err != nil {

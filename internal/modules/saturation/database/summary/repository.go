@@ -88,7 +88,7 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 	qCache := fmt.Sprintf(`
 		SELECT
 		    toInt64(sumMerge(hist_count))                             AS total_count,
-		    sum(sumMerge(hist_count) * (error_type = ''))             AS success_count
+		    toInt64(sumMergeIf(hist_count, error_type = ''))          AS success_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -97,20 +97,17 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 	`, dbHistTable, filterFrag)
 
 	var (
-		mainRaw     summaryMainRawRow
-		errorRow    struct{ ErrorCount int64 `ch:"error_count"` }
-		connDTO     summaryConnDTO
-		cacheDTO    summaryCacheDTO
-		errorOK     bool
-		connOK      bool
-		cacheOK     bool
+		mainRaw  summaryMainRawRow
+		errorRow struct {
+			ErrorCount int64 `ch:"error_count"`
+		}
+		connDTO  summaryConnDTO
+		cacheDTO summaryCacheDTO
+		errorOK  bool
+		connOK   bool
+		cacheOK  bool
 	)
 
-	// Run the four independent rollup queries in parallel. The main query is
-	// load-bearing — its error fails the request. The other three are best-
-	// effort: a failure leaves the corresponding field as its zero value, the
-	// same semantic the previous sequential code preserved with its `err == nil`
-	// guards.
 	g, gctx := errgroup.WithContext(dbutil.DashboardCtx(ctx))
 	opMetric := clickhouse.Named("metricName", shared.MetricDBOperationDuration)
 

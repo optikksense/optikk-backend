@@ -72,7 +72,7 @@ func (r *ClickHouseRepository) GetSlowQueryPatterns(ctx context.Context, teamID 
 }
 
 func (r *ClickHouseRepository) GetSlowestCollections(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]SlowCollectionRow, error) {
-	tier := rollup.For(shared.DBHistRollupPrefix, startMs, endMs)
+	tier := rollup.For(rollup.FamilyDBCollections, startMs, endMs)
 	table := tier.Table
 	fc, fargs := shared.RollupFilterClauses(f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)

@@ -42,7 +42,7 @@ func bucketExpr(startMs, endMs int64) string {
 
 func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionCountPoint, error) {
 	table := rollup.For(rollup.FamilyDBConnPool, startMs, endMs).Table
-	fc, fargs := shared.RollupFilterClauses(f)
+	fc, fargs := "", []any{}
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                          AS time_bucket,
@@ -67,7 +67,7 @@ func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, tea
 // correlated subquery against raw metrics.
 func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionUtilPoint, error) {
 	table := rollup.For(rollup.FamilyDBConnPool, startMs, endMs).Table
-	fc, fargs := shared.RollupFilterClauses(f)
+	fc, fargs := "", []any{}
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                          AS time_bucket,
@@ -88,11 +88,11 @@ func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, tea
 	)
 	args = append(args, fargs...)
 	var metricRows []struct {
-		TimeBucket	string	`ch:"time_bucket"`
-		PoolName	string	`ch:"pool_name"`
-		MetricName	string	`ch:"metric_name"`
-		State		string	`ch:"state"`
-		ValAvg		float64	`ch:"val_avg"`
+		TimeBucket string  `ch:"time_bucket"`
+		PoolName   string  `ch:"pool_name"`
+		MetricName string  `ch:"metric_name"`
+		State      string  `ch:"state"`
+		ValAvg     float64 `ch:"val_avg"`
 	}
 	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connections.GetConnectionUtilization", &metricRows, query, args...); err != nil {
 		return nil, err
@@ -131,7 +131,7 @@ func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, tea
 
 func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionLimits, error) {
 	table := rollup.For(rollup.FamilyDBConnPool, startMs, endMs).Table
-	fc, fargs := shared.RollupFilterClauses(f)
+	fc, fargs := "", []any{}
 	query := fmt.Sprintf(`
 		SELECT
 		    pool_name                                                                   AS pool_name,
@@ -152,9 +152,9 @@ func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID i
 	)
 	args = append(args, fargs...)
 	var metricRows []struct {
-		PoolName	string	`ch:"pool_name"`
-		MetricName	string	`ch:"metric_name"`
-		ValAvg		float64	`ch:"val_avg"`
+		PoolName   string  `ch:"pool_name"`
+		MetricName string  `ch:"metric_name"`
+		ValAvg     float64 `ch:"val_avg"`
 	}
 	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connections.GetConnectionLimits", &metricRows, query, args...); err != nil {
 		return nil, err

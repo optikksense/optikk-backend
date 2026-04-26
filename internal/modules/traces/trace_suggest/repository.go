@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
@@ -47,7 +48,7 @@ func (r *ClickHouseRepository) SuggestScalar(ctx context.Context, teamID int64, 
 		SELECT value, toUInt64(sumMerge(count_agg)) AS count
 		FROM observability.trace_scalar_values_5m
 		PREWHERE team_id = @teamID AND field_name = @fieldName
-		WHERE bucket_ts BETWEEN fromUnixTimestamp64Milli(@startMs) AND fromUnixTimestamp64Milli(@endMs)
+		WHERE bucket_ts BETWEEN @startMs AND @endMs
 		  AND (length(@prefix) = 0 OR positionCaseInsensitive(value, @prefix) > 0)
 		GROUP BY value
 		ORDER BY count DESC
@@ -56,8 +57,8 @@ func (r *ClickHouseRepository) SuggestScalar(ctx context.Context, teamID int64, 
 	err := dbutil.SelectCH(dbutil.DashboardCtx(ctx), r.db, "trace_suggest.SuggestScalar", &rows, query,
 		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("fieldName", field),
-		clickhouse.Named("startMs", startMs),
-		clickhouse.Named("endMs", endMs),
+		clickhouse.Named("startMs", time.UnixMilli(startMs)),
+		clickhouse.Named("endMs", time.UnixMilli(endMs)),
 		clickhouse.Named("prefix", prefix),
 		clickhouse.Named("limit", uint64(limit)),	//nolint:gosec // G115
 	)
@@ -76,7 +77,7 @@ func (r *ClickHouseRepository) SuggestAttribute(ctx context.Context, teamID int6
 		SELECT value, toUInt64(sumMerge(count_agg)) AS count
 		FROM observability.trace_attribute_values_5m
 		PREWHERE team_id = @teamID AND attribute_key = @attrKey
-		WHERE bucket_ts BETWEEN fromUnixTimestamp64Milli(@startMs) AND fromUnixTimestamp64Milli(@endMs)
+		WHERE bucket_ts BETWEEN @startMs AND @endMs
 		  AND (length(@prefix) = 0 OR positionCaseInsensitive(value, @prefix) > 0)
 		GROUP BY value
 		ORDER BY count DESC
@@ -85,8 +86,8 @@ func (r *ClickHouseRepository) SuggestAttribute(ctx context.Context, teamID int6
 	err := dbutil.SelectCH(dbutil.DashboardCtx(ctx), r.db, "trace_suggest.SuggestAttribute", &rows, query,
 		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("attrKey", key),
-		clickhouse.Named("startMs", startMs),
-		clickhouse.Named("endMs", endMs),
+		clickhouse.Named("startMs", time.UnixMilli(startMs)),
+		clickhouse.Named("endMs", time.UnixMilli(endMs)),
 		clickhouse.Named("prefix", prefix),
 		clickhouse.Named("limit", uint64(limit)),	//nolint:gosec // G115
 	)

@@ -40,6 +40,8 @@ const (
 	FamilyDBOps                  = "db_ops"
 	FamilyDBSummary              = "db_summary"
 	FamilyKafkaSummary           = "kafka_summary"
+	FamilySpansNode              = "spans_node"
+	FamilyDBCollections          = "db_collections"
 )
 
 // AllFamilies enumerates every known rollup family. Used by the cardinality
@@ -53,4 +55,5 @@ var AllFamilies = []string{
 	FamilyLogsVolume, FamilyLogsFacets, FamilyTracesFacets,
 	FamilyInfraResourceByService, FamilySLOBurn, FamilyDBConnPool,
 	FamilyDBOps, FamilyDBSummary, FamilyKafkaSummary,
+	FamilySpansNode, FamilyDBCollections,
 }

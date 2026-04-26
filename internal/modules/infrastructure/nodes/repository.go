@@ -128,7 +128,7 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(ctx context.Context, teamI
 }
 
 func (r *ClickHouseRepository) GetInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (InfrastructureNodeSummary, error) {
-	table := rollup.For(spansHostRollupPrefix, startMs, endMs).Table
+	table := rollup.For(rollup.FamilySpansNode, startMs, endMs).Table
 	// Dedicated summary query that avoids the MaxNodes limit and executes a
 	// single pass over host-level aggregates to categorize health.
 	query := fmt.Sprintf(`
@@ -141,7 +141,7 @@ func (r *ClickHouseRepository) GetInfrastructureNodeSummary(ctx context.Context,
 		    SELECT
 		        host_name,
 		        (sumMerge(error_count) * 100.0 / nullIf(toFloat64(sumMerge(request_count)), 0)) AS error_rate,
-		        uniqIf(pod_name, pod_name != '')                                             AS pod_count
+		        uniqMerge(pod_count)                                                         AS pod_count
 		    FROM %s
 		    WHERE team_id = @teamID
 		      AND bucket_ts BETWEEN @start AND @end
