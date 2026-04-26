@@ -78,7 +78,8 @@ func (r *ClickHouseRepository) queryResourceBuckets(ctx context.Context, query s
 }
 
 func (r *ClickHouseRepository) queryDirectionBucketsFromRollup(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]directionBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	tier := rollup.For(metricsGaugesRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       state_dim                AS direction,
@@ -105,7 +106,7 @@ func (r *ClickHouseRepository) queryDirectionBucketsFromRollup(ctx context.Conte
 		ValueSum	float64		`ch:"value_sum_val"`
 		ValueCnt	uint64		`ch:"value_cnt"`
 	}
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "disk.queryDirectionBucketsFromRollup", &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.DashboardCtx(ctx), r.db, "disk.queryDirectionBucketsFromRollup", &raw, query, args...); err != nil {
 		return nil, err
 	}
 	rows := make([]directionBucketDTO, len(raw))
@@ -133,7 +134,8 @@ func (r *ClickHouseRepository) GetDiskOperations(ctx context.Context, teamID int
 }
 
 func (r *ClickHouseRepository) GetDiskIOTime(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	tier := rollup.For(metricsGaugesRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       sumMerge(value_sum)      AS value_sum_val,
@@ -180,7 +182,8 @@ func (r *ClickHouseRepository) GetDiskIOTime(ctx context.Context, teamID int64, 
 // which extracts `system.filesystem.mountpoint` into `state_dim` for the
 // `system.filesystem.usage` / `system.filesystem.utilization` metric family.
 func (r *ClickHouseRepository) GetFilesystemUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]mountpointBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	tier := rollup.For(metricsGaugesRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       state_dim                                                    AS mountpoint,
@@ -203,7 +206,8 @@ func (r *ClickHouseRepository) GetFilesystemUsage(ctx context.Context, teamID in
 }
 
 func (r *ClickHouseRepository) GetFilesystemUtilization(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	tier := rollup.For(metricsGaugesRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       sumMerge(value_avg_num)  AS value_num,
@@ -314,7 +318,7 @@ var diskMetricNames = []string{
 }
 
 func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64, startMs, endMs int64) ([]string, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT DISTINCT service AS service_name
 		FROM %s
@@ -375,7 +379,7 @@ func diskFoldMetricRows(rows []diskMetricValueRow) *float64 {
 }
 
 func (r *ClickHouseRepository) queryDiskMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT metric_name                                                             AS metric_name,
 		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,
@@ -402,7 +406,7 @@ func (r *ClickHouseRepository) queryDiskMetricByService(ctx context.Context, tea
 
 func (r *ClickHouseRepository) queryDiskMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	_ = container
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT metric_name                                                             AS metric_name,
 		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,
@@ -433,7 +437,7 @@ func (r *ClickHouseRepository) queryDiskMetricByInstance(ctx context.Context, te
 
 // TODO(phase8): rollup migration requires multi-metric fallback logic not yet supported by metrics_gauges_rollup
 func (r *ClickHouseRepository) GetAvgDisk(ctx context.Context, teamID int64, startMs, endMs int64) (metricValueDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT metric_name,
 		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,
@@ -462,7 +466,7 @@ func (r *ClickHouseRepository) GetAvgDisk(ctx context.Context, teamID int64, sta
 
 // TODO(phase8): rollup migration requires multi-metric fallback logic not yet supported by metrics_gauges_rollup
 func (r *ClickHouseRepository) GetDiskByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT metric_name,
 		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,
@@ -489,7 +493,7 @@ func (r *ClickHouseRepository) GetDiskByService(ctx context.Context, teamID int6
 
 // TODO(phase8): rollup migration requires multi-metric fallback logic not yet supported by metrics_gauges_rollup
 func (r *ClickHouseRepository) GetDiskByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT metric_name,
 		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,

@@ -13,7 +13,7 @@ import (
 // Summary returns list-header KPIs (total/errors/warns) off the rollup.
 // Severity bucket convention: 0=trace..5=fatal; 3=warn, 4+=error.
 func (r *Repository) Summary(ctx context.Context, f querycompiler.Filters) (Summary, error) {
-	table, _ := rollup.TierTableFor(logsRollupPrefix, f.StartMs, f.EndMs)
+	table := rollup.For(logsRollupPrefix, f.StartMs, f.EndMs).Table
 	compiled := querycompiler.Compile(f, querycompiler.TargetRollup)
 	query := fmt.Sprintf(`
 		SELECT severity_bucket AS sb, sumMerge(log_count) AS c
@@ -41,7 +41,8 @@ func (r *Repository) Summary(ctx context.Context, f querycompiler.Filters) (Summ
 
 // Trend returns the severity-bucketed volume histogram.
 func (r *Repository) Trend(ctx context.Context, f querycompiler.Filters, step string) ([]TrendBucket, []string, error) {
-	table, tierStep := rollup.TierTableFor(logsRollupPrefix, f.StartMs, f.EndMs)
+	tier := rollup.For(logsRollupPrefix, f.StartMs, f.EndMs)
+	table, tierStep := tier.Table, tier.StepMin
 	compiled := querycompiler.Compile(f, querycompiler.TargetRollup)
 	stepMin := resolveStepMinutes(step, tierStep, f.StartMs, f.EndMs)
 	bucketExpr := fmt.Sprintf(

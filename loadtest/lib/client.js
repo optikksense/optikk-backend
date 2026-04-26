@@ -6,6 +6,7 @@
 import http from 'k6/http';
 import { assertOk } from './checks.js';
 import { reqDuration } from './metrics.js';
+import { cfg } from './config.js';
 
 const SESSION_COOKIE = 'optikk_session';
 
@@ -15,6 +16,10 @@ function buildHeaders(ctx) {
     'Cookie':       `${SESSION_COOKIE}=${ctx.cookie}`,
   };
   if (ctx.teamId) headers['X-Team-Id'] = String(ctx.teamId);
+  if (cfg.bypassCache) {
+    headers['Cache-Control'] = 'no-cache';
+    headers['X-Optikk-Bypass-Cache'] = '1';
+  }
   return headers;
 }
 

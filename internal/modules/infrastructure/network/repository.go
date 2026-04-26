@@ -84,7 +84,8 @@ func (r *ClickHouseRepository) queryResourceBuckets(ctx context.Context, query s
 }
 
 func (r *ClickHouseRepository) queryDirectionBucketsFromRollup(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]directionBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	tier := rollup.For(metricsGaugesRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       state_dim                AS direction,
@@ -139,7 +140,8 @@ func (r *ClickHouseRepository) GetNetworkPackets(ctx context.Context, teamID int
 }
 
 func (r *ClickHouseRepository) GetNetworkErrors(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	tier := rollup.For(metricsGaugesRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       state_dim                AS state,
@@ -186,7 +188,8 @@ func (r *ClickHouseRepository) GetNetworkErrors(ctx context.Context, teamID int6
 }
 
 func (r *ClickHouseRepository) GetNetworkDropped(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	tier := rollup.For(metricsGaugesRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       sumMerge(value_sum)      AS value_sum_val,
@@ -232,7 +235,8 @@ func (r *ClickHouseRepository) GetNetworkDropped(ctx context.Context, teamID int
 // GetNetworkConnections reads per-network-state avg from metrics_gauges_rollup.
 // `state_dim` uses system.network.state with fallback to direction for connections.
 func (r *ClickHouseRepository) GetNetworkConnections(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	tier := rollup.For(metricsGaugesRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       state_dim                                                    AS state,
@@ -334,7 +338,7 @@ func netFoldValue(v float64) *float64 {
 }
 
 func (r *ClickHouseRepository) queryNetworkMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS val_avg
 		FROM %s
@@ -358,7 +362,7 @@ func (r *ClickHouseRepository) queryNetworkMetricByService(ctx context.Context, 
 
 func (r *ClickHouseRepository) queryNetworkMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	_ = container
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS val_avg
 		FROM %s
@@ -390,7 +394,7 @@ func (r *ClickHouseRepository) queryNetworkMetricByInstance(ctx context.Context,
 // then per-service lookup). netFoldValue is applied per service before
 // averaging so the <=1.0 -> *100 normalization is preserved.
 func (r *ClickHouseRepository) GetAvgNetwork(ctx context.Context, teamID int64, startMs, endMs int64) (metricValueDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT service,
 		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS val_avg

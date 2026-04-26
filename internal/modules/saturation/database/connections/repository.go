@@ -37,11 +37,11 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 func bucketExpr(startMs, endMs int64) string {
-	return timebucket.ExprForColumnTime(startMs, endMs, "bucket_ts")
+	return timebucket.ExprForColumn(startMs, endMs, "bucket_ts")
 }
 
 func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionCountPoint, error) {
-	table, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	table := rollup.For(rollup.FamilyDBConnPool, startMs, endMs).Table
 	fc, fargs := shared.RollupFilterClauses(f)
 	query := fmt.Sprintf(`
 		SELECT
@@ -66,7 +66,7 @@ func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, tea
 // db.client.connection.max) per bucket+pool in Go. Previously did a
 // correlated subquery against raw metrics.
 func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionUtilPoint, error) {
-	table, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	table := rollup.For(rollup.FamilyDBConnPool, startMs, endMs).Table
 	fc, fargs := shared.RollupFilterClauses(f)
 	query := fmt.Sprintf(`
 		SELECT
@@ -82,7 +82,7 @@ func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, tea
 		  %s
 		GROUP BY time_bucket, pool_name, metric_name, state
 	`, bucketExpr(startMs, endMs), table, fc)
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBConnectionCount),
+	args := append(shared.BaseParams(teamID, startMs, endMs),
 		clickhouse.Named("countMetric", shared.MetricDBConnectionCount),
 		clickhouse.Named("maxMetric", shared.MetricDBConnectionMax),
 	)
@@ -130,7 +130,7 @@ func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, tea
 }
 
 func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionLimits, error) {
-	table, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	table := rollup.For(rollup.FamilyDBConnPool, startMs, endMs).Table
 	fc, fargs := shared.RollupFilterClauses(f)
 	query := fmt.Sprintf(`
 		SELECT
@@ -145,7 +145,7 @@ func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID i
 		GROUP BY pool_name, metric_name
 		ORDER BY pool_name
 	`, table, fc)
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBConnectionMax),
+	args := append(shared.BaseParams(teamID, startMs, endMs),
 		clickhouse.Named("maxMetric", shared.MetricDBConnectionMax),
 		clickhouse.Named("idleMax", shared.MetricDBConnectionIdleMax),
 		clickhouse.Named("idleMin", shared.MetricDBConnectionIdleMin),
@@ -184,7 +184,7 @@ func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID i
 }
 
 func (r *ClickHouseRepository) GetPendingRequests(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PendingRequestsPoint, error) {
-	table, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	table := rollup.For(rollup.FamilyDBConnPool, startMs, endMs).Table
 	fc, fargs := shared.RollupFilterClauses(f)
 	query := fmt.Sprintf(`
 		SELECT
@@ -205,7 +205,7 @@ func (r *ClickHouseRepository) GetPendingRequests(ctx context.Context, teamID in
 }
 
 func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionTimeoutPoint, error) {
-	table, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	table := rollup.For(rollup.FamilyDBConnPool, startMs, endMs).Table
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 	fc, fargs := shared.RollupFilterClauses(f)
 	query := fmt.Sprintf(`
@@ -227,7 +227,8 @@ func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, tea
 }
 
 func (r *ClickHouseRepository) poolLatency(ctx context.Context, teamID int64, startMs, endMs int64, metricName string, f shared.Filters) ([]PoolLatencyPoint, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	tier := rollup.For(rollup.FamilyDBConnPool, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	fc, fargs := shared.RollupFilterClauses(f)
 
 	query := fmt.Sprintf(`

@@ -42,7 +42,6 @@ type kubernetesModule struct {
 }
 
 func (m *kubernetesModule) Name() string                      { return "kubernetes" }
-func (m *kubernetesModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *kubernetesModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &KubernetesHandler{

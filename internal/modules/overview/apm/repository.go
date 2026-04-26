@@ -64,7 +64,7 @@ type histogramSummaryRawRow struct {
 }
 
 func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (histogramSummaryDTO, error) {
-	table, _ := rollup.TierTableFor(metricsHistRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsHistRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) AS p50,
@@ -78,7 +78,7 @@ func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID
 		  AND metric_name = @metricName`, table)
 
 	var raw histogramSummaryRawRow
-	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, rollupParams(teamID, startMs, endMs, metricName)...).ScanStruct(&raw)
+	err := dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "apm.queryHistogramSummary", &raw, query, rollupParams(teamID, startMs, endMs, metricName)...)
 	if err != nil {
 		return histogramSummaryDTO{}, err
 	}
@@ -103,7 +103,8 @@ func rollupParams(teamID int64, startMs, endMs int64, metricName string) []any {
 // breakdown — empty `state_dim = ”` filter so we don't mix in metric families
 // that happen to share the table but carry a state dim.
 func (r *ClickHouseRepository) queryGaugeTimeBuckets(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]timeBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	tier := rollup.For(metricsGaugesRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       sumMerge(value_avg_num) AS value_num,
@@ -147,7 +148,8 @@ func (r *ClickHouseRepository) GetRPCDuration(ctx context.Context, teamID int64,
 
 func (r *ClickHouseRepository) GetRPCRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketDTO, error) {
 	// Pre-aggregated call count from the histogram rollup's `hist_count` state.
-	table, tierStep := rollup.TierTableFor(metricsHistRollupPrefix, startMs, endMs)
+	tier := rollup.For(metricsHistRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       sumMerge(hist_count) AS val_u64
@@ -184,7 +186,8 @@ func (r *ClickHouseRepository) GetMessagingPublishDuration(ctx context.Context, 
 // populates from `attributes.process.cpu.state` for the `process.cpu.time`
 // metric. Per-state time series of bucketed avg(value).
 func (r *ClickHouseRepository) GetProcessCPU(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	tier := rollup.For(metricsGaugesRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       state_dim               AS state,
@@ -229,7 +232,7 @@ func (r *ClickHouseRepository) GetProcessCPU(ctx context.Context, teamID int64, 
 // GetProcessMemory merges two metrics (usage + virtual) from the gauge
 // rollup, averaged over the range. Equivalent to the prior avgIf query on raw.
 func (r *ClickHouseRepository) GetProcessMemory(ctx context.Context, teamID int64, startMs, endMs int64) (processMemoryDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT metric_name,
 		       sumMerge(value_avg_num) AS value_num,

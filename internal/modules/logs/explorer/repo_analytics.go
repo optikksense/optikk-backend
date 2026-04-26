@@ -10,11 +10,17 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/querycompiler"
 )
 
+type analyticsSource string
+
+const (
+	analyticsSourceRaw    analyticsSource = "raw"
+	analyticsSourceVolume analyticsSource = "volume"
+	analyticsSourceFacets analyticsSource = "facets"
+)
+
 // Analytics runs a group-by + aggregation query over the logs corpus. When the
-// filters + group-by dims are expressible against the rollup cascade we hit
-// `logs_rollup_{1m,5m,1h}` via rollup.TierTableFor; otherwise we fall back
-// to raw `observability.logs`. Returns the materialized rows + the step
-// token used (client aligns x-axis) + compile warnings.
+// filters + group-by dims are expressible against a rollup cascade we stay on
+// pre-aggregated tables; otherwise we fall back to raw `observability.logs`.
 func (r *Repository) Analytics(ctx context.Context, f querycompiler.Filters, req AnalyticsRequest) ([]AnalyticsRow, string, []string, error) {
 	viz := normalizeVizMode(req.VizMode)
 	plan := planAnalytics(f, req, viz)
@@ -35,48 +41,70 @@ func normalizeVizMode(v string) string {
 	}
 }
 
+type analyticsGroupSpec struct {
+	Expr  string
+	Alias string
+}
+
 type analyticsPlan struct {
-	table		string
-	where		string
-	baseArgs	[]any
-	groupBy		[]string
-	aggs		[]aggSpec
-	viz		string
-	stepMin		int64
-	stepToken	string
-	limit		int
-	orderBy		string
-	rollup		bool
-	dropped		[]string
+	table     string
+	where     string
+	baseArgs  []any
+	groupBy   []analyticsGroupSpec
+	aggs      []aggSpec
+	viz       string
+	stepMin   int64
+	stepToken string
+	limit     int
+	orderBy   string
+	source    analyticsSource
+	dropped   []string
 }
 
 type aggSpec struct {
-	alias	string
-	expr	string
+	alias string
+	expr  string
 }
 
-// planAnalytics decides rollup-vs-raw + resolves group-by columns, aggs, step.
 func planAnalytics(f querycompiler.Filters, req AnalyticsRequest, viz string) analyticsPlan {
-	groupBy, groupOK := normalizeGroupBy(req.GroupBy, true)
-	if groupOK && canUseRollup(f) {
-		table, tierStep := rollup.TierTableFor(logsRollupPrefix, f.StartMs, f.EndMs)
-		compiled := querycompiler.Compile(f, querycompiler.TargetRollup)
-		return analyticsPlan{
-			table:	table, where: compiled.Where, baseArgs: compiled.Args,
-			groupBy:	groupBy, aggs: buildAggsRollup(req.Aggregations), viz: viz,
-			stepMin:	resolveStepMinutes(req.Step, tierStep, f.StartMs, f.EndMs),
-			stepToken:	req.Step, limit: pickAnaLimit(req.Limit), orderBy: req.OrderBy,
-			rollup:	true, dropped: compiled.DroppedClauses,
+	if canUseRollup(f) {
+		groupBy, groupOK := normalizeRollupGroupBy(req.GroupBy)
+		if groupOK {
+			if table, tierStep, aggs, source, ok := chooseRollupAnalyticsSource(f, req, groupBy); ok {
+				compiled := querycompiler.Compile(f, querycompiler.TargetRollup)
+				return analyticsPlan{
+					table:     table,
+					where:     compiled.Where,
+					baseArgs:  compiled.Args,
+					groupBy:   groupBy,
+					aggs:      aggs,
+					viz:       viz,
+					stepMin:   resolveStepMinutes(req.Step, tierStep, f.StartMs, f.EndMs),
+					stepToken: req.Step,
+					limit:     pickAnaLimit(req.Limit),
+					orderBy:   req.OrderBy,
+					source:    source,
+					dropped:   compiled.DroppedClauses,
+				}
+			}
 		}
 	}
+
 	compiled := querycompiler.Compile(f, querycompiler.TargetRaw)
-	groupByRaw, _ := normalizeGroupBy(req.GroupBy, false)
+	groupByRaw, _ := normalizeRawGroupBy(req.GroupBy)
 	return analyticsPlan{
-		table:	rawLogsTable, where: compiled.Where, baseArgs: compiled.Args,
-		groupBy:	groupByRaw, aggs: buildAggsRaw(req.Aggregations), viz: viz,
-		stepMin:	resolveStepMinutes(req.Step, 1, f.StartMs, f.EndMs),
-		stepToken:	req.Step, limit: pickAnaLimit(req.Limit), orderBy: req.OrderBy,
-		rollup:	false, dropped: compiled.DroppedClauses,
+		table:     rawLogsTable,
+		where:     compiled.Where,
+		baseArgs:  compiled.Args,
+		groupBy:   groupByRaw,
+		aggs:      buildAggsRaw(req.Aggregations),
+		viz:       viz,
+		stepMin:   resolveStepMinutes(req.Step, 1, f.StartMs, f.EndMs),
+		stepToken: req.Step,
+		limit:     pickAnaLimit(req.Limit),
+		orderBy:   req.OrderBy,
+		source:    analyticsSourceRaw,
+		dropped:   compiled.DroppedClauses,
 	}
 }
 
@@ -90,7 +118,6 @@ func pickAnaLimit(v int) int {
 	return v
 }
 
-// canUseRollup restricts rollup dispatch to the rollup-key dim set.
 func canUseRollup(f querycompiler.Filters) bool {
 	if f.Search != "" || f.TraceID != "" || f.SpanID != "" || len(f.Attributes) > 0 {
 		return false
@@ -98,69 +125,153 @@ func canUseRollup(f querycompiler.Filters) bool {
 	return len(f.Containers) == 0
 }
 
-var rollupKeyDims = map[string]string{
-	"severity_bucket":	"severity_bucket", "severity": "severity_bucket",
-	"service":	"service", "service_name": "service",
-	"environment":	"environment", "env": "environment",
-	"host":	"host", "pod": "pod",
-}
-
-var rawKeyDims = map[string]string{
-	"severity_bucket":	"severity_bucket", "severity": "severity_text",
-	"service":	"service", "service_name": "service",
-	"environment":	"environment", "env": "environment",
-	"host":	"host", "pod": "pod", "container": "container",
-	"trace_id":	"trace_id", "span_id": "span_id",
-}
-
-func normalizeGroupBy(in []string, rollupOnly bool) ([]string, bool) {
-	out := make([]string, 0, len(in))
-	table := rawKeyDims
-	if rollupOnly {
-		table = rollupKeyDims
+func chooseRollupAnalyticsSource(
+	f querycompiler.Filters, req AnalyticsRequest, groupBy []analyticsGroupSpec,
+) (table string, tierStep int64, aggs []aggSpec, source analyticsSource, ok bool) {
+	if requiresFacetRollup(req.Aggregations) {
+		if facetedAggs, facetOK := buildAggsRollupFacets(req.Aggregations); facetOK && canUseFacetRollup(f, groupBy) {
+			tier := rollup.For(logsFacetRollupPrefix, f.StartMs, f.EndMs)
+			table, tierStep = tier.Table, tier.StepMin
+			return table, tierStep, facetedAggs, analyticsSourceFacets, true
+		}
+		return "", 0, nil, "", false
 	}
-	for _, dim := range in {
-		col, ok := table[strings.ToLower(strings.TrimSpace(dim))]
-		if !ok {
+	if volumeAggs, volumeOK := buildAggsRollupVolume(req.Aggregations); volumeOK {
+		tier := rollup.For(logsRollupPrefix, f.StartMs, f.EndMs)
+		table, tierStep = tier.Table, tier.StepMin
+		return table, tierStep, volumeAggs, analyticsSourceVolume, true
+	}
+	if facetedAggs, facetOK := buildAggsRollupFacets(req.Aggregations); facetOK && canUseFacetRollup(f, groupBy) {
+		tier := rollup.For(logsFacetRollupPrefix, f.StartMs, f.EndMs)
+		table, tierStep = tier.Table, tier.StepMin
+		return table, tierStep, facetedAggs, analyticsSourceFacets, true
+	}
+	return "", 0, nil, "", false
+}
+
+func requiresFacetRollup(in []Aggregation) bool {
+	for _, agg := range in {
+		switch agg.Fn {
+		case "uniq", "count_distinct":
+			return true
+		}
+	}
+	return false
+}
+
+func canUseFacetRollup(f querycompiler.Filters, groupBy []analyticsGroupSpec) bool {
+	if len(f.Hosts) > 0 || len(f.Pods) > 0 || len(f.ExcludeHosts) > 0 {
+		return false
+	}
+	for _, spec := range groupBy {
+		switch spec.Alias {
+		case "service", "environment", "severity_text", "severity_bucket":
+			continue
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+func normalizeRollupGroupBy(in []string) ([]analyticsGroupSpec, bool) {
+	out := make([]analyticsGroupSpec, 0, len(in))
+	for _, raw := range in {
+		dim := strings.ToLower(strings.TrimSpace(raw))
+		switch dim {
+		case "severity", "severity_text":
+			out = append(out, analyticsGroupSpec{
+				Expr:  severityBucketLabelExpr("severity_bucket"),
+				Alias: "severity_text",
+			})
+		case "severity_bucket":
+			out = append(out, analyticsGroupSpec{Expr: "severity_bucket", Alias: "severity_bucket"})
+		case "service", "service_name":
+			out = append(out, analyticsGroupSpec{Expr: "service", Alias: "service"})
+		case "environment", "env":
+			out = append(out, analyticsGroupSpec{Expr: "environment", Alias: "environment"})
+		case "host":
+			out = append(out, analyticsGroupSpec{Expr: "host", Alias: "host"})
+		case "pod":
+			out = append(out, analyticsGroupSpec{Expr: "pod", Alias: "pod"})
+		default:
 			return nil, false
 		}
-		out = append(out, col)
 	}
 	return out, true
 }
 
-// buildAnalyticsQuery stitches the plan into a parameterized CH query. Named
-// binding is preserved from Compile; no field bindings are introduced here.
+func normalizeRawGroupBy(in []string) ([]analyticsGroupSpec, bool) {
+	out := make([]analyticsGroupSpec, 0, len(in))
+	for _, raw := range in {
+		dim := strings.ToLower(strings.TrimSpace(raw))
+		switch dim {
+		case "severity", "severity_text":
+			out = append(out, analyticsGroupSpec{Expr: "severity_text", Alias: "severity_text"})
+		case "severity_bucket":
+			out = append(out, analyticsGroupSpec{Expr: "severity_bucket", Alias: "severity_bucket"})
+		case "service", "service_name":
+			out = append(out, analyticsGroupSpec{Expr: "service", Alias: "service"})
+		case "environment", "env":
+			out = append(out, analyticsGroupSpec{Expr: "environment", Alias: "environment"})
+		case "host":
+			out = append(out, analyticsGroupSpec{Expr: "host", Alias: "host"})
+		case "pod":
+			out = append(out, analyticsGroupSpec{Expr: "pod", Alias: "pod"})
+		case "container":
+			out = append(out, analyticsGroupSpec{Expr: "container", Alias: "container"})
+		case "trace_id":
+			out = append(out, analyticsGroupSpec{Expr: "trace_id", Alias: "trace_id"})
+		case "span_id":
+			out = append(out, analyticsGroupSpec{Expr: "span_id", Alias: "span_id"})
+		default:
+			return nil, false
+		}
+	}
+	return out, true
+}
+
+func severityBucketLabelExpr(col string) string {
+	return fmt.Sprintf(
+		"multiIf(%[1]s = 0, 'trace', %[1]s = 1, 'debug', %[1]s = 2, 'info', %[1]s = 3, 'warn', %[1]s = 4, 'error', 'fatal')",
+		col,
+	)
+}
+
 func buildAnalyticsQuery(p analyticsPlan) (string, []any) {
-	selects, groups := analyticsProjections(p)
+	selects, groups, validFields := analyticsProjections(p)
 	query := fmt.Sprintf("SELECT %s FROM %s WHERE %s", strings.Join(selects, ", "), p.table, p.where)
 	if len(groups) > 0 {
 		query += " GROUP BY " + strings.Join(groups, ", ")
 	}
-	query += " ORDER BY " + analyticsOrder(p)
+	query += " ORDER BY " + analyticsOrder(p, validFields)
 	query += fmt.Sprintf(" LIMIT %d", p.limit)
 	return query, p.baseArgs
 }
 
-func analyticsProjections(p analyticsPlan) ([]string, []string) {
+func analyticsProjections(p analyticsPlan) ([]string, []string, map[string]struct{}) {
+	validFields := make(map[string]struct{}, len(p.groupBy)+len(p.aggs)+1)
 	var selects, groups []string
 	if p.viz == "timeseries" {
 		selects = append(selects, analyticsBucketExpr(p)+" AS time_bucket")
 		groups = append(groups, "time_bucket")
+		validFields["time_bucket"] = struct{}{}
 	}
 	for _, g := range p.groupBy {
-		selects = append(selects, g)
-		groups = append(groups, g)
+		selects = append(selects, g.Expr+" AS "+g.Alias)
+		groups = append(groups, g.Alias)
+		validFields[g.Alias] = struct{}{}
 	}
 	for _, agg := range p.aggs {
 		selects = append(selects, agg.expr+" AS "+agg.alias)
+		validFields[agg.alias] = struct{}{}
 	}
-	return selects, groups
+	return selects, groups, validFields
 }
 
 func analyticsBucketExpr(p analyticsPlan) string {
 	col := "timestamp"
-	if p.rollup {
+	if p.source != analyticsSourceRaw {
 		col = "bucket_ts"
 	}
 	return fmt.Sprintf(
@@ -169,9 +280,9 @@ func analyticsBucketExpr(p analyticsPlan) string {
 	)
 }
 
-func analyticsOrder(p analyticsPlan) string {
-	if p.orderBy != "" {
-		return p.orderBy
+func analyticsOrder(p analyticsPlan, validFields map[string]struct{}) string {
+	if clause, ok := sanitizeOrderBy(p.orderBy, validFields); ok {
+		return clause
 	}
 	if p.viz == "timeseries" {
 		return "time_bucket ASC"
@@ -182,14 +293,33 @@ func analyticsOrder(p analyticsPlan) string {
 	return "1"
 }
 
-// runAnalyticsQuery scans the dynamic-shape result into AnalyticsRow via the
-// generic Query() path + rows.Scan on per-column `any` pointers.
+func sanitizeOrderBy(raw string, validFields map[string]struct{}) (string, bool) {
+	parts := strings.Fields(strings.TrimSpace(raw))
+	if len(parts) == 0 || len(parts) > 2 {
+		return "", false
+	}
+	field := strings.ToLower(parts[0])
+	if _, ok := validFields[field]; !ok {
+		return "", false
+	}
+	dir := "ASC"
+	if len(parts) == 2 {
+		switch strings.ToUpper(parts[1]) {
+		case "ASC", "DESC":
+			dir = strings.ToUpper(parts[1])
+		default:
+			return "", false
+		}
+	}
+	return field + " " + dir, true
+}
+
 func (r *Repository) runAnalyticsQuery(ctx context.Context, query string, args []any, p analyticsPlan) ([]AnalyticsRow, error) {
 	rows, err := dbutil.QueryCH(dbutil.OverviewCtx(ctx), r.db, "explorer.runAnalyticsQuery", query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("logs.analytics.query: %w", err)
 	}
-	defer rows.Close()	//nolint:errcheck
+	defer rows.Close() //nolint:errcheck
 
 	cols := rows.Columns()
 	aggSet := aggAliasSet(p.aggs)

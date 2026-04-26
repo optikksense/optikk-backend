@@ -40,7 +40,6 @@ type apmModule struct {
 }
 
 func (m *apmModule) Name() string                      { return "apm" }
-func (m *apmModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *apmModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &APMHandler{

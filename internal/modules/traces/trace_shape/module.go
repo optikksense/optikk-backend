@@ -30,7 +30,6 @@ type module struct {
 }
 
 func (m *module) Name() string                      { return "traceShape" }
-func (m *module) RouteTarget() registry.RouteTarget { return registry.V1 }
 
 func (m *module) configure(db clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	repo := NewRepository(db)

@@ -37,7 +37,6 @@ type overviewSLOModule struct {
 }
 
 func (m *overviewSLOModule) Name() string                      { return "overviewSLO" }
-func (m *overviewSLOModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *overviewSLOModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &SLOHandler{

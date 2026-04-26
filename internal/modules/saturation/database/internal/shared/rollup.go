@@ -9,7 +9,7 @@ import (
 
 // DBHistRollupPrefix is the rollup family constant for the unified db
 // saturation rollup (histogram + gauge rows; keys include db_connection_state
-// and db_response_status_code). Callers pass it to rollup.TierTableFor.
+// and db_response_status_code). Callers pass it to rollup.For.
 const DBHistRollupPrefix = rollup.FamilyDBSaturation
 
 // QueryIntervalMinutes returns the group-by step (in minutes) for rollup

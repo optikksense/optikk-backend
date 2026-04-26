@@ -45,7 +45,6 @@ type userPageModule struct {
 }
 
 func (m *userPageModule) Name() string                      { return "userPage" }
-func (m *userPageModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
 func (m *userPageModule) configure(sqlDB *registry.SQLDB, getTenant registry.GetTenantFunc, appConfig registry.AppConfig) {
 	m.handler = NewHandler(

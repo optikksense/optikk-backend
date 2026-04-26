@@ -56,7 +56,6 @@ type Module struct {
 }
 
 func (m *Module) Name() string                      { return "spans" }
-func (m *Module) RouteTarget() registry.RouteTarget { return registry.V1 }
 func (m *Module) RegisterRoutes(_ *gin.RouterGroup) {}
 
 func (m *Module) RegisterGRPC(srv *grpc.Server) {

@@ -45,7 +45,6 @@ type authModule struct {
 }
 
 func (m *authModule) Name() string                      { return "auth" }
-func (m *authModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
 func (m *authModule) configure(
 	sqlDB *registry.SQLDB,

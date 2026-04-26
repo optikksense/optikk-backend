@@ -28,7 +28,8 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) latencySeriesByAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]LatencyTimeSeries, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	tier := rollup.For(shared.DBHistRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	fc, fargs := shared.RollupFilterClauses(f)
 	groupCol := shared.GroupColumnFor(groupAttr)
 
@@ -84,7 +85,8 @@ func (r *ClickHouseRepository) GetLatencyByServer(ctx context.Context, teamID in
 // approximate at the tier's native bucket granularity — accurate at rollup
 // resolution, coarser than the old per-row query but preserves the chart.
 func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyHeatmapBucket, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	tier := rollup.For(shared.DBHistRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	fc, fargs := shared.RollupFilterClauses(f)
 
 	query := fmt.Sprintf(`

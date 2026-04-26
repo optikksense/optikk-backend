@@ -44,7 +44,6 @@ type redMetricsModule struct {
 }
 
 func (m *redMetricsModule) Name() string                      { return "redMetrics" }
-func (m *redMetricsModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *redMetricsModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &REDMetricsHandler{

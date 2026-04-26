@@ -41,7 +41,6 @@ type overviewModule struct {
 }
 
 func (m *overviewModule) Name() string                      { return "overview" }
-func (m *overviewModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *overviewModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &OverviewHandler{

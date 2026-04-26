@@ -66,7 +66,7 @@ type fleetPodRowDTO struct {
 }
 
 func (r *ClickHouseRepository) GetFleetPods(ctx context.Context, teamID int64, startMs, endMs int64) ([]FleetPod, error) {
-	table, _ := rollup.TierTableFor(spansHostRollupPrefix, startMs, endMs)
+	table := rollup.For(spansHostRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT pod_name                                                          AS pod_name,
 		       if(host_name != '', host_name, '%s')                              AS host_name,

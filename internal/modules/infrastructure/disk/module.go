@@ -48,7 +48,6 @@ type diskModule struct {
 }
 
 func (m *diskModule) Name() string                      { return "disk" }
-func (m *diskModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *diskModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = NewHandler(nativeQuerier, getTenant)

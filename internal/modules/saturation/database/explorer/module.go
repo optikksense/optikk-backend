@@ -61,7 +61,6 @@ type saturationExplorerModule struct {
 }
 
 func (m *saturationExplorerModule) Name() string                      { return "saturationExplorer" }
-func (m *saturationExplorerModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *saturationExplorerModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{

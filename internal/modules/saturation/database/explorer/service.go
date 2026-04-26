@@ -89,28 +89,21 @@ func (s *Service) GetDatastoreSummary(ctx context.Context, teamID int64, startMs
 }
 
 func (s *Service) GetDatastoreSystems(ctx context.Context, teamID int64, startMs, endMs int64) ([]DatastoreSystemRow, error) {
-	systemRows, err := s.dbSystems.GetDetectedSystems(ctx, teamID, startMs, endMs)
+	systemRows, err := s.dbSystems.GetSystemSummaries(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
 
 	rows := make([]DatastoreSystemRow, 0, len(systemRows))
 	for _, detected := range systemRows {
-		summary, err := s.dbSummary.GetSummaryStats(ctx, teamID, startMs, endMs, dbshared.Filters{
-			DBSystem: []string{detected.DBSystem},
-		})
-		if err != nil {
-			return nil, err
-		}
-
 		rows = append(rows, DatastoreSystemRow{
 			System:            detected.DBSystem,
 			Category:          datastoreCategory(detected.DBSystem),
 			QueryCount:        detected.QueryCount,
 			AvgLatencyMs:      detected.AvgLatencyMs,
-			P95LatencyMs:      derefFloat(summary.P95LatencyMs),
+			P95LatencyMs:      detected.P95LatencyMs,
 			ErrorRate:         safeRatioPct(detected.ErrorCount, detected.QueryCount),
-			ActiveConnections: summary.ActiveConnections,
+			ActiveConnections: detected.ActiveConnections,
 			ServerHint:        detected.ServerAddress,
 			LastSeen:          detected.LastSeen,
 		})

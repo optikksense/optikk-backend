@@ -27,7 +27,8 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) opsSeriesByAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]OpsTimeSeries, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	tier := rollup.For(shared.DBHistRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	fc, fargs := shared.RollupFilterClauses(f)
 	groupCol := shared.GroupColumnFor(groupAttr)
 	if groupCol == "" {
@@ -88,7 +89,8 @@ func (r *ClickHouseRepository) GetOpsByNamespace(ctx context.Context, teamID int
 }
 
 func (r *ClickHouseRepository) GetReadVsWrite(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ReadWritePoint, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	tier := rollup.For(shared.DBHistRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	fc, fargs := shared.RollupFilterClauses(f)
 
 	query := fmt.Sprintf(`

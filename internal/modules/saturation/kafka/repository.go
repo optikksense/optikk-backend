@@ -3,6 +3,7 @@ package kafka
 import (
 	"context"
 	"fmt"
+	"math"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
@@ -65,86 +66,44 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(ctx context.Context, teamID 
 	}
 	var stats KafkaSummaryStats
 
-	// Rates + max lag from counters rollup.
-	countersTable, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
-	countersQuery := fmt.Sprintf(`
+	// Single query against the narrow kafka_summary rollup (3 dims vs 11).
+	// Uses conditional merge functions to compute all summary fields at once.
+	table := rollup.For(rollup.FamilyKafkaSummary, startMs, endMs).Table
+	query := fmt.Sprintf(`
 		SELECT
-		    metric_name                      AS metric_name,
-		    toFloat64(sumMerge(value_sum))   AS v_sum,
-		    toFloat64(maxMerge(value_max))   AS v_max
+		    toFloat64(sumMergeIf(value_sum, metric_name IN @producerMetrics))       AS prod_sum,
+		    toFloat64(sumMergeIf(value_sum, metric_name IN @consumerMetrics))       AS cons_sum,
+		    toFloat64(maxMergeIf(value_max, metric_name IN @lagMetrics))            AS max_lag,
+		    toFloat64(quantilesTDigestWeightedMergeIf(0.5, 0.95, 0.99)(latency_digest, metric_name = @publishDuration)[2])  AS publish_p95,
+		    toFloat64(quantilesTDigestWeightedMergeIf(0.5, 0.95, 0.99)(latency_digest, metric_name = @receiveDuration)[2])  AS receive_p95
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
-		  AND (metric_name IN @producerMetrics
-		       OR metric_name IN @consumerMetrics
-		       OR metric_name IN @lagMetrics)
-		  %s
-		GROUP BY metric_name
-	`, countersTable, rollupTopicGroupFilter(f))
-	var rateRows []struct {
-		MetricName	string	`ch:"metric_name"`
-		VSum		float64	`ch:"v_sum"`
-		VMax		float64	`ch:"v_max"`
+	`, table)
+
+	var row struct {
+		ProdSum    float64 `ch:"prod_sum"`
+		ConsSum    float64 `ch:"cons_sum"`
+		MaxLag     float64 `ch:"max_lag"`
+		PublishP95 float64 `ch:"publish_p95"`
+		ReceiveP95 float64 `ch:"receive_p95"`
 	}
-	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
-	args = append(args,
+	args := append(r.rollupBaseParams(teamID, startMs, endMs),
 		clickhouse.Named("producerMetrics", ProducerMetrics),
 		clickhouse.Named("consumerMetrics", ConsumerMetrics),
 		clickhouse.Named("lagMetrics", ConsumerLagMetrics),
+		clickhouse.Named("publishDuration", MetricPublishDuration),
+		clickhouse.Named("receiveDuration", MetricReceiveDuration),
 	)
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetKafkaSummaryStats", &rateRows, countersQuery, args...); err != nil {
+	if err := dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetKafkaSummaryStats", &row, query, args...); err != nil {
 		return stats, err
-	}
-	prod := stringSet(ProducerMetrics)
-	cons := stringSet(ConsumerMetrics)
-	lag := stringSet(ConsumerLagMetrics)
-	for _, row := range rateRows {
-		_, isProd := prod[row.MetricName]
-		_, isCons := cons[row.MetricName]
-		_, isLag := lag[row.MetricName]
-		switch {
-		case isProd:
-			stats.PublishRatePerSec += row.VSum / durationSecs
-		case isCons:
-			stats.ReceiveRatePerSec += row.VSum / durationSecs
-		case isLag:
-			if row.VMax > stats.MaxLag {
-				stats.MaxLag = row.VMax
-			}
-		}
 	}
 
-	// Percentiles from histogram rollup. publish_p95 + receive_p95 need the
-	// same fan-out as GetPublishLatencyByTopic / GetReceiveLatencyByTopic but
-	// aggregated across topics.
-	histTable, _ := rollup.TierTableFor(messagingRollupPrefix, startMs, endMs)
-	histQuery := fmt.Sprintf(`
-		SELECT
-		    metric_name                                                           AS metric_name,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])   AS p95
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name IN (@publishDuration, @receiveDuration, @opDuration)
-		  %s
-		GROUP BY metric_name
-	`, histTable, rollupTopicGroupFilter(f))
-	var histRows []struct {
-		MetricName	string	`ch:"metric_name"`
-		P95		float64	`ch:"p95"`
-	}
-	histArgs := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetKafkaSummaryStats", &histRows, histQuery, histArgs...); err != nil {
-		return stats, err
-	}
-	for _, row := range histRows {
-		switch row.MetricName {
-		case MetricPublishDuration:
-			stats.PublishP95Ms = row.P95
-		case MetricReceiveDuration:
-			stats.ReceiveP95Ms = row.P95
-		}
-	}
+	stats.PublishRatePerSec = row.ProdSum / durationSecs
+	stats.ReceiveRatePerSec = row.ConsSum / durationSecs
+	stats.MaxLag = row.MaxLag
+	stats.PublishP95Ms = row.PublishP95
+	stats.ReceiveP95Ms = row.ReceiveP95
 	return stats, nil
 }
 
@@ -161,7 +120,7 @@ func (r *ClickHouseRepository) GetConsumeRateByTopic(ctx context.Context, teamID
 }
 
 func (r *ClickHouseRepository) topicRate(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters, metrics []string) ([]TopicRatePoint, error) {
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
+	table := rollup.For(messagingCountersRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                       AS time_bucket,
@@ -190,7 +149,7 @@ func (r *ClickHouseRepository) GetProcessRateByGroup(ctx context.Context, teamID
 }
 
 func (r *ClickHouseRepository) groupRate(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters, metrics []string) ([]GroupRatePoint, error) {
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
+	table := rollup.For(messagingCountersRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                           AS time_bucket,
@@ -215,7 +174,7 @@ func (r *ClickHouseRepository) groupRate(ctx context.Context, teamID int64, star
 // ---------------------------------------------------------------------------
 
 func (r *ClickHouseRepository) GetConsumerLagByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]LagPoint, error) {
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
+	table := rollup.For(messagingCountersRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                          AS time_bucket,
@@ -237,7 +196,7 @@ func (r *ClickHouseRepository) GetConsumerLagByGroup(ctx context.Context, teamID
 }
 
 func (r *ClickHouseRepository) GetConsumerLagPerPartition(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]PartitionLag, error) {
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
+	table := rollup.For(messagingCountersRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT
 		    messaging_destination                                                       AS topic,
@@ -264,7 +223,7 @@ func (r *ClickHouseRepository) GetConsumerLagPerPartition(ctx context.Context, t
 // ---------------------------------------------------------------------------
 
 func (r *ClickHouseRepository) GetRebalanceSignals(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]RebalancePoint, error) {
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
+	table := rollup.For(messagingCountersRollupPrefix, startMs, endMs).Table
 	bs := bucketSecs(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT
@@ -328,7 +287,7 @@ func (r *ClickHouseRepository) GetRebalanceSignals(ctx context.Context, teamID i
 // ---------------------------------------------------------------------------
 
 func (r *ClickHouseRepository) GetE2ELatency(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]E2ELatencyPoint, error) {
-	table, _ := rollup.TierTableFor(messagingRollupPrefix, startMs, endMs)
+	table := rollup.For(messagingRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                   AS time_bucket,
@@ -399,7 +358,7 @@ func (r *ClickHouseRepository) GetProcessErrors(ctx context.Context, teamID int6
 // (see MV in db/clickhouse/14_rollup_messaging_counters.sql). Rate is
 // errored-ops / bucketSecs.
 func (r *ClickHouseRepository) GetClientOpErrors(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
+	table := rollup.For(messagingCountersRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                              AS time_bucket,
@@ -422,7 +381,7 @@ func (r *ClickHouseRepository) GetClientOpErrors(ctx context.Context, teamID int
 }
 
 func (r *ClickHouseRepository) GetBrokerConnections(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]BrokerConnectionPoint, error) {
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
+	table := rollup.For(messagingCountersRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                          AS time_bucket,
@@ -458,7 +417,7 @@ func (r *ClickHouseRepository) GetReceiveLatencyByTopic(ctx context.Context, tea
 }
 
 func (r *ClickHouseRepository) topicLatency(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters, durationMetric string, opAliases []string) ([]TopicLatencyPoint, error) {
-	table, _ := rollup.TierTableFor(messagingRollupPrefix, startMs, endMs)
+	table := rollup.For(messagingRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                   AS time_bucket,
@@ -485,7 +444,7 @@ func (r *ClickHouseRepository) topicLatency(ctx context.Context, teamID int64, s
 }
 
 func (r *ClickHouseRepository) GetProcessLatencyByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupLatencyPoint, error) {
-	table, _ := rollup.TierTableFor(messagingRollupPrefix, startMs, endMs)
+	table := rollup.For(messagingRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                   AS time_bucket,
@@ -508,7 +467,7 @@ func (r *ClickHouseRepository) GetProcessLatencyByGroup(ctx context.Context, tea
 }
 
 func (r *ClickHouseRepository) GetClientOperationDuration(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ClientOpDurationPoint, error) {
-	table, _ := rollup.TierTableFor(messagingRollupPrefix, startMs, endMs)
+	table := rollup.For(messagingRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                   AS time_bucket,
@@ -534,7 +493,7 @@ func (r *ClickHouseRepository) GetClientOperationDuration(ctx context.Context, t
 // ---------------------------------------------------------------------------
 
 func (r *ClickHouseRepository) getTopicErrorRates(ctx context.Context, teamID int64, startMs, endMs int64, metricName, caller string, f KafkaFilters) ([]ErrorRatePoint, error) {
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
+	table := rollup.For(messagingCountersRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                AS time_bucket,
@@ -559,11 +518,16 @@ func (r *ClickHouseRepository) getTopicErrorRates(ctx context.Context, teamID in
 	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.getTopicErrorRates", &out, query, args...); err != nil {
 		return nil, fmt.Errorf("%s: %w", caller, err)
 	}
+	for i := range out {
+		if math.IsNaN(out[i].ErrorRate) {
+			out[i].ErrorRate = 0.0
+		}
+	}
 	return out, nil
 }
 
 func (r *ClickHouseRepository) getGroupErrorRates(ctx context.Context, teamID int64, startMs, endMs int64, metricName, caller string, f KafkaFilters) ([]ErrorRatePoint, error) {
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
+	table := rollup.For(messagingCountersRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                AS time_bucket,
@@ -585,8 +549,13 @@ func (r *ClickHouseRepository) getGroupErrorRates(ctx context.Context, teamID in
 		clickhouse.Named("bucketSecs", bucketSecs(startMs, endMs)),
 	)
 	var out []ErrorRatePoint
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.getGroupErrorRates", &out, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.DashboardCtx(ctx), r.db, "kafka.getGroupErrorRates", &out, query, args...); err != nil {
 		return nil, fmt.Errorf("%s: %w", caller, err)
+	}
+	for i := range out {
+		if math.IsNaN(out[i].ErrorRate) {
+			out[i].ErrorRate = 0.0
+		}
 	}
 	return out, nil
 }
@@ -600,7 +569,7 @@ func (r *ClickHouseRepository) GetConsumerMetricSamples(ctx context.Context, tea
 	if len(metricNames) == 0 {
 		return []ConsumerMetricSample{}, nil
 	}
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
+	table := rollup.For(messagingCountersRollupPrefix, startMs, endMs).Table
 	// Inventory filters are lighter than kafkaFilterClauses — no messaging_system
 	// predicate. rollupInventoryFilter mirrors that.
 	query := fmt.Sprintf(`
@@ -629,7 +598,7 @@ func (r *ClickHouseRepository) GetTopicMetricSamples(ctx context.Context, teamID
 	if len(metricNames) == 0 {
 		return []TopicMetricSample{}, nil
 	}
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
+	table := rollup.For(messagingCountersRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                          AS time_bucket,

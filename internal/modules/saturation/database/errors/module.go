@@ -41,7 +41,6 @@ type dbErrorsModule struct {
 }
 
 func (m *dbErrorsModule) Name() string                      { return "dbErrors" }
-func (m *dbErrorsModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *dbErrorsModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{

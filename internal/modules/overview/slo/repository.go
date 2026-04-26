@@ -9,16 +9,17 @@ import (
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"golang.org/x/sync/errgroup"
 )
 
 // Reads target `observability.spans_rollup_{1m,5m,1h}` — Phase 6 cascade
-// tiers picked via rollup.TierTableFor. SLO queries need count + error_count
+// tiers picked via rollup.For. SLO queries need count + error_count
 // + duration_sum + p95; every one of those is available as a state column +
 // merge op, so the query reduces to `sumMerge` and `quantilesTDigestWeightedMerge`.
 
 const (
 	serviceNameFilter	= " AND service_name = @serviceName"
-	spansRollupPrefix	= rollup.FamilySpansRED
+	spansRollupPrefix	= rollup.FamilySLOBurn
 )
 
 type Repository interface {
@@ -90,12 +91,12 @@ type summaryRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (Summary, error) {
-	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	table := rollup.For(spansRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT sumMerge(request_count)                                            AS request_count,
 		       sumMerge(error_count)                                              AS error_count,
 		       sumMerge(duration_ms_sum)                                          AS duration_ms_sum,
-		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_latency_ms
+		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_digest)[2]) AS p95_latency_ms
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end`, table)
@@ -106,7 +107,7 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 	}
 
 	var row summaryRawRow
-	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&row); err != nil {
+	if err := dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "slo.GetSummary", &row, query, args...); err != nil {
 		return Summary{}, err
 	}
 
@@ -139,7 +140,8 @@ type timeSliceRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]TimeSlice, error) {
-	table, tierStep := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	tier := rollup.For(spansRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       sumMerge(request_count)                                      AS request_count,
@@ -196,7 +198,8 @@ type burnDownRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetBurnDown(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]BurnDownPoint, error) {
-	table, tierStep := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	tier := rollup.For(spansRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       sumMerge(request_count)                                      AS request_count,
@@ -252,17 +255,28 @@ func (r *ClickHouseRepository) GetBurnDown(ctx context.Context, teamID int64, st
 }
 
 func (r *ClickHouseRepository) GetBurnRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (*BurnRate, error) {
-	fastRate, err := r.errorRateForWindow(ctx, teamID, 5, serviceName)
-	if err != nil {
-		return nil, err
-	}
-	slowRate, err := r.errorRateForWindow(ctx, teamID, 60, serviceName)
-	if err != nil {
-		return nil, err
-	}
+	g, gctx := errgroup.WithContext(ctx)
 
-	summary, err := r.GetSummary(ctx, teamID, startMs, endMs, serviceName)
-	if err != nil {
+	var fastRate, slowRate float64
+	var summary Summary
+
+	g.Go(func() error {
+		var err error
+		fastRate, err = r.errorRateForWindow(gctx, teamID, 5, serviceName)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		slowRate, err = r.errorRateForWindow(gctx, teamID, 60, serviceName)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		summary, err = r.GetSummary(gctx, teamID, startMs, endMs, serviceName)
+		return err
+	})
+
+	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 
@@ -284,7 +298,7 @@ func (r *ClickHouseRepository) errorRateForWindow(ctx context.Context, teamID in
 	now := time.Now()
 	since := now.Add(-time.Duration(minutes) * time.Minute)
 	// fast burn rates use short windows (5m / 1h) — always pins to the _1m tier.
-	table, _ := rollup.TierTableFor(spansRollupPrefix, since.UnixMilli(), now.UnixMilli())
+	table := rollup.For(spansRollupPrefix, since.UnixMilli(), now.UnixMilli()).Table
 	query := fmt.Sprintf(`
 		SELECT sumMerge(request_count) AS request_count,
 		       sumMerge(error_count)   AS error_count
@@ -302,7 +316,7 @@ func (r *ClickHouseRepository) errorRateForWindow(ctx context.Context, teamID in
 	}
 
 	var row errorRateRawRow
-	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&row); err != nil {
+	if err := dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "slo.errorRateForWindow", &row, query, args...); err != nil {
 		return 0, err
 	}
 	if row.RequestCount == 0 {

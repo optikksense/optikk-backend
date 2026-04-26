@@ -2,6 +2,8 @@ package slo
 
 import (
 	"context"
+
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -24,13 +26,23 @@ func NewService(repo Repository) Service {
 }
 
 func (s *SLOService) GetSloSli(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (*Response, error) {
-	summary, err := s.repo.GetSummary(ctx, teamID, startMs, endMs, serviceName)
-	if err != nil {
-		return nil, err
-	}
+	g, gctx := errgroup.WithContext(ctx)
 
-	timeseries, err := s.repo.GetTimeSeries(ctx, teamID, startMs, endMs, serviceName)
-	if err != nil {
+	var summary Summary
+	var timeseries []TimeSlice
+
+	g.Go(func() error {
+		var err error
+		summary, err = s.repo.GetSummary(gctx, teamID, startMs, endMs, serviceName)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		timeseries, err = s.repo.GetTimeSeries(gctx, teamID, startMs, endMs, serviceName)
+		return err
+	})
+
+	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 

@@ -3,6 +3,7 @@ package redmetrics
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -12,7 +13,7 @@ import (
 )
 
 // Reads target the `observability.spans_rollup_{1m,5m,1h}` cascade — tier
-// selected by `rollup.TierTableFor` based on range. Percentiles come from
+// selected by `rollup.For` based on range. Percentiles come from
 // `quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)` with
 // tuple accessors; counts/sums from `sumMerge`. Derived quantities (apdex,
 // error_rate, RPS) are computed Go-side. Span-kind breakdown reads from the
@@ -72,7 +73,7 @@ func rollupParams(teamID int64, startMs, endMs int64) []any {
 }
 
 func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) ([]redSummaryServiceRow, error) {
-	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	table := rollup.For(spansRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT service_name,
 		       sumMerge(request_count)                                            AS total_count,
@@ -112,7 +113,7 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 }
 
 func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]apdexRow, error) {
-	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	table := rollup.For(spansRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT service_name,
 		       sumMerge(request_count)                                            AS request_count,
@@ -205,7 +206,7 @@ func percentileBelow(p50, p95, p99, threshold float64) float64 {
 const slowOpsCandidatePoolMultiplier = 20
 
 func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]slowOperationRow, error) {
-	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	table := rollup.For(spansRollupPrefix, startMs, endMs).Table
 	// Two-step: the CTE picks the top-K by request count using only the cheap
 	// `sum` state column, then the outer query computes tDigest percentiles
 	// for that bounded candidate set. Avoids ORDER BY on a computed tDigest
@@ -268,16 +269,18 @@ func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID 
 }
 
 func (r *ClickHouseRepository) GetTopErrorOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]errorOperationRow, error) {
-	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	table := rollup.For(spansRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT service_name,
 		       operation_name,
-		       sumMerge(request_count) AS total_count,
-		       sumMerge(error_count)   AS error_count
+		       sumMerge(request_count)                                                         AS total_count,
+		       sumMerge(error_count)                                                           AS error_count,
+		       toFloat64(sumMerge(error_count)) / nullIf(toFloat64(sumMerge(request_count)), 0) AS error_rate
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
 		GROUP BY service_name, operation_name
+		HAVING error_count > 0
 		ORDER BY error_count DESC
 		LIMIT @limit`, table)
 	args := append(rollupParams(teamID, startMs, endMs),
@@ -285,32 +288,28 @@ func (r *ClickHouseRepository) GetTopErrorOperations(ctx context.Context, teamID
 	)
 
 	var raw []struct {
-		ServiceName	string	`ch:"service_name"`
-		OperationName	string	`ch:"operation_name"`
-		TotalCount	uint64	`ch:"total_count"`
-		ErrorCount	uint64	`ch:"error_count"`
+		ServiceName   string  `ch:"service_name"`
+		OperationName string  `ch:"operation_name"`
+		TotalCount    uint64  `ch:"total_count"`
+		ErrorCount    uint64  `ch:"error_count"`
+		ErrorRate     *float64 `ch:"error_rate"`
 	}
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetTopErrorOperations", &raw, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.DashboardCtx(ctx), r.db, "redmetrics.GetTopErrorOperations", &raw, query, args...); err != nil {
 		return nil, err
 	}
 
 	rows := make([]errorOperationRow, 0, len(raw))
 	for _, row := range raw {
-		if row.ErrorCount == 0 {
-			continue
-		}
-		total := int64(row.TotalCount)	//nolint:gosec // domain-bounded
-		errs := int64(row.ErrorCount)	//nolint:gosec // domain-bounded
 		rate := 0.0
-		if total > 0 {
-			rate = float64(errs) / float64(total)
+		if row.ErrorRate != nil && !math.IsNaN(*row.ErrorRate) {
+			rate = *row.ErrorRate
 		}
 		rows = append(rows, errorOperationRow{
-			ServiceName:	row.ServiceName,
-			OperationName:	row.OperationName,
-			TotalCount:	total,
-			ErrorCount:	errs,
-			ErrorRate:	rate,
+			ServiceName:   row.ServiceName,
+			OperationName: row.OperationName,
+			TotalCount:    int64(row.TotalCount), //nolint:gosec // domain-bounded
+			ErrorCount:    int64(row.ErrorCount), //nolint:gosec // domain-bounded
+			ErrorRate:     rate,
 		})
 	}
 	return rows, nil
@@ -323,7 +322,8 @@ type requestRateRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceRatePoint, error) {
-	table, tierStep := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	tier := rollup.For(spansRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	intervalMin := queryIntervalMinutes(tierStep, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
@@ -367,7 +367,8 @@ type errorRateRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceErrorRatePoint, error) {
-	table, tierStep := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	tier := rollup.For(spansRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
 		       service_name,
@@ -407,7 +408,8 @@ func (r *ClickHouseRepository) GetErrorRateTimeSeries(ctx context.Context, teamI
 }
 
 func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceLatencyPoint, error) {
-	table, tierStep := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	tier := rollup.For(spansRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
 		       service_name,
@@ -451,7 +453,8 @@ type spanKindRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]SpanKindPoint, error) {
-	table, tierStep := rollup.TierTableFor(spansKindRollupPrefix, startMs, endMs)
+	tier := rollup.For(spansKindRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
 		       kind_string,
@@ -491,7 +494,8 @@ func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int6
 	// `endpoint` in the rollup is coalesce(route, target, name) for root spans.
 	// Close enough to mat_http_route for the errors-by-route panel; excludes
 	// empty endpoints.
-	table, tierStep := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	tier := rollup.For(spansRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
 		       operation_name                                               AS http_route,
@@ -524,7 +528,7 @@ func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int6
 }
 
 func (r *ClickHouseRepository) GetLatencyBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]latencyBreakdownRow, error) {
-	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	table := rollup.For(spansRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT service_name,
 		       sumMerge(duration_ms_sum) AS total_ms,

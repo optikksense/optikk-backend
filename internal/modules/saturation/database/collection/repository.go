@@ -43,7 +43,8 @@ func collectionFilter(collectionName string, f shared.Filters) (string, []any) {
 }
 
 func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID int64, startMs, endMs int64, collectionName string, f shared.Filters) ([]LatencyTimeSeries, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	tier := rollup.For(shared.DBHistRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	fc, fargs := collectionFilter(collectionName, f)
 
 	query := fmt.Sprintf(`
@@ -74,7 +75,8 @@ func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID 
 }
 
 func (r *ClickHouseRepository) GetCollectionOps(ctx context.Context, teamID int64, startMs, endMs int64, collectionName string, f shared.Filters) ([]OpsTimeSeries, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	tier := rollup.For(shared.DBHistRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	fc, fargs := collectionFilter(collectionName, f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
@@ -104,7 +106,8 @@ func (r *ClickHouseRepository) GetCollectionOps(ctx context.Context, teamID int6
 }
 
 func (r *ClickHouseRepository) GetCollectionErrors(ctx context.Context, teamID int64, startMs, endMs int64, collectionName string, f shared.Filters) ([]ErrorTimeSeries, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	tier := rollup.For(shared.DBHistRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	fc, fargs := collectionFilter(collectionName, f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
@@ -183,7 +186,8 @@ func (r *ClickHouseRepository) GetCollectionQueryTexts(ctx context.Context, team
 }
 
 func (r *ClickHouseRepository) GetCollectionReadVsWrite(ctx context.Context, teamID int64, startMs, endMs int64, collectionName string) ([]ReadWritePoint, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	tier := rollup.For(shared.DBHistRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
 	query := fmt.Sprintf(`

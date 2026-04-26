@@ -34,7 +34,8 @@ type errorRawRow struct {
 }
 
 func (r *ClickHouseRepository) errorSeriesByAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]ErrorTimeSeries, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	tier := rollup.For(shared.DBHistRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	fc, fargs := shared.RollupFilterClauses(f)
 	groupCol := shared.GroupColumnFor(groupAttr)
 
@@ -104,7 +105,8 @@ type errorRatioRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetErrorRatio(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ErrorRatioPoint, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	tier := rollup.For(shared.DBHistRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	fc, fargs := shared.RollupFilterClauses(f)
 
 	// Sub-aggregate so we can compute errored-vs-total at bucket level from

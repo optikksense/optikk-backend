@@ -2,7 +2,10 @@ package database
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -16,7 +19,7 @@ import (
 // structured error log) envelope for free.
 //
 // The caller is still responsible for wrapping ctx with the correct
-// QueryBudget — i.e. dbutil.SelectCH(dbutil.ExplorerCtx(ctx), ...).
+// budget settings — i.e. dbutil.SelectCH(dbutil.ExplorerCtx(ctx), ...).
 // We do not swallow errors.
 //
 // `op` must be stable and unique per query site — the convention is
@@ -51,6 +54,36 @@ func ExecCH(ctx context.Context, conn clickhouse.Conn, op, query string, args ..
 	err := conn.Exec(ctx, query, args...)
 	done(err, start, op)
 	return err
+}
+
+// QueryRowCH runs a single-row read via QueryRow + ScanStruct with the same
+// instrumentation envelope as SelectCH / ExecCH. Critically, it maps
+// driver.ErrBadConn and sql.ErrNoRows to a nil error + zero-value dest so
+// aggregate queries on empty tables return zeroes instead of 500s.
+func QueryRowCH(ctx context.Context, conn clickhouse.Conn, op string, dest any, query string, args ...any) error {
+	done := startCHOp(ctx)
+	start := time.Now()
+	err := conn.QueryRow(ctx, query, args...).ScanStruct(dest)
+	if err != nil && isNoRows(err) {
+		done(nil, start, op)
+		return nil
+	}
+	done(err, start, op)
+	return err
+}
+
+// isNoRows checks whether the error indicates no rows were returned.
+// clickhouse-go/v2 can surface this as sql.ErrNoRows or as a string match
+// when the driver layer wraps the error differently.
+func isNoRows(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, sql.ErrNoRows) {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "no rows") || strings.Contains(msg, "EOF")
 }
 
 func startCHOp(ctx context.Context) func(error, time.Time, string) {

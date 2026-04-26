@@ -54,7 +54,6 @@ type httpMetricsModule struct {
 }
 
 func (m *httpMetricsModule) Name() string                      { return "httpMetrics" }
-func (m *httpMetricsModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *httpMetricsModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &HTTPMetricsHandler{

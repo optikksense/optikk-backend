@@ -108,7 +108,7 @@ func foldConnPoolMetrics(rows []metricValueRow) *float64 {
 }
 
 func (r *ClickHouseRepository) queryConnPoolMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT
 		    metric_name                                                                AS metric_name,
@@ -136,7 +136,7 @@ func (r *ClickHouseRepository) queryConnPoolMetricByService(ctx context.Context,
 }
 
 func (r *ClickHouseRepository) queryConnPoolMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	// Rollup has host + pod + service as keys; container isn't a key there
 	// (that's only in metrics_k8s_rollup). Filter on host+pod+service; the
 	// container arg is ignored. Acceptable because conn-pool utilization is
@@ -177,7 +177,7 @@ type serviceNameRow struct {
 }
 
 func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64, startMs, endMs int64) ([]string, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT DISTINCT service AS service_name
 		FROM %s
@@ -205,7 +205,7 @@ func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64,
 }
 
 func (r *ClickHouseRepository) getInstanceList(ctx context.Context, teamID int64, startMs, endMs int64) ([]instanceRow, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	// container isn't a rollup key (see note on queryConnPoolMetricByInstance);
 	// returned as empty string.
 	query := fmt.Sprintf(`
@@ -229,7 +229,7 @@ func (r *ClickHouseRepository) getInstanceList(ctx context.Context, teamID int64
 }
 
 func (r *ClickHouseRepository) GetAvgConnPool(ctx context.Context, teamID int64, startMs, endMs int64) (metricValueDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT metric_name,
 		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,
@@ -257,7 +257,7 @@ func (r *ClickHouseRepository) GetAvgConnPool(ctx context.Context, teamID int64,
 }
 
 func (r *ClickHouseRepository) GetConnPoolByService(ctx context.Context, teamID int64, startMs, endMs int64) ([]connPoolServiceMetricDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT service AS service_name,
 		       metric_name,
@@ -309,7 +309,7 @@ func (r *ClickHouseRepository) GetConnPoolByService(ctx context.Context, teamID 
 }
 
 func (r *ClickHouseRepository) GetConnPoolByInstance(ctx context.Context, teamID int64, startMs, endMs int64) ([]connPoolInstanceMetricDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT host, pod, service AS service_name,
 		       metric_name,

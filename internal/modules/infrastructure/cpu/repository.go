@@ -60,7 +60,8 @@ func (r *ClickHouseRepository) queryStateBuckets(ctx context.Context, query stri
 }
 
 func (r *ClickHouseRepository) GetCPUTime(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	tier := rollup.For(metricsGaugesRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       state_dim                AS state,
@@ -110,7 +111,8 @@ func (r *ClickHouseRepository) GetCPUTime(ctx context.Context, teamID int64, sta
 // The raw query's `attributes.'system.cpu.utilization'` fallback path is
 // dropped — attribute-based fallback isn't keyed in any rollup.
 func (r *ClickHouseRepository) GetCPUUsagePercentage(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	tier := rollup.For(metricsGaugesRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	query := fmt.Sprintf(`
 		SELECT
 		    toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
@@ -176,7 +178,7 @@ func (r *ClickHouseRepository) GetCPUUsagePercentage(ctx context.Context, teamID
 }
 
 func (r *ClickHouseRepository) GetLoadAverage(ctx context.Context, teamID int64, startMs, endMs int64) (loadAverageResultDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT metric_name                                                             AS metric_name,
 		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val
@@ -220,7 +222,8 @@ func (r *ClickHouseRepository) GetLoadAverage(ctx context.Context, teamID int64,
 }
 
 func (r *ClickHouseRepository) GetProcessCount(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	tier := rollup.For(metricsGaugesRollupPrefix, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       state_dim                                                    AS state,
@@ -319,7 +322,7 @@ type metricValueRow struct {
 }
 
 func (r *ClickHouseRepository) queryCPUMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT metric_name                                                             AS metric_name,
 		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg
@@ -345,7 +348,7 @@ func (r *ClickHouseRepository) queryCPUMetricByService(ctx context.Context, team
 
 func (r *ClickHouseRepository) queryCPUMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	_ = container	// container not keyed on metrics_gauges_rollup; see connpool notes.
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT metric_name                                                             AS metric_name,
 		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg
@@ -374,7 +377,7 @@ func (r *ClickHouseRepository) queryCPUMetricByInstance(ctx context.Context, tea
 }
 
 func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64, startMs, endMs int64) ([]string, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT DISTINCT service AS service_name
 		FROM %s
@@ -401,7 +404,7 @@ func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64,
 }
 
 func (r *ClickHouseRepository) getInstanceList(ctx context.Context, teamID int64, startMs, endMs int64) ([]instanceRow, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT DISTINCT host AS host, pod AS pod, '' AS container, service AS service_name
 		FROM %s
@@ -422,7 +425,7 @@ func (r *ClickHouseRepository) getInstanceList(ctx context.Context, teamID int64
 }
 
 func (r *ClickHouseRepository) GetAvgCPU(ctx context.Context, teamID int64, startMs, endMs int64) (metricValueDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT metric_name,
 		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS val_avg
@@ -449,7 +452,7 @@ func (r *ClickHouseRepository) GetAvgCPU(ctx context.Context, teamID int64, star
 }
 
 func (r *ClickHouseRepository) GetCPUByService(ctx context.Context, teamID int64, startMs, endMs int64) ([]cpuServiceMetricDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT service AS service_name,
 		       metric_name,
@@ -498,7 +501,7 @@ func (r *ClickHouseRepository) GetCPUByService(ctx context.Context, teamID int64
 }
 
 func (r *ClickHouseRepository) GetCPUByInstance(ctx context.Context, teamID int64, startMs, endMs int64) ([]cpuInstanceMetricDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT host, pod, service AS service_name,
 		       metric_name,

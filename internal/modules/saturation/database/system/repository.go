@@ -36,7 +36,8 @@ func systemFilter(dbSystem string, f shared.Filters) (string, []any) {
 }
 
 func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string, f shared.Filters) ([]LatencyTimeSeries, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	tier := rollup.For(rollup.FamilyDBOps, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	fc, fargs := systemFilter(dbSystem, f)
 
 	query := fmt.Sprintf(`
@@ -49,13 +50,12 @@ func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID int6
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket, group_by
 		ORDER BY time_bucket, group_by
 	`, shared.BucketTimeExpr, table, fc)
 
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
+	args := append(shared.BaseParams(teamID, startMs, endMs),
 		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
 	)
 	args = append(args, fargs...)
@@ -67,7 +67,8 @@ func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID int6
 }
 
 func (r *ClickHouseRepository) GetSystemOps(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string, f shared.Filters) ([]OpsTimeSeries, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	tier := rollup.For(rollup.FamilyDBOps, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	fc, fargs := systemFilter(dbSystem, f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
@@ -79,13 +80,12 @@ func (r *ClickHouseRepository) GetSystemOps(ctx context.Context, teamID int64, s
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket, group_by
 		ORDER BY time_bucket, group_by
 	`, shared.BucketTimeExpr, bucketSec, table, fc)
 
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
+	args := append(shared.BaseParams(teamID, startMs, endMs),
 		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
 	)
 	args = append(args, fargs...)
@@ -97,7 +97,8 @@ func (r *ClickHouseRepository) GetSystemOps(ctx context.Context, teamID int64, s
 }
 
 func (r *ClickHouseRepository) GetSystemTopCollectionsByLatency(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]SystemCollectionRow, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	tier := rollup.For(rollup.FamilyDBOps, startMs, endMs)
+	table := tier.Table
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
 	query := fmt.Sprintf(`
@@ -108,7 +109,6 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByLatency(ctx context.Cont
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName
 		  AND db_system = @dbSystem
 		  AND notEmpty(db_collection)
 		GROUP BY collection_name
@@ -116,8 +116,7 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByLatency(ctx context.Cont
 		LIMIT 20
 	`, bucketSec, table)
 
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
-		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
+	args := append(shared.BaseParams(teamID, startMs, endMs),
 		clickhouse.Named("dbSystem", dbSystem),
 	)
 	var rows []SystemCollectionRow
@@ -128,7 +127,8 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByLatency(ctx context.Cont
 }
 
 func (r *ClickHouseRepository) GetSystemTopCollectionsByVolume(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]SystemCollectionRow, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	tier := rollup.For(rollup.FamilyDBOps, startMs, endMs)
+	table := tier.Table
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
 	query := fmt.Sprintf(`
@@ -139,7 +139,6 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByVolume(ctx context.Conte
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName
 		  AND db_system = @dbSystem
 		  AND notEmpty(db_collection)
 		GROUP BY collection_name
@@ -147,8 +146,7 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByVolume(ctx context.Conte
 		LIMIT 20
 	`, bucketSec, table)
 
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
-		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
+	args := append(shared.BaseParams(teamID, startMs, endMs),
 		clickhouse.Named("dbSystem", dbSystem),
 	)
 	var rows []SystemCollectionRow
@@ -159,7 +157,8 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByVolume(ctx context.Conte
 }
 
 func (r *ClickHouseRepository) GetSystemErrors(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]ErrorTimeSeries, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	tier := rollup.For(rollup.FamilyDBOps, startMs, endMs)
+	table, tierStep := tier.Table, tier.StepMin
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
 	query := fmt.Sprintf(`
@@ -170,14 +169,13 @@ func (r *ClickHouseRepository) GetSystemErrors(ctx context.Context, teamID int64
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName
 		  AND db_system = @dbSystem
 		  AND notEmpty(error_type)
 		GROUP BY time_bucket, group_by
 		ORDER BY time_bucket, group_by
 	`, shared.BucketTimeExpr, bucketSec, table)
 
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
+	args := append(shared.BaseParams(teamID, startMs, endMs),
 		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
 		clickhouse.Named("dbSystem", dbSystem),
 	)
@@ -189,7 +187,8 @@ func (r *ClickHouseRepository) GetSystemErrors(ctx context.Context, teamID int64
 }
 
 func (r *ClickHouseRepository) GetSystemNamespaces(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]SystemNamespace, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	tier := rollup.For(rollup.FamilyDBOps, startMs, endMs)
+	table := tier.Table
 
 	query := fmt.Sprintf(`
 		SELECT
@@ -198,15 +197,13 @@ func (r *ClickHouseRepository) GetSystemNamespaces(ctx context.Context, teamID i
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName
 		  AND db_system = @dbSystem
 		  AND notEmpty(db_namespace)
 		GROUP BY namespace
 		ORDER BY span_count DESC
 	`, table)
 
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
-		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
+	args := append(shared.BaseParams(teamID, startMs, endMs),
 		clickhouse.Named("dbSystem", dbSystem),
 	)
 	var rows []SystemNamespace

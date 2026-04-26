@@ -103,13 +103,3 @@ func ForAt(now time.Time, family string, startMs, endMs int64) Tier {
 		BucketExpr: bucketExpr,
 	}
 }
-
-// TierTableFor is the compatibility shim kept for the migration window.
-// New callers should use For(family, ...) instead. Returns the full table
-// name and the tier's native step in minutes.
-//
-// Deprecated: use For.
-func TierTableFor(family string, startMs, endMs int64) (table string, stepMin int64) {
-	t := For(family, startMs, endMs)
-	return t.Table, t.StepMin
-}

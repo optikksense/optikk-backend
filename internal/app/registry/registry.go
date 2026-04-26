@@ -11,16 +11,6 @@ import (
 	"google.golang.org/grpc"
 )
 
-// RouteTarget indicates which router group a module's routes should be added to.
-type RouteTarget int
-
-const (
-	// V1 routes are added to the uncached /api/v1 group.
-	V1 RouteTarget = iota
-	// Cached routes are added to the /api/v1 group with 30s Redis cache middleware.
-	Cached
-)
-
 type SQLDB = sql.DB
 type ClickHouseConn = clickhouse.Conn
 type GetTenantFunc = modulecommon.GetTenantFunc
@@ -30,7 +20,6 @@ type AppConfig = config.Config
 // Module is the interface every feature module implements.
 type Module interface {
 	Name() string
-	RouteTarget() RouteTarget
 	RegisterRoutes(group *gin.RouterGroup)
 }
 

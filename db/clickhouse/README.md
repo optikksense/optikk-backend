@@ -32,6 +32,11 @@ Migrations apply in lexical order. Tables live in the `observability` database.
 | `23_root_spans_index.sql` | Root-span-only projection for "Related traces". |
 | `24_trace_attribute_values_5m.sql` | Attribute-value autocomplete index. |
 | `25_logs_by_trace_index.sql` | Per-trace log projection. |
+| `26_spans_latency.sql` | All-span latency histogram/heatmap rollup. |
+| `27_spans_deploys.sql` | Compact deployment facts for latest-by-service and list views. |
+| `28_metrics_ttl_extend.sql` | Extends raw `observability.metrics` TTL from 1h to 7d for load testing / raw-metric queries. |
+| `29_metrics_hist_state_dim.sql` | Adds `state_dim` to `metrics_hist_{1m,5m,1h}` so histogram metrics with a dimension (e.g. `jvm.gc.name`) roll up. |
+| `30_trace_scalar_values_5m.sql` | Scalar-field autocomplete index for `/traces/suggest` — sibling of `trace_attribute_values_5m`. |
 
 The `traces_index.by_start_desc` projection is declared inline inside
 `04_traces_index.sql`'s `CREATE TABLE` — no separate ALTER migration.

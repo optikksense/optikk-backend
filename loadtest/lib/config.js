@@ -43,8 +43,9 @@ export const cfg = {
   teamId:    env.TEAM_ID ? requirePositiveInt('TEAM_ID', env.TEAM_ID) : undefined,
   rps:       requirePositiveInt('RPS', env.RPS || '10'),
   duration:  requireDuration(env.DURATION || '1m'),
-  vus:       requirePositiveInt('VUS', env.VUS || '50'),
+  vus:       requirePositiveInt('VUS', env.VUS || '10'),
   jsonOut:   env.JSON_OUT || undefined,
   lookback:  requireLookback(env.LOOKBACK || '1h'),
+  bypassCache: env.BYPASS_CACHE !== '0',
   allowRemoteBootstrap: env.ALLOW_REMOTE_BOOTSTRAP === '1',
 };

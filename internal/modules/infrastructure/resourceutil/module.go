@@ -47,10 +47,10 @@ type resourceUtilisationModule struct {
 }
 
 func (m *resourceUtilisationModule) Name() string                      { return "resourceUtilisation" }
-func (m *resourceUtilisationModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *resourceUtilisationModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	repo := NewRepository(
+		nativeQuerier,
 		cpu.NewRepository(nativeQuerier),
 		memory.NewRepository(nativeQuerier),
 		disk.NewRepository(nativeQuerier),

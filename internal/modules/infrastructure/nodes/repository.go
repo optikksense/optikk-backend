@@ -75,7 +75,7 @@ type infrastructureNodeServiceDTO struct {
 }
 
 func (r *ClickHouseRepository) GetInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]InfrastructureNode, error) {
-	table, _ := rollup.TierTableFor(spansHostRollupPrefix, startMs, endMs)
+	table := rollup.For(spansHostRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT if(host_name != '', host_name, '%s') AS host_name,
 		       uniqIf(pod_name, pod_name != '')                                  AS pod_count,
@@ -128,7 +128,7 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(ctx context.Context, teamI
 }
 
 func (r *ClickHouseRepository) GetInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (InfrastructureNodeSummary, error) {
-	table, _ := rollup.TierTableFor(spansHostRollupPrefix, startMs, endMs)
+	table := rollup.For(spansHostRollupPrefix, startMs, endMs).Table
 	// Dedicated summary query that avoids the MaxNodes limit and executes a
 	// single pass over host-level aggregates to categorize health.
 	query := fmt.Sprintf(`
@@ -158,23 +158,28 @@ func (r *ClickHouseRepository) GetInfrastructureNodeSummary(ctx context.Context,
 		HealthyNodes	int64	`ch:"healthy_nodes"`
 		DegradedNodes	int64	`ch:"degraded_nodes"`
 		UnhealthyNodes	int64	`ch:"unhealthy_nodes"`
-		TotalPods	int64	`ch:"total_pods"`
+		TotalPods	*int64	`ch:"total_pods"`
 	}
 
-	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, params...).ScanStruct(&row); err != nil {
+	if err := dbutil.QueryRowCH(dbutil.DashboardCtx(ctx), r.db, "nodes.GetInfrastructureNodeSummary", &row, query, params...); err != nil {
 		return InfrastructureNodeSummary{}, err
+	}
+
+	var totalPods int64
+	if row.TotalPods != nil {
+		totalPods = *row.TotalPods
 	}
 
 	return InfrastructureNodeSummary{
 		HealthyNodes:	row.HealthyNodes,
 		DegradedNodes:	row.DegradedNodes,
 		UnhealthyNodes:	row.UnhealthyNodes,
-		TotalPods:	row.TotalPods,
+		TotalPods:	totalPods,
 	}, nil
 }
 
 func (r *ClickHouseRepository) GetInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error) {
-	table, _ := rollup.TierTableFor(spansHostRollupPrefix, startMs, endMs)
+	table := rollup.For(spansHostRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT service_name                                                      AS service_name,
 		       sumMerge(request_count)                                           AS request_count,

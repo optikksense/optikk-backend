@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"math"
 	"sort"
+
+	"golang.org/x/sync/errgroup"
 )
 
 const maxImpactDeployments = 10
@@ -35,12 +37,23 @@ func NewService(repo Repository) Service {
 }
 
 func (s *deploymentService) ListDeployments(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (ListDeploymentsResponse, error) {
-	rows, err := s.repo.ListDeployments(ctx, teamID, serviceName, startMs, endMs)
-	if err != nil {
-		return ListDeploymentsResponse{}, err
-	}
-	active, err := s.repo.GetActiveVersion(ctx, teamID, serviceName, startMs, endMs)
-	if err != nil {
+	g, gctx := errgroup.WithContext(ctx)
+
+	var rows []deploymentAggRow
+	var active activeVersionRow
+
+	g.Go(func() error {
+		var err error
+		rows, err = s.repo.ListDeployments(gctx, teamID, serviceName, startMs, endMs)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		active, err = s.repo.GetActiveVersion(gctx, teamID, serviceName, startMs, endMs)
+		return err
+	})
+
+	if err := g.Wait(); err != nil {
 		return ListDeploymentsResponse{}, err
 	}
 

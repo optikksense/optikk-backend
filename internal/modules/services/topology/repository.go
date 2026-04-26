@@ -42,7 +42,7 @@ func topologyParams(teamID int64, startMs, endMs int64) []any {
 // endpoint, method) — topology wants the service-level rollup, so we sum /
 // merge across the operation-level rows.
 func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]nodeAggRow, error) {
-	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	table := rollup.For(spansRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT service_name                                                            AS service_name,
 		       toInt64(sumMerge(request_count))                                        AS request_count,
@@ -67,7 +67,7 @@ func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID int64, start
 // CLIENT-kind spans using the mat_peer_service attribute. Bypasses the old
 // span self-join approach entirely.
 func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID int64, startMs, endMs int64) ([]edgeAggRow, error) {
-	table, _ := rollup.TierTableFor(topologyRollupPrefix, startMs, endMs)
+	table := rollup.For(topologyRollupPrefix, startMs, endMs).Table
 	query := fmt.Sprintf(`
 		SELECT client_service                                                         AS source,
 		       server_service                                                         AS target,

@@ -8,11 +8,11 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 )
 
-// buildAggsRollup constructs aggSpec{alias,expr} for aggregations pushed down
-// onto the logs_rollup cascade. sumState/uniqHLL12State merges go here.
-func buildAggsRollup(in []Aggregation) []aggSpec {
+// buildAggsRollupVolume constructs aggSpec{alias,expr} for aggregations pushed
+// down onto the logs_volume cascade.
+func buildAggsRollupVolume(in []Aggregation) ([]aggSpec, bool) {
 	if len(in) == 0 {
-		return []aggSpec{{alias: "count", expr: "sumMerge(log_count)"}}
+		return []aggSpec{{alias: "count", expr: "sumMerge(log_count)"}}, true
 	}
 	out := make([]aggSpec, 0, len(in))
 	for _, a := range in {
@@ -25,9 +25,39 @@ func buildAggsRollup(in []Aggregation) []aggSpec {
 			out = append(out, aggSpec{alias: alias, expr: "sumMerge(log_count)"})
 		case "errors", "error_count":
 			out = append(out, aggSpec{alias: alias, expr: "sumMerge(error_count)"})
+		default:
+			return nil, false
 		}
 	}
-	return out
+	return out, true
+}
+
+// buildAggsRollupFacets constructs aggSpec{alias,expr} for aggregations pushed
+// down onto the logs_facets cascade. It supports count + approximate unique
+// trace counts without falling back to raw logs.
+func buildAggsRollupFacets(in []Aggregation) ([]aggSpec, bool) {
+	if len(in) == 0 {
+		return []aggSpec{{alias: "count", expr: "sumMerge(log_count)"}}, true
+	}
+	out := make([]aggSpec, 0, len(in))
+	for _, a := range in {
+		alias := a.Alias
+		if alias == "" {
+			alias = a.Fn
+		}
+		switch a.Fn {
+		case "count":
+			out = append(out, aggSpec{alias: alias, expr: "sumMerge(log_count)"})
+		case "uniq", "count_distinct":
+			if a.Field != "trace_id" {
+				return nil, false
+			}
+			out = append(out, aggSpec{alias: alias, expr: "uniqHLL12Merge(trace_id_hll)"})
+		default:
+			return nil, false
+		}
+	}
+	return out, true
 }
 
 // buildAggsRaw constructs aggSpec for raw logs reads (full fidelity).
@@ -77,15 +107,15 @@ func buildAggsRaw(in []Aggregation) []aggSpec {
 }
 
 var allowedRawFields = map[string]bool{
-	"severity_bucket":  true,
-	"severity_number":  true,
-	"service":          true,
-	"host":             true,
-	"pod":              true,
-	"container":        true,
-	"environment":      true,
-	"trace_id":         true,
-	"span_id":          true,
+	"severity_bucket":    true,
+	"severity_number":    true,
+	"service":            true,
+	"host":               true,
+	"pod":                true,
+	"container":          true,
+	"environment":        true,
+	"trace_id":           true,
+	"span_id":            true,
 	"observed_timestamp": true,
 }
 
