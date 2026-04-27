@@ -34,7 +34,6 @@ type dbSummaryModule struct {
 }
 
 func (m *dbSummaryModule) Name() string                      { return "dbSummary" }
-func (m *dbSummaryModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *dbSummaryModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{

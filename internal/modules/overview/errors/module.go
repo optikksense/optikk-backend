@@ -49,7 +49,6 @@ type overviewErrorsModule struct {
 }
 
 func (m *overviewErrorsModule) Name() string                      { return "overviewErrors" }
-func (m *overviewErrorsModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *overviewErrorsModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &ErrorHandler{

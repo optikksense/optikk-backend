@@ -8,11 +8,10 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
+		"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
-const metricsGaugesRollupPrefix = rollup.FamilyMetricsGauges
+const metricsGaugesRollupPrefix = "observability.metrics"
 
 // queryIntervalMinutes returns the group-by step (in minutes) for rollup reads.
 // It is max(tierStep, dashboardStep) so the step is never finer than the
@@ -84,12 +83,13 @@ func (r *ClickHouseRepository) queryResourceBuckets(ctx context.Context, query s
 }
 
 func (r *ClickHouseRepository) queryDirectionBucketsFromRollup(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]directionBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       state_dim                AS direction,
-		       sumMerge(value_sum)      AS value_sum_val,
-		       sumMerge(sample_count)   AS value_cnt
+		       sum(value_sum)      AS value_sum_val,
+		       sum(sample_count)   AS value_cnt
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -139,12 +139,13 @@ func (r *ClickHouseRepository) GetNetworkPackets(ctx context.Context, teamID int
 }
 
 func (r *ClickHouseRepository) GetNetworkErrors(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       state_dim                AS state,
-		       sumMerge(value_sum)      AS value_sum_val,
-		       sumMerge(sample_count)   AS value_cnt
+		       sum(value_sum)      AS value_sum_val,
+		       sum(sample_count)   AS value_cnt
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -186,11 +187,12 @@ func (r *ClickHouseRepository) GetNetworkErrors(ctx context.Context, teamID int6
 }
 
 func (r *ClickHouseRepository) GetNetworkDropped(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
-		       sumMerge(value_sum)      AS value_sum_val,
-		       sumMerge(sample_count)   AS value_cnt
+		       sum(value_sum)      AS value_sum_val,
+		       sum(sample_count)   AS value_cnt
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -232,11 +234,12 @@ func (r *ClickHouseRepository) GetNetworkDropped(ctx context.Context, teamID int
 // GetNetworkConnections reads per-network-state avg from metrics_gauges_rollup.
 // `state_dim` uses system.network.state with fallback to direction for connections.
 func (r *ClickHouseRepository) GetNetworkConnections(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       state_dim                                                    AS state,
-		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS metric_val
+		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0) AS metric_val
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -334,9 +337,9 @@ func netFoldValue(v float64) *float64 {
 }
 
 func (r *ClickHouseRepository) queryNetworkMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
-		SELECT sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS val_avg
+		SELECT sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0) AS val_avg
 		FROM %s
 		WHERE team_id = @teamID
 		  AND service = @serviceName
@@ -358,9 +361,9 @@ func (r *ClickHouseRepository) queryNetworkMetricByService(ctx context.Context, 
 
 func (r *ClickHouseRepository) queryNetworkMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	_ = container
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
-		SELECT sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS val_avg
+		SELECT sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0) AS val_avg
 		FROM %s
 		WHERE team_id = @teamID
 		  AND host = @host
@@ -390,10 +393,10 @@ func (r *ClickHouseRepository) queryNetworkMetricByInstance(ctx context.Context,
 // then per-service lookup). netFoldValue is applied per service before
 // averaging so the <=1.0 -> *100 normalization is preserved.
 func (r *ClickHouseRepository) GetAvgNetwork(ctx context.Context, teamID int64, startMs, endMs int64) (metricValueDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT service,
-		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS val_avg
+		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0) AS val_avg
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end

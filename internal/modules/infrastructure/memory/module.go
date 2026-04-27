@@ -46,7 +46,6 @@ type memoryModule struct {
 }
 
 func (m *memoryModule) Name() string                      { return "memory" }
-func (m *memoryModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *memoryModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = NewHandler(nativeQuerier, getTenant)

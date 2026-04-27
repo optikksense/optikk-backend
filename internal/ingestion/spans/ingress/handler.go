@@ -11,7 +11,6 @@ import (
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"google.golang.org/protobuf/proto"
 )
 
 // Handler is the gRPC TraceServiceServer. It does no auth itself: the team
@@ -39,19 +38,9 @@ func (h *Handler) Export(ctx context.Context, req *tracepb.ExportTraceServiceReq
 	if len(rows) == 0 {
 		return &tracepb.ExportTraceServiceResponse{}, nil
 	}
-	pubStart := time.Now()
-	err := h.producer.Publish(ctx, rows)
-	elapsed := time.Since(pubStart).Seconds()
-	if err != nil {
-		metrics.HandlerPublishDuration.WithLabelValues("spans", "err").Observe(elapsed)
-		metrics.IngestRecordsTotal.WithLabelValues("spans", "err").Add(float64(len(rows)))
+	if err := h.producer.Publish(ctx, rows); err != nil {
 		slog.ErrorContext(ctx, "spans handler: publish failed", slog.Any("error", err))
 		return nil, status.Error(codes.Unavailable, err.Error())
-	}
-	metrics.HandlerPublishDuration.WithLabelValues("spans", "ok").Observe(elapsed)
-	metrics.IngestRecordsTotal.WithLabelValues("spans", "ok").Add(float64(len(rows)))
-	if size := proto.Size(req); size > 0 {
-		metrics.IngestRecordBytes.WithLabelValues("spans").Add(float64(size))
 	}
 	return &tracepb.ExportTraceServiceResponse{}, nil
 }

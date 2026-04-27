@@ -1,15 +1,13 @@
-// Package otlp hosts OTLP-to-local conversion helpers shared by the per-signal
-// ingest mappers. It has no Kafka or ClickHouse knowledge — pure translation
-// from the upstream protobuf types into primitive Go values.
 package otlp
 
 import (
 	"encoding/hex"
 	"fmt"
-	"hash/fnv"
+	"sort"
 	"strconv"
 	"time"
 
+	"github.com/cespare/xxhash/v2"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 )
 
@@ -57,12 +55,26 @@ func MergeAttrsMap(resMap map[string]string, dpAttrs []*commonpb.KeyValue) map[s
 	return merged
 }
 
-// ResourceFingerprint computes a stable FNV-64a hash of resource attributes.
+// ResourceFingerprint computes a stable, order-independent xxhash64 of resource attributes.
 func ResourceFingerprint(kvs []*commonpb.KeyValue) uint64 {
-	h := fnv.New64a()
-	for _, kv := range kvs {
+	if len(kvs) == 0 {
+		return 0
+	}
+
+	// 1. Copy and Sort lexicographically by Key to guarantee order-independent hashing
+	sorted := make([]*commonpb.KeyValue, len(kvs))
+	copy(sorted, kvs)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].Key < sorted[j].Key
+	})
+
+	// 2. Hash using xxhash with null-byte delimiters to prevent boundary collisions
+	h := xxhash.New()
+	for _, kv := range sorted {
 		_, _ = h.Write([]byte(kv.Key))
+		_, _ = h.Write([]byte{0}) // null delimiter
 		_, _ = h.Write([]byte(AnyValueString(kv.Value)))
+		_, _ = h.Write([]byte{0}) // null delimiter
 	}
 	return h.Sum64()
 }

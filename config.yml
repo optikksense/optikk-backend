@@ -59,4 +59,4 @@ app:
   region: us-east-1
 
 # Self-telemetry: Prometheus metrics are exposed on /metrics and scraped by
-# the local Prometheus+Grafana stack (deploy/monitoring/stack/).
+# the local Prometheus+Grafana stack (monitoring/stack/).

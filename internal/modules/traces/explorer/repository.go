@@ -1,7 +1,7 @@
 // Package explorer backs the POST /traces/query + /traces/analytics + GET
 // /traces/:id read paths. List + facets + trend read observability.traces_index
 // (per-trace summary). Analytics and raw-span filters fall through to
-// observability.spans + spans_rollup_*.
+// observability.signoz_index_v3 + spans_rollup_*.
 package explorer
 
 import (
@@ -10,19 +10,13 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
+		"github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
 )
 
 const (
-	tracesIndexTable	= "observability.traces_index"
-	spansRawTable		= "observability.spans"
-	spansRollupPrefix	= rollup.FamilySpansRED
-	// Traces facets pinned to _5m until callers plumb startMs/endMs for tier
-	// selection; rollup exists at all three tiers now.
-	tracesFacetRollup	= "observability.traces_facets_5m"
-	traceIndexColumns	= `trace_id, start_ms, end_ms, duration_ns, root_service, root_operation, root_status,
-			root_http_method, root_http_status, span_count, has_error, error_count, service_set, truncated, last_seen_ms`
+	spansRawTable		= "observability.signoz_index_v3"
+	traceIndexColumns	= `trace_id, timestamp AS start_ms, timestamp AS end_ms, duration_nano AS duration_ns, service_name AS root_service, name AS root_operation, status_code_string AS root_status,
+			http_method AS root_http_method, response_status_code AS root_http_status, 1 AS span_count, has_error, (CASE WHEN has_error THEN 1 ELSE 0 END) AS error_count, [service_name] AS service_set, false AS truncated, timestamp AS last_seen_ms`
 )
 
 type Repository struct {
@@ -37,8 +31,8 @@ func (r *Repository) ListTraces(ctx context.Context, f querycompiler.Filters, li
 }
 
 func (r *Repository) listTracesIndex(ctx context.Context, f querycompiler.Filters, limit int, cur TraceCursor) ([]traceIndexRowDTO, bool, []string, error) {
-	compiled := querycompiler.Compile(f, querycompiler.TargetTracesIndex)
-	where := compiled.Where
+	compiled := querycompiler.Compile(f, querycompiler.TargetSpansRaw)
+	where := compiled.Where + " AND is_root = 1"
 	args := compiled.Args
 	if cur.TraceID != "" {
 		where += ` AND (start_ms, trace_id) < (@curStart, @curTraceID)`
@@ -48,8 +42,8 @@ func (r *Repository) listTracesIndex(ctx context.Context, f querycompiler.Filter
 		)
 	}
 	query := fmt.Sprintf(
-		`SELECT %s FROM %s PREWHERE %s WHERE %s ORDER BY start_ms DESC, trace_id DESC LIMIT @pgLimit`,
-		traceIndexColumns, tracesIndexTable, compiled.PreWhere, where,
+		`SELECT %s FROM %s PREWHERE %s WHERE %s ORDER BY timestamp DESC, trace_id DESC LIMIT @pgLimit`,
+		traceIndexColumns, spansRawTable, compiled.PreWhere, where,
 	)
 	args = append(args, clickhouse.Named("pgLimit", uint64(limit+1))) //nolint:gosec
 	var rows []traceIndexRowDTO
@@ -67,8 +61,8 @@ func (r *Repository) listTracesIndex(ctx context.Context, f querycompiler.Filter
 // so partition elimination happens before the bloom filter on trace_id kicks in.
 func (r *Repository) GetByID(ctx context.Context, teamID int64, traceID string) (*traceIndexRowDTO, error) {
 	query := fmt.Sprintf(
-		`SELECT %s FROM %s PREWHERE team_id = @teamID WHERE trace_id = @traceID ORDER BY last_seen_ms DESC LIMIT 1`,
-		traceIndexColumns, tracesIndexTable,
+		`SELECT %s FROM %s PREWHERE team_id = @teamID WHERE trace_id = @traceID AND is_root = 1 ORDER BY timestamp DESC LIMIT 1`,
+		traceIndexColumns, spansRawTable,
 	)
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
@@ -90,10 +84,10 @@ func (r *Repository) Summarize(ctx context.Context, f querycompiler.Filters) (Su
 }
 
 func (r *Repository) summarizeTracesIndex(ctx context.Context, f querycompiler.Filters) (Summary, error) {
-	compiled := querycompiler.Compile(f, querycompiler.TargetTracesIndex)
+	compiled := querycompiler.Compile(f, querycompiler.TargetSpansRaw)
 	query := fmt.Sprintf(
-		`SELECT count() AS t, countIf(has_error) AS e, sum(duration_ns) AS d FROM %s PREWHERE %s WHERE %s`,
-		tracesIndexTable, compiled.PreWhere, compiled.Where,
+		`SELECT count() AS t, countIf(has_error) AS e, sum(duration_nano) AS d FROM %s PREWHERE %s WHERE %s AND is_root = 1`,
+		spansRawTable, compiled.PreWhere, compiled.Where,
 	)
 	var row struct {
 		T	uint64	`ch:"t"`

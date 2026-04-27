@@ -8,12 +8,11 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
+		"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
 const (
-	metricsGaugesRollupPrefix = rollup.FamilyMetricsGauges
+	metricsGaugesRollupPrefix = "observability.metrics"
 )
 
 func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
@@ -107,12 +106,13 @@ func memFoldMetricRows(rows []metricValueRow) *float64 {
 }
 
 func (r *ClickHouseRepository) GetMemoryUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       state_dim                                                    AS state,
-		       sumMerge(value_sum)                                          AS value_sum_val,
-		       sumMerge(sample_count)                                       AS value_cnt
+		       sum(value_sum)                                          AS value_sum_val,
+		       sum(sample_count)                                       AS value_cnt
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -153,14 +153,15 @@ func (r *ClickHouseRepository) GetMemoryUsage(ctx context.Context, teamID int64,
 }
 
 func (r *ClickHouseRepository) GetMemoryUsagePercentage(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT
 		    toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		    service                                                      AS pod,
 		    metric_name                                                  AS metric_name,
-		    sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS val_avg,
-		    toFloat64(sumMerge(value_sum))                               AS val_sum
+		    sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0) AS val_avg,
+		    toFloat64(sum(value_sum))                               AS val_sum
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -207,11 +208,12 @@ func (r *ClickHouseRepository) GetMemoryUsagePercentage(ctx context.Context, tea
 }
 
 func (r *ClickHouseRepository) GetSwapUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       state_dim                                                    AS state,
-		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS metric_val
+		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0) AS metric_val
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -230,11 +232,11 @@ func (r *ClickHouseRepository) GetSwapUsage(ctx context.Context, teamID int64, s
 }
 
 func (r *ClickHouseRepository) queryMemoryMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT metric_name                                                             AS metric_name,
-		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,
-		       toFloat64(sumMerge(value_sum))                                          AS val_sum
+		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)  AS val_avg,
+		       toFloat64(sum(value_sum))                                          AS val_sum
 		FROM %s
 		WHERE team_id = @teamID
 		  AND service = @serviceName
@@ -257,11 +259,11 @@ func (r *ClickHouseRepository) queryMemoryMetricByService(ctx context.Context, t
 
 func (r *ClickHouseRepository) queryMemoryMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	_ = container
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT metric_name                                                             AS metric_name,
-		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,
-		       toFloat64(sumMerge(value_sum))                                          AS val_sum
+		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)  AS val_avg,
+		       toFloat64(sum(value_sum))                                          AS val_sum
 		FROM %s
 		WHERE team_id = @teamID
 		  AND host = @host
@@ -291,7 +293,7 @@ type serviceNameRow struct {
 }
 
 func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64, startMs, endMs int64) ([]string, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT DISTINCT service AS service_name
 		FROM %s
@@ -318,11 +320,11 @@ func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64,
 }
 
 func (r *ClickHouseRepository) GetAvgMemory(ctx context.Context, teamID int64, startMs, endMs int64) (metricValueDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT metric_name,
-		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS val_avg,
-		       toFloat64(sumMerge(value_sum))                                          AS val_sum
+		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0) AS val_avg,
+		       toFloat64(sum(value_sum))                                          AS val_sum
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -346,11 +348,11 @@ func (r *ClickHouseRepository) GetAvgMemory(ctx context.Context, teamID int64, s
 }
 
 func (r *ClickHouseRepository) GetMemoryByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT metric_name,
-		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,
-		       toFloat64(sumMerge(value_sum))                                          AS val_sum
+		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)  AS val_avg,
+		       toFloat64(sum(value_sum))                                          AS val_sum
 		FROM %s
 		WHERE team_id = @teamID
 		  AND service = @serviceName
@@ -372,11 +374,11 @@ func (r *ClickHouseRepository) GetMemoryByService(ctx context.Context, teamID in
 }
 
 func (r *ClickHouseRepository) GetMemoryByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT metric_name,
-		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,
-		       toFloat64(sumMerge(value_sum))                                          AS val_sum
+		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)  AS val_avg,
+		       toFloat64(sum(value_sum))                                          AS val_sum
 		FROM %s
 		WHERE team_id = @teamID
 		  AND host = @host

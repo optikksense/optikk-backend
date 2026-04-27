@@ -51,8 +51,8 @@ type spansRepo struct{ db clickhouse.Conn }
 func NewTraceSpansService(db clickhouse.Conn) TraceSpansService	{ return &spansRepo{db: db} }
 
 const (
-	spansRawTable		= "observability.spans"
-	spansByTraceTable	= "observability.spans_by_trace_index"
+	spansRawTable		= "observability.signoz_index_v3"
+	spansByTraceTable	= "observability.signoz_index_v3"
 )
 
 func (r *spansRepo) ListByTrace(ctx context.Context, teamID int64, traceID string) ([]SpanListItem, error) {

@@ -10,8 +10,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
+		shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
 type Repository interface {
@@ -72,7 +71,7 @@ func (r *ClickHouseRepository) GetSlowQueryPatterns(ctx context.Context, teamID 
 }
 
 func (r *ClickHouseRepository) GetSlowestCollections(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]SlowCollectionRow, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	table := "observability.metrics"
 	fc, fargs := shared.RollupFilterClauses(f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
@@ -80,8 +79,8 @@ func (r *ClickHouseRepository) GetSlowestCollections(ctx context.Context, teamID
 		SELECT
 		    db_collection                                                               AS collection_name,
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) * 1000  AS p99_ms,
-		    toFloat64(sumMerge(hist_count)) / %f                                        AS ops_per_sec,
-		    toFloat64(sumMergeIf(hist_count, notEmpty(error_type))) / nullIf(toFloat64(sumMerge(hist_count)), 0) * 100 AS error_rate
+		    toFloat64(sum(hist_count)) / %f                                        AS ops_per_sec,
+		    toFloat64(sumMergeIf(hist_count, notEmpty(error_type))) / nullIf(toFloat64(sum(hist_count)), 0) * 100 AS error_rate
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -93,12 +92,10 @@ func (r *ClickHouseRepository) GetSlowestCollections(ctx context.Context, teamID
 		LIMIT 50
 	`, bucketSec, table, fc)
 
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
-		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
-	)
+	args := shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration)
 	args = append(args, fargs...)
 	var rows []SlowCollectionRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "slowqueries.GetSlowestCollections", &rows, query, args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.DashboardCtx(ctx), r.db, "slowqueries.GetSlowestCollections", &rows, query, args...); err != nil {
 		return nil, err
 	}
 	return rows, nil
@@ -111,14 +108,14 @@ func (r *ClickHouseRepository) GetSlowestCollections(ctx context.Context, teamID
 // (which the rollup can't express because per-row latencies collapse into the
 // digest), but bucket-level accurate and rollup-compatible.
 func (r *ClickHouseRepository) GetSlowQueryRate(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters, thresholdMs float64) ([]SlowRatePoint, error) {
-	table, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
 	fc, fargs := shared.RollupFilterClauses(f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                  AS time_bucket,
-		    toFloat64(sumMerge(hist_count)) / %f                                AS slow_per_sec
+		    toFloat64(sum(hist_count)) / %f                                AS slow_per_sec
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end

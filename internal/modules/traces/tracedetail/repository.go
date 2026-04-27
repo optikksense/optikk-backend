@@ -1,7 +1,7 @@
 package tracedetail
 
-// All methods in this repository intentionally read raw `observability.spans`
-// (or `observability.logs` for trace-correlated logs) rather than a rollup.
+// All methods in this repository intentionally read raw `observability.signoz_index_v3`
+// (or `observability.logs_v2` for trace-correlated logs) rather than a rollup.
 // The tracedetail page is per-trace drill-down — every query is bounded by
 // `trace_id = @tid` (hitting the `idx_trace_id` bloom filter, GRAN 4) or by
 // `service_name + name` (hitting `idx_service_name` + `idx_span_name`). With
@@ -64,12 +64,12 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 const (
-	tableSpans	= "observability.spans"
-	tableLogs	= "observability.logs"
+	tableSpans	= "observability.signoz_index_v3"
+	tableLogs	= "observability.logs_v2"
 )
 
 // GetTraceLogs returns the logs associated with a particular trace.
-// Phase 7: reads from observability.logs_by_trace_index — a per-trace
+// Phase 7: reads from observability.logs_v2 — a per-trace
 // projection keyed on (team_id, trace_id, span_id, timestamp) — so the query
 // becomes a narrow keyset scan instead of a bloom-filter scan of raw logs.
 func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, traceID string) ([]traceLogRow, error) {
@@ -80,7 +80,7 @@ func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, t
 			service, host, pod, container, environment,
 			attributes_string, attributes_number, attributes_bool,
 			scope_name, scope_version
-		FROM observability.logs_by_trace_index
+		FROM observability.logs_v2
 		PREWHERE team_id = @teamID
 		WHERE `+traceidmatch.WhereTraceIDMatchesCH("trace_id", "traceID")+`
 		ORDER BY timestamp ASC
@@ -102,7 +102,7 @@ func (r *ClickHouseRepository) GetSpanLogs(ctx context.Context, teamID int64, tr
 			service, host, pod, container, environment,
 			attributes_string, attributes_number, attributes_bool,
 			scope_name, scope_version
-		FROM observability.logs_by_trace_index
+		FROM observability.logs_v2
 		PREWHERE team_id = @teamID AND span_id = @spanID
 		WHERE `+traceidmatch.WhereTraceIDMatchesCH("trace_id", "traceID")+`
 		ORDER BY timestamp ASC
@@ -124,7 +124,7 @@ func (r *ClickHouseRepository) GetSpanAttributes(ctx context.Context, teamID int
 		       s.exception_type, s.exception_message, s.exception_stacktrace,
 		       s.mat_db_system AS db_system, s.mat_db_name AS db_name, s.mat_db_statement AS db_statement,
 		       s.links AS links
-		FROM observability.spans s
+		FROM observability.signoz_index_v3 s
 		WHERE s.team_id = @teamID AND `+traceidmatch.WhereTraceIDMatchesCH("s.trace_id", "traceID")+` AND s.span_id = @spanID
 		LIMIT 1
 	`, clickhouse.Named("teamID", uint32(teamID)), clickhouse.Named("traceID", traceID), clickhouse.Named("spanID", spanID)); err != nil { //nolint:gosec // G115
@@ -148,9 +148,10 @@ func (r *ClickHouseRepository) GetRelatedTraces(ctx context.Context, teamID int6
 		SELECT span_id, trace_id, name AS operation_name, service_name,
 		       duration_nano / 1000000.0 AS duration_ms,
 		       status_code_string AS status, timestamp AS start_time
-		FROM observability.root_spans_index
+		FROM observability.signoz_index_v3
 		PREWHERE team_id = @teamID AND service_name = @serviceName AND name = @operationName
-		WHERE ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
+		WHERE is_root = 1
+		  AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND timestamp BETWEEN @start AND @end
 		  AND trace_id != @excludeTraceID
 		ORDER BY timestamp DESC
@@ -175,7 +176,7 @@ func (r *ClickHouseRepository) GetSpanEvents(ctx context.Context, teamID int64, 
 	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "tracedetail.GetSpanEvents", &rows, `
 		SELECT span_id, trace_id, timestamp, events,
 		       exception_type, exception_message, exception_stacktrace
-		FROM observability.spans
+		FROM observability.signoz_index_v3
 		PREWHERE team_id = @teamID
 		WHERE `+traceidmatch.WhereTraceIDMatchesCH("trace_id", "traceID")+`
 		  AND (NOT empty(events) OR NOT empty(exception_type))

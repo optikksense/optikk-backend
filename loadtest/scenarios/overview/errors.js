@@ -34,10 +34,20 @@ export function overviewErrors(ctx) {
     }
   }
 
-  client.get('/api/v1/errors/fingerprints', { ...q, limit: 25 },
+  const fps = client.get('/api/v1/errors/fingerprints', { ...q, limit: 25 },
     { module: MOD, endpoint: 'GET /errors/fingerprints' });
-  client.get('/api/v1/errors/fingerprints/trend', q,
-    { module: MOD, endpoint: 'GET /errors/fingerprints/trend' });
+
+  const fpArr = fps && fps.data && (Array.isArray(fps.data) ? fps.data : (fps.data.results || fps.data.fingerprints || []));
+  const fp = fpArr && fpArr.length > 0 ? fpArr[0] : null;
+  if (fp && fp.serviceName && fp.operationName) {
+    client.get('/api/v1/errors/fingerprints/trend', {
+      ...q,
+      serviceName: fp.serviceName,
+      operationName: fp.operationName,
+      exceptionType: fp.exceptionType,
+      statusMessage: fp.statusMessage,
+    }, { module: MOD, endpoint: 'GET /errors/fingerprints/trend' });
+  }
 
   if (sampleGroupId) {
     const enc = encodeURIComponent(sampleGroupId);

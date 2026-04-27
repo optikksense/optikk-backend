@@ -40,7 +40,6 @@ type dbVolumeModule struct {
 }
 
 func (m *dbVolumeModule) Name() string                      { return "dbVolume" }
-func (m *dbVolumeModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *dbVolumeModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{

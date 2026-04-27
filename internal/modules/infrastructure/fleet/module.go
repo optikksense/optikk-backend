@@ -34,7 +34,6 @@ type fleetModule struct {
 }
 
 func (m *fleetModule) Name() string                      { return "fleet" }
-func (m *fleetModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *fleetModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{

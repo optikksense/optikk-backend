@@ -1,5 +1,6 @@
-// Package module wires the spans signal's handler + dispatcher + DLQ +
-// trace-assembly indexer into a registry.Module ready for Fx registration.
+// Package module wires the spans signal's handler + dispatcher + DLQ into a
+// registry.Module ready for Fx registration. The trace assembler is optional
+// now that the read path no longer depends on per-trace access-path tables.
 package module
 
 import (
@@ -10,7 +11,6 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/spans/consumer"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/spans/dlq"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/spans/ingress"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/spans/indexer"
 	"github.com/gin-gonic/gin"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	"google.golang.org/grpc"
@@ -26,37 +26,26 @@ type Deps struct {
 	PersistenceClient *kconsumer.Consumer
 	KafkaBase         *kproducer.Producer
 	TopicPrefix       string
-	IndexerConfig     indexer.Config
 	Pipeline          config.IngestPipelineConfig
 }
 
-// NewModule wires handler + persistence dispatcher + trace-assembly indexer.
-// The indexer emits per-trace summary rows into observability.traces_index
-// once each trace completes (root seen + quiet) or times out (truncated=true).
+// NewModule wires handler + persistence dispatcher. The legacy trace
+// assembler is intentionally disabled for the raw-table path.
 func NewModule(d Deps) registry.Module {
 	dlqP := dlq.NewProducer(d.KafkaBase, d.TopicPrefix)
-	emitter := indexer.NewCHEmitter(d.CH)
-	cfg := d.IndexerConfig
-	if cfg.Capacity == 0 && cfg.QuietWindow == 0 && cfg.HardTimeout == 0 && cfg.SweepEvery == 0 {
-		cfg = indexer.DefaultConfig()
-	}
-	asm := indexer.New(emitter, cfg)
-	disp := consumer.NewDispatcher(d.PersistenceClient, d.CH, dlqP, asm, d.Pipeline)
+	disp := consumer.NewDispatcher(d.PersistenceClient, d.CH, dlqP, d.Pipeline)
 	return &Module{
 		handler:    ingress.NewHandler(d.Producer),
 		dispatcher: disp,
-		assembler:  asm,
 	}
 }
 
 type Module struct {
 	handler    *ingress.Handler
 	dispatcher *consumer.Dispatcher
-	assembler  *indexer.Assembler
 }
 
 func (m *Module) Name() string                      { return "spans" }
-func (m *Module) RouteTarget() registry.RouteTarget { return registry.V1 }
 func (m *Module) RegisterRoutes(_ *gin.RouterGroup) {}
 
 func (m *Module) RegisterGRPC(srv *grpc.Server) {
@@ -64,17 +53,12 @@ func (m *Module) RegisterGRPC(srv *grpc.Server) {
 }
 
 func (m *Module) Start() {
-	m.assembler.Start()
 	m.dispatcher.Start()
 }
 
 func (m *Module) Stop() error {
-	// Drain order: stop intake first so no new spans arrive, then drain the
-	// assembler so pending traces emit before the CH pool closes.
-	if err := m.dispatcher.Stop(); err != nil {
-		return err
-	}
-	return m.assembler.Stop()
+	// Drain order: stop intake first so no new spans arrive.
+	return m.dispatcher.Stop()
 }
 
 var (

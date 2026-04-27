@@ -39,7 +39,6 @@ type dbSlowModule struct {
 }
 
 func (m *dbSlowModule) Name() string                      { return "dbSlow" }
-func (m *dbSlowModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *dbSlowModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{

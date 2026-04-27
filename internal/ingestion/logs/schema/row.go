@@ -1,7 +1,7 @@
 // Package schema holds the logs signal's Kafka wire format and ClickHouse
 // column mapping. Row is the protobuf message produced on the ingest topic
 // and consumed by the dispatcher; CHTable/Columns/ChValues drive the batch
-// insert into observability.logs.
+// insert into observability.logs_v2.
 //
 // Regenerate log_row.pb.go after editing log_row.proto:
 //
@@ -11,8 +11,8 @@ package schema
 import "time"
 
 // CHTable is the ClickHouse destination table for the log signal — the v2
-// observability.logs — DDL in db/clickhouse/02_logs.sql.
-const CHTable = "observability.logs"
+// observability.logs_v2 — DDL in db/clickhouse/02_logs.sql.
+const CHTable = "observability.logs_v2"
 
 // Columns is the insert column order for CHTable. Mirrors Row's proto fields
 // one-for-one so ChValues can emit positional values without a lookup. The

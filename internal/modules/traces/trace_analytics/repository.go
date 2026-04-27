@@ -11,7 +11,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
 )
 
-const tracesIndexTable = "observability.traces_index"
+const tracesIndexTable = "observability.signoz_index_v3"
 
 type Repository interface {
 	Analytics(ctx context.Context, req AnalyticsRequest, f querycompiler.Filters) ([]AnalyticsRow, []string, error)
@@ -27,7 +27,7 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 
 // Analytics runs a group-by + aggregation query against traces_index.
 func (r *ClickHouseRepository) Analytics(ctx context.Context, req AnalyticsRequest, f querycompiler.Filters) ([]AnalyticsRow, []string, error) {
-	compiled := querycompiler.Compile(f, querycompiler.TargetTracesIndex)
+	compiled := querycompiler.Compile(f, querycompiler.TargetSpansRaw)
 	query := buildAnalyticsQuery(req, f, compiled)
 	rows, err := dbutil.QueryCH(dbutil.ExplorerCtx(ctx), r.db, "trace_analytics.Analytics", query, compiled.Args...)
 	if err != nil {
@@ -53,7 +53,7 @@ func buildAnalyticsQuery(req AnalyticsRequest, f querycompiler.Filters, compiled
 	if limit <= 0 {
 		limit = 100
 	}
-	return fmt.Sprintf(`SELECT %s FROM %s PREWHERE %s WHERE %s%s ORDER BY %s LIMIT %d`,
+	return fmt.Sprintf(`SELECT %s FROM %s PREWHERE %s WHERE %s AND is_root = 1 %s ORDER BY %s LIMIT %d`,
 		strings.Join(selectParts, ", "),
 		tracesIndexTable, compiled.PreWhere, compiled.Where, groupClause,
 		defaultOrder(req, groupingList), limit,
@@ -66,7 +66,7 @@ func buildSelectAndGrouping(
 ) ([]string, []string) {
 	var selectParts []string
 	if req.VizMode == "timeseries" {
-		bucketExpr := fmt.Sprintf("toInt64(toUnixTimestamp(%s))", utils.ExprForColumnTime(f.StartMs, f.EndMs, "toDateTime(intDiv(start_ms, 1000))"))
+		bucketExpr := fmt.Sprintf("toInt64(toUnixTimestamp(%s))", utils.ExprForColumnTime(f.StartMs, f.EndMs, "toDateTime(intDiv(toUnixTimestamp64Nano(timestamp), 1000000000))"))
 		selectParts = append(selectParts, bucketExpr+" AS time_bucket")
 	}
 	selectParts = append(selectParts, groupCols...)
@@ -103,16 +103,16 @@ func resolveGroupCols(groupBy []string) []string {
 
 func groupColumn(g string) string {
 	switch strings.ToLower(g) {
-	case "service", "root_service":
-		return "root_service"
-	case "operation", "root_operation":
-		return "root_operation"
+	case "service", "root_service", "service_name":
+		return "service_name"
+	case "operation", "root_operation", "name":
+		return "name"
 	case "http_method":
-		return "root_http_method"
-	case "http_status":
-		return "root_http_status"
-	case "status":
-		return "root_status"
+		return "http_method"
+	case "http_status", "response_status_code":
+		return "response_status_code"
+	case "status", "status_code_string":
+		return "status_code_string"
 	}
 	return ""
 }
@@ -138,13 +138,13 @@ func aggExpr(a Aggregation) string {
 	case "error_count":
 		return fmt.Sprintf("countIf(has_error) AS %s", alias)
 	case "avg":
-		return fmt.Sprintf("avg(duration_ns) AS %s", alias)
+		return fmt.Sprintf("avg(duration_nano) AS %s", alias)
 	case "p50":
-		return fmt.Sprintf("quantile(0.50)(duration_ns) AS %s", alias)
+		return fmt.Sprintf("quantile(0.50)(duration_nano) AS %s", alias)
 	case "p95":
-		return fmt.Sprintf("quantile(0.95)(duration_ns) AS %s", alias)
+		return fmt.Sprintf("quantile(0.95)(duration_nano) AS %s", alias)
 	case "p99":
-		return fmt.Sprintf("quantile(0.99)(duration_ns) AS %s", alias)
+		return fmt.Sprintf("quantile(0.99)(duration_nano) AS %s", alias)
 	case "uniq":
 		return fmt.Sprintf("uniq(trace_id) AS %s", alias)
 	}

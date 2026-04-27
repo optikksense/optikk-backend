@@ -7,12 +7,12 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
+		shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
 type Repository interface {
 	GetDetectedSystems(ctx context.Context, teamID int64, startMs, endMs int64) ([]DetectedSystem, error)
+	GetSystemSummaries(ctx context.Context, teamID int64, startMs, endMs int64) ([]SystemSummary, error)
 }
 
 type ClickHouseRepository struct {
@@ -24,17 +24,17 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) GetDetectedSystems(ctx context.Context, teamID int64, startMs, endMs int64) ([]DetectedSystem, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	table := "observability.metrics"
 
 	// last_seen is derived from bucket_ts (the rollup's minute-aligned bucket) —
 	// within one-minute precision of the raw max(timestamp) it replaced.
 	query := fmt.Sprintf(`
 		SELECT
 		    db_system                                                                   AS db_system,
-		    toInt64(sumMerge(hist_count))                                               AS span_count,
+		    toInt64(sum(hist_count))                                               AS span_count,
 		    toInt64(sumMergeIf(hist_count, notEmpty(error_type)))                       AS error_count,
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) * 1000  AS avg_latency_ms,
-		    toInt64(sumMerge(hist_count))                                               AS query_count,
+		    toInt64(sum(hist_count))                                               AS query_count,
 		    any(server_address)                                                         AS server_address,
 		    max(bucket_ts)                                                              AS last_seen
 		FROM %s
@@ -46,9 +46,7 @@ func (r *ClickHouseRepository) GetDetectedSystems(ctx context.Context, teamID in
 		ORDER BY span_count DESC
 	`, table)
 
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
-		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
-	)
+	args := shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration)
 
 	var dtos []detectedSystemDTO
 	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "systems.GetDetectedSystems", &dtos, query, args...); err != nil {
@@ -58,13 +56,61 @@ func (r *ClickHouseRepository) GetDetectedSystems(ctx context.Context, teamID in
 	out := make([]DetectedSystem, len(dtos))
 	for i, d := range dtos {
 		out[i] = DetectedSystem{
-			DBSystem:	d.DBSystem,
-			SpanCount:	d.SpanCount,
-			ErrorCount:	d.ErrorCount,
-			AvgLatencyMs:	d.AvgLatencyMs,
-			QueryCount:	d.QueryCount,
-			ServerAddress:	d.ServerAddress,
-			LastSeen:	d.LastSeen.Format(time.RFC3339),
+			DBSystem:      d.DBSystem,
+			SpanCount:     d.SpanCount,
+			ErrorCount:    d.ErrorCount,
+			AvgLatencyMs:  d.AvgLatencyMs,
+			QueryCount:    d.QueryCount,
+			ServerAddress: d.ServerAddress,
+			LastSeen:      d.LastSeen.Format(time.RFC3339),
+		}
+	}
+	return out, nil
+}
+
+func (r *ClickHouseRepository) GetSystemSummaries(ctx context.Context, teamID int64, startMs, endMs int64) ([]SystemSummary, error) {
+	table := "observability.signoz_index_v3"
+	query := fmt.Sprintf(`
+		SELECT
+			db_system                                                                    AS db_system,
+			toInt64(sumMergeIf(hist_count, metric_name = @metricName))                  AS query_count,
+			toInt64(sumMergeIf(hist_count, metric_name = @metricName AND error_type != '')) AS error_count,
+			if(sum(hist_count) > 0,
+			   (toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_digest)[1]) * 1000.0),
+			   0.0)                                                                      AS avg_latency_ms,
+			toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_digest)[2]) * 1000.0 AS p95_latency_ms,
+			toInt64(round(toFloat64(sumMergeIf(value_sum, metric_name = @connMetric AND db_connection_state = 'used')))) AS active_connections,
+			''                                                                           AS server_address,
+			max(bucket_ts)                                                               AS last_seen
+		FROM %s
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND notEmpty(db_system)
+		GROUP BY db_system
+		ORDER BY query_count DESC
+	`, table)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // domain-bounded
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("metricName", shared.MetricDBOperationDuration),
+		clickhouse.Named("connMetric", shared.MetricDBConnectionCount),
+	}
+	var dtos []systemSummaryDTO
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "systems.GetSystemSummaries", &dtos, query, args...); err != nil {
+		return nil, err
+	}
+	out := make([]SystemSummary, len(dtos))
+	for i, dto := range dtos {
+		out[i] = SystemSummary{
+			DBSystem:          dto.DBSystem,
+			QueryCount:        dto.QueryCount,
+			ErrorCount:        dto.ErrorCount,
+			AvgLatencyMs:      dto.AvgLatencyMs,
+			P95LatencyMs:      dto.P95LatencyMs,
+			ActiveConnections: dto.ActiveConnections,
+			ServerAddress:     dto.ServerAddress,
+			LastSeen:          dto.LastSeen.Format(time.RFC3339),
 		}
 	}
 	return out, nil

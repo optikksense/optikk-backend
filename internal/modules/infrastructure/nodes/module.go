@@ -36,7 +36,6 @@ type nodesModule struct {
 }
 
 func (m *nodesModule) Name() string                      { return "nodes" }
-func (m *nodesModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *nodesModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &NodeHandler{

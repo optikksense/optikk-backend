@@ -6,8 +6,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
+		shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
 type Repository interface {
@@ -27,7 +26,8 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) opsSeriesByAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]OpsTimeSeries, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	fc, fargs := shared.RollupFilterClauses(f)
 	groupCol := shared.GroupColumnFor(groupAttr)
 	if groupCol == "" {
@@ -38,7 +38,7 @@ func (r *ClickHouseRepository) opsSeriesByAttr(ctx context.Context, teamID int64
 		SELECT
 		    %s                             AS time_bucket,
 		    %s                             AS group_by,
-		    toInt64(sumMerge(hist_count))  AS op_count
+		    toInt64(sum(hist_count))  AS op_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -88,7 +88,8 @@ func (r *ClickHouseRepository) GetOpsByNamespace(ctx context.Context, teamID int
 }
 
 func (r *ClickHouseRepository) GetReadVsWrite(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ReadWritePoint, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	fc, fargs := shared.RollupFilterClauses(f)
 
 	query := fmt.Sprintf(`

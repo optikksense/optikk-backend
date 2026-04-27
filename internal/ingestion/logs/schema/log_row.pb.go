@@ -22,7 +22,7 @@ const (
 )
 
 // Row is the wire format on Kafka. One record == one log row bound for
-// observability.logs. The field order mirrors the ClickHouse column order
+// observability.logs_v2. The field order mirrors the ClickHouse column order
 // declared in row.go Columns so the consumer can build positional CH values
 // without a lookup map. The legacy `scope_string` field was removed in the
 // ingest rewrite — it duplicated `scope_name` and added no query value.

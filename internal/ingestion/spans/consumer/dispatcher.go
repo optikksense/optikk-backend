@@ -11,7 +11,6 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/infra/kafka/ingest"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/spans/dlq"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/spans/schema"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/spans/indexer"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"google.golang.org/protobuf/proto"
 )
@@ -30,10 +29,9 @@ func NewDispatcher(
 	kafka *kconsumer.Consumer,
 	ch clickhouse.Conn,
 	dlqP *dlq.Producer,
-	asm *indexer.Assembler,
 	pc config.IngestPipelineConfig,
 ) *Dispatcher {
-	writer := NewWriter(ch, dlqP, asm, pc)
+	writer := NewWriter(ch, dlqP, pc)
 	factory := func() *ingest.Worker[*schema.Row] {
 		return newSpansWorker(writer, kafka, pc)
 	}

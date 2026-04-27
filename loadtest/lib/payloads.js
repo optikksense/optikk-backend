@@ -73,12 +73,21 @@ export function traceSuggestBody(o) {
 }
 
 export function metricsQueryBody(o) {
+  const metricNames = o.metricNames || [];
   return {
-    metricNames: o.metricNames,
-    tagFilters:  o.tagFilters || {},
-    aggregation: o.aggregation || 'avg',
     startTime:   o.startTime,
     endTime:     o.endTime,
     step:        o.step || '60s',
+    queries:     metricNames.map((name, i) => ({
+      id:          `q${i}`,
+      metricName:  name,
+      aggregation: o.aggregation || 'avg',
+      where:       Object.entries(o.tagFilters || {}).map(([k, v]) => ({
+        key:      k,
+        operator: 'in',
+        value:    Array.isArray(v) ? v : [v],
+      })),
+      groupBy:     o.groupBy || [],
+    })),
   };
 }

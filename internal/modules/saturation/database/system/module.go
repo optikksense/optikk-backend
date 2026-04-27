@@ -41,7 +41,6 @@ type dbSystemModule struct {
 }
 
 func (m *dbSystemModule) Name() string                      { return "dbSystem" }
-func (m *dbSystemModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *dbSystemModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{

@@ -55,13 +55,22 @@ func NewService(
 }
 
 func (s *Service) GetDatastoreSummary(ctx context.Context, teamID int64, startMs, endMs int64) (DatastoreSummaryResponse, error) {
-	systemRows, err := s.dbSystems.GetDetectedSystems(ctx, teamID, startMs, endMs)
-	if err != nil {
-		return DatastoreSummaryResponse{}, err
-	}
-
-	summary, err := s.dbSummary.GetSummaryStats(ctx, teamID, startMs, endMs, dbshared.Filters{})
-	if err != nil {
+	var (
+		systemRows []dbsystems.DetectedSystem
+		summary    dbsummary.SummaryStats
+	)
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		var err error
+		systemRows, err = s.dbSystems.GetDetectedSystems(gctx, teamID, startMs, endMs)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		summary, err = s.dbSummary.GetSummaryStats(gctx, teamID, startMs, endMs, dbshared.Filters{})
+		return err
+	})
+	if err := g.Wait(); err != nil {
 		return DatastoreSummaryResponse{}, err
 	}
 
@@ -89,28 +98,21 @@ func (s *Service) GetDatastoreSummary(ctx context.Context, teamID int64, startMs
 }
 
 func (s *Service) GetDatastoreSystems(ctx context.Context, teamID int64, startMs, endMs int64) ([]DatastoreSystemRow, error) {
-	systemRows, err := s.dbSystems.GetDetectedSystems(ctx, teamID, startMs, endMs)
+	systemRows, err := s.dbSystems.GetSystemSummaries(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
 
 	rows := make([]DatastoreSystemRow, 0, len(systemRows))
 	for _, detected := range systemRows {
-		summary, err := s.dbSummary.GetSummaryStats(ctx, teamID, startMs, endMs, dbshared.Filters{
-			DBSystem: []string{detected.DBSystem},
-		})
-		if err != nil {
-			return nil, err
-		}
-
 		rows = append(rows, DatastoreSystemRow{
 			System:            detected.DBSystem,
 			Category:          datastoreCategory(detected.DBSystem),
 			QueryCount:        detected.QueryCount,
 			AvgLatencyMs:      detected.AvgLatencyMs,
-			P95LatencyMs:      derefFloat(summary.P95LatencyMs),
+			P95LatencyMs:      detected.P95LatencyMs,
 			ErrorRate:         safeRatioPct(detected.ErrorCount, detected.QueryCount),
-			ActiveConnections: summary.ActiveConnections,
+			ActiveConnections: detected.ActiveConnections,
 			ServerHint:        detected.ServerAddress,
 			LastSeen:          detected.LastSeen,
 		})
@@ -127,32 +129,44 @@ func (s *Service) GetDatastoreSystems(ctx context.Context, teamID int64, startMs
 }
 
 func (s *Service) GetDatastoreSystemOverview(ctx context.Context, teamID int64, startMs, endMs int64, system string) (DatastoreSystemOverview, error) {
-	summary, err := s.dbSummary.GetSummaryStats(ctx, teamID, startMs, endMs, dbshared.Filters{
-		DBSystem: []string{system},
+	var (
+		summary        dbsummary.SummaryStats
+		systems        []dbsystems.DetectedSystem
+		namespaces     []dbsystem.SystemNamespace
+		topCollections []dbsystem.SystemCollectionRow
+		readWrite      []dbvolume.ReadWritePoint
+	)
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		var err error
+		summary, err = s.dbSummary.GetSummaryStats(gctx, teamID, startMs, endMs, dbshared.Filters{
+			DBSystem: []string{system},
+		})
+		return err
 	})
-	if err != nil {
-		return DatastoreSystemOverview{}, err
-	}
-
-	systems, err := s.dbSystems.GetDetectedSystems(ctx, teamID, startMs, endMs)
-	if err != nil {
-		return DatastoreSystemOverview{}, err
-	}
-
-	namespaces, err := s.dbSystem.GetSystemNamespaces(ctx, teamID, startMs, endMs, system)
-	if err != nil {
-		return DatastoreSystemOverview{}, err
-	}
-
-	topCollections, err := s.dbSystem.GetSystemTopCollectionsByLatency(ctx, teamID, startMs, endMs, system)
-	if err != nil {
-		return DatastoreSystemOverview{}, err
-	}
-
-	readWrite, err := s.dbVolume.GetReadVsWrite(ctx, teamID, startMs, endMs, dbshared.Filters{
-		DBSystem: []string{system},
+	g.Go(func() error {
+		var err error
+		systems, err = s.dbSystems.GetDetectedSystems(gctx, teamID, startMs, endMs)
+		return err
 	})
-	if err != nil {
+	g.Go(func() error {
+		var err error
+		namespaces, err = s.dbSystem.GetSystemNamespaces(gctx, teamID, startMs, endMs, system)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		topCollections, err = s.dbSystem.GetSystemTopCollectionsByLatency(gctx, teamID, startMs, endMs, system)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		readWrite, err = s.dbVolume.GetReadVsWrite(gctx, teamID, startMs, endMs, dbshared.Filters{
+			DBSystem: []string{system},
+		})
+		return err
+	})
+	if err := g.Wait(); err != nil {
 		return DatastoreSystemOverview{}, err
 	}
 
@@ -244,16 +258,28 @@ func (s *Service) GetDatastoreSystemNamespaces(ctx context.Context, teamID int64
 }
 
 func (s *Service) GetDatastoreSystemOperations(ctx context.Context, teamID int64, startMs, endMs int64, system string) ([]DatastoreOperationRow, error) {
-	latencyRows, err := s.dbSystem.GetSystemLatency(ctx, teamID, startMs, endMs, system, dbshared.Filters{})
-	if err != nil {
-		return nil, err
-	}
-	opsRows, err := s.dbSystem.GetSystemOps(ctx, teamID, startMs, endMs, system, dbshared.Filters{})
-	if err != nil {
-		return nil, err
-	}
-	errorRows, err := s.dbSystem.GetSystemErrors(ctx, teamID, startMs, endMs, system)
-	if err != nil {
+	var (
+		latencyRows []dbsystem.LatencyTimeSeries
+		opsRows     []dbsystem.OpsTimeSeries
+		errorRows   []dbsystem.ErrorTimeSeries
+	)
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		var err error
+		latencyRows, err = s.dbSystem.GetSystemLatency(gctx, teamID, startMs, endMs, system, dbshared.Filters{})
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		opsRows, err = s.dbSystem.GetSystemOps(gctx, teamID, startMs, endMs, system, dbshared.Filters{})
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		errorRows, err = s.dbSystem.GetSystemErrors(gctx, teamID, startMs, endMs, system)
+		return err
+	})
+	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 
@@ -361,28 +387,46 @@ func (s *Service) GetDatastoreSystemErrors(ctx context.Context, teamID int64, st
 func (s *Service) GetDatastoreSystemConnections(ctx context.Context, teamID int64, startMs, endMs int64, system string) ([]DatastoreConnectionRow, error) {
 	filter := dbshared.Filters{DBSystem: []string{system}}
 
-	counts, err := s.dbConnections.GetConnectionCountSeries(ctx, teamID, startMs, endMs, filter)
-	if err != nil {
-		return nil, err
-	}
-	utilRows, err := s.dbConnections.GetConnectionUtilization(ctx, teamID, startMs, endMs, filter)
-	if err != nil {
-		return nil, err
-	}
-	pendingRows, err := s.dbConnections.GetPendingRequests(ctx, teamID, startMs, endMs, filter)
-	if err != nil {
-		return nil, err
-	}
-	timeoutRows, err := s.dbConnections.GetConnectionTimeoutRate(ctx, teamID, startMs, endMs, filter)
-	if err != nil {
-		return nil, err
-	}
-	waitRows, err := s.dbConnections.GetConnectionWaitTime(ctx, teamID, startMs, endMs, filter)
-	if err != nil {
-		return nil, err
-	}
-	limitRows, err := s.dbConnections.GetConnectionLimits(ctx, teamID, startMs, endMs, filter)
-	if err != nil {
+	var (
+		counts      []dbconnections.ConnectionCountPoint
+		utilRows    []dbconnections.ConnectionUtilPoint
+		pendingRows []dbconnections.PendingRequestsPoint
+		timeoutRows []dbconnections.ConnectionTimeoutPoint
+		waitRows    []dbconnections.PoolLatencyPoint
+		limitRows   []dbconnections.ConnectionLimits
+	)
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		var err error
+		counts, err = s.dbConnections.GetConnectionCountSeries(gctx, teamID, startMs, endMs, filter)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		utilRows, err = s.dbConnections.GetConnectionUtilization(gctx, teamID, startMs, endMs, filter)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		pendingRows, err = s.dbConnections.GetPendingRequests(gctx, teamID, startMs, endMs, filter)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		timeoutRows, err = s.dbConnections.GetConnectionTimeoutRate(gctx, teamID, startMs, endMs, filter)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		waitRows, err = s.dbConnections.GetConnectionWaitTime(gctx, teamID, startMs, endMs, filter)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		limitRows, err = s.dbConnections.GetConnectionLimits(gctx, teamID, startMs, endMs, filter)
+		return err
+	})
+	if err := g.Wait(); err != nil {
 		return nil, err
 	}
 

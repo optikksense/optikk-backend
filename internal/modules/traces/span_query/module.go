@@ -29,7 +29,6 @@ type module struct {
 }
 
 func (m *module) Name() string                      { return "spanQuery" }
-func (m *module) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *module) configure(db clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	repo := NewRepository(db)

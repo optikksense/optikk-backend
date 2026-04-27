@@ -28,7 +28,6 @@ func NewModule(db clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Mo
 type tracesLatencyModule struct{ handler *Handler }
 
 func (m *tracesLatencyModule) Name() string                      { return "tracesLatency" }
-func (m *tracesLatencyModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
 func (m *tracesLatencyModule) configure(db clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	repo := NewRepository(db)

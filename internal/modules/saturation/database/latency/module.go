@@ -41,7 +41,6 @@ type dbLatencyModule struct {
 }
 
 func (m *dbLatencyModule) Name() string                      { return "dbLatency" }
-func (m *dbLatencyModule) RouteTarget() registry.RouteTarget { return registry.Cached }
 
 func (m *dbLatencyModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{

@@ -16,7 +16,7 @@ message Row {
   bool   is_monotonic = 6;
   string unit = 7;
   string description = 8;
-  uint64 resource_fingerprint = 9;
+  string resource_fingerprint = 9;
   int64  timestamp_ns = 10;
   double value = 11;
   double hist_sum = 12;

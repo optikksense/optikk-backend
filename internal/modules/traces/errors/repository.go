@@ -10,7 +10,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
-const spansRawTable = "observability.spans"
+const spansRawTable = "observability.signoz_index_v3"
 
 type Repository struct {
 	db clickhouse.Conn

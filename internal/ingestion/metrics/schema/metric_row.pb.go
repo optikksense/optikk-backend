@@ -34,7 +34,7 @@ type Row struct {
 	IsMonotonic         bool                   `protobuf:"varint,6,opt,name=is_monotonic,json=isMonotonic,proto3" json:"is_monotonic,omitempty"`
 	Unit                string                 `protobuf:"bytes,7,opt,name=unit,proto3" json:"unit,omitempty"`
 	Description         string                 `protobuf:"bytes,8,opt,name=description,proto3" json:"description,omitempty"`
-	ResourceFingerprint uint64                 `protobuf:"varint,9,opt,name=resource_fingerprint,json=resourceFingerprint,proto3" json:"resource_fingerprint,omitempty"`
+	ResourceFingerprint string                 `protobuf:"bytes,9,opt,name=resource_fingerprint,json=resourceFingerprint,proto3" json:"resource_fingerprint,omitempty"`
 	TimestampNs         int64                  `protobuf:"varint,10,opt,name=timestamp_ns,json=timestampNs,proto3" json:"timestamp_ns,omitempty"`
 	Value               float64                `protobuf:"fixed64,11,opt,name=value,proto3" json:"value,omitempty"`
 	HistSum             float64                `protobuf:"fixed64,12,opt,name=hist_sum,json=histSum,proto3" json:"hist_sum,omitempty"`
@@ -132,11 +132,11 @@ func (x *Row) GetDescription() string {
 	return ""
 }
 
-func (x *Row) GetResourceFingerprint() uint64 {
+func (x *Row) GetResourceFingerprint() string {
 	if x != nil {
 		return x.ResourceFingerprint
 	}
-	return 0
+	return ""
 }
 
 func (x *Row) GetTimestampNs() int64 {
@@ -204,7 +204,7 @@ const file_metric_row_proto_rawDesc = "" +
 	"\fis_monotonic\x18\x06 \x01(\bR\visMonotonic\x12\x12\n" +
 	"\x04unit\x18\a \x01(\tR\x04unit\x12 \n" +
 	"\vdescription\x18\b \x01(\tR\vdescription\x121\n" +
-	"\x14resource_fingerprint\x18\t \x01(\x04R\x13resourceFingerprint\x12!\n" +
+	"\x14resource_fingerprint\x18\t \x01(\tR\x13resourceFingerprint\x12!\n" +
 	"\ftimestamp_ns\x18\n" +
 	" \x01(\x03R\vtimestampNs\x12\x14\n" +
 	"\x05value\x18\v \x01(\x01R\x05value\x12\x19\n" +
@@ -219,7 +219,7 @@ const file_metric_row_proto_rawDesc = "" +
 	"attributes\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01BIZGgithub.com/Optikk-Org/optikk-backend/internal/ingestion/metrics;metricsb\x06proto3"
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01BOZMgithub.com/Optikk-Org/optikk-backend/internal/ingestion/metrics/schema;schemab\x06proto3"
 
 var (
 	file_metric_row_proto_rawDescOnce sync.Once

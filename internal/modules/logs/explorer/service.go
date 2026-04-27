@@ -2,53 +2,63 @@ package explorer
 
 import (
 	"context"
-	"encoding/base64"
 	"fmt"
 	"strings"
 
 	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/querycompiler"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/shared/models"
 	"golang.org/x/sync/errgroup"
 )
 
-// Service orchestrates logs explorer read paths. Thin wrapper over the
-// repository + its split siblings (repo_facets.go, repo_analytics.go,
-// repo_volume.go). All CH reads go through the querycompiler seam.
+// FacetsClient is the in-process API explorer needs from log_facets to fan
+// the optional facets include alongside the list query.
+type FacetsClient interface {
+	Compute(ctx context.Context, f querycompiler.Filters) (models.Facets, []string, error)
+}
+
+// TrendsClient is the in-process API explorer needs from log_trends to fan
+// the optional summary/trend includes alongside the list query.
+type TrendsClient interface {
+	Summary(ctx context.Context, f querycompiler.Filters) (models.Summary, error)
+	Trend(ctx context.Context, f querycompiler.Filters, step string) ([]models.TrendBucket, []string, error)
+}
+
+// Service orchestrates POST /api/v1/logs/query. It owns the list path and
+// fans summary/facets/trend includes out to sibling submodules in parallel
+// via errgroup so the response = max(list, summary, facets, trend).
 type Service struct {
-	repo *Repository
+	repo    *Repository
+	facets  FacetsClient
+	trends  TrendsClient
 }
 
-func NewService(repo *Repository) *Service { return &Service{repo: repo} }
+func NewService(repo *Repository, facets FacetsClient, trends TrendsClient) *Service {
+	return &Service{repo: repo, facets: facets, trends: trends}
+}
 
-// queryParts carries the slots each parallel fetch fills. The list fetch
-// is always run; summary/facets/trend slots stay empty when the caller
-// didn't ask for them via req.Include. Jobs write disjoint slots so we
-// don't need a lock — warnings are concatenated in Query() after Wait().
 type queryParts struct {
-	rows         []logRowDTO
-	hasMore      bool
-	summary      *Summary
-	facets       *Facets
-	trend        []TrendBucket
-	facetsWarns  []string
-	trendWarns   []string
+	rows        []models.LogRow
+	hasMore     bool
+	summary     *models.Summary
+	facets      *models.Facets
+	trend       []models.TrendBucket
+	facetsWarns []string
+	trendWarns  []string
 }
 
-// Query is the list-first path. `include` opt-ins unlock facets / trend /
-// summary blocks. List + asked-for includes run in parallel via errgroup
-// so the response = max(list, summary, facets, trend), not sum.
 func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (QueryResponse, error) {
 	filters, err := querycompiler.FromStructured(req.Filters, teamID, req.StartTime, req.EndTime)
 	if err != nil {
 		return QueryResponse{}, fmt.Errorf("logs.Query.parse: %w", err)
 	}
-	limit := pickLimit(req.Limit, 50, 500)
-	cur, _ := DecodeCursor(req.Cursor)
+	limit := models.PickLimit(req.Limit, 50, 500)
+	cur, _ := models.DecodeCursor(req.Cursor)
 	parts, err := s.fetchQueryParts(ctx, filters, limit, cur, toSet(req.Include))
 	if err != nil {
 		return QueryResponse{}, err
 	}
 	return QueryResponse{
-		Results:  mapLogs(parts.rows),
+		Results:  models.MapLogs(parts.rows),
 		PageInfo: buildPageInfo(parts.rows, parts.hasMore, limit),
 		Summary:  parts.summary,
 		Facets:   parts.facets,
@@ -57,21 +67,19 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Qu
 	}, nil
 }
 
-// fetchQueryParts fans list + summary + facets + trend out in parallel.
-// Perf note: replaced four sequential ClickHouse reads with max-of-four.
 func (s *Service) fetchQueryParts(
-	ctx context.Context, f querycompiler.Filters, limit int, cur Cursor, want map[string]bool,
+	ctx context.Context, f querycompiler.Filters, limit int, cur models.Cursor, want map[string]bool,
 ) (queryParts, error) {
 	var p queryParts
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(s.listJob(gctx, f, limit, cur, &p))
-	if want["summary"] {
+	if want["summary"] && s.trends != nil {
 		g.Go(s.summaryJob(gctx, f, &p))
 	}
-	if want["facets"] {
+	if want["facets"] && s.facets != nil {
 		g.Go(s.facetsJob(gctx, f, &p))
 	}
-	if want["trend"] {
+	if want["trend"] && s.trends != nil {
 		g.Go(s.trendJob(gctx, f, &p))
 	}
 	if err := g.Wait(); err != nil {
@@ -80,7 +88,7 @@ func (s *Service) fetchQueryParts(
 	return p, nil
 }
 
-func (s *Service) listJob(ctx context.Context, f querycompiler.Filters, limit int, cur Cursor, p *queryParts) func() error {
+func (s *Service) listJob(ctx context.Context, f querycompiler.Filters, limit int, cur models.Cursor, p *queryParts) func() error {
 	return func() error {
 		rows, hasMore, err := s.repo.ListLogs(ctx, f, limit, cur)
 		if err != nil {
@@ -93,7 +101,7 @@ func (s *Service) listJob(ctx context.Context, f querycompiler.Filters, limit in
 
 func (s *Service) summaryJob(ctx context.Context, f querycompiler.Filters, p *queryParts) func() error {
 	return func() error {
-		sm, err := s.repo.Summary(ctx, f)
+		sm, err := s.trends.Summary(ctx, f)
 		if err != nil {
 			return fmt.Errorf("logs.Query.summary: %w", err)
 		}
@@ -104,7 +112,7 @@ func (s *Service) summaryJob(ctx context.Context, f querycompiler.Filters, p *qu
 
 func (s *Service) facetsJob(ctx context.Context, f querycompiler.Filters, p *queryParts) func() error {
 	return func() error {
-		fc, warns, err := s.repo.Facets(ctx, f)
+		fc, warns, err := s.facets.Compute(ctx, f)
 		if err != nil {
 			return fmt.Errorf("logs.Query.facets: %w", err)
 		}
@@ -116,67 +124,13 @@ func (s *Service) facetsJob(ctx context.Context, f querycompiler.Filters, p *que
 
 func (s *Service) trendJob(ctx context.Context, f querycompiler.Filters, p *queryParts) func() error {
 	return func() error {
-		tr, warns, err := s.repo.Trend(ctx, f, "")
+		tr, warns, err := s.trends.Trend(ctx, f, "")
 		if err != nil {
 			return fmt.Errorf("logs.Query.trend: %w", err)
 		}
 		p.trend = tr
 		p.trendWarns = warns
 		return nil
-	}
-}
-
-// Analytics dispatches to rollup when filters allow, raw otherwise.
-func (s *Service) Analytics(ctx context.Context, req AnalyticsRequest, teamID int64) (AnalyticsResponse, error) {
-	filters, err := querycompiler.FromStructured(req.Filters, teamID, req.StartTime, req.EndTime)
-	if err != nil {
-		return AnalyticsResponse{}, fmt.Errorf("logs.Analytics.parse: %w", err)
-	}
-	rows, step, warns, err := s.repo.Analytics(ctx, filters, req)
-	if err != nil {
-		return AnalyticsResponse{}, fmt.Errorf("logs.Analytics.query: %w", err)
-	}
-	return AnalyticsResponse{
-		VizMode:  normalizeViz(req.VizMode),
-		Step:     step,
-		Rows:     rows,
-		Warnings: warns,
-	}, nil
-}
-
-// GetByID reads a single log by the deep-link id. Returns nil on not-found.
-func (s *Service) GetByID(ctx context.Context, teamID int64, id string) (*Log, error) {
-	traceID, spanID, tsNs, ok := parseLogID(id)
-	if !ok {
-		return nil, fmt.Errorf("logs.GetByID: malformed id %q", id)
-	}
-	row, err := s.repo.GetByID(ctx, teamID, traceID, spanID, tsNs)
-	if err != nil {
-		return nil, err
-	}
-	if row == nil {
-		return nil, nil
-	}
-	log := mapLog(*row)
-	return &log, nil
-}
-
-func pickLimit(v, def, maxLimit int) int {
-	if v <= 0 {
-		return def
-	}
-	if v > maxLimit {
-		return maxLimit
-	}
-	return v
-}
-
-func normalizeViz(v string) string {
-	switch strings.ToLower(strings.TrimSpace(v)) {
-	case "topn", "table", "pie":
-		return strings.ToLower(v)
-	default:
-		return "timeseries"
 	}
 }
 
@@ -188,54 +142,15 @@ func toSet(items []string) map[string]bool {
 	return out
 }
 
-func buildPageInfo(rows []logRowDTO, hasMore bool, limit int) PageInfo {
-	info := PageInfo{HasMore: hasMore, Limit: limit}
+func buildPageInfo(rows []models.LogRow, hasMore bool, limit int) models.PageInfo {
+	info := models.PageInfo{HasMore: hasMore, Limit: limit}
 	if hasMore && len(rows) > 0 {
 		last := rows[len(rows)-1]
-		info.NextCursor = Cursor{
+		info.NextCursor = models.Cursor{
 			Timestamp:         last.Timestamp,
 			ObservedTimestamp: last.ObservedTimestamp,
 			TraceID:           last.TraceID,
 		}.Encode()
 	}
 	return info
-}
-
-// encodeLogListID matches GET /logs/:id decoding (trace_id:span_id:ts_ns as base64url).
-func encodeLogListID(d logRowDTO) string {
-	raw := fmt.Sprintf("%s:%s:%d", d.TraceID, d.SpanID, d.Timestamp.UnixNano())
-	return base64.RawURLEncoding.EncodeToString([]byte(raw))
-}
-
-func mapLog(d logRowDTO) Log {
-	return Log{
-		ID:                encodeLogListID(d),
-		Timestamp:         uint64(d.Timestamp.UnixNano()), //nolint:gosec // G115 domain-bounded
-		ObservedTimestamp: d.ObservedTimestamp,
-		SeverityText:      d.SeverityText,
-		SeverityNumber:    d.SeverityNumber,
-		SeverityBucket:    d.SeverityBucket,
-		Body:              d.Body,
-		TraceID:           d.TraceID,
-		SpanID:            d.SpanID,
-		TraceFlags:        d.TraceFlags,
-		ServiceName:       d.ServiceName,
-		Host:              d.Host,
-		Pod:               d.Pod,
-		Container:         d.Container,
-		Environment:       d.Environment,
-		AttributesString:  d.AttributesString,
-		AttributesNumber:  d.AttributesNumber,
-		AttributesBool:    d.AttributesBool,
-		ScopeName:         d.ScopeName,
-		ScopeVersion:      d.ScopeVersion,
-	}
-}
-
-func mapLogs(rows []logRowDTO) []Log {
-	out := make([]Log, len(rows))
-	for i, r := range rows {
-		out[i] = mapLog(r)
-	}
-	return out
 }

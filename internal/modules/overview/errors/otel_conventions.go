@@ -2,9 +2,9 @@ package errors
 
 import rootspan "github.com/Optikk-Org/optikk-backend/internal/modules/traces/shared/rootspan"
 
-// Raw ClickHouse column references for observability.spans (aliased as s)
+// Raw ClickHouse column references for observability.signoz_index_v3 (aliased as s)
 // and observability.resources (aliased as r). All queries in this module
-// use FROM observability.spans s ANY LEFT JOIN observability.resources r
+// use FROM observability.signoz_index_v3 s ANY LEFT JOIN observability.resources r
 // ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint.
 
 func ErrorCondition() string {

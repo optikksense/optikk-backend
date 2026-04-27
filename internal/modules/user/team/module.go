@@ -49,7 +49,6 @@ type teamModule struct {
 }
 
 func (m *teamModule) Name() string                      { return "team" }
-func (m *teamModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
 func (m *teamModule) configure(
 	sqlDB *registry.SQLDB,

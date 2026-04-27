@@ -14,12 +14,12 @@ import (
 // The spans_rollup_* tables aggregate by service/operation and use
 // AggregateFunction state columns, making them unsuitable for global trend.
 func (r *Repository) Trend(ctx context.Context, f querycompiler.Filters) ([]TrendBucket, error) {
-	compiled := querycompiler.Compile(f, querycompiler.TargetTracesIndex)
-	bucketExpr := utils.ExprForColumn(f.StartMs, f.EndMs, "toDateTime(intDiv(start_ms, 1000))")
+	compiled := querycompiler.Compile(f, querycompiler.TargetSpansRaw)
+	bucketExpr := utils.ExprForColumn(f.StartMs, f.EndMs, "toDateTime(intDiv(toUnixTimestamp64Nano(timestamp), 1000000000))")
 	query := fmt.Sprintf(`
 		SELECT %s AS time_bucket, countIf(NOT has_error) AS total, countIf(has_error) AS errors
-		FROM %s PREWHERE %s WHERE %s GROUP BY time_bucket ORDER BY time_bucket ASC`,
-		bucketExpr, tracesIndexTable, compiled.PreWhere, compiled.Where,
+		FROM %s PREWHERE %s WHERE %s AND is_root = 1 GROUP BY time_bucket ORDER BY time_bucket ASC`,
+		bucketExpr, spansRawTable, compiled.PreWhere, compiled.Where,
 	)
 	rows, err := dbutil.QueryCH(dbutil.ExplorerCtx(ctx), r.db, "explorer.Trend", query, compiled.Args...)
 	if err != nil {

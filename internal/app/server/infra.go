@@ -28,7 +28,6 @@ import (
 	metrmodule "github.com/Optikk-Org/optikk-backend/internal/ingestion/metrics/module"
 	spaningress "github.com/Optikk-Org/optikk-backend/internal/ingestion/spans/ingress"
 	spanmodule "github.com/Optikk-Org/optikk-backend/internal/ingestion/spans/module"
-	indexer "github.com/Optikk-Org/optikk-backend/internal/ingestion/spans/indexer"
 	"github.com/twmb/franz-go/pkg/kgo"
 	redigoredis "github.com/gomodule/redigo/redis"
 	goredis "github.com/redis/go-redis/v9"
@@ -242,20 +241,13 @@ func buildIngestModules(cfg config.Config, kcfg kclient.Config, prefix string, c
 		Pipeline:          cfg.IngestPipeline("metrics"),
 	}).(*metrmodule.Module)
 
-	idxCfg := cfg.SpansIndexerConfig()
 	spansMod := spanmodule.NewModule(spanmodule.Deps{
 		Producer:          spaningress.NewProducer(producer, prefix),
 		CH:                ch,
 		PersistenceClient: kconsumer.NewConsumer(spansPersist),
 		KafkaBase:         producer,
 		TopicPrefix:       prefix,
-		IndexerConfig: indexer.Config{
-			Capacity:    idxCfg.Capacity,
-			QuietWindow: time.Duration(idxCfg.QuietWindowMs) * time.Millisecond,
-			HardTimeout: time.Duration(idxCfg.HardTimeoutMs) * time.Millisecond,
-			SweepEvery:  time.Duration(idxCfg.SweepEveryMs) * time.Millisecond,
-		},
-		Pipeline: cfg.IngestPipeline("spans"),
+		Pipeline:          cfg.IngestPipeline("spans"),
 	}).(*spanmodule.Module)
 
 	return IngestModules{Logs: logsMod, Metrics: metricsMod, Spans: spansMod}, producerClient, consumerClients, lagPollers, nil

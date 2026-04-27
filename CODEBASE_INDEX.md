@@ -85,15 +85,15 @@ Current queueing model is Kafka-backed, not Redis-stream-backed. Local developme
 
 ### Local monitoring stack (opt-in)
 
-`deploy/monitoring/` ships a local Prometheus + Grafana pair for ingest-pipeline dashboards:
+`monitoring/` ships a local Prometheus + Grafana pair for ingest-pipeline dashboards:
 
 - **Ports (bespoke — chosen to avoid colliding with the main compose)**: Prometheus `:19091`, Grafana `:13001`.
-- **Bring-up**: `docker compose -f deploy/monitoring/stack/docker-compose.yml up -d`.
+- **Bring-up**: `docker compose -f monitoring/stack/docker-compose.yml up -d`.
 - **Scrape target**: `host.docker.internal:19090` (the Go backend's `/metrics`, 5s interval).
 - **Directory layout** (flat-vs-nested rule — `monitoring/` holds only subdirs):
-  - `deploy/monitoring/stack/` — `docker-compose.yml`, `prometheus.yml`.
-  - `deploy/monitoring/grafana/dashboards/optikk_ingest.json` — starter dashboard (ingest rate, handler/worker/CH latency, queue depth, paused partitions, flush reasons, DLQ rate, consumer lag, attr drops).
-  - `deploy/monitoring/grafana/provisioning/{datasources,dashboards}/*.yml` — auto-registration so no UI setup is needed.
+  - `monitoring/stack/` — `docker-compose.yml`, `prometheus.yml`.
+  - `monitoring/grafana/dashboards/optikk_ingest.json` — starter dashboard (ingest rate, handler/worker/CH latency, queue depth, paused partitions, flush reasons, DLQ rate, consumer lag, attr drops).
+  - `monitoring/grafana/provisioning/{datasources,dashboards}/*.yml` — auto-registration so no UI setup is needed.
 
 This is the primary monitoring stack for local development — all ingest metrics flow here via Prometheus scrape.
 
@@ -101,7 +101,7 @@ This is the primary monitoring stack for local development — all ingest metric
 
 Self-telemetry is Prometheus-only. The customer-facing OTLP receiver on `:4317` is unrelated — it ingests external spans/metrics/logs from clients and has its own pipeline (`internal/ingestion/`).
 
-**Metrics** — `promauto` collectors exposed on `/metrics`, scraped by the local Prometheus + Grafana stack (`deploy/monitoring/stack/`).
+**Metrics** — `promauto` collectors exposed on `/metrics`, scraped by the local Prometheus + Grafana stack (`monitoring/stack/`).
 
 - `internal/infra/metrics/` — `http.go`, `grpc.go`, `db.go`, `kafka.go`, `auth.go`, `ingest.go` — all `promauto`-registered collectors.
 - `internal/infra/redis/metrics_hook.go` — Redis-specific collectors via a `goredis.Hook`.
@@ -112,7 +112,7 @@ Self-telemetry is Prometheus-only. The customer-facing OTLP receiver on `:4317` 
 
 **Logs** — `slog.InfoContext/…Context` records fan out through `internal/shared/slogx.FanoutHandler` so additional sinks (file, syslog) can be added without touching call sites. Currently the fanout wraps a single stdout leg (tint for local dev, JSON when `LOG_FORMAT=json`).
 
-**Grafana dashboards** (`deploy/monitoring/grafana/dashboards/`) — provisioned read-only, one file per concern:
+**Grafana dashboards** (`monitoring/grafana/dashboards/`) — provisioned read-only, one file per concern:
 - `optikk_overview.json` — service-wide health tiles + top-level timeseries (start here).
 - `optikk_http_api.json` — **per-API** HTTP dashboard: QPS/latency/error rate with route + method template variables; top-10 slowest and error-prone routes.
 - `optikk_grpc.json` — per-method gRPC dashboard (OTLP ingest surface + any other gRPC).
@@ -135,11 +135,22 @@ The trace read surface used to live in two monoliths (`explorer` + `tracedetail`
 - `internal/modules/traces/trace_suggest/` — DSL autocomplete: `POST /traces/suggest` for field/attribute value completion on the traces query bar.
 - `internal/modules/traces/shared/traceidmatch/` — shared ClickHouse predicate (`WhereTraceIDMatchesCH`) so every trace-scoped reader normalizes trace_id identically.
 
-### Logs read path
+### Logs read path (split into sibling submodules)
 
-- `internal/modules/logs/explorer/` — `POST /api/v1/logs/query`, `POST /api/v1/logs/analytics`, `GET /api/v1/logs/:id`. `RouteTarget = Cached` so reads pass through the Redis response-cache + the ClickHouse query-cache layer (via the `Explorer` query-budget context). `Query` fans `summary / facets / trend` plus the base list fetch out in parallel via `errgroup.Group`; response = max of all branches, not sum.
-- `internal/modules/logs/explorer/repository.go` — `ListLogs` + `GetByID` use `PREWHERE team_id = @teamID AND ts_bucket_start BETWEEN …` so partition pruning runs before the rest of the predicates. `repo_facets.go` unions 5 rollup legs — each leg has the same `PREWHERE` on `(team_id, bucket_ts)` as the lead.
-- `internal/modules/logs/querycompiler/` — `Compile(Filters, Target)` → `Compiled{Where, Args, DroppedClauses}`. Targets: `TargetRaw` (observability.logs), `TargetRollup` (logs_volume_{1m,5m,1h}), `TargetFacetRollup` (logs_facets_{1m,5m,1h}).
+The logs read surface used to live in a single `explorer/` package; it is
+now split by responsibility, mirroring the traces decomposition. Each
+sibling owns its own handler/service/repository/dto bundle.
+
+- `internal/modules/logs/explorer/` — `POST /api/v1/logs/query`. Orchestrator: list (own repo) + optional `summary` / `facets` / `trend` includes fanned in parallel via `errgroup` against sibling services through `FacetsClient` / `TrendsClient` interfaces. Response = max of all branches.
+- `internal/modules/logs/logdetail/` — `GET /api/v1/logs/:id` (single-log deep link).
+- `internal/modules/logs/log_analytics/` — `POST /api/v1/logs/analytics` (group-by grid + agg projections over raw logs).
+- `internal/modules/logs/log_facets/` — `POST /api/v1/logs/facets` (top-N per dim: severity, service, host, pod, environment).
+- `internal/modules/logs/log_trends/` — `POST /api/v1/logs/trends` (Summary KPIs + severity-bucketed time-series).
+- `internal/modules/logs/querycompiler/` — `Compile(Filters, Target)` → `Compiled{Where, Args, DroppedClauses}`. Targets: `TargetRaw`, `TargetRollup`, `TargetFacetRollup`. Unchanged shared dependency.
+- `internal/modules/logs/shared/models/` — `Log`, `LogRow`, `Cursor`, `FacetValue`, `Facets`, `Summary`, `TrendBucket`, `PageInfo`, `AnalyticsRow`, `Aggregation`, plus `EncodeLogID` / `ParseLogID` / `MapLog(s)`. Includes the `RawLogsTable` + `LogColumns` constants every reader PREWHEREs into.
+- `internal/modules/logs/shared/resource/` — `WithFingerprints(ctx, db, filters, preWhere, args)` resolves `service/host/pod/container/environment` filters to `resource_fingerprint IN (...)`. Used by every reader.
+- `internal/modules/logs/shared/analytics/` — agg spec builders (`BuildAggsRaw` / `BuildAggsRollupVolume` / `BuildAggsRollupFacets`) + dynamic CH row helpers (`ScanAnyRow`, `MapRow`, `AliasSet`, `ToString`, `ToFloat`).
+- `internal/modules/logs/shared/step/` — `ResolveStepMinutes` / `Adaptive` / `FormatBucket` for time-bucket choice (≤3h→1m, ≤24h→5m, ≤7d→1h, else 1d).
 
 ### Data Type Consistency
 
@@ -190,7 +201,7 @@ From the live module manifest:
 
 - overview: `overview`, `redmetrics`, `httpmetrics`, `errors`, `slo`, `apm`
 - traces: `explorer`, `trace_analytics`, `span_query`, `tracedetail`, `trace_shape`, `trace_paths`, `trace_servicemap`, `trace_suggest`, `errors`, `latency`, `querycompiler`
-- logs: `explorer`, `querycompiler`
+- logs: `explorer`, `logdetail`, `log_analytics`, `log_facets`, `log_trends`, `querycompiler`, `shared/{models,resource,analytics,step}`
 - metrics
 - services: `topology`, `deployments`
 - infrastructure: `connpool`, `cpu`, `disk`, `fleet`, `jvm`, `kubernetes`, `memory`, `network`, `nodes`, `resourceutil`, `infraconsts` (shared constants, not a routable module)
@@ -266,5 +277,5 @@ stack now ships with `--web.enable-remote-write-receiver`).
 
 - Overview doc: [README.md](/Users/ramantayal/Desktop/pro/optikk-backend/README.md)
 - Flow diagrams: [docs/flows/](/Users/ramantayal/Desktop/pro/optikk-backend/docs/flows/) — ingestion, auth, http-request, trace-assembly
-- Ingest dashboard: [deploy/monitoring/grafana/dashboards/optikk_ingest.json](/Users/ramantayal/Desktop/pro/optikk-backend/deploy/monitoring/grafana/dashboards/optikk_ingest.json)
+- Ingest dashboard: [monitoring/grafana/dashboards/optikk_ingest.json](/Users/ramantayal/Desktop/pro/optikk-backend/monitoring/grafana/dashboards/optikk_ingest.json)
 - Frontend sibling repo: [../optikk-frontend/README.md](/Users/ramantayal/Desktop/pro/optikk-frontend/README.md)

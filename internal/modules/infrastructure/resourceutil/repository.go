@@ -2,8 +2,12 @@ package resourceutil //nolint:misspell
 
 import (
 	"context"
+	"fmt"
+	"time"
 
-	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/connpool"
+	"github.com/ClickHouse/clickhouse-go/v2"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+		"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/connpool"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/cpu"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/disk"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/memory"
@@ -25,6 +29,7 @@ type Repository interface {
 }
 
 type compositeRepository struct {
+	chDB clickhouse.Conn
 	cpu  cpu.Repository
 	mem  memory.Repository
 	dsk  disk.Repository
@@ -34,6 +39,7 @@ type compositeRepository struct {
 
 // NewRepository creates a composite repository that delegates to domain submodules.
 func NewRepository(
+	chDB clickhouse.Conn,
 	cpuRepo cpu.Repository,
 	memRepo memory.Repository,
 	dskRepo disk.Repository,
@@ -41,6 +47,7 @@ func NewRepository(
 	connRepo connpool.Repository,
 ) Repository {
 	return &compositeRepository{
+		chDB: chDB,
 		cpu:  cpuRepo,
 		mem:  memRepo,
 		dsk:  dskRepo,
@@ -98,51 +105,56 @@ func (r *compositeRepository) GetMemoryUsagePercentage(ctx context.Context, team
 // ---- Composite cross-resource endpoints ----
 
 func (r *compositeRepository) GetResourceUsageByService(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceResource, error) {
-	// CPU and connpool return full lists; memory/disk/network are per-entity.
-	cpuList, err := r.cpu.GetCPUByService(ctx, teamID, startMs, endMs)
-	if err != nil {
+	table := "observability.signoz_index_v3"
+	query := fmt.Sprintf(`
+		SELECT service                                                        AS service_name,
+		       metric_name                                                    AS metric_name,
+		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0) AS avg_value
+		FROM %s
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		GROUP BY service_name, metric_name`, table)
+
+	type row struct {
+		ServiceName string   `ch:"service_name"`
+		MetricName  string   `ch:"metric_name"`
+		AvgValue    *float64 `ch:"avg_value"`
+	}
+	var rows []row
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.chDB, "resourceutil.GetResourceUsageByService", &rows, query,
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	); err != nil {
 		return nil, err
 	}
-	connList, _ := r.conn.GetConnPoolByService(ctx, teamID, startMs, endMs)
 
-	// Build result map seeded from CPU (broadest metric set).
-	serviceMap := make(map[string]*ServiceResource, len(cpuList))
-	order := make([]string, 0, len(cpuList))
-	for _, s := range cpuList {
-		serviceMap[s.ServiceName] = &ServiceResource{ServiceName: s.ServiceName, AvgCpuUtil: s.Value}
-		order = append(order, s.ServiceName)
-	}
-
-	// Merge connpool list results.
-	for _, s := range connList {
-		if sr, ok := serviceMap[s.ServiceName]; ok {
-			sr.AvgConnectionPoolUtil = s.Value
-		} else {
-			serviceMap[s.ServiceName] = &ServiceResource{ServiceName: s.ServiceName, AvgConnectionPoolUtil: s.Value}
-			order = append(order, s.ServiceName)
+	// Fold rows by service — same response shape as before.
+	serviceMap := make(map[string]*ServiceResource, len(rows))
+	order := make([]string, 0, 16)
+	for _, r := range rows {
+		sr, ok := serviceMap[r.ServiceName]
+		if !ok {
+			sr = &ServiceResource{ServiceName: r.ServiceName}
+			serviceMap[r.ServiceName] = sr
+			order = append(order, r.ServiceName)
+		}
+		switch r.MetricName {
+		case "system.cpu.utilization":
+			sr.AvgCpuUtil = r.AvgValue
+		case "system.memory.utilization":
+			sr.AvgMemoryUtil = r.AvgValue
+		case "system.disk.utilization":
+			sr.AvgDiskUtil = r.AvgValue
+		case "system.network.io":
+			sr.AvgNetworkUtil = r.AvgValue
+		case "db.client.connections.usage":
+			sr.AvgConnectionPoolUtil = r.AvgValue
 		}
 	}
 
-	// For memory/disk/network, query each service individually.
-	for name, sr := range serviceMap {
-		memVal, _ := r.mem.GetMemoryByService(ctx, teamID, name, startMs, endMs)
-		sr.AvgMemoryUtil = memVal
-
-		diskVal, _ := r.dsk.GetDiskByService(ctx, teamID, name, startMs, endMs)
-		sr.AvgDiskUtil = diskVal
-
-		netVal, _ := r.net.GetNetworkByService(ctx, teamID, name, startMs, endMs)
-		sr.AvgNetworkUtil = netVal
-	}
-
-	// Preserve insertion order, deduplicate.
-	result := make([]ServiceResource, 0, len(serviceMap))
-	seen := make(map[string]bool, len(order))
+	result := make([]ServiceResource, 0, len(order))
 	for _, name := range order {
-		if seen[name] {
-			continue
-		}
-		seen[name] = true
 		result = append(result, *serviceMap[name])
 	}
 	return result, nil

@@ -11,7 +11,7 @@ package querycompiler
 type Target int
 
 const (
-	// TargetRaw compiles for observability.logs (full fidelity).
+	// TargetRaw compiles for observability.logs_v2 (full fidelity).
 	TargetRaw Target = iota
 	// TargetRollup compiles for logs_rollup_{1m,5m,1h}. Only rollup-key
 	// dims (severity_bucket, service, environment, host, pod) survive.
@@ -55,6 +55,7 @@ type Filters struct {
 
 // Compiled is the result of compile.go — ready to splat into db.Select.
 type Compiled struct {
+	PreWhere       string
 	Where          string
 	Args           []any
 	DroppedClauses []string

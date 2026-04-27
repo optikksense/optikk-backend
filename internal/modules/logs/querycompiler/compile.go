@@ -40,7 +40,11 @@ func compileRaw(f Filters, startMs, endMs int64) Compiled {
 	appendScalar(&sb, &args, "span_id", f.SpanID)
 	appendSearch(&sb, &args, f.Search, f.SearchMode)
 	appendAttrs(&sb, &args, f.Attributes)
-	return Compiled{Where: sb.String(), Args: args}
+	return Compiled{
+		PreWhere: "team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd",
+		Where:    sb.String(),
+		Args:     args,
+	}
 }
 
 func compileRollup(f Filters, startMs, endMs int64, _ Target) Compiled {
@@ -56,7 +60,12 @@ func compileRollup(f Filters, startMs, endMs int64, _ Target) Compiled {
 	appendInList(&sb, &args, "service", f.ExcludeServices, true)
 	appendInList(&sb, &args, "host", f.ExcludeHosts, true)
 	dropped := rollupDroppedClauses(f)
-	return Compiled{Where: sb.String(), Args: args, DroppedClauses: dropped}
+	return Compiled{
+		PreWhere:       "team_id = @teamID AND bucket_ts BETWEEN @start AND @end",
+		Where:          sb.String(),
+		Args:           args,
+		DroppedClauses: dropped,
+	}
 }
 
 func rollupDroppedClauses(f Filters) []string {

@@ -48,7 +48,6 @@ type traceDetailModule struct {
 }
 
 func (m *traceDetailModule) Name() string                      { return "traceDetail" }
-func (m *traceDetailModule) RouteTarget() registry.RouteTarget { return registry.V1 }
 
 func (m *traceDetailModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	svc := NewService(NewRepository(nativeQuerier))

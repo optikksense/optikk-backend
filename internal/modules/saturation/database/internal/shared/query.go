@@ -1,6 +1,8 @@
 package shared
 
 import (
+	"math"
+
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 )
@@ -35,7 +37,7 @@ func BaseParams(teamID int64, startMs, endMs int64) []any {
 }
 
 func ScaleToMs(v *float64) *float64 {
-	if v == nil {
+	if v == nil || math.IsNaN(*v) {
 		return nil
 	}
 	ms := *v * 1000.0

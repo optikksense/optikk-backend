@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"time"
 
 	kafkaproducer "github.com/Optikk-Org/optikk-backend/internal/infra/kafka/producer"
 	kafkatopics "github.com/Optikk-Org/optikk-backend/internal/infra/kafka/topics"
@@ -60,9 +61,10 @@ func (p *Producer) Publish(ctx context.Context, rows []*schema.Row) error {
 		value := make([]byte, len(out))
 		copy(value, out)
 		records = append(records, &kgo.Record{
-			Topic: p.topic,
-			Key:   []byte(strconv.FormatUint(uint64(r.GetTeamId()), 10)),
-			Value: value,
+			Topic:     p.topic,
+			Key:       []byte(strconv.FormatUint(uint64(r.GetTeamId()), 10)),
+			Value:     value,
+			Timestamp: time.Now(),
 		})
 	}
 	if err := p.kafka.PublishBatch(ctx, records); err != nil {

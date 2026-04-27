@@ -6,8 +6,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+		timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
@@ -37,18 +36,18 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 func bucketExpr(startMs, endMs int64) string {
-	return timebucket.ExprForColumnTime(startMs, endMs, "bucket_ts")
+	return timebucket.ExprForColumn(startMs, endMs, "bucket_ts")
 }
 
 func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionCountPoint, error) {
-	table, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
-	fc, fargs := shared.RollupFilterClauses(f)
+	table := "observability.signoz_index_v3"
+	fc, fargs := "", []any{}
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                          AS time_bucket,
 		    pool_name                                                                   AS pool_name,
 		    db_connection_state                                                         AS state,
-		    sumMerge(value_sum) / nullIf(toFloat64(sumMerge(sample_count)), 0)          AS count
+		    sum(value_sum) / nullIf(toFloat64(sum(sample_count)), 0)          AS count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -66,15 +65,15 @@ func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, tea
 // db.client.connection.max) per bucket+pool in Go. Previously did a
 // correlated subquery against raw metrics.
 func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionUtilPoint, error) {
-	table, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
-	fc, fargs := shared.RollupFilterClauses(f)
+	table := "observability.signoz_index_v3"
+	fc, fargs := "", []any{}
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                          AS time_bucket,
 		    pool_name                                                                   AS pool_name,
 		    metric_name                                                                 AS metric_name,
 		    db_connection_state                                                         AS state,
-		    sumMerge(value_sum) / nullIf(toFloat64(sumMerge(sample_count)), 0)          AS val_avg
+		    sum(value_sum) / nullIf(toFloat64(sum(sample_count)), 0)          AS val_avg
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -82,17 +81,17 @@ func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, tea
 		  %s
 		GROUP BY time_bucket, pool_name, metric_name, state
 	`, bucketExpr(startMs, endMs), table, fc)
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBConnectionCount),
+	args := append(shared.BaseParams(teamID, startMs, endMs),
 		clickhouse.Named("countMetric", shared.MetricDBConnectionCount),
 		clickhouse.Named("maxMetric", shared.MetricDBConnectionMax),
 	)
 	args = append(args, fargs...)
 	var metricRows []struct {
-		TimeBucket	string	`ch:"time_bucket"`
-		PoolName	string	`ch:"pool_name"`
-		MetricName	string	`ch:"metric_name"`
-		State		string	`ch:"state"`
-		ValAvg		float64	`ch:"val_avg"`
+		TimeBucket string  `ch:"time_bucket"`
+		PoolName   string  `ch:"pool_name"`
+		MetricName string  `ch:"metric_name"`
+		State      string  `ch:"state"`
+		ValAvg     float64 `ch:"val_avg"`
 	}
 	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connections.GetConnectionUtilization", &metricRows, query, args...); err != nil {
 		return nil, err
@@ -130,13 +129,13 @@ func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, tea
 }
 
 func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionLimits, error) {
-	table, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
-	fc, fargs := shared.RollupFilterClauses(f)
+	table := "observability.signoz_index_v3"
+	fc, fargs := "", []any{}
 	query := fmt.Sprintf(`
 		SELECT
 		    pool_name                                                                   AS pool_name,
 		    metric_name                                                                 AS metric_name,
-		    sumMerge(value_sum) / nullIf(toFloat64(sumMerge(sample_count)), 0)          AS val_avg
+		    sum(value_sum) / nullIf(toFloat64(sum(sample_count)), 0)          AS val_avg
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -145,16 +144,16 @@ func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID i
 		GROUP BY pool_name, metric_name
 		ORDER BY pool_name
 	`, table, fc)
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBConnectionMax),
+	args := append(shared.BaseParams(teamID, startMs, endMs),
 		clickhouse.Named("maxMetric", shared.MetricDBConnectionMax),
 		clickhouse.Named("idleMax", shared.MetricDBConnectionIdleMax),
 		clickhouse.Named("idleMin", shared.MetricDBConnectionIdleMin),
 	)
 	args = append(args, fargs...)
 	var metricRows []struct {
-		PoolName	string	`ch:"pool_name"`
-		MetricName	string	`ch:"metric_name"`
-		ValAvg		float64	`ch:"val_avg"`
+		PoolName   string  `ch:"pool_name"`
+		MetricName string  `ch:"metric_name"`
+		ValAvg     float64 `ch:"val_avg"`
 	}
 	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connections.GetConnectionLimits", &metricRows, query, args...); err != nil {
 		return nil, err
@@ -184,13 +183,13 @@ func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID i
 }
 
 func (r *ClickHouseRepository) GetPendingRequests(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PendingRequestsPoint, error) {
-	table, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
 	fc, fargs := shared.RollupFilterClauses(f)
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                          AS time_bucket,
 		    pool_name                                                                   AS pool_name,
-		    sumMerge(value_sum) / nullIf(toFloat64(sumMerge(sample_count)), 0)          AS count
+		    sum(value_sum) / nullIf(toFloat64(sum(sample_count)), 0)          AS count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -205,14 +204,14 @@ func (r *ClickHouseRepository) GetPendingRequests(ctx context.Context, teamID in
 }
 
 func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionTimeoutPoint, error) {
-	table, _ := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 	fc, fargs := shared.RollupFilterClauses(f)
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                  AS time_bucket,
 		    pool_name                                           AS pool_name,
-		    toFloat64(sumMerge(value_sum)) / %f                 AS timeout_rate
+		    toFloat64(sum(value_sum)) / %f                 AS timeout_rate
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -227,7 +226,8 @@ func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, tea
 }
 
 func (r *ClickHouseRepository) poolLatency(ctx context.Context, teamID int64, startMs, endMs int64, metricName string, f shared.Filters) ([]PoolLatencyPoint, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	fc, fargs := shared.RollupFilterClauses(f)
 
 	query := fmt.Sprintf(`

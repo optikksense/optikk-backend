@@ -7,12 +7,11 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-)
+	)
 
 const (
-	metricsHistRollupPrefix		= rollup.FamilyMetricsHist
-	metricsGaugesRollupPrefix	= rollup.FamilyMetricsGauges
+	metricsHistRollupPrefix		= "observability.metrics"
+	metricsGaugesRollupPrefix	= "observability.metrics"
 )
 
 // queryIntervalMinutes returns the group-by step (in minutes) for rollup
@@ -64,21 +63,21 @@ type histogramSummaryRawRow struct {
 }
 
 func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (histogramSummaryDTO, error) {
-	table, _ := rollup.TierTableFor(metricsHistRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) AS p50,
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95,
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) AS p99,
-		    sumMerge(hist_sum)                                                  AS hist_sum,
-		    sumMerge(hist_count)                                                AS hist_count
+		    sum(hist_sum)                                                  AS hist_sum,
+		    sum(hist_count)                                                AS hist_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
 		  AND metric_name = @metricName`, table)
 
 	var raw histogramSummaryRawRow
-	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, rollupParams(teamID, startMs, endMs, metricName)...).ScanStruct(&raw)
+	err := dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "apm.queryHistogramSummary", &raw, query, rollupParams(teamID, startMs, endMs, metricName)...)
 	if err != nil {
 		return histogramSummaryDTO{}, err
 	}
@@ -103,11 +102,12 @@ func rollupParams(teamID int64, startMs, endMs int64, metricName string) []any {
 // breakdown — empty `state_dim = ”` filter so we don't mix in metric families
 // that happen to share the table but carry a state dim.
 func (r *ClickHouseRepository) queryGaugeTimeBuckets(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]timeBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
-		       sumMerge(value_avg_num) AS value_num,
-		       sumMerge(sample_count)  AS value_cnt
+		       sum(value_avg_num) AS value_num,
+		       sum(sample_count)  AS value_cnt
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -147,10 +147,11 @@ func (r *ClickHouseRepository) GetRPCDuration(ctx context.Context, teamID int64,
 
 func (r *ClickHouseRepository) GetRPCRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]timeBucketDTO, error) {
 	// Pre-aggregated call count from the histogram rollup's `hist_count` state.
-	table, tierStep := rollup.TierTableFor(metricsHistRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
-		       sumMerge(hist_count) AS val_u64
+		       sum(hist_count) AS val_u64
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -184,12 +185,13 @@ func (r *ClickHouseRepository) GetMessagingPublishDuration(ctx context.Context, 
 // populates from `attributes.process.cpu.state` for the `process.cpu.time`
 // metric. Per-state time series of bucketed avg(value).
 func (r *ClickHouseRepository) GetProcessCPU(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       state_dim               AS state,
-		       sumMerge(value_avg_num) AS value_num,
-		       sumMerge(sample_count)  AS value_cnt
+		       sum(value_avg_num) AS value_num,
+		       sum(sample_count)  AS value_cnt
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -229,11 +231,11 @@ func (r *ClickHouseRepository) GetProcessCPU(ctx context.Context, teamID int64, 
 // GetProcessMemory merges two metrics (usage + virtual) from the gauge
 // rollup, averaged over the range. Equivalent to the prior avgIf query on raw.
 func (r *ClickHouseRepository) GetProcessMemory(ctx context.Context, teamID int64, startMs, endMs int64) (processMemoryDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT metric_name,
-		       sumMerge(value_avg_num) AS value_num,
-		       sumMerge(sample_count)  AS value_cnt
+		       sum(value_avg_num) AS value_num,
+		       sum(sample_count)  AS value_cnt
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end

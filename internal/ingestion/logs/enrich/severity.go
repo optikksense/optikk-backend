@@ -2,18 +2,6 @@ package enrich
 
 import "strings"
 
-// BucketFor maps an OTLP severity_text and severity_number pair to the 0..5
-// severity bucket used by the CH `severity_bucket` MATERIALIZED column on
-// observability.logs. Keeping this logic in Go (mirrored from the CH
-// multiIf expression) lets the ingest pipeline emit the bucket on the wire so
-// explorer queries that group by severity do not pay the materialize cost.
-//
-//	0  TRACE / UNSET  severity_number <= 4
-//	1  DEBUG          severity_number 5..8
-//	2  INFO           severity_number 9..12
-//	3  WARN           severity_number 13..16
-//	4  ERROR          severity_number 17..20
-//	5  FATAL          severity_number >= 21
 func BucketFor(sevText string, sevNum int32) uint8 {
 	if sevNum > 0 {
 		return bucketFromNumber(sevNum)

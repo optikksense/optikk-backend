@@ -7,12 +7,11 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-)
+	)
 
 const (
-	spansRollupPrefix	= rollup.FamilySpansRED
-	topologyRollupPrefix	= rollup.FamilySpansTopology
+	spansRollupPrefix	= "observability.signoz_index_v3"
+	topologyRollupPrefix	= "observability.signoz_index_v3"
 )
 
 // Repository runs ClickHouse queries that power the runtime service topology.
@@ -42,11 +41,11 @@ func topologyParams(teamID int64, startMs, endMs int64) []any {
 // endpoint, method) — topology wants the service-level rollup, so we sum /
 // merge across the operation-level rows.
 func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]nodeAggRow, error) {
-	table, _ := rollup.TierTableFor(spansRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT service_name                                                            AS service_name,
-		       toInt64(sumMerge(request_count))                                        AS request_count,
-		       toInt64(sumMerge(error_count))                                          AS error_count,
+		       toInt64(count())                                        AS request_count,
+		       toInt64(countIf(has_error OR toUInt16OrZero(response_status_code) >= 400))                                          AS error_count,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1])     AS p50_ms,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])     AS p95_ms,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3])     AS p99_ms
@@ -67,12 +66,12 @@ func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID int64, start
 // CLIENT-kind spans using the mat_peer_service attribute. Bypasses the old
 // span self-join approach entirely.
 func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID int64, startMs, endMs int64) ([]edgeAggRow, error) {
-	table, _ := rollup.TierTableFor(topologyRollupPrefix, startMs, endMs)
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT client_service                                                         AS source,
 		       server_service                                                         AS target,
-		       toInt64(sumMerge(request_count))                                       AS call_count,
-		       toInt64(sumMerge(error_count))                                         AS error_count,
+		       toInt64(count())                                       AS call_count,
+		       toInt64(countIf(has_error OR toUInt16OrZero(response_status_code) >= 400))                                         AS error_count,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1])    AS p50_ms,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])    AS p95_ms
 		FROM %s

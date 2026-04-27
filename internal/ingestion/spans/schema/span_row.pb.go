@@ -22,7 +22,7 @@ const (
 )
 
 // Row is the wire format on Kafka. One record == one span row bound for
-// observability.spans. Field order mirrors the ClickHouse column order in
+// observability.signoz_index_v3. Field order mirrors the ClickHouse column order in
 // row.go Columns so the consumer can produce positional CH values with no
 // name lookup.
 type Row struct {
