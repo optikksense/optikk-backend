@@ -1,101 +1,93 @@
 package errors
 
-func mapErrorGroupRows(rows []errorGroupRow) []ErrorGroup {
-	groups := make([]ErrorGroup, len(rows))
-	for i, row := range rows {
-		code := int(row.HTTPStatusCode)
-		groups[i] = ErrorGroup{
-			GroupID:         ErrorGroupID(row.ServiceName, row.OperationName, row.StatusMessage, code),
-			ServiceName:     row.ServiceName,
-			OperationName:   row.OperationName,
-			StatusMessage:   row.StatusMessage,
-			HTTPStatusCode:  code,
-			ErrorCount:      row.ErrorCount,
-			LastOccurrence:  row.LastOccurrence,
-			FirstOccurrence: row.FirstOccurrence,
-			SampleTraceID:   row.SampleTraceID,
-		}
-	}
-	return groups
+import "time"
+
+// Raw ClickHouse row structs scanned directly from query results.
+// All Go-side derivations (rate, latency, status-bucket → code, hash) live in service.go.
+
+type rawServiceRateRow struct {
+	ServiceName   string    `ch:"service"`
+	Timestamp     time.Time `ch:"timestamp"`
+	RequestCount  uint64    `ch:"request_count"`
+	ErrorCount    uint64    `ch:"error_count"`
+	DurationMsSum float64   `ch:"duration_ms_sum"`
 }
 
-func mapErrorGroupDetailRow(groupID string, row *errorGroupDetailRow) *ErrorGroupDetail {
-	if row == nil {
-		return nil
-	}
-	return &ErrorGroupDetail{
-		GroupID:         groupID,
-		ServiceName:     row.ServiceName,
-		OperationName:   row.OperationName,
-		StatusMessage:   row.StatusMessage,
-		HTTPStatusCode:  int(row.HTTPStatusCode),
-		ErrorCount:      row.ErrorCount,
-		LastOccurrence:  row.LastOccurrence,
-		FirstOccurrence: row.FirstOccurrence,
-		SampleTraceID:   row.SampleTraceID,
-		ExceptionType:   row.ExceptionType,
-		StackTrace:      row.StackTrace,
-	}
+type rawServiceErrorRow struct {
+	ServiceName string    `ch:"service"`
+	Timestamp   time.Time `ch:"timestamp"`
+	ErrorCount  uint64    `ch:"error_count"`
 }
 
-func mapErrorGroupTraceRows(rows []errorGroupTraceRow) []ErrorGroupTrace {
-	traces := make([]ErrorGroupTrace, len(rows))
-	for i, row := range rows {
-		traces[i] = ErrorGroupTrace(row)
-	}
-	return traces
+type rawErrorGroupRow struct {
+	ServiceName      string    `ch:"service"`
+	OperationName    string    `ch:"operation_name"`
+	StatusMessage    string    `ch:"status_message"`
+	HTTPStatusBucket string    `ch:"http_status_bucket"`
+	ErrorCount       uint64    `ch:"error_count"`
+	LastOccurrence   time.Time `ch:"last_occurrence"`
+	FirstOccurrence  time.Time `ch:"first_occurrence"`
+	SampleTraceID    string    `ch:"sample_trace_id"`
 }
 
-func mapErrorGroupTimeseriesRows(rows []errorGroupTSRow) []TimeSeriesPoint {
-	points := make([]TimeSeriesPoint, len(rows))
-	for i, row := range rows {
-		points[i] = TimeSeriesPoint{
-			Timestamp:  row.Timestamp,
-			ErrorCount: row.ErrorCount,
-		}
-	}
-	return points
+type rawErrorGroupDetailRow struct {
+	ServiceName     string    `ch:"service"`
+	OperationName   string    `ch:"operation_name"`
+	StatusMessage   string    `ch:"status_message"`
+	HTTPStatusCode  uint16    `ch:"http_status_code"`
+	ErrorCount      int64     `ch:"error_count"`
+	LastOccurrence  time.Time `ch:"last_occurrence"`
+	FirstOccurrence time.Time `ch:"first_occurrence"`
+	SampleTraceID   string    `ch:"sample_trace_id"`
+	ExceptionType   string    `ch:"exception_type"`
+	StackTrace      string    `ch:"stack_trace"`
 }
 
-func mapServiceErrorRateRows(rows []serviceErrorRateRow) []TimeSeriesPoint {
-	points := make([]TimeSeriesPoint, len(rows))
-	for i, row := range rows {
-		points[i] = TimeSeriesPoint(row)
-	}
-	return points
+type rawErrorGroupTraceRow struct {
+	TraceID    string    `ch:"trace_id"`
+	SpanID     string    `ch:"span_id"`
+	Timestamp  time.Time `ch:"timestamp"`
+	DurationMs float64   `ch:"duration_ms"`
+	StatusCode string    `ch:"status_code"`
 }
 
-func mapErrorVolumeRows(rows []errorVolumeRow) []TimeSeriesPoint {
-	points := make([]TimeSeriesPoint, len(rows))
-	for i, row := range rows {
-		points[i] = TimeSeriesPoint{
-			ServiceName: row.ServiceName,
-			Timestamp:   row.Timestamp,
-			ErrorCount:  row.ErrorCount,
-		}
-	}
-	return points
+type rawTimeBucketCountRow struct {
+	Timestamp time.Time `ch:"timestamp"`
+	Count     uint64    `ch:"count"`
 }
 
-func mapLatencyErrorRows(rows []latencyErrorRow) []TimeSeriesPoint {
-	points := make([]TimeSeriesPoint, len(rows))
-	for i, row := range rows {
-		points[i] = TimeSeriesPoint{
-			ServiceName:  row.ServiceName,
-			Timestamp:    row.Timestamp,
-			RequestCount: row.RequestCount,
-			ErrorCount:   row.ErrorCount,
-			AvgLatency:   row.AvgLatency,
-		}
-	}
-	return points
+type rawExceptionRateRow struct {
+	Timestamp     time.Time `ch:"time_bucket"`
+	ExceptionType string    `ch:"exception_type"`
+	Count         uint64    `ch:"event_count"`
 }
 
-// DTO aliases migrated from errortracking
-type exceptionRatePointDTO = ExceptionRatePoint
-type errorHotspotCellDTO = ErrorHotspotCell
-type http5xxByRouteDTO = HTTP5xxByRoute
+type rawErrorHotspotRow struct {
+	ServiceName   string `ch:"service"`
+	OperationName string `ch:"operation_name"`
+	ErrorCount    uint64 `ch:"error_count"`
+	TotalCount    uint64 `ch:"total_count"`
+}
 
-// DTO aliases migrated from errorfingerprint
-type errorFingerprintDTO = ErrorFingerprint
-type fingerprintTrendPointDTO = FingerprintTrendPoint
+type rawHTTP5xxRow struct {
+	HTTPRoute   string `ch:"http_route"`
+	ServiceName string `ch:"service"`
+	Count       int64  `ch:"count_5xx"`
+}
+
+type rawErrorFingerprintRow struct {
+	Fingerprint   string    `ch:"fingerprint"`
+	ServiceName   string    `ch:"service"`
+	OperationName string    `ch:"operation_name"`
+	ExceptionType string    `ch:"exception_type"`
+	StatusMessage string    `ch:"status_message"`
+	FirstSeen     time.Time `ch:"first_seen"`
+	LastSeen      time.Time `ch:"last_seen"`
+	Count         uint64    `ch:"cnt"`
+	SampleTraceID string    `ch:"sample_trace_id"`
+}
+
+type rawFingerprintTrendRow struct {
+	Timestamp time.Time `ch:"ts"`
+	Count     uint64    `ch:"cnt"`
+}

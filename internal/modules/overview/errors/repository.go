@@ -2,75 +2,42 @@ package errors
 
 import (
 	"context"
-	"fmt"
-	"sync"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/shared/resource"
 )
-
-func httpStatusBucketToCode(bucket string) int {
-	switch bucket {
-	case "4xx":
-		return 400
-	case "5xx":
-		return 500
-	default:
-		return 0
-	}
-}
-
-// Error-group drill-in (detail + traces + timeseries) requires resolving the
-// groupID back to its identity fields. Each call used to aggregate the full
-// group list independently; cache per (teamID, rounded time window) so one
-// CH aggregation serves all three follow-up calls for up to 60 s.
-const groupResolveCacheTTL = 60 * time.Second
-
-type groupResolveEntry struct {
-	groups    []errorGroupRow
-	expiresAt time.Time
-}
-
-var (
-	groupResolveMu    sync.Mutex
-	groupResolveStore = make(map[string]groupResolveEntry)
-)
-
-func groupResolveKey(teamID int64, startMs, endMs int64) string {
-	// Bucket the window to the minute so slight timestamp drift still hits.
-	return fmt.Sprintf("%d|%d|%d", teamID, startMs/60_000, endMs/60_000)
-}
-
-func errorBucketExpr(startMs, endMs int64) string {
-	// Bucket is the stored ts_bucket (5-min spans grain). No CH-side
-	// bucket math — see internal/infra/timebucket. startMs/endMs are
-	// retained in the signature for caller symmetry but no longer affect
-	// the grain.
-	_, _ = startMs, endMs
-	return "toDateTime(s.ts_bucket)"
-}
 
 type Repository interface {
-	GetServiceErrorRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]serviceErrorRateRow, error)
-	GetErrorVolume(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]errorVolumeRow, error)
-	GetLatencyDuringErrorWindows(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]latencyErrorRow, error)
-	GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorGroupRow, error)
-	GetErrorGroupDetail(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (*errorGroupDetailRow, error)
-	GetErrorGroupTraces(ctx context.Context, teamID int64, startMs, endMs int64, groupID string, limit int) ([]errorGroupTraceRow, error)
-	GetErrorGroupTimeseries(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) ([]errorGroupTSRow, error)
+	ServiceErrorRateRowsAll(ctx context.Context, teamID int64, startMs, endMs int64) ([]rawServiceRateRow, error)
+	ServiceErrorRateRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]rawServiceRateRow, error)
 
-	// Migrated from errortracking
-	GetExceptionRateByType(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]exceptionRatePointDTO, error)
-	GetErrorHotspot(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorHotspotCellDTO, error)
-	GetHTTP5xxByRoute(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]http5xxByRouteDTO, error)
+	ErrorVolumeRowsAll(ctx context.Context, teamID int64, startMs, endMs int64) ([]rawServiceErrorRow, error)
+	ErrorVolumeRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]rawServiceErrorRow, error)
 
-	// Migrated from errorfingerprint
-	ListFingerprints(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorFingerprintDTO, error)
-	GetFingerprintTrend(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName, exceptionType, statusMessage string) ([]fingerprintTrendPointDTO, error)
+	LatencyErrorRowsAll(ctx context.Context, teamID int64, startMs, endMs int64) ([]rawServiceRateRow, error)
+	LatencyErrorRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]rawServiceRateRow, error)
+
+	ErrorGroupRowsAll(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]rawErrorGroupRow, error)
+	ErrorGroupRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]rawErrorGroupRow, error)
+
+	ErrorGroupDetailRow(ctx context.Context, teamID int64, startMs, endMs int64, ident GroupIdentity) (*rawErrorGroupDetailRow, error)
+	ErrorGroupTraceRows(ctx context.Context, teamID int64, startMs, endMs int64, ident GroupIdentity, limit int) ([]rawErrorGroupTraceRow, error)
+	ErrorGroupTimeseriesRows(ctx context.Context, teamID int64, startMs, endMs int64, ident GroupIdentity) ([]rawTimeBucketCountRow, error)
+
+	ExceptionRateRowsAll(ctx context.Context, teamID int64, startMs, endMs int64) ([]rawExceptionRateRow, error)
+	ExceptionRateRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]rawExceptionRateRow, error)
+
+	ErrorHotspotRows(ctx context.Context, teamID int64, startMs, endMs int64) ([]rawErrorHotspotRow, error)
+
+	HTTP5xxByRouteRowsAll(ctx context.Context, teamID int64, startMs, endMs int64) ([]rawHTTP5xxRow, error)
+	HTTP5xxByRouteRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]rawHTTP5xxRow, error)
+
+	FingerprintRowsAll(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]rawErrorFingerprintRow, error)
+	FingerprintRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]rawErrorFingerprintRow, error)
+
+	FingerprintTrendRows(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName, exceptionType, statusMessage string) ([]rawFingerprintTrendRow, error)
 }
 
 type ClickHouseRepository struct {
@@ -81,737 +48,613 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-// errorGroupRow is the DTO for scanning error group rows from ClickHouse.
-// GroupID is computed in Go from the other fields, so we use a DTO (Rule B).
-type errorGroupRow struct {
-	ServiceName     string    `ch:"service"`
-	OperationName   string    `ch:"operation_name"`
-	StatusMessage   string    `ch:"status_message"`
-	HTTPStatusCode  uint16    `ch:"http_status_code"`
-	ErrorCount      int64     `ch:"error_count"`
-	LastOccurrence  time.Time `ch:"last_occurrence"`
-	FirstOccurrence time.Time `ch:"first_occurrence"`
-	SampleTraceID   string    `ch:"sample_trace_id"`
-}
+// --- Service error rate ---
 
-// errorGroupRawRow scans the rollup aggregate shape before we cast/derive
-// the DTO fields the service layer expects (string status message, uint16
-// http_status_code).
-type errorGroupRawRow struct {
-	ServiceName      string    `ch:"service"`
-	OperationName    string    `ch:"operation_name"`
-	StatusMessage    string    `ch:"status_message"`
-	HTTPStatusBucket string    `ch:"http_status_bucket"`
-	ErrorCount       uint64    `ch:"error_count"`
-	LastOccurrence   time.Time `ch:"last_occurrence"`
-	FirstOccurrence  time.Time `ch:"first_occurrence"`
-	SampleTraceID    string    `ch:"sample_trace_id"`
-}
-
-func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorGroupRow, error) {
-	table := "observability.spans"
-	query := fmt.Sprintf(`
-		SELECT service,
-		       operation_name,
-		       any(status_message) AS status_message,
-		       http_status_bucket,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)           AS error_count,
-		       max(timestamp)             AS last_occurrence,
-		       min(timestamp)            AS first_occurrence,
-		       any(trace_id)       AS sample_trace_id
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end`, table)
-	args := errFingerprintRollupParams(teamID, startMs, endMs)
-	if serviceName != "" {
-		query += ` AND service = @serviceName`
-		args = append(args, clickhouse.Named("serviceName", serviceName))
-	}
-	query += ` GROUP BY service, operation_name, exception_type, status_message_hash, http_status_bucket
-	           ORDER BY error_count DESC
-	           LIMIT @limit`
-	args = append(args, clickhouse.Named("limit", limit))
-
-	var raw []errorGroupRawRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetErrorGroups", &raw, query, args...); err != nil {
-		return nil, err
-	}
-
-	rows := make([]errorGroupRow, len(raw))
-	for i, row := range raw {
-		rows[i] = errorGroupRow{
-			ServiceName:     row.ServiceName,
-			OperationName:   row.OperationName,
-			StatusMessage:   row.StatusMessage,
-			HTTPStatusCode:  uint16(httpStatusBucketToCode(row.HTTPStatusBucket)), //nolint:gosec // domain-bounded
-			ErrorCount:      int64(row.ErrorCount),                                //nolint:gosec // domain-bounded
-			LastOccurrence:  row.LastOccurrence,
-			FirstOccurrence: row.FirstOccurrence,
-			SampleTraceID:   row.SampleTraceID,
-		}
-	}
-	return rows, nil
-}
-
-// resolveGroupID finds the error group matching the given groupID hash.
-// Results are cached briefly so the detail/traces/timeseries calls that
-// follow a drill-in share a single backing CH aggregation.
-func (r *ClickHouseRepository) resolveGroupID(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (service, operation, statusMessage string, httpCode int, err error) {
-	groups, err := r.cachedErrorGroups(ctx, teamID, startMs, endMs)
-	if err != nil {
-		return "", "", "", 0, err
-	}
-	for _, g := range groups {
-		code := int(g.HTTPStatusCode)
-		if ErrorGroupID(g.ServiceName, g.OperationName, g.StatusMessage, code) == groupID {
-			return g.ServiceName, g.OperationName, g.StatusMessage, code, nil
-		}
-	}
-	return "", "", "", 0, fmt.Errorf("error group %s not found", groupID)
-}
-
-// cachedErrorGroups returns a short-TTL cached group list for the given
-// window, fetching from ClickHouse only on miss/expiry.
-func (r *ClickHouseRepository) cachedErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorGroupRow, error) {
-	key := groupResolveKey(teamID, startMs, endMs)
-
-	groupResolveMu.Lock()
-	entry, ok := groupResolveStore[key]
-	groupResolveMu.Unlock()
-	if ok && time.Now().Before(entry.expiresAt) {
-		return entry.groups, nil
-	}
-
-	groups, err := r.GetErrorGroups(ctx, teamID, startMs, endMs, "", 500)
-	if err != nil {
-		return nil, err
-	}
-
-	groupResolveMu.Lock()
-	groupResolveStore[key] = groupResolveEntry{groups: groups, expiresAt: time.Now().Add(groupResolveCacheTTL)}
-	// Drop stale entries so the map doesn't grow unbounded across windows.
-	if len(groupResolveStore) > 256 {
-		now := time.Now()
-		for k, e := range groupResolveStore {
-			if now.After(e.expiresAt) {
-				delete(groupResolveStore, k)
-			}
-		}
-	}
-	groupResolveMu.Unlock()
-
-	return groups, nil
-}
-
-// errorGroupDetailRow is the DTO for GetErrorGroupDetail.
-type errorGroupDetailRow struct {
-	ServiceName     string    `ch:"service"`
-	OperationName   string    `ch:"operation_name"`
-	StatusMessage   string    `ch:"status_message"`
-	HTTPStatusCode  uint16    `ch:"http_status_code"`
-	ErrorCount      int64     `ch:"error_count"`
-	LastOccurrence  time.Time `ch:"last_occurrence"`
-	FirstOccurrence time.Time `ch:"first_occurrence"`
-	SampleTraceID   string    `ch:"sample_trace_id"`
-	ExceptionType   string    `ch:"exception_type"`
-	StackTrace      string    `ch:"stack_trace"`
-}
-
-func (r *ClickHouseRepository) GetErrorGroupDetail(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (*errorGroupDetailRow, error) {
-	svc, op, msg, code, err := r.resolveGroupID(ctx, teamID, startMs, endMs, groupID)
-	if err != nil {
-		return nil, err
-	}
-
-	query := `
-		SELECT s.service, s.name AS operation_name, s.status_message,
-		       toUInt16OrZero(s.response_status_code) AS http_status_code,
-		       toInt64(COUNT(*)) AS error_count,
-		       MAX(s.timestamp) AS last_occurrence,
-		       MIN(s.timestamp) AS first_occurrence,
-		       any(s.trace_id) AS sample_trace_id,
-		       any(s.exception_type) AS exception_type,
-		       any(s.exception_stacktrace) AS stack_trace
+func (r *ClickHouseRepository) ServiceErrorRateRowsAll(ctx context.Context, teamID int64, startMs, endMs int64) ([]rawServiceRateRow, error) {
+	const query = `
+		SELECT s.service                                                            AS service,
+		       s.ts_bucket                                                          AS timestamp,
+		       count()                                                              AS request_count,
+		       countIf(s.is_error) AS error_count,
+		       sum(s.duration_nano / 1000000.0)                                     AS duration_ms_sum
 		FROM observability.spans s
-		WHERE s.team_id = @teamID AND (` + ErrorCondition() + `)
-		  AND s.ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		  AND s.timestamp BETWEEN @start AND @end
-		  AND s.service = @groupServiceName
-		  AND s.name = @groupOperationName
-		  AND s.status_message = @groupStatusMessage
-		  AND toUInt16OrZero(s.response_status_code) = @groupHTTPStatusCode
-		GROUP BY s.service, s.name, s.status_message, toUInt16OrZero(s.response_status_code)`
-
-	args := append(dbutil.SpanBaseParams(teamID, startMs, endMs),
-		clickhouse.Named("groupServiceName", svc),
-		clickhouse.Named("groupOperationName", op),
-		clickhouse.Named("groupStatusMessage", msg),
-		clickhouse.Named("groupHTTPStatusCode", code),
-	)
-
-	var row errorGroupDetailRow
-	if err := dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetErrorSummary", &row, query, args...); err != nil {
-		return nil, err
-	}
-
-	return &row, nil
-}
-
-// errorGroupTraceRow is the DTO for GetErrorGroupTraces.
-type errorGroupTraceRow struct {
-	TraceID    string    `ch:"trace_id"`
-	SpanID     string    `ch:"span_id"`
-	Timestamp  time.Time `ch:"timestamp"`
-	DurationMs float64   `ch:"duration_ms"`
-	StatusCode string    `ch:"status_code"`
-}
-
-func (r *ClickHouseRepository) GetErrorGroupTraces(ctx context.Context, teamID int64, startMs, endMs int64, groupID string, limit int) ([]errorGroupTraceRow, error) {
-	svc, op, msg, code, err := r.resolveGroupID(ctx, teamID, startMs, endMs, groupID)
-	if err != nil {
-		return nil, err
-	}
-
-	query := `
-		SELECT s.trace_id, s.span_id, s.timestamp,
-		       s.duration_nano / 1000000.0 AS duration_ms,
-		       s.status_code_string AS status_code
-		FROM observability.spans s
-		WHERE s.team_id = @teamID AND (` + ErrorCondition() + `)
-		  AND s.ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		  AND s.timestamp BETWEEN @start AND @end
-		  AND s.service = @groupServiceName
-		  AND s.name = @groupOperationName
-		  AND s.status_message = @groupStatusMessage
-		  AND toUInt16OrZero(s.response_status_code) = @groupHTTPStatusCode
-		ORDER BY s.timestamp DESC
-		LIMIT @limit`
-
-	args := append(dbutil.SpanBaseParams(teamID, startMs, endMs),
-		clickhouse.Named("groupServiceName", svc),
-		clickhouse.Named("groupOperationName", op),
-		clickhouse.Named("groupStatusMessage", msg),
-		clickhouse.Named("groupHTTPStatusCode", code),
-		clickhouse.Named("limit", limit),
-	)
-
-	var rows []errorGroupTraceRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetErrorGroupTraces", &rows, query, args...); err != nil {
-		return nil, err
-	}
-
-	return rows, nil
-}
-
-// errorGroupTSRow is the DTO for GetErrorGroupTimeseries.
-type errorGroupTSRow struct {
-	Timestamp  time.Time `ch:"timestamp"`
-	ErrorCount int64     `ch:"error_count"`
-}
-
-func (r *ClickHouseRepository) GetErrorGroupTimeseries(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) ([]errorGroupTSRow, error) {
-	svc, op, msg, code, err := r.resolveGroupID(ctx, teamID, startMs, endMs, groupID)
-	if err != nil {
-		return nil, err
-	}
-
-	bucket := errorBucketExpr(startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT %s AS timestamp,
-		       toInt64(COUNT(*)) AS error_count
-		FROM observability.spans s
-		WHERE s.team_id = @teamID AND (`+ErrorCondition()+`)
-		  AND s.ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		  AND s.timestamp BETWEEN @start AND @end
-		  AND s.service = @groupServiceName
-		  AND s.name = @groupOperationName
-		  AND s.status_message = @groupStatusMessage
-		  AND toUInt16OrZero(s.response_status_code) = @groupHTTPStatusCode
-		GROUP BY timestamp
-		ORDER BY timestamp ASC`, bucket)
-
-	args := append(dbutil.SpanBaseParams(teamID, startMs, endMs),
-		clickhouse.Named("groupServiceName", svc),
-		clickhouse.Named("groupOperationName", op),
-		clickhouse.Named("groupStatusMessage", msg),
-		clickhouse.Named("groupHTTPStatusCode", code),
-	)
-
-	var rows []errorGroupTSRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetErrorGroupTimeseries", &rows, query, args...); err != nil {
-		return nil, err
-	}
-
-	return rows, nil
-}
-
-// serviceErrorRateRow is the DTO for GetServiceErrorRate. Sourced from the
-// spans_rollup_1m root-span rollup; error_rate + avg_latency are derived
-// Go-side from the merged state columns.
-type serviceErrorRateRow struct {
-	ServiceName  string    `ch:"service"`
-	Timestamp    time.Time `ch:"timestamp"`
-	RequestCount int64     `ch:"request_count"`
-	ErrorCount   int64     `ch:"error_count"`
-	ErrorRate    float64   `ch:"error_rate"`
-	AvgLatency   float64   `ch:"avg_latency"`
-}
-
-type serviceErrorRateRawRow struct {
-	ServiceName   string    `ch:"service"`
-	Timestamp     time.Time `ch:"timestamp"`
-	RequestCount  uint64    `ch:"request_count"`
-	ErrorCount    uint64    `ch:"error_count"`
-	DurationMsSum float64   `ch:"duration_ms_sum"`
-}
-
-func (r *ClickHouseRepository) GetServiceErrorRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]serviceErrorRateRow, error) {
-	table := "observability.spans"
-	tierStep := int64(1)
-	query := fmt.Sprintf(`
-		SELECT service,
-		       ts_bucket AS timestamp,
-		       count()   AS request_count,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)     AS error_count,
-		       sum(duration_nano / 1000000.0) AS duration_ms_sum
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end`, table)
-	args := append(rollupBaseParams(teamID, startMs, endMs),
-		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
-	)
-	if serviceName != "" {
-		query += ` AND service = @serviceName`
-		args = append(args, clickhouse.Named("serviceName", serviceName))
-	}
-	query += `
-		GROUP BY service, timestamp
+		PREWHERE s.team_id   = @teamID
+		     AND s.ts_bucket BETWEEN @start AND @end
+		GROUP BY s.service, timestamp
 		ORDER BY timestamp ASC
 		LIMIT 10000`
-
-	var raw []serviceErrorRateRawRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetServiceErrorRate", &raw, query, args...); err != nil {
-		return nil, err
-	}
-
-	rows := make([]serviceErrorRateRow, len(raw))
-	for i, row := range raw {
-		total := int64(row.RequestCount) //nolint:gosec // domain-bounded
-		errs := int64(row.ErrorCount)    //nolint:gosec // domain-bounded
-		rate := 0.0
-		if total > 0 {
-			rate = float64(errs) * 100.0 / float64(total)
-		}
-		avg := 0.0
-		if row.RequestCount > 0 {
-			avg = row.DurationMsSum / float64(row.RequestCount)
-		}
-		rows[i] = serviceErrorRateRow{
-			ServiceName:  row.ServiceName,
-			Timestamp:    row.Timestamp,
-			RequestCount: total,
-			ErrorCount:   errs,
-			ErrorRate:    rate,
-			AvgLatency:   avg,
-		}
-	}
-	return rows, nil
-}
-
-// errorVolumeRow is the DTO for GetErrorVolume.
-type errorVolumeRow struct {
-	ServiceName string    `ch:"service"`
-	Timestamp   time.Time `ch:"timestamp"`
-	ErrorCount  int64     `ch:"error_count"`
-}
-
-type errorVolumeRawRow struct {
-	ServiceName string    `ch:"service"`
-	Timestamp   time.Time `ch:"timestamp"`
-	ErrorCount  uint64    `ch:"error_count"`
-}
-
-func (r *ClickHouseRepository) GetErrorVolume(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]errorVolumeRow, error) {
-	table := "observability.spans"
-	tierStep := int64(1)
-	query := fmt.Sprintf(`
-		SELECT service,
-		       ts_bucket AS timestamp,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400) AS error_count
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end`, table)
-	args := append(rollupBaseParams(teamID, startMs, endMs),
-		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
-	)
-	if serviceName != "" {
-		query += ` AND service = @serviceName`
-		args = append(args, clickhouse.Named("serviceName", serviceName))
-	}
-	query += `
-		GROUP BY service, timestamp
-		ORDER BY timestamp ASC
-		LIMIT 10000`
-
-	var raw []errorVolumeRawRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetErrorVolume", &raw, query, args...); err != nil {
-		return nil, err
-	}
-
-	rows := make([]errorVolumeRow, 0, len(raw))
-	for _, row := range raw {
-		if row.ErrorCount == 0 {
-			continue
-		}
-		rows = append(rows, errorVolumeRow{
-			ServiceName: row.ServiceName,
-			Timestamp:   row.Timestamp,
-			ErrorCount:  int64(row.ErrorCount), //nolint:gosec // domain-bounded
-		})
-	}
-	return rows, nil
-}
-
-// latencyErrorRow is the DTO for GetLatencyDuringErrorWindows.
-type latencyErrorRow struct {
-	ServiceName  string    `ch:"service"`
-	Timestamp    time.Time `ch:"timestamp"`
-	RequestCount int64     `ch:"request_count"`
-	ErrorCount   int64     `ch:"error_count"`
-	AvgLatency   float64   `ch:"avg_latency"`
-}
-
-func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]latencyErrorRow, error) {
-	table := "observability.spans"
-	tierStep := int64(1)
-	query := fmt.Sprintf(`
-		SELECT service,
-		       ts_bucket AS timestamp,
-		       count()   AS request_count,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)     AS error_count,
-		       sum(duration_nano / 1000000.0) AS duration_ms_sum
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end`, table)
-	args := append(rollupBaseParams(teamID, startMs, endMs),
-		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
-	)
-	if serviceName != "" {
-		query += ` AND service = @serviceName`
-		args = append(args, clickhouse.Named("serviceName", serviceName))
-	}
-	query += `
-		GROUP BY service, timestamp
-		ORDER BY timestamp ASC
-		LIMIT 10000`
-
-	var raw []serviceErrorRateRawRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetLatencyDuringErrorWindows", &raw, query, args...); err != nil {
-		return nil, err
-	}
-
-	rows := make([]latencyErrorRow, 0, len(raw))
-	for _, row := range raw {
-		if row.ErrorCount == 0 {
-			continue
-		}
-		total := int64(row.RequestCount) //nolint:gosec // domain-bounded
-		errs := int64(row.ErrorCount)    //nolint:gosec // domain-bounded
-		avg := 0.0
-		if row.RequestCount > 0 {
-			avg = row.DurationMsSum / float64(row.RequestCount)
-		}
-		rows = append(rows, latencyErrorRow{
-			ServiceName:  row.ServiceName,
-			Timestamp:    row.Timestamp,
-			RequestCount: total,
-			ErrorCount:   errs,
-			AvgLatency:   avg,
-		})
-	}
-	return rows, nil
-}
-
-func rollupIntervalMinutesFor(startMs, endMs int64) int64 {
-	hours := (endMs - startMs) / 3_600_000
-	switch {
-	case hours <= 3:
-		return 1
-	case hours <= 24:
-		return 5
-	case hours <= 168:
-		return 60
-	default:
-		return 1440
-	}
-}
-
-// queryIntervalMinutes mirrors overview/overview.queryIntervalMinutes — returns
-// max(tierStep, dashboardStep) so the query-time step is never finer than the
-// rollup tier's native resolution.
-func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
-	dashStep := rollupIntervalMinutesFor(startMs, endMs)
-	if tierStepMin > dashStep {
-		return tierStepMin
-	}
-	return dashStep
-}
-
-// errFingerprintRollupParams returns the named params used by the fingerprint
-// rollup reads: teamID + start/end.
-func errFingerprintRollupParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
+	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 — tenant ID fits uint32
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
+	var rows []rawServiceRateRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.ServiceErrorRateAll", &rows, query, args...)
 }
 
-func rollupBaseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
-
-// --- Migrated from errortracking ---
-
-// exceptionRateRawRow scans the time-bucketed exception-type counts from the
-// fingerprint rollup; the UInt64 count is cast down to int64 for the DTO.
-type exceptionRateRawRow struct {
-	Timestamp     time.Time `ch:"time_bucket"`
-	ExceptionType string    `ch:"exception_type"`
-	Count         uint64    `ch:"event_count"`
-}
-
-func (r *ClickHouseRepository) GetExceptionRateByType(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]exceptionRatePointDTO, error) {
-	table := "observability.spans"
-	tierStep := int64(1)
-	query := fmt.Sprintf(`
-		SELECT ts_bucket AS time_bucket,
-		       exception_type,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                         AS event_count
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end
-		  AND exception_type != ''`, table)
-	args := append(errFingerprintRollupParams(teamID, startMs, endMs),
-		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
-	)
-	if serviceName != "" {
-		query += ` AND service = @serviceName`
-		args = append(args, clickhouse.Named("serviceName", serviceName))
-	}
-	query += ` GROUP BY time_bucket, exception_type ORDER BY time_bucket ASC`
-
-	var raw []exceptionRateRawRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetExceptionRateByType", &raw, query, args...); err != nil {
-		return nil, err
-	}
-	rows := make([]exceptionRatePointDTO, len(raw))
-	for i, row := range raw {
-		rows[i] = exceptionRatePointDTO{
-			Timestamp:     row.Timestamp,
-			ExceptionType: row.ExceptionType,
-			Count:         int64(row.Count), //nolint:gosec // domain-bounded
-		}
-	}
-	return rows, nil
-}
-
-// errorHotspotRawRow scans the fingerprint-rollup error counts joined with
-// the spans rollup's request totals; error_rate is derived Go-side.
-type errorHotspotRawRow struct {
-	ServiceName   string `ch:"service"`
-	OperationName string `ch:"operation_name"`
-	ErrorCount    uint64 `ch:"error_count"`
-	TotalCount    uint64 `ch:"total_count"`
-}
-
-func (r *ClickHouseRepository) GetErrorHotspot(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorHotspotCellDTO, error) {
-	spansTable := "observability.spans"
-
-	// spans_red already carries request_count + error_count per
-	// (service, operation, http_status_bucket). Aggregate directly from that
-	// rollup so the hotspot panel avoids a full grouped join at read time.
-	query := fmt.Sprintf(`
-		SELECT service,
-		       operation_name,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400) AS error_count,
-		       count() AS total_count
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end
-		  AND operation_name != ''
-		GROUP BY service, operation_name
-		HAVING error_count > 0
-		ORDER BY error_count DESC
-		LIMIT 500
-	`, spansTable)
-
-	var raw []errorHotspotRawRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetErrorHotspot", &raw, query, rollupBaseParams(teamID, startMs, endMs)...); err != nil {
-		return nil, err
-	}
-	rows := make([]errorHotspotCellDTO, len(raw))
-	for i, row := range raw {
-		total := int64(row.TotalCount) //nolint:gosec // domain-bounded
-		errs := int64(row.ErrorCount)  //nolint:gosec // domain-bounded
-		rate := 0.0
-		if total > 0 {
-			rate = float64(errs) * 100.0 / float64(total)
-		}
-		rows[i] = errorHotspotCellDTO{
-			ServiceName:   row.ServiceName,
-			OperationName: row.OperationName,
-			ErrorRate:     rate,
-			ErrorCount:    errs,
-			TotalCount:    total,
-		}
-	}
-	return rows, nil
-}
-
-func (r *ClickHouseRepository) GetHTTP5xxByRoute(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]http5xxByRouteDTO, error) {
-	where := `s.team_id = @teamID AND s.ts_bucket BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end AND toUInt16OrZero(s.response_status_code) >= 500`
+func (r *ClickHouseRepository) ServiceErrorRateRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]rawServiceRateRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND service = @serviceName
+		)
+		SELECT s.service                                                            AS service,
+		       s.ts_bucket                                                          AS timestamp,
+		       count()                                                              AS request_count,
+		       countIf(s.is_error) AS error_count,
+		       sum(s.duration_nano / 1000000.0)                                     AS duration_ms_sum
+		FROM observability.spans s
+		PREWHERE s.team_id     = @teamID
+		     AND s.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND s.fingerprint IN active_fps
+		WHERE s.ts_bucket BETWEEN @start AND @end
+		GROUP BY s.service, timestamp
+		ORDER BY timestamp ASC
+		LIMIT 10000`
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("serviceName", serviceName),
+	}
+	var rows []rawServiceRateRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.ServiceErrorRateByService", &rows, query, args...)
+}
+
+// --- Error volume ---
+
+func (r *ClickHouseRepository) ErrorVolumeRowsAll(ctx context.Context, teamID int64, startMs, endMs int64) ([]rawServiceErrorRow, error) {
+	const query = `
+		SELECT s.service                                                            AS service,
+		       s.ts_bucket                                                          AS timestamp,
+		       countIf(s.is_error) AS error_count
+		FROM observability.spans s
+		PREWHERE s.team_id   = @teamID
+		     AND s.ts_bucket BETWEEN @start AND @end
+		GROUP BY s.service, timestamp
+		ORDER BY timestamp ASC
+		LIMIT 10000`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
-	if serviceName != "" {
-		f := querycompiler.Filters{TeamID: teamID, StartMs: startMs, EndMs: endMs, Services: []string{serviceName}}
-		var (
-			empty bool
-			err   error
+	var rows []rawServiceErrorRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.ErrorVolumeAll", &rows, query, args...)
+}
+
+func (r *ClickHouseRepository) ErrorVolumeRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]rawServiceErrorRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND service = @serviceName
 		)
-		where, args, empty, err = resource.WithFingerprints(ctx, r.db, f, where, args)
-		if err != nil {
-			return nil, err
-		}
-		if empty {
-			return nil, nil
-		}
-	}
-	query := `
-		SELECT s.http_route      AS http_route,
-		       s.service    AS service,
-		       toInt64(count())  AS count_5xx
+		SELECT s.service                                                            AS service,
+		       s.ts_bucket                                                          AS timestamp,
+		       countIf(s.is_error) AS error_count
 		FROM observability.spans s
-		WHERE ` + where + `
-		GROUP BY http_route, s.service ORDER BY count_5xx DESC LIMIT 100`
-
-	var rows []http5xxByRouteDTO
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetHTTP5xxByRoute", &rows, query, args...)
-}
-
-// --- Migrated from errorfingerprint ---
-
-// errorFingerprintRawRow scans the rollup aggregate shape; Count is UInt64
-// in the rollup and is cast to int64 for the DTO below.
-type errorFingerprintRawRow struct {
-	Fingerprint   string    `ch:"fingerprint"`
-	ServiceName   string    `ch:"service"`
-	OperationName string    `ch:"operation_name"`
-	ExceptionType string    `ch:"exception_type"`
-	StatusMessage string    `ch:"status_message"`
-	FirstSeen     time.Time `ch:"first_seen"`
-	LastSeen      time.Time `ch:"last_seen"`
-	Count         uint64    `ch:"cnt"`
-	SampleTraceID string    `ch:"sample_trace_id"`
-}
-
-func (r *ClickHouseRepository) ListFingerprints(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorFingerprintDTO, error) {
-	table := "observability.spans"
-	query := fmt.Sprintf(`
-		SELECT toString(status_message_hash)   AS fingerprint,
-		       service,
-		       operation_name,
-		       exception_type,
-		       any(status_message) AS status_message,
-		       min(timestamp)            AS first_seen,
-		       max(timestamp)             AS last_seen,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)           AS cnt,
-		       any(trace_id)       AS sample_trace_id
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end`, table)
-	args := errFingerprintRollupParams(teamID, startMs, endMs)
-	if serviceName != "" {
-		query += ` AND service = @serviceName`
-		args = append(args, clickhouse.Named("serviceName", serviceName))
+		PREWHERE s.team_id     = @teamID
+		     AND s.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND s.fingerprint IN active_fps
+		WHERE s.ts_bucket BETWEEN @start AND @end
+		GROUP BY s.service, timestamp
+		ORDER BY timestamp ASC
+		LIMIT 10000`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("serviceName", serviceName),
 	}
-	query += `
-		GROUP BY service, operation_name, exception_type, status_message_hash, http_status_bucket
-		ORDER BY cnt DESC
-		LIMIT @limit`
-	args = append(args, clickhouse.Named("limit", limit))
+	var rows []rawServiceErrorRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.ErrorVolumeByService", &rows, query, args...)
+}
 
-	var raw []errorFingerprintRawRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.ListFingerprints", &raw, query, args...); err != nil {
+// --- Latency during error windows ---
+// Same shape as ServiceErrorRate; service.go discards zero-error rows.
+
+func (r *ClickHouseRepository) LatencyErrorRowsAll(ctx context.Context, teamID int64, startMs, endMs int64) ([]rawServiceRateRow, error) {
+	const query = `
+		SELECT s.service                                                            AS service,
+		       s.ts_bucket                                                          AS timestamp,
+		       count()                                                              AS request_count,
+		       countIf(s.is_error) AS error_count,
+		       sum(s.duration_nano / 1000000.0)                                     AS duration_ms_sum
+		FROM observability.spans s
+		PREWHERE s.team_id   = @teamID
+		     AND s.ts_bucket BETWEEN @start AND @end
+		GROUP BY s.service, timestamp
+		ORDER BY timestamp ASC
+		LIMIT 10000`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+	var rows []rawServiceRateRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.LatencyErrorAll", &rows, query, args...)
+}
+
+func (r *ClickHouseRepository) LatencyErrorRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]rawServiceRateRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND service = @serviceName
+		)
+		SELECT s.service                                                            AS service,
+		       s.ts_bucket                                                          AS timestamp,
+		       count()                                                              AS request_count,
+		       countIf(s.is_error) AS error_count,
+		       sum(s.duration_nano / 1000000.0)                                     AS duration_ms_sum
+		FROM observability.spans s
+		PREWHERE s.team_id     = @teamID
+		     AND s.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND s.fingerprint IN active_fps
+		WHERE s.ts_bucket BETWEEN @start AND @end
+		GROUP BY s.service, timestamp
+		ORDER BY timestamp ASC
+		LIMIT 10000`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("serviceName", serviceName),
+	}
+	var rows []rawServiceRateRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.LatencyErrorByService", &rows, query, args...)
+}
+
+// --- Error groups ---
+
+func (r *ClickHouseRepository) ErrorGroupRowsAll(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]rawErrorGroupRow, error) {
+	const query = `
+		SELECT s.service                                                            AS service,
+		       s.operation_name                                                     AS operation_name,
+		       any(s.status_message)                                                AS status_message,
+		       s.http_status_bucket                                                 AS http_status_bucket,
+		       countIf(s.is_error) AS error_count,
+		       max(s.timestamp)                                                     AS last_occurrence,
+		       min(s.timestamp)                                                     AS first_occurrence,
+		       any(s.trace_id)                                                      AS sample_trace_id
+		FROM observability.spans s
+		PREWHERE s.team_id   = @teamID
+		     AND s.ts_bucket BETWEEN @start AND @end
+		GROUP BY s.service, s.operation_name, s.exception_type, s.status_message_hash, s.http_status_bucket
+		ORDER BY error_count DESC
+		LIMIT @limit`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("limit", limit),
+	}
+	var rows []rawErrorGroupRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.ErrorGroupsAll", &rows, query, args...)
+}
+
+func (r *ClickHouseRepository) ErrorGroupRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]rawErrorGroupRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND service = @serviceName
+		)
+		SELECT s.service                                                            AS service,
+		       s.operation_name                                                     AS operation_name,
+		       any(s.status_message)                                                AS status_message,
+		       s.http_status_bucket                                                 AS http_status_bucket,
+		       countIf(s.is_error) AS error_count,
+		       max(s.timestamp)                                                     AS last_occurrence,
+		       min(s.timestamp)                                                     AS first_occurrence,
+		       any(s.trace_id)                                                      AS sample_trace_id
+		FROM observability.spans s
+		PREWHERE s.team_id     = @teamID
+		     AND s.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND s.fingerprint IN active_fps
+		WHERE s.ts_bucket BETWEEN @start AND @end
+		GROUP BY s.service, s.operation_name, s.exception_type, s.status_message_hash, s.http_status_bucket
+		ORDER BY error_count DESC
+		LIMIT @limit`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("serviceName", serviceName),
+		clickhouse.Named("limit", limit),
+	}
+	var rows []rawErrorGroupRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.ErrorGroupsByService", &rows, query, args...)
+}
+
+// --- Group drill-in (always scoped by GroupIdentity) ---
+
+func (r *ClickHouseRepository) ErrorGroupDetailRow(ctx context.Context, teamID int64, startMs, endMs int64, ident GroupIdentity) (*rawErrorGroupDetailRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND service = @groupServiceName
+		)
+		SELECT s.service                                          AS service,
+		       s.name                                              AS operation_name,
+		       s.status_message                                    AS status_message,
+		       s.http_status_code              AS http_status_code,
+		       toInt64(count())                                    AS error_count,
+		       max(s.timestamp)                                    AS last_occurrence,
+		       min(s.timestamp)                                    AS first_occurrence,
+		       any(s.trace_id)                                     AS sample_trace_id,
+		       any(s.exception_type)                               AS exception_type,
+		       any(s.exception_stacktrace)                         AS stack_trace
+		FROM observability.spans s
+		PREWHERE s.team_id     = @teamID
+		     AND s.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND s.fingerprint IN active_fps
+		WHERE s.is_error = 1
+		  AND s.timestamp BETWEEN @start AND @end
+		  AND s.service = @groupServiceName
+		  AND s.name = @groupOperationName
+		  AND s.status_message = @groupStatusMessage
+		  AND s.http_status_code = @groupHTTPStatusCode
+		GROUP BY s.service, s.name, s.status_message, s.http_status_code`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("groupServiceName", ident.Service),
+		clickhouse.Named("groupOperationName", ident.Operation),
+		clickhouse.Named("groupStatusMessage", ident.StatusMessage),
+		clickhouse.Named("groupHTTPStatusCode", ident.HTTPCode),
+	}
+	var row rawErrorGroupDetailRow
+	if err := dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "errors.ErrorGroupDetail", &row, query, args...); err != nil {
 		return nil, err
 	}
-	rows := make([]errorFingerprintDTO, len(raw))
-	for i, row := range raw {
-		rows[i] = errorFingerprintDTO{
-			Fingerprint:   row.Fingerprint,
-			ServiceName:   row.ServiceName,
-			OperationName: row.OperationName,
-			ExceptionType: row.ExceptionType,
-			StatusMessage: row.StatusMessage,
-			FirstSeen:     row.FirstSeen,
-			LastSeen:      row.LastSeen,
-			Count:         int64(row.Count), //nolint:gosec // domain-bounded
-			SampleTraceID: row.SampleTraceID,
-		}
+	return &row, nil
+}
+
+func (r *ClickHouseRepository) ErrorGroupTraceRows(ctx context.Context, teamID int64, startMs, endMs int64, ident GroupIdentity, limit int) ([]rawErrorGroupTraceRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND service = @groupServiceName
+		)
+		SELECT s.trace_id                       AS trace_id,
+		       s.span_id                        AS span_id,
+		       s.timestamp                      AS timestamp,
+		       s.duration_nano / 1000000.0      AS duration_ms,
+		       s.status_code_string             AS status_code
+		FROM observability.spans s
+		PREWHERE s.team_id     = @teamID
+		     AND s.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND s.fingerprint IN active_fps
+		WHERE s.is_error = 1
+		  AND s.timestamp BETWEEN @start AND @end
+		  AND s.service = @groupServiceName
+		  AND s.name = @groupOperationName
+		  AND s.status_message = @groupStatusMessage
+		  AND s.http_status_code = @groupHTTPStatusCode
+		ORDER BY s.timestamp DESC
+		LIMIT @limit`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("groupServiceName", ident.Service),
+		clickhouse.Named("groupOperationName", ident.Operation),
+		clickhouse.Named("groupStatusMessage", ident.StatusMessage),
+		clickhouse.Named("groupHTTPStatusCode", ident.HTTPCode),
+		clickhouse.Named("limit", limit),
 	}
-	return rows, nil
+	var rows []rawErrorGroupTraceRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.ErrorGroupTraces", &rows, query, args...)
 }
 
-// fingerprintTrendRawRow scans the rollup aggregate shape before casting the
-// UInt64 count to int64 for the DTO.
-type fingerprintTrendRawRow struct {
-	Timestamp time.Time `ch:"ts"`
-	Count     uint64    `ch:"cnt"`
+func (r *ClickHouseRepository) ErrorGroupTimeseriesRows(ctx context.Context, teamID int64, startMs, endMs int64, ident GroupIdentity) ([]rawTimeBucketCountRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND service = @groupServiceName
+		)
+		SELECT toDateTime(s.ts_bucket)            AS timestamp,
+		       toUInt64(count())                  AS count
+		FROM observability.spans s
+		PREWHERE s.team_id     = @teamID
+		     AND s.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND s.fingerprint IN active_fps
+		WHERE s.is_error = 1
+		  AND s.timestamp BETWEEN @start AND @end
+		  AND s.service = @groupServiceName
+		  AND s.name = @groupOperationName
+		  AND s.status_message = @groupStatusMessage
+		  AND s.http_status_code = @groupHTTPStatusCode
+		GROUP BY timestamp
+		ORDER BY timestamp ASC`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("groupServiceName", ident.Service),
+		clickhouse.Named("groupOperationName", ident.Operation),
+		clickhouse.Named("groupStatusMessage", ident.StatusMessage),
+		clickhouse.Named("groupHTTPStatusCode", ident.HTTPCode),
+	}
+	var rows []rawTimeBucketCountRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.ErrorGroupTimeseries", &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) GetFingerprintTrend(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName, exceptionType, statusMessage string) ([]fingerprintTrendPointDTO, error) {
-	table := "observability.spans"
-	tierStep := int64(1)
-	query := fmt.Sprintf(`
-		SELECT ts_bucket AS ts,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                        AS cnt
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end
-		  AND service = @serviceName
-		  AND operation_name = @operationName
-		  AND exception_type = @exceptionType
-		  AND status_message_hash = cityHash64(@statusMessage)
+// --- Exception rate by type ---
+
+func (r *ClickHouseRepository) ExceptionRateRowsAll(ctx context.Context, teamID int64, startMs, endMs int64) ([]rawExceptionRateRow, error) {
+	const query = `
+		SELECT s.ts_bucket                                                          AS time_bucket,
+		       s.exception_type                                                     AS exception_type,
+		       countIf(s.is_error) AS event_count
+		FROM observability.spans s
+		PREWHERE s.team_id   = @teamID
+		     AND s.ts_bucket BETWEEN @start AND @end
+		WHERE s.exception_type != ''
+		GROUP BY time_bucket, exception_type
+		ORDER BY time_bucket ASC`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+	var rows []rawExceptionRateRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.ExceptionRateAll", &rows, query, args...)
+}
+
+func (r *ClickHouseRepository) ExceptionRateRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]rawExceptionRateRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND service = @serviceName
+		)
+		SELECT s.ts_bucket                                                          AS time_bucket,
+		       s.exception_type                                                     AS exception_type,
+		       countIf(s.is_error) AS event_count
+		FROM observability.spans s
+		PREWHERE s.team_id     = @teamID
+		     AND s.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND s.fingerprint IN active_fps
+		WHERE s.ts_bucket BETWEEN @start AND @end
+		  AND s.exception_type != ''
+		GROUP BY time_bucket, exception_type
+		ORDER BY time_bucket ASC`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("serviceName", serviceName),
+	}
+	var rows []rawExceptionRateRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.ExceptionRateByService", &rows, query, args...)
+}
+
+// --- Error hotspot (no service filter) ---
+
+func (r *ClickHouseRepository) ErrorHotspotRows(ctx context.Context, teamID int64, startMs, endMs int64) ([]rawErrorHotspotRow, error) {
+	const query = `
+		SELECT s.service                                                            AS service,
+		       s.operation_name                                                     AS operation_name,
+		       countIf(s.is_error) AS error_count,
+		       count()                                                              AS total_count
+		FROM observability.spans s
+		PREWHERE s.team_id   = @teamID
+		     AND s.ts_bucket BETWEEN @start AND @end
+		WHERE s.operation_name != ''
+		GROUP BY s.service, s.operation_name
+		HAVING error_count > 0
+		ORDER BY error_count DESC
+		LIMIT 500`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+	var rows []rawErrorHotspotRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.ErrorHotspot", &rows, query, args...)
+}
+
+// --- HTTP 5xx by route ---
+
+func (r *ClickHouseRepository) HTTP5xxByRouteRowsAll(ctx context.Context, teamID int64, startMs, endMs int64) ([]rawHTTP5xxRow, error) {
+	const query = `
+		SELECT s.http_route          AS http_route,
+		       s.service             AS service,
+		       toInt64(count())      AS count_5xx
+		FROM observability.spans s
+		PREWHERE s.team_id   = @teamID
+		     AND s.ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		WHERE s.timestamp BETWEEN @start AND @end
+		  AND s.http_status_code >= 500
+		GROUP BY http_route, s.service
+		ORDER BY count_5xx DESC
+		LIMIT 100`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+	}
+	var rows []rawHTTP5xxRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.HTTP5xxByRouteAll", &rows, query, args...)
+}
+
+func (r *ClickHouseRepository) HTTP5xxByRouteRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]rawHTTP5xxRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND service = @serviceName
+		)
+		SELECT s.http_route          AS http_route,
+		       s.service             AS service,
+		       toInt64(count())      AS count_5xx
+		FROM observability.spans s
+		PREWHERE s.team_id     = @teamID
+		     AND s.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND s.fingerprint IN active_fps
+		WHERE s.timestamp BETWEEN @start AND @end
+		  AND s.http_status_code >= 500
+		GROUP BY http_route, s.service
+		ORDER BY count_5xx DESC
+		LIMIT 100`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("serviceName", serviceName),
+	}
+	var rows []rawHTTP5xxRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.HTTP5xxByRouteByService", &rows, query, args...)
+}
+
+// --- Fingerprint list ---
+
+func (r *ClickHouseRepository) FingerprintRowsAll(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]rawErrorFingerprintRow, error) {
+	const query = `
+		SELECT toString(s.status_message_hash)                                      AS fingerprint,
+		       s.service                                                            AS service,
+		       s.operation_name                                                     AS operation_name,
+		       s.exception_type                                                     AS exception_type,
+		       any(s.status_message)                                                AS status_message,
+		       min(s.timestamp)                                                     AS first_seen,
+		       max(s.timestamp)                                                     AS last_seen,
+		       countIf(s.is_error) AS cnt,
+		       any(s.trace_id)                                                      AS sample_trace_id
+		FROM observability.spans s
+		PREWHERE s.team_id   = @teamID
+		     AND s.ts_bucket BETWEEN @start AND @end
+		GROUP BY s.service, s.operation_name, s.exception_type, s.status_message_hash, s.http_status_bucket
+		ORDER BY cnt DESC
+		LIMIT @limit`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("limit", limit),
+	}
+	var rows []rawErrorFingerprintRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.FingerprintsAll", &rows, query, args...)
+}
+
+func (r *ClickHouseRepository) FingerprintRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]rawErrorFingerprintRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND service = @serviceName
+		)
+		SELECT toString(s.status_message_hash)                                      AS fingerprint,
+		       s.service                                                            AS service,
+		       s.operation_name                                                     AS operation_name,
+		       s.exception_type                                                     AS exception_type,
+		       any(s.status_message)                                                AS status_message,
+		       min(s.timestamp)                                                     AS first_seen,
+		       max(s.timestamp)                                                     AS last_seen,
+		       countIf(s.is_error) AS cnt,
+		       any(s.trace_id)                                                      AS sample_trace_id
+		FROM observability.spans s
+		PREWHERE s.team_id     = @teamID
+		     AND s.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND s.fingerprint IN active_fps
+		WHERE s.ts_bucket BETWEEN @start AND @end
+		GROUP BY s.service, s.operation_name, s.exception_type, s.status_message_hash, s.http_status_bucket
+		ORDER BY cnt DESC
+		LIMIT @limit`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("serviceName", serviceName),
+		clickhouse.Named("limit", limit),
+	}
+	var rows []rawErrorFingerprintRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.FingerprintsByService", &rows, query, args...)
+}
+
+// --- Fingerprint trend (serviceName mandatory at handler boundary) ---
+
+func (r *ClickHouseRepository) FingerprintTrendRows(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName, exceptionType, statusMessage string) ([]rawFingerprintTrendRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND service = @serviceName
+		)
+		SELECT s.ts_bucket                                                          AS ts,
+		       countIf(s.is_error) AS cnt
+		FROM observability.spans s
+		PREWHERE s.team_id     = @teamID
+		     AND s.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND s.fingerprint IN active_fps
+		WHERE s.ts_bucket BETWEEN @start AND @end
+		  AND s.operation_name = @operationName
+		  AND s.exception_type = @exceptionType
+		  AND s.status_message_hash = cityHash64(@statusMessage)
 		GROUP BY ts
-		ORDER BY ts ASC
-	`, table)
-	args := append(errFingerprintRollupParams(teamID, startMs, endMs),
-		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
+		ORDER BY ts ASC`
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("operationName", operationName),
 		clickhouse.Named("exceptionType", exceptionType),
 		clickhouse.Named("statusMessage", statusMessage),
-	)
-
-	var raw []fingerprintTrendRawRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.GetFingerprintTrend", &raw, query, args...); err != nil {
-		return nil, err
 	}
-	rows := make([]fingerprintTrendPointDTO, len(raw))
-	for i, row := range raw {
-		rows[i] = fingerprintTrendPointDTO{
-			Timestamp: row.Timestamp,
-			Count:     int64(row.Count), //nolint:gosec // domain-bounded
-		}
-	}
-	return rows, nil
+	var rows []rawFingerprintTrendRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.FingerprintTrend", &rows, query, args...)
 }

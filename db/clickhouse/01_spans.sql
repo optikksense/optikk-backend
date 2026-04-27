@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS observability.spans (
     duration_ms              Float64                ALIAS duration_nano / 1000000.0,
     status                   LowCardinality(String) ALIAS status_code_string,
     http_status_code         UInt16                 ALIAS toUInt16OrZero(response_status_code),
+    is_error                 UInt8                  ALIAS if(has_error OR toUInt16OrZero(response_status_code) >= 400, 1, 0),
     is_root                  UInt8                  ALIAS if((parent_span_id = '') OR (parent_span_id = '0000000000000000'), 1, 0),
     INDEX idx_fingerprint            fingerprint                         TYPE bloom_filter(0.01)      GRANULARITY 4,
     INDEX idx_trace_id               trace_id                            TYPE bloom_filter(0.01)      GRANULARITY 4
