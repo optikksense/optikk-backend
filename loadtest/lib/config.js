@@ -36,11 +36,11 @@ function requireLookback(s) {
 
 export const cfg = {
   baseUrl:   (env.BASE_URL   || 'http://localhost:19090').replace(/\/+$/, ''),
-  email:     requireEmail(env.EMAIL || 'loadtest@optikk.local'),
-  password:  env.PASSWORD || 'optikk-loadtest',
+  email:     requireEmail(env.EMAIL || 'user@example.com'),
+  password:  env.PASSWORD || '123',
   teamName:  env.TEAM_NAME || 'Loadtest Team',
   orgName:   env.ORG_NAME  || 'Loadtest Org',
-  teamId:    env.TEAM_ID ? requirePositiveInt('TEAM_ID', env.TEAM_ID) : undefined,
+  teamId:    env.TEAM_ID ? requirePositiveInt('TEAM_ID', env.TEAM_ID) : 1,
   rps:       requirePositiveInt('RPS', env.RPS || '10'),
   duration:  requireDuration(env.DURATION || '1m'),
   vus:       requirePositiveInt('VUS', env.VUS || '10'),

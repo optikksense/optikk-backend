@@ -6,8 +6,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
+		shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
 type Repository interface {
@@ -36,8 +35,8 @@ func systemFilter(dbSystem string, f shared.Filters) (string, []any) {
 }
 
 func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string, f shared.Filters) ([]LatencyTimeSeries, error) {
-	tier := rollup.For(rollup.FamilyDBOps, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	fc, fargs := systemFilter(dbSystem, f)
 
 	query := fmt.Sprintf(`
@@ -67,8 +66,8 @@ func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID int6
 }
 
 func (r *ClickHouseRepository) GetSystemOps(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string, f shared.Filters) ([]OpsTimeSeries, error) {
-	tier := rollup.For(rollup.FamilyDBOps, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	fc, fargs := systemFilter(dbSystem, f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
@@ -76,7 +75,7 @@ func (r *ClickHouseRepository) GetSystemOps(ctx context.Context, teamID int64, s
 		SELECT
 		    %s                                   AS time_bucket,
 		    db_operation                         AS group_by,
-		    toFloat64(sumMerge(hist_count)) / %f AS ops_per_sec
+		    toFloat64(sum(hist_count)) / %f AS ops_per_sec
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -97,15 +96,14 @@ func (r *ClickHouseRepository) GetSystemOps(ctx context.Context, teamID int64, s
 }
 
 func (r *ClickHouseRepository) GetSystemTopCollectionsByLatency(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]SystemCollectionRow, error) {
-	tier := rollup.For(rollup.FamilyDBOps, startMs, endMs)
-	table := tier.Table
+	table := "observability.metrics"
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
 	query := fmt.Sprintf(`
 		SELECT
 		    db_collection                                                               AS collection_name,
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) * 1000  AS p99_ms,
-		    toFloat64(sumMerge(hist_count)) / %f                                        AS ops_per_sec
+		    toFloat64(sum(hist_count)) / %f                                        AS ops_per_sec
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -127,15 +125,14 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByLatency(ctx context.Cont
 }
 
 func (r *ClickHouseRepository) GetSystemTopCollectionsByVolume(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]SystemCollectionRow, error) {
-	tier := rollup.For(rollup.FamilyDBOps, startMs, endMs)
-	table := tier.Table
+	table := "observability.metrics"
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
 	query := fmt.Sprintf(`
 		SELECT
 		    db_collection                                                               AS collection_name,
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) * 1000  AS p99_ms,
-		    toFloat64(sumMerge(hist_count)) / %f                                        AS ops_per_sec
+		    toFloat64(sum(hist_count)) / %f                                        AS ops_per_sec
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -157,15 +154,15 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByVolume(ctx context.Conte
 }
 
 func (r *ClickHouseRepository) GetSystemErrors(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]ErrorTimeSeries, error) {
-	tier := rollup.For(rollup.FamilyDBOps, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                   AS time_bucket,
 		    db_operation                         AS group_by,
-		    toFloat64(sumMerge(hist_count)) / %f AS errors_per_sec
+		    toFloat64(sum(hist_count)) / %f AS errors_per_sec
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -187,13 +184,12 @@ func (r *ClickHouseRepository) GetSystemErrors(ctx context.Context, teamID int64
 }
 
 func (r *ClickHouseRepository) GetSystemNamespaces(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]SystemNamespace, error) {
-	tier := rollup.For(rollup.FamilyDBOps, startMs, endMs)
-	table := tier.Table
+	table := "observability.metrics"
 
 	query := fmt.Sprintf(`
 		SELECT
 		    db_namespace             AS namespace,
-		    toInt64(sumMerge(hist_count)) AS span_count
+		    toInt64(sum(hist_count)) AS span_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end

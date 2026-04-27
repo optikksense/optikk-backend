@@ -3,6 +3,7 @@ package consumer
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -43,13 +44,14 @@ func insertBatch(ctx context.Context, ch clickhouse.Conn, query string, rows []*
 	if err != nil {
 		return fmt.Errorf("prepare: %w", err)
 	}
-	for _, row := range rows {
+	for i, row := range rows {
 		if err := batch.Append(schema.ChValues(row)...); err != nil {
-			return fmt.Errorf("append: %w", err)
+			return fmt.Errorf("append at index %d: %w", i, err)
 		}
 	}
 	if err := batch.Send(); err != nil {
 		return fmt.Errorf("send: %w", err)
 	}
+	slog.DebugContext(ctx, "logs writer: batch sent successfully", slog.Int("row_count", len(rows)))
 	return nil
 }

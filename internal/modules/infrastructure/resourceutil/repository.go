@@ -7,8 +7,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/connpool"
+		"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/connpool"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/cpu"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/disk"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/memory"
@@ -106,11 +105,11 @@ func (r *compositeRepository) GetMemoryUsagePercentage(ctx context.Context, team
 // ---- Composite cross-resource endpoints ----
 
 func (r *compositeRepository) GetResourceUsageByService(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceResource, error) {
-	table := rollup.For(rollup.FamilyInfraResourceByService, startMs, endMs).Table
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT service                                                        AS service_name,
 		       metric_name                                                    AS metric_name,
-		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS avg_value
+		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0) AS avg_value
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end

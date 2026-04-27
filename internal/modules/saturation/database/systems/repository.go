@@ -7,8 +7,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
+		shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
 type Repository interface {
@@ -25,18 +24,17 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) GetDetectedSystems(ctx context.Context, teamID int64, startMs, endMs int64) ([]DetectedSystem, error) {
-	tier := rollup.For(shared.DBHistRollupPrefix, startMs, endMs)
-	table := tier.Table
+	table := "observability.metrics"
 
 	// last_seen is derived from bucket_ts (the rollup's minute-aligned bucket) —
 	// within one-minute precision of the raw max(timestamp) it replaced.
 	query := fmt.Sprintf(`
 		SELECT
 		    db_system                                                                   AS db_system,
-		    toInt64(sumMerge(hist_count))                                               AS span_count,
+		    toInt64(sum(hist_count))                                               AS span_count,
 		    toInt64(sumMergeIf(hist_count, notEmpty(error_type)))                       AS error_count,
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) * 1000  AS avg_latency_ms,
-		    toInt64(sumMerge(hist_count))                                               AS query_count,
+		    toInt64(sum(hist_count))                                               AS query_count,
 		    any(server_address)                                                         AS server_address,
 		    max(bucket_ts)                                                              AS last_seen
 		FROM %s
@@ -71,61 +69,26 @@ func (r *ClickHouseRepository) GetDetectedSystems(ctx context.Context, teamID in
 }
 
 func (r *ClickHouseRepository) GetSystemSummaries(ctx context.Context, teamID int64, startMs, endMs int64) ([]SystemSummary, error) {
-	table := rollup.For(shared.DBHistRollupPrefix, startMs, endMs).Table
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
-		WITH ops AS (
-			SELECT
-				db_system AS db_system,
-				toInt64(sumMerge(hist_count)) AS query_count,
-				if(sumMerge(hist_count) > 0, (sumMerge(hist_sum) / toFloat64(sumMerge(hist_count))) * 1000.0, 0.0) AS avg_latency_ms,
-				toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) * 1000.0 AS p95_latency_ms,
-				any(server_address) AS server_address,
-				max(bucket_ts) AS last_seen
-			FROM %s
-			WHERE team_id = @teamID
-			  AND bucket_ts BETWEEN @start AND @end
-			  AND metric_name = @metricName
-			  AND notEmpty(db_system)
-			GROUP BY db_system
-		),
-		errors AS (
-			SELECT
-				db_system AS db_system,
-				toInt64(sumMerge(hist_count)) AS error_count
-			FROM %s
-			WHERE team_id = @teamID
-			  AND bucket_ts BETWEEN @start AND @end
-			  AND metric_name = @metricName
-			  AND error_type != ''
-			  AND notEmpty(db_system)
-			GROUP BY db_system
-		),
-		connections AS (
-			SELECT
-				db_system AS db_system,
-				toInt64(round(toFloat64(sumMerge(value_sum)))) AS active_connections
-			FROM %s
-			WHERE team_id = @teamID
-			  AND bucket_ts BETWEEN @start AND @end
-			  AND metric_name = @connMetric
-			  AND db_connection_state = 'used'
-			  AND notEmpty(db_system)
-			GROUP BY db_system
-		)
 		SELECT
-			ops.db_system AS db_system,
-			ops.query_count AS query_count,
-			coalesce(errors.error_count, toInt64(0)) AS error_count,
-			ops.avg_latency_ms AS avg_latency_ms,
-			ops.p95_latency_ms AS p95_latency_ms,
-			coalesce(connections.active_connections, toInt64(0)) AS active_connections,
-			ops.server_address AS server_address,
-			ops.last_seen AS last_seen
-		FROM ops
-		LEFT JOIN errors ON ops.db_system = errors.db_system
-		LEFT JOIN connections ON ops.db_system = connections.db_system
-		ORDER BY ops.query_count DESC
-	`, table, table, table)
+			db_system                                                                    AS db_system,
+			toInt64(sumMergeIf(hist_count, metric_name = @metricName))                  AS query_count,
+			toInt64(sumMergeIf(hist_count, metric_name = @metricName AND error_type != '')) AS error_count,
+			if(sum(hist_count) > 0,
+			   (toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_digest)[1]) * 1000.0),
+			   0.0)                                                                      AS avg_latency_ms,
+			toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_digest)[2]) * 1000.0 AS p95_latency_ms,
+			toInt64(round(toFloat64(sumMergeIf(value_sum, metric_name = @connMetric AND db_connection_state = 'used')))) AS active_connections,
+			''                                                                           AS server_address,
+			max(bucket_ts)                                                               AS last_seen
+		FROM %s
+		WHERE team_id = @teamID
+		  AND bucket_ts BETWEEN @start AND @end
+		  AND notEmpty(db_system)
+		GROUP BY db_system
+		ORDER BY query_count DESC
+	`, table)
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // domain-bounded
 		clickhouse.Named("start", time.UnixMilli(startMs)),

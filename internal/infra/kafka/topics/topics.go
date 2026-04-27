@@ -65,3 +65,12 @@ func normalizeIngestPrefix(prefix string) string {
 	}
 	return p
 }
+
+// IsLogsTopic returns true if the topic name ends with ".logs".
+func IsLogsTopic(topic string) bool { return strings.HasSuffix(topic, "."+SignalLogs) }
+
+// IsMetricsTopic returns true if the topic name ends with ".metrics".
+func IsMetricsTopic(topic string) bool { return strings.HasSuffix(topic, "."+SignalMetrics) }
+
+// IsSpansTopic returns true if the topic name ends with ".spans".
+func IsSpansTopic(topic string) bool { return strings.HasSuffix(topic, "."+SignalSpans) }

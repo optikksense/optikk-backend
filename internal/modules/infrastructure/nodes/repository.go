@@ -9,14 +9,13 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-)
+	)
 
-// Reads target the `observability.spans_host_rollup_{1m,5m,1h}` cascade —
+// Reads target the `observability.signoz_index_v3_host_rollup_{1m,5m,1h}` cascade —
 // Phase 6 per-host RED aggregates. Rollup is keyed by
 // (team_id, bucket_ts, host_name, pod_name, service_name) so pod + service
 // cardinality comes from `uniq()` on the grouping dims.
-const spansHostRollupPrefix = rollup.FamilySpansHost
+const spansHostRollupPrefix = "observability.signoz_index_v3"
 
 // queryIntervalMinutes returns max(tierStep, dashboardStep) so the query-time
 // step is never finer than the tier's native resolution. Matches the helper
@@ -75,13 +74,13 @@ type infrastructureNodeServiceDTO struct {
 }
 
 func (r *ClickHouseRepository) GetInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]InfrastructureNode, error) {
-	table := rollup.For(spansHostRollupPrefix, startMs, endMs).Table
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT if(host_name != '', host_name, '%s') AS host_name,
 		       uniqIf(pod_name, pod_name != '')                                  AS pod_count,
-		       sumMerge(request_count)                                           AS request_count,
-		       sumMerge(error_count)                                             AS error_count,
-		       sumMerge(duration_ms_sum)                                         AS duration_ms_sum,
+		       count()                                           AS request_count,
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                             AS error_count,
+		       sum(duration_nano / 1000000.0)                                         AS duration_ms_sum,
 		       max(bucket_ts)                                                    AS last_seen
 		FROM %s
 		WHERE team_id = @teamID
@@ -128,7 +127,7 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(ctx context.Context, teamI
 }
 
 func (r *ClickHouseRepository) GetInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (InfrastructureNodeSummary, error) {
-	table := rollup.For(rollup.FamilySpansNode, startMs, endMs).Table
+	table := "observability.signoz_index_v3"
 	// Dedicated summary query that avoids the MaxNodes limit and executes a
 	// single pass over host-level aggregates to categorize health.
 	query := fmt.Sprintf(`
@@ -140,7 +139,7 @@ func (r *ClickHouseRepository) GetInfrastructureNodeSummary(ctx context.Context,
 		FROM (
 		    SELECT
 		        host_name,
-		        (sumMerge(error_count) * 100.0 / nullIf(toFloat64(sumMerge(request_count)), 0)) AS error_rate,
+		        (countIf(has_error OR toUInt16OrZero(response_status_code) >= 400) * 100.0 / nullIf(toFloat64(count()), 0)) AS error_rate,
 		        uniqMerge(pod_count)                                                         AS pod_count
 		    FROM %s
 		    WHERE team_id = @teamID
@@ -179,12 +178,12 @@ func (r *ClickHouseRepository) GetInfrastructureNodeSummary(ctx context.Context,
 }
 
 func (r *ClickHouseRepository) GetInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error) {
-	table := rollup.For(spansHostRollupPrefix, startMs, endMs).Table
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT service_name                                                      AS service_name,
-		       sumMerge(request_count)                                           AS request_count,
-		       sumMerge(error_count)                                             AS error_count,
-		       sumMerge(duration_ms_sum)                                         AS duration_ms_sum,
+		       count()                                           AS request_count,
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                             AS error_count,
+		       sum(duration_nano / 1000000.0)                                         AS duration_ms_sum,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_latency,
 		       uniqIf(pod_name, pod_name != '')                                  AS pod_count
 		FROM %s

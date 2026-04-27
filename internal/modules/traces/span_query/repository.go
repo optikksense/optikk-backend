@@ -9,7 +9,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
 )
 
-const spansRawTable = "observability.spans"
+const spansRawTable = "observability.signoz_index_v3"
 
 const spanRowColumns = `span_id, trace_id, parent_span_id, service_name, name, kind_string,
 		duration_nano, toUnixTimestamp64Nano(timestamp) AS timestamp_ns, has_error,
@@ -27,7 +27,7 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-// ListSpans reads individual spans from observability.spans with keyset pagination
+// ListSpans reads individual spans from observability.signoz_index_v3 with keyset pagination
 // on (timestamp, span_id).
 func (r *ClickHouseRepository) ListSpans(ctx context.Context, f querycompiler.Filters, limit int, cur SpanCursor) ([]spanRowDTO, bool, []string, error) {
 	compiled := querycompiler.Compile(f, querycompiler.TargetSpansRaw)

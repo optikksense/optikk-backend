@@ -94,7 +94,7 @@ All four are wired in:
 ### Prometheus output
 
 The local Prometheus stack at
-[`deploy/monitoring/stack/docker-compose.yml`](../../deploy/monitoring/stack/docker-compose.yml)
+[`monitoring/stack/docker-compose.yml`](../../monitoring/stack/docker-compose.yml)
 must accept remote-writes. Today it only scrapes — add the receiver flag
 to the `prometheus` service `command:` block:
 
@@ -108,7 +108,7 @@ command:
 ```
 
 Then restart with
-`docker compose -f deploy/monitoring/stack/docker-compose.yml up -d`.
+`docker compose -f monitoring/stack/docker-compose.yml up -d`.
 
 ## Layout
 
@@ -141,7 +141,7 @@ Module + endpoint coverage is enumerated by entrypoint:
 ## What to watch in Grafana
 
 While the load test runs, the existing dashboards in
-[`deploy/monitoring/grafana/dashboards/`](../../deploy/monitoring/grafana/dashboards/)
+[`monitoring/grafana/dashboards/`](../../monitoring/grafana/dashboards/)
 will tell you how the backend is responding:
 
 - `optikk_http_api` — per-API drill-down (request rate, p95, error rate).

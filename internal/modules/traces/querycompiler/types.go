@@ -8,15 +8,8 @@ package querycompiler
 type Target int
 
 const (
-	// TargetTracesIndex compiles for observability.traces_index (per-trace
-	// summary rows; fastest list path).
-	TargetTracesIndex Target = iota
-	// TargetSpansRaw compiles for observability.spans (full fidelity).
-	TargetSpansRaw
-	// TargetSpansRollup compiles for spans_rollup_{1m,5m,1h}.
-	TargetSpansRollup
-	// TargetFacetRollup compiles for traces_facets_rollup_5m.
-	TargetFacetRollup
+	// TargetSpansRaw compiles for observability.signoz_index_v3 (full fidelity).
+	TargetSpansRaw Target = iota
 )
 
 type AttrFilter struct {

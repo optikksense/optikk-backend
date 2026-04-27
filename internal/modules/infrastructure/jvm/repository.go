@@ -8,8 +8,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+		timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
@@ -21,8 +20,8 @@ import (
 //   - histogram metrics (jvm.gc.duration, including the per-collector
 //     breakdown via state_dim = `jvm.gc.name`) → metrics_hist rollup.
 const (
-	metricsGaugesRollupPrefix	= rollup.FamilyMetricsGauges
-	metricsHistPrefix		= rollup.FamilyMetricsHist
+	metricsGaugesRollupPrefix	= "observability.metrics"
+	metricsHistPrefix		= "observability.metrics"
 )
 
 type Repository interface {
@@ -51,13 +50,13 @@ func bucketExpr(startMs, endMs int64) string {
 // column (MV emits `concat(pool, '|', type)`). Values split across 3
 // metric_names; folded client-side.
 func (r *ClickHouseRepository) GetJVMMemory(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmMemoryBucketDTO, error) {
-	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                         AS time_bucket,
 		    state_dim                                                                  AS state_dim,
 		    metric_name                                                                AS metric_name,
-		    sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)     AS val
+		    sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)     AS val
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -108,13 +107,13 @@ func (r *ClickHouseRepository) GetJVMMemory(ctx context.Context, teamID int64, s
 }
 
 func (r *ClickHouseRepository) GetJVMGCDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error) {
-	table := rollup.For(metricsHistPrefix, startMs, endMs).Table
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1])  AS p50,
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])  AS p95,
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3])  AS p99,
-		    sumMerge(hist_sum) / nullIf(toFloat64(sumMerge(hist_count)), 0)      AS avg_val
+		    sum(hist_sum) / nullIf(toFloat64(sum(hist_count)), 0)      AS avg_val
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -134,12 +133,12 @@ func (r *ClickHouseRepository) GetJVMGCDuration(ctx context.Context, teamID int6
 }
 
 func (r *ClickHouseRepository) GetJVMGCCollections(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmGCCollectionBucketDTO, error) {
-	table := rollup.For(metricsHistPrefix, startMs, endMs).Table
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                            AS time_bucket,
 		    state_dim                     AS collector,
-		    toFloat64(sumMerge(hist_count)) AS metric_val
+		    toFloat64(sum(hist_count)) AS metric_val
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -159,12 +158,12 @@ func (r *ClickHouseRepository) GetJVMGCCollections(ctx context.Context, teamID i
 }
 
 func (r *ClickHouseRepository) GetJVMThreadCount(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmThreadBucketDTO, error) {
-	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                         AS time_bucket,
 		    state_dim                                                                  AS daemon,
-		    sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)     AS metric_val
+		    sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)     AS metric_val
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -183,11 +182,11 @@ func (r *ClickHouseRepository) GetJVMThreadCount(ctx context.Context, teamID int
 }
 
 func (r *ClickHouseRepository) GetJVMClasses(ctx context.Context, teamID int64, startMs, endMs int64) (jvmClassStatsDTO, error) {
-	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT metric_name                                                             AS metric_name,
-		       sumMerge(value_sum)                                                     AS val_sum,
-		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg
+		       sum(value_sum)                                                     AS val_sum,
+		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)  AS val_avg
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -222,11 +221,11 @@ func (r *ClickHouseRepository) GetJVMClasses(ctx context.Context, teamID int64, 
 }
 
 func (r *ClickHouseRepository) GetJVMCPU(ctx context.Context, teamID int64, startMs, endMs int64) (jvmCPUStatsDTO, error) {
-	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT metric_name                                                             AS metric_name,
-		       sumMerge(value_sum)                                                     AS val_sum,
-		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg
+		       sum(value_sum)                                                     AS val_sum,
+		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)  AS val_avg
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -257,13 +256,13 @@ func (r *ClickHouseRepository) GetJVMCPU(ctx context.Context, teamID int64, star
 }
 
 func (r *ClickHouseRepository) GetJVMBuffers(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmBufferBucketDTO, error) {
-	table := rollup.For(metricsGaugesRollupPrefix, startMs, endMs).Table
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                         AS time_bucket,
 		    state_dim                                                                  AS pool_name,
 		    metric_name                                                                AS metric_name,
-		    sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)     AS val
+		    sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)     AS val
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end

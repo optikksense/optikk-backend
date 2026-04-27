@@ -8,10 +8,11 @@ import (
 	"encoding/json"
 	"strconv"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/fingerprint"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/otlp"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
-	"github.com/Optikk-Org/optikk-backend/internal/ingestion/spans/schema"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/spans/enrich"
+	"github.com/Optikk-Org/optikk-backend/internal/ingestion/spans/schema"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 	trace "go.opentelemetry.io/proto/otlp/trace/v1"
@@ -27,9 +28,10 @@ func MapRequest(teamID int64, req *tracepb.ExportTraceServiceRequest) []*schema.
 			resAttrs = rs.Resource.Attributes
 		}
 		resMap := otlp.AttrsToMap(resAttrs)
+		fp := fingerprint.Calculate(resMap)
 		for _, ss := range rs.GetScopeSpans() {
 			for _, s := range ss.GetSpans() {
-				rows = append(rows, buildRow(teamID, resMap, s))
+				rows = append(rows, buildRow(teamID, resMap, fp, s))
 			}
 		}
 	}
@@ -39,12 +41,13 @@ func MapRequest(teamID int64, req *tracepb.ExportTraceServiceRequest) []*schema.
 // buildRow maps a single OTLP span into a wire Row. Heavier extraction logic
 // (attributes, HTTP fields, exception fields, status) lives in sibling files
 // so this function stays under the 40-LOC cap.
-func buildRow(teamID int64, resMap map[string]string, s *trace.Span) *schema.Row {
+func buildRow(teamID int64, resMap map[string]string, fingerprint string, s *trace.Span) *schema.Row {
 	timestampNs := s.GetStartTimeUnixNano()
 	tsBucket := utils.SpansBucketStart(int64(timestampNs / nsPerSecond))
 	statusMsg, statusCode := spanStatus(s)
 	spanMap := otlp.AttrsToMap(s.GetAttributes())
 	mergedMap := mergeAndCapAttrs(resMap, spanMap)
+	mergedMap["resource_fingerprint"] = fingerprint
 	http := extractHTTPFields(spanMap, s.GetKind())
 	exc := extractExceptionFields(spanMap)
 

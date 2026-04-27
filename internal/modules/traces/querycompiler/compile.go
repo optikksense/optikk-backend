@@ -15,42 +15,10 @@ const maxTimeRangeMs = 30 * 24 * 60 * 60 * 1000
 // Callers embed it via `WHERE ` + Compiled.Where.
 func Compile(f Filters, tgt Target) Compiled {
 	startMs, endMs := clampRange(f.StartMs, f.EndMs)
-	switch tgt {
-	case TargetTracesIndex:
-		return compileTracesIndex(f, startMs, endMs)
-	case TargetSpansRaw:
-		return compileSpansRaw(f, startMs, endMs)
-	case TargetSpansRollup, TargetFacetRollup:
-		return compileRollup(f, startMs, endMs)
-	}
 	return compileSpansRaw(f, startMs, endMs)
 }
 
-func compileTracesIndex(f Filters, startMs, endMs int64) Compiled {
-	var sb strings.Builder
-	args := baseSpanArgs(f.TeamID, startMs, endMs, "start_ms")
-	sb.WriteString(`ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND start_ms BETWEEN @startMs AND @endMs`)
-	appendInList(&sb, &args, "root_service", f.Services, false)
-	appendInList(&sb, &args, "root_service", f.ExcludeServices, true)
-	appendInList(&sb, &args, "root_operation", f.Operations, false)
-	appendInList(&sb, &args, "root_http_method", f.HTTPMethods, false)
-	appendInList(&sb, &args, "root_http_status", f.HTTPStatuses, false)
-	appendInList(&sb, &args, "root_status", f.Statuses, false)
-	appendInList(&sb, &args, "root_status", f.ExcludeStatuses, true)
-	appendScalar(&sb, &args, "trace_id", f.TraceID)
-	if f.HasError != nil {
-		appendBool(&sb, &args, "has_error", *f.HasError)
-	}
-	if f.MinDurationNs > 0 {
-		appendInt(&sb, &args, "duration_ns", ">=", f.MinDurationNs)
-	}
-	if f.MaxDurationNs > 0 {
-		appendInt(&sb, &args, "duration_ns", "<=", f.MaxDurationNs)
-	}
-	appendSearchIndex(&sb, &args, f.Search)
-	dropped := tracesIndexDropped(f)
-	return Compiled{PreWhere: "team_id = @teamID", Where: sb.String(), Args: args, DroppedClauses: dropped}
-}
+
 
 func compileSpansRaw(f Filters, startMs, endMs int64) Compiled {
 	var sb strings.Builder
@@ -81,45 +49,7 @@ func compileSpansRaw(f Filters, startMs, endMs int64) Compiled {
 	return Compiled{PreWhere: "team_id = @teamID", Where: sb.String(), Args: args}
 }
 
-func compileRollup(f Filters, startMs, endMs int64) Compiled {
-	var sb strings.Builder
-	args := baseRollupArgs(f.TeamID, startMs, endMs)
-	sb.WriteString(`bucket_ts BETWEEN @start AND @end`)
-	appendInList(&sb, &args, "service", f.Services, false)
-	appendInList(&sb, &args, "service", f.ExcludeServices, true)
-	appendInList(&sb, &args, "operation", f.Operations, false)
-	appendInList(&sb, &args, "http_method", f.HTTPMethods, false)
-	dropped := rollupDropped(f)
-	return Compiled{PreWhere: "team_id = @teamID", Where: sb.String(), Args: args, DroppedClauses: dropped}
-}
 
-func tracesIndexDropped(f Filters) []string {
-	var dropped []string
-	if len(f.SpanKinds) > 0 {
-		dropped = append(dropped, "span_kind filter requires raw spans; dropped on traces_index")
-	}
-	if len(f.Attributes) > 0 {
-		dropped = append(dropped, "attribute filters require raw spans; dropped on traces_index")
-	}
-	return dropped
-}
-
-func rollupDropped(f Filters) []string {
-	var dropped []string
-	if f.TraceID != "" {
-		dropped = append(dropped, "trace_id filter ignored by rollup")
-	}
-	if f.Search != "" {
-		dropped = append(dropped, "search ignored by rollup")
-	}
-	if len(f.Attributes) > 0 {
-		dropped = append(dropped, "attribute filters ignored by rollup")
-	}
-	if len(f.SpanKinds) > 0 {
-		dropped = append(dropped, "span_kind filter ignored by rollup")
-	}
-	return dropped
-}
 
 func baseSpanArgs(teamID, startMs, endMs int64, _ string) []any {
 	startNs := startMs * 1_000_000
@@ -135,13 +65,7 @@ func baseSpanArgs(teamID, startMs, endMs int64, _ string) []any {
 	}
 }
 
-func baseRollupArgs(teamID, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
+
 
 func clampRange(startMs, endMs int64) (int64, int64) {
 	if endMs <= 0 {
@@ -187,14 +111,7 @@ func appendInt(sb *strings.Builder, args *[]any, col, op string, v int64) {
 	*args = append(*args, clickhouse.Named(name, v))
 }
 
-func appendSearchIndex(sb *strings.Builder, args *[]any, search string) {
-	if search == "" {
-		return
-	}
-	name := fmt.Sprintf("search_%d", len(*args))
-	fmt.Fprintf(sb, " AND (positionCaseInsensitive(trace_id, @%s) > 0 OR positionCaseInsensitive(root_service, @%s) > 0 OR positionCaseInsensitive(root_operation, @%s) > 0)", name, name, name)
-	*args = append(*args, clickhouse.Named(name, search))
-}
+
 
 func appendSpanSearch(sb *strings.Builder, args *[]any, search string) {
 	if search == "" {

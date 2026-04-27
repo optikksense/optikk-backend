@@ -7,17 +7,16 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-)
+	)
 
-const spansLatencyRollupPrefix = rollup.FamilySpansLatency
+const spansLatencyRollupPrefix = "observability.signoz_index_v3"
 
 type Repository struct{ db clickhouse.Conn }
 
 func NewRepository(db clickhouse.Conn) *Repository { return &Repository{db: db} }
 
 func (r *Repository) Histogram(ctx context.Context, teamID int64, req HistogramRequest) (histogramRow, error) {
-	table := rollup.For(spansLatencyRollupPrefix, req.StartMs, req.EndMs).Table
+	table := "observability.signoz_index_v3"
 	where, args := rollupFilter(teamID, req.StartMs, req.EndMs, req.ServiceName)
 	if req.Operation != "" {
 		where += ` AND operation_name = @op`
@@ -29,8 +28,8 @@ func (r *Repository) Histogram(ctx context.Context, teamID int64, req HistogramR
 			toFloat64(quantilesTDigestWeightedMerge(0.5, 0.9, 0.95, 0.99)(latency_ms_digest)[2]) AS p90,
 			toFloat64(quantilesTDigestWeightedMerge(0.5, 0.9, 0.95, 0.99)(latency_ms_digest)[3]) AS p95,
 			toFloat64(quantilesTDigestWeightedMerge(0.5, 0.9, 0.95, 0.99)(latency_ms_digest)[4]) AS p99,
-			maxMerge(max_latency_ms) AS max,
-			if(sumMerge(span_count) > 0, sumMerge(duration_ms_sum) / toFloat64(sumMerge(span_count)), 0.0) AS avg
+			max(max_latency_ms) AS max,
+			if(sum(span_count) > 0, sum(duration_nano / 1000000.0) / toFloat64(sum(span_count)), 0.0) AS avg
 		FROM %s
 		WHERE %s`, table, where)
 	var out histogramRow
@@ -41,14 +40,14 @@ func (r *Repository) Histogram(ctx context.Context, teamID int64, req HistogramR
 }
 
 func (r *Repository) Heatmap(ctx context.Context, teamID int64, req HeatmapRequest) ([]heatmapRow, error) {
-	tier := rollup.For(spansLatencyRollupPrefix, req.StartMs, req.EndMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	where, args := rollupFilter(teamID, req.StartMs, req.EndMs, req.ServiceName)
 	args = append(args, clickhouse.Named("intervalMin", adaptiveIntervalMinutes(tierStep, req.StartMs, req.EndMs)))
 	query := fmt.Sprintf(`
 		SELECT toString(toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin))) AS time_bucket,
 		       latency_bucket AS bucket_ms,
-		       sumMerge(span_count) AS count
+		       sum(span_count) AS count
 		FROM %s
 		WHERE %s
 		GROUP BY time_bucket, bucket_ms
@@ -88,5 +87,5 @@ func adaptiveIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 	default:
 		uiStep = 1440
 	}
-	return rollup.BucketInterval(rollup.Tier{StepMin: tierStepMin}, uiStep)
+	return uiStep
 }

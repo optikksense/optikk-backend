@@ -6,8 +6,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
+		shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
 type Repository interface {
@@ -28,8 +27,8 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) latencySeriesByAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]LatencyTimeSeries, error) {
-	tier := rollup.For(shared.DBHistRollupPrefix, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	fc, fargs := shared.RollupFilterClauses(f)
 	groupCol := shared.GroupColumnFor(groupAttr)
 
@@ -85,8 +84,8 @@ func (r *ClickHouseRepository) GetLatencyByServer(ctx context.Context, teamID in
 // approximate at the tier's native bucket granularity — accurate at rollup
 // resolution, coarser than the old per-row query but preserves the chart.
 func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyHeatmapBucket, error) {
-	tier := rollup.For(shared.DBHistRollupPrefix, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	fc, fargs := shared.RollupFilterClauses(f)
 
 	query := fmt.Sprintf(`
@@ -108,8 +107,8 @@ func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int
 		FROM (
 		    SELECT
 		        %s                                                        AS time_bucket,
-		        sumMerge(hist_count)                                      AS hc,
-		        sumMerge(hist_sum)                                        AS hs,
+		        sum(hist_count)                                      AS hc,
+		        sum(hist_sum)                                        AS hs,
 		        hs / nullIf(hc, 0)                                        AS avg_sec
 		    FROM %s
 		    WHERE team_id = @teamID

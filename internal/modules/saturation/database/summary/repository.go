@@ -9,11 +9,10 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
+		shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
-const dbSummaryRollupPrefix = rollup.FamilyDBSummary
+const dbSummaryRollupPrefix = "observability.metrics"
 
 type Repository interface {
 	GetSummaryStats(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) (SummaryStats, error)
@@ -40,8 +39,8 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 	durationMs := max(float64(endMs-startMs)/1000.0, 1)
 	filterFrag, filterArgs := shared.RollupFilterClauses(f)
 
-	mainTable := rollup.For(dbSummaryRollupPrefix, startMs, endMs).Table
-	dbHistTable := rollup.For(dbSummaryRollupPrefix, startMs, endMs).Table
+	mainTable := ""
+	dbHistTable := ""
 
 	baseParams := func(metricArg any) []any {
 		out := []any{
@@ -60,7 +59,7 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_digest)[1]) AS p50,
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_digest)[2]) AS p95,
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_digest)[3]) AS p99,
-		    sumMerge(hist_count)                                                AS total_count
+		    sum(hist_count)                                                AS total_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -68,7 +67,7 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 	`, mainTable, filterFrag)
 
 	qErrors := fmt.Sprintf(`
-		SELECT toInt64(sumMerge(hist_count)) AS error_count
+		SELECT toInt64(sum(hist_count)) AS error_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -77,7 +76,7 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 	`, dbHistTable, filterFrag)
 
 	qConn := fmt.Sprintf(`
-		SELECT toInt64(round(toFloat64(sumMerge(value_sum)))) AS used_count
+		SELECT toInt64(round(toFloat64(sum(value_sum)))) AS used_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -87,7 +86,7 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 
 	qCache := fmt.Sprintf(`
 		SELECT
-		    toInt64(sumMerge(hist_count))                             AS total_count,
+		    toInt64(sum(hist_count))                             AS total_count,
 		    toInt64(sumMergeIf(hist_count, error_type = ''))          AS success_count
 		FROM %s
 		WHERE team_id = @teamID

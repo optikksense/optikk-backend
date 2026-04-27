@@ -18,7 +18,7 @@ type SpansQueryResponse struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-// spanRowDTO scans rows from observability.spans.
+// spanRowDTO scans rows from observability.signoz_index_v3.
 type spanRowDTO struct {
 	SpanID             string `ch:"span_id"`
 	TraceID            string `ch:"trace_id"`

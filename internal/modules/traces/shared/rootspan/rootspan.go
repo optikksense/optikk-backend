@@ -8,7 +8,7 @@ const (
 )
 
 // Condition returns a SQL predicate that matches all supported root-span parent
-// representations for observability.spans.parent_span_id.
+// representations for observability.signoz_index_v3.parent_span_id.
 func Condition(alias string) string {
 	prefix := ""
 	if alias != "" {

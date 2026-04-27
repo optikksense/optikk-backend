@@ -15,24 +15,24 @@ const tableMetrics = "observability.metrics"
 // materializedDimensions maps user-facing tag key names to ClickHouse materialized
 // column names. These columns are extracted from attributes at insert time.
 var materializedDimensions = map[string]string{
-	"service":		"service",
-	"host":			"host",
-	"environment":		"environment",
-	"k8s_namespace":	"k8s_namespace",
-	"http_method":		"http_method",
-	"http_status_code":	"toString(http_status_code)",
+	"service":          "service",
+	"host":             "host",
+	"environment":      "environment",
+	"k8s_namespace":    "k8s_namespace",
+	"http_method":      "http_method",
+	"http_status_code": "toString(http_status_code)",
 }
 
 // allowedAggregations is the set of aggregation functions we support.
 var allowedAggregations = map[string]bool{
-	"avg":	true, "sum": true, "min": true, "max": true, "count": true,
-	"p50":	true, "p75": true, "p95": true, "p99": true,
-	"rate":	true,
+	"avg": true, "sum": true, "min": true, "max": true, "count": true,
+	"p50": true, "p75": true, "p95": true, "p99": true,
+	"rate": true,
 }
 
 // allowedOperators is the set of filter operators we support.
 var allowedOperators = map[string]bool{
-	"=":	true, "!=": true, "IN": true, "NOT IN": true,
+	"=": true, "!=": true, "IN": true, "NOT IN": true,
 }
 
 type Repository interface {
@@ -77,10 +77,10 @@ func (r *ClickHouseRepository) ListMetricNames(ctx context.Context, teamID int64
 	results := make([]MetricNameResult, len(rows))
 	for i, r := range rows {
 		results[i] = MetricNameResult{
-			MetricName:	r.MetricName,
-			MetricType:	r.MetricType,
-			Unit:		r.Unit,
-			Description:	r.Description,
+			MetricName:  r.MetricName,
+			MetricType:  r.MetricType,
+			Unit:        r.Unit,
+			Description: r.Description,
 		}
 	}
 	return results, nil

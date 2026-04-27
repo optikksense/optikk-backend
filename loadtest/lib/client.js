@@ -13,7 +13,7 @@ const SESSION_COOKIE = 'optikk_session';
 function buildHeaders(ctx) {
   const headers = {
     'Content-Type': 'application/json',
-    'Cookie':       `${SESSION_COOKIE}=${ctx.cookie}`,
+    'Cookie': `${SESSION_COOKIE}=${ctx.cookie}`,
   };
   if (ctx.teamId) headers['X-Team-Id'] = String(ctx.teamId);
   if (cfg.bypassCache) {

@@ -61,7 +61,7 @@ func (c Config) SpansBucketSeconds() int64 {
 	return c.Ingestion.SpansBucketSeconds
 }
 
-// LogsBucketSeconds returns the ts_bucket_start granularity for observability.logs.
+// LogsBucketSeconds returns the ts_bucket_start granularity for observability.logs_v2.
 // Default is 1 day: log ingest volume dwarfs spans, and a coarser bucket keeps
 // the partition-prune cost manageable at scale. Lower to 300 (match spans) in
 // config when short-window dashboards dominate the read mix and log volume

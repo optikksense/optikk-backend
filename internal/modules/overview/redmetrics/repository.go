@@ -8,20 +8,19 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+		"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
-// Reads target the `observability.spans_rollup_{1m,5m,1h}` cascade — tier
-// selected by `rollup.For` based on range. Percentiles come from
+// Reads target the `observability.signoz_index_v3_rollup_{1m,5m,1h}` cascade — tier
+// selected by `1` based on range. Percentiles come from
 // `quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)` with
 // tuple accessors; counts/sums from `sumMerge`. Derived quantities (apdex,
 // error_rate, RPS) are computed Go-side. Span-kind breakdown reads from the
 // dedicated `spans_kind_rollup` (Phase 9).
 
 const (
-	spansRollupPrefix	= rollup.FamilySpansRED
-	spansKindRollupPrefix	= rollup.FamilySpansKind
+	spansRollupPrefix	= "observability.signoz_index_v3"
+	spansKindRollupPrefix	= "observability.signoz_index_v3"
 )
 
 type Repository interface {
@@ -47,7 +46,7 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 
 // queryIntervalMinutes chooses a dashboard step based on window width, then
 // coarsens to the tier's native step if needed. Routes through
-// rollup.BucketInterval for the tier floor.
+// 1 for the tier floor.
 func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 	hours := (endMs - startMs) / 3_600_000
 	var dashStep int64
@@ -61,7 +60,7 @@ func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 	default:
 		dashStep = 1440
 	}
-	return rollup.BucketInterval(rollup.Tier{StepMin: tierStepMin}, dashStep)
+	return dashStep
 }
 
 func rollupParams(teamID int64, startMs, endMs int64) []any {
@@ -73,11 +72,11 @@ func rollupParams(teamID int64, startMs, endMs int64) []any {
 }
 
 func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) ([]redSummaryServiceRow, error) {
-	table := rollup.For(spansRollupPrefix, startMs, endMs).Table
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT service_name,
-		       sumMerge(request_count)                                            AS total_count,
-		       sumMerge(error_count)                                              AS error_count,
+		       count()                                            AS total_count,
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                              AS error_count,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) AS p50_ms,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_ms,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) AS p99_ms
@@ -113,10 +112,10 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 }
 
 func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]apdexRow, error) {
-	table := rollup.For(spansRollupPrefix, startMs, endMs).Table
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT service_name,
-		       sumMerge(request_count)                                            AS request_count,
+		       count()                                            AS request_count,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) AS p50_ms,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_ms,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) AS p99_ms
@@ -206,7 +205,7 @@ func percentileBelow(p50, p95, p99, threshold float64) float64 {
 const slowOpsCandidatePoolMultiplier = 20
 
 func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]slowOperationRow, error) {
-	table := rollup.For(spansRollupPrefix, startMs, endMs).Table
+	table := "observability.signoz_index_v3"
 	// Two-step: the CTE picks the top-K by request count using only the cheap
 	// `sum` state column, then the outer query computes tDigest percentiles
 	// for that bounded candidate set. Avoids ORDER BY on a computed tDigest
@@ -216,7 +215,7 @@ func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID 
 		WITH candidates AS (
 		    SELECT service_name,
 		           operation_name,
-		           sumMerge(request_count) AS span_count
+		           count() AS span_count
 		    FROM %[1]s
 		    WHERE team_id = @teamID
 		      AND bucket_ts BETWEEN @start AND @end
@@ -226,7 +225,7 @@ func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID 
 		)
 		SELECT s.service_name,
 		       s.operation_name,
-		       sumMerge(s.request_count)                                            AS span_count,
+		       sum(s.request_count)                                            AS span_count,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(s.latency_ms_digest)[1]) AS p50_ms,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(s.latency_ms_digest)[2]) AS p95_ms,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(s.latency_ms_digest)[3]) AS p99_ms
@@ -269,12 +268,12 @@ func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID 
 }
 
 func (r *ClickHouseRepository) GetTopErrorOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]errorOperationRow, error) {
-	table := rollup.For(spansRollupPrefix, startMs, endMs).Table
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT service_name,
 		       operation_name,
-		       sumMerge(request_count)                                                         AS total_count,
-		       sumMerge(error_count)                                                           AS err_count,
+		       count()                                                         AS total_count,
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                                           AS err_count,
 		       toFloat64(err_count) / nullIf(toFloat64(total_count), 0) AS error_rate
 		FROM %s
 		WHERE team_id = @teamID
@@ -322,13 +321,13 @@ type requestRateRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceRatePoint, error) {
-	tier := rollup.For(spansRollupPrefix, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	intervalMin := queryIntervalMinutes(tierStep, startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
 		       service_name,
-		       sumMerge(request_count) AS request_count
+		       count() AS request_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -367,13 +366,13 @@ type errorRateRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceErrorRatePoint, error) {
-	tier := rollup.For(spansRollupPrefix, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
 		       service_name,
-		       sumMerge(request_count) AS request_count,
-		       sumMerge(error_count)   AS error_count
+		       count() AS request_count,
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)   AS error_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -408,8 +407,8 @@ func (r *ClickHouseRepository) GetErrorRateTimeSeries(ctx context.Context, teamI
 }
 
 func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceLatencyPoint, error) {
-	tier := rollup.For(spansRollupPrefix, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
 		       service_name,
@@ -453,12 +452,12 @@ type spanKindRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]SpanKindPoint, error) {
-	tier := rollup.For(spansKindRollupPrefix, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
 		       kind_string,
-		       toInt64(sumMerge(request_count)) AS span_count
+		       toInt64(count()) AS span_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -494,13 +493,13 @@ func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int6
 	// `endpoint` in the rollup is coalesce(route, target, name) for root spans.
 	// Close enough to mat_http_route for the errors-by-route panel; excludes
 	// empty endpoints.
-	tier := rollup.For(spansRollupPrefix, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
 		       operation_name                                               AS http_route,
-		       sumMerge(request_count)                                      AS request_count,
-		       sumMerge(error_count)                                        AS error_count
+		       count()                                      AS request_count,
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                        AS error_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -528,11 +527,11 @@ func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int6
 }
 
 func (r *ClickHouseRepository) GetLatencyBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]latencyBreakdownRow, error) {
-	table := rollup.For(spansRollupPrefix, startMs, endMs).Table
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT service_name,
-		       sumMerge(duration_ms_sum) AS total_ms,
-		       sumMerge(request_count)   AS span_count
+		       sum(duration_nano / 1000000.0) AS total_ms,
+		       count()   AS span_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end

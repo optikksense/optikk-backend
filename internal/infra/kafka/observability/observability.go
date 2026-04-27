@@ -1,6 +1,3 @@
-// Package observability holds the Kafka-client cross-cuts: franz-go hook
-// instrumentation and the lag poller that publishes
-// `optikk_kafka_consumer_lag_records`.
 package observability
 
 import (
@@ -9,21 +6,14 @@ import (
 	"log/slog"
 	"net"
 	"strconv"
-	"sync"
 	"time"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/kafka/topics"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/metrics"
 	"github.com/twmb/franz-go/pkg/kgo"
 	"github.com/twmb/franz-go/pkg/kmsg"
 )
 
-// brokerConnectLogged dedups the first-success INFO log per broker host so
-// franz-go's normal reconnects don't flood.
-var brokerConnectLogged sync.Map // map[string]struct{}
-
-// obsHooks implements the franz-go hook interfaces we care about. Each
-// hook is a plain method; embedding only the interfaces we need keeps the
-// compiler honest about coverage.
 type obsHooks struct{}
 
 // compile-time: ensure we satisfy every interface we claim to implement.
@@ -35,25 +25,44 @@ var (
 )
 
 func (obsHooks) OnProduceRecordUnbuffered(r *kgo.Record, err error) {
+	signal := signalFromTopic(r.Topic)
 	result := "ok"
 	if err != nil {
 		result = "err"
-		// Debug-level only: metrics.KafkaProduced{result="err"} is the triage
-		// signal. Per-record logs here flood under broker outage.
 		slog.Debug("kafka produce failed",
 			slog.String("topic", r.Topic),
-			slog.Int("partition", int(r.Partition)),
 			slog.Any("error", err),
 		)
 	}
-	metrics.KafkaProduced.WithLabelValues(r.Topic, result).Inc()
+
+	// Consolidate ingest tracking into one set of metrics. Topic-specific
+	// counters are retired in favor of signal counters to keep dashboards clean.
+	metrics.IngestRecordsTotal.WithLabelValues(signal, result).Inc()
+	metrics.IngestRecordBytes.WithLabelValues(signal).Add(float64(len(r.Value)))
+
 	if !r.Timestamp.IsZero() {
 		metrics.KafkaProduceDuration.WithLabelValues(r.Topic).Observe(time.Since(r.Timestamp).Seconds())
 	}
 }
 
+func signalFromTopic(topic string) string {
+	switch {
+	case topics.IsLogsTopic(topic):
+		return "logs"
+	case topics.IsMetricsTopic(topic):
+		return "metrics"
+	case topics.IsSpansTopic(topic):
+		return "spans"
+	default:
+		return "unknown"
+	}
+}
+
 func (obsHooks) OnFetchRecordUnbuffered(r *kgo.Record, _ bool) {
-	metrics.KafkaConsumed.WithLabelValues(r.Topic).Inc()
+	// Consumed count is now tracked via signal; topic label is preserved
+	// only for duration/lag which are infrastructure-heavy.
+	signal := signalFromTopic(r.Topic)
+	metrics.IngestRecordsTotal.WithLabelValues(signal, "ok").Inc()
 }
 
 func (obsHooks) OnBrokerConnect(meta kgo.BrokerMetadata, _ time.Duration, _ net.Conn, err error) {
@@ -64,11 +73,6 @@ func (obsHooks) OnBrokerConnect(meta kgo.BrokerMetadata, _ time.Duration, _ net.
 		slog.Warn("kafka broker connect failed",
 			slog.String("host", host),
 			slog.Any("error", err),
-		)
-	} else if _, loaded := brokerConnectLogged.LoadOrStore(host, struct{}{}); !loaded {
-		slog.Info("kafka broker connected",
-			slog.String("host", host),
-			slog.Int("broker_id", int(meta.NodeID)),
 		)
 	}
 	metrics.KafkaBrokerConnects.WithLabelValues(result).Inc()
@@ -82,16 +86,8 @@ func (obsHooks) OnGroupManageError(err error) {
 	slog.Warn("kafka group manage error", slog.Any("error", err))
 }
 
-// Hooks returns the single hook option used by both producer + consumer
-// client constructors. Exposed so client.go can opt in via kgo.WithHooks.
 func Hooks() kgo.Opt { return kgo.WithHooks(obsHooks{}) }
 
-// LagPoller periodically samples committed-vs-end offsets for a consumer
-// group and publishes the delta as `optikk_kafka_consumer_lag_records`.
-// Call Run(ctx) from a goroutine; it exits when ctx is cancelled. The
-// poller is scoped to a single (group, topic) pair — one per ingest
-// consumer. Uses raw `kmsg` protocol requests so we avoid the `kadm`
-// top-level dep.
 type LagPoller struct {
 	client   *kgo.Client
 	groupID  string
@@ -144,16 +140,6 @@ type partKey struct {
 	partition int32
 }
 
-// fetchGroupLag issues three raw Kafka protocol requests against the
-// existing consumer client:
-//
-//  1. MetadataRequest — enumerate partitions for `topic`.
-//  2. OffsetFetchRequest — committed offset per (group, topic, partition).
-//  3. ListOffsetsRequest (timestamp=-1) — end-offset (HWM) per partition.
-//
-// Lag per partition = endOffset - committedOffset. Partitions assigned
-// but never committed get -1 from the broker; we treat those as "lag =
-// endOffset" to surface back-pressure on newly-joined consumers.
 func fetchGroupLag(ctx context.Context, client *kgo.Client, groupID, topic string) (map[partKey]int64, error) {
 	partitions, err := fetchPartitions(ctx, client, topic)
 	if err != nil {
@@ -173,8 +159,6 @@ func fetchGroupLag(ctx context.Context, client *kgo.Client, groupID, topic strin
 	return diffLag(topic, partitions, committed, end), nil
 }
 
-// fetchPartitions resolves the live partition list for `topic` via a
-// MetadataRequest routed by franz-go.
 func fetchPartitions(ctx context.Context, client *kgo.Client, topic string) ([]int32, error) {
 	req := kmsg.NewPtrMetadataRequest()
 	t := kmsg.NewMetadataRequestTopic()
@@ -197,8 +181,6 @@ func fetchPartitions(ctx context.Context, client *kgo.Client, topic string) ([]i
 	return nil, nil
 }
 
-// fetchCommittedOffsets returns group.committed[partition] for the given
-// topic. Missing entries are encoded as -1.
 func fetchCommittedOffsets(ctx context.Context, client *kgo.Client, groupID, topic string, partitions []int32) (map[int32]int64, error) {
 	req := kmsg.NewPtrOffsetFetchRequest()
 	req.Group = groupID
@@ -222,8 +204,6 @@ func fetchCommittedOffsets(ctx context.Context, client *kgo.Client, groupID, top
 	return out, nil
 }
 
-// fetchEndOffsets uses ListOffsetsRequest with Timestamp=-1 to resolve the
-// latest (high-water-mark) offset per partition.
 func fetchEndOffsets(ctx context.Context, client *kgo.Client, topic string, partitions []int32) (map[int32]int64, error) {
 	req := kmsg.NewPtrListOffsetsRequest()
 	req.ReplicaID = -1 // regular consumer, not a replica
@@ -252,9 +232,6 @@ func fetchEndOffsets(ctx context.Context, client *kgo.Client, topic string, part
 	return out, nil
 }
 
-// diffLag computes endOffset - committedOffset per partition. Committed
-// offset = -1 means "never committed"; we fall back to endOffset so a
-// brand-new consumer surfaces as lagging by the full topic backlog.
 func diffLag(topic string, partitions []int32, committed, end map[int32]int64) map[partKey]int64 {
 	out := make(map[partKey]int64, len(partitions))
 	for _, p := range partitions {

@@ -1,6 +1,6 @@
 # Prometheus scrape config for the local ingest-pipeline monitoring stack.
 #
-# This file is for the `deploy/monitoring/stack/docker-compose.yml` stack only.
+# This file is for the `monitoring/stack/docker-compose.yml` stack only.
 # It scrapes the backend's /metrics endpoint directly — no otel-collector needed.
 #
 # `host.docker.internal` resolves to the host machine from inside the

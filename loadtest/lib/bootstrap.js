@@ -71,8 +71,13 @@ export function ensureUser() {
   console.info(`bootstrap: initial login failed (status=${first.status}) — attempting create flow`);
   assertSafeBaseUrl(cfg.baseUrl, cfg.allowRemoteBootstrap);
 
-  const teamId = createTeam();
-  console.info(`bootstrap: created team id=${teamId}`);
+  const teamId = cfg.teamId || createTeam();
+  if (!cfg.teamId) {
+    console.info(`bootstrap: created team id=${teamId}`);
+  } else {
+    console.info(`bootstrap: using existing team id=${teamId}`);
+  }
+
   createUser(teamId);
   console.info(`bootstrap: created user email=${cfg.email}`);
 

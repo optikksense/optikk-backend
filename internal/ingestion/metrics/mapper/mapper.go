@@ -4,6 +4,7 @@
 package mapper
 
 import (
+	"github.com/Optikk-Org/optikk-backend/internal/infra/fingerprint"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/otlp"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/metrics/schema"
 	metricspb "go.opentelemetry.io/proto/otlp/collector/metrics/v1"
@@ -17,7 +18,7 @@ import (
 type header struct {
 	teamID      uint32
 	env         string
-	fingerprint uint64
+	fingerprint string
 	resMap      map[string]string
 }
 
@@ -35,7 +36,7 @@ func MapRequest(teamID int64, req *metricspb.ExportMetricsServiceRequest) []*sch
 		hdr := header{
 			teamID:      uint32(teamID), //nolint:gosec // team id
 			env:         envFromResource(resMap),
-			fingerprint: otlp.ResourceFingerprint(resAttrs),
+			fingerprint: fingerprint.Calculate(resMap),
 			resMap:      resMap,
 		}
 		for _, sm := range rm.GetScopeMetrics() {

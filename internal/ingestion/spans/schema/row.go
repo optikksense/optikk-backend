@@ -1,7 +1,7 @@
 // Package schema holds the spans signal's Kafka wire format and ClickHouse
 // column mapping. Row is the protobuf message produced on the ingest topic
 // and consumed by the dispatcher; CHTable/Columns/ChValues drive the batch
-// insert into observability.spans.
+// insert into observability.signoz_index_v3.
 //
 //go:generate protoc --go_out=. --go_opt=paths=source_relative span_row.proto
 package schema
@@ -12,8 +12,8 @@ import (
 )
 
 // CHTable is the ClickHouse destination table for the span signal — the v2
-// observability.spans — DDL in db/clickhouse/01_spans.sql.
-const CHTable = "observability.spans"
+// observability.signoz_index_v3 — DDL in db/clickhouse/01_spans.sql.
+const CHTable = "observability.signoz_index_v3"
 
 // Columns is the insert column order for CHTable. Mirrors Row's proto fields
 // one-for-one so ChValues can emit positional values without a lookup.

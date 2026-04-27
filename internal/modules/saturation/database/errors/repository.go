@@ -6,8 +6,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
+		shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
 type Repository interface {
@@ -34,8 +33,8 @@ type errorRawRow struct {
 }
 
 func (r *ClickHouseRepository) errorSeriesByAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]ErrorTimeSeries, error) {
-	tier := rollup.For(shared.DBHistRollupPrefix, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	fc, fargs := shared.RollupFilterClauses(f)
 	groupCol := shared.GroupColumnFor(groupAttr)
 
@@ -43,7 +42,7 @@ func (r *ClickHouseRepository) errorSeriesByAttr(ctx context.Context, teamID int
 		SELECT
 		    %s                                AS time_bucket,
 		    %s                                AS group_by,
-		    sumMerge(hist_count)              AS err_count
+		    sum(hist_count)              AS err_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -105,8 +104,8 @@ type errorRatioRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetErrorRatio(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ErrorRatioPoint, error) {
-	tier := rollup.For(shared.DBHistRollupPrefix, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	fc, fargs := shared.RollupFilterClauses(f)
 
 	// Sub-aggregate so we can compute errored-vs-total at bucket level from
@@ -121,7 +120,7 @@ func (r *ClickHouseRepository) GetErrorRatio(ctx context.Context, teamID int64, 
 		    SELECT
 		        %s                                                   AS time_bucket,
 		        error_type != ''                                     AS err_flag,
-		        sumMerge(hist_count)                                 AS hc
+		        sum(hist_count)                                 AS hc
 		    FROM %s
 		    WHERE team_id = @teamID
 		      AND bucket_ts BETWEEN @start AND @end

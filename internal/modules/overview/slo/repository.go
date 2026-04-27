@@ -7,19 +7,18 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+		"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	"golang.org/x/sync/errgroup"
 )
 
-// Reads target `observability.spans_rollup_{1m,5m,1h}` — Phase 6 cascade
-// tiers picked via rollup.For. SLO queries need count + error_count
+// Reads target `observability.signoz_index_v3_rollup_{1m,5m,1h}` — Phase 6 cascade
+// tiers picked via 1. SLO queries need count + error_count
 // + duration_sum + p95; every one of those is available as a state column +
 // merge op, so the query reduces to `sumMerge` and `quantilesTDigestWeightedMerge`.
 
 const (
 	serviceNameFilter	= " AND service_name = @serviceName"
-	spansRollupPrefix	= rollup.FamilySLOBurn
+	spansRollupPrefix	= "observability.signoz_index_v3"
 )
 
 type Repository interface {
@@ -91,11 +90,11 @@ type summaryRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (Summary, error) {
-	table := rollup.For(spansRollupPrefix, startMs, endMs).Table
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
-		SELECT sumMerge(request_count)                                            AS request_count,
-		       sumMerge(error_count)                                              AS error_count,
-		       sumMerge(duration_ms_sum)                                          AS duration_ms_sum,
+		SELECT count()                                            AS request_count,
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                              AS error_count,
+		       sum(duration_nano / 1000000.0)                                          AS duration_ms_sum,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_digest)[2]) AS p95_latency_ms
 		FROM %s
 		WHERE team_id = @teamID
@@ -140,13 +139,13 @@ type timeSliceRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]TimeSlice, error) {
-	tier := rollup.For(spansRollupPrefix, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
-		       sumMerge(request_count)                                      AS request_count,
-		       sumMerge(error_count)                                        AS error_count,
-		       sumMerge(duration_ms_sum)                                    AS duration_ms_sum
+		       count()                                      AS request_count,
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                        AS error_count,
+		       sum(duration_nano / 1000000.0)                                    AS duration_ms_sum
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end`, table)
@@ -198,12 +197,12 @@ type burnDownRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetBurnDown(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]BurnDownPoint, error) {
-	tier := rollup.For(spansRollupPrefix, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
-		       sumMerge(request_count)                                      AS request_count,
-		       sumMerge(error_count)                                        AS error_count
+		       count()                                      AS request_count,
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                        AS error_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end`, table)
@@ -298,10 +297,10 @@ func (r *ClickHouseRepository) errorRateForWindow(ctx context.Context, teamID in
 	now := time.Now()
 	since := now.Add(-time.Duration(minutes) * time.Minute)
 	// fast burn rates use short windows (5m / 1h) — always pins to the _1m tier.
-	table := rollup.For(spansRollupPrefix, since.UnixMilli(), now.UnixMilli()).Table
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
-		SELECT sumMerge(request_count) AS request_count,
-		       sumMerge(error_count)   AS error_count
+		SELECT count() AS request_count,
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)   AS error_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @since AND @nowTs`, table)

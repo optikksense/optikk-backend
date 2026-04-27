@@ -13,21 +13,6 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/infra/metrics"
 )
 
-// Three-function façade around every ClickHouse read/write. Every
-// repository in internal/modules/ calls these instead of r.db.Select /
-// r.db.Query / r.db.Exec so we get a uniform (Prom histogram +
-// structured error log) envelope for free.
-//
-// The caller is still responsible for wrapping ctx with the correct
-// budget settings — i.e. dbutil.SelectCH(dbutil.ExplorerCtx(ctx), ...).
-// We do not swallow errors.
-//
-// `op` must be stable and unique per query site — the convention is
-// `<module>.<MethodName>` (e.g. `"logs.ListLogs"`). Duplicate op
-// labels double-bucket the histogram.
-
-// SelectCH runs a multi-row read into dest. dest must be a pointer to
-// a slice of DTOs, per the clickhouse-go/v2 Conn.Select contract.
 func SelectCH(ctx context.Context, conn clickhouse.Conn, op string, dest any, query string, args ...any) error {
 	done := startCHOp(ctx)
 	start := time.Now()
@@ -36,9 +21,6 @@ func SelectCH(ctx context.Context, conn clickhouse.Conn, op string, dest any, qu
 	return err
 }
 
-// QueryCH runs a ClickHouse read and hands back the raw driver.Rows so
-// the caller can scan row-by-row. Used where SelectCH's slice mode does
-// not fit (e.g. streaming cursors, heterogeneous columns).
 func QueryCH(ctx context.Context, conn clickhouse.Conn, op, query string, args ...any) (driver.Rows, error) {
 	done := startCHOp(ctx)
 	start := time.Now()
@@ -47,7 +29,6 @@ func QueryCH(ctx context.Context, conn clickhouse.Conn, op, query string, args .
 	return rows, err
 }
 
-// ExecCH runs a DDL / write statement. No rows returned.
 func ExecCH(ctx context.Context, conn clickhouse.Conn, op, query string, args ...any) error {
 	done := startCHOp(ctx)
 	start := time.Now()
@@ -56,10 +37,6 @@ func ExecCH(ctx context.Context, conn clickhouse.Conn, op, query string, args ..
 	return err
 }
 
-// QueryRowCH runs a single-row read via QueryRow + ScanStruct with the same
-// instrumentation envelope as SelectCH / ExecCH. Critically, it maps
-// driver.ErrBadConn and sql.ErrNoRows to a nil error + zero-value dest so
-// aggregate queries on empty tables return zeroes instead of 500s.
 func QueryRowCH(ctx context.Context, conn clickhouse.Conn, op string, dest any, query string, args ...any) error {
 	done := startCHOp(ctx)
 	start := time.Now()
@@ -72,9 +49,6 @@ func QueryRowCH(ctx context.Context, conn clickhouse.Conn, op string, dest any, 
 	return err
 }
 
-// isNoRows checks whether the error indicates no rows were returned.
-// clickhouse-go/v2 can surface this as sql.ErrNoRows or as a string match
-// when the driver layer wraps the error differently.
 func isNoRows(err error) bool {
 	if err == nil {
 		return false

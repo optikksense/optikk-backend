@@ -4,9 +4,9 @@
 package mapper
 
 import (
-	"strconv"
 	"time"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/fingerprint"
 	obsmetrics "github.com/Optikk-Org/optikk-backend/internal/infra/metrics"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/otlp"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
@@ -38,11 +38,11 @@ func MapRequest(teamID int64, req *logspb.ExportLogsServiceRequest) []*schema.Ro
 			resAttrs = rl.Resource.Attributes
 		}
 		resourceMap := otlp.AttrsToMap(resAttrs)
-		fingerprint := strconv.FormatUint(otlp.ResourceFingerprint(resAttrs), 16)
+		fp := fingerprint.Calculate(resourceMap)
 		for _, sl := range rl.GetScopeLogs() {
 			scopeName, scopeVersion := extractScope(sl.GetScope())
 			for _, lr := range sl.GetLogRecords() {
-				rows = append(rows, buildRow(teamID, resourceMap, fingerprint, scopeName, scopeVersion, lr, nowNs))
+				rows = append(rows, buildRow(teamID, resourceMap, fp, scopeName, scopeVersion, lr, nowNs))
 			}
 		}
 	}

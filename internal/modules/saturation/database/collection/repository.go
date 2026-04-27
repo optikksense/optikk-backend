@@ -12,8 +12,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+		timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
@@ -43,8 +42,8 @@ func collectionFilter(collectionName string, f shared.Filters) (string, []any) {
 }
 
 func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID int64, startMs, endMs int64, collectionName string, f shared.Filters) ([]LatencyTimeSeries, error) {
-	tier := rollup.For(shared.DBHistRollupPrefix, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	fc, fargs := collectionFilter(collectionName, f)
 
 	query := fmt.Sprintf(`
@@ -75,8 +74,8 @@ func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID 
 }
 
 func (r *ClickHouseRepository) GetCollectionOps(ctx context.Context, teamID int64, startMs, endMs int64, collectionName string, f shared.Filters) ([]OpsTimeSeries, error) {
-	tier := rollup.For(shared.DBHistRollupPrefix, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	fc, fargs := collectionFilter(collectionName, f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
@@ -84,7 +83,7 @@ func (r *ClickHouseRepository) GetCollectionOps(ctx context.Context, teamID int6
 		SELECT
 		    %s                                  AS time_bucket,
 		    db_operation                        AS group_by,
-		    toFloat64(sumMerge(hist_count)) / %f AS ops_per_sec
+		    toFloat64(sum(hist_count)) / %f AS ops_per_sec
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -106,8 +105,8 @@ func (r *ClickHouseRepository) GetCollectionOps(ctx context.Context, teamID int6
 }
 
 func (r *ClickHouseRepository) GetCollectionErrors(ctx context.Context, teamID int64, startMs, endMs int64, collectionName string, f shared.Filters) ([]ErrorTimeSeries, error) {
-	tier := rollup.For(shared.DBHistRollupPrefix, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	fc, fargs := collectionFilter(collectionName, f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
@@ -115,7 +114,7 @@ func (r *ClickHouseRepository) GetCollectionErrors(ctx context.Context, teamID i
 		SELECT
 		    %s                                   AS time_bucket,
 		    error_type                           AS group_by,
-		    toFloat64(sumMerge(hist_count)) / %f AS errors_per_sec
+		    toFloat64(sum(hist_count)) / %f AS errors_per_sec
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -186,8 +185,8 @@ func (r *ClickHouseRepository) GetCollectionQueryTexts(ctx context.Context, team
 }
 
 func (r *ClickHouseRepository) GetCollectionReadVsWrite(ctx context.Context, teamID int64, startMs, endMs int64, collectionName string) ([]ReadWritePoint, error) {
-	tier := rollup.For(shared.DBHistRollupPrefix, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
 	query := fmt.Sprintf(`

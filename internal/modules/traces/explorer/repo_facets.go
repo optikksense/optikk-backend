@@ -19,16 +19,16 @@ type topKRow struct {
 // Facets returns counts per dim from traces_index for the given window.
 // Keeps a bounded top-N per dim using a single table scan via topK aggregates.
 func (r *Repository) Facets(ctx context.Context, f querycompiler.Filters) (Facets, error) {
-	compiled := querycompiler.Compile(f, querycompiler.TargetTracesIndex)
+	compiled := querycompiler.Compile(f, querycompiler.TargetSpansRaw)
 	query := fmt.Sprintf(`
 		SELECT
-			topK(20)(root_service)                 AS top_services,
-			topK(20)(root_operation)               AS top_operations,
-			topK(10)(root_http_method)             AS top_http_methods,
-			topK(15)(toString(root_http_status))   AS top_http_statuses,
-			topK(5)(root_status)                   AS top_statuses
-		FROM %s PREWHERE %s WHERE %s
-	`, tracesIndexTable, compiled.PreWhere, compiled.Where)
+			topK(20)(service_name)                 AS top_services,
+			topK(20)(name)                         AS top_operations,
+			topK(10)(http_method)                  AS top_http_methods,
+			topK(15)(toString(response_status_code)) AS top_http_statuses,
+			topK(5)(status_code_string)            AS top_statuses
+		FROM %s PREWHERE %s WHERE %s AND is_root = 1
+	`, spansRawTable, compiled.PreWhere, compiled.Where)
 	var rows []topKRow
 	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "explorer.Facets", &rows, query, compiled.Args...); err != nil {
 		return Facets{}, err

@@ -28,7 +28,7 @@ func (r *ClickHouseRepository) GetServiceMapSpans(ctx context.Context, teamID in
 	err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "trace_servicemap.GetServiceMapSpans", &rows, `
 		SELECT span_id, parent_span_id, service_name,
 		       duration_nano / 1000000.0 AS duration_ms, has_error
-		FROM observability.spans
+		FROM observability.signoz_index_v3
 		WHERE team_id = @teamID AND `+traceidmatch.WhereTraceIDMatchesCH("trace_id", "traceID")+`
 		ORDER BY timestamp ASC
 		LIMIT 10000
@@ -44,7 +44,7 @@ func (r *ClickHouseRepository) GetTraceErrors(ctx context.Context, teamID int64,
 		SELECT span_id, service_name, name AS operation_name,
 		       exception_type, exception_message, status_message,
 		       timestamp AS start_time, duration_nano / 1000000.0 AS duration_ms
-		FROM observability.spans
+		FROM observability.signoz_index_v3
 		WHERE team_id = @teamID AND `+traceidmatch.WhereTraceIDMatchesCH("trace_id", "traceID")+`
 		  AND (has_error = true OR status_code_string = 'ERROR')
 		ORDER BY timestamp ASC

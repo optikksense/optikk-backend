@@ -48,6 +48,6 @@ SELECT
     CAST(attributes.`vcs.change.url.full`, 'String')                           AS pr_url,
     timestamp                                                                  AS first_seen,
     timestamp                                                                  AS last_seen
-FROM observability.spans
-WHERE (parent_span_id = '' OR parent_span_id = '0000000000000000')
+FROM observability.signoz_index_v3
+WHERE is_root = 1
   AND mat_service_version != '';

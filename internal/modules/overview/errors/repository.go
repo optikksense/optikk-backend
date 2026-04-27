@@ -3,7 +3,7 @@
 // ListFingerprints, GetFingerprintTrend) read `spans_rollup` or
 // `spans_error_fingerprint`. Drill-down methods (GetErrorGroupDetail,
 // GetErrorGroupTraces, GetErrorGroupTimeseries, GetHTTP5xxByRoute) stay on
-// raw `observability.spans` because they fetch per-span fields — status_message,
+// raw `observability.signoz_index_v3` because they fetch per-span fields — status_message,
 // trace_id, exception_stacktrace, mat_http_route — that the error-fingerprint
 // rollup carries only as state (sample trace_id + status_message hash).
 // Each drill-down is bounded by group_id → exception_type + status_message_hash
@@ -18,14 +18,13 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	utils "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+		utils "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 const (
 	serviceNameFilter            = " AND s.service_name = @serviceName"
-	spansRollupPrefix            = rollup.FamilySpansRED
-	errorFingerprintRollupPrefix = rollup.FamilySpansErrors
+	spansRollupPrefix            = "observability.signoz_index_v3"
+	errorFingerprintRollupPrefix = "observability.signoz_index_v3"
 )
 
 // httpStatusBucketToCode maps the rollup's coarse http_status_bucket
@@ -124,16 +123,16 @@ type errorGroupRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorGroupRow, error) {
-	table := rollup.For(errorFingerprintRollupPrefix, startMs, endMs).Table
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT service_name,
 		       operation_name,
-		       anyMerge(sample_status_message) AS status_message,
+		       any(status_message) AS status_message,
 		       http_status_bucket,
-		       sumMerge(error_count)           AS error_count,
-		       maxMerge(last_seen)             AS last_occurrence,
-		       minMerge(first_seen)            AS first_occurrence,
-		       anyMerge(sample_trace_id)       AS sample_trace_id
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)           AS error_count,
+		       max(timestamp)             AS last_occurrence,
+		       min(timestamp)            AS first_occurrence,
+		       any(trace_id)       AS sample_trace_id
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end`, table)
@@ -247,7 +246,7 @@ func (r *ClickHouseRepository) GetErrorGroupDetail(ctx context.Context, teamID i
 		       any(s.trace_id) AS sample_trace_id,
 		       any(s.exception_type) AS exception_type,
 		       any(s.exception_stacktrace) AS stack_trace
-		FROM observability.spans s
+		FROM observability.signoz_index_v3 s
 		WHERE s.team_id = @teamID AND (` + ErrorCondition() + `)
 		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND s.timestamp BETWEEN @start AND @end
@@ -291,7 +290,7 @@ func (r *ClickHouseRepository) GetErrorGroupTraces(ctx context.Context, teamID i
 		SELECT s.trace_id, s.span_id, s.timestamp,
 		       s.duration_nano / 1000000.0 AS duration_ms,
 		       s.status_code_string AS status_code
-		FROM observability.spans s
+		FROM observability.signoz_index_v3 s
 		WHERE s.team_id = @teamID AND (` + ErrorCondition() + `)
 		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND s.timestamp BETWEEN @start AND @end
@@ -334,7 +333,7 @@ func (r *ClickHouseRepository) GetErrorGroupTimeseries(ctx context.Context, team
 	query := fmt.Sprintf(`
 		SELECT %s AS timestamp,
 		       toInt64(COUNT(*)) AS error_count
-		FROM observability.spans s
+		FROM observability.signoz_index_v3 s
 		WHERE s.team_id = @teamID AND (`+ErrorCondition()+`)
 		  AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
 		  AND s.timestamp BETWEEN @start AND @end
@@ -381,14 +380,14 @@ type serviceErrorRateRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetServiceErrorRate(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]serviceErrorRateRow, error) {
-	tier := rollup.For(spansRollupPrefix, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT service_name,
 		       toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
-		       sumMerge(request_count)   AS request_count,
-		       sumMerge(error_count)     AS error_count,
-		       sumMerge(duration_ms_sum) AS duration_ms_sum
+		       count()   AS request_count,
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)     AS error_count,
+		       sum(duration_nano / 1000000.0) AS duration_ms_sum
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end`, table)
@@ -447,12 +446,12 @@ type errorVolumeRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetErrorVolume(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]errorVolumeRow, error) {
-	tier := rollup.For(spansRollupPrefix, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT service_name,
 		       toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
-		       sumMerge(error_count) AS error_count
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400) AS error_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end`, table)
@@ -497,14 +496,14 @@ type latencyErrorRow struct {
 }
 
 func (r *ClickHouseRepository) GetLatencyDuringErrorWindows(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]latencyErrorRow, error) {
-	tier := rollup.For(spansRollupPrefix, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT service_name,
 		       toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
-		       sumMerge(request_count)   AS request_count,
-		       sumMerge(error_count)     AS error_count,
-		       sumMerge(duration_ms_sum) AS duration_ms_sum
+		       count()   AS request_count,
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)     AS error_count,
+		       sum(duration_nano / 1000000.0) AS duration_ms_sum
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end`, table)
@@ -601,12 +600,12 @@ type exceptionRateRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetExceptionRateByType(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]exceptionRatePointDTO, error) {
-	tier := rollup.For(errorFingerprintRollupPrefix, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
 		       exception_type,
-		       sumMerge(error_count)                                         AS event_count
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                         AS event_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -645,7 +644,7 @@ type errorHotspotRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetErrorHotspot(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorHotspotCellDTO, error) {
-	spansTable := rollup.For(spansRollupPrefix, startMs, endMs).Table
+	spansTable := "observability.signoz_index_v3"
 
 	// spans_red already carries request_count + error_count per
 	// (service, operation, http_status_bucket). Aggregate directly from that
@@ -653,8 +652,8 @@ func (r *ClickHouseRepository) GetErrorHotspot(ctx context.Context, teamID int64
 	query := fmt.Sprintf(`
 		SELECT service_name,
 		       operation_name,
-		       sumMerge(error_count) AS error_count,
-		       sumMerge(request_count) AS total_count
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400) AS error_count,
+		       count() AS total_count
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
@@ -693,7 +692,7 @@ func (r *ClickHouseRepository) GetHTTP5xxByRoute(ctx context.Context, teamID int
 		SELECT s.mat_http_route AS http_route,
 		       s.service_name   AS service_name,
 		       toInt64(count()) AS count_5xx
-		FROM observability.spans s
+		FROM observability.signoz_index_v3 s
 		WHERE s.team_id = @teamID AND s.ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND s.timestamp BETWEEN @start AND @end
 		  AND toUInt16OrZero(s.response_status_code) >= 500`
 	args := []any{
@@ -730,17 +729,17 @@ type errorFingerprintRawRow struct {
 }
 
 func (r *ClickHouseRepository) ListFingerprints(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]errorFingerprintDTO, error) {
-	table := rollup.For(errorFingerprintRollupPrefix, startMs, endMs).Table
+	table := "observability.signoz_index_v3"
 	query := fmt.Sprintf(`
 		SELECT toString(status_message_hash)   AS fingerprint,
 		       service_name,
 		       operation_name,
 		       exception_type,
-		       anyMerge(sample_status_message) AS status_message,
-		       minMerge(first_seen)            AS first_seen,
-		       maxMerge(last_seen)             AS last_seen,
-		       sumMerge(error_count)           AS cnt,
-		       anyMerge(sample_trace_id)       AS sample_trace_id
+		       any(status_message) AS status_message,
+		       min(timestamp)            AS first_seen,
+		       max(timestamp)             AS last_seen,
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)           AS cnt,
+		       any(trace_id)       AS sample_trace_id
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end`, table)
@@ -784,11 +783,11 @@ type fingerprintTrendRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetFingerprintTrend(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName, exceptionType, statusMessage string) ([]fingerprintTrendPointDTO, error) {
-	tier := rollup.For(errorFingerprintRollupPrefix, startMs, endMs)
-	table, tierStep := tier.Table, tier.StepMin
+	table := "observability.signoz_index_v3"
+	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS ts,
-		       sumMerge(error_count)                                        AS cnt
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                        AS cnt
 		FROM %s
 		WHERE team_id = @teamID
 		  AND bucket_ts BETWEEN @start AND @end
