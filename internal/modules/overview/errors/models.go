@@ -65,7 +65,7 @@ type ExceptionRatePoint struct {
 
 // ErrorHotspotCell imported from errortracking
 type ErrorHotspotCell struct {
-	ServiceName   string  `json:"service_name"   ch:"service_name"`
+	ServiceName   string  `json:"service_name"   ch:"service"`
 	OperationName string  `json:"operation_name" ch:"operation_name"`
 	ErrorRate     float64 `json:"error_rate"     ch:"error_rate"`
 	ErrorCount    int64   `json:"error_count"    ch:"error_count"`
@@ -75,14 +75,14 @@ type ErrorHotspotCell struct {
 // HTTP5xxByRoute imported from errortracking
 type HTTP5xxByRoute struct {
 	HTTPRoute   string `json:"http_route"   ch:"http_route"`
-	ServiceName string `json:"service_name" ch:"service_name"`
+	ServiceName string `json:"service_name" ch:"service"`
 	Count       int64  `json:"count"        ch:"count_5xx"`
 }
 
 // ErrorFingerprint imported from errorfingerprint
 type ErrorFingerprint struct {
 	Fingerprint   string    `json:"fingerprint"  ch:"fingerprint"`
-	ServiceName   string    `json:"serviceName"  ch:"service_name"`
+	ServiceName   string    `json:"serviceName"  ch:"service"`
 	OperationName string    `json:"operationName" ch:"operation_name"`
 	ExceptionType string    `json:"exceptionType" ch:"exception_type"`
 	StatusMessage string    `json:"statusMessage" ch:"status_message"`

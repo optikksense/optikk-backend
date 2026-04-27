@@ -9,14 +9,14 @@ import (
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	)
 
-const spansLatencyRollupPrefix = "observability.signoz_index_v3"
+const spansLatencyRollupPrefix = "observability.spans"
 
 type Repository struct{ db clickhouse.Conn }
 
 func NewRepository(db clickhouse.Conn) *Repository { return &Repository{db: db} }
 
 func (r *Repository) Histogram(ctx context.Context, teamID int64, req HistogramRequest) (histogramRow, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	where, args := rollupFilter(teamID, req.StartMs, req.EndMs, req.ServiceName)
 	if req.Operation != "" {
 		where += ` AND operation_name = @op`
@@ -40,12 +40,12 @@ func (r *Repository) Histogram(ctx context.Context, teamID int64, req HistogramR
 }
 
 func (r *Repository) Heatmap(ctx context.Context, teamID int64, req HeatmapRequest) ([]heatmapRow, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	where, args := rollupFilter(teamID, req.StartMs, req.EndMs, req.ServiceName)
 	args = append(args, clickhouse.Named("intervalMin", adaptiveIntervalMinutes(tierStep, req.StartMs, req.EndMs)))
 	query := fmt.Sprintf(`
-		SELECT toString(toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin))) AS time_bucket,
+		SELECT toString(ts_bucket) AS time_bucket,
 		       latency_bucket AS bucket_ms,
 		       sum(span_count) AS count
 		FROM %s
@@ -66,9 +66,9 @@ func rollupFilter(teamID int64, startMs, endMs int64, service string) (string, [
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
-	where := `team_id = @teamID AND bucket_ts BETWEEN @start AND @end`
+	where := `team_id = @teamID AND ts_bucket BETWEEN @start AND @end`
 	if service != "" {
-		where += ` AND service_name = @service`
+		where += ` AND service = @service`
 		args = append(args, clickhouse.Named("service", service))
 	}
 	return where, args

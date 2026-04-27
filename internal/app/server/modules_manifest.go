@@ -15,7 +15,6 @@ import (
 	infrastructure_fleet "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/fleet"
 	infrastructure_nodes "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/nodes"
 	infrastructure_resource_utilisation "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/resourceutil"
-	log_analytics "github.com/Optikk-Org/optikk-backend/internal/modules/logs/log_analytics"
 	log_facets "github.com/Optikk-Org/optikk-backend/internal/modules/logs/log_facets"
 	log_trends "github.com/Optikk-Org/optikk-backend/internal/modules/logs/log_trends"
 	log_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/logs/explorer"
@@ -44,7 +43,6 @@ import (
 	spans_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
 	traces_latency "github.com/Optikk-Org/optikk-backend/internal/modules/traces/latency"
 	span_query "github.com/Optikk-Org/optikk-backend/internal/modules/traces/span_query"
-	trace_analytics "github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_analytics"
 	trace_paths "github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_paths"
 	trace_servicemap "github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_servicemap"
 	trace_shape "github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_shape"
@@ -78,7 +76,6 @@ func configuredModules(
 		infrastructure_resource_utilisation.NewModule(nativeQuerier, getTenant),
 		log_explorer.NewModule(nativeQuerier, getTenant),
 		log_detail.NewModule(nativeQuerier, getTenant),
-		log_analytics.NewModule(nativeQuerier, getTenant),
 		log_facets.NewModule(nativeQuerier, getTenant),
 		log_trends.NewModule(nativeQuerier, getTenant),
 		metrics.NewModule(nativeQuerier, getTenant),
@@ -104,7 +101,6 @@ func configuredModules(
 		spans_explorer.NewModule(nativeQuerier, getTenant),
 		spans_tracedetail.NewModule(nativeQuerier, getTenant),
 		span_query.NewModule(nativeQuerier, getTenant),
-		trace_analytics.NewModule(nativeQuerier, getTenant),
 		trace_paths.NewModule(nativeQuerier, getTenant),
 		trace_servicemap.NewModule(nativeQuerier, getTenant),
 		trace_shape.NewModule(nativeQuerier, getTenant),

@@ -12,7 +12,6 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-		timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
@@ -42,7 +41,7 @@ func collectionFilter(collectionName string, f shared.Filters) (string, []any) {
 }
 
 func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID int64, startMs, endMs int64, collectionName string, f shared.Filters) ([]LatencyTimeSeries, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	fc, fargs := collectionFilter(collectionName, f)
 
@@ -55,7 +54,7 @@ func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID 
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) * 1000  AS p99_ms
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket, group_by
@@ -74,7 +73,7 @@ func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID 
 }
 
 func (r *ClickHouseRepository) GetCollectionOps(ctx context.Context, teamID int64, startMs, endMs int64, collectionName string, f shared.Filters) ([]OpsTimeSeries, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	fc, fargs := collectionFilter(collectionName, f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
@@ -86,7 +85,7 @@ func (r *ClickHouseRepository) GetCollectionOps(ctx context.Context, teamID int6
 		    toFloat64(sum(hist_count)) / %f AS ops_per_sec
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket, group_by
@@ -105,7 +104,7 @@ func (r *ClickHouseRepository) GetCollectionOps(ctx context.Context, teamID int6
 }
 
 func (r *ClickHouseRepository) GetCollectionErrors(ctx context.Context, teamID int64, startMs, endMs int64, collectionName string, f shared.Filters) ([]ErrorTimeSeries, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	fc, fargs := collectionFilter(collectionName, f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
@@ -117,7 +116,7 @@ func (r *ClickHouseRepository) GetCollectionErrors(ctx context.Context, teamID i
 		    toFloat64(sum(hist_count)) / %f AS errors_per_sec
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  AND notEmpty(error_type)
 		  %s
@@ -185,7 +184,7 @@ func (r *ClickHouseRepository) GetCollectionQueryTexts(ctx context.Context, team
 }
 
 func (r *ClickHouseRepository) GetCollectionReadVsWrite(ctx context.Context, teamID int64, startMs, endMs int64, collectionName string) ([]ReadWritePoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
@@ -196,7 +195,7 @@ func (r *ClickHouseRepository) GetCollectionReadVsWrite(ctx context.Context, tea
 		    toFloat64(sumMergeIf(hist_count, upper(db_operation) IN ('INSERT', 'UPDATE', 'DELETE', 'REPLACE', 'UPSERT', 'SET', 'PUT', 'AGGREGATE'))) / %f AS write_ops_per_sec
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  AND db_collection = @collection
 		GROUP BY time_bucket
@@ -214,5 +213,3 @@ func (r *ClickHouseRepository) GetCollectionReadVsWrite(ctx context.Context, tea
 	return rows, nil
 }
 
-// silence unused-import warning when this package keeps a raw fallback
-var _ = timebucket.Expression

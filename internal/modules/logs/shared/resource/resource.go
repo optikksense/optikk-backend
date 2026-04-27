@@ -9,11 +9,11 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/querycompiler"
 )
 
-const logsResourceTable = "observability.logs_v2_resource"
+const logsResourceTable = "observability.logs_resource"
 
 // HasFilters reports whether any resource-scoped filters are present.
 func HasFilters(f querycompiler.Filters) bool {
@@ -26,7 +26,7 @@ func HasFilters(f querycompiler.Filters) bool {
 		len(f.ExcludeHosts) > 0
 }
 
-// WithFingerprints narrows preWhere by `resource_fingerprint IN (...)` when
+// WithFingerprints narrows preWhere by `fingerprint IN (...)` when
 // resource filters are present. Returns empty=true if filters resolve to no
 // fingerprints (callers should short-circuit with an empty result).
 func WithFingerprints(
@@ -48,7 +48,7 @@ func WithFingerprints(
 		return "", nil, true, nil
 	}
 
-	return preWhere + " AND resource_fingerprint IN @resourceFingerprints",
+	return preWhere + " AND fingerprint IN @resourceFingerprints",
 		append(args, clickhouse.Named("resourceFingerprints", fingerprints)),
 		false,
 		nil
@@ -56,14 +56,14 @@ func WithFingerprints(
 
 func resolveFingerprints(ctx context.Context, db clickhouse.Conn, f querycompiler.Filters) ([]string, error) {
 	query := `
-		SELECT DISTINCT resource_fingerprint
+		SELECT DISTINCT fingerprint
 		FROM ` + logsResourceTable + `
-		PREWHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		WHERE 1 = 1`
 	args := []any{
 		clickhouse.Named("teamID", uint32(f.TeamID)), //nolint:gosec // G115
-		clickhouse.Named("bucketStart", utils.LogsBucketStart(f.StartMs/1000)),
-		clickhouse.Named("bucketEnd", utils.LogsBucketStart(f.EndMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.LogsBucketStart(f.StartMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.LogsBucketStart(f.EndMs/1000)),
 	}
 
 	query, args = appendFilter(query, args, "service", f.Services, false)

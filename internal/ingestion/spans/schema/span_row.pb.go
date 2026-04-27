@@ -21,13 +21,10 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Row is the wire format on Kafka. One record == one span row bound for
-// observability.signoz_index_v3. Field order mirrors the ClickHouse column order in
-// row.go Columns so the consumer can produce positional CH values with no
-// name lookup.
+// Row is the wire format on Kafka. One record == one span row bound for observability.spans.
 type Row struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
-	TsBucketStart       uint64                 `protobuf:"varint,1,opt,name=ts_bucket_start,json=tsBucketStart,proto3" json:"ts_bucket_start,omitempty"`
+	TsBucket            uint64                 `protobuf:"varint,1,opt,name=ts_bucket,json=tsBucket,proto3" json:"ts_bucket,omitempty"`
 	TeamId              uint32                 `protobuf:"varint,2,opt,name=team_id,json=teamId,proto3" json:"team_id,omitempty"`
 	TimestampNs         int64                  `protobuf:"varint,3,opt,name=timestamp_ns,json=timestampNs,proto3" json:"timestamp_ns,omitempty"`
 	TraceId             string                 `protobuf:"bytes,4,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
@@ -57,8 +54,21 @@ type Row struct {
 	ExceptionMessage    string                 `protobuf:"bytes,28,opt,name=exception_message,json=exceptionMessage,proto3" json:"exception_message,omitempty"`
 	ExceptionStacktrace string                 `protobuf:"bytes,29,opt,name=exception_stacktrace,json=exceptionStacktrace,proto3" json:"exception_stacktrace,omitempty"`
 	ExceptionEscaped    bool                   `protobuf:"varint,30,opt,name=exception_escaped,json=exceptionEscaped,proto3" json:"exception_escaped,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	Fingerprint         string                 `protobuf:"bytes,31,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"`
+	// Top-level resource + span-level labels promoted from attributes JSON; mapper-written, stripped from the attribute map post-extraction.
+	Service          string `protobuf:"bytes,32,opt,name=service,proto3" json:"service,omitempty"`
+	Host             string `protobuf:"bytes,33,opt,name=host,proto3" json:"host,omitempty"`
+	Pod              string `protobuf:"bytes,34,opt,name=pod,proto3" json:"pod,omitempty"`
+	ServiceVersion   string `protobuf:"bytes,35,opt,name=service_version,json=serviceVersion,proto3" json:"service_version,omitempty"`
+	Environment      string `protobuf:"bytes,36,opt,name=environment,proto3" json:"environment,omitempty"`
+	PeerService      string `protobuf:"bytes,37,opt,name=peer_service,json=peerService,proto3" json:"peer_service,omitempty"`
+	DbSystem         string `protobuf:"bytes,38,opt,name=db_system,json=dbSystem,proto3" json:"db_system,omitempty"`
+	DbName           string `protobuf:"bytes,39,opt,name=db_name,json=dbName,proto3" json:"db_name,omitempty"`
+	DbStatement      string `protobuf:"bytes,40,opt,name=db_statement,json=dbStatement,proto3" json:"db_statement,omitempty"`
+	HttpRoute        string `protobuf:"bytes,41,opt,name=http_route,json=httpRoute,proto3" json:"http_route,omitempty"`
+	HttpStatusBucket string `protobuf:"bytes,42,opt,name=http_status_bucket,json=httpStatusBucket,proto3" json:"http_status_bucket,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
 }
 
 func (x *Row) Reset() {
@@ -91,9 +101,9 @@ func (*Row) Descriptor() ([]byte, []int) {
 	return file_span_row_proto_rawDescGZIP(), []int{0}
 }
 
-func (x *Row) GetTsBucketStart() uint64 {
+func (x *Row) GetTsBucket() uint64 {
 	if x != nil {
-		return x.TsBucketStart
+		return x.TsBucket
 	}
 	return 0
 }
@@ -301,13 +311,97 @@ func (x *Row) GetExceptionEscaped() bool {
 	return false
 }
 
+func (x *Row) GetFingerprint() string {
+	if x != nil {
+		return x.Fingerprint
+	}
+	return ""
+}
+
+func (x *Row) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
+}
+
+func (x *Row) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *Row) GetPod() string {
+	if x != nil {
+		return x.Pod
+	}
+	return ""
+}
+
+func (x *Row) GetServiceVersion() string {
+	if x != nil {
+		return x.ServiceVersion
+	}
+	return ""
+}
+
+func (x *Row) GetEnvironment() string {
+	if x != nil {
+		return x.Environment
+	}
+	return ""
+}
+
+func (x *Row) GetPeerService() string {
+	if x != nil {
+		return x.PeerService
+	}
+	return ""
+}
+
+func (x *Row) GetDbSystem() string {
+	if x != nil {
+		return x.DbSystem
+	}
+	return ""
+}
+
+func (x *Row) GetDbName() string {
+	if x != nil {
+		return x.DbName
+	}
+	return ""
+}
+
+func (x *Row) GetDbStatement() string {
+	if x != nil {
+		return x.DbStatement
+	}
+	return ""
+}
+
+func (x *Row) GetHttpRoute() string {
+	if x != nil {
+		return x.HttpRoute
+	}
+	return ""
+}
+
+func (x *Row) GetHttpStatusBucket() string {
+	if x != nil {
+		return x.HttpStatusBucket
+	}
+	return ""
+}
+
 var File_span_row_proto protoreflect.FileDescriptor
 
 const file_span_row_proto_rawDesc = "" +
 	"\n" +
-	"\x0espan_row.proto\x12\x16optikk.ingest.spans.v1\"\xef\b\n" +
-	"\x03Row\x12&\n" +
-	"\x0fts_bucket_start\x18\x01 \x01(\x04R\rtsBucketStart\x12\x17\n" +
+	"\x0espan_row.proto\x12\x16optikk.ingest.spans.v1\"\xda\v\n" +
+	"\x03Row\x12\x1b\n" +
+	"\tts_bucket\x18\x01 \x01(\x04R\btsBucket\x12\x17\n" +
 	"\ateam_id\x18\x02 \x01(\rR\x06teamId\x12!\n" +
 	"\ftimestamp_ns\x18\x03 \x01(\x03R\vtimestampNs\x12\x19\n" +
 	"\btrace_id\x18\x04 \x01(\tR\atraceId\x12\x17\n" +
@@ -343,10 +437,23 @@ const file_span_row_proto_rawDesc = "" +
 	"\x0eexception_type\x18\x1b \x01(\tR\rexceptionType\x12+\n" +
 	"\x11exception_message\x18\x1c \x01(\tR\x10exceptionMessage\x121\n" +
 	"\x14exception_stacktrace\x18\x1d \x01(\tR\x13exceptionStacktrace\x12+\n" +
-	"\x11exception_escaped\x18\x1e \x01(\bR\x10exceptionEscaped\x1a=\n" +
+	"\x11exception_escaped\x18\x1e \x01(\bR\x10exceptionEscaped\x12 \n" +
+	"\vfingerprint\x18\x1f \x01(\tR\vfingerprint\x12\x18\n" +
+	"\aservice\x18  \x01(\tR\aservice\x12\x12\n" +
+	"\x04host\x18! \x01(\tR\x04host\x12\x10\n" +
+	"\x03pod\x18\" \x01(\tR\x03pod\x12'\n" +
+	"\x0fservice_version\x18# \x01(\tR\x0eserviceVersion\x12 \n" +
+	"\venvironment\x18$ \x01(\tR\venvironment\x12!\n" +
+	"\fpeer_service\x18% \x01(\tR\vpeerService\x12\x1b\n" +
+	"\tdb_system\x18& \x01(\tR\bdbSystem\x12\x17\n" +
+	"\adb_name\x18' \x01(\tR\x06dbName\x12!\n" +
+	"\fdb_statement\x18( \x01(\tR\vdbStatement\x12\x1d\n" +
+	"\n" +
+	"http_route\x18) \x01(\tR\thttpRoute\x12,\n" +
+	"\x12http_status_bucket\x18* \x01(\tR\x10httpStatusBucket\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01BEZCgithub.com/Optikk-Org/optikk-backend/internal/ingestion/spans;spansb\x06proto3"
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01BMZKgithub.com/Optikk-Org/optikk-backend/internal/ingestion/spans/schema;schemab\x06proto3"
 
 var (
 	file_span_row_proto_rawDescOnce sync.Once

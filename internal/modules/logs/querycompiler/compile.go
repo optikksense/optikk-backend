@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/logs/enrich"
 )
 
@@ -26,7 +26,7 @@ func Compile(f Filters, tgt Target) Compiled {
 func compileRaw(f Filters, startMs, endMs int64) Compiled {
 	var sb strings.Builder
 	args := baseRawArgs(f.TeamID, startMs, endMs)
-	sb.WriteString(` team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND timestamp BETWEEN @start AND @end`)
+	sb.WriteString(` team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND timestamp BETWEEN @start AND @end`)
 	appendInList(&sb, &args, "severity_text", f.Severities, false)
 	appendInList(&sb, &args, "service", f.Services, false)
 	appendInList(&sb, &args, "host", f.Hosts, false)
@@ -41,7 +41,7 @@ func compileRaw(f Filters, startMs, endMs int64) Compiled {
 	appendSearch(&sb, &args, f.Search, f.SearchMode)
 	appendAttrs(&sb, &args, f.Attributes)
 	return Compiled{
-		PreWhere: "team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd",
+		PreWhere: "team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd",
 		Where:    sb.String(),
 		Args:     args,
 	}
@@ -50,7 +50,7 @@ func compileRaw(f Filters, startMs, endMs int64) Compiled {
 func compileRollup(f Filters, startMs, endMs int64, _ Target) Compiled {
 	var sb strings.Builder
 	args := baseRollupArgs(f.TeamID, startMs, endMs)
-	sb.WriteString(` team_id = @teamID AND bucket_ts BETWEEN @start AND @end`)
+	sb.WriteString(` team_id = @teamID AND ts_bucket BETWEEN @start AND @end`)
 	appendSeverityBucketList(&sb, &args, f.Severities, false)
 	appendInList(&sb, &args, "service", f.Services, false)
 	appendInList(&sb, &args, "environment", f.Environments, false)
@@ -61,7 +61,7 @@ func compileRollup(f Filters, startMs, endMs int64, _ Target) Compiled {
 	appendInList(&sb, &args, "host", f.ExcludeHosts, true)
 	dropped := rollupDroppedClauses(f)
 	return Compiled{
-		PreWhere:       "team_id = @teamID AND bucket_ts BETWEEN @start AND @end",
+		PreWhere:       "team_id = @teamID AND ts_bucket BETWEEN @start AND @end",
 		Where:          sb.String(),
 		Args:           args,
 		DroppedClauses: dropped,
@@ -93,8 +93,8 @@ func baseRawArgs(teamID int64, startMs, endMs int64) []any {
 	endNs := endMs * 1_000_000
 	return []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 domain-constrained
-		clickhouse.Named("bucketStart", utils.LogsBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.LogsBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.LogsBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.LogsBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.Unix(0, startNs)),
 		clickhouse.Named("end", time.Unix(0, endNs)),
 	}

@@ -83,7 +83,7 @@ func (r *ClickHouseRepository) GetSlowestCollections(ctx context.Context, teamID
 		    toFloat64(sumMergeIf(hist_count, notEmpty(error_type))) / nullIf(toFloat64(sum(hist_count)), 0) * 100 AS error_rate
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  AND notEmpty(db_collection)
 		  %s
@@ -108,7 +108,7 @@ func (r *ClickHouseRepository) GetSlowestCollections(ctx context.Context, teamID
 // (which the rollup can't express because per-row latencies collapse into the
 // digest), but bucket-level accurate and rollup-compatible.
 func (r *ClickHouseRepository) GetSlowQueryRate(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters, thresholdMs float64) ([]SlowRatePoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	fc, fargs := shared.RollupFilterClauses(f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
@@ -118,7 +118,7 @@ func (r *ClickHouseRepository) GetSlowQueryRate(ctx context.Context, teamID int6
 		    toFloat64(sum(hist_count)) / %f                                AS slow_per_sec
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket

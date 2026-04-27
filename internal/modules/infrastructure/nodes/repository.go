@@ -11,11 +11,11 @@ import (
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	)
 
-// Reads target the `observability.signoz_index_v3_host_rollup_{1m,5m,1h}` cascade —
-// Phase 6 per-host RED aggregates. Rollup is keyed by
-// (team_id, bucket_ts, host_name, pod_name, service_name) so pod + service
-// cardinality comes from `uniq()` on the grouping dims.
-const spansHostRollupPrefix = "observability.signoz_index_v3"
+// Reads run against raw `observability.spans` (the planned
+// spans_host_rollup_{1m,5m,1h} cascade was never built). Per-host
+// RED metrics are computed inline; pod + service cardinality comes from
+// `uniq()` on the grouping dims, with LIMIT to bound the scan.
+const spansHostRollupPrefix = "observability.spans"
 
 // queryIntervalMinutes returns max(tierStep, dashboardStep) so the query-time
 // step is never finer than the tier's native resolution. Matches the helper
@@ -54,7 +54,7 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 type infrastructureNodeDTO struct {
-	HostName	string		`ch:"host_name"`
+	HostName	string		`ch:"host"`
 	PodCount	uint64		`ch:"pod_count"`
 	ServicesCSV	string		`ch:"services_csv"`
 	RequestCount	uint64		`ch:"request_count"`
@@ -65,7 +65,7 @@ type infrastructureNodeDTO struct {
 }
 
 type infrastructureNodeServiceDTO struct {
-	ServiceName	string	`ch:"service_name"`
+	ServiceName	string	`ch:"service"`
 	RequestCount	uint64	`ch:"request_count"`
 	ErrorCount	uint64	`ch:"error_count"`
 	DurationMsSum	float64	`ch:"duration_ms_sum"`
@@ -74,18 +74,18 @@ type infrastructureNodeServiceDTO struct {
 }
 
 func (r *ClickHouseRepository) GetInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]InfrastructureNode, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
-		SELECT if(host_name != '', host_name, '%s') AS host_name,
-		       uniqIf(pod_name, pod_name != '')                                  AS pod_count,
+		SELECT if(host != '', host, '%s') AS host,
+		       uniqIf(pod, pod != '')                                  AS pod_count,
 		       count()                                           AS request_count,
 		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                             AS error_count,
 		       sum(duration_nano / 1000000.0)                                         AS duration_ms_sum,
-		       max(bucket_ts)                                                    AS last_seen
+		       max(ts_bucket)                                                    AS last_seen
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		GROUP BY host_name
+		  AND ts_bucket BETWEEN @start AND @end
+		GROUP BY host
 		ORDER BY request_count DESC
 		LIMIT `+strconv.Itoa(MaxNodes), DefaultUnknown, table)
 
@@ -127,7 +127,7 @@ func (r *ClickHouseRepository) GetInfrastructureNodes(ctx context.Context, teamI
 }
 
 func (r *ClickHouseRepository) GetInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (InfrastructureNodeSummary, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	// Dedicated summary query that avoids the MaxNodes limit and executes a
 	// single pass over host-level aggregates to categorize health.
 	query := fmt.Sprintf(`
@@ -138,13 +138,13 @@ func (r *ClickHouseRepository) GetInfrastructureNodeSummary(ctx context.Context,
 		    toInt64(sum(pod_count))                                  AS total_pods
 		FROM (
 		    SELECT
-		        host_name,
+		        host,
 		        (countIf(has_error OR toUInt16OrZero(response_status_code) >= 400) * 100.0 / nullIf(toFloat64(count()), 0)) AS error_rate,
 		        uniqMerge(pod_count)                                                         AS pod_count
 		    FROM %s
 		    WHERE team_id = @teamID
-		      AND bucket_ts BETWEEN @start AND @end
-		    GROUP BY host_name
+		      AND ts_bucket BETWEEN @start AND @end
+		    GROUP BY host
 		)`, table)
 
 	params := []any{
@@ -178,19 +178,19 @@ func (r *ClickHouseRepository) GetInfrastructureNodeSummary(ctx context.Context,
 }
 
 func (r *ClickHouseRepository) GetInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
-		SELECT service_name                                                      AS service_name,
+		SELECT service                                                      AS service,
 		       count()                                           AS request_count,
 		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                             AS error_count,
 		       sum(duration_nano / 1000000.0)                                         AS duration_ms_sum,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_latency,
-		       uniqIf(pod_name, pod_name != '')                                  AS pod_count
+		       uniqIf(pod, pod != '')                                  AS pod_count
 		FROM %s
 		WHERE team_id = @teamID
-		  AND if(host_name != '', host_name, '%s') = @host
-		  AND bucket_ts BETWEEN @start AND @end
-		GROUP BY service_name
+		  AND if(host != '', host, '%s') = @host
+		  AND ts_bucket BETWEEN @start AND @end
+		GROUP BY service
 		ORDER BY request_count DESC
 		LIMIT `+strconv.Itoa(MaxServices), table, DefaultUnknown)
 

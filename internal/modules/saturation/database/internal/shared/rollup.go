@@ -6,14 +6,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	)
 
-// DBHistRollupPrefix is the rollup family constant for the unified db
-// saturation rollup (histogram + gauge rows; keys include db_connection_state
-// and db_response_status_code). Callers pass it to 1.
-const DBHistRollupPrefix = "observability.metrics"
-
-// QueryIntervalMinutes returns the group-by step (in minutes) for rollup
-// reads. It is max(tierStep, dashboardStep) so the step is never finer than
-// the selected tier's native resolution.
+// QueryIntervalMinutes returns the group-by step (in minutes) for rollup reads, never finer than the tier's native resolution.
 func QueryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 	hours := (endMs - startMs) / 3_600_000
 	var dashStep int64
@@ -30,8 +23,7 @@ func QueryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 	return dashStep
 }
 
-// RollupFilterClauses translates Filters into db_histograms_rollup column
-// predicates. Mirrors FilterClauses but references rollup columns directly.
+// RollupFilterClauses translates Filters into db_histograms_rollup column predicates.
 func RollupFilterClauses(f Filters) (frag string, args []any) {
 	appendIn := func(col, prefix string, values []string) {
 		if len(values) == 0 {
@@ -47,8 +39,7 @@ func RollupFilterClauses(f Filters) (frag string, args []any) {
 	return frag, args
 }
 
-// RollupBaseParams returns the standard (teamID, start, end, metricName)
-// named args for rollup reads.
+// RollupBaseParams returns the standard (teamID, start, end, metricName) named args for rollup reads.
 func RollupBaseParams(teamID int64, startMs, endMs int64, metricName string) []any {
 	return []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // domain-bounded team id
@@ -58,9 +49,7 @@ func RollupBaseParams(teamID int64, startMs, endMs int64, metricName string) []a
 	}
 }
 
-// GroupColumnFor maps a shared.AttrX constant to the corresponding
-// db_histograms_rollup key column. Returns "" if the attribute has no
-// corresponding rollup column (caller must fall back to raw metrics).
+// GroupColumnFor maps a shared.AttrX constant to a db_histograms_rollup key column, or "" when none applies.
 func GroupColumnFor(attr string) string {
 	switch attr {
 	case AttrDBSystem:
@@ -85,8 +74,5 @@ func GroupColumnFor(attr string) string {
 	return ""
 }
 
-// BucketTimeExpr is a CH expression that bucketizes `bucket_ts` by the
-// @intervalMin named arg and returns the bucket as a `YYYY-MM-DD HH:MM:SS`
-// string (via toString on a DateTime) to match the legacy `time_bucket`
-// string shape carried in existing DTO ch tags.
-const BucketTimeExpr = "toString(toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)))"
+// BucketTimeExpr renders the stored ts_bucket as a YYYY-MM-DD HH:MM:SS string for the time_bucket column.
+const BucketTimeExpr = "toString(ts_bucket)"

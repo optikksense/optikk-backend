@@ -26,7 +26,7 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) opsSeriesByAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]OpsTimeSeries, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	fc, fargs := shared.RollupFilterClauses(f)
 	groupCol := shared.GroupColumnFor(groupAttr)
@@ -41,7 +41,7 @@ func (r *ClickHouseRepository) opsSeriesByAttr(ctx context.Context, teamID int64
 		    toInt64(sum(hist_count))  AS op_count
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket, group_by
@@ -88,7 +88,7 @@ func (r *ClickHouseRepository) GetOpsByNamespace(ctx context.Context, teamID int
 }
 
 func (r *ClickHouseRepository) GetReadVsWrite(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ReadWritePoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	fc, fargs := shared.RollupFilterClauses(f)
 
@@ -99,7 +99,7 @@ func (r *ClickHouseRepository) GetReadVsWrite(ctx context.Context, teamID int64,
 		    toInt64(sumMergeIf(hist_count, upper(db_operation) IN ('INSERT', 'UPDATE', 'DELETE', 'REPLACE', 'UPSERT', 'SET', 'PUT', 'AGGREGATE'))) AS write_count
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket

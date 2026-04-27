@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 )
 
 const maxTimeRangeMs = 30 * 24 * 60 * 60 * 1000
@@ -23,17 +23,17 @@ func Compile(f Filters, tgt Target) Compiled {
 func compileSpansRaw(f Filters, startMs, endMs int64) Compiled {
 	var sb strings.Builder
 	args := baseSpanArgs(f.TeamID, startMs, endMs, "")
-	sb.WriteString(`ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND timestamp BETWEEN @start AND @end`)
-	appendInList(&sb, &args, "service_name", f.Services, false)
-	appendInList(&sb, &args, "service_name", f.ExcludeServices, true)
+	sb.WriteString(`ts_bucket BETWEEN @bucketStart AND @bucketEnd AND timestamp BETWEEN @start AND @end`)
+	// Resource filters (Services, ExcludeServices, Environments) flow through
+	// internal/modules/traces/shared/resource.WithFingerprints into a
+	// `fingerprint IN (...)` PREWHERE — don't push them down here too.
 	appendInList(&sb, &args, "name", f.Operations, false)
 	appendInList(&sb, &args, "kind_string", f.SpanKinds, false)
 	appendInList(&sb, &args, "http_method", f.HTTPMethods, false)
 	appendInList(&sb, &args, "response_status_code", f.HTTPStatuses, false)
 	appendInList(&sb, &args, "status_code_string", f.Statuses, false)
 	appendInList(&sb, &args, "status_code_string", f.ExcludeStatuses, true)
-	appendInList(&sb, &args, "mat_deployment_environment", f.Environments, false)
-	appendInList(&sb, &args, "mat_peer_service", f.PeerServices, false)
+	appendInList(&sb, &args, "peer_service", f.PeerServices, false)
 	appendScalar(&sb, &args, "trace_id", f.TraceID)
 	if f.HasError != nil {
 		appendBool(&sb, &args, "has_error", *f.HasError)
@@ -56,8 +56,8 @@ func baseSpanArgs(teamID, startMs, endMs int64, _ string) []any {
 	endNs := endMs * 1_000_000
 	return []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
-		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.Unix(0, startNs)),
 		clickhouse.Named("end", time.Unix(0, endNs)),
 		clickhouse.Named("startMs", startMs),
@@ -118,7 +118,7 @@ func appendSpanSearch(sb *strings.Builder, args *[]any, search string) {
 		return
 	}
 	name := fmt.Sprintf("search_%d", len(*args))
-	fmt.Fprintf(sb, " AND (positionCaseInsensitive(trace_id, @%s) > 0 OR positionCaseInsensitive(service_name, @%s) > 0 OR positionCaseInsensitive(name, @%s) > 0 OR positionCaseInsensitive(status_message, @%s) > 0)", name, name, name, name)
+	fmt.Fprintf(sb, " AND (positionCaseInsensitive(trace_id, @%s) > 0 OR positionCaseInsensitive(service, @%s) > 0 OR positionCaseInsensitive(name, @%s) > 0 OR positionCaseInsensitive(status_message, @%s) > 0)", name, name, name, name)
 	*args = append(*args, clickhouse.Named(name, search))
 }
 

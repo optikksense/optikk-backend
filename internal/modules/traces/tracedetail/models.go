@@ -75,7 +75,7 @@ type RelatedTrace struct {
 	TraceID       string    `json:"trace_id"       ch:"trace_id"`
 	SpanID        string    `json:"span_id"        ch:"span_id"`
 	OperationName string    `json:"operation_name" ch:"operation_name"`
-	ServiceName   string    `json:"service_name"   ch:"service_name"`
+	ServiceName   string    `json:"service_name"   ch:"service"`
 	DurationMs    float64   `json:"duration_ms"    ch:"duration_ms"`
 	Status        string    `json:"status"         ch:"status"`
 	StartTime     time.Time `json:"start_time"     ch:"start_time"`

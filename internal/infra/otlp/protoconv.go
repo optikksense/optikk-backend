@@ -44,17 +44,6 @@ func AttrsToMap(kvs []*commonpb.KeyValue) map[string]string {
 	return m
 }
 
-func MergeAttrsMap(resMap map[string]string, dpAttrs []*commonpb.KeyValue) map[string]string {
-	merged := make(map[string]string, len(resMap)+len(dpAttrs))
-	for k, v := range resMap {
-		merged[k] = v
-	}
-	for _, kv := range dpAttrs {
-		merged[kv.Key] = AnyValueString(kv.Value)
-	}
-	return merged
-}
-
 // ResourceFingerprint computes a stable, order-independent xxhash64 of resource attributes.
 func ResourceFingerprint(kvs []*commonpb.KeyValue) uint64 {
 	if len(kvs) == 0 {

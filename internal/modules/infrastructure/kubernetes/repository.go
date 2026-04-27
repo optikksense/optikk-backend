@@ -6,10 +6,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-		timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
-
-const metricsK8sRollupPrefix = "observability.metrics"
 
 type Repository interface {
 	GetContainerCPU(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]containerBucketDTO, error)
@@ -40,16 +37,17 @@ func nodeFilter(node string) (clause string, args []any) {
 	return " AND host = @node", []any{clickhouse.Named("node", node)}
 }
 
-// bucketExpr returns an adaptive bucket expression over the rollup's
-// `bucket_ts` column (DateTime).
+// bucketExpr returns the bucket column expression. Reads the stored
+// ts_bucket directly — no CH-side bucket math; see internal/infra/timebucket.
 func bucketExpr(startMs, endMs int64) string {
-	return timebucket.ExprForColumnTime(startMs, endMs, "bucket_ts")
+	_, _ = startMs, endMs
+	return "ts_bucket"
 }
 
 // queryContainerBuckets reads per-container time-bucketed averages for a given
 // metric family. Avg = sum(value_avg_num) / sum(sample_count).
 func (r *ClickHouseRepository) queryContainerBuckets(ctx context.Context, teamID int64, startMs, endMs int64, metricName string, node string) ([]containerBucketDTO, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	nf, nfArgs := nodeFilter(node)
 
 	query := fmt.Sprintf(`
@@ -59,7 +57,7 @@ func (r *ClickHouseRepository) queryContainerBuckets(ctx context.Context, teamID
 		    sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0) AS val
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName%s
 		GROUP BY time_bucket, container
 		ORDER BY time_bucket, container
@@ -89,19 +87,19 @@ func (r *ClickHouseRepository) GetOOMKills(ctx context.Context, teamID int64, st
 }
 
 func (r *ClickHouseRepository) GetPodRestarts(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]podStatDTO, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	nf, nfArgs := nodeFilter(node)
 
 	query := fmt.Sprintf(`
 		SELECT
-		    pod                              AS pod_name,
+		    pod                              AS pod,
 		    namespace                        AS namespace,
 		    toInt64(max(value_max))     AS restarts
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName%s
-		GROUP BY pod_name, namespace
+		GROUP BY pod, namespace
 		ORDER BY restarts DESC
 		LIMIT 100
 	`, table, nf)
@@ -113,7 +111,7 @@ func (r *ClickHouseRepository) GetPodRestarts(ctx context.Context, teamID int64,
 }
 
 func (r *ClickHouseRepository) GetNodeAllocatable(ctx context.Context, teamID int64, startMs, endMs int64, node string) (nodeAllocatableDTO, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	nf, nfArgs := nodeFilter(node)
 
 	// Two metric_names in one scan; per-metric avg computed from shared state
@@ -125,7 +123,7 @@ func (r *ClickHouseRepository) GetNodeAllocatable(ctx context.Context, teamID in
 		    sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)     AS avg_val
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN (@cpuMetric, @memMetric)%s
 		GROUP BY metric_name
 	`, table, nf)
@@ -158,7 +156,7 @@ func (r *ClickHouseRepository) GetNodeAllocatable(ctx context.Context, teamID in
 }
 
 func (r *ClickHouseRepository) GetPodPhases(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]phaseStatDTO, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	nf, nfArgs := nodeFilter(node)
 
 	// Rollup MV extracts `k8s.pod.phase` into `state_dim` for the
@@ -170,7 +168,7 @@ func (r *ClickHouseRepository) GetPodPhases(ctx context.Context, teamID int64, s
 		    toInt64(sum(sample_count))  AS pod_count
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName%s
 		GROUP BY phase
 		ORDER BY pod_count DESC
@@ -183,7 +181,7 @@ func (r *ClickHouseRepository) GetPodPhases(ctx context.Context, teamID int64, s
 }
 
 func (r *ClickHouseRepository) GetReplicaStatus(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]replicaStatDTO, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	nf, nfArgs := nodeFilter(node)
 
 	// state_dim carries the replicaset name for the two relevant metrics.
@@ -195,7 +193,7 @@ func (r *ClickHouseRepository) GetReplicaStatus(ctx context.Context, teamID int6
 		    sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)     AS avg_val
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN (@desiredMetric, @availableMetric)%s
 		GROUP BY replica_set, metric_name
 		ORDER BY replica_set
@@ -239,7 +237,7 @@ func (r *ClickHouseRepository) GetReplicaStatus(ctx context.Context, teamID int6
 }
 
 func (r *ClickHouseRepository) GetVolumeUsage(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]volumeStatDTO, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	nf, nfArgs := nodeFilter(node)
 
 	query := fmt.Sprintf(`
@@ -249,7 +247,7 @@ func (r *ClickHouseRepository) GetVolumeUsage(ctx context.Context, teamID int64,
 		    sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)     AS avg_val
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN (@capMetric, @inodeMetric)%s
 		GROUP BY volume_name, metric_name
 		ORDER BY volume_name

@@ -5,7 +5,7 @@
 // Rules:
 //   - service.name, host.name, k8s.pod.name, deployment.environment get
 //     resource fallbacks pulled from attributes when missing (parity with the
-//     CH MATERIALIZED columns on observability.signoz_index_v3).
+//     CH MATERIALIZED columns on observability.spans).
 //   - zero-valued trace_id / span_id / parent_span_id get collapsed to ""
 //     so the CH bloom filter on these columns is not polluted.
 //   - exception.* attrs on an error span are promoted to first-class

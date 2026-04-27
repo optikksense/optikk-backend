@@ -1,7 +1,11 @@
-// Package explorer backs the POST /traces/query + /traces/analytics + GET
-// /traces/:id read paths. List + facets + trend read observability.traces_index
-// (per-trace summary). Analytics and raw-span filters fall through to
-// observability.signoz_index_v3 + spans_rollup_*.
+// Package explorer backs the POST /traces/query + GET /traces/:id read paths.
+// Reads `observability.spans` directly with `is_root = 1` and column
+// aliases that shape rows into a per-trace summary. Resource-scoped filters
+// (Services, ExcludeServices, Environments) flow through
+// internal/modules/traces/shared/resource.WithFingerprints into a
+// `fingerprint IN (...)` PREWHERE for ~99% scan reduction on wide
+// windows. The previously-planned `observability.traces_index` summary table is
+// not implemented; aliases here serve the same shape.
 package explorer
 
 import (
@@ -10,13 +14,14 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-		"github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/shared/resource"
 )
 
 const (
-	spansRawTable		= "observability.signoz_index_v3"
-	traceIndexColumns	= `trace_id, timestamp AS start_ms, timestamp AS end_ms, duration_nano AS duration_ns, service_name AS root_service, name AS root_operation, status_code_string AS root_status,
-			http_method AS root_http_method, response_status_code AS root_http_status, 1 AS span_count, has_error, (CASE WHEN has_error THEN 1 ELSE 0 END) AS error_count, [service_name] AS service_set, false AS truncated, timestamp AS last_seen_ms`
+	spansRawTable		= "observability.spans"
+	traceIndexColumns	= `trace_id, timestamp AS start_ms, timestamp AS end_ms, duration_nano AS duration_ns, service AS root_service, name AS root_operation, status_code_string AS root_status,
+			http_method AS root_http_method, response_status_code AS root_http_status, 1 AS span_count, has_error, (CASE WHEN has_error THEN 1 ELSE 0 END) AS error_count, [service] AS service_set, false AS truncated, timestamp AS last_seen_ms`
 )
 
 type Repository struct {
@@ -32,8 +37,14 @@ func (r *Repository) ListTraces(ctx context.Context, f querycompiler.Filters, li
 
 func (r *Repository) listTracesIndex(ctx context.Context, f querycompiler.Filters, limit int, cur TraceCursor) ([]traceIndexRowDTO, bool, []string, error) {
 	compiled := querycompiler.Compile(f, querycompiler.TargetSpansRaw)
+	preWhere, args, empty, err := resource.WithFingerprints(ctx, r.db, f, compiled.PreWhere, compiled.Args)
+	if err != nil {
+		return nil, false, compiled.DroppedClauses, err
+	}
+	if empty {
+		return nil, false, compiled.DroppedClauses, nil
+	}
 	where := compiled.Where + " AND is_root = 1"
-	args := compiled.Args
 	if cur.TraceID != "" {
 		where += ` AND (start_ms, trace_id) < (@curStart, @curTraceID)`
 		args = append(args,
@@ -43,7 +54,7 @@ func (r *Repository) listTracesIndex(ctx context.Context, f querycompiler.Filter
 	}
 	query := fmt.Sprintf(
 		`SELECT %s FROM %s PREWHERE %s WHERE %s ORDER BY timestamp DESC, trace_id DESC LIMIT @pgLimit`,
-		traceIndexColumns, spansRawTable, compiled.PreWhere, where,
+		traceIndexColumns, spansRawTable, preWhere, where,
 	)
 	args = append(args, clickhouse.Named("pgLimit", uint64(limit+1))) //nolint:gosec
 	var rows []traceIndexRowDTO
@@ -85,18 +96,25 @@ func (r *Repository) Summarize(ctx context.Context, f querycompiler.Filters) (Su
 
 func (r *Repository) summarizeTracesIndex(ctx context.Context, f querycompiler.Filters) (Summary, error) {
 	compiled := querycompiler.Compile(f, querycompiler.TargetSpansRaw)
+	preWhere, args, empty, err := resource.WithFingerprints(ctx, r.db, f, compiled.PreWhere, compiled.Args)
+	if err != nil {
+		return Summary{}, err
+	}
+	if empty {
+		return Summary{}, nil
+	}
 	query := fmt.Sprintf(
 		`SELECT count() AS t, countIf(has_error) AS e, sum(duration_nano) AS d FROM %s PREWHERE %s WHERE %s AND is_root = 1`,
-		spansRawTable, compiled.PreWhere, compiled.Where,
+		spansRawTable, preWhere, compiled.Where,
 	)
 	var row struct {
 		T	uint64	`ch:"t"`
 		E	uint64	`ch:"e"`
 		D	uint64	`ch:"d"`
 	}
-	rows, err := dbutil.QueryCH(dbutil.ExplorerCtx(ctx), r.db, "explorer.summarizeTracesIndex", query, compiled.Args...)
-	if err != nil {
-		return Summary{}, err
+	rows, qErr := dbutil.QueryCH(dbutil.ExplorerCtx(ctx), r.db, "explorer.summarizeTracesIndex", query, args...)
+	if qErr != nil {
+		return Summary{}, qErr
 	}
 	defer rows.Close()
 	if rows.Next() {

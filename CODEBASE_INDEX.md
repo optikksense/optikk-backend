@@ -125,7 +125,7 @@ Self-telemetry is Prometheus-only. The customer-facing OTLP receiver on `:4317` 
 
 The trace read surface used to live in two monoliths (`explorer` + `tracedetail`); it is now split by concern so each submodule owns its own `dto/handler/models/module/repository/service` bundle:
 
-- `internal/modules/traces/explorer/` — core list + single: `POST /api/v1/traces/query`, `GET /api/v1/traces/:traceId`. Reads `observability.traces_index`.
+- `internal/modules/traces/explorer/` — core list + single: `POST /api/v1/traces/query`, `GET /api/v1/traces/:traceId`. Reads `observability.signoz_index_v3` (with `is_root = 1` + column aliases that shape rows into a per-trace summary). The `traces_index` table referenced in older docs is not implemented; the read path falls through to raw spans.
 - `internal/modules/traces/trace_analytics/` — `POST /api/v1/traces/analytics` (group-by + aggregations over traces_index).
 - `internal/modules/traces/span_query/` — `POST /api/v1/spans/query` (span-level explorer view over `observability.spans`).
 - `internal/modules/traces/tracedetail/` — per-span drill-downs: `/traces/:id/span-events`, `/traces/:id/spans/:spanId/attributes`, `/traces/:id/logs`, `/traces/:id/related`, plus the spans list/tree (`/traces/:id/spans`, `/spans/:id/tree`).
@@ -134,6 +134,19 @@ The trace read surface used to live in two monoliths (`explorer` + `tracedetail`
 - `internal/modules/traces/trace_servicemap/` — per-trace aggregates: `/traces/:id/service-map`, `/traces/:id/errors`.
 - `internal/modules/traces/trace_suggest/` — DSL autocomplete: `POST /traces/suggest` for field/attribute value completion on the traces query bar.
 - `internal/modules/traces/shared/traceidmatch/` — shared ClickHouse predicate (`WhereTraceIDMatchesCH`) so every trace-scoped reader normalizes trace_id identically.
+- `internal/modules/traces/shared/resource/` — `WithFingerprints(ctx, db, filters, preWhere, args)` resolves `service` / `environment` / exclude-service filters to `resource_fingerprint IN (...)` against `observability.traces_v3_resource` (populated by the `spans_to_traces_v3_resource` MV in [db/clickhouse/04_resource_helpers.sql](db/clickhouse/04_resource_helpers.sql)). Mirrors the logs resolver. Wired into `explorer.{listTracesIndex,summarizeTracesIndex}`, `span_query.ListSpans`, `trace_analytics.Analytics`, `traces/errors.{ErrorGroups,Timeseries}`, and `overview/errors.GetHTTP5xxByRoute`. `LIMIT 4096` cap matches logs. The querycompiler at `internal/modules/traces/querycompiler/compile.go` deliberately omits `service_name` / `deployment_environment` predicates because the resolver carries those constraints in PREWHERE.
+
+### Bucket consistency invariant
+
+Every bucket value used in a PREWHERE — `ts_bucket_start` for spans/logs, `bucket_ts` for metrics tier dictionaries, `bucket_ts_hour` / `_6hr` / `_day` for raw `observability.metrics`, and the display-time time-bucket column emitted by every reader — is computed Go-side via [internal/infra/timebucket/](internal/infra/timebucket/). ClickHouse never computes a bucket itself: no `toStartOfHour`, `toStartOfInterval`, `toStartOfDay`, `toStartOfMinute`, or `toStartOfFiveMinutes` appears in any SQL we emit or any schema we define. Writers compute the bucket and write it to a column; readers compute the same bucket from the same Go helper to derive PREWHERE bounds; cross-language drift cannot break the contract because the cross-language path doesn't exist. Round-trip enforced by [internal/infra/timebucket/consistency_test.go](internal/infra/timebucket/consistency_test.go). Changing a constant (`SpansBucketSeconds`, `LogsBucketSeconds`) is a breaking schema change requiring a table rebuild — runbook lives in the package doc.
+
+### Spans schema (`observability.signoz_index_v3`)
+
+Hot resource/span attributes are JSON typed-path subcolumns inside `attributes JSON(\`service.name\` LowCardinality(String), \`host.name\` LowCardinality(String), …, max_dynamic_paths=100)`. Type-hinted paths are stored as native subcolumns with column-equivalent read performance ([CH docs](https://clickhouse.com/docs/best-practices/use-json-where-appropriate)) — no JSON parse per row, no MATERIALIZED column tax at insert. Reader-facing names live as zero-cost `ALIAS` columns (`service_name`, `host_name`, `pod_name`, `service_version`, `deployment_environment`, `peer_service`, `db_system`, `db_name`, `db_statement`, `http_route`, `attr_exception_type`). `resource_fingerprint` is a real top-level column written directly by the Go mapper.
+
+Resource-side skip indexes (service/host/pod/version/environment) are intentionally absent — the resolver pre-filters those into a `resource_fingerprint IN (...)` PREWHERE that hits the third PK slot directly. Bloom filters on the remaining span-attribute paths (`http.route`, `db.system`, `db.name`, `peer.service`, `exception.type`) target the JSON typed subcolumns directly (CH ≥ 24.12).
+
+**No rollup tables exist.** `spans_red_rollup`, `spans_peer_rollup`, `spans_by_version_rollup`, `spans_error_fingerprint`, `signoz_index_v3_rollup_{1m,5m,1h}`, `signoz_index_v3_host_rollup_*`, `db_histograms_rollup`, `root_spans_index`, `traces_index`, and `observability.resources` were planned but never built — comments referencing them are documentation drift. All "aggregation panel" readers go to raw `signoz_index_v3` and rely on resolver narrowing for performance.
 
 ### Logs read path (split into sibling submodules)
 
@@ -151,6 +164,15 @@ sibling owns its own handler/service/repository/dto bundle.
 - `internal/modules/logs/shared/resource/` — `WithFingerprints(ctx, db, filters, preWhere, args)` resolves `service/host/pod/container/environment` filters to `resource_fingerprint IN (...)`. Used by every reader.
 - `internal/modules/logs/shared/analytics/` — agg spec builders (`BuildAggsRaw` / `BuildAggsRollupVolume` / `BuildAggsRollupFacets`) + dynamic CH row helpers (`ScanAnyRow`, `MapRow`, `AliasSet`, `ToString`, `ToFloat`).
 - `internal/modules/logs/shared/step/` — `ResolveStepMinutes` / `Adaptive` / `FormatBucket` for time-bucket choice (≤3h→1m, ≤24h→5m, ≤7d→1h, else 1d).
+
+### Metrics read path
+
+The metrics module exposes `ListMetricNames`, `ListTagKeys`, `ListTagValues`, and `QueryTimeseries`. Resource-attribute filters (service / host / environment / k8s_namespace) are pre-resolved into a fingerprint set against `observability.time_series_v4` (the SigNoz-style metric+resource dictionary, populated by MV from raw `observability.metrics`) and then applied to raw scans as `resource_fingerprint IN (...)`. Non-resource filters extract from the per-point `attributes` JSON inline.
+
+- `internal/modules/metrics/repository.go` — `QueryTimeseries` partitions filters via `partitionResourceFilters`, calls the resolver, and PREWHEREs raw `observability.metrics` on the returned fingerprint set. `ListTagValues` for resource keys queries `time_series_v4` directly (narrow scan); for non-resource keys it falls back to JSON-path extraction from raw.
+- `internal/modules/metrics/shared/resource/` — `Canonical(key)` / `IsResourceKey(key)` / `ColumnExpr(canonical)` / `Filters` / `WithFingerprints(ctx, db, filters, where, args)` / `TierFor(startMs, endMs)`. Mirrors the logs resolver but reads from a tier-selected dictionary table (`time_series_v4` / `_6hrs` / `_1day`) so wider lookback windows scan fewer rows. LIMIT 4096 fingerprints per resolution.
+- Raw schema: [db/clickhouse/03_metrics.sql](db/clickhouse/03_metrics.sql) — `observability.metrics` carries a separate `resource JSON(max_dynamic_paths=100)` column (resource attributes only) alongside `attributes JSON(max_dynamic_paths=100)` (data-point attributes only). The mapper at [internal/ingestion/metrics/mapper/mapper_points.go](internal/ingestion/metrics/mapper/mapper_points.go) writes them separately — there is no merge; resource attributes do not appear in `attributes`.
+- Dictionary schema: [db/clickhouse/06_metrics_series.sql](db/clickhouse/06_metrics_series.sql) — `time_series_v4 / _6hrs / _1day` are populated by MVs that extract `resource.\`service.name\`::String AS service`, etc. from raw. Resolver picks the tier per query: ≤24h → `_v4` (1h), ≤7d → `_6hrs`, >7d → `_1day` — mirrors the data-plane bucket grain choice in `metrics.bucketDurationSeconds`.
 
 ### Data Type Consistency
 

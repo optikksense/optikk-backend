@@ -29,11 +29,11 @@ func (r *ClickHouseRepository) GetCriticalPath(ctx context.Context, teamID int64
 	err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "trace_paths.GetCriticalPath", &rows, `
 		SELECT s.span_id, s.parent_span_id,
 		       s.name AS operation_name,
-		       s.service_name,
+		       s.service,
 		       s.duration_nano / 1000000.0 AS duration_ms,
 		       toUnixTimestamp64Nano(s.timestamp) AS start_ns,
 		       toUnixTimestamp64Nano(s.timestamp) + s.duration_nano AS end_ns
-		FROM observability.signoz_index_v3 s
+		FROM observability.spans s
 		PREWHERE s.team_id = @teamID
 		WHERE `+traceidmatch.WhereTraceIDMatchesCH("s.trace_id", "traceID")+`
 		ORDER BY start_ns ASC
@@ -46,9 +46,9 @@ func (r *ClickHouseRepository) GetErrorPath(ctx context.Context, teamID int64, t
 	var rows []errorPathRow
 	err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "trace_paths.GetErrorPath", &rows, `
 		SELECT s.span_id, s.parent_span_id, s.name AS operation_name,
-		       s.service_name AS service_name, s.status_code_string AS status, s.status_message,
+		       s.service AS service, s.status_code_string AS status, s.status_message,
 		       s.timestamp AS start_time, s.duration_nano / 1000000.0 AS duration_ms
-		FROM observability.signoz_index_v3 s
+		FROM observability.spans s
 		WHERE s.team_id = @teamID AND `+traceidmatch.WhereTraceIDMatchesCH("s.trace_id", "traceID")+`
 		  AND (s.has_error = true OR s.status_code_string = 'ERROR')
 		ORDER BY s.timestamp ASC

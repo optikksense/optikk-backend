@@ -1,7 +1,4 @@
-// Package models holds wire + domain types shared by every logs submodule
-// (explorer, logdetail, log_analytics, log_facets, log_trends). Anything
-// scanned out of ClickHouse logs tables or returned to the frontend lives
-// here so submodules don't import each other.
+// Package models holds wire + domain types shared by every logs submodule (explorer, logdetail, log_facets, log_trends).
 package models
 
 import (
@@ -116,16 +113,3 @@ type PageInfo struct {
 	Limit      int    `json:"limit"`
 }
 
-// AnalyticsRow is a single row of the analytics result grid.
-type AnalyticsRow struct {
-	TimeBucket string             `json:"time_bucket,omitempty"`
-	Group      map[string]string  `json:"group,omitempty"`
-	Values     map[string]float64 `json:"values"`
-}
-
-// Aggregation describes a single aggregation fn applied to a field.
-type Aggregation struct {
-	Fn    string `json:"fn"`
-	Field string `json:"field"`
-	Alias string `json:"alias"`
-}

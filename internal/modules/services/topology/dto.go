@@ -2,7 +2,7 @@ package topology
 
 // nodeAggRow is scanned from the per-service RED aggregation query.
 type nodeAggRow struct {
-	ServiceName  string  `ch:"service_name"`
+	ServiceName  string  `ch:"service"`
 	RequestCount int64   `ch:"request_count"`
 	ErrorCount   int64   `ch:"error_count"`
 	P50Ms        float64 `ch:"p50_ms"`

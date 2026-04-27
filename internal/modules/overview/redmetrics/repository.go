@@ -8,19 +8,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-		"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
-)
-
-// Reads target the `observability.signoz_index_v3_rollup_{1m,5m,1h}` cascade — tier
-// selected by `1` based on range. Percentiles come from
-// `quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)` with
-// tuple accessors; counts/sums from `sumMerge`. Derived quantities (apdex,
-// error_rate, RPS) are computed Go-side. Span-kind breakdown reads from the
-// dedicated `spans_kind_rollup` (Phase 9).
-
-const (
-	spansRollupPrefix	= "observability.signoz_index_v3"
-	spansKindRollupPrefix	= "observability.signoz_index_v3"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
 type Repository interface {
@@ -65,16 +53,16 @@ func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 
 func rollupParams(teamID int64, startMs, endMs int64) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115 — tenant ID fits uint32
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 — tenant ID fits uint32
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
 }
 
 func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) ([]redSummaryServiceRow, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
-		SELECT service_name,
+		SELECT service,
 		       count()                                            AS total_count,
 		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                              AS error_count,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) AS p50_ms,
@@ -82,16 +70,16 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) AS p99_ms
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		GROUP BY service_name`, table)
+		  AND ts_bucket BETWEEN @start AND @end
+		GROUP BY service`, table)
 
 	var raw []struct {
-		ServiceName	string	`ch:"service_name"`
-		TotalCount	uint64	`ch:"total_count"`
-		ErrorCount	uint64	`ch:"error_count"`
-		P50Ms		float64	`ch:"p50_ms"`
-		P95Ms		float64	`ch:"p95_ms"`
-		P99Ms		float64	`ch:"p99_ms"`
+		ServiceName string  `ch:"service"`
+		TotalCount  uint64  `ch:"total_count"`
+		ErrorCount  uint64  `ch:"error_count"`
+		P50Ms       float64 `ch:"p50_ms"`
+		P95Ms       float64 `ch:"p95_ms"`
+		P99Ms       float64 `ch:"p99_ms"`
 	}
 	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetSummary", &raw, query, rollupParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
@@ -100,43 +88,43 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 	rows := make([]redSummaryServiceRow, len(raw))
 	for i, row := range raw {
 		rows[i] = redSummaryServiceRow{
-			ServiceName:	row.ServiceName,
-			TotalCount:	row.TotalCount,
-			ErrorCount:	row.ErrorCount,
-			P50Ms:		utils.SanitizeFloat(row.P50Ms),
-			P95Ms:		utils.SanitizeFloat(row.P95Ms),
-			P99Ms:		utils.SanitizeFloat(row.P99Ms),
+			ServiceName: row.ServiceName,
+			TotalCount:  row.TotalCount,
+			ErrorCount:  row.ErrorCount,
+			P50Ms:       utils.SanitizeFloat(row.P50Ms),
+			P95Ms:       utils.SanitizeFloat(row.P95Ms),
+			P99Ms:       utils.SanitizeFloat(row.P99Ms),
 		}
 	}
 	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]apdexRow, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
-		SELECT service_name,
+		SELECT service,
 		       count()                                            AS request_count,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) AS p50_ms,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_ms,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) AS p99_ms
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end`, table)
+		  AND ts_bucket BETWEEN @start AND @end`, table)
 	args := rollupParams(teamID, startMs, endMs)
 	if serviceName != "" {
-		query += ` AND service_name = @serviceName`
+		query += ` AND service = @serviceName`
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}
 	query += `
-		GROUP BY service_name
+		GROUP BY service
 		ORDER BY request_count DESC`
 
 	var raw []struct {
-		ServiceName	string	`ch:"service_name"`
-		RequestCount	uint64	`ch:"request_count"`
-		P50Ms		float64	`ch:"p50_ms"`
-		P95Ms		float64	`ch:"p95_ms"`
-		P99Ms		float64	`ch:"p99_ms"`
+		ServiceName  string  `ch:"service"`
+		RequestCount uint64  `ch:"request_count"`
+		P50Ms        float64 `ch:"p50_ms"`
+		P95Ms        float64 `ch:"p95_ms"`
+		P99Ms        float64 `ch:"p99_ms"`
 	}
 	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetApdex", &raw, query, args...); err != nil {
 		return nil, err
@@ -147,7 +135,7 @@ func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, start
 		p50 := utils.SanitizeFloat(row.P50Ms)
 		p95 := utils.SanitizeFloat(row.P95Ms)
 		p99 := utils.SanitizeFloat(row.P99Ms)
-		total := int64(row.RequestCount)	//nolint:gosec // domain-bounded
+		total := int64(row.RequestCount) //nolint:gosec // domain-bounded
 		// Approximate apdex buckets from percentile tuple vs thresholds.
 		// p50 below satisfied → roughly half is satisfied; p95 above tolerating → ~5% frustrated, etc.
 		satisfiedFrac := percentileBelow(p50, p95, p99, satisfiedMs)
@@ -160,11 +148,11 @@ func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, start
 			frustratedFrac = 0
 		}
 		rows[i] = apdexRow{
-			ServiceName:	row.ServiceName,
-			Satisfied:	int64(float64(total) * satisfiedFrac),
-			Tolerating:	int64(float64(total) * toleratingFrac),
-			Frustrated:	int64(float64(total) * frustratedFrac),
-			TotalCount:	total,
+			ServiceName: row.ServiceName,
+			Satisfied:   int64(float64(total) * satisfiedFrac),
+			Tolerating:  int64(float64(total) * toleratingFrac),
+			Frustrated:  int64(float64(total) * frustratedFrac),
+			TotalCount:  total,
 		}
 	}
 	return rows, nil
@@ -205,7 +193,7 @@ func percentileBelow(p50, p95, p99, threshold float64) float64 {
 const slowOpsCandidatePoolMultiplier = 20
 
 func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]slowOperationRow, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	// Two-step: the CTE picks the top-K by request count using only the cheap
 	// `sum` state column, then the outer query computes tDigest percentiles
 	// for that bounded candidate set. Avoids ORDER BY on a computed tDigest
@@ -213,17 +201,17 @@ func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID 
 	// across every (service, operation) pair in the rollup.
 	query := fmt.Sprintf(`
 		WITH candidates AS (
-		    SELECT service_name,
+		    SELECT service,
 		           operation_name,
 		           count() AS span_count
 		    FROM %[1]s
 		    WHERE team_id = @teamID
-		      AND bucket_ts BETWEEN @start AND @end
-		    GROUP BY service_name, operation_name
+		      AND ts_bucket BETWEEN @start AND @end
+		    GROUP BY service, operation_name
 		    ORDER BY span_count DESC
 		    LIMIT @candidateLimit
 		)
-		SELECT s.service_name,
+		SELECT s.service,
 		       s.operation_name,
 		       sum(s.request_count)                                            AS span_count,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(s.latency_ms_digest)[1]) AS p50_ms,
@@ -231,9 +219,9 @@ func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID 
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(s.latency_ms_digest)[3]) AS p99_ms
 		FROM %[1]s s
 		WHERE s.team_id = @teamID
-		  AND s.bucket_ts BETWEEN @start AND @end
-		  AND (s.service_name, s.operation_name) IN (SELECT service_name, operation_name FROM candidates)
-		GROUP BY s.service_name, s.operation_name
+		  AND s.ts_bucket BETWEEN @start AND @end
+		  AND (s.service, s.operation_name) IN (SELECT service, operation_name FROM candidates)
+		GROUP BY s.service, s.operation_name
 		ORDER BY p95_ms DESC
 		LIMIT @limit`, table)
 	args := append(rollupParams(teamID, startMs, endMs),
@@ -242,12 +230,12 @@ func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID 
 	)
 
 	var raw []struct {
-		ServiceName	string	`ch:"service_name"`
-		OperationName	string	`ch:"operation_name"`
-		SpanCount	uint64	`ch:"span_count"`
-		P50Ms		float64	`ch:"p50_ms"`
-		P95Ms		float64	`ch:"p95_ms"`
-		P99Ms		float64	`ch:"p99_ms"`
+		ServiceName   string  `ch:"service"`
+		OperationName string  `ch:"operation_name"`
+		SpanCount     uint64  `ch:"span_count"`
+		P50Ms         float64 `ch:"p50_ms"`
+		P95Ms         float64 `ch:"p95_ms"`
+		P99Ms         float64 `ch:"p99_ms"`
 	}
 	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetTopSlowOperations", &raw, query, args...); err != nil {
 		return nil, err
@@ -256,29 +244,29 @@ func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID 
 	rows := make([]slowOperationRow, len(raw))
 	for i, row := range raw {
 		rows[i] = slowOperationRow{
-			ServiceName:	row.ServiceName,
-			OperationName:	row.OperationName,
-			SpanCount:	row.SpanCount,
-			P50Ms:		utils.SanitizeFloat(row.P50Ms),
-			P95Ms:		utils.SanitizeFloat(row.P95Ms),
-			P99Ms:		utils.SanitizeFloat(row.P99Ms),
+			ServiceName:   row.ServiceName,
+			OperationName: row.OperationName,
+			SpanCount:     row.SpanCount,
+			P50Ms:         utils.SanitizeFloat(row.P50Ms),
+			P95Ms:         utils.SanitizeFloat(row.P95Ms),
+			P99Ms:         utils.SanitizeFloat(row.P99Ms),
 		}
 	}
 	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetTopErrorOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]errorOperationRow, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
-		SELECT service_name,
+		SELECT service,
 		       operation_name,
 		       count()                                                         AS total_count,
 		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                                           AS err_count,
 		       toFloat64(err_count) / nullIf(toFloat64(total_count), 0) AS error_rate
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		GROUP BY service_name, operation_name
+		  AND ts_bucket BETWEEN @start AND @end
+		GROUP BY service, operation_name
 		HAVING err_count > 0
 		ORDER BY err_count DESC
 		LIMIT @limit`, table)
@@ -287,10 +275,10 @@ func (r *ClickHouseRepository) GetTopErrorOperations(ctx context.Context, teamID
 	)
 
 	var raw []struct {
-		ServiceName   string  `ch:"service_name"`
-		OperationName string  `ch:"operation_name"`
-		TotalCount    uint64  `ch:"total_count"`
-		ErrorCount    uint64  `ch:"err_count"`
+		ServiceName   string   `ch:"service"`
+		OperationName string   `ch:"operation_name"`
+		TotalCount    uint64   `ch:"total_count"`
+		ErrorCount    uint64   `ch:"err_count"`
 		ErrorRate     *float64 `ch:"error_rate"`
 	}
 	if err := dbutil.SelectCH(dbutil.DashboardCtx(ctx), r.db, "redmetrics.GetTopErrorOperations", &raw, query, args...); err != nil {
@@ -315,23 +303,23 @@ func (r *ClickHouseRepository) GetTopErrorOperations(ctx context.Context, teamID
 }
 
 type requestRateRawRow struct {
-	Timestamp	time.Time	`ch:"timestamp"`
-	ServiceName	string		`ch:"service_name"`
-	RequestCount	uint64		`ch:"request_count"`
+	Timestamp    time.Time `ch:"timestamp"`
+	ServiceName  string    `ch:"service"`
+	RequestCount uint64    `ch:"request_count"`
 }
 
 func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceRatePoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	intervalMin := queryIntervalMinutes(tierStep, startMs, endMs)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
-		       service_name,
+		SELECT ts_bucket AS timestamp,
+		       service,
 		       count() AS request_count
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		GROUP BY timestamp, service_name
+		  AND ts_bucket BETWEEN @start AND @end
+		GROUP BY timestamp, service
 		ORDER BY timestamp ASC`, table)
 	args := append(rollupParams(teamID, startMs, endMs),
 		clickhouse.Named("intervalMin", intervalMin),
@@ -350,33 +338,33 @@ func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, tea
 			rps = float64(row.RequestCount) / intervalSec
 		}
 		rows[i] = ServiceRatePoint{
-			Timestamp:	row.Timestamp,
-			ServiceName:	row.ServiceName,
-			RPS:		rps,
+			Timestamp:   row.Timestamp,
+			ServiceName: row.ServiceName,
+			RPS:         rps,
 		}
 	}
 	return rows, nil
 }
 
 type errorRateRawRow struct {
-	Timestamp	time.Time	`ch:"timestamp"`
-	ServiceName	string		`ch:"service_name"`
-	RequestCount	uint64		`ch:"request_count"`
-	ErrorCount	uint64		`ch:"error_count"`
+	Timestamp    time.Time `ch:"timestamp"`
+	ServiceName  string    `ch:"service"`
+	RequestCount uint64    `ch:"request_count"`
+	ErrorCount   uint64    `ch:"error_count"`
 }
 
 func (r *ClickHouseRepository) GetErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceErrorRatePoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
-		       service_name,
+		SELECT ts_bucket AS timestamp,
+		       service,
 		       count() AS request_count,
 		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)   AS error_count
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		GROUP BY timestamp, service_name
+		  AND ts_bucket BETWEEN @start AND @end
+		GROUP BY timestamp, service
 		ORDER BY timestamp ASC`, table)
 	args := append(rollupParams(teamID, startMs, endMs),
 		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
@@ -389,43 +377,43 @@ func (r *ClickHouseRepository) GetErrorRateTimeSeries(ctx context.Context, teamI
 
 	rows := make([]ServiceErrorRatePoint, len(raw))
 	for i, row := range raw {
-		total := int64(row.RequestCount)	//nolint:gosec // domain-bounded
-		errs := int64(row.ErrorCount)		//nolint:gosec // domain-bounded
+		total := int64(row.RequestCount) //nolint:gosec // domain-bounded
+		errs := int64(row.ErrorCount)    //nolint:gosec // domain-bounded
 		pct := 0.0
 		if total > 0 {
 			pct = float64(errs) * 100.0 / float64(total)
 		}
 		rows[i] = ServiceErrorRatePoint{
-			Timestamp:	row.Timestamp,
-			ServiceName:	row.ServiceName,
-			RequestCount:	total,
-			ErrorCount:	errs,
-			ErrorPct:	pct,
+			Timestamp:    row.Timestamp,
+			ServiceName:  row.ServiceName,
+			RequestCount: total,
+			ErrorCount:   errs,
+			ErrorPct:     pct,
 		}
 	}
 	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceLatencyPoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
-		       service_name,
+		SELECT ts_bucket AS timestamp,
+		       service,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_ms
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		GROUP BY timestamp, service_name
+		  AND ts_bucket BETWEEN @start AND @end
+		GROUP BY timestamp, service
 		ORDER BY timestamp ASC`, table)
 	args := append(rollupParams(teamID, startMs, endMs),
 		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
 	)
 
 	var raw []struct {
-		Timestamp	time.Time	`ch:"timestamp"`
-		ServiceName	string		`ch:"service_name"`
-		P95Ms		float64		`ch:"p95_ms"`
+		Timestamp   time.Time `ch:"timestamp"`
+		ServiceName string    `ch:"service"`
+		P95Ms       float64   `ch:"p95_ms"`
 	}
 	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetP95LatencyTimeSeries", &raw, query, args...); err != nil {
 		return nil, err
@@ -434,9 +422,9 @@ func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, team
 	rows := make([]ServiceLatencyPoint, len(raw))
 	for i, row := range raw {
 		rows[i] = ServiceLatencyPoint{
-			Timestamp:	row.Timestamp,
-			ServiceName:	row.ServiceName,
-			P95Ms:		utils.SanitizeFloat(row.P95Ms),
+			Timestamp:   row.Timestamp,
+			ServiceName: row.ServiceName,
+			P95Ms:       utils.SanitizeFloat(row.P95Ms),
 		}
 	}
 	return rows, nil
@@ -446,21 +434,21 @@ func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, team
 // dimension. Bounded by time range + team_id part-pruning; grouping count is
 // tiny (handful of distinct kinds × bucket count), so scan stays cheap.
 type spanKindRawRow struct {
-	Timestamp	time.Time	`ch:"timestamp"`
-	KindString	string		`ch:"kind_string"`
-	SpanCount	uint64		`ch:"span_count"`
+	Timestamp  time.Time `ch:"timestamp"`
+	KindString string    `ch:"kind_string"`
+	SpanCount  uint64    `ch:"span_count"`
 }
 
 func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]SpanKindPoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
+		SELECT ts_bucket AS timestamp,
 		       kind_string,
 		       toInt64(count()) AS span_count
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		GROUP BY timestamp, kind_string
 		ORDER BY timestamp ASC`, table)
 	args := append(rollupParams(teamID, startMs, endMs),
@@ -474,35 +462,35 @@ func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID 
 	rows := make([]SpanKindPoint, len(raw))
 	for i, row := range raw {
 		rows[i] = SpanKindPoint{
-			Timestamp:	row.Timestamp,
-			KindString:	row.KindString,
-			SpanCount:	int64(row.SpanCount),	//nolint:gosec // domain-bounded
+			Timestamp:  row.Timestamp,
+			KindString: row.KindString,
+			SpanCount:  int64(row.SpanCount), //nolint:gosec // domain-bounded
 		}
 	}
 	return rows, nil
 }
 
 type errorByRouteRawRow struct {
-	Timestamp	time.Time	`ch:"timestamp"`
-	HttpRoute	string		`ch:"http_route"`
-	RequestCount	uint64		`ch:"request_count"`
-	ErrorCount	uint64		`ch:"error_count"`
+	Timestamp    time.Time `ch:"timestamp"`
+	HttpRoute    string    `ch:"http_route"`
+	RequestCount uint64    `ch:"request_count"`
+	ErrorCount   uint64    `ch:"error_count"`
 }
 
 func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorByRoutePoint, error) {
 	// `endpoint` in the rollup is coalesce(route, target, name) for root spans.
 	// Close enough to mat_http_route for the errors-by-route panel; excludes
 	// empty endpoints.
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
+		SELECT ts_bucket AS timestamp,
 		       operation_name                                               AS http_route,
 		       count()                                      AS request_count,
 		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                        AS error_count
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND operation_name != ''
 		GROUP BY timestamp, http_route
 		ORDER BY timestamp ASC, error_count DESC`, table)
@@ -517,30 +505,30 @@ func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int6
 	rows := make([]ErrorByRoutePoint, len(raw))
 	for i, row := range raw {
 		rows[i] = ErrorByRoutePoint{
-			Timestamp:	row.Timestamp,
-			HttpRoute:	row.HttpRoute,
-			RequestCount:	int64(row.RequestCount),	//nolint:gosec // domain-bounded
-			ErrorCount:	int64(row.ErrorCount),		//nolint:gosec // domain-bounded
+			Timestamp:    row.Timestamp,
+			HttpRoute:    row.HttpRoute,
+			RequestCount: int64(row.RequestCount), //nolint:gosec // domain-bounded
+			ErrorCount:   int64(row.ErrorCount),   //nolint:gosec // domain-bounded
 		}
 	}
 	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetLatencyBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]latencyBreakdownRow, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
-		SELECT service_name,
+		SELECT service,
 		       sum(duration_nano / 1000000.0) AS total_ms,
 		       count()   AS span_count
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		GROUP BY service_name`, table)
+		  AND ts_bucket BETWEEN @start AND @end
+		GROUP BY service`, table)
 
 	var raw []struct {
-		ServiceName	string	`ch:"service_name"`
-		TotalMs		float64	`ch:"total_ms"`
-		SpanCount	uint64	`ch:"span_count"`
+		ServiceName string  `ch:"service"`
+		TotalMs     float64 `ch:"total_ms"`
+		SpanCount   uint64  `ch:"span_count"`
 	}
 	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetLatencyBreakdown", &raw, query, rollupParams(teamID, startMs, endMs)...); err != nil {
 		return nil, err
@@ -548,9 +536,9 @@ func (r *ClickHouseRepository) GetLatencyBreakdown(ctx context.Context, teamID i
 	rows := make([]latencyBreakdownRow, len(raw))
 	for i, row := range raw {
 		rows[i] = latencyBreakdownRow{
-			ServiceName:	row.ServiceName,
-			TotalMs:	utils.SanitizeFloat(row.TotalMs),
-			SpanCount:	int64(row.SpanCount),	//nolint:gosec // domain-bounded
+			ServiceName: row.ServiceName,
+			TotalMs:     utils.SanitizeFloat(row.TotalMs),
+			SpanCount:   int64(row.SpanCount), //nolint:gosec // domain-bounded
 		}
 	}
 	return rows, nil

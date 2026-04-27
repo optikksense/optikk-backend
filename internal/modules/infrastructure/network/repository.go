@@ -11,8 +11,6 @@ import (
 		"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
-const metricsGaugesRollupPrefix = "observability.metrics"
-
 // queryIntervalMinutes returns the group-by step (in minutes) for rollup reads.
 // It is max(tierStep, dashboardStep) so the step is never finer than the
 // selected tier's native resolution.
@@ -83,16 +81,16 @@ func (r *ClickHouseRepository) queryResourceBuckets(ctx context.Context, query s
 }
 
 func (r *ClickHouseRepository) queryDirectionBucketsFromRollup(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]directionBucketDTO, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		SELECT ts_bucket AS time_bucket,
 		       state_dim                AS direction,
 		       sum(value_sum)      AS value_sum_val,
 		       sum(sample_count)   AS value_cnt
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  AND state_dim != ''
 		GROUP BY time_bucket, direction
@@ -139,16 +137,16 @@ func (r *ClickHouseRepository) GetNetworkPackets(ctx context.Context, teamID int
 }
 
 func (r *ClickHouseRepository) GetNetworkErrors(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		SELECT ts_bucket AS time_bucket,
 		       state_dim                AS state,
 		       sum(value_sum)      AS value_sum_val,
 		       sum(sample_count)   AS value_cnt
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  AND state_dim != ''
 		GROUP BY time_bucket, state
@@ -187,15 +185,15 @@ func (r *ClickHouseRepository) GetNetworkErrors(ctx context.Context, teamID int6
 }
 
 func (r *ClickHouseRepository) GetNetworkDropped(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		SELECT ts_bucket AS time_bucket,
 		       sum(value_sum)      AS value_sum_val,
 		       sum(sample_count)   AS value_cnt
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		GROUP BY time_bucket
 		ORDER BY time_bucket`, table)
@@ -234,15 +232,15 @@ func (r *ClickHouseRepository) GetNetworkDropped(ctx context.Context, teamID int
 // GetNetworkConnections reads per-network-state avg from metrics_gauges_rollup.
 // `state_dim` uses system.network.state with fallback to direction for connections.
 func (r *ClickHouseRepository) GetNetworkConnections(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		SELECT ts_bucket AS time_bucket,
 		       state_dim                                                    AS state,
 		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0) AS metric_val
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		GROUP BY time_bucket, state
 		ORDER BY time_bucket, state`, table)
@@ -313,13 +311,6 @@ func nullableToSlice(ptrs ...*float64) []float64 {
 	return out
 }
 
-// Column expressions matching resourceutil for instance-level queries
-const (
-	colHostCoalesce		= "coalesce(nullIf(host, ''), nullIf(attributes.`host.name`::String, ''), nullIf(attributes.`server.address`::String, ''), 'unknown')"
-	colPodCoalesce		= "coalesce(nullIf(attributes.`k8s.pod.name`::String, ''), '')"
-	colContainerCoalesce	= "coalesce(nullIf(attributes.`container.name`::String, ''), nullIf(attributes.`k8s.container.name`::String, ''), '')"
-)
-
 type netMetricValueRow struct {
 	ValAvg float64 `ch:"val_avg"`
 }
@@ -337,13 +328,13 @@ func netFoldValue(v float64) *float64 {
 }
 
 func (r *ClickHouseRepository) queryNetworkMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0) AS val_avg
 		FROM %s
 		WHERE team_id = @teamID
 		  AND service = @serviceName
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName`, table)
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
@@ -361,7 +352,7 @@ func (r *ClickHouseRepository) queryNetworkMetricByService(ctx context.Context, 
 
 func (r *ClickHouseRepository) queryNetworkMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	_ = container
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0) AS val_avg
 		FROM %s
@@ -369,7 +360,7 @@ func (r *ClickHouseRepository) queryNetworkMetricByInstance(ctx context.Context,
 		  AND host = @host
 		  AND pod = @pod
 		  AND service = @serviceName
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName`, table)
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
@@ -393,13 +384,13 @@ func (r *ClickHouseRepository) queryNetworkMetricByInstance(ctx context.Context,
 // then per-service lookup). netFoldValue is applied per service before
 // averaging so the <=1.0 -> *100 normalization is preserved.
 func (r *ClickHouseRepository) GetAvgNetwork(ctx context.Context, teamID int64, startMs, endMs int64) (metricValueDTO, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT service,
 		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0) AS val_avg
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND service != ''
 		  AND metric_name = @metricName
 		GROUP BY service

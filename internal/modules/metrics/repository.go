@@ -7,20 +7,19 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/metrics/shared/resource"
 )
 
 const tableMetrics = "observability.metrics"
 
-// materializedDimensions maps user-facing tag key names to ClickHouse materialized
-// column names. These columns are extracted from attributes at insert time.
-var materializedDimensions = map[string]string{
-	"service":          "service",
-	"host":             "host",
-	"environment":      "environment",
-	"k8s_namespace":    "k8s_namespace",
-	"http_method":      "http_method",
-	"http_status_code": "toString(http_status_code)",
+// dataPointDimensions maps non-resource user-facing tag keys to their JSON-path
+// extraction against the per-point `attributes` column. Resource keys are not
+// listed here — they go through the resource package's Canonical/ColumnExpr.
+var dataPointDimensions = map[string]string{
+	"http_method":      "attributes.`http.method`::String",
+	"http.method":      "attributes.`http.method`::String",
+	"http_status_code": "attributes.`http.status_code`::String",
+	"http.status_code": "attributes.`http.status_code`::String",
 }
 
 // allowedAggregations is the set of aggregation functions we support.
@@ -126,9 +125,13 @@ func (r *ClickHouseRepository) ListTagKeys(ctx context.Context, teamID int64, st
 }
 
 func (r *ClickHouseRepository) ListTagValues(ctx context.Context, teamID int64, startMs, endMs int64, metricName, tagKey string) ([]TagValueResult, error) {
+	if canonical := resource.Canonical(tagKey); canonical != "" {
+		return r.listResourceTagValues(ctx, teamID, startMs, endMs, metricName, canonical)
+	}
+
 	var valueExpr string
-	if col, ok := materializedDimensions[tagKey]; ok {
-		valueExpr = col
+	if expr, ok := dataPointDimensions[tagKey]; ok {
+		valueExpr = expr
 	} else {
 		valueExpr = fmt.Sprintf("attributes.`%s`::String", sanitizeAttrKey(tagKey))
 	}
@@ -162,19 +165,62 @@ func (r *ClickHouseRepository) ListTagValues(ctx context.Context, teamID int64, 
 	return results, nil
 }
 
+// listResourceTagValues runs against the metrics_resource dictionary instead
+// of raw observability.metrics. The dictionary is narrow (LowCardinality
+// columns) and keyed per (metric_name, fingerprint), so we scope by
+// metric_name to avoid leaking values from other metrics.
+func (r *ClickHouseRepository) listResourceTagValues(ctx context.Context, teamID int64, startMs, endMs int64, metricName, canonicalKey string) ([]TagValueResult, error) {
+	bucketStart, bucketEnd := resource.BucketBounds(startMs, endMs)
+
+	query := fmt.Sprintf(`
+		SELECT
+			%[1]s AS tag_value,
+			count() AS count
+		FROM %[2]s
+		PREWHERE team_id = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		WHERE metric_name = @metricName
+		  AND %[1]s != ''
+		GROUP BY tag_value
+		ORDER BY count DESC
+		LIMIT 100
+	`, canonicalKey, resource.Table)
+
+	params := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("bucketStart", bucketStart),
+		clickhouse.Named("bucketEnd", bucketEnd),
+		clickhouse.Named("metricName", metricName),
+	}
+
+	var rows []tagValueDTO
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "metrics.ListResourceTagValues", &rows, query, params...); err != nil {
+		return nil, err
+	}
+	results := make([]TagValueResult, len(rows))
+	for i, r := range rows {
+		results[i] = TagValueResult{TagValue: r.TagValue, Count: r.Count}
+	}
+	return results, nil
+}
+
 // QueryTimeseries executes a time-series query. If step is non-empty, it is used
 // for time bucketing; otherwise adaptive bucketing is applied based on the time range.
+//
+// Resource-attribute filters (service / host / environment / k8s_namespace) are
+// pre-resolved into a fingerprint set against metrics_resource_1h and applied as
+// `fingerprint IN (...)`. Non-resource filters continue to extract
+// from the per-point `attributes` JSON inline.
 func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, teamID int64, startMs, endMs int64, query MetricQuery, step string) ([]TimeseriesPoint, error) {
 	if !allowedAggregations[query.Aggregation] {
 		return nil, fmt.Errorf("unsupported aggregation: %s", query.Aggregation)
 	}
 
-	var bucket string
-	if step != "" {
-		bucket = timebucket.ByName(step).GetBucketExpression()
-	} else {
-		bucket = timebucket.Expression(startMs, endMs)
-	}
+	// Bucket grain comes from the metrics tier table the resolver picked
+	// (1h / 6h / 1d). Reader groups by the stored ts_bucket directly — no
+	// CH-side bucket math, see internal/infra/timebucket.
+	_, _, _ = step, startMs, endMs
+	bucket := "toString(ts_bucket)"
 
 	aggExpr := buildAggExpr(query.Aggregation, startMs, endMs, step)
 
@@ -190,11 +236,14 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, teamID int64
 	}
 	selectCols = append(selectCols, fmt.Sprintf("%s AS agg_value", aggExpr))
 
-	// Build WHERE filter clauses
+	// Split resource-scoped filters out of the tag-filter list so they can be
+	// resolved into a fingerprint set instead of evaluated row-by-row on raw.
+	resourceFilters, nonResourceFilters := partitionResourceFilters(teamID, startMs, endMs, query.Filters)
+
 	params := append(dbutil.SimpleBaseParams(teamID, startMs, endMs),
 		clickhouse.Named("metricName", query.MetricName),
 	)
-	filterClauses, filterParams := buildFilterClauses(query.Filters)
+	filterClauses, filterParams := buildFilterClauses(nonResourceFilters)
 	params = append(params, filterParams...)
 
 	whereClause := `team_id = @teamID
@@ -202,6 +251,14 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, teamID int64
 		  AND metric_name = @metricName`
 	if len(filterClauses) > 0 {
 		whereClause += "\n		  AND " + strings.Join(filterClauses, "\n		  AND ")
+	}
+
+	whereClause, params, empty, err := resource.WithFingerprints(ctx, r.db, resourceFilters, whereClause, params)
+	if err != nil {
+		return nil, err
+	}
+	if empty {
+		return []TimeseriesPoint{}, nil
 	}
 
 	sql := fmt.Sprintf(`
@@ -228,6 +285,52 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, teamID int64
 		results[i] = TimeseriesPoint{Timestamp: r.Timestamp, Value: r.Value}
 	}
 	return results, nil
+}
+
+// partitionResourceFilters splits a TagFilter slice into resource-scoped
+// filters (routed through the fingerprint resolver) and non-resource filters
+// (evaluated inline against the `attributes` JSON column).
+func partitionResourceFilters(teamID, startMs, endMs int64, filters []TagFilter) (resource.Filters, []TagFilter) {
+	rf := resource.Filters{TeamID: teamID, StartMs: startMs, EndMs: endMs}
+	var rest []TagFilter
+	for _, f := range filters {
+		if !allowedOperators[f.Operator] || len(f.Values) == 0 {
+			continue
+		}
+		canonical := resource.Canonical(f.Key)
+		if canonical == "" {
+			rest = append(rest, f)
+			continue
+		}
+		negated := f.Operator == "!=" || f.Operator == "NOT IN"
+		switch canonical {
+		case "service":
+			if negated {
+				rf.ExcludeServices = append(rf.ExcludeServices, f.Values...)
+			} else {
+				rf.Services = append(rf.Services, f.Values...)
+			}
+		case "host":
+			if negated {
+				rf.ExcludeHosts = append(rf.ExcludeHosts, f.Values...)
+			} else {
+				rf.Hosts = append(rf.Hosts, f.Values...)
+			}
+		case "environment":
+			if negated {
+				rf.ExcludeEnvironments = append(rf.ExcludeEnvironments, f.Values...)
+			} else {
+				rf.Environments = append(rf.Environments, f.Values...)
+			}
+		case "k8s_namespace":
+			if negated {
+				rf.ExcludeK8sNamespaces = append(rf.ExcludeK8sNamespaces, f.Values...)
+			} else {
+				rf.K8sNamespaces = append(rf.K8sNamespaces, f.Values...)
+			}
+		}
+	}
+	return rf, rest
 }
 
 // buildAggExpr returns the ClickHouse aggregation expression.
@@ -288,10 +391,15 @@ func bucketDurationSeconds(startMs, endMs int64, step string) int64 {
 	}
 }
 
-// resolveColumn maps a tag key to its ClickHouse column expression.
+// resolveColumn maps a tag key to its ClickHouse column expression against
+// raw observability.metrics. Resource keys come from the `resource` JSON
+// column; data-point dimensions come from the `attributes` JSON column.
 func resolveColumn(key string) string {
-	if col, ok := materializedDimensions[key]; ok {
-		return col
+	if canonical := resource.Canonical(key); canonical != "" {
+		return resource.ColumnExpr(canonical)
+	}
+	if expr, ok := dataPointDimensions[key]; ok {
+		return expr
 	}
 	return fmt.Sprintf("attributes.`%s`::String", sanitizeAttrKey(key))
 }

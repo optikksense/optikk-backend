@@ -13,7 +13,6 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/auth"
 	"github.com/Optikk-Org/optikk-backend/internal/config"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/middleware"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/oklog/run"
 	"golang.org/x/net/http2"
@@ -31,9 +30,6 @@ type App struct {
 
 func New(cfg config.Config) (*App, error) {
 	getTenant := modulecommon.GetTenantFunc(middleware.GetTenant)
-
-	// Initialize global infrastructure parameters.
-	utils.Init(cfg.SpansBucketSeconds(), cfg.LogsBucketSeconds())
 
 	infraDeps, err := newInfra(cfg)
 	if err != nil {
@@ -143,8 +139,12 @@ func (a *App) addGRPCServerActor(g *run.Group) error {
 		slog.String("addr", addr),
 		slog.String("hint", "send gRPC metadata x-api-key (team API key); use OTLP gRPC on this port, not HTTP/protobuf"))
 
+	maxStreams := a.Config.OTLP.GRPCMaxConcurrentStr
+	if maxStreams == 0 {
+		maxStreams = 10_000
+	}
 	grpcSrv := grpc.NewServer(
-		grpc.MaxConcurrentStreams(100),
+		grpc.MaxConcurrentStreams(maxStreams),
 		grpc.ConnectionTimeout(30*time.Second),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
 			Time:		20 * time.Second,

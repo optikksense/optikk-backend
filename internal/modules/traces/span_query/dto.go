@@ -18,12 +18,12 @@ type SpansQueryResponse struct {
 	Warnings []string `json:"warnings,omitempty"`
 }
 
-// spanRowDTO scans rows from observability.signoz_index_v3.
+// spanRowDTO scans rows from observability.spans.
 type spanRowDTO struct {
 	SpanID             string `ch:"span_id"`
 	TraceID            string `ch:"trace_id"`
 	ParentSpanID       string `ch:"parent_span_id"`
-	ServiceName        string `ch:"service_name"`
+	ServiceName        string `ch:"service"`
 	Operation          string `ch:"name"`
 	Kind               string `ch:"kind_string"`
 	DurationNano       uint64 `ch:"duration_nano"`
@@ -32,5 +32,5 @@ type spanRowDTO struct {
 	Status             string `ch:"status_code_string"`
 	HTTPMethod         string `ch:"http_method"`
 	ResponseStatusCode string `ch:"response_status_code"`
-	Environment        string `ch:"mat_deployment_environment"`
+	Environment        string `ch:"environment"`
 }

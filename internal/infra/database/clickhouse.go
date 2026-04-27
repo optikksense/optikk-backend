@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 )
 
 const (
@@ -43,11 +43,7 @@ func OpenClickHouseConn(dsn string) (clickhouse.Conn, error) {
 	return conn, nil
 }
 
-// Per-budget ClickHouse settings, applied via clickhouse.Context. Three
-// budgets, three flat literals — no struct, no helper, no conditional. Each
-// budget owns its own overflow modes; Explorer uses "throw" because the
-// CH query cache requires it.
-
+// Per-budget ClickHouse settings applied via clickhouse.Context. Lower `priority` = scheduled first when CH is saturated; Dashboard panels run ahead of Explorer scans.
 var dashboardSettings = clickhouse.Settings{
 	"max_execution_time":     3,
 	"max_rows_to_read":       20_000_000,
@@ -56,6 +52,7 @@ var dashboardSettings = clickhouse.Settings{
 	"result_overflow_mode":   "break",
 	"read_overflow_mode":     "break",
 	"optimize_read_in_order": 1,
+	"priority":               1,
 }
 
 var overviewSettings = clickhouse.Settings{
@@ -66,6 +63,7 @@ var overviewSettings = clickhouse.Settings{
 	"result_overflow_mode":   "break",
 	"read_overflow_mode":     "break",
 	"optimize_read_in_order": 1,
+	"priority":               5,
 }
 
 var explorerSettings = clickhouse.Settings{
@@ -79,6 +77,7 @@ var explorerSettings = clickhouse.Settings{
 	"use_query_cache":                 1,
 	"query_cache_ttl":                 60,
 	"query_cache_share_between_users": 0,
+	"priority":                        10,
 }
 
 func DashboardCtx(ctx context.Context) context.Context {
@@ -96,8 +95,8 @@ func ExplorerCtx(ctx context.Context) context.Context {
 func SpanBaseParams(teamID int64, startMs, endMs int64) []any {
 	return []any{
 		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}

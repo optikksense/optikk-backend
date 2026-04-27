@@ -5,21 +5,19 @@ import (
 	"fmt"
 
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
 )
 
-// Trend computes a time-bucketed total + error count over the window,
-// reading from traces_index (one-row-per-trace summary table).
-// The spans_rollup_* tables aggregate by service/operation and use
-// AggregateFunction state columns, making them unsuitable for global trend.
+// Trend computes a time-bucketed total + error count over the window. Reads
+// raw spans with is_root = 1 and groups by the stored 5-min
+// ts_bucket (no CH-side bucket math — see internal/infra/timebucket).
 func (r *Repository) Trend(ctx context.Context, f querycompiler.Filters) ([]TrendBucket, error) {
 	compiled := querycompiler.Compile(f, querycompiler.TargetSpansRaw)
-	bucketExpr := utils.ExprForColumn(f.StartMs, f.EndMs, "toDateTime(intDiv(toUnixTimestamp64Nano(timestamp), 1000000000))")
-	query := fmt.Sprintf(`
-		SELECT %s AS time_bucket, countIf(NOT has_error) AS total, countIf(has_error) AS errors
-		FROM %s PREWHERE %s WHERE %s AND is_root = 1 GROUP BY time_bucket ORDER BY time_bucket ASC`,
-		bucketExpr, spansRawTable, compiled.PreWhere, compiled.Where,
+	query := fmt.Sprintf(
+		`SELECT formatDateTime(toDateTime(ts_bucket), '%%Y-%%m-%%d %%H:%%i:00') AS time_bucket,
+		        countIf(NOT has_error) AS total, countIf(has_error) AS errors
+		 FROM %s PREWHERE %s WHERE %s AND is_root = 1 GROUP BY time_bucket ORDER BY time_bucket ASC`,
+		spansRawTable, compiled.PreWhere, compiled.Where,
 	)
 	rows, err := dbutil.QueryCH(dbutil.ExplorerCtx(ctx), r.db, "explorer.Trend", query, compiled.Args...)
 	if err != nil {

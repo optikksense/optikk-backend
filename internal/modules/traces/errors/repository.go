@@ -7,10 +7,26 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/shared/resource"
 )
 
-const spansRawTable = "observability.signoz_index_v3"
+const spansRawTable = "observability.spans"
+
+// resolveFingerprintsForService synthesizes a minimal querycompiler.Filters
+// from a single optional service name and routes through the shared resolver.
+// Returns the narrowed where + args, or empty=true when the service has no
+// resolvable fingerprints in the window (caller should short-circuit).
+func (r *Repository) resolveFingerprintsForService(
+	ctx context.Context, teamID, startMs, endMs int64, service, where string, args []any,
+) (string, []any, bool, error) {
+	if service == "" {
+		return where, args, false, nil
+	}
+	f := querycompiler.Filters{TeamID: teamID, StartMs: startMs, EndMs: endMs, Services: []string{service}}
+	return resource.WithFingerprints(ctx, r.db, f, where, args)
+}
 
 type Repository struct {
 	db clickhouse.Conn
@@ -22,16 +38,19 @@ func (r *Repository) ErrorGroups(ctx context.Context, teamID int64, startMs, end
 	if limit <= 0 {
 		limit = 50
 	}
-	where := `team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND timestamp BETWEEN @start AND @end AND has_error`
+	where := `team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND timestamp BETWEEN @start AND @end AND has_error`
 	args := baseArgs(teamID, startMs, endMs)
-	if service != "" {
-		where += ` AND service_name = @service`
-		args = append(args, clickhouse.Named("service", service))
+	where, args, empty, err := r.resolveFingerprintsForService(ctx, teamID, startMs, endMs, service, where, args)
+	if err != nil {
+		return nil, err
+	}
+	if empty {
+		return nil, nil
 	}
 	query := fmt.Sprintf(`
-		SELECT mat_exception_type AS exception_type, status_message, service_name, count() AS count
+		SELECT attr_exception_type AS exception_type, status_message, service, count() AS count
 		FROM %s WHERE %s
-		GROUP BY mat_exception_type, status_message, service_name
+		GROUP BY attr_exception_type, status_message, service
 		ORDER BY count DESC LIMIT %d`, spansRawTable, where, limit)
 	var rows []errorGroupRow
 	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "errors.ErrorGroups", &rows, query, args...); err != nil {
@@ -41,17 +60,22 @@ func (r *Repository) ErrorGroups(ctx context.Context, teamID int64, startMs, end
 }
 
 func (r *Repository) Timeseries(ctx context.Context, teamID int64, startMs, endMs int64, service string) ([]timeseriesRow, error) {
-	where := `team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd AND timestamp BETWEEN @start AND @end`
+	where := `team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND timestamp BETWEEN @start AND @end`
 	args := baseArgs(teamID, startMs, endMs)
-	if service != "" {
-		where += ` AND service_name = @service`
-		args = append(args, clickhouse.Named("service", service))
+	where, args, empty, err := r.resolveFingerprintsForService(ctx, teamID, startMs, endMs, service, where, args)
+	if err != nil {
+		return nil, err
 	}
-	bucket := utils.ExprForColumnTime(startMs, endMs, "timestamp")
+	if empty {
+		return nil, nil
+	}
+	// Bucket is the stored ts_bucket (5-min grain). No CH-side bucket
+	// math — see internal/infra/timebucket.
+	_, _ = startMs, endMs
 	query := fmt.Sprintf(`
-		SELECT %s AS time_bucket, countIf(has_error) AS errors, count() AS total
+		SELECT toDateTime(ts_bucket) AS time_bucket, countIf(has_error) AS errors, count() AS total
 		FROM %s WHERE %s GROUP BY time_bucket ORDER BY time_bucket ASC`,
-		bucket, spansRawTable, where)
+		spansRawTable, where)
 	var rows []timeseriesRow
 	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "errors.Timeseries", &rows, query, args...); err != nil {
 		return nil, err
@@ -62,8 +86,8 @@ func (r *Repository) Timeseries(ctx context.Context, teamID int64, startMs, endM
 func baseArgs(teamID int64, startMs, endMs int64) []any {
 	return []any{
 		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
-		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.Unix(0, startMs*1_000_000)),
 		clickhouse.Named("end", time.Unix(0, endMs*1_000_000)),
 	}

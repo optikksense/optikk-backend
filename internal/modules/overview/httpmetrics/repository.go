@@ -9,10 +9,7 @@ import (
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	)
 
-const (
-	spansRawTable = "observability.signoz_index_v3"
-	metricsTable  = "observability.metrics"
-)
+const spansRawTable = "observability.spans"
 
 type Repository interface {
 	GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]statusCodeBucketDTO, error)
@@ -118,7 +115,7 @@ func (r *ClickHouseRepository) queryHistogramSummary(ctx context.Context, teamID
 func (r *ClickHouseRepository) GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]StatusCodeBucket, error) {
 	tierStep := int64(1)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(timestamp, toIntervalMinute(@intervalMin)) AS time_bucket,
+		SELECT ts_bucket AS time_bucket,
 		       response_status_code    AS status_code,
 		       count() AS req_count
 		FROM %s
@@ -297,7 +294,7 @@ func (r *ClickHouseRepository) GetRouteErrorRate(ctx context.Context, teamID int
 func (r *ClickHouseRepository) GetRouteErrorTimeseries(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteTimeseriesPoint, error) {
 	tierStep := int64(1)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(timestamp, toIntervalMinute(@intervalMin)) AS time_bucket,
+		SELECT ts_bucket AS time_bucket,
 		       name          AS http_route,
 		       count() AS req_count,
 		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)   AS err_count
@@ -376,7 +373,7 @@ func (r *ClickHouseRepository) GetStatusDistribution(ctx context.Context, teamID
 func (r *ClickHouseRepository) GetErrorTimeseries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorTimeseriesPoint, error) {
 	tierStep := int64(1)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(timestamp, toIntervalMinute(@intervalMin)) AS time_bucket,
+		SELECT ts_bucket AS time_bucket,
 		       count() AS req_count,
 		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)   AS err_count
 		FROM %s
@@ -416,18 +413,18 @@ func (r *ClickHouseRepository) GetErrorTimeseries(ctx context.Context, teamID in
 }
 
 // External host (CLIENT-kind span) queries read `spans_peer_rollup` — Phase-9
-// addition keyed on (service, peer_service, host_name, http_status_bucket).
+// addition keyed on (service, peer_service, host, http_status_bucket).
 // MV filters `kind = 3` so only CLIENT spans contribute.
 
 func (r *ClickHouseRepository) GetTopExternalHosts(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
 	query := fmt.Sprintf(`
-		SELECT mat_peer_service                        AS host,
+		SELECT peer_service                        AS host,
 		       toInt64(count()) AS req_count
 		FROM %s
 		PREWHERE team_id = @teamID
 		WHERE timestamp BETWEEN @start AND @end
 		  AND kind_string = 'SPAN_KIND_CLIENT'
-		  AND mat_peer_service != ''
+		  AND peer_service != ''
 		GROUP BY host
 		ORDER BY req_count DESC
 		LIMIT 20`, spansRawTable)
@@ -445,14 +442,14 @@ func (r *ClickHouseRepository) GetTopExternalHosts(ctx context.Context, teamID i
 
 func (r *ClickHouseRepository) GetExternalHostLatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
 	query := fmt.Sprintf(`
-		SELECT mat_peer_service                                                                   AS host,
+		SELECT peer_service                                                                   AS host,
 		       toInt64(count())                                            AS req_count,
 		       quantile(0.95)(duration_nano) / 1000000.0         AS p95_ms
 		FROM %s
 		PREWHERE team_id = @teamID
 		WHERE timestamp BETWEEN @start AND @end
 		  AND kind_string = 'SPAN_KIND_CLIENT'
-		  AND mat_peer_service != ''
+		  AND peer_service != ''
 		GROUP BY host
 		ORDER BY p95_ms DESC
 		LIMIT 20`, spansRawTable)
@@ -470,14 +467,14 @@ func (r *ClickHouseRepository) GetExternalHostLatency(ctx context.Context, teamI
 
 func (r *ClickHouseRepository) GetExternalHostErrorRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]ExternalHostMetric, error) {
 	query := fmt.Sprintf(`
-		SELECT mat_peer_service                                                                   AS host,
+		SELECT peer_service                                                                   AS host,
 		       toInt64(count())                                            AS req_count,
 		       toFloat64(countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)) * 100.0 / nullIf(toFloat64(count()), 0) AS error_pct
 		FROM %s
 		PREWHERE team_id = @teamID
 		WHERE timestamp BETWEEN @start AND @end
 		  AND kind_string = 'SPAN_KIND_CLIENT'
-		  AND mat_peer_service != ''
+		  AND peer_service != ''
 		GROUP BY host
 		ORDER BY error_pct DESC
 		LIMIT 20`, spansRawTable)

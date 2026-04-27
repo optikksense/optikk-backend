@@ -7,7 +7,8 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	)
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+)
 
 // Repository runs ClickHouse queries for deployment detection.
 type Repository interface {
@@ -31,16 +32,16 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 // spansByVersionRollupPrefix backs the migrated list-style deployment reads.
-// Rollup schema is keyed (team_id, bucket_ts, service_name, service_version,
+// Rollup schema is keyed (team_id, ts_bucket, service, service_version,
 // environment) with first_seen/last_seen (min/max), request_count (sum),
 // error_count (sum), latency_ms_digest (t-digest) plus any-state commit_sha,
 // commit_author, repo_url, pr_url. span_count is derived from
 // `count()`.
 const (
-	spansDeploysPrefix         = "observability.signoz_index_v3"
-	spansByVersionPrefix       = "observability.signoz_index_v3"
-	spansRollupPrefix          = "observability.signoz_index_v3"
-	errFingerprintRollupPrefix = "observability.signoz_index_v3"
+	spansDeploysPrefix         = "observability.spans"
+	spansByVersionPrefix       = "observability.spans"
+	spansRollupPrefix          = "observability.spans"
+	errFingerprintRollupPrefix = "observability.spans"
 )
 
 // queryIntervalMinutes returns max(tierStep, dashboardStep). Copied from
@@ -67,7 +68,7 @@ func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 // Git / VCS attribute expressions read from the raw spans JSON `attributes`
 // column. Kept for the raw-scan drill-down paths (`GetImpactWindow`,
 // `GetErrorGroupsWindow`, `GetEndpointMetricsWindow`) which still reach
-// into the base `observability.signoz_index_v3` table.
+// into the base `observability.spans` table.
 const (
 	attrCommitSHA    = "attributes.`git.commit.sha`::String"
 	attrCommitAuthor = "attributes.`git.commit.author.name`::String"
@@ -91,18 +92,18 @@ var commitMetaSelectRaw = fmt.Sprintf(
 // for the CTE, and ORDER BY.
 //
 // The dim table is ReplacingMergeTree(last_seen) keyed on
-// (team_id, service_name, service_version, environment); FINAL collapses
+// (team_id, service, service_version, environment); FINAL collapses
 // duplicates on read.
 const deploymentsJoinSelect = `
 	WITH rollup_agg AS (
-		SELECT service_name,
+		SELECT service,
 		       deployment_id,
 		       min(timestamp)              AS first_seen,
 		       max(timestamp)               AS last_seen,
 		       toInt64(sum(span_count))     AS span_count
 		FROM %s
 		WHERE %s
-		GROUP BY service_name, deployment_id
+		GROUP BY service, deployment_id
 	),
 	deployment_meta AS (
 		SELECT team_id,
@@ -117,7 +118,7 @@ const deploymentsJoinSelect = `
 		WHERE team_id = @teamID
 		GROUP BY team_id, deployment_id
 	)
-	SELECT r.service_name                        AS service_name,
+	SELECT r.service                        AS service,
 	       d.service_version                     AS version,
 	       d.environment                         AS environment,
 	       r.first_seen                          AS first_seen,
@@ -147,8 +148,8 @@ func bucketSecs(startMs, endMs int64) float64 {
 // ListDeployments returns per-(version, environment) rollup of deploys for a
 // single service, sourced from the spans_version cascade + deployments dim.
 func (r *ClickHouseRepository) ListDeployments(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) ([]deploymentAggRow, error) {
-	table := "observability.signoz_index_v3"
-	where := `team_id = @teamID AND service_name = @serviceName AND bucket_ts BETWEEN @start AND @end`
+	table := "observability.spans"
+	where := `team_id = @teamID AND service = @serviceName AND ts_bucket BETWEEN @start AND @end`
 	query := fmt.Sprintf(deploymentsJoinSelect+" ORDER BY r.first_seen ASC", table, where)
 
 	var rows []deploymentAggRow
@@ -165,7 +166,7 @@ func (r *ClickHouseRepository) ListDeployments(ctx context.Context, teamID int64
 // across the compatibility view retention window.
 func (r *ClickHouseRepository) ListServiceDeployments(ctx context.Context, teamID int64, serviceName string) ([]deploymentAggRow, error) {
 	table := "observability." + spansDeploysPrefix
-	where := `team_id = @teamID AND service_name = @serviceName`
+	where := `team_id = @teamID AND service = @serviceName`
 	query := fmt.Sprintf(deploymentsJoinSelect+" ORDER BY r.first_seen ASC", table, where)
 
 	var rows []deploymentAggRow
@@ -182,14 +183,14 @@ func (r *ClickHouseRepository) GetLatestDeploymentsByService(ctx context.Context
 	table := "observability." + spansDeploysPrefix
 	query := fmt.Sprintf(`
 		WITH rollup_agg AS (
-			SELECT service_name,
+			SELECT service,
 			       deployment_id,
 			       min(timestamp)             AS first_seen,
 			       max(timestamp)              AS last_seen,
 			       toInt64(sum(span_count))    AS span_count
 			FROM %s
 			WHERE team_id = @teamID
-			GROUP BY service_name, deployment_id
+			GROUP BY service, deployment_id
 		),
 		deployment_meta AS (
 			SELECT team_id,
@@ -205,11 +206,11 @@ func (r *ClickHouseRepository) GetLatestDeploymentsByService(ctx context.Context
 			GROUP BY team_id, deployment_id
 		),
 		latest AS (
-			SELECT service_name, max(first_seen) AS max_first_seen
+			SELECT service, max(first_seen) AS max_first_seen
 			FROM rollup_agg
-			GROUP BY service_name
+			GROUP BY service
 		)
-		SELECT r.service_name                        AS service_name,
+		SELECT r.service                        AS service,
 		       d.service_version                     AS version,
 		       d.environment                         AS environment,
 		       r.first_seen                          AS first_seen,
@@ -221,12 +222,12 @@ func (r *ClickHouseRepository) GetLatestDeploymentsByService(ctx context.Context
 		       d.pr_url                              AS pr_url
 		FROM rollup_agg AS r
 		INNER JOIN latest
-		  ON r.service_name = latest.service_name
+		  ON r.service = latest.service
 		 AND r.first_seen = latest.max_first_seen
 		LEFT JOIN deployment_meta AS d
 		  ON d.deployment_id = r.deployment_id
 		 AND d.team_id = @teamID
-		ORDER BY r.service_name ASC`, table)
+		ORDER BY r.service ASC`, table)
 
 	var rows []deploymentAggRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetLatestDeploymentsByService", &rows, query,
@@ -238,8 +239,8 @@ func (r *ClickHouseRepository) GetLatestDeploymentsByService(ctx context.Context
 // GetDeploysInRange returns all deploys in [startMs,endMs] across every
 // service for a team. Used by alerting for fire/resolve deploy correlation.
 func (r *ClickHouseRepository) GetDeploysInRange(ctx context.Context, teamID int64, startMs, endMs int64) ([]deploymentAggRow, error) {
-	table := "observability.signoz_index_v3"
-	where := `team_id = @teamID AND bucket_ts BETWEEN @start AND @end`
+	table := "observability.spans"
+	where := `team_id = @teamID AND ts_bucket BETWEEN @start AND @end`
 	query := fmt.Sprintf(deploymentsJoinSelect+" ORDER BY r.first_seen ASC", table, where)
 
 	var rows []deploymentAggRow
@@ -256,7 +257,7 @@ func (r *ClickHouseRepository) GetDeploysInRange(ctx context.Context, teamID int
 // service_version as the DTO's "version" field.
 func (r *ClickHouseRepository) GetVersionTraffic(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) ([]VersionTrafficPoint, error) {
 	bs := bucketSecs(startMs, endMs)
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	stepMin := queryIntervalMinutes(tierStep, startMs, endMs)
 	query := fmt.Sprintf(`
@@ -269,13 +270,13 @@ func (r *ClickHouseRepository) GetVersionTraffic(ctx context.Context, teamID int
 			GROUP BY team_id, deployment_id
 		),
 		agg AS (
-			SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS timestamp,
+			SELECT ts_bucket AS timestamp,
 			       deployment_id,
 			       count() / @bucketSeconds                      AS rps
 			FROM %s
 			WHERE team_id = @teamID
-			  AND service_name = @serviceName
-			  AND bucket_ts BETWEEN @start AND @end
+			  AND service = @serviceName
+			  AND ts_bucket BETWEEN @start AND @end
 			GROUP BY timestamp, deployment_id
 		)
 		SELECT agg.timestamp                 AS timestamp,
@@ -313,7 +314,7 @@ func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64
 	if endMs <= startMs {
 		return impactAggRow{}, nil
 	}
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	var row impactAggRow
 	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), fmt.Sprintf(`
 		SELECT toInt64(count()) AS request_count,
@@ -322,8 +323,8 @@ func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) AS p99_ms
 		FROM %s
 		WHERE team_id = @teamID
-		  AND service_name = @serviceName
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND service = @serviceName
+		  AND ts_bucket BETWEEN @start AND @end
 	`, table),
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
@@ -337,39 +338,37 @@ func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64
 }
 
 // GetActiveVersion returns the most-recently-seen (version, environment) for
-// a service inside the window, joined with the deployments dim for the version string.
+// a service inside the window. Computes deployment_id inline using the same
+// cityHash64(service, version, environment) derivation that the
+// spans_to_deployments MV uses (see db/clickhouse/05_dim_deployments.sql), so
+// the join into observability.deployments resolves cleanly.
 func (r *ClickHouseRepository) GetActiveVersion(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (activeVersionRow, error) {
 	var rows []activeVersionRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetActiveVersion", &rows, `
-		WITH deployment_meta AS (
-			SELECT team_id,
-			       deployment_id,
-			       argMax(service_version, last_seen) AS service_version,
-			       argMax(environment, last_seen)     AS environment
-			FROM observability.deployments
-			WHERE team_id = @teamID
-			GROUP BY team_id, deployment_id
-		),
-		agg AS (
-			SELECT deployment_id,
+		WITH agg AS (
+			SELECT cityHash64(service, service_version, environment) AS deployment_id,
+			       service_version,
+			       environment AS environment,
 			       max(timestamp) AS last_seen
-			FROM observability.signoz_index_v3_deploys
-			WHERE team_id = @teamID
-			  AND service_name = @serviceName
-			  AND bucket_ts BETWEEN @start AND @end
-			GROUP BY deployment_id
+			FROM observability.spans
+			PREWHERE team_id = @teamID
+			WHERE service = @serviceName
+			  AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+			  AND timestamp BETWEEN @start AND @end
+			  AND is_root = 1
+			  AND service_version != ''
+			GROUP BY service_version, environment
 		)
-		SELECT d.service_version AS version,
-		       d.environment     AS environment
+		SELECT service_version AS version,
+		       environment      AS environment
 		FROM agg
-		LEFT JOIN deployment_meta AS d
-		  ON d.deployment_id = agg.deployment_id
-		 AND d.team_id = @teamID
-		ORDER BY agg.last_seen DESC
+		ORDER BY last_seen DESC
 		LIMIT 1
 	`,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
@@ -381,14 +380,14 @@ func (r *ClickHouseRepository) GetActiveVersion(ctx context.Context, teamID int6
 
 // GetErrorGroupsWindow returns top error groups inside a deploy window via
 // `spans_error_fingerprint` (same rollup overview/errors uses). Rollup keys
-// include service_name + operation_name + exception_type + status_message_hash
+// include service + operation_name + exception_type + status_message_hash
 // + http_status_bucket; state carries sample_trace_id + last_seen. `group_id`
 // is the fingerprint hash, rendered as a hex string for client use.
 func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64, limit int) ([]errorGroupAggRow, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	var rows []errorGroupAggRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetErrorGroupsWindow", &rows, fmt.Sprintf(`
-		SELECT service_name                                AS service_name,
+		SELECT service                                AS service,
 		       hex(status_message_hash)                    AS group_id,
 		       operation_name                              AS operation_name,
 		       any(status_message)             AS status_message,
@@ -400,9 +399,9 @@ func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID 
 		       any(trace_id)                   AS sample_trace_id
 		FROM %s
 		WHERE team_id = @teamID
-		  AND service_name = @serviceName
-		  AND bucket_ts BETWEEN @start AND @end
-		GROUP BY service_name, status_message_hash, operation_name, http_status_bucket
+		  AND service = @serviceName
+		  AND ts_bucket BETWEEN @start AND @end
+		GROUP BY service, status_message_hash, operation_name, http_status_bucket
 		ORDER BY error_count DESC
 		LIMIT @limit
 	`, table),
@@ -420,7 +419,7 @@ func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID 
 // the previous `endpoint` dim was a duplicate of operation_name and is now
 // surfaced as such in the DTO.
 func (r *ClickHouseRepository) GetEndpointMetricsWindow(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64, limit int) ([]endpointMetricAggRow, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	var rows []endpointMetricAggRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetEndpointMetricsWindow", &rows, fmt.Sprintf(`
 		SELECT operation_name                                                           AS operation_name,
@@ -432,8 +431,8 @@ func (r *ClickHouseRepository) GetEndpointMetricsWindow(ctx context.Context, tea
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3])      AS p99_ms
 		FROM %s
 		WHERE team_id = @teamID
-		  AND service_name = @serviceName
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND service = @serviceName
+		  AND ts_bucket BETWEEN @start AND @end
 		GROUP BY operation_name, http_method
 		ORDER BY request_count DESC
 		LIMIT @limit

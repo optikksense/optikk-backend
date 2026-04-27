@@ -11,10 +11,6 @@ import (
 		"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
-const (
-	metricsGaugesRollupPrefix = "observability.metrics"
-)
-
 func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 	hours := (endMs - startMs) / 3_600_000
 	var dashStep int64
@@ -106,16 +102,16 @@ func memFoldMetricRows(rows []metricValueRow) *float64 {
 }
 
 func (r *ClickHouseRepository) GetMemoryUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		SELECT ts_bucket AS time_bucket,
 		       state_dim                                                    AS state,
 		       sum(value_sum)                                          AS value_sum_val,
 		       sum(sample_count)                                       AS value_cnt
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  AND state_dim != ''
 		GROUP BY time_bucket, state
@@ -153,18 +149,18 @@ func (r *ClickHouseRepository) GetMemoryUsage(ctx context.Context, teamID int64,
 }
 
 func (r *ClickHouseRepository) GetMemoryUsagePercentage(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	query := fmt.Sprintf(`
 		SELECT
-		    toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		    ts_bucket AS time_bucket,
 		    service                                                      AS pod,
 		    metric_name                                                  AS metric_name,
 		    sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0) AS val_avg,
 		    toFloat64(sum(value_sum))                               AS val_sum
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN @metricNames
 		  AND service != ''
 		GROUP BY time_bucket, pod, metric_name
@@ -208,15 +204,15 @@ func (r *ClickHouseRepository) GetMemoryUsagePercentage(ctx context.Context, tea
 }
 
 func (r *ClickHouseRepository) GetSwapUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		SELECT ts_bucket AS time_bucket,
 		       state_dim                                                    AS state,
 		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0) AS metric_val
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		GROUP BY time_bucket, state
 		ORDER BY time_bucket, state`, table)
@@ -232,7 +228,7 @@ func (r *ClickHouseRepository) GetSwapUsage(ctx context.Context, teamID int64, s
 }
 
 func (r *ClickHouseRepository) queryMemoryMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT metric_name                                                             AS metric_name,
 		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)  AS val_avg,
@@ -240,7 +236,7 @@ func (r *ClickHouseRepository) queryMemoryMetricByService(ctx context.Context, t
 		FROM %s
 		WHERE team_id = @teamID
 		  AND service = @serviceName
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN @metricNames
 		GROUP BY metric_name`, table)
 	args := []any{
@@ -259,7 +255,7 @@ func (r *ClickHouseRepository) queryMemoryMetricByService(ctx context.Context, t
 
 func (r *ClickHouseRepository) queryMemoryMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	_ = container
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT metric_name                                                             AS metric_name,
 		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)  AS val_avg,
@@ -269,7 +265,7 @@ func (r *ClickHouseRepository) queryMemoryMetricByInstance(ctx context.Context, 
 		  AND host = @host
 		  AND pod = @pod
 		  AND service = @serviceName
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN @metricNames
 		GROUP BY metric_name`, table)
 	args := []any{
@@ -289,19 +285,19 @@ func (r *ClickHouseRepository) queryMemoryMetricByInstance(ctx context.Context, 
 }
 
 type serviceNameRow struct {
-	ServiceName string `ch:"service_name"`
+	ServiceName string `ch:"service"`
 }
 
 func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64, startMs, endMs int64) ([]string, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
-		SELECT DISTINCT service AS service_name
+		SELECT DISTINCT service AS service
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND service != ''
 		  AND metric_name IN @metricNames
-		ORDER BY service_name`, table)
+		ORDER BY service`, table)
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -320,14 +316,14 @@ func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64,
 }
 
 func (r *ClickHouseRepository) GetAvgMemory(ctx context.Context, teamID int64, startMs, endMs int64) (metricValueDTO, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT metric_name,
 		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0) AS val_avg,
 		       toFloat64(sum(value_sum))                                          AS val_sum
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN @metricNames
 		GROUP BY metric_name`, table)
 	args := []any{
@@ -348,7 +344,7 @@ func (r *ClickHouseRepository) GetAvgMemory(ctx context.Context, teamID int64, s
 }
 
 func (r *ClickHouseRepository) GetMemoryByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT metric_name,
 		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)  AS val_avg,
@@ -356,7 +352,7 @@ func (r *ClickHouseRepository) GetMemoryByService(ctx context.Context, teamID in
 		FROM %s
 		WHERE team_id = @teamID
 		  AND service = @serviceName
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN @metricNames
 		GROUP BY metric_name`, table)
 	args := []any{
@@ -374,7 +370,7 @@ func (r *ClickHouseRepository) GetMemoryByService(ctx context.Context, teamID in
 }
 
 func (r *ClickHouseRepository) GetMemoryByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT metric_name,
 		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)  AS val_avg,
@@ -384,7 +380,7 @@ func (r *ClickHouseRepository) GetMemoryByInstance(ctx context.Context, teamID i
 		  AND host = @host
 		  AND pod = @pod
 		  AND service = @serviceName
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN @metricNames
 		GROUP BY metric_name`, table)
 	args := []any{

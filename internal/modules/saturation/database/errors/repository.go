@@ -33,7 +33,7 @@ type errorRawRow struct {
 }
 
 func (r *ClickHouseRepository) errorSeriesByAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]ErrorTimeSeries, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	fc, fargs := shared.RollupFilterClauses(f)
 	groupCol := shared.GroupColumnFor(groupAttr)
@@ -45,7 +45,7 @@ func (r *ClickHouseRepository) errorSeriesByAttr(ctx context.Context, teamID int
 		    sum(hist_count)              AS err_count
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  AND error_type != ''
 		  %s
@@ -104,7 +104,7 @@ type errorRatioRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetErrorRatio(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ErrorRatioPoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	fc, fargs := shared.RollupFilterClauses(f)
 
@@ -123,7 +123,7 @@ func (r *ClickHouseRepository) GetErrorRatio(ctx context.Context, teamID int64, 
 		        sum(hist_count)                                 AS hc
 		    FROM %s
 		    WHERE team_id = @teamID
-		      AND bucket_ts BETWEEN @start AND @end
+		      AND ts_bucket BETWEEN @start AND @end
 		      AND metric_name = @metricName
 		      %s
 		    GROUP BY time_bucket, err_flag

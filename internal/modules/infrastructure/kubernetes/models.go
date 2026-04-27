@@ -7,7 +7,7 @@ type ContainerBucket struct {
 }
 
 type PodStat struct {
-	PodName   string `json:"pod_name" ch:"pod_name"`
+	PodName   string `json:"pod_name" ch:"pod"`
 	Namespace string `json:"namespace" ch:"namespace"`
 	Restarts  int64  `json:"restarts" ch:"restarts"`
 }

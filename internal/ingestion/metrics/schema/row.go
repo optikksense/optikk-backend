@@ -1,25 +1,21 @@
-// Package schema holds the metrics signal's Kafka wire format and ClickHouse
-// column mapping. Row is the protobuf message produced on the ingest topic
-// and consumed by the dispatcher; CHTable/Columns/ChValues drive the batch
-// insert into observability.metrics.
+// Package schema holds the metrics signal's Kafka wire format and ClickHouse column mapping.
 //
 //go:generate protoc --go_out=. --go_opt=paths=source_relative metric_row.proto
 package schema
 
 import "time"
 
-// CHTable is the ClickHouse destination table for the metric signal.
 const CHTable = "observability.metrics"
 
-// Columns is the insert column order for CHTable. Mirrors Row's proto fields
-// one-for-one so ChValues can emit positional values without a lookup.
 var Columns = []string{
-	"team_id", "env", "metric_name", "metric_type", "temporality", "is_monotonic",
-	"unit", "description", "resource_fingerprint", "timestamp", "value",
-	"hist_sum", "hist_count", "hist_buckets", "hist_counts", "attributes",
+	"team_id", "metric_name", "metric_type", "temporality", "is_monotonic",
+	"unit", "description", "fingerprint", "timestamp",
+	"ts_bucket_hour",
+	"value", "hist_sum", "hist_count", "hist_buckets", "hist_counts",
+	"service", "host", "environment", "k8s_namespace", "http_method", "http_status_code",
+	"resource", "attributes",
 }
 
-// Metric names whose samples feed sketch aggregation.
 const (
 	MetricNameDbOpDuration = "db.client.operation.duration"
 	MetricNameKafkaPublish = "messaging.kafka.publish.latency"
@@ -27,8 +23,7 @@ const (
 	MetricNameKafkaProduce = "messaging.kafka.producer.latency"
 )
 
-// DbOpDim composes the dimension tuple used by DbOpLatency sketches:
-// db_system | operation | collection | namespace. Empty segments are preserved.
+// DbOpDim composes the dimension tuple "db_system|operation|collection|namespace" for DbOpLatency sketches.
 func DbOpDim(r *Row) string {
 	a := r.GetAttributes()
 	return firstNonEmpty(a, "db.system", "db.system.name") + "|" +
@@ -37,8 +32,7 @@ func DbOpDim(r *Row) string {
 		firstNonEmpty(a, "db.namespace", "db.name")
 }
 
-// KafkaTopicDim composes the dimension tuple used by KafkaTopicLatency
-// sketches: topic | client_id.
+// KafkaTopicDim composes the "topic|client_id" tuple for KafkaTopicLatency sketches.
 func KafkaTopicDim(r *Row) string {
 	a := r.GetAttributes()
 	return firstNonEmpty(a, "messaging.destination.name", "messaging.kafka.topic") + "|" +
@@ -54,24 +48,31 @@ func firstNonEmpty(m map[string]string, keys ...string) string {
 	return ""
 }
 
-// ChValues returns positional values aligned with Columns for CH batch insert.
+// ChValues returns positional values aligned with Columns for the CH batch insert.
 func ChValues(r *Row) []any {
 	return []any{
 		r.GetTeamId(),
-		r.GetEnv(),
 		r.GetMetricName(),
 		r.GetMetricType(),
 		r.GetTemporality(),
 		r.GetIsMonotonic(),
 		r.GetUnit(),
 		r.GetDescription(),
-		r.GetResourceFingerprint(),
+		r.GetFingerprint(),
 		time.Unix(0, r.GetTimestampNs()),
+		time.Unix(r.GetTsBucketHourSeconds(), 0).UTC(),
 		r.GetValue(),
 		r.GetHistSum(),
 		r.GetHistCount(),
 		r.GetHistBuckets(),
 		r.GetHistCounts(),
+		r.GetService(),
+		r.GetHost(),
+		r.GetEnvironment(),
+		r.GetK8SNamespace(),
+		r.GetHttpMethod(),
+		uint16(r.GetHttpStatusCode()), //nolint:gosec // status code 0..599
+		r.GetResource(),
 		r.GetAttributes(),
 	}
 }

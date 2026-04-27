@@ -6,7 +6,6 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-		timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
@@ -36,11 +35,12 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 func bucketExpr(startMs, endMs int64) string {
-	return timebucket.ExprForColumn(startMs, endMs, "bucket_ts")
+	_, _ = startMs, endMs
+	return "ts_bucket"
 }
 
 func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionCountPoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	fc, fargs := "", []any{}
 	query := fmt.Sprintf(`
 		SELECT
@@ -50,7 +50,7 @@ func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, tea
 		    sum(value_sum) / nullIf(toFloat64(sum(sample_count)), 0)          AS count
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket, pool_name, state
@@ -65,7 +65,7 @@ func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, tea
 // db.client.connection.max) per bucket+pool in Go. Previously did a
 // correlated subquery against raw metrics.
 func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionUtilPoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	fc, fargs := "", []any{}
 	query := fmt.Sprintf(`
 		SELECT
@@ -76,7 +76,7 @@ func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, tea
 		    sum(value_sum) / nullIf(toFloat64(sum(sample_count)), 0)          AS val_avg
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN (@countMetric, @maxMetric)
 		  %s
 		GROUP BY time_bucket, pool_name, metric_name, state
@@ -129,7 +129,7 @@ func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, tea
 }
 
 func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionLimits, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	fc, fargs := "", []any{}
 	query := fmt.Sprintf(`
 		SELECT
@@ -138,7 +138,7 @@ func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID i
 		    sum(value_sum) / nullIf(toFloat64(sum(sample_count)), 0)          AS val_avg
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN (@maxMetric, @idleMax, @idleMin)
 		  %s
 		GROUP BY pool_name, metric_name
@@ -183,7 +183,7 @@ func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID i
 }
 
 func (r *ClickHouseRepository) GetPendingRequests(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PendingRequestsPoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	fc, fargs := shared.RollupFilterClauses(f)
 	query := fmt.Sprintf(`
 		SELECT
@@ -192,7 +192,7 @@ func (r *ClickHouseRepository) GetPendingRequests(ctx context.Context, teamID in
 		    sum(value_sum) / nullIf(toFloat64(sum(sample_count)), 0)          AS count
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket, pool_name
@@ -204,7 +204,7 @@ func (r *ClickHouseRepository) GetPendingRequests(ctx context.Context, teamID in
 }
 
 func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionTimeoutPoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 	fc, fargs := shared.RollupFilterClauses(f)
 	query := fmt.Sprintf(`
@@ -214,7 +214,7 @@ func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, tea
 		    toFloat64(sum(value_sum)) / %f                 AS timeout_rate
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket, pool_name
@@ -226,7 +226,7 @@ func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, tea
 }
 
 func (r *ClickHouseRepository) poolLatency(ctx context.Context, teamID int64, startMs, endMs int64, metricName string, f shared.Filters) ([]PoolLatencyPoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	fc, fargs := shared.RollupFilterClauses(f)
 
@@ -239,7 +239,7 @@ func (r *ClickHouseRepository) poolLatency(ctx context.Context, teamID int64, st
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) * 1000  AS p99_ms
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket, pool_name

@@ -17,7 +17,7 @@ import (
 //	"cloud.provider=gcp;service.name=frontend;deployment.environment=prod;k8s.pod.name=xyz;hash=7291038456"
 //
 // The hierarchy prefix keeps related resources sorted together in ClickHouse's
-// primary key (ORDER BY ..., resource_fingerprint, ...), enabling efficient
+// primary key (ORDER BY ..., fingerprint, ...), enabling efficient
 // PREWHERE pruning. The hash suffix ensures two resources with the same
 // hierarchy path but different extra attributes still get distinct fingerprints.
 func Calculate(attrs map[string]string) string {

@@ -8,7 +8,7 @@ import "time"
 type CriticalPathSpan struct {
 	SpanID        string  `json:"span_id"        ch:"span_id"`
 	OperationName string  `json:"operation_name" ch:"operation_name"`
-	ServiceName   string  `json:"service_name"   ch:"service_name"`
+	ServiceName   string  `json:"service_name"   ch:"service"`
 	DurationMs    float64 `json:"duration_ms"    ch:"duration_ms"`
 }
 
@@ -17,7 +17,7 @@ type ErrorPathSpan struct {
 	SpanID        string    `json:"span_id"        ch:"span_id"`
 	ParentSpanID  string    `json:"parent_span_id" ch:"parent_span_id"`
 	OperationName string    `json:"operation_name" ch:"operation_name"`
-	ServiceName   string    `json:"service_name"   ch:"service_name"`
+	ServiceName   string    `json:"service_name"   ch:"service"`
 	Status        string    `json:"status"         ch:"status"`
 	StatusMessage string    `json:"status_message" ch:"status_message"`
 	StartTime     time.Time `json:"start_time"     ch:"start_time"`

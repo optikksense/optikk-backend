@@ -160,6 +160,7 @@ func setDefaults(v *viper.Viper) {
 
 	// otlp
 	v.SetDefault("otlp.grpc_port", "")
+	v.SetDefault("otlp.grpc_max_concurrent_streams", 10000)
 
 	// retention
 	v.SetDefault("retention.default_days", 0)

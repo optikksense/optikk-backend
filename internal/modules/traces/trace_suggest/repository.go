@@ -8,7 +8,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 )
 
 // scalarFields are the DSL field keys served by the scalar suggest path.
@@ -48,8 +48,8 @@ func (r *ClickHouseRepository) SuggestScalar(ctx context.Context, teamID int64, 
 	column := scalarFieldExpr(field)
 	query := `
 		SELECT ` + column + ` AS value, count() AS count
-		FROM observability.signoz_index_v3
-		PREWHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
+		FROM observability.spans
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		WHERE timestamp BETWEEN @startMs AND @endMs
 		  AND ` + column + ` != ''
 		  AND (length(@prefix) = 0 OR positionCaseInsensitive(value, @prefix) > 0)
@@ -59,8 +59,8 @@ func (r *ClickHouseRepository) SuggestScalar(ctx context.Context, teamID int64, 
 	`
 	err := dbutil.SelectCH(dbutil.DashboardCtx(ctx), r.db, "trace_suggest.SuggestScalar", &rows, query,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("startMs", time.UnixMilli(startMs)),
 		clickhouse.Named("endMs", time.UnixMilli(endMs)),
 		clickhouse.Named("prefix", prefix),
@@ -76,8 +76,8 @@ func (r *ClickHouseRepository) SuggestAttribute(ctx context.Context, teamID int6
 	key := strings.TrimPrefix(attrKey, "@")
 	query := `
 		SELECT JSONExtractString(toJSONString(attributes), @attrKey) AS value, count() AS count
-		FROM observability.signoz_index_v3
-		PREWHERE team_id = @teamID AND ts_bucket_start BETWEEN @bucketStart AND @bucketEnd
+		FROM observability.spans
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		WHERE timestamp BETWEEN @startMs AND @endMs
 		  AND value != ''
 		  AND (length(@prefix) = 0 OR positionCaseInsensitive(value, @prefix) > 0)
@@ -88,8 +88,8 @@ func (r *ClickHouseRepository) SuggestAttribute(ctx context.Context, teamID int6
 	err := dbutil.SelectCH(dbutil.DashboardCtx(ctx), r.db, "trace_suggest.SuggestAttribute", &rows, query,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("attrKey", key),
-		clickhouse.Named("bucketStart", utils.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", utils.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
 		clickhouse.Named("startMs", time.UnixMilli(startMs)),
 		clickhouse.Named("endMs", time.UnixMilli(endMs)),
 		clickhouse.Named("prefix", prefix),
@@ -107,7 +107,7 @@ func IsScalarField(field string) bool {
 func scalarFieldExpr(field string) string {
 	switch field {
 	case "service":
-		return "service_name"
+		return "service"
 	case "operation":
 		return "name"
 	case "http_method":
@@ -117,7 +117,7 @@ func scalarFieldExpr(field string) string {
 	case "status":
 		return "status_code_string"
 	case "environment":
-		return "mat_deployment_environment"
+		return "environment"
 	default:
 		return "''"
 	}

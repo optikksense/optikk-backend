@@ -1,7 +1,7 @@
 package redmetrics
 
 type redSummaryServiceRow struct {
-	ServiceName string  `ch:"service_name"`
+	ServiceName string  `ch:"service"`
 	TotalCount  uint64  `ch:"total_count"`
 	ErrorCount  uint64  `ch:"error_count"`
 	P50Ms       float64 `ch:"p50_ms"`
@@ -10,7 +10,7 @@ type redSummaryServiceRow struct {
 }
 
 type apdexRow struct {
-	ServiceName string `ch:"service_name"`
+	ServiceName string `ch:"service"`
 	Satisfied   int64  `ch:"satisfied"`
 	Tolerating  int64  `ch:"tolerating"`
 	Frustrated  int64  `ch:"frustrated"`
@@ -18,13 +18,13 @@ type apdexRow struct {
 }
 
 type latencyBreakdownRow struct {
-	ServiceName string  `ch:"service_name"`
+	ServiceName string  `ch:"service"`
 	TotalMs     float64 `ch:"total_ms"`
 	SpanCount   int64   `ch:"span_count"`
 }
 
 type slowOperationRow struct {
-	ServiceName   string  `ch:"service_name"`
+	ServiceName   string  `ch:"service"`
 	OperationName string  `ch:"operation_name"`
 	SpanCount     uint64  `ch:"span_count"`
 	P50Ms         float64 `ch:"p50_ms"`
@@ -33,7 +33,7 @@ type slowOperationRow struct {
 }
 
 type errorOperationRow struct {
-	ServiceName   string  `ch:"service_name"`
+	ServiceName   string  `ch:"service"`
 	OperationName string  `ch:"operation_name"`
 	TotalCount    int64   `ch:"total_count"`
 	ErrorCount    int64   `ch:"error_count"`

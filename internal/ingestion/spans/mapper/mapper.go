@@ -1,7 +1,4 @@
-// Package mapper converts OTLP trace export requests into spans/schema.Row
-// wire values ready to be produced to Kafka. Heavier helpers (HTTP/exception
-// extraction, status rendering) live alongside this file so each function
-// stays small.
+// Package mapper converts OTLP trace export requests into spans/schema.Row wire values.
 package mapper
 
 import (
@@ -10,7 +7,7 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/fingerprint"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/otlp"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/spans/enrich"
 	"github.com/Optikk-Org/optikk-backend/internal/ingestion/spans/schema"
 	tracepb "go.opentelemetry.io/proto/otlp/collector/trace/v1"
@@ -18,8 +15,7 @@ import (
 	trace "go.opentelemetry.io/proto/otlp/trace/v1"
 )
 
-// MapRequest converts an OTLP trace export request into wire rows ready to be
-// produced to Kafka. One OTLP span == one Row.
+// MapRequest converts an OTLP trace export request into wire rows; one OTLP span yields one Row.
 func MapRequest(teamID int64, req *tracepb.ExportTraceServiceRequest) []*schema.Row {
 	rows := make([]*schema.Row, 0, 64)
 	for _, rs := range req.GetResourceSpans() {
@@ -38,21 +34,18 @@ func MapRequest(teamID int64, req *tracepb.ExportTraceServiceRequest) []*schema.
 	return rows
 }
 
-// buildRow maps a single OTLP span into a wire Row. Heavier extraction logic
-// (attributes, HTTP fields, exception fields, status) lives in sibling files
-// so this function stays under the 40-LOC cap.
 func buildRow(teamID int64, resMap map[string]string, fingerprint string, s *trace.Span) *schema.Row {
 	timestampNs := s.GetStartTimeUnixNano()
-	tsBucket := utils.SpansBucketStart(int64(timestampNs / nsPerSecond))
+	tsBucket := timebucket.SpansBucketStart(int64(timestampNs / nsPerSecond))
 	statusMsg, statusCode := spanStatus(s)
 	spanMap := otlp.AttrsToMap(s.GetAttributes())
 	mergedMap := mergeAndCapAttrs(resMap, spanMap)
-	mergedMap["resource_fingerprint"] = fingerprint
 	http := extractHTTPFields(spanMap, s.GetKind())
 	exc := extractExceptionFields(spanMap)
+	stripPromotedKeys(mergedMap)
 
 	return &schema.Row{
-		TsBucketStart:       tsBucket,
+		TsBucket:            tsBucket,
 		TeamId:              uint32(teamID),     //nolint:gosec // G115 team_id
 		TimestampNs:         int64(timestampNs), //nolint:gosec
 		TraceId:             enrich.ZeroTraceID(otlp.BytesToHex(s.GetTraceId())),
@@ -75,7 +68,19 @@ func buildRow(teamID int64, resMap map[string]string, fingerprint string, s *tra
 		ExternalHttpUrl:     http.externalURL,
 		ExternalHttpMethod:  http.externalMethod,
 		ResponseStatusCode:  http.statusCode,
+		HttpStatusBucket:    httpStatusBucket(http.statusCode, statusCode == trace.Status_STATUS_CODE_ERROR),
+		Service:             resMap["service.name"],
+		Host:                resMap["host.name"],
+		Pod:                 resMap["k8s.pod.name"],
+		ServiceVersion:      resMap["service.version"],
+		Environment:         resMap["deployment.environment"],
+		PeerService:         spanMap["peer.service"],
+		DbSystem:            spanMap["db.system"],
+		DbName:              spanMap["db.name"],
+		DbStatement:         spanMap["db.statement"],
+		HttpRoute:           spanMap["http.route"],
 		Attributes:          mergedMap,
+		Fingerprint:         fingerprint,
 		Events:              serializeEvents(s.GetEvents()),
 		Links:               serializeLinks(s.GetLinks()),
 		ExceptionType:       exc.typ,
@@ -95,8 +100,7 @@ func spanDuration(s *trace.Span) uint64 {
 	return 0
 }
 
-// serializeEvents converts span events to a JSON string array — one JSON
-// string per event, the schema the existing CH consumers expect.
+// serializeEvents converts span events into one JSON string per event.
 func serializeEvents(events []*trace.Span_Event) []string {
 	out := make([]string, 0, len(events))
 	for _, e := range events {

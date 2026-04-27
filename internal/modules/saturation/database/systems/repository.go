@@ -26,7 +26,7 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 func (r *ClickHouseRepository) GetDetectedSystems(ctx context.Context, teamID int64, startMs, endMs int64) ([]DetectedSystem, error) {
 	table := "observability.metrics"
 
-	// last_seen is derived from bucket_ts (the rollup's minute-aligned bucket) —
+	// last_seen is derived from ts_bucket (the rollup's minute-aligned bucket) —
 	// within one-minute precision of the raw max(timestamp) it replaced.
 	query := fmt.Sprintf(`
 		SELECT
@@ -36,10 +36,10 @@ func (r *ClickHouseRepository) GetDetectedSystems(ctx context.Context, teamID in
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) * 1000  AS avg_latency_ms,
 		    toInt64(sum(hist_count))                                               AS query_count,
 		    any(server_address)                                                         AS server_address,
-		    max(bucket_ts)                                                              AS last_seen
+		    max(ts_bucket)                                                              AS last_seen
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  AND notEmpty(db_system)
 		GROUP BY db_system
@@ -69,7 +69,7 @@ func (r *ClickHouseRepository) GetDetectedSystems(ctx context.Context, teamID in
 }
 
 func (r *ClickHouseRepository) GetSystemSummaries(ctx context.Context, teamID int64, startMs, endMs int64) ([]SystemSummary, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT
 			db_system                                                                    AS db_system,
@@ -81,10 +81,10 @@ func (r *ClickHouseRepository) GetSystemSummaries(ctx context.Context, teamID in
 			toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_digest)[2]) * 1000.0 AS p95_latency_ms,
 			toInt64(round(toFloat64(sumMergeIf(value_sum, metric_name = @connMetric AND db_connection_state = 'used')))) AS active_connections,
 			''                                                                           AS server_address,
-			max(bucket_ts)                                                               AS last_seen
+			max(ts_bucket)                                                               AS last_seen
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND notEmpty(db_system)
 		GROUP BY db_system
 		ORDER BY query_count DESC

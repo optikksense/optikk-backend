@@ -11,10 +11,6 @@ import (
 		"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
-const (
-	metricsGaugesRollupPrefix = "observability.metrics"
-)
-
 // queryIntervalMinutes returns the group-by step (in minutes) for rollup reads.
 // It is max(tierStep, dashboardStep) so the step is never finer than the
 // selected tier's native resolution.
@@ -77,16 +73,16 @@ func (r *ClickHouseRepository) queryResourceBuckets(ctx context.Context, query s
 }
 
 func (r *ClickHouseRepository) queryDirectionBucketsFromRollup(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]directionBucketDTO, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		SELECT ts_bucket AS time_bucket,
 		       state_dim                AS direction,
 		       sum(value_sum)      AS value_sum_val,
 		       sum(sample_count)   AS value_cnt
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  AND state_dim != ''
 		GROUP BY time_bucket, direction
@@ -133,15 +129,15 @@ func (r *ClickHouseRepository) GetDiskOperations(ctx context.Context, teamID int
 }
 
 func (r *ClickHouseRepository) GetDiskIOTime(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		SELECT ts_bucket AS time_bucket,
 		       sum(value_sum)      AS value_sum_val,
 		       sum(sample_count)   AS value_cnt
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		GROUP BY time_bucket
 		ORDER BY time_bucket`, table)
@@ -181,15 +177,15 @@ func (r *ClickHouseRepository) GetDiskIOTime(ctx context.Context, teamID int64, 
 // which extracts `system.filesystem.mountpoint` into `state_dim` for the
 // `system.filesystem.usage` / `system.filesystem.utilization` metric family.
 func (r *ClickHouseRepository) GetFilesystemUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]mountpointBucketDTO, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		SELECT ts_bucket AS time_bucket,
 		       state_dim                                                    AS mountpoint,
 		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0) AS metric_val
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		GROUP BY time_bucket, mountpoint
 		ORDER BY time_bucket, mountpoint`, table)
@@ -205,15 +201,15 @@ func (r *ClickHouseRepository) GetFilesystemUsage(ctx context.Context, teamID in
 }
 
 func (r *ClickHouseRepository) GetFilesystemUtilization(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		SELECT ts_bucket AS time_bucket,
 		       sum(value_avg_num)  AS value_num,
 		       sum(sample_count)   AS value_cnt
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		GROUP BY time_bucket
 		ORDER BY time_bucket`, table)
@@ -260,7 +256,7 @@ type diskMetricRow struct {
 }
 
 type serviceNameRow struct {
-	ServiceName string `ch:"service_name"`
+	ServiceName string `ch:"service"`
 }
 
 func serviceParams(teamID int64, serviceName string, startMs, endMs int64) []any {
@@ -317,15 +313,15 @@ var diskMetricNames = []string{
 }
 
 func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64, startMs, endMs int64) ([]string, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
-		SELECT DISTINCT service AS service_name
+		SELECT DISTINCT service AS service
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND service != ''
 		  AND metric_name IN @metricNames
-		ORDER BY service_name`, table)
+		ORDER BY service`, table)
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -378,7 +374,7 @@ func diskFoldMetricRows(rows []diskMetricValueRow) *float64 {
 }
 
 func (r *ClickHouseRepository) queryDiskMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT metric_name                                                             AS metric_name,
 		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)  AS val_avg,
@@ -386,7 +382,7 @@ func (r *ClickHouseRepository) queryDiskMetricByService(ctx context.Context, tea
 		FROM %s
 		WHERE team_id = @teamID
 		  AND service = @serviceName
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN @metricNames
 		GROUP BY metric_name`, table)
 	args := []any{
@@ -405,7 +401,7 @@ func (r *ClickHouseRepository) queryDiskMetricByService(ctx context.Context, tea
 
 func (r *ClickHouseRepository) queryDiskMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	_ = container
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT metric_name                                                             AS metric_name,
 		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)  AS val_avg,
@@ -415,7 +411,7 @@ func (r *ClickHouseRepository) queryDiskMetricByInstance(ctx context.Context, te
 		  AND host = @host
 		  AND pod = @pod
 		  AND service = @serviceName
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN @metricNames
 		GROUP BY metric_name`, table)
 	args := []any{
@@ -436,14 +432,14 @@ func (r *ClickHouseRepository) queryDiskMetricByInstance(ctx context.Context, te
 
 // TODO(phase8): rollup migration requires multi-metric fallback logic not yet supported by metrics_gauges_rollup
 func (r *ClickHouseRepository) GetAvgDisk(ctx context.Context, teamID int64, startMs, endMs int64) (metricValueDTO, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT metric_name,
 		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)  AS val_avg,
 		       toFloat64(sum(value_sum))                                          AS val_sum
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN @metricNames
 		GROUP BY metric_name`, table)
 	args := []any{
@@ -465,7 +461,7 @@ func (r *ClickHouseRepository) GetAvgDisk(ctx context.Context, teamID int64, sta
 
 // TODO(phase8): rollup migration requires multi-metric fallback logic not yet supported by metrics_gauges_rollup
 func (r *ClickHouseRepository) GetDiskByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT metric_name,
 		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)  AS val_avg,
@@ -473,7 +469,7 @@ func (r *ClickHouseRepository) GetDiskByService(ctx context.Context, teamID int6
 		FROM %s
 		WHERE team_id = @teamID
 		  AND service = @serviceName
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN @metricNames
 		GROUP BY metric_name`, table)
 	args := []any{
@@ -492,7 +488,7 @@ func (r *ClickHouseRepository) GetDiskByService(ctx context.Context, teamID int6
 
 // TODO(phase8): rollup migration requires multi-metric fallback logic not yet supported by metrics_gauges_rollup
 func (r *ClickHouseRepository) GetDiskByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT metric_name,
 		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)  AS val_avg,
@@ -502,7 +498,7 @@ func (r *ClickHouseRepository) GetDiskByInstance(ctx context.Context, teamID int
 		  AND host = @host
 		  AND pod = @pod
 		  AND service = @serviceName
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN @metricNames
 		GROUP BY metric_name`, table)
 	args := []any{

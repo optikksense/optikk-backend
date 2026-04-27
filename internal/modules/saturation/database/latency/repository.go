@@ -27,7 +27,7 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 func (r *ClickHouseRepository) latencySeriesByAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]LatencyTimeSeries, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	fc, fargs := shared.RollupFilterClauses(f)
 	groupCol := shared.GroupColumnFor(groupAttr)
@@ -41,7 +41,7 @@ func (r *ClickHouseRepository) latencySeriesByAttr(ctx context.Context, teamID i
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) * 1000  AS p99_ms
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket, group_by
@@ -84,7 +84,7 @@ func (r *ClickHouseRepository) GetLatencyByServer(ctx context.Context, teamID in
 // approximate at the tier's native bucket granularity — accurate at rollup
 // resolution, coarser than the old per-row query but preserves the chart.
 func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyHeatmapBucket, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	fc, fargs := shared.RollupFilterClauses(f)
 
@@ -112,7 +112,7 @@ func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int
 		        hs / nullIf(hc, 0)                                        AS avg_sec
 		    FROM %s
 		    WHERE team_id = @teamID
-		      AND bucket_ts BETWEEN @start AND @end
+		      AND ts_bucket BETWEEN @start AND @end
 		      AND metric_name = @metricName
 		      %s
 		    GROUP BY time_bucket, db_system, db_operation, db_collection, db_namespace, pool_name, error_type, server_address

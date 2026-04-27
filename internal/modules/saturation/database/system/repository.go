@@ -35,7 +35,7 @@ func systemFilter(dbSystem string, f shared.Filters) (string, []any) {
 }
 
 func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string, f shared.Filters) ([]LatencyTimeSeries, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	fc, fargs := systemFilter(dbSystem, f)
 
@@ -48,7 +48,7 @@ func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID int6
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) * 1000  AS p99_ms
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  %s
 		GROUP BY time_bucket, group_by
 		ORDER BY time_bucket, group_by
@@ -66,7 +66,7 @@ func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID int6
 }
 
 func (r *ClickHouseRepository) GetSystemOps(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string, f shared.Filters) ([]OpsTimeSeries, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	fc, fargs := systemFilter(dbSystem, f)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
@@ -78,7 +78,7 @@ func (r *ClickHouseRepository) GetSystemOps(ctx context.Context, teamID int64, s
 		    toFloat64(sum(hist_count)) / %f AS ops_per_sec
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  %s
 		GROUP BY time_bucket, group_by
 		ORDER BY time_bucket, group_by
@@ -106,7 +106,7 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByLatency(ctx context.Cont
 		    toFloat64(sum(hist_count)) / %f                                        AS ops_per_sec
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND db_system = @dbSystem
 		  AND notEmpty(db_collection)
 		GROUP BY collection_name
@@ -135,7 +135,7 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByVolume(ctx context.Conte
 		    toFloat64(sum(hist_count)) / %f                                        AS ops_per_sec
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND db_system = @dbSystem
 		  AND notEmpty(db_collection)
 		GROUP BY collection_name
@@ -154,7 +154,7 @@ func (r *ClickHouseRepository) GetSystemTopCollectionsByVolume(ctx context.Conte
 }
 
 func (r *ClickHouseRepository) GetSystemErrors(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]ErrorTimeSeries, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
 
@@ -165,7 +165,7 @@ func (r *ClickHouseRepository) GetSystemErrors(ctx context.Context, teamID int64
 		    toFloat64(sum(hist_count)) / %f AS errors_per_sec
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND db_system = @dbSystem
 		  AND notEmpty(error_type)
 		GROUP BY time_bucket, group_by
@@ -192,7 +192,7 @@ func (r *ClickHouseRepository) GetSystemNamespaces(ctx context.Context, teamID i
 		    toInt64(sum(hist_count)) AS span_count
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND db_system = @dbSystem
 		  AND notEmpty(db_namespace)
 		GROUP BY namespace

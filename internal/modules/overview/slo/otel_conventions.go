@@ -2,10 +2,11 @@ package slo
 
 import rootspan "github.com/Optikk-Org/optikk-backend/internal/modules/traces/shared/rootspan"
 
-// Raw ClickHouse column references for observability.signoz_index_v3 (aliased as s)
-// and observability.resources (aliased as r). All queries in this module
-// use FROM observability.signoz_index_v3 s ANY LEFT JOIN observability.resources r
-// ON s.team_id = r.team_id AND s.resource_fingerprint = r.fingerprint.
+// Raw ClickHouse column references for observability.spans (aliased
+// as s). Resource-scoped filters in this module flow through
+// internal/modules/traces/shared/resource.WithFingerprints into a
+// `fingerprint IN (...)` PREWHERE — no JOIN against a separate
+// resource table is required.
 
 const (
 	QuantileP95 = 0.95

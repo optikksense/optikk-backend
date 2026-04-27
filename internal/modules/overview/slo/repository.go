@@ -11,14 +11,14 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// Reads target `observability.signoz_index_v3_rollup_{1m,5m,1h}` — Phase 6 cascade
+// Reads target `observability.spans_rollup_{1m,5m,1h}` — Phase 6 cascade
 // tiers picked via 1. SLO queries need count + error_count
 // + duration_sum + p95; every one of those is available as a state column +
 // merge op, so the query reduces to `sumMerge` and `quantilesTDigestWeightedMerge`.
 
 const (
-	serviceNameFilter	= " AND service_name = @serviceName"
-	spansRollupPrefix	= "observability.signoz_index_v3"
+	serviceNameFilter	= " AND service = @serviceName"
+	spansRollupPrefix	= "observability.spans"
 )
 
 type Repository interface {
@@ -90,7 +90,7 @@ type summaryRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (Summary, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT count()                                            AS request_count,
 		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                              AS error_count,
@@ -98,7 +98,7 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_digest)[2]) AS p95_latency_ms
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end`, table)
+		  AND ts_bucket BETWEEN @start AND @end`, table)
 	args := rollupParams(teamID, startMs, endMs)
 	if serviceName != "" {
 		query += serviceNameFilter
@@ -139,16 +139,16 @@ type timeSliceRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]TimeSlice, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		SELECT ts_bucket AS time_bucket,
 		       count()                                      AS request_count,
 		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                        AS error_count,
 		       sum(duration_nano / 1000000.0)                                    AS duration_ms_sum
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end`, table)
+		  AND ts_bucket BETWEEN @start AND @end`, table)
 	args := append(rollupParams(teamID, startMs, endMs),
 		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
 	)
@@ -197,15 +197,15 @@ type burnDownRawRow struct {
 }
 
 func (r *ClickHouseRepository) GetBurnDown(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]BurnDownPoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	tierStep := int64(1)
 	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
+		SELECT ts_bucket AS time_bucket,
 		       count()                                      AS request_count,
 		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                        AS error_count
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end`, table)
+		  AND ts_bucket BETWEEN @start AND @end`, table)
 	args := append(rollupParams(teamID, startMs, endMs),
 		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
 	)
@@ -297,13 +297,13 @@ func (r *ClickHouseRepository) errorRateForWindow(ctx context.Context, teamID in
 	now := time.Now()
 	since := now.Add(-time.Duration(minutes) * time.Minute)
 	// fast burn rates use short windows (5m / 1h) — always pins to the _1m tier.
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT count() AS request_count,
 		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)   AS error_count
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @since AND @nowTs`, table)
+		  AND ts_bucket BETWEEN @since AND @nowTs`, table)
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
 		clickhouse.Named("since", since),

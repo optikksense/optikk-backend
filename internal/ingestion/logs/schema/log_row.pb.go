@@ -21,32 +21,34 @@ const (
 	_ = protoimpl.EnforceVersion(protoimpl.MaxVersion - 20)
 )
 
-// Row is the wire format on Kafka. One record == one log row bound for
-// observability.logs_v2. The field order mirrors the ClickHouse column order
-// declared in row.go Columns so the consumer can build positional CH values
-// without a lookup map. The legacy `scope_string` field was removed in the
-// ingest rewrite — it duplicated `scope_name` and added no query value.
+// Row is the wire format on Kafka. One record == one log row bound for observability.logs.
 type Row struct {
 	state               protoimpl.MessageState `protogen:"open.v1"`
 	TeamId              uint32                 `protobuf:"varint,1,opt,name=team_id,json=teamId,proto3" json:"team_id,omitempty"`
-	TsBucketStart       uint32                 `protobuf:"varint,2,opt,name=ts_bucket_start,json=tsBucketStart,proto3" json:"ts_bucket_start,omitempty"`
-	TimestampNs         int64                  `protobuf:"varint,3,opt,name=timestamp_ns,json=timestampNs,proto3" json:"timestamp_ns,omitempty"` // time.Time at CH boundary
+	TsBucket            uint32                 `protobuf:"varint,2,opt,name=ts_bucket,json=tsBucket,proto3" json:"ts_bucket,omitempty"`
+	TimestampNs         int64                  `protobuf:"varint,3,opt,name=timestamp_ns,json=timestampNs,proto3" json:"timestamp_ns,omitempty"`
 	ObservedTimestampNs uint64                 `protobuf:"varint,4,opt,name=observed_timestamp_ns,json=observedTimestampNs,proto3" json:"observed_timestamp_ns,omitempty"`
 	TraceId             string                 `protobuf:"bytes,5,opt,name=trace_id,json=traceId,proto3" json:"trace_id,omitempty"`
 	SpanId              string                 `protobuf:"bytes,6,opt,name=span_id,json=spanId,proto3" json:"span_id,omitempty"`
 	TraceFlags          uint32                 `protobuf:"varint,7,opt,name=trace_flags,json=traceFlags,proto3" json:"trace_flags,omitempty"`
 	SeverityText        string                 `protobuf:"bytes,8,opt,name=severity_text,json=severityText,proto3" json:"severity_text,omitempty"`
-	SeverityNumber      uint32                 `protobuf:"varint,9,opt,name=severity_number,json=severityNumber,proto3" json:"severity_number,omitempty"` // uint8 at CH; narrow at boundary
+	SeverityNumber      uint32                 `protobuf:"varint,9,opt,name=severity_number,json=severityNumber,proto3" json:"severity_number,omitempty"`
 	Body                string                 `protobuf:"bytes,10,opt,name=body,proto3" json:"body,omitempty"`
 	AttributesString    map[string]string      `protobuf:"bytes,11,rep,name=attributes_string,json=attributesString,proto3" json:"attributes_string,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	AttributesNumber    map[string]float64     `protobuf:"bytes,12,rep,name=attributes_number,json=attributesNumber,proto3" json:"attributes_number,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"fixed64,2,opt,name=value"`
 	AttributesBool      map[string]bool        `protobuf:"bytes,13,rep,name=attributes_bool,json=attributesBool,proto3" json:"attributes_bool,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
 	Resource            map[string]string      `protobuf:"bytes,14,rep,name=resource,proto3" json:"resource,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	ResourceFingerprint string                 `protobuf:"bytes,15,opt,name=resource_fingerprint,json=resourceFingerprint,proto3" json:"resource_fingerprint,omitempty"`
+	Fingerprint         string                 `protobuf:"bytes,15,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"`
 	ScopeName           string                 `protobuf:"bytes,16,opt,name=scope_name,json=scopeName,proto3" json:"scope_name,omitempty"`
-	ScopeVersion        string                 `protobuf:"bytes,17,opt,name=scope_version,json=scopeVersion,proto3" json:"scope_version,omitempty"` // field 18 (scope_string) intentionally retired.
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	ScopeVersion        string                 `protobuf:"bytes,17,opt,name=scope_version,json=scopeVersion,proto3" json:"scope_version,omitempty"`
+	// field 18 (scope_string) intentionally retired.
+	Service       string `protobuf:"bytes,19,opt,name=service,proto3" json:"service,omitempty"`
+	Host          string `protobuf:"bytes,20,opt,name=host,proto3" json:"host,omitempty"`
+	Pod           string `protobuf:"bytes,21,opt,name=pod,proto3" json:"pod,omitempty"`
+	Container     string `protobuf:"bytes,22,opt,name=container,proto3" json:"container,omitempty"`
+	Environment   string `protobuf:"bytes,23,opt,name=environment,proto3" json:"environment,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Row) Reset() {
@@ -86,9 +88,9 @@ func (x *Row) GetTeamId() uint32 {
 	return 0
 }
 
-func (x *Row) GetTsBucketStart() uint32 {
+func (x *Row) GetTsBucket() uint32 {
 	if x != nil {
-		return x.TsBucketStart
+		return x.TsBucket
 	}
 	return 0
 }
@@ -177,9 +179,9 @@ func (x *Row) GetResource() map[string]string {
 	return nil
 }
 
-func (x *Row) GetResourceFingerprint() string {
+func (x *Row) GetFingerprint() string {
 	if x != nil {
-		return x.ResourceFingerprint
+		return x.Fingerprint
 	}
 	return ""
 }
@@ -198,14 +200,49 @@ func (x *Row) GetScopeVersion() string {
 	return ""
 }
 
+func (x *Row) GetService() string {
+	if x != nil {
+		return x.Service
+	}
+	return ""
+}
+
+func (x *Row) GetHost() string {
+	if x != nil {
+		return x.Host
+	}
+	return ""
+}
+
+func (x *Row) GetPod() string {
+	if x != nil {
+		return x.Pod
+	}
+	return ""
+}
+
+func (x *Row) GetContainer() string {
+	if x != nil {
+		return x.Container
+	}
+	return ""
+}
+
+func (x *Row) GetEnvironment() string {
+	if x != nil {
+		return x.Environment
+	}
+	return ""
+}
+
 var File_log_row_proto protoreflect.FileDescriptor
 
 const file_log_row_proto_rawDesc = "" +
 	"\n" +
-	"\rlog_row.proto\x12\x15optikk.ingest.logs.v1\"\xb2\b\n" +
+	"\rlog_row.proto\x12\x15optikk.ingest.logs.v1\"\x96\t\n" +
 	"\x03Row\x12\x17\n" +
-	"\ateam_id\x18\x01 \x01(\rR\x06teamId\x12&\n" +
-	"\x0fts_bucket_start\x18\x02 \x01(\rR\rtsBucketStart\x12!\n" +
+	"\ateam_id\x18\x01 \x01(\rR\x06teamId\x12\x1b\n" +
+	"\tts_bucket\x18\x02 \x01(\rR\btsBucket\x12!\n" +
 	"\ftimestamp_ns\x18\x03 \x01(\x03R\vtimestampNs\x122\n" +
 	"\x15observed_timestamp_ns\x18\x04 \x01(\x04R\x13observedTimestampNs\x12\x19\n" +
 	"\btrace_id\x18\x05 \x01(\tR\atraceId\x12\x17\n" +
@@ -219,11 +256,16 @@ const file_log_row_proto_rawDesc = "" +
 	"\x11attributes_string\x18\v \x03(\v20.optikk.ingest.logs.v1.Row.AttributesStringEntryR\x10attributesString\x12]\n" +
 	"\x11attributes_number\x18\f \x03(\v20.optikk.ingest.logs.v1.Row.AttributesNumberEntryR\x10attributesNumber\x12W\n" +
 	"\x0fattributes_bool\x18\r \x03(\v2..optikk.ingest.logs.v1.Row.AttributesBoolEntryR\x0eattributesBool\x12D\n" +
-	"\bresource\x18\x0e \x03(\v2(.optikk.ingest.logs.v1.Row.ResourceEntryR\bresource\x121\n" +
-	"\x14resource_fingerprint\x18\x0f \x01(\tR\x13resourceFingerprint\x12\x1d\n" +
+	"\bresource\x18\x0e \x03(\v2(.optikk.ingest.logs.v1.Row.ResourceEntryR\bresource\x12 \n" +
+	"\vfingerprint\x18\x0f \x01(\tR\vfingerprint\x12\x1d\n" +
 	"\n" +
 	"scope_name\x18\x10 \x01(\tR\tscopeName\x12#\n" +
-	"\rscope_version\x18\x11 \x01(\tR\fscopeVersion\x1aC\n" +
+	"\rscope_version\x18\x11 \x01(\tR\fscopeVersion\x12\x18\n" +
+	"\aservice\x18\x13 \x01(\tR\aservice\x12\x12\n" +
+	"\x04host\x18\x14 \x01(\tR\x04host\x12\x10\n" +
+	"\x03pod\x18\x15 \x01(\tR\x03pod\x12\x1c\n" +
+	"\tcontainer\x18\x16 \x01(\tR\tcontainer\x12 \n" +
+	"\venvironment\x18\x17 \x01(\tR\venvironment\x1aC\n" +
 	"\x15AttributesStringEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1aC\n" +
@@ -235,7 +277,7 @@ const file_log_row_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\bR\x05value:\x028\x01\x1a;\n" +
 	"\rResourceEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01BCZAgithub.com/Optikk-Org/optikk-backend/internal/ingestion/logs;logsb\x06proto3"
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01BLZJgithub.com/Optikk-Org/optikk-backend/internal/ingestion/logs/schema;schemab\x06proto3"
 
 var (
 	file_log_row_proto_rawDescOnce sync.Once

@@ -59,7 +59,7 @@ type spanAttributeRow struct {
 	SpanID              string            `ch:"span_id"`
 	TraceID             string            `ch:"trace_id"`
 	OperationName       string            `ch:"operation_name"`
-	ServiceName         string            `ch:"service_name"`
+	ServiceName         string            `ch:"service"`
 	AttributesString    map[string]string `ch:"attributes_string"`
 	ResourceAttrs       map[string]string `ch:"resource_attributes"`
 	ExceptionType       string            `ch:"exception_type"`

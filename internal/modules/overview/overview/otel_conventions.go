@@ -2,10 +2,10 @@ package overview
 
 import rootspan "github.com/Optikk-Org/optikk-backend/internal/modules/traces/shared/rootspan"
 
-// Raw ClickHouse column references for observability.signoz_index_v3 (aliased as s).
+// Raw ClickHouse column references for observability.spans (aliased as s).
 
 const (
-	ColServiceName   = "s.service_name"
+	ColServiceName   = "s.service"
 	ColOperationName = "s.name"
 	ColHTTPMethod    = "s.http_method"
 	ColTraceID       = "s.trace_id"

@@ -23,7 +23,7 @@ type ApdexScore struct {
 
 type SlowOperation struct {
 	OperationName string  `json:"operation_name" ch:"operation_name"`
-	ServiceName   string  `json:"service_name"   ch:"service_name"`
+	ServiceName   string  `json:"service_name"   ch:"service"`
 	P50Ms         float64 `json:"p50_ms"         ch:"p50_ms"`
 	P95Ms         float64 `json:"p95_ms"         ch:"p95_ms"`
 	P99Ms         float64 `json:"p99_ms"         ch:"p99_ms"`
@@ -32,7 +32,7 @@ type SlowOperation struct {
 
 type ErrorOperation struct {
 	OperationName string  `json:"operation_name" ch:"operation_name"`
-	ServiceName   string  `json:"service_name"   ch:"service_name"`
+	ServiceName   string  `json:"service_name"   ch:"service"`
 	ExceptionType string  `json:"exception_type" ch:"exception_type"`
 	ErrorRate     float64 `json:"error_rate"     ch:"error_rate"`
 	ErrorCount    int64   `json:"error_count"    ch:"error_count"`
@@ -41,13 +41,13 @@ type ErrorOperation struct {
 
 type ServiceRatePoint struct {
 	Timestamp   time.Time `json:"timestamp"    ch:"timestamp"`
-	ServiceName string    `json:"service_name" ch:"service_name"`
+	ServiceName string    `json:"service_name" ch:"service"`
 	RPS         float64   `json:"rps"          ch:"rps"`
 }
 
 type ServiceErrorRatePoint struct {
 	Timestamp    time.Time `json:"timestamp"     ch:"timestamp"`
-	ServiceName  string    `json:"service_name"  ch:"service_name"`
+	ServiceName  string    `json:"service_name"  ch:"service"`
 	RequestCount int64     `json:"request_count" ch:"request_count"`
 	ErrorCount   int64     `json:"error_count"   ch:"error_count"`
 	ErrorPct     float64   `json:"error_pct"     ch:"error_pct"`
@@ -55,7 +55,7 @@ type ServiceErrorRatePoint struct {
 
 type ServiceLatencyPoint struct {
 	Timestamp   time.Time `json:"timestamp"    ch:"timestamp"`
-	ServiceName string    `json:"service_name" ch:"service_name"`
+	ServiceName string    `json:"service_name" ch:"service"`
 	P95Ms       float64   `json:"p95_ms"       ch:"p95_ms"`
 }
 

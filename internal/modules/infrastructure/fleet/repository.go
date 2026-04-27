@@ -11,11 +11,11 @@ import (
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	)
 
-// Reads target the `observability.signoz_index_v3_host_rollup_{1m,5m,1h}` cascade —
-// Phase 6 per-pod RED aggregates. Rollup keyed by
-// (team_id, bucket_ts, host_name, pod_name, service_name).
+// Reads run against raw `observability.spans` (the planned
+// spans_host_rollup_{1m,5m,1h} cascade was never built). Per-pod
+// RED metrics are computed inline with LIMIT @maxFleetPods to bound scan.
 const (
-	spansHostRollupPrefix	= "observability.signoz_index_v3"
+	spansHostRollupPrefix	= "observability.spans"
 	maxFleetPods		= 200
 	defaultUnknown		= "unknown"
 )
@@ -54,8 +54,8 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 type fleetPodRowDTO struct {
-	PodName		string		`ch:"pod_name"`
-	HostName	string		`ch:"host_name"`
+	PodName		string		`ch:"pod"`
+	HostName	string		`ch:"host"`
 	ServicesCSV	string		`ch:"services_csv"`
 	RequestCount	uint64		`ch:"request_count"`
 	ErrorCount	uint64		`ch:"error_count"`
@@ -65,21 +65,21 @@ type fleetPodRowDTO struct {
 }
 
 func (r *ClickHouseRepository) GetFleetPods(ctx context.Context, teamID int64, startMs, endMs int64) ([]FleetPod, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
-		SELECT pod_name                                                          AS pod_name,
-		       if(host_name != '', host_name, '%s')                              AS host_name,
-		       arrayStringConcat(groupUniqArray(service_name), ',')              AS services_csv,
+		SELECT pod                                                          AS pod,
+		       if(host != '', host, '%s')                              AS host,
+		       arrayStringConcat(groupUniqArray(service), ',')              AS services_csv,
 		       count()                                           AS request_count,
 		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                             AS error_count,
 		       sum(duration_nano / 1000000.0)                                         AS duration_ms_sum,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_latency,
-		       max(bucket_ts)                                                    AS last_seen
+		       max(ts_bucket)                                                    AS last_seen
 		FROM %s
 		WHERE team_id = @teamID
-		  AND pod_name != ''
-		  AND bucket_ts BETWEEN @start AND @end
-		GROUP BY pod_name, host_name
+		  AND pod != ''
+		  AND ts_bucket BETWEEN @start AND @end
+		GROUP BY pod, host
 		ORDER BY request_count DESC
 		LIMIT `+strconv.Itoa(maxFleetPods), defaultUnknown, table)
 

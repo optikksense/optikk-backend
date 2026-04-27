@@ -22,7 +22,7 @@ func (r *Repository) Facets(ctx context.Context, f querycompiler.Filters) (Facet
 	compiled := querycompiler.Compile(f, querycompiler.TargetSpansRaw)
 	query := fmt.Sprintf(`
 		SELECT
-			topK(20)(service_name)                 AS top_services,
+			topK(20)(service)                 AS top_services,
 			topK(20)(name)                         AS top_operations,
 			topK(10)(http_method)                  AS top_http_methods,
 			topK(15)(toString(response_status_code)) AS top_http_statuses,

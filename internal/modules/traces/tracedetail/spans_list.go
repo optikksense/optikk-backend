@@ -28,7 +28,7 @@ type SpanListItem struct {
 	SpanID		string	`json:"span_id" ch:"span_id"`
 	ParentSpanID	string	`json:"parent_span_id" ch:"parent_span_id"`
 	TraceID		string	`json:"trace_id" ch:"trace_id"`
-	ServiceName	string	`json:"service_name" ch:"service_name"`
+	ServiceName	string	`json:"service_name" ch:"service"`
 	OperationName	string	`json:"operation_name" ch:"name"`
 	KindString	string	`json:"kind" ch:"kind_string"`
 	StatusCode	string	`json:"status_code" ch:"status_code_string"`
@@ -51,15 +51,15 @@ type spansRepo struct{ db clickhouse.Conn }
 func NewTraceSpansService(db clickhouse.Conn) TraceSpansService	{ return &spansRepo{db: db} }
 
 const (
-	spansRawTable		= "observability.signoz_index_v3"
-	spansByTraceTable	= "observability.signoz_index_v3"
+	spansRawTable		= "observability.spans"
+	spansByTraceTable	= "observability.spans"
 )
 
 func (r *spansRepo) ListByTrace(ctx context.Context, teamID int64, traceID string) ([]SpanListItem, error) {
 	// Phase 7: read from the MV keyed on (team_id, trace_id, span_id) —
 	// narrow range scan instead of a bloom-filter guess on the 100M-row spans.
 	query := fmt.Sprintf(`
-		SELECT span_id, parent_span_id, trace_id, service_name, name,
+		SELECT span_id, parent_span_id, trace_id, service, name,
 			kind_string, status_code_string, has_error,
 			duration_nano / 1000000.0 AS duration_ms,
 			toUnixTimestamp64Nano(timestamp) AS start_ns
@@ -82,7 +82,7 @@ func (r *spansRepo) Subtree(ctx context.Context, teamID int64, spanID string) ([
 			SELECT trace_id FROM %s
 			WHERE team_id = @teamID AND span_id = @spanID LIMIT 1
 		)
-		SELECT s.span_id, s.parent_span_id, s.trace_id, s.service_name, s.name,
+		SELECT s.span_id, s.parent_span_id, s.trace_id, s.service, s.name,
 			s.kind_string, s.status_code_string, s.has_error,
 			s.duration_nano / 1000000.0 AS duration_ms,
 			toUnixTimestamp64Nano(s.timestamp) AS start_ns

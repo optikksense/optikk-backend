@@ -10,8 +10,8 @@ import (
 	)
 
 const (
-	spansRollupPrefix	= "observability.signoz_index_v3"
-	topologyRollupPrefix	= "observability.signoz_index_v3"
+	spansRollupPrefix	= "observability.spans"
+	topologyRollupPrefix	= "observability.spans"
 )
 
 // Repository runs ClickHouse queries that power the runtime service topology.
@@ -41,9 +41,9 @@ func topologyParams(teamID int64, startMs, endMs int64) []any {
 // endpoint, method) — topology wants the service-level rollup, so we sum /
 // merge across the operation-level rows.
 func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]nodeAggRow, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
-		SELECT service_name                                                            AS service_name,
+		SELECT service                                                            AS service,
 		       toInt64(count())                                        AS request_count,
 		       toInt64(countIf(has_error OR toUInt16OrZero(response_status_code) >= 400))                                          AS error_count,
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1])     AS p50_ms,
@@ -51,9 +51,9 @@ func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID int64, start
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3])     AS p99_ms
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND service_name != ''
-		GROUP BY service_name
+		  AND ts_bucket BETWEEN @start AND @end
+		  AND service != ''
+		GROUP BY service
 	`, table)
 
 	var rows []nodeAggRow
@@ -66,7 +66,7 @@ func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID int64, start
 // CLIENT-kind spans using the mat_peer_service attribute. Bypasses the old
 // span self-join approach entirely.
 func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID int64, startMs, endMs int64) ([]edgeAggRow, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT client_service                                                         AS source,
 		       server_service                                                         AS target,
@@ -76,7 +76,7 @@ func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID int64, start
 		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])    AS p95_ms
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND client_service != ''
 		  AND server_service != ''
 		  AND client_service != server_service

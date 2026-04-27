@@ -1,5 +1,4 @@
-// Package step holds time-bucket helpers shared between log_analytics and
-// log_trends. Adaptive defaults: ≤3h → 1m, ≤24h → 5m, ≤7d → 1h, else 1d.
+// Package step holds time-bucket helpers used by log_trends. Adaptive defaults: ≤3h → 1m, ≤24h → 5m, ≤7d → 1h, else 1d.
 package step
 
 import (

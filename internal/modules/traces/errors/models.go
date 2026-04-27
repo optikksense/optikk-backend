@@ -3,7 +3,7 @@ package errors
 type errorGroupRow struct {
 	ExceptionType string `ch:"exception_type"`
 	StatusMessage string `ch:"status_message"`
-	Service       string `ch:"service_name"`
+	Service       string `ch:"service"`
 	Count         uint64 `ch:"count"`
 }
 

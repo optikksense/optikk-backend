@@ -105,18 +105,18 @@ func (r *compositeRepository) GetMemoryUsagePercentage(ctx context.Context, team
 // ---- Composite cross-resource endpoints ----
 
 func (r *compositeRepository) GetResourceUsageByService(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceResource, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
-		SELECT service                                                        AS service_name,
+		SELECT service                                                        AS service,
 		       metric_name                                                    AS metric_name,
 		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0) AS avg_value
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		GROUP BY service_name, metric_name`, table)
+		  AND ts_bucket BETWEEN @start AND @end
+		GROUP BY service, metric_name`, table)
 
 	type row struct {
-		ServiceName string   `ch:"service_name"`
+		ServiceName string   `ch:"service"`
 		MetricName  string   `ch:"metric_name"`
 		AvgValue    *float64 `ch:"avg_value"`
 	}

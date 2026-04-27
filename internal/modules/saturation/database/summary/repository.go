@@ -12,8 +12,6 @@ import (
 		shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 )
 
-const dbSummaryRollupPrefix = "observability.metrics"
-
 type Repository interface {
 	GetSummaryStats(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) (SummaryStats, error)
 }
@@ -62,7 +60,7 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 		    sum(hist_count)                                                AS total_count
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName%s
 	`, mainTable, filterFrag)
 
@@ -70,7 +68,7 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 		SELECT toInt64(sum(hist_count)) AS error_count
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  AND error_type != ''%s
 	`, dbHistTable, filterFrag)
@@ -79,7 +77,7 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 		SELECT toInt64(round(toFloat64(sum(value_sum)))) AS used_count
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  AND db_connection_state = 'used'%s
 	`, dbHistTable, filterFrag)
@@ -90,7 +88,7 @@ func (r *ClickHouseRepository) GetSummaryStats(ctx context.Context, teamID int64
 		    toInt64(sumMergeIf(hist_count, error_type = ''))          AS success_count
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  AND db_system = 'redis'%s
 	`, dbHistTable, filterFrag)

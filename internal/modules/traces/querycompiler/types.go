@@ -8,7 +8,7 @@ package querycompiler
 type Target int
 
 const (
-	// TargetSpansRaw compiles for observability.signoz_index_v3 (full fidelity).
+	// TargetSpansRaw compiles for observability.spans (full fidelity).
 	TargetSpansRaw Target = iota
 )
 

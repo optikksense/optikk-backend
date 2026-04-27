@@ -26,9 +26,9 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 func (r *ClickHouseRepository) GetServiceMapSpans(ctx context.Context, teamID int64, traceID string) ([]serviceMapSpanRow, error) {
 	var rows []serviceMapSpanRow
 	err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "trace_servicemap.GetServiceMapSpans", &rows, `
-		SELECT span_id, parent_span_id, service_name,
+		SELECT span_id, parent_span_id, service,
 		       duration_nano / 1000000.0 AS duration_ms, has_error
-		FROM observability.signoz_index_v3
+		FROM observability.spans
 		WHERE team_id = @teamID AND `+traceidmatch.WhereTraceIDMatchesCH("trace_id", "traceID")+`
 		ORDER BY timestamp ASC
 		LIMIT 10000
@@ -41,10 +41,10 @@ func (r *ClickHouseRepository) GetServiceMapSpans(ctx context.Context, teamID in
 func (r *ClickHouseRepository) GetTraceErrors(ctx context.Context, teamID int64, traceID string) ([]traceErrorRow, error) {
 	var rows []traceErrorRow
 	err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "trace_servicemap.GetTraceErrors", &rows, `
-		SELECT span_id, service_name, name AS operation_name,
+		SELECT span_id, service, name AS operation_name,
 		       exception_type, exception_message, status_message,
 		       timestamp AS start_time, duration_nano / 1000000.0 AS duration_ms
-		FROM observability.signoz_index_v3
+		FROM observability.spans
 		WHERE team_id = @teamID AND `+traceidmatch.WhereTraceIDMatchesCH("trace_id", "traceID")+`
 		  AND (has_error = true OR status_code_string = 'ERROR')
 		ORDER BY timestamp ASC

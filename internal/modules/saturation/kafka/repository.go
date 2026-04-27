@@ -7,18 +7,13 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-		timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
-const (
-	// Histograms and counters consolidated into the unified messaging family.
-	messagingRollupPrefix         = "observability.metrics"
-	messagingCountersRollupPrefix = "observability.metrics"
-)
-
-// rollupBucketExpr bucketizes the rollup's DateTime `bucket_ts` column.
+// rollupBucketExpr returns the rollup bucket column expression. Reads stored
+// ts_bucket directly — no CH-side bucket math; see internal/infra/timebucket.
 func rollupBucketExpr(startMs, endMs int64) string {
-	return timebucket.ExprForColumnTime(startMs, endMs, "bucket_ts")
+	_, _ = startMs, endMs
+	return "ts_bucket"
 }
 
 // bucketSecs returns the bucket width in seconds matching the adaptive strategy.
@@ -41,7 +36,7 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(ctx context.Context, teamID 
 
 	// Single query against the narrow kafka_summary rollup (3 dims vs 11).
 	// Uses conditional merge functions to compute all summary fields at once.
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT
 		    toFloat64(sumMergeIf(value_sum, metric_name IN @producerMetrics))       AS prod_sum,
@@ -51,7 +46,7 @@ func (r *ClickHouseRepository) GetKafkaSummaryStats(ctx context.Context, teamID 
 		    toFloat64(quantilesTDigestWeightedMergeIf(0.5, 0.95, 0.99)(latency_digest, metric_name = @receiveDuration)[2])  AS receive_p95
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 	`, table)
 
 	var row struct {
@@ -93,7 +88,7 @@ func (r *ClickHouseRepository) GetConsumeRateByTopic(ctx context.Context, teamID
 }
 
 func (r *ClickHouseRepository) topicRate(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters, metrics []string) ([]TopicRatePoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                       AS time_bucket,
@@ -101,7 +96,7 @@ func (r *ClickHouseRepository) topicRate(ctx context.Context, teamID int64, star
 		    toFloat64(sum(value_sum)) / @bucketSecs AS rate_per_sec
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN @metrics
 		  %s
 		GROUP BY time_bucket, topic
@@ -122,7 +117,7 @@ func (r *ClickHouseRepository) GetProcessRateByGroup(ctx context.Context, teamID
 }
 
 func (r *ClickHouseRepository) groupRate(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters, metrics []string) ([]GroupRatePoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                           AS time_bucket,
@@ -130,7 +125,7 @@ func (r *ClickHouseRepository) groupRate(ctx context.Context, teamID int64, star
 		    toFloat64(sum(value_sum)) / @bucketSecs AS rate_per_sec
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN @metrics
 		  %s
 		GROUP BY time_bucket, consumer_group
@@ -147,7 +142,7 @@ func (r *ClickHouseRepository) groupRate(ctx context.Context, teamID int64, star
 // ---------------------------------------------------------------------------
 
 func (r *ClickHouseRepository) GetConsumerLagByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]LagPoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                          AS time_bucket,
@@ -156,7 +151,7 @@ func (r *ClickHouseRepository) GetConsumerLagByGroup(ctx context.Context, teamID
 		    sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)      AS lag
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN @lagMetrics
 		  %s
 		GROUP BY time_bucket, consumer_group, topic
@@ -169,7 +164,7 @@ func (r *ClickHouseRepository) GetConsumerLagByGroup(ctx context.Context, teamID
 }
 
 func (r *ClickHouseRepository) GetConsumerLagPerPartition(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]PartitionLag, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT
 		    messaging_destination                                                       AS topic,
@@ -178,7 +173,7 @@ func (r *ClickHouseRepository) GetConsumerLagPerPartition(ctx context.Context, t
 		    toInt64(sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)) AS lag
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN @lagMetrics
 		  %s
 		GROUP BY topic, partition, consumer_group
@@ -196,7 +191,7 @@ func (r *ClickHouseRepository) GetConsumerLagPerPartition(ctx context.Context, t
 // ---------------------------------------------------------------------------
 
 func (r *ClickHouseRepository) GetRebalanceSignals(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]RebalancePoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	bs := bucketSecs(startMs, endMs)
 	query := fmt.Sprintf(`
 		SELECT
@@ -207,7 +202,7 @@ func (r *ClickHouseRepository) GetRebalanceSignals(ctx context.Context, teamID i
 		    sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)      AS v_avg
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN @rebalanceMetrics
 		  %s
 		GROUP BY time_bucket, consumer_group, metric_name
@@ -260,7 +255,7 @@ func (r *ClickHouseRepository) GetRebalanceSignals(ctx context.Context, teamID i
 // ---------------------------------------------------------------------------
 
 func (r *ClickHouseRepository) GetE2ELatency(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]E2ELatencyPoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                   AS time_bucket,
@@ -269,7 +264,7 @@ func (r *ClickHouseRepository) GetE2ELatency(ctx context.Context, teamID int64, 
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])  AS p95
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN (@publishDuration, @receiveDuration, @processDuration)
 		  %s
 		GROUP BY time_bucket, topic, metric_name
@@ -331,7 +326,7 @@ func (r *ClickHouseRepository) GetProcessErrors(ctx context.Context, teamID int6
 // (see MV in db/clickhouse/14_rollup_messaging_counters.sql). Rate is
 // errored-ops / bucketSecs.
 func (r *ClickHouseRepository) GetClientOpErrors(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                              AS time_bucket,
@@ -340,7 +335,7 @@ func (r *ClickHouseRepository) GetClientOpErrors(ctx context.Context, teamID int
 		    toFloat64(sum(sample_count)) / @bucketSecs                 AS error_rate
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @opDuration
 		  AND error_type != ''
 		  %s
@@ -354,7 +349,7 @@ func (r *ClickHouseRepository) GetClientOpErrors(ctx context.Context, teamID int
 }
 
 func (r *ClickHouseRepository) GetBrokerConnections(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]BrokerConnectionPoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                          AS time_bucket,
@@ -362,7 +357,7 @@ func (r *ClickHouseRepository) GetBrokerConnections(ctx context.Context, teamID 
 		    sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)      AS connections
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  %s
 		GROUP BY time_bucket, broker
@@ -390,7 +385,7 @@ func (r *ClickHouseRepository) GetReceiveLatencyByTopic(ctx context.Context, tea
 }
 
 func (r *ClickHouseRepository) topicLatency(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters, durationMetric string, opAliases []string) ([]TopicLatencyPoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                   AS time_bucket,
@@ -400,7 +395,7 @@ func (r *ClickHouseRepository) topicLatency(ctx context.Context, teamID int64, s
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3])  AS p99
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND (metric_name = @durationMetric
 		       OR (metric_name = @opDuration AND lower(messaging_operation) IN @opAliases))
 		  %s
@@ -417,7 +412,7 @@ func (r *ClickHouseRepository) topicLatency(ctx context.Context, teamID int64, s
 }
 
 func (r *ClickHouseRepository) GetProcessLatencyByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupLatencyPoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                   AS time_bucket,
@@ -427,7 +422,7 @@ func (r *ClickHouseRepository) GetProcessLatencyByGroup(ctx context.Context, tea
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3])  AS p99
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND (metric_name = @processDuration
 		       OR (metric_name = @opDuration AND lower(messaging_operation) IN @processOps))
 		  %s
@@ -440,7 +435,7 @@ func (r *ClickHouseRepository) GetProcessLatencyByGroup(ctx context.Context, tea
 }
 
 func (r *ClickHouseRepository) GetClientOperationDuration(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ClientOpDurationPoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                   AS time_bucket,
@@ -450,7 +445,7 @@ func (r *ClickHouseRepository) GetClientOperationDuration(ctx context.Context, t
 		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3])  AS p99
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @opDuration
 		  %s
 		GROUP BY time_bucket, operation_name
@@ -466,7 +461,7 @@ func (r *ClickHouseRepository) GetClientOperationDuration(ctx context.Context, t
 // ---------------------------------------------------------------------------
 
 func (r *ClickHouseRepository) getTopicErrorRates(ctx context.Context, teamID int64, startMs, endMs int64, metricName, caller string, f KafkaFilters) ([]ErrorRatePoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                AS time_bucket,
@@ -475,7 +470,7 @@ func (r *ClickHouseRepository) getTopicErrorRates(ctx context.Context, teamID in
 		    toFloat64(sum(value_sum)) / @bucketSecs      AS error_rate
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  AND error_type != ''
 		  %s
@@ -500,7 +495,7 @@ func (r *ClickHouseRepository) getTopicErrorRates(ctx context.Context, teamID in
 }
 
 func (r *ClickHouseRepository) getGroupErrorRates(ctx context.Context, teamID int64, startMs, endMs int64, metricName, caller string, f KafkaFilters) ([]ErrorRatePoint, error) {
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                AS time_bucket,
@@ -509,7 +504,7 @@ func (r *ClickHouseRepository) getGroupErrorRates(ctx context.Context, teamID in
 		    toFloat64(sum(value_sum)) / @bucketSecs      AS error_rate
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name = @metricName
 		  AND error_type != ''
 		  %s
@@ -542,7 +537,7 @@ func (r *ClickHouseRepository) GetConsumerMetricSamples(ctx context.Context, tea
 	if len(metricNames) == 0 {
 		return []ConsumerMetricSample{}, nil
 	}
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	// Inventory filters are lighter than kafkaFilterClauses — no messaging_system
 	// predicate. rollupInventoryFilter mirrors that.
 	query := fmt.Sprintf(`
@@ -554,7 +549,7 @@ func (r *ClickHouseRepository) GetConsumerMetricSamples(ctx context.Context, tea
 		    sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)      AS value
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN @metricNames
 		  AND consumer_group != ''
 		  %s
@@ -571,7 +566,7 @@ func (r *ClickHouseRepository) GetTopicMetricSamples(ctx context.Context, teamID
 	if len(metricNames) == 0 {
 		return []TopicMetricSample{}, nil
 	}
-	table := "observability.signoz_index_v3"
+	table := "observability.spans"
 	query := fmt.Sprintf(`
 		SELECT
 		    %s                                                                          AS time_bucket,
@@ -581,7 +576,7 @@ func (r *ClickHouseRepository) GetTopicMetricSamples(ctx context.Context, teamID
 		    sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0)      AS value
 		FROM %s
 		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
+		  AND ts_bucket BETWEEN @start AND @end
 		  AND metric_name IN @metricNames
 		  AND messaging_destination != ''
 		  %s
