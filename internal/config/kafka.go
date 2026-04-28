@@ -6,33 +6,23 @@ import (
 )
 
 // KafkaConfig configures the Kafka-backed OTLP ingest queue (required).
+// Per-signal topology (partitions/replicas/retention) lives on IngestionConfig;
+// this struct holds only broker connectivity + producer transport tuning.
 type KafkaConfig struct {
 	// BrokerList is a comma-separated list of host:port brokers (env-friendly: OPTIKK_KAFKA_BROKER_LIST).
 	// When non-empty after parsing, it takes precedence over Brokers.
-	BrokerList string `yaml:"broker_list"`
-	// Brokers is the YAML list form of broker addresses.
-	Brokers []string `yaml:"brokers"`
-	// ConsumerGroup is the base Kafka consumer group id (default optikk-ingest); a suffix per signal is appended.
-	ConsumerGroup string `yaml:"consumer_group"`
-	// TopicPrefix is the topic name prefix (default optikk.ingest); full topics are {prefix}.logs|spans|metrics.
-	TopicPrefix string `yaml:"topic_prefix"`
+	BrokerList string   `yaml:"broker_list"`
+	Brokers    []string `yaml:"brokers"`
 
-	// PartitionsPerTopic is the default partition count for ingest topics
-	// (default 32). Per-signal overrides below win when non-zero.
-	PartitionsPerTopic int `yaml:"partitions_per_topic"`
-	LogsPartitions     int `yaml:"logs_partitions"`
-	SpansPartitions    int `yaml:"spans_partitions"`
-	MetricsPartitions  int `yaml:"metrics_partitions"`
-	// ReplicationFactor is the topic replication factor (default 3 in prod,
-	// 1 in single-broker dev). Applied uniformly to all ingest + DLQ topics.
-	ReplicationFactor int `yaml:"replication_factor"`
-	// Compression is the producer batch compression codec
-	// ("zstd" | "lz4" | "snappy" | "gzip" | "none"). Default "zstd".
-	Compression string `yaml:"compression"`
-	// LingerMs is the producer linger in milliseconds (default 20).
-	LingerMs int `yaml:"linger_ms"`
-	// BatchMaxBytes is the producer batch max bytes (default 1 MiB).
-	BatchMaxBytes int `yaml:"batch_max_bytes"`
+	// TopicPrefix is the ingest-topic prefix (default "optikk.ingest").
+	TopicPrefix string `yaml:"topic_prefix"`
+	// DLQPrefix is the DLQ-topic prefix (default "optikk.dlq").
+	DLQPrefix string `yaml:"dlq_prefix"`
+
+	// Producer-side batching knobs (kgo).
+	Compression   string `yaml:"compression"`     // default "zstd"
+	LingerMs      int    `yaml:"linger_ms"`       // default 20
+	BatchMaxBytes int    `yaml:"batch_max_bytes"` // default 1 MiB
 }
 
 func (c Config) validateKafkaIngestion() error {
@@ -60,15 +50,7 @@ func (c Config) KafkaBrokers() []string {
 	return c.Kafka.Brokers
 }
 
-// KafkaConsumerGroup returns the base consumer group id (default optikk-ingest).
-func (c Config) KafkaConsumerGroup() string {
-	if s := strings.TrimSpace(c.Kafka.ConsumerGroup); s != "" {
-		return s
-	}
-	return "optikk-ingest"
-}
-
-// KafkaTopicPrefix returns the ingest topic prefix (default optikk.ingest).
+// KafkaTopicPrefix returns the ingest topic prefix (default "optikk.ingest").
 func (c Config) KafkaTopicPrefix() string {
 	if s := strings.TrimSpace(c.Kafka.TopicPrefix); s != "" {
 		return s
@@ -76,29 +58,12 @@ func (c Config) KafkaTopicPrefix() string {
 	return "optikk.ingest"
 }
 
-// KafkaPartitions returns the partition count for the given signal. Per-signal
-// overrides win over PartitionsPerTopic; both default to 32.
-func (c Config) KafkaPartitions(signal string) int {
-	per := map[string]int{
-		"logs":    c.Kafka.LogsPartitions,
-		"spans":   c.Kafka.SpansPartitions,
-		"metrics": c.Kafka.MetricsPartitions,
+// KafkaDLQPrefix returns the DLQ topic prefix (default "optikk.dlq").
+func (c Config) KafkaDLQPrefix() string {
+	if s := strings.TrimSpace(c.Kafka.DLQPrefix); s != "" {
+		return s
 	}
-	if n := per[signal]; n > 0 {
-		return n
-	}
-	if n := c.Kafka.PartitionsPerTopic; n > 0 {
-		return n
-	}
-	return 32
-}
-
-// KafkaReplicationFactor returns the topic replication factor (default 3).
-func (c Config) KafkaReplicationFactor() int {
-	if n := c.Kafka.ReplicationFactor; n > 0 {
-		return n
-	}
-	return 3
+	return "optikk.dlq"
 }
 
 // KafkaCompression returns the producer batch compression codec (default zstd).

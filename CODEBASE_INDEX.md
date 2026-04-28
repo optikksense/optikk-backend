@@ -21,56 +21,74 @@ Orientation for [optikk-backend](/Users/ramantayal/Desktop/pro/optikk-backend). 
 
 ### Ingestion
 
-`internal/ingestion/` owns OTLP ingest for spans, logs, and metrics. **All three signals share the same generic pipeline** (`Dispatcher[T] → Worker[T] → Accumulator[T] → Writer[T]` in `internal/infra/kafka/ingest/`): the legacy single-goroutine `metrics/consumer.go` was retired in the ingest refactor round.
+`internal/ingestion/` owns OTLP ingest for spans, logs, and metrics. The pipeline is intentionally minimal — **no app-side accumulator, no per-partition workers, no Dispatcher/Worker generics, no pause/resume backpressure, no retry loop**. The mental model is the canonical six-stage flow:
 
-Each signal lives under its own subdirectory with a consistent package hierarchy:
+```
+gRPC  →  otlp_proto  →  project_proto  →  kafka publish  →  kafka consume  →  CH write
+```
+
+Producer-side batching is delegated to franz-go (`ProducerLinger` + `ProducerBatchMaxBytes`); consumer batching is just whatever a single `PollFetches` returns; ClickHouse `async_insert=1, wait_for_async_insert=1` provides server-side coalescing on top.
+
+Each signal is a flat 7-file Go package — no `ingress/`, `mapper/`, `enrich/`, `consumer/`, `dlq/`, `module/` subdirectories. The only subdir is `schema/` which holds the protoc-generated proto + pb.go.
 
 ```
 internal/ingestion/{spans,logs,metrics}/
-  ingress/   handler.go, producer.go         — gRPC handler + Kafka publish
-  mapper/    mapper.go (+ signal-specific files below)
-  consumer/  dispatcher.go, worker.go, writer.go
-  dlq/       dlq.go
-  enrich/    enrich.go, severity.go          — spans + logs only
-  indexer/   assembler.go, emitter.go, state.go  — spans only (trace-assembly)
-  schema/    *_row.pb.go, row.go
-  module/    module.go
+  schema/         span_row.proto + span_row.pb.go (generated wire format)
+  handler.go      gRPC OTLP Export — auth, mapper, producer.Publish
+  mapper.go       OTLP → []*schema.Row (folds the previous mapper_*.go + enrich/*.go)
+  producer.go     ProducerConfig{Topic, Partitions, Replicas, RetentionHours} + Producer
+  consumer.go     ConsumerConfig{Topic, ConsumerGroup} + Consumer (decodes records → writer)
+  writer.go       chTable + chColumns + chValues + Insert (CH async_insert=1, wait=1)
+  dlq.go          DLQ — republishes original record bytes to optikk.dlq.{signal}
+  module.go       registry.Module wiring (RegisterGRPC + Start/Stop the consumer goroutine)
 ```
 
-Signal-specific mapper extras:
-- **spans**: `mapper_attrs.go` (attribute capping via `otlp.TypedAttrs`), `mapper_status.go` (HTTP/error status normalization)
-- **metrics**: `mapper_points.go` (gauge/histogram/sum point projection)
-- **logs**: single `mapper.go`
+**Hot path (gRPC → Kafka)**: handler resolves teamID from ctx → `mapRequest` walks ResourceX → ScopeX → record level → produces `[]*schema.Row` (resource fingerprint via `internal/infra/fingerprint`, attribute caps via `internal/infra/otlp.TypedAttrs` / `CapStringMap`, hot-attribute promotion to dedicated CH columns) → `producer.Publish(ctx, rows)` marshals every row to proto, builds N `*kgo.Record` (key = teamID for sticky per-team partitioning, topic = `optikk.ingest.{signal}`), submits as one async batch, waits for all acks via `kafka.Producer.PublishBatch`. Failure to publish surfaces to the OTLP caller as `codes.Unavailable`.
 
-Key per-package roles:
-- `ingress/handler.go`: gRPC-facing OTLP export handler; instruments `optikk_ingest_{mapper_duration,mapper_rows_per_request,handler_publish_duration}` per request.
-- `ingress/producer.go`: Kafka publish with pooled proto `MarshalAppend` scratch buffer (see `kafka/ingest/pools.go`).
-- `enrich/enrich.go`: attribute normalization, exception-to-error promotion (spans), severity level resolution (logs + spans).
-- `consumer/dispatcher.go`: wraps `ingest.Dispatcher[*Row]`; configures Pause/Resume thresholds from per-signal `IngestPipelineConfig`.
-- `consumer/worker.go`: composes `ingest.Worker[*Row]` with the signal's size function and the per-signal accumulator config.
-- `consumer/writer.go`: `ingest.Writer[*Row]` with CH batch insert; wraps attempt ctx with `clickhouse.WithSettings(async_insert=1, wait_for_async_insert=1)` when `pipeline.{signal}.async_insert` is true. For spans, also feeds written rows into the Trace Assembler.
-- `dlq/dlq.go`: DLQ topic writer with rate-limited warn (10s cooldown) + `optikk_ingest_writer_dlq_publish_failed_total` counter — a dead DLQ broker can't flood stderr at 200k rps.
-- `indexer/assembler.go`: stateful in-memory LRU buffer keyed by `(teamID, traceID)`. Emits a `TraceIndexRow` to `observability.traces_index` when root span observed + 10s quiet window elapses, or 60s hard timeout fires. Partial traces marked `truncated=true`.
-- `module/module.go`: module registration + `Deps` struct carrying the pipeline config.
+**Cold path (Kafka → ClickHouse)**: consumer.Run delegates to `kafka.Consumer.Run(ctx, handle)` which `PollFetches` in a loop and hands every polled batch to `handle`. `handle` decodes each `*kgo.Record` into `*schema.Row` (malformed records are logged once and dropped, not DLQ'd — they can't be replayed usefully), passes the slice to `writer.Insert`. Writer prepares one CH batch, appends N rows, sends under `clickhouse.WithSettings(async_insert=1, wait_for_async_insert=1)`. **On any failure** (`prepare`/`append`/`send`) the consumer fires `dlq.PublishAll(ctx, recs, err)` which republishes the original `kgo.Record.Value` bytes verbatim to `optikk.dlq.{signal}` (with `x-dlq-reason` + `x-dlq-signal` headers), then returns nil so offsets commit and the partition keeps moving — **single failure → DLQ, no retry loop**.
 
-Pipeline tuning (YAML under `ingestion.pipeline.{logs,spans,metrics}`): `max_rows`, `max_bytes`, `max_age_ms`, `worker_queue_size`, `pause_depth_ratio`, `resume_depth_ratio`, `writer_{max_attempts,base_backoff_ms,max_backoff_ms,attempt_timeout_ms}`, `async_insert`. Defaults (`config.DefaultIngestPipelineConfig`): 10k rows / 16 MiB / 250ms, 4096 queue, 80%/40% pause/resume, 5-attempt retry 100ms→5s, 30s attempt timeout, async_insert on.
+**Shared kafka primitives** (`internal/infra/kafka/`, flat — no subpackages):
+- `client.go` — `Config{Brokers, LingerMs, BatchMaxBytes, Compression}`, `NewProducerClient`, `NewConsumerClient`. Producer opts: `ProducerLinger` (default 20ms), `ProducerBatchMaxBytes` (default 1 MiB), `MaxBufferedRecords(1<<18)`, `RequiredAcks(AllISRAcks)`, `StickyKeyPartitioner`, ZSTD compression. Consumer opts: `ConsumerGroup`, `ConsumeTopics`, `DisableAutoCommit`, `CooperativeStickyBalancer`, `FetchMaxWait(2s)`.
+- `producer.go` — `Producer{client *kgo.Client}`. `PublishBatch` (async fan-out + WaitGroup, first-error returned), `PublishSync` (one record, used by DLQ fast paths if needed), `Flush`, `Close`, `Client`.
+- `consumer.go` — `Consumer{client *kgo.Client}`. `Run(ctx, RecordHandler)` is the sole entry point: PollFetches → drain → call handler → on nil error CommitRecords; on error log + leave uncommitted (handler does its own DLQ-and-return-nil for at-least-once semantics).
+- `topics.go` — `TopicSpec{Name, Partitions, Replicas, RetentionHours}` + `EnsureTopics(ctx, brokers, specs)`. Idempotent `kadm.CreateTopics` (TopicAlreadyExists = success). Called once at app boot for every signal + DLQ topic. Helpers: `IngestTopic(prefix, signal)`, `DLQTopic(dlqPrefix, signal)`. Signal-name constants `SignalSpans`/`SignalLogs`/`SignalMetrics`.
+- `observability.go` — kgo `Hooks()` (produce/fetch counter, broker-connect, group-manage-error) + `LagPoller` (15s ticker, `optikk_kafka_consumer_lag_records` via raw `kmsg` MetadataRequest + OffsetFetchRequest + ListOffsetsRequest). One LagPoller per ingest consumer, started by app.Start as run.Group actors.
 
-Shared ingest infra in `internal/infra/kafka/ingest/`:
+**Topology config** (`internal/config/ingestion.go`):
+```go
+type IngestionConfig struct {
+    Spans   SignalConfig
+    Logs    SignalConfig
+    Metrics SignalConfig
+}
+type SignalConfig struct {
+    Partitions     int    // default 8
+    Replicas       int    // default 1 (dev) / 3 (prod)
+    RetentionHours int    // default 24
+    ConsumerGroup  string // default "optikk-ingest.{signal}.consumer"
+}
+```
+`Config.IngestSignal(name)` returns the merged config (zero values inherit `SignalDefaults`). YAML lives under `ingestion.{spans,logs,metrics}.*`. Topic names derive from `kafka.topic_prefix` (default `optikk.ingest`) + signal; DLQ from `kafka.dlq_prefix` (default `optikk.dlq`) + signal.
 
-- `accumulator.go` — size/bytes/time triggers; `FlushReason` enum (size/bytes/time/stop) feeds the Prometheus `reason` label; `BytesAtFlush()` feeds the `worker_flush_bytes` histogram.
-- `worker.go` — one goroutine per (topic, partition); samples `optikk_ingest_worker_queue_depth{signal,partition}` on every tick, emits `worker_flush_{duration,rows,bytes}` on every flush.
-- `writer.go` — retry loop + DLQ; emits `writer_{ch_insert_duration,ch_rows_total,retry_attempts_total,dlq_sent_total}`.
-- `dispatcher.go` — PollFetches loop; Pause/Resume + `optikk_ingest_worker_paused_partitions{signal}` gauge; opens short-lived `kafka.consume <signal>` span per record with `traceparent` header lookup.
-- `metrics.go` — every `promauto`-registered ingest collector lives here (one source of truth).
-- `pools.go` — `sync.Pool` helpers for `map[string]{string,float64,bool}` + `[]byte` marshal scratch buffers.
-- `pipeline_cfg.go` — projections from `config.IngestPipelineConfig` to `AccumulatorConfig`/`WriterConfig`/`DispatcherOptions` + the `WithAsyncInsert` ctx decorator.
+**Producer/Consumer wiring** (`internal/app/server/infra.go::buildIngest`): one shared `*kgo.Client` for production (so all three signals share one TCP pool to brokers), one `*kgo.Client` per consumer group. `kafka.EnsureTopics` runs once at boot for the 6 topics (3 ingest + 3 DLQ). For each signal, the bootstrap constructs Producer/Writer/DLQ/Consumer/Handler explicitly and passes them via `signal.Deps{Handler, Consumer}` into `signal.NewModule`. The module's `Start` launches `consumer.Run` in a goroutine; `Stop` cancels the consumer ctx and joins.
+
+**Approx LOC**: Hand-written Go is ~1,900 LOC (~600 spans + ~440 logs + ~470 metrics + ~400 infra/kafka), down from ~5,200 in the previous Dispatcher/Worker/Accumulator architecture (~64% reduction). Generated `*_row.pb.go` files contribute ~1,200 LOC, untouched.
+
+**Scale envelope** (single backend instance, 3-broker Redpanda + single-node ClickHouse):
+- gRPC OTLP `Export` ingress: ~50K req/s (proto unmarshal + mapper allocation bound)
+- Mapper → Row: ~300K rows/s (proto marshal + map flatten bound)
+- `producer.PublishBatch`: ~500K rec/s (kgo limit; batching hides linger latency under concurrency)
+- Kafka cluster: ~1M rec/s/topic (broker disk + replication bound)
+- Consumer per partition: ~50K rec/s (network + proto decode bound)
+- CH `async_insert=1, wait=1`: ~200K-1M rows/s aggregate (merge tree write + MV propagation bound)
+
+**Realistic E2E ceiling per backend node: ~150–300K rows/s/signal**, dominated by mapper allocation + CH insert latency. Scales horizontally by adding backend replicas (each joins the same consumer group → partitions rebalance via cooperative-sticky). Spans is the tightest signal (~1.5KB/row); metrics the loosest (~300B/row).
 
 Shared OTLP helpers in `internal/infra/otlp/`:
-
 - `protoconv.go` — `AttrsToMap`, `ResourceFingerprint`, `AnyValueString`, `BytesToHex`.
-- `typed_attrs.go` — single-pass `TypedAttrs(kvs, maxStringKeys)` → (str,num,bool,dropped) + `CapStringMap(m, max)` for merged-map signals. Dropped counts fan into `optikk_ingest_mapper_attrs_dropped_total{signal}`.
+- `typed_attrs.go` — single-pass `TypedAttrs(kvs, maxStringKeys)` → (str,num,bool,dropped) + `CapStringMap(m, max)`. Dropped counts fan into `optikk_ingest_mapper_attrs_dropped_total{signal}`.
 
-Current queueing model is Kafka-backed, not Redis-stream-backed. Local development uses Redpanda from [docker-compose.yml](docker-compose.yml).
+Local development uses Redpanda from [docker-compose.yml](docker-compose.yml).
 
 ### Data and platform infrastructure
 

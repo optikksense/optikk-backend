@@ -1,5 +1,5 @@
-// Package clickhouse exposes the embedded DDL filesystem so the migrator
-// in internal/infra/database_chmigrate can apply schema during server boot.
+// Package clickhouse exposes the embedded DDL filesystem so the Migrator
+// in internal/infra/database can apply schema during server boot.
 package clickhouse
 
 import "embed"

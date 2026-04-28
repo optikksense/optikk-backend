@@ -14,32 +14,22 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/auth"
 	"github.com/Optikk-Org/optikk-backend/internal/config"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/database_chmigrate"
-	kclient "github.com/Optikk-Org/optikk-backend/internal/infra/kafka/client"
-	kconsumer "github.com/Optikk-Org/optikk-backend/internal/infra/kafka/consumer"
-	kobserv "github.com/Optikk-Org/optikk-backend/internal/infra/kafka/observability"
-	kproducer "github.com/Optikk-Org/optikk-backend/internal/infra/kafka/producer"
-	ktopics "github.com/Optikk-Org/optikk-backend/internal/infra/kafka/topics"
+	kafkainfra "github.com/Optikk-Org/optikk-backend/internal/infra/kafka"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/redis"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/session"
-	logingress "github.com/Optikk-Org/optikk-backend/internal/ingestion/logs/ingress"
-	logmodule "github.com/Optikk-Org/optikk-backend/internal/ingestion/logs/module"
-	metringress "github.com/Optikk-Org/optikk-backend/internal/ingestion/metrics/ingress"
-	metrmodule "github.com/Optikk-Org/optikk-backend/internal/ingestion/metrics/module"
-	spaningress "github.com/Optikk-Org/optikk-backend/internal/ingestion/spans/ingress"
-	spanmodule "github.com/Optikk-Org/optikk-backend/internal/ingestion/spans/module"
+	logsignal "github.com/Optikk-Org/optikk-backend/internal/ingestion/logs"
+	metricsignal "github.com/Optikk-Org/optikk-backend/internal/ingestion/metrics"
+	spansignal "github.com/Optikk-Org/optikk-backend/internal/ingestion/spans"
 	"github.com/twmb/franz-go/pkg/kgo"
 	redigoredis "github.com/gomodule/redigo/redis"
 	goredis "github.com/redis/go-redis/v9"
 )
 
 // IngestModules bundles the three ingestion modules returned to the registry.
-// Held as a struct (instead of a slice) so modules_manifest.go can spread them
-// in a readable order alongside non-ingest modules.
 type IngestModules struct {
-	Logs    *logmodule.Module
-	Metrics *metrmodule.Module
-	Spans   *spanmodule.Module
+	Logs    *logsignal.Module
+	Metrics *metricsignal.Module
+	Spans   *spansignal.Module
 }
 
 // Infra holds process-wide infrastructure constructed at startup.
@@ -51,13 +41,10 @@ type Infra struct {
 	RedisPool      *redigoredis.Pool
 	Authenticator  *auth.Authenticator
 	Ingest         IngestModules
-	// LagPollers publishes `optikk_kafka_consumer_lag_records` for each
-	// ingest consumer group on a 15 s ticker. Started by app.Start as
-	// run.Group actors so graceful shutdown kills them cleanly.
-	LagPollers []*kobserv.LagPoller
+	LagPollers     []*kafkainfra.LagPoller
 
 	producerClient  *kgo.Client
-	consumerClients []*kgo.Client // closed on shutdown alongside producer
+	consumerClients []*kgo.Client
 }
 
 func newInfra(cfg config.Config) (_ *Infra, err error) {
@@ -72,7 +59,7 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 	)
 	defer func() {
 		if err != nil {
-			_ = dbConn.Close() //nolint:errcheck // cleanup after failed init
+			_ = dbConn.Close() //nolint:errcheck
 		}
 	}()
 
@@ -86,7 +73,7 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 	)
 	defer func() {
 		if err != nil {
-			_ = chConn.Close() //nolint:errcheck // cleanup after failed init
+			_ = chConn.Close() //nolint:errcheck
 		}
 	}()
 
@@ -110,10 +97,7 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 		return nil, err
 	}
 
-	prefix := cfg.KafkaTopicPrefix()
-	kafkaCfg := kclient.Config{Brokers: cfg.KafkaBrokers()}
-
-	ingest, producerClient, consumerClients, lagPollers, err := buildIngestModules(cfg, kafkaCfg, prefix, chConn)
+	ingest, producerClient, consumerClients, lagPollers, err := buildIngest(cfg, chConn)
 	if err != nil {
 		return nil, err
 	}
@@ -146,11 +130,8 @@ func openClickHouse(cfg config.Config) (clickhouse.Conn, error) {
 	return chConn, nil
 }
 
-// runMigrate applies pending DDL from the embedded `db/clickhouse/*.sql`
-// fileset. Always runs at server boot — schema is a hard prerequisite for
-// serving traffic and the migrator is a no-op when there is nothing to apply.
 func runMigrate(conn clickhouse.Conn, database string) error {
-	m := &chmigrate.Migrator{
+	m := &dbutil.Migrator{
 		DB:       conn,
 		FS:       chembed.FS,
 		Database: database,
@@ -166,20 +147,49 @@ func runMigrate(conn clickhouse.Conn, database string) error {
 	return nil
 }
 
-// buildIngestModules constructs the shared producer + per-signal consumers +
-// per-signal modules. The producer is a single kgo.Client shared across all
-// three signals (one TCP pool); each consumer is its own client because they
-// join different consumer groups.
-func buildIngestModules(cfg config.Config, kcfg kclient.Config, prefix string, ch clickhouse.Conn) (IngestModules, *kgo.Client, []*kgo.Client, []*kobserv.LagPoller, error) {
-	producerClient, err := kclient.NewProducerClient(kcfg)
+// buildIngest creates topics, opens one shared producer client + per-signal
+// consumer clients, and constructs the three signal modules. Returns the
+// modules bundle, the producer client (closed at shutdown), the consumer
+// clients (closed at shutdown), and the lag pollers (run by the run.Group).
+func buildIngest(cfg config.Config, ch clickhouse.Conn) (IngestModules, *kgo.Client, []*kgo.Client, []*kafkainfra.LagPoller, error) {
+	brokers := cfg.KafkaBrokers()
+	topicPrefix := cfg.KafkaTopicPrefix()
+	dlqPrefix := cfg.KafkaDLQPrefix()
+
+	spans := cfg.IngestSignal("spans")
+	logs := cfg.IngestSignal("logs")
+	metrics := cfg.IngestSignal("metrics")
+
+	specs := []kafkainfra.TopicSpec{
+		{Name: kafkainfra.IngestTopic(topicPrefix, kafkainfra.SignalSpans), Partitions: int32(spans.Partitions), Replicas: int16(spans.Replicas), RetentionHours: spans.RetentionHours},
+		{Name: kafkainfra.DLQTopic(dlqPrefix, kafkainfra.SignalSpans), Partitions: int32(spans.Partitions), Replicas: int16(spans.Replicas), RetentionHours: spans.RetentionHours},
+		{Name: kafkainfra.IngestTopic(topicPrefix, kafkainfra.SignalLogs), Partitions: int32(logs.Partitions), Replicas: int16(logs.Replicas), RetentionHours: logs.RetentionHours},
+		{Name: kafkainfra.DLQTopic(dlqPrefix, kafkainfra.SignalLogs), Partitions: int32(logs.Partitions), Replicas: int16(logs.Replicas), RetentionHours: logs.RetentionHours},
+		{Name: kafkainfra.IngestTopic(topicPrefix, kafkainfra.SignalMetrics), Partitions: int32(metrics.Partitions), Replicas: int16(metrics.Replicas), RetentionHours: metrics.RetentionHours},
+		{Name: kafkainfra.DLQTopic(dlqPrefix, kafkainfra.SignalMetrics), Partitions: int32(metrics.Partitions), Replicas: int16(metrics.Replicas), RetentionHours: metrics.RetentionHours},
+	}
+	ensureCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := kafkainfra.EnsureTopics(ensureCtx, brokers, specs); err != nil {
+		return IngestModules{}, nil, nil, nil, err
+	}
+
+	kcfg := kafkainfra.Config{
+		Brokers:       brokers,
+		LingerMs:      cfg.KafkaLingerMs(),
+		BatchMaxBytes: cfg.KafkaBatchMaxBytes(),
+		Compression:   cfg.KafkaCompression(),
+	}
+
+	producerClient, err := kafkainfra.NewProducerClient(kcfg)
 	if err != nil {
 		return IngestModules{}, nil, nil, nil, fmt.Errorf("kafka producer client: %w", err)
 	}
-	slog.Info("kafka producer client connected", slog.Any("brokers", kcfg.Brokers))
-	producer := kproducer.NewProducer(producerClient)
+	slog.Info("kafka producer client connected", slog.Any("brokers", brokers))
+	producerBase := kafkainfra.NewProducer(producerClient)
 
 	consumerClients := make([]*kgo.Client, 0, 3)
-	lagPollers := make([]*kobserv.LagPoller, 0, 3)
+	lagPollers := make([]*kafkainfra.LagPoller, 0, 3)
 	closeOnErr := func() {
 		for _, c := range consumerClients {
 			c.Close()
@@ -187,93 +197,90 @@ func buildIngestModules(cfg config.Config, kcfg kclient.Config, prefix string, c
 		producerClient.Close()
 	}
 
-	logsPersist, err := newConsumer(kcfg, cfg.KafkaConsumerGroup(), prefix, ktopics.SignalLogs, "persistence")
+	// spans signal
+	spansTopic := kafkainfra.IngestTopic(topicPrefix, kafkainfra.SignalSpans)
+	spansClient, err := kafkainfra.NewConsumerClient(kcfg, spans.ConsumerGroup, spansTopic)
 	if err != nil {
 		closeOnErr()
-		return IngestModules{}, nil, nil, nil, err
+		return IngestModules{}, nil, nil, nil, fmt.Errorf("kafka spans consumer: %w", err)
 	}
-	consumerClients = append(consumerClients, logsPersist)
-	lagPollers = append(lagPollers, kobserv.NewLagPoller(
-		logsPersist,
-		ktopics.GroupID(cfg.KafkaConsumerGroup(), ktopics.SignalLogs, "persistence"),
-		ktopics.IngestTopic(prefix, ktopics.SignalLogs),
-	))
+	consumerClients = append(consumerClients, spansClient)
+	lagPollers = append(lagPollers, kafkainfra.NewLagPoller(spansClient, spans.ConsumerGroup, spansTopic))
 
-	metricsPersist, err := newConsumer(kcfg, cfg.KafkaConsumerGroup(), prefix, ktopics.SignalMetrics, "persistence")
+	spansProducer := spansignal.NewProducer(spansignal.ProducerConfig{
+		Topic:          spansTopic,
+		Partitions:     int32(spans.Partitions),
+		Replicas:       int16(spans.Replicas),
+		RetentionHours: spans.RetentionHours,
+	}, producerBase)
+	spansWriter := spansignal.NewWriter(ch)
+	spansDLQ := spansignal.NewDLQ(producerBase, kafkainfra.DLQTopic(dlqPrefix, kafkainfra.SignalSpans))
+	spansConsumer := spansignal.NewConsumer(spansignal.ConsumerConfig{
+		Topic:         spansTopic,
+		ConsumerGroup: spans.ConsumerGroup,
+	}, kafkainfra.NewConsumer(spansClient), spansWriter, spansDLQ)
+	spansMod := spansignal.NewModule(spansignal.Deps{
+		Handler:  spansignal.NewHandler(spansProducer),
+		Consumer: spansConsumer,
+	}).(*spansignal.Module)
+
+	// logs signal
+	logsTopic := kafkainfra.IngestTopic(topicPrefix, kafkainfra.SignalLogs)
+	logsClient, err := kafkainfra.NewConsumerClient(kcfg, logs.ConsumerGroup, logsTopic)
 	if err != nil {
 		closeOnErr()
-		return IngestModules{}, nil, nil, nil, err
+		return IngestModules{}, nil, nil, nil, fmt.Errorf("kafka logs consumer: %w", err)
 	}
-	consumerClients = append(consumerClients, metricsPersist)
-	lagPollers = append(lagPollers, kobserv.NewLagPoller(
-		metricsPersist,
-		ktopics.GroupID(cfg.KafkaConsumerGroup(), ktopics.SignalMetrics, "persistence"),
-		ktopics.IngestTopic(prefix, ktopics.SignalMetrics),
-	))
+	consumerClients = append(consumerClients, logsClient)
+	lagPollers = append(lagPollers, kafkainfra.NewLagPoller(logsClient, logs.ConsumerGroup, logsTopic))
 
-	spansPersist, err := newConsumer(kcfg, cfg.KafkaConsumerGroup(), prefix, ktopics.SignalSpans, "persistence")
+	logsProducer := logsignal.NewProducer(logsignal.ProducerConfig{
+		Topic:          logsTopic,
+		Partitions:     int32(logs.Partitions),
+		Replicas:       int16(logs.Replicas),
+		RetentionHours: logs.RetentionHours,
+	}, producerBase)
+	logsWriter := logsignal.NewWriter(ch)
+	logsDLQ := logsignal.NewDLQ(producerBase, kafkainfra.DLQTopic(dlqPrefix, kafkainfra.SignalLogs))
+	logsConsumer := logsignal.NewConsumer(logsignal.ConsumerConfig{
+		Topic:         logsTopic,
+		ConsumerGroup: logs.ConsumerGroup,
+	}, kafkainfra.NewConsumer(logsClient), logsWriter, logsDLQ)
+	logsMod := logsignal.NewModule(logsignal.Deps{
+		Handler:  logsignal.NewHandler(logsProducer),
+		Consumer: logsConsumer,
+	}).(*logsignal.Module)
+
+	// metrics signal
+	metricsTopic := kafkainfra.IngestTopic(topicPrefix, kafkainfra.SignalMetrics)
+	metricsClient, err := kafkainfra.NewConsumerClient(kcfg, metrics.ConsumerGroup, metricsTopic)
 	if err != nil {
 		closeOnErr()
-		return IngestModules{}, nil, nil, nil, err
+		return IngestModules{}, nil, nil, nil, fmt.Errorf("kafka metrics consumer: %w", err)
 	}
-	consumerClients = append(consumerClients, spansPersist)
-	lagPollers = append(lagPollers, kobserv.NewLagPoller(
-		spansPersist,
-		ktopics.GroupID(cfg.KafkaConsumerGroup(), ktopics.SignalSpans, "persistence"),
-		ktopics.IngestTopic(prefix, ktopics.SignalSpans),
-	))
+	consumerClients = append(consumerClients, metricsClient)
+	lagPollers = append(lagPollers, kafkainfra.NewLagPoller(metricsClient, metrics.ConsumerGroup, metricsTopic))
 
-	logsMod := logmodule.NewModule(logmodule.Deps{
-		Producer:          logingress.NewProducer(producer, prefix),
-		CH:                ch,
-		PersistenceClient: kconsumer.NewConsumer(logsPersist),
-		KafkaBase:         producer,
-		TopicPrefix:       prefix,
-		Pipeline:          cfg.IngestPipeline("logs"),
-	}).(*logmodule.Module)
-
-	metricsMod := metrmodule.NewModule(metrmodule.Deps{
-		Producer:          metringress.NewProducer(producer, prefix),
-		CH:                ch,
-		PersistenceClient: kconsumer.NewConsumer(metricsPersist),
-		KafkaBase:         producer,
-		TopicPrefix:       prefix,
-		Pipeline:          cfg.IngestPipeline("metrics"),
-	}).(*metrmodule.Module)
-
-	spansMod := spanmodule.NewModule(spanmodule.Deps{
-		Producer:          spaningress.NewProducer(producer, prefix),
-		CH:                ch,
-		PersistenceClient: kconsumer.NewConsumer(spansPersist),
-		KafkaBase:         producer,
-		TopicPrefix:       prefix,
-		Pipeline:          cfg.IngestPipeline("spans"),
-	}).(*spanmodule.Module)
+	metricsProducer := metricsignal.NewProducer(metricsignal.ProducerConfig{
+		Topic:          metricsTopic,
+		Partitions:     int32(metrics.Partitions),
+		Replicas:       int16(metrics.Replicas),
+		RetentionHours: metrics.RetentionHours,
+	}, producerBase)
+	metricsWriter := metricsignal.NewWriter(ch)
+	metricsDLQ := metricsignal.NewDLQ(producerBase, kafkainfra.DLQTopic(dlqPrefix, kafkainfra.SignalMetrics))
+	metricsConsumer := metricsignal.NewConsumer(metricsignal.ConsumerConfig{
+		Topic:         metricsTopic,
+		ConsumerGroup: metrics.ConsumerGroup,
+	}, kafkainfra.NewConsumer(metricsClient), metricsWriter, metricsDLQ)
+	metricsMod := metricsignal.NewModule(metricsignal.Deps{
+		Handler:  metricsignal.NewHandler(metricsProducer),
+		Consumer: metricsConsumer,
+	}).(*metricsignal.Module)
 
 	return IngestModules{Logs: logsMod, Metrics: metricsMod, Spans: spansMod}, producerClient, consumerClients, lagPollers, nil
 }
 
-// newConsumer builds a Kafka consumer client for one signal + role pair.
-// The role (e.g. "persistence") appears in the group id.
-func newConsumer(kcfg kclient.Config, groupBase, prefix, signal, role string) (*kgo.Client, error) {
-	topic := ktopics.IngestTopic(prefix, signal)
-	groupID := ktopics.GroupID(groupBase, signal, role)
-	client, err := kclient.NewConsumerClient(kcfg, groupID, topic)
-	if err != nil {
-		return nil, fmt.Errorf("kafka consumer %s/%s: %w", signal, role, err)
-	}
-	slog.Info("kafka consumer client connected",
-		slog.String("signal", signal),
-		slog.String("group", groupID),
-		slog.String("topic", topic),
-	)
-	return client, nil
-}
-
-// Close releases every resource the Infra owns. Best-effort; errors are logged
-// by callers but not returned — shutdown must proceed. Ordering mirrors the
-// reverse of newInfra so consumers stop reading before the CH/producer sinks
-// they feed go away.
 func (i *Infra) Close() error {
 	if i == nil {
 		return nil
