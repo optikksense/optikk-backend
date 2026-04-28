@@ -24,10 +24,11 @@ CREATE TABLE IF NOT EXISTS observability.metrics (
     attributes           JSON(max_dynamic_paths=100) CODEC(ZSTD(1)),
     INDEX idx_fingerprint fingerprint TYPE bloom_filter GRANULARITY 4
 ) ENGINE = MergeTree()
-PARTITION BY toYYYYMMDD(timestamp)
+PARTITION BY (toYYYYMMDD(timestamp), toHour(timestamp))
 ORDER BY (team_id, ts_bucket_hour, fingerprint, metric_name, temporality, timestamp)
 TTL timestamp + INTERVAL 90 DAY DELETE
 SETTINGS
     index_granularity = 8192,
     enable_mixed_granularity_parts = 1,
+    max_partitions_per_insert_block = 200,
     non_replicated_deduplication_window = 100000;

@@ -49,13 +49,13 @@ func DispatcherOptsFromPipeline(pc config.IngestPipelineConfig) DispatcherOption
 // use consistent settings. The `wait_for_async_insert=1` knob preserves
 // at-least-once: INSERT still blocks until CH acks the buffer flush, so the
 // retry path remains correct.
-func WithAsyncInsert(pc config.IngestPipelineConfig) func(context.Context) context.Context {
-	if pc.AsyncInsert == nil || !*pc.AsyncInsert {
-		return func(ctx context.Context) context.Context { return ctx }
-	}
+func WithIngestSettings(pc config.IngestPipelineConfig) func(context.Context) context.Context {
 	settings := clickhouse.Settings{
-		"async_insert":          uint8(1),
-		"wait_for_async_insert": uint8(1),
+		"max_partitions_per_insert_block": uint64(pc.MaxPartitionsPerInsertBlock),
+	}
+	if pc.AsyncInsert != nil && *pc.AsyncInsert {
+		settings["async_insert"] = uint8(1)
+		settings["wait_for_async_insert"] = uint8(1)
 	}
 	return func(ctx context.Context) context.Context {
 		return clickhouse.Context(ctx, clickhouse.WithSettings(settings))

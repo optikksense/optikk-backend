@@ -20,7 +20,7 @@ import (
 // budget + timeout are YAML-tunable without a code change.
 func NewWriter(ch clickhouse.Conn, dlqP *dlq.Producer, pc config.IngestPipelineConfig) *ingest.Writer[*schema.Row] {
 	query := "INSERT INTO " + schema.CHTable + " (" + strings.Join(schema.Columns, ", ") + ")"
-	chCtx := ingest.WithAsyncInsert(pc)
+	chCtx := ingest.WithIngestSettings(pc)
 	send := func(ctx context.Context, items []*schema.Row) error {
 		return insertBatch(chCtx(ctx), ch, query, items)
 	}

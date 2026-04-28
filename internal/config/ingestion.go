@@ -42,7 +42,8 @@ type IngestPipelineConfig struct {
 	// AsyncInsert toggles CH server-side batching via SETTINGS async_insert=1.
 	// Stored as a pointer so an explicit `false` in YAML can disable the
 	// default-on behavior. Nil → default (true).
-	AsyncInsert *bool `yaml:"async_insert"`
+	AsyncInsert             *bool `yaml:"async_insert"`
+	MaxPartitionsPerInsertBlock int   `yaml:"max_partitions_per_insert_block"`
 }
 
 // IndexerConfig tunes the spans trace-assembly indexer. Defaults match
@@ -96,6 +97,7 @@ func DefaultIngestPipelineConfig() IngestPipelineConfig {
 		WriterMaxBackoffMs:     5_000,
 		WriterAttemptTimeoutMs: 30_000,
 		AsyncInsert:            &t,
+		MaxPartitionsPerInsertBlock: 200,
 	}
 }
 
@@ -150,6 +152,9 @@ func mergeIngestPipeline(src, def IngestPipelineConfig) IngestPipelineConfig {
 	}
 	if src.AsyncInsert == nil {
 		src.AsyncInsert = def.AsyncInsert
+	}
+	if src.MaxPartitionsPerInsertBlock <= 0 {
+		src.MaxPartitionsPerInsertBlock = def.MaxPartitionsPerInsertBlock
 	}
 	return src
 }

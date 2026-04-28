@@ -38,5 +38,6 @@ ORDER BY (team_id, ts_bucket, fingerprint, severity_bucket, timestamp, trace_id,
 TTL timestamp + INTERVAL 90 DAY DELETE
 SETTINGS
     index_granularity = 8192,
+    max_partitions_per_insert_block = 200,
     non_replicated_deduplication_window = 100000,
     ttl_only_drop_parts = 1;

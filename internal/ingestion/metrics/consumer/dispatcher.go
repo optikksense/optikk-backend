@@ -2,6 +2,7 @@ package consumer
 
 import (
 	"context"
+	"encoding/base64"
 	"log/slog"
 	"sync"
 
@@ -75,7 +76,9 @@ func (d *Dispatcher) Stop() error {
 func decodeRecord(r *kgo.Record) (*schema.Row, error) {
 	row := &schema.Row{}
 	if err := proto.Unmarshal(r.Value, row); err != nil {
-		slog.Warn("metrics dispatcher: unmarshal dropped one record", slog.Any("error", err))
+		slog.Warn("metrics dispatcher: unmarshal dropped one record",
+			slog.Any("error", err),
+			slog.String("raw_base64", base64.StdEncoding.EncodeToString(r.Value)))
 		return nil, err
 	}
 	return row, nil

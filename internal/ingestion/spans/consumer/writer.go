@@ -16,7 +16,7 @@ import (
 // ingest.Writer with a CH-specific BatchSender + DLQ sink.
 func NewWriter(ch clickhouse.Conn, dlqP *dlq.Producer, pc config.IngestPipelineConfig) *ingest.Writer[*schema.Row] {
 	query := "INSERT INTO " + schema.CHTable + " (" + strings.Join(schema.Columns, ", ") + ")"
-	chCtx := ingest.WithAsyncInsert(pc)
+	chCtx := ingest.WithIngestSettings(pc)
 	send := func(ctx context.Context, items []*schema.Row) error {
 		if err := insertBatch(chCtx(ctx), ch, query, items); err != nil {
 			return err
