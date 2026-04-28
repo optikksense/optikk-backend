@@ -67,6 +67,32 @@ func AvgByTime[R any](rows []R, ts func(R) time.Time, val func(R) float64, start
 	return out
 }
 
+// SumByTimeAndKey sums val(row) within each (display bucket, key(row)) pair — used for counters/rates split by a dimension.
+func SumByTimeAndKey[R any](rows []R, ts func(R) time.Time, key func(R) string, val func(R) float64, startMs, endMs int64) []StateBucket {
+	windowMs := endMs - startMs
+	type k struct {
+		ts    time.Time
+		state string
+	}
+	sums := map[k]float64{}
+	for _, r := range rows {
+		kk := k{ts: timebucket.DisplayBucket(ts(r).Unix(), windowMs), state: key(r)}
+		sums[kk] += val(r)
+	}
+	out := make([]StateBucket, 0, len(sums))
+	for kk, sum := range sums {
+		v := sum
+		out = append(out, StateBucket{Timestamp: format(kk.ts), State: kk.state, Value: &v})
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Timestamp != out[j].Timestamp {
+			return out[i].Timestamp < out[j].Timestamp
+		}
+		return out[i].State < out[j].State
+	})
+	return out
+}
+
 // AvgByTimeAndKey averages val(row) within each (display bucket, key(row)) pair — used for state/dim breakdowns.
 func AvgByTimeAndKey[R any](rows []R, ts func(R) time.Time, key func(R) string, val func(R) float64, startMs, endMs int64) []StateBucket {
 	windowMs := endMs - startMs

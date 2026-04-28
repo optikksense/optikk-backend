@@ -19,13 +19,12 @@ import (
 	log_trends "github.com/Optikk-Org/optikk-backend/internal/modules/logs/log_trends"
 	log_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/logs/explorer"
 	log_detail "github.com/Optikk-Org/optikk-backend/internal/modules/logs/logdetail"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/metrics"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/overview/apm"
-	overview_errors "github.com/Optikk-Org/optikk-backend/internal/modules/overview/errors"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/overview/httpmetrics"
-	overview_overview "github.com/Optikk-Org/optikk-backend/internal/modules/overview/overview"
-	overview_redmetrics "github.com/Optikk-Org/optikk-backend/internal/modules/overview/redmetrics"
-	overview_slo "github.com/Optikk-Org/optikk-backend/internal/modules/overview/slo"
+	metrics_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/metrics/explorer"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/services/apm"
+	services_errors "github.com/Optikk-Org/optikk-backend/internal/modules/services/errors"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/services/httpmetrics"
+	services_redmetrics "github.com/Optikk-Org/optikk-backend/internal/modules/services/redmetrics"
+	services_slo "github.com/Optikk-Org/optikk-backend/internal/modules/services/slo"
 	saturation_database_collection "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/collection"
 	saturation_database_connections "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/connections"
 	saturation_database_errors "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/errors"
@@ -41,7 +40,7 @@ import (
 	services_topology "github.com/Optikk-Org/optikk-backend/internal/modules/services/topology"
 	traces_errors "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errors"
 	spans_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
-	traces_latency "github.com/Optikk-Org/optikk-backend/internal/modules/traces/latency"
+	services_latency "github.com/Optikk-Org/optikk-backend/internal/modules/services/latency"
 	span_query "github.com/Optikk-Org/optikk-backend/internal/modules/traces/span_query"
 	trace_paths "github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_paths"
 	trace_servicemap "github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_servicemap"
@@ -78,14 +77,13 @@ func configuredModules(
 		log_detail.NewModule(nativeQuerier, getTenant),
 		log_facets.NewModule(nativeQuerier, getTenant),
 		log_trends.NewModule(nativeQuerier, getTenant),
-		metrics.NewModule(nativeQuerier, getTenant),
+		metrics_explorer.NewModule(nativeQuerier, getTenant),
 		infraDeps.Ingest.Logs,
 		infraDeps.Ingest.Metrics,
 		infraDeps.Ingest.Spans,
-		overview_errors.NewModule(nativeQuerier, getTenant),
-		overview_overview.NewModule(nativeQuerier, getTenant),
-		overview_redmetrics.NewModule(nativeQuerier, getTenant),
-		overview_slo.NewModule(nativeQuerier, getTenant),
+		services_errors.NewModule(nativeQuerier, getTenant),
+		services_redmetrics.NewModule(nativeQuerier, getTenant),
+		services_slo.NewModule(nativeQuerier, getTenant),
 		saturation_explorer.NewModule(nativeQuerier, getTenant),
 		saturation_database_collection.NewModule(nativeQuerier, getTenant),
 		saturation_database_connections.NewModule(nativeQuerier, getTenant),
@@ -106,7 +104,7 @@ func configuredModules(
 		trace_shape.NewModule(nativeQuerier, getTenant),
 		trace_suggest.NewModule(nativeQuerier, getTenant),
 		traces_errors.NewModule(nativeQuerier, getTenant),
-		traces_latency.NewModule(nativeQuerier, getTenant),
+		services_latency.NewModule(nativeQuerier, getTenant),
 		user_auth.NewModule(infraDeps.DB, getTenant, infraDeps.SessionManager, appConfig),
 		user_team.NewModule(infraDeps.DB, getTenant, appConfig),
 		user_user.NewModule(infraDeps.DB, getTenant, appConfig),

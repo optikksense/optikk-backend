@@ -1,8 +1,10 @@
 package errors
 
+// ErrorGroupsRequest is the wire payload for GET /api/v1/errors/groups and
+// the per-service variant. The handler maps these into filter.Filters.
 type ErrorGroupsRequest struct {
 	StartMs     int64    `form:"startTime" binding:"required"`
-	EndMs       int64    `form:"endTime" binding:"required"`
+	EndMs       int64    `form:"endTime"   binding:"required"`
 	Services    []string `form:"services"`
 	Limit       int      `form:"limit"`
 	ServiceName string   `form:"-"`
@@ -21,7 +23,7 @@ type ErrorGroup struct {
 
 type TimeseriesRequest struct {
 	StartMs     int64  `form:"startTime" binding:"required"`
-	EndMs       int64  `form:"endTime" binding:"required"`
+	EndMs       int64  `form:"endTime"   binding:"required"`
 	ServiceName string `form:"-"`
 }
 

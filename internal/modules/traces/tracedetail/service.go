@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -25,11 +26,12 @@ func NewService(repo Repository) Service {
 }
 
 func (s *TraceDetailService) GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]SpanEvent, error) {
-	eventRows, exceptionRows, err := s.repo.GetSpanEvents(ctx, teamID, traceID)
+	combined, err := s.repo.GetSpanEvents(ctx, teamID, traceID)
 	if err != nil {
 		slog.ErrorContext(ctx, "tracedetail: GetSpanEvents failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
 		return nil, err
 	}
+	eventRows, exceptionRows := splitEventRows(combined)
 
 	events := make([]SpanEvent, 0, len(eventRows))
 	seenException := make(map[string]bool, len(eventRows))
@@ -162,6 +164,54 @@ func (s *TraceDetailService) GetTraceLogs(ctx context.Context, teamID int64, tra
 		Logs:		logs,
 		IsSpeculative:	false,
 	}, nil
+}
+
+// splitEventRows folds the combined per-span result into separate event-row
+// and exception-row lists. Each span contributes one event-row per element
+// in its events array; spans with a non-empty exception_type contribute one
+// exception-row each. Exceptions are reversed for display order (latest
+// first). Moved here from the repository — pure transformation, no DB.
+func splitEventRows(rows []spanEventCombinedRow) ([]spanEventRow, []exceptionRow) {
+	var events []spanEventRow
+	var exceptions []exceptionRow
+	for _, r := range rows {
+		for _, ev := range r.Events {
+			events = append(events, spanEventRow{
+				SpanID: r.SpanID, TraceID: r.TraceID, Timestamp: r.Timestamp, EventJSON: ev,
+			})
+		}
+		if r.ExceptionType != "" {
+			exceptions = append(exceptions, exceptionRow{
+				SpanID: r.SpanID, TraceID: r.TraceID, Timestamp: r.Timestamp,
+				ExceptionType: r.ExceptionType, ExceptionMessage: r.ExceptionMessage,
+				ExceptionStacktrace: r.ExceptionStacktrace,
+			})
+		}
+	}
+	for i, j := 0, len(exceptions)-1; i < j; i, j = i+1, j-1 {
+		exceptions[i], exceptions[j] = exceptions[j], exceptions[i]
+	}
+	return events, exceptions
+}
+
+// db-statement normalization moved here from the repository — pure
+// text transformation that belongs in service.
+var (
+	reNumberLiteral = regexp.MustCompile(`\b\d+(\.\d+)?\b`)
+	reStringLiteral = regexp.MustCompile(`'[^']*'`)
+	reMultiSpace    = regexp.MustCompile(`\s+`)
+)
+
+// normalizeDBStatement collapses literals to `?` placeholders so similar
+// db.statement values group together in the UI.
+func normalizeDBStatement(stmt string) string {
+	if stmt == "" {
+		return ""
+	}
+	s := reStringLiteral.ReplaceAllString(stmt, "?")
+	s = reNumberLiteral.ReplaceAllString(s, "?")
+	s = reMultiSpace.ReplaceAllString(s, " ")
+	return strings.TrimSpace(s)
 }
 
 // parseEventJSON extracts the event name and attributes JSON from an event

@@ -1,3 +1,6 @@
+// Package shared holds HTTP-side helpers reused across all 9 db saturation
+// submodules' handlers. SQL emission lives in the sibling
+// `internal/modules/saturation/database/filter/` package.
 package shared
 
 import (
@@ -5,12 +8,16 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
 
-func ParseFilters(c *gin.Context) Filters {
-	return Filters{
+// ParseFilters extracts the standard ?db_system / ?collection / ?namespace
+// /?server query-string filters into the typed shape consumed by every
+// repo.
+func ParseFilters(c *gin.Context) filter.Filters {
+	return filter.Filters{
 		DBSystem:   c.QueryArray("db_system"),
 		Collection: c.QueryArray("collection"),
 		Namespace:  c.QueryArray("namespace"),

@@ -3,6 +3,7 @@ package topology
 import (
 	"context"
 
+	"github.com/Optikk-Org/optikk-backend/internal/shared/quantile"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -12,9 +13,19 @@ const (
 	degradedErrorRate  = 0.01
 )
 
+// latencyBucketBoundsMs are the upper bounds (in milliseconds) of the
+// fixed-bucket histogram emitted by the topology repo. Stays in lockstep
+// with the [countIf(...), …] array in repository.go — adding a bucket here
+// requires adding the matching countIf clause there. The final +Inf bucket
+// is represented by 1e18 so quantile.FromHistogram's linear interpolation
+// stays bounded for outlier-heavy data.
+var latencyBucketBoundsMs = []float64{
+	5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 1e18,
+}
+
 // Service orchestrates topology construction.
 type Service interface {
-	GetTopology(ctx context.Context, teamID int64, startMs, endMs int64, focusService string) (TopologyResponse, error)
+	GetTopology(ctx context.Context, teamID, startMs, endMs int64, focusService string) (TopologyResponse, error)
 }
 
 type topologyService struct {
@@ -25,7 +36,7 @@ func NewService(repo Repository) Service {
 	return &topologyService{repo: repo}
 }
 
-func (s *topologyService) GetTopology(ctx context.Context, teamID int64, startMs, endMs int64, focusService string) (TopologyResponse, error) {
+func (s *topologyService) GetTopology(ctx context.Context, teamID, startMs, endMs int64, focusService string) (TopologyResponse, error) {
 	var (
 		nodeRows []nodeAggRow
 		edgeRows []edgeAggRow
@@ -78,9 +89,9 @@ func buildNodes(rows []nodeAggRow) []ServiceNode {
 			RequestCount: r.RequestCount,
 			ErrorCount:   r.ErrorCount,
 			ErrorRate:    errRate,
-			P50LatencyMs: r.P50Ms,
-			P95LatencyMs: r.P95Ms,
-			P99LatencyMs: r.P99Ms,
+			P50LatencyMs: quantile.FromHistogram(latencyBucketBoundsMs, r.Buckets, 0.50),
+			P95LatencyMs: quantile.FromHistogram(latencyBucketBoundsMs, r.Buckets, 0.95),
+			P99LatencyMs: quantile.FromHistogram(latencyBucketBoundsMs, r.Buckets, 0.99),
 			Health:       classifyHealth(errRate),
 		})
 	}
@@ -100,8 +111,8 @@ func buildEdges(rows []edgeAggRow) []ServiceEdge {
 			CallCount:    r.CallCount,
 			ErrorCount:   r.ErrorCount,
 			ErrorRate:    errRate,
-			P50LatencyMs: r.P50Ms,
-			P95LatencyMs: r.P95Ms,
+			P50LatencyMs: quantile.FromHistogram(latencyBucketBoundsMs, r.Buckets, 0.50),
+			P95LatencyMs: quantile.FromHistogram(latencyBucketBoundsMs, r.Buckets, 0.95),
 		})
 	}
 	return out

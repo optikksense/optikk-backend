@@ -2,14 +2,15 @@ package resourceutil //nolint:misspell
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-		"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/connpool"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/connpool"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/cpu"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/disk"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/memory"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/network"
 )
@@ -30,29 +31,31 @@ type Repository interface {
 
 type compositeRepository struct {
 	chDB clickhouse.Conn
-	cpu  cpu.Repository
-	mem  memory.Repository
-	dsk  disk.Repository
-	net  network.Repository
-	conn connpool.Repository
+	cpu  *cpu.Service
+	mem  *memory.Service
+	dsk  *disk.Service
+	net  *network.Service
+	conn *connpool.Service
 }
 
-// NewRepository creates a composite repository that delegates to domain submodules.
+// NewRepository creates a composite repository that delegates to domain
+// submodule services (the high-level methods now live on Service after the
+// kafka-style refactor — repos hold queries only).
 func NewRepository(
 	chDB clickhouse.Conn,
-	cpuRepo cpu.Repository,
-	memRepo memory.Repository,
-	dskRepo disk.Repository,
-	netRepo network.Repository,
-	connRepo connpool.Repository,
+	cpuSvc *cpu.Service,
+	memSvc *memory.Service,
+	dskSvc *disk.Service,
+	netSvc *network.Service,
+	connSvc *connpool.Service,
 ) Repository {
 	return &compositeRepository{
 		chDB: chDB,
-		cpu:  cpuRepo,
-		mem:  memRepo,
-		dsk:  dskRepo,
-		net:  netRepo,
-		conn: connRepo,
+		cpu:  cpuSvc,
+		mem:  memSvc,
+		dsk:  dskSvc,
+		net:  netSvc,
+		conn: connSvc,
 	}
 }
 
@@ -105,51 +108,70 @@ func (r *compositeRepository) GetMemoryUsagePercentage(ctx context.Context, team
 // ---- Composite cross-resource endpoints ----
 
 func (r *compositeRepository) GetResourceUsageByService(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceResource, error) {
-	table := "observability.spans"
-	query := fmt.Sprintf(`
-		SELECT service                                                        AS service,
-		       metric_name                                                    AS metric_name,
-		       sum(value_avg_num) / nullIf(toFloat64(sum(sample_count)), 0) AS avg_value
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end
-		GROUP BY service, metric_name`, table)
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN @metricNames
+		)
+		SELECT
+		    service     AS service,
+		    metric_name AS metric_name,
+		    avg(value)  AS avg_value
+		FROM observability.metrics
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name IN @metricNames
+		  AND timestamp BETWEEN @start AND @end
+		  AND service != ''
+		GROUP BY service, metric_name`
 
-	type row struct {
-		ServiceName string   `ch:"service"`
-		MetricName  string   `ch:"metric_name"`
-		AvgValue    *float64 `ch:"avg_value"`
-	}
-	var rows []row
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.chDB, "resourceutil.GetResourceUsageByService", &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)),
+	bucketStart, bucketEnd := timebucket.MetricsHourBucket(startMs/1000), timebucket.MetricsHourBucket(endMs/1000).Add(time.Hour)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
+		clickhouse.Named("bucketStart", bucketStart),
+		clickhouse.Named("bucketEnd", bucketEnd),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
-	); err != nil {
+		clickhouse.Named("metricNames", infraconsts.AllResourceMetrics),
+	}
+
+	type row struct {
+		ServiceName string  `ch:"service"`
+		MetricName  string  `ch:"metric_name"`
+		AvgValue    float64 `ch:"avg_value"`
+	}
+	var rows []row
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.chDB, "resourceutil.GetResourceUsageByService", &rows, query, args...); err != nil {
 		return nil, err
 	}
 
-	// Fold rows by service — same response shape as before.
+	// Fold rows by service. Service holds the cross-resource composition; the
+	// repo just returns raw rows.
 	serviceMap := make(map[string]*ServiceResource, len(rows))
 	order := make([]string, 0, 16)
-	for _, r := range rows {
-		sr, ok := serviceMap[r.ServiceName]
+	for _, mr := range rows {
+		sr, ok := serviceMap[mr.ServiceName]
 		if !ok {
-			sr = &ServiceResource{ServiceName: r.ServiceName}
-			serviceMap[r.ServiceName] = sr
-			order = append(order, r.ServiceName)
+			sr = &ServiceResource{ServiceName: mr.ServiceName}
+			serviceMap[mr.ServiceName] = sr
+			order = append(order, mr.ServiceName)
 		}
-		switch r.MetricName {
-		case "system.cpu.utilization":
-			sr.AvgCpuUtil = r.AvgValue
-		case "system.memory.utilization":
-			sr.AvgMemoryUtil = r.AvgValue
-		case "system.disk.utilization":
-			sr.AvgDiskUtil = r.AvgValue
-		case "system.network.io":
-			sr.AvgNetworkUtil = r.AvgValue
-		case "db.client.connections.usage":
-			sr.AvgConnectionPoolUtil = r.AvgValue
+		v := mr.AvgValue
+		switch mr.MetricName {
+		case infraconsts.MetricSystemCPUUtilization:
+			sr.AvgCpuUtil = &v
+		case infraconsts.MetricSystemMemoryUtilization:
+			sr.AvgMemoryUtil = &v
+		case infraconsts.MetricSystemDiskUtilization:
+			sr.AvgDiskUtil = &v
+		case infraconsts.MetricSystemNetworkUtilization:
+			sr.AvgNetworkUtil = &v
+		case infraconsts.MetricDBConnectionPoolUtilization:
+			sr.AvgConnectionPoolUtil = &v
 		}
 	}
 

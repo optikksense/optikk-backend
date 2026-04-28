@@ -1,18 +1,14 @@
 package kafka
 
-import "fmt"
-
 // OpenTelemetry semantic conventions for Kafka-related messaging telemetry.
 // Canonical names come first; compatibility aliases preserve historical data.
-const (
-	AttrMessagingSystem                    = "messaging.system"
-	AttrMessagingDestinationName           = "messaging.destination.name"
-	AttrMessagingConsumerGroupName         = "messaging.consumer.group.name"
-	AttrMessagingKafkaDestinationPartition = "messaging.kafka.destination.partition"
-	AttrMessagingOperationName             = "messaging.operation.name"
-	AttrErrorType                          = "error.type"
-	AttrServerAddress                      = "server.address"
+//
+// Attribute alias chains for `topic`, `consumer_group`, `operation_name`,
+// `partition`, `messaging.system`, `node-id` are inlined directly in the SQL
+// queries (see repository.go) — the SQL is the source of truth for which
+// attribute names each kafka concept can come from.
 
+const (
 	MetricPublishMessages         = "messaging.publish.messages"
 	MetricPublishDuration         = "messaging.publish.duration"
 	MetricClientSentMessages      = "messaging.client.sent.messages"
@@ -32,36 +28,9 @@ const (
 	MetricAssignedPartitions      = "messaging.kafka.consumer.assigned_partitions"
 	MetricClientConnections       = "messaging.client.connections"
 	MetricClientOperationDuration = "messaging.client.operation.duration"
-
-	TableMetrics = "observability.metrics"
 )
 
 var (
-	topicAttributeAliases = []string{
-		"topic",
-		AttrMessagingDestinationName,
-		"messaging.destination",
-		"messaging.kafka.destination.name",
-	}
-
-	consumerGroupAttributeAliases = []string{
-		"client-id",
-		AttrMessagingConsumerGroupName,
-		"messaging.kafka.consumer.group",
-		"messaging.consumer.group",
-	}
-
-	operationAttributeAliases = []string{
-		AttrMessagingOperationName,
-		"messaging.operation",
-		"messaging.client.operation.name",
-	}
-
-	partitionAttributeAliases = []string{
-		AttrMessagingKafkaDestinationPartition,
-		"messaging.kafka.partition",
-	}
-
 	producerMetricAliases = []string{
 		MetricPublishMessages,
 		MetricClientSentMessages,
@@ -107,7 +76,3 @@ var (
 	receiveOperationAliases = []string{"receive", "consume"}
 	processOperationAliases = []string{"process"}
 )
-
-func attrString(attrName string) string {
-	return fmt.Sprintf("attributes.'%s'::String", attrName)
-}

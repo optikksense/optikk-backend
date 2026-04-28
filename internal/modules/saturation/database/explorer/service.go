@@ -7,7 +7,7 @@ import (
 
 	dbconnections "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/connections"
 	dberrors "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/errors"
-	dbshared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
+	dbfilter "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 	dblatency "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/latency"
 	dbslowqueries "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/slowqueries"
 	dbsummary "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/summary"
@@ -67,7 +67,7 @@ func (s *Service) GetDatastoreSummary(ctx context.Context, teamID int64, startMs
 	})
 	g.Go(func() error {
 		var err error
-		summary, err = s.dbSummary.GetSummaryStats(gctx, teamID, startMs, endMs, dbshared.Filters{})
+		summary, err = s.dbSummary.GetSummaryStats(gctx, teamID, startMs, endMs, dbfilter.Filters{})
 		return err
 	})
 	if err := g.Wait(); err != nil {
@@ -139,7 +139,7 @@ func (s *Service) GetDatastoreSystemOverview(ctx context.Context, teamID int64, 
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
 		var err error
-		summary, err = s.dbSummary.GetSummaryStats(gctx, teamID, startMs, endMs, dbshared.Filters{
+		summary, err = s.dbSummary.GetSummaryStats(gctx, teamID, startMs, endMs, dbfilter.Filters{
 			DBSystem: []string{system},
 		})
 		return err
@@ -161,7 +161,7 @@ func (s *Service) GetDatastoreSystemOverview(ctx context.Context, teamID int64, 
 	})
 	g.Go(func() error {
 		var err error
-		readWrite, err = s.dbVolume.GetReadVsWrite(gctx, teamID, startMs, endMs, dbshared.Filters{
+		readWrite, err = s.dbVolume.GetReadVsWrite(gctx, teamID, startMs, endMs, dbfilter.Filters{
 			DBSystem: []string{system},
 		})
 		return err
@@ -207,7 +207,7 @@ func (s *Service) GetDatastoreSystemOverview(ctx context.Context, teamID int64, 
 }
 
 func (s *Service) GetDatastoreSystemServers(ctx context.Context, teamID int64, startMs, endMs int64, system string) ([]DatastoreServerRow, error) {
-	rows, err := s.dbLatency.GetLatencyByServer(ctx, teamID, startMs, endMs, dbshared.Filters{
+	rows, err := s.dbLatency.GetLatencyByServer(ctx, teamID, startMs, endMs, dbfilter.Filters{
 		DBSystem: []string{system},
 	})
 	if err != nil {
@@ -266,12 +266,12 @@ func (s *Service) GetDatastoreSystemOperations(ctx context.Context, teamID int64
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
 		var err error
-		latencyRows, err = s.dbSystem.GetSystemLatency(gctx, teamID, startMs, endMs, system, dbshared.Filters{})
+		latencyRows, err = s.dbSystem.GetSystemLatency(gctx, teamID, startMs, endMs, system, dbfilter.Filters{})
 		return err
 	})
 	g.Go(func() error {
 		var err error
-		opsRows, err = s.dbSystem.GetSystemOps(gctx, teamID, startMs, endMs, system, dbshared.Filters{})
+		opsRows, err = s.dbSystem.GetSystemOps(gctx, teamID, startMs, endMs, system, dbfilter.Filters{})
 		return err
 	})
 	g.Go(func() error {
@@ -352,7 +352,7 @@ func (s *Service) GetDatastoreSystemOperations(ctx context.Context, teamID int64
 }
 
 func (s *Service) GetDatastoreSystemErrors(ctx context.Context, teamID int64, startMs, endMs int64, system string) ([]DatastoreErrorRow, error) {
-	rows, err := s.dbErrors.GetErrorsByErrorType(ctx, teamID, startMs, endMs, dbshared.Filters{
+	rows, err := s.dbErrors.GetErrorsByErrorType(ctx, teamID, startMs, endMs, dbfilter.Filters{
 		DBSystem: []string{system},
 	})
 	if err != nil {
@@ -385,7 +385,7 @@ func (s *Service) GetDatastoreSystemErrors(ctx context.Context, teamID int64, st
 }
 
 func (s *Service) GetDatastoreSystemConnections(ctx context.Context, teamID int64, startMs, endMs int64, system string) ([]DatastoreConnectionRow, error) {
-	filter := dbshared.Filters{DBSystem: []string{system}}
+	filter := dbfilter.Filters{DBSystem: []string{system}}
 
 	var (
 		counts      []dbconnections.ConnectionCountPoint
@@ -533,7 +533,7 @@ func (s *Service) GetDatastoreSystemConnections(ctx context.Context, teamID int6
 }
 
 func (s *Service) GetDatastoreSystemSlowQueries(ctx context.Context, teamID int64, startMs, endMs int64, system string) ([]dbslowqueries.SlowQueryPattern, error) {
-	return s.dbSlowQueries.GetSlowQueryPatterns(ctx, teamID, startMs, endMs, dbshared.Filters{
+	return s.dbSlowQueries.GetSlowQueryPatterns(ctx, teamID, startMs, endMs, dbfilter.Filters{
 		DBSystem: []string{system},
 	}, 25)
 }
@@ -591,13 +591,13 @@ func (s *Service) GetKafkaSummary(ctx context.Context, teamID int64, startMs, en
 
 	g.Go(func() error {
 		var err error
-		topics, err = s.buildKafkaTopicRows(gctx, teamID, startMs, endMs, saturationkafka.KafkaFilters{})
+		topics, err = s.buildKafkaTopicRows(gctx, teamID, startMs, endMs, "", "")
 		return err
 	})
 
 	g.Go(func() error {
 		var err error
-		groups, err = s.buildKafkaGroupRows(gctx, teamID, startMs, endMs, saturationkafka.KafkaFilters{})
+		groups, err = s.buildKafkaGroupRows(gctx, teamID, startMs, endMs, "", "")
 		return err
 	})
 
@@ -619,15 +619,15 @@ func (s *Service) GetKafkaSummary(ctx context.Context, teamID int64, startMs, en
 }
 
 func (s *Service) GetKafkaTopics(ctx context.Context, teamID int64, startMs, endMs int64) ([]KafkaTopicRow, error) {
-	return s.buildKafkaTopicRows(ctx, teamID, startMs, endMs, saturationkafka.KafkaFilters{})
+	return s.buildKafkaTopicRows(ctx, teamID, startMs, endMs, "", "")
 }
 
 func (s *Service) GetKafkaGroups(ctx context.Context, teamID int64, startMs, endMs int64) ([]KafkaGroupRow, error) {
-	return s.buildKafkaGroupRows(ctx, teamID, startMs, endMs, saturationkafka.KafkaFilters{})
+	return s.buildKafkaGroupRows(ctx, teamID, startMs, endMs, "", "")
 }
 
 func (s *Service) GetKafkaTopicOverview(ctx context.Context, teamID int64, startMs, endMs int64, topic string) (KafkaTopicOverview, error) {
-	rows, err := s.buildKafkaTopicRows(ctx, teamID, startMs, endMs, saturationkafka.KafkaFilters{Topic: topic})
+	rows, err := s.buildKafkaTopicRows(ctx, teamID, startMs, endMs, topic, "")
 	if err != nil {
 		return KafkaTopicOverview{}, err
 	}
@@ -642,7 +642,7 @@ func (s *Service) GetKafkaTopicOverview(ctx context.Context, teamID int64, start
 }
 
 func (s *Service) GetKafkaTopicGroups(ctx context.Context, teamID int64, startMs, endMs int64, topic string) ([]KafkaTopicConsumerRow, error) {
-	return s.buildKafkaTopicConsumerRows(ctx, teamID, startMs, endMs, saturationkafka.KafkaFilters{Topic: topic})
+	return s.buildKafkaTopicConsumerRows(ctx, teamID, startMs, endMs, topic, "")
 }
 
 func (s *Service) GetKafkaTopicPartitions(ctx context.Context, teamID int64, startMs, endMs int64, topic string) ([]saturationkafka.PartitionLag, error) {
@@ -650,7 +650,7 @@ func (s *Service) GetKafkaTopicPartitions(ctx context.Context, teamID int64, sta
 }
 
 func (s *Service) GetKafkaGroupOverview(ctx context.Context, teamID int64, startMs, endMs int64, group string) (KafkaGroupOverview, error) {
-	rows, err := s.buildKafkaGroupRows(ctx, teamID, startMs, endMs, saturationkafka.KafkaFilters{Group: group})
+	rows, err := s.buildKafkaGroupRows(ctx, teamID, startMs, endMs, "", group)
 	if err != nil {
 		return KafkaGroupOverview{}, err
 	}
@@ -665,15 +665,15 @@ func (s *Service) GetKafkaGroupOverview(ctx context.Context, teamID int64, start
 }
 
 func (s *Service) GetKafkaGroupTopics(ctx context.Context, teamID int64, startMs, endMs int64, group string) ([]KafkaTopicRow, error) {
-	return s.buildKafkaTopicRows(ctx, teamID, startMs, endMs, saturationkafka.KafkaFilters{Group: group})
+	return s.buildKafkaTopicRows(ctx, teamID, startMs, endMs, "", group)
 }
 
 func (s *Service) GetKafkaGroupPartitions(ctx context.Context, teamID int64, startMs, endMs int64, group string) ([]saturationkafka.PartitionLag, error) {
 	return []saturationkafka.PartitionLag{}, nil
 }
 
-func (s *Service) buildKafkaTopicRows(ctx context.Context, teamID int64, startMs, endMs int64, filters saturationkafka.KafkaFilters) ([]KafkaTopicRow, error) {
-	samples, err := s.kafka.GetTopicMetricSamples(ctx, teamID, startMs, endMs, filters, kafkaTopicMetricNames)
+func (s *Service) buildKafkaTopicRows(ctx context.Context, teamID int64, startMs, endMs int64, filterTopic, filterGroup string) ([]KafkaTopicRow, error) {
+	samples, err := s.kafka.GetTopicMetricSamples(ctx, teamID, startMs, endMs, kafkaTopicMetricNames)
 	if err != nil {
 		return nil, err
 	}
@@ -684,6 +684,12 @@ func (s *Service) buildKafkaTopicRows(ctx context.Context, teamID int64, startMs
 		topic := strings.TrimSpace(sample.Topic)
 		consumerGroup := strings.TrimSpace(sample.ConsumerGroup)
 		if topic == "" {
+			continue
+		}
+		if filterTopic != "" && topic != filterTopic {
+			continue
+		}
+		if filterGroup != "" && consumerGroup != filterGroup {
 			continue
 		}
 		if consumerGroup != "" {
@@ -742,7 +748,7 @@ func (s *Service) buildKafkaTopicRows(ctx context.Context, teamID int64, startMs
 	return rows, nil
 }
 
-func (s *Service) buildKafkaGroupRows(ctx context.Context, teamID int64, startMs, endMs int64, filters saturationkafka.KafkaFilters) ([]KafkaGroupRow, error) {
+func (s *Service) buildKafkaGroupRows(ctx context.Context, teamID int64, startMs, endMs int64, filterTopic, filterGroup string) ([]KafkaGroupRow, error) {
 	var groupSamples []saturationkafka.ConsumerMetricSample
 	var topicSamples []saturationkafka.TopicMetricSample
 
@@ -750,13 +756,13 @@ func (s *Service) buildKafkaGroupRows(ctx context.Context, teamID int64, startMs
 
 	g.Go(func() error {
 		var err error
-		groupSamples, err = s.kafka.GetConsumerMetricSamples(gctx, teamID, startMs, endMs, filters, kafkaGroupMetricNames)
+		groupSamples, err = s.kafka.GetConsumerMetricSamples(gctx, teamID, startMs, endMs, kafkaGroupMetricNames)
 		return err
 	})
 
 	g.Go(func() error {
 		var err error
-		topicSamples, err = s.kafka.GetTopicMetricSamples(gctx, teamID, startMs, endMs, filters, kafkaTopicMetricNames)
+		topicSamples, err = s.kafka.GetTopicMetricSamples(gctx, teamID, startMs, endMs, kafkaTopicMetricNames)
 		return err
 	})
 
@@ -768,6 +774,9 @@ func (s *Service) buildKafkaGroupRows(ctx context.Context, teamID int64, startMs
 	for _, sample := range groupSamples {
 		consumerGroup := strings.TrimSpace(sample.ConsumerGroup)
 		if consumerGroup == "" {
+			continue
+		}
+		if filterGroup != "" && consumerGroup != filterGroup {
 			continue
 		}
 		key := consumerGroup + "\x00" + strings.TrimSpace(sample.NodeID) + "\x00" + sample.MetricName
@@ -790,6 +799,12 @@ func (s *Service) buildKafkaGroupRows(ctx context.Context, teamID int64, startMs
 		consumerGroup := strings.TrimSpace(sample.ConsumerGroup)
 		topic := strings.TrimSpace(sample.Topic)
 		if consumerGroup == "" || topic == "" {
+			continue
+		}
+		if filterTopic != "" && topic != filterTopic {
+			continue
+		}
+		if filterGroup != "" && consumerGroup != filterGroup {
 			continue
 		}
 		if topicsByGroup[consumerGroup] == nil {
@@ -837,8 +852,8 @@ func (s *Service) buildKafkaGroupRows(ctx context.Context, teamID int64, startMs
 	return rows, nil
 }
 
-func (s *Service) buildKafkaTopicConsumerRows(ctx context.Context, teamID int64, startMs, endMs int64, filters saturationkafka.KafkaFilters) ([]KafkaTopicConsumerRow, error) {
-	samples, err := s.kafka.GetTopicMetricSamples(ctx, teamID, startMs, endMs, filters, kafkaTopicMetricNames)
+func (s *Service) buildKafkaTopicConsumerRows(ctx context.Context, teamID int64, startMs, endMs int64, filterTopic, filterGroup string) ([]KafkaTopicConsumerRow, error) {
+	samples, err := s.kafka.GetTopicMetricSamples(ctx, teamID, startMs, endMs, kafkaTopicMetricNames)
 	if err != nil {
 		return nil, err
 	}
@@ -846,10 +861,17 @@ func (s *Service) buildKafkaTopicConsumerRows(ctx context.Context, teamID int64,
 	latestByKey := map[string]sampleValue{}
 	for _, sample := range samples {
 		consumerGroup := strings.TrimSpace(sample.ConsumerGroup)
+		topic := strings.TrimSpace(sample.Topic)
 		if consumerGroup == "" {
 			continue
 		}
-		key := consumerGroup + "\x00" + strings.TrimSpace(sample.Topic) + "\x00" + sample.MetricName
+		if filterTopic != "" && topic != filterTopic {
+			continue
+		}
+		if filterGroup != "" && consumerGroup != filterGroup {
+			continue
+		}
+		key := consumerGroup + "\x00" + topic + "\x00" + sample.MetricName
 		if current, ok := latestByKey[key]; !ok || sample.Timestamp >= current.Timestamp {
 			latestByKey[key] = sampleValue{Timestamp: sample.Timestamp, Value: sample.Value}
 		}

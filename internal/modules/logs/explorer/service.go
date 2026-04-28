@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/querycompiler"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/filter"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/shared/models"
 	"golang.org/x/sync/errgroup"
 )
@@ -13,23 +13,23 @@ import (
 // FacetsClient is the in-process API explorer needs from log_facets to fan
 // the optional facets include alongside the list query.
 type FacetsClient interface {
-	Compute(ctx context.Context, f querycompiler.Filters) (models.Facets, []string, error)
+	Compute(ctx context.Context, f filter.Filters) (models.Facets, error)
 }
 
 // TrendsClient is the in-process API explorer needs from log_trends to fan
 // the optional summary/trend includes alongside the list query.
 type TrendsClient interface {
-	Summary(ctx context.Context, f querycompiler.Filters) (models.Summary, error)
-	Trend(ctx context.Context, f querycompiler.Filters, step string) ([]models.TrendBucket, []string, error)
+	Summary(ctx context.Context, f filter.Filters) (models.Summary, error)
+	Trend(ctx context.Context, f filter.Filters, step string) ([]models.TrendBucket, error)
 }
 
 // Service orchestrates POST /api/v1/logs/query. It owns the list path and
 // fans summary/facets/trend includes out to sibling submodules in parallel
 // via errgroup so the response = max(list, summary, facets, trend).
 type Service struct {
-	repo    *Repository
-	facets  FacetsClient
-	trends  TrendsClient
+	repo   *Repository
+	facets FacetsClient
+	trends TrendsClient
 }
 
 func NewService(repo *Repository, facets FacetsClient, trends TrendsClient) *Service {
@@ -37,23 +37,17 @@ func NewService(repo *Repository, facets FacetsClient, trends TrendsClient) *Ser
 }
 
 type queryParts struct {
-	rows        []models.LogRow
-	hasMore     bool
-	summary     *models.Summary
-	facets      *models.Facets
-	trend       []models.TrendBucket
-	facetsWarns []string
-	trendWarns  []string
+	rows    []models.LogRow
+	hasMore bool
+	summary *models.Summary
+	facets  *models.Facets
+	trend   []models.TrendBucket
 }
 
-func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (QueryResponse, error) {
-	filters, err := querycompiler.FromStructured(req.Filters, teamID, req.StartTime, req.EndTime)
-	if err != nil {
-		return QueryResponse{}, fmt.Errorf("logs.Query.parse: %w", err)
-	}
+func (s *Service) Query(ctx context.Context, req QueryRequest) (QueryResponse, error) {
 	limit := models.PickLimit(req.Limit, 50, 500)
 	cur, _ := models.DecodeCursor(req.Cursor)
-	parts, err := s.fetchQueryParts(ctx, filters, limit, cur, toSet(req.Include))
+	parts, err := s.fetchQueryParts(ctx, req.Filters, limit, cur, toSet(req.Include))
 	if err != nil {
 		return QueryResponse{}, err
 	}
@@ -63,12 +57,11 @@ func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (Qu
 		Summary:  parts.summary,
 		Facets:   parts.facets,
 		Trend:    parts.trend,
-		Warnings: append(parts.facetsWarns, parts.trendWarns...),
 	}, nil
 }
 
 func (s *Service) fetchQueryParts(
-	ctx context.Context, f querycompiler.Filters, limit int, cur models.Cursor, want map[string]bool,
+	ctx context.Context, f filter.Filters, limit int, cur models.Cursor, want map[string]bool,
 ) (queryParts, error) {
 	var p queryParts
 	g, gctx := errgroup.WithContext(ctx)
@@ -88,7 +81,7 @@ func (s *Service) fetchQueryParts(
 	return p, nil
 }
 
-func (s *Service) listJob(ctx context.Context, f querycompiler.Filters, limit int, cur models.Cursor, p *queryParts) func() error {
+func (s *Service) listJob(ctx context.Context, f filter.Filters, limit int, cur models.Cursor, p *queryParts) func() error {
 	return func() error {
 		rows, hasMore, err := s.repo.ListLogs(ctx, f, limit, cur)
 		if err != nil {
@@ -99,7 +92,7 @@ func (s *Service) listJob(ctx context.Context, f querycompiler.Filters, limit in
 	}
 }
 
-func (s *Service) summaryJob(ctx context.Context, f querycompiler.Filters, p *queryParts) func() error {
+func (s *Service) summaryJob(ctx context.Context, f filter.Filters, p *queryParts) func() error {
 	return func() error {
 		sm, err := s.trends.Summary(ctx, f)
 		if err != nil {
@@ -110,26 +103,24 @@ func (s *Service) summaryJob(ctx context.Context, f querycompiler.Filters, p *qu
 	}
 }
 
-func (s *Service) facetsJob(ctx context.Context, f querycompiler.Filters, p *queryParts) func() error {
+func (s *Service) facetsJob(ctx context.Context, f filter.Filters, p *queryParts) func() error {
 	return func() error {
-		fc, warns, err := s.facets.Compute(ctx, f)
+		fc, err := s.facets.Compute(ctx, f)
 		if err != nil {
 			return fmt.Errorf("logs.Query.facets: %w", err)
 		}
 		p.facets = &fc
-		p.facetsWarns = warns
 		return nil
 	}
 }
 
-func (s *Service) trendJob(ctx context.Context, f querycompiler.Filters, p *queryParts) func() error {
+func (s *Service) trendJob(ctx context.Context, f filter.Filters, p *queryParts) func() error {
 	return func() error {
-		tr, warns, err := s.trends.Trend(ctx, f, "")
+		tr, err := s.trends.Trend(ctx, f, "")
 		if err != nil {
 			return fmt.Errorf("logs.Query.trend: %w", err)
 		}
 		p.trend = tr
-		p.trendWarns = warns
 		return nil
 	}
 }

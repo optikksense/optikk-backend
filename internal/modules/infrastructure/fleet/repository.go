@@ -2,135 +2,85 @@ package fleet
 
 import (
 	"context"
-	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	)
-
-// Reads run against raw `observability.spans` (the planned
-// spans_host_rollup_{1m,5m,1h} cascade was never built). Per-pod
-// RED metrics are computed inline with LIMIT @maxFleetPods to bound scan.
-const (
-	spansHostRollupPrefix	= "observability.spans"
-	maxFleetPods		= 200
-	defaultUnknown		= "unknown"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 )
 
-// queryIntervalMinutes returns max(tierStep, dashboardStep). Matches the
-// helper in overview/overview/repository.go.
-func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
-	hours := (endMs - startMs) / 3_600_000
-	var dashStep int64
-	switch {
-	case hours <= 3:
-		dashStep = 1
-	case hours <= 24:
-		dashStep = 5
-	case hours <= 168:
-		dashStep = 60
-	default:
-		dashStep = 1440
-	}
-	if tierStepMin > dashStep {
-		return tierStepMin
-	}
-	return dashStep
-}
+const (
+	maxFleetPods   = 200
+	defaultUnknown = "unknown"
+)
+
+// fleet reads `observability.spans` for per-pod RED aggregates with the same
+// `WITH active_fps AS (... spans_resource ...)` CTE httpmetrics uses for its
+// route/external-host queries. Service derives error_rate / avg_latency_ms.
 
 type Repository interface {
-	GetFleetPods(ctx context.Context, teamID int64, startMs, endMs int64) ([]FleetPod, error)
+	QueryFleetPods(ctx context.Context, teamID int64, startMs, endMs int64) ([]FleetPodAggregateRow, error)
 }
 
 type ClickHouseRepository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-type fleetPodRowDTO struct {
-	PodName		string		`ch:"pod"`
-	HostName	string		`ch:"host"`
-	ServicesCSV	string		`ch:"services_csv"`
-	RequestCount	uint64		`ch:"request_count"`
-	ErrorCount	uint64		`ch:"error_count"`
-	DurationMsSum	float64		`ch:"duration_ms_sum"`
-	P95Latency	float64		`ch:"p95_latency"`
-	LastSeen	time.Time	`ch:"last_seen"`
-}
-
-func (r *ClickHouseRepository) GetFleetPods(ctx context.Context, teamID int64, startMs, endMs int64) ([]FleetPod, error) {
-	table := "observability.spans"
-	query := fmt.Sprintf(`
-		SELECT pod                                                          AS pod,
-		       if(host != '', host, '%s')                              AS host,
-		       arrayStringConcat(groupUniqArray(service), ',')              AS services_csv,
-		       count()                                           AS request_count,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                                             AS error_count,
-		       sum(duration_nano / 1000000.0)                                         AS duration_ms_sum,
-		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_latency,
-		       max(ts_bucket)                                                    AS last_seen
-		FROM %s
-		WHERE team_id = @teamID
+func (r *ClickHouseRepository) QueryFleetPods(ctx context.Context, teamID int64, startMs, endMs int64) ([]FleetPodAggregateRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id   = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT
+		    pod                                                                                  AS pod,
+		    if(host != '', host, @defaultUnknown)                                                AS host,
+		    groupUniqArray(service)                                                              AS services,
+		    count()                                                                              AS request_count,
+		    countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                    AS error_count,
+		    sum(duration_nano / 1000000.0)                                                       AS duration_ms_sum,
+		    quantileTiming(0.95)(duration_nano / 1000000.0)                                      AS p95_latency_ms,
+		    max(timestamp)                                                                       AS last_seen
+		FROM observability.spans
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
 		  AND pod != ''
-		  AND ts_bucket BETWEEN @start AND @end
 		GROUP BY pod, host
 		ORDER BY request_count DESC
-		LIMIT `+strconv.Itoa(maxFleetPods), defaultUnknown, table)
+		LIMIT @maxFleetPods`
+	args := spanArgs(teamID, startMs, endMs)
+	args = append(args,
+		clickhouse.Named("defaultUnknown", defaultUnknown),
+		clickhouse.Named("maxFleetPods", uint64(maxFleetPods)),
+	)
+	var rows []FleetPodAggregateRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "fleet.QueryFleetPods", &rows, query, args...)
+}
 
-	params := []any{
-		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115 - domain-bounded
+// ---------------------------------------------------------------------------
+// Local helpers — each module owns its own.
+// ---------------------------------------------------------------------------
+
+func spanArgs(teamID int64, startMs, endMs int64) []any {
+	bucketStart, bucketEnd := spanBucketBounds(startMs, endMs)
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("bucketStart", bucketStart),
+		clickhouse.Named("bucketEnd", bucketEnd),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
-
-	var dtos []fleetPodRowDTO
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "fleet.GetFleetPods", &dtos, query, params...); err != nil {
-		return nil, err
-	}
-
-	out := make([]FleetPod, len(dtos))
-	for i, d := range dtos {
-		errorRate := 0.0
-		if d.RequestCount > 0 {
-			errorRate = float64(d.ErrorCount) * 100.0 / float64(d.RequestCount)
-		}
-		avgLatency := 0.0
-		if d.RequestCount > 0 {
-			avgLatency = d.DurationMsSum / float64(d.RequestCount)
-		}
-		out[i] = FleetPod{
-			PodName:	d.PodName,
-			Host:		d.HostName,
-			Services:	splitCSV(d.ServicesCSV),
-			RequestCount:	int64(d.RequestCount),	//nolint:gosec // domain-bounded
-			ErrorCount:	int64(d.ErrorCount),	//nolint:gosec // domain-bounded
-			ErrorRate:	errorRate,
-			AvgLatencyMs:	avgLatency,
-			P95LatencyMs:	d.P95Latency,
-			LastSeen:	d.LastSeen.Format(time.RFC3339),
-		}
-	}
-	return out, nil
 }
 
-func splitCSV(s string) []string {
-	s = strings.TrimSpace(s)
-	s = strings.TrimPrefix(s, "[")
-	s = strings.TrimSuffix(s, "]")
-	parts := strings.Split(s, ",")
-	clean := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		p = strings.Trim(p, "'\"")
-		if p != "" {
-			clean = append(clean, p)
-		}
-	}
-	return clean
+func spanBucketBounds(startMs, endMs int64) (uint64, uint64) {
+	return timebucket.SpansBucketStart(startMs / 1000),
+		timebucket.SpansBucketStart(endMs/1000) + uint64(timebucket.SpansBucketSeconds)
 }

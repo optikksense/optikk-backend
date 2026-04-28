@@ -1,0 +1,381 @@
+package redmetrics
+
+import (
+	"context"
+	"time"
+
+	"github.com/ClickHouse/clickhouse-go/v2"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+)
+
+type Repository interface {
+	GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) ([]redSummaryServiceRow, error)
+	GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]apdexRow, error)
+	GetApdexByService(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]apdexRow, error)
+	GetTopSlowOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]slowOperationRow, error)
+	GetTopErrorOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]errorOperationRow, error)
+	GetRequestRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]requestRateRawRow, error)
+	GetErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorRateRawRow, error)
+	GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]p95LatencyRawRow, error)
+	GetSpanKindBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]spanKindRawRow, error)
+	GetErrorsByRoute(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorByRouteRawRow, error)
+	GetLatencyBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]latencyBreakdownRow, error)
+}
+
+type ClickHouseRepository struct {
+	db clickhouse.Conn
+}
+
+func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
+	return &ClickHouseRepository{db: db}
+}
+
+func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) ([]redSummaryServiceRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id   = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT service                                                              AS service,
+		       count()                                                              AS total_count,
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)    AS error_count,
+		       quantileTiming(0.5)(duration_nano / 1000000.0)                       AS p50_ms,
+		       quantileTiming(0.95)(duration_nano / 1000000.0)                      AS p95_ms,
+		       quantileTiming(0.99)(duration_nano / 1000000.0)                      AS p99_ms
+		FROM observability.spans
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		GROUP BY service`
+	var rows []redSummaryServiceRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetSummary",
+		&rows, query, spanArgs(teamID, startMs, endMs)...)
+}
+
+func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]apdexRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id   = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT service                                                              AS service,
+		       count()                                                              AS total_count,
+		       countIf(duration_nano <= @satisfiedNs)                               AS satisfied,
+		       countIf(duration_nano > @satisfiedNs AND duration_nano <= @toleratingNs) AS tolerating
+		FROM observability.spans
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		GROUP BY service
+		ORDER BY total_count DESC`
+	args := append(spanArgs(teamID, startMs, endMs),
+		clickhouse.Named("satisfiedNs", uint64(satisfiedMs*1_000_000)),
+		clickhouse.Named("toleratingNs", uint64(toleratingMs*1_000_000)),
+	)
+	var rows []apdexRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetApdex",
+		&rows, query, args...)
+}
+
+func (r *ClickHouseRepository) GetApdexByService(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]apdexRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id   = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		         AND service   = @serviceName
+		)
+		SELECT service                                                              AS service,
+		       count()                                                              AS total_count,
+		       countIf(duration_nano <= @satisfiedNs)                               AS satisfied,
+		       countIf(duration_nano > @satisfiedNs AND duration_nano <= @toleratingNs) AS tolerating
+		FROM observability.spans
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND service   = @serviceName
+		GROUP BY service
+		ORDER BY total_count DESC`
+	args := append(spanArgs(teamID, startMs, endMs),
+		clickhouse.Named("serviceName", serviceName),
+		clickhouse.Named("satisfiedNs", uint64(satisfiedMs*1_000_000)),
+		clickhouse.Named("toleratingNs", uint64(toleratingMs*1_000_000)),
+	)
+	var rows []apdexRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetApdexByService",
+		&rows, query, args...)
+}
+
+// slowOpsCandidatePoolMultiplier oversamples the candidate set so the outer
+// quantileTiming pass sees enough operations to find the true top-N by p95
+// without computing percentiles for every cardinality group.
+const slowOpsCandidatePoolMultiplier = 20
+
+func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]slowOperationRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id   = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		),
+		candidates AS (
+		    SELECT service, operation_name
+		    FROM observability.spans
+		    PREWHERE team_id     = @teamID
+		         AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		         AND fingerprint IN active_fps
+		    WHERE timestamp BETWEEN @start AND @end
+		    GROUP BY service, operation_name
+		    ORDER BY count() DESC
+		    LIMIT @candidateLimit
+		)
+		SELECT service                                                              AS service,
+		       operation_name                                                       AS operation_name,
+		       count()                                                              AS span_count,
+		       quantileTiming(0.5)(duration_nano / 1000000.0)                       AS p50_ms,
+		       quantileTiming(0.95)(duration_nano / 1000000.0)                      AS p95_ms,
+		       quantileTiming(0.99)(duration_nano / 1000000.0)                      AS p99_ms
+		FROM observability.spans
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND (service, operation_name) IN (SELECT service, operation_name FROM candidates)
+		GROUP BY service, operation_name
+		ORDER BY p95_ms DESC
+		LIMIT @limit`
+	args := append(spanArgs(teamID, startMs, endMs),
+		clickhouse.Named("limit", limit),
+		clickhouse.Named("candidateLimit", limit*slowOpsCandidatePoolMultiplier),
+	)
+	var rows []slowOperationRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetTopSlowOperations",
+		&rows, query, args...)
+}
+
+func (r *ClickHouseRepository) GetTopErrorOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]errorOperationRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id   = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT service                                                              AS service,
+		       operation_name                                                       AS operation_name,
+		       count()                                                              AS total_count,
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)    AS error_count
+		FROM observability.spans
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		GROUP BY service, operation_name
+		HAVING error_count > 0
+		ORDER BY error_count DESC
+		LIMIT @limit`
+	args := append(spanArgs(teamID, startMs, endMs), clickhouse.Named("limit", limit))
+	var rows []errorOperationRow
+	return rows, dbutil.SelectCH(dbutil.DashboardCtx(ctx), r.db, "redmetrics.GetTopErrorOperations",
+		&rows, query, args...)
+}
+
+type requestRateRawRow struct {
+	Timestamp    time.Time `ch:"timestamp"`
+	ServiceName  string    `ch:"service"`
+	RequestCount uint64    `ch:"request_count"`
+}
+
+func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]requestRateRawRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id   = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT toDateTime(ts_bucket) AS timestamp,
+		       service               AS service,
+		       count()               AS request_count
+		FROM observability.spans
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		GROUP BY ts_bucket, service
+		ORDER BY timestamp ASC`
+	var rows []requestRateRawRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetRequestRateTimeSeries",
+		&rows, query, spanArgs(teamID, startMs, endMs)...)
+}
+
+type errorRateRawRow struct {
+	Timestamp    time.Time `ch:"timestamp"`
+	ServiceName  string    `ch:"service"`
+	RequestCount uint64    `ch:"request_count"`
+	ErrorCount   uint64    `ch:"error_count"`
+}
+
+func (r *ClickHouseRepository) GetErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorRateRawRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id   = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT toDateTime(ts_bucket)                                                AS timestamp,
+		       service                                                              AS service,
+		       count()                                                              AS request_count,
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)    AS error_count
+		FROM observability.spans
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		GROUP BY ts_bucket, service
+		ORDER BY timestamp ASC`
+	var rows []errorRateRawRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetErrorRateTimeSeries",
+		&rows, query, spanArgs(teamID, startMs, endMs)...)
+}
+
+type p95LatencyRawRow struct {
+	Timestamp   time.Time `ch:"timestamp"`
+	ServiceName string    `ch:"service"`
+	P95Ms       float32   `ch:"p95_ms"`
+}
+
+func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]p95LatencyRawRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id   = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT toDateTime(ts_bucket)                                            AS timestamp,
+		       service                                                          AS service,
+		       quantileTiming(0.95)(duration_nano / 1000000.0)                  AS p95_ms
+		FROM observability.spans
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		GROUP BY ts_bucket, service
+		ORDER BY timestamp ASC`
+	var rows []p95LatencyRawRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetP95LatencyTimeSeries",
+		&rows, query, spanArgs(teamID, startMs, endMs)...)
+}
+
+type spanKindRawRow struct {
+	Timestamp  time.Time `ch:"timestamp"`
+	KindString string    `ch:"kind_string"`
+	SpanCount  uint64    `ch:"span_count"`
+}
+
+func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]spanKindRawRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id   = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT toDateTime(ts_bucket) AS timestamp,
+		       kind_string           AS kind_string,
+		       count()               AS span_count
+		FROM observability.spans
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		GROUP BY ts_bucket, kind_string
+		ORDER BY timestamp ASC`
+	var rows []spanKindRawRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetSpanKindBreakdown",
+		&rows, query, spanArgs(teamID, startMs, endMs)...)
+}
+
+type errorByRouteRawRow struct {
+	Timestamp    time.Time `ch:"timestamp"`
+	HTTPRoute    string    `ch:"http_route"`
+	RequestCount uint64    `ch:"request_count"`
+	ErrorCount   uint64    `ch:"error_count"`
+}
+
+func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorByRouteRawRow, error) {
+	// Prefer the OTel canonical http.route; fall back to operation_name when
+	// the attribute is empty (older instrumentations that didn't set it).
+	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id   = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT toDateTime(ts_bucket)                                                                          AS timestamp,
+		       if(attributes.'http.route'::String != '', attributes.'http.route'::String, operation_name)     AS http_route,
+		       count()                                                                                        AS request_count,
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                              AS error_count
+		FROM observability.spans
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND http_route != ''
+		GROUP BY ts_bucket, http_route
+		ORDER BY timestamp ASC, error_count DESC`
+	var rows []errorByRouteRawRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetErrorsByRoute",
+		&rows, query, spanArgs(teamID, startMs, endMs)...)
+}
+
+func (r *ClickHouseRepository) GetLatencyBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]latencyBreakdownRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id   = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT service                          AS service,
+		       sum(duration_nano / 1000000.0)   AS total_ms,
+		       count()                          AS span_count
+		FROM observability.spans
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		GROUP BY service`
+	var rows []latencyBreakdownRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetLatencyBreakdown",
+		&rows, query, spanArgs(teamID, startMs, endMs)...)
+}
+
+func spanArgs(teamID int64, startMs, endMs int64) []any {
+	bucketStart, bucketEnd := spanBucketBounds(startMs, endMs)
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 — TeamID fits UInt32
+		clickhouse.Named("bucketStart", bucketStart),
+		clickhouse.Named("bucketEnd", bucketEnd),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
+	}
+}
+
+func spanBucketBounds(startMs, endMs int64) (uint64, uint64) {
+	return timebucket.SpansBucketStart(startMs / 1000),
+		timebucket.SpansBucketStart(endMs/1000) + uint64(timebucket.SpansBucketSeconds)
+}

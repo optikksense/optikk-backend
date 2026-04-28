@@ -2,36 +2,43 @@ package explorer
 
 import (
 	"context"
-	"fmt"
 
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/filter"
 )
 
 // Trend computes a time-bucketed total + error count over the window. Reads
-// raw spans with is_root = 1 and groups by the stored 5-min
-// ts_bucket (no CH-side bucket math — see internal/infra/timebucket).
-func (r *Repository) Trend(ctx context.Context, f querycompiler.Filters) ([]TrendBucket, error) {
-	compiled := querycompiler.Compile(f, querycompiler.TargetSpansRaw)
-	query := fmt.Sprintf(
-		`SELECT formatDateTime(toDateTime(ts_bucket), '%%Y-%%m-%%d %%H:%%i:00') AS time_bucket,
-		        countIf(NOT has_error) AS total, countIf(has_error) AS errors
-		 FROM %s PREWHERE %s WHERE %s AND is_root = 1 GROUP BY time_bucket ORDER BY time_bucket ASC`,
-		spansRawTable, compiled.PreWhere, compiled.Where,
-	)
-	rows, err := dbutil.QueryCH(dbutil.ExplorerCtx(ctx), r.db, "explorer.Trend", query, compiled.Args...)
-	if err != nil {
+// raw spans with is_root = 1 and groups by the stored 5-min ts_bucket
+// (no CH-side bucket math — see internal/infra/timebucket).
+func (r *Repository) Trend(ctx context.Context, f filter.Filters) ([]TrendBucket, error) {
+	resourceWhere, where, args := filter.BuildClauses(f)
+
+	query := `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd` + resourceWhere + `
+		)
+		SELECT toString(toDateTime(ts_bucket))             AS time_bucket,
+		       countIf(NOT has_error)                      AS total,
+		       countIf(has_error)                          AS errors
+		FROM observability.spans
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end AND is_root = 1` + where + `
+		GROUP BY time_bucket
+		ORDER BY time_bucket ASC`
+
+	var rows []struct {
+		TimeBucket string `ch:"time_bucket"`
+		Total      uint64 `ch:"total"`
+		Errors     uint64 `ch:"errors"`
+	}
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "explorer.Trend", &rows, query, args...); err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var out []TrendBucket
-	for rows.Next() {
-		var ts string
-		var total, errCnt uint64
-		if err := rows.Scan(&ts, &total, &errCnt); err != nil {
-			return nil, err
-		}
-		out = append(out, TrendBucket{TimeBucket: ts, Total: total, Errors: errCnt})
+	out := make([]TrendBucket, len(rows))
+	for i, r := range rows {
+		out[i] = TrendBucket{TimeBucket: r.TimeBucket, Total: r.Total, Errors: r.Errors}
 	}
 	return out, nil
 }

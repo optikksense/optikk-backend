@@ -3,7 +3,6 @@ package log_trends //nolint:revive,stylecheck
 import (
 	"net/http"
 
-	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/querycompiler"
 	"github.com/Optikk-Org/optikk-backend/internal/shared/errorcode"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
@@ -28,13 +27,14 @@ func (h *Handler) Trends(c *gin.Context) {
 		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Invalid request body")
 		return
 	}
-	teamID := h.GetTenant(c).TeamID
-	filters, err := querycompiler.FromStructured(req.Filters, teamID, req.StartTime, req.EndTime)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusBadRequest, errorcode.Validation, "Failed to parse filters", err)
+	req.Filters.TeamID = h.GetTenant(c).TeamID
+	req.Filters.StartMs = req.StartTime
+	req.Filters.EndMs = req.EndTime
+	if err := req.Filters.Validate(); err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusBadRequest, errorcode.Validation, "Invalid filters", err)
 		return
 	}
-	resp, err := h.svc.ComputeResponse(c.Request.Context(), filters, req.Step)
+	resp, err := h.svc.ComputeResponse(c.Request.Context(), req.Filters, req.Step)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query logs trends", err)
 		return

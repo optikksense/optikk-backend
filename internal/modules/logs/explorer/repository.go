@@ -2,13 +2,11 @@ package explorer
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/querycompiler"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/filter"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/shared/models"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/shared/resource"
 )
 
 // Repository owns the list-only path on raw logs. Single-detail (GetByID),
@@ -20,18 +18,10 @@ type Repository struct {
 func NewRepository(db clickhouse.Conn) *Repository { return &Repository{db: db} }
 
 // ListLogs runs a keyset-paginated scan of raw logs ordered by
-// (timestamp, observed_timestamp, trace_id) DESC.
-func (r *Repository) ListLogs(ctx context.Context, f querycompiler.Filters, limit int, cur models.Cursor) ([]models.LogRow, bool, error) {
-	compiled := querycompiler.Compile(f, querycompiler.TargetRaw)
-	where := compiled.Where
-	args := compiled.Args
-	preWhere, args, empty, err := resource.WithFingerprints(ctx, r.db, f, compiled.PreWhere, args)
-	if err != nil {
-		return nil, false, err
-	}
-	if empty {
-		return nil, false, nil
-	}
+// (timestamp, observed_timestamp, trace_id) DESC. The inline CTE resolves
+// resource-dim filters in the same round-trip as the main scan.
+func (r *Repository) ListLogs(ctx context.Context, f filter.Filters, limit int, cur models.Cursor) ([]models.LogRow, bool, error) {
+	resourceWhere, where, args := filter.BuildClauses(f)
 	if !cur.IsZero() {
 		where += ` AND (timestamp, observed_timestamp, trace_id) < (@curTs, @curOts, @curTid)`
 		args = append(args,
@@ -40,15 +30,21 @@ func (r *Repository) ListLogs(ctx context.Context, f querycompiler.Filters, limi
 			clickhouse.Named("curTid", cur.TraceID),
 		)
 	}
-
-	query := fmt.Sprintf(
-		`SELECT %s FROM %s
-		PREWHERE %s
-		WHERE %s
-		ORDER BY timestamp DESC, observed_timestamp DESC, trace_id DESC LIMIT @pgLimit`,
-		models.LogColumns, models.RawLogsTable, preWhere, where,
-	)
 	args = append(args, clickhouse.Named("pgLimit", uint64(limit+1)))
+
+	query := `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.logs_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd` + resourceWhere + `
+		)
+		SELECT ` + models.LogColumns + `
+		FROM observability.logs
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end` + where + `
+		ORDER BY timestamp DESC, observed_timestamp DESC, trace_id DESC
+		LIMIT @pgLimit`
+
 	var rows []models.LogRow
 	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "logs.ListLogs", &rows, query, args...); err != nil {
 		return nil, false, err

@@ -2,6 +2,8 @@ package errors
 
 import (
 	"context"
+
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/filter"
 )
 
 type Service struct {
@@ -10,8 +12,8 @@ type Service struct {
 
 func NewService(repo *Repository) *Service { return &Service{repo: repo} }
 
-func (s *Service) ErrorGroups(ctx context.Context, teamID int64, req ErrorGroupsRequest) (ErrorGroupsResponse, error) {
-	rows, err := s.repo.ErrorGroups(ctx, teamID, req.StartMs, req.EndMs, req.ServiceName, req.Limit)
+func (s *Service) ErrorGroups(ctx context.Context, f filter.Filters, limit int) (ErrorGroupsResponse, error) {
+	rows, err := s.repo.ErrorGroups(ctx, f, limit)
 	if err != nil {
 		return ErrorGroupsResponse{}, err
 	}
@@ -27,8 +29,8 @@ func (s *Service) ErrorGroups(ctx context.Context, teamID int64, req ErrorGroups
 	return ErrorGroupsResponse{Groups: groups}, nil
 }
 
-func (s *Service) Timeseries(ctx context.Context, teamID int64, req TimeseriesRequest) (TimeseriesResponse, error) {
-	rows, err := s.repo.Timeseries(ctx, teamID, req.StartMs, req.EndMs, req.ServiceName)
+func (s *Service) Timeseries(ctx context.Context, f filter.Filters) (TimeseriesResponse, error) {
+	rows, err := s.repo.Timeseries(ctx, f)
 	if err != nil {
 		return TimeseriesResponse{}, err
 	}

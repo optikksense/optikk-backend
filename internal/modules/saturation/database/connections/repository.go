@@ -1,29 +1,31 @@
+// Package connections reads OTel `db.client.connection.*` instrumentation
+// metrics from `observability.metrics`. Per the audit, gauges/counters
+// are instrumentation-side time series (not per-call spans) and live
+// natively on metrics. Every method PREWHEREs raw metrics on
+// `(team_id, ts_bucket_hour, fingerprint IN active_fps, metric_name)` —
+// full PK granule pruning. Service.go folds raw rows into display
+// buckets via `displaybucket` helpers and computes histogram percentiles
+// Go-side via `quantile.FromHistogram`.
 package connections
 
 import (
 	"context"
-	"fmt"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
-// Connection panels read `db_histograms_rollup` which carries:
-//   - `pool_name` + `db_connection_state` as keys (v2 additions)
-//   - `value_sum` / `sample_count` / `value_last` state (v2 gauge rows)
-//   - `latency_ms_digest` / `hist_count` / `hist_sum` state (v1 histogram)
-// so every method below runs through the rollup.
-
 type Repository interface {
-	GetConnectionCountSeries(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionCountPoint, error)
-	GetConnectionUtilization(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionUtilPoint, error)
-	GetConnectionLimits(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionLimits, error)
-	GetPendingRequests(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PendingRequestsPoint, error)
-	GetConnectionTimeoutRate(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionTimeoutPoint, error)
-	GetConnectionWaitTime(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PoolLatencyPoint, error)
-	GetConnectionCreateTime(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PoolLatencyPoint, error)
-	GetConnectionUseTime(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PoolLatencyPoint, error)
+	GetConnectionCountSeries(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]gaugeStateRawDTO, error)
+	GetConnectionUtilization(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]gaugeStateRawDTO, error)
+	GetConnectionLimits(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]gaugeStateRawDTO, error)
+	GetPendingRequests(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]gaugeRawDTO, error)
+	GetConnectionTimeoutRate(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]gaugeRawDTO, error)
+	GetConnectionWaitTime(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]histRawDTO, error)
+	GetConnectionCreateTime(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]histRawDTO, error)
+	GetConnectionUseTime(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]histRawDTO, error)
 }
 
 type ClickHouseRepository struct {
@@ -34,237 +36,171 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-func bucketExpr(startMs, endMs int64) string {
-	_, _ = startMs, endMs
-	return "ts_bucket"
+type gaugeStateRawDTO struct {
+	Timestamp  time.Time `ch:"timestamp"`
+	MetricName string    `ch:"metric_name"`
+	PoolName   string    `ch:"pool_name"`
+	State      string    `ch:"state"`
+	Value      float64   `ch:"value"`
 }
 
-func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionCountPoint, error) {
-	table := "observability.spans"
-	fc, fargs := "", []any{}
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                                                          AS time_bucket,
-		    pool_name                                                                   AS pool_name,
-		    db_connection_state                                                         AS state,
-		    sum(value_sum) / nullIf(toFloat64(sum(sample_count)), 0)          AS count
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end
-		  AND metric_name = @metricName
-		  %s
-		GROUP BY time_bucket, pool_name, state
-		ORDER BY time_bucket, pool_name, state
-	`, bucketExpr(startMs, endMs), table, fc)
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBConnectionCount), fargs...)
-	var rows []ConnectionCountPoint
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connections.GetConnectionCountSeries", &rows, query, args...)
+type gaugeRawDTO struct {
+	Timestamp time.Time `ch:"timestamp"`
+	PoolName  string    `ch:"pool_name"`
+	Value     float64   `ch:"value"`
 }
 
-// GetConnectionUtilization folds `used` (state=used) vs `max` (metric_name=
-// db.client.connection.max) per bucket+pool in Go. Previously did a
-// correlated subquery against raw metrics.
-func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionUtilPoint, error) {
-	table := "observability.spans"
-	fc, fargs := "", []any{}
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                                                          AS time_bucket,
-		    pool_name                                                                   AS pool_name,
-		    metric_name                                                                 AS metric_name,
-		    db_connection_state                                                         AS state,
-		    sum(value_sum) / nullIf(toFloat64(sum(sample_count)), 0)          AS val_avg
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end
-		  AND metric_name IN (@countMetric, @maxMetric)
-		  %s
-		GROUP BY time_bucket, pool_name, metric_name, state
-	`, bucketExpr(startMs, endMs), table, fc)
-	args := append(shared.BaseParams(teamID, startMs, endMs),
-		clickhouse.Named("countMetric", shared.MetricDBConnectionCount),
-		clickhouse.Named("maxMetric", shared.MetricDBConnectionMax),
-	)
-	args = append(args, fargs...)
-	var metricRows []struct {
-		TimeBucket string  `ch:"time_bucket"`
-		PoolName   string  `ch:"pool_name"`
-		MetricName string  `ch:"metric_name"`
-		State      string  `ch:"state"`
-		ValAvg     float64 `ch:"val_avg"`
-	}
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connections.GetConnectionUtilization", &metricRows, query, args...); err != nil {
-		return nil, err
-	}
-	type key struct{ bucket, pool string }
-	type agg struct {
-		used, max *float64
-	}
-	folded := map[key]*agg{}
-	for _, mr := range metricRows {
-		k := key{mr.TimeBucket, mr.PoolName}
-		a, ok := folded[k]
-		if !ok {
-			a = &agg{}
-			folded[k] = a
-		}
-		v := mr.ValAvg
-		switch {
-		case mr.MetricName == shared.MetricDBConnectionCount && mr.State == "used":
-			a.used = &v
-		case mr.MetricName == shared.MetricDBConnectionMax:
-			a.max = &v
-		}
-	}
-	rows := make([]ConnectionUtilPoint, 0, len(folded))
-	for k, a := range folded {
-		pt := ConnectionUtilPoint{TimeBucket: k.bucket, PoolName: k.pool}
-		if a.used != nil && a.max != nil && *a.max > 0 {
-			u := *a.used / *a.max * 100.0
-			pt.UtilPct = &u
-		}
-		rows = append(rows, pt)
-	}
-	return rows, nil
+type histRawDTO struct {
+	Timestamp time.Time `ch:"timestamp"`
+	PoolName  string    `ch:"pool_name"`
+	Buckets   []float64 `ch:"hist_buckets"`
+	Counts    []uint64  `ch:"hist_counts"`
 }
 
-func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionLimits, error) {
-	table := "observability.spans"
-	fc, fargs := "", []any{}
-	query := fmt.Sprintf(`
-		SELECT
-		    pool_name                                                                   AS pool_name,
-		    metric_name                                                                 AS metric_name,
-		    sum(value_sum) / nullIf(toFloat64(sum(sample_count)), 0)          AS val_avg
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end
-		  AND metric_name IN (@maxMetric, @idleMax, @idleMin)
-		  %s
-		GROUP BY pool_name, metric_name
-		ORDER BY pool_name
-	`, table, fc)
-	args := append(shared.BaseParams(teamID, startMs, endMs),
-		clickhouse.Named("maxMetric", shared.MetricDBConnectionMax),
-		clickhouse.Named("idleMax", shared.MetricDBConnectionIdleMax),
-		clickhouse.Named("idleMin", shared.MetricDBConnectionIdleMin),
-	)
-	args = append(args, fargs...)
-	var metricRows []struct {
-		PoolName   string  `ch:"pool_name"`
-		MetricName string  `ch:"metric_name"`
-		ValAvg     float64 `ch:"val_avg"`
-	}
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connections.GetConnectionLimits", &metricRows, query, args...); err != nil {
-		return nil, err
-	}
-	out := map[string]*ConnectionLimits{}
-	for _, mr := range metricRows {
-		lim, ok := out[mr.PoolName]
-		if !ok {
-			lim = &ConnectionLimits{PoolName: mr.PoolName}
-			out[mr.PoolName] = lim
-		}
-		v := mr.ValAvg
-		switch mr.MetricName {
-		case shared.MetricDBConnectionMax:
-			lim.Max = &v
-		case shared.MetricDBConnectionIdleMax:
-			lim.IdleMax = &v
-		case shared.MetricDBConnectionIdleMin:
-			lim.IdleMin = &v
-		}
-	}
-	rows := make([]ConnectionLimits, 0, len(out))
-	for _, lim := range out {
-		rows = append(rows, *lim)
-	}
-	return rows, nil
+// GetConnectionCountSeries reads `db.client.connection.count` (gauge by state).
+func (r *ClickHouseRepository) GetConnectionCountSeries(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]gaugeStateRawDTO, error) {
+	return r.gaugeWithStateOne(ctx, teamID, startMs, endMs, f, filter.MetricDBConnectionCount, "connections.GetConnectionCountSeries")
 }
 
-func (r *ClickHouseRepository) GetPendingRequests(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PendingRequestsPoint, error) {
-	table := "observability.spans"
-	fc, fargs := shared.RollupFilterClauses(f)
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                                                          AS time_bucket,
-		    pool_name                                                                   AS pool_name,
-		    sum(value_sum) / nullIf(toFloat64(sum(sample_count)), 0)          AS count
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end
-		  AND metric_name = @metricName
-		  %s
-		GROUP BY time_bucket, pool_name
-		ORDER BY time_bucket, pool_name
-	`, bucketExpr(startMs, endMs), table, fc)
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBConnectionPendReqs), fargs...)
-	var rows []PendingRequestsPoint
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connections.GetPendingRequests", &rows, query, args...)
+// GetConnectionUtilization fetches both `count` and `max` together; service
+// computes utilization = used/max per (display_bucket, pool).
+func (r *ClickHouseRepository) GetConnectionUtilization(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]gaugeStateRawDTO, error) {
+	return r.gaugeWithStateMulti(ctx, teamID, startMs, endMs, f,
+		[]string{filter.MetricDBConnectionCount, filter.MetricDBConnectionMax},
+		"connections.GetConnectionUtilization")
 }
 
-func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ConnectionTimeoutPoint, error) {
-	table := "observability.spans"
-	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
-	fc, fargs := shared.RollupFilterClauses(f)
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                                  AS time_bucket,
-		    pool_name                                           AS pool_name,
-		    toFloat64(sum(value_sum)) / %f                 AS timeout_rate
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end
-		  AND metric_name = @metricName
-		  %s
-		GROUP BY time_bucket, pool_name
-		ORDER BY time_bucket, pool_name
-	`, bucketExpr(startMs, endMs), bucketSec, table, fc)
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBConnectionTimeouts), fargs...)
-	var rows []ConnectionTimeoutPoint
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connections.GetConnectionTimeoutRate", &rows, query, args...)
+// GetConnectionLimits fetches `max` + `idle.max` + `idle.min` together;
+// service folds to one row per pool with all three columns.
+func (r *ClickHouseRepository) GetConnectionLimits(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]gaugeStateRawDTO, error) {
+	return r.gaugeWithStateMulti(ctx, teamID, startMs, endMs, f,
+		[]string{filter.MetricDBConnectionMax, filter.MetricDBConnectionIdleMax, filter.MetricDBConnectionIdleMin},
+		"connections.GetConnectionLimits")
 }
 
-func (r *ClickHouseRepository) poolLatency(ctx context.Context, teamID int64, startMs, endMs int64, metricName string, f shared.Filters) ([]PoolLatencyPoint, error) {
-	table := "observability.spans"
-	tierStep := int64(1)
-	fc, fargs := shared.RollupFilterClauses(f)
-
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                                                          AS time_bucket,
-		    pool_name                                                                   AS pool_name,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) * 1000  AS p50_ms,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) * 1000  AS p95_ms,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) * 1000  AS p99_ms
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end
-		  AND metric_name = @metricName
-		  %s
-		GROUP BY time_bucket, pool_name
-		ORDER BY time_bucket, pool_name
-	`, shared.BucketTimeExpr, table, fc)
-
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, metricName),
-		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
-	)
-	args = append(args, fargs...)
-	var rows []PoolLatencyPoint
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "connections.poolLatency", &rows, query, args...); err != nil {
-		return nil, err
-	}
-	return rows, nil
+func (r *ClickHouseRepository) GetPendingRequests(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]gaugeRawDTO, error) {
+	return r.gaugeNoState(ctx, teamID, startMs, endMs, f, filter.MetricDBConnectionPendReqs, "connections.GetPendingRequests")
 }
 
-func (r *ClickHouseRepository) GetConnectionWaitTime(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PoolLatencyPoint, error) {
-	return r.poolLatency(ctx, teamID, startMs, endMs, shared.MetricDBConnectionWaitTime, f)
+// GetConnectionTimeoutRate reads `db.client.connection.timeouts` (counter);
+// service Go-side folds into per-(display_bucket, pool) sums and divides by
+// display-grain seconds for per-second rate.
+func (r *ClickHouseRepository) GetConnectionTimeoutRate(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]gaugeRawDTO, error) {
+	return r.gaugeNoState(ctx, teamID, startMs, endMs, f, filter.MetricDBConnectionTimeouts, "connections.GetConnectionTimeoutRate")
 }
 
-func (r *ClickHouseRepository) GetConnectionCreateTime(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PoolLatencyPoint, error) {
-	return r.poolLatency(ctx, teamID, startMs, endMs, shared.MetricDBConnectionCreateTime, f)
+func (r *ClickHouseRepository) GetConnectionWaitTime(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]histRawDTO, error) {
+	return r.poolHistogram(ctx, teamID, startMs, endMs, f, filter.MetricDBConnectionWaitTime, "connections.GetConnectionWaitTime")
 }
 
-func (r *ClickHouseRepository) GetConnectionUseTime(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]PoolLatencyPoint, error) {
-	return r.poolLatency(ctx, teamID, startMs, endMs, shared.MetricDBConnectionUseTime, f)
+func (r *ClickHouseRepository) GetConnectionCreateTime(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]histRawDTO, error) {
+	return r.poolHistogram(ctx, teamID, startMs, endMs, f, filter.MetricDBConnectionCreateTime, "connections.GetConnectionCreateTime")
+}
+
+func (r *ClickHouseRepository) GetConnectionUseTime(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]histRawDTO, error) {
+	return r.poolHistogram(ctx, teamID, startMs, endMs, f, filter.MetricDBConnectionUseTime, "connections.GetConnectionUseTime")
+}
+
+// ---------------------------------------------------------------------------
+// Internal query templates — three shapes (gauge-with-state, gauge-no-state,
+// histogram). Stable bind names so identical predicate sets produce
+// byte-identical SQL.
+// ---------------------------------------------------------------------------
+
+func (r *ClickHouseRepository) gaugeWithStateOne(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, metricName, traceLabel string) ([]gaugeStateRawDTO, error) {
+	filterWhere, filterArgs := filter.BuildMetricClauses(f)
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name = @metricName
+		)
+		SELECT timestamp                                                       AS timestamp,
+		       metric_name                                                     AS metric_name,
+		       attributes.'pool.name'::String                                  AS pool_name,
+		       attributes.'db.client.connection.state'::String                 AS state,
+		       value                                                           AS value
+		FROM observability.metrics
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint    IN active_fps
+		     AND metric_name    = @metricName
+		WHERE timestamp BETWEEN @start AND @end`
+	args := append(filter.MetricArgs(teamID, startMs, endMs, metricName), filterArgs...)
+	full := query + filterWhere
+	var rows []gaugeStateRawDTO
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, traceLabel, &rows, full, args...)
+}
+
+func (r *ClickHouseRepository) gaugeWithStateMulti(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, metricNames []string, traceLabel string) ([]gaugeStateRawDTO, error) {
+	filterWhere, filterArgs := filter.BuildMetricClauses(f)
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name IN @metricNames
+		)
+		SELECT timestamp                                                       AS timestamp,
+		       metric_name                                                     AS metric_name,
+		       attributes.'pool.name'::String                                  AS pool_name,
+		       attributes.'db.client.connection.state'::String                 AS state,
+		       value                                                           AS value
+		FROM observability.metrics
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint    IN active_fps
+		     AND metric_name    IN @metricNames
+		WHERE timestamp BETWEEN @start AND @end`
+	args := append(filter.MetricArgsMulti(teamID, startMs, endMs, metricNames), filterArgs...)
+	full := query + filterWhere
+	var rows []gaugeStateRawDTO
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, traceLabel, &rows, full, args...)
+}
+
+func (r *ClickHouseRepository) gaugeNoState(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, metricName, traceLabel string) ([]gaugeRawDTO, error) {
+	filterWhere, filterArgs := filter.BuildMetricClauses(f)
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name = @metricName
+		)
+		SELECT timestamp                              AS timestamp,
+		       attributes.'pool.name'::String          AS pool_name,
+		       value                                   AS value
+		FROM observability.metrics
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint    IN active_fps
+		     AND metric_name    = @metricName
+		WHERE timestamp BETWEEN @start AND @end`
+	args := append(filter.MetricArgs(teamID, startMs, endMs, metricName), filterArgs...)
+	full := query + filterWhere
+	var rows []gaugeRawDTO
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, traceLabel, &rows, full, args...)
+}
+
+func (r *ClickHouseRepository) poolHistogram(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, metricName, traceLabel string) ([]histRawDTO, error) {
+	filterWhere, filterArgs := filter.BuildMetricClauses(f)
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name = @metricName
+		)
+		SELECT timestamp                              AS timestamp,
+		       attributes.'pool.name'::String          AS pool_name,
+		       hist_buckets                            AS hist_buckets,
+		       hist_counts                             AS hist_counts
+		FROM observability.metrics
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint    IN active_fps
+		     AND metric_name    = @metricName
+		WHERE timestamp BETWEEN @start AND @end
+		  AND metric_type = 'Histogram'`
+	args := append(filter.MetricArgs(teamID, startMs, endMs, metricName), filterArgs...)
+	full := query + filterWhere
+	var rows []histRawDTO
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, traceLabel, &rows, full, args...)
 }

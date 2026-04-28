@@ -1,6 +1,16 @@
 package kafka
 
-import "context"
+import (
+	"cmp"
+	"context"
+	"math"
+	"slices"
+	"strconv"
+	"time"
+
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/quantile"
+)
 
 type KafkaService struct {
 	repo *ClickHouseRepository
@@ -10,82 +20,669 @@ func NewService(repo *ClickHouseRepository) *KafkaService {
 	return &KafkaService{repo: repo}
 }
 
-func (s *KafkaService) GetKafkaSummaryStats(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) (KafkaSummaryStats, error) {
-	return s.repo.GetKafkaSummaryStats(ctx, teamID, startMs, endMs, f)
+// Summary stats — 5 repo calls composed into one scalar response.
+
+func (s *KafkaService) GetKafkaSummaryStats(ctx context.Context, teamID int64, startMs, endMs int64) (KafkaSummaryStats, error) {
+	durationSecs := float64(endMs-startMs) / 1000.0
+	if durationSecs <= 0 {
+		durationSecs = 1.0
+	}
+	stats := KafkaSummaryStats{}
+
+	publishCount, err := s.repo.QueryCounterAgg(ctx, teamID, startMs, endMs, ProducerMetrics)
+	if err != nil {
+		return stats, err
+	}
+	receiveCount, err := s.repo.QueryCounterAgg(ctx, teamID, startMs, endMs, ConsumerMetrics)
+	if err != nil {
+		return stats, err
+	}
+	maxLag, err := s.repo.QueryGaugeMax(ctx, teamID, startMs, endMs, ConsumerLagMetrics)
+	if err != nil {
+		return stats, err
+	}
+	publishHist, err := s.repo.QueryHistogramAgg(ctx, teamID, startMs, endMs, MetricPublishDuration)
+	if err != nil {
+		return stats, err
+	}
+	receiveHist, err := s.repo.QueryHistogramAgg(ctx, teamID, startMs, endMs, MetricReceiveDuration)
+	if err != nil {
+		return stats, err
+	}
+
+	stats.PublishRatePerSec = publishCount.Sum / durationSecs
+	stats.ReceiveRatePerSec = receiveCount.Sum / durationSecs
+	stats.MaxLag = maxLag.Max
+	stats.PublishP95Ms = quantile.FromHistogram(publishHist.Buckets, publishHist.Counts, 0.95)
+	stats.ReceiveP95Ms = quantile.FromHistogram(receiveHist.Buckets, receiveHist.Counts, 0.95)
+	return stats, nil
 }
 
-func (s *KafkaService) GetProduceRateByTopic(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicRatePoint, error) {
-	return s.repo.GetProduceRateByTopic(ctx, teamID, startMs, endMs, f)
+// Rate panels — counter sum per (bucket, dim) divided by bucket-grain seconds.
+
+func (s *KafkaService) GetProduceRateByTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopicRatePoint, error) {
+	rows, err := s.repo.QueryCounterSeriesByTopic(ctx, teamID, startMs, endMs, ProducerMetrics)
+	if err != nil {
+		return nil, err
+	}
+	folds := foldCounterRateByDim(rows,
+		func(r TopicCounterRow) time.Time { return r.Timestamp },
+		func(r TopicCounterRow) string { return r.Topic },
+		func(r TopicCounterRow) float64 { return r.Value },
+		startMs, endMs)
+	out := make([]TopicRatePoint, len(folds))
+	for i, fld := range folds {
+		out[i] = TopicRatePoint{Timestamp: formatTime(fld.ts), Topic: fld.dim, RatePerSec: fld.rate}
+	}
+	return out, nil
 }
 
-func (s *KafkaService) GetPublishLatencyByTopic(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicLatencyPoint, error) {
-	return s.repo.GetPublishLatencyByTopic(ctx, teamID, startMs, endMs, f)
+func (s *KafkaService) GetConsumeRateByTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopicRatePoint, error) {
+	rows, err := s.repo.QueryCounterSeriesByTopic(ctx, teamID, startMs, endMs, ConsumerMetrics)
+	if err != nil {
+		return nil, err
+	}
+	folds := foldCounterRateByDim(rows,
+		func(r TopicCounterRow) time.Time { return r.Timestamp },
+		func(r TopicCounterRow) string { return r.Topic },
+		func(r TopicCounterRow) float64 { return r.Value },
+		startMs, endMs)
+	out := make([]TopicRatePoint, len(folds))
+	for i, fld := range folds {
+		out[i] = TopicRatePoint{Timestamp: formatTime(fld.ts), Topic: fld.dim, RatePerSec: fld.rate}
+	}
+	return out, nil
 }
 
-func (s *KafkaService) GetConsumeRateByTopic(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicRatePoint, error) {
-	return s.repo.GetConsumeRateByTopic(ctx, teamID, startMs, endMs, f)
+func (s *KafkaService) GetConsumeRateByGroup(ctx context.Context, teamID int64, startMs, endMs int64) ([]GroupRatePoint, error) {
+	rows, err := s.repo.QueryCounterSeriesByGroup(ctx, teamID, startMs, endMs, ConsumerMetrics)
+	if err != nil {
+		return nil, err
+	}
+	folds := foldCounterRateByDim(rows,
+		func(r GroupCounterRow) time.Time { return r.Timestamp },
+		func(r GroupCounterRow) string { return r.ConsumerGroup },
+		func(r GroupCounterRow) float64 { return r.Value },
+		startMs, endMs)
+	out := make([]GroupRatePoint, len(folds))
+	for i, fld := range folds {
+		out[i] = GroupRatePoint{Timestamp: formatTime(fld.ts), ConsumerGroup: fld.dim, RatePerSec: fld.rate}
+	}
+	return out, nil
 }
 
-func (s *KafkaService) GetReceiveLatencyByTopic(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicLatencyPoint, error) {
-	return s.repo.GetReceiveLatencyByTopic(ctx, teamID, startMs, endMs, f)
+func (s *KafkaService) GetProcessRateByGroup(ctx context.Context, teamID int64, startMs, endMs int64) ([]GroupRatePoint, error) {
+	rows, err := s.repo.QueryCounterSeriesByGroup(ctx, teamID, startMs, endMs, ProcessMetrics)
+	if err != nil {
+		return nil, err
+	}
+	folds := foldCounterRateByDim(rows,
+		func(r GroupCounterRow) time.Time { return r.Timestamp },
+		func(r GroupCounterRow) string { return r.ConsumerGroup },
+		func(r GroupCounterRow) float64 { return r.Value },
+		startMs, endMs)
+	out := make([]GroupRatePoint, len(folds))
+	for i, fld := range folds {
+		out[i] = GroupRatePoint{Timestamp: formatTime(fld.ts), ConsumerGroup: fld.dim, RatePerSec: fld.rate}
+	}
+	return out, nil
 }
 
-func (s *KafkaService) GetConsumeRateByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupRatePoint, error) {
-	return s.repo.GetConsumeRateByGroup(ctx, teamID, startMs, endMs, f)
+// Latency panels — merge histograms per (bucket, dim) then quantile.FromHistogram.
+
+func (s *KafkaService) GetPublishLatencyByTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopicLatencyPoint, error) {
+	rows, err := s.repo.QueryHistogramSeriesByTopic(ctx, teamID, startMs, endMs, MetricPublishDuration, publishOperationAliases)
+	if err != nil {
+		return nil, err
+	}
+	folds := foldHistogramByDim(rows,
+		func(r TopicHistogramRow) time.Time { return r.Timestamp },
+		func(r TopicHistogramRow) string { return r.Topic },
+		func(r TopicHistogramRow) ([]float64, []uint64) { return r.HistBuckets, r.HistCounts },
+		startMs, endMs)
+	out := make([]TopicLatencyPoint, len(folds))
+	for i, fld := range folds {
+		out[i] = TopicLatencyPoint{Timestamp: formatTime(fld.ts), Topic: fld.dim, P50Ms: fld.p50, P95Ms: fld.p95, P99Ms: fld.p99}
+	}
+	return out, nil
 }
 
-func (s *KafkaService) GetProcessRateByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupRatePoint, error) {
-	return s.repo.GetProcessRateByGroup(ctx, teamID, startMs, endMs, f)
+func (s *KafkaService) GetReceiveLatencyByTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopicLatencyPoint, error) {
+	rows, err := s.repo.QueryHistogramSeriesByTopic(ctx, teamID, startMs, endMs, MetricReceiveDuration, receiveOperationAliases)
+	if err != nil {
+		return nil, err
+	}
+	folds := foldHistogramByDim(rows,
+		func(r TopicHistogramRow) time.Time { return r.Timestamp },
+		func(r TopicHistogramRow) string { return r.Topic },
+		func(r TopicHistogramRow) ([]float64, []uint64) { return r.HistBuckets, r.HistCounts },
+		startMs, endMs)
+	out := make([]TopicLatencyPoint, len(folds))
+	for i, fld := range folds {
+		out[i] = TopicLatencyPoint{Timestamp: formatTime(fld.ts), Topic: fld.dim, P50Ms: fld.p50, P95Ms: fld.p95, P99Ms: fld.p99}
+	}
+	return out, nil
 }
 
-func (s *KafkaService) GetProcessLatencyByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupLatencyPoint, error) {
-	return s.repo.GetProcessLatencyByGroup(ctx, teamID, startMs, endMs, f)
+func (s *KafkaService) GetProcessLatencyByGroup(ctx context.Context, teamID int64, startMs, endMs int64) ([]GroupLatencyPoint, error) {
+	rows, err := s.repo.QueryHistogramSeriesByGroup(ctx, teamID, startMs, endMs, MetricProcessDuration, processOperationAliases)
+	if err != nil {
+		return nil, err
+	}
+	folds := foldHistogramByDim(rows,
+		func(r GroupHistogramRow) time.Time { return r.Timestamp },
+		func(r GroupHistogramRow) string { return r.ConsumerGroup },
+		func(r GroupHistogramRow) ([]float64, []uint64) { return r.HistBuckets, r.HistCounts },
+		startMs, endMs)
+	out := make([]GroupLatencyPoint, len(folds))
+	for i, fld := range folds {
+		out[i] = GroupLatencyPoint{Timestamp: formatTime(fld.ts), ConsumerGroup: fld.dim, P50Ms: fld.p50, P95Ms: fld.p95, P99Ms: fld.p99}
+	}
+	return out, nil
 }
 
-func (s *KafkaService) GetConsumerLagByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]LagPoint, error) {
-	return s.repo.GetConsumerLagByGroup(ctx, teamID, startMs, endMs, f)
+func (s *KafkaService) GetClientOperationDuration(ctx context.Context, teamID int64, startMs, endMs int64) ([]ClientOpDurationPoint, error) {
+	rows, err := s.repo.QueryHistogramSeriesByOperation(ctx, teamID, startMs, endMs, MetricClientOperationDuration)
+	if err != nil {
+		return nil, err
+	}
+	folds := foldHistogramByDim(rows,
+		func(r OperationHistogramRow) time.Time { return r.Timestamp },
+		func(r OperationHistogramRow) string { return r.OperationName },
+		func(r OperationHistogramRow) ([]float64, []uint64) { return r.HistBuckets, r.HistCounts },
+		startMs, endMs)
+	out := make([]ClientOpDurationPoint, len(folds))
+	for i, fld := range folds {
+		out[i] = ClientOpDurationPoint{Timestamp: formatTime(fld.ts), OperationName: fld.dim, P50Ms: fld.p50, P95Ms: fld.p95, P99Ms: fld.p99}
+	}
+	return out, nil
 }
 
-func (s *KafkaService) GetConsumerLagPerPartition(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]PartitionLag, error) {
-	return s.repo.GetConsumerLagPerPartition(ctx, teamID, startMs, endMs, f)
+// E2E latency — 1 query, 3 metrics, fold per (bucket, topic, metric_name).
+
+func (s *KafkaService) GetE2ELatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]E2ELatencyPoint, error) {
+	rows, err := s.repo.QueryHistogramSeriesByMetricAndTopic(ctx, teamID, startMs, endMs,
+		[]string{MetricPublishDuration, MetricReceiveDuration, MetricProcessDuration})
+	if err != nil {
+		return nil, err
+	}
+	type key struct {
+		ts    time.Time
+		topic string
+	}
+	type triple struct {
+		publish, receive, process histAcc
+	}
+	acc := map[key]*triple{}
+	windowMs := endMs - startMs
+	for _, r := range rows {
+		k := key{ts: timebucket.DisplayBucket(r.Timestamp.Unix(), windowMs), topic: r.Topic}
+		t, ok := acc[k]
+		if !ok {
+			t = &triple{}
+			acc[k] = t
+		}
+		switch r.MetricName {
+		case MetricPublishDuration:
+			t.publish.merge(r.HistBuckets, r.HistCounts)
+		case MetricReceiveDuration:
+			t.receive.merge(r.HistBuckets, r.HistCounts)
+		case MetricProcessDuration:
+			t.process.merge(r.HistBuckets, r.HistCounts)
+		}
+	}
+	out := make([]E2ELatencyPoint, 0, len(acc))
+	for k, t := range acc {
+		out = append(out, E2ELatencyPoint{
+			Timestamp:    formatTime(k.ts),
+			Topic:        k.topic,
+			PublishP95Ms: t.publish.quantile(0.95),
+			ReceiveP95Ms: t.receive.quantile(0.95),
+			ProcessP95Ms: t.process.quantile(0.95),
+		})
+	}
+	slices.SortFunc(out, func(a, b E2ELatencyPoint) int {
+		if c := cmp.Compare(a.Timestamp, b.Timestamp); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Topic, b.Topic)
+	})
+	return out, nil
 }
 
-func (s *KafkaService) GetRebalanceSignals(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]RebalancePoint, error) {
-	return s.repo.GetRebalanceSignals(ctx, teamID, startMs, endMs, f)
+// Lag panels.
+
+func (s *KafkaService) GetConsumerLagByGroup(ctx context.Context, teamID int64, startMs, endMs int64) ([]LagPoint, error) {
+	rows, err := s.repo.QueryGaugeSeriesByGroupTopic(ctx, teamID, startMs, endMs, ConsumerLagMetrics)
+	if err != nil {
+		return nil, err
+	}
+	type key struct {
+		ts    time.Time
+		group string
+		topic string
+	}
+	type avg struct{ sum, count float64 }
+	acc := map[key]*avg{}
+	windowMs := endMs - startMs
+	for _, r := range rows {
+		k := key{ts: timebucket.DisplayBucket(r.Timestamp.Unix(), windowMs), group: r.ConsumerGroup, topic: r.Topic}
+		x, ok := acc[k]
+		if !ok {
+			x = &avg{}
+			acc[k] = x
+		}
+		x.sum += r.Value
+		x.count++
+	}
+	out := make([]LagPoint, 0, len(acc))
+	for k, x := range acc {
+		var lag float64
+		if x.count > 0 {
+			lag = x.sum / x.count
+		}
+		out = append(out, LagPoint{
+			Timestamp:     formatTime(k.ts),
+			ConsumerGroup: k.group,
+			Topic:         k.topic,
+			Lag:           lag,
+		})
+	}
+	slices.SortFunc(out, func(a, b LagPoint) int {
+		if c := cmp.Compare(a.Timestamp, b.Timestamp); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.ConsumerGroup, b.ConsumerGroup)
+	})
+	return out, nil
 }
 
-func (s *KafkaService) GetE2ELatency(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]E2ELatencyPoint, error) {
-	return s.repo.GetE2ELatency(ctx, teamID, startMs, endMs, f)
+func (s *KafkaService) GetConsumerLagPerPartition(ctx context.Context, teamID int64, startMs, endMs int64) ([]PartitionLag, error) {
+	rows, err := s.repo.QueryPartitionLagSnapshot(ctx, teamID, startMs, endMs, ConsumerLagMetrics)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PartitionLag, 0, len(rows))
+	for _, r := range rows {
+		partition, _ := strconv.ParseInt(r.Partition, 10, 64)
+		out = append(out, PartitionLag{
+			Topic:         r.Topic,
+			Partition:     partition,
+			ConsumerGroup: r.ConsumerGroup,
+			Lag:           int64(r.Lag),
+		})
+	}
+	return out, nil
 }
 
-func (s *KafkaService) GetPublishErrors(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
-	return s.repo.GetPublishErrors(ctx, teamID, startMs, endMs, f)
+// Rebalance signals — 1 query, 6 metrics, fold per (bucket, group).
+
+func (s *KafkaService) GetRebalanceSignals(ctx context.Context, teamID int64, startMs, endMs int64) ([]RebalancePoint, error) {
+	rows, err := s.repo.QueryRebalanceSignals(ctx, teamID, startMs, endMs, RebalanceMetrics)
+	if err != nil {
+		return nil, err
+	}
+	type key struct {
+		ts    time.Time
+		group string
+	}
+	type acc struct {
+		rebalance, join, sync, heartbeat, failed float64
+		assignedSum                              float64
+		assignedCount                            int
+	}
+	agg := map[key]*acc{}
+	windowMs := endMs - startMs
+	for _, r := range rows {
+		k := key{ts: timebucket.DisplayBucket(r.Timestamp.Unix(), windowMs), group: r.ConsumerGroup}
+		x, ok := agg[k]
+		if !ok {
+			x = &acc{}
+			agg[k] = x
+		}
+		switch r.MetricName {
+		case MetricRebalanceCount:
+			x.rebalance += r.Value
+		case MetricJoinCount:
+			x.join += r.Value
+		case MetricSyncCount:
+			x.sync += r.Value
+		case MetricHeartbeatCount:
+			x.heartbeat += r.Value
+		case MetricFailedHeartbeatCount:
+			x.failed += r.Value
+		case MetricAssignedPartitions:
+			x.assignedSum += r.Value
+			x.assignedCount++
+		}
+	}
+	bucketSecs := timebucket.DisplayGrain(windowMs).Seconds()
+	if bucketSecs <= 0 {
+		bucketSecs = 1
+	}
+	out := make([]RebalancePoint, 0, len(agg))
+	for k, x := range agg {
+		var assigned float64
+		if x.assignedCount > 0 {
+			assigned = x.assignedSum / float64(x.assignedCount)
+		}
+		out = append(out, RebalancePoint{
+			Timestamp:           formatTime(k.ts),
+			ConsumerGroup:       k.group,
+			RebalanceRate:       x.rebalance / bucketSecs,
+			JoinRate:            x.join / bucketSecs,
+			SyncRate:            x.sync / bucketSecs,
+			HeartbeatRate:       x.heartbeat / bucketSecs,
+			FailedHeartbeatRate: x.failed / bucketSecs,
+			AssignedPartitions:  assigned,
+		})
+	}
+	slices.SortFunc(out, func(a, b RebalancePoint) int {
+		if c := cmp.Compare(a.Timestamp, b.Timestamp); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.ConsumerGroup, b.ConsumerGroup)
+	})
+	return out, nil
 }
 
-func (s *KafkaService) GetConsumeErrors(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
-	return s.repo.GetConsumeErrors(ctx, teamID, startMs, endMs, f)
+// Error panels — counter sums per (bucket, dim, error_type) divided by bucket secs.
+
+func (s *KafkaService) GetPublishErrors(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorRatePoint, error) {
+	rows, err := s.repo.QueryCounterErrorsByTopic(ctx, teamID, startMs, endMs, MetricPublishMessages)
+	if err != nil {
+		return nil, err
+	}
+	folds := foldErrorRateByPair(rows,
+		func(r TopicErrorCounterRow) time.Time { return r.Timestamp },
+		func(r TopicErrorCounterRow) string { return r.Topic },
+		func(r TopicErrorCounterRow) string { return r.ErrorType },
+		func(r TopicErrorCounterRow) float64 { return r.Value },
+		startMs, endMs)
+	out := make([]ErrorRatePoint, len(folds))
+	for i, fld := range folds {
+		out[i] = ErrorRatePoint{Timestamp: formatTime(fld.ts), Topic: fld.dim, ErrorType: fld.errorType, ErrorRate: fld.rate}
+	}
+	return out, nil
 }
 
-func (s *KafkaService) GetProcessErrors(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
-	return s.repo.GetProcessErrors(ctx, teamID, startMs, endMs, f)
+func (s *KafkaService) GetConsumeErrors(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorRatePoint, error) {
+	rows, err := s.repo.QueryCounterErrorsByGroup(ctx, teamID, startMs, endMs, MetricReceiveMessages)
+	if err != nil {
+		return nil, err
+	}
+	folds := foldErrorRateByPair(rows,
+		func(r GroupErrorCounterRow) time.Time { return r.Timestamp },
+		func(r GroupErrorCounterRow) string { return r.ConsumerGroup },
+		func(r GroupErrorCounterRow) string { return r.ErrorType },
+		func(r GroupErrorCounterRow) float64 { return r.Value },
+		startMs, endMs)
+	out := make([]ErrorRatePoint, len(folds))
+	for i, fld := range folds {
+		out[i] = ErrorRatePoint{Timestamp: formatTime(fld.ts), ConsumerGroup: fld.dim, ErrorType: fld.errorType, ErrorRate: fld.rate}
+	}
+	return out, nil
 }
 
-func (s *KafkaService) GetClientOpErrors(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
-	return s.repo.GetClientOpErrors(ctx, teamID, startMs, endMs, f)
+func (s *KafkaService) GetProcessErrors(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorRatePoint, error) {
+	rows, err := s.repo.QueryCounterErrorsByGroup(ctx, teamID, startMs, endMs, MetricProcessMessages)
+	if err != nil {
+		return nil, err
+	}
+	folds := foldErrorRateByPair(rows,
+		func(r GroupErrorCounterRow) time.Time { return r.Timestamp },
+		func(r GroupErrorCounterRow) string { return r.ConsumerGroup },
+		func(r GroupErrorCounterRow) string { return r.ErrorType },
+		func(r GroupErrorCounterRow) float64 { return r.Value },
+		startMs, endMs)
+	out := make([]ErrorRatePoint, len(folds))
+	for i, fld := range folds {
+		out[i] = ErrorRatePoint{Timestamp: formatTime(fld.ts), ConsumerGroup: fld.dim, ErrorType: fld.errorType, ErrorRate: fld.rate}
+	}
+	return out, nil
 }
 
-func (s *KafkaService) GetBrokerConnections(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]BrokerConnectionPoint, error) {
-	return s.repo.GetBrokerConnections(ctx, teamID, startMs, endMs, f)
+func (s *KafkaService) GetClientOpErrors(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorRatePoint, error) {
+	rows, err := s.repo.QueryHistogramCountErrorsByOperation(ctx, teamID, startMs, endMs, MetricClientOperationDuration)
+	if err != nil {
+		return nil, err
+	}
+	folds := foldErrorRateByPair(rows,
+		func(r OperationErrorCounterRow) time.Time { return r.Timestamp },
+		func(r OperationErrorCounterRow) string { return r.OperationName },
+		func(r OperationErrorCounterRow) string { return r.ErrorType },
+		func(r OperationErrorCounterRow) float64 { return r.Value },
+		startMs, endMs)
+	out := make([]ErrorRatePoint, len(folds))
+	for i, fld := range folds {
+		out[i] = ErrorRatePoint{Timestamp: formatTime(fld.ts), OperationName: fld.dim, ErrorType: fld.errorType, ErrorRate: fld.rate}
+	}
+	return out, nil
 }
 
-func (s *KafkaService) GetClientOperationDuration(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ClientOpDurationPoint, error) {
-	return s.repo.GetClientOperationDuration(ctx, teamID, startMs, endMs, f)
+// Broker connections — gauge avg per (bucket, broker).
+
+func (s *KafkaService) GetBrokerConnections(ctx context.Context, teamID int64, startMs, endMs int64) ([]BrokerConnectionPoint, error) {
+	rows, err := s.repo.QueryGaugeSeriesByBroker(ctx, teamID, startMs, endMs, MetricClientConnections)
+	if err != nil {
+		return nil, err
+	}
+	type key struct {
+		ts     time.Time
+		broker string
+	}
+	type avg struct{ sum, count float64 }
+	acc := map[key]*avg{}
+	windowMs := endMs - startMs
+	for _, r := range rows {
+		k := key{ts: timebucket.DisplayBucket(r.Timestamp.Unix(), windowMs), broker: r.Broker}
+		x, ok := acc[k]
+		if !ok {
+			x = &avg{}
+			acc[k] = x
+		}
+		x.sum += r.Value
+		x.count++
+	}
+	out := make([]BrokerConnectionPoint, 0, len(acc))
+	for k, x := range acc {
+		var v float64
+		if x.count > 0 {
+			v = x.sum / x.count
+		}
+		out = append(out, BrokerConnectionPoint{
+			Timestamp:   formatTime(k.ts),
+			Broker:      k.broker,
+			Connections: v,
+		})
+	}
+	slices.SortFunc(out, func(a, b BrokerConnectionPoint) int {
+		if c := cmp.Compare(a.Timestamp, b.Timestamp); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.Broker, b.Broker)
+	})
+	return out, nil
 }
 
-func (s *KafkaService) GetConsumerMetricSamples(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters, metricNames []string) ([]ConsumerMetricSample, error) {
-	return s.repo.GetConsumerMetricSamples(ctx, teamID, startMs, endMs, f, metricNames)
+// Sample queries — used by saturation/database/explorer for snapshot tables.
+// Pure delegation: argMax pushes "latest by key" into SQL so the repo returns
+// one row per (dim, metric) tuple.
+
+func (s *KafkaService) GetConsumerMetricSamples(ctx context.Context, teamID int64, startMs, endMs int64, metricNames []string) ([]ConsumerMetricSample, error) {
+	return s.repo.QueryConsumerMetricSamples(ctx, teamID, startMs, endMs, metricNames)
 }
 
-func (s *KafkaService) GetTopicMetricSamples(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters, metricNames []string) ([]TopicMetricSample, error) {
-	return s.repo.GetTopicMetricSamples(ctx, teamID, startMs, endMs, f, metricNames)
+func (s *KafkaService) GetTopicMetricSamples(ctx context.Context, teamID int64, startMs, endMs int64, metricNames []string) ([]TopicMetricSample, error) {
+	return s.repo.QueryTopicMetricSamples(ctx, teamID, startMs, endMs, metricNames)
+}
+
+// Generic folds + helpers.
+
+type counterRateFold struct {
+	ts   time.Time
+	dim  string
+	rate float64
+}
+
+// foldCounterRateByDim sums values per (display_bucket, dim), then divides by
+// the bucket-grain seconds to produce a rate. Caller passes a typed row plus
+// extractor closures so the helper works with TopicCounterRow / GroupCounterRow / etc.
+func foldCounterRateByDim[R any](rows []R, tsOf func(R) time.Time, dimOf func(R) string, valOf func(R) float64, startMs, endMs int64) []counterRateFold {
+	type key struct {
+		ts  time.Time
+		dim string
+	}
+	sums := map[key]float64{}
+	windowMs := endMs - startMs
+	for _, r := range rows {
+		k := key{ts: timebucket.DisplayBucket(tsOf(r).Unix(), windowMs), dim: dimOf(r)}
+		sums[k] += valOf(r)
+	}
+	bucketSecs := timebucket.DisplayGrain(windowMs).Seconds()
+	if bucketSecs <= 0 {
+		bucketSecs = 1
+	}
+	out := make([]counterRateFold, 0, len(sums))
+	for k, v := range sums {
+		out = append(out, counterRateFold{ts: k.ts, dim: k.dim, rate: v / bucketSecs})
+	}
+	slices.SortFunc(out, func(a, b counterRateFold) int {
+		if c := a.ts.Compare(b.ts); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.dim, b.dim)
+	})
+	return out
+}
+
+type errorRateFold struct {
+	ts        time.Time
+	dim       string
+	errorType string
+	rate      float64
+}
+
+// foldErrorRateByPair sums values per (bucket, dim, error_type) and divides
+// by bucket-grain seconds. Used by all four error panels.
+func foldErrorRateByPair[R any](rows []R, tsOf func(R) time.Time, dimOf, errOf func(R) string, valOf func(R) float64, startMs, endMs int64) []errorRateFold {
+	type key struct {
+		ts        time.Time
+		dim       string
+		errorType string
+	}
+	sums := map[key]float64{}
+	windowMs := endMs - startMs
+	for _, r := range rows {
+		k := key{
+			ts:        timebucket.DisplayBucket(tsOf(r).Unix(), windowMs),
+			dim:       dimOf(r),
+			errorType: errOf(r),
+		}
+		sums[k] += valOf(r)
+	}
+	bucketSecs := timebucket.DisplayGrain(windowMs).Seconds()
+	if bucketSecs <= 0 {
+		bucketSecs = 1
+	}
+	out := make([]errorRateFold, 0, len(sums))
+	for k, v := range sums {
+		rate := v / bucketSecs
+		if math.IsNaN(rate) {
+			rate = 0
+		}
+		out = append(out, errorRateFold{ts: k.ts, dim: k.dim, errorType: k.errorType, rate: rate})
+	}
+	slices.SortFunc(out, func(a, b errorRateFold) int {
+		if c := a.ts.Compare(b.ts); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(b.rate, a.rate); c != 0 {
+			return c
+		}
+		if c := cmp.Compare(a.dim, b.dim); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.errorType, b.errorType)
+	})
+	return out
+}
+
+// histAcc merges aligned histogram bucket arrays — counts add, bucket
+// boundaries are assumed identical across rows of the same metric (OTel
+// guarantees this for explicit-bucket histograms with the same view).
+type histAcc struct {
+	buckets []float64
+	counts  []uint64
+}
+
+func (h *histAcc) merge(buckets []float64, counts []uint64) {
+	if len(buckets) == 0 || len(counts) == 0 || len(buckets) != len(counts) {
+		return
+	}
+	if len(h.buckets) == 0 {
+		h.buckets = make([]float64, len(buckets))
+		copy(h.buckets, buckets)
+		h.counts = make([]uint64, len(counts))
+		copy(h.counts, counts)
+		return
+	}
+	if len(h.counts) != len(counts) {
+		return
+	}
+	for i := range counts {
+		h.counts[i] += counts[i]
+	}
+}
+
+func (h *histAcc) quantile(q float64) float64 {
+	return quantile.FromHistogram(h.buckets, h.counts, q)
+}
+
+type latencyFold struct {
+	ts            time.Time
+	dim           string
+	p50, p95, p99 float64
+}
+
+// foldHistogramByDim merges histograms per (display_bucket, dim), then
+// derives P50/P95/P99 from the merged histogram.
+func foldHistogramByDim[R any](rows []R, tsOf func(R) time.Time, dimOf func(R) string, histOf func(R) ([]float64, []uint64), startMs, endMs int64) []latencyFold {
+	type key struct {
+		ts  time.Time
+		dim string
+	}
+	acc := map[key]*histAcc{}
+	windowMs := endMs - startMs
+	for _, r := range rows {
+		k := key{ts: timebucket.DisplayBucket(tsOf(r).Unix(), windowMs), dim: dimOf(r)}
+		h, ok := acc[k]
+		if !ok {
+			h = &histAcc{}
+			acc[k] = h
+		}
+		buckets, counts := histOf(r)
+		h.merge(buckets, counts)
+	}
+	out := make([]latencyFold, 0, len(acc))
+	for k, h := range acc {
+		out = append(out, latencyFold{
+			ts:  k.ts,
+			dim: k.dim,
+			p50: h.quantile(0.50),
+			p95: h.quantile(0.95),
+			p99: h.quantile(0.99),
+		})
+	}
+	slices.SortFunc(out, func(a, b latencyFold) int {
+		if c := a.ts.Compare(b.ts); c != 0 {
+			return c
+		}
+		return cmp.Compare(a.dim, b.dim)
+	})
+	return out
+}
+
+func formatTime(t time.Time) string {
+	return t.UTC().Format("2006-01-02 15:04:05")
 }

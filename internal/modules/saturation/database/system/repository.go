@@ -2,20 +2,23 @@ package system
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-		shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
+// Repository runs the per-DB-system panels. Every method PREWHEREs raw
+// `observability.spans` on `(team_id, ts_bucket, fingerprint IN active_fps)`
+// and pins `db_system = @dbSystem`. Latency methods emit fixed-bucket
+// histogram arrays — service.go interpolates P50/P95/P99 Go-side.
 type Repository interface {
-	GetSystemLatency(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string, f shared.Filters) ([]LatencyTimeSeries, error)
-	GetSystemOps(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string, f shared.Filters) ([]OpsTimeSeries, error)
-	GetSystemTopCollectionsByLatency(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]SystemCollectionRow, error)
-	GetSystemTopCollectionsByVolume(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]SystemCollectionRow, error)
-	GetSystemErrors(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]ErrorTimeSeries, error)
-	GetSystemNamespaces(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]SystemNamespace, error)
+	GetSystemLatency(ctx context.Context, teamID, startMs, endMs int64, dbSystem string, f filter.Filters) ([]latencyRawDTO, error)
+	GetSystemOps(ctx context.Context, teamID, startMs, endMs int64, dbSystem string, f filter.Filters) ([]opsRawDTO, error)
+	GetSystemErrors(ctx context.Context, teamID, startMs, endMs int64, dbSystem string) ([]opsRawDTO, error)
+	GetSystemTopCollectionsByLatency(ctx context.Context, teamID, startMs, endMs int64, dbSystem string) ([]collectionLatencyRawDTO, error)
+	GetSystemTopCollectionsByVolume(ctx context.Context, teamID, startMs, endMs int64, dbSystem string) ([]collectionLatencyRawDTO, error)
+	GetSystemNamespaces(ctx context.Context, teamID, startMs, endMs int64, dbSystem string) ([]SystemNamespace, error)
 }
 
 type ClickHouseRepository struct {
@@ -26,185 +29,149 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-// systemFilter augments the shared rollup filters with a concrete db_system pin.
-func systemFilter(dbSystem string, f shared.Filters) (string, []any) {
-	frag, args := shared.RollupFilterClauses(f)
-	frag += ` AND db_system = @dbSystem`
-	args = append(args, clickhouse.Named("dbSystem", dbSystem))
-	return frag, args
+type latencyRawDTO struct {
+	TimeBucket string   `ch:"time_bucket"`
+	GroupBy    string   `ch:"group_by"`
+	Buckets    []uint64 `ch:"bucket_counts"`
 }
 
-func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string, f shared.Filters) ([]LatencyTimeSeries, error) {
-	table := "observability.spans"
-	tierStep := int64(1)
-	fc, fargs := systemFilter(dbSystem, f)
+type opsRawDTO struct {
+	TimeBucket string `ch:"time_bucket"`
+	GroupBy    string `ch:"group_by"`
+	Count      uint64 `ch:"op_count"`
+}
 
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                                                          AS time_bucket,
-		    db_operation                                                                AS group_by,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) * 1000  AS p50_ms,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) * 1000  AS p95_ms,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) * 1000  AS p99_ms
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end
-		  %s
+type collectionLatencyRawDTO struct {
+	CollectionName string   `ch:"collection_name"`
+	Buckets        []uint64 `ch:"bucket_counts"`
+	Count          uint64   `ch:"op_count"`
+}
+
+func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID, startMs, endMs int64, dbSystem string, f filter.Filters) ([]latencyRawDTO, error) {
+	filterWhere, filterArgs := filter.BuildSpanClauses(f)
+	query := `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT toString(toDateTime(ts_bucket))                       AS time_bucket,
+		       attributes.'db.operation.name'::String                AS group_by,
+		       ` + filter.LatencyBucketCountsSQL() + `               AS bucket_counts
+		FROM observability.spans
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND db_system = @dbSystem` + filterWhere + `
 		GROUP BY time_bucket, group_by
-		ORDER BY time_bucket, group_by
-	`, shared.BucketTimeExpr, table, fc)
+		ORDER BY time_bucket, group_by`
 
-	args := append(shared.BaseParams(teamID, startMs, endMs),
-		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
-	)
-	args = append(args, fargs...)
-	var rows []LatencyTimeSeries
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "system.GetSystemLatency", &rows, query, args...); err != nil {
-		return nil, err
-	}
-	return rows, nil
+	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
+	args = append(args, filterArgs...)
+	var rows []latencyRawDTO
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "system.GetSystemLatency", &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) GetSystemOps(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string, f shared.Filters) ([]OpsTimeSeries, error) {
-	table := "observability.spans"
-	tierStep := int64(1)
-	fc, fargs := systemFilter(dbSystem, f)
-	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
-
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                   AS time_bucket,
-		    db_operation                         AS group_by,
-		    toFloat64(sum(hist_count)) / %f AS ops_per_sec
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end
-		  %s
+func (r *ClickHouseRepository) GetSystemOps(ctx context.Context, teamID, startMs, endMs int64, dbSystem string, f filter.Filters) ([]opsRawDTO, error) {
+	filterWhere, filterArgs := filter.BuildSpanClauses(f)
+	query := `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT toString(toDateTime(ts_bucket))            AS time_bucket,
+		       attributes.'db.operation.name'::String     AS group_by,
+		       toUInt64(count())                          AS op_count
+		FROM observability.spans
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND db_system = @dbSystem` + filterWhere + `
 		GROUP BY time_bucket, group_by
-		ORDER BY time_bucket, group_by
-	`, shared.BucketTimeExpr, bucketSec, table, fc)
+		ORDER BY time_bucket, group_by`
 
-	args := append(shared.BaseParams(teamID, startMs, endMs),
-		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
-	)
-	args = append(args, fargs...)
-	var rows []OpsTimeSeries
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "system.GetSystemOps", &rows, query, args...); err != nil {
-		return nil, err
-	}
-	return rows, nil
+	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
+	args = append(args, filterArgs...)
+	var rows []opsRawDTO
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "system.GetSystemOps", &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) GetSystemTopCollectionsByLatency(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]SystemCollectionRow, error) {
-	table := "observability.metrics"
-	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
-
-	query := fmt.Sprintf(`
-		SELECT
-		    db_collection                                                               AS collection_name,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) * 1000  AS p99_ms,
-		    toFloat64(sum(hist_count)) / %f                                        AS ops_per_sec
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end
+func (r *ClickHouseRepository) GetSystemErrors(ctx context.Context, teamID, startMs, endMs int64, dbSystem string) ([]opsRawDTO, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT toString(toDateTime(ts_bucket))                                                AS time_bucket,
+		       attributes.'db.operation.name'::String                                         AS group_by,
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)              AS op_count
+		FROM observability.spans
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
 		  AND db_system = @dbSystem
-		  AND notEmpty(db_collection)
+		  AND (has_error OR toUInt16OrZero(response_status_code) >= 400)
+		GROUP BY time_bucket, group_by
+		ORDER BY time_bucket, group_by`
+
+	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
+	var rows []opsRawDTO
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "system.GetSystemErrors", &rows, query, args...)
+}
+
+// GetSystemTopCollectionsByLatency returns per-collection histogram + total
+// ops count; service.go interpolates p99 from bucket counts and orders by
+// p99 desc (top 20).
+func (r *ClickHouseRepository) GetSystemTopCollectionsByLatency(ctx context.Context, teamID, startMs, endMs int64, dbSystem string) ([]collectionLatencyRawDTO, error) {
+	return r.collectionLatencyTop(ctx, teamID, startMs, endMs, dbSystem, "system.GetSystemTopCollectionsByLatency")
+}
+
+// GetSystemTopCollectionsByVolume — same shape; service.go orders by
+// op_count desc (top 20).
+func (r *ClickHouseRepository) GetSystemTopCollectionsByVolume(ctx context.Context, teamID, startMs, endMs int64, dbSystem string) ([]collectionLatencyRawDTO, error) {
+	return r.collectionLatencyTop(ctx, teamID, startMs, endMs, dbSystem, "system.GetSystemTopCollectionsByVolume")
+}
+
+func (r *ClickHouseRepository) collectionLatencyTop(ctx context.Context, teamID, startMs, endMs int64, dbSystem, traceLabel string) ([]collectionLatencyRawDTO, error) {
+	query := `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT attributes.'db.collection.name'::String      AS collection_name,
+		       ` + filter.LatencyBucketCountsSQL() + `      AS bucket_counts,
+		       toUInt64(count())                            AS op_count
+		FROM observability.spans
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND db_system = @dbSystem
+		  AND attributes.'db.collection.name'::String != ''
 		GROUP BY collection_name
-		ORDER BY p99_ms DESC
-		LIMIT 20
-	`, bucketSec, table)
+		LIMIT 200`
 
-	args := append(shared.BaseParams(teamID, startMs, endMs),
-		clickhouse.Named("dbSystem", dbSystem),
-	)
-	var rows []SystemCollectionRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "system.GetSystemTopCollectionsByLatency", &rows, query, args...); err != nil {
-		return nil, err
-	}
-	return rows, nil
+	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
+	var rows []collectionLatencyRawDTO
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, traceLabel, &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) GetSystemTopCollectionsByVolume(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]SystemCollectionRow, error) {
-	table := "observability.metrics"
-	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
-
-	query := fmt.Sprintf(`
-		SELECT
-		    db_collection                                                               AS collection_name,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) * 1000  AS p99_ms,
-		    toFloat64(sum(hist_count)) / %f                                        AS ops_per_sec
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end
+func (r *ClickHouseRepository) GetSystemNamespaces(ctx context.Context, teamID, startMs, endMs int64, dbSystem string) ([]SystemNamespace, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT attributes.'db.namespace'::String  AS namespace,
+		       toInt64(count())                    AS span_count
+		FROM observability.spans
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
 		  AND db_system = @dbSystem
-		  AND notEmpty(db_collection)
-		GROUP BY collection_name
-		ORDER BY ops_per_sec DESC
-		LIMIT 20
-	`, bucketSec, table)
-
-	args := append(shared.BaseParams(teamID, startMs, endMs),
-		clickhouse.Named("dbSystem", dbSystem),
-	)
-	var rows []SystemCollectionRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "system.GetSystemTopCollectionsByVolume", &rows, query, args...); err != nil {
-		return nil, err
-	}
-	return rows, nil
-}
-
-func (r *ClickHouseRepository) GetSystemErrors(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]ErrorTimeSeries, error) {
-	table := "observability.spans"
-	tierStep := int64(1)
-	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
-
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                   AS time_bucket,
-		    db_operation                         AS group_by,
-		    toFloat64(sum(hist_count)) / %f AS errors_per_sec
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end
-		  AND db_system = @dbSystem
-		  AND notEmpty(error_type)
-		GROUP BY time_bucket, group_by
-		ORDER BY time_bucket, group_by
-	`, shared.BucketTimeExpr, bucketSec, table)
-
-	args := append(shared.BaseParams(teamID, startMs, endMs),
-		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
-		clickhouse.Named("dbSystem", dbSystem),
-	)
-	var rows []ErrorTimeSeries
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "system.GetSystemErrors", &rows, query, args...); err != nil {
-		return nil, err
-	}
-	return rows, nil
-}
-
-func (r *ClickHouseRepository) GetSystemNamespaces(ctx context.Context, teamID int64, startMs, endMs int64, dbSystem string) ([]SystemNamespace, error) {
-	table := "observability.metrics"
-
-	query := fmt.Sprintf(`
-		SELECT
-		    db_namespace             AS namespace,
-		    toInt64(sum(hist_count)) AS span_count
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end
-		  AND db_system = @dbSystem
-		  AND notEmpty(db_namespace)
+		  AND attributes.'db.namespace'::String != ''
 		GROUP BY namespace
-		ORDER BY span_count DESC
-	`, table)
+		ORDER BY span_count DESC`
 
-	args := append(shared.BaseParams(teamID, startMs, endMs),
-		clickhouse.Named("dbSystem", dbSystem),
-	)
+	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
 	var rows []SystemNamespace
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "system.GetSystemNamespaces", &rows, query, args...); err != nil {
-		return nil, err
-	}
-	return rows, nil
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "system.GetSystemNamespaces", &rows, query, args...)
 }

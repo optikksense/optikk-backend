@@ -38,14 +38,10 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 // commit_author, repo_url, pr_url. span_count is derived from
 // `count()`.
 const (
-	spansDeploysPrefix         = "observability.spans"
-	spansByVersionPrefix       = "observability.spans"
-	spansRollupPrefix          = "observability.spans"
-	errFingerprintRollupPrefix = "observability.spans"
+	spansDeploysPrefix = "observability.spans"
 )
 
-// queryIntervalMinutes returns max(tierStep, dashboardStep). Copied from
-// overview/overview/repository.go.
+// queryIntervalMinutes returns max(tierStep, dashboardStep).
 func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
 	hours := (endMs - startMs) / 3_600_000
 	var dashStep int64
@@ -76,24 +72,6 @@ const (
 	attrPRURL        = "attributes.`git.pull_request.url`::String"
 )
 
-// commitMetaSelectRaw is the SELECT fragment for the four optional git/VCS
-// attributes when reading from raw spans. Used by the drill-down queries
-// that stayed on raw.
-var commitMetaSelectRaw = fmt.Sprintf(
-	"any(%s) AS commit_sha, any(%s) AS commit_author, any(%s) AS repo_url, any(%s) AS pr_url",
-	attrCommitSHA, attrCommitAuthor, attrRepoURL, attrPRURL,
-)
-
-// deploymentsJoinSelect is the SELECT + FROM fragment used by every
-// rollup-backed list query. It aggregates the rollup by deployment_id, then
-// LEFT JOINs observability.deployments (the dim table) to pull VCS metadata
-// (service_version, environment, commit_sha, commit_author, repo_url, pr_url).
-// Callers supply `{table}` (the tier-specific rollup table), a WHERE clause
-// for the CTE, and ORDER BY.
-//
-// The dim table is ReplacingMergeTree(last_seen) keyed on
-// (team_id, service, service_version, environment); FINAL collapses
-// duplicates on read.
 const deploymentsJoinSelect = `
 	WITH rollup_agg AS (
 		SELECT service,
@@ -236,8 +214,6 @@ func (r *ClickHouseRepository) GetLatestDeploymentsByService(ctx context.Context
 	return rows, err
 }
 
-// GetDeploysInRange returns all deploys in [startMs,endMs] across every
-// service for a team. Used by alerting for fire/resolve deploy correlation.
 func (r *ClickHouseRepository) GetDeploysInRange(ctx context.Context, teamID int64, startMs, endMs int64) ([]deploymentAggRow, error) {
 	table := "observability.spans"
 	where := `team_id = @teamID AND ts_bucket BETWEEN @start AND @end`
@@ -252,9 +228,6 @@ func (r *ClickHouseRepository) GetDeploysInRange(ctx context.Context, teamID int
 	return rows, err
 }
 
-// GetVersionTraffic returns per-version request rate time series. Groups the
-// rollup by (bucket, deployment_id), then joins the dim table to expose
-// service_version as the DTO's "version" field.
 func (r *ClickHouseRepository) GetVersionTraffic(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) ([]VersionTrafficPoint, error) {
 	bs := bucketSecs(startMs, endMs)
 	table := "observability.spans"
@@ -298,17 +271,6 @@ func (r *ClickHouseRepository) GetVersionTraffic(ctx context.Context, teamID int
 	)
 	return rows, err
 }
-
-// --- Drill-window queries: rollup-backed (Phase 9) ---
-//
-// Every drill-window method below fits an existing rollup. Each composes its
-// answer from one of:
-//   - spans_rollup              — RED per (service, operation, endpoint, method)
-//   - spans_by_version          — last_seen / version-environment association
-//   - spans_error_fingerprint   — grouped error spans with sample trace_id
-//
-// No raw span reads remain in this file. Tracedetail remains raw
-// (per-trace drill-down, bounded by idx_trace_id).
 
 func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (impactAggRow, error) {
 	if endMs <= startMs {
@@ -378,11 +340,6 @@ func (r *ClickHouseRepository) GetActiveVersion(ctx context.Context, teamID int6
 	return rows[0], nil
 }
 
-// GetErrorGroupsWindow returns top error groups inside a deploy window via
-// `spans_error_fingerprint` (same rollup overview/errors uses). Rollup keys
-// include service + operation_name + exception_type + status_message_hash
-// + http_status_bucket; state carries sample_trace_id + last_seen. `group_id`
-// is the fingerprint hash, rendered as a hex string for client use.
 func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64, limit int) ([]errorGroupAggRow, error) {
 	table := "observability.spans"
 	var rows []errorGroupAggRow

@@ -132,11 +132,48 @@ Module + endpoint coverage is enumerated by entrypoint:
   fleet, compute (cpu/mem/jvm), I/O (disk/net/connpool), resource utilization,
   kubernetes.
 - [`entrypoints/saturation.js`](../entrypoints/saturation.js) — datastores
-  explorer + drilldown, kafka explorer + perf + lag + health.
+  explorer + drilldown (drilldown walks every database submodule), kafka
+  explorer + perf + lag + health.
 - [`entrypoints/services.js`](../entrypoints/services.js) — topology, deployments.
 - [`entrypoints/all.js`](../entrypoints/all.js) — every scenario, weighted.
 - [`entrypoints/smoke.js`](../entrypoints/smoke.js) — one endpoint per module
   in a single VU iteration.
+- [`entrypoints/granular.js`](../entrypoints/granular.js) — every submodule as
+  its own k6 scenario. Use this for per-submodule throughput/latency
+  measurement: `db_volume`, `db_errors`, `db_latency`, `db_collection`,
+  `db_system`, `db_systems`, `db_summary`, `db_slow_queries`,
+  `db_connections`, `infra_cpu`, `infra_memory`, `infra_jvm`, `infra_disk`,
+  `infra_network`, `infra_connpool`, `infra_nodes`, `infra_fleet`,
+  `infra_resource_util`, `infra_kubernetes`. Run a single submodule with
+  `--scenario=<name>`; total RPS scales with the number of active scenarios,
+  so dial `RPS` down for whole-file runs.
+
+### Submodule layout
+
+Per-submodule scenario files live next to their composite parent:
+
+```
+loadtest/scenarios/
+  saturation/
+    datastores_explorer.js          # composer / explorer endpoints
+    datastores_drilldown.js         # orchestrator over database/*.js
+    database/
+      volume.js          errors.js          latency.js
+      collection.js      system.js          systems.js
+      summary.js         slowqueries.js     connections.js
+    kafka_*.js                      # explorer, perf, lag, health
+  infrastructure/
+    nodes.js     fleet.js     kubernetes.js     resource_util.js
+    compute.js   # orchestrator over cpu.js, memory.js, jvm.js
+    io.js        # orchestrator over disk.js, network.js, connpool.js
+    cpu.js       memory.js    jvm.js
+    disk.js      network.js   connpool.js
+```
+
+Each submodule file exports one named function (`dbVolume`, `infraCPU`, …)
+that does a full sweep of its routes once per call. Composites just call
+the submodule functions in order, so existing `saturation.js` /
+`infrastructure.js` / `all.js` entrypoints keep working unchanged.
 
 ## What to watch in Grafana
 

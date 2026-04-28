@@ -2,20 +2,22 @@ package latency
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-		shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
+// Repository runs latency-by-* panels against raw `observability.spans`.
+// Each method emits a fixed-bucket histogram (`bucket_counts Array(UInt64)`);
+// service.go interpolates p50/p95/p99 Go-side via quantile.FromHistogram.
 type Repository interface {
-	GetLatencyBySystem(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyTimeSeries, error)
-	GetLatencyByOperation(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyTimeSeries, error)
-	GetLatencyByCollection(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyTimeSeries, error)
-	GetLatencyByNamespace(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyTimeSeries, error)
-	GetLatencyByServer(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyTimeSeries, error)
-	GetLatencyHeatmap(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyHeatmapBucket, error)
+	GetLatencyBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyRawDTO, error)
+	GetLatencyByOperation(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyRawDTO, error)
+	GetLatencyByCollection(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyRawDTO, error)
+	GetLatencyByNamespace(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyRawDTO, error)
+	GetLatencyByServer(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyRawDTO, error)
+	GetLatencyHeatmap(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyHeatmapRawDTO, error)
 }
 
 type ClickHouseRepository struct {
@@ -26,129 +28,98 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) latencySeriesByAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]LatencyTimeSeries, error) {
-	table := "observability.spans"
-	tierStep := int64(1)
-	fc, fargs := shared.RollupFilterClauses(f)
-	groupCol := shared.GroupColumnFor(groupAttr)
+type latencyRawDTO struct {
+	TimeBucket string   `ch:"time_bucket"`
+	GroupBy    string   `ch:"group_by"`
+	Buckets    []uint64 `ch:"bucket_counts"`
+}
 
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                                                          AS time_bucket,
-		    %s                                                                          AS group_by,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) * 1000  AS p50_ms,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) * 1000  AS p95_ms,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) * 1000  AS p99_ms
-		FROM %s
-		WHERE team_id = @teamID
-		  AND ts_bucket BETWEEN @start AND @end
-		  AND metric_name = @metricName
-		  %s
-		GROUP BY time_bucket, group_by
-		ORDER BY time_bucket, group_by
-	`, shared.BucketTimeExpr, groupCol, table, fc)
+type latencyHeatmapRawDTO struct {
+	TimeBucket  string `ch:"time_bucket"`
+	BucketLabel string `ch:"bucket_label"`
+	Count       int64  `ch:"count"`
+}
 
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
-		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
-	)
-	args = append(args, fargs...)
-	var rows []LatencyTimeSeries
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "latency.latencySeriesByAttr", &rows, query, args...); err != nil {
-		return nil, err
+func (r *ClickHouseRepository) GetLatencyBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyRawDTO, error) {
+	return r.latencySeriesByGroup(ctx, teamID, startMs, endMs, f, filter.AttrDBSystem, "latency.GetLatencyBySystem")
+}
+
+func (r *ClickHouseRepository) GetLatencyByOperation(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyRawDTO, error) {
+	return r.latencySeriesByGroup(ctx, teamID, startMs, endMs, f, filter.AttrDBOperationName, "latency.GetLatencyByOperation")
+}
+
+func (r *ClickHouseRepository) GetLatencyByCollection(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyRawDTO, error) {
+	return r.latencySeriesByGroup(ctx, teamID, startMs, endMs, f, filter.AttrDBCollectionName, "latency.GetLatencyByCollection")
+}
+
+func (r *ClickHouseRepository) GetLatencyByNamespace(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyRawDTO, error) {
+	return r.latencySeriesByGroup(ctx, teamID, startMs, endMs, f, filter.AttrDBNamespace, "latency.GetLatencyByNamespace")
+}
+
+func (r *ClickHouseRepository) GetLatencyByServer(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyRawDTO, error) {
+	return r.latencySeriesByGroup(ctx, teamID, startMs, endMs, f, filter.AttrServerAddress, "latency.GetLatencyByServer")
+}
+
+func (r *ClickHouseRepository) latencySeriesByGroup(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, attr, traceLabel string) ([]latencyRawDTO, error) {
+	groupCol := filter.SpanGroupColumn(attr)
+	if groupCol == "" {
+		return nil, nil
 	}
-	return rows, nil
-}
-
-func (r *ClickHouseRepository) GetLatencyBySystem(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyTimeSeries, error) {
-	return r.latencySeriesByAttr(ctx, teamID, startMs, endMs, shared.AttrDBSystem, f)
-}
-
-func (r *ClickHouseRepository) GetLatencyByOperation(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyTimeSeries, error) {
-	return r.latencySeriesByAttr(ctx, teamID, startMs, endMs, shared.AttrDBOperationName, f)
-}
-
-func (r *ClickHouseRepository) GetLatencyByCollection(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyTimeSeries, error) {
-	return r.latencySeriesByAttr(ctx, teamID, startMs, endMs, shared.AttrDBCollectionName, f)
-}
-
-func (r *ClickHouseRepository) GetLatencyByNamespace(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyTimeSeries, error) {
-	return r.latencySeriesByAttr(ctx, teamID, startMs, endMs, shared.AttrDBNamespace, f)
-}
-
-func (r *ClickHouseRepository) GetLatencyByServer(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyTimeSeries, error) {
-	return r.latencySeriesByAttr(ctx, teamID, startMs, endMs, shared.AttrServerAddress, f)
-}
-
-// GetLatencyHeatmap bins bucket-level avg latency (hist_sum/hist_count) into
-// coarse latency ranges. The rollup state loses per-row latency, so we
-// approximate at the tier's native bucket granularity — accurate at rollup
-// resolution, coarser than the old per-row query but preserves the chart.
-func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]LatencyHeatmapBucket, error) {
-	table := "observability.spans"
-	tierStep := int64(1)
-	fc, fargs := shared.RollupFilterClauses(f)
-
-	query := fmt.Sprintf(`
-		SELECT
-		    time_bucket,
-		    multiIf(
-		        avg_sec < 0.001,  '< 1ms',
-		        avg_sec < 0.005,  '1-5ms',
-		        avg_sec < 0.010,  '5-10ms',
-		        avg_sec < 0.025,  '10-25ms',
-		        avg_sec < 0.050,  '25-50ms',
-		        avg_sec < 0.100,  '50-100ms',
-		        avg_sec < 0.250,  '100-250ms',
-		        avg_sec < 0.500,  '250-500ms',
-		        avg_sec < 1.000,  '500ms-1s',
-		        '> 1s'
-		    )                                                         AS bucket_label,
-		    toInt64(sum(hc))                                          AS count
-		FROM (
-		    SELECT
-		        %s                                                        AS time_bucket,
-		        sum(hist_count)                                      AS hc,
-		        sum(hist_sum)                                        AS hs,
-		        hs / nullIf(hc, 0)                                        AS avg_sec
-		    FROM %s
-		    WHERE team_id = @teamID
-		      AND ts_bucket BETWEEN @start AND @end
-		      AND metric_name = @metricName
-		      %s
-		    GROUP BY time_bucket, db_system, db_operation, db_collection, db_namespace, pool_name, error_type, server_address
-		    HAVING hc > 0
+	filterWhere, filterArgs := filter.BuildSpanClauses(f)
+	query := `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
+		SELECT toString(toDateTime(ts_bucket))                  AS time_bucket,
+		       ` + groupCol + `                                  AS group_by,
+		       ` + filter.LatencyBucketCountsSQL() + `           AS bucket_counts
+		FROM observability.spans
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND db_system != ''` + filterWhere + `
+		GROUP BY time_bucket, group_by
+		ORDER BY time_bucket, group_by`
+
+	args := append(filter.SpanArgs(teamID, startMs, endMs), filterArgs...)
+	var rows []latencyRawDTO
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, traceLabel, &rows, query, args...)
+}
+
+// GetLatencyHeatmap classifies each span into a coarse latency band based
+// on its raw duration_nano, then counts per (time_bucket, band). No avg/
+// digest tricks — the raw column is right there.
+func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyHeatmapRawDTO, error) {
+	filterWhere, filterArgs := filter.BuildSpanClauses(f)
+	query := `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT toString(toDateTime(ts_bucket)) AS time_bucket,
+		       multiIf(
+		           duration_nano <    1000000, '< 1ms',
+		           duration_nano <    5000000, '1-5ms',
+		           duration_nano <   10000000, '5-10ms',
+		           duration_nano <   25000000, '10-25ms',
+		           duration_nano <   50000000, '25-50ms',
+		           duration_nano <  100000000, '50-100ms',
+		           duration_nano <  250000000, '100-250ms',
+		           duration_nano <  500000000, '250-500ms',
+		           duration_nano < 1000000000, '500ms-1s',
+		           '> 1s'
+		       )                              AS bucket_label,
+		       toInt64(count())               AS count
+		FROM observability.spans
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND db_system != ''` + filterWhere + `
 		GROUP BY time_bucket, bucket_label
-		ORDER BY time_bucket, bucket_label
-	`, shared.BucketTimeExpr, table, fc)
+		ORDER BY time_bucket, bucket_label`
 
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
-		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
-	)
-	args = append(args, fargs...)
-
-	var dtos []latencyHeatmapDTO
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "latency.GetLatencyHeatmap", &dtos, query, args...); err != nil {
-		return nil, err
-	}
-
-	counts := map[string]int64{}
-	for _, d := range dtos {
-		counts[d.TimeBucket] += d.Count
-	}
-
-	out := make([]LatencyHeatmapBucket, len(dtos))
-	for i, d := range dtos {
-		density := 0.0
-		if total := counts[d.TimeBucket]; total > 0 {
-			density = float64(d.Count) / float64(total)
-		}
-		out[i] = LatencyHeatmapBucket{
-			TimeBucket:	d.TimeBucket,
-			BucketLabel:	d.BucketLabel,
-			Count:		d.Count,
-			Density:	density,
-		}
-	}
-	return out, nil
+	args := append(filter.SpanArgs(teamID, startMs, endMs), filterArgs...)
+	var rows []latencyHeatmapRawDTO
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "latency.GetLatencyHeatmap", &rows, query, args...)
 }

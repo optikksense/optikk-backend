@@ -51,11 +51,11 @@ func (m *resourceUtilisationModule) Name() string                      { return 
 func (m *resourceUtilisationModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	repo := NewRepository(
 		nativeQuerier,
-		cpu.NewRepository(nativeQuerier),
-		memory.NewRepository(nativeQuerier),
-		disk.NewRepository(nativeQuerier),
-		network.NewRepository(nativeQuerier),
-		connpool.NewRepository(nativeQuerier),
+		cpu.NewService(cpu.NewRepository(nativeQuerier)),
+		memory.NewService(memory.NewRepository(nativeQuerier)),
+		disk.NewService(disk.NewRepository(nativeQuerier)),
+		network.NewService(network.NewRepository(nativeQuerier)),
+		connpool.NewService(connpool.NewRepository(nativeQuerier)),
 	)
 	m.handler = &ResourceUtilisationHandler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},

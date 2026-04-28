@@ -1,21 +1,22 @@
 package span_query //nolint:revive,stylecheck
 
-import "github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
+import "github.com/Optikk-Org/optikk-backend/internal/modules/traces/filter"
 
 // SpansQueryRequest is the wire payload for POST /api/v1/spans/query.
+// Filters are embedded directly (no separate compile pass).
 type SpansQueryRequest struct {
-	StartTime int64                            `json:"startTime"`
-	EndTime   int64                            `json:"endTime"`
-	Filters   []querycompiler.StructuredFilter `json:"filters"`
-	Limit     int                              `json:"limit"`
-	Cursor    string                           `json:"cursor"`
+	StartTime int64  `json:"startTime"`
+	EndTime   int64  `json:"endTime"`
+	Limit     int    `json:"limit"`
+	Cursor    string `json:"cursor"`
+
+	filter.Filters
 }
 
 // SpansQueryResponse is the wire response for POST /api/v1/spans/query.
 type SpansQueryResponse struct {
 	Results  []Span   `json:"results"`
 	PageInfo PageInfo `json:"pageInfo"`
-	Warnings []string `json:"warnings,omitempty"`
 }
 
 // spanRowDTO scans rows from observability.spans.

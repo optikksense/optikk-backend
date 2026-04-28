@@ -2,16 +2,11 @@ package log_trends //nolint:revive,stylecheck
 
 import (
 	"context"
-	"fmt"
-	"sort"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/querycompiler"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/shared/models"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/shared/resource"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/shared/step"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/filter"
 )
 
 type Repository struct {
@@ -20,107 +15,56 @@ type Repository struct {
 
 func NewRepository(db clickhouse.Conn) *Repository { return &Repository{db: db} }
 
-// Summary returns list-header KPIs from narrowed raw rows. Severity bucket
-// convention: 0=trace..5=fatal; 3=warn, 4+=error.
-func (r *Repository) Summary(ctx context.Context, f querycompiler.Filters) (models.Summary, error) {
-	compiled := querycompiler.Compile(f, querycompiler.TargetRaw)
-	preWhere, args, empty, err := resource.WithFingerprints(ctx, r.db, f, compiled.PreWhere, compiled.Args)
-	if err != nil {
-		return models.Summary{}, err
-	}
-	if empty {
-		return models.Summary{}, nil
-	}
-
-	rows, err := dbutil.QueryCH(dbutil.OverviewCtx(ctx), r.db, "logsTrends.Summary", fmt.Sprintf(`
-		SELECT severity_bucket
-		FROM %s
-		PREWHERE %s
-		WHERE %s
-	`, models.RawLogsTable, preWhere, compiled.Where), args...)
-	if err != nil {
-		return models.Summary{}, err
-	}
-	defer rows.Close() //nolint:errcheck
-
-	var out models.Summary
-	for rows.Next() {
-		var bucket uint8
-		if err := rows.Scan(&bucket); err != nil {
-			return models.Summary{}, err
-		}
-		out.Total++
-		switch {
-		case bucket >= 4:
-			out.Errors++
-		case bucket == 3:
-			out.Warns++
-		}
-	}
-	return out, rows.Err()
+// SummaryRow folds the severity-bucket counts SQL-side. Convention:
+// 0=trace..5=fatal; 3=warn, 4+=error.
+type SummaryRow struct {
+	Total  uint64 `ch:"total"`
+	Errors uint64 `ch:"errors"`
+	Warns  uint64 `ch:"warns"`
 }
 
-// Trend returns the severity-bucketed volume histogram, reduced in Go after a
-// PREWHERE-pruned raw-row scan.
-func (r *Repository) Trend(ctx context.Context, f querycompiler.Filters, stepToken string) ([]models.TrendBucket, []string, error) {
-	compiled := querycompiler.Compile(f, querycompiler.TargetRaw)
-	preWhere, args, empty, err := resource.WithFingerprints(ctx, r.db, f, compiled.PreWhere, compiled.Args)
-	if err != nil {
-		return nil, nil, err
-	}
-	if empty {
-		return nil, nil, nil
-	}
+// TrendRawRow is the per-log row for service-side bucket-format + fold.
+type TrendRawRow struct {
+	Timestamp      time.Time `ch:"timestamp"`
+	SeverityBucket uint8     `ch:"severity_bucket"`
+}
 
-	stepMin := step.ResolveStepMinutes(stepToken, 1, f.StartMs, f.EndMs)
-	rows, err := dbutil.QueryCH(dbutil.OverviewCtx(ctx), r.db, "logsTrends.Trend", fmt.Sprintf(`
+// Summary returns SQL-side aggregated counts for the list-header KPIs.
+func (r *Repository) Summary(ctx context.Context, f filter.Filters) (SummaryRow, error) {
+	resourceWhere, where, args := filter.BuildClauses(f)
+	query := `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.logs_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd` + resourceWhere + `
+		)
+		SELECT count()                              AS total,
+		       countIf(severity_bucket >= 4)        AS errors,
+		       countIf(severity_bucket = 3)         AS warns
+		FROM observability.logs
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end` + where
+	var row SummaryRow
+	return row, dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "logsTrends.Summary",
+		&row, query, args...)
+}
+
+// Trend returns raw (timestamp, severity_bucket) pairs; service folds into
+// step-aligned buckets.
+func (r *Repository) Trend(ctx context.Context, f filter.Filters) ([]TrendRawRow, error) {
+	resourceWhere, where, args := filter.BuildClauses(f)
+	query := `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.logs_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd` + resourceWhere + `
+		)
 		SELECT timestamp, severity_bucket
-		FROM %s
-		PREWHERE %s
-		WHERE %s
-		ORDER BY timestamp ASC
-	`, models.RawLogsTable, preWhere, compiled.Where), args...)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer rows.Close() //nolint:errcheck
-
-	type key struct {
-		bucket   string
-		severity uint8
-	}
-	counts := make(map[key]uint64)
-	for rows.Next() {
-		var ts time.Time
-		var severity uint8
-		if err := rows.Scan(&ts, &severity); err != nil {
-			return nil, nil, err
-		}
-		bucket := step.FormatBucket(ts, stepMin)
-		counts[key{bucket: bucket, severity: severity}]++
-	}
-	if err := rows.Err(); err != nil {
-		return nil, nil, err
-	}
-
-	keys := make([]key, 0, len(counts))
-	for k := range counts {
-		keys = append(keys, k)
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].bucket == keys[j].bucket {
-			return keys[i].severity < keys[j].severity
-		}
-		return keys[i].bucket < keys[j].bucket
-	})
-
-	out := make([]models.TrendBucket, 0, len(keys))
-	for _, k := range keys {
-		out = append(out, models.TrendBucket{
-			TimeBucket: k.bucket,
-			Severity:   k.severity,
-			Count:      counts[k],
-		})
-	}
-	return out, compiled.DroppedClauses, nil
+		FROM observability.logs
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end` + where + `
+		ORDER BY timestamp ASC`
+	var rows []TrendRawRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "logsTrends.Trend",
+		&rows, query, args...)
 }
