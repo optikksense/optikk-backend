@@ -99,6 +99,27 @@ func resolveSeverity(lr *logv1.LogRecord) string {
 	return severityNumberToLevel(lr.GetSeverityNumber())
 }
 
+// severityBucketFor maps an OTel severity_number to the on-disk severity tier
+// (0=TRACE/UNSET, 1=DEBUG, 2=INFO, 3=WARN, 4=ERROR, 5=FATAL). Mirrors the
+// multiIf ladder that used to live as a CH MATERIALIZED column on
+// observability.logs; kept Go-side so writer and reader can't drift.
+func severityBucketFor(severityNumber uint32) uint8 {
+	switch {
+	case severityNumber >= 21:
+		return 5
+	case severityNumber >= 17:
+		return 4
+	case severityNumber >= 13:
+		return 3
+	case severityNumber >= 9:
+		return 2
+	case severityNumber >= 5:
+		return 1
+	default:
+		return 0
+	}
+}
+
 func severityNumberToLevel(n logv1.SeverityNumber) string {
 	v := int(n)
 	switch {

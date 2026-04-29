@@ -22,14 +22,7 @@ CREATE TABLE IF NOT EXISTS observability.logs (
     pod                  LowCardinality(String) CODEC(ZSTD(1)),
     container            LowCardinality(String) CODEC(ZSTD(1)),
     environment          LowCardinality(String) CODEC(ZSTD(1)),
-    severity_bucket      UInt8 MATERIALIZED multiIf(
-        severity_number >= 21, toUInt8(5),
-        severity_number >= 17, toUInt8(4),
-        severity_number >= 13, toUInt8(3),
-        severity_number >= 9,  toUInt8(2),
-        severity_number >= 5,  toUInt8(1),
-        toUInt8(0)
-    ),
+    severity_bucket      UInt8 CODEC(T64, ZSTD(1)),
     INDEX idx_fingerprint  fingerprint  TYPE bloom_filter(0.01) GRANULARITY 1,
     INDEX idx_trace_id     trace_id     TYPE bloom_filter(0.01) GRANULARITY 1
 ) ENGINE = MergeTree()

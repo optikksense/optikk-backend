@@ -14,7 +14,7 @@ const chTable = "observability.logs"
 
 var chColumns = []string{
 	"team_id", "ts_bucket", "timestamp", "observed_timestamp",
-	"trace_id", "span_id", "trace_flags", "severity_text", "severity_number", "body",
+	"trace_id", "span_id", "trace_flags", "severity_text", "severity_number", "severity_bucket", "body",
 	"attributes_string", "attributes_number", "attributes_bool",
 	"resource", "fingerprint",
 	"scope_name", "scope_version",
@@ -67,6 +67,7 @@ func rowValues(r *schema.Row) []any {
 		r.GetTraceFlags(),
 		r.GetSeverityText(),
 		uint8(r.GetSeverityNumber()), //nolint:gosec
+		severityBucketFor(r.GetSeverityNumber()),
 		r.GetBody(),
 		r.GetAttributesString(),
 		r.GetAttributesNumber(),
