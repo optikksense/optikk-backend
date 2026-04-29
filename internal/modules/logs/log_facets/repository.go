@@ -14,21 +14,17 @@ type Repository struct {
 
 func NewRepository(db clickhouse.Conn) *Repository { return &Repository{db: db} }
 
-// FacetRow is the raw row scanned from CH for facet computation. The service
-// folds these into per-dim top-N counts.
 type FacetRow struct {
-	SeverityBucket uint8  `ch:"severity_bucket"`
-	Service        string `ch:"service"`
-	Host           string `ch:"host"`
-	Pod            string `ch:"pod"`
-	Environment    string `ch:"environment"`
+	Service     string `ch:"service"`
+	Host        string `ch:"host"`
+	Pod         string `ch:"pod"`
+	Environment string `ch:"environment"`
 }
 
-// Facets returns raw per-row dimension values for service-side fold + top-N.
 func (r *Repository) Facets(ctx context.Context, f filter.Filters) ([]FacetRow, error) {
 	resourceWhere, _, args := filter.BuildClauses(f)
 	query := `
-		SELECT 0 AS severity_bucket, service, host, pod, environment
+		SELECT service, host, pod, environment
 		FROM observability.logs_resource
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd` + resourceWhere + `
 		LIMIT 50000`

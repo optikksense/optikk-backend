@@ -19,11 +19,8 @@ export function logsDetail(ctx) {
     logsQueryBody({
       ...w,
       filters: [
-        { field: 'service', op: 'eq', value: randomPick(services) },
-        // A mock trace ID to test the trace_id filtering logic on the index without matching rows
-        { field: 'trace_id', op: 'eq', value: 'a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6' }
+        { field: 'service', op: 'eq', value: randomPick(services) }
       ],
-      include: ['summary'],
       limit: 5
     }),
     { module: MOD, endpoint: 'POST /logs/query (discover)' },
@@ -31,9 +28,25 @@ export function logsDetail(ctx) {
 
   const results = list && list.data && (list.data.results || list.data.logs || list.data.items);
   if (!Array.isArray(results) || results.length === 0) return;
-  const id = results[0].id || results[0].logId || results[0].log_id;
+
+  const log = results[0];
+  const id = log.id || log.logId || log.log_id;
   if (!id) return;
 
+  // 1. Test fetching log detail
   client.get(`/api/v1/logs/${encodeURIComponent(id)}`, null,
     { module: MOD, endpoint: 'GET /logs/:id' });
+
+  // 2. Test trace_id index using a REAL trace ID from the discovered log
+  const traceId = log.traceId || log.trace_id;
+  if (traceId) {
+    client.post('/api/v1/logs/query',
+      logsQueryBody({
+        ...w,
+        filters: [{ field: 'trace_id', op: 'eq', value: traceId }],
+        limit: 50
+      }),
+      { module: MOD, endpoint: 'POST /logs/query (by trace_id)' },
+    );
+  }
 }

@@ -1,6 +1,7 @@
 package log_trends //nolint:revive,stylecheck
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/Optikk-Org/optikk-backend/internal/shared/errorcode"
@@ -39,5 +40,6 @@ func (h *Handler) Trends(c *gin.Context) {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query logs trends", err)
 		return
 	}
+	slog.Debug("Logs trends queried successfully", slog.Any("resp", resp))
 	modulecommon.RespondOK(c, resp)
 }

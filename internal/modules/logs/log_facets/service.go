@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sort"
-	"strconv"
 
 	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/filter"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/shared/models"
@@ -38,13 +37,11 @@ func (s *Service) ComputeResponse(ctx context.Context, f filter.Filters) (Respon
 }
 
 func foldFacets(rows []FacetRow) models.Facets {
-	severity := make(map[string]uint64)
 	service := make(map[string]uint64)
 	host := make(map[string]uint64)
 	pod := make(map[string]uint64)
 	environment := make(map[string]uint64)
 	for _, r := range rows {
-		severity[strconv.Itoa(int(r.SeverityBucket))]++
 		if r.Service != "" {
 			service[r.Service]++
 		}
@@ -59,7 +56,7 @@ func foldFacets(rows []FacetRow) models.Facets {
 		}
 	}
 	return models.Facets{
-		Severity:    topFacetValues(severity, facetTopN),
+		Severity:    nil, // Severity removed per request
 		Service:     topFacetValues(service, facetTopN),
 		Host:        topFacetValues(host, facetTopN),
 		Pod:         topFacetValues(pod, facetTopN),
