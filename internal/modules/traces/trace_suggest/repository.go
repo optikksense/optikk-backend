@@ -73,8 +73,8 @@ func (r *ClickHouseRepository) SuggestAttribute(ctx context.Context, teamID, sta
 func suggestArgs(teamID, startMs, endMs int64, prefix string, limit int) []any {
 	return []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)+uint64(timebucket.SpansBucketSeconds)),
+		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)+uint32(timebucket.BucketSeconds)),
 		clickhouse.Named("startMs", time.UnixMilli(startMs)),
 		clickhouse.Named("endMs", time.UnixMilli(endMs)),
 		clickhouse.Named("prefix", prefix),

@@ -95,8 +95,8 @@ func ExplorerCtx(ctx context.Context) context.Context {
 func SpanBaseParams(teamID int64, startMs, endMs int64) []any {
 	return []any{
 		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)+uint32(timebucket.BucketSeconds)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}

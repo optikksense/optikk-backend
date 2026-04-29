@@ -85,8 +85,8 @@ func foldConnPoolMetrics(rows []metricValueRow) *float64 {
 // hour-aligned bucket bounds for PREWHERE granule prune, exact ms range for
 // sub-bucket precision in WHERE, and the metric_name allow-list.
 func connpoolBaseParams(teamID int64, startMs, endMs int64) []any {
-	bucketStart := timebucket.MetricsHourBucket(startMs / 1000)
-	bucketEnd := timebucket.MetricsHourBucket(endMs / 1000).Add(time.Hour)
+	bucketStart := timebucket.BucketStart(startMs / 1000)
+	bucketEnd := timebucket.BucketStart(endMs /1000) + uint32(timebucket.BucketSeconds)
 	return []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", bucketStart),
@@ -102,7 +102,7 @@ func (r *ClickHouseRepository) GetAvgConnPool(ctx context.Context, teamID int64,
 		SELECT metric_name, avg(value) AS val_avg
 		FROM ` + tableMetrics + `
 		PREWHERE team_id = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		WHERE metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end
 		GROUP BY metric_name`
@@ -122,7 +122,7 @@ func (r *ClickHouseRepository) GetConnPoolByService(ctx context.Context, teamID 
 		SELECT service, metric_name, avg(value) AS val_avg
 		FROM ` + tableMetrics + `
 		PREWHERE team_id = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		WHERE service != ''
 		  AND metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end
@@ -169,7 +169,7 @@ func (r *ClickHouseRepository) GetConnPoolByInstance(ctx context.Context, teamID
 		       avg(value) AS val_avg
 		FROM ` + tableMetrics + `
 		PREWHERE team_id = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		WHERE service != ''
 		  AND metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end

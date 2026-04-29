@@ -329,8 +329,8 @@ func (r *ClickHouseRepository) GetActiveVersion(ctx context.Context, teamID int6
 	`,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)

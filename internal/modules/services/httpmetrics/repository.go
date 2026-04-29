@@ -83,7 +83,7 @@ func (r *ClickHouseRepository) QueryHistogramAgg(ctx context.Context, teamID int
 		    sumForEach(hist_counts) AS counts
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end`
@@ -105,7 +105,7 @@ func (r *ClickHouseRepository) QueryStatusHistogramSeries(ctx context.Context, t
 		SELECT timestamp, http_status_code AS status_code, hist_count AS count
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
@@ -129,7 +129,7 @@ func (r *ClickHouseRepository) QueryMetricSeries(ctx context.Context, teamID int
 		SELECT timestamp, value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
@@ -242,12 +242,12 @@ func spanArgs(teamID int64, startMs, endMs int64) []any {
 	}
 }
 
-func metricBucketBounds(startMs, endMs int64) (time.Time, time.Time) {
-	return timebucket.MetricsHourBucket(startMs / 1000),
-		timebucket.MetricsHourBucket(endMs / 1000).Add(time.Hour)
+func metricBucketBounds(startMs, endMs int64) (uint32, uint32) {
+	return timebucket.BucketStart(startMs / 1000),
+		timebucket.BucketStart(endMs /1000) + uint32(timebucket.BucketSeconds)
 }
 
-func spanBucketBounds(startMs, endMs int64) (uint64, uint64) {
-	return timebucket.SpansBucketStart(startMs / 1000),
-		timebucket.SpansBucketStart(endMs/1000) + uint64(timebucket.SpansBucketSeconds)
+func spanBucketBounds(startMs, endMs int64) (uint32, uint32) {
+	return timebucket.BucketStart(startMs / 1000),
+		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }

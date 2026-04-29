@@ -43,7 +43,7 @@ func (r *ClickHouseRepository) QueryCPUTimeByState(ctx context.Context, teamID i
 		    value                                                    AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
@@ -69,7 +69,7 @@ func (r *ClickHouseRepository) QueryProcessCountByState(ctx context.Context, tea
 		    value                                                    AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
@@ -99,7 +99,7 @@ func (r *ClickHouseRepository) QueryCPUUtilizationByPod(ctx context.Context, tea
 		    value                                                    AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end
@@ -126,7 +126,7 @@ func (r *ClickHouseRepository) QueryLoadAverages(ctx context.Context, teamID int
 		    avg(value)  AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end
@@ -157,7 +157,7 @@ func (r *ClickHouseRepository) QueryCPUUtilizationAgg(ctx context.Context, teamI
 		    avg(value)  AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end
@@ -184,7 +184,7 @@ func (r *ClickHouseRepository) QueryCPUUtilizationByService(ctx context.Context,
 		    avg(value)  AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end
@@ -214,7 +214,7 @@ func (r *ClickHouseRepository) QueryCPUUtilizationByInstance(ctx context.Context
 		    avg(value)                                               AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end
@@ -241,9 +241,9 @@ func metricArgs(teamID int64, startMs, endMs int64) []any {
 	}
 }
 
-func metricBucketBounds(startMs, endMs int64) (time.Time, time.Time) {
-	return timebucket.MetricsHourBucket(startMs / 1000),
-		timebucket.MetricsHourBucket(endMs / 1000).Add(time.Hour)
+func metricBucketBounds(startMs, endMs int64) (uint32, uint32) {
+	return timebucket.BucketStart(startMs / 1000),
+		timebucket.BucketStart(endMs /1000) + uint32(timebucket.BucketSeconds)
 }
 
 func withMetricName(args []any, name string) []any {

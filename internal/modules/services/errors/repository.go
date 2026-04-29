@@ -98,8 +98,8 @@ func (r *ClickHouseRepository) ServiceErrorRateRowsByService(ctx context.Context
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)),
 		clickhouse.Named("serviceName", serviceName),
 	}
 	var rows []rawServiceRateRow
@@ -152,8 +152,8 @@ func (r *ClickHouseRepository) ErrorVolumeRowsByService(ctx context.Context, tea
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)),
 		clickhouse.Named("serviceName", serviceName),
 	}
 	var rows []rawServiceErrorRow
@@ -211,8 +211,8 @@ func (r *ClickHouseRepository) LatencyErrorRowsByService(ctx context.Context, te
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)),
 		clickhouse.Named("serviceName", serviceName),
 	}
 	var rows []rawServiceRateRow
@@ -276,8 +276,8 @@ func (r *ClickHouseRepository) ErrorGroupRowsByService(ctx context.Context, team
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)),
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("limit", limit),
 	}
@@ -321,8 +321,8 @@ func (r *ClickHouseRepository) ErrorGroupDetailRow(ctx context.Context, teamID i
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)),
 		clickhouse.Named("groupServiceName", ident.Service),
 		clickhouse.Named("groupOperationName", ident.Operation),
 		clickhouse.Named("groupStatusMessage", ident.StatusMessage),
@@ -365,8 +365,8 @@ func (r *ClickHouseRepository) ErrorGroupTraceRows(ctx context.Context, teamID i
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)),
 		clickhouse.Named("groupServiceName", ident.Service),
 		clickhouse.Named("groupOperationName", ident.Operation),
 		clickhouse.Named("groupStatusMessage", ident.StatusMessage),
@@ -404,8 +404,8 @@ func (r *ClickHouseRepository) ErrorGroupTimeseriesRows(ctx context.Context, tea
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)),
 		clickhouse.Named("groupServiceName", ident.Service),
 		clickhouse.Named("groupOperationName", ident.Operation),
 		clickhouse.Named("groupStatusMessage", ident.StatusMessage),
@@ -461,8 +461,8 @@ func (r *ClickHouseRepository) ExceptionRateRowsByService(ctx context.Context, t
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)),
 		clickhouse.Named("serviceName", serviceName),
 	}
 	var rows []rawExceptionRateRow
@@ -513,8 +513,8 @@ func (r *ClickHouseRepository) HTTP5xxByRouteRowsAll(ctx context.Context, teamID
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)),
 	}
 	var rows []rawHTTP5xxRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.HTTP5xxByRouteAll", &rows, query, args...)
@@ -545,8 +545,8 @@ func (r *ClickHouseRepository) HTTP5xxByRouteRowsByService(ctx context.Context, 
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)),
 		clickhouse.Named("serviceName", serviceName),
 	}
 	var rows []rawHTTP5xxRow
@@ -612,8 +612,8 @@ func (r *ClickHouseRepository) FingerprintRowsByService(ctx context.Context, tea
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)),
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("limit", limit),
 	}
@@ -648,8 +648,8 @@ func (r *ClickHouseRepository) FingerprintTrendRows(ctx context.Context, teamID 
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("bucketStart", timebucket.SpansBucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.SpansBucketStart(endMs/1000)),
+		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)),
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("operationName", operationName),
 		clickhouse.Named("exceptionType", exceptionType),

@@ -11,7 +11,7 @@ import (
 
 // All read paths follow the apm/httpmetrics pattern: `WITH active_fps AS
 // (... metrics_resource ...)` CTE so the main `observability.metrics` scan
-// PREWHEREs on (team_id, ts_bucket_hour, fingerprint). Optional `node` filter
+// PREWHEREs on (team_id, ts_bucket, fingerprint). Optional `node` filter
 // matches against the real `host` alias column on observability.metrics.
 
 type Repository interface {
@@ -49,7 +49,7 @@ func (r *ClickHouseRepository) QueryContainerCounter(ctx context.Context, teamID
 		    value                                                    AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
@@ -79,7 +79,7 @@ func (r *ClickHouseRepository) QueryContainerGauge(ctx context.Context, teamID i
 		    value                                                    AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
@@ -107,7 +107,7 @@ func (r *ClickHouseRepository) QueryPodRestarts(ctx context.Context, teamID int6
 		    toInt64(max(value))                                      AS restarts
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
@@ -137,7 +137,7 @@ func (r *ClickHouseRepository) QueryNodeAllocatable(ctx context.Context, teamID 
 		    avg(value)  AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end
@@ -167,7 +167,7 @@ func (r *ClickHouseRepository) QueryPodPhases(ctx context.Context, teamID int64,
 		    toInt64(count())                    AS pod_count
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
@@ -197,7 +197,7 @@ func (r *ClickHouseRepository) QueryReplicaStatus(ctx context.Context, teamID in
 		    avg(value)                                               AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end
@@ -229,7 +229,7 @@ func (r *ClickHouseRepository) QueryVolumeUsage(ctx context.Context, teamID int6
 		    avg(value)                                               AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end
@@ -260,9 +260,9 @@ func metricArgs(teamID int64, startMs, endMs int64) []any {
 	}
 }
 
-func metricBucketBounds(startMs, endMs int64) (time.Time, time.Time) {
-	return timebucket.MetricsHourBucket(startMs / 1000),
-		timebucket.MetricsHourBucket(endMs / 1000).Add(time.Hour)
+func metricBucketBounds(startMs, endMs int64) (uint32, uint32) {
+	return timebucket.BucketStart(startMs / 1000),
+		timebucket.BucketStart(endMs /1000) + uint32(timebucket.BucketSeconds)
 }
 
 func withMetricNameAndNode(args []any, metricName, node string) []any {

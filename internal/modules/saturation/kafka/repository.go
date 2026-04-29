@@ -8,7 +8,7 @@ import (
 )
 
 // Each method opens a `WITH active_fps AS (... metrics_resource ...)` CTE so
-// the main `observability.metrics` scan PREWHEREs on (team_id, ts_bucket_hour,
+// the main `observability.metrics` scan PREWHEREs on (team_id, ts_bucket,
 // fingerprint) — the first three slots of the metrics PK. One CH call per
 // method; service.go composes panels that need multiple metrics
 // (summary-stats, e2e-latency, rebalance-signals).
@@ -39,7 +39,7 @@ func (r *ClickHouseRepository) QueryCounterSeriesByTopic(ctx context.Context, te
 		    value                                                    AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end
@@ -66,7 +66,7 @@ func (r *ClickHouseRepository) QueryCounterSeriesByGroup(ctx context.Context, te
 		    value                                                    AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end
@@ -94,7 +94,7 @@ func (r *ClickHouseRepository) QueryCounterErrorsByTopic(ctx context.Context, te
 		    value                                                    AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
@@ -123,7 +123,7 @@ func (r *ClickHouseRepository) QueryCounterErrorsByGroup(ctx context.Context, te
 		    value                                                    AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
@@ -155,7 +155,7 @@ func (r *ClickHouseRepository) QueryHistogramCountErrorsByOperation(ctx context.
 		    toFloat64(hist_count)                                    AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
@@ -188,7 +188,7 @@ func (r *ClickHouseRepository) QueryHistogramSeriesByTopic(ctx context.Context, 
 		    hist_counts                                              AS hist_counts
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE (metric_name = @metricName
 		       OR (metric_name = @opDuration
@@ -220,7 +220,7 @@ func (r *ClickHouseRepository) QueryHistogramSeriesByGroup(ctx context.Context, 
 		    hist_counts                                              AS hist_counts
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE (metric_name = @metricName
 		       OR (metric_name = @opDuration
@@ -252,7 +252,7 @@ func (r *ClickHouseRepository) QueryHistogramSeriesByOperation(ctx context.Conte
 		    hist_counts                                              AS hist_counts
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
@@ -284,7 +284,7 @@ func (r *ClickHouseRepository) QueryHistogramSeriesByMetricAndTopic(ctx context.
 		    hist_counts                                              AS hist_counts
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end
@@ -312,7 +312,7 @@ func (r *ClickHouseRepository) QueryHistogramAgg(ctx context.Context, teamID int
 		    sumForEach(hist_counts)  AS counts
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
@@ -335,7 +335,7 @@ func (r *ClickHouseRepository) QueryCounterAgg(ctx context.Context, teamID int64
 		    toFloat64(sum(value)) AS sum_value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end
@@ -360,7 +360,7 @@ func (r *ClickHouseRepository) QueryGaugeMax(ctx context.Context, teamID int64, 
 		    toFloat64(max(value)) AS max_value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end`
@@ -385,7 +385,7 @@ func (r *ClickHouseRepository) QueryGaugeSeriesByGroupTopic(ctx context.Context,
 		    value                                                    AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end
@@ -417,7 +417,7 @@ func (r *ClickHouseRepository) QueryPartitionLagSnapshot(ctx context.Context, te
 		    max(timestamp)                                           AS timestamp
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end
@@ -447,7 +447,7 @@ func (r *ClickHouseRepository) QueryGaugeSeriesByBroker(ctx context.Context, tea
 		    value                                    AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
@@ -477,7 +477,7 @@ func (r *ClickHouseRepository) QueryRebalanceSignals(ctx context.Context, teamID
 		    value                                                    AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end
@@ -511,7 +511,7 @@ func (r *ClickHouseRepository) QueryConsumerMetricSamples(ctx context.Context, t
 		    formatDateTime(max(timestamp), '%Y-%m-%d %H:%M:%S')      AS timestamp
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end
@@ -545,7 +545,7 @@ func (r *ClickHouseRepository) QueryTopicMetricSamples(ctx context.Context, team
 		    formatDateTime(max(timestamp), '%Y-%m-%d %H:%M:%S')      AS timestamp
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end

@@ -3,25 +3,15 @@ package timebucket
 
 import "time"
 
-const (
-	SpansBucketSeconds int64 = 300
-	LogsBucketSeconds  int64 = 86400
-)
+// BucketSeconds is the unified partition-prune grain across spans, logs, and metrics.
+// 5 minutes — small enough that dashboard panels with ≤1h windows skip most granules,
+// large enough that PK file size on resource shadows stays manageable.
+const BucketSeconds int64 = 300
 
-func SpansBucketStart(unixSeconds int64) uint64 {
-	return uint64(toBucketStart(unixSeconds, SpansBucketSeconds))
-}
-
-func LogsBucketStart(unixSeconds int64) uint32 {
-	return uint32(toBucketStart(unixSeconds, LogsBucketSeconds))
-}
-
-func toBucketStart(unixSeconds int64, bucketSize int64) int64 {
-	return (unixSeconds / bucketSize) * bucketSize
-}
-
-func MetricsHourBucket(unixSeconds int64) time.Time {
-	return time.Unix(unixSeconds, 0).UTC().Truncate(time.Hour)
+// BucketStart truncates a Unix-second timestamp down to the start of its 5-minute bucket.
+// Returned as UInt32 so it round-trips losslessly through the CH ts_bucket column.
+func BucketStart(unixSeconds int64) uint32 {
+	return uint32((unixSeconds / BucketSeconds) * BucketSeconds)
 }
 
 // DisplayBucket buckets a row timestamp into a display-time bucket sized for the requested query window. Grain: ≤3h → 1m, ≤24h → 5m, ≤7d → 1h, otherwise 1d.

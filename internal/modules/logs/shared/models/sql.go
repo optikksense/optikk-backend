@@ -1,9 +1,5 @@
 package models
 
-// RawLogsTable is the raw observability.logs table every read submodule
-// PREWHEREs into.
-const RawLogsTable = "observability.logs"
-
 // LogColumns is the canonical SELECT projection that hydrates a LogRow.
 const LogColumns = `timestamp, observed_timestamp, severity_text, severity_number, severity_bucket,
 	body, trace_id, span_id, trace_flags,

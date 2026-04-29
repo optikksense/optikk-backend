@@ -108,9 +108,9 @@ func SpanArgs(teamID, startMs, endMs int64) []any {
 
 // SpanBucketBounds returns the 5-minute-aligned [bucketStart, bucketEnd)
 // covering [startMs, endMs] in spans/spans_resource PK terms.
-func SpanBucketBounds(startMs, endMs int64) (uint64, uint64) {
-	return timebucket.SpansBucketStart(startMs / 1000),
-		timebucket.SpansBucketStart(endMs/1000) + uint64(timebucket.SpansBucketSeconds)
+func SpanBucketBounds(startMs, endMs int64) (uint32, uint32) {
+	return timebucket.BucketStart(startMs / 1000),
+		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }
 
 // MetricArgs binds the 6 base parameters every metrics-side query needs.
@@ -141,12 +141,11 @@ func MetricArgsMulti(teamID, startMs, endMs int64, metricNames []string) []any {
 	}
 }
 
-// MetricBucketBounds returns the hour-aligned [bucketStart, bucketEnd)
+// MetricBucketBounds returns the 5-minute-aligned [bucketStart, bucketEnd)
 // covering [startMs, endMs] in metrics/metrics_resource PK terms.
-func MetricBucketBounds(startMs, endMs int64) (time.Time, time.Time) {
-	bucketStart := timebucket.MetricsHourBucket(startMs / 1000)
-	bucketEnd := timebucket.MetricsHourBucket(endMs / 1000).Add(time.Hour)
-	return bucketStart, bucketEnd
+func MetricBucketBounds(startMs, endMs int64) (uint32, uint32) {
+	return timebucket.BucketStart(startMs / 1000),
+		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }
 
 // BucketWidthSeconds returns the per-bucket width used to convert raw

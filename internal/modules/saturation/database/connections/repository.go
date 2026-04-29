@@ -2,7 +2,7 @@
 // metrics from `observability.metrics`. Per the audit, gauges/counters
 // are instrumentation-side time series (not per-call spans) and live
 // natively on metrics. Every method PREWHEREs raw metrics on
-// `(team_id, ts_bucket_hour, fingerprint IN active_fps, metric_name)` —
+// `(team_id, ts_bucket, fingerprint IN active_fps, metric_name)` —
 // full PK granule pruning. Service.go folds raw rows into display
 // buckets via `displaybucket` helpers and computes histogram percentiles
 // Go-side via `quantile.FromHistogram`.
@@ -122,7 +122,7 @@ func (r *ClickHouseRepository) gaugeWithStateOne(ctx context.Context, teamID, st
 		       value                                                           AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint    IN active_fps
 		     AND metric_name    = @metricName
 		WHERE timestamp BETWEEN @start AND @end`
@@ -147,7 +147,7 @@ func (r *ClickHouseRepository) gaugeWithStateMulti(ctx context.Context, teamID, 
 		       value                                                           AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint    IN active_fps
 		     AND metric_name    IN @metricNames
 		WHERE timestamp BETWEEN @start AND @end`
@@ -170,7 +170,7 @@ func (r *ClickHouseRepository) gaugeNoState(ctx context.Context, teamID, startMs
 		       value                                   AS value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint    IN active_fps
 		     AND metric_name    = @metricName
 		WHERE timestamp BETWEEN @start AND @end`
@@ -194,7 +194,7 @@ func (r *ClickHouseRepository) poolHistogram(ctx context.Context, teamID, startM
 		       hist_counts                             AS hist_counts
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint    IN active_fps
 		     AND metric_name    = @metricName
 		WHERE timestamp BETWEEN @start AND @end

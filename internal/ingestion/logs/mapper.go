@@ -57,7 +57,7 @@ func buildLogRow(teamID int64, resource map[string]string, fp, scopeName, scopeV
 	if observedNs == 0 {
 		observedNs = nowNs
 	}
-	tsBucket := timebucket.LogsBucketStart(int64(tsNs / nsPerSecond))
+	tsBucket := timebucket.BucketStart(int64(tsNs / nsPerSecond))
 
 	attrStr, attrNum, attrBool, dropped := otlp.TypedAttrs(lr.GetAttributes(), maxLogAttributes)
 	if dropped > 0 {

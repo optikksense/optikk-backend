@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS observability.metrics (
     description          LowCardinality(String) DEFAULT '',
     fingerprint          String CODEC(ZSTD(3)),
     timestamp            DateTime64(3) CODEC(DoubleDelta, LZ4),
-    ts_bucket_hour       DateTime CODEC(DoubleDelta, LZ4),
+    ts_bucket            UInt32 CODEC(DoubleDelta, LZ4),
     value                Float64 CODEC(Gorilla, ZSTD(1)),
     hist_sum             Float64 CODEC(Gorilla, ZSTD(1)),
     hist_count           UInt64 CODEC(T64, ZSTD(1)),
@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS observability.metrics (
     INDEX idx_fingerprint fingerprint TYPE bloom_filter GRANULARITY 4
 ) ENGINE = MergeTree()
 PARTITION BY (toYYYYMMDD(timestamp), toHour(timestamp))
-ORDER BY (team_id, ts_bucket_hour, fingerprint, metric_name, temporality, timestamp)
+ORDER BY (team_id, ts_bucket, fingerprint, metric_name, temporality, timestamp)
 TTL timestamp + INTERVAL 90 DAY DELETE
 SETTINGS
     index_granularity = 8192,

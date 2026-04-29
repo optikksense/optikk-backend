@@ -43,7 +43,7 @@ func mapRequest(teamID int64, req *tracepb.ExportTraceServiceRequest) []*schema.
 
 func buildSpanRow(teamID int64, resMap map[string]string, fp string, s *trace.Span) *schema.Row {
 	timestampNs := s.GetStartTimeUnixNano()
-	tsBucket := timebucket.SpansBucketStart(int64(timestampNs / nsPerSecond))
+	tsBucket := timebucket.BucketStart(int64(timestampNs / nsPerSecond))
 
 	statusMsg := ""
 	statusCode := trace.Status_STATUS_CODE_UNSET
@@ -69,7 +69,7 @@ func buildSpanRow(teamID int64, resMap map[string]string, fp string, s *trace.Sp
 	stripPromotedKeys(merged)
 
 	return &schema.Row{
-		TsBucket:            tsBucket,
+		TsBucket:            uint64(tsBucket),
 		TeamId:              uint32(teamID),     //nolint:gosec
 		TimestampNs:         int64(timestampNs), //nolint:gosec
 		TraceId:             zeroOut(otlp.BytesToHex(s.GetTraceId()), zeroTraceHex),

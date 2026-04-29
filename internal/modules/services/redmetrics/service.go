@@ -156,7 +156,7 @@ func (s *REDMetricsService) GetRequestRateTimeSeries(ctx context.Context, teamID
 	if err != nil {
 		return nil, err
 	}
-	bucketSec := float64(timebucket.SpansBucketSeconds)
+	bucketSec := float64(timebucket.BucketSeconds)
 	result := make([]ServiceRatePoint, len(rows))
 	for i, row := range rows {
 		result[i] = ServiceRatePoint{

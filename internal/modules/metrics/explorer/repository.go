@@ -30,7 +30,7 @@ func NewRepository(db clickhouse.Conn) Repository {
 // narrows the candidate metric_name set against observability.metrics_resource
 // (LowCardinality dictionary, hour-bucketed) — that scan is tiny — then the
 // outer SELECT picks up metric_type / unit / description from raw metrics
-// PREWHEREd on (team_id, ts_bucket_hour, metric_name IN names).
+// PREWHEREd on (team_id, ts_bucket, metric_name IN names).
 func (r *ClickHouseRepository) ListMetricNames(ctx context.Context, teamID, startMs, endMs int64, search string) ([]MetricNameResult, error) {
 	const query = `
 		WITH names AS (
@@ -46,7 +46,7 @@ func (r *ClickHouseRepository) ListMetricNames(ctx context.Context, teamID, star
 		       any(description) AS description
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND metric_name    IN names
 		GROUP BY metric_name
 		ORDER BY metric_name
@@ -85,7 +85,7 @@ func (r *ClickHouseRepository) ListTagKeys(ctx context.Context, teamID, startMs,
 			SELECT DISTINCT arrayJoin(mapKeys(JSONAllPathsWithTypes(attributes))) AS tag_key
 			FROM observability.metrics
 			PREWHERE team_id        = @teamID
-			     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+			     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 			     AND metric_name    = @metricName
 			UNION ALL
 			SELECT * FROM (
@@ -169,7 +169,7 @@ func (r *ClickHouseRepository) listAttributeTagValues(ctx context.Context, teamI
 		       count()      AS count
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND metric_name    = @metricName
 		WHERE ` + col + ` != ''
 		GROUP BY tag_value
@@ -220,7 +220,7 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, f filter.Fil
 		SELECT ` + selectCols + `
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint    IN active_fps
 		     AND metric_name    = @metricName
 		WHERE timestamp BETWEEN @start AND @end` + where + `
@@ -244,9 +244,9 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, f filter.Fil
 // metricBucketBounds returns the hour-aligned [bucketStart, bucketEnd)
 // range covering [startMs, endMs] in metrics_resource / metrics PK terms.
 // Same shape as the per-module helpers in infrastructure/{cpu,memory,...}.
-func metricBucketBounds(startMs, endMs int64) (time.Time, time.Time) {
-	bucketStart := timebucket.MetricsHourBucket(startMs / 1000)
-	bucketEnd := timebucket.MetricsHourBucket(endMs / 1000).Add(time.Hour)
+func metricBucketBounds(startMs, endMs int64) (uint32, uint32) {
+	bucketStart := timebucket.BucketStart(startMs / 1000)
+	bucketEnd := timebucket.BucketStart(endMs /1000) + uint32(timebucket.BucketSeconds)
 	return bucketStart, bucketEnd
 }
 

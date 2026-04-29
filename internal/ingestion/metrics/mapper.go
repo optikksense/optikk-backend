@@ -92,7 +92,7 @@ func baseRow(
 	tsNs int64, attrs map[string]string,
 	value, histSum float64, histCount uint64, histBuckets []float64, histCounts []uint64,
 ) *schema.Row {
-	hourSec := timebucket.MetricsHourBucket(tsNs / 1_000_000_000).Unix()
+	bucket := timebucket.BucketStart(tsNs / 1_000_000_000)
 	return &schema.Row{
 		TeamId:              hdr.teamID,
 		MetricName:          m.GetName(),
@@ -103,7 +103,7 @@ func baseRow(
 		Description:         m.GetDescription(),
 		Fingerprint:         hdr.fingerprint,
 		TimestampNs:         tsNs,
-		TsBucketHourSeconds: hourSec,
+		TsBucketHourSeconds: int64(bucket),
 		Value:               value,
 		HistSum:             histSum,
 		HistCount:           histCount,

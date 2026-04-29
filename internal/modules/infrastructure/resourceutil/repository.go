@@ -122,14 +122,14 @@ func (r *compositeRepository) GetResourceUsageByService(ctx context.Context, tea
 		    avg(value)  AS avg_value
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name IN @metricNames
 		  AND timestamp BETWEEN @start AND @end
 		  AND service != ''
 		GROUP BY service, metric_name`
 
-	bucketStart, bucketEnd := timebucket.MetricsHourBucket(startMs/1000), timebucket.MetricsHourBucket(endMs/1000).Add(time.Hour)
+	bucketStart, bucketEnd := timebucket.BucketStart(startMs/1000), timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec
 		clickhouse.Named("bucketStart", bucketStart),

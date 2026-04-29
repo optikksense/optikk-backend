@@ -271,7 +271,7 @@ func spanArgs(teamID int64, startMs, endMs int64) []any {
 	}
 }
 
-func spanBucketBounds(startMs, endMs int64) (uint64, uint64) {
-	return timebucket.SpansBucketStart(startMs / 1000),
-		timebucket.SpansBucketStart(endMs/1000) + uint64(timebucket.SpansBucketSeconds)
+func spanBucketBounds(startMs, endMs int64) (uint32, uint32) {
+	return timebucket.BucketStart(startMs / 1000),
+		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }

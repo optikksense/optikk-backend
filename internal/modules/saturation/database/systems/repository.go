@@ -120,7 +120,7 @@ func (r *ClickHouseRepository) GetActiveConnectionsBySystem(ctx context.Context,
 		       toFloat64(avg(value))            AS avg_used
 		FROM observability.metrics
 		PREWHERE team_id        = @teamID
-		     AND ts_bucket_hour BETWEEN @bucketStart AND @bucketEnd
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint    IN active_fps
 		     AND metric_name    = @metricName
 		WHERE timestamp BETWEEN @start AND @end

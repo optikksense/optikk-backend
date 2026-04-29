@@ -1,6 +1,6 @@
 -- INVARIANT: bucket values are computed Go-side (internal/infra/timebucket); no CH bucket functions in this file.
 CREATE TABLE IF NOT EXISTS observability.spans (
-    ts_bucket                             UInt64          CODEC(DoubleDelta, LZ4),
+    ts_bucket                             UInt32          CODEC(DoubleDelta, LZ4),
     team_id                               UInt32          CODEC(T64, ZSTD(1)),
     timestamp                             DateTime64(9)   CODEC(DoubleDelta, LZ4),
     trace_id                              String CODEC(ZSTD(1)),

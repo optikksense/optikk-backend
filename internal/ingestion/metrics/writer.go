@@ -15,7 +15,7 @@ const chTable = "observability.metrics"
 var chColumns = []string{
 	"team_id", "metric_name", "metric_type", "temporality", "is_monotonic",
 	"unit", "description", "fingerprint", "timestamp",
-	"ts_bucket_hour",
+	"ts_bucket",
 	"value", "hist_sum", "hist_count", "hist_buckets", "hist_counts",
 	"service", "host", "environment", "k8s_namespace", "http_method", "http_status_code",
 	"resource", "attributes",
@@ -67,7 +67,8 @@ func rowValues(r *schema.Row) []any {
 		r.GetDescription(),
 		r.GetFingerprint(),
 		time.Unix(0, r.GetTimestampNs()),
-		time.Unix(r.GetTsBucketHourSeconds(), 0).UTC(),
+		uint32(r.GetTsBucketHourSeconds()), //nolint:gosec // ts_bucket is now 5-min-aligned UInt32 Unix-seconds; field name kept for proto wire-compat
+
 		r.GetValue(),
 		r.GetHistSum(),
 		r.GetHistCount(),
