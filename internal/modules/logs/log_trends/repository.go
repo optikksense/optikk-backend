@@ -2,6 +2,7 @@ package log_trends //nolint:revive,stylecheck
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -15,21 +16,18 @@ type Repository struct {
 
 func NewRepository(db clickhouse.Conn) *Repository { return &Repository{db: db} }
 
-// SummaryRow folds the severity-bucket counts SQL-side. Convention:
-// 0=trace..5=fatal; 3=warn, 4+=error.
 type SummaryRow struct {
 	Total  uint64 `ch:"total"`
 	Errors uint64 `ch:"errors"`
 	Warns  uint64 `ch:"warns"`
 }
 
-// TrendRawRow is the per-log row for service-side bucket-format + fold.
-type TrendRawRow struct {
-	Timestamp      time.Time `ch:"timestamp"`
+type TrendRow struct {
+	Timestamp      time.Time `ch:"bucket_ts"`
 	SeverityBucket uint8     `ch:"severity_bucket"`
+	Count          uint64    `ch:"count"`
 }
 
-// Summary returns SQL-side aggregated counts for the list-header KPIs.
 func (r *Repository) Summary(ctx context.Context, f filter.Filters) (SummaryRow, error) {
 	resourceWhere, where, args := filter.BuildClauses(f)
 	query := `
@@ -49,22 +47,24 @@ func (r *Repository) Summary(ctx context.Context, f filter.Filters) (SummaryRow,
 		&row, query, args...)
 }
 
-// Trend returns raw (timestamp, severity_bucket) pairs; service folds into
-// step-aligned buckets.
-func (r *Repository) Trend(ctx context.Context, f filter.Filters) ([]TrendRawRow, error) {
+func (r *Repository) Trend(ctx context.Context, f filter.Filters, stepMin int64) ([]TrendRow, error) {
 	resourceWhere, where, args := filter.BuildClauses(f)
+	interval := fmt.Sprintf("INTERVAL %d MINUTE", stepMin)
 	query := `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
 		    FROM observability.logs_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd` + resourceWhere + `
 		)
-		SELECT timestamp, severity_bucket
+		SELECT toStartOfInterval(timestamp, ` + interval + `) AS bucket_ts,
+		       severity_bucket,
+		       count() AS count
 		FROM observability.logs
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end` + where + `
-		ORDER BY timestamp ASC`
-	var rows []TrendRawRow
+		GROUP BY bucket_ts, severity_bucket
+		ORDER BY bucket_ts ASC, severity_bucket ASC`
+	var rows []TrendRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "logsTrends.Trend",
 		&rows, query, args...)
 }

@@ -9,18 +9,13 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/shared/models"
 )
 
-// Repository owns the list-only path on raw logs. Single-detail (GetByID),
-// facets, summary/trend, and analytics live in their own sibling packages.
 type Repository struct {
 	db clickhouse.Conn
 }
 
 func NewRepository(db clickhouse.Conn) *Repository { return &Repository{db: db} }
 
-// ListLogs runs a keyset-paginated scan of raw logs ordered by
-// (timestamp, observed_timestamp, trace_id) DESC. The inline CTE resolves
-// resource-dim filters in the same round-trip as the main scan.
-func (r *Repository) ListLogs(ctx context.Context, f filter.Filters, limit int, cur models.Cursor) ([]models.LogRow, bool, error) {
+func (r *Repository) getLogs(ctx context.Context, f filter.Filters, limit int, cur models.Cursor) ([]models.LogRow, bool, error) {
 	resourceWhere, where, args := filter.BuildClauses(f)
 	if !cur.IsZero() {
 		where += ` AND (timestamp, observed_timestamp, trace_id) < (@curTs, @curOts, @curTid)`

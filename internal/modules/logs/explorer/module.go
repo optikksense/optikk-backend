@@ -6,8 +6,6 @@ package explorer
 import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	log_facets "github.com/Optikk-Org/optikk-backend/internal/modules/logs/log_facets"
-	log_trends "github.com/Optikk-Org/optikk-backend/internal/modules/logs/log_trends"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -39,9 +37,7 @@ func (m *logsExplorerModule) Name() string { return "logsExplorer" }
 
 func (m *logsExplorerModule) configure(db clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	repo := NewRepository(db)
-	facets := log_facets.NewServiceFromDB(db)
-	trends := log_trends.NewServiceFromDB(db)
-	svc := NewService(repo, facets, trends)
+	svc := NewService(repo)
 	m.handler = NewHandler(getTenant, svc)
 }
 

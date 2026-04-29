@@ -3,7 +3,6 @@ package log_trends //nolint:revive,stylecheck
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -28,12 +27,12 @@ func (s *Service) Summary(ctx context.Context, f filter.Filters) (models.Summary
 
 // Trend is the in-process include for explorer's /logs/query.
 func (s *Service) Trend(ctx context.Context, f filter.Filters, step string) ([]models.TrendBucket, error) {
-	rows, err := s.repo.Trend(ctx, f)
+	stepMin := resolveStepMinutes(step, 1, f.StartMs, f.EndMs)
+	rows, err := s.repo.Trend(ctx, f, stepMin)
 	if err != nil {
 		return nil, fmt.Errorf("logs.Trend: %w", err)
 	}
-	stepMin := resolveStepMinutes(step, 1, f.StartMs, f.EndMs)
-	return foldTrend(rows, stepMin), nil
+	return mapTrend(rows, stepMin), nil
 }
 
 // ComputeResponse drives the public POST /logs/trends endpoint.
@@ -49,43 +48,18 @@ func (s *Service) ComputeResponse(ctx context.Context, f filter.Filters, step st
 	return Response{Summary: sum, Trend: trend}, nil
 }
 
-func foldTrend(rows []TrendRawRow, stepMin int64) []models.TrendBucket {
-	type key struct {
-		bucket   string
-		severity uint8
-	}
-	counts := make(map[key]uint64)
+func mapTrend(rows []TrendRow, stepMin int64) []models.TrendBucket {
+	out := make([]models.TrendBucket, 0, len(rows))
 	for _, r := range rows {
-		bucket := formatBucket(r.Timestamp, stepMin)
-		counts[key{bucket: bucket, severity: r.SeverityBucket}]++
-	}
-
-	keys := make([]key, 0, len(counts))
-	for k := range counts {
-		keys = append(keys, k)
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		if keys[i].bucket == keys[j].bucket {
-			return keys[i].severity < keys[j].severity
-		}
-		return keys[i].bucket < keys[j].bucket
-	})
-
-	out := make([]models.TrendBucket, 0, len(keys))
-	for _, k := range keys {
 		out = append(out, models.TrendBucket{
-			TimeBucket: k.bucket,
-			Severity:   k.severity,
-			Count:      counts[k],
+			TimeBucket: formatBucket(r.Timestamp, stepMin),
+			Severity:   r.SeverityBucket,
+			Count:      r.Count,
 		})
 	}
 	return out
 }
 
-// resolveStepMinutes picks a CH-friendly step size in minutes, honoring an
-// explicit token when provided and adaptive defaults otherwise. Never returns
-// less than tierStepMin so any future rollup tier alignment is preserved.
-// Adaptive: ≤3h → 1m, ≤24h → 5m, ≤7d → 1h, else 1d.
 func resolveStepMinutes(step string, tierStepMin int64, startMs, endMs int64) int64 {
 	s := strings.TrimSpace(step)
 	if s == "" {

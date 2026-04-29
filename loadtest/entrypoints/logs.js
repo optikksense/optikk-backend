@@ -5,7 +5,6 @@ import { handleSummary } from '../lib/summary.js';
 import { cfg } from '../lib/config.js';
 
 import { logsExplorer }  from '../scenarios/logs/explorer.js';
-import { logsAnalytics } from '../scenarios/logs/analytics.js';
 import { logsDetail }    from '../scenarios/logs/detail.js';
 
 function block(name) {
@@ -21,10 +20,9 @@ function block(name) {
 export const options = {
   scenarios: {
     logs_explorer:  block('logsExplorer'),
-    logs_analytics: block('logsAnalytics'),
     logs_detail:    block('logsDetail'),
   },
 };
 
 export { setup, teardown, handleSummary };
-export { logsExplorer, logsAnalytics, logsDetail };
+export { logsExplorer, logsDetail };

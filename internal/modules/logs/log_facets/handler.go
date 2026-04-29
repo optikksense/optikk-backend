@@ -1,6 +1,7 @@
 package log_facets //nolint:revive,stylecheck
 
 import (
+	"log/slog"
 	"net/http"
 
 	"github.com/Optikk-Org/optikk-backend/internal/shared/errorcode"
@@ -39,5 +40,6 @@ func (h *Handler) Facets(c *gin.Context) {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query logs facets", err)
 		return
 	}
+	slog.Debug("Logs facets queried successfully", slog.Any("resp", resp))
 	modulecommon.RespondOK(c, resp)
 }

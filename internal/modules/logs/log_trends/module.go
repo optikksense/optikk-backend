@@ -1,7 +1,4 @@
-// Package log_trends owns POST /api/v1/logs/trends — Summary KPIs +
-// severity-bucketed time-series histogram. Also exposed as a Service so the
-// explorer aggregator can fan summary/trend as include blocks.
-package log_trends //nolint:revive,stylecheck
+package log_trends
 
 import (
 	"github.com/ClickHouse/clickhouse-go/v2"
