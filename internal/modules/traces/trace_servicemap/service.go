@@ -1,4 +1,4 @@
-package trace_servicemap	//nolint:revive,stylecheck
+package trace_servicemap //nolint:revive,stylecheck
 
 import (
 	"context"
@@ -15,7 +15,7 @@ type service struct {
 	repo Repository
 }
 
-func NewService(repo Repository) Service	{ return &service{repo: repo} }
+func NewService(repo Repository) Service { return &service{repo: repo} }
 
 // GetServiceMap builds the per-trace service map (Datadog-style node+edge graph).
 func (s *service) GetServiceMap(ctx context.Context, teamID int64, traceID string) (ServiceMapResponse, error) {
@@ -106,13 +106,13 @@ func groupErrors(rows []traceErrorRow) []TraceErrorGroup {
 		}
 		g.Count++
 		g.Spans = append(g.Spans, TraceErrorSpan{
-			SpanID:			r.SpanID,
-			ServiceName:		r.ServiceName,
-			OperationName:		r.OperationName,
-			ExceptionMessage:	r.ExceptionMessage,
-			StatusMessage:		r.StatusMessage,
-			StartTime:		r.StartTime,
-			DurationMs:		r.DurationMs,
+			SpanID:           r.SpanID,
+			ServiceName:      r.ServiceName,
+			OperationName:    r.OperationName,
+			ExceptionMessage: r.ExceptionMessage,
+			StatusMessage:    r.StatusMessage,
+			StartTime:        r.StartTime,
+			DurationMs:       r.DurationMs,
 		})
 	}
 	out := make([]TraceErrorGroup, 0, len(groups))

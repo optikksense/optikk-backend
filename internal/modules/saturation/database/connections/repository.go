@@ -119,8 +119,8 @@ func (r *ClickHouseRepository) gaugeWithStateOne(ctx context.Context, teamID, st
 		       metric_name                                                     AS metric_name,
 		       attributes.'pool.name'::String                                  AS pool_name,
 		       attributes.'db.client.connection.state'::String                 AS state,
-		       value                                                           AS value
-		FROM observability.metrics
+		       val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint    IN active_fps
@@ -144,8 +144,8 @@ func (r *ClickHouseRepository) gaugeWithStateMulti(ctx context.Context, teamID, 
 		       metric_name                                                     AS metric_name,
 		       attributes.'pool.name'::String                                  AS pool_name,
 		       attributes.'db.client.connection.state'::String                 AS state,
-		       value                                                           AS value
-		FROM observability.metrics
+		       val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint    IN active_fps
@@ -167,8 +167,8 @@ func (r *ClickHouseRepository) gaugeNoState(ctx context.Context, teamID, startMs
 		)
 		SELECT timestamp                              AS timestamp,
 		       attributes.'pool.name'::String          AS pool_name,
-		       value                                   AS value
-		FROM observability.metrics
+		       val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint    IN active_fps
@@ -192,7 +192,7 @@ func (r *ClickHouseRepository) poolHistogram(ctx context.Context, teamID, startM
 		       attributes.'pool.name'::String          AS pool_name,
 		       hist_buckets                            AS hist_buckets,
 		       hist_counts                             AS hist_counts
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint    IN active_fps

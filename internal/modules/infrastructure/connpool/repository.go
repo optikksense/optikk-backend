@@ -86,7 +86,7 @@ func foldConnPoolMetrics(rows []metricValueRow) *float64 {
 // sub-bucket precision in WHERE, and the metric_name allow-list.
 func connpoolBaseParams(teamID int64, startMs, endMs int64) []any {
 	bucketStart := timebucket.BucketStart(startMs / 1000)
-	bucketEnd := timebucket.BucketStart(endMs /1000) + uint32(timebucket.BucketSeconds)
+	bucketEnd := timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 	return []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", bucketStart),
@@ -99,7 +99,7 @@ func connpoolBaseParams(teamID int64, startMs, endMs int64) []any {
 
 func (r *ClickHouseRepository) GetAvgConnPool(ctx context.Context, teamID int64, startMs, endMs int64) (metricValueDTO, error) {
 	query := `
-		SELECT metric_name, avg(value) AS val_avg
+		SELECT metric_name, val_sum / val_count AS val_avg
 		FROM ` + tableMetrics + `
 		PREWHERE team_id = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -119,7 +119,7 @@ func (r *ClickHouseRepository) GetAvgConnPool(ctx context.Context, teamID int64,
 
 func (r *ClickHouseRepository) GetConnPoolByService(ctx context.Context, teamID int64, startMs, endMs int64) ([]connPoolServiceMetricDTO, error) {
 	query := `
-		SELECT service, metric_name, avg(value) AS val_avg
+		SELECT service, metric_name, val_sum / val_count AS val_avg
 		FROM ` + tableMetrics + `
 		PREWHERE team_id = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -166,7 +166,7 @@ func (r *ClickHouseRepository) GetConnPoolByInstance(ctx context.Context, teamID
 		       resource.` + "`k8s.pod.name`" + `::String AS pod,
 		       service,
 		       metric_name,
-		       avg(value) AS val_avg
+		       sum(val_sum) / sum(val_count) AS val_avg
 		FROM ` + tableMetrics + `
 		PREWHERE team_id = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd

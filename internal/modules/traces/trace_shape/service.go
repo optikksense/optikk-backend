@@ -1,4 +1,4 @@
-package trace_shape	//nolint:revive,stylecheck
+package trace_shape //nolint:revive,stylecheck
 
 import (
 	"context"
@@ -14,7 +14,7 @@ type service struct {
 	repo Repository
 }
 
-func NewService(repo Repository) Service	{ return &service{repo: repo} }
+func NewService(repo Repository) Service { return &service{repo: repo} }
 
 func (s *service) GetSpanKindBreakdown(ctx context.Context, teamID int64, traceID string) ([]SpanKindDuration, error) {
 	rows, err := s.repo.GetSpanKindBreakdown(ctx, teamID, traceID)
@@ -53,8 +53,8 @@ func buildFlamegraph(rows []flamegraphRow) []FlamegraphFrame {
 }
 
 type flameNode struct {
-	row		flamegraphRow
-	children	[]string
+	row      flamegraphRow
+	children []string
 }
 
 func indexFlameNodes(rows []flamegraphRow) (map[string]*flameNode, []string) {
@@ -88,8 +88,8 @@ func sumChildDurations(nodes map[string]*flameNode) map[string]float64 {
 }
 
 type flameFrame struct {
-	spanID	string
-	level	int
+	spanID string
+	level  int
 }
 
 func walkFrames(nodes map[string]*flameNode, roots []string, childSum map[string]float64) []FlamegraphFrame {
@@ -110,15 +110,15 @@ func walkFrames(nodes map[string]*flameNode, roots []string, childSum map[string
 			selfMs = 0
 		}
 		frames = append(frames, FlamegraphFrame{
-			SpanID:		n.row.SpanID,
-			Name:		n.row.ServiceName + " :: " + n.row.OperationName,
-			Service:	n.row.ServiceName,
-			Operation:	n.row.OperationName,
-			DurationMs:	n.row.DurationMs,
-			SelfTimeMs:	selfMs,
-			Level:		top.level,
-			SpanKind:	n.row.SpanKind,
-			HasError:	n.row.HasError,
+			SpanID:     n.row.SpanID,
+			Name:       n.row.ServiceName + " :: " + n.row.OperationName,
+			Service:    n.row.ServiceName,
+			Operation:  n.row.OperationName,
+			DurationMs: n.row.DurationMs,
+			SelfTimeMs: selfMs,
+			Level:      top.level,
+			SpanKind:   n.row.SpanKind,
+			HasError:   n.row.HasError,
 		})
 		for i := len(n.children) - 1; i >= 0; i-- {
 			stack = append(stack, flameFrame{spanID: n.children[i], level: top.level + 1})

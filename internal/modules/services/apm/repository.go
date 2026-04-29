@@ -68,7 +68,7 @@ func (r *ClickHouseRepository) QueryHistogramAgg(ctx context.Context, teamID int
 		    sum(hist_count)         AS sum_hist_count,
 		    any(hist_buckets)       AS buckets,
 		    sumForEach(hist_counts) AS counts
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -89,8 +89,8 @@ func (r *ClickHouseRepository) QueryMetricSeries(ctx context.Context, teamID int
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name = @metricName
 		)
-		SELECT timestamp, value
-		FROM observability.metrics
+		SELECT timestamp, val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -116,7 +116,7 @@ func (r *ClickHouseRepository) QueryStateSeries(ctx context.Context, teamID int6
 		    timestamp,
 		    attributes.` + "`process.cpu.state`" + `::String AS state,
 		    value
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -138,8 +138,8 @@ func (r *ClickHouseRepository) QueryGaugeAvgByName(ctx context.Context, teamID i
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name IN @metricNames
 		)
-		SELECT metric_name, avg(value) AS avg
-		FROM observability.metrics
+		SELECT metric_name, sum(val_sum) / sum(val_count) AS avg
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -162,7 +162,7 @@ func (r *ClickHouseRepository) QueryHistogramCountSeries(ctx context.Context, te
 		      AND metric_name = @metricName
 		)
 		SELECT timestamp, hist_count AS count
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -201,5 +201,5 @@ func multiMetricArgs(teamID int64, startMs, endMs int64, metricNames []string) [
 
 func bucketBounds(startMs, endMs int64) (uint32, uint32) {
 	return timebucket.BucketStart(startMs / 1000),
-		timebucket.BucketStart(endMs /1000) + uint32(timebucket.BucketSeconds)
+		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }

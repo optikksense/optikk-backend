@@ -17,10 +17,10 @@ type healthResult struct {
 }
 
 type healthCache struct {
-	mu      sync.Mutex
-	current *healthResult
+	mu       sync.Mutex
+	current  *healthResult
 	inFlight bool
-	cond    *sync.Cond
+	cond     *sync.Cond
 }
 
 func newHealthCache() *healthCache {

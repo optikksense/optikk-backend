@@ -21,11 +21,10 @@ CREATE TABLE IF NOT EXISTS observability.metrics (
     http_method          LowCardinality(String) CODEC(ZSTD(1)),
     http_status_code     UInt16 CODEC(T64, ZSTD(1)),
     resource             JSON(max_dynamic_paths=100) CODEC(ZSTD(1)),
-    attributes           JSON(max_dynamic_paths=100) CODEC(ZSTD(1)),
-    INDEX idx_fingerprint fingerprint TYPE bloom_filter GRANULARITY 4
+    attributes           JSON(max_dynamic_paths=100) CODEC(ZSTD(1))
 ) ENGINE = MergeTree()
 PARTITION BY (toYYYYMMDD(timestamp), toHour(timestamp))
-ORDER BY (team_id, ts_bucket, fingerprint, metric_name, temporality, timestamp)
+ORDER BY (team_id, ts_bucket, metric_name, fingerprint, timestamp)
 TTL timestamp + INTERVAL 90 DAY DELETE
 SETTINGS
     index_granularity = 8192,

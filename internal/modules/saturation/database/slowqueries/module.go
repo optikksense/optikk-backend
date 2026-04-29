@@ -38,7 +38,7 @@ type dbSlowModule struct {
 	handler *Handler
 }
 
-func (m *dbSlowModule) Name() string                      { return "dbSlow" }
+func (m *dbSlowModule) Name() string { return "dbSlow" }
 
 func (m *dbSlowModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{

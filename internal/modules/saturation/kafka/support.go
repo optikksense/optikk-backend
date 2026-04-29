@@ -32,7 +32,7 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 
 func metricBucketBounds(startMs, endMs int64) (uint32, uint32) {
 	return timebucket.BucketStart(startMs / 1000),
-		timebucket.BucketStart(endMs /1000) + uint32(timebucket.BucketSeconds)
+		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }
 
 func metricArgs(teamID int64, startMs, endMs int64) []any {

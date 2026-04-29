@@ -85,9 +85,9 @@ func (s *REDMetricsService) GetApdex(ctx context.Context, teamID int64, startMs,
 
 	result := make([]ApdexScore, len(rows))
 	for i, row := range rows {
-		total := int64(row.TotalCount)         //nolint:gosec // domain-bounded
-		satisfied := int64(row.Satisfied)      //nolint:gosec // domain-bounded
-		tolerating := int64(row.Tolerating)    //nolint:gosec // domain-bounded
+		total := int64(row.TotalCount)      //nolint:gosec // domain-bounded
+		satisfied := int64(row.Satisfied)   //nolint:gosec // domain-bounded
+		tolerating := int64(row.Tolerating) //nolint:gosec // domain-bounded
 		frustrated := total - satisfied - tolerating
 		if frustrated < 0 {
 			frustrated = 0

@@ -42,7 +42,7 @@ type connpoolModule struct {
 	handler *ConnPoolHandler
 }
 
-func (m *connpoolModule) Name() string                      { return "connpool" }
+func (m *connpoolModule) Name() string { return "connpool" }
 
 func (m *connpoolModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = NewHandler(nativeQuerier, getTenant)

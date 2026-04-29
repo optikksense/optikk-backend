@@ -28,7 +28,7 @@ type module struct {
 	handler *Handler
 }
 
-func (m *module) Name() string                      { return "spanQuery" }
+func (m *module) Name() string { return "spanQuery" }
 
 func (m *module) configure(db clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	repo := NewRepository(db)

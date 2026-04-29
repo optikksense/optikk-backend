@@ -9,11 +9,6 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
-
-// Repository surfaces the per-DB-system detection queries. All read raw
-// `observability.spans` for span-derived totals; service.go merges in
-// active-connection counts from the metrics-side connections submodule
-// when needed.
 type Repository interface {
 	GetDetectedSystems(ctx context.Context, teamID, startMs, endMs int64) ([]detectedSystemRawDTO, error)
 	GetSystemSummariesRaw(ctx context.Context, teamID, startMs, endMs int64) ([]systemSummaryRawDTO, error)
@@ -77,9 +72,6 @@ func (r *ClickHouseRepository) GetDetectedSystems(ctx context.Context, teamID, s
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "systems.GetDetectedSystems", &rows, query, args...)
 }
 
-// GetSystemSummariesRaw emits per-system aggregate columns plus a fixed-
-// bucket latency histogram. Service interpolates p95 Go-side and merges
-// active-connection counts from GetActiveConnectionsBySystem.
 func (r *ClickHouseRepository) GetSystemSummariesRaw(ctx context.Context, teamID, startMs, endMs int64) ([]systemSummaryRawDTO, error) {
 	query := `
 		WITH active_fps AS (
@@ -106,9 +98,6 @@ func (r *ClickHouseRepository) GetSystemSummariesRaw(ctx context.Context, teamID
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "systems.GetSystemSummariesRaw", &rows, query, args...)
 }
 
-// GetActiveConnectionsBySystem reads the OTel `db.client.connection.count`
-// gauge from `observability.metrics`, filtered to state='used', averaged
-// per (db.system) over the window. Returns map[dbSystem] → rounded count.
 func (r *ClickHouseRepository) GetActiveConnectionsBySystem(ctx context.Context, teamID, startMs, endMs int64) (map[string]int64, error) {
 	const query = `
 		WITH active_fps AS (
@@ -117,8 +106,8 @@ func (r *ClickHouseRepository) GetActiveConnectionsBySystem(ctx context.Context,
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name = @metricName
 		)
 		SELECT attributes.'db.system'::String   AS db_system,
-		       toFloat64(avg(value))            AS avg_used
-		FROM observability.metrics
+		       toFloat64(sum(val_sum) / sum(val_count))            AS avg_used
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint    IN active_fps

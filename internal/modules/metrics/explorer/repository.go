@@ -2,7 +2,6 @@ package explorer
 
 import (
 	"context"
-	"strconv"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -26,11 +25,6 @@ func NewRepository(db clickhouse.Conn) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-// ListMetricNames runs in two phases via a single CH statement: a CTE
-// narrows the candidate metric_name set against observability.metrics_resource
-// (LowCardinality dictionary, hour-bucketed) — that scan is tiny — then the
-// outer SELECT picks up metric_type / unit / description from raw metrics
-// PREWHEREd on (team_id, ts_bucket, metric_name IN names).
 func (r *ClickHouseRepository) ListMetricNames(ctx context.Context, teamID, startMs, endMs int64, search string) ([]MetricNameResult, error) {
 	const query = `
 		WITH names AS (
@@ -44,7 +38,7 @@ func (r *ClickHouseRepository) ListMetricNames(ctx context.Context, teamID, star
 		       any(metric_type) AS metric_type,
 		       any(unit)        AS unit,
 		       any(description) AS description
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND metric_name    IN names
@@ -74,16 +68,11 @@ func (r *ClickHouseRepository) ListMetricNames(ctx context.Context, teamID, star
 	return out, nil
 }
 
-// ListTagKeys returns the set of tag keys present on data points of the
-// given metric. The dynamic-keys side scans raw metrics (the only place
-// the per-data-point attributes JSON column lives) PREWHERE'd on the first
-// three PK slots; UNION ALL adds the canonical resource keys so the
-// frontend always sees them in the autocomplete list.
 func (r *ClickHouseRepository) ListTagKeys(ctx context.Context, teamID, startMs, endMs int64, metricName string) ([]TagKeyResult, error) {
 	const query = `
 		SELECT DISTINCT tag_key FROM (
 			SELECT DISTINCT arrayJoin(mapKeys(JSONAllPathsWithTypes(attributes))) AS tag_key
-			FROM observability.metrics
+			FROM observability.metrics_1m
 			PREWHERE team_id        = @teamID
 			     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 			     AND metric_name    = @metricName
@@ -117,10 +106,6 @@ func (r *ClickHouseRepository) ListTagKeys(ctx context.Context, teamID, startMs,
 	return out, nil
 }
 
-// ListTagValues returns the top-N values for a tag key on a given metric.
-// Resource keys go through metrics_resource (narrow LowCardinality columns,
-// hour-bucketed); arbitrary tag keys read the per-data-point attributes
-// JSON column on raw observability.metrics.
 func (r *ClickHouseRepository) ListTagValues(ctx context.Context, teamID, startMs, endMs int64, metricName, tagKey string) ([]TagValueResult, error) {
 	if canonical := filter.Canonical(tagKey); canonical != "" {
 		return r.listResourceTagValues(ctx, teamID, startMs, endMs, metricName, canonical)
@@ -167,7 +152,7 @@ func (r *ClickHouseRepository) listAttributeTagValues(ctx context.Context, teamI
 	query := `
 		SELECT ` + col + ` AS tag_value,
 		       count()      AS count
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND metric_name    = @metricName
@@ -193,9 +178,6 @@ func (r *ClickHouseRepository) listAttributeTagValues(ctx context.Context, teamI
 	return out, nil
 }
 
-// QueryTimeseries runs the explorer's main aggregation against
-// observability.metrics with an inline metrics_resource CTE for resource
-// filters. One round-trip per call regardless of filter shape.
 func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, f filter.Filters) ([]TimeseriesPoint, error) {
 	resourceWhere, where, filterArgs := filter.BuildClauses(f)
 
@@ -207,8 +189,6 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, f filter.Fil
 		selectCols += ", " + col + " AS " + alias
 		groupByCols += ", " + alias
 	}
-	selectCols += ", " + buildAggExpr(f.Aggregation, f.StartMs, f.EndMs, f.Step) + " AS agg_value"
-
 	query := `
 		WITH active_fps AS (
 		    SELECT fingerprint
@@ -217,8 +197,12 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, f filter.Fil
 		         AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		         AND metric_name = @metricName` + resourceWhere + `
 		)
-		SELECT ` + selectCols + `
-		FROM observability.metrics
+		SELECT ` + selectCols + `,
+		       sum(val_sum)   AS val_sum,
+		       sum(val_count) AS val_count,
+		       min(val_min)   AS val_min,
+		       max(val_max)   AS val_max
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint    IN active_fps
@@ -234,25 +218,41 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, f filter.Fil
 	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "metrics.QueryTimeseries", &rows, query, args...); err != nil {
 		return nil, err
 	}
+	bucketSeconds := float64(bucketDurationSeconds(f.StartMs, f.EndMs, f.Step))
 	out := make([]TimeseriesPoint, len(rows))
 	for i, row := range rows {
-		out[i] = TimeseriesPoint{Timestamp: row.Timestamp, Value: row.Value}
+		var val float64
+		switch f.Aggregation {
+		case "sum":
+			val = row.Sum
+		case "avg":
+			if row.Count > 0 {
+				val = row.Sum / float64(row.Count)
+			}
+		case "min":
+			val = row.Min
+		case "max":
+			val = row.Max
+		case "count":
+			val = float64(row.Count)
+		case "rate":
+			val = row.Sum / bucketSeconds
+		default:
+			if row.Count > 0 {
+				val = row.Sum / float64(row.Count)
+			}
+		}
+		out[i] = TimeseriesPoint{Timestamp: row.Timestamp, Value: val}
 	}
 	return out, nil
 }
 
-// metricBucketBounds returns the hour-aligned [bucketStart, bucketEnd)
-// range covering [startMs, endMs] in metrics_resource / metrics PK terms.
-// Same shape as the per-module helpers in infrastructure/{cpu,memory,...}.
 func metricBucketBounds(startMs, endMs int64) (uint32, uint32) {
 	bucketStart := timebucket.BucketStart(startMs / 1000)
-	bucketEnd := timebucket.BucketStart(endMs /1000) + uint32(timebucket.BucketSeconds)
+	bucketEnd := timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 	return bucketStart, bucketEnd
 }
 
-// metricArgs binds the 6 parameters QueryTimeseries needs: team scope,
-// hour-aligned ts_bucket bounds, metric name, and the row-side timestamp
-// range.
 func metricArgs(f filter.Filters) []any {
 	bucketStart, bucketEnd := metricBucketBounds(f.StartMs, f.EndMs)
 	return []any{
@@ -262,37 +262,6 @@ func metricArgs(f filter.Filters) []any {
 		clickhouse.Named("metricName", f.MetricName),
 		clickhouse.Named("start", time.UnixMilli(f.StartMs)),
 		clickhouse.Named("end", time.UnixMilli(f.EndMs)),
-	}
-}
-
-// buildAggExpr returns the ClickHouse aggregation expression for an
-// aggregation name. The rate branch divides by a server-computed bucket
-// duration (not user input) so string-concat is safe.
-func buildAggExpr(agg string, startMs, endMs int64, step string) string {
-	switch agg {
-	case "avg":
-		return "avg(if(metric_type = 'Histogram', hist_sum / nullIf(hist_count, 0), value))"
-	case "sum":
-		return "sum(if(metric_type = 'Histogram', hist_sum, value))"
-	case "min":
-		return "min(if(metric_type = 'Histogram', hist_sum / nullIf(hist_count, 0), value))"
-	case "max":
-		return "max(if(metric_type = 'Histogram', hist_sum / nullIf(hist_count, 0), value))"
-	case "count":
-		return "sum(if(metric_type = 'Histogram', hist_count, 1))"
-	case "rate":
-		bucketSeconds := bucketDurationSeconds(startMs, endMs, step)
-		return "sum(if(metric_type = 'Histogram', hist_count, value)) / " + strconv.FormatInt(bucketSeconds, 10)
-	case "p50":
-		return "quantileTDigestWeighted(0.50)(hist_sum / nullIf(hist_count, 0), toUInt64(hist_count))"
-	case "p75":
-		return "quantileTDigestWeighted(0.75)(hist_sum / nullIf(hist_count, 0), toUInt64(hist_count))"
-	case "p95":
-		return "quantileTDigestWeighted(0.95)(hist_sum / nullIf(hist_count, 0), toUInt64(hist_count))"
-	case "p99":
-		return "quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), toUInt64(hist_count))"
-	default:
-		return "avg(value)"
 	}
 }
 

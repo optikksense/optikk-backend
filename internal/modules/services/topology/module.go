@@ -20,7 +20,7 @@ type topologyModule struct {
 	handler *Handler
 }
 
-func (m *topologyModule) Name() string                      { return "services_topology" }
+func (m *topologyModule) Name() string { return "services_topology" }
 
 func (m *topologyModule) RegisterRoutes(group *gin.RouterGroup) {
 	g := group.Group("/services/topology")

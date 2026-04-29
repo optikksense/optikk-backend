@@ -47,7 +47,7 @@ type networkModule struct {
 	handler *NetworkHandler
 }
 
-func (m *networkModule) Name() string                      { return "network" }
+func (m *networkModule) Name() string { return "network" }
 
 func (m *networkModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = NewHandler(nativeQuerier, getTenant)

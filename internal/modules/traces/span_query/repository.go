@@ -61,4 +61,3 @@ func (r *ClickHouseRepository) ListSpans(ctx context.Context, f filter.Filters, 
 	}
 	return rows, hasMore, nil
 }
-

@@ -44,7 +44,7 @@ type userPageModule struct {
 	handler *Handler
 }
 
-func (m *userPageModule) Name() string                      { return "userPage" }
+func (m *userPageModule) Name() string { return "userPage" }
 
 func (m *userPageModule) configure(sqlDB *registry.SQLDB, getTenant registry.GetTenantFunc, appConfig registry.AppConfig) {
 	m.handler = NewHandler(

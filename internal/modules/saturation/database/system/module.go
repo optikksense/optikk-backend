@@ -40,7 +40,7 @@ type dbSystemModule struct {
 	handler *Handler
 }
 
-func (m *dbSystemModule) Name() string                      { return "dbSystem" }
+func (m *dbSystemModule) Name() string { return "dbSystem" }
 
 func (m *dbSystemModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{

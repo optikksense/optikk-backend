@@ -48,7 +48,7 @@ type teamModule struct {
 	handler *Handler
 }
 
-func (m *teamModule) Name() string                      { return "team" }
+func (m *teamModule) Name() string { return "team" }
 
 func (m *teamModule) configure(
 	sqlDB *registry.SQLDB,

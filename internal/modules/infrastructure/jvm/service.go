@@ -27,8 +27,8 @@ func (s *Service) GetJVMMemory(ctx context.Context, teamID int64, startMs, endMs
 		return nil, err
 	}
 	type key struct {
-		ts                   time.Time
-		poolName, memType    string
+		ts                time.Time
+		poolName, memType string
 	}
 	type acc struct{ used, committed, limit avgAcc }
 	agg := map[key]*acc{}

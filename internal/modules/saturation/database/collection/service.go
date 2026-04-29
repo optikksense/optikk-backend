@@ -69,7 +69,7 @@ func (s *Service) GetCollectionQueryTexts(ctx context.Context, teamID, startMs, 
 		out[i] = CollectionTopQuery{
 			QueryText:  r.QueryText,
 			P99Ms:      &p99,
-			CallCount:  int64(r.CallCount), //nolint:gosec // domain-bounded
+			CallCount:  int64(r.CallCount),  //nolint:gosec // domain-bounded
 			ErrorCount: int64(r.ErrorCount), //nolint:gosec
 		}
 	}

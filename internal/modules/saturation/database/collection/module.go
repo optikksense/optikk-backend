@@ -39,7 +39,7 @@ type dbCollectionModule struct {
 	handler *Handler
 }
 
-func (m *dbCollectionModule) Name() string                      { return "dbCollection" }
+func (m *dbCollectionModule) Name() string { return "dbCollection" }
 
 func (m *dbCollectionModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{

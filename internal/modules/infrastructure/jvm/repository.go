@@ -44,8 +44,8 @@ func (r *ClickHouseRepository) QueryJVMMemoryByPool(ctx context.Context, teamID 
 		    attributes.'jvm.memory.pool.name'::String                AS pool_name,
 		    attributes.'jvm.memory.type'::String                     AS mem_type,
 		    metric_name                                              AS metric_name,
-		    value                                                    AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -79,7 +79,7 @@ func (r *ClickHouseRepository) QueryJVMGCDurationHistogram(ctx context.Context, 
 		    sum(hist_count)          AS sum_hist_count,
 		    any(hist_buckets)        AS buckets,
 		    sumForEach(hist_counts)  AS counts
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -105,7 +105,7 @@ func (r *ClickHouseRepository) QueryJVMGCCollectionsByName(ctx context.Context, 
 		    timestamp                                                AS timestamp,
 		    attributes.'jvm.gc.name'::String                         AS gc_name,
 		    toFloat64(hist_count)                                    AS value
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -130,8 +130,8 @@ func (r *ClickHouseRepository) QueryJVMThreadCountByDaemon(ctx context.Context, 
 		SELECT
 		    timestamp                                                AS timestamp,
 		    attributes.'jvm.thread.daemon'::String                   AS daemon,
-		    value                                                    AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -154,8 +154,8 @@ func (r *ClickHouseRepository) QueryJVMClasses(ctx context.Context, teamID int64
 		)
 		SELECT
 		    metric_name AS metric_name,
-		    avg(value)  AS value
-		FROM observability.metrics
+		    sum(val_sum) / sum(val_count)  AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -181,8 +181,8 @@ func (r *ClickHouseRepository) QueryJVMCPU(ctx context.Context, teamID int64, st
 		)
 		SELECT
 		    metric_name AS metric_name,
-		    avg(value)  AS value
-		FROM observability.metrics
+		    sum(val_sum) / sum(val_count)  AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -210,8 +210,8 @@ func (r *ClickHouseRepository) QueryJVMBuffersByPool(ctx context.Context, teamID
 		    timestamp                                                AS timestamp,
 		    attributes.'jvm.buffer.pool.name'::String                AS pool_name,
 		    metric_name                                              AS metric_name,
-		    value                                                    AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -244,7 +244,7 @@ func metricArgs(teamID int64, startMs, endMs int64) []any {
 
 func metricBucketBounds(startMs, endMs int64) (uint32, uint32) {
 	return timebucket.BucketStart(startMs / 1000),
-		timebucket.BucketStart(endMs /1000) + uint32(timebucket.BucketSeconds)
+		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }
 
 func withMetricName(args []any, name string) []any {

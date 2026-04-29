@@ -35,7 +35,7 @@ type nodesModule struct {
 	handler *NodeHandler
 }
 
-func (m *nodesModule) Name() string                      { return "nodes" }
+func (m *nodesModule) Name() string { return "nodes" }
 
 func (m *nodesModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &NodeHandler{

@@ -112,4 +112,3 @@ type PageInfo struct {
 	NextCursor string `json:"nextCursor,omitempty"`
 	Limit      int    `json:"limit"`
 }
-

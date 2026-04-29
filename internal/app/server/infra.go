@@ -20,9 +20,9 @@ import (
 	logsignal "github.com/Optikk-Org/optikk-backend/internal/ingestion/logs"
 	metricsignal "github.com/Optikk-Org/optikk-backend/internal/ingestion/metrics"
 	spansignal "github.com/Optikk-Org/optikk-backend/internal/ingestion/spans"
-	"github.com/twmb/franz-go/pkg/kgo"
 	redigoredis "github.com/gomodule/redigo/redis"
 	goredis "github.com/redis/go-redis/v9"
+	"github.com/twmb/franz-go/pkg/kgo"
 )
 
 // IngestModules bundles the three ingestion modules returned to the registry.

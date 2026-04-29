@@ -52,8 +52,8 @@ func (r *ClickHouseRepository) QueryMemoryUsageByState(ctx context.Context, team
 		SELECT
 		    timestamp                                                AS timestamp,
 		    attributes.'system.memory.state'::String                 AS state,
-		    value                                                    AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -78,8 +78,8 @@ func (r *ClickHouseRepository) QuerySwapUsageByState(ctx context.Context, teamID
 		SELECT
 		    timestamp                                                AS timestamp,
 		    attributes.'system.memory.state'::String                 AS state,
-		    value                                                    AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -107,8 +107,8 @@ func (r *ClickHouseRepository) QueryMemoryUsageByPod(ctx context.Context, teamID
 		    timestamp                                                AS timestamp,
 		    attributes.'k8s.pod.name'::String                        AS pod,
 		    metric_name                                              AS metric_name,
-		    value                                                    AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -132,8 +132,8 @@ func (r *ClickHouseRepository) QueryMemoryUtilizationAgg(ctx context.Context, te
 		)
 		SELECT
 		    metric_name AS metric_name,
-		    avg(value)  AS value
-		FROM observability.metrics
+		    sum(val_sum) / sum(val_count)  AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -156,8 +156,8 @@ func (r *ClickHouseRepository) QueryMemoryUtilizationForService(ctx context.Cont
 		)
 		SELECT
 		    metric_name AS metric_name,
-		    avg(value)  AS value
-		FROM observability.metrics
+		    sum(val_sum) / sum(val_count)  AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -182,8 +182,8 @@ func (r *ClickHouseRepository) QueryMemoryUtilizationForInstance(ctx context.Con
 		)
 		SELECT
 		    metric_name AS metric_name,
-		    avg(value)  AS value
-		FROM observability.metrics
+		    sum(val_sum) / sum(val_count)  AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -220,7 +220,7 @@ func metricArgs(teamID int64, startMs, endMs int64) []any {
 
 func metricBucketBounds(startMs, endMs int64) (uint32, uint32) {
 	return timebucket.BucketStart(startMs / 1000),
-		timebucket.BucketStart(endMs /1000) + uint32(timebucket.BucketSeconds)
+		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }
 
 func withMetricName(args []any, name string) []any {

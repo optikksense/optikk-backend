@@ -29,7 +29,7 @@ type module struct {
 	handler *Handler
 }
 
-func (m *module) Name() string                      { return "traceShape" }
+func (m *module) Name() string { return "traceShape" }
 
 func (m *module) configure(db clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	repo := NewRepository(db)

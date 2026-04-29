@@ -41,10 +41,10 @@ func StreamInterceptor(resolver TeamResolver) grpc.StreamServerInterceptor {
 
 type wrappedStream struct {
 	grpc.ServerStream
-	ctx	context.Context
+	ctx context.Context
 }
 
-func (w *wrappedStream) Context() context.Context	{ return w.ctx }
+func (w *wrappedStream) Context() context.Context { return w.ctx }
 
 func resolveFromContext(ctx context.Context, resolver TeamResolver) (int64, error) {
 	md, ok := metadata.FromIncomingContext(ctx)

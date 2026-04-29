@@ -39,7 +39,7 @@ type apmModule struct {
 	handler *APMHandler
 }
 
-func (m *apmModule) Name() string                      { return "apm" }
+func (m *apmModule) Name() string { return "apm" }
 
 func (m *apmModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &APMHandler{

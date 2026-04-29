@@ -40,7 +40,7 @@ type dbErrorsModule struct {
 	handler *Handler
 }
 
-func (m *dbErrorsModule) Name() string                      { return "dbErrors" }
+func (m *dbErrorsModule) Name() string { return "dbErrors" }
 
 func (m *dbErrorsModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{

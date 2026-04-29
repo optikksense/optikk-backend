@@ -44,7 +44,7 @@ type authModule struct {
 	handler *Handler
 }
 
-func (m *authModule) Name() string                      { return "auth" }
+func (m *authModule) Name() string { return "auth" }
 
 func (m *authModule) configure(
 	sqlDB *registry.SQLDB,

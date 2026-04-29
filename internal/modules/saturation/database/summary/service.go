@@ -21,11 +21,11 @@ func NewService(repo Repository) *Service {
 // Go-side from the bucket histogram.
 func (s *Service) GetSummaryStats(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) (SummaryStats, error) {
 	var (
-		main      mainRawRow
-		mainOK    bool
-		conns     int64
-		cache     cacheRawRow
-		cacheOK   bool
+		main    mainRawRow
+		mainOK  bool
+		conns   int64
+		cache   cacheRawRow
+		cacheOK bool
 	)
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {

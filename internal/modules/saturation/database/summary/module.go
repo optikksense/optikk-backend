@@ -33,7 +33,7 @@ type dbSummaryModule struct {
 	handler *Handler
 }
 
-func (m *dbSummaryModule) Name() string                      { return "dbSummary" }
+func (m *dbSummaryModule) Name() string { return "dbSummary" }
 
 func (m *dbSummaryModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{

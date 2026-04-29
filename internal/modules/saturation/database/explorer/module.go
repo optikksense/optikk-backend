@@ -60,7 +60,7 @@ type saturationExplorerModule struct {
 	handler *Handler
 }
 
-func (m *saturationExplorerModule) Name() string                      { return "saturationExplorer" }
+func (m *saturationExplorerModule) Name() string { return "saturationExplorer" }
 
 func (m *saturationExplorerModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{

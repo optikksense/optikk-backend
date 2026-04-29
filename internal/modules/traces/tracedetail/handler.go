@@ -105,4 +105,3 @@ func (h *TraceDetailHandler) GetRelatedTraces(c *gin.Context) {
 	}
 	modulecommon.RespondOK(c, traces)
 }
-

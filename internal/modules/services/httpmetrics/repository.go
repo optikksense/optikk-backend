@@ -81,7 +81,7 @@ func (r *ClickHouseRepository) QueryHistogramAgg(ctx context.Context, teamID int
 		    sum(hist_count)         AS sum_hist_count,
 		    any(hist_buckets)       AS buckets,
 		    sumForEach(hist_counts) AS counts
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -103,7 +103,7 @@ func (r *ClickHouseRepository) QueryStatusHistogramSeries(ctx context.Context, t
 		      AND metric_name = @metricName
 		)
 		SELECT timestamp, http_status_code AS status_code, hist_count AS count
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -126,8 +126,8 @@ func (r *ClickHouseRepository) QueryMetricSeries(ctx context.Context, teamID int
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name = @metricName
 		)
-		SELECT timestamp, value
-		FROM observability.metrics
+		SELECT timestamp, val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -244,7 +244,7 @@ func spanArgs(teamID int64, startMs, endMs int64) []any {
 
 func metricBucketBounds(startMs, endMs int64) (uint32, uint32) {
 	return timebucket.BucketStart(startMs / 1000),
-		timebucket.BucketStart(endMs /1000) + uint32(timebucket.BucketSeconds)
+		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }
 
 func spanBucketBounds(startMs, endMs int64) (uint32, uint32) {

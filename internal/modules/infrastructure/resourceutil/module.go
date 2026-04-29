@@ -46,7 +46,7 @@ type resourceUtilisationModule struct {
 	handler *ResourceUtilisationHandler
 }
 
-func (m *resourceUtilisationModule) Name() string                      { return "resourceUtilisation" }
+func (m *resourceUtilisationModule) Name() string { return "resourceUtilisation" }
 
 func (m *resourceUtilisationModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	repo := NewRepository(

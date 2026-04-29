@@ -20,7 +20,7 @@ import (
 type Migrator struct {
 	DB       clickhouse.Conn
 	FS       fs.FS
-	Database string                       // defaults to "observability"
+	Database string // defaults to "observability"
 	Logger   func(format string, args ...any)
 }
 

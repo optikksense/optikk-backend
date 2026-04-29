@@ -43,7 +43,7 @@ type redMetricsModule struct {
 	handler *REDMetricsHandler
 }
 
-func (m *redMetricsModule) Name() string                      { return "redMetrics" }
+func (m *redMetricsModule) Name() string { return "redMetrics" }
 
 func (m *redMetricsModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &REDMetricsHandler{

@@ -47,7 +47,7 @@ type traceDetailModule struct {
 	bundleHandler *BundleHandler
 }
 
-func (m *traceDetailModule) Name() string                      { return "traceDetail" }
+func (m *traceDetailModule) Name() string { return "traceDetail" }
 
 func (m *traceDetailModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	svc := NewService(NewRepository(nativeQuerier))

@@ -45,8 +45,8 @@ func (r *ClickHouseRepository) QueryDiskCounterByDirection(ctx context.Context, 
 		SELECT
 		    timestamp                                                AS timestamp,
 		    attributes.'system.disk.direction'::String               AS direction,
-		    value                                                    AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -70,8 +70,8 @@ func (r *ClickHouseRepository) QueryDiskCounterTotal(ctx context.Context, teamID
 		)
 		SELECT
 		    timestamp AS timestamp,
-		    value     AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -95,8 +95,8 @@ func (r *ClickHouseRepository) QueryFilesystemUsageByMountpoint(ctx context.Cont
 		SELECT
 		    timestamp                                                AS timestamp,
 		    attributes.'system.filesystem.mountpoint'::String        AS mountpoint,
-		    value                                                    AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -120,8 +120,8 @@ func (r *ClickHouseRepository) QueryFilesystemUtilizationTotal(ctx context.Conte
 		)
 		SELECT
 		    timestamp AS timestamp,
-		    value     AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -147,8 +147,8 @@ func (r *ClickHouseRepository) QueryDiskUtilizationAgg(ctx context.Context, team
 		)
 		SELECT
 		    metric_name AS metric_name,
-		    avg(value)  AS value
-		FROM observability.metrics
+		    sum(val_sum) / sum(val_count)  AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -171,8 +171,8 @@ func (r *ClickHouseRepository) QueryDiskUtilizationForService(ctx context.Contex
 		)
 		SELECT
 		    metric_name AS metric_name,
-		    avg(value)  AS value
-		FROM observability.metrics
+		    sum(val_sum) / sum(val_count)  AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -197,8 +197,8 @@ func (r *ClickHouseRepository) QueryDiskUtilizationForInstance(ctx context.Conte
 		)
 		SELECT
 		    metric_name AS metric_name,
-		    avg(value)  AS value
-		FROM observability.metrics
+		    sum(val_sum) / sum(val_count)  AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -235,7 +235,7 @@ func metricArgs(teamID int64, startMs, endMs int64) []any {
 
 func metricBucketBounds(startMs, endMs int64) (uint32, uint32) {
 	return timebucket.BucketStart(startMs / 1000),
-		timebucket.BucketStart(endMs /1000) + uint32(timebucket.BucketSeconds)
+		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }
 
 func withMetricName(args []any, name string) []any {

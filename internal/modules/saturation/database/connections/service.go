@@ -105,8 +105,8 @@ func (s *Service) GetConnectionLimits(ctx context.Context, teamID, startMs, endM
 		return nil, err
 	}
 	type acc struct {
-		maxSum, idleMaxSum, idleMinSum   float64
-		maxCnt, idleMaxCnt, idleMinCnt   int
+		maxSum, idleMaxSum, idleMinSum float64
+		maxCnt, idleMaxCnt, idleMinCnt int
 	}
 	folded := map[string]*acc{}
 	for _, r := range rows {

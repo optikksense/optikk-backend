@@ -119,4 +119,3 @@ func (r *Repository) Summarize(ctx context.Context, f filter.Filters) (Summary, 
 	}
 	return Summary{TotalTraces: row.T, TotalErrors: row.E, TotalDuration: row.D}, nil
 }
-

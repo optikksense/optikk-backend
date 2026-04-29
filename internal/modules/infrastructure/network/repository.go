@@ -39,8 +39,8 @@ func (r *ClickHouseRepository) QueryNetworkCounterByDirection(ctx context.Contex
 		SELECT
 		    timestamp                                                AS timestamp,
 		    attributes.'system.network.io.direction'::String         AS direction,
-		    value                                                    AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -64,8 +64,8 @@ func (r *ClickHouseRepository) QueryNetworkCounterTotal(ctx context.Context, tea
 		)
 		SELECT
 		    timestamp AS timestamp,
-		    value     AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -89,8 +89,8 @@ func (r *ClickHouseRepository) QueryNetworkGaugeByState(ctx context.Context, tea
 		SELECT
 		    timestamp                                                AS timestamp,
 		    attributes.'system.network.state'::String                AS state,
-		    value                                                    AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -117,8 +117,8 @@ func (r *ClickHouseRepository) QueryNetworkUtilizationByService(ctx context.Cont
 		)
 		SELECT
 		    service     AS service,
-		    avg(value)  AS value
-		FROM observability.metrics
+		    sum(val_sum) / sum(val_count)  AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -141,8 +141,8 @@ func (r *ClickHouseRepository) QueryNetworkUtilizationForService(ctx context.Con
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name = @metricName
 		)
-		SELECT avg(value) AS value
-		FROM observability.metrics
+		SELECT val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -164,8 +164,8 @@ func (r *ClickHouseRepository) QueryNetworkUtilizationForInstance(ctx context.Co
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name = @metricName
 		)
-		SELECT avg(value) AS value
-		FROM observability.metrics
+		SELECT val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -201,7 +201,7 @@ func metricArgs(teamID int64, startMs, endMs int64) []any {
 
 func metricBucketBounds(startMs, endMs int64) (uint32, uint32) {
 	return timebucket.BucketStart(startMs / 1000),
-		timebucket.BucketStart(endMs /1000) + uint32(timebucket.BucketSeconds)
+		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }
 
 func withMetricName(args []any, name string) []any {

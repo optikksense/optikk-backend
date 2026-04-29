@@ -41,7 +41,7 @@ type kubernetesModule struct {
 	handler *KubernetesHandler
 }
 
-func (m *kubernetesModule) Name() string                      { return "kubernetes" }
+func (m *kubernetesModule) Name() string { return "kubernetes" }
 
 func (m *kubernetesModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &KubernetesHandler{

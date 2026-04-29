@@ -1,19 +1,12 @@
 // Package filter owns the typed log-filter shape, validation, and the
-// inline-CTE clause emitter every logs reader (explorer, log_facets,
+// where-clause emitter every logs reader (explorer, log_facets,
 // log_trends) shares. Mirrors internal/modules/metrics/filter.
 //
-// The repo-side BuildClauses returns (resourceWhere, where, args) ready to
+// The repo-side BuildClauses returns (where, args) ready to
 // splice into a query of shape:
 //
-//	WITH active_fps AS (
-//	    SELECT DISTINCT fingerprint
-//	    FROM observability.logs_resource
-//	    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-//	    <resourceWhere>
-//	)
 //	SELECT … FROM observability.logs
 //	PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-//	     AND fingerprint IN active_fps
 //	WHERE timestamp BETWEEN @start AND @end <where>
 package filter
 
@@ -87,9 +80,8 @@ func (f *Filters) Validate() error {
 	return nil
 }
 
-// BuildClauses turns Filters into (resourceWhere, where, args) — same
-// emission previously duplicated across explorer, log_facets, and
-// log_trends. Stable bind names so identical predicate combinations
+// BuildClauses turns Filters into (where, args).
+// Stable bind names so identical predicate combinations
 // produce byte-identical SQL — CH plan cache can hit.
 func BuildClauses(f Filters) (resourceWhere, where string, args []any) {
 	args = []any{

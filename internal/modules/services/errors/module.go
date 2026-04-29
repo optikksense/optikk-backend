@@ -48,7 +48,7 @@ type overviewErrorsModule struct {
 	handler *ErrorHandler
 }
 
-func (m *overviewErrorsModule) Name() string                      { return "overviewErrors" }
+func (m *overviewErrorsModule) Name() string { return "overviewErrors" }
 
 func (m *overviewErrorsModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &ErrorHandler{

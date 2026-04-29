@@ -80,4 +80,3 @@ type RelatedTrace struct {
 	Status        string    `json:"status"         ch:"status"`
 	StartTime     time.Time `json:"start_time"     ch:"start_time"`
 }
-

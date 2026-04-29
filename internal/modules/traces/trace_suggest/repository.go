@@ -83,7 +83,7 @@ func suggestArgs(teamID, startMs, endMs int64, prefix string, limit int) []any {
 }
 
 // scalarFieldExpr maps a validated scalar field name to its raw spans
-// column. Returns "''" for unknown fields as a defensive default — service
+// column. Returns "”" for unknown fields as a defensive default — service
 // layer validates via IsScalarField before reaching here.
 func scalarFieldExpr(field string) string {
 	switch field {

@@ -39,7 +39,7 @@ type dbVolumeModule struct {
 	handler *Handler
 }
 
-func (m *dbVolumeModule) Name() string                      { return "dbVolume" }
+func (m *dbVolumeModule) Name() string { return "dbVolume" }
 
 func (m *dbVolumeModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{

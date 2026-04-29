@@ -23,11 +23,11 @@ CREATE TABLE IF NOT EXISTS observability.logs (
     container            LowCardinality(String) CODEC(ZSTD(1)),
     environment          LowCardinality(String) CODEC(ZSTD(1)),
     severity_bucket      UInt8 CODEC(T64, ZSTD(1)),
-    INDEX idx_fingerprint  fingerprint  TYPE bloom_filter(0.01) GRANULARITY 1,
-    INDEX idx_trace_id     trace_id     TYPE bloom_filter(0.01) GRANULARITY 1
+    INDEX idx_fingerprint  fingerprint  TYPE set(0) GRANULARITY 1,
+    INDEX idx_trace_id     trace_id     TYPE set(0) GRANULARITY 1
 ) ENGINE = MergeTree()
 PARTITION BY (toYYYYMMDD(timestamp), toHour(timestamp))
-ORDER BY (team_id, ts_bucket, fingerprint, severity_bucket, timestamp, trace_id, span_id)
+ORDER BY (team_id, ts_bucket, timestamp, fingerprint)
 TTL timestamp + INTERVAL 90 DAY DELETE
 SETTINGS
     index_granularity = 8192,

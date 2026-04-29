@@ -69,7 +69,7 @@ type kafkaModule struct {
 	handler *KafkaHandler
 }
 
-func (m *kafkaModule) Name() string                      { return "kafka" }
+func (m *kafkaModule) Name() string { return "kafka" }
 
 func (m *kafkaModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &KafkaHandler{

@@ -14,8 +14,8 @@ import (
 type BundleResponse struct {
 	Spans             []SpanListItem                 `json:"spans"`
 	Logs              []TraceLog                     `json:"logs"`
-	CriticalPath     []trace_paths.CriticalPathSpan `json:"critical_path"`
-	ErrorPath        []trace_paths.ErrorPathSpan    `json:"error_path"`
+	CriticalPath      []trace_paths.CriticalPathSpan `json:"critical_path"`
+	ErrorPath         []trace_paths.ErrorPathSpan    `json:"error_path"`
 	SpanKindBreakdown []trace_shape.SpanKindDuration `json:"span_kind_breakdown"`
 }
 

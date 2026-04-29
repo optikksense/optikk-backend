@@ -42,7 +42,7 @@ type dbConnectionsModule struct {
 	handler *Handler
 }
 
-func (m *dbConnectionsModule) Name() string                      { return "dbConnections" }
+func (m *dbConnectionsModule) Name() string { return "dbConnections" }
 
 func (m *dbConnectionsModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{

@@ -122,7 +122,9 @@ func (s *HTTPMetricsService) GetRouteErrorRate(ctx context.Context, teamID int64
 	if err != nil {
 		return nil, err
 	}
-	slices.SortFunc(rows, func(a, b RouteAggRow) int { return cmp.Compare(errPct(b.ErrCount, b.Count), errPct(a.ErrCount, a.Count)) })
+	slices.SortFunc(rows, func(a, b RouteAggRow) int {
+		return cmp.Compare(errPct(b.ErrCount, b.Count), errPct(a.ErrCount, a.Count))
+	})
 	if len(rows) > topNLimit {
 		rows = rows[:topNLimit]
 	}
@@ -160,8 +162,8 @@ func (s *HTTPMetricsService) GetRouteErrorTimeseries(ctx context.Context, teamID
 		out = append(out, RouteTimeseriesPoint{
 			Timestamp:  kk.ts.UTC().Format("2006-01-02 15:04:05"),
 			HttpRoute:  kk.route,
-			ReqCount:   int64(x.total),                  //nolint:gosec
-			ErrorCount: int64(x.errs),                   //nolint:gosec
+			ReqCount:   int64(x.total), //nolint:gosec
+			ErrorCount: int64(x.errs),  //nolint:gosec
 			ErrorRate:  errPct(x.errs, x.total),
 		})
 	}
@@ -247,7 +249,9 @@ func (s *HTTPMetricsService) GetExternalHostErrorRate(ctx context.Context, teamI
 	if err != nil {
 		return nil, err
 	}
-	slices.SortFunc(rows, func(a, b HostAggRow) int { return cmp.Compare(errPct(b.ErrCount, b.Count), errPct(a.ErrCount, a.Count)) })
+	slices.SortFunc(rows, func(a, b HostAggRow) int {
+		return cmp.Compare(errPct(b.ErrCount, b.Count), errPct(a.ErrCount, a.Count))
+	})
 	if len(rows) > topNLimit {
 		rows = rows[:topNLimit]
 	}

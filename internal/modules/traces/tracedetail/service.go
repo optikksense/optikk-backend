@@ -41,11 +41,11 @@ func (s *TraceDetailService) GetSpanEvents(ctx context.Context, teamID int64, tr
 			seenException[row.SpanID] = true
 		}
 		events = append(events, SpanEvent{
-			SpanID:		row.SpanID,
-			TraceID:	row.TraceID,
-			EventName:	name,
-			Timestamp:	row.Timestamp,
-			Attributes:	attrJSON,
+			SpanID:     row.SpanID,
+			TraceID:    row.TraceID,
+			EventName:  name,
+			Timestamp:  row.Timestamp,
+			Attributes: attrJSON,
 		})
 	}
 
@@ -70,11 +70,11 @@ func (s *TraceDetailService) GetSpanEvents(ctx context.Context, teamID int64, tr
 			}
 		}
 		events = append(events, SpanEvent{
-			SpanID:		row.SpanID,
-			TraceID:	row.TraceID,
-			EventName:	"exception",
-			Timestamp:	row.Timestamp,
-			Attributes:	attrJSON,
+			SpanID:     row.SpanID,
+			TraceID:    row.TraceID,
+			EventName:  "exception",
+			Timestamp:  row.Timestamp,
+			Attributes: attrJSON,
 		})
 	}
 
@@ -109,21 +109,21 @@ func (s *TraceDetailService) GetSpanAttributes(ctx context.Context, teamID int64
 	}
 
 	return &SpanAttributes{
-		SpanID:			row.SpanID,
-		TraceID:		row.TraceID,
-		OperationName:		row.OperationName,
-		ServiceName:		row.ServiceName,
-		AttributesString:	row.AttributesString,
-		ResourceAttrs:		row.ResourceAttrs,
-		Attributes:		merged,
-		ExceptionType:		row.ExceptionType,
-		ExceptionMessage:	row.ExceptionMessage,
-		ExceptionStacktrace:	row.ExceptionStacktrace,
-		DBSystem:		row.DBSystem,
-		DBName:			row.DBName,
-		DBStatement:		row.DBStatement,
-		DBStatementNormalized:	normalizeDBStatement(row.DBStatement),
-		Links:			parseSpanLinks(row.Links),
+		SpanID:                row.SpanID,
+		TraceID:               row.TraceID,
+		OperationName:         row.OperationName,
+		ServiceName:           row.ServiceName,
+		AttributesString:      row.AttributesString,
+		ResourceAttrs:         row.ResourceAttrs,
+		Attributes:            merged,
+		ExceptionType:         row.ExceptionType,
+		ExceptionMessage:      row.ExceptionMessage,
+		ExceptionStacktrace:   row.ExceptionStacktrace,
+		DBSystem:              row.DBSystem,
+		DBName:                row.DBName,
+		DBStatement:           row.DBStatement,
+		DBStatementNormalized: normalizeDBStatement(row.DBStatement),
+		Links:                 parseSpanLinks(row.Links),
 	}, nil
 }
 
@@ -140,29 +140,29 @@ func (s *TraceDetailService) GetTraceLogs(ctx context.Context, teamID int64, tra
 	logs := make([]TraceLog, len(rows))
 	for i, row := range rows {
 		logs[i] = TraceLog{
-			Timestamp:		uint64(row.Timestamp.UnixNano()),
-			ObservedTimestamp:	row.ObservedTimestamp,
-			SeverityText:		row.SeverityText,
-			SeverityNumber:		row.SeverityNumber,
-			Body:			row.Body,
-			TraceID:		row.TraceID,
-			SpanID:			row.SpanID,
-			TraceFlags:		row.TraceFlags,
-			ServiceName:		row.ServiceName,
-			Host:			row.Host,
-			Pod:			row.Pod,
-			Container:		row.Container,
-			Environment:		row.Environment,
-			AttributesString:	row.AttributesString,
-			AttributesNumber:	row.AttributesNumber,
-			AttributesBool:		row.AttributesBool,
-			ScopeName:		row.ScopeName,
-			ScopeVersion:		row.ScopeVersion,
+			Timestamp:         uint64(row.Timestamp.UnixNano()),
+			ObservedTimestamp: row.ObservedTimestamp,
+			SeverityText:      row.SeverityText,
+			SeverityNumber:    row.SeverityNumber,
+			Body:              row.Body,
+			TraceID:           row.TraceID,
+			SpanID:            row.SpanID,
+			TraceFlags:        row.TraceFlags,
+			ServiceName:       row.ServiceName,
+			Host:              row.Host,
+			Pod:               row.Pod,
+			Container:         row.Container,
+			Environment:       row.Environment,
+			AttributesString:  row.AttributesString,
+			AttributesNumber:  row.AttributesNumber,
+			AttributesBool:    row.AttributesBool,
+			ScopeName:         row.ScopeName,
+			ScopeVersion:      row.ScopeVersion,
 		}
 	}
 	return &TraceLogsResponse{
-		Logs:		logs,
-		IsSpeculative:	false,
+		Logs:          logs,
+		IsSpeculative: false,
 	}, nil
 }
 
@@ -229,8 +229,8 @@ func parseEventJSON(raw string) (name string, attrs string) {
 		return raw, "{}"
 	}
 	var obj struct {
-		Name		string			`json:"name"`
-		Attributes	map[string]string	`json:"attributes"`
+		Name       string            `json:"name"`
+		Attributes map[string]string `json:"attributes"`
 	}
 	if err := json.Unmarshal([]byte(raw), &obj); err != nil {
 		return raw, "{}"

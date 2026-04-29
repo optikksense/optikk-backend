@@ -40,8 +40,8 @@ func (r *ClickHouseRepository) QueryCPUTimeByState(ctx context.Context, teamID i
 		SELECT
 		    timestamp                                                AS timestamp,
 		    attributes.'system.cpu.state'::String                    AS state,
-		    value                                                    AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -66,8 +66,8 @@ func (r *ClickHouseRepository) QueryProcessCountByState(ctx context.Context, tea
 		SELECT
 		    timestamp                                                AS timestamp,
 		    attributes.'process.status'::String                      AS state,
-		    value                                                    AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -96,8 +96,8 @@ func (r *ClickHouseRepository) QueryCPUUtilizationByPod(ctx context.Context, tea
 		    timestamp                                                AS timestamp,
 		    attributes.'k8s.pod.name'::String                        AS pod,
 		    metric_name                                              AS metric_name,
-		    value                                                    AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -123,8 +123,8 @@ func (r *ClickHouseRepository) QueryLoadAverages(ctx context.Context, teamID int
 		)
 		SELECT
 		    metric_name AS metric_name,
-		    avg(value)  AS value
-		FROM observability.metrics
+		    sum(val_sum) / sum(val_count)  AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -154,8 +154,8 @@ func (r *ClickHouseRepository) QueryCPUUtilizationAgg(ctx context.Context, teamI
 		)
 		SELECT
 		    metric_name AS metric_name,
-		    avg(value)  AS value
-		FROM observability.metrics
+		    sum(val_sum) / sum(val_count)  AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -181,8 +181,8 @@ func (r *ClickHouseRepository) QueryCPUUtilizationByService(ctx context.Context,
 		SELECT
 		    service     AS service,
 		    metric_name AS metric_name,
-		    avg(value)  AS value
-		FROM observability.metrics
+		    sum(val_sum) / sum(val_count)  AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -211,8 +211,8 @@ func (r *ClickHouseRepository) QueryCPUUtilizationByInstance(ctx context.Context
 		    attributes.'k8s.container.name'::String                  AS container,
 		    service                                                  AS service,
 		    metric_name                                              AS metric_name,
-		    avg(value)                                               AS value
-		FROM observability.metrics
+		    sum(val_sum) / sum(val_count)                                               AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -243,7 +243,7 @@ func metricArgs(teamID int64, startMs, endMs int64) []any {
 
 func metricBucketBounds(startMs, endMs int64) (uint32, uint32) {
 	return timebucket.BucketStart(startMs / 1000),
-		timebucket.BucketStart(endMs /1000) + uint32(timebucket.BucketSeconds)
+		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }
 
 func withMetricName(args []any, name string) []any {

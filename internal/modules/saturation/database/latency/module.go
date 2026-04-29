@@ -40,7 +40,7 @@ type dbLatencyModule struct {
 	handler *Handler
 }
 
-func (m *dbLatencyModule) Name() string                      { return "dbLatency" }
+func (m *dbLatencyModule) Name() string { return "dbLatency" }
 
 func (m *dbLatencyModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{

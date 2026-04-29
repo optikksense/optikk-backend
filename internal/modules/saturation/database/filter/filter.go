@@ -69,11 +69,6 @@ const (
 	MetricDBConnectionUseTime    = "db.client.connection.use_time"
 )
 
-// ---------------------------------------------------------------------------
-// Filters — typed user-supplied predicates, identical shape across all
-// 9 db submodules.
-// ---------------------------------------------------------------------------
-
 type Filters struct {
 	DBSystem   []string
 	Collection []string
@@ -81,20 +76,10 @@ type Filters struct {
 	Server     []string
 }
 
-// LatencyBucketBoundsMs are the upper bounds (ms) of the fixed-bucket
-// histogram emitted by every latency-bearing query. Stays in lockstep
-// with the [countIf(...) …] arrays the repos emit. quantile.FromHistogram
-// interpolates P50/P95/P99 Go-side.
 var LatencyBucketBoundsMs = []float64{
 	1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 1e18,
 }
 
-// ---------------------------------------------------------------------------
-// Bind helpers — one apm-style helper per source table.
-// ---------------------------------------------------------------------------
-
-// SpanArgs binds the 5 base parameters every spans-side query needs.
-// Bucket bounds are 5-minute aligned; row-side `start`/`end` are ms.
 func SpanArgs(teamID, startMs, endMs int64) []any {
 	bucketStart, bucketEnd := SpanBucketBounds(startMs, endMs)
 	return []any{
@@ -106,19 +91,15 @@ func SpanArgs(teamID, startMs, endMs int64) []any {
 	}
 }
 
-// SpanBucketBounds returns the 5-minute-aligned [bucketStart, bucketEnd)
-// covering [startMs, endMs] in spans/spans_resource PK terms.
 func SpanBucketBounds(startMs, endMs int64) (uint32, uint32) {
 	return timebucket.BucketStart(startMs / 1000),
 		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }
 
-// MetricArgs binds the 6 base parameters every metrics-side query needs.
-// Bucket bounds are hour-aligned; row-side `start`/`end` are ms.
 func MetricArgs(teamID, startMs, endMs int64, metricName string) []any {
 	bucketStart, bucketEnd := MetricBucketBounds(startMs, endMs)
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("bucketStart", bucketStart),
 		clickhouse.Named("bucketEnd", bucketEnd),
 		clickhouse.Named("metricName", metricName),
@@ -127,12 +108,10 @@ func MetricArgs(teamID, startMs, endMs int64, metricName string) []any {
 	}
 }
 
-// MetricArgsMulti is the multi-metric-name variant (used when a query
-// spans several connection-pool metrics: count vs max, etc.).
 func MetricArgsMulti(teamID, startMs, endMs int64, metricNames []string) []any {
 	bucketStart, bucketEnd := MetricBucketBounds(startMs, endMs)
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("bucketStart", bucketStart),
 		clickhouse.Named("bucketEnd", bucketEnd),
 		clickhouse.Named("metricNames", metricNames),
@@ -141,16 +120,11 @@ func MetricArgsMulti(teamID, startMs, endMs int64, metricNames []string) []any {
 	}
 }
 
-// MetricBucketBounds returns the 5-minute-aligned [bucketStart, bucketEnd)
-// covering [startMs, endMs] in metrics/metrics_resource PK terms.
 func MetricBucketBounds(startMs, endMs int64) (uint32, uint32) {
 	return timebucket.BucketStart(startMs / 1000),
 		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }
 
-// BucketWidthSeconds returns the per-bucket width used to convert raw
-// counts into per-second rates (volume / errors / slow-query rate).
-// Adaptive on time-range — same shape the previous shared package used.
 func BucketWidthSeconds(startMs, endMs int64) float64 {
 	hours := float64(endMs-startMs) / 3_600_000.0
 	switch {
@@ -165,18 +139,6 @@ func BucketWidthSeconds(startMs, endMs int64) float64 {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// SQL emitters — return SQL fragments + named binds. No fmt.Sprintf, no
-// `%s` placeholders. Stable bind names across the 9 submodules so
-// identical predicate sets produce byte-identical SQL.
-// ---------------------------------------------------------------------------
-
-// BuildSpanClauses emits the row-side WHERE fragment + bind args for db
-// span filters. The fragment starts with " AND …"; the resource-side CTE
-// fragment is empty because db filters operate on per-span attributes
-// (`db_system` flat col + `db.operation.name` / `db.collection.name` /
-// `db.namespace` / `server.address` JSON paths), not on resource-level
-// service/host/env keys.
 func BuildSpanClauses(f Filters) (where string, args []any) {
 	if len(f.DBSystem) > 0 {
 		where += ` AND db_system IN @dbSystem`
@@ -197,13 +159,6 @@ func BuildSpanClauses(f Filters) (where string, args []any) {
 	return where, args
 }
 
-// BuildMetricClauses emits the row-side WHERE fragment + bind args for db
-// metric filters. Used by the connections submodule.
-//
-// Metrics filter the same logical dimensions, but data-point attributes
-// keys are written by drivers under `db.system` / `pool.name` /
-// `server.address`. These live in `attributes` JSON on
-// `observability.metrics`.
 func BuildMetricClauses(f Filters) (where string, args []any) {
 	if len(f.DBSystem) > 0 {
 		where += ` AND attributes.'` + AttrDBSystem + `'::String IN @dbSystem`
@@ -216,17 +171,6 @@ func BuildMetricClauses(f Filters) (where string, args []any) {
 	return where, args
 }
 
-// SpanGroupColumn returns the SELECT-side column expression for a
-// user-facing group-by attr. Closed-set lookup; safe to splice.
-//
-//   - db.system          → flat top-level col `db_system`
-//   - db.operation.name  → `attributes.'db.operation.name'::String`
-//   - db.collection.name → `attributes.'db.collection.name'::String`
-//   - db.namespace       → `attributes.'db.namespace'::String`
-//   - server.address     → `attributes.'server.address'::String`
-//   - error.type         → `attributes.'error.type'::String`
-//
-// Unknown attrs return "" (caller falls back to a default).
 func SpanGroupColumn(attr string) string {
 	switch attr {
 	case AttrDBSystem:
@@ -247,13 +191,6 @@ func SpanGroupColumn(attr string) string {
 	return ""
 }
 
-// LatencyBucketCountsSQL returns the SQL `Array(UInt64)` expression that
-// emits a fixed-bucket latency histogram aligned with LatencyBucketBoundsMs.
-// Each element is the count of spans whose duration_nano falls in
-// [bounds[i-1], bounds[i]) (with bounds[-1] = 0 and bounds[N-1] = +Inf).
-//
-// Inline string concatenation (no fmt.Sprintf, no per-call binds) so the
-// whole SQL prefix stays cache-stable.
 func LatencyBucketCountsSQL() string {
 	var b strings.Builder
 	b.WriteString("[")

@@ -36,8 +36,8 @@ func (r *ClickHouseRepository) QueryCounterSeriesByTopic(ctx context.Context, te
 		SELECT
 		    timestamp                                                AS timestamp,
 		    attributes.'messaging.destination.name'::String          AS topic,
-		    value                                                    AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -63,8 +63,8 @@ func (r *ClickHouseRepository) QueryCounterSeriesByGroup(ctx context.Context, te
 		SELECT
 		    timestamp                                                AS timestamp,
 		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
-		    value                                                    AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -91,8 +91,8 @@ func (r *ClickHouseRepository) QueryCounterErrorsByTopic(ctx context.Context, te
 		    timestamp                                                AS timestamp,
 		    attributes.'messaging.destination.name'::String          AS topic,
 		    attributes.'error.type'::String                          AS error_type,
-		    value                                                    AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -120,8 +120,8 @@ func (r *ClickHouseRepository) QueryCounterErrorsByGroup(ctx context.Context, te
 		    timestamp                                                AS timestamp,
 		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
 		    attributes.'error.type'::String                          AS error_type,
-		    value                                                    AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -153,7 +153,7 @@ func (r *ClickHouseRepository) QueryHistogramCountErrorsByOperation(ctx context.
 		    attributes.'messaging.operation.name'::String            AS operation_name,
 		    attributes.'error.type'::String                          AS error_type,
 		    toFloat64(hist_count)                                    AS value
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -186,7 +186,7 @@ func (r *ClickHouseRepository) QueryHistogramSeriesByTopic(ctx context.Context, 
 		    attributes.'messaging.destination.name'::String          AS topic,
 		    hist_buckets                                             AS hist_buckets,
 		    hist_counts                                              AS hist_counts
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -218,7 +218,7 @@ func (r *ClickHouseRepository) QueryHistogramSeriesByGroup(ctx context.Context, 
 		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
 		    hist_buckets                                             AS hist_buckets,
 		    hist_counts                                              AS hist_counts
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -250,7 +250,7 @@ func (r *ClickHouseRepository) QueryHistogramSeriesByOperation(ctx context.Conte
 		    attributes.'messaging.operation.name'::String            AS operation_name,
 		    hist_buckets                                             AS hist_buckets,
 		    hist_counts                                              AS hist_counts
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -282,7 +282,7 @@ func (r *ClickHouseRepository) QueryHistogramSeriesByMetricAndTopic(ctx context.
 		    metric_name                                              AS metric_name,
 		    hist_buckets                                             AS hist_buckets,
 		    hist_counts                                              AS hist_counts
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -310,7 +310,7 @@ func (r *ClickHouseRepository) QueryHistogramAgg(ctx context.Context, teamID int
 		    sum(hist_count)          AS sum_hist_count,
 		    any(hist_buckets)        AS buckets,
 		    sumForEach(hist_counts)  AS counts
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -333,7 +333,7 @@ func (r *ClickHouseRepository) QueryCounterAgg(ctx context.Context, teamID int64
 		)
 		SELECT
 		    toFloat64(sum(value)) AS sum_value
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -358,7 +358,7 @@ func (r *ClickHouseRepository) QueryGaugeMax(ctx context.Context, teamID int64, 
 		)
 		SELECT
 		    toFloat64(max(value)) AS max_value
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -382,8 +382,8 @@ func (r *ClickHouseRepository) QueryGaugeSeriesByGroupTopic(ctx context.Context,
 		    timestamp                                                AS timestamp,
 		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
 		    attributes.'messaging.destination.name'::String          AS topic,
-		    value                                                    AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -415,7 +415,7 @@ func (r *ClickHouseRepository) QueryPartitionLagSnapshot(ctx context.Context, te
 		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
 		    toFloat64(argMax(value, timestamp))                      AS lag,
 		    max(timestamp)                                           AS timestamp
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -444,8 +444,8 @@ func (r *ClickHouseRepository) QueryGaugeSeriesByBroker(ctx context.Context, tea
 		SELECT
 		    timestamp                                AS timestamp,
 		    attributes.'server.address'::String      AS broker,
-		    value                                    AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -474,8 +474,8 @@ func (r *ClickHouseRepository) QueryRebalanceSignals(ctx context.Context, teamID
 		    timestamp                                                AS timestamp,
 		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
 		    metric_name                                              AS metric_name,
-		    value                                                    AS value
-		FROM observability.metrics
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -509,7 +509,7 @@ func (r *ClickHouseRepository) QueryConsumerMetricSamples(ctx context.Context, t
 		    metric_name                                              AS metric_name,
 		    toFloat64(argMax(value, timestamp))                      AS value,
 		    formatDateTime(max(timestamp), '%Y-%m-%d %H:%M:%S')      AS timestamp
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
@@ -543,7 +543,7 @@ func (r *ClickHouseRepository) QueryTopicMetricSamples(ctx context.Context, team
 		    metric_name                                              AS metric_name,
 		    toFloat64(argMax(value, timestamp))                      AS value,
 		    formatDateTime(max(timestamp), '%Y-%m-%d %H:%M:%S')      AS timestamp
-		FROM observability.metrics
+		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps

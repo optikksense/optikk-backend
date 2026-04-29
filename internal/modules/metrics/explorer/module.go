@@ -16,7 +16,7 @@ type metricsExplorerModule struct {
 	handler *Handler
 }
 
-func (m *metricsExplorerModule) Name() string                      { return "metricsExplorer" }
+func (m *metricsExplorerModule) Name() string { return "metricsExplorer" }
 
 func (m *metricsExplorerModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{
