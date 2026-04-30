@@ -7,23 +7,6 @@ import (
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 )
 
-// Each method opens a `WITH active_fps AS (... metrics_resource ...)` CTE so
-// the main `observability.metrics` scan PREWHEREs on (team_id, ts_bucket,
-// fingerprint) — the first three slots of the metrics PK. One CH call per
-// method; service.go composes panels that need multiple metrics
-// (summary-stats, e2e-latency, rebalance-signals).
-//
-// All attribute reads use OTel semconv 1.30+ canonical paths. Empty strings
-// from missing JSON keys are filtered out via `... != ''` predicates.
-//   topic            → attributes.'messaging.destination.name'
-//   consumer_group   → attributes.'messaging.consumer.group.name'
-//   operation_name   → attributes.'messaging.operation.name'
-//   partition        → attributes.'messaging.kafka.destination.partition'
-//   messaging.system → attributes.'messaging.system'
-//   broker           → attributes.'server.address'
-//   error.type       → attributes.'error.type'
-//   node_id          → attributes.'node-id'
-
 func (r *ClickHouseRepository) QueryCounterSeriesByTopic(ctx context.Context, teamID int64, startMs, endMs int64, metricNames []string) ([]TopicCounterRow, error) {
 	const query = `
 		WITH active_fps AS (
@@ -136,9 +119,6 @@ func (r *ClickHouseRepository) QueryCounterErrorsByGroup(ctx context.Context, te
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryCounterErrorsByGroup", &rows, query, args...)
 }
 
-// QueryHistogramCountErrorsByOperation reads `hist_count` (not `value`) from
-// the unified messaging.client.operation.duration histogram — for the
-// errored-op count per (operation_name, error_type).
 func (r *ClickHouseRepository) QueryHistogramCountErrorsByOperation(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]OperationErrorCounterRow, error) {
 	const query = `
 		WITH active_fps AS (
@@ -168,10 +148,6 @@ func (r *ClickHouseRepository) QueryHistogramCountErrorsByOperation(ctx context.
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryHistogramCountErrorsByOperation", &rows, query, args...)
 }
 
-// QueryHistogramSeriesByTopic absorbs both the canonical duration metric AND
-// the unified messaging.client.operation.duration filtered by
-// `messaging.operation.name` IN @opAliases — some instrumentations emit only
-// the unified one.
 func (r *ClickHouseRepository) QueryHistogramSeriesByTopic(ctx context.Context, teamID int64, startMs, endMs int64, metricName string, opAliases []string) ([]TopicHistogramRow, error) {
 	const query = `
 		WITH active_fps AS (
@@ -270,9 +246,6 @@ func (r *ClickHouseRepository) QueryHistogramSeriesByOperation(ctx context.Conte
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryHistogramSeriesByOperation", &rows, query, args...)
 }
 
-// QueryHistogramSeriesByMetricAndTopic projects metric_name into the row so
-// the service can fold the 3 e2e metrics (publish/receive/process duration)
-// into a single per-(timestamp, topic) record.
 func (r *ClickHouseRepository) QueryHistogramSeriesByMetricAndTopic(ctx context.Context, teamID int64, startMs, endMs int64, metricNames []string) ([]TopicMetricHistogramRow, error) {
 	const query = `
 		WITH active_fps AS (
@@ -353,8 +326,6 @@ func (r *ClickHouseRepository) QueryCounterAgg(ctx context.Context, teamID int64
 	return row, dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryCounterAgg", &row, query, args...)
 }
 
-// QueryGaugeMax — lag metric names are messaging.kafka.* so the metric_name
-// itself scopes to kafka; no messaging.system pin needed.
 func (r *ClickHouseRepository) QueryGaugeMax(ctx context.Context, teamID int64, startMs, endMs int64, metricNames []string) (GaugeMaxRow, error) {
 	const query = `
 		WITH active_fps AS (
@@ -404,10 +375,6 @@ func (r *ClickHouseRepository) QueryGaugeSeriesByGroupTopic(ctx context.Context,
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryGaugeSeriesByGroupTopic", &rows, query, args...)
 }
 
-// QueryPartitionLagSnapshot uses argMax to pull the latest gauge value per
-// (topic, partition, group) tuple, ordered by lag DESC and capped at the
-// table-view limit. Partition is returned as a string (parsed to int64 in
-// the service).
 func (r *ClickHouseRepository) QueryPartitionLagSnapshot(ctx context.Context, teamID int64, startMs, endMs int64, metricNames []string) ([]PartitionLagSnapshotRow, error) {
 	const query = `
 		WITH active_fps AS (
@@ -467,8 +434,6 @@ func (r *ClickHouseRepository) QueryGaugeSeriesByBroker(ctx context.Context, tea
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryGaugeSeriesByBroker", &rows, query, args...)
 }
 
-// QueryRebalanceSignals projects metric_name so the service can fold all 6
-// rebalance metrics into one RebalancePoint per (display_bucket, group).
 func (r *ClickHouseRepository) QueryRebalanceSignals(ctx context.Context, teamID int64, startMs, endMs int64, metricNames []string) ([]RebalanceMetricRow, error) {
 	const query = `
 		WITH active_fps AS (
@@ -496,9 +461,6 @@ func (r *ClickHouseRepository) QueryRebalanceSignals(ctx context.Context, teamID
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryRebalanceSignals", &rows, query, args...)
 }
 
-// QueryConsumerMetricSamples returns the latest sample per
-// (consumer_group, node_id, metric_name) within the window — argMax pushes
-// "latest by timestamp" into SQL so callers don't scan all samples client-side.
 func (r *ClickHouseRepository) QueryConsumerMetricSamples(ctx context.Context, teamID int64, startMs, endMs int64, metricNames []string) ([]ConsumerMetricSample, error) {
 	if len(metricNames) == 0 {
 		return []ConsumerMetricSample{}, nil
@@ -531,8 +493,6 @@ func (r *ClickHouseRepository) QueryConsumerMetricSamples(ctx context.Context, t
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryConsumerMetricSamples", &rows, query, args...)
 }
 
-// QueryTopicMetricSamples returns the latest sample per
-// (topic, consumer_group, metric_name) within the window.
 func (r *ClickHouseRepository) QueryTopicMetricSamples(ctx context.Context, teamID int64, startMs, endMs int64, metricNames []string) ([]TopicMetricSample, error) {
 	if len(metricNames) == 0 {
 		return []TopicMetricSample{}, nil

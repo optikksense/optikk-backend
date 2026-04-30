@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS observability.metrics_1m (
     -- readers project these columns directly (no -Merge call); the engine
     -- merges parts via sumForEach / max.
     hist_buckets         SimpleAggregateFunction(max,        Array(Float64)) CODEC(ZSTD(1)),
-    hist_counts          SimpleAggregateFunction(sumForEach, Array(UInt64))  CODEC(T64, ZSTD(1)),
+    hist_counts          AggregateFunction(sumForEach, Array(UInt64)) CODEC(ZSTD(1)),
     hist_sum             SimpleAggregateFunction(sum, Float64) CODEC(Gorilla, ZSTD(1)),
     hist_count           SimpleAggregateFunction(sum, UInt64)  CODEC(T64, ZSTD(1)),
 
@@ -63,7 +63,7 @@ SELECT
     -- Non-Histogram source rows return [] from *If, identity under sumForEach
     -- and lex-less than any real bounds under max — so the rollup row's
     -- bucket-bounds and bucket-counts come from Histogram contributions only.
-    sumForEachIf(hist_counts, metric_type = 'Histogram') AS hist_counts,
+    sumForEachStateIf(hist_counts, metric_type = 'Histogram') AS hist_counts,
     maxIf(hist_buckets,       metric_type = 'Histogram') AS hist_buckets,
 
     -- Per-data-point histogram totals.
@@ -79,8 +79,11 @@ SELECT
 FROM observability.metrics
 GROUP BY
     team_id,
+    ts_bucket,
+    timestamp,
     metric_name,
     fingerprint,
+    attr_hash,
     attributes,
     resource,
     service,
@@ -88,5 +91,4 @@ GROUP BY
     environment,
     k8s_namespace,
     http_method,
-    http_status_code,
-    toStartOfMinute(timestamp);
+    http_status_code;
