@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS observability.metrics (
     hist_sum             Float64 CODEC(Gorilla, ZSTD(1)),
     hist_count           UInt64 CODEC(T64, ZSTD(1)),
     hist_buckets         Array(Float64) CODEC(ZSTD(1)),
-    hist_counts          Array(UInt64) CODEC(T64, ZSTD(1)),
+    hist_counts          Array(UInt64)  CODEC(T64, ZSTD(1)),
     service              LowCardinality(String) CODEC(ZSTD(1)),
     host                 LowCardinality(String) CODEC(ZSTD(1)),
     environment          LowCardinality(String) CODEC(ZSTD(1)),
@@ -24,8 +24,8 @@ CREATE TABLE IF NOT EXISTS observability.metrics (
     attributes           JSON(max_dynamic_paths=100) CODEC(ZSTD(1))
 ) ENGINE = MergeTree()
 PARTITION BY (toYYYYMMDD(timestamp), toHour(timestamp))
-ORDER BY (team_id, ts_bucket, metric_name, fingerprint, timestamp)
-TTL timestamp + INTERVAL 90 DAY DELETE
+ORDER BY (team_id, ts_bucket, fingerprint, metric_name, timestamp)
+TTL timestamp + INTERVAL 30 DAY DELETE
 SETTINGS
     index_granularity = 8192,
     enable_mixed_granularity_parts = 1,

@@ -6,11 +6,11 @@ import (
 )
 
 // Request is the wire payload for POST /api/v1/logs/trends. Filters are
-// embedded directly (no separate compile pass).
+// embedded directly (no separate compile pass). Bucket grain is fixed to
+// the native ts_bucket size — no client-controlled `step`.
 type Request struct {
-	StartTime int64  `json:"startTime"`
-	EndTime   int64  `json:"endTime"`
-	Step      string `json:"step"`
+	StartTime int64 `json:"startTime"`
+	EndTime   int64 `json:"endTime"`
 
 	filter.Filters
 }

@@ -16,7 +16,8 @@ var chColumns = []string{
 	"team_id", "metric_name", "metric_type", "temporality", "is_monotonic",
 	"unit", "description", "fingerprint", "timestamp",
 	"ts_bucket",
-	"value", "hist_sum", "hist_count", "hist_buckets", "hist_counts",
+	"value", "hist_sum", "hist_count",
+	"hist_buckets", "hist_counts",
 	"service", "host", "environment", "k8s_namespace", "http_method", "http_status_code",
 	"resource", "attributes",
 }

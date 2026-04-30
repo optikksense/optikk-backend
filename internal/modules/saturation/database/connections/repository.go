@@ -50,11 +50,14 @@ type gaugeRawDTO struct {
 	Value     float64   `ch:"value"`
 }
 
+// histRawDTO carries the merged bucket-bounds + bucket-counts per (hour-bucket,
+// pool). Service interpolates p50/p95/p99 Go-side via quantile.FromHistogram
+// and converts the seconds-domain values to ms.
 type histRawDTO struct {
-	Timestamp time.Time `ch:"timestamp"`
-	PoolName  string    `ch:"pool_name"`
-	Buckets   []float64 `ch:"hist_buckets"`
-	Counts    []uint64  `ch:"hist_counts"`
+	Bucket   time.Time `ch:"bucket"`
+	PoolName string    `ch:"pool_name"`
+	Buckets  []float64 `ch:"hist_buckets"`
+	Counts   []uint64  `ch:"hist_counts"`
 }
 
 // GetConnectionCountSeries reads `db.client.connection.count` (gauge by state).
@@ -188,17 +191,18 @@ func (r *ClickHouseRepository) poolHistogram(ctx context.Context, teamID, startM
 		    FROM observability.metrics_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name = @metricName
 		)
-		SELECT timestamp                              AS timestamp,
-		       attributes.'pool.name'::String          AS pool_name,
-		       hist_buckets                            AS hist_buckets,
-		       hist_counts                             AS hist_counts
+		SELECT toStartOfHour(timestamp)              AS bucket,
+		       attributes.'pool.name'::String        AS pool_name,
+		       max(hist_buckets)                     AS hist_buckets,
+		       sumForEach(hist_counts)               AS hist_counts
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint    IN active_fps
 		     AND metric_name    = @metricName
 		WHERE timestamp BETWEEN @start AND @end
-		  AND metric_type = 'Histogram'`
+		GROUP BY bucket, pool_name
+		ORDER BY bucket, pool_name`
 	args := append(filter.MetricArgs(teamID, startMs, endMs, metricName), filterArgs...)
 	full := query + filterWhere
 	var rows []histRawDTO

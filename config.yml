@@ -3,7 +3,6 @@ environment: development
 server:
   port: "19090"
   allowed_origins: "http://localhost:3000,http://localhost:5173"
-  debug_api_logs: false
 
 mysql:
   host: "127.0.0.1"
@@ -45,10 +44,6 @@ otlp:
 retention:
   default_days: 30
 
-# Per-signal Kafka topology. Topic names derive from kafka.topic_prefix +
-# signal (e.g. optikk.ingest.spans); DLQ from kafka.dlq_prefix + signal.
-# Zero values inherit defaults: 8 partitions, 1 replica (dev) / 3 (prod),
-# 24h retention, consumer_group "optikk-ingest.{signal}.consumer".
 ingestion:
   spans:
     partitions: 8
@@ -63,19 +58,11 @@ ingestion:
     replicas: 1
     retention_hours: 24
 
-# OTLP ingest uses Kafka. Brokers must be reachable from this process
-# (e.g. host port when API runs on host). Topic auto-creation is handled at
-# boot via kadm.CreateTopics; broker need not have auto.create.topics.enable.
 kafka:
-  broker_list: "127.0.0.1:19092" # or OPTIKK_KAFKA_BROKER_LIST
-  topic_prefix: optikk.ingest    # ingest topics: {prefix}.{spans|logs|metrics}
-  dlq_prefix: optikk.dlq         # DLQ topics:    {dlq_prefix}.{spans|logs|metrics}
+  broker_list: "127.0.0.1:19092"
+  topic_prefix: optikk.ingest
+  dlq_prefix: optikk.dlq
   compression: zstd
   linger_ms: 20
-  batch_max_bytes: 1048576       # 1 MiB
+  batch_max_bytes: 1048576
 
-app:
-  region: us-east-1
-
-# Self-telemetry: Prometheus metrics are exposed on /metrics and scraped by
-# the local Prometheus+Grafana stack (monitoring/stack/).

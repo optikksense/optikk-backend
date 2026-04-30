@@ -19,7 +19,7 @@ message Row {
   double hist_sum = 11;
   uint64 hist_count = 12;
   repeated double hist_buckets = 13;
-  repeated uint64 hist_counts = 14;
+  repeated uint64 hist_counts  = 14;
   map<string, string> resource = 15;
   map<string, string> attributes = 16;
   // ts_bucket_hour_seconds is the hour-aligned bucket value from internal/infra/timebucket.MetricsHourBucket.

@@ -1,6 +1,7 @@
 package metrics
 
 import (
+	"math"
 	"strconv"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/fingerprint"
@@ -63,15 +64,19 @@ func appendMetric(rows []*schema.Row, hdr rowHeader, m *metricsdatapb.Metric) []
 func gaugeRow(hdr rowHeader, m *metricsdatapb.Metric, dp *metricsdatapb.NumberDataPoint) *schema.Row {
 	tsNs := int64(dp.GetTimeUnixNano()) //nolint:gosec
 	attrs := otlp.AttrsToMap(dp.GetAttributes())
-	return baseRow(hdr, m, "Gauge", "Unspecified", false, tsNs, attrs, numberValue(dp), 0, 0, nil, nil)
+	return scalarRow(hdr, m, "Gauge", "Unspecified", false, tsNs, attrs, numberValue(dp))
 }
 
 func sumRow(hdr rowHeader, m *metricsdatapb.Metric, temporality string, isMono bool, dp *metricsdatapb.NumberDataPoint) *schema.Row {
 	tsNs := int64(dp.GetTimeUnixNano()) //nolint:gosec
 	attrs := otlp.AttrsToMap(dp.GetAttributes())
-	return baseRow(hdr, m, "Sum", temporality, isMono, tsNs, attrs, numberValue(dp), 0, 0, nil, nil)
+	return scalarRow(hdr, m, "Sum", temporality, isMono, tsNs, attrs, numberValue(dp))
 }
 
+// histogramRow emits one Row per OTel histogram data point. The OTel
+// `explicit_bounds` array carries N-1 boundaries for N buckets; the implicit
+// last bucket has upper bound +Inf. We carry the explicit bounds plus +Inf in
+// hist_buckets, and the per-bucket counts unchanged in hist_counts.
 func histogramRow(hdr rowHeader, m *metricsdatapb.Metric, temporality string, dp *metricsdatapb.HistogramDataPoint) *schema.Row {
 	tsNs := int64(dp.GetTimeUnixNano()) //nolint:gosec
 	attrs := otlp.AttrsToMap(dp.GetAttributes())
@@ -79,18 +84,33 @@ func histogramRow(hdr rowHeader, m *metricsdatapb.Metric, temporality string, dp
 	if dp.Sum != nil {
 		sum = *dp.Sum
 	}
-	avg := 0.0
-	if dp.Count > 0 {
-		avg = sum / float64(dp.Count)
+	bounds := dp.GetExplicitBounds()
+	counts := dp.GetBucketCounts()
+	histBuckets := make([]float64, len(counts))
+	for i := range counts {
+		if i < len(bounds) {
+			histBuckets[i] = bounds[i]
+		} else {
+			histBuckets[i] = math.Inf(1)
+		}
 	}
-	return baseRow(hdr, m, "Histogram", temporality, false, tsNs, attrs, avg, sum, dp.GetCount(), dp.GetExplicitBounds(), dp.GetBucketCounts())
+	row := baseRow(hdr, m, "Histogram", temporality, false, tsNs, attrs, 0)
+	row.HistSum = sum
+	row.HistCount = dp.GetCount()
+	row.HistBuckets = histBuckets
+	row.HistCounts = append([]uint64(nil), counts...)
+	return row
+}
+
+func scalarRow(hdr rowHeader, m *metricsdatapb.Metric, metricType, temporality string, isMonotonic bool, tsNs int64, attrs map[string]string, value float64) *schema.Row {
+	return baseRow(hdr, m, metricType, temporality, isMonotonic, tsNs, attrs, value)
 }
 
 func baseRow(
 	hdr rowHeader, m *metricsdatapb.Metric,
 	metricType, temporality string, isMonotonic bool,
 	tsNs int64, attrs map[string]string,
-	value, histSum float64, histCount uint64, histBuckets []float64, histCounts []uint64,
+	value float64,
 ) *schema.Row {
 	bucket := timebucket.BucketStart(tsNs / 1_000_000_000)
 	return &schema.Row{
@@ -105,10 +125,6 @@ func baseRow(
 		TimestampNs:         tsNs,
 		TsBucketHourSeconds: int64(bucket),
 		Value:               value,
-		HistSum:             histSum,
-		HistCount:           histCount,
-		HistBuckets:         histBuckets,
-		HistCounts:          histCounts,
 		Resource:            hdr.resMap,
 		Attributes:          attrs,
 		Service:             hdr.resMap["service.name"],

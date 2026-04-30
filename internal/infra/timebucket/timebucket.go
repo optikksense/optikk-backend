@@ -3,10 +3,7 @@ package timebucket
 
 import "time"
 
-// BucketSeconds is the unified partition-prune grain across spans, logs, and metrics.
-// 5 minutes — small enough that dashboard panels with ≤1h windows skip most granules,
-// large enough that PK file size on resource shadows stays manageable.
-const BucketSeconds int64 = 300
+const BucketSeconds int64 = 60
 
 // BucketStart truncates a Unix-second timestamp down to the start of its 5-minute bucket.
 // Returned as UInt32 so it round-trips losslessly through the CH ts_bucket column.

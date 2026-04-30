@@ -31,49 +31,27 @@ services:
       timeout: 3s
       retries: 10
 
-  redis:
-    image: redis:7-alpine
+  # RESP-compatible drop-in for Redis. App still binds via the `redis` config
+  # block (host port 16379) — the Go client speaks RESP, no code change needed.
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
     ports:
       - "16379:6379"
-    command: ["redis-server", "--appendonly", "yes"]
+    ulimits:
+      memlock: -1
     volumes:
-      - redis_data:/data
+      - dragonfly_data:/data
+    # Dragonfly's image ships no redis-cli or wget; use a TCP-open probe via
+    # the bash builtin /dev/tcp.
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: ["CMD-SHELL", "timeout 1 bash -c '</dev/tcp/localhost/6379' || exit 1"]
       interval: 5s
       timeout: 3s
       retries: 10
 
-  # OTLP ingest queue; API must use kafka.broker_list reachable from the host, e.g. 127.0.0.1:19092.
-  kafka:
-    image: confluentinc/cp-kafka:7.7.1
-    hostname: kafka
-    ports:
-      - "19092:19092"
-    environment:
-      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
-      KAFKA_NODE_ID: "1"
-      KAFKA_PROCESS_ROLES: broker,controller
-      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
-      KAFKA_LISTENERS: PLAINTEXT://kafka:9092,CONTROLLER://kafka:9093,PLAINTEXT_HOST://0.0.0.0:19092
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://127.0.0.1:19092
-      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
-      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
-      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
-      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
-      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
-      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
-    volumes:
-      - kafka_data:/var/lib/kafka/data
-    healthcheck:
-      test: ["CMD-SHELL", "kafka-topics --bootstrap-server kafka:9092 --list >/dev/null 2>&1"]
-      interval: 10s
-      timeout: 5s
-      retries: 10
 
 volumes:
   clickhouse_data:
   mariadb_data:
-  redis_data:
-  kafka_data:
+  dragonfly_data:
+

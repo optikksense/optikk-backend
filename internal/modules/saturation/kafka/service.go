@@ -12,6 +12,13 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/shared/quantile"
 )
 
+// histPctMs interpolates the percentile from a (buckets, counts) histogram
+// (seconds-domain) and returns it in milliseconds. The kafka duration metrics
+// are seconds-domain in OTel.
+func histPctMs(buckets []float64, counts []uint64, q float64) float64 {
+	return quantile.FromHistogram(buckets, counts, q) * 1000.0
+}
+
 type KafkaService struct {
 	repo *ClickHouseRepository
 }
@@ -53,8 +60,8 @@ func (s *KafkaService) GetKafkaSummaryStats(ctx context.Context, teamID int64, s
 	stats.PublishRatePerSec = publishCount.Sum / durationSecs
 	stats.ReceiveRatePerSec = receiveCount.Sum / durationSecs
 	stats.MaxLag = maxLag.Max
-	stats.PublishP95Ms = quantile.FromHistogram(publishHist.Buckets, publishHist.Counts, 0.95)
-	stats.ReceiveP95Ms = quantile.FromHistogram(receiveHist.Buckets, receiveHist.Counts, 0.95)
+	stats.PublishP95Ms = histPctMs(publishHist.HistBuckets, publishHist.HistCounts, 0.95)
+	stats.ReceiveP95Ms = histPctMs(receiveHist.HistBuckets, receiveHist.HistCounts, 0.95)
 	return stats, nil
 }
 
@@ -128,21 +135,25 @@ func (s *KafkaService) GetProcessRateByGroup(ctx context.Context, teamID int64, 
 	return out, nil
 }
 
-// Latency panels — merge histograms per (bucket, dim) then quantile.FromHistogram.
+// Latency panels — histograms are merged SQL-side by the rollup query
+// (`max(hist_buckets)` + `sumForEach(hist_counts)` GROUP BY display-bucket,
+// dim); service is a thin per-row mapper that interpolates p50/p95/p99 from
+// the merged buckets via histPctMs (= quantile.FromHistogram * 1000).
 
 func (s *KafkaService) GetPublishLatencyByTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopicLatencyPoint, error) {
 	rows, err := s.repo.QueryHistogramSeriesByTopic(ctx, teamID, startMs, endMs, MetricPublishDuration, publishOperationAliases)
 	if err != nil {
 		return nil, err
 	}
-	folds := foldHistogramByDim(rows,
-		func(r TopicHistogramRow) time.Time { return r.Timestamp },
-		func(r TopicHistogramRow) string { return r.Topic },
-		func(r TopicHistogramRow) ([]float64, []uint64) { return r.HistBuckets, r.HistCounts },
-		startMs, endMs)
-	out := make([]TopicLatencyPoint, len(folds))
-	for i, fld := range folds {
-		out[i] = TopicLatencyPoint{Timestamp: formatTime(fld.ts), Topic: fld.dim, P50Ms: fld.p50, P95Ms: fld.p95, P99Ms: fld.p99}
+	out := make([]TopicLatencyPoint, len(rows))
+	for i, r := range rows {
+		out[i] = TopicLatencyPoint{
+			Timestamp: formatTime(r.Timestamp),
+			Topic:     r.Topic,
+			P50Ms:     histPctMs(r.HistBuckets, r.HistCounts, 0.5),
+			P95Ms:     histPctMs(r.HistBuckets, r.HistCounts, 0.95),
+			P99Ms:     histPctMs(r.HistBuckets, r.HistCounts, 0.99),
+		}
 	}
 	return out, nil
 }
@@ -152,14 +163,15 @@ func (s *KafkaService) GetReceiveLatencyByTopic(ctx context.Context, teamID int6
 	if err != nil {
 		return nil, err
 	}
-	folds := foldHistogramByDim(rows,
-		func(r TopicHistogramRow) time.Time { return r.Timestamp },
-		func(r TopicHistogramRow) string { return r.Topic },
-		func(r TopicHistogramRow) ([]float64, []uint64) { return r.HistBuckets, r.HistCounts },
-		startMs, endMs)
-	out := make([]TopicLatencyPoint, len(folds))
-	for i, fld := range folds {
-		out[i] = TopicLatencyPoint{Timestamp: formatTime(fld.ts), Topic: fld.dim, P50Ms: fld.p50, P95Ms: fld.p95, P99Ms: fld.p99}
+	out := make([]TopicLatencyPoint, len(rows))
+	for i, r := range rows {
+		out[i] = TopicLatencyPoint{
+			Timestamp: formatTime(r.Timestamp),
+			Topic:     r.Topic,
+			P50Ms:     histPctMs(r.HistBuckets, r.HistCounts, 0.5),
+			P95Ms:     histPctMs(r.HistBuckets, r.HistCounts, 0.95),
+			P99Ms:     histPctMs(r.HistBuckets, r.HistCounts, 0.99),
+		}
 	}
 	return out, nil
 }
@@ -169,14 +181,15 @@ func (s *KafkaService) GetProcessLatencyByGroup(ctx context.Context, teamID int6
 	if err != nil {
 		return nil, err
 	}
-	folds := foldHistogramByDim(rows,
-		func(r GroupHistogramRow) time.Time { return r.Timestamp },
-		func(r GroupHistogramRow) string { return r.ConsumerGroup },
-		func(r GroupHistogramRow) ([]float64, []uint64) { return r.HistBuckets, r.HistCounts },
-		startMs, endMs)
-	out := make([]GroupLatencyPoint, len(folds))
-	for i, fld := range folds {
-		out[i] = GroupLatencyPoint{Timestamp: formatTime(fld.ts), ConsumerGroup: fld.dim, P50Ms: fld.p50, P95Ms: fld.p95, P99Ms: fld.p99}
+	out := make([]GroupLatencyPoint, len(rows))
+	for i, r := range rows {
+		out[i] = GroupLatencyPoint{
+			Timestamp:     formatTime(r.Timestamp),
+			ConsumerGroup: r.ConsumerGroup,
+			P50Ms:         histPctMs(r.HistBuckets, r.HistCounts, 0.5),
+			P95Ms:         histPctMs(r.HistBuckets, r.HistCounts, 0.95),
+			P99Ms:         histPctMs(r.HistBuckets, r.HistCounts, 0.99),
+		}
 	}
 	return out, nil
 }
@@ -186,20 +199,23 @@ func (s *KafkaService) GetClientOperationDuration(ctx context.Context, teamID in
 	if err != nil {
 		return nil, err
 	}
-	folds := foldHistogramByDim(rows,
-		func(r OperationHistogramRow) time.Time { return r.Timestamp },
-		func(r OperationHistogramRow) string { return r.OperationName },
-		func(r OperationHistogramRow) ([]float64, []uint64) { return r.HistBuckets, r.HistCounts },
-		startMs, endMs)
-	out := make([]ClientOpDurationPoint, len(folds))
-	for i, fld := range folds {
-		out[i] = ClientOpDurationPoint{Timestamp: formatTime(fld.ts), OperationName: fld.dim, P50Ms: fld.p50, P95Ms: fld.p95, P99Ms: fld.p99}
+	out := make([]ClientOpDurationPoint, len(rows))
+	for i, r := range rows {
+		out[i] = ClientOpDurationPoint{
+			Timestamp:     formatTime(r.Timestamp),
+			OperationName: r.OperationName,
+			P50Ms:         histPctMs(r.HistBuckets, r.HistCounts, 0.5),
+			P95Ms:         histPctMs(r.HistBuckets, r.HistCounts, 0.95),
+			P99Ms:         histPctMs(r.HistBuckets, r.HistCounts, 0.99),
+		}
 	}
 	return out, nil
 }
 
-// E2E latency — 1 query, 3 metrics, fold per (bucket, topic, metric_name).
-
+// E2E latency — 1 query, 3 metrics. The query already GROUPs BY (display_bucket,
+// topic, metric_name) SQL-side, so each row carries the bf16-merged percentiles
+// for one of the 3 e2e metrics. Service collates the 3 metric_name rows into a
+// single E2ELatencyPoint per (display_bucket, topic).
 func (s *KafkaService) GetE2ELatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]E2ELatencyPoint, error) {
 	rows, err := s.repo.QueryHistogramSeriesByMetricAndTopic(ctx, teamID, startMs, endMs,
 		[]string{MetricPublishDuration, MetricReceiveDuration, MetricProcessDuration})
@@ -211,24 +227,24 @@ func (s *KafkaService) GetE2ELatency(ctx context.Context, teamID int64, startMs,
 		topic string
 	}
 	type triple struct {
-		publish, receive, process histAcc
+		publishP95, receiveP95, processP95 float64
 	}
 	acc := map[key]*triple{}
-	windowMs := endMs - startMs
 	for _, r := range rows {
-		k := key{ts: timebucket.DisplayBucket(r.Timestamp.Unix(), windowMs), topic: r.Topic}
+		k := key{ts: r.Timestamp, topic: r.Topic}
 		t, ok := acc[k]
 		if !ok {
 			t = &triple{}
 			acc[k] = t
 		}
+		p95 := histPctMs(r.HistBuckets, r.HistCounts, 0.95)
 		switch r.MetricName {
 		case MetricPublishDuration:
-			t.publish.merge(r.HistBuckets, r.HistCounts)
+			t.publishP95 = p95
 		case MetricReceiveDuration:
-			t.receive.merge(r.HistBuckets, r.HistCounts)
+			t.receiveP95 = p95
 		case MetricProcessDuration:
-			t.process.merge(r.HistBuckets, r.HistCounts)
+			t.processP95 = p95
 		}
 	}
 	out := make([]E2ELatencyPoint, 0, len(acc))
@@ -236,9 +252,9 @@ func (s *KafkaService) GetE2ELatency(ctx context.Context, teamID int64, startMs,
 		out = append(out, E2ELatencyPoint{
 			Timestamp:    formatTime(k.ts),
 			Topic:        k.topic,
-			PublishP95Ms: t.publish.quantile(0.95),
-			ReceiveP95Ms: t.receive.quantile(0.95),
-			ProcessP95Ms: t.process.quantile(0.95),
+			PublishP95Ms: t.publishP95,
+			ReceiveP95Ms: t.receiveP95,
+			ProcessP95Ms: t.processP95,
 		})
 	}
 	slices.SortFunc(out, func(a, b E2ELatencyPoint) int {
@@ -604,81 +620,6 @@ func foldErrorRateByPair[R any](rows []R, tsOf func(R) time.Time, dimOf, errOf f
 			return c
 		}
 		return cmp.Compare(a.errorType, b.errorType)
-	})
-	return out
-}
-
-// histAcc merges aligned histogram bucket arrays — counts add, bucket
-// boundaries are assumed identical across rows of the same metric (OTel
-// guarantees this for explicit-bucket histograms with the same view).
-type histAcc struct {
-	buckets []float64
-	counts  []uint64
-}
-
-func (h *histAcc) merge(buckets []float64, counts []uint64) {
-	if len(buckets) == 0 || len(counts) == 0 || len(buckets) != len(counts) {
-		return
-	}
-	if len(h.buckets) == 0 {
-		h.buckets = make([]float64, len(buckets))
-		copy(h.buckets, buckets)
-		h.counts = make([]uint64, len(counts))
-		copy(h.counts, counts)
-		return
-	}
-	if len(h.counts) != len(counts) {
-		return
-	}
-	for i := range counts {
-		h.counts[i] += counts[i]
-	}
-}
-
-func (h *histAcc) quantile(q float64) float64 {
-	return quantile.FromHistogram(h.buckets, h.counts, q)
-}
-
-type latencyFold struct {
-	ts            time.Time
-	dim           string
-	p50, p95, p99 float64
-}
-
-// foldHistogramByDim merges histograms per (display_bucket, dim), then
-// derives P50/P95/P99 from the merged histogram.
-func foldHistogramByDim[R any](rows []R, tsOf func(R) time.Time, dimOf func(R) string, histOf func(R) ([]float64, []uint64), startMs, endMs int64) []latencyFold {
-	type key struct {
-		ts  time.Time
-		dim string
-	}
-	acc := map[key]*histAcc{}
-	windowMs := endMs - startMs
-	for _, r := range rows {
-		k := key{ts: timebucket.DisplayBucket(tsOf(r).Unix(), windowMs), dim: dimOf(r)}
-		h, ok := acc[k]
-		if !ok {
-			h = &histAcc{}
-			acc[k] = h
-		}
-		buckets, counts := histOf(r)
-		h.merge(buckets, counts)
-	}
-	out := make([]latencyFold, 0, len(acc))
-	for k, h := range acc {
-		out = append(out, latencyFold{
-			ts:  k.ts,
-			dim: k.dim,
-			p50: h.quantile(0.50),
-			p95: h.quantile(0.95),
-			p99: h.quantile(0.99),
-		})
-	}
-	slices.SortFunc(out, func(a, b latencyFold) int {
-		if c := a.ts.Compare(b.ts); c != 0 {
-			return c
-		}
-		return cmp.Compare(a.dim, b.dim)
 	})
 	return out
 }

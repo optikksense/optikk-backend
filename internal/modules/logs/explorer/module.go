@@ -1,6 +1,6 @@
-// Package explorer owns POST /api/v1/logs/query — the list-first endpoint
-// that orchestrates an optional summary/facets/trend include fan-out by
-// composing log_facets + log_trends services in-process.
+// Package explorer owns POST /api/v1/logs/query — the list-only endpoint.
+// Summary / facets / trend are exposed separately at /logs/trends and
+// /logs/facets; the frontend fetches them in parallel as needed.
 package explorer
 
 import (

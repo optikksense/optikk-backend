@@ -77,8 +77,8 @@ func (r *ClickHouseRepository) QueryJVMGCDurationHistogram(ctx context.Context, 
 		SELECT
 		    sum(hist_sum)            AS sum_hist_sum,
 		    sum(hist_count)          AS sum_hist_count,
-		    any(hist_buckets)        AS buckets,
-		    sumForEach(hist_counts)  AS counts
+		    max(hist_buckets)        AS hist_buckets,
+		    sumForEach(hist_counts)  AS hist_counts
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd

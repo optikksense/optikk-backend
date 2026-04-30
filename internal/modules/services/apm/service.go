@@ -84,7 +84,7 @@ func (s *Service) histogramSummary(ctx context.Context, teamID int64, startMs, e
 	}
 	return HistogramSummary{
 		Avg: avg,
-		P50: quantile.FromHistogram(row.Buckets, row.Counts, 0.50),
+		P50: quantile.FromHistogram(row.Buckets, row.Counts, 0.5),
 		P95: quantile.FromHistogram(row.Buckets, row.Counts, 0.95),
 		P99: quantile.FromHistogram(row.Buckets, row.Counts, 0.99),
 	}, nil

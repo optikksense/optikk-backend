@@ -35,7 +35,7 @@ func (h *Handler) Trends(c *gin.Context) {
 		modulecommon.RespondErrorWithCause(c, http.StatusBadRequest, errorcode.Validation, "Invalid filters", err)
 		return
 	}
-	resp, err := h.svc.ComputeResponse(c.Request.Context(), req.Filters, req.Step)
+	resp, err := h.svc.ComputeResponse(c.Request.Context(), req.Filters)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query logs trends", err)
 		return

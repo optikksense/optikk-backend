@@ -182,10 +182,10 @@ func (r *ClickHouseRepository) QueryHistogramSeriesByTopic(ctx context.Context, 
 		      AND metric_name IN (@metricName, @opDuration)
 		)
 		SELECT
-		    timestamp                                                AS timestamp,
-		    attributes.'messaging.destination.name'::String          AS topic,
-		    hist_buckets                                             AS hist_buckets,
-		    hist_counts                                              AS hist_counts
+		    toDateTime(intDiv(toUnixTimestamp(timestamp), @stepSec) * @stepSec) AS timestamp,
+		    attributes.'messaging.destination.name'::String                     AS topic,
+		    max(hist_buckets)                                                   AS hist_buckets,
+		    sumForEach(hist_counts)                                             AS hist_counts
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -196,10 +196,12 @@ func (r *ClickHouseRepository) QueryHistogramSeriesByTopic(ctx context.Context, 
 		  AND timestamp BETWEEN @start AND @end
 		  AND attributes.'messaging.destination.name'::String != ''
 		  AND lower(attributes.'messaging.system'::String) = 'kafka'
-		ORDER BY timestamp`
+		GROUP BY timestamp, topic
+		ORDER BY timestamp, topic`
 	args := withMetricName(metricArgs(teamID, startMs, endMs), metricName)
 	args = append(args, clickhouse.Named("opDuration", MetricClientOperationDuration))
 	args = withOpAliases(args, opAliases)
+	args = withStepSec(args, startMs, endMs)
 	var rows []TopicHistogramRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryHistogramSeriesByTopic", &rows, query, args...)
 }
@@ -214,10 +216,10 @@ func (r *ClickHouseRepository) QueryHistogramSeriesByGroup(ctx context.Context, 
 		      AND metric_name IN (@metricName, @opDuration)
 		)
 		SELECT
-		    timestamp                                                AS timestamp,
-		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
-		    hist_buckets                                             AS hist_buckets,
-		    hist_counts                                              AS hist_counts
+		    toDateTime(intDiv(toUnixTimestamp(timestamp), @stepSec) * @stepSec) AS timestamp,
+		    attributes.'messaging.consumer.group.name'::String                  AS consumer_group,
+		    max(hist_buckets)                                                   AS hist_buckets,
+		    sumForEach(hist_counts)                                             AS hist_counts
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -228,10 +230,12 @@ func (r *ClickHouseRepository) QueryHistogramSeriesByGroup(ctx context.Context, 
 		  AND timestamp BETWEEN @start AND @end
 		  AND attributes.'messaging.consumer.group.name'::String != ''
 		  AND lower(attributes.'messaging.system'::String) = 'kafka'
-		ORDER BY timestamp`
+		GROUP BY timestamp, consumer_group
+		ORDER BY timestamp, consumer_group`
 	args := withMetricName(metricArgs(teamID, startMs, endMs), metricName)
 	args = append(args, clickhouse.Named("opDuration", MetricClientOperationDuration))
 	args = withOpAliases(args, opAliases)
+	args = withStepSec(args, startMs, endMs)
 	var rows []GroupHistogramRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryHistogramSeriesByGroup", &rows, query, args...)
 }
@@ -246,10 +250,10 @@ func (r *ClickHouseRepository) QueryHistogramSeriesByOperation(ctx context.Conte
 		      AND metric_name = @metricName
 		)
 		SELECT
-		    timestamp                                                AS timestamp,
-		    attributes.'messaging.operation.name'::String            AS operation_name,
-		    hist_buckets                                             AS hist_buckets,
-		    hist_counts                                              AS hist_counts
+		    toDateTime(intDiv(toUnixTimestamp(timestamp), @stepSec) * @stepSec) AS timestamp,
+		    attributes.'messaging.operation.name'::String                       AS operation_name,
+		    max(hist_buckets)                                                   AS hist_buckets,
+		    sumForEach(hist_counts)                                             AS hist_counts
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -258,8 +262,10 @@ func (r *ClickHouseRepository) QueryHistogramSeriesByOperation(ctx context.Conte
 		  AND timestamp BETWEEN @start AND @end
 		  AND attributes.'messaging.operation.name'::String != ''
 		  AND lower(attributes.'messaging.system'::String) = 'kafka'
-		ORDER BY timestamp`
+		GROUP BY timestamp, operation_name
+		ORDER BY timestamp, operation_name`
 	args := withMetricName(metricArgs(teamID, startMs, endMs), metricName)
+	args = withStepSec(args, startMs, endMs)
 	var rows []OperationHistogramRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryHistogramSeriesByOperation", &rows, query, args...)
 }
@@ -277,11 +283,11 @@ func (r *ClickHouseRepository) QueryHistogramSeriesByMetricAndTopic(ctx context.
 		      AND metric_name IN @metricNames
 		)
 		SELECT
-		    timestamp                                                AS timestamp,
-		    attributes.'messaging.destination.name'::String          AS topic,
-		    metric_name                                              AS metric_name,
-		    hist_buckets                                             AS hist_buckets,
-		    hist_counts                                              AS hist_counts
+		    toDateTime(intDiv(toUnixTimestamp(timestamp), @stepSec) * @stepSec) AS timestamp,
+		    attributes.'messaging.destination.name'::String                     AS topic,
+		    metric_name                                                         AS metric_name,
+		    max(hist_buckets)                                                   AS hist_buckets,
+		    sumForEach(hist_counts)                                             AS hist_counts
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -290,8 +296,10 @@ func (r *ClickHouseRepository) QueryHistogramSeriesByMetricAndTopic(ctx context.
 		  AND timestamp BETWEEN @start AND @end
 		  AND attributes.'messaging.destination.name'::String != ''
 		  AND lower(attributes.'messaging.system'::String) = 'kafka'
-		ORDER BY timestamp`
+		GROUP BY timestamp, topic, metric_name
+		ORDER BY timestamp, topic, metric_name`
 	args := withMetricNames(metricArgs(teamID, startMs, endMs), metricNames)
+	args = withStepSec(args, startMs, endMs)
 	var rows []TopicMetricHistogramRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryHistogramSeriesByMetricAndTopic", &rows, query, args...)
 }
@@ -308,8 +316,8 @@ func (r *ClickHouseRepository) QueryHistogramAgg(ctx context.Context, teamID int
 		SELECT
 		    sum(hist_sum)            AS sum_hist_sum,
 		    sum(hist_count)          AS sum_hist_count,
-		    any(hist_buckets)        AS buckets,
-		    sumForEach(hist_counts)  AS counts
+		    max(hist_buckets)        AS hist_buckets,
+		    sumForEach(hist_counts)  AS hist_counts
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd

@@ -147,7 +147,9 @@ type OperationErrorCounterRow struct {
 	Value         float64   `ch:"value"`
 }
 
-// Histogram time-series rows (per data-point hist_buckets / hist_counts).
+// Histogram time-series rows. HistBuckets/HistCounts come from the rollup's
+// max(hist_buckets) + sumForEach(hist_counts) projections; service computes
+// p50/p95/p99 Go-side via internal/shared/quantile.FromHistogram.
 type TopicHistogramRow struct {
 	Timestamp   time.Time `ch:"timestamp"`
 	Topic       string    `ch:"topic"`
@@ -179,12 +181,12 @@ type TopicMetricHistogramRow struct {
 	HistCounts  []uint64  `ch:"hist_counts"`
 }
 
-// HistogramAggRow — single aggregated histogram (matches httpmetrics).
+// HistogramAggRow — single aggregated histogram across the window.
 type HistogramAggRow struct {
 	SumHistSum   float64   `ch:"sum_hist_sum"`
 	SumHistCount uint64    `ch:"sum_hist_count"`
-	Buckets      []float64 `ch:"buckets"`
-	Counts       []uint64  `ch:"counts"`
+	HistBuckets  []float64 `ch:"hist_buckets"`
+	HistCounts   []uint64  `ch:"hist_counts"`
 }
 
 type CounterAggRow struct {

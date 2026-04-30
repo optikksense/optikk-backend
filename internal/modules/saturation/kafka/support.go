@@ -57,3 +57,16 @@ func withMetricNames(args []any, metricNames []string) []any {
 func withOpAliases(args []any, opAliases []string) []any {
 	return append(args, clickhouse.Named("opAliases", opAliases))
 }
+
+// withStepSec binds the display-bucket grain (1m / 5m / 1h / 1d, window-adaptive)
+// for SQL-side `intDiv(toUnixTimestamp(timestamp), @stepSec) * @stepSec` grouping.
+// Used by the histogram-series queries so CH does the (display_bucket, dim)
+// folding (`max(hist_buckets)` + `sumForEach(hist_counts)`) for any window;
+// service stays a thin per-row mapper over the merged histograms.
+func withStepSec(args []any, startMs, endMs int64) []any {
+	step := int64(timebucket.DisplayGrain(endMs - startMs).Seconds())
+	if step <= 0 {
+		step = 60
+	}
+	return append(args, clickhouse.Named("stepSec", step))
+}

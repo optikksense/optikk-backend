@@ -60,8 +60,6 @@ SELECT DISTINCT
 FROM observability.logs
 WHERE fingerprint != '';
 
--- Metrics resource dictionary at hourly grain. Keyed per-(metric_name, fingerprint) so it doubles as a per-metric series catalog; resolver scans `SELECT DISTINCT fingerprint`.
-
 CREATE TABLE IF NOT EXISTS observability.metrics_resource (
     team_id          UInt32 CODEC(T64, ZSTD(1)),
     ts_bucket        UInt32 CODEC(DoubleDelta, LZ4),

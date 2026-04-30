@@ -11,7 +11,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
-const tableMetrics = "observability.metrics"
+const tableMetrics = "observability.metrics_1m"
 
 type Repository interface {
 	GetAvgConnPool(ctx context.Context, teamID int64, startMs, endMs int64) (metricValueDTO, error)

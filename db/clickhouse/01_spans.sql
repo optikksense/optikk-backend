@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS observability.spans (
 ) ENGINE = MergeTree()
 PARTITION BY (toYYYYMMDD(timestamp), toHour(timestamp))
 ORDER BY (team_id, ts_bucket, fingerprint, service, name, timestamp, trace_id, span_id)
-TTL timestamp + INTERVAL 90 DAY DELETE
+TTL timestamp + INTERVAL 30 DAY DELETE
 SETTINGS
     index_granularity = 8192,
     max_partitions_per_insert_block = 200,

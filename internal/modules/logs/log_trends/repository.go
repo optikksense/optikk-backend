@@ -2,8 +2,6 @@ package log_trends //nolint:revive,stylecheck
 
 import (
 	"context"
-	"fmt"
-	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
@@ -23,9 +21,9 @@ type SummaryRow struct {
 }
 
 type TrendRow struct {
-	Timestamp      time.Time `ch:"bucket_ts"`
-	SeverityBucket uint8     `ch:"severity_bucket"`
-	Count          uint64    `ch:"count"`
+	TsBucket       uint32 `ch:"ts_bucket"`
+	SeverityBucket uint8  `ch:"severity_bucket"`
+	Count          uint64 `ch:"count"`
 }
 
 func (r *Repository) Summary(ctx context.Context, f filter.Filters) (SummaryRow, error) {
@@ -47,23 +45,19 @@ func (r *Repository) Summary(ctx context.Context, f filter.Filters) (SummaryRow,
 		&row, query, args...)
 }
 
-func (r *Repository) Trend(ctx context.Context, f filter.Filters, stepMin int64) ([]TrendRow, error) {
-	resourceWhere, where, args := filter.BuildClauses(f)
-	interval := fmt.Sprintf("INTERVAL %d MINUTE", stepMin)
+func (r *Repository) Trend(ctx context.Context, f filter.Filters) ([]TrendRow, error) {
+	resourceWhere, _, args := filter.BuildClauses(f)
 	query := `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
 		    FROM observability.logs_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd` + resourceWhere + `
 		)
-		SELECT toStartOfInterval(timestamp, ` + interval + `) AS bucket_ts,
-		       severity_bucket,
-		       count() AS count
+		SELECT ts_bucket, severity_bucket, count() AS count
 		FROM observability.logs
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end` + where + `
-		GROUP BY bucket_ts, severity_bucket
-		ORDER BY bucket_ts ASC, severity_bucket ASC`
+		GROUP BY ts_bucket, severity_bucket
+		ORDER BY ts_bucket ASC, severity_bucket ASC`
 	var rows []TrendRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "logsTrends.Trend",
 		&rows, query, args...)

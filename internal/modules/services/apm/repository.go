@@ -13,8 +13,8 @@ import (
 type HistogramAggRow struct {
 	SumHistSum   float64   `ch:"sum_hist_sum"`
 	SumHistCount uint64    `ch:"sum_hist_count"`
-	Buckets      []float64 `ch:"buckets"`
-	Counts       []uint64  `ch:"counts"`
+	Buckets      []float64 `ch:"hist_buckets"`
+	Counts       []uint64  `ch:"hist_counts"`
 }
 
 type MetricSeriesRow struct {
@@ -64,10 +64,10 @@ func (r *ClickHouseRepository) QueryHistogramAgg(ctx context.Context, teamID int
 		      AND metric_name = @metricName
 		)
 		SELECT
-		    sum(hist_sum)           AS sum_hist_sum,
-		    sum(hist_count)         AS sum_hist_count,
-		    any(hist_buckets)       AS buckets,
-		    sumForEach(hist_counts) AS counts
+		    sum(hist_sum)            AS sum_hist_sum,
+		    sum(hist_count)          AS sum_hist_count,
+		    max(hist_buckets)        AS hist_buckets,
+		    sumForEach(hist_counts)  AS hist_counts
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd

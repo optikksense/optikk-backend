@@ -212,55 +212,30 @@ func (s *Service) GetConnectionUseTime(ctx context.Context, teamID, startMs, end
 	return foldHist(rows), err
 }
 
-// foldHist merges aligned OTel histograms per (bucket, pool) and computes
-// p50/p95/p99 via quantile.FromHistogram. Bucket bounds come from the
-// metric's own hist_buckets (per-data-point); merging assumes alignment
-// (driver instrumentations don't change bucket layouts mid-stream).
+// foldHist shapes the per-(hour-bucket, pool) merged-bucket rows from CH into
+// PoolLatencyPoint records. CH has already merged hist_buckets/hist_counts
+// across the rollup minutes that fall in each hour-bucket; this function
+// interpolates p50/p95/p99 Go-side via quantile.FromHistogram and converts
+// the seconds-domain values to milliseconds.
+//
+// Histograms here are seconds-domain (OTel default for `db.client.connection.*time`),
+// so we multiply by 1000 to get ms.
 func foldHist(rows []histRawDTO) []PoolLatencyPoint {
-	if rows == nil {
+	if len(rows) == 0 {
 		return nil
 	}
-	type key struct{ bucket, pool string }
-	type agg struct {
-		bounds []float64
-		counts []uint64
-	}
-	merged := map[key]*agg{}
+	out := make([]PoolLatencyPoint, 0, len(rows))
 	for _, r := range rows {
-		if len(r.Buckets) == 0 || len(r.Counts) == 0 {
-			continue
-		}
-		k := key{bucketStr(r.Timestamp), r.PoolName}
-		a, ok := merged[k]
-		if !ok {
-			a = &agg{
-				bounds: append([]float64(nil), r.Buckets...),
-				counts: append([]uint64(nil), r.Counts...),
-			}
-			merged[k] = a
-			continue
-		}
-		// best-effort: assume alignment; merge by index up to common length
-		n := len(a.counts)
-		if len(r.Counts) < n {
-			n = len(r.Counts)
-		}
-		for i := 0; i < n; i++ {
-			a.counts[i] += r.Counts[i]
-		}
-	}
-	out := make([]PoolLatencyPoint, 0, len(merged))
-	for k, a := range merged {
-		// histograms here are seconds-domain (OTel default for connection.*time)
-		// → convert bounds to ms before quantile interpolation.
-		boundsMs := make([]float64, len(a.bounds))
-		for i, b := range a.bounds {
-			boundsMs[i] = b * 1000.0
-		}
-		p50 := quantile.FromHistogram(boundsMs, a.counts, 0.50)
-		p95 := quantile.FromHistogram(boundsMs, a.counts, 0.95)
-		p99 := quantile.FromHistogram(boundsMs, a.counts, 0.99)
-		out = append(out, PoolLatencyPoint{TimeBucket: k.bucket, PoolName: k.pool, P50Ms: &p50, P95Ms: &p95, P99Ms: &p99})
+		p50 := quantile.FromHistogram(r.Buckets, r.Counts, 0.5) * 1000.0
+		p95 := quantile.FromHistogram(r.Buckets, r.Counts, 0.95) * 1000.0
+		p99 := quantile.FromHistogram(r.Buckets, r.Counts, 0.99) * 1000.0
+		out = append(out, PoolLatencyPoint{
+			TimeBucket: bucketStr(r.Bucket),
+			PoolName:   r.PoolName,
+			P50Ms:      &p50,
+			P95Ms:      &p95,
+			P99Ms:      &p99,
+		})
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].TimeBucket+"/"+out[i].PoolName < out[j].TimeBucket+"/"+out[j].PoolName
