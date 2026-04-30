@@ -53,9 +53,7 @@ CREATE TABLE IF NOT EXISTS observability.spans (
     status                   LowCardinality(String) ALIAS status_code_string,
     http_status_code         UInt16                 ALIAS toUInt16OrZero(response_status_code),
     is_error                 UInt8                  ALIAS if(has_error OR toUInt16OrZero(response_status_code) >= 400, 1, 0),
-    is_root                  UInt8                  ALIAS if((parent_span_id = '') OR (parent_span_id = '0000000000000000'), 1, 0),
-    INDEX idx_fingerprint            fingerprint                         TYPE bloom_filter(0.01)      GRANULARITY 4,
-    INDEX idx_trace_id               trace_id                            TYPE bloom_filter(0.01)      GRANULARITY 4
+    is_root                  UInt8                  ALIAS if((parent_span_id = '') OR (parent_span_id = '0000000000000000'), 1, 0)
 ) ENGINE = MergeTree()
 PARTITION BY (toYYYYMMDD(timestamp), toHour(timestamp))
 ORDER BY (team_id, ts_bucket, fingerprint, service, name, timestamp, trace_id, span_id)
