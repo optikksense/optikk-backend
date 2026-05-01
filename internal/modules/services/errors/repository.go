@@ -16,9 +16,6 @@ type Repository interface {
 	ErrorVolumeRowsAll(ctx context.Context, teamID int64, startMs, endMs int64) ([]rawServiceErrorRow, error)
 	ErrorVolumeRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]rawServiceErrorRow, error)
 
-	LatencyErrorRowsAll(ctx context.Context, teamID int64, startMs, endMs int64) ([]rawServiceRateRow, error)
-	LatencyErrorRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]rawServiceRateRow, error)
-
 	ErrorGroupRowsAll(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]rawErrorGroupRow, error)
 	ErrorGroupRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]rawErrorGroupRow, error)
 
@@ -52,14 +49,22 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 
 func (r *ClickHouseRepository) ServiceErrorRateRowsAll(ctx context.Context, teamID int64, startMs, endMs int64) ([]rawServiceRateRow, error) {
 	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id   = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
 		SELECT s.service                                                            AS service,
 		       s.ts_bucket                                                          AS timestamp,
 		       count()                                                              AS request_count,
 		       countIf(s.is_error) AS error_count,
 		       sum(s.duration_nano / 1000000.0)                                     AS duration_ms_sum
 		FROM observability.spans s
-		PREWHERE s.team_id   = @teamID
-		     AND s.ts_bucket BETWEEN @start AND @end
+		PREWHERE s.team_id     = @teamID
+		     AND s.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND s.fingerprint IN active_fps
+		WHERE s.ts_bucket BETWEEN @start AND @end
 		GROUP BY s.service, timestamp
 		ORDER BY timestamp ASC
 		LIMIT 10000`
@@ -67,6 +72,8 @@ func (r *ClickHouseRepository) ServiceErrorRateRowsAll(ctx context.Context, team
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 — tenant ID fits uint32
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
+		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)),
 	}
 	var rows []rawServiceRateRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.ServiceErrorRateAll", &rows, query, args...)
@@ -158,65 +165,6 @@ func (r *ClickHouseRepository) ErrorVolumeRowsByService(ctx context.Context, tea
 	}
 	var rows []rawServiceErrorRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.ErrorVolumeByService", &rows, query, args...)
-}
-
-// --- Latency during error windows ---
-// Same shape as ServiceErrorRate; service.go discards zero-error rows.
-
-func (r *ClickHouseRepository) LatencyErrorRowsAll(ctx context.Context, teamID int64, startMs, endMs int64) ([]rawServiceRateRow, error) {
-	const query = `
-		SELECT s.service                                                            AS service,
-		       s.ts_bucket                                                          AS timestamp,
-		       count()                                                              AS request_count,
-		       countIf(s.is_error) AS error_count,
-		       sum(s.duration_nano / 1000000.0)                                     AS duration_ms_sum
-		FROM observability.spans s
-		PREWHERE s.team_id   = @teamID
-		     AND s.ts_bucket BETWEEN @start AND @end
-		GROUP BY s.service, timestamp
-		ORDER BY timestamp ASC
-		LIMIT 10000`
-	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-	var rows []rawServiceRateRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.LatencyErrorAll", &rows, query, args...)
-}
-
-func (r *ClickHouseRepository) LatencyErrorRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]rawServiceRateRow, error) {
-	const query = `
-		WITH active_fps AS (
-		    SELECT fingerprint
-		    FROM observability.spans_resource
-		    WHERE team_id = @teamID
-		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		      AND service = @serviceName
-		)
-		SELECT s.service                                                            AS service,
-		       s.ts_bucket                                                          AS timestamp,
-		       count()                                                              AS request_count,
-		       countIf(s.is_error) AS error_count,
-		       sum(s.duration_nano / 1000000.0)                                     AS duration_ms_sum
-		FROM observability.spans s
-		PREWHERE s.team_id     = @teamID
-		     AND s.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
-		     AND s.fingerprint IN active_fps
-		WHERE s.ts_bucket BETWEEN @start AND @end
-		GROUP BY s.service, timestamp
-		ORDER BY timestamp ASC
-		LIMIT 10000`
-	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)),
-		clickhouse.Named("serviceName", serviceName),
-	}
-	var rows []rawServiceRateRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.LatencyErrorByService", &rows, query, args...)
 }
 
 // --- Error groups ---

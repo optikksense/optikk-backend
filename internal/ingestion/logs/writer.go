@@ -16,7 +16,7 @@ var chColumns = []string{
 	"team_id", "ts_bucket", "timestamp", "observed_timestamp",
 	"trace_id", "span_id", "trace_flags", "severity_text", "severity_number", "severity_bucket", "body",
 	"attributes_string", "attributes_number", "attributes_bool",
-	"resource", "fingerprint",
+	"resource", "fingerprint", "log_id",
 	"scope_name", "scope_version",
 	"service", "host", "pod", "container", "environment",
 }
@@ -74,6 +74,7 @@ func rowValues(r *schema.Row) []any {
 		r.GetAttributesBool(),
 		r.GetResource(),
 		r.GetFingerprint(),
+		r.GetLogId(),
 		r.GetScopeName(),
 		r.GetScopeVersion(),
 		r.GetService(),

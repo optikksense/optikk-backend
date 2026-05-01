@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS observability.logs (
     attributes_bool      Map(LowCardinality(String), Bool) CODEC(ZSTD(1)),
     resource             JSON(max_dynamic_paths=100) CODEC(ZSTD(1)),
     fingerprint          String CODEC(ZSTD(1)),
+    log_id               String CODEC(ZSTD(1)),
     scope_name           String CODEC(ZSTD(1)),
     scope_version        String CODEC(ZSTD(1)),
     service              LowCardinality(String) CODEC(ZSTD(1)),
@@ -23,7 +24,7 @@ CREATE TABLE IF NOT EXISTS observability.logs (
     container            LowCardinality(String) CODEC(ZSTD(1)),
     environment          LowCardinality(String) CODEC(ZSTD(1)),
     severity_bucket      UInt8 CODEC(T64, ZSTD(1)),
-    INDEX idx_trace_id     trace_id     TYPE set(0) GRANULARITY 1
+    INDEX idx_log_id       log_id       TYPE bloom_filter(0.01) GRANULARITY 4
 ) ENGINE = MergeTree()
 PARTITION BY (toYYYYMMDD(timestamp), toHour(timestamp))
 ORDER BY (team_id, ts_bucket, fingerprint, timestamp)

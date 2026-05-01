@@ -43,7 +43,7 @@ func NewService(repo Repository) Service {
 }
 
 func (s *HTTPMetricsService) GetRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]StatusCodeBucket, error) {
-	rows, err := s.repo.QueryStatusHistogramSeries(ctx, teamID, startMs, endMs, MetricHTTPServerRequestDuration)
+	rows, err := s.repo.QueryServerRequestStatusSeries(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -64,11 +64,15 @@ func (s *HTTPMetricsService) GetRequestRate(ctx context.Context, teamID int64, s
 }
 
 func (s *HTTPMetricsService) GetRequestDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
-	return s.histogramSummary(ctx, teamID, startMs, endMs, MetricHTTPServerRequestDuration)
+	row, err := s.repo.QueryServerRequestDurationHistogram(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return HistogramSummary{}, err
+	}
+	return histogramSummary(row), nil
 }
 
 func (s *HTTPMetricsService) GetActiveRequests(ctx context.Context, teamID int64, startMs, endMs int64) ([]TimeBucket, error) {
-	rows, err := s.repo.QueryMetricSeries(ctx, teamID, startMs, endMs, MetricHTTPServerActiveRequests)
+	rows, err := s.repo.QueryServerActiveRequestsSeries(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -80,23 +84,43 @@ func (s *HTTPMetricsService) GetActiveRequests(ctx context.Context, teamID int64
 }
 
 func (s *HTTPMetricsService) GetRequestBodySize(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
-	return s.histogramSummary(ctx, teamID, startMs, endMs, MetricHTTPServerRequestBodySize)
+	row, err := s.repo.QueryServerRequestBodySizeHistogram(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return HistogramSummary{}, err
+	}
+	return histogramSummary(row), nil
 }
 
 func (s *HTTPMetricsService) GetResponseBodySize(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
-	return s.histogramSummary(ctx, teamID, startMs, endMs, MetricHTTPServerResponseBodySize)
+	row, err := s.repo.QueryServerResponseBodySizeHistogram(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return HistogramSummary{}, err
+	}
+	return histogramSummary(row), nil
 }
 
 func (s *HTTPMetricsService) GetClientDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
-	return s.histogramSummary(ctx, teamID, startMs, endMs, MetricHTTPClientRequestDuration)
+	row, err := s.repo.QueryClientRequestDurationHistogram(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return HistogramSummary{}, err
+	}
+	return histogramSummary(row), nil
 }
 
 func (s *HTTPMetricsService) GetDNSDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
-	return s.histogramSummary(ctx, teamID, startMs, endMs, MetricDNSLookupDuration)
+	row, err := s.repo.QueryDNSLookupDurationHistogram(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return HistogramSummary{}, err
+	}
+	return histogramSummary(row), nil
 }
 
 func (s *HTTPMetricsService) GetTLSDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
-	return s.histogramSummary(ctx, teamID, startMs, endMs, MetricTLSConnectDuration)
+	row, err := s.repo.QueryTLSConnectDurationHistogram(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return HistogramSummary{}, err
+	}
+	return histogramSummary(row), nil
 }
 
 func (s *HTTPMetricsService) GetTopRoutesByVolume(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
@@ -177,7 +201,7 @@ func (s *HTTPMetricsService) GetRouteErrorTimeseries(ctx context.Context, teamID
 }
 
 func (s *HTTPMetricsService) GetStatusDistribution(ctx context.Context, teamID int64, startMs, endMs int64) ([]StatusGroupBucket, error) {
-	rows, err := s.repo.QueryStatusHistogramSeries(ctx, teamID, startMs, endMs, MetricHTTPServerRequestDuration)
+	rows, err := s.repo.QueryServerRequestStatusSeries(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -194,7 +218,7 @@ func (s *HTTPMetricsService) GetStatusDistribution(ctx context.Context, teamID i
 }
 
 func (s *HTTPMetricsService) GetErrorTimeseries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorTimeseriesPoint, error) {
-	rows, err := s.repo.QueryStatusHistogramSeries(ctx, teamID, startMs, endMs, MetricHTTPServerRequestDuration)
+	rows, err := s.repo.QueryServerRequestStatusSeries(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -262,11 +286,7 @@ func (s *HTTPMetricsService) GetExternalHostErrorRate(ctx context.Context, teamI
 	return out, nil
 }
 
-func (s *HTTPMetricsService) histogramSummary(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (HistogramSummary, error) {
-	row, err := s.repo.QueryHistogramAgg(ctx, teamID, startMs, endMs, metricName)
-	if err != nil {
-		return HistogramSummary{}, err
-	}
+func histogramSummary(row HistogramAggRow) HistogramSummary {
 	avg := 0.0
 	if row.SumHistCount > 0 {
 		avg = row.SumHistSum / float64(row.SumHistCount)
@@ -276,7 +296,7 @@ func (s *HTTPMetricsService) histogramSummary(ctx context.Context, teamID int64,
 		P50: quantile.FromHistogram(row.Buckets, row.Counts, 0.5),
 		P95: quantile.FromHistogram(row.Buckets, row.Counts, 0.95),
 		P99: quantile.FromHistogram(row.Buckets, row.Counts, 0.99),
-	}, nil
+	}
 }
 
 func mapRoutes(rows []RouteAggRow, n int, withP95 bool) []RouteMetric {

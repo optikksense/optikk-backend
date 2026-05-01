@@ -15,8 +15,10 @@ import (
 // matches against the real `host` alias column on observability.metrics.
 
 type Repository interface {
-	QueryContainerCounter(ctx context.Context, teamID int64, startMs, endMs int64, metricName, node string) ([]ContainerRow, error)
-	QueryContainerGauge(ctx context.Context, teamID int64, startMs, endMs int64, metricName, node string) ([]ContainerRow, error)
+	QueryContainerCPUTime(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]ContainerRow, error)
+	QueryContainerCPUThrottledTime(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]ContainerRow, error)
+	QueryContainerOOMKills(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]ContainerRow, error)
+	QueryContainerMemoryUsage(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]ContainerRow, error)
 	QueryPodRestarts(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]PodRestartRow, error)
 	QueryNodeAllocatable(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]K8sMetricNameRow, error)
 	QueryPodPhases(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]PhaseRow, error)
@@ -32,10 +34,10 @@ func NewRepository(db clickhouse.Conn) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-// QueryContainerCounter returns per-(timestamp, container) sum-of-value rows
-// for counter-style container metrics (cpu.time, cpu.throttling, oom_kills).
-func (r *ClickHouseRepository) QueryContainerCounter(ctx context.Context, teamID int64, startMs, endMs int64, metricName, node string) ([]ContainerRow, error) {
-	const query = `
+// All container per-metric queries share this shape — same SELECT + filters,
+// only the metric_name binding differs. The fold (counter sum vs gauge avg)
+// happens service-side, not in SQL.
+const containerByMetricQuery = `
 		WITH active_fps AS (
 		    SELECT fingerprint
 		    FROM observability.metrics_resource
@@ -56,39 +58,27 @@ func (r *ClickHouseRepository) QueryContainerCounter(ctx context.Context, teamID
 		  AND attributes.'k8s.container.name'::String != ''
 		  AND (@node = '' OR host = @node)
 		ORDER BY timestamp`
+
+func (r *ClickHouseRepository) queryContainerByMetric(ctx context.Context, op, metricName, node string, teamID int64, startMs, endMs int64) ([]ContainerRow, error) {
 	args := withMetricNameAndNode(metricArgs(teamID, startMs, endMs), metricName, node)
 	var rows []ContainerRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kubernetes.QueryContainerCounter", &rows, query, args...)
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, op, &rows, containerByMetricQuery, args...)
 }
 
-// QueryContainerGauge returns per-(timestamp, container) gauge values for
-// gauge-style container metrics (memory.usage). Same shape as counter; service
-// uses different fold (avg vs sum).
-func (r *ClickHouseRepository) QueryContainerGauge(ctx context.Context, teamID int64, startMs, endMs int64, metricName, node string) ([]ContainerRow, error) {
-	const query = `
-		WITH active_fps AS (
-		    SELECT fingerprint
-		    FROM observability.metrics_resource
-		    WHERE team_id = @teamID
-		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		      AND metric_name = @metricName
-		)
-		SELECT
-		    timestamp                                                AS timestamp,
-		    attributes.'k8s.container.name'::String                  AS container,
-		    val_sum / val_count AS value
-		FROM observability.metrics_1m
-		PREWHERE team_id        = @teamID
-		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint   IN active_fps
-		WHERE metric_name = @metricName
-		  AND timestamp BETWEEN @start AND @end
-		  AND attributes.'k8s.container.name'::String != ''
-		  AND (@node = '' OR host = @node)
-		ORDER BY timestamp`
-	args := withMetricNameAndNode(metricArgs(teamID, startMs, endMs), metricName, node)
-	var rows []ContainerRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kubernetes.QueryContainerGauge", &rows, query, args...)
+func (r *ClickHouseRepository) QueryContainerCPUTime(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]ContainerRow, error) {
+	return r.queryContainerByMetric(ctx, "kubernetes.QueryContainerCPUTime", MetricContainerCPUTime, node, teamID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) QueryContainerCPUThrottledTime(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]ContainerRow, error) {
+	return r.queryContainerByMetric(ctx, "kubernetes.QueryContainerCPUThrottledTime", MetricContainerCPUThrottledTime, node, teamID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) QueryContainerOOMKills(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]ContainerRow, error) {
+	return r.queryContainerByMetric(ctx, "kubernetes.QueryContainerOOMKills", MetricContainerOOMKillCount, node, teamID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) QueryContainerMemoryUsage(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]ContainerRow, error) {
+	return r.queryContainerByMetric(ctx, "kubernetes.QueryContainerMemoryUsage", MetricContainerMemoryUsage, node, teamID, startMs, endMs)
 }
 
 // QueryPodRestarts returns per-(pod, namespace) max restart count.

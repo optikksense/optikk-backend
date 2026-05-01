@@ -1,7 +1,7 @@
-// Overview errors: error volume + groups + drilldown into a single group.
+// Errors overview: error volume + groups + drilldown into a single group.
 // Endpoints:
-//   GET /api/v1/overview/errors/{service-error-rate,error-volume,
-//                                latency-during-error-windows,groups}
+//   GET /api/v1/errors/{service-error-rate,error-volume,
+//                       latency-during-error-windows,groups}
 //   GET /api/v1/errors/groups/:groupId
 //   GET /api/v1/errors/groups/:groupId/traces
 //   GET /api/v1/errors/groups/:groupId/timeseries
@@ -14,10 +14,10 @@ import { cfg } from '../../lib/config.js';
 
 const MOD = 'overview';
 const TOP = [
-  '/api/v1/overview/errors/service-error-rate',
-  '/api/v1/overview/errors/error-volume',
-  '/api/v1/overview/errors/latency-during-error-windows',
-  '/api/v1/overview/errors/groups',
+  '/api/v1/errors/service-error-rate',
+  '/api/v1/errors/error-volume',
+  '/api/v1/errors/latency-during-error-windows',
+  '/api/v1/errors/groups',
 ];
 
 export function overviewErrors(ctx) {

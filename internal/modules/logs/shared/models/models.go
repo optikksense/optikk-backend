@@ -33,6 +33,7 @@ type Log struct {
 
 // LogRow is the ClickHouse scan target for raw log reads.
 type LogRow struct {
+	LogID             string             `ch:"log_id"`
 	Timestamp         time.Time          `ch:"timestamp"`
 	ObservedTimestamp uint64             `ch:"observed_timestamp"`
 	SeverityText      string             `ch:"severity_text"`
@@ -83,9 +84,16 @@ type FacetValue struct {
 	Count uint64 `json:"count"`
 }
 
-// Facets groups per-dim top-N counts.
+// SeverityLabels is the closed set of severity-bucket labels (mirrors the
+// on-disk severity_bucket → text mapping in the logs ingest mapper). Returned
+// directly by /logs/facets — severity is a fixed enum, no DB query needed.
+var SeverityLabels = []string{"UNSET", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"}
+
+// Facets groups per-dim top-N counts. Severity is a static label list (no
+// counts) since the values are a closed enum; resource dims are top-N from
+// observability.logs_resource.
 type Facets struct {
-	Severity    []FacetValue `json:"severity_bucket"`
+	Severity    []string     `json:"severity_bucket"`
 	Service     []FacetValue `json:"service"`
 	Host        []FacetValue `json:"host,omitempty"`
 	Pod         []FacetValue `json:"pod,omitempty"`

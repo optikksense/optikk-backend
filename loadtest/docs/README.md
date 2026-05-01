@@ -126,7 +126,7 @@ Module + endpoint coverage is enumerated by entrypoint:
   spans query, suggest, detail (core + extras), paths/shape, errors, latency.
 - [`entrypoints/logs.js`](../entrypoints/logs.js) — explorer, analytics, detail.
 - [`entrypoints/metrics.js`](../entrypoints/metrics.js) — explorer query + meta.
-- [`entrypoints/overview.js`](../entrypoints/overview.js) — summary, errors,
+- [`entrypoints/overview.js`](../entrypoints/overview.js) — errors,
   span errors, SLO, RED metrics, HTTP metrics, APM.
 - [`entrypoints/infrastructure.js`](../entrypoints/infrastructure.js) — nodes,
   fleet, compute (cpu/mem/jvm), I/O (disk/net/connpool), resource utilization,
@@ -144,7 +144,7 @@ Module + endpoint coverage is enumerated by entrypoint:
   `db_system`, `db_systems`, `db_summary`, `db_slow_queries`,
   `db_connections`, `infra_cpu`, `infra_memory`, `infra_jvm`, `infra_disk`,
   `infra_network`, `infra_connpool`, `infra_nodes`, `infra_fleet`,
-  `infra_resource_util`, `infra_kubernetes`. Run a single submodule with
+  `infra_kubernetes`. Run a single submodule with
   `--scenario=<name>`; total RPS scales with the number of active scenarios,
   so dial `RPS` down for whole-file runs.
 
@@ -163,7 +163,7 @@ loadtest/scenarios/
       summary.js         slowqueries.js     connections.js
     kafka_*.js                      # explorer, perf, lag, health
   infrastructure/
-    nodes.js     fleet.js     kubernetes.js     resource_util.js
+    nodes.js     fleet.js     kubernetes.js
     compute.js   # orchestrator over cpu.js, memory.js, jvm.js
     io.js        # orchestrator over disk.js, network.js, connpool.js
     cpu.js       memory.js    jvm.js

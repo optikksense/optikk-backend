@@ -20,7 +20,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}
-	shared.RegisterDualGroup(v1, "/errors", func(g *gin.RouterGroup) {
+	shared.RegisterGroup(v1, "/errors", func(g *gin.RouterGroup) {
 		g.GET("/by-system", h.GetErrorsBySystem)
 		g.GET("/by-operation", h.GetErrorsByOperation)
 		g.GET("/by-error-type", h.GetErrorsByErrorType)

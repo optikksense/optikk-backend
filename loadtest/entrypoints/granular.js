@@ -32,7 +32,6 @@ import { infraNetwork }  from '../scenarios/infrastructure/network.js';
 import { infraConnPool } from '../scenarios/infrastructure/connpool.js';
 import { infraNodes }    from '../scenarios/infrastructure/nodes.js';
 import { infraFleet }    from '../scenarios/infrastructure/fleet.js';
-import { infraResourceUtil } from '../scenarios/infrastructure/resource_util.js';
 import { infraKubernetes }   from '../scenarios/infrastructure/kubernetes.js';
 
 function block(module, name) {
@@ -65,7 +64,6 @@ export const options = {
     infra_connpool:      block('infrastructure', 'infraConnPool'),
     infra_nodes:         block('infrastructure', 'infraNodes'),
     infra_fleet:         block('infrastructure', 'infraFleet'),
-    infra_resource_util: block('infrastructure', 'infraResourceUtil'),
     infra_kubernetes:    block('infrastructure', 'infraKubernetes'),
   },
 };
@@ -75,5 +73,5 @@ export {
   dbVolume, dbErrors, dbLatency, dbCollection, dbSystem,
   dbSystems, dbSummary, dbSlowQueries, dbConnections,
   infraCPU, infraMemory, infraJVM, infraDisk, infraNetwork, infraConnPool,
-  infraNodes, infraFleet, infraResourceUtil, infraKubernetes,
+  infraNodes, infraFleet, infraKubernetes,
 };

@@ -14,11 +14,11 @@ import (
 	infrastructure_memory "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/memory"
 	infrastructure_network "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/network"
 	infrastructure_nodes "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/nodes"
-	infrastructure_resource_utilisation "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/resourceutil"
 	log_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/logs/explorer"
 	log_facets "github.com/Optikk-Org/optikk-backend/internal/modules/logs/log_facets"
 	log_trends "github.com/Optikk-Org/optikk-backend/internal/modules/logs/log_trends"
 	log_detail "github.com/Optikk-Org/optikk-backend/internal/modules/logs/logdetail"
+	log_trace_logs "github.com/Optikk-Org/optikk-backend/internal/modules/logs/trace_logs"
 	metrics_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/metrics/explorer"
 	saturation_database_collection "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/collection"
 	saturation_database_connections "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/connections"
@@ -31,6 +31,7 @@ import (
 	saturation_database_systems "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/systems"
 	saturation_database_volume "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/volume"
 	saturation_kafka "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka"
+	saturation_kafka_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka/explorer"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/services/apm"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/services/deployments"
 	services_errors "github.com/Optikk-Org/optikk-backend/internal/modules/services/errors"
@@ -39,7 +40,6 @@ import (
 	services_redmetrics "github.com/Optikk-Org/optikk-backend/internal/modules/services/redmetrics"
 	services_slo "github.com/Optikk-Org/optikk-backend/internal/modules/services/slo"
 	services_topology "github.com/Optikk-Org/optikk-backend/internal/modules/services/topology"
-	traces_errors "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errors"
 	spans_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
 	span_query "github.com/Optikk-Org/optikk-backend/internal/modules/traces/span_query"
 	trace_paths "github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_paths"
@@ -72,11 +72,11 @@ func configuredModules(
 		infrastructure_network.NewModule(nativeQuerier, getTenant),
 		infrastructure_fleet.NewModule(nativeQuerier, getTenant),
 		infrastructure_nodes.NewModule(nativeQuerier, getTenant),
-		infrastructure_resource_utilisation.NewModule(nativeQuerier, getTenant),
 		log_explorer.NewModule(nativeQuerier, getTenant),
 		log_detail.NewModule(nativeQuerier, getTenant),
 		log_facets.NewModule(nativeQuerier, getTenant),
 		log_trends.NewModule(nativeQuerier, getTenant),
+		log_trace_logs.NewModule(nativeQuerier, getTenant),
 		metrics_explorer.NewModule(nativeQuerier, getTenant),
 		infraDeps.Ingest.Logs,
 		infraDeps.Ingest.Metrics,
@@ -95,6 +95,7 @@ func configuredModules(
 		saturation_database_systems.NewModule(nativeQuerier, getTenant),
 		saturation_database_volume.NewModule(nativeQuerier, getTenant),
 		saturation_kafka.NewModule(nativeQuerier, getTenant),
+		saturation_kafka_explorer.NewModule(nativeQuerier, getTenant),
 		services_topology.NewModule(nativeQuerier, getTenant),
 		spans_explorer.NewModule(nativeQuerier, getTenant),
 		spans_tracedetail.NewModule(nativeQuerier, getTenant),
@@ -103,7 +104,6 @@ func configuredModules(
 		trace_servicemap.NewModule(nativeQuerier, getTenant),
 		trace_shape.NewModule(nativeQuerier, getTenant),
 		trace_suggest.NewModule(nativeQuerier, getTenant),
-		traces_errors.NewModule(nativeQuerier, getTenant),
 		services_latency.NewModule(nativeQuerier, getTenant),
 		user_auth.NewModule(infraDeps.DB, getTenant, infraDeps.SessionManager, appConfig),
 		user_team.NewModule(infraDeps.DB, getTenant, appConfig),

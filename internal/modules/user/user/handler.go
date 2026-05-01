@@ -23,15 +23,6 @@ func NewHandler(getTenant modulecommon.GetTenantFunc, service *Service) *Handler
 	}
 }
 
-func (h *Handler) GetCurrentUser(c *gin.Context) {
-	user, err := h.Service.GetCurrentUser(h.GetTenant(c).UserID)
-	if err != nil {
-		usershared.RespondServiceError(c, err, "User not found")
-		return
-	}
-	modulecommon.RespondOK(c, user)
-}
-
 func (h *Handler) GetUsers(c *gin.Context) {
 	users, err := h.Service.GetUsers(
 		h.GetTenant(c).TeamID,

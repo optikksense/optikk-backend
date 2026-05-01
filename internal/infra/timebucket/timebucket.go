@@ -3,7 +3,7 @@ package timebucket
 
 import "time"
 
-const BucketSeconds int64 = 60
+const BucketSeconds int64 = 300
 
 // BucketStart truncates a Unix-second timestamp down to the start of its 5-minute bucket.
 // Returned as UInt32 so it round-trips losslessly through the CH ts_bucket column.

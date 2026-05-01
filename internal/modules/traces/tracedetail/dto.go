@@ -2,7 +2,7 @@ package tracedetail
 
 import "time"
 
-// traceLogRow is the scan target for GetTraceLogs.
+// traceLogRow is the scan target for GetSpanLogs.
 type traceLogRow struct {
 	Timestamp         time.Time          `ch:"timestamp"`
 	ObservedTimestamp uint64             `ch:"observed_timestamp"`

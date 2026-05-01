@@ -16,7 +16,6 @@ type Repository interface {
 	GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]spanEventCombinedRow, error)
 	GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*spanAttributeRow, error)
 	GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
-	GetTraceLogs(ctx context.Context, teamID int64, traceID string) ([]traceLogRow, error)
 	GetSpanLogs(ctx context.Context, teamID int64, traceID, spanID string) ([]traceLogRow, error)
 }
 
@@ -26,22 +25,6 @@ type ClickHouseRepository struct {
 
 func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
-}
-
-func (r *ClickHouseRepository) GetTraceLogs(ctx context.Context, teamID int64, traceID string) ([]traceLogRow, error) {
-	const query = `
-		SELECT timestamp, observed_timestamp, severity_text, severity_number,
-		       body, trace_id, span_id, trace_flags,
-		       service, host, pod, container, environment,
-		       attributes_string, attributes_number, attributes_bool,
-		       scope_name, scope_version
-		FROM observability.logs
-		PREWHERE team_id = @teamID
-		WHERE ` + traceIDMatchPredicate + `
-		ORDER BY timestamp ASC
-		LIMIT 1000`
-	var rows []traceLogRow
-	return rows, dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "tracedetail.GetTraceLogs", &rows, query, traceIDArgs(teamID, traceID)...)
 }
 
 func (r *ClickHouseRepository) GetSpanLogs(ctx context.Context, teamID int64, traceID, spanID string) ([]traceLogRow, error) {

@@ -8,7 +8,6 @@ import { infraNodes }       from '../scenarios/infrastructure/nodes.js';
 import { infraFleet }       from '../scenarios/infrastructure/fleet.js';
 import { infraCompute }     from '../scenarios/infrastructure/compute.js';
 import { infraIO }          from '../scenarios/infrastructure/io.js';
-import { infraResourceUtil } from '../scenarios/infrastructure/resource_util.js';
 import { infraKubernetes }  from '../scenarios/infrastructure/kubernetes.js';
 
 function block(name) {
@@ -27,10 +26,9 @@ export const options = {
     infra_fleet:        block('infraFleet'),
     infra_compute:      block('infraCompute'),
     infra_io:           block('infraIO'),
-    infra_resource_util: block('infraResourceUtil'),
     infra_kubernetes:   block('infraKubernetes'),
   },
 };
 
 export { setup, teardown, handleSummary };
-export { infraNodes, infraFleet, infraCompute, infraIO, infraResourceUtil, infraKubernetes };
+export { infraNodes, infraFleet, infraCompute, infraIO, infraKubernetes };

@@ -20,7 +20,7 @@ func NewService(repo Repository) *Service {
 }
 
 func (s *Service) GetDiskIO(ctx context.Context, teamID int64, startMs, endMs int64) ([]DirectionBucket, error) {
-	rows, err := s.repo.QueryDiskCounterByDirection(ctx, teamID, startMs, endMs, infraconsts.MetricSystemDiskIO)
+	rows, err := s.repo.QueryDiskIOByDirection(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -28,7 +28,7 @@ func (s *Service) GetDiskIO(ctx context.Context, teamID int64, startMs, endMs in
 }
 
 func (s *Service) GetDiskOperations(ctx context.Context, teamID int64, startMs, endMs int64) ([]DirectionBucket, error) {
-	rows, err := s.repo.QueryDiskCounterByDirection(ctx, teamID, startMs, endMs, infraconsts.MetricSystemDiskOperations)
+	rows, err := s.repo.QueryDiskOperationsByDirection(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +36,7 @@ func (s *Service) GetDiskOperations(ctx context.Context, teamID int64, startMs, 
 }
 
 func (s *Service) GetDiskIOTime(ctx context.Context, teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
-	rows, err := s.repo.QueryDiskCounterTotal(ctx, teamID, startMs, endMs, infraconsts.MetricSystemDiskIOTime)
+	rows, err := s.repo.QueryDiskIOTimeTotal(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}

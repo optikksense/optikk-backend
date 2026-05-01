@@ -10,14 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-type Config struct{ Enabled bool }
-
-func DefaultConfig() Config { return Config{Enabled: true} }
-
-func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
-	if !cfg.Enabled || h == nil {
-		return
-	}
+func RegisterRoutes(v1 *gin.RouterGroup, h *Handler) {
 	v1.POST("/logs/facets", h.Facets)
 }
 
@@ -46,7 +39,7 @@ func (m *module) configure(db clickhouse.Conn, getTenant registry.GetTenantFunc)
 }
 
 func (m *module) RegisterRoutes(group *gin.RouterGroup) {
-	RegisterRoutes(DefaultConfig(), group, m.handler)
+	RegisterRoutes(group, m.handler)
 }
 
 var _ modulecommon.GetTenantFunc = modulecommon.GetTenantFunc(nil)

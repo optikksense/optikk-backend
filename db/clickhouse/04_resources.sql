@@ -10,7 +10,7 @@ CREATE TABLE IF NOT EXISTS observability.spans_resource (
     environment LowCardinality(String) CODEC(ZSTD(1))
 ) ENGINE = ReplacingMergeTree()
 PARTITION BY (toYYYYMMDD(toDateTime(ts_bucket)), toHour(toDateTime(ts_bucket)))
-ORDER BY (team_id, ts_bucket, fingerprint)
+ORDER BY (team_id, ts_bucket, service, host, pod, fingerprint)
 TTL toDateTime(ts_bucket) + INTERVAL 90 DAY DELETE
 SETTINGS
     index_granularity = 8192,
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS observability.logs_resource (
     environment LowCardinality(String) CODEC(ZSTD(1))
 ) ENGINE = ReplacingMergeTree()
 PARTITION BY toYYYYMMDD(toDateTime(ts_bucket))
-ORDER BY (team_id, ts_bucket, fingerprint)
+ORDER BY (team_id, ts_bucket, service, host, pod, fingerprint)
 TTL toDateTime(ts_bucket) + INTERVAL 90 DAY DELETE
 SETTINGS
     index_granularity = 8192,
@@ -73,7 +73,7 @@ CREATE TABLE IF NOT EXISTS observability.metrics_resource (
     http_status_code UInt16 CODEC(T64, ZSTD(1))
 ) ENGINE = ReplacingMergeTree()
 PARTITION BY toYYYYMMDD(toDateTime(ts_bucket))
-ORDER BY (team_id, ts_bucket, metric_name, fingerprint)
+ORDER BY (team_id, ts_bucket, metric_name, service, fingerprint)
 TTL toDateTime(ts_bucket) + INTERVAL 90 DAY DELETE
 SETTINGS
     index_granularity = 8192,

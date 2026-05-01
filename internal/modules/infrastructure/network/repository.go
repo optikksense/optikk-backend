@@ -11,9 +11,11 @@ import (
 )
 
 type Repository interface {
-	QueryNetworkCounterByDirection(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]NetworkDirectionRow, error)
-	QueryNetworkCounterTotal(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]NetworkValueRow, error)
-	QueryNetworkGaugeByState(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]NetworkStateRow, error)
+	QueryNetworkIOByDirection(ctx context.Context, teamID int64, startMs, endMs int64) ([]NetworkDirectionRow, error)
+	QueryNetworkPacketsByDirection(ctx context.Context, teamID int64, startMs, endMs int64) ([]NetworkDirectionRow, error)
+	QueryNetworkErrorsByDirection(ctx context.Context, teamID int64, startMs, endMs int64) ([]NetworkDirectionRow, error)
+	QueryNetworkDroppedTotal(ctx context.Context, teamID int64, startMs, endMs int64) ([]NetworkValueRow, error)
+	QueryNetworkConnectionsByState(ctx context.Context, teamID int64, startMs, endMs int64) ([]NetworkStateRow, error)
 	QueryNetworkUtilizationByService(ctx context.Context, teamID int64, startMs, endMs int64) ([]NetworkServiceRow, error)
 	QueryNetworkUtilizationForService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (NetworkScalarRow, error)
 	QueryNetworkUtilizationForInstance(ctx context.Context, teamID int64, startMs, endMs int64, host, pod, serviceName string) (NetworkScalarRow, error)
@@ -27,8 +29,7 @@ func NewRepository(db clickhouse.Conn) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) QueryNetworkCounterByDirection(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]NetworkDirectionRow, error) {
-	const query = `
+const networkCounterByDirectionQuery = `
 		WITH active_fps AS (
 		    SELECT fingerprint
 		    FROM observability.metrics_resource
@@ -48,12 +49,26 @@ func (r *ClickHouseRepository) QueryNetworkCounterByDirection(ctx context.Contex
 		  AND timestamp BETWEEN @start AND @end
 		  AND attributes.'system.network.io.direction'::String != ''
 		ORDER BY timestamp`
+
+func (r *ClickHouseRepository) queryNetworkCounterByDirection(ctx context.Context, op, metricName string, teamID int64, startMs, endMs int64) ([]NetworkDirectionRow, error) {
 	args := withMetricName(metricArgs(teamID, startMs, endMs), metricName)
 	var rows []NetworkDirectionRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "network.QueryNetworkCounterByDirection", &rows, query, args...)
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, op, &rows, networkCounterByDirectionQuery, args...)
 }
 
-func (r *ClickHouseRepository) QueryNetworkCounterTotal(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]NetworkValueRow, error) {
+func (r *ClickHouseRepository) QueryNetworkIOByDirection(ctx context.Context, teamID int64, startMs, endMs int64) ([]NetworkDirectionRow, error) {
+	return r.queryNetworkCounterByDirection(ctx, "network.QueryNetworkIOByDirection", infraconsts.MetricSystemNetworkIO, teamID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) QueryNetworkPacketsByDirection(ctx context.Context, teamID int64, startMs, endMs int64) ([]NetworkDirectionRow, error) {
+	return r.queryNetworkCounterByDirection(ctx, "network.QueryNetworkPacketsByDirection", infraconsts.MetricSystemNetworkPackets, teamID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) QueryNetworkErrorsByDirection(ctx context.Context, teamID int64, startMs, endMs int64) ([]NetworkDirectionRow, error) {
+	return r.queryNetworkCounterByDirection(ctx, "network.QueryNetworkErrorsByDirection", infraconsts.MetricSystemNetworkErrors, teamID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) QueryNetworkDroppedTotal(ctx context.Context, teamID int64, startMs, endMs int64) ([]NetworkValueRow, error) {
 	const query = `
 		WITH active_fps AS (
 		    SELECT fingerprint
@@ -72,12 +87,12 @@ func (r *ClickHouseRepository) QueryNetworkCounterTotal(ctx context.Context, tea
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
 		ORDER BY timestamp`
-	args := withMetricName(metricArgs(teamID, startMs, endMs), metricName)
+	args := withMetricName(metricArgs(teamID, startMs, endMs), infraconsts.MetricSystemNetworkDropped)
 	var rows []NetworkValueRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "network.QueryNetworkCounterTotal", &rows, query, args...)
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "network.QueryNetworkDroppedTotal", &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) QueryNetworkGaugeByState(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]NetworkStateRow, error) {
+func (r *ClickHouseRepository) QueryNetworkConnectionsByState(ctx context.Context, teamID int64, startMs, endMs int64) ([]NetworkStateRow, error) {
 	const query = `
 		WITH active_fps AS (
 		    SELECT fingerprint
@@ -98,9 +113,9 @@ func (r *ClickHouseRepository) QueryNetworkGaugeByState(ctx context.Context, tea
 		  AND timestamp BETWEEN @start AND @end
 		  AND attributes.'system.network.state'::String != ''
 		ORDER BY timestamp`
-	args := withMetricName(metricArgs(teamID, startMs, endMs), metricName)
+	args := withMetricName(metricArgs(teamID, startMs, endMs), infraconsts.MetricSystemNetworkConnections)
 	var rows []NetworkStateRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "network.QueryNetworkGaugeByState", &rows, query, args...)
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "network.QueryNetworkConnectionsByState", &rows, query, args...)
 }
 
 // QueryNetworkUtilizationByService returns one row per service with that

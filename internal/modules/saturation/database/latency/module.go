@@ -20,7 +20,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}
-	shared.RegisterDualGroup(v1, "/latency", func(g *gin.RouterGroup) {
+	shared.RegisterGroup(v1, "/latency", func(g *gin.RouterGroup) {
 		g.GET("/by-system", h.GetLatencyBySystem)
 		g.GET("/by-operation", h.GetLatencyByOperation)
 		g.GET("/by-collection", h.GetLatencyByCollection)

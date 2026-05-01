@@ -33,7 +33,7 @@ CREATE TABLE IF NOT EXISTS observability.metrics_1m (
     attributes           JSON(max_dynamic_paths=100) CODEC(ZSTD(1))
 ) ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMMDD(timestamp)
-ORDER BY (team_id, ts_bucket, metric_name, fingerprint, attr_hash, timestamp)
+ORDER BY (team_id, ts_bucket, fingerprint, metric_name, attr_hash, timestamp)
 TTL timestamp + INTERVAL 90 DAY DELETE
 SETTINGS
     index_granularity = 8192,

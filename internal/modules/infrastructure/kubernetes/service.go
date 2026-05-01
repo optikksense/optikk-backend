@@ -19,7 +19,7 @@ func NewService(repo Repository) *Service {
 }
 
 func (s *Service) GetContainerCPU(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]ContainerBucket, error) {
-	rows, err := s.repo.QueryContainerCounter(ctx, teamID, startMs, endMs, MetricContainerCPUTime, node)
+	rows, err := s.repo.QueryContainerCPUTime(ctx, teamID, startMs, endMs, node)
 	if err != nil {
 		return nil, err
 	}
@@ -27,7 +27,7 @@ func (s *Service) GetContainerCPU(ctx context.Context, teamID int64, startMs, en
 }
 
 func (s *Service) GetCPUThrottling(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]ContainerBucket, error) {
-	rows, err := s.repo.QueryContainerCounter(ctx, teamID, startMs, endMs, MetricContainerCPUThrottledTime, node)
+	rows, err := s.repo.QueryContainerCPUThrottledTime(ctx, teamID, startMs, endMs, node)
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +35,7 @@ func (s *Service) GetCPUThrottling(ctx context.Context, teamID int64, startMs, e
 }
 
 func (s *Service) GetContainerMemory(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]ContainerBucket, error) {
-	rows, err := s.repo.QueryContainerGauge(ctx, teamID, startMs, endMs, MetricContainerMemoryUsage, node)
+	rows, err := s.repo.QueryContainerMemoryUsage(ctx, teamID, startMs, endMs, node)
 	if err != nil {
 		return nil, err
 	}
@@ -43,7 +43,7 @@ func (s *Service) GetContainerMemory(ctx context.Context, teamID int64, startMs,
 }
 
 func (s *Service) GetOOMKills(ctx context.Context, teamID int64, startMs, endMs int64, node string) ([]ContainerBucket, error) {
-	rows, err := s.repo.QueryContainerCounter(ctx, teamID, startMs, endMs, MetricContainerOOMKillCount, node)
+	rows, err := s.repo.QueryContainerOOMKills(ctx, teamID, startMs, endMs, node)
 	if err != nil {
 		return nil, err
 	}

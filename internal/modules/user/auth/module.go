@@ -23,7 +23,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 		authGroup.POST("/login", h.Login)
 		authGroup.POST("/logout", h.Logout)
 		authGroup.GET("/me", h.AuthMe)
-		authGroup.GET("/context", h.AuthContext)
 		authGroup.GET("/validate", h.ValidateToken)
 		authGroup.POST("/forgot-password", h.ForgotPassword)
 	}

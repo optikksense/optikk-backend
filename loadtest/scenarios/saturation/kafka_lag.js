@@ -1,8 +1,7 @@
 // Kafka consumer lag + rebalance signals.
 // Endpoints (all GET, query: startTime+endTime):
-//   /api/v1/saturation/kafka/{consumer-lag-by-group,lag-by-group,
-//          lag-per-partition,assigned-partitions,rebalance-signals,
-//          e2e-latency}
+//   /api/v1/saturation/kafka/{consumer-lag-by-group,lag-per-partition,
+//          rebalance-signals,e2e-latency}
 
 import { buildClient } from '../../lib/client.js';
 import { adaptiveWindow } from '../../lib/timewindows.js';
@@ -10,8 +9,8 @@ import { cfg } from '../../lib/config.js';
 
 const MOD = 'saturation';
 const PATHS = [
-  'consumer-lag-by-group', 'lag-by-group', 'lag-per-partition',
-  'assigned-partitions', 'rebalance-signals', 'e2e-latency',
+  'consumer-lag-by-group', 'lag-per-partition',
+  'rebalance-signals', 'e2e-latency',
 ];
 
 export function saturationKafkaLag(ctx) {

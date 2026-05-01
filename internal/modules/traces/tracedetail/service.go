@@ -13,7 +13,6 @@ type Service interface {
 	GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]SpanEvent, error)
 	GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*SpanAttributes, error)
 	GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
-	GetTraceLogs(ctx context.Context, teamID int64, traceID string) (*TraceLogsResponse, error)
 	GetSpanLogs(ctx context.Context, teamID int64, traceID, spanID string) (*TraceLogsResponse, error)
 }
 
@@ -129,41 +128,6 @@ func (s *TraceDetailService) GetSpanAttributes(ctx context.Context, teamID int64
 
 func (s *TraceDetailService) GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
 	return s.repo.GetRelatedTraces(ctx, teamID, serviceName, operationName, startMs, endMs, excludeTraceID, limit)
-}
-
-func (s *TraceDetailService) GetTraceLogs(ctx context.Context, teamID int64, traceID string) (*TraceLogsResponse, error) {
-	rows, err := s.repo.GetTraceLogs(ctx, teamID, traceID)
-	if err != nil {
-		slog.ErrorContext(ctx, "tracedetail: GetTraceLogs failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
-		return nil, err
-	}
-	logs := make([]TraceLog, len(rows))
-	for i, row := range rows {
-		logs[i] = TraceLog{
-			Timestamp:         uint64(row.Timestamp.UnixNano()),
-			ObservedTimestamp: row.ObservedTimestamp,
-			SeverityText:      row.SeverityText,
-			SeverityNumber:    row.SeverityNumber,
-			Body:              row.Body,
-			TraceID:           row.TraceID,
-			SpanID:            row.SpanID,
-			TraceFlags:        row.TraceFlags,
-			ServiceName:       row.ServiceName,
-			Host:              row.Host,
-			Pod:               row.Pod,
-			Container:         row.Container,
-			Environment:       row.Environment,
-			AttributesString:  row.AttributesString,
-			AttributesNumber:  row.AttributesNumber,
-			AttributesBool:    row.AttributesBool,
-			ScopeName:         row.ScopeName,
-			ScopeVersion:      row.ScopeVersion,
-		}
-	}
-	return &TraceLogsResponse{
-		Logs:          logs,
-		IsSpeculative: false,
-	}, nil
 }
 
 // splitEventRows folds the combined per-span result into separate event-row

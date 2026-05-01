@@ -95,22 +95,6 @@ func (h *REDMetricsHandler) GetRequestRateTimeSeries(c *gin.Context) {
 	modulecommon.RespondOK(c, resp)
 }
 
-func (h *REDMetricsHandler) GetErrorRateTimeSeries(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
-	resp, err := modulecommon.WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
-		return h.Service.GetErrorRateTimeSeries(c.Request.Context(), teamID, s, e)
-	})
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query error rate time series", err)
-		return
-	}
-	modulecommon.RespondOK(c, resp)
-}
-
 func (h *REDMetricsHandler) GetP95LatencyTimeSeries(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)

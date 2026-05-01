@@ -20,7 +20,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}
-	shared.RegisterDualGroup(v1, "/slow-queries", func(g *gin.RouterGroup) {
+	shared.RegisterGroup(v1, "/slow-queries", func(g *gin.RouterGroup) {
 		g.GET("/patterns", h.GetSlowQueryPatterns)
 		g.GET("/collections", h.GetSlowestCollections)
 		g.GET("/rate", h.GetSlowQueryRate)

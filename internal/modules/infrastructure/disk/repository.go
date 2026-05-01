@@ -16,8 +16,9 @@ import (
 // service.go composes panels.
 
 type Repository interface {
-	QueryDiskCounterByDirection(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]DiskDirectionRow, error)
-	QueryDiskCounterTotal(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]DiskValueRow, error)
+	QueryDiskIOByDirection(ctx context.Context, teamID int64, startMs, endMs int64) ([]DiskDirectionRow, error)
+	QueryDiskOperationsByDirection(ctx context.Context, teamID int64, startMs, endMs int64) ([]DiskDirectionRow, error)
+	QueryDiskIOTimeTotal(ctx context.Context, teamID int64, startMs, endMs int64) ([]DiskValueRow, error)
 	QueryFilesystemUsageByMountpoint(ctx context.Context, teamID int64, startMs, endMs int64) ([]DiskMountpointRow, error)
 	QueryFilesystemUtilizationTotal(ctx context.Context, teamID int64, startMs, endMs int64) ([]DiskValueRow, error)
 	QueryDiskUtilizationAgg(ctx context.Context, teamID int64, startMs, endMs int64) ([]DiskMetricNameRow, error)
@@ -33,8 +34,7 @@ func NewRepository(db clickhouse.Conn) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) QueryDiskCounterByDirection(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]DiskDirectionRow, error) {
-	const query = `
+const diskCounterByDirectionQuery = `
 		WITH active_fps AS (
 		    SELECT fingerprint
 		    FROM observability.metrics_resource
@@ -54,12 +54,22 @@ func (r *ClickHouseRepository) QueryDiskCounterByDirection(ctx context.Context, 
 		  AND timestamp BETWEEN @start AND @end
 		  AND attributes.'system.disk.direction'::String != ''
 		ORDER BY timestamp`
+
+func (r *ClickHouseRepository) queryDiskCounterByDirection(ctx context.Context, op, metricName string, teamID int64, startMs, endMs int64) ([]DiskDirectionRow, error) {
 	args := withMetricName(metricArgs(teamID, startMs, endMs), metricName)
 	var rows []DiskDirectionRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "disk.QueryDiskCounterByDirection", &rows, query, args...)
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, op, &rows, diskCounterByDirectionQuery, args...)
 }
 
-func (r *ClickHouseRepository) QueryDiskCounterTotal(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]DiskValueRow, error) {
+func (r *ClickHouseRepository) QueryDiskIOByDirection(ctx context.Context, teamID int64, startMs, endMs int64) ([]DiskDirectionRow, error) {
+	return r.queryDiskCounterByDirection(ctx, "disk.QueryDiskIOByDirection", infraconsts.MetricSystemDiskIO, teamID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) QueryDiskOperationsByDirection(ctx context.Context, teamID int64, startMs, endMs int64) ([]DiskDirectionRow, error) {
+	return r.queryDiskCounterByDirection(ctx, "disk.QueryDiskOperationsByDirection", infraconsts.MetricSystemDiskOperations, teamID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) QueryDiskIOTimeTotal(ctx context.Context, teamID int64, startMs, endMs int64) ([]DiskValueRow, error) {
 	const query = `
 		WITH active_fps AS (
 		    SELECT fingerprint
@@ -78,9 +88,9 @@ func (r *ClickHouseRepository) QueryDiskCounterTotal(ctx context.Context, teamID
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
 		ORDER BY timestamp`
-	args := withMetricName(metricArgs(teamID, startMs, endMs), metricName)
+	args := withMetricName(metricArgs(teamID, startMs, endMs), infraconsts.MetricSystemDiskIOTime)
 	var rows []DiskValueRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "disk.QueryDiskCounterTotal", &rows, query, args...)
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "disk.QueryDiskIOTimeTotal", &rows, query, args...)
 }
 
 func (r *ClickHouseRepository) QueryFilesystemUsageByMountpoint(ctx context.Context, teamID int64, startMs, endMs int64) ([]DiskMountpointRow, error) {

@@ -36,23 +36,23 @@ func (s *KafkaService) GetKafkaSummaryStats(ctx context.Context, teamID int64, s
 	}
 	stats := KafkaSummaryStats{}
 
-	publishCount, err := s.repo.QueryCounterAgg(ctx, teamID, startMs, endMs, ProducerMetrics)
+	publishCount, err := s.repo.QueryPublishMessageCount(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return stats, err
 	}
-	receiveCount, err := s.repo.QueryCounterAgg(ctx, teamID, startMs, endMs, ConsumerMetrics)
+	receiveCount, err := s.repo.QueryReceiveMessageCount(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return stats, err
 	}
-	maxLag, err := s.repo.QueryGaugeMax(ctx, teamID, startMs, endMs, ConsumerLagMetrics)
+	maxLag, err := s.repo.QueryMaxConsumerLag(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return stats, err
 	}
-	publishHist, err := s.repo.QueryHistogramAgg(ctx, teamID, startMs, endMs, MetricPublishDuration)
+	publishHist, err := s.repo.QueryPublishDurationHistogram(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return stats, err
 	}
-	receiveHist, err := s.repo.QueryHistogramAgg(ctx, teamID, startMs, endMs, MetricReceiveDuration)
+	receiveHist, err := s.repo.QueryReceiveDurationHistogram(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return stats, err
 	}
@@ -68,7 +68,7 @@ func (s *KafkaService) GetKafkaSummaryStats(ctx context.Context, teamID int64, s
 // Rate panels — counter sum per (bucket, dim) divided by bucket-grain seconds.
 
 func (s *KafkaService) GetProduceRateByTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopicRatePoint, error) {
-	rows, err := s.repo.QueryCounterSeriesByTopic(ctx, teamID, startMs, endMs, ProducerMetrics)
+	rows, err := s.repo.QueryPublishRateByTopic(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -85,7 +85,7 @@ func (s *KafkaService) GetProduceRateByTopic(ctx context.Context, teamID int64, 
 }
 
 func (s *KafkaService) GetConsumeRateByTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopicRatePoint, error) {
-	rows, err := s.repo.QueryCounterSeriesByTopic(ctx, teamID, startMs, endMs, ConsumerMetrics)
+	rows, err := s.repo.QueryConsumeRateByTopic(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +102,7 @@ func (s *KafkaService) GetConsumeRateByTopic(ctx context.Context, teamID int64, 
 }
 
 func (s *KafkaService) GetConsumeRateByGroup(ctx context.Context, teamID int64, startMs, endMs int64) ([]GroupRatePoint, error) {
-	rows, err := s.repo.QueryCounterSeriesByGroup(ctx, teamID, startMs, endMs, ConsumerMetrics)
+	rows, err := s.repo.QueryConsumeRateByGroup(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -119,7 +119,7 @@ func (s *KafkaService) GetConsumeRateByGroup(ctx context.Context, teamID int64, 
 }
 
 func (s *KafkaService) GetProcessRateByGroup(ctx context.Context, teamID int64, startMs, endMs int64) ([]GroupRatePoint, error) {
-	rows, err := s.repo.QueryCounterSeriesByGroup(ctx, teamID, startMs, endMs, ProcessMetrics)
+	rows, err := s.repo.QueryProcessRateByGroup(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +141,7 @@ func (s *KafkaService) GetProcessRateByGroup(ctx context.Context, teamID int64, 
 // the merged buckets via histPctMs (= quantile.FromHistogram * 1000).
 
 func (s *KafkaService) GetPublishLatencyByTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopicLatencyPoint, error) {
-	rows, err := s.repo.QueryHistogramSeriesByTopic(ctx, teamID, startMs, endMs, MetricPublishDuration, publishOperationAliases)
+	rows, err := s.repo.QueryPublishLatencyByTopic(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +159,7 @@ func (s *KafkaService) GetPublishLatencyByTopic(ctx context.Context, teamID int6
 }
 
 func (s *KafkaService) GetReceiveLatencyByTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopicLatencyPoint, error) {
-	rows, err := s.repo.QueryHistogramSeriesByTopic(ctx, teamID, startMs, endMs, MetricReceiveDuration, receiveOperationAliases)
+	rows, err := s.repo.QueryReceiveLatencyByTopic(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -177,7 +177,7 @@ func (s *KafkaService) GetReceiveLatencyByTopic(ctx context.Context, teamID int6
 }
 
 func (s *KafkaService) GetProcessLatencyByGroup(ctx context.Context, teamID int64, startMs, endMs int64) ([]GroupLatencyPoint, error) {
-	rows, err := s.repo.QueryHistogramSeriesByGroup(ctx, teamID, startMs, endMs, MetricProcessDuration, processOperationAliases)
+	rows, err := s.repo.QueryProcessLatencyByGroup(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +195,7 @@ func (s *KafkaService) GetProcessLatencyByGroup(ctx context.Context, teamID int6
 }
 
 func (s *KafkaService) GetClientOperationDuration(ctx context.Context, teamID int64, startMs, endMs int64) ([]ClientOpDurationPoint, error) {
-	rows, err := s.repo.QueryHistogramSeriesByOperation(ctx, teamID, startMs, endMs, MetricClientOperationDuration)
+	rows, err := s.repo.QueryClientOperationDurationByOp(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -217,8 +217,7 @@ func (s *KafkaService) GetClientOperationDuration(ctx context.Context, teamID in
 // for one of the 3 e2e metrics. Service collates the 3 metric_name rows into a
 // single E2ELatencyPoint per (display_bucket, topic).
 func (s *KafkaService) GetE2ELatency(ctx context.Context, teamID int64, startMs, endMs int64) ([]E2ELatencyPoint, error) {
-	rows, err := s.repo.QueryHistogramSeriesByMetricAndTopic(ctx, teamID, startMs, endMs,
-		[]string{MetricPublishDuration, MetricReceiveDuration, MetricProcessDuration})
+	rows, err := s.repo.QueryE2ELatencyByTopic(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -269,7 +268,7 @@ func (s *KafkaService) GetE2ELatency(ctx context.Context, teamID int64, startMs,
 // Lag panels.
 
 func (s *KafkaService) GetConsumerLagByGroup(ctx context.Context, teamID int64, startMs, endMs int64) ([]LagPoint, error) {
-	rows, err := s.repo.QueryGaugeSeriesByGroupTopic(ctx, teamID, startMs, endMs, ConsumerLagMetrics)
+	rows, err := s.repo.QueryConsumerLagByGroupTopic(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -314,7 +313,7 @@ func (s *KafkaService) GetConsumerLagByGroup(ctx context.Context, teamID int64, 
 }
 
 func (s *KafkaService) GetConsumerLagPerPartition(ctx context.Context, teamID int64, startMs, endMs int64) ([]PartitionLag, error) {
-	rows, err := s.repo.QueryPartitionLagSnapshot(ctx, teamID, startMs, endMs, ConsumerLagMetrics)
+	rows, err := s.repo.QueryPartitionLagSnapshot(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -334,7 +333,7 @@ func (s *KafkaService) GetConsumerLagPerPartition(ctx context.Context, teamID in
 // Rebalance signals — 1 query, 6 metrics, fold per (bucket, group).
 
 func (s *KafkaService) GetRebalanceSignals(ctx context.Context, teamID int64, startMs, endMs int64) ([]RebalancePoint, error) {
-	rows, err := s.repo.QueryRebalanceSignals(ctx, teamID, startMs, endMs, RebalanceMetrics)
+	rows, err := s.repo.QueryRebalanceSignals(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -405,7 +404,7 @@ func (s *KafkaService) GetRebalanceSignals(ctx context.Context, teamID int64, st
 // Error panels — counter sums per (bucket, dim, error_type) divided by bucket secs.
 
 func (s *KafkaService) GetPublishErrors(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorRatePoint, error) {
-	rows, err := s.repo.QueryCounterErrorsByTopic(ctx, teamID, startMs, endMs, MetricPublishMessages)
+	rows, err := s.repo.QueryPublishErrorsByTopic(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -423,7 +422,7 @@ func (s *KafkaService) GetPublishErrors(ctx context.Context, teamID int64, start
 }
 
 func (s *KafkaService) GetConsumeErrors(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorRatePoint, error) {
-	rows, err := s.repo.QueryCounterErrorsByGroup(ctx, teamID, startMs, endMs, MetricReceiveMessages)
+	rows, err := s.repo.QueryReceiveErrorsByGroup(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -441,7 +440,7 @@ func (s *KafkaService) GetConsumeErrors(ctx context.Context, teamID int64, start
 }
 
 func (s *KafkaService) GetProcessErrors(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorRatePoint, error) {
-	rows, err := s.repo.QueryCounterErrorsByGroup(ctx, teamID, startMs, endMs, MetricProcessMessages)
+	rows, err := s.repo.QueryProcessErrorsByGroup(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -459,7 +458,7 @@ func (s *KafkaService) GetProcessErrors(ctx context.Context, teamID int64, start
 }
 
 func (s *KafkaService) GetClientOpErrors(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorRatePoint, error) {
-	rows, err := s.repo.QueryHistogramCountErrorsByOperation(ctx, teamID, startMs, endMs, MetricClientOperationDuration)
+	rows, err := s.repo.QueryClientOpErrorsByOperation(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -479,7 +478,7 @@ func (s *KafkaService) GetClientOpErrors(ctx context.Context, teamID int64, star
 // Broker connections — gauge avg per (bucket, broker).
 
 func (s *KafkaService) GetBrokerConnections(ctx context.Context, teamID int64, startMs, endMs int64) ([]BrokerConnectionPoint, error) {
-	rows, err := s.repo.QueryGaugeSeriesByBroker(ctx, teamID, startMs, endMs, MetricClientConnections)
+	rows, err := s.repo.QueryBrokerConnectionsSeries(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}

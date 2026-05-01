@@ -17,15 +17,23 @@ func NewService(repo Repository) *Service {
 }
 
 func (s *Service) GetRPCDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
-	return s.histogramSummary(ctx, teamID, startMs, endMs, MetricRPCServerDuration)
+	row, err := s.repo.QueryRPCDurationHistogram(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return HistogramSummary{}, err
+	}
+	return histogramSummary(row), nil
 }
 
 func (s *Service) GetMessagingPublishDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
-	return s.histogramSummary(ctx, teamID, startMs, endMs, MetricMessagingPublishDuration)
+	row, err := s.repo.QueryMessagingPublishDurationHistogram(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return HistogramSummary{}, err
+	}
+	return histogramSummary(row), nil
 }
 
 func (s *Service) GetRPCRequestRate(ctx context.Context, teamID int64, startMs, endMs int64) ([]TimeBucket, error) {
-	rows, err := s.repo.QueryHistogramCountSeries(ctx, teamID, startMs, endMs, MetricRPCServerDuration)
+	rows, err := s.repo.QueryRPCRequestCountSeries(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -36,7 +44,7 @@ func (s *Service) GetRPCRequestRate(ctx context.Context, teamID int64, startMs, 
 }
 
 func (s *Service) GetProcessCPU(ctx context.Context, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
-	rows, err := s.repo.QueryStateSeries(ctx, teamID, startMs, endMs, MetricProcessCPUTime)
+	rows, err := s.repo.QueryProcessCPUStateSeries(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -48,8 +56,7 @@ func (s *Service) GetProcessCPU(ctx context.Context, teamID int64, startMs, endM
 }
 
 func (s *Service) GetProcessMemory(ctx context.Context, teamID int64, startMs, endMs int64) (ProcessMemory, error) {
-	rows, err := s.repo.QueryGaugeAvgByName(ctx, teamID, startMs, endMs,
-		[]string{MetricProcessMemoryUsage, MetricProcessMemoryVirtual})
+	rows, err := s.repo.QueryProcessMemoryAvg(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return ProcessMemory{}, err
 	}
@@ -66,18 +73,22 @@ func (s *Service) GetProcessMemory(ctx context.Context, teamID int64, startMs, e
 }
 
 func (s *Service) GetOpenFDs(ctx context.Context, teamID int64, startMs, endMs int64) ([]TimeBucket, error) {
-	return s.gaugeSeries(ctx, teamID, startMs, endMs, MetricProcessOpenFDs)
+	rows, err := s.repo.QueryProcessOpenFDsSeries(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return nil, err
+	}
+	return foldGaugeSeries(rows, startMs, endMs), nil
 }
 
 func (s *Service) GetUptime(ctx context.Context, teamID int64, startMs, endMs int64) ([]TimeBucket, error) {
-	return s.gaugeSeries(ctx, teamID, startMs, endMs, MetricProcessUptime)
+	rows, err := s.repo.QueryProcessUptimeSeries(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return nil, err
+	}
+	return foldGaugeSeries(rows, startMs, endMs), nil
 }
 
-func (s *Service) histogramSummary(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (HistogramSummary, error) {
-	row, err := s.repo.QueryHistogramAgg(ctx, teamID, startMs, endMs, metricName)
-	if err != nil {
-		return HistogramSummary{}, err
-	}
+func histogramSummary(row HistogramAggRow) HistogramSummary {
 	avg := 0.0
 	if row.SumHistCount > 0 {
 		avg = row.SumHistSum / float64(row.SumHistCount)
@@ -87,16 +98,12 @@ func (s *Service) histogramSummary(ctx context.Context, teamID int64, startMs, e
 		P50: quantile.FromHistogram(row.Buckets, row.Counts, 0.5),
 		P95: quantile.FromHistogram(row.Buckets, row.Counts, 0.95),
 		P99: quantile.FromHistogram(row.Buckets, row.Counts, 0.99),
-	}, nil
+	}
 }
 
-func (s *Service) gaugeSeries(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]TimeBucket, error) {
-	rows, err := s.repo.QueryMetricSeries(ctx, teamID, startMs, endMs, metricName)
-	if err != nil {
-		return nil, err
-	}
+func foldGaugeSeries(rows []MetricSeriesRow, startMs, endMs int64) []TimeBucket {
 	return displaybucket.AvgByTime(rows,
 		func(r MetricSeriesRow) time.Time { return r.Timestamp },
 		func(r MetricSeriesRow) float64 { return r.Value },
-		startMs, endMs), nil
+		startMs, endMs)
 }

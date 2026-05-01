@@ -83,6 +83,7 @@ func (s *Service) GetErrorVolume(ctx context.Context, teamID int64, startMs, end
 }
 
 // --- Latency during error windows ---
+// Reuses the ServiceErrorRate query — same shape, post-processing drops zero-error rows.
 
 func (s *Service) GetLatencyDuringErrorWindows(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
 	var (
@@ -90,9 +91,9 @@ func (s *Service) GetLatencyDuringErrorWindows(ctx context.Context, teamID int64
 		err error
 	)
 	if serviceName == "" {
-		raw, err = s.repo.LatencyErrorRowsAll(ctx, teamID, startMs, endMs)
+		raw, err = s.repo.ServiceErrorRateRowsAll(ctx, teamID, startMs, endMs)
 	} else {
-		raw, err = s.repo.LatencyErrorRowsByService(ctx, teamID, startMs, endMs, serviceName)
+		raw, err = s.repo.ServiceErrorRateRowsByService(ctx, teamID, startMs, endMs, serviceName)
 	}
 	if err != nil {
 		return nil, err

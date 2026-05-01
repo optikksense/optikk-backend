@@ -50,9 +50,14 @@ type HostAggRow struct {
 }
 
 type Repository interface {
-	QueryHistogramAgg(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (HistogramAggRow, error)
-	QueryStatusHistogramSeries(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]StatusCountRow, error)
-	QueryMetricSeries(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]MetricSeriesRow, error)
+	QueryServerRequestDurationHistogram(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramAggRow, error)
+	QueryServerRequestBodySizeHistogram(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramAggRow, error)
+	QueryServerResponseBodySizeHistogram(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramAggRow, error)
+	QueryClientRequestDurationHistogram(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramAggRow, error)
+	QueryDNSLookupDurationHistogram(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramAggRow, error)
+	QueryTLSConnectDurationHistogram(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramAggRow, error)
+	QueryServerRequestStatusSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]StatusCountRow, error)
+	QueryServerActiveRequestsSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]MetricSeriesRow, error)
 
 	QueryRouteAgg(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteAggRow, error)
 	QueryRouteErrorSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteErrorSeriesRow, error)
@@ -67,8 +72,7 @@ func NewRepository(db clickhouse.Conn) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) QueryHistogramAgg(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) (HistogramAggRow, error) {
-	const query = `
+const histogramAggQuery = `
 		WITH active_fps AS (
 		    SELECT fingerprint
 		    FROM observability.metrics_resource
@@ -87,13 +91,39 @@ func (r *ClickHouseRepository) QueryHistogramAgg(ctx context.Context, teamID int
 		     AND fingerprint   IN active_fps
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end`
+
+func (r *ClickHouseRepository) queryHistogramAgg(ctx context.Context, op, metricName string, teamID int64, startMs, endMs int64) (HistogramAggRow, error) {
 	var row HistogramAggRow
-	err := dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "httpmetrics.QueryHistogramAgg",
-		&row, query, metricArgs(teamID, startMs, endMs, metricName)...)
+	err := dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, op,
+		&row, histogramAggQuery, metricArgs(teamID, startMs, endMs, metricName)...)
 	return row, err
 }
 
-func (r *ClickHouseRepository) QueryStatusHistogramSeries(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]StatusCountRow, error) {
+func (r *ClickHouseRepository) QueryServerRequestDurationHistogram(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramAggRow, error) {
+	return r.queryHistogramAgg(ctx, "httpmetrics.QueryServerRequestDurationHistogram", MetricHTTPServerRequestDuration, teamID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) QueryServerRequestBodySizeHistogram(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramAggRow, error) {
+	return r.queryHistogramAgg(ctx, "httpmetrics.QueryServerRequestBodySizeHistogram", MetricHTTPServerRequestBodySize, teamID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) QueryServerResponseBodySizeHistogram(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramAggRow, error) {
+	return r.queryHistogramAgg(ctx, "httpmetrics.QueryServerResponseBodySizeHistogram", MetricHTTPServerResponseBodySize, teamID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) QueryClientRequestDurationHistogram(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramAggRow, error) {
+	return r.queryHistogramAgg(ctx, "httpmetrics.QueryClientRequestDurationHistogram", MetricHTTPClientRequestDuration, teamID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) QueryDNSLookupDurationHistogram(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramAggRow, error) {
+	return r.queryHistogramAgg(ctx, "httpmetrics.QueryDNSLookupDurationHistogram", MetricDNSLookupDuration, teamID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) QueryTLSConnectDurationHistogram(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramAggRow, error) {
+	return r.queryHistogramAgg(ctx, "httpmetrics.QueryTLSConnectDurationHistogram", MetricTLSConnectDuration, teamID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) QueryServerRequestStatusSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]StatusCountRow, error) {
 	const query = `
 		WITH active_fps AS (
 		    SELECT fingerprint
@@ -112,12 +142,12 @@ func (r *ClickHouseRepository) QueryStatusHistogramSeries(ctx context.Context, t
 		  AND http_status_code != 0
 		ORDER BY timestamp, status_code`
 	var rows []StatusCountRow
-	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "httpmetrics.QueryStatusHistogramSeries",
-		&rows, query, metricArgs(teamID, startMs, endMs, metricName)...)
+	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "httpmetrics.QueryServerRequestStatusSeries",
+		&rows, query, metricArgs(teamID, startMs, endMs, MetricHTTPServerRequestDuration)...)
 	return rows, err
 }
 
-func (r *ClickHouseRepository) QueryMetricSeries(ctx context.Context, teamID int64, startMs, endMs int64, metricName string) ([]MetricSeriesRow, error) {
+func (r *ClickHouseRepository) QueryServerActiveRequestsSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]MetricSeriesRow, error) {
 	const query = `
 		WITH active_fps AS (
 		    SELECT fingerprint
@@ -135,8 +165,8 @@ func (r *ClickHouseRepository) QueryMetricSeries(ctx context.Context, teamID int
 		  AND timestamp BETWEEN @start AND @end
 		ORDER BY timestamp`
 	var rows []MetricSeriesRow
-	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "httpmetrics.QueryMetricSeries",
-		&rows, query, metricArgs(teamID, startMs, endMs, metricName)...)
+	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "httpmetrics.QueryServerActiveRequestsSeries",
+		&rows, query, metricArgs(teamID, startMs, endMs, MetricHTTPServerActiveRequests)...)
 	return rows, err
 }
 

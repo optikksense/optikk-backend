@@ -50,18 +50,6 @@ func (h *TraceDetailHandler) GetSpanAttributes(c *gin.Context) {
 	modulecommon.RespondOK(c, attrs)
 }
 
-func (h *TraceDetailHandler) GetTraceLogs(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	traceID := c.Param("traceId")
-
-	resp, err := h.Service.GetTraceLogs(c.Request.Context(), teamID, traceID)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query trace logs", err)
-		return
-	}
-	modulecommon.RespondOK(c, resp)
-}
-
 func (h *TraceDetailHandler) GetSpanLogs(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")

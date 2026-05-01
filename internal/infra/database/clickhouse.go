@@ -45,25 +45,31 @@ func OpenClickHouseConn(dsn string) (clickhouse.Conn, error) {
 
 // Per-budget ClickHouse settings applied via clickhouse.Context. Lower `priority` = scheduled first when CH is saturated; Dashboard panels run ahead of Explorer scans.
 var dashboardSettings = clickhouse.Settings{
-	"max_execution_time":     3,
-	"max_rows_to_read":       20_000_000,
-	"max_memory_usage":       1 * 1024 * 1024 * 1024,
-	"max_result_rows":        10_000,
-	"result_overflow_mode":   "break",
-	"read_overflow_mode":     "break",
-	"optimize_read_in_order": 1,
-	"priority":               1,
+	"max_execution_time":              3,
+	"max_rows_to_read":                20_000_000,
+	"max_memory_usage":                1 * 1024 * 1024 * 1024,
+	"max_result_rows":                 10_000,
+	"result_overflow_mode":            "break",
+	"read_overflow_mode":              "break",
+	"optimize_read_in_order":          1,
+	"use_query_cache":                 1,
+	"query_cache_ttl":                 60,
+	"query_cache_share_between_users": 0,
+	"priority":                        1,
 }
 
 var overviewSettings = clickhouse.Settings{
-	"max_execution_time":     15,
-	"max_rows_to_read":       100_000_000,
-	"max_memory_usage":       2 * 1024 * 1024 * 1024,
-	"max_result_rows":        100_000,
-	"result_overflow_mode":   "break",
-	"read_overflow_mode":     "break",
-	"optimize_read_in_order": 1,
-	"priority":               5,
+	"max_execution_time":              15,
+	"max_rows_to_read":                100_000_000,
+	"max_memory_usage":                2 * 1024 * 1024 * 1024,
+	"max_result_rows":                 100_000,
+	"result_overflow_mode":            "break",
+	"read_overflow_mode":              "break",
+	"optimize_read_in_order":          1,
+	"use_query_cache":                 1,
+	"query_cache_ttl":                 60,
+	"query_cache_share_between_users": 0,
+	"priority":                        5,
 }
 
 var explorerSettings = clickhouse.Settings{

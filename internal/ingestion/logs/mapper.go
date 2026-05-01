@@ -1,6 +1,8 @@
 package logs
 
 import (
+	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -66,22 +68,27 @@ func buildLogRow(teamID int64, resource map[string]string, fp, scopeName, scopeV
 	sevNum := uint32(lr.GetSeverityNumber()) //nolint:gosec
 	res := fillResourceFallbacks(resource, attrStr)
 
+	traceID := zeroOut(otlp.BytesToHex(lr.GetTraceId()), zeroTraceHex)
+	body := otlp.AnyValueString(lr.GetBody())
+	logID := computeLogID(traceID, tsNs, body, fp)
+
 	return &schema.Row{
 		TeamId:              uint32(teamID), //nolint:gosec
 		TsBucket:            tsBucket,
 		TimestampNs:         int64(tsNs), //nolint:gosec
 		ObservedTimestampNs: observedNs,
-		TraceId:             zeroOut(otlp.BytesToHex(lr.GetTraceId()), zeroTraceHex),
+		TraceId:             traceID,
 		SpanId:              zeroOut(otlp.BytesToHex(lr.GetSpanId()), zeroSpanHex),
 		TraceFlags:          lr.GetFlags(),
 		SeverityText:        normalizeSeverityText(resolveSeverity(lr), sevNum),
 		SeverityNumber:      sevNum,
-		Body:                otlp.AnyValueString(lr.GetBody()),
+		Body:                body,
 		AttributesString:    attrStr,
 		AttributesNumber:    attrNum,
 		AttributesBool:      attrBool,
 		Resource:            res,
 		Fingerprint:         fp,
+		LogId:               logID,
 		ScopeName:           scopeName,
 		ScopeVersion:        scopeVersion,
 		Service:             res["service.name"],
@@ -90,6 +97,38 @@ func buildLogRow(teamID int64, resource map[string]string, fp, scopeName, scopeV
 		Container:           res["k8s.container.name"],
 		Environment:         res["deployment.environment"],
 	}
+}
+
+// computeLogID returns a stable 16-char hex hash of (trace_id, timestamp_ns,
+// body, fingerprint). FNV-64a, mirroring internal/infra/fingerprint/hash.go.
+// Used as the row's deep-link id; logdetail looks up rows by this value.
+func computeLogID(traceID string, tsNs uint64, body, fp string) string {
+	const (
+		offset64      uint64 = 14695981039346656037
+		prime64       uint64 = 1099511628211
+		separatorByte byte   = 255
+	)
+	addStr := func(h uint64, s string) uint64 {
+		for i := 0; i < len(s); i++ {
+			h ^= uint64(s[i])
+			h *= prime64
+		}
+		return h
+	}
+	addByte := func(h uint64, b byte) uint64 {
+		h ^= uint64(b)
+		h *= prime64
+		return h
+	}
+	h := offset64
+	h = addStr(h, traceID)
+	h = addByte(h, separatorByte)
+	h = addStr(h, strconv.FormatUint(tsNs, 10))
+	h = addByte(h, separatorByte)
+	h = addStr(h, body)
+	h = addByte(h, separatorByte)
+	h = addStr(h, fp)
+	return fmt.Sprintf("%016x", h)
 }
 
 func resolveSeverity(lr *logv1.LogRecord) string {

@@ -20,7 +20,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}
-	shared.RegisterDualGroup(v1, "/connections", func(g *gin.RouterGroup) {
+	shared.RegisterGroup(v1, "/connections", func(g *gin.RouterGroup) {
 		g.GET("/count", h.GetConnectionCountSeries)
 		g.GET("/utilization", h.GetConnectionUtilization)
 		g.GET("/limits", h.GetConnectionLimits)

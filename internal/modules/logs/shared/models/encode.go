@@ -1,33 +1,11 @@
 package models
 
-import (
-	"encoding/base64"
-	"fmt"
-	"strconv"
-	"strings"
-)
-
-// EncodeLogID builds the base64url(trace_id:span_id:ts_ns) deep-link id.
+// EncodeLogID returns the row's deep-link id — the stable FNV-64a hex hash of
+// (trace_id, timestamp_ns, body, fingerprint) computed by the ingestion mapper
+// (see internal/ingestion/logs/mapper.go::computeLogID) and stored as the
+// `log_id` column on observability.logs.
 func EncodeLogID(d LogRow) string {
-	raw := fmt.Sprintf("%s:%s:%d", d.TraceID, d.SpanID, d.Timestamp.UnixNano())
-	return base64.RawURLEncoding.EncodeToString([]byte(raw))
-}
-
-// ParseLogID decodes a base64url(trace_id:span_id:ts_ns) deep-link id.
-func ParseLogID(id string) (traceID, spanID string, tsNs int64, ok bool) {
-	raw, err := base64.RawURLEncoding.DecodeString(id)
-	if err != nil {
-		return "", "", 0, false
-	}
-	parts := strings.SplitN(string(raw), ":", 3)
-	if len(parts) != 3 {
-		return "", "", 0, false
-	}
-	ts, err := strconv.ParseInt(parts[2], 10, 64)
-	if err != nil {
-		return "", "", 0, false
-	}
-	return parts[0], parts[1], ts, true
+	return d.LogID
 }
 
 // MapLog converts a CH scan row into the JSON wire model.

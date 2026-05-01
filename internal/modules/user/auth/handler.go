@@ -60,10 +60,6 @@ func (h *Handler) AuthMe(c *gin.Context) {
 	modulecommon.RespondOK(c, response)
 }
 
-func (h *Handler) AuthContext(c *gin.Context) {
-	h.AuthMe(c)
-}
-
 func (h *Handler) ValidateToken(c *gin.Context) {
 	response, err := h.Service.ValidateToken(h.GetTenant(c))
 	if err != nil {

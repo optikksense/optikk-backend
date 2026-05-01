@@ -1,11 +1,10 @@
-// k6 entrypoint: overview scenarios (summary, errors, span_errors, slo,
+// k6 entrypoint: overview scenarios (errors, span_errors, slo,
 // red metrics, http metrics, apm).
 
 import { setup, teardown } from '../lib/bootstrap.js';
 import { handleSummary } from '../lib/summary.js';
 import { cfg } from '../lib/config.js';
 
-import { overviewSummary }    from '../scenarios/overview/summary.js';
 import { overviewErrors }     from '../scenarios/overview/errors.js';
 import { overviewSpanErrors } from '../scenarios/overview/span_errors.js';
 import { overviewSlo }        from '../scenarios/overview/slo.js';
@@ -25,7 +24,6 @@ function block(name) {
 
 export const options = {
   scenarios: {
-    overview_summary:      block('overviewSummary'),
     overview_errors:       block('overviewErrors'),
     overview_span_errors:  block('overviewSpanErrors'),
     overview_slo:          block('overviewSlo'),
@@ -37,6 +35,6 @@ export const options = {
 
 export { setup, teardown, handleSummary };
 export {
-  overviewSummary, overviewErrors, overviewSpanErrors, overviewSlo,
+  overviewErrors, overviewSpanErrors, overviewSlo,
   overviewRedMetrics, overviewHttpMetrics, overviewApm,
 };

@@ -21,7 +21,7 @@ func NewService(repo Repository) *Service {
 
 // GetNetworkIO returns per-direction byte totals folded into display buckets.
 func (s *Service) GetNetworkIO(ctx context.Context, teamID int64, startMs, endMs int64) ([]DirectionBucket, error) {
-	rows, err := s.repo.QueryNetworkCounterByDirection(ctx, teamID, startMs, endMs, infraconsts.MetricSystemNetworkIO)
+	rows, err := s.repo.QueryNetworkIOByDirection(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -29,7 +29,7 @@ func (s *Service) GetNetworkIO(ctx context.Context, teamID int64, startMs, endMs
 }
 
 func (s *Service) GetNetworkPackets(ctx context.Context, teamID int64, startMs, endMs int64) ([]DirectionBucket, error) {
-	rows, err := s.repo.QueryNetworkCounterByDirection(ctx, teamID, startMs, endMs, infraconsts.MetricSystemNetworkPackets)
+	rows, err := s.repo.QueryNetworkPacketsByDirection(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -40,7 +40,7 @@ func (s *Service) GetNetworkPackets(ctx context.Context, teamID int64, startMs, 
 // "state" (StateBucket) but the underlying OTel attribute is direction —
 // they are the same concept, this is a JSON-contract quirk.
 func (s *Service) GetNetworkErrors(ctx context.Context, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
-	rows, err := s.repo.QueryNetworkCounterByDirection(ctx, teamID, startMs, endMs, infraconsts.MetricSystemNetworkErrors)
+	rows, err := s.repo.QueryNetworkErrorsByDirection(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -53,7 +53,7 @@ func (s *Service) GetNetworkErrors(ctx context.Context, teamID int64, startMs, e
 }
 
 func (s *Service) GetNetworkDropped(ctx context.Context, teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
-	rows, err := s.repo.QueryNetworkCounterTotal(ctx, teamID, startMs, endMs, infraconsts.MetricSystemNetworkDropped)
+	rows, err := s.repo.QueryNetworkDroppedTotal(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +79,7 @@ func (s *Service) GetNetworkDropped(ctx context.Context, teamID int64, startMs, 
 }
 
 func (s *Service) GetNetworkConnections(ctx context.Context, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
-	rows, err := s.repo.QueryNetworkGaugeByState(ctx, teamID, startMs, endMs, infraconsts.MetricSystemNetworkConnections)
+	rows, err := s.repo.QueryNetworkConnectionsByState(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
 	}

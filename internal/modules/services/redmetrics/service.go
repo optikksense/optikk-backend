@@ -13,7 +13,6 @@ type Service interface {
 	GetTopSlowOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]SlowOperation, error)
 	GetTopErrorOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]ErrorOperation, error)
 	GetRequestRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceRatePoint, error)
-	GetErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceErrorRatePoint, error)
 	GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceLatencyPoint, error)
 	GetSpanKindBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]SpanKindPoint, error)
 	GetErrorsByRoute(ctx context.Context, teamID int64, startMs, endMs int64) ([]ErrorByRoutePoint, error)
@@ -163,30 +162,6 @@ func (s *REDMetricsService) GetRequestRateTimeSeries(ctx context.Context, teamID
 			Timestamp:   row.Timestamp,
 			ServiceName: row.ServiceName,
 			RPS:         float64(row.RequestCount) / bucketSec,
-		}
-	}
-	return result, nil
-}
-
-func (s *REDMetricsService) GetErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceErrorRatePoint, error) {
-	rows, err := s.repo.GetErrorRateTimeSeries(ctx, teamID, startMs, endMs)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]ServiceErrorRatePoint, len(rows))
-	for i, row := range rows {
-		total := int64(row.RequestCount) //nolint:gosec // domain-bounded
-		errs := int64(row.ErrorCount)    //nolint:gosec // domain-bounded
-		pct := 0.0
-		if total > 0 {
-			pct = float64(errs) * 100.0 / float64(total)
-		}
-		result[i] = ServiceErrorRatePoint{
-			Timestamp:    row.Timestamp,
-			ServiceName:  row.ServiceName,
-			RequestCount: total,
-			ErrorCount:   errs,
-			ErrorPct:     pct,
 		}
 	}
 	return result, nil

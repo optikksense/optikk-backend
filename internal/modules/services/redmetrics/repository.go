@@ -16,7 +16,6 @@ type Repository interface {
 	GetTopSlowOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]slowOperationRow, error)
 	GetTopErrorOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]errorOperationRow, error)
 	GetRequestRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]requestRateRawRow, error)
-	GetErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorRateRawRow, error)
 	GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]p95LatencyRawRow, error)
 	GetSpanKindBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]spanKindRawRow, error)
 	GetErrorsByRoute(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorByRouteRawRow, error)
@@ -216,37 +215,6 @@ func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, tea
 		ORDER BY timestamp ASC`
 	var rows []requestRateRawRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetRequestRateTimeSeries",
-		&rows, query, spanArgs(teamID, startMs, endMs)...)
-}
-
-type errorRateRawRow struct {
-	Timestamp    time.Time `ch:"timestamp"`
-	ServiceName  string    `ch:"service"`
-	RequestCount uint64    `ch:"request_count"`
-	ErrorCount   uint64    `ch:"error_count"`
-}
-
-func (r *ClickHouseRepository) GetErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorRateRawRow, error) {
-	const query = `
-		WITH active_fps AS (
-		    SELECT DISTINCT fingerprint
-		    FROM observability.spans_resource
-		    PREWHERE team_id   = @teamID
-		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		)
-		SELECT toDateTime(ts_bucket)                                                AS timestamp,
-		       service                                                              AS service,
-		       count()                                                              AS request_count,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)    AS error_count
-		FROM observability.spans
-		PREWHERE team_id     = @teamID
-		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		GROUP BY ts_bucket, service
-		ORDER BY timestamp ASC`
-	var rows []errorRateRawRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetErrorRateTimeSeries",
 		&rows, query, spanArgs(teamID, startMs, endMs)...)
 }
 

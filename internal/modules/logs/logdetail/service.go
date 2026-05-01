@@ -2,7 +2,6 @@ package logdetail
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/shared/models"
 )
@@ -13,13 +12,10 @@ type Service struct {
 
 func NewService(repo *Repository) *Service { return &Service{repo: repo} }
 
-// GetByID reads a single log by the deep-link id. Returns nil on not-found.
+// GetByID reads a single log by its deep-link id (a 16-char hex hash stored
+// directly as the row's log_id column). Returns nil on not-found.
 func (s *Service) GetByID(ctx context.Context, teamID int64, id string) (*models.Log, error) {
-	traceID, spanID, tsNs, ok := models.ParseLogID(id)
-	if !ok {
-		return nil, fmt.Errorf("logs.GetByID: malformed id %q", id)
-	}
-	row, err := s.repo.GetByID(ctx, teamID, traceID, spanID, tsNs)
+	row, err := s.repo.GetByID(ctx, teamID, id)
 	if err != nil {
 		return nil, err
 	}

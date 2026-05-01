@@ -14,12 +14,7 @@ type Config struct {
 	Enabled bool
 }
 
-func DefaultConfig() Config { return Config{Enabled: true} }
-
-func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
-	if !cfg.Enabled || h == nil {
-		return
-	}
+func RegisterRoutes(v1 *gin.RouterGroup, h *Handler) {
 	v1.POST("/logs/query", h.Query)
 }
 
@@ -42,7 +37,7 @@ func (m *logsExplorerModule) configure(db clickhouse.Conn, getTenant registry.Ge
 }
 
 func (m *logsExplorerModule) RegisterRoutes(group *gin.RouterGroup) {
-	RegisterRoutes(DefaultConfig(), group, m.handler)
+	RegisterRoutes(group, m.handler)
 }
 
 var _ modulecommon.GetTenantFunc = modulecommon.GetTenantFunc(nil)

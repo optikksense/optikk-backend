@@ -45,14 +45,6 @@ type ServiceRatePoint struct {
 	RPS         float64   `json:"rps"          ch:"rps"`
 }
 
-type ServiceErrorRatePoint struct {
-	Timestamp    time.Time `json:"timestamp"     ch:"timestamp"`
-	ServiceName  string    `json:"service_name"  ch:"service"`
-	RequestCount int64     `json:"request_count" ch:"request_count"`
-	ErrorCount   int64     `json:"error_count"   ch:"error_count"`
-	ErrorPct     float64   `json:"error_pct"     ch:"error_pct"`
-}
-
 type ServiceLatencyPoint struct {
 	Timestamp   time.Time `json:"timestamp"    ch:"timestamp"`
 	ServiceName string    `json:"service_name" ch:"service"`
