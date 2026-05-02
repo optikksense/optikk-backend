@@ -22,9 +22,7 @@ func (s *Service) GetCollectionLatency(ctx context.Context, teamID, startMs, end
 	}
 	out := make([]LatencyTimeSeries, len(rows))
 	for i, r := range rows {
-		p50 := quantile.FromHistogram(filter.LatencyBucketBoundsMs, r.Buckets, 0.50)
-		p95 := quantile.FromHistogram(filter.LatencyBucketBoundsMs, r.Buckets, 0.95)
-		p99 := quantile.FromHistogram(filter.LatencyBucketBoundsMs, r.Buckets, 0.99)
+		p50, p95, p99 := r.P50Ms, r.P95Ms, r.P99Ms
 		out[i] = LatencyTimeSeries{TimeBucket: r.TimeBucket, GroupBy: r.GroupBy, P50Ms: &p50, P95Ms: &p95, P99Ms: &p99}
 	}
 	return out, nil

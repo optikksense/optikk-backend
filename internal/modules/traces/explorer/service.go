@@ -9,9 +9,8 @@ import (
 	"golang.org/x/sync/errgroup"
 )
 
-// Service orchestrates traces explorer read paths. List + facets + trend +
-// summary are fanned out in parallel via errgroup so the response = max of
-// all branches.
+// Service orchestrates traces explorer read paths. List + facets + trend are
+// fanned out in parallel via errgroup so the response = max of all branches.
 type Service struct {
 	repo *Repository
 }
@@ -21,7 +20,6 @@ func NewService(repo *Repository) *Service { return &Service{repo: repo} }
 type queryParts struct {
 	rows    []traceIndexRowDTO
 	hasMore bool
-	summary *Summary
 	facets  *Facets
 	trend   []TrendBucket
 }
@@ -36,7 +34,6 @@ func (s *Service) Query(ctx context.Context, req QueryRequest) (QueryResponse, e
 	return QueryResponse{
 		Results:  mapTraces(parts.rows),
 		PageInfo: buildPageInfo(parts.rows, parts.hasMore, limit),
-		Summary:  parts.summary,
 		Facets:   parts.facets,
 		Trend:    parts.trend,
 	}, nil
@@ -48,9 +45,6 @@ func (s *Service) fetchQueryParts(
 	var p queryParts
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(s.listJob(gctx, f, limit, cur, &p))
-	if want["summary"] {
-		g.Go(s.summaryJob(gctx, f, &p))
-	}
 	if want["facets"] {
 		g.Go(s.facetsJob(gctx, f, &p))
 	}
@@ -70,17 +64,6 @@ func (s *Service) listJob(ctx context.Context, f filter.Filters, limit int, cur 
 			return fmt.Errorf("traces.Query.list: %w", err)
 		}
 		p.rows, p.hasMore = r, hm
-		return nil
-	}
-}
-
-func (s *Service) summaryJob(ctx context.Context, f filter.Filters, p *queryParts) func() error {
-	return func() error {
-		sm, err := s.repo.Summarize(ctx, f)
-		if err != nil {
-			return fmt.Errorf("traces.Query.summary: %w", err)
-		}
-		p.summary = &sm
 		return nil
 	}
 }

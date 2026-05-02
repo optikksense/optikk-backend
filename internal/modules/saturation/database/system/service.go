@@ -5,7 +5,6 @@ import (
 	"sort"
 
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/quantile"
 )
 
 type Service struct {
@@ -26,9 +25,7 @@ func (s *Service) GetSystemLatency(ctx context.Context, teamID, startMs, endMs i
 	}
 	out := make([]LatencyTimeSeries, len(rows))
 	for i, r := range rows {
-		p50 := quantile.FromHistogram(filter.LatencyBucketBoundsMs, r.Buckets, 0.50)
-		p95 := quantile.FromHistogram(filter.LatencyBucketBoundsMs, r.Buckets, 0.95)
-		p99 := quantile.FromHistogram(filter.LatencyBucketBoundsMs, r.Buckets, 0.99)
+		p50, p95, p99 := r.P50Ms, r.P95Ms, r.P99Ms
 		out[i] = LatencyTimeSeries{
 			TimeBucket: r.TimeBucket,
 			GroupBy:    r.GroupBy,
@@ -109,7 +106,7 @@ func foldCollections(rows []collectionLatencyRawDTO, startMs, endMs int64) []Sys
 	bucketSec := filter.BucketWidthSeconds(startMs, endMs)
 	out := make([]SystemCollectionRow, len(rows))
 	for i, r := range rows {
-		p99 := quantile.FromHistogram(filter.LatencyBucketBoundsMs, r.Buckets, 0.99)
+		p99 := r.P99Ms
 		ops := float64(r.Count) / bucketSec
 		out[i] = SystemCollectionRow{
 			CollectionName: r.CollectionName,

@@ -3,7 +3,6 @@ package topology
 import (
 	"context"
 
-	"github.com/Optikk-Org/optikk-backend/internal/shared/quantile"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -12,16 +11,6 @@ const (
 	unhealthyErrorRate = 0.05
 	degradedErrorRate  = 0.01
 )
-
-// latencyBucketBoundsMs are the upper bounds (in milliseconds) of the
-// fixed-bucket histogram emitted by the topology repo. Stays in lockstep
-// with the [countIf(...), …] array in repository.go — adding a bucket here
-// requires adding the matching countIf clause there. The final +Inf bucket
-// is represented by 1e18 so quantile.FromHistogram's linear interpolation
-// stays bounded for outlier-heavy data.
-var latencyBucketBoundsMs = []float64{
-	5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 1e18,
-}
 
 // Service orchestrates topology construction.
 type Service interface {
@@ -89,9 +78,9 @@ func buildNodes(rows []nodeAggRow) []ServiceNode {
 			RequestCount: r.RequestCount,
 			ErrorCount:   r.ErrorCount,
 			ErrorRate:    errRate,
-			P50LatencyMs: quantile.FromHistogram(latencyBucketBoundsMs, r.Buckets, 0.50),
-			P95LatencyMs: quantile.FromHistogram(latencyBucketBoundsMs, r.Buckets, 0.95),
-			P99LatencyMs: quantile.FromHistogram(latencyBucketBoundsMs, r.Buckets, 0.99),
+			P50LatencyMs: r.P50Ms,
+			P95LatencyMs: r.P95Ms,
+			P99LatencyMs: r.P99Ms,
 			Health:       classifyHealth(errRate),
 		})
 	}
@@ -111,8 +100,8 @@ func buildEdges(rows []edgeAggRow) []ServiceEdge {
 			CallCount:    r.CallCount,
 			ErrorCount:   r.ErrorCount,
 			ErrorRate:    errRate,
-			P50LatencyMs: quantile.FromHistogram(latencyBucketBoundsMs, r.Buckets, 0.50),
-			P95LatencyMs: quantile.FromHistogram(latencyBucketBoundsMs, r.Buckets, 0.95),
+			P50LatencyMs: r.P50Ms,
+			P95LatencyMs: r.P95Ms,
 		})
 	}
 	return out

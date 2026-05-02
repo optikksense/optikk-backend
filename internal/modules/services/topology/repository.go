@@ -25,9 +25,8 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-// GetNodes returns per-service RED aggregates plus a fixed-bucket latency
-// histogram. Percentiles are interpolated Go-side from bucket_counts via
-// quantile.FromHistogram — no quantile aggregate runs in CH.
+// GetNodes returns per-service RED aggregates plus p50/p95/p99 latency,
+// computed via quantileTimingMerge on spans_1m's latency_state.
 func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID, startMs, endMs int64) ([]nodeAggRow, error) {
 	const query = `
 		WITH active_fps AS (
@@ -36,24 +35,12 @@ func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID, startMs, en
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
 		SELECT service                                                                       AS service,
-		       toInt64(count())                                                              AS request_count,
-		       toInt64(countIf(has_error OR toUInt16OrZero(response_status_code) >= 400))    AS error_count,
-		       [
-		           countIf(duration_nano <  5000000),
-		           countIf(duration_nano >=  5000000 AND duration_nano <  10000000),
-		           countIf(duration_nano >= 10000000 AND duration_nano <  25000000),
-		           countIf(duration_nano >= 25000000 AND duration_nano <  50000000),
-		           countIf(duration_nano >= 50000000 AND duration_nano < 100000000),
-		           countIf(duration_nano >= 100000000 AND duration_nano < 250000000),
-		           countIf(duration_nano >= 250000000 AND duration_nano < 500000000),
-		           countIf(duration_nano >= 500000000 AND duration_nano < 1000000000),
-		           countIf(duration_nano >= 1000000000 AND duration_nano < 2500000000),
-		           countIf(duration_nano >= 2500000000 AND duration_nano < 5000000000),
-		           countIf(duration_nano >= 5000000000 AND duration_nano < 10000000000),
-		           countIf(duration_nano >= 10000000000 AND duration_nano < 30000000000),
-		           countIf(duration_nano >= 30000000000)
-		       ]                                                                             AS bucket_counts
-		FROM observability.spans
+		       toInt64(sum(request_count))                                                   AS request_count,
+		       toInt64(sum(error_count))                                                     AS error_count,
+		       quantileTimingMerge(0.5)(latency_state)                                       AS p50_ms,
+		       quantileTimingMerge(0.95)(latency_state)                                      AS p95_ms,
+		       quantileTimingMerge(0.99)(latency_state)                                      AS p99_ms
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND service != ''
@@ -64,7 +51,7 @@ func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID, startMs, en
 
 // GetEdges derives directed edges from client-kind spans: every Client span
 // where peer_service is set yields a (service → peer_service) call. Same
-// histogram-bucket emission as GetNodes; service computes percentiles.
+// quantileTimingMerge shape as GetNodes; only p50/p95 are needed for edges.
 func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID, startMs, endMs int64) ([]edgeAggRow, error) {
 	const query = `
 		WITH active_fps AS (
@@ -74,24 +61,11 @@ func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID, startMs, en
 		)
 		SELECT service                                                                       AS source,
 		       peer_service                                                                  AS target,
-		       toInt64(count())                                                              AS call_count,
-		       toInt64(countIf(has_error OR toUInt16OrZero(response_status_code) >= 400))    AS error_count,
-		       [
-		           countIf(duration_nano <  5000000),
-		           countIf(duration_nano >=  5000000 AND duration_nano <  10000000),
-		           countIf(duration_nano >= 10000000 AND duration_nano <  25000000),
-		           countIf(duration_nano >= 25000000 AND duration_nano <  50000000),
-		           countIf(duration_nano >= 50000000 AND duration_nano < 100000000),
-		           countIf(duration_nano >= 100000000 AND duration_nano < 250000000),
-		           countIf(duration_nano >= 250000000 AND duration_nano < 500000000),
-		           countIf(duration_nano >= 500000000 AND duration_nano < 1000000000),
-		           countIf(duration_nano >= 1000000000 AND duration_nano < 2500000000),
-		           countIf(duration_nano >= 2500000000 AND duration_nano < 5000000000),
-		           countIf(duration_nano >= 5000000000 AND duration_nano < 10000000000),
-		           countIf(duration_nano >= 10000000000 AND duration_nano < 30000000000),
-		           countIf(duration_nano >= 30000000000)
-		       ]                                                                             AS bucket_counts
-		FROM observability.spans
+		       toInt64(sum(request_count))                                                   AS call_count,
+		       toInt64(sum(error_count))                                                     AS error_count,
+		       quantileTimingMerge(0.5)(latency_state)                                       AS p50_ms,
+		       quantileTimingMerge(0.95)(latency_state)                                      AS p95_ms
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND kind_string  = 'Client'

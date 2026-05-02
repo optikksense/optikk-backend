@@ -30,9 +30,11 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 type latencyRawDTO struct {
-	TimeBucket string   `ch:"time_bucket"`
-	GroupBy    string   `ch:"group_by"`
-	Buckets    []uint64 `ch:"bucket_counts"`
+	TimeBucket string  `ch:"time_bucket"`
+	GroupBy    string  `ch:"group_by"`
+	P50Ms      float64 `ch:"p50_ms"`
+	P95Ms      float64 `ch:"p95_ms"`
+	P99Ms      float64 `ch:"p99_ms"`
 }
 
 type opsRawDTO struct {
@@ -42,13 +44,13 @@ type opsRawDTO struct {
 }
 
 type collectionLatencyRawDTO struct {
-	CollectionName string   `ch:"collection_name"`
-	Buckets        []uint64 `ch:"bucket_counts"`
-	Count          uint64   `ch:"op_count"`
+	CollectionName string  `ch:"collection_name"`
+	P99Ms          float64 `ch:"p99_ms"`
+	Count          uint64  `ch:"op_count"`
 }
 
 func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID, startMs, endMs int64, dbSystem string, f filter.Filters) ([]latencyRawDTO, error) {
-	filterWhere, filterArgs := filter.BuildSpanClauses(f)
+	filterWhere, filterArgs := filter.BuildSpans1mClauses(f)
 	query := `
 		WITH active_fps AS (
 		    SELECT fingerprint
@@ -56,9 +58,11 @@ func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID, sta
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
 		SELECT toString(toDateTime(ts_bucket))                       AS time_bucket,
-		       attributes.'db.operation.name'::String                AS group_by,
-		       ` + filter.LatencyBucketCountsSQL() + `               AS bucket_counts
-		FROM observability.spans
+		       db_operation_name                                     AS group_by,
+		       quantileTimingMerge(0.5)(latency_state)               AS p50_ms,
+		       quantileTimingMerge(0.95)(latency_state)              AS p95_ms,
+		       quantileTimingMerge(0.99)(latency_state)              AS p99_ms
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND db_system = @dbSystem` + filterWhere + `
@@ -72,17 +76,17 @@ func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID, sta
 }
 
 func (r *ClickHouseRepository) GetSystemOps(ctx context.Context, teamID, startMs, endMs int64, dbSystem string, f filter.Filters) ([]opsRawDTO, error) {
-	filterWhere, filterArgs := filter.BuildSpanClauses(f)
+	filterWhere, filterArgs := filter.BuildSpans1mClauses(f)
 	query := `
 		WITH active_fps AS (
 		    SELECT fingerprint
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(toDateTime(ts_bucket))            AS time_bucket,
-		       attributes.'db.operation.name'::String     AS group_by,
-		       toUInt64(count())                          AS op_count
-		FROM observability.spans
+		SELECT toString(toDateTime(ts_bucket))   AS time_bucket,
+		       db_operation_name                  AS group_by,
+		       toUInt64(sum(request_count))       AS op_count
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND db_system = @dbSystem` + filterWhere + `
@@ -102,15 +106,15 @@ func (r *ClickHouseRepository) GetSystemErrors(ctx context.Context, teamID, star
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(toDateTime(ts_bucket))                                                AS time_bucket,
-		       attributes.'db.operation.name'::String                                         AS group_by,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)              AS op_count
-		FROM observability.spans
+		SELECT toString(toDateTime(ts_bucket))   AS time_bucket,
+		       db_operation_name                  AS group_by,
+		       sum(error_count)                   AS op_count
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND db_system = @dbSystem
-		  AND (has_error OR toUInt16OrZero(response_status_code) >= 400)
 		GROUP BY time_bucket, group_by
+		HAVING op_count > 0
 		ORDER BY time_bucket, group_by`
 
 	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
@@ -138,14 +142,14 @@ func (r *ClickHouseRepository) collectionLatencyTop(ctx context.Context, teamID,
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT attributes.'db.collection.name'::String      AS collection_name,
-		       ` + filter.LatencyBucketCountsSQL() + `      AS bucket_counts,
-		       toUInt64(count())                            AS op_count
-		FROM observability.spans
+		SELECT db_collection_name                              AS collection_name,
+		       quantileTimingMerge(0.99)(latency_state)        AS p99_ms,
+		       sum(request_count)                              AS op_count
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND db_system = @dbSystem
-		  AND attributes.'db.collection.name'::String != ''
+		  AND db_collection_name != ''
 		GROUP BY collection_name
 		LIMIT 200`
 
@@ -161,13 +165,13 @@ func (r *ClickHouseRepository) GetSystemNamespaces(ctx context.Context, teamID, 
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT attributes.'db.namespace'::String  AS namespace,
-		       toInt64(count())                    AS span_count
-		FROM observability.spans
+		SELECT db_namespace                       AS namespace,
+		       toInt64(sum(request_count))        AS span_count
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND db_system = @dbSystem
-		  AND attributes.'db.namespace'::String != ''
+		  AND db_namespace != ''
 		GROUP BY namespace
 		ORDER BY span_count DESC`
 

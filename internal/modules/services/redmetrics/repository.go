@@ -39,12 +39,12 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
 		SELECT service                                                              AS service,
-		       count()                                                              AS total_count,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)    AS error_count,
-		       quantileTiming(0.5)(duration_nano / 1000000.0)                       AS p50_ms,
-		       quantileTiming(0.95)(duration_nano / 1000000.0)                      AS p95_ms,
-		       quantileTiming(0.99)(duration_nano / 1000000.0)                      AS p99_ms
-		FROM observability.spans
+		       sum(request_count)                                                   AS total_count,
+		       sum(error_count)                                                     AS error_count,
+		       quantileTimingMerge(0.5)(latency_state)                              AS p50_ms,
+		       quantileTimingMerge(0.95)(latency_state)                             AS p95_ms,
+		       quantileTimingMerge(0.99)(latency_state)                             AS p99_ms
+		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -128,29 +128,29 @@ func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID 
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		),
 		candidates AS (
-		    SELECT service, operation_name
-		    FROM observability.spans
+		    SELECT service, name AS operation_name
+		    FROM observability.spans_1m
 		    PREWHERE team_id     = @teamID
 		         AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		         AND fingerprint IN active_fps
 		    WHERE timestamp BETWEEN @start AND @end
-		    GROUP BY service, operation_name
-		    ORDER BY count() DESC
+		    GROUP BY service, name
+		    ORDER BY sum(request_count) DESC
 		    LIMIT @candidateLimit
 		)
 		SELECT service                                                              AS service,
-		       operation_name                                                       AS operation_name,
-		       count()                                                              AS span_count,
-		       quantileTiming(0.5)(duration_nano / 1000000.0)                       AS p50_ms,
-		       quantileTiming(0.95)(duration_nano / 1000000.0)                      AS p95_ms,
-		       quantileTiming(0.99)(duration_nano / 1000000.0)                      AS p99_ms
-		FROM observability.spans
+		       name                                                                 AS operation_name,
+		       sum(request_count)                                                   AS span_count,
+		       quantileTimingMerge(0.5)(latency_state)                              AS p50_ms,
+		       quantileTimingMerge(0.95)(latency_state)                             AS p95_ms,
+		       quantileTimingMerge(0.99)(latency_state)                             AS p99_ms
+		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
-		  AND (service, operation_name) IN (SELECT service, operation_name FROM candidates)
-		GROUP BY service, operation_name
+		  AND (service, name) IN (SELECT service, operation_name FROM candidates)
+		GROUP BY service, name
 		ORDER BY p95_ms DESC
 		LIMIT @limit`
 	args := append(spanArgs(teamID, startMs, endMs),
@@ -170,16 +170,16 @@ func (r *ClickHouseRepository) GetTopErrorOperations(ctx context.Context, teamID
 		    PREWHERE team_id   = @teamID
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT service                                                              AS service,
-		       operation_name                                                       AS operation_name,
-		       count()                                                              AS total_count,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)    AS error_count
-		FROM observability.spans
+		SELECT service                  AS service,
+		       name                     AS operation_name,
+		       sum(request_count)       AS total_count,
+		       sum(error_count)         AS error_count
+		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
-		GROUP BY service, operation_name
+		GROUP BY service, name
 		HAVING error_count > 0
 		ORDER BY error_count DESC
 		LIMIT @limit`
@@ -205,8 +205,8 @@ func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, tea
 		)
 		SELECT toDateTime(ts_bucket) AS timestamp,
 		       service               AS service,
-		       count()               AS request_count
-		FROM observability.spans
+		       sum(request_count)    AS request_count
+		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -234,8 +234,8 @@ func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, team
 		)
 		SELECT toDateTime(ts_bucket)                                            AS timestamp,
 		       service                                                          AS service,
-		       quantileTiming(0.95)(duration_nano / 1000000.0)                  AS p95_ms
-		FROM observability.spans
+		       quantileTimingMerge(0.95)(latency_state)                         AS p95_ms
+		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -263,8 +263,8 @@ func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID 
 		)
 		SELECT toDateTime(ts_bucket) AS timestamp,
 		       kind_string           AS kind_string,
-		       count()               AS span_count
-		FROM observability.spans
+		       sum(request_count)    AS span_count
+		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -293,16 +293,16 @@ func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int6
 		    PREWHERE team_id   = @teamID
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toDateTime(ts_bucket)                                                                          AS timestamp,
-		       if(attributes.'http.route'::String != '', attributes.'http.route'::String, operation_name)     AS http_route,
-		       count()                                                                                        AS request_count,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                              AS error_count
-		FROM observability.spans
+		SELECT toDateTime(ts_bucket)                                AS timestamp,
+		       if(http_route != '', http_route, name)               AS http_route,
+		       sum(request_count)                                   AS request_count,
+		       sum(error_count)                                     AS error_count
+		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
-		  AND http_route != ''
+		  AND (http_route != '' OR name != '')
 		GROUP BY ts_bucket, http_route
 		ORDER BY timestamp ASC, error_count DESC`
 	var rows []errorByRouteRawRow
@@ -319,9 +319,9 @@ func (r *ClickHouseRepository) GetLatencyBreakdown(ctx context.Context, teamID i
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
 		SELECT service                          AS service,
-		       sum(duration_nano / 1000000.0)   AS total_ms,
-		       count()                          AS span_count
-		FROM observability.spans
+		       sum(duration_ms_sum)             AS total_ms,
+		       sum(request_count)               AS span_count
+		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps

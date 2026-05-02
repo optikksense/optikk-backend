@@ -33,8 +33,9 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 func (r *ClickHouseRepository) SuggestScalar(ctx context.Context, teamID, startMs, endMs int64, field, prefix string, limit int) ([]suggestionRow, error) {
 	column := scalarFieldExpr(field)
 	query := `
-		SELECT ` + column + ` AS value, count() AS count
-		FROM observability.spans
+		SELECT ` + column + `        AS value,
+		       sum(request_count)    AS count
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		WHERE timestamp BETWEEN @startMs AND @endMs
 		  AND ` + column + ` != ''

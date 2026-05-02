@@ -179,10 +179,10 @@ func (r *ClickHouseRepository) QueryRouteAgg(ctx context.Context, teamID int64, 
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
 		SELECT name AS route,
-		       count()                                                          AS req_count,
-		       quantileTiming(0.95)(duration_nano / 1000000.0)                 AS p95_ms,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400) AS err_count
-		FROM observability.spans
+		       sum(request_count)                                               AS req_count,
+		       quantileTimingMerge(0.95)(latency_state)                         AS p95_ms,
+		       sum(error_count)                                                 AS err_count
+		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -204,11 +204,11 @@ func (r *ClickHouseRepository) QueryRouteErrorSeries(ctx context.Context, teamID
 		    PREWHERE team_id   = @teamID
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toDateTime(ts_bucket)                                              AS timestamp,
-		       name                                                               AS route,
-		       count()                                                            AS req_count,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)  AS err_count
-		FROM observability.spans
+		SELECT toDateTime(ts_bucket)        AS timestamp,
+		       name                         AS route,
+		       sum(request_count)           AS req_count,
+		       sum(error_count)             AS err_count
+		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -232,10 +232,10 @@ func (r *ClickHouseRepository) QueryExternalHostAgg(ctx context.Context, teamID 
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
 		SELECT peer_service AS host,
-		       count()                                                          AS req_count,
-		       quantileTiming(0.95)(duration_nano / 1000000.0)                 AS p95_ms,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400) AS err_count
-		FROM observability.spans
+		       sum(request_count)                                               AS req_count,
+		       quantileTimingMerge(0.95)(latency_state)                         AS p95_ms,
+		       sum(error_count)                                                 AS err_count
+		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps

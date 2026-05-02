@@ -8,9 +8,10 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
-// Repository runs latency-by-* panels against raw `observability.spans`.
-// Each method emits a fixed-bucket histogram (`bucket_counts Array(UInt64)`);
-// service.go interpolates p50/p95/p99 Go-side via quantile.FromHistogram.
+// Repository runs latency-by-* panels against `observability.spans_1m`.
+// Each method computes p50/p95/p99 server-side via quantileTimingMerge on
+// the rollup's latency_state; service.go is a trivial passthrough. The
+// heatmap path stays on raw spans (needs per-span band classification).
 type Repository interface {
 	GetLatencyBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyRawDTO, error)
 	GetLatencyByOperation(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyRawDTO, error)
@@ -29,9 +30,11 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 type latencyRawDTO struct {
-	TimeBucket string   `ch:"time_bucket"`
-	GroupBy    string   `ch:"group_by"`
-	Buckets    []uint64 `ch:"bucket_counts"`
+	TimeBucket string  `ch:"time_bucket"`
+	GroupBy    string  `ch:"group_by"`
+	P50Ms      float64 `ch:"p50_ms"`
+	P95Ms      float64 `ch:"p95_ms"`
+	P99Ms      float64 `ch:"p99_ms"`
 }
 
 type latencyHeatmapRawDTO struct {
@@ -61,11 +64,11 @@ func (r *ClickHouseRepository) GetLatencyByServer(ctx context.Context, teamID, s
 }
 
 func (r *ClickHouseRepository) latencySeriesByGroup(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, attr, traceLabel string) ([]latencyRawDTO, error) {
-	groupCol := filter.SpanGroupColumn(attr)
+	groupCol := filter.Spans1mGroupColumn(attr)
 	if groupCol == "" {
 		return nil, nil
 	}
-	filterWhere, filterArgs := filter.BuildSpanClauses(f)
+	filterWhere, filterArgs := filter.BuildSpans1mClauses(f)
 	query := `
 		WITH active_fps AS (
 		    SELECT fingerprint
@@ -74,8 +77,10 @@ func (r *ClickHouseRepository) latencySeriesByGroup(ctx context.Context, teamID,
 		)
 		SELECT toString(toDateTime(ts_bucket))                  AS time_bucket,
 		       ` + groupCol + `                                  AS group_by,
-		       ` + filter.LatencyBucketCountsSQL() + `           AS bucket_counts
-		FROM observability.spans
+		       quantileTimingMerge(0.5)(latency_state)           AS p50_ms,
+		       quantileTimingMerge(0.95)(latency_state)          AS p95_ms,
+		       quantileTimingMerge(0.99)(latency_state)          AS p99_ms
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND db_system != ''` + filterWhere + `

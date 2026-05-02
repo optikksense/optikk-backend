@@ -1,22 +1,24 @@
 package topology
 
-// nodeAggRow is scanned from the per-service RED aggregation query. The
-// Buckets array holds non-cumulative counts aligned with latencyBucketBoundsMs
-// (defined in service.go); percentiles are interpolated Go-side via
-// quantile.FromHistogram.
+// nodeAggRow is scanned from the per-service RED aggregation query. P50/P95/
+// P99 are computed server-side via quantileTimingMerge against spans_1m's
+// latency_state.
 type nodeAggRow struct {
-	ServiceName  string   `ch:"service"`
-	RequestCount int64    `ch:"request_count"`
-	ErrorCount   int64    `ch:"error_count"`
-	Buckets      []uint64 `ch:"bucket_counts"`
+	ServiceName  string  `ch:"service"`
+	RequestCount int64   `ch:"request_count"`
+	ErrorCount   int64   `ch:"error_count"`
+	P50Ms        float64 `ch:"p50_ms"`
+	P95Ms        float64 `ch:"p95_ms"`
+	P99Ms        float64 `ch:"p99_ms"`
 }
 
 // edgeAggRow is scanned from the per-(service → peer_service) edge
-// aggregation. Same Buckets shape as nodeAggRow.
+// aggregation. Same percentile shape as nodeAggRow; only p50/p95 used.
 type edgeAggRow struct {
-	Source     string   `ch:"source"`
-	Target     string   `ch:"target"`
-	CallCount  int64    `ch:"call_count"`
-	ErrorCount int64    `ch:"error_count"`
-	Buckets    []uint64 `ch:"bucket_counts"`
+	Source     string  `ch:"source"`
+	Target     string  `ch:"target"`
+	CallCount  int64   `ch:"call_count"`
+	ErrorCount int64   `ch:"error_count"`
+	P50Ms      float64 `ch:"p50_ms"`
+	P95Ms      float64 `ch:"p95_ms"`
 }

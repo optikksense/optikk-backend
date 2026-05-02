@@ -62,11 +62,11 @@ func (r *ClickHouseRepository) GetErrorsByResponseStatus(ctx context.Context, te
 }
 
 func (r *ClickHouseRepository) errorSeriesByGroup(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, attr, traceLabel string) ([]errorRawDTO, error) {
-	groupCol := filter.SpanGroupColumn(attr)
+	groupCol := filter.Spans1mGroupColumn(attr)
 	if groupCol == "" {
 		return nil, nil
 	}
-	filterWhere, filterArgs := filter.BuildSpanClauses(f)
+	filterWhere, filterArgs := filter.BuildSpans1mClauses(f)
 
 	query := `
 		WITH active_fps AS (
@@ -74,15 +74,15 @@ func (r *ClickHouseRepository) errorSeriesByGroup(ctx context.Context, teamID, s
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(toDateTime(ts_bucket))                                                       AS time_bucket,
-		       ` + groupCol + `                                                                     AS group_by,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                    AS err_count
-		FROM observability.spans
+		SELECT toString(toDateTime(ts_bucket))    AS time_bucket,
+		       ` + groupCol + `                   AS group_by,
+		       sum(error_count)                   AS err_count
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
-		  AND db_system != ''
-		  AND (has_error OR toUInt16OrZero(response_status_code) >= 400)` + filterWhere + `
+		  AND db_system != ''` + filterWhere + `
 		GROUP BY time_bucket, group_by
+		HAVING err_count > 0
 		ORDER BY time_bucket, group_by`
 
 	args := append(filter.SpanArgs(teamID, startMs, endMs), filterArgs...)
@@ -93,7 +93,7 @@ func (r *ClickHouseRepository) errorSeriesByGroup(ctx context.Context, teamID, s
 // GetErrorRatio returns per-bucket (err_count, total_count) pairs. Service
 // computes (err / total) * 100 → percent.
 func (r *ClickHouseRepository) GetErrorRatio(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]errorRatioRawDTO, error) {
-	filterWhere, filterArgs := filter.BuildSpanClauses(f)
+	filterWhere, filterArgs := filter.BuildSpans1mClauses(f)
 
 	query := `
 		WITH active_fps AS (
@@ -101,10 +101,10 @@ func (r *ClickHouseRepository) GetErrorRatio(ctx context.Context, teamID, startM
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(toDateTime(ts_bucket))                                            AS time_bucket,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)          AS err_count,
-		       count()                                                                    AS total_count
-		FROM observability.spans
+		SELECT toString(toDateTime(ts_bucket))   AS time_bucket,
+		       sum(error_count)                  AS err_count,
+		       sum(request_count)                AS total_count
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND db_system != ''` + filterWhere + `

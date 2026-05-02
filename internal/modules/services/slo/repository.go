@@ -78,11 +78,11 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		    PREWHERE team_id   = @teamID
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT count()                                                              AS request_count,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)    AS error_count,
-		       sum(duration_nano / 1000000.0)                                       AS duration_ms_sum,
-		       quantileTiming(0.95)(duration_nano / 1000000.0)                      AS p95_latency_ms
-		FROM observability.spans
+		SELECT sum(request_count)                                                   AS request_count,
+		       sum(error_count)                                                     AS error_count,
+		       sum(duration_ms_sum)                                                 AS duration_ms_sum,
+		       quantileTimingMerge(0.95)(latency_state)                             AS p95_latency_ms
+		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -101,11 +101,11 @@ func (r *ClickHouseRepository) GetSummaryByService(ctx context.Context, teamID i
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		         AND service   = @serviceName
 		)
-		SELECT count()                                                              AS request_count,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)    AS error_count,
-		       sum(duration_nano / 1000000.0)                                       AS duration_ms_sum,
-		       quantileTiming(0.95)(duration_nano / 1000000.0)                      AS p95_latency_ms
-		FROM observability.spans
+		SELECT sum(request_count)                                                   AS request_count,
+		       sum(error_count)                                                     AS error_count,
+		       sum(duration_ms_sum)                                                 AS duration_ms_sum,
+		       quantileTimingMerge(0.95)(latency_state)                             AS p95_latency_ms
+		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -126,10 +126,10 @@ func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, 
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
 		SELECT toDateTime(ts_bucket)                                                AS time_bucket,
-		       count()                                                              AS request_count,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)    AS error_count,
-		       sum(duration_nano / 1000000.0)                                       AS duration_ms_sum
-		FROM observability.spans
+		       sum(request_count)                                                   AS request_count,
+		       sum(error_count)                                                     AS error_count,
+		       sum(duration_ms_sum)                                                 AS duration_ms_sum
+		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -151,10 +151,10 @@ func (r *ClickHouseRepository) GetTimeSeriesByService(ctx context.Context, teamI
 		         AND service   = @serviceName
 		)
 		SELECT toDateTime(ts_bucket)                                                AS time_bucket,
-		       count()                                                              AS request_count,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)    AS error_count,
-		       sum(duration_nano / 1000000.0)                                       AS duration_ms_sum
-		FROM observability.spans
+		       sum(request_count)                                                   AS request_count,
+		       sum(error_count)                                                     AS error_count,
+		       sum(duration_ms_sum)                                                 AS duration_ms_sum
+		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -177,9 +177,9 @@ func (r *ClickHouseRepository) GetBurnDown(ctx context.Context, teamID int64, st
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
 		SELECT toDateTime(ts_bucket)                                                AS time_bucket,
-		       count()                                                              AS request_count,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)    AS error_count
-		FROM observability.spans
+		       sum(request_count)                                                   AS request_count,
+		       sum(error_count)                                                     AS error_count
+		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -201,9 +201,9 @@ func (r *ClickHouseRepository) GetBurnDownByService(ctx context.Context, teamID 
 		         AND service   = @serviceName
 		)
 		SELECT toDateTime(ts_bucket)                                                AS time_bucket,
-		       count()                                                              AS request_count,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)    AS error_count
-		FROM observability.spans
+		       sum(request_count)                                                   AS request_count,
+		       sum(error_count)                                                     AS error_count
+		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -225,9 +225,9 @@ func (r *ClickHouseRepository) ErrorRateForWindow(ctx context.Context, teamID in
 		    PREWHERE team_id   = @teamID
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT count()                                                              AS request_count,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)    AS error_count
-		FROM observability.spans
+		SELECT sum(request_count)                                                   AS request_count,
+		       sum(error_count)                                                     AS error_count
+		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -246,9 +246,9 @@ func (r *ClickHouseRepository) ErrorRateForWindowByService(ctx context.Context, 
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		         AND service   = @serviceName
 		)
-		SELECT count()                                                              AS request_count,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)    AS error_count
-		FROM observability.spans
+		SELECT sum(request_count)                                                   AS request_count,
+		       sum(error_count)                                                     AS error_count
+		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps

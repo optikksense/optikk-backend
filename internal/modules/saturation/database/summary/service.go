@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/quantile"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -55,8 +54,8 @@ func (s *Service) GetSummaryStats(ctx context.Context, teamID, startMs, endMs in
 	out := SummaryStats{ActiveConnections: conns}
 	if mainOK {
 		avg := main.AvgMs
-		p95 := quantile.FromHistogram(filter.LatencyBucketBoundsMs, main.Buckets, 0.95)
-		p99 := quantile.FromHistogram(filter.LatencyBucketBoundsMs, main.Buckets, 0.99)
+		p95 := main.P95Ms
+		p99 := main.P99Ms
 		out.AvgLatencyMs = &avg
 		out.P95LatencyMs = &p95
 		out.P99LatencyMs = &p99

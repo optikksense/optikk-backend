@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/quantile"
 )
 
 type Service struct {
@@ -73,9 +72,7 @@ func foldLatency(rows []latencyRawDTO) []LatencyTimeSeries {
 	}
 	out := make([]LatencyTimeSeries, len(rows))
 	for i, r := range rows {
-		p50 := quantile.FromHistogram(filter.LatencyBucketBoundsMs, r.Buckets, 0.50)
-		p95 := quantile.FromHistogram(filter.LatencyBucketBoundsMs, r.Buckets, 0.95)
-		p99 := quantile.FromHistogram(filter.LatencyBucketBoundsMs, r.Buckets, 0.99)
+		p50, p95, p99 := r.P50Ms, r.P95Ms, r.P99Ms
 		out[i] = LatencyTimeSeries{
 			TimeBucket: r.TimeBucket,
 			GroupBy:    r.GroupBy,

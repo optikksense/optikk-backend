@@ -26,12 +26,12 @@ func (r *Repository) Facets(ctx context.Context, f filter.Filters) (Facets, erro
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd` + resourceWhere + `
 		)
-		SELECT topK(20)(service)                            AS top_services,
-		       topK(20)(name)                               AS top_operations,
-		       topK(10)(http_method)                        AS top_http_methods,
-		       topK(15)(toString(response_status_code))     AS top_http_statuses,
-		       topK(5)(status_code_string)                  AS top_statuses
-		FROM observability.spans
+		SELECT topK(20)(service)              AS top_services,
+		       topK(20)(name)                 AS top_operations,
+		       topK(10)(http_method)          AS top_http_methods,
+		       topK(15)(response_status_code) AS top_http_statuses,
+		       topK(5)(status_code_string)    AS top_statuses
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end AND is_root = 1` + where
 

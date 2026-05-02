@@ -1,18 +1,10 @@
 package models
 
-// EncodeLogID returns the row's deep-link id — the stable FNV-64a hex hash of
-// (trace_id, timestamp_ns, body, fingerprint) computed by the ingestion mapper
-// (see internal/ingestion/logs/mapper.go::computeLogID) and stored as the
-// `log_id` column on observability.logs.
-func EncodeLogID(d LogRow) string {
-	return d.LogID
-}
-
 // MapLog converts a CH scan row into the JSON wire model.
 func MapLog(d LogRow) Log {
 	return Log{
-		ID:                EncodeLogID(d),
-		Timestamp:         uint64(d.Timestamp.UnixNano()), //nolint:gosec // G115 domain-bounded
+		ID:                d.LogID,
+		Timestamp:         uint64(d.Timestamp.UnixNano()),
 		ObservedTimestamp: d.ObservedTimestamp,
 		SeverityText:      d.SeverityText,
 		SeverityNumber:    d.SeverityNumber,

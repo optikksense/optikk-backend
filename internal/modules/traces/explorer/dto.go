@@ -17,7 +17,6 @@ type QueryRequest struct {
 // QueryResponse is the wire response for POST /api/v1/traces/query.
 type QueryResponse struct {
 	Results  []Trace       `json:"results"`
-	Summary  *Summary      `json:"summary,omitempty"`
 	Facets   *Facets       `json:"facets,omitempty"`
 	Trend    []TrendBucket `json:"trend,omitempty"`
 	PageInfo PageInfo      `json:"pageInfo"`

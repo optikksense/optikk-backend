@@ -159,6 +159,29 @@ func BuildSpanClauses(f Filters) (where string, args []any) {
 	return where, args
 }
 
+// BuildSpans1mClauses is the spans_1m analog of BuildSpanClauses. The four
+// db-attribute paths are first-class columns in spans_1m, extracted in the
+// MV from spans' typed-path attributes.
+func BuildSpans1mClauses(f Filters) (where string, args []any) {
+	if len(f.DBSystem) > 0 {
+		where += ` AND db_system IN @dbSystem`
+		args = append(args, clickhouse.Named("dbSystem", f.DBSystem))
+	}
+	if len(f.Collection) > 0 {
+		where += ` AND db_collection_name IN @dbCollection`
+		args = append(args, clickhouse.Named("dbCollection", f.Collection))
+	}
+	if len(f.Namespace) > 0 {
+		where += ` AND db_namespace IN @dbNamespace`
+		args = append(args, clickhouse.Named("dbNamespace", f.Namespace))
+	}
+	if len(f.Server) > 0 {
+		where += ` AND server_address IN @dbServer`
+		args = append(args, clickhouse.Named("dbServer", f.Server))
+	}
+	return where, args
+}
+
 func BuildMetricClauses(f Filters) (where string, args []any) {
 	if len(f.DBSystem) > 0 {
 		where += ` AND attributes.'` + AttrDBSystem + `'::String IN @dbSystem`
@@ -187,6 +210,29 @@ func SpanGroupColumn(attr string) string {
 		return "attributes.'" + AttrErrorType + "'::String"
 	case AttrDBResponseStatus:
 		return "attributes.'" + AttrDBResponseStatus + "'::String"
+	}
+	return ""
+}
+
+// Spans1mGroupColumn is the spans_1m analog of SpanGroupColumn. Returns the
+// concrete spans_1m column name extracted in spans_1m_mv from the attributes
+// JSON path, or first-class column when one already exists on spans_1m.
+func Spans1mGroupColumn(attr string) string {
+	switch attr {
+	case AttrDBSystem:
+		return "db_system"
+	case AttrDBOperationName:
+		return "db_operation_name"
+	case AttrDBCollectionName:
+		return "db_collection_name"
+	case AttrDBNamespace:
+		return "db_namespace"
+	case AttrServerAddress:
+		return "server_address"
+	case AttrErrorType:
+		return "error_type"
+	case AttrDBResponseStatus:
+		return "db_response_status"
 	}
 	return ""
 }

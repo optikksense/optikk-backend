@@ -47,7 +47,7 @@ func (s *Service) GetSlowestCollections(ctx context.Context, teamID, startMs, en
 	bucketSec := filter.BucketWidthSeconds(startMs, endMs)
 	out := make([]SlowCollectionRow, len(rows))
 	for i, r := range rows {
-		p99 := quantile.FromHistogram(filter.LatencyBucketBoundsMs, r.Buckets, 0.99)
+		p99 := r.P99Ms
 		ops := float64(r.CallCount) / bucketSec
 		var errRate *float64
 		if r.CallCount > 0 {

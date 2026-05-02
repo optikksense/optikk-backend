@@ -2,6 +2,7 @@ package trace_logs
 
 import (
 	"context"
+	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
@@ -16,13 +17,20 @@ func NewRepository(db clickhouse.Conn) *Repository { return &Repository{db: db} 
 
 // Step 1: resolve (ts_bucket bounds, fingerprint set) from trace_index.
 // Sub-millisecond — first two PK slots pinned, returns one tiny aggregate row.
+// trace_id is lowercased once Go-side in traceIDArgs; storage is canonical
+// lowercase hex (hex.EncodeToString in internal/infra/otlp/protoconv.go).
+//
+// `groupUniqArray(1024)(fingerprint)` caps the fingerprint set so very wide
+// traces don't blow the array up (and don't pass an unbounded IN-list to
+// step 2). 1024 covers >99% of real traces; pathologically wide ones will
+// scan a subset of services in step 2 — acceptable degradation.
 const boundsQuery = `
-	SELECT min(ts_bucket)              AS min_b,
-	       max(ts_bucket)              AS max_b,
-	       groupUniqArray(fingerprint) AS fps,
-	       count()                     AS n
+	SELECT min(ts_bucket)                    AS min_b,
+	       max(ts_bucket)                    AS max_b,
+	       groupUniqArray(1024)(fingerprint) AS fps,
+	       count()                           AS n
 	FROM observability.trace_index
-	PREWHERE ` + traceIDMatchPredicate + `
+	PREWHERE trace_id = @traceID
 	     AND team_id = @teamID`
 
 // Step 2: scan observability.logs within the narrowed window. PREWHERE pins
@@ -35,7 +43,7 @@ const fetchQuery = `
 	PREWHERE team_id = @teamID
 	     AND ts_bucket BETWEEN @minB AND @maxB
 	     AND fingerprint IN @fps
-	     AND ` + traceIDMatchPredicate + `
+	     AND trace_id = @traceID
 	ORDER BY timestamp ASC
 	LIMIT @limit`
 
@@ -78,18 +86,9 @@ func (r *Repository) FetchByBounds(ctx context.Context, teamID int64, traceID st
 	return rows, nil
 }
 
-// traceIDMatchPredicate normalizes trace_id across the empty / 32-zero-hex /
-// case-insensitive forms OTLP can emit. Mirrors tracedetail's predicate;
-// inlined locally per the apm-style convention (no shared helper package).
-const traceIDMatchPredicate = `(
-		lowerUTF8(trace_id) = lowerUTF8(@traceID)
-		OR (length(@traceID) = 0 AND trace_id = '00000000000000000000000000000000')
-		OR (lowerUTF8(@traceID) = '00000000000000000000000000000000' AND length(trace_id) = 0)
-	)`
-
 func traceIDArgs(teamID int64, traceID string) []any {
 	return []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // domain-bounded
-		clickhouse.Named("traceID", traceID),
+		clickhouse.Named("traceID", strings.ToLower(traceID)),
 	}
 }

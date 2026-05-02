@@ -138,10 +138,13 @@ func BuildClauses(f Filters) (resourceWhere, where string, args []any) {
 		args = append(args, clickhouse.Named("spanID", f.SpanID))
 	}
 	if f.Search != "" {
+		// hasTokenCaseInsensitive consults the idx_body_tokens tokenbf_v1
+		// skip-index defined on observability.logs (see db/clickhouse/02_logs.sql)
+		// — granule pruning beats per-row lower(body).
 		if f.SearchMode == "exact" {
 			where += ` AND positionCaseInsensitive(body, @search) > 0`
 		} else {
-			where += ` AND hasToken(lower(body), lower(@search))`
+			where += ` AND hasTokenCaseInsensitive(body, @search)`
 		}
 		args = append(args, clickhouse.Named("search", f.Search))
 	}

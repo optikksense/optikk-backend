@@ -36,13 +36,13 @@ func (r *Repository) Histogram(ctx context.Context, teamID int64, req HistogramR
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd` + resourceWhere + `
 		)
-		SELECT quantileTiming(0.5) (duration_nano / 1000000.0)                  AS p50,
-		       quantileTiming(0.9) (duration_nano / 1000000.0)                  AS p90,
-		       quantileTiming(0.95)(duration_nano / 1000000.0)                  AS p95,
-		       quantileTiming(0.99)(duration_nano / 1000000.0)                  AS p99,
-		       max(duration_nano / 1000000.0)                                   AS max,
-		       avg(duration_nano / 1000000.0)                                   AS avg
-		FROM observability.spans
+		SELECT quantileTimingMerge(0.5) (latency_state)                         AS p50,
+		       quantileTimingMerge(0.9) (latency_state)                         AS p90,
+		       quantileTimingMerge(0.95)(latency_state)                         AS p95,
+		       quantileTimingMerge(0.99)(latency_state)                         AS p99,
+		       max(duration_ms_max)                                             AS max,
+		       sum(duration_ms_sum) / nullIf(sum(request_count), 0)             AS avg
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end` + where
 	var out histogramRow

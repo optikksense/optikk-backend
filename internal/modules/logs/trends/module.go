@@ -15,7 +15,8 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}
-	v1.POST("/logs/trends", h.Trends)
+	v1.POST("/logs/summary", h.Summary)
+	v1.POST("/logs/trend", h.Trend)
 }
 
 func NewModule(db clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {

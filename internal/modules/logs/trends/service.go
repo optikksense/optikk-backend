@@ -15,7 +15,7 @@ type Service struct {
 
 func NewService(repo *Repository) *Service { return &Service{repo: repo} }
 
-// Summary is the in-process include for explorer's /logs/query.
+// Summary powers POST /api/v1/logs/summary.
 func (s *Service) Summary(ctx context.Context, f filter.Filters) (models.Summary, error) {
 	row, err := s.repo.Summary(ctx, f)
 	if err != nil {
@@ -24,27 +24,14 @@ func (s *Service) Summary(ctx context.Context, f filter.Filters) (models.Summary
 	return models.Summary{Total: row.Total, Errors: row.Errors, Warns: row.Warns}, nil
 }
 
-// Trend is the in-process include for explorer's /logs/query. Buckets are
-// returned at the native ts_bucket grain.
+// Trend powers POST /api/v1/logs/trend. Buckets are returned at display grain
+// (timebucket.DisplayGrain), grouped server-side via toStartOfInterval.
 func (s *Service) Trend(ctx context.Context, f filter.Filters) ([]models.TrendBucket, error) {
 	rows, err := s.repo.Trend(ctx, f)
 	if err != nil {
 		return nil, fmt.Errorf("logs.Trend: %w", err)
 	}
 	return mapTrend(rows), nil
-}
-
-// ComputeResponse drives the public POST /logs/trends endpoint.
-func (s *Service) ComputeResponse(ctx context.Context, f filter.Filters) (Response, error) {
-	sum, err := s.Summary(ctx, f)
-	if err != nil {
-		return Response{}, err
-	}
-	trend, err := s.Trend(ctx, f)
-	if err != nil {
-		return Response{}, err
-	}
-	return Response{Summary: sum, Trend: trend}, nil
 }
 
 // mapTrend is a 1:1 shape mapper — repo rows are already grouped per

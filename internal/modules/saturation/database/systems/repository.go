@@ -37,7 +37,7 @@ type systemSummaryRawDTO struct {
 	QueryCount    int64     `ch:"query_count"`
 	ErrorCount    int64     `ch:"error_count"`
 	AvgLatencyMs  float64   `ch:"avg_latency_ms"`
-	Buckets       []uint64  `ch:"bucket_counts"`
+	P95Ms         float64   `ch:"p95_ms"`
 	ServerAddress string    `ch:"server_address"`
 	LastSeen      time.Time `ch:"last_seen"`
 }
@@ -54,13 +54,13 @@ func (r *ClickHouseRepository) GetDetectedSystems(ctx context.Context, teamID, s
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT db_system                                                                         AS db_system,
-		       toInt64(count())                                                                  AS span_count,
-		       toInt64(countIf(has_error OR toUInt16OrZero(response_status_code) >= 400))        AS error_count,
-		       toFloat64(avg(duration_nano / 1000000.0))                                         AS avg_latency_ms,
-		       any(attributes.'server.address'::String)                                          AS server_address,
-		       max(timestamp)                                                                    AS last_seen
-		FROM observability.spans
+		SELECT db_system                                                                       AS db_system,
+		       toInt64(sum(request_count))                                                     AS span_count,
+		       toInt64(sum(error_count))                                                       AS error_count,
+		       toFloat64(sum(duration_ms_sum) / nullIf(toFloat64(sum(request_count)), 0))      AS avg_latency_ms,
+		       any(server_address)                                                             AS server_address,
+		       max(timestamp)                                                                  AS last_seen
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND db_system != ''
@@ -73,20 +73,20 @@ func (r *ClickHouseRepository) GetDetectedSystems(ctx context.Context, teamID, s
 }
 
 func (r *ClickHouseRepository) GetSystemSummariesRaw(ctx context.Context, teamID, startMs, endMs int64) ([]systemSummaryRawDTO, error) {
-	query := `
+	const query = `
 		WITH active_fps AS (
 		    SELECT fingerprint
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
 		SELECT db_system                                                                         AS db_system,
-		       toInt64(count())                                                                  AS query_count,
-		       toInt64(countIf(has_error OR toUInt16OrZero(response_status_code) >= 400))        AS error_count,
-		       toFloat64(avg(duration_nano / 1000000.0))                                         AS avg_latency_ms,
-		       ` + filter.LatencyBucketCountsSQL() + `                                           AS bucket_counts,
-		       any(attributes.'server.address'::String)                                          AS server_address,
+		       toInt64(sum(request_count))                                                       AS query_count,
+		       toInt64(sum(error_count))                                                         AS error_count,
+		       toFloat64(sum(duration_ms_sum) / nullIf(toFloat64(sum(request_count)), 0))        AS avg_latency_ms,
+		       quantileTimingMerge(0.95)(latency_state)                                          AS p95_ms,
+		       any(server_address)                                                               AS server_address,
 		       max(timestamp)                                                                    AS last_seen
-		FROM observability.spans
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND db_system != ''

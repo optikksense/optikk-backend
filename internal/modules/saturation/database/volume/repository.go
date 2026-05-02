@@ -44,11 +44,11 @@ func (r *ClickHouseRepository) GetOpsByNamespace(ctx context.Context, teamID, st
 }
 
 func (r *ClickHouseRepository) opsSeriesByGroup(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, attr, traceLabel string) ([]opsRawDTO, error) {
-	groupCol := filter.SpanGroupColumn(attr)
+	groupCol := filter.Spans1mGroupColumn(attr)
 	if groupCol == "" {
 		return nil, nil
 	}
-	filterWhere, filterArgs := filter.BuildSpanClauses(f)
+	filterWhere, filterArgs := filter.BuildSpans1mClauses(f)
 
 	query := `
 		WITH active_fps AS (
@@ -56,10 +56,10 @@ func (r *ClickHouseRepository) opsSeriesByGroup(ctx context.Context, teamID, sta
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(toDateTime(ts_bucket))   AS time_bucket,
-		       ` + groupCol + `                  AS group_by,
-		       toInt64(count())                  AS op_count
-		FROM observability.spans
+		SELECT toString(toDateTime(ts_bucket))    AS time_bucket,
+		       ` + groupCol + `                   AS group_by,
+		       toInt64(sum(request_count))        AS op_count
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND db_system != ''` + filterWhere + `
@@ -75,7 +75,7 @@ func (r *ClickHouseRepository) opsSeriesByGroup(ctx context.Context, teamID, sta
 // (SELECT/FIND/GET) vs write-style (INSERT/UPDATE/DELETE/REPLACE/UPSERT/SET/PUT/AGGREGATE).
 // One span per call; counts split via countIf.
 func (r *ClickHouseRepository) GetReadVsWrite(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]readWriteRawDTO, error) {
-	filterWhere, filterArgs := filter.BuildSpanClauses(f)
+	filterWhere, filterArgs := filter.BuildSpans1mClauses(f)
 
 	query := `
 		WITH active_fps AS (
@@ -83,10 +83,10 @@ func (r *ClickHouseRepository) GetReadVsWrite(ctx context.Context, teamID, start
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(toDateTime(ts_bucket))                                                                                          AS time_bucket,
-		       toInt64(countIf(upper(attributes.'db.operation.name'::String) IN ('SELECT','FIND','GET')))                                AS read_count,
-		       toInt64(countIf(upper(attributes.'db.operation.name'::String) IN ('INSERT','UPDATE','DELETE','REPLACE','UPSERT','SET','PUT','AGGREGATE'))) AS write_count
-		FROM observability.spans
+		SELECT toString(toDateTime(ts_bucket))                                                                                                              AS time_bucket,
+		       toInt64(sumIf(request_count, upper(db_operation_name) IN ('SELECT','FIND','GET')))                                                            AS read_count,
+		       toInt64(sumIf(request_count, upper(db_operation_name) IN ('INSERT','UPDATE','DELETE','REPLACE','UPSERT','SET','PUT','AGGREGATE')))            AS write_count
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND db_system != ''` + filterWhere + `

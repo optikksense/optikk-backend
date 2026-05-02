@@ -4,8 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/quantile"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -69,13 +67,12 @@ func (s *Service) GetSystemSummaries(ctx context.Context, teamID, startMs, endMs
 
 	out := make([]SystemSummary, len(spanRows))
 	for i, r := range spanRows {
-		p95 := quantile.FromHistogram(filter.LatencyBucketBoundsMs, r.Buckets, 0.95)
 		out[i] = SystemSummary{
 			DBSystem:          r.DBSystem,
 			QueryCount:        r.QueryCount,
 			ErrorCount:        r.ErrorCount,
 			AvgLatencyMs:      r.AvgLatencyMs,
-			P95LatencyMs:      p95,
+			P95LatencyMs:      r.P95Ms,
 			ActiveConnections: conns[r.DBSystem],
 			ServerAddress:     r.ServerAddress,
 			LastSeen:          r.LastSeen.Format(time.RFC3339),

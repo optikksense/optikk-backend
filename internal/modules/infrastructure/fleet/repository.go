@@ -42,12 +42,12 @@ func (r *ClickHouseRepository) QueryFleetPods(ctx context.Context, teamID int64,
 		    pod                                                                                  AS pod,
 		    if(host != '', host, @defaultUnknown)                                                AS host,
 		    groupUniqArray(service)                                                              AS services,
-		    count()                                                                              AS request_count,
-		    countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                    AS error_count,
-		    sum(duration_nano / 1000000.0)                                                       AS duration_ms_sum,
-		    quantileTiming(0.95)(duration_nano / 1000000.0)                                      AS p95_latency_ms,
+		    sum(request_count)                                                                   AS request_count,
+		    sum(error_count)                                                                     AS error_count,
+		    sum(duration_ms_sum)                                                                 AS duration_ms_sum,
+		    quantileTimingMerge(0.95)(latency_state)                                             AS p95_latency_ms,
 		    max(timestamp)                                                                       AS last_seen
-		FROM observability.spans
+		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps

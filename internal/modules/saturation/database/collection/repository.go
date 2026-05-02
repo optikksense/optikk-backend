@@ -29,9 +29,11 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 type latencyRawDTO struct {
-	TimeBucket string   `ch:"time_bucket"`
-	GroupBy    string   `ch:"group_by"`
-	Buckets    []uint64 `ch:"bucket_counts"`
+	TimeBucket string  `ch:"time_bucket"`
+	GroupBy    string  `ch:"group_by"`
+	P50Ms      float64 `ch:"p50_ms"`
+	P95Ms      float64 `ch:"p95_ms"`
+	P99Ms      float64 `ch:"p99_ms"`
 }
 
 type opsRawDTO struct {
@@ -54,7 +56,7 @@ type readWriteRawDTO struct {
 }
 
 func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID, startMs, endMs int64, collection string, f filter.Filters) ([]latencyRawDTO, error) {
-	filterWhere, filterArgs := filter.BuildSpanClauses(f)
+	filterWhere, filterArgs := filter.BuildSpans1mClauses(f)
 	query := `
 		WITH active_fps AS (
 		    SELECT fingerprint
@@ -62,12 +64,14 @@ func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID,
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
 		SELECT toString(toDateTime(ts_bucket))                  AS time_bucket,
-		       attributes.'db.operation.name'::String            AS group_by,
-		       ` + filter.LatencyBucketCountsSQL() + `           AS bucket_counts
-		FROM observability.spans
+		       db_operation_name                                 AS group_by,
+		       quantileTimingMerge(0.5)(latency_state)           AS p50_ms,
+		       quantileTimingMerge(0.95)(latency_state)          AS p95_ms,
+		       quantileTimingMerge(0.99)(latency_state)          AS p99_ms
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
-		  AND attributes.'db.collection.name'::String = @collection` + filterWhere + `
+		  AND db_collection_name = @collection` + filterWhere + `
 		GROUP BY time_bucket, group_by
 		ORDER BY time_bucket, group_by`
 
@@ -78,20 +82,20 @@ func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID,
 }
 
 func (r *ClickHouseRepository) GetCollectionOps(ctx context.Context, teamID, startMs, endMs int64, collection string, f filter.Filters) ([]opsRawDTO, error) {
-	filterWhere, filterArgs := filter.BuildSpanClauses(f)
+	filterWhere, filterArgs := filter.BuildSpans1mClauses(f)
 	query := `
 		WITH active_fps AS (
 		    SELECT fingerprint
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(toDateTime(ts_bucket))            AS time_bucket,
-		       attributes.'db.operation.name'::String     AS group_by,
-		       toUInt64(count())                          AS op_count
-		FROM observability.spans
+		SELECT toString(toDateTime(ts_bucket))   AS time_bucket,
+		       db_operation_name                  AS group_by,
+		       toUInt64(sum(request_count))       AS op_count
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
-		  AND attributes.'db.collection.name'::String = @collection` + filterWhere + `
+		  AND db_collection_name = @collection` + filterWhere + `
 		GROUP BY time_bucket, group_by
 		ORDER BY time_bucket, group_by`
 
@@ -102,22 +106,22 @@ func (r *ClickHouseRepository) GetCollectionOps(ctx context.Context, teamID, sta
 }
 
 func (r *ClickHouseRepository) GetCollectionErrors(ctx context.Context, teamID, startMs, endMs int64, collection string, f filter.Filters) ([]opsRawDTO, error) {
-	filterWhere, filterArgs := filter.BuildSpanClauses(f)
+	filterWhere, filterArgs := filter.BuildSpans1mClauses(f)
 	query := `
 		WITH active_fps AS (
 		    SELECT fingerprint
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(toDateTime(ts_bucket))                                                AS time_bucket,
-		       attributes.'error.type'::String                                                AS group_by,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)              AS op_count
-		FROM observability.spans
+		SELECT toString(toDateTime(ts_bucket))   AS time_bucket,
+		       error_type                         AS group_by,
+		       sum(error_count)                   AS op_count
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
-		  AND attributes.'db.collection.name'::String = @collection
-		  AND (has_error OR toUInt16OrZero(response_status_code) >= 400)` + filterWhere + `
+		  AND db_collection_name = @collection` + filterWhere + `
 		GROUP BY time_bucket, group_by
+		HAVING op_count > 0
 		ORDER BY time_bucket, group_by`
 
 	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("collection", collection))
@@ -172,13 +176,13 @@ func (r *ClickHouseRepository) GetCollectionReadVsWrite(ctx context.Context, tea
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(toDateTime(ts_bucket))                                                                                               AS time_bucket,
-		       toUInt64(countIf(upper(attributes.'db.operation.name'::String) IN ('SELECT','FIND','GET')))                                    AS read_count,
-		       toUInt64(countIf(upper(attributes.'db.operation.name'::String) IN ('INSERT','UPDATE','DELETE','REPLACE','UPSERT','SET','PUT','AGGREGATE'))) AS write_count
-		FROM observability.spans
+		SELECT toString(toDateTime(ts_bucket))                                                                                              AS time_bucket,
+		       toUInt64(sumIf(request_count, upper(db_operation_name) IN ('SELECT','FIND','GET')))                                            AS read_count,
+		       toUInt64(sumIf(request_count, upper(db_operation_name) IN ('INSERT','UPDATE','DELETE','REPLACE','UPSERT','SET','PUT','AGGREGATE'))) AS write_count
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
-		  AND attributes.'db.collection.name'::String = @collection
+		  AND db_collection_name = @collection
 		GROUP BY time_bucket
 		ORDER BY time_bucket`
 

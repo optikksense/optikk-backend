@@ -36,10 +36,10 @@ type patternRawDTO struct {
 }
 
 type slowCollRawDTO struct {
-	CollectionName string   `ch:"collection_name"`
-	Buckets        []uint64 `ch:"bucket_counts"`
-	CallCount      uint64   `ch:"call_count"`
-	ErrorCount     uint64   `ch:"error_count"`
+	CollectionName string  `ch:"collection_name"`
+	P99Ms          float64 `ch:"p99_ms"`
+	CallCount      uint64  `ch:"call_count"`
+	ErrorCount     uint64  `ch:"error_count"`
 }
 
 type slowRateRawDTO struct {
@@ -86,22 +86,22 @@ func (r *ClickHouseRepository) GetSlowQueryPatterns(ctx context.Context, teamID,
 // GetSlowestCollections returns per-collection histogram + counts; service
 // computes p99 + ops/sec + error_rate and orders by p99 desc top-50.
 func (r *ClickHouseRepository) GetSlowestCollections(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]slowCollRawDTO, error) {
-	filterWhere, filterArgs := filter.BuildSpanClauses(f)
+	filterWhere, filterArgs := filter.BuildSpans1mClauses(f)
 	query := `
 		WITH active_fps AS (
 		    SELECT fingerprint
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT attributes.'db.collection.name'::String                                            AS collection_name,
-		       ` + filter.LatencyBucketCountsSQL() + `                                            AS bucket_counts,
-		       toUInt64(count())                                                                  AS call_count,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                  AS error_count
-		FROM observability.spans
+		SELECT db_collection_name                                AS collection_name,
+		       quantileTimingMerge(0.99)(latency_state)          AS p99_ms,
+		       toUInt64(sum(request_count))                      AS call_count,
+		       sum(error_count)                                  AS error_count
+		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND db_system != ''
-		  AND attributes.'db.collection.name'::String != ''` + filterWhere + `
+		  AND db_collection_name != ''` + filterWhere + `
 		GROUP BY collection_name
 		LIMIT 200`
 
