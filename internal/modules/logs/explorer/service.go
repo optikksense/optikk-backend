@@ -17,7 +17,7 @@ func NewService(repo *Repository) *Service {
 }
 
 func (s *Service) Query(ctx context.Context, req QueryRequest) (QueryResponse, error) {
-	limit := models.PickLimit(req.Limit, 50, 500)
+	limit := req.Limit
 	cur, _ := models.DecodeCursor(req.Cursor)
 
 	rows, hasMore, err := s.repo.getLogs(ctx, req.Filters, limit, cur)

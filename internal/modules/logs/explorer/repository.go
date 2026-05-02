@@ -15,16 +15,6 @@ type Repository struct {
 
 func NewRepository(db clickhouse.Conn) *Repository { return &Repository{db: db} }
 
-// listCTEHead / listCTETail / listBareHead — list query in two shapes. With
-// resource predicate: active_fps CTE narrows fingerprints first, then the
-// main scan PREWHEREs `fingerprint IN active_fps`. Without: skip the CTE
-// (active_fps would equal "every fingerprint in window" — pure overhead);
-// granule pruning still tight via leading PK (team_id, ts_bucket).
-//
-// `timestamp BETWEEN @start AND @end` is in PREWHERE so CH uses the
-// per-granule DateTime64 min/max stat to prune within a bucket; explicit
-// PREWHERE disables CH's auto-promotion, so the move must be manual. The
-// same condition stays in WHERE as the base for filter clauses to tack onto.
 const listCTEHead = `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint

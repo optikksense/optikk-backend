@@ -138,13 +138,15 @@ func BuildClauses(f Filters) (resourceWhere, where string, args []any) {
 		args = append(args, clickhouse.Named("spanID", f.SpanID))
 	}
 	if f.Search != "" {
-		// hasTokenCaseInsensitive consults the idx_body_tokens tokenbf_v1
-		// skip-index defined on observability.logs (see db/clickhouse/02_logs.sql)
-		// — granule pruning beats per-row lower(body).
+		// Both predicates consult idx_body_text — the native inverted index
+		// added in CH 26.2 (see db/clickhouse/02_logs.sql). The index stores
+		// tokens preprocessed via lowerUTF8(str), so we lower() the query
+		// term in-SQL to match — hasTokenCaseInsensitive isn't in the
+		// text-index supported function list.
 		if f.SearchMode == "exact" {
-			where += ` AND positionCaseInsensitive(body, @search) > 0`
+			where += ` AND lower(body) LIKE concat('%', lower(@search), '%')`
 		} else {
-			where += ` AND hasTokenCaseInsensitive(body, @search)`
+			where += ` AND hasToken(body, lower(@search))`
 		}
 		args = append(args, clickhouse.Named("search", f.Search))
 	}
