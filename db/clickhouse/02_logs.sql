@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS observability.logs (
     environment          LowCardinality(String) CODEC(ZSTD(1)),
     severity_bucket      UInt8 CODEC(T64, ZSTD(1)),
     INDEX idx_log_id       log_id       TYPE bloom_filter(0.01)        GRANULARITY 4,
-    INDEX idx_body_text    body         TYPE text(tokenizer = 'splitByNonAlpha', preprocessor = 'lowerUTF8(str)') GRANULARITY 1
+    INDEX idx_body_text    body         TYPE text(tokenizer = 'splitByNonAlpha', preprocessor = lowerUTF8(body)) GRANULARITY 1
 ) ENGINE = MergeTree()
 PARTITION BY (toYYYYMMDD(timestamp), toHour(timestamp))
 ORDER BY (team_id, ts_bucket, fingerprint, timestamp)

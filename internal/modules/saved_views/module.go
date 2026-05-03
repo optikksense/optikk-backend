@@ -12,7 +12,7 @@ type module struct {
 
 func NewModule(sqlDB *registry.SQLDB, getTenant registry.GetTenantFunc) registry.Module {
 	m := &module{}
-	m.handler = NewHandler(getTenant, NewService(NewRepository(sqlDB.DB)))
+	m.handler = NewHandler(getTenant, NewService(NewRepository(sqlDB)))
 	return m
 }
 
