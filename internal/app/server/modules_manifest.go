@@ -50,6 +50,8 @@ import (
 	user_auth "github.com/Optikk-Org/optikk-backend/internal/modules/user/auth"
 	user_team "github.com/Optikk-Org/optikk-backend/internal/modules/user/team"
 	user_user "github.com/Optikk-Org/optikk-backend/internal/modules/user/user"
+
+	savedviews "github.com/Optikk-Org/optikk-backend/internal/modules/saved_views"
 )
 
 func configuredModules(
@@ -108,5 +110,7 @@ func configuredModules(
 		user_auth.NewModule(infraDeps.DB, getTenant, infraDeps.SessionManager, appConfig),
 		user_team.NewModule(infraDeps.DB, getTenant, appConfig),
 		user_user.NewModule(infraDeps.DB, getTenant, appConfig),
+
+		savedviews.NewModule(infraDeps.DB, getTenant),
 	}
 }

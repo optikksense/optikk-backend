@@ -25,11 +25,6 @@ CREATE TABLE IF NOT EXISTS observability.logs (
     environment          LowCardinality(String) CODEC(ZSTD(1)),
     severity_bucket      UInt8 CODEC(T64, ZSTD(1)),
     INDEX idx_log_id       log_id       TYPE bloom_filter(0.01)        GRANULARITY 4,
-    -- Native text (inverted) index, GA in CH 26.2. splitByNonAlpha tokenizer +
-    -- lowerUTF8 preprocessor mirror the reader-side hasToken(body, lower(...))
-    -- and ILIKE predicates emitted by internal/modules/logs/filter. Migration
-    -- 10_logs_text_index.sql swaps idx_body_tokens → idx_body_text on existing
-    -- clusters; this inline form is the new-cluster shape.
     INDEX idx_body_text    body         TYPE text(tokenizer = 'splitByNonAlpha', preprocessor = 'lowerUTF8(str)') GRANULARITY 1
 ) ENGINE = MergeTree()
 PARTITION BY (toYYYYMMDD(timestamp), toHour(timestamp))

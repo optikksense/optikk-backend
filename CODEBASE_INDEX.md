@@ -252,9 +252,10 @@ From [internal/app/server/modules_manifest.go](internal/app/server/modules_manif
 - **infrastructure**: `connpool`, `cpu`, `disk`, `jvm`, `kubernetes`, `memory`, `network`, `fleet`, `nodes` (+ `infraconsts` shared package)
 - **saturation**: `kafka/{root, explorer}`; `database/{collection, connections, errors, explorer, latency, slowqueries, summary, system, systems, volume}` (+ `database/filter` and `database/internal` packages)
 - **user**: `auth`, `team`, `user`
+- **saved_views**: stores per-user / per-team filter snapshots (FE explorer pages); MySQL-only, no CH
 - **ingestion** (background runners + gRPC registrars): spans, logs, metrics
 
-48 modules total.
+49 modules total.
 
 ## Key directories
 
