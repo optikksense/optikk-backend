@@ -15,6 +15,14 @@ covers query traffic only.
 - **(Optional) Prometheus stack** at `:19091` with the remote-write receiver
   enabled — see [Prometheus output](#prometheus-output) below.
 
+
+# Load Test Working
+docker run --rm \
+  -v $(pwd)/loadtest:/loadtest \
+  -e BASE_URL=http://host.docker.internal:19090 \
+  -e RPS=20 -e VUS=5 -e DURATION=2m \
+  grafana/k6 run /loadtest/entrypoints/all.js
+
 ## Quickstart
 
 ```bash
@@ -64,6 +72,7 @@ All flags are set with `-e KEY=VALUE`.
 | `VUS` | `50` | Pre-allocated VUs per scenario |
 | `JSON_OUT` | _unset_ | Path for `handleSummary` JSON file |
 | `LOOKBACK` | `1h` | Time-window for query payloads (`5m`/`15m`/`1h`/`6h`/`24h`/`7d`) |
+| `BYPASS_CACHE` | `1` | Sends `Cache-Control: no-cache` + `X-Optikk-Bypass-Cache: 1` so dashboard SLA is measured without response-cache help |
 | `ALLOW_REMOTE_BOOTSTRAP` | `0` | Required to bootstrap on non-local hosts |
 
 ## Output channels
@@ -85,7 +94,7 @@ All four are wired in:
 ### Prometheus output
 
 The local Prometheus stack at
-[`deploy/monitoring/stack/docker-compose.yml`](../../deploy/monitoring/stack/docker-compose.yml)
+[`monitoring/stack/docker-compose.yml`](../../monitoring/stack/docker-compose.yml)
 must accept remote-writes. Today it only scrapes — add the receiver flag
 to the `prometheus` service `command:` block:
 
@@ -99,7 +108,7 @@ command:
 ```
 
 Then restart with
-`docker compose -f deploy/monitoring/stack/docker-compose.yml up -d`.
+`docker compose -f monitoring/stack/docker-compose.yml up -d`.
 
 ## Layout
 
@@ -117,28 +126,65 @@ Module + endpoint coverage is enumerated by entrypoint:
   spans query, suggest, detail (core + extras), paths/shape, errors, latency.
 - [`entrypoints/logs.js`](../entrypoints/logs.js) — explorer, analytics, detail.
 - [`entrypoints/metrics.js`](../entrypoints/metrics.js) — explorer query + meta.
-- [`entrypoints/overview.js`](../entrypoints/overview.js) — summary, errors,
+- [`entrypoints/overview.js`](../entrypoints/overview.js) — errors,
   span errors, SLO, RED metrics, HTTP metrics, APM.
 - [`entrypoints/infrastructure.js`](../entrypoints/infrastructure.js) — nodes,
   fleet, compute (cpu/mem/jvm), I/O (disk/net/connpool), resource utilization,
   kubernetes.
 - [`entrypoints/saturation.js`](../entrypoints/saturation.js) — datastores
-  explorer + drilldown, kafka explorer + perf + lag + health.
+  explorer + drilldown (drilldown walks every database submodule), kafka
+  explorer + perf + lag + health.
 - [`entrypoints/services.js`](../entrypoints/services.js) — topology, deployments.
 - [`entrypoints/all.js`](../entrypoints/all.js) — every scenario, weighted.
 - [`entrypoints/smoke.js`](../entrypoints/smoke.js) — one endpoint per module
   in a single VU iteration.
+- [`entrypoints/granular.js`](../entrypoints/granular.js) — every submodule as
+  its own k6 scenario. Use this for per-submodule throughput/latency
+  measurement: `db_volume`, `db_errors`, `db_latency`, `db_collection`,
+  `db_system`, `db_systems`, `db_summary`, `db_slow_queries`,
+  `db_connections`, `infra_cpu`, `infra_memory`, `infra_jvm`, `infra_disk`,
+  `infra_network`, `infra_connpool`, `infra_nodes`, `infra_fleet`,
+  `infra_kubernetes`. Run a single submodule with
+  `--scenario=<name>`; total RPS scales with the number of active scenarios,
+  so dial `RPS` down for whole-file runs.
+
+### Submodule layout
+
+Per-submodule scenario files live next to their composite parent:
+
+```
+loadtest/scenarios/
+  saturation/
+    datastores_explorer.js          # composer / explorer endpoints
+    datastores_drilldown.js         # orchestrator over database/*.js
+    database/
+      volume.js          errors.js          latency.js
+      collection.js      system.js          systems.js
+      summary.js         slowqueries.js     connections.js
+    kafka_*.js                      # explorer, perf, lag, health
+  infrastructure/
+    nodes.js     fleet.js     kubernetes.js
+    compute.js   # orchestrator over cpu.js, memory.js, jvm.js
+    io.js        # orchestrator over disk.js, network.js, connpool.js
+    cpu.js       memory.js    jvm.js
+    disk.js      network.js   connpool.js
+```
+
+Each submodule file exports one named function (`dbVolume`, `infraCPU`, …)
+that does a full sweep of its routes once per call. Composites just call
+the submodule functions in order, so existing `saturation.js` /
+`infrastructure.js` / `all.js` entrypoints keep working unchanged.
 
 ## What to watch in Grafana
 
 While the load test runs, the existing dashboards in
-[`deploy/monitoring/grafana/dashboards/`](../../deploy/monitoring/grafana/dashboards/)
+[`monitoring/grafana/dashboards/`](../../monitoring/grafana/dashboards/)
 will tell you how the backend is responding:
 
 - `optikk_http_api` — per-API drill-down (request rate, p95, error rate).
 - `optikk_db` — ClickHouse/MySQL query latency, error rate, slow queries.
-- `optikk_redis` — cache hit ratio (rises during load test as scenarios
-  reuse 1-minute-bucketed time windows).
+- `optikk_redis` — useful only if you deliberately re-enable cached runs
+  with `-e BYPASS_CACHE=0`.
 
 If you've enabled the Prometheus remote-write receiver, you'll also get
 the `loadtest_*` series — query
@@ -159,5 +205,5 @@ in real time.
 - **k6 says `unknown executor: experimental-prometheus-rw`** — wrong
   flag spelling. The k6 output flag is
   `--out experimental-prometheus-rw=URL`, not `--executor=...`.
-- **High error rate on Cached endpoints early in run** — Redis cache
-  warming. Wait 30–60 s and percentiles should improve.
+- **Unexpected cache hits during a no-cache run** — confirm the test is using
+  the default `-e BYPASS_CACHE=1`, which sends both cache-bypass headers.

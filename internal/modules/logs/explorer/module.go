@@ -1,3 +1,6 @@
+// Package explorer owns POST /api/v1/logs/query — the list-only endpoint.
+// Summary / facets / trend are exposed separately at /logs/trends and
+// /logs/facets; the frontend fetches them in parallel as needed.
 package explorer
 
 import (
@@ -11,15 +14,8 @@ type Config struct {
 	Enabled bool
 }
 
-func DefaultConfig() Config { return Config{Enabled: true} }
-
-func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
-	if !cfg.Enabled || h == nil {
-		return
-	}
+func RegisterRoutes(v1 *gin.RouterGroup, h *Handler) {
 	v1.POST("/logs/query", h.Query)
-	v1.POST("/logs/analytics", h.Analytics)
-	v1.GET("/logs/:id", h.GetByID)
 }
 
 func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
@@ -32,8 +28,7 @@ type logsExplorerModule struct {
 	handler *Handler
 }
 
-func (m *logsExplorerModule) Name() string                      { return "logsExplorer" }
-func (m *logsExplorerModule) RouteTarget() registry.RouteTarget { return registry.Cached }
+func (m *logsExplorerModule) Name() string { return "logsExplorer" }
 
 func (m *logsExplorerModule) configure(db clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	repo := NewRepository(db)
@@ -42,7 +37,7 @@ func (m *logsExplorerModule) configure(db clickhouse.Conn, getTenant registry.Ge
 }
 
 func (m *logsExplorerModule) RegisterRoutes(group *gin.RouterGroup) {
-	RegisterRoutes(DefaultConfig(), group, m.handler)
+	RegisterRoutes(group, m.handler)
 }
 
 var _ modulecommon.GetTenantFunc = modulecommon.GetTenantFunc(nil)

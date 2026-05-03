@@ -143,7 +143,6 @@ This guarantees no in-flight traces are silently lost on a graceful restart.
 `observability.traces_index` is queried by:
 
 - `internal/modules/traces/explorer/repository.go` — `ListTraces`, `GetTrace`
-- `internal/modules/traces/trace_analytics/repository.go` — group-by aggregations
 - `internal/modules/traces/trace_suggest/repository.go` — DSL autocomplete
 
 All readers use `internal/modules/traces/shared/traceidmatch/` (`WhereTraceIDMatchesCH`) for consistent `trace_id` predicate normalisation.

@@ -29,8 +29,7 @@ type tracesExplorerModule struct {
 	handler *Handler
 }
 
-func (m *tracesExplorerModule) Name() string                      { return "tracesExplorer" }
-func (m *tracesExplorerModule) RouteTarget() registry.RouteTarget { return registry.Cached }
+func (m *tracesExplorerModule) Name() string { return "tracesExplorer" }
 
 func (m *tracesExplorerModule) configure(db clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	repo := NewRepository(db)

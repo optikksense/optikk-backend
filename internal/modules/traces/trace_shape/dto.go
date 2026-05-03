@@ -10,7 +10,7 @@ type flamegraphRow struct {
 	SpanID        string  `ch:"span_id"`
 	ParentSpanID  string  `ch:"parent_span_id"`
 	OperationName string  `ch:"operation_name"`
-	ServiceName   string  `ch:"service_name"`
+	ServiceName   string  `ch:"service"`
 	SpanKind      string  `ch:"span_kind"`
 	DurationMs    float64 `ch:"duration_ms"`
 	StartNs       int64   `ch:"start_ns"`

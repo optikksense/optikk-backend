@@ -1,9 +1,5 @@
 package infraconsts
 
-import (
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
-)
-
 // OpenTelemetry Semantic Conventions for Infrastructure / Resource Utilization Metrics
 // Reference: https://opentelemetry.io/docs/specs/semconv/system/
 
@@ -153,8 +149,13 @@ var (
 	}
 )
 
+// TimeBucketExpression returns the bucket column expression for infrastructure
+// rollup queries. Reads stored ts_bucket directly — no CH-side bucket math;
+// see internal/infra/timebucket. startMs/endMs are kept in the signature for
+// caller symmetry but no longer affect the grain (storage grain rules).
 func TimeBucketExpression(startMs, endMs int64) string {
-	return timebucket.Expression(startMs, endMs)
+	_, _ = startMs, endMs
+	return "toString(ts_bucket)"
 }
 
 func AttrFloat(attrName string) string {

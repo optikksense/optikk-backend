@@ -4,24 +4,31 @@ package optikk.ingest.metrics.v1;
 
 option go_package = "github.com/Optikk-Org/optikk-backend/internal/ingestion/metrics/schema;schema";
 
-// Row is the wire format on Kafka. One record == one metric data point bound
-// for observability.metrics. Field order mirrors the ClickHouse column order
-// in row.go Columns.
+// Row is the wire format on Kafka. One record == one metric data point bound for observability.metrics.
 message Row {
   uint32 team_id = 1;
-  string env = 2;
-  string metric_name = 3;
-  string metric_type = 4;           // Gauge | Sum | Histogram
-  string temporality = 5;           // Unspecified | Delta | Cumulative
-  bool   is_monotonic = 6;
-  string unit = 7;
-  string description = 8;
-  uint64 resource_fingerprint = 9;
-  int64  timestamp_ns = 10;
-  double value = 11;
-  double hist_sum = 12;
-  uint64 hist_count = 13;
-  repeated double hist_buckets = 14;
-  repeated uint64 hist_counts = 15;
+  string metric_name = 2;
+  string metric_type = 3;
+  string temporality = 4;
+  bool   is_monotonic = 5;
+  string unit = 6;
+  string description = 7;
+  string fingerprint = 8;
+  int64  timestamp_ns = 9;
+  double value = 10;
+  double hist_sum = 11;
+  uint64 hist_count = 12;
+  repeated double hist_buckets = 13;
+  repeated uint64 hist_counts  = 14;
+  map<string, string> resource = 15;
   map<string, string> attributes = 16;
+  // ts_bucket_hour_seconds is the hour-aligned bucket value from internal/infra/timebucket.MetricsHourBucket.
+  int64 ts_bucket_hour_seconds = 17;
+  // Top-level resource/attribute labels written by the mapper; tier MVs pass these through.
+  string service = 20;
+  string host = 21;
+  string environment = 22;
+  string k8s_namespace = 23;
+  string http_method = 24;
+  uint32 http_status_code = 25;
 }

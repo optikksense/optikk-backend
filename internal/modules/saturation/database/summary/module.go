@@ -20,7 +20,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}
-	shared.RegisterDualGET(v1, "/summary", h.GetSummaryStats)
+	shared.RegisterGET(v1, "/summary", h.GetSummaryStats)
 }
 
 func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
@@ -33,8 +33,7 @@ type dbSummaryModule struct {
 	handler *Handler
 }
 
-func (m *dbSummaryModule) Name() string                      { return "dbSummary" }
-func (m *dbSummaryModule) RouteTarget() registry.RouteTarget { return registry.Cached }
+func (m *dbSummaryModule) Name() string { return "dbSummary" }
 
 func (m *dbSummaryModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{

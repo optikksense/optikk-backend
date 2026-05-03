@@ -3,12 +3,10 @@ package span_query //nolint:revive,stylecheck
 import (
 	"context"
 	"fmt"
-
-	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
 )
 
 type Service interface {
-	Query(ctx context.Context, req SpansQueryRequest, teamID int64) (SpansQueryResponse, error)
+	Query(ctx context.Context, req SpansQueryRequest) (SpansQueryResponse, error)
 }
 
 type service struct {
@@ -17,21 +15,16 @@ type service struct {
 
 func NewService(repo Repository) Service { return &service{repo: repo} }
 
-func (s *service) Query(ctx context.Context, req SpansQueryRequest, teamID int64) (SpansQueryResponse, error) {
-	filters, err := querycompiler.FromStructured(req.Filters, teamID, req.StartTime, req.EndTime)
-	if err != nil {
-		return SpansQueryResponse{}, fmt.Errorf("span_query.parse: %w", err)
-	}
+func (s *service) Query(ctx context.Context, req SpansQueryRequest) (SpansQueryResponse, error) {
 	limit := pickLimit(req.Limit, 50, 500)
 	cur, _ := DecodeSpanCursor(req.Cursor)
-	rows, hasMore, warns, err := s.repo.ListSpans(ctx, filters, limit, cur)
+	rows, hasMore, err := s.repo.ListSpans(ctx, req.Filters, limit, cur)
 	if err != nil {
 		return SpansQueryResponse{}, fmt.Errorf("span_query.list: %w", err)
 	}
 	return SpansQueryResponse{
 		Results:  mapSpans(rows),
 		PageInfo: buildPageInfo(rows, hasMore, limit),
-		Warnings: warns,
 	}, nil
 }
 

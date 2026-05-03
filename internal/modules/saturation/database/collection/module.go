@@ -20,7 +20,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}
-	shared.RegisterDualGroup(v1, "/collection", func(g *gin.RouterGroup) {
+	shared.RegisterGroup(v1, "/collection", func(g *gin.RouterGroup) {
 		g.GET("/latency", h.GetCollectionLatency)
 		g.GET("/ops", h.GetCollectionOps)
 		g.GET("/errors", h.GetCollectionErrors)
@@ -39,8 +39,7 @@ type dbCollectionModule struct {
 	handler *Handler
 }
 
-func (m *dbCollectionModule) Name() string                      { return "dbCollection" }
-func (m *dbCollectionModule) RouteTarget() registry.RouteTarget { return registry.Cached }
+func (m *dbCollectionModule) Name() string { return "dbCollection" }
 
 func (m *dbCollectionModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{

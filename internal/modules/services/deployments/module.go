@@ -20,8 +20,7 @@ type deploymentsModule struct {
 	handler *Handler
 }
 
-func (m *deploymentsModule) Name() string                      { return "deployments" }
-func (m *deploymentsModule) RouteTarget() registry.RouteTarget { return registry.Cached }
+func (m *deploymentsModule) Name() string { return "deployments" }
 
 func (m *deploymentsModule) RegisterRoutes(group *gin.RouterGroup) {
 	d := group.Group("/deployments")

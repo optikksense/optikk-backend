@@ -6,21 +6,21 @@ import (
 	"strings"
 	"time"
 
-	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
 	sessionauth "github.com/Optikk-Org/optikk-backend/internal/infra/session"
+	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
 	contracts "github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
 	"golang.org/x/crypto/bcrypt"
 )
 
 type Service struct {
-	repo		Repository
-	sessions	sessionauth.Manager
+	repo     Repository
+	sessions sessionauth.Manager
 }
 
 func NewService(repo Repository, sessions sessionauth.Manager) *Service {
 	return &Service{
-		repo:		repo,
-		sessions:	sessions,
+		repo:     repo,
+		sessions: sessions,
 	}
 }
 
@@ -47,11 +47,11 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, clientIP string) 
 	}
 
 	if err := s.sessions.CreateAuthSession(ctx, sessionauth.AuthState{
-		UserID:		user.ID,
-		Email:		user.Email,
-		Role:		"member",
-		DefaultTeamID:	teamID,
-		TeamIDs:	teamIDs,
+		UserID:        user.ID,
+		Email:         user.Email,
+		Role:          "member",
+		DefaultTeamID: teamID,
+		TeamIDs:       teamIDs,
 	}); err != nil {
 		slog.WarnContext(ctx, "AUTH_EVENT session_create_failed", slog.Int64("user_id", user.ID), slog.String("email", user.Email), slog.Any("error", err))
 		return AuthContextResponse{}, usershared.NewInternalError("Failed to create session", err)
@@ -82,11 +82,11 @@ func (s *Service) AuthContext(userID int64) (AuthContextResponse, error) {
 	}
 
 	authUser := usershared.AuthUser{
-		ID:		user.ID,
-		Email:		user.Email,
-		Name:		user.Name,
-		AvatarURL:	user.AvatarURL,
-		TeamsJSON:	user.TeamsJSON,
+		ID:        user.ID,
+		Email:     user.Email,
+		Name:      user.Name,
+		AvatarURL: user.AvatarURL,
+		TeamsJSON: user.TeamsJSON,
 	}
 	response, _, _, err := s.buildAuthContextResponse(authUser)
 	if err != nil {
@@ -100,10 +100,10 @@ func (s *Service) ValidateToken(tenant contracts.TenantContext) (ValidateTokenRe
 		return ValidateTokenResponse{}, usershared.NewUnauthorizedError("Invalid or expired session", nil)
 	}
 	return ValidateTokenResponse{
-		Valid:	true,
-		UserID:	tenant.UserID,
-		TeamID:	tenant.TeamID,
-		Role:	tenant.UserRole,
+		Valid:  true,
+		UserID: tenant.UserID,
+		TeamID: tenant.TeamID,
+		Role:   tenant.UserRole,
 	}, nil
 }
 
@@ -140,13 +140,13 @@ func (s *Service) buildAuthContextResponse(user usershared.AuthUser) (resp AuthC
 
 	return AuthContextResponse{
 		User: AuthUserSummary{
-			ID:		user.ID,
-			Email:		user.Email,
-			Name:		user.Name,
-			AvatarURL:	user.AvatarURL,
+			ID:        user.ID,
+			Email:     user.Email,
+			Name:      user.Name,
+			AvatarURL: user.AvatarURL,
 		},
-		Teams:		teams,
-		CurrentTeam:	currentTeam,
+		Teams:       teams,
+		CurrentTeam: currentTeam,
 	}, teamID, teamIDs, nil
 }
 
@@ -174,12 +174,12 @@ func (s *Service) listTeamsForUser(teamsJSON *string) ([]AuthTeamSummary, error)
 	items := make([]AuthTeamSummary, 0, len(teams))
 	for _, team := range teams {
 		items = append(items, AuthTeamSummary{
-			ID:		team.ID,
-			Name:		team.Name,
-			Slug:		team.Slug,
-			Color:		team.Color,
-			OrgName:	team.OrgName,
-			Role:		roleByTeamID[team.ID],
+			ID:      team.ID,
+			Name:    team.Name,
+			Slug:    team.Slug,
+			Color:   team.Color,
+			OrgName: team.OrgName,
+			Role:    roleByTeamID[team.ID],
 		})
 	}
 	return items, nil

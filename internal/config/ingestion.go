@@ -1,172 +1,63 @@
 package config
 
+import "fmt"
+
+// IngestionConfig owns per-signal Kafka topology (topic partitions, replicas,
+// retention) and the consumer-group identity. Topic names are derived from
+// Kafka.TopicPrefix + signal; DLQ topic from Kafka.DLQPrefix + signal. There
+// is no app-side batching to tune — the only knobs are at the Kafka client
+// level (producer linger / batch_max_bytes in KafkaConfig) and at ClickHouse
+// (async_insert applied via context decoration in the writer).
 type IngestionConfig struct {
-	SpansBucketSeconds int64         `yaml:"spans_bucket_seconds"`
-	LogsBucketSeconds  int64         `yaml:"logs_bucket_seconds"`
-	SpansIndexer       IndexerConfig `yaml:"spans_indexer"`
-
-	// Pipeline tunes the generic Kafka → Accumulator → Writer pipeline per
-	// signal. Any field left zero inherits the defaults from
-	// DefaultIngestPipelineConfig (tuned for the 200k records/s/instance
-	// target). Overrides land in config.yml under
-	// `ingestion.pipeline.{logs,spans,metrics}`.
-	Pipeline IngestPipelinesConfig `yaml:"pipeline"`
+	Spans   SignalConfig `yaml:"spans"`
+	Logs    SignalConfig `yaml:"logs"`
+	Metrics SignalConfig `yaml:"metrics"`
 }
 
-// IngestPipelinesConfig holds one IngestPipelineConfig per signal. Keeping
-// the sub-fields explicit (rather than a map) lets YAML validation catch
-// typos in signal names and lets IDEs autocomplete the struct.
-type IngestPipelinesConfig struct {
-	Logs    IngestPipelineConfig `yaml:"logs"`
-	Spans   IngestPipelineConfig `yaml:"spans"`
-	Metrics IngestPipelineConfig `yaml:"metrics"`
+// SignalConfig describes one ingest signal's topology. Zero values inherit
+// the defaults in SignalDefaults.
+type SignalConfig struct {
+	Partitions     int    `yaml:"partitions"`
+	Replicas       int    `yaml:"replicas"`
+	RetentionHours int    `yaml:"retention_hours"`
+	ConsumerGroup  string `yaml:"consumer_group"`
 }
 
-// IngestPipelineConfig tunes accumulator triggers, worker queue, backpressure
-// thresholds, writer retry schedule, and the CH async_insert setting for one
-// signal. Zero values inherit the defaults.
-type IngestPipelineConfig struct {
-	MaxRows                int     `yaml:"max_rows"`
-	MaxBytes               int     `yaml:"max_bytes"`
-	MaxAgeMs               int64   `yaml:"max_age_ms"`
-	WorkerQueueSize        int     `yaml:"worker_queue_size"`
-	PauseDepthRatio        float64 `yaml:"pause_depth_ratio"`
-	ResumeDepthRatio       float64 `yaml:"resume_depth_ratio"`
-	WriterMaxAttempts      int     `yaml:"writer_max_attempts"`
-	WriterBaseBackoffMs    int64   `yaml:"writer_base_backoff_ms"`
-	WriterMaxBackoffMs     int64   `yaml:"writer_max_backoff_ms"`
-	WriterAttemptTimeoutMs int64   `yaml:"writer_attempt_timeout_ms"`
-	// AsyncInsert toggles CH server-side batching via SETTINGS async_insert=1.
-	// Stored as a pointer so an explicit `false` in YAML can disable the
-	// default-on behavior. Nil → default (true).
-	AsyncInsert *bool `yaml:"async_insert"`
-}
-
-// IndexerConfig tunes the spans trace-assembly indexer. Defaults match
-// internal/ingestion/spans/indexer.DefaultConfig(); override in config.yml
-// for the production load profile (larger Capacity on high-volume tenants,
-// tighter QuietWindowMs for faster "trace complete" emission when the
-// collector mid-stream SDK produces spans in tight bursts).
-type IndexerConfig struct {
-	Capacity       int   `yaml:"capacity"`
-	QuietWindowMs  int64 `yaml:"quiet_window_ms"`
-	HardTimeoutMs  int64 `yaml:"hard_timeout_ms"`
-	SweepEveryMs   int64 `yaml:"sweep_every_ms"`
-}
-
-func (c Config) SpansBucketSeconds() int64 {
-	if c.Ingestion.SpansBucketSeconds <= 0 {
-		return 300 // 5 minutes
-	}
-	return c.Ingestion.SpansBucketSeconds
-}
-
-// LogsBucketSeconds returns the ts_bucket_start granularity for observability.logs.
-// Default is 1 day: log ingest volume dwarfs spans, and a coarser bucket keeps
-// the partition-prune cost manageable at scale. Lower to 300 (match spans) in
-// config when short-window dashboards dominate the read mix and log volume
-// permits the finer clustering — note this only affects rows written after the
-// change; historical rows retain their original bucket value.
-func (c Config) LogsBucketSeconds() int64 {
-	if c.Ingestion.LogsBucketSeconds <= 0 {
-		return 86400 // 1 day
-	}
-	return c.Ingestion.LogsBucketSeconds
-}
-
-// SpansIndexerConfig returns the trace-assembly indexer tuning with defaults
-// layered in (100k capacity, 10s quiet, 60s hard-timeout, 5s sweep). Callers
-// pass the result to ingestion/spans/indexer.New.
-func (c Config) SpansIndexerConfig() IndexerConfig {
-	out := c.Ingestion.SpansIndexer
-	if out.Capacity <= 0 {
-		out.Capacity = 100_000
-	}
-	if out.QuietWindowMs <= 0 {
-		out.QuietWindowMs = 10_000
-	}
-	if out.HardTimeoutMs <= 0 {
-		out.HardTimeoutMs = 60_000
-	}
-	if out.SweepEveryMs <= 0 {
-		out.SweepEveryMs = 5_000
-	}
-	return out
-}
-
-// DefaultIngestPipelineConfig returns the defaults used when a signal has no
-// explicit override. Tuned for ≥200k records/s/instance: larger batches for
-// fewer PrepareBatch round-trips, larger worker queue to absorb bursts,
-// tighter age so p99 latency stays sub-second, async_insert on so CH batches
-// across connections.
-func DefaultIngestPipelineConfig() IngestPipelineConfig {
-	t := true
-	return IngestPipelineConfig{
-		MaxRows:                10_000,
-		MaxBytes:               16 * 1024 * 1024,
-		MaxAgeMs:               250,
-		WorkerQueueSize:        4096,
-		PauseDepthRatio:        0.8,
-		ResumeDepthRatio:       0.4,
-		WriterMaxAttempts:      5,
-		WriterBaseBackoffMs:    100,
-		WriterMaxBackoffMs:     5_000,
-		WriterAttemptTimeoutMs: 30_000,
-		AsyncInsert:            &t,
+// SignalDefaults returns sensible defaults for any signal. Tuned for
+// ~150–300K rows/s/instance on a 3-broker Redpanda + single-node CH stack.
+func SignalDefaults(signal string) SignalConfig {
+	return SignalConfig{
+		Partitions:     8,
+		Replicas:       1,
+		RetentionHours: 24,
+		ConsumerGroup:  fmt.Sprintf("optikk-ingest.%s.consumer", signal),
 	}
 }
 
-// IngestPipeline returns the pipeline tuning for the named signal with
-// defaults layered in for any zero-valued field. Signal ∈ {"logs","spans","metrics"};
-// an unknown signal returns the defaults unchanged.
-func (c Config) IngestPipeline(signal string) IngestPipelineConfig {
-	var raw IngestPipelineConfig
+// IngestSignal returns merged config for the named signal: explicit YAML
+// values win, zeroes are filled from defaults.
+func (c Config) IngestSignal(signal string) SignalConfig {
+	var raw SignalConfig
 	switch signal {
-	case "logs":
-		raw = c.Ingestion.Pipeline.Logs
 	case "spans":
-		raw = c.Ingestion.Pipeline.Spans
+		raw = c.Ingestion.Spans
+	case "logs":
+		raw = c.Ingestion.Logs
 	case "metrics":
-		raw = c.Ingestion.Pipeline.Metrics
+		raw = c.Ingestion.Metrics
 	}
-	return mergeIngestPipeline(raw, DefaultIngestPipelineConfig())
-}
-
-// mergeIngestPipeline returns src with any zero-valued numeric field replaced
-// by the same field from def, and a nil AsyncInsert replaced by def's pointer.
-func mergeIngestPipeline(src, def IngestPipelineConfig) IngestPipelineConfig {
-	if src.MaxRows <= 0 {
-		src.MaxRows = def.MaxRows
+	def := SignalDefaults(signal)
+	if raw.Partitions <= 0 {
+		raw.Partitions = def.Partitions
 	}
-	if src.MaxBytes <= 0 {
-		src.MaxBytes = def.MaxBytes
+	if raw.Replicas <= 0 {
+		raw.Replicas = def.Replicas
 	}
-	if src.MaxAgeMs <= 0 {
-		src.MaxAgeMs = def.MaxAgeMs
+	if raw.RetentionHours <= 0 {
+		raw.RetentionHours = def.RetentionHours
 	}
-	if src.WorkerQueueSize <= 0 {
-		src.WorkerQueueSize = def.WorkerQueueSize
+	if raw.ConsumerGroup == "" {
+		raw.ConsumerGroup = def.ConsumerGroup
 	}
-	if src.PauseDepthRatio <= 0 {
-		src.PauseDepthRatio = def.PauseDepthRatio
-	}
-	if src.ResumeDepthRatio <= 0 {
-		src.ResumeDepthRatio = def.ResumeDepthRatio
-	}
-	if src.WriterMaxAttempts <= 0 {
-		src.WriterMaxAttempts = def.WriterMaxAttempts
-	}
-	if src.WriterBaseBackoffMs <= 0 {
-		src.WriterBaseBackoffMs = def.WriterBaseBackoffMs
-	}
-	if src.WriterMaxBackoffMs <= 0 {
-		src.WriterMaxBackoffMs = def.WriterMaxBackoffMs
-	}
-	if src.WriterAttemptTimeoutMs <= 0 {
-		src.WriterAttemptTimeoutMs = def.WriterAttemptTimeoutMs
-	}
-	if src.AsyncInsert == nil {
-		src.AsyncInsert = def.AsyncInsert
-	}
-	return src
+	return raw
 }

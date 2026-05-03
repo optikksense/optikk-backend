@@ -38,11 +38,9 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *KafkaHandler) {
 
 	// Dashboard 4: Consumer Lag
 	v1.GET("/saturation/kafka/consumer-lag-by-group", h.GetConsumerLagByGroup)
-	v1.GET("/saturation/kafka/lag-by-group", h.GetConsumerLagByGroup)
 	v1.GET("/saturation/kafka/lag-per-partition", h.GetConsumerLagPerPartition)
 
 	// Dashboard 5: Consumer Group Rebalancing
-	v1.GET("/saturation/kafka/assigned-partitions", h.GetRebalanceSignals)
 	v1.GET("/saturation/kafka/rebalance-signals", h.GetRebalanceSignals)
 
 	// Dashboard 6: End-to-End Latency
@@ -69,8 +67,7 @@ type kafkaModule struct {
 	handler *KafkaHandler
 }
 
-func (m *kafkaModule) Name() string                      { return "kafka" }
-func (m *kafkaModule) RouteTarget() registry.RouteTarget { return registry.Cached }
+func (m *kafkaModule) Name() string { return "kafka" }
 
 func (m *kafkaModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &KafkaHandler{

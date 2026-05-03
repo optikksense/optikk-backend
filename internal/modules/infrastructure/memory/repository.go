@@ -2,46 +2,34 @@ package memory
 
 import (
 	"context"
-	"fmt"
-	"math"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
-const (
-	metricsGaugesRollupPrefix = rollup.FamilyMetricsGauges
-)
+// All read paths follow the apm/httpmetrics pattern: `WITH active_fps AS
+// (... metrics_resource ...)` CTE so the main `observability.metrics` scan
+// PREWHEREs on (team_id, ts_bucket, fingerprint). Service composes the
+// 4-metric memory fold (system.memory.utilization + system.memory.usage +
+// jvm.memory.used + jvm.memory.max).
 
-func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
-	hours := (endMs - startMs) / 3_600_000
-	var dashStep int64
-	switch {
-	case hours <= 3:
-		dashStep = 1
-	case hours <= 24:
-		dashStep = 5
-	case hours <= 168:
-		dashStep = 60
-	default:
-		dashStep = 1440
-	}
-	if tierStepMin > dashStep {
-		return tierStepMin
-	}
-	return dashStep
+var memMetricNames = []string{
+	infraconsts.MetricSystemMemoryUtilization,
+	infraconsts.MetricSystemMemoryUsage,
+	infraconsts.MetricJVMMemoryUsed,
+	infraconsts.MetricJVMMemoryMax,
 }
 
 type Repository interface {
-	GetMemoryUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error)
-	GetMemoryUsagePercentage(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error)
-	GetSwapUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error)
-	GetAvgMemory(ctx context.Context, teamID int64, startMs, endMs int64) (metricValueDTO, error)
-	GetMemoryByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error)
-	GetMemoryByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error)
+	QueryMemoryUsageByState(ctx context.Context, teamID int64, startMs, endMs int64) ([]MemoryStateRow, error)
+	QuerySwapUsageByState(ctx context.Context, teamID int64, startMs, endMs int64) ([]MemoryStateRow, error)
+	QueryMemoryUsageByPod(ctx context.Context, teamID int64, startMs, endMs int64) ([]MemoryPodMetricRow, error)
+	QueryMemoryUtilizationAgg(ctx context.Context, teamID int64, startMs, endMs int64) ([]MemoryMetricNameRow, error)
+	QueryMemoryUtilizationForService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]MemoryMetricNameRow, error)
+	QueryMemoryUtilizationForInstance(ctx context.Context, teamID int64, startMs, endMs int64, host, pod, serviceName string) ([]MemoryMetricNameRow, error)
 }
 
 type ClickHouseRepository struct {
@@ -52,351 +40,193 @@ func NewRepository(db clickhouse.Conn) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-func calculateAverage(values []float64) *float64 {
-	var sum float64
-	count := 0
-	for _, v := range values {
-		if !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 {
-			sum += v
-			count++
-		}
-	}
-	if count == 0 {
-		return nil
-	}
-	avg := sum / float64(count)
-	return &avg
-}
-
-var memMetricNames = []string{
-	infraconsts.MetricSystemMemoryUtilization,
-	infraconsts.MetricSystemMemoryUsage,
-	infraconsts.MetricJVMMemoryUsed,
-	infraconsts.MetricJVMMemoryMax,
-}
-
-type metricValueRow struct {
-	MetricName	string	`ch:"metric_name"`
-	ValAvg		float64	`ch:"val_avg"`
-	ValSum		float64	`ch:"val_sum"`
-}
-
-// memFoldMetricRows converts per-metric-name rollup results into a single
-// memory-usage-percent via the same logic as the prior raw query.
-func memFoldMetricRows(rows []metricValueRow) *float64 {
-	by := make(map[string]float64, len(rows))
-	bySum := make(map[string]float64, len(rows))
-	for _, r := range rows {
-		by[r.MetricName] = r.ValAvg
-		bySum[r.MetricName] = r.ValSum
-	}
-	var values []float64
-	if v, ok := by[infraconsts.MetricSystemMemoryUtilization]; ok {
-		if !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 {
-			if v <= infraconsts.PercentageThreshold {
-				v = v * infraconsts.PercentageMultiplier
-			}
-			values = append(values, v)
-		}
-	}
-	if max := bySum[infraconsts.MetricJVMMemoryMax]; max > 0 {
-		used := bySum[infraconsts.MetricJVMMemoryUsed]
-		values = append(values, infraconsts.PercentageMultiplier*used/max)
-	}
-	return calculateAverage(values)
-}
-
-func (r *ClickHouseRepository) GetMemoryUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
-		       state_dim                                                    AS state,
-		       sumMerge(value_sum)                                          AS value_sum_val,
-		       sumMerge(sample_count)                                       AS value_cnt
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName
-		  AND state_dim != ''
-		GROUP BY time_bucket, state
-		ORDER BY time_bucket, state`, table)
-	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("metricName", infraconsts.MetricSystemMemoryUsage),
-		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
-	}
-	var raw []struct {
-		Timestamp	time.Time	`ch:"time_bucket"`
-		State		string		`ch:"state"`
-		ValueSum	float64		`ch:"value_sum_val"`
-		ValueCnt	uint64		`ch:"value_cnt"`
-	}
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "memory.GetMemoryUsage", &raw, query, args...); err != nil {
-		return nil, err
-	}
-	rows := make([]stateBucketDTO, len(raw))
-	for i, row := range raw {
-		var valPtr *float64
-		if row.ValueCnt > 0 {
-			v := row.ValueSum
-			valPtr = &v
-		}
-		rows[i] = StateBucket{
-			Timestamp:	row.Timestamp.UTC().Format("2006-01-02 15:04:05"),
-			State:		row.State,
-			Value:		valPtr,
-		}
-	}
-	return rows, nil
-}
-
-func (r *ClickHouseRepository) GetMemoryUsagePercentage(ctx context.Context, teamID int64, startMs, endMs int64) ([]resourceBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
+func (r *ClickHouseRepository) QueryMemoryUsageByState(ctx context.Context, teamID int64, startMs, endMs int64) ([]MemoryStateRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name = @metricName
+		)
 		SELECT
-		    toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
-		    service                                                      AS pod,
-		    metric_name                                                  AS metric_name,
-		    sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS val_avg,
-		    toFloat64(sumMerge(value_sum))                               AS val_sum
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name IN @metricNames
-		  AND service != ''
-		GROUP BY time_bucket, pod, metric_name
-		ORDER BY time_bucket, pod`, table)
-	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
-		clickhouse.Named("metricNames", memMetricNames),
-	}
-	var metricRows []struct {
-		Timestamp	time.Time	`ch:"time_bucket"`
-		Pod		string		`ch:"pod"`
-		MetricName	string		`ch:"metric_name"`
-		ValAvg		float64		`ch:"val_avg"`
-		ValSum		float64		`ch:"val_sum"`
-	}
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "memory.GetMemoryUsagePercentage", &metricRows, query, args...); err != nil {
-		return nil, err
-	}
-	type key struct {
-		t	time.Time
-		pod	string
-	}
-	folded := map[key][]metricValueRow{}
-	for _, mr := range metricRows {
-		k := key{mr.Timestamp, mr.Pod}
-		folded[k] = append(folded[k], metricValueRow{MetricName: mr.MetricName, ValAvg: mr.ValAvg, ValSum: mr.ValSum})
-	}
-	rows := make([]resourceBucketDTO, 0, len(folded))
-	for k, group := range folded {
-		avg := memFoldMetricRows(group)
-		rows = append(rows, ResourceBucket{
-			Timestamp:	k.t.UTC().Format("2006-01-02 15:04:05"),
-			Pod:		k.pod,
-			Value:		avg,
-		})
-	}
-	return rows, nil
+		    timestamp                                                AS timestamp,
+		    attributes.'system.memory.state'::String                 AS state,
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name = @metricName
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'system.memory.state'::String != ''
+		ORDER BY timestamp`
+	args := withMetricName(metricArgs(teamID, startMs, endMs), infraconsts.MetricSystemMemoryUsage)
+	var rows []MemoryStateRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "memory.QueryMemoryUsageByState", &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) GetSwapUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]stateBucketDTO, error) {
-	table, tierStep := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT toStartOfInterval(bucket_ts, toIntervalMinute(@intervalMin)) AS time_bucket,
-		       state_dim                                                    AS state,
-		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS metric_val
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName
-		GROUP BY time_bucket, state
-		ORDER BY time_bucket, state`, table)
-	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("metricName", infraconsts.MetricSystemPagingUsage),
-		clickhouse.Named("intervalMin", queryIntervalMinutes(tierStep, startMs, endMs)),
-	}
-	var rows []stateBucketDTO
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "memory.GetSwapUsage", &rows, query, args...)
+func (r *ClickHouseRepository) QuerySwapUsageByState(ctx context.Context, teamID int64, startMs, endMs int64) ([]MemoryStateRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name = @metricName
+		)
+		SELECT
+		    timestamp                                                AS timestamp,
+		    attributes.'system.memory.state'::String                 AS state,
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name = @metricName
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'system.memory.state'::String != ''
+		ORDER BY timestamp`
+	args := withMetricName(metricArgs(teamID, startMs, endMs), infraconsts.MetricSystemPagingUsage)
+	var rows []MemoryStateRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "memory.QuerySwapUsageByState", &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) queryMemoryMetricByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT metric_name                                                             AS metric_name,
-		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,
-		       toFloat64(sumMerge(value_sum))                                          AS val_sum
-		FROM %s
-		WHERE team_id = @teamID
+// QueryMemoryUsageByPod returns per-(timestamp, pod, metric_name) average
+// value for the 4-metric memory family. Service folds.
+func (r *ClickHouseRepository) QueryMemoryUsageByPod(ctx context.Context, teamID int64, startMs, endMs int64) ([]MemoryPodMetricRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN @metricNames
+		)
+		SELECT
+		    timestamp                                                AS timestamp,
+		    attributes.'k8s.pod.name'::String                        AS pod,
+		    metric_name                                              AS metric_name,
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name IN @metricNames
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'k8s.pod.name'::String != ''
+		ORDER BY timestamp`
+	args := withMetricNames(metricArgs(teamID, startMs, endMs), memMetricNames)
+	var rows []MemoryPodMetricRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "memory.QueryMemoryUsageByPod", &rows, query, args...)
+}
+
+func (r *ClickHouseRepository) QueryMemoryUtilizationAgg(ctx context.Context, teamID int64, startMs, endMs int64) ([]MemoryMetricNameRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN @metricNames
+		)
+		SELECT
+		    metric_name AS metric_name,
+		    sum(val_sum) / sum(val_count)  AS value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name IN @metricNames
+		  AND timestamp BETWEEN @start AND @end
+		GROUP BY metric_name`
+	args := withMetricNames(metricArgs(teamID, startMs, endMs), memMetricNames)
+	var rows []MemoryMetricNameRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "memory.QueryMemoryUtilizationAgg", &rows, query, args...)
+}
+
+func (r *ClickHouseRepository) QueryMemoryUtilizationForService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]MemoryMetricNameRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN @metricNames
+		)
+		SELECT
+		    metric_name AS metric_name,
+		    sum(val_sum) / sum(val_count)  AS value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name IN @metricNames
+		  AND timestamp BETWEEN @start AND @end
 		  AND service = @serviceName
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name IN @metricNames
-		GROUP BY metric_name`, table)
-	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
-		clickhouse.Named("serviceName", serviceName),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("metricNames", memMetricNames),
-	}
-	var rows []metricValueRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "memory.queryMemoryMetricByService", &rows, query, args...); err != nil {
-		return nil, err
-	}
-	return memFoldMetricRows(rows), nil
+		GROUP BY metric_name`
+	args := withMetricNames(metricArgs(teamID, startMs, endMs), memMetricNames)
+	args = append(args, clickhouse.Named("serviceName", serviceName))
+	var rows []MemoryMetricNameRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "memory.QueryMemoryUtilizationForService", &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) queryMemoryMetricByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
-	_ = container
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT metric_name                                                             AS metric_name,
-		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,
-		       toFloat64(sumMerge(value_sum))                                          AS val_sum
-		FROM %s
-		WHERE team_id = @teamID
-		  AND host = @host
-		  AND pod = @pod
+func (r *ClickHouseRepository) QueryMemoryUtilizationForInstance(ctx context.Context, teamID int64, startMs, endMs int64, host, pod, serviceName string) ([]MemoryMetricNameRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN @metricNames
+		)
+		SELECT
+		    metric_name AS metric_name,
+		    sum(val_sum) / sum(val_count)  AS value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name IN @metricNames
+		  AND timestamp BETWEEN @start AND @end
+		  AND host    = @host
 		  AND service = @serviceName
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name IN @metricNames
-		GROUP BY metric_name`, table)
-	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
+		  AND attributes.'k8s.pod.name'::String = @pod
+		GROUP BY metric_name`
+	args := withMetricNames(metricArgs(teamID, startMs, endMs), memMetricNames)
+	args = append(args,
 		clickhouse.Named("host", host),
 		clickhouse.Named("pod", pod),
 		clickhouse.Named("serviceName", serviceName),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("metricNames", memMetricNames),
-	}
-	var rows []metricValueRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "memory.queryMemoryMetricByInstance", &rows, query, args...); err != nil {
-		return nil, err
-	}
-	return memFoldMetricRows(rows), nil
+	)
+	var rows []MemoryMetricNameRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "memory.QueryMemoryUtilizationForInstance", &rows, query, args...)
 }
 
-type serviceNameRow struct {
-	ServiceName string `ch:"service_name"`
-}
+// ---------------------------------------------------------------------------
+// Local helpers — each module owns its own.
+// ---------------------------------------------------------------------------
 
-func (r *ClickHouseRepository) getServiceList(ctx context.Context, teamID int64, startMs, endMs int64) ([]string, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT DISTINCT service AS service_name
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND service != ''
-		  AND metric_name IN @metricNames
-		ORDER BY service_name`, table)
-	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
+func metricArgs(teamID int64, startMs, endMs int64) []any {
+	bucketStart, bucketEnd := metricBucketBounds(startMs, endMs)
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("bucketStart", bucketStart),
+		clickhouse.Named("bucketEnd", bucketEnd),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("metricNames", memMetricNames),
 	}
-	var rows []serviceNameRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "memory.getServiceList", &rows, query, args...); err != nil {
-		return nil, err
-	}
-	services := make([]string, len(rows))
-	for i, row := range rows {
-		services[i] = row.ServiceName
-	}
-	return services, nil
 }
 
-func (r *ClickHouseRepository) GetAvgMemory(ctx context.Context, teamID int64, startMs, endMs int64) (metricValueDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT metric_name,
-		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0) AS val_avg,
-		       toFloat64(sumMerge(value_sum))                                          AS val_sum
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name IN @metricNames
-		GROUP BY metric_name`, table)
-	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("metricNames", memMetricNames),
-	}
-	var rows []metricValueRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "memory.GetAvgMemory", &rows, query, args...); err != nil {
-		return MetricValue{Value: 0}, err
-	}
-	avg := memFoldMetricRows(rows)
-	if avg == nil {
-		return MetricValue{Value: 0}, nil
-	}
-	return MetricValue{Value: *avg}, nil
+func metricBucketBounds(startMs, endMs int64) (uint32, uint32) {
+	return timebucket.BucketStart(startMs / 1000),
+		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }
 
-func (r *ClickHouseRepository) GetMemoryByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT metric_name,
-		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,
-		       toFloat64(sumMerge(value_sum))                                          AS val_sum
-		FROM %s
-		WHERE team_id = @teamID
-		  AND service = @serviceName
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name IN @metricNames
-		GROUP BY metric_name`, table)
-	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("serviceName", serviceName),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("metricNames", memMetricNames),
-	}
-	var rows []metricValueRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "memory.GetMemoryByService", &rows, query, args...); err != nil {
-		return nil, err
-	}
-	return memFoldMetricRows(rows), nil
+func withMetricName(args []any, name string) []any {
+	return append(args, clickhouse.Named("metricName", name))
 }
 
-func (r *ClickHouseRepository) GetMemoryByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT metric_name,
-		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg,
-		       toFloat64(sumMerge(value_sum))                                          AS val_sum
-		FROM %s
-		WHERE team_id = @teamID
-		  AND host = @host
-		  AND pod = @pod
-		  AND service = @serviceName
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name IN @metricNames
-		GROUP BY metric_name`, table)
-	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("host", host),
-		clickhouse.Named("pod", pod),
-		clickhouse.Named("serviceName", serviceName),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-		clickhouse.Named("metricNames", memMetricNames),
-	}
-	var rows []metricValueRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "memory.GetMemoryByInstance", &rows, query, args...); err != nil {
-		return nil, err
-	}
-	return memFoldMetricRows(rows), nil
+func withMetricNames(args []any, names []string) []any {
+	return append(args, clickhouse.Named("metricNames", names))
 }

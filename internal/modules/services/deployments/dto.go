@@ -4,7 +4,7 @@ import "time"
 
 // deploymentAggRow is scanned from ListDeployments aggregation.
 type deploymentAggRow struct {
-	ServiceName  string    `ch:"service_name"`
+	ServiceName  string    `ch:"service"`
 	Version      string    `ch:"version"`
 	Environment  string    `ch:"environment"`
 	FirstSeen    time.Time `ch:"first_seen"`
@@ -31,7 +31,7 @@ type impactAggRow struct {
 }
 
 type errorGroupAggRow struct {
-	ServiceName    string    `ch:"service_name"`
+	ServiceName    string    `ch:"service"`
 	GroupID        string    `ch:"group_id"`
 	OperationName  string    `ch:"operation_name"`
 	StatusMessage  string    `ch:"status_message"`

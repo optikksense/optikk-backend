@@ -46,8 +46,7 @@ type cpuModule struct {
 	handler *CPUHandler
 }
 
-func (m *cpuModule) Name() string                      { return "cpu" }
-func (m *cpuModule) RouteTarget() registry.RouteTarget { return registry.Cached }
+func (m *cpuModule) Name() string { return "cpu" }
 
 func (m *cpuModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = NewHandler(nativeQuerier, getTenant)

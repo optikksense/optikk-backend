@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"log/slog"
+	"regexp"
 	"sort"
 	"strings"
 )
@@ -12,7 +13,6 @@ type Service interface {
 	GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]SpanEvent, error)
 	GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*SpanAttributes, error)
 	GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
-	GetTraceLogs(ctx context.Context, teamID int64, traceID string) (*TraceLogsResponse, error)
 	GetSpanLogs(ctx context.Context, teamID int64, traceID, spanID string) (*TraceLogsResponse, error)
 }
 
@@ -25,11 +25,12 @@ func NewService(repo Repository) Service {
 }
 
 func (s *TraceDetailService) GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]SpanEvent, error) {
-	eventRows, exceptionRows, err := s.repo.GetSpanEvents(ctx, teamID, traceID)
+	combined, err := s.repo.GetSpanEvents(ctx, teamID, traceID)
 	if err != nil {
 		slog.ErrorContext(ctx, "tracedetail: GetSpanEvents failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
 		return nil, err
 	}
+	eventRows, exceptionRows := splitEventRows(combined)
 
 	events := make([]SpanEvent, 0, len(eventRows))
 	seenException := make(map[string]bool, len(eventRows))
@@ -39,11 +40,11 @@ func (s *TraceDetailService) GetSpanEvents(ctx context.Context, teamID int64, tr
 			seenException[row.SpanID] = true
 		}
 		events = append(events, SpanEvent{
-			SpanID:		row.SpanID,
-			TraceID:	row.TraceID,
-			EventName:	name,
-			Timestamp:	row.Timestamp,
-			Attributes:	attrJSON,
+			SpanID:     row.SpanID,
+			TraceID:    row.TraceID,
+			EventName:  name,
+			Timestamp:  row.Timestamp,
+			Attributes: attrJSON,
 		})
 	}
 
@@ -68,11 +69,11 @@ func (s *TraceDetailService) GetSpanEvents(ctx context.Context, teamID int64, tr
 			}
 		}
 		events = append(events, SpanEvent{
-			SpanID:		row.SpanID,
-			TraceID:	row.TraceID,
-			EventName:	"exception",
-			Timestamp:	row.Timestamp,
-			Attributes:	attrJSON,
+			SpanID:     row.SpanID,
+			TraceID:    row.TraceID,
+			EventName:  "exception",
+			Timestamp:  row.Timestamp,
+			Attributes: attrJSON,
 		})
 	}
 
@@ -107,21 +108,21 @@ func (s *TraceDetailService) GetSpanAttributes(ctx context.Context, teamID int64
 	}
 
 	return &SpanAttributes{
-		SpanID:			row.SpanID,
-		TraceID:		row.TraceID,
-		OperationName:		row.OperationName,
-		ServiceName:		row.ServiceName,
-		AttributesString:	row.AttributesString,
-		ResourceAttrs:		row.ResourceAttrs,
-		Attributes:		merged,
-		ExceptionType:		row.ExceptionType,
-		ExceptionMessage:	row.ExceptionMessage,
-		ExceptionStacktrace:	row.ExceptionStacktrace,
-		DBSystem:		row.DBSystem,
-		DBName:			row.DBName,
-		DBStatement:		row.DBStatement,
-		DBStatementNormalized:	normalizeDBStatement(row.DBStatement),
-		Links:			parseSpanLinks(row.Links),
+		SpanID:                row.SpanID,
+		TraceID:               row.TraceID,
+		OperationName:         row.OperationName,
+		ServiceName:           row.ServiceName,
+		AttributesString:      row.AttributesString,
+		ResourceAttrs:         row.ResourceAttrs,
+		Attributes:            merged,
+		ExceptionType:         row.ExceptionType,
+		ExceptionMessage:      row.ExceptionMessage,
+		ExceptionStacktrace:   row.ExceptionStacktrace,
+		DBSystem:              row.DBSystem,
+		DBName:                row.DBName,
+		DBStatement:           row.DBStatement,
+		DBStatementNormalized: normalizeDBStatement(row.DBStatement),
+		Links:                 parseSpanLinks(row.Links),
 	}, nil
 }
 
@@ -129,39 +130,52 @@ func (s *TraceDetailService) GetRelatedTraces(ctx context.Context, teamID int64,
 	return s.repo.GetRelatedTraces(ctx, teamID, serviceName, operationName, startMs, endMs, excludeTraceID, limit)
 }
 
-func (s *TraceDetailService) GetTraceLogs(ctx context.Context, teamID int64, traceID string) (*TraceLogsResponse, error) {
-	rows, err := s.repo.GetTraceLogs(ctx, teamID, traceID)
-	if err != nil {
-		slog.ErrorContext(ctx, "tracedetail: GetTraceLogs failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
-		return nil, err
-	}
-	logs := make([]TraceLog, len(rows))
-	for i, row := range rows {
-		logs[i] = TraceLog{
-			Timestamp:		uint64(row.Timestamp.UnixNano()),
-			ObservedTimestamp:	row.ObservedTimestamp,
-			SeverityText:		row.SeverityText,
-			SeverityNumber:		row.SeverityNumber,
-			Body:			row.Body,
-			TraceID:		row.TraceID,
-			SpanID:			row.SpanID,
-			TraceFlags:		row.TraceFlags,
-			ServiceName:		row.ServiceName,
-			Host:			row.Host,
-			Pod:			row.Pod,
-			Container:		row.Container,
-			Environment:		row.Environment,
-			AttributesString:	row.AttributesString,
-			AttributesNumber:	row.AttributesNumber,
-			AttributesBool:		row.AttributesBool,
-			ScopeName:		row.ScopeName,
-			ScopeVersion:		row.ScopeVersion,
+// splitEventRows folds the combined per-span result into separate event-row
+// and exception-row lists. Each span contributes one event-row per element
+// in its events array; spans with a non-empty exception_type contribute one
+// exception-row each. Exceptions are reversed for display order (latest
+// first). Moved here from the repository — pure transformation, no DB.
+func splitEventRows(rows []spanEventCombinedRow) ([]spanEventRow, []exceptionRow) {
+	var events []spanEventRow
+	var exceptions []exceptionRow
+	for _, r := range rows {
+		for _, ev := range r.Events {
+			events = append(events, spanEventRow{
+				SpanID: r.SpanID, TraceID: r.TraceID, Timestamp: r.Timestamp, EventJSON: ev,
+			})
+		}
+		if r.ExceptionType != "" {
+			exceptions = append(exceptions, exceptionRow{
+				SpanID: r.SpanID, TraceID: r.TraceID, Timestamp: r.Timestamp,
+				ExceptionType: r.ExceptionType, ExceptionMessage: r.ExceptionMessage,
+				ExceptionStacktrace: r.ExceptionStacktrace,
+			})
 		}
 	}
-	return &TraceLogsResponse{
-		Logs:		logs,
-		IsSpeculative:	false,
-	}, nil
+	for i, j := 0, len(exceptions)-1; i < j; i, j = i+1, j-1 {
+		exceptions[i], exceptions[j] = exceptions[j], exceptions[i]
+	}
+	return events, exceptions
+}
+
+// db-statement normalization moved here from the repository — pure
+// text transformation that belongs in service.
+var (
+	reNumberLiteral = regexp.MustCompile(`\b\d+(\.\d+)?\b`)
+	reStringLiteral = regexp.MustCompile(`'[^']*'`)
+	reMultiSpace    = regexp.MustCompile(`\s+`)
+)
+
+// normalizeDBStatement collapses literals to `?` placeholders so similar
+// db.statement values group together in the UI.
+func normalizeDBStatement(stmt string) string {
+	if stmt == "" {
+		return ""
+	}
+	s := reStringLiteral.ReplaceAllString(stmt, "?")
+	s = reNumberLiteral.ReplaceAllString(s, "?")
+	s = reMultiSpace.ReplaceAllString(s, " ")
+	return strings.TrimSpace(s)
 }
 
 // parseEventJSON extracts the event name and attributes JSON from an event
@@ -179,8 +193,8 @@ func parseEventJSON(raw string) (name string, attrs string) {
 		return raw, "{}"
 	}
 	var obj struct {
-		Name		string			`json:"name"`
-		Attributes	map[string]string	`json:"attributes"`
+		Name       string            `json:"name"`
+		Attributes map[string]string `json:"attributes"`
 	}
 	if err := json.Unmarshal([]byte(raw), &obj); err != nil {
 		return raw, "{}"

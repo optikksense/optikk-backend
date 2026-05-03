@@ -1,1 +1,0 @@
-package resourceutil //nolint:misspell

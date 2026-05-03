@@ -25,24 +25,24 @@ func mapTraceLogs(rows []traceLogRow) []TraceLog {
 	logs := make([]TraceLog, len(rows))
 	for i, row := range rows {
 		logs[i] = TraceLog{
-			Timestamp:		uint64(row.Timestamp.UnixNano()),	//nolint:gosec
-			ObservedTimestamp:	row.ObservedTimestamp,
-			SeverityText:		row.SeverityText,
-			SeverityNumber:		row.SeverityNumber,
-			Body:			row.Body,
-			TraceID:		row.TraceID,
-			SpanID:			row.SpanID,
-			TraceFlags:		row.TraceFlags,
-			ServiceName:		row.ServiceName,
-			Host:			row.Host,
-			Pod:			row.Pod,
-			Container:		row.Container,
-			Environment:		row.Environment,
-			AttributesString:	row.AttributesString,
-			AttributesNumber:	row.AttributesNumber,
-			AttributesBool:		row.AttributesBool,
-			ScopeName:		row.ScopeName,
-			ScopeVersion:		row.ScopeVersion,
+			Timestamp:         uint64(row.Timestamp.UnixNano()), //nolint:gosec
+			ObservedTimestamp: row.ObservedTimestamp,
+			SeverityText:      row.SeverityText,
+			SeverityNumber:    row.SeverityNumber,
+			Body:              row.Body,
+			TraceID:           row.TraceID,
+			SpanID:            row.SpanID,
+			TraceFlags:        row.TraceFlags,
+			ServiceName:       row.ServiceName,
+			Host:              row.Host,
+			Pod:               row.Pod,
+			Container:         row.Container,
+			Environment:       row.Environment,
+			AttributesString:  row.AttributesString,
+			AttributesNumber:  row.AttributesNumber,
+			AttributesBool:    row.AttributesBool,
+			ScopeName:         row.ScopeName,
+			ScopeVersion:      row.ScopeVersion,
 		}
 	}
 	return logs
@@ -63,18 +63,18 @@ func parseSpanLinks(raw string) []SpanLink {
 	out := make([]SpanLink, 0, len(wire))
 	for _, l := range wire {
 		out = append(out, SpanLink{
-			TraceID:	l.TraceID,
-			SpanID:		l.SpanID,
-			TraceState:	l.TraceState,
-			Attributes:	l.Attributes,
+			TraceID:    l.TraceID,
+			SpanID:     l.SpanID,
+			TraceState: l.TraceState,
+			Attributes: l.Attributes,
 		})
 	}
 	return out
 }
 
 type spanLinkWire struct {
-	TraceID		string			`json:"traceId"`
-	SpanID		string			`json:"spanId"`
-	TraceState	string			`json:"traceState,omitempty"`
-	Attributes	map[string]string	`json:"attributes,omitempty"`
+	TraceID    string            `json:"traceId"`
+	SpanID     string            `json:"spanId"`
+	TraceState string            `json:"traceState,omitempty"`
+	Attributes map[string]string `json:"attributes,omitempty"`
 }

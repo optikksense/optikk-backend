@@ -2,20 +2,21 @@ package volume
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
+// Repository runs the volume / read-vs-write panel queries against raw
+// `observability.spans`. One span per DB call → count() is the op count;
+// service.go converts to per-second rate via filter.BucketWidthSeconds.
 type Repository interface {
-	GetOpsBySystem(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]OpsTimeSeries, error)
-	GetOpsByOperation(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]OpsTimeSeries, error)
-	GetOpsByCollection(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]OpsTimeSeries, error)
-	GetReadVsWrite(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ReadWritePoint, error)
-	GetOpsByNamespace(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]OpsTimeSeries, error)
+	GetOpsBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]opsRawDTO, error)
+	GetOpsByOperation(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]opsRawDTO, error)
+	GetOpsByCollection(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]opsRawDTO, error)
+	GetOpsByNamespace(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]opsRawDTO, error)
+	GetReadVsWrite(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]readWriteRawDTO, error)
 }
 
 type ClickHouseRepository struct {
@@ -26,105 +27,73 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-func (r *ClickHouseRepository) opsSeriesByAttr(ctx context.Context, teamID int64, startMs, endMs int64, groupAttr string, f shared.Filters) ([]OpsTimeSeries, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
-	fc, fargs := shared.RollupFilterClauses(f)
-	groupCol := shared.GroupColumnFor(groupAttr)
+func (r *ClickHouseRepository) GetOpsBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]opsRawDTO, error) {
+	return r.opsSeriesByGroup(ctx, teamID, startMs, endMs, f, filter.AttrDBSystem, "volume.GetOpsBySystem")
+}
+
+func (r *ClickHouseRepository) GetOpsByOperation(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]opsRawDTO, error) {
+	return r.opsSeriesByGroup(ctx, teamID, startMs, endMs, f, filter.AttrDBOperationName, "volume.GetOpsByOperation")
+}
+
+func (r *ClickHouseRepository) GetOpsByCollection(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]opsRawDTO, error) {
+	return r.opsSeriesByGroup(ctx, teamID, startMs, endMs, f, filter.AttrDBCollectionName, "volume.GetOpsByCollection")
+}
+
+func (r *ClickHouseRepository) GetOpsByNamespace(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]opsRawDTO, error) {
+	return r.opsSeriesByGroup(ctx, teamID, startMs, endMs, f, filter.AttrDBNamespace, "volume.GetOpsByNamespace")
+}
+
+func (r *ClickHouseRepository) opsSeriesByGroup(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, attr, traceLabel string) ([]opsRawDTO, error) {
+	groupCol := filter.Spans1mGroupColumn(attr)
 	if groupCol == "" {
-		groupCol = "db_operation"
+		return nil, nil
 	}
+	filterWhere, filterArgs := filter.BuildSpans1mClauses(f)
 
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                             AS time_bucket,
-		    %s                             AS group_by,
-		    toInt64(sumMerge(hist_count))  AS op_count
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName
-		  %s
+	query := `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT toString(toDateTime(ts_bucket))    AS time_bucket,
+		       ` + groupCol + `                   AS group_by,
+		       toInt64(sum(request_count))        AS op_count
+		FROM observability.spans_1m
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND db_system != ''` + filterWhere + `
 		GROUP BY time_bucket, group_by
-		ORDER BY time_bucket, group_by
-	`, shared.BucketTimeExpr, groupCol, table, fc)
+		ORDER BY time_bucket, group_by`
 
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
-		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
-	)
-	args = append(args, fargs...)
-
-	var dtos []opsRawDTO
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "volume.opsSeriesByAttr", &dtos, query, args...); err != nil {
-		return nil, err
-	}
-
-	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
-	out := make([]OpsTimeSeries, len(dtos))
-	for i, d := range dtos {
-		rate := float64(d.OpCount) / bucketSec
-		out[i] = OpsTimeSeries{
-			TimeBucket:	d.TimeBucket,
-			GroupBy:	d.GroupBy,
-			OpsPerSec:	&rate,
-		}
-	}
-	return out, nil
+	args := append(filter.SpanArgs(teamID, startMs, endMs), filterArgs...)
+	var rows []opsRawDTO
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, traceLabel, &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) GetOpsBySystem(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]OpsTimeSeries, error) {
-	return r.opsSeriesByAttr(ctx, teamID, startMs, endMs, shared.AttrDBSystem, f)
-}
+// GetReadVsWrite splits ops by upper(db.operation.name) into read-style
+// (SELECT/FIND/GET) vs write-style (INSERT/UPDATE/DELETE/REPLACE/UPSERT/SET/PUT/AGGREGATE).
+// One span per call; counts split via countIf.
+func (r *ClickHouseRepository) GetReadVsWrite(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]readWriteRawDTO, error) {
+	filterWhere, filterArgs := filter.BuildSpans1mClauses(f)
 
-func (r *ClickHouseRepository) GetOpsByOperation(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]OpsTimeSeries, error) {
-	return r.opsSeriesByAttr(ctx, teamID, startMs, endMs, shared.AttrDBOperationName, f)
-}
-
-func (r *ClickHouseRepository) GetOpsByCollection(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]OpsTimeSeries, error) {
-	return r.opsSeriesByAttr(ctx, teamID, startMs, endMs, shared.AttrDBCollectionName, f)
-}
-
-func (r *ClickHouseRepository) GetOpsByNamespace(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]OpsTimeSeries, error) {
-	return r.opsSeriesByAttr(ctx, teamID, startMs, endMs, shared.AttrDBNamespace, f)
-}
-
-func (r *ClickHouseRepository) GetReadVsWrite(ctx context.Context, teamID int64, startMs, endMs int64, f shared.Filters) ([]ReadWritePoint, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
-	fc, fargs := shared.RollupFilterClauses(f)
-
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                                                                     AS time_bucket,
-		    toInt64(sumMergeIf(hist_count, upper(db_operation) IN ('SELECT', 'FIND', 'GET')))     AS read_count,
-		    toInt64(sumMergeIf(hist_count, upper(db_operation) IN ('INSERT', 'UPDATE', 'DELETE', 'REPLACE', 'UPSERT', 'SET', 'PUT', 'AGGREGATE'))) AS write_count
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName
-		  %s
+	query := `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT toString(toDateTime(ts_bucket))                                                                                                              AS time_bucket,
+		       toInt64(sumIf(request_count, upper(db_operation_name) IN ('SELECT','FIND','GET')))                                                            AS read_count,
+		       toInt64(sumIf(request_count, upper(db_operation_name) IN ('INSERT','UPDATE','DELETE','REPLACE','UPSERT','SET','PUT','AGGREGATE')))            AS write_count
+		FROM observability.spans_1m
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND db_system != ''` + filterWhere + `
 		GROUP BY time_bucket
-		ORDER BY time_bucket
-	`, shared.BucketTimeExpr, table, fc)
+		ORDER BY time_bucket`
 
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
-		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
-	)
-	args = append(args, fargs...)
-
-	var dtos []readWriteRawDTO
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "volume.GetReadVsWrite", &dtos, query, args...); err != nil {
-		return nil, err
-	}
-
-	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
-	out := make([]ReadWritePoint, len(dtos))
-	for i, d := range dtos {
-		readRate := float64(d.ReadCount) / bucketSec
-		writeRate := float64(d.WriteCount) / bucketSec
-		out[i] = ReadWritePoint{
-			TimeBucket:	d.TimeBucket,
-			ReadOpsPerSec:	&readRate,
-			WriteOpsPerSec:	&writeRate,
-		}
-	}
-	return out, nil
+	args := append(filter.SpanArgs(teamID, startMs, endMs), filterArgs...)
+	var rows []readWriteRawDTO
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "volume.GetReadVsWrite", &rows, query, args...)
 }

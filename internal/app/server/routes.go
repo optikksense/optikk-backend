@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/middleware"
 	"github.com/gin-contrib/gzip"
 	"github.com/gin-gonic/gin"
@@ -28,24 +27,15 @@ func (a *App) Router() *gin.Engine {
 	return r
 }
 
-// setupMetricsRoute exposes Prometheus-format runtime metrics (go_*, process_*,
-// promhttp_*) at /metrics. A local Prometheus scrapes this; an external target
-// (e.g. Grafana Cloud) is configured via prometheus/prometheus.yml remote_write.
-// See docs/ops/observability.md.
 func (a *App) setupMetricsRoute(r *gin.Engine) {
 	r.GET("/metrics", gin.WrapH(promhttp.HandlerFor(prometheus.DefaultGatherer, promhttp.HandlerOpts{DisableCompression: true})))
 }
 
 func (a *App) setupGlobalMiddleware(r *gin.Engine) {
 	r.Use(middleware.ErrorRecovery())
-	// HTTPMetricsMiddleware must sit before handlers so it observes status +
-	// duration, but after ErrorRecovery so panics still surface in metrics
-	// as 5xx via the recovered response.
 	r.Use(middleware.HTTPMetricsMiddleware())
 	r.Use(middleware.CORSMiddleware(a.Config.Server.AllowedOrigins))
-	r.Use(middleware.BodyLimitMiddleware(10 * 1024 * 1024))	// 10 MB
-	// gzip the response body for list/facet/trend payloads; default
-	// compression level keeps CPU overhead minimal on small payloads.
+	r.Use(middleware.BodyLimitMiddleware(10 * 1024 * 1024))
 	r.Use(gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths([]string{"/metrics"})))
 }
 
@@ -58,21 +48,8 @@ func (a *App) setupHealthRoutes(r *gin.Engine) {
 func (a *App) setupAPIRoutes(r *gin.Engine) {
 	v1 := r.Group("/api/v1")
 	v1.Use(middleware.TenantMiddleware(a.Infra.SessionManager))
-
-	cachedV1 := r.Group("/api/v1")
-	cachedV1.Use(middleware.TenantMiddleware(a.Infra.SessionManager))
-	cachedV1.Use(middleware.CacheMiddleware(
-		middleware.NewRedisResponseCache(a.Infra.RedisClient),
-		middleware.DefaultResponseCacheTTL,
-	))
-
 	for _, mod := range a.Modules {
-		switch mod.RouteTarget() {
-		case registry.Cached:
-			mod.RegisterRoutes(cachedV1)
-		default:
-			mod.RegisterRoutes(v1)
-		}
+		mod.RegisterRoutes(v1)
 	}
 }
 

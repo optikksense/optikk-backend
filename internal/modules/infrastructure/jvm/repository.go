@@ -2,326 +2,255 @@ package jvm
 
 import (
 	"context"
-	"fmt"
-	"math"
-	"strings"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
-// JVM metrics read from the Phase-9 cascade:
-//
-//   - gauge metrics (jvm.memory.*, jvm.thread.count, jvm.classes.*, jvm.cpu.*,
-//     jvm.buffer.*) → metrics_gauges_rollup via extended state_dim
-//     extractor (pool.name | type, thread.daemon, buffer.pool.name).
-//   - histogram metrics (jvm.gc.duration) → `metrics_histograms_rollup`.
-//
-// GetJVMGCCollections stays on raw because grouping by `jvm.gc.name` isn't a
-// rollup dim (the histograms rollup keys only metric_name + service). Future
-// work: extend metrics_histograms_rollup with a generic-attribute dim column.
-const (
-	metricsGaugesRollupPrefix	= rollup.FamilyMetricsGauges
-	metricsHistPrefix		= rollup.FamilyMetricsHist
-)
-
 type Repository interface {
-	GetJVMMemory(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmMemoryBucketDTO, error)
-	GetJVMGCDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error)
-	GetJVMGCCollections(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmGCCollectionBucketDTO, error)
-	GetJVMThreadCount(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmThreadBucketDTO, error)
-	GetJVMClasses(ctx context.Context, teamID int64, startMs, endMs int64) (jvmClassStatsDTO, error)
-	GetJVMCPU(ctx context.Context, teamID int64, startMs, endMs int64) (jvmCPUStatsDTO, error)
-	GetJVMBuffers(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmBufferBucketDTO, error)
+	QueryJVMMemoryByPool(ctx context.Context, teamID int64, startMs, endMs int64) ([]JVMMemoryRow, error)
+	QueryJVMGCDurationHistogram(ctx context.Context, teamID int64, startMs, endMs int64) (JVMHistogramAggRow, error)
+	QueryJVMGCCollectionsByName(ctx context.Context, teamID int64, startMs, endMs int64) ([]JVMGCRow, error)
+	QueryJVMThreadCountByDaemon(ctx context.Context, teamID int64, startMs, endMs int64) ([]JVMThreadRow, error)
+	QueryJVMClasses(ctx context.Context, teamID int64, startMs, endMs int64) ([]JVMMetricNameRow, error)
+	QueryJVMCPU(ctx context.Context, teamID int64, startMs, endMs int64) ([]JVMMetricNameRow, error)
+	QueryJVMBuffersByPool(ctx context.Context, teamID int64, startMs, endMs int64) ([]JVMBufferRow, error)
 }
 
 type ClickHouseRepository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-func bucketExpr(startMs, endMs int64) string {
-	return timebucket.ExprForColumn(startMs, endMs, "bucket_ts")
-}
-
-// GetJVMMemory groups by (pool_name, mem_type) from the combined `state_dim`
-// column (MV emits `concat(pool, '|', type)`). Values split across 3
-// metric_names; folded client-side.
-func (r *ClickHouseRepository) GetJVMMemory(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmMemoryBucketDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
+// QueryJVMMemoryByPool returns per-(timestamp, pool, mem_type, metric_name)
+// average values for the 3-metric JVM memory family.
+func (r *ClickHouseRepository) QueryJVMMemoryByPool(ctx context.Context, teamID int64, startMs, endMs int64) ([]JVMMemoryRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN @metricNames
+		)
 		SELECT
-		    %s                                                                         AS time_bucket,
-		    state_dim                                                                  AS state_dim,
-		    metric_name                                                                AS metric_name,
-		    sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)     AS val
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name IN (@used, @committed, @limit)
-		GROUP BY time_bucket, state_dim, metric_name
-		ORDER BY time_bucket ASC, state_dim ASC
-	`, bucketExpr(startMs, endMs), table)
-	args := append(dbutil.SimpleBaseParams(teamID, startMs, endMs),
-		clickhouse.Named("used", infraconsts.MetricJVMMemoryUsed),
-		clickhouse.Named("committed", infraconsts.MetricJVMMemoryCommitted),
-		clickhouse.Named("limit", infraconsts.MetricJVMMemoryLimit),
-	)
-	var metricRows []struct {
-		TimeBucket	string	`ch:"time_bucket"`
-		StateDim	string	`ch:"state_dim"`
-		MetricName	string	`ch:"metric_name"`
-		Val		float64	`ch:"val"`
-	}
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "jvm.GetJVMMemory", &metricRows, query, args...); err != nil {
-		return nil, err
-	}
-	// Fold per (time_bucket, pool_name, mem_type).
-	type key struct{ bucket, pool, memType string }
-	out := map[key]*jvmMemoryBucketDTO{}
-	for _, mr := range metricRows {
-		pool, memType, _ := strings.Cut(mr.StateDim, "|")
-		k := key{mr.TimeBucket, pool, memType}
-		row, ok := out[k]
-		if !ok {
-			row = &jvmMemoryBucketDTO{Timestamp: k.bucket, PoolName: k.pool, MemType: k.memType}
-			out[k] = row
-		}
-		v := mr.Val
-		switch mr.MetricName {
-		case infraconsts.MetricJVMMemoryUsed:
-			row.Used = sanitizeFloatPtr(&v)
-		case infraconsts.MetricJVMMemoryCommitted:
-			row.Committed = sanitizeFloatPtr(&v)
-		case infraconsts.MetricJVMMemoryLimit:
-			row.Limit = sanitizeFloatPtr(&v)
-		}
-	}
-	rows := make([]jvmMemoryBucketDTO, 0, len(out))
-	for _, row := range out {
-		rows = append(rows, *row)
-	}
-	return rows, nil
+		    timestamp                                                AS timestamp,
+		    attributes.'jvm.memory.pool.name'::String                AS pool_name,
+		    attributes.'jvm.memory.type'::String                     AS mem_type,
+		    metric_name                                              AS metric_name,
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name IN @metricNames
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'jvm.memory.pool.name'::String != ''
+		ORDER BY timestamp`
+	args := withMetricNames(metricArgs(teamID, startMs, endMs), []string{
+		infraconsts.MetricJVMMemoryUsed,
+		infraconsts.MetricJVMMemoryCommitted,
+		infraconsts.MetricJVMMemoryLimit,
+	})
+	var rows []JVMMemoryRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "jvm.QueryJVMMemoryByPool", &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) GetJVMGCDuration(ctx context.Context, teamID int64, startMs, endMs int64) (histogramSummaryDTO, error) {
-	table, _ := rollup.TierTableFor(metricsHistPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
+// QueryJVMGCDurationHistogram returns the merged histogram across the window
+// for jvm.gc.duration. Service computes P50/P95/P99 via quantile.FromHistogram
+// and Avg = sum_hist_sum / sum_hist_count.
+func (r *ClickHouseRepository) QueryJVMGCDurationHistogram(ctx context.Context, teamID int64, startMs, endMs int64) (JVMHistogramAggRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name = @metricName
+		)
 		SELECT
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1])  AS p50,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])  AS p95,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3])  AS p99,
-		    sumMerge(hist_sum) / nullIf(toFloat64(sumMerge(hist_count)), 0)      AS avg_val
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName`, table)
-	args := append(dbutil.SimpleBaseParams(teamID, startMs, endMs),
-		clickhouse.Named("metricName", infraconsts.MetricJVMGCDuration),
-	)
-	var row HistogramSummary
-	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, args...).ScanStruct(&row); err != nil {
-		return row, err
-	}
-	row.P50 = sanitizeFloat(row.P50)
-	row.P95 = sanitizeFloat(row.P95)
-	row.P99 = sanitizeFloat(row.P99)
-	row.Avg = sanitizeFloat(row.Avg)
-	return row, nil
+		    sum(hist_sum)            AS sum_hist_sum,
+		    sum(hist_count)          AS sum_hist_count,
+		    max(hist_buckets)        AS hist_buckets,
+		    sumForEach(hist_counts)  AS hist_counts
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name = @metricName
+		  AND timestamp BETWEEN @start AND @end`
+	args := withMetricName(metricArgs(teamID, startMs, endMs), infraconsts.MetricJVMGCDuration)
+	var row JVMHistogramAggRow
+	return row, dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "jvm.QueryJVMGCDurationHistogram", &row, query, args...)
 }
 
-// GetJVMGCCollections groups by `jvm.gc.name` — a dim the histograms rollup
-// doesn't key. Stays on raw metrics. Future: extend rollup with a generic
-// attribute dim or per-metric-family dedicated rollup.
-func (r *ClickHouseRepository) GetJVMGCCollections(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmGCCollectionBucketDTO, error) {
-	bucket := infraconsts.TimeBucketExpression(startMs, endMs)
-	collector := fmt.Sprintf("attributes.'%s'::String", infraconsts.AttrJVMGCName)
-	query := fmt.Sprintf(`
-		SELECT %s as time_bucket, %s as collector, toFloat64(sum(hist_count)) as metric_val
-		FROM %s
-		WHERE %s = @teamID AND %s BETWEEN @start AND @end
-		  AND %s = '%s' AND metric_type = 'Histogram'
-		GROUP BY 1, 2 ORDER BY 1, 2`,
-		bucket, collector,
-		infraconsts.TableMetrics,
-		infraconsts.ColTeamID, infraconsts.ColTimestamp,
-		infraconsts.ColMetricName, infraconsts.MetricJVMGCDuration)
-	var rows []JVMGCCollectionBucket
-	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "jvm.GetJVMGCCollections", &rows, query, dbutil.SimpleBaseParams(teamID, startMs, endMs)...)
-	for i := range rows {
-		rows[i].Value = sanitizeFloatPtr(rows[i].Value)
-	}
-	return rows, err
-}
-
-func (r *ClickHouseRepository) GetJVMThreadCount(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmThreadBucketDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
+// QueryJVMGCCollectionsByName reads `hist_count` (count side of the same
+// histogram) per (timestamp, gc_name) for the per-collector collection panel.
+func (r *ClickHouseRepository) QueryJVMGCCollectionsByName(ctx context.Context, teamID int64, startMs, endMs int64) ([]JVMGCRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name = @metricName
+		)
 		SELECT
-		    %s                                                                         AS time_bucket,
-		    state_dim                                                                  AS daemon,
-		    sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)     AS metric_val
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName
-		GROUP BY time_bucket, daemon
-		ORDER BY time_bucket, daemon`, bucketExpr(startMs, endMs), table)
-	args := append(dbutil.SimpleBaseParams(teamID, startMs, endMs),
-		clickhouse.Named("metricName", infraconsts.MetricJVMThreadCount),
-	)
-	var rows []JVMThreadBucket
-	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "jvm.GetJVMThreadCount", &rows, query, args...)
-	for i := range rows {
-		rows[i].Value = sanitizeFloatPtr(rows[i].Value)
-	}
-	return rows, err
+		    timestamp                                                AS timestamp,
+		    attributes.'jvm.gc.name'::String                         AS gc_name,
+		    toFloat64(hist_count)                                    AS value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name = @metricName
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'jvm.gc.name'::String != ''
+		ORDER BY timestamp`
+	args := withMetricName(metricArgs(teamID, startMs, endMs), infraconsts.MetricJVMGCDuration)
+	var rows []JVMGCRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "jvm.QueryJVMGCCollectionsByName", &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) GetJVMClasses(ctx context.Context, teamID int64, startMs, endMs int64) (jvmClassStatsDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT metric_name                                                             AS metric_name,
-		       sumMerge(value_sum)                                                     AS val_sum,
-		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name IN (@loaded, @countMetric)
-		GROUP BY metric_name`, table)
-	args := append(dbutil.SimpleBaseParams(teamID, startMs, endMs),
-		clickhouse.Named("loaded", infraconsts.MetricJVMClassLoaded),
-		clickhouse.Named("countMetric", infraconsts.MetricJVMClassCount),
-	)
-	var metricRows []struct {
-		MetricName	string	`ch:"metric_name"`
-		ValSum		float64	`ch:"val_sum"`
-		ValAvg		float64	`ch:"val_avg"`
-	}
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "jvm.GetJVMClasses", &metricRows, query, args...); err != nil {
-		return jvmClassStatsDTO{}, err
-	}
-	var row jvmClassStatsDTO
-	for _, mr := range metricRows {
-		switch mr.MetricName {
-		case infraconsts.MetricJVMClassLoaded:
-			if !math.IsNaN(mr.ValSum) && !math.IsInf(mr.ValSum, 0) {
-				row.Loaded = int64(math.Round(mr.ValSum))
-			}
-		case infraconsts.MetricJVMClassCount:
-			if !math.IsNaN(mr.ValAvg) && !math.IsInf(mr.ValAvg, 0) {
-				row.Count = int64(math.Round(mr.ValAvg))
-			}
-		}
-	}
-	return row, nil
-}
-
-func (r *ClickHouseRepository) GetJVMCPU(ctx context.Context, teamID int64, startMs, endMs int64) (jvmCPUStatsDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT metric_name                                                             AS metric_name,
-		       sumMerge(value_sum)                                                     AS val_sum,
-		       sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)  AS val_avg
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name IN (@time, @util)
-		GROUP BY metric_name`, table)
-	args := append(dbutil.SimpleBaseParams(teamID, startMs, endMs),
-		clickhouse.Named("time", infraconsts.MetricJVMCPUTime),
-		clickhouse.Named("util", infraconsts.MetricJVMCPUUtilization),
-	)
-	var metricRows []struct {
-		MetricName	string	`ch:"metric_name"`
-		ValSum		float64	`ch:"val_sum"`
-		ValAvg		float64	`ch:"val_avg"`
-	}
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "jvm.GetJVMCPU", &metricRows, query, args...); err != nil {
-		return jvmCPUStatsDTO{}, err
-	}
-	var row jvmCPUStatsDTO
-	for _, mr := range metricRows {
-		switch mr.MetricName {
-		case infraconsts.MetricJVMCPUTime:
-			row.CPUTimeValue = sanitizeFloat(mr.ValSum)
-		case infraconsts.MetricJVMCPUUtilization:
-			row.RecentUtilization = sanitizeFloat(mr.ValAvg)
-		}
-	}
-	return row, nil
-}
-
-func (r *ClickHouseRepository) GetJVMBuffers(ctx context.Context, teamID int64, startMs, endMs int64) ([]jvmBufferBucketDTO, error) {
-	table, _ := rollup.TierTableFor(metricsGaugesRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
+func (r *ClickHouseRepository) QueryJVMThreadCountByDaemon(ctx context.Context, teamID int64, startMs, endMs int64) ([]JVMThreadRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name = @metricName
+		)
 		SELECT
-		    %s                                                                         AS time_bucket,
-		    state_dim                                                                  AS pool_name,
-		    metric_name                                                                AS metric_name,
-		    sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)     AS val
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name IN (@mem, @cnt)
-		GROUP BY time_bucket, pool_name, metric_name
-		ORDER BY time_bucket, pool_name`, bucketExpr(startMs, endMs), table)
-	args := append(dbutil.SimpleBaseParams(teamID, startMs, endMs),
-		clickhouse.Named("mem", infraconsts.MetricJVMBufferMemoryUsage),
-		clickhouse.Named("cnt", infraconsts.MetricJVMBufferCount),
-	)
-	var metricRows []struct {
-		TimeBucket	string	`ch:"time_bucket"`
-		PoolName	string	`ch:"pool_name"`
-		MetricName	string	`ch:"metric_name"`
-		Val		float64	`ch:"val"`
-	}
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "jvm.GetJVMBuffers", &metricRows, query, args...); err != nil {
-		return nil, err
-	}
-	type key struct{ bucket, pool string }
-	out := map[key]*JVMBufferBucket{}
-	for _, mr := range metricRows {
-		k := key{mr.TimeBucket, mr.PoolName}
-		row, ok := out[k]
-		if !ok {
-			row = &JVMBufferBucket{Timestamp: k.bucket, PoolName: k.pool}
-			out[k] = row
-		}
-		v := mr.Val
-		switch mr.MetricName {
-		case infraconsts.MetricJVMBufferMemoryUsage:
-			row.MemoryUsage = sanitizeFloatPtr(&v)
-		case infraconsts.MetricJVMBufferCount:
-			row.Count = sanitizeFloatPtr(&v)
-		}
-	}
-	rows := make([]JVMBufferBucket, 0, len(out))
-	for _, row := range out {
-		rows = append(rows, *row)
-	}
-	return rows, nil
+		    timestamp                                                AS timestamp,
+		    attributes.'jvm.thread.daemon'::String                   AS daemon,
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name = @metricName
+		  AND timestamp BETWEEN @start AND @end
+		ORDER BY timestamp`
+	args := withMetricName(metricArgs(teamID, startMs, endMs), infraconsts.MetricJVMThreadCount)
+	var rows []JVMThreadRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "jvm.QueryJVMThreadCountByDaemon", &rows, query, args...)
 }
 
-func sanitizeFloat(v float64) float64 {
-	if math.IsNaN(v) || math.IsInf(v, 0) {
-		return 0
-	}
-	return v
+func (r *ClickHouseRepository) QueryJVMClasses(ctx context.Context, teamID int64, startMs, endMs int64) ([]JVMMetricNameRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN @metricNames
+		)
+		SELECT
+		    metric_name AS metric_name,
+		    sum(val_sum) / sum(val_count)  AS value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name IN @metricNames
+		  AND timestamp BETWEEN @start AND @end
+		GROUP BY metric_name`
+	args := withMetricNames(metricArgs(teamID, startMs, endMs), []string{
+		infraconsts.MetricJVMClassLoaded,
+		infraconsts.MetricJVMClassCount,
+	})
+	var rows []JVMMetricNameRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "jvm.QueryJVMClasses", &rows, query, args...)
 }
 
-func sanitizeFloatPtr(v *float64) *float64 {
-	if v == nil {
-		return nil
+func (r *ClickHouseRepository) QueryJVMCPU(ctx context.Context, teamID int64, startMs, endMs int64) ([]JVMMetricNameRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN @metricNames
+		)
+		SELECT
+		    metric_name AS metric_name,
+		    sum(val_sum) / sum(val_count)  AS value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name IN @metricNames
+		  AND timestamp BETWEEN @start AND @end
+		GROUP BY metric_name`
+	args := withMetricNames(metricArgs(teamID, startMs, endMs), []string{
+		infraconsts.MetricJVMCPUTime,
+		infraconsts.MetricJVMCPUUtilization,
+	})
+	var rows []JVMMetricNameRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "jvm.QueryJVMCPU", &rows, query, args...)
+}
+
+func (r *ClickHouseRepository) QueryJVMBuffersByPool(ctx context.Context, teamID int64, startMs, endMs int64) ([]JVMBufferRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN @metricNames
+		)
+		SELECT
+		    timestamp                                                AS timestamp,
+		    attributes.'jvm.buffer.pool.name'::String                AS pool_name,
+		    metric_name                                              AS metric_name,
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name IN @metricNames
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'jvm.buffer.pool.name'::String != ''
+		ORDER BY timestamp`
+	args := withMetricNames(metricArgs(teamID, startMs, endMs), []string{
+		infraconsts.MetricJVMBufferMemoryUsage,
+		infraconsts.MetricJVMBufferCount,
+	})
+	var rows []JVMBufferRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "jvm.QueryJVMBuffersByPool", &rows, query, args...)
+}
+
+// ---------------------------------------------------------------------------
+// Local helpers — each module owns its own.
+// ---------------------------------------------------------------------------
+
+func metricArgs(teamID int64, startMs, endMs int64) []any {
+	bucketStart, bucketEnd := metricBucketBounds(startMs, endMs)
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("bucketStart", bucketStart),
+		clickhouse.Named("bucketEnd", bucketEnd),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
-	if math.IsNaN(*v) || math.IsInf(*v, 0) {
-		return nil
-	}
-	return v
+}
+
+func metricBucketBounds(startMs, endMs int64) (uint32, uint32) {
+	return timebucket.BucketStart(startMs / 1000),
+		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
+}
+
+func withMetricName(args []any, name string) []any {
+	return append(args, clickhouse.Named("metricName", name))
+}
+
+func withMetricNames(args []any, names []string) []any {
+	return append(args, clickhouse.Named("metricNames", names))
 }

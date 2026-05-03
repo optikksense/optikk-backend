@@ -17,14 +17,6 @@ func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
 }
 
-func (s *Service) GetCurrentUser(userID int64) (UserResponse, error) {
-	user, err := s.repo.FindUserByID(userID)
-	if err != nil {
-		return UserResponse{}, usershared.NewNotFoundError("User not found", err)
-	}
-	return s.buildUserResponse(user)
-}
-
 func (s *Service) GetUsers(teamID int64, limit, offset int) ([]UserListItem, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100

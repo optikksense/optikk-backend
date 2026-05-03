@@ -19,12 +19,6 @@ type Trace struct {
 	Truncated      bool     `json:"truncated,omitempty"`
 }
 
-type Summary struct {
-	TotalTraces   uint64 `json:"total_traces"`
-	TotalErrors   uint64 `json:"total_errors"`
-	TotalDuration uint64 `json:"total_duration_ns"` // sum(duration_ns) is UInt64 in ClickHouse
-}
-
 type FacetBucket struct {
 	Value string `json:"value"`
 	Count uint64 `json:"count"`

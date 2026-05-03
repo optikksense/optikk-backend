@@ -1,33 +1,21 @@
-package trace_suggest	//nolint:revive,stylecheck
+package trace_suggest //nolint:revive,stylecheck
 
 import (
 	"context"
-	"fmt"
 	"strings"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 )
 
-const (
-	tracesIndexTable	= "observability.traces_index"
-	spansRawTable		= "observability.spans"
-)
-
-// scalarColumns maps the DSL field key to the traces_index column that backs
-// suggestions for it. Attribute keys (prefixed `@`) take a different path.
-var scalarColumns = map[string]string{
-	"service":	"root_service",
-	"operation":	"root_operation",
-	"http_method":	"root_http_method",
-	"http_status":	"toString(root_http_status)",
-	"status":	"root_status",
-	"environment":	"environment",
-}
-
+// Repository runs the two suggest queries. Queries only — service.go owns
+// dispatch (`@`-prefix → SuggestAttribute, otherwise → SuggestScalar) plus
+// scalar-field validation against the canonical name set.
 type Repository interface {
-	SuggestScalar(ctx context.Context, teamID int64, startMs, endMs int64, field, prefix string, limit int) ([]suggestionRow, error)
-	SuggestAttribute(ctx context.Context, teamID int64, startMs, endMs int64, attrKey, prefix string, limit int) ([]suggestionRow, error)
+	SuggestScalar(ctx context.Context, teamID, startMs, endMs int64, field, prefix string, limit int) ([]suggestionRow, error)
+	SuggestAttribute(ctx context.Context, teamID, startMs, endMs int64, attrKey, prefix string, limit int) ([]suggestionRow, error)
 }
 
 type ClickHouseRepository struct {
@@ -38,66 +26,81 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-// SuggestScalar reads top-K values for a known scalar field from traces_index.
-// Time-bounded via ts_bucket_start so the scan stays cheap.
-func (r *ClickHouseRepository) SuggestScalar(ctx context.Context, teamID int64, startMs, endMs int64, field, prefix string, limit int) ([]suggestionRow, error) {
-	col, ok := scalarColumns[field]
-	if !ok {
-		return nil, fmt.Errorf("trace_suggest: unknown scalar field %q", field)
-	}
-	var rows []suggestionRow
-	query := fmt.Sprintf(`
-		SELECT %s AS value, count() AS count
-		FROM %s
-		WHERE team_id = @teamID
-		  AND start_ms BETWEEN @startMs AND @endMs
-		  AND %s != ''
-		  AND positionCaseInsensitive(%s, @prefix) > 0
-		GROUP BY value
-		ORDER BY count DESC
-		LIMIT @limit
-	`, col, tracesIndexTable, col, col)
-	err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "trace_suggest.SuggestScalar", &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
-		clickhouse.Named("startMs", uint64(startMs)),	//nolint:gosec // G115
-		clickhouse.Named("endMs", uint64(endMs)),	//nolint:gosec // G115
-		clickhouse.Named("prefix", prefix),
-		clickhouse.Named("limit", uint64(limit)),	//nolint:gosec // G115
-	)
-	return rows, err
-}
-
-// SuggestAttribute reads top values for a custom span attribute key.
-// Phase 7: reads from observability.trace_attribute_values_5m — a pre-bucketed
-// (team_id, attribute_key, bucket_ts, value) MV — instead of scanning raw
-// spans with positionCaseInsensitive(). Narrow range scan on the ordering
-// key + prefix filter on the already-summarised values.
-func (r *ClickHouseRepository) SuggestAttribute(ctx context.Context, teamID int64, startMs, endMs int64, attrKey, prefix string, limit int) ([]suggestionRow, error) {
-	var rows []suggestionRow
-	key := strings.TrimPrefix(attrKey, "@")
+// SuggestScalar reads top-K values for a known scalar field from raw spans
+// over the [startMs, endMs] window. The field has been validated upstream
+// in service.go (IsScalarField); scalarFieldExpr returns a closed-set
+// column name so string concatenation is safe.
+func (r *ClickHouseRepository) SuggestScalar(ctx context.Context, teamID, startMs, endMs int64, field, prefix string, limit int) ([]suggestionRow, error) {
+	column := scalarFieldExpr(field)
 	query := `
-		SELECT value, toUInt64(sumMerge(count_agg)) AS count
-		FROM observability.trace_attribute_values_5m
-		PREWHERE team_id = @teamID AND attribute_key = @attrKey
-		WHERE bucket_ts BETWEEN fromUnixTimestamp64Milli(@startMs) AND fromUnixTimestamp64Milli(@endMs)
+		SELECT ` + column + `        AS value,
+		       sum(request_count)    AS count
+		FROM observability.spans_1m
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		WHERE timestamp BETWEEN @startMs AND @endMs
+		  AND ` + column + ` != ''
 		  AND (length(@prefix) = 0 OR positionCaseInsensitive(value, @prefix) > 0)
 		GROUP BY value
 		ORDER BY count DESC
-		LIMIT @limit
-	`
-	err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "trace_suggest.SuggestAttribute", &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
-		clickhouse.Named("attrKey", key),
-		clickhouse.Named("startMs", startMs),
-		clickhouse.Named("endMs", endMs),
-		clickhouse.Named("prefix", prefix),
-		clickhouse.Named("limit", uint64(limit)),	//nolint:gosec // G115
-	)
-	return rows, err
+		LIMIT @limit`
+	var rows []suggestionRow
+	return rows, dbutil.SelectCH(dbutil.DashboardCtx(ctx), r.db, "trace_suggest.SuggestScalar", &rows, query, suggestArgs(teamID, startMs, endMs, prefix, limit)...)
 }
 
-// IsScalarField lets the service layer pick the scalar vs attribute path.
-func IsScalarField(field string) bool {
-	_, ok := scalarColumns[field]
-	return ok
+// SuggestAttribute reads top-K values for a custom span attribute key from
+// the per-data-point attributes JSON on raw spans.
+func (r *ClickHouseRepository) SuggestAttribute(ctx context.Context, teamID, startMs, endMs int64, attrKey, prefix string, limit int) ([]suggestionRow, error) {
+	const query = `
+		SELECT JSONExtractString(toJSONString(attributes), @attrKey) AS value, count() AS count
+		FROM observability.spans
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		WHERE timestamp BETWEEN @startMs AND @endMs
+		  AND value != ''
+		  AND (length(@prefix) = 0 OR positionCaseInsensitive(value, @prefix) > 0)
+		GROUP BY value
+		ORDER BY count DESC
+		LIMIT @limit`
+	args := append(suggestArgs(teamID, startMs, endMs, prefix, limit),
+		clickhouse.Named("attrKey", strings.TrimPrefix(attrKey, "@")),
+	)
+	var rows []suggestionRow
+	return rows, dbutil.SelectCH(dbutil.DashboardCtx(ctx), r.db, "trace_suggest.SuggestAttribute", &rows, query, args...)
+}
+
+// suggestArgs binds the 6 parameters both suggest queries share. bucketEnd
+// adds one bucket beyond the last covering bucket so endMs at a 5-minute
+// boundary doesn't drop the final bucket — same shape as services/latency
+// and topology.
+func suggestArgs(teamID, startMs, endMs int64, prefix string, limit int) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
+		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)+uint32(timebucket.BucketSeconds)),
+		clickhouse.Named("startMs", time.UnixMilli(startMs)),
+		clickhouse.Named("endMs", time.UnixMilli(endMs)),
+		clickhouse.Named("prefix", prefix),
+		clickhouse.Named("limit", uint64(limit)), //nolint:gosec // G115
+	}
+}
+
+// scalarFieldExpr maps a validated scalar field name to its raw spans
+// column. Returns "”" for unknown fields as a defensive default — service
+// layer validates via IsScalarField before reaching here.
+func scalarFieldExpr(field string) string {
+	switch field {
+	case "service":
+		return "service"
+	case "operation":
+		return "name"
+	case "http_method":
+		return "http_method"
+	case "http_status":
+		return "response_status_code"
+	case "status":
+		return "status_code_string"
+	case "environment":
+		return "environment"
+	default:
+		return "''"
+	}
 }

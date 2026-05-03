@@ -1,11 +1,3 @@
-// Package metrics holds the application-level Prometheus collectors,
-// split by subsystem so each file stays under the 200-LOC cap.
-//
-// Collectors are registered via `promauto` against
-// `prometheus.DefaultRegisterer` at package init, so the existing
-// `/metrics` endpoint (see internal/app/server/routes.go) exposes them
-// without further wiring. The local Prometheus stack (deploy/monitoring/stack/)
-// scrapes `/metrics` directly.
 package metrics
 
 import (
@@ -13,10 +5,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// HTTP histogram buckets span 5 ms → 5 s — covers healthy API p50 through
-// fat-tail p99 on list/facets endpoints. Keep the bucket count reasonable
-// (~10) to cap series explosion when multiplied by the label cardinality.
-var httpBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5}
+// HTTP histogram buckets span 5 ms → 60 s. Top bucket matches the server
+// WriteTimeout, so true tail latency isn't clamped by the histogram itself.
+var httpBuckets = []float64{.005, .01, .025, .05, .1, .25, .5, 1, 2.5, 5, 10, 30, 60}
 
 var (
 	HTTPRequestsTotal = promauto.NewCounterVec(prometheus.CounterOpts{

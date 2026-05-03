@@ -2,6 +2,9 @@
 // Per-scenario RPS is computed from cfg.rps using a fixed weight per module
 // (traces 25 / logs 20 / metrics 10 / overview 25 / infrastructure 10 /
 // saturation 8 / services 2). Every scenario gets at least 1 RPS.
+//
+// "overview" here is a load-test grouping for dashboard-style read scenarios;
+// the underlying URLs live under /errors, /slo, /spans, /apm, /http, /red.
 
 import { setup, teardown } from '../lib/bootstrap.js';
 import { handleSummary } from '../lib/summary.js';
@@ -16,14 +19,14 @@ import { tracePathsAndShape } from '../scenarios/traces/paths_and_shape.js';
 import { traceErrors }        from '../scenarios/traces/errors.js';
 import { traceLatency }       from '../scenarios/traces/latency.js';
 
-import { logsExplorer }  from '../scenarios/logs/explorer.js';
-import { logsAnalytics } from '../scenarios/logs/analytics.js';
-import { logsDetail }    from '../scenarios/logs/detail.js';
+import { logsExplorer }   from '../scenarios/logs/explorer.js';
+import { logsAnalytics }  from '../scenarios/logs/analytics.js';
+import { logsDetail }     from '../scenarios/logs/detail.js';
+import { logsTraceLogs }  from '../scenarios/logs/trace_logs.js';
 
 import { metricsQuery } from '../scenarios/metrics/query.js';
 import { metricsMeta }  from '../scenarios/metrics/meta.js';
 
-import { overviewSummary }     from '../scenarios/overview/summary.js';
 import { overviewErrors }      from '../scenarios/overview/errors.js';
 import { overviewSpanErrors }  from '../scenarios/overview/span_errors.js';
 import { overviewSlo }         from '../scenarios/overview/slo.js';
@@ -35,7 +38,6 @@ import { infraNodes }        from '../scenarios/infrastructure/nodes.js';
 import { infraFleet }        from '../scenarios/infrastructure/fleet.js';
 import { infraCompute }      from '../scenarios/infrastructure/compute.js';
 import { infraIO }           from '../scenarios/infrastructure/io.js';
-import { infraResourceUtil } from '../scenarios/infrastructure/resource_util.js';
 import { infraKubernetes }   from '../scenarios/infrastructure/kubernetes.js';
 
 import { saturationDatastoresExplorer }  from '../scenarios/saturation/datastores_explorer.js';
@@ -52,8 +54,8 @@ const WEIGHTS = {
   traces:         { share: 0.25, count: 9 },
   logs:           { share: 0.20, count: 3 },
   metrics:        { share: 0.10, count: 2 },
-  overview:       { share: 0.25, count: 7 },
-  infrastructure: { share: 0.10, count: 6 },
+  overview:       { share: 0.25, count: 6 },
+  infrastructure: { share: 0.10, count: 5 },
   saturation:     { share: 0.08, count: 6 },
   services:       { share: 0.02, count: 2 },
 };
@@ -85,14 +87,14 @@ export const options = {
     traces_errors:          block('traces', 'traceErrors'),
     traces_latency:         block('traces', 'traceLatency'),
 
-    logs_explorer:  block('logs', 'logsExplorer'),
-    logs_analytics: block('logs', 'logsAnalytics'),
-    logs_detail:    block('logs', 'logsDetail'),
+    logs_explorer:   block('logs', 'logsExplorer'),
+    logs_analytics:  block('logs', 'logsAnalytics'),
+    logs_detail:     block('logs', 'logsDetail'),
+    logs_trace_logs: block('logs', 'logsTraceLogs'),
 
     metrics_query: block('metrics', 'metricsQuery'),
     metrics_meta:  block('metrics', 'metricsMeta'),
 
-    overview_summary:      block('overview', 'overviewSummary'),
     overview_errors:       block('overview', 'overviewErrors'),
     overview_span_errors:  block('overview', 'overviewSpanErrors'),
     overview_slo:          block('overview', 'overviewSlo'),
@@ -104,7 +106,6 @@ export const options = {
     infra_fleet:         block('infrastructure', 'infraFleet'),
     infra_compute:       block('infrastructure', 'infraCompute'),
     infra_io:            block('infrastructure', 'infraIO'),
-    infra_resource_util: block('infrastructure', 'infraResourceUtil'),
     infra_kubernetes:    block('infrastructure', 'infraKubernetes'),
 
     saturation_datastores_explorer:  block('saturation', 'saturationDatastoresExplorer'),
@@ -123,11 +124,11 @@ export { setup, teardown, handleSummary };
 export {
   tracesExplorer, tracesAnalytics, spansQuery, tracesSuggest,
   traceDetailCore, traceDetailExtras, tracePathsAndShape, traceErrors, traceLatency,
-  logsExplorer, logsAnalytics, logsDetail,
+  logsExplorer, logsAnalytics, logsDetail, logsTraceLogs,
   metricsQuery, metricsMeta,
-  overviewSummary, overviewErrors, overviewSpanErrors, overviewSlo,
+  overviewErrors, overviewSpanErrors, overviewSlo,
   overviewRedMetrics, overviewHttpMetrics, overviewApm,
-  infraNodes, infraFleet, infraCompute, infraIO, infraResourceUtil, infraKubernetes,
+  infraNodes, infraFleet, infraCompute, infraIO, infraKubernetes,
   saturationDatastoresExplorer, saturationDatastoresDrilldown,
   saturationKafkaExplorer, saturationKafkaPerf, saturationKafkaLag, saturationKafkaHealth,
   servicesTopology, servicesDeployments,

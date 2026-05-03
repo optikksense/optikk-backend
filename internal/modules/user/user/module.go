@@ -20,7 +20,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 
 	usersGroup := v1.Group("/users")
 	{
-		usersGroup.GET("/me", h.GetCurrentUser)
 		usersGroup.GET("", h.GetUsers)
 		usersGroup.GET("/:id", h.GetUserByID)
 		usersGroup.POST("", h.CreateUser)
@@ -44,8 +43,7 @@ type userPageModule struct {
 	handler *Handler
 }
 
-func (m *userPageModule) Name() string                      { return "userPage" }
-func (m *userPageModule) RouteTarget() registry.RouteTarget { return registry.V1 }
+func (m *userPageModule) Name() string { return "userPage" }
 
 func (m *userPageModule) configure(sqlDB *registry.SQLDB, getTenant registry.GetTenantFunc, appConfig registry.AppConfig) {
 	m.handler = NewHandler(

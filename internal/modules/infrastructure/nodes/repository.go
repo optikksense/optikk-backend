@@ -2,136 +2,74 @@ package nodes
 
 import (
 	"context"
-	"fmt"
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 )
 
-// Reads target the `observability.spans_host_rollup_{1m,5m,1h}` cascade —
-// Phase 6 per-host RED aggregates. Rollup is keyed by
-// (team_id, bucket_ts, host_name, pod_name, service_name) so pod + service
-// cardinality comes from `uniq()` on the grouping dims.
-const spansHostRollupPrefix = rollup.FamilySpansHost
-
-// queryIntervalMinutes returns max(tierStep, dashboardStep) so the query-time
-// step is never finer than the tier's native resolution. Matches the helper
-// in overview/overview/repository.go.
-func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
-	hours := (endMs - startMs) / 3_600_000
-	var dashStep int64
-	switch {
-	case hours <= 3:
-		dashStep = 1
-	case hours <= 24:
-		dashStep = 5
-	case hours <= 168:
-		dashStep = 60
-	default:
-		dashStep = 1440
-	}
-	if tierStepMin > dashStep {
-		return tierStepMin
-	}
-	return dashStep
-}
+// nodes reads `observability.spans` for per-host RED aggregates. Mirrors
+// httpmetrics' route/external-host queries: `WITH active_fps AS (SELECT
+// DISTINCT fingerprint FROM observability.spans_resource WHERE team_id +
+// ts_bucket)` CTE so the main spans scan PREWHEREs on (team_id, ts_bucket,
+// fingerprint) — first three slots of the spans PK.
 
 type Repository interface {
-	GetInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]InfrastructureNode, error)
-	GetInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (InfrastructureNodeSummary, error)
-	GetInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error)
+	QueryInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]NodeAggregateRow, error)
+	QueryInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (NodeSummaryRow, error)
+	QueryInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]NodeServiceAggregateRow, error)
 }
 
 type ClickHouseRepository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
+func NewRepository(db clickhouse.Conn) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-type infrastructureNodeDTO struct {
-	HostName	string		`ch:"host_name"`
-	PodCount	uint64		`ch:"pod_count"`
-	ServicesCSV	string		`ch:"services_csv"`
-	RequestCount	uint64		`ch:"request_count"`
-	ErrorCount	uint64		`ch:"error_count"`
-	DurationMsSum	float64		`ch:"duration_ms_sum"`
-	P95Latency	float64		`ch:"p95_latency"`
-	LastSeen	time.Time	`ch:"last_seen"`
-}
-
-type infrastructureNodeServiceDTO struct {
-	ServiceName	string	`ch:"service_name"`
-	RequestCount	uint64	`ch:"request_count"`
-	ErrorCount	uint64	`ch:"error_count"`
-	DurationMsSum	float64	`ch:"duration_ms_sum"`
-	P95Latency	float64	`ch:"p95_latency"`
-	PodCount	uint64	`ch:"pod_count"`
-}
-
-func (r *ClickHouseRepository) GetInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]InfrastructureNode, error) {
-	table, _ := rollup.TierTableFor(spansHostRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT if(host_name != '', host_name, '%s') AS host_name,
-		       uniqIf(pod_name, pod_name != '')                                  AS pod_count,
-		       sumMerge(request_count)                                           AS request_count,
-		       sumMerge(error_count)                                             AS error_count,
-		       sumMerge(duration_ms_sum)                                         AS duration_ms_sum,
-		       max(bucket_ts)                                                    AS last_seen
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		GROUP BY host_name
+func (r *ClickHouseRepository) QueryInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]NodeAggregateRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id   = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT
+		    if(host != '', host, @defaultUnknown)                                                AS host,
+		    uniqIf(pod, pod != '')                                                               AS pod_count,
+		    sum(request_count)                                                                   AS request_count,
+		    sum(error_count)                                                                     AS error_count,
+		    sum(duration_ms_sum)                                                                 AS duration_ms_sum,
+		    quantileTimingMerge(0.95)(latency_state)                                             AS p95_latency_ms,
+		    max(timestamp)                                                                       AS last_seen
+		FROM observability.spans_1m
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		GROUP BY host
 		ORDER BY request_count DESC
-		LIMIT `+strconv.Itoa(MaxNodes), DefaultUnknown, table)
-
-	params := []any{
-		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115 - domain-bounded
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-
-	var dtos []infrastructureNodeDTO
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "nodes.GetInfrastructureNodes", &dtos, query, params...); err != nil {
-		return nil, err
-	}
-
-	nodes := make([]InfrastructureNode, len(dtos))
-	for i, d := range dtos {
-		errorRate := 0.0
-		if d.RequestCount > 0 {
-			errorRate = float64(d.ErrorCount) * 100.0 / float64(d.RequestCount)
-		}
-		avgLatency := 0.0
-		if d.RequestCount > 0 {
-			avgLatency = d.DurationMsSum / float64(d.RequestCount)
-		}
-		nodes[i] = InfrastructureNode{
-			Host:		d.HostName,
-			PodCount:	int64(d.PodCount),	//nolint:gosec // domain-bounded
-			ContainerCount:	0,			// rollup does not carry container cardinality
-			Services:	[]string{},		// no longer fetched for fleet view performance
-			RequestCount:	int64(d.RequestCount),
-			ErrorCount:	int64(d.ErrorCount),
-			ErrorRate:	errorRate,
-			AvgLatencyMs:	avgLatency,
-			P95LatencyMs:	0,	// no longer fetched for fleet view performance
-			LastSeen:	d.LastSeen.Format(time.RFC3339),
-		}
-	}
-	return nodes, nil
+		LIMIT @maxNodes`
+	args := spanArgs(teamID, startMs, endMs)
+	args = append(args,
+		clickhouse.Named("defaultUnknown", DefaultUnknown),
+		clickhouse.Named("maxNodes", uint64(MaxNodes)),
+	)
+	var rows []NodeAggregateRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "nodes.QueryInfrastructureNodes", &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) GetInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (InfrastructureNodeSummary, error) {
-	table, _ := rollup.TierTableFor(spansHostRollupPrefix, startMs, endMs)
-	// Dedicated summary query that avoids the MaxNodes limit and executes a
-	// single pass over host-level aggregates to categorize health.
-	query := fmt.Sprintf(`
+func (r *ClickHouseRepository) QueryInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (NodeSummaryRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id   = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
 		SELECT
 		    toInt64(countIf(error_rate > 10))                        AS unhealthy_nodes,
 		    toInt64(countIf(error_rate > 2 AND error_rate <= 10))    AS degraded_nodes,
@@ -139,106 +77,72 @@ func (r *ClickHouseRepository) GetInfrastructureNodeSummary(ctx context.Context,
 		    toInt64(sum(pod_count))                                  AS total_pods
 		FROM (
 		    SELECT
-		        host_name,
-		        (sumMerge(error_count) * 100.0 / nullIf(toFloat64(sumMerge(request_count)), 0)) AS error_rate,
-		        uniqIf(pod_name, pod_name != '')                                             AS pod_count
-		    FROM %s
-		    WHERE team_id = @teamID
-		      AND bucket_ts BETWEEN @start AND @end
-		    GROUP BY host_name
-		)`, table)
-
-	params := []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-
-	var row struct {
-		HealthyNodes	int64	`ch:"healthy_nodes"`
-		DegradedNodes	int64	`ch:"degraded_nodes"`
-		UnhealthyNodes	int64	`ch:"unhealthy_nodes"`
-		TotalPods	int64	`ch:"total_pods"`
-	}
-
-	if err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query, params...).ScanStruct(&row); err != nil {
-		return InfrastructureNodeSummary{}, err
-	}
-
-	return InfrastructureNodeSummary{
-		HealthyNodes:	row.HealthyNodes,
-		DegradedNodes:	row.DegradedNodes,
-		UnhealthyNodes:	row.UnhealthyNodes,
-		TotalPods:	row.TotalPods,
-	}, nil
+		        host,
+		        (sum(error_count) * 100.0
+		            / nullIf(toFloat64(sum(request_count)), 0))      AS error_rate,
+		        uniqIf(pod, pod != '')                               AS pod_count
+		    FROM observability.spans_1m
+		    PREWHERE team_id     = @teamID
+		         AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		         AND fingerprint IN active_fps
+		    WHERE timestamp BETWEEN @start AND @end
+		    GROUP BY host
+		)`
+	args := spanArgs(teamID, startMs, endMs)
+	var row NodeSummaryRow
+	return row, dbutil.QueryRowCH(dbutil.DashboardCtx(ctx), r.db, "nodes.QueryInfrastructureNodeSummary", &row, query, args...)
 }
 
-func (r *ClickHouseRepository) GetInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error) {
-	table, _ := rollup.TierTableFor(spansHostRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT service_name                                                      AS service_name,
-		       sumMerge(request_count)                                           AS request_count,
-		       sumMerge(error_count)                                             AS error_count,
-		       sumMerge(duration_ms_sum)                                         AS duration_ms_sum,
-		       toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) AS p95_latency,
-		       uniqIf(pod_name, pod_name != '')                                  AS pod_count
-		FROM %s
-		WHERE team_id = @teamID
-		  AND if(host_name != '', host_name, '%s') = @host
-		  AND bucket_ts BETWEEN @start AND @end
-		GROUP BY service_name
+func (r *ClickHouseRepository) QueryInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]NodeServiceAggregateRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id   = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT
+		    service                                                                              AS service,
+		    sum(request_count)                                                                   AS request_count,
+		    sum(error_count)                                                                     AS error_count,
+		    sum(duration_ms_sum)                                                                 AS duration_ms_sum,
+		    quantileTimingMerge(0.95)(latency_state)                                             AS p95_latency_ms,
+		    uniqIf(pod, pod != '')                                                               AS pod_count
+		FROM observability.spans_1m
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND if(host != '', host, @defaultUnknown) = @host
+		GROUP BY service
 		ORDER BY request_count DESC
-		LIMIT `+strconv.Itoa(MaxServices), table, DefaultUnknown)
-
-	params := []any{
-		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
+		LIMIT @maxServices`
+	args := spanArgs(teamID, startMs, endMs)
+	args = append(args,
 		clickhouse.Named("host", host),
+		clickhouse.Named("defaultUnknown", DefaultUnknown),
+		clickhouse.Named("maxServices", uint64(MaxServices)),
+	)
+	var rows []NodeServiceAggregateRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "nodes.QueryInfrastructureNodeServices", &rows, query, args...)
+}
+
+// ---------------------------------------------------------------------------
+// Local helpers — each module owns its own.
+// ---------------------------------------------------------------------------
+
+func spanArgs(teamID int64, startMs, endMs int64) []any {
+	bucketStart, bucketEnd := spanBucketBounds(startMs, endMs)
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("bucketStart", bucketStart),
+		clickhouse.Named("bucketEnd", bucketEnd),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
-
-	var dtos []infrastructureNodeServiceDTO
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "nodes.GetInfrastructureNodeServices", &dtos, query, params...); err != nil {
-		return nil, err
-	}
-
-	services := make([]InfrastructureNodeService, len(dtos))
-	for i, d := range dtos {
-		errorRate := 0.0
-		if d.RequestCount > 0 {
-			errorRate = float64(d.ErrorCount) * 100.0 / float64(d.RequestCount)
-		}
-		avgLatency := 0.0
-		if d.RequestCount > 0 {
-			avgLatency = d.DurationMsSum / float64(d.RequestCount)
-		}
-		services[i] = InfrastructureNodeService{
-			ServiceName:	d.ServiceName,
-			RequestCount:	int64(d.RequestCount),	//nolint:gosec // domain-bounded
-			ErrorCount:	int64(d.ErrorCount),	//nolint:gosec // domain-bounded
-			ErrorRate:	errorRate,
-			AvgLatencyMs:	avgLatency,
-			P95LatencyMs:	d.P95Latency,
-			PodCount:	int64(d.PodCount),	//nolint:gosec // domain-bounded
-		}
-	}
-	return services, nil
 }
 
-// splitCSV splits the CSV list of service names returned by
-// arrayStringConcat(groupUniqArray(...), ',').
-func splitCSV(s string) []string {
-	s = strings.TrimSpace(s)
-	s = strings.TrimPrefix(s, "[")
-	s = strings.TrimSuffix(s, "]")
-	parts := strings.Split(s, ",")
-	clean := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		p = strings.Trim(p, "'\"")
-		if p != "" {
-			clean = append(clean, p)
-		}
-	}
-	return clean
+func spanBucketBounds(startMs, endMs int64) (uint32, uint32) {
+	return timebucket.BucketStart(startMs / 1000),
+		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }

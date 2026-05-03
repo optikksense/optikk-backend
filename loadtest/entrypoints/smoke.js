@@ -33,9 +33,11 @@ export function smoke(ctx) {
   client.post('/api/v1/metrics/explorer/query',
     metricsQueryBody({ metricNames: [randomPick(metricNames)], aggregation: 'avg', ...w, step: '60s' }),
     { module: 'smoke', endpoint: 'metrics' });
-  client.get('/api/v1/overview/summary', q, { module: 'smoke', endpoint: 'overview' });
+  client.get('/api/v1/slo', q, { module: 'smoke', endpoint: 'overview' });
   client.get('/api/v1/infrastructure/nodes', q, { module: 'smoke', endpoint: 'infrastructure' });
-  client.get('/api/v1/saturation/datastores/summary', q, { module: 'smoke', endpoint: 'saturation' });
+  client.get('/api/v1/saturation/datastores/summary', q, { module: 'smoke', endpoint: 'saturation_explorer' });
+  client.get('/api/v1/saturation/database/summary',   q, { module: 'smoke', endpoint: 'saturation_db_summary' });
+  client.get('/api/v1/saturation/database/systems',   q, { module: 'smoke', endpoint: 'saturation_db_systems' });
   client.get('/api/v1/services/topology', q, { module: 'smoke', endpoint: 'services' });
 }
 

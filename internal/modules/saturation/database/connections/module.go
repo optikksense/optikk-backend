@@ -20,7 +20,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}
-	shared.RegisterDualGroup(v1, "/connections", func(g *gin.RouterGroup) {
+	shared.RegisterGroup(v1, "/connections", func(g *gin.RouterGroup) {
 		g.GET("/count", h.GetConnectionCountSeries)
 		g.GET("/utilization", h.GetConnectionUtilization)
 		g.GET("/limits", h.GetConnectionLimits)
@@ -42,8 +42,7 @@ type dbConnectionsModule struct {
 	handler *Handler
 }
 
-func (m *dbConnectionsModule) Name() string                      { return "dbConnections" }
-func (m *dbConnectionsModule) RouteTarget() registry.RouteTarget { return registry.Cached }
+func (m *dbConnectionsModule) Name() string { return "dbConnections" }
 
 func (m *dbConnectionsModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{

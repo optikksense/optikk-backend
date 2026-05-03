@@ -8,21 +8,18 @@ import (
 	infrastructure_connpool "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/connpool"
 	infrastructure_cpu "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/cpu"
 	infrastructure_disk "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/disk"
+	infrastructure_fleet "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/fleet"
 	infrastructure_jvm "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/jvm"
 	infrastructure_kubernetes "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/kubernetes"
 	infrastructure_memory "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/memory"
 	infrastructure_network "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/network"
-	infrastructure_fleet "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/fleet"
 	infrastructure_nodes "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/nodes"
-	infrastructure_resource_utilisation "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/resourceutil"
 	log_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/logs/explorer"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/metrics"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/overview/apm"
-	overview_errors "github.com/Optikk-Org/optikk-backend/internal/modules/overview/errors"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/overview/httpmetrics"
-	overview_overview "github.com/Optikk-Org/optikk-backend/internal/modules/overview/overview"
-	overview_redmetrics "github.com/Optikk-Org/optikk-backend/internal/modules/overview/redmetrics"
-	overview_slo "github.com/Optikk-Org/optikk-backend/internal/modules/overview/slo"
+	log_facets "github.com/Optikk-Org/optikk-backend/internal/modules/logs/facets"
+	log_trends "github.com/Optikk-Org/optikk-backend/internal/modules/logs/trends"
+	log_detail "github.com/Optikk-Org/optikk-backend/internal/modules/logs/logdetail"
+	log_trace_logs "github.com/Optikk-Org/optikk-backend/internal/modules/logs/trace_logs"
+	metrics_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/metrics/explorer"
 	saturation_database_collection "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/collection"
 	saturation_database_connections "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/connections"
 	saturation_database_errors "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/errors"
@@ -34,13 +31,17 @@ import (
 	saturation_database_systems "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/systems"
 	saturation_database_volume "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/volume"
 	saturation_kafka "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka"
+	saturation_kafka_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka/explorer"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/services/apm"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/services/deployments"
+	services_errors "github.com/Optikk-Org/optikk-backend/internal/modules/services/errors"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/services/httpmetrics"
+	services_latency "github.com/Optikk-Org/optikk-backend/internal/modules/services/latency"
+	services_redmetrics "github.com/Optikk-Org/optikk-backend/internal/modules/services/redmetrics"
+	services_slo "github.com/Optikk-Org/optikk-backend/internal/modules/services/slo"
 	services_topology "github.com/Optikk-Org/optikk-backend/internal/modules/services/topology"
-	traces_errors "github.com/Optikk-Org/optikk-backend/internal/modules/traces/errors"
 	spans_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
-	traces_latency "github.com/Optikk-Org/optikk-backend/internal/modules/traces/latency"
 	span_query "github.com/Optikk-Org/optikk-backend/internal/modules/traces/span_query"
-	trace_analytics "github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_analytics"
 	trace_paths "github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_paths"
 	trace_servicemap "github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_servicemap"
 	trace_shape "github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_shape"
@@ -49,6 +50,8 @@ import (
 	user_auth "github.com/Optikk-Org/optikk-backend/internal/modules/user/auth"
 	user_team "github.com/Optikk-Org/optikk-backend/internal/modules/user/team"
 	user_user "github.com/Optikk-Org/optikk-backend/internal/modules/user/user"
+
+	savedviews "github.com/Optikk-Org/optikk-backend/internal/modules/saved_views"
 )
 
 func configuredModules(
@@ -71,16 +74,18 @@ func configuredModules(
 		infrastructure_network.NewModule(nativeQuerier, getTenant),
 		infrastructure_fleet.NewModule(nativeQuerier, getTenant),
 		infrastructure_nodes.NewModule(nativeQuerier, getTenant),
-		infrastructure_resource_utilisation.NewModule(nativeQuerier, getTenant),
 		log_explorer.NewModule(nativeQuerier, getTenant),
-		metrics.NewModule(nativeQuerier, getTenant),
+		log_detail.NewModule(nativeQuerier, getTenant),
+		log_facets.NewModule(nativeQuerier, getTenant),
+		log_trends.NewModule(nativeQuerier, getTenant),
+		log_trace_logs.NewModule(nativeQuerier, getTenant),
+		metrics_explorer.NewModule(nativeQuerier, getTenant),
 		infraDeps.Ingest.Logs,
 		infraDeps.Ingest.Metrics,
 		infraDeps.Ingest.Spans,
-		overview_errors.NewModule(nativeQuerier, getTenant),
-		overview_overview.NewModule(nativeQuerier, getTenant),
-		overview_redmetrics.NewModule(nativeQuerier, getTenant),
-		overview_slo.NewModule(nativeQuerier, getTenant),
+		services_errors.NewModule(nativeQuerier, getTenant),
+		services_redmetrics.NewModule(nativeQuerier, getTenant),
+		services_slo.NewModule(nativeQuerier, getTenant),
 		saturation_explorer.NewModule(nativeQuerier, getTenant),
 		saturation_database_collection.NewModule(nativeQuerier, getTenant),
 		saturation_database_connections.NewModule(nativeQuerier, getTenant),
@@ -92,19 +97,20 @@ func configuredModules(
 		saturation_database_systems.NewModule(nativeQuerier, getTenant),
 		saturation_database_volume.NewModule(nativeQuerier, getTenant),
 		saturation_kafka.NewModule(nativeQuerier, getTenant),
+		saturation_kafka_explorer.NewModule(nativeQuerier, getTenant),
 		services_topology.NewModule(nativeQuerier, getTenant),
 		spans_explorer.NewModule(nativeQuerier, getTenant),
 		spans_tracedetail.NewModule(nativeQuerier, getTenant),
 		span_query.NewModule(nativeQuerier, getTenant),
-		trace_analytics.NewModule(nativeQuerier, getTenant),
 		trace_paths.NewModule(nativeQuerier, getTenant),
 		trace_servicemap.NewModule(nativeQuerier, getTenant),
 		trace_shape.NewModule(nativeQuerier, getTenant),
 		trace_suggest.NewModule(nativeQuerier, getTenant),
-		traces_errors.NewModule(nativeQuerier, getTenant),
-		traces_latency.NewModule(nativeQuerier, getTenant),
+		services_latency.NewModule(nativeQuerier, getTenant),
 		user_auth.NewModule(infraDeps.DB, getTenant, infraDeps.SessionManager, appConfig),
 		user_team.NewModule(infraDeps.DB, getTenant, appConfig),
 		user_user.NewModule(infraDeps.DB, getTenant, appConfig),
+
+		savedviews.NewModule(infraDeps.DB, getTenant),
 	}
 }

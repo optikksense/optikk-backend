@@ -1,77 +1,95 @@
-// Package explorer backs the POST /traces/query + /traces/analytics + GET
-// /traces/:id read paths. List + facets + trend read observability.traces_index
-// (per-trace summary). Analytics and raw-span filters fall through to
-// observability.spans + spans_rollup_*.
 package explorer
 
 import (
 	"context"
-	"fmt"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/filter"
 )
 
-const (
-	tracesIndexTable	= "observability.traces_index"
-	spansRawTable		= "observability.spans"
-	spansRollupPrefix	= rollup.FamilySpansRED
-	// Traces facets pinned to _5m until callers plumb startMs/endMs for tier
-	// selection; rollup exists at all three tiers now.
-	tracesFacetRollup	= "observability.traces_facets_5m"
-	traceIndexColumns	= `trace_id, start_ms, end_ms, duration_ns, root_service, root_operation, root_status,
-			root_http_method, root_http_status, span_count, has_error, error_count, service_set, truncated, last_seen_ms`
-)
+const traceIndexColumns = `trace_id,
+		timestamp                                                  AS start_ms,
+		timestamp                                                  AS end_ms,
+		duration_nano                                              AS duration_ns,
+		service                                                    AS root_service,
+		name                                                       AS root_operation,
+		status_code_string                                         AS root_status,
+		http_method                                                AS root_http_method,
+		response_status_code                                       AS root_http_status,
+		1                                                          AS span_count,
+		has_error,
+		(CASE WHEN has_error THEN 1 ELSE 0 END)                    AS error_count,
+		[service]                                                  AS service_set,
+		false                                                      AS truncated,
+		timestamp                                                  AS last_seen_ms`
 
 type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *Repository	{ return &Repository{db: db} }
+func NewRepository(db clickhouse.Conn) *Repository { return &Repository{db: db} }
 
-// ListTraces reads observability.traces_index (per-trace summaries from the spans indexer).
-func (r *Repository) ListTraces(ctx context.Context, f querycompiler.Filters, limit int, cur TraceCursor) ([]traceIndexRowDTO, bool, []string, error) {
-	return r.listTracesIndex(ctx, f, limit, cur)
-}
-
-func (r *Repository) listTracesIndex(ctx context.Context, f querycompiler.Filters, limit int, cur TraceCursor) ([]traceIndexRowDTO, bool, []string, error) {
-	compiled := querycompiler.Compile(f, querycompiler.TargetTracesIndex)
-	where := compiled.Where
-	args := compiled.Args
+// ListTraces reads root spans for the per-trace summary list.
+func (r *Repository) ListTraces(ctx context.Context, f filter.Filters, limit int, cur TraceCursor) ([]traceIndexRowDTO, bool, error) {
+	resourceWhere, where, args := filter.BuildClauses(f)
 	if cur.TraceID != "" {
-		where += ` AND (start_ms, trace_id) < (@curStart, @curTraceID)`
+		where += ` AND (timestamp, trace_id) < (@curStart, @curTraceID)`
 		args = append(args,
-			clickhouse.Named("curStart", cur.StartMs),
+			clickhouse.Named("curStart", time.UnixMilli(int64(cur.StartMs))),
 			clickhouse.Named("curTraceID", cur.TraceID),
 		)
 	}
-	query := fmt.Sprintf(
-		`SELECT %s FROM %s PREWHERE %s WHERE %s ORDER BY start_ms DESC, trace_id DESC LIMIT @pgLimit`,
-		traceIndexColumns, tracesIndexTable, compiled.PreWhere, where,
-	)
-	args = append(args, clickhouse.Named("pgLimit", uint64(limit+1))) //nolint:gosec
+	args = append(args, clickhouse.Named("pgLimit", uint64(limit+1)))
+
+	query := `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd` + resourceWhere + `
+		)
+		SELECT ` + traceIndexColumns + `
+		FROM observability.spans
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end AND is_root = 1` + where + `
+		ORDER BY timestamp DESC, trace_id DESC
+		LIMIT @pgLimit`
+
 	var rows []traceIndexRowDTO
 	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "traces.ListTraces", &rows, query, args...); err != nil {
-		return nil, false, compiled.DroppedClauses, err
+		return nil, false, err
 	}
 	hasMore := len(rows) > limit
 	if hasMore {
 		rows = rows[:limit]
 	}
-	return rows, hasMore, compiled.DroppedClauses, nil
+	return rows, hasMore, nil
 }
 
-// GetByID reads a single trace summary from traces_index. PREWHERE on team_id
-// so partition elimination happens before the bloom filter on trace_id kicks in.
+// GetByID reads a single trace summary by trace_id (root span). Two-phase:
+// step 1 resolves (ts_bucket bounds, fingerprint set) from observability.trace_index
+// (single-granule PK lookup leading on trace_id); step 2 narrows raw-span scan
+// to those PK slots. Mirrors the logs/trace_logs pattern.
 func (r *Repository) GetByID(ctx context.Context, teamID int64, traceID string) (*traceIndexRowDTO, error) {
-	query := fmt.Sprintf(
-		`SELECT %s FROM %s PREWHERE team_id = @teamID WHERE trace_id = @traceID ORDER BY last_seen_ms DESC LIMIT 1`,
-		traceIndexColumns, tracesIndexTable,
-	)
+	const query = `
+		WITH trace_loc AS (
+		    SELECT min(ts_bucket)              AS lo,
+		           max(ts_bucket)              AS hi,
+		           groupUniqArray(fingerprint) AS fps
+		    FROM observability.trace_index
+		    PREWHERE trace_id = @traceID AND team_id = @teamID
+		)
+		SELECT ` + traceIndexColumns + `
+		FROM observability.spans
+		PREWHERE team_id = @teamID
+		     AND ts_bucket BETWEEN (SELECT lo FROM trace_loc) AND (SELECT hi FROM trace_loc)
+		     AND fingerprint IN (SELECT arrayJoin(fps) FROM trace_loc)
+		WHERE trace_id = @traceID AND is_root = 1
+		ORDER BY timestamp DESC
+		LIMIT 1`
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("traceID", traceID),
 	}
 	var rows []traceIndexRowDTO
@@ -82,33 +100,4 @@ func (r *Repository) GetByID(ctx context.Context, teamID int64, traceID string) 
 		return nil, nil
 	}
 	return &rows[0], nil
-}
-
-// Summarize returns totals from traces_index.
-func (r *Repository) Summarize(ctx context.Context, f querycompiler.Filters) (Summary, error) {
-	return r.summarizeTracesIndex(ctx, f)
-}
-
-func (r *Repository) summarizeTracesIndex(ctx context.Context, f querycompiler.Filters) (Summary, error) {
-	compiled := querycompiler.Compile(f, querycompiler.TargetTracesIndex)
-	query := fmt.Sprintf(
-		`SELECT count() AS t, countIf(has_error) AS e, sum(duration_ns) AS d FROM %s PREWHERE %s WHERE %s`,
-		tracesIndexTable, compiled.PreWhere, compiled.Where,
-	)
-	var row struct {
-		T	uint64	`ch:"t"`
-		E	uint64	`ch:"e"`
-		D	uint64	`ch:"d"`
-	}
-	rows, err := dbutil.QueryCH(dbutil.ExplorerCtx(ctx), r.db, "explorer.summarizeTracesIndex", query, compiled.Args...)
-	if err != nil {
-		return Summary{}, err
-	}
-	defer rows.Close()
-	if rows.Next() {
-		if err := rows.Scan(&row.T, &row.E, &row.D); err != nil {
-			return Summary{}, err
-		}
-	}
-	return Summary{TotalTraces: row.T, TotalErrors: row.E, TotalDuration: row.D}, nil
 }

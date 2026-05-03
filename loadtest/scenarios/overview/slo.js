@@ -1,9 +1,9 @@
 // SLO overview: status, stats, burn-down, burn-rate.
 // Endpoints:
-//   GET /api/v1/overview/slo
-//   GET /api/v1/overview/slo/stats
-//   GET /api/v1/overview/slo/burn-down
-//   GET /api/v1/overview/slo/burn-rate
+//   GET /api/v1/slo
+//   GET /api/v1/slo/stats
+//   GET /api/v1/slo/burn-down
+//   GET /api/v1/slo/burn-rate
 
 import { buildClient } from '../../lib/client.js';
 import { adaptiveWindow } from '../../lib/timewindows.js';
@@ -11,10 +11,10 @@ import { cfg } from '../../lib/config.js';
 
 const MOD = 'overview';
 const PATHS = [
-  '/api/v1/overview/slo',
-  '/api/v1/overview/slo/stats',
-  '/api/v1/overview/slo/burn-down',
-  '/api/v1/overview/slo/burn-rate',
+  '/api/v1/slo',
+  '/api/v1/slo/stats',
+  '/api/v1/slo/burn-down',
+  '/api/v1/slo/burn-rate',
 ];
 
 export function overviewSlo(ctx) {

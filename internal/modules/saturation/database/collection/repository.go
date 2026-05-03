@@ -1,28 +1,23 @@
-// Package collection serves DB-collection-scoped panels. Aggregate methods
-// (GetCollectionLatency / GetCollectionOps / GetCollectionErrors /
-// GetCollectionReadVsWrite) read `db_histograms_rollup`. GetCollectionQueryTexts
-// groups by `attributes.db.query.text` — a free-text field whose cardinality
-// equals the number of distinct queries observed (often millions). Rolling
-// that up would simply mirror raw. Permanent raw.
+// Package collection serves DB-collection-scoped panels. Every method
+// PREWHEREs raw `observability.spans` on `(team_id, ts_bucket, fingerprint
+// IN active_fps)` and pins `attributes.'db.collection.name' = @collection`.
+// Latency emits a fixed-bucket histogram (service computes p99 Go-side).
 package collection
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
-	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
 type Repository interface {
-	GetCollectionLatency(ctx context.Context, teamID int64, startMs, endMs int64, collection string, f shared.Filters) ([]LatencyTimeSeries, error)
-	GetCollectionOps(ctx context.Context, teamID int64, startMs, endMs int64, collection string, f shared.Filters) ([]OpsTimeSeries, error)
-	GetCollectionErrors(ctx context.Context, teamID int64, startMs, endMs int64, collection string, f shared.Filters) ([]ErrorTimeSeries, error)
-	GetCollectionQueryTexts(ctx context.Context, teamID int64, startMs, endMs int64, collection string, f shared.Filters, limit int) ([]CollectionTopQuery, error)
-	GetCollectionReadVsWrite(ctx context.Context, teamID int64, startMs, endMs int64, collection string) ([]ReadWritePoint, error)
+	GetCollectionLatency(ctx context.Context, teamID, startMs, endMs int64, collection string, f filter.Filters) ([]latencyRawDTO, error)
+	GetCollectionOps(ctx context.Context, teamID, startMs, endMs int64, collection string, f filter.Filters) ([]opsRawDTO, error)
+	GetCollectionErrors(ctx context.Context, teamID, startMs, endMs int64, collection string, f filter.Filters) ([]opsRawDTO, error)
+	GetCollectionQueryTexts(ctx context.Context, teamID, startMs, endMs int64, collection string, f filter.Filters, limit int) ([]queryTextRawDTO, error)
+	GetCollectionReadVsWrite(ctx context.Context, teamID, startMs, endMs int64, collection string) ([]readWriteRawDTO, error)
 }
 
 type ClickHouseRepository struct {
@@ -33,183 +28,165 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-// collectionFilter returns the fragment + arg pair that pins db_collection to
-// the user-supplied name on top of the standard rollup filters.
-func collectionFilter(collectionName string, f shared.Filters) (string, []any) {
-	frag, args := shared.RollupFilterClauses(f)
-	frag += ` AND db_collection = @collection`
-	args = append(args, clickhouse.Named("collection", collectionName))
-	return frag, args
+type latencyRawDTO struct {
+	TimeBucket string  `ch:"time_bucket"`
+	GroupBy    string  `ch:"group_by"`
+	P50Ms      float64 `ch:"p50_ms"`
+	P95Ms      float64 `ch:"p95_ms"`
+	P99Ms      float64 `ch:"p99_ms"`
 }
 
-func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID int64, startMs, endMs int64, collectionName string, f shared.Filters) ([]LatencyTimeSeries, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
-	fc, fargs := collectionFilter(collectionName, f)
+type opsRawDTO struct {
+	TimeBucket string `ch:"time_bucket"`
+	GroupBy    string `ch:"group_by"`
+	Count      uint64 `ch:"op_count"`
+}
 
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                                                          AS time_bucket,
-		    db_operation                                                                AS group_by,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1]) * 1000  AS p50_ms,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2]) * 1000  AS p95_ms,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3]) * 1000  AS p99_ms
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName
-		  %s
+type queryTextRawDTO struct {
+	QueryText  string   `ch:"query_text"`
+	Buckets    []uint64 `ch:"bucket_counts"`
+	CallCount  uint64   `ch:"call_count"`
+	ErrorCount uint64   `ch:"error_count"`
+}
+
+type readWriteRawDTO struct {
+	TimeBucket string `ch:"time_bucket"`
+	ReadCount  uint64 `ch:"read_count"`
+	WriteCount uint64 `ch:"write_count"`
+}
+
+func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID, startMs, endMs int64, collection string, f filter.Filters) ([]latencyRawDTO, error) {
+	filterWhere, filterArgs := filter.BuildSpans1mClauses(f)
+	query := `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT toString(toDateTime(ts_bucket))                  AS time_bucket,
+		       db_operation_name                                 AS group_by,
+		       quantileTimingMerge(0.5)(latency_state)           AS p50_ms,
+		       quantileTimingMerge(0.95)(latency_state)          AS p95_ms,
+		       quantileTimingMerge(0.99)(latency_state)          AS p99_ms
+		FROM observability.spans_1m
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND db_collection_name = @collection` + filterWhere + `
 		GROUP BY time_bucket, group_by
-		ORDER BY time_bucket, group_by
-	`, shared.BucketTimeExpr, table, fc)
+		ORDER BY time_bucket, group_by`
 
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
-		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
-	)
-	args = append(args, fargs...)
-	var rows []LatencyTimeSeries
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionLatency", &rows, query, args...); err != nil {
-		return nil, err
-	}
-	return rows, nil
+	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("collection", collection))
+	args = append(args, filterArgs...)
+	var rows []latencyRawDTO
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionLatency", &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) GetCollectionOps(ctx context.Context, teamID int64, startMs, endMs int64, collectionName string, f shared.Filters) ([]OpsTimeSeries, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
-	fc, fargs := collectionFilter(collectionName, f)
-	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
-
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                  AS time_bucket,
-		    db_operation                        AS group_by,
-		    toFloat64(sumMerge(hist_count)) / %f AS ops_per_sec
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName
-		  %s
+func (r *ClickHouseRepository) GetCollectionOps(ctx context.Context, teamID, startMs, endMs int64, collection string, f filter.Filters) ([]opsRawDTO, error) {
+	filterWhere, filterArgs := filter.BuildSpans1mClauses(f)
+	query := `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT toString(toDateTime(ts_bucket))   AS time_bucket,
+		       db_operation_name                  AS group_by,
+		       toUInt64(sum(request_count))       AS op_count
+		FROM observability.spans_1m
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND db_collection_name = @collection` + filterWhere + `
 		GROUP BY time_bucket, group_by
-		ORDER BY time_bucket, group_by
-	`, shared.BucketTimeExpr, bucketSec, table, fc)
+		ORDER BY time_bucket, group_by`
 
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
-		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
-	)
-	args = append(args, fargs...)
-	var rows []OpsTimeSeries
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionOps", &rows, query, args...); err != nil {
-		return nil, err
-	}
-	return rows, nil
+	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("collection", collection))
+	args = append(args, filterArgs...)
+	var rows []opsRawDTO
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionOps", &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) GetCollectionErrors(ctx context.Context, teamID int64, startMs, endMs int64, collectionName string, f shared.Filters) ([]ErrorTimeSeries, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
-	fc, fargs := collectionFilter(collectionName, f)
-	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
-
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                   AS time_bucket,
-		    error_type                           AS group_by,
-		    toFloat64(sumMerge(hist_count)) / %f AS errors_per_sec
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName
-		  AND notEmpty(error_type)
-		  %s
+func (r *ClickHouseRepository) GetCollectionErrors(ctx context.Context, teamID, startMs, endMs int64, collection string, f filter.Filters) ([]opsRawDTO, error) {
+	filterWhere, filterArgs := filter.BuildSpans1mClauses(f)
+	query := `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT toString(toDateTime(ts_bucket))   AS time_bucket,
+		       error_type                         AS group_by,
+		       sum(error_count)                   AS op_count
+		FROM observability.spans_1m
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND db_collection_name = @collection` + filterWhere + `
 		GROUP BY time_bucket, group_by
-		ORDER BY time_bucket, group_by
-	`, shared.BucketTimeExpr, bucketSec, table, fc)
+		HAVING op_count > 0
+		ORDER BY time_bucket, group_by`
 
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
-		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
-	)
-	args = append(args, fargs...)
-	var rows []ErrorTimeSeries
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionErrors", &rows, query, args...); err != nil {
-		return nil, err
-	}
-	return rows, nil
+	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("collection", collection))
+	args = append(args, filterArgs...)
+	var rows []opsRawDTO
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionErrors", &rows, query, args...)
 }
 
-// GetCollectionQueryTexts groups by `db.query.text` attribute which is not a
-// rollup dim (too high-cardinality to include). Stays on raw metrics.
-// TODO(phase8): if a bounded-text rollup lands, migrate this.
-func (r *ClickHouseRepository) GetCollectionQueryTexts(ctx context.Context, teamID int64, startMs, endMs int64, collectionName string, f shared.Filters, limit int) ([]CollectionTopQuery, error) {
+// GetCollectionQueryTexts groups raw spans by the per-call db.query.text
+// (high-cardinality free text) within one collection. Returns top-N rows
+// with their fixed-bucket latency histogram + counts. Service computes
+// p99 Go-side.
+func (r *ClickHouseRepository) GetCollectionQueryTexts(ctx context.Context, teamID, startMs, endMs int64, collection string, f filter.Filters, limit int) ([]queryTextRawDTO, error) {
 	if limit <= 0 {
-		limit = 10
+		limit = 20
 	}
-	fc, fargs := shared.FilterClauses(f)
-	queryAttr := shared.AttrString(shared.AttrDBQueryText)
-	errorAttr := shared.AttrString(shared.AttrErrorType)
-
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                                                              AS query_text,
-		    quantileTDigestWeighted(0.99)(hist_sum / nullIf(hist_count, 0), hist_count) * 1000 AS p99_ms,
-		    toInt64(sum(hist_count))                                                        AS call_count,
-		    toInt64(sumIf(hist_count, notEmpty(%s)))                                        AS error_count
-		FROM %s
-		WHERE %s = @teamID
-		  AND %s BETWEEN @start AND @end
-		  AND %s = '%s'
-		  AND metric_type = 'Histogram'
-		  AND %s = @collection
-		  AND notEmpty(%s)
-		  %s
+	filterWhere, filterArgs := filter.BuildSpanClauses(f)
+	query := `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT db_statement                                                                       AS query_text,
+		       ` + filter.LatencyBucketCountsSQL() + `                                            AS bucket_counts,
+		       toUInt64(count())                                                                  AS call_count,
+		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                  AS error_count
+		FROM observability.spans
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND attributes.'db.collection.name'::String = @collection
+		  AND db_statement != ''` + filterWhere + `
 		GROUP BY query_text
-		ORDER BY p99_ms DESC
-		LIMIT %d
-	`,
-		queryAttr,
-		errorAttr,
-		shared.TableMetrics,
-		shared.ColTeamID, shared.ColTimestamp,
-		shared.ColMetricName, shared.MetricDBOperationDuration,
-		shared.AttrString(shared.AttrDBCollectionName),
-		queryAttr,
-		fc, limit,
-	)
+		ORDER BY call_count DESC
+		LIMIT @qLimit`
 
-	params := append(shared.BaseParams(teamID, startMs, endMs), clickhouse.Named("collection", collectionName))
-	params = append(params, fargs...)
-	var rows []CollectionTopQuery
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionQueryTexts", &rows, query, params...); err != nil {
-		return nil, err
-	}
-	return rows, nil
+	args := append(filter.SpanArgs(teamID, startMs, endMs),
+		clickhouse.Named("collection", collection),
+		clickhouse.Named("qLimit", uint64(limit)), //nolint:gosec
+	)
+	args = append(args, filterArgs...)
+	var rows []queryTextRawDTO
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionQueryTexts", &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) GetCollectionReadVsWrite(ctx context.Context, teamID int64, startMs, endMs int64, collectionName string) ([]ReadWritePoint, error) {
-	table, tierStep := rollup.TierTableFor(shared.DBHistRollupPrefix, startMs, endMs)
-	bucketSec := shared.BucketWidthSeconds(startMs, endMs)
-
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                                                                                          AS time_bucket,
-		    toFloat64(sumMergeIf(hist_count, upper(db_operation) IN ('SELECT', 'FIND', 'GET'))) / %f                    AS read_ops_per_sec,
-		    toFloat64(sumMergeIf(hist_count, upper(db_operation) IN ('INSERT', 'UPDATE', 'DELETE', 'REPLACE', 'UPSERT', 'SET', 'PUT', 'AGGREGATE'))) / %f AS write_ops_per_sec
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName
-		  AND db_collection = @collection
+// GetCollectionReadVsWrite splits ops by upper(db.operation.name) within
+// one collection. Same shape as volume.GetReadVsWrite.
+func (r *ClickHouseRepository) GetCollectionReadVsWrite(ctx context.Context, teamID, startMs, endMs int64, collection string) ([]readWriteRawDTO, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT toString(toDateTime(ts_bucket))                                                                                              AS time_bucket,
+		       toUInt64(sumIf(request_count, upper(db_operation_name) IN ('SELECT','FIND','GET')))                                            AS read_count,
+		       toUInt64(sumIf(request_count, upper(db_operation_name) IN ('INSERT','UPDATE','DELETE','REPLACE','UPSERT','SET','PUT','AGGREGATE'))) AS write_count
+		FROM observability.spans_1m
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND db_collection_name = @collection
 		GROUP BY time_bucket
-		ORDER BY time_bucket
-	`, shared.BucketTimeExpr, bucketSec, bucketSec, table)
+		ORDER BY time_bucket`
 
-	args := append(shared.RollupBaseParams(teamID, startMs, endMs, shared.MetricDBOperationDuration),
-		clickhouse.Named("intervalMin", shared.QueryIntervalMinutes(tierStep, startMs, endMs)),
-		clickhouse.Named("collection", collectionName),
-	)
-	var rows []ReadWritePoint
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionReadVsWrite", &rows, query, args...); err != nil {
-		return nil, err
-	}
-	return rows, nil
+	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("collection", collection))
+	var rows []readWriteRawDTO
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionReadVsWrite", &rows, query, args...)
 }
-
-// silence unused-import warning when this package keeps a raw fallback
-var _ = timebucket.Expression

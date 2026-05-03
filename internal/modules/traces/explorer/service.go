@@ -5,64 +5,46 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/filter"
 	"golang.org/x/sync/errgroup"
 )
 
-// Service orchestrates traces explorer read paths. List + facets + trend
-// read traces_index; analytics also reads traces_index (raw-span fallback
-// arrives with later features).
+// Service orchestrates traces explorer read paths. List + facets + trend are
+// fanned out in parallel via errgroup so the response = max of all branches.
 type Service struct {
 	repo *Repository
 }
 
 func NewService(repo *Repository) *Service { return &Service{repo: repo} }
 
-// queryParts carries the slots that each parallel fetch fills in. The list
-// fetch is always run; summary/facets/trend slots stay nil when the caller
-// didn't ask for them via req.Include.
 type queryParts struct {
 	rows    []traceIndexRowDTO
 	hasMore bool
-	warns   []string
-	summary *Summary
 	facets  *Facets
 	trend   []TrendBucket
 }
 
-func (s *Service) Query(ctx context.Context, req QueryRequest, teamID int64) (QueryResponse, error) {
-	filters, err := querycompiler.FromStructured(req.Filters, teamID, req.StartTime, req.EndTime)
-	if err != nil {
-		return QueryResponse{}, fmt.Errorf("traces.Query.parse: %w", err)
-	}
+func (s *Service) Query(ctx context.Context, req QueryRequest) (QueryResponse, error) {
 	limit := pickLimit(req.Limit, 50, 500)
 	cur, _ := DecodeCursor(req.Cursor)
-	parts, err := s.fetchQueryParts(ctx, filters, limit, cur, toSet(req.Include))
+	parts, err := s.fetchQueryParts(ctx, req.Filters, limit, cur, toSet(req.Include))
 	if err != nil {
 		return QueryResponse{}, err
 	}
 	return QueryResponse{
 		Results:  mapTraces(parts.rows),
 		PageInfo: buildPageInfo(parts.rows, parts.hasMore, limit),
-		Warnings: parts.warns,
-		Summary:  parts.summary,
 		Facets:   parts.facets,
 		Trend:    parts.trend,
 	}, nil
 }
 
-// fetchQueryParts fans list + summary + facets + trend out in parallel via
-// errgroup. Perf note: turned what used to be 4 sequential ClickHouse queries
-// into max(list, summary, facets, trend).
 func (s *Service) fetchQueryParts(
-	ctx context.Context, f querycompiler.Filters, limit int, cur TraceCursor, want map[string]bool,
+	ctx context.Context, f filter.Filters, limit int, cur TraceCursor, want map[string]bool,
 ) (queryParts, error) {
 	var p queryParts
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(s.listJob(gctx, f, limit, cur, &p))
-	if want["summary"] {
-		g.Go(s.summaryJob(gctx, f, &p))
-	}
 	if want["facets"] {
 		g.Go(s.facetsJob(gctx, f, &p))
 	}
@@ -75,29 +57,18 @@ func (s *Service) fetchQueryParts(
 	return p, nil
 }
 
-func (s *Service) listJob(ctx context.Context, f querycompiler.Filters, limit int, cur TraceCursor, p *queryParts) func() error {
+func (s *Service) listJob(ctx context.Context, f filter.Filters, limit int, cur TraceCursor, p *queryParts) func() error {
 	return func() error {
-		r, hm, w, err := s.repo.ListTraces(ctx, f, limit, cur)
+		r, hm, err := s.repo.ListTraces(ctx, f, limit, cur)
 		if err != nil {
 			return fmt.Errorf("traces.Query.list: %w", err)
 		}
-		p.rows, p.hasMore, p.warns = r, hm, w
+		p.rows, p.hasMore = r, hm
 		return nil
 	}
 }
 
-func (s *Service) summaryJob(ctx context.Context, f querycompiler.Filters, p *queryParts) func() error {
-	return func() error {
-		sm, err := s.repo.Summarize(ctx, f)
-		if err != nil {
-			return fmt.Errorf("traces.Query.summary: %w", err)
-		}
-		p.summary = &sm
-		return nil
-	}
-}
-
-func (s *Service) facetsJob(ctx context.Context, f querycompiler.Filters, p *queryParts) func() error {
+func (s *Service) facetsJob(ctx context.Context, f filter.Filters, p *queryParts) func() error {
 	return func() error {
 		fc, err := s.repo.Facets(ctx, f)
 		if err != nil {
@@ -108,7 +79,7 @@ func (s *Service) facetsJob(ctx context.Context, f querycompiler.Filters, p *que
 	}
 }
 
-func (s *Service) trendJob(ctx context.Context, f querycompiler.Filters, p *queryParts) func() error {
+func (s *Service) trendJob(ctx context.Context, f filter.Filters, p *queryParts) func() error {
 	return func() error {
 		tr, err := s.repo.Trend(ctx, f)
 		if err != nil {

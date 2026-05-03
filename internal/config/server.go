@@ -20,7 +20,8 @@ type SessionConfig struct {
 }
 
 type OTLPConfig struct {
-	GRPCPort string `yaml:"grpc_port"`
+	GRPCPort             string `yaml:"grpc_port"`
+	GRPCMaxConcurrentStr uint32 `yaml:"grpc_max_concurrent_streams"`
 }
 
 type RetentionConfig struct {

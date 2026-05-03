@@ -1,21 +1,20 @@
-// Additions to tracedetail module absorbing two endpoints that used to live
-// in the deleted traces/query module:
-//   - GET /traces/:traceId/spans — all spans in a trace (tree flat)
-//   - GET /spans/:spanId/tree — subtree starting at a span
+// spans_list.go absorbs two endpoints originally split out of the deleted
+// traces/query module:
+//   - GET /traces/:traceId/spans  — flat list of every span in a trace
+//   - GET /spans/:spanId/tree    — subtree starting at the given span
 //
-// These stay scoped to tracedetail because they're trace-scoped drill-downs
-// that TraceDetailPage / SpanDetailDrawer depend on. Existing 9 endpoints
-// are untouched; this file only adds new surface.
+// Repo-clean: the SQL is pure projection + filter; the subtree-walk happens
+// in TraceSpansService (Go-side). Same shape as the rest of tracedetail's
+// trace-id-scoped reads — PREWHERE on team_id, traceIDMatchPredicate
+// inlined, no fmt.Sprintf, no separate compile pass.
 package tracedetail
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/shared/traceidmatch"
 	"github.com/Optikk-Org/optikk-backend/internal/shared/errorcode"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
@@ -25,80 +24,95 @@ import (
 // /spans/:spanId/tree. Compact on purpose — detail comes from the existing
 // GetSpanAttributes endpoint.
 type SpanListItem struct {
-	SpanID		string	`json:"span_id" ch:"span_id"`
-	ParentSpanID	string	`json:"parent_span_id" ch:"parent_span_id"`
-	TraceID		string	`json:"trace_id" ch:"trace_id"`
-	ServiceName	string	`json:"service_name" ch:"service_name"`
-	OperationName	string	`json:"operation_name" ch:"name"`
-	KindString	string	`json:"kind" ch:"kind_string"`
-	StatusCode	string	`json:"status_code" ch:"status_code_string"`
-	HasError	bool	`json:"has_error" ch:"has_error"`
-	DurationMs	float64	`json:"duration_ms" ch:"duration_ms"`
-	StartNs		int64	`json:"start_ns" ch:"start_ns"`
+	SpanID        string  `json:"span_id"        ch:"span_id"`
+	ParentSpanID  string  `json:"parent_span_id" ch:"parent_span_id"`
+	TraceID       string  `json:"trace_id"       ch:"trace_id"`
+	ServiceName   string  `json:"service_name"   ch:"service"`
+	OperationName string  `json:"operation_name" ch:"name"`
+	KindString    string  `json:"kind"           ch:"kind_string"`
+	StatusCode    string  `json:"status_code"    ch:"status_code_string"`
+	HasError      bool    `json:"has_error"      ch:"has_error"`
+	DurationMs    float64 `json:"duration_ms"    ch:"duration_ms"`
+	StartNs       int64   `json:"start_ns"       ch:"start_ns"`
 }
 
 // TraceSpansService is the read surface for the two absorbed endpoints.
+// Wraps a thin db handle; service-side filterSubtree walks the parent
+// chain Go-side after the query runs.
 type TraceSpansService interface {
 	ListByTrace(ctx context.Context, teamID int64, traceID string) ([]SpanListItem, error)
 	Subtree(ctx context.Context, teamID int64, spanID string) ([]SpanListItem, error)
 }
 
-type spansRepo struct{ db clickhouse.Conn }
+type traceSpansService struct{ db clickhouse.Conn }
 
 // NewTraceSpansService wires a fresh in-module service backed by CH directly;
 // kept separate from the primary tracedetail Service to avoid disturbing the
 // existing interface surface.
-func NewTraceSpansService(db clickhouse.Conn) TraceSpansService	{ return &spansRepo{db: db} }
+func NewTraceSpansService(db clickhouse.Conn) TraceSpansService {
+	return &traceSpansService{db: db}
+}
 
-const (
-	spansRawTable		= "observability.spans"
-	spansByTraceTable	= "observability.spans_by_trace_index"
-)
-
-func (r *spansRepo) ListByTrace(ctx context.Context, teamID int64, traceID string) ([]SpanListItem, error) {
-	// Phase 7: read from the MV keyed on (team_id, trace_id, span_id) —
-	// narrow range scan instead of a bloom-filter guess on the 100M-row spans.
-	query := fmt.Sprintf(`
-		SELECT span_id, parent_span_id, trace_id, service_name, name,
-			kind_string, status_code_string, has_error,
-			duration_nano / 1000000.0 AS duration_ms,
-			toUnixTimestamp64Nano(timestamp) AS start_ns
-		FROM %s
+func (s *traceSpansService) ListByTrace(ctx context.Context, teamID int64, traceID string) ([]SpanListItem, error) {
+	const query = `
+		SELECT span_id,
+		       parent_span_id,
+		       trace_id,
+		       service,
+		       name,
+		       kind_string,
+		       status_code_string,
+		       has_error,
+		       duration_nano / 1000000.0          AS duration_ms,
+		       toUnixTimestamp64Nano(timestamp)   AS start_ns
+		FROM observability.spans
 		PREWHERE team_id = @teamID
-		WHERE %s
+		WHERE ` + traceIDMatchPredicate + `
 		ORDER BY start_ns ASC
-		LIMIT 5000`, spansByTraceTable, traceidmatch.WhereTraceIDMatchesCH("trace_id", "traceID"))
+		LIMIT 5000`
 	var rows []SpanListItem
-	err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "tracedetail.ListByTrace", &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec // G115
-		clickhouse.Named("traceID", traceID),
-	)
-	return rows, err
+	return rows, dbutil.SelectCH(dbutil.ExplorerCtx(ctx), s.db, "tracedetail.ListByTrace", &rows, query, traceIDArgs(teamID, traceID)...)
 }
 
-func (r *spansRepo) Subtree(ctx context.Context, teamID int64, spanID string) ([]SpanListItem, error) {
-	query := fmt.Sprintf(`
+// Subtree resolves trace_id from span_id in a CTE, then projects every span
+// in that trace; filterSubtree (service-side, Go) keeps only descendants
+// of the root spanID.
+func (s *traceSpansService) Subtree(ctx context.Context, teamID int64, spanID string) ([]SpanListItem, error) {
+	const query = `
 		WITH start AS (
-			SELECT trace_id FROM %s
-			WHERE team_id = @teamID AND span_id = @spanID LIMIT 1
+		    SELECT trace_id
+		    FROM observability.spans
+		    PREWHERE team_id = @teamID AND span_id = @spanID
+		    LIMIT 1
 		)
-		SELECT s.span_id, s.parent_span_id, s.trace_id, s.service_name, s.name,
-			s.kind_string, s.status_code_string, s.has_error,
-			s.duration_nano / 1000000.0 AS duration_ms,
-			toUnixTimestamp64Nano(s.timestamp) AS start_ns
-		FROM %s s
-		WHERE s.team_id = @teamID AND s.trace_id IN (SELECT trace_id FROM start)
+		SELECT span_id,
+		       parent_span_id,
+		       trace_id,
+		       service,
+		       name,
+		       kind_string,
+		       status_code_string,
+		       has_error,
+		       duration_nano / 1000000.0          AS duration_ms,
+		       toUnixTimestamp64Nano(timestamp)   AS start_ns
+		FROM observability.spans
+		PREWHERE team_id = @teamID
+		WHERE trace_id IN (SELECT trace_id FROM start)
 		ORDER BY start_ns ASC
-		LIMIT 5000`, spansRawTable, spansRawTable)
+		LIMIT 5000`
 	var rows []SpanListItem
-	err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "tracedetail.Subtree", &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)),	//nolint:gosec
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), s.db, "tracedetail.Subtree", &rows, query,
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("spanID", spanID),
-	)
-	return filterSubtree(rows, spanID), err
+	); err != nil {
+		return nil, err
+	}
+	return filterSubtree(rows, spanID), nil
 }
 
-// filterSubtree walks the flat list and keeps only spans reachable from root.
+// filterSubtree walks the flat list and keeps only spans reachable from
+// rootID via the parent_span_id → span_id chain. Service-side; the CH query
+// can't express transitive closure cleanly without recursive CTEs.
 func filterSubtree(rows []SpanListItem, rootID string) []SpanListItem {
 	keep := map[string]bool{rootID: true}
 	changed := true
@@ -124,7 +138,7 @@ func filterSubtree(rows []SpanListItem, rootID string) []SpanListItem {
 // TraceDetailHandler so the existing 9 endpoints' wiring is untouched.
 type SpansHandler struct {
 	modulecommon.DBTenant
-	svc	TraceSpansService
+	svc TraceSpansService
 }
 
 func NewSpansHandler(getTenant modulecommon.GetTenantFunc, svc TraceSpansService) *SpansHandler {

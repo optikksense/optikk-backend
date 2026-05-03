@@ -2,661 +2,612 @@ package kafka
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/rollup"
-	timebucket "github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 )
 
-// Kafka panels read from two Phase-7 + Phase-9 rollups:
-//
-//   - `messaging_histograms_rollup` — publish/receive/process/client-operation
-//     duration percentiles (Phase 7). Used by the 4 *Latency* methods.
-//   - `messaging_counters_rollup`   — counter + gauge + histogram counts per
-//     canonical messaging dim (messaging_destination, consumer_group,
-//     messaging_operation, broker, partition, error_type). Phase-9 addition.
-//     Used by every rate / lag / rebalance / error / broker / sample method.
-//
-// `sample_count` in the counters rollup stores `hist_count` for histogram rows
-// and 1 for counter rows (see MV in db/clickhouse/14_rollup_messaging_counters.sql),
-// so `sumMerge(sample_count) / @bucketSecs` is an operation-rate across both
-// types.
-//
-// Semantic note (carried over from Phase 8): rollup dims come from canonical
-// OTel attribute names (`messaging.destination.name`, `messaging.kafka.consumer.group`,
-// `messaging.operation`, `server.address`, `messaging.kafka.destination.partition`,
-// `error.type`). Non-canonical aliases captured by the legacy `topicExpr()`
-// / `consumerGroupExpr()` helpers do NOT flow into the rollup — if ingestion
-// emits only aliased attributes for a given tenant, the corresponding panels
-// return empty.
+// ============================================================================
+// Summary stats — counter / gauge / histogram aggregations
+// ============================================================================
 
-const (
-	// Histograms and counters consolidated into the unified messaging family.
-	messagingRollupPrefix		= rollup.FamilyMessaging
-	messagingCountersRollupPrefix	= rollup.FamilyMessaging
-)
-
-// rollupBucketExpr bucketizes the rollup's DateTime `bucket_ts` column.
-func rollupBucketExpr(startMs, endMs int64) string {
-	return timebucket.ExprForColumnTime(startMs, endMs, "bucket_ts")
-}
-
-// bucketSecs returns the bucket width in seconds matching the adaptive strategy.
-func bucketSecs(startMs, endMs int64) float64 {
-	durationSecs := (endMs - startMs) / 1000
-	if durationSecs <= 3600 {
-		return 60.0
-	} else if durationSecs <= 86400 {
-		return 300.0
-	}
-	return 3600.0
-}
-
-// ---------------------------------------------------------------------------
-// Summary / global panel
-// ---------------------------------------------------------------------------
-
-func (r *ClickHouseRepository) GetKafkaSummaryStats(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) (KafkaSummaryStats, error) {
-	durationSecs := float64(endMs-startMs) / 1000.0
-	if durationSecs <= 0 {
-		durationSecs = 1.0
-	}
-	var stats KafkaSummaryStats
-
-	// Rates + max lag from counters rollup.
-	countersTable, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
-	countersQuery := fmt.Sprintf(`
+const counterAggQuery = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN @metricNames
+		)
 		SELECT
-		    metric_name                      AS metric_name,
-		    toFloat64(sumMerge(value_sum))   AS v_sum,
-		    toFloat64(maxMerge(value_max))   AS v_max
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND (metric_name IN @producerMetrics
-		       OR metric_name IN @consumerMetrics
-		       OR metric_name IN @lagMetrics)
-		  %s
-		GROUP BY metric_name
-	`, countersTable, rollupTopicGroupFilter(f))
-	var rateRows []struct {
-		MetricName	string	`ch:"metric_name"`
-		VSum		float64	`ch:"v_sum"`
-		VMax		float64	`ch:"v_max"`
-	}
-	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
-	args = append(args,
-		clickhouse.Named("producerMetrics", ProducerMetrics),
-		clickhouse.Named("consumerMetrics", ConsumerMetrics),
-		clickhouse.Named("lagMetrics", ConsumerLagMetrics),
-	)
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetKafkaSummaryStats", &rateRows, countersQuery, args...); err != nil {
-		return stats, err
-	}
-	prod := stringSet(ProducerMetrics)
-	cons := stringSet(ConsumerMetrics)
-	lag := stringSet(ConsumerLagMetrics)
-	for _, row := range rateRows {
-		_, isProd := prod[row.MetricName]
-		_, isCons := cons[row.MetricName]
-		_, isLag := lag[row.MetricName]
-		switch {
-		case isProd:
-			stats.PublishRatePerSec += row.VSum / durationSecs
-		case isCons:
-			stats.ReceiveRatePerSec += row.VSum / durationSecs
-		case isLag:
-			if row.VMax > stats.MaxLag {
-				stats.MaxLag = row.VMax
-			}
-		}
-	}
+		    toFloat64(sum(value)) AS sum_value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name IN @metricNames
+		  AND timestamp BETWEEN @start AND @end
+		  AND lower(attributes.'messaging.system'::String) = 'kafka'`
 
-	// Percentiles from histogram rollup. publish_p95 + receive_p95 need the
-	// same fan-out as GetPublishLatencyByTopic / GetReceiveLatencyByTopic but
-	// aggregated across topics.
-	histTable, _ := rollup.TierTableFor(messagingRollupPrefix, startMs, endMs)
-	histQuery := fmt.Sprintf(`
+func (r *ClickHouseRepository) queryCounterAgg(ctx context.Context, op string, teamID int64, startMs, endMs int64, metricNames []string) (CounterAggRow, error) {
+	args := withMetricNames(metricArgs(teamID, startMs, endMs), metricNames)
+	var row CounterAggRow
+	return row, dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, op, &row, counterAggQuery, args...)
+}
+
+func (r *ClickHouseRepository) QueryPublishMessageCount(ctx context.Context, teamID int64, startMs, endMs int64) (CounterAggRow, error) {
+	return r.queryCounterAgg(ctx, "kafka.QueryPublishMessageCount", teamID, startMs, endMs, ProducerMetrics)
+}
+
+func (r *ClickHouseRepository) QueryReceiveMessageCount(ctx context.Context, teamID int64, startMs, endMs int64) (CounterAggRow, error) {
+	return r.queryCounterAgg(ctx, "kafka.QueryReceiveMessageCount", teamID, startMs, endMs, ConsumerMetrics)
+}
+
+func (r *ClickHouseRepository) QueryMaxConsumerLag(ctx context.Context, teamID int64, startMs, endMs int64) (GaugeMaxRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN @metricNames
+		)
 		SELECT
-		    metric_name                                                           AS metric_name,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])   AS p95
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name IN (@publishDuration, @receiveDuration, @opDuration)
-		  %s
-		GROUP BY metric_name
-	`, histTable, rollupTopicGroupFilter(f))
-	var histRows []struct {
-		MetricName	string	`ch:"metric_name"`
-		P95		float64	`ch:"p95"`
-	}
-	histArgs := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetKafkaSummaryStats", &histRows, histQuery, histArgs...); err != nil {
-		return stats, err
-	}
-	for _, row := range histRows {
-		switch row.MetricName {
-		case MetricPublishDuration:
-			stats.PublishP95Ms = row.P95
-		case MetricReceiveDuration:
-			stats.ReceiveP95Ms = row.P95
-		}
-	}
-	return stats, nil
+		    toFloat64(max(value)) AS max_value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name IN @metricNames
+		  AND timestamp BETWEEN @start AND @end`
+	args := withMetricNames(metricArgs(teamID, startMs, endMs), ConsumerLagMetrics)
+	var row GaugeMaxRow
+	return row, dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryMaxConsumerLag", &row, query, args...)
 }
 
-// ---------------------------------------------------------------------------
-// Rate panels — messaging_counters_rollup, sumMerge(value_sum) / bucketSecs
-// ---------------------------------------------------------------------------
-
-func (r *ClickHouseRepository) GetProduceRateByTopic(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicRatePoint, error) {
-	return r.topicRate(ctx, teamID, startMs, endMs, f, ProducerMetrics)
-}
-
-func (r *ClickHouseRepository) GetConsumeRateByTopic(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicRatePoint, error) {
-	return r.topicRate(ctx, teamID, startMs, endMs, f, ConsumerMetrics)
-}
-
-func (r *ClickHouseRepository) topicRate(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters, metrics []string) ([]TopicRatePoint, error) {
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
+const histogramAggQuery = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name = @metricName
+		)
 		SELECT
-		    %s                                       AS time_bucket,
-		    messaging_destination                    AS topic,
-		    toFloat64(sumMerge(value_sum)) / @bucketSecs AS rate_per_sec
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name IN @metrics
-		  %s
-		GROUP BY time_bucket, topic
-		ORDER BY time_bucket ASC, topic ASC
-	`, rollupBucketExpr(startMs, endMs), table, rollupTopicGroupFilter(f))
-	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
-	args = append(args, clickhouse.Named("bucketSecs", bucketSecs(startMs, endMs)), clickhouse.Named("metrics", metrics))
-	var out []TopicRatePoint
-	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.topicRate", &out, query, args...)
+		    sum(hist_sum)            AS sum_hist_sum,
+		    sum(hist_count)          AS sum_hist_count,
+		    max(hist_buckets)        AS hist_buckets,
+		    sumForEach(hist_counts)  AS hist_counts
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name = @metricName
+		  AND timestamp BETWEEN @start AND @end
+		  AND lower(attributes.'messaging.system'::String) = 'kafka'`
+
+func (r *ClickHouseRepository) queryHistogramAgg(ctx context.Context, op, metricName string, teamID int64, startMs, endMs int64) (HistogramAggRow, error) {
+	args := withMetricName(metricArgs(teamID, startMs, endMs), metricName)
+	var row HistogramAggRow
+	return row, dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, op, &row, histogramAggQuery, args...)
 }
 
-func (r *ClickHouseRepository) GetConsumeRateByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupRatePoint, error) {
-	return r.groupRate(ctx, teamID, startMs, endMs, f, ConsumerMetrics)
+func (r *ClickHouseRepository) QueryPublishDurationHistogram(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramAggRow, error) {
+	return r.queryHistogramAgg(ctx, "kafka.QueryPublishDurationHistogram", MetricPublishDuration, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) GetProcessRateByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupRatePoint, error) {
-	return r.groupRate(ctx, teamID, startMs, endMs, f, ProcessMetrics)
+func (r *ClickHouseRepository) QueryReceiveDurationHistogram(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramAggRow, error) {
+	return r.queryHistogramAgg(ctx, "kafka.QueryReceiveDurationHistogram", MetricReceiveDuration, teamID, startMs, endMs)
 }
 
-func (r *ClickHouseRepository) groupRate(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters, metrics []string) ([]GroupRatePoint, error) {
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
+// ============================================================================
+// Counter rate panels — sum value per (display_bucket, dim)
+// ============================================================================
+
+const counterSeriesByTopicQuery = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN @metricNames
+		)
 		SELECT
-		    %s                                           AS time_bucket,
-		    consumer_group                               AS consumer_group,
-		    toFloat64(sumMerge(value_sum)) / @bucketSecs AS rate_per_sec
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name IN @metrics
-		  %s
-		GROUP BY time_bucket, consumer_group
-		ORDER BY time_bucket ASC, consumer_group ASC
-	`, rollupBucketExpr(startMs, endMs), table, rollupTopicGroupFilter(f))
-	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
-	args = append(args, clickhouse.Named("bucketSecs", bucketSecs(startMs, endMs)), clickhouse.Named("metrics", metrics))
-	var out []GroupRatePoint
-	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.groupRate", &out, query, args...)
+		    timestamp                                                AS timestamp,
+		    attributes.'messaging.destination.name'::String          AS topic,
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name IN @metricNames
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'messaging.destination.name'::String != ''
+		  AND lower(attributes.'messaging.system'::String) = 'kafka'
+		ORDER BY timestamp`
+
+func (r *ClickHouseRepository) queryCounterSeriesByTopic(ctx context.Context, op string, teamID int64, startMs, endMs int64, metricNames []string) ([]TopicCounterRow, error) {
+	args := withMetricNames(metricArgs(teamID, startMs, endMs), metricNames)
+	var rows []TopicCounterRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, op, &rows, counterSeriesByTopicQuery, args...)
 }
 
-// ---------------------------------------------------------------------------
-// Lag — messaging_counters_rollup; avg via value_avg_num / sample_count
-// ---------------------------------------------------------------------------
-
-func (r *ClickHouseRepository) GetConsumerLagByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]LagPoint, error) {
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                                                          AS time_bucket,
-		    consumer_group                                                              AS consumer_group,
-		    messaging_destination                                                       AS topic,
-		    sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)      AS lag
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name IN @lagMetrics
-		  %s
-		GROUP BY time_bucket, consumer_group, topic
-		ORDER BY time_bucket ASC, consumer_group ASC
-	`, rollupBucketExpr(startMs, endMs), table, rollupTopicGroupFilter(f))
-	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
-	args = append(args, clickhouse.Named("lagMetrics", ConsumerLagMetrics))
-	var out []LagPoint
-	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetConsumerLagByGroup", &out, query, args...)
+func (r *ClickHouseRepository) QueryPublishRateByTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopicCounterRow, error) {
+	return r.queryCounterSeriesByTopic(ctx, "kafka.QueryPublishRateByTopic", teamID, startMs, endMs, ProducerMetrics)
 }
 
-func (r *ClickHouseRepository) GetConsumerLagPerPartition(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]PartitionLag, error) {
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
+func (r *ClickHouseRepository) QueryConsumeRateByTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopicCounterRow, error) {
+	return r.queryCounterSeriesByTopic(ctx, "kafka.QueryConsumeRateByTopic", teamID, startMs, endMs, ConsumerMetrics)
+}
+
+const counterSeriesByGroupQuery = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN @metricNames
+		)
 		SELECT
-		    messaging_destination                                                       AS topic,
-		    toInt64OrZero(partition)                                                    AS partition,
-		    consumer_group                                                              AS consumer_group,
-		    toInt64(sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)) AS lag
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name IN @lagMetrics
-		  %s
+		    timestamp                                                AS timestamp,
+		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name IN @metricNames
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'messaging.consumer.group.name'::String != ''
+		  AND lower(attributes.'messaging.system'::String) = 'kafka'
+		ORDER BY timestamp`
+
+func (r *ClickHouseRepository) queryCounterSeriesByGroup(ctx context.Context, op string, teamID int64, startMs, endMs int64, metricNames []string) ([]GroupCounterRow, error) {
+	args := withMetricNames(metricArgs(teamID, startMs, endMs), metricNames)
+	var rows []GroupCounterRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, op, &rows, counterSeriesByGroupQuery, args...)
+}
+
+func (r *ClickHouseRepository) QueryConsumeRateByGroup(ctx context.Context, teamID int64, startMs, endMs int64) ([]GroupCounterRow, error) {
+	return r.queryCounterSeriesByGroup(ctx, "kafka.QueryConsumeRateByGroup", teamID, startMs, endMs, ConsumerMetrics)
+}
+
+func (r *ClickHouseRepository) QueryProcessRateByGroup(ctx context.Context, teamID int64, startMs, endMs int64) ([]GroupCounterRow, error) {
+	return r.queryCounterSeriesByGroup(ctx, "kafka.QueryProcessRateByGroup", teamID, startMs, endMs, ProcessMetrics)
+}
+
+// ============================================================================
+// Latency panels — histogram series merged SQL-side per (display_bucket, dim)
+// ============================================================================
+
+const histogramSeriesByTopicQuery = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN (@metricName, @opDuration)
+		)
+		SELECT
+		    toDateTime(intDiv(toUnixTimestamp(timestamp), @stepSec) * @stepSec) AS timestamp,
+		    attributes.'messaging.destination.name'::String                     AS topic,
+		    max(hist_buckets)                                                   AS hist_buckets,
+		    sumForEach(hist_counts)                                             AS hist_counts
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE (metric_name = @metricName
+		       OR (metric_name = @opDuration
+		           AND lower(attributes.'messaging.operation.name'::String) IN @opAliases))
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'messaging.destination.name'::String != ''
+		  AND lower(attributes.'messaging.system'::String) = 'kafka'
+		GROUP BY timestamp, topic
+		ORDER BY timestamp, topic`
+
+func (r *ClickHouseRepository) queryHistogramSeriesByTopic(ctx context.Context, op, metricName string, opAliases []string, teamID int64, startMs, endMs int64) ([]TopicHistogramRow, error) {
+	args := withMetricName(metricArgs(teamID, startMs, endMs), metricName)
+	args = append(args, clickhouse.Named("opDuration", MetricClientOperationDuration))
+	args = withOpAliases(args, opAliases)
+	args = withStepSec(args, startMs, endMs)
+	var rows []TopicHistogramRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, op, &rows, histogramSeriesByTopicQuery, args...)
+}
+
+func (r *ClickHouseRepository) QueryPublishLatencyByTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopicHistogramRow, error) {
+	return r.queryHistogramSeriesByTopic(ctx, "kafka.QueryPublishLatencyByTopic", MetricPublishDuration, publishOperationAliases, teamID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) QueryReceiveLatencyByTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopicHistogramRow, error) {
+	return r.queryHistogramSeriesByTopic(ctx, "kafka.QueryReceiveLatencyByTopic", MetricReceiveDuration, receiveOperationAliases, teamID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) QueryProcessLatencyByGroup(ctx context.Context, teamID int64, startMs, endMs int64) ([]GroupHistogramRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN (@metricName, @opDuration)
+		)
+		SELECT
+		    toDateTime(intDiv(toUnixTimestamp(timestamp), @stepSec) * @stepSec) AS timestamp,
+		    attributes.'messaging.consumer.group.name'::String                  AS consumer_group,
+		    max(hist_buckets)                                                   AS hist_buckets,
+		    sumForEach(hist_counts)                                             AS hist_counts
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE (metric_name = @metricName
+		       OR (metric_name = @opDuration
+		           AND lower(attributes.'messaging.operation.name'::String) IN @opAliases))
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'messaging.consumer.group.name'::String != ''
+		  AND lower(attributes.'messaging.system'::String) = 'kafka'
+		GROUP BY timestamp, consumer_group
+		ORDER BY timestamp, consumer_group`
+	args := withMetricName(metricArgs(teamID, startMs, endMs), MetricProcessDuration)
+	args = append(args, clickhouse.Named("opDuration", MetricClientOperationDuration))
+	args = withOpAliases(args, processOperationAliases)
+	args = withStepSec(args, startMs, endMs)
+	var rows []GroupHistogramRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryProcessLatencyByGroup", &rows, query, args...)
+}
+
+func (r *ClickHouseRepository) QueryClientOperationDurationByOp(ctx context.Context, teamID int64, startMs, endMs int64) ([]OperationHistogramRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name = @metricName
+		)
+		SELECT
+		    toDateTime(intDiv(toUnixTimestamp(timestamp), @stepSec) * @stepSec) AS timestamp,
+		    attributes.'messaging.operation.name'::String                       AS operation_name,
+		    max(hist_buckets)                                                   AS hist_buckets,
+		    sumForEach(hist_counts)                                             AS hist_counts
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name = @metricName
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'messaging.operation.name'::String != ''
+		  AND lower(attributes.'messaging.system'::String) = 'kafka'
+		GROUP BY timestamp, operation_name
+		ORDER BY timestamp, operation_name`
+	args := withMetricName(metricArgs(teamID, startMs, endMs), MetricClientOperationDuration)
+	args = withStepSec(args, startMs, endMs)
+	var rows []OperationHistogramRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryClientOperationDurationByOp", &rows, query, args...)
+}
+
+func (r *ClickHouseRepository) QueryE2ELatencyByTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopicMetricHistogramRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN @metricNames
+		)
+		SELECT
+		    toDateTime(intDiv(toUnixTimestamp(timestamp), @stepSec) * @stepSec) AS timestamp,
+		    attributes.'messaging.destination.name'::String                     AS topic,
+		    metric_name                                                         AS metric_name,
+		    max(hist_buckets)                                                   AS hist_buckets,
+		    sumForEach(hist_counts)                                             AS hist_counts
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name IN @metricNames
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'messaging.destination.name'::String != ''
+		  AND lower(attributes.'messaging.system'::String) = 'kafka'
+		GROUP BY timestamp, topic, metric_name
+		ORDER BY timestamp, topic, metric_name`
+	args := withMetricNames(metricArgs(teamID, startMs, endMs), []string{MetricPublishDuration, MetricReceiveDuration, MetricProcessDuration})
+	args = withStepSec(args, startMs, endMs)
+	var rows []TopicMetricHistogramRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryE2ELatencyByTopic", &rows, query, args...)
+}
+
+// ============================================================================
+// Lag panels
+// ============================================================================
+
+func (r *ClickHouseRepository) QueryConsumerLagByGroupTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]GroupTopicGaugeRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN @metricNames
+		)
+		SELECT
+		    timestamp                                                AS timestamp,
+		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
+		    attributes.'messaging.destination.name'::String          AS topic,
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name IN @metricNames
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'messaging.consumer.group.name'::String != ''
+		ORDER BY timestamp`
+	args := withMetricNames(metricArgs(teamID, startMs, endMs), ConsumerLagMetrics)
+	var rows []GroupTopicGaugeRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryConsumerLagByGroupTopic", &rows, query, args...)
+}
+
+func (r *ClickHouseRepository) QueryPartitionLagSnapshot(ctx context.Context, teamID int64, startMs, endMs int64) ([]PartitionLagSnapshotRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN @metricNames
+		)
+		SELECT
+		    attributes.'messaging.destination.name'::String          AS topic,
+		    attributes.'messaging.kafka.destination.partition'::String AS partition,
+		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
+		    toFloat64(argMax(value, timestamp))                      AS lag,
+		    max(timestamp)                                           AS timestamp
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name IN @metricNames
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'messaging.destination.name'::String != ''
+		  AND attributes.'messaging.kafka.destination.partition'::String != ''
 		GROUP BY topic, partition, consumer_group
 		ORDER BY lag DESC
-		LIMIT 200
-	`, table, rollupTopicGroupFilter(f))
-	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
-	args = append(args, clickhouse.Named("lagMetrics", ConsumerLagMetrics))
-	var out []PartitionLag
-	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetConsumerLagPerPartition", &out, query, args...)
+		LIMIT @lagTopN`
+	args := withMetricNames(metricArgs(teamID, startMs, endMs), ConsumerLagMetrics)
+	args = append(args, clickhouse.Named("lagTopN", uint64(partitionLagTopN)))
+	var rows []PartitionLagSnapshotRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryPartitionLagSnapshot", &rows, query, args...)
 }
 
-// ---------------------------------------------------------------------------
-// Rebalance — messaging_counters_rollup; 6 metric_names, fold client-side
-// ---------------------------------------------------------------------------
+// ============================================================================
+// Rebalance signals
+// ============================================================================
 
-func (r *ClickHouseRepository) GetRebalanceSignals(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]RebalancePoint, error) {
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
-	bs := bucketSecs(startMs, endMs)
-	query := fmt.Sprintf(`
+func (r *ClickHouseRepository) QueryRebalanceSignals(ctx context.Context, teamID int64, startMs, endMs int64) ([]RebalanceMetricRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN @metricNames
+		)
 		SELECT
-		    %s                                                                          AS time_bucket,
-		    consumer_group                                                              AS consumer_group,
-		    metric_name                                                                 AS metric_name,
-		    toFloat64(sumMerge(value_sum))                                              AS v_sum,
-		    sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)      AS v_avg
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name IN @rebalanceMetrics
-		  %s
-		GROUP BY time_bucket, consumer_group, metric_name
-	`, rollupBucketExpr(startMs, endMs), table, rollupTopicGroupFilter(f))
-	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
-	args = append(args, clickhouse.Named("rebalanceMetrics", RebalanceMetrics))
-	var metricRows []struct {
-		TimeBucket	string	`ch:"time_bucket"`
-		ConsumerGroup	string	`ch:"consumer_group"`
-		MetricName	string	`ch:"metric_name"`
-		VSum		float64	`ch:"v_sum"`
-		VAvg		float64	`ch:"v_avg"`
-	}
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetRebalanceSignals", &metricRows, query, args...); err != nil {
-		return nil, err
-	}
-	type key struct{ bucket, group string }
-	out := map[key]*RebalancePoint{}
-	for _, mr := range metricRows {
-		k := key{mr.TimeBucket, mr.ConsumerGroup}
-		pt, ok := out[k]
-		if !ok {
-			pt = &RebalancePoint{Timestamp: k.bucket, ConsumerGroup: k.group}
-			out[k] = pt
-		}
-		switch mr.MetricName {
-		case MetricRebalanceCount:
-			pt.RebalanceRate = mr.VSum / bs
-		case MetricJoinCount:
-			pt.JoinRate = mr.VSum / bs
-		case MetricSyncCount:
-			pt.SyncRate = mr.VSum / bs
-		case MetricHeartbeatCount:
-			pt.HeartbeatRate = mr.VSum / bs
-		case MetricFailedHeartbeatCount:
-			pt.FailedHeartbeatRate = mr.VSum / bs
-		case MetricAssignedPartitions:
-			pt.AssignedPartitions = mr.VAvg
-		}
-	}
-	rows := make([]RebalancePoint, 0, len(out))
-	for _, pt := range out {
-		rows = append(rows, *pt)
-	}
-	return rows, nil
+		    timestamp                                                AS timestamp,
+		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
+		    metric_name                                              AS metric_name,
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name IN @metricNames
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'messaging.consumer.group.name'::String != ''
+		ORDER BY timestamp`
+	args := withMetricNames(metricArgs(teamID, startMs, endMs), RebalanceMetrics)
+	var rows []RebalanceMetricRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryRebalanceSignals", &rows, query, args...)
 }
 
-// ---------------------------------------------------------------------------
-// E2E latency — messaging_histograms_rollup; 3 metric_names, fold client-side
-// ---------------------------------------------------------------------------
+// ============================================================================
+// Error panels
+// ============================================================================
 
-func (r *ClickHouseRepository) GetE2ELatency(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]E2ELatencyPoint, error) {
-	table, _ := rollup.TierTableFor(messagingRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
+func (r *ClickHouseRepository) QueryPublishErrorsByTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopicErrorCounterRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name = @metricName
+		)
 		SELECT
-		    %s                                                                   AS time_bucket,
-		    messaging_destination                                                AS topic,
-		    metric_name                                                          AS metric_name,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])  AS p95
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name IN (@publishDuration, @receiveDuration, @processDuration)
-		  %s
-		GROUP BY time_bucket, topic, metric_name
-	`, rollupBucketExpr(startMs, endMs), table, rollupTopicGroupFilter(f))
-	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
-	var metricRows []struct {
-		TimeBucket	string	`ch:"time_bucket"`
-		Topic		string	`ch:"topic"`
-		MetricName	string	`ch:"metric_name"`
-		P95		float64	`ch:"p95"`
-	}
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetE2ELatency", &metricRows, query, args...); err != nil {
-		return nil, err
-	}
-	type key struct{ bucket, topic string }
-	out := map[key]*E2ELatencyPoint{}
-	for _, mr := range metricRows {
-		k := key{mr.TimeBucket, mr.Topic}
-		pt, ok := out[k]
-		if !ok {
-			pt = &E2ELatencyPoint{Timestamp: k.bucket, Topic: k.topic}
-			out[k] = pt
-		}
-		switch mr.MetricName {
-		case MetricPublishDuration:
-			pt.PublishP95Ms = mr.P95
-		case MetricReceiveDuration:
-			pt.ReceiveP95Ms = mr.P95
-		case MetricProcessDuration:
-			pt.ProcessP95Ms = mr.P95
-		}
-	}
-	rows := make([]E2ELatencyPoint, 0, len(out))
-	for _, pt := range out {
-		rows = append(rows, *pt)
-	}
-	return rows, nil
+		    timestamp                                                AS timestamp,
+		    attributes.'messaging.destination.name'::String          AS topic,
+		    attributes.'error.type'::String                          AS error_type,
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name = @metricName
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'messaging.destination.name'::String != ''
+		  AND attributes.'error.type'::String != ''
+		  AND lower(attributes.'messaging.system'::String) = 'kafka'
+		ORDER BY timestamp`
+	args := withMetricName(metricArgs(teamID, startMs, endMs), MetricPublishMessages)
+	var rows []TopicErrorCounterRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryPublishErrorsByTopic", &rows, query, args...)
 }
 
-// ---------------------------------------------------------------------------
-// Error panels — messaging_counters_rollup, filter on error_type != ''
-// ---------------------------------------------------------------------------
-
-func (r *ClickHouseRepository) GetPublishErrors(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
-	return r.getTopicErrorRates(ctx, teamID, startMs, endMs, MetricPublishMessages, "GetPublishErrors", f)
-}
-
-func (r *ClickHouseRepository) GetConsumeErrors(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
-	return r.getGroupErrorRates(ctx, teamID, startMs, endMs, MetricReceiveMessages, "GetConsumeErrors", f)
-}
-
-func (r *ClickHouseRepository) GetProcessErrors(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
-	return r.getGroupErrorRates(ctx, teamID, startMs, endMs, MetricProcessMessages, "GetProcessErrors", f)
-}
-
-// GetClientOpErrors groups by (operation, error_type) for the
-// `messaging.client.operation.duration` metric. It's a histogram, but
-// messaging_counters_rollup carries its error-tagged rows via `sample_count`
-// (see MV in db/clickhouse/14_rollup_messaging_counters.sql). Rate is
-// errored-ops / bucketSecs.
-func (r *ClickHouseRepository) GetClientOpErrors(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ErrorRatePoint, error) {
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
+const counterErrorsByGroupQuery = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name = @metricName
+		)
 		SELECT
-		    %s                                                              AS time_bucket,
-		    messaging_operation                                             AS operation_name,
-		    error_type                                                      AS error_type,
-		    toFloat64(sumMerge(sample_count)) / @bucketSecs                 AS error_rate
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @opDuration
-		  AND error_type != ''
-		  %s
-		GROUP BY time_bucket, operation_name, error_type
-		ORDER BY time_bucket ASC, error_rate DESC
-	`, rollupBucketExpr(startMs, endMs), table, rollupTopicGroupFilter(f))
-	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
-	args = append(args, clickhouse.Named("bucketSecs", bucketSecs(startMs, endMs)))
-	var out []ErrorRatePoint
-	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetClientOpErrors", &out, query, args...)
+		    timestamp                                                AS timestamp,
+		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
+		    attributes.'error.type'::String                          AS error_type,
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name = @metricName
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'messaging.consumer.group.name'::String != ''
+		  AND attributes.'error.type'::String != ''
+		  AND lower(attributes.'messaging.system'::String) = 'kafka'
+		ORDER BY timestamp`
+
+func (r *ClickHouseRepository) queryCounterErrorsByGroup(ctx context.Context, op, metricName string, teamID int64, startMs, endMs int64) ([]GroupErrorCounterRow, error) {
+	args := withMetricName(metricArgs(teamID, startMs, endMs), metricName)
+	var rows []GroupErrorCounterRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, op, &rows, counterErrorsByGroupQuery, args...)
 }
 
-func (r *ClickHouseRepository) GetBrokerConnections(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]BrokerConnectionPoint, error) {
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
+func (r *ClickHouseRepository) QueryReceiveErrorsByGroup(ctx context.Context, teamID int64, startMs, endMs int64) ([]GroupErrorCounterRow, error) {
+	return r.queryCounterErrorsByGroup(ctx, "kafka.QueryReceiveErrorsByGroup", MetricReceiveMessages, teamID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) QueryProcessErrorsByGroup(ctx context.Context, teamID int64, startMs, endMs int64) ([]GroupErrorCounterRow, error) {
+	return r.queryCounterErrorsByGroup(ctx, "kafka.QueryProcessErrorsByGroup", MetricProcessMessages, teamID, startMs, endMs)
+}
+
+func (r *ClickHouseRepository) QueryClientOpErrorsByOperation(ctx context.Context, teamID int64, startMs, endMs int64) ([]OperationErrorCounterRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name = @metricName
+		)
 		SELECT
-		    %s                                                                          AS time_bucket,
-		    broker                                                                      AS broker,
-		    sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)      AS connections
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName
-		  %s
-		GROUP BY time_bucket, broker
-		ORDER BY time_bucket ASC, broker ASC
-	`, rollupBucketExpr(startMs, endMs), table, rollupTopicGroupFilter(f))
-	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
-	args = append(args, clickhouse.Named("metricName", MetricClientConnections))
-	var out []BrokerConnectionPoint
-	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetBrokerConnections", &out, query, args...)
+		    timestamp                                                AS timestamp,
+		    attributes.'messaging.operation.name'::String            AS operation_name,
+		    attributes.'error.type'::String                          AS error_type,
+		    toFloat64(hist_count)                                    AS value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name = @metricName
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'messaging.operation.name'::String != ''
+		  AND attributes.'error.type'::String != ''
+		  AND lower(attributes.'messaging.system'::String) = 'kafka'
+		ORDER BY timestamp`
+	args := withMetricName(metricArgs(teamID, startMs, endMs), MetricClientOperationDuration)
+	var rows []OperationErrorCounterRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryClientOpErrorsByOperation", &rows, query, args...)
 }
 
-// ---------------------------------------------------------------------------
-// Histogram-latency panels — messaging_histograms_rollup (Phase 7)
-// ---------------------------------------------------------------------------
+// ============================================================================
+// Broker connections
+// ============================================================================
 
-// GetPublishLatencyByTopic reads publish-duration percentiles from
-// `messaging_histograms_rollup_*` grouped by topic (= `messaging_destination`).
-func (r *ClickHouseRepository) GetPublishLatencyByTopic(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicLatencyPoint, error) {
-	return r.topicLatency(ctx, teamID, startMs, endMs, f, MetricPublishDuration, publishOperationAliases)
-}
-
-// GetReceiveLatencyByTopic — rollup-backed, see comment on GetPublishLatencyByTopic.
-func (r *ClickHouseRepository) GetReceiveLatencyByTopic(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]TopicLatencyPoint, error) {
-	return r.topicLatency(ctx, teamID, startMs, endMs, f, MetricReceiveDuration, receiveOperationAliases)
-}
-
-func (r *ClickHouseRepository) topicLatency(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters, durationMetric string, opAliases []string) ([]TopicLatencyPoint, error) {
-	table, _ := rollup.TierTableFor(messagingRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
+func (r *ClickHouseRepository) QueryBrokerConnectionsSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]BrokerGaugeRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name = @metricName
+		)
 		SELECT
-		    %s                                                                   AS time_bucket,
-		    messaging_destination                                                AS topic,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1])  AS p50,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])  AS p95,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3])  AS p99
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND (metric_name = @durationMetric
-		       OR (metric_name = @opDuration AND lower(messaging_operation) IN @opAliases))
-		  %s
-		GROUP BY time_bucket, topic
-		ORDER BY time_bucket ASC, topic ASC
-	`, rollupBucketExpr(startMs, endMs), table, rollupTopicGroupFilter(f))
-	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
-	args = append(args,
-		clickhouse.Named("durationMetric", durationMetric),
-		clickhouse.Named("opAliases", opAliases),
-	)
-	var out []TopicLatencyPoint
-	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.topicLatency", &out, query, args...)
+		    timestamp                                AS timestamp,
+		    attributes.'server.address'::String      AS broker,
+		    val_sum / val_count AS value
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name = @metricName
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'server.address'::String != ''
+		  AND lower(attributes.'messaging.system'::String) = 'kafka'
+		ORDER BY timestamp`
+	args := withMetricName(metricArgs(teamID, startMs, endMs), MetricClientConnections)
+	var rows []BrokerGaugeRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryBrokerConnectionsSeries", &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) GetProcessLatencyByGroup(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]GroupLatencyPoint, error) {
-	table, _ := rollup.TierTableFor(messagingRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                                                   AS time_bucket,
-		    consumer_group                                                       AS consumer_group,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1])  AS p50,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])  AS p95,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3])  AS p99
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND (metric_name = @processDuration
-		       OR (metric_name = @opDuration AND lower(messaging_operation) IN @processOps))
-		  %s
-		GROUP BY time_bucket, consumer_group
-		ORDER BY time_bucket ASC, consumer_group ASC
-	`, rollupBucketExpr(startMs, endMs), table, rollupTopicGroupFilter(f))
-	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
-	var out []GroupLatencyPoint
-	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetProcessLatencyByGroup", &out, query, args...)
-}
+// ============================================================================
+// Catalog samples — intentionally generic (caller picks the metric set per
+// topic/group fan-out for the kafka-explorer catalog views).
+// ============================================================================
 
-func (r *ClickHouseRepository) GetClientOperationDuration(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters) ([]ClientOpDurationPoint, error) {
-	table, _ := rollup.TierTableFor(messagingRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                                                   AS time_bucket,
-		    messaging_operation                                                  AS operation_name,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[1])  AS p50,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[2])  AS p95,
-		    toFloat64(quantilesTDigestWeightedMerge(0.5, 0.95, 0.99)(latency_ms_digest)[3])  AS p99
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @opDuration
-		  %s
-		GROUP BY time_bucket, operation_name
-		ORDER BY time_bucket ASC, operation_name ASC
-	`, rollupBucketExpr(startMs, endMs), table, rollupTopicGroupFilter(f))
-	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
-	var out []ClientOpDurationPoint
-	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetClientOperationDuration", &out, query, args...)
-}
-
-// ---------------------------------------------------------------------------
-// Error-rate helpers — messaging_counters_rollup with error_type key
-// ---------------------------------------------------------------------------
-
-func (r *ClickHouseRepository) getTopicErrorRates(ctx context.Context, teamID int64, startMs, endMs int64, metricName, caller string, f KafkaFilters) ([]ErrorRatePoint, error) {
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                                AS time_bucket,
-		    messaging_destination                             AS topic,
-		    error_type                                        AS error_type,
-		    toFloat64(sumMerge(value_sum)) / @bucketSecs      AS error_rate
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName
-		  AND error_type != ''
-		  %s
-		GROUP BY time_bucket, topic, error_type
-		ORDER BY time_bucket ASC, error_rate DESC
-	`, rollupBucketExpr(startMs, endMs), table, rollupTopicGroupFilter(f))
-	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
-	args = append(args,
-		clickhouse.Named("metricName", metricName),
-		clickhouse.Named("bucketSecs", bucketSecs(startMs, endMs)),
-	)
-	var out []ErrorRatePoint
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.getTopicErrorRates", &out, query, args...); err != nil {
-		return nil, fmt.Errorf("%s: %w", caller, err)
-	}
-	return out, nil
-}
-
-func (r *ClickHouseRepository) getGroupErrorRates(ctx context.Context, teamID int64, startMs, endMs int64, metricName, caller string, f KafkaFilters) ([]ErrorRatePoint, error) {
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
-		SELECT
-		    %s                                                AS time_bucket,
-		    consumer_group                                    AS consumer_group,
-		    error_type                                        AS error_type,
-		    toFloat64(sumMerge(value_sum)) / @bucketSecs      AS error_rate
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name = @metricName
-		  AND error_type != ''
-		  %s
-		GROUP BY time_bucket, consumer_group, error_type
-		ORDER BY time_bucket ASC, error_rate DESC
-	`, rollupBucketExpr(startMs, endMs), table, rollupTopicGroupFilter(f))
-	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupTopicGroupArgs(f)...)
-	args = append(args,
-		clickhouse.Named("metricName", metricName),
-		clickhouse.Named("bucketSecs", bucketSecs(startMs, endMs)),
-	)
-	var out []ErrorRatePoint
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.getGroupErrorRates", &out, query, args...); err != nil {
-		return nil, fmt.Errorf("%s: %w", caller, err)
-	}
-	return out, nil
-}
-
-// ---------------------------------------------------------------------------
-// Sample queries — messaging_counters_rollup; node_id dim dropped (aggregated)
-// because rollup doesn't key on it. Behavior change documented on PR.
-// ---------------------------------------------------------------------------
-
-func (r *ClickHouseRepository) GetConsumerMetricSamples(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters, metricNames []string) ([]ConsumerMetricSample, error) {
+func (r *ClickHouseRepository) QueryConsumerMetricSamples(ctx context.Context, teamID int64, startMs, endMs int64, metricNames []string) ([]ConsumerMetricSample, error) {
 	if len(metricNames) == 0 {
 		return []ConsumerMetricSample{}, nil
 	}
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
-	// Inventory filters are lighter than kafkaFilterClauses — no messaging_system
-	// predicate. rollupInventoryFilter mirrors that.
-	query := fmt.Sprintf(`
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN @metricNames
+		)
 		SELECT
-		    %s                                                                          AS time_bucket,
-		    consumer_group                                                              AS consumer_group,
-		    ''                                                                          AS node_id,
-		    metric_name                                                                 AS metric_name,
-		    sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)      AS value
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name IN @metricNames
-		  AND consumer_group != ''
-		  %s
-		GROUP BY time_bucket, consumer_group, metric_name
-		ORDER BY time_bucket ASC, consumer_group ASC, metric_name ASC
-	`, rollupBucketExpr(startMs, endMs), table, rollupInventoryFilter(f))
-	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupInventoryArgs(f)...)
-	args = append(args, clickhouse.Named("metricNames", metricNames))
-	var out []ConsumerMetricSample
-	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetConsumerMetricSamples", &out, query, args...)
+		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
+		    attributes.'node-id'::String                             AS node_id,
+		    metric_name                                              AS metric_name,
+		    toFloat64(argMax(value, timestamp))                      AS value,
+		    formatDateTime(max(timestamp), '%Y-%m-%d %H:%M:%S')      AS timestamp
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name IN @metricNames
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'messaging.consumer.group.name'::String != ''
+		GROUP BY consumer_group, node_id, metric_name
+		ORDER BY consumer_group, node_id, metric_name`
+	args := withMetricNames(metricArgs(teamID, startMs, endMs), metricNames)
+	var rows []ConsumerMetricSample
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryConsumerMetricSamples", &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) GetTopicMetricSamples(ctx context.Context, teamID int64, startMs, endMs int64, f KafkaFilters, metricNames []string) ([]TopicMetricSample, error) {
+func (r *ClickHouseRepository) QueryTopicMetricSamples(ctx context.Context, teamID int64, startMs, endMs int64, metricNames []string) ([]TopicMetricSample, error) {
 	if len(metricNames) == 0 {
 		return []TopicMetricSample{}, nil
 	}
-	table, _ := rollup.TierTableFor(messagingCountersRollupPrefix, startMs, endMs)
-	query := fmt.Sprintf(`
+	const query = `
+		WITH active_fps AS (
+		    SELECT fingerprint
+		    FROM observability.metrics_resource
+		    WHERE team_id = @teamID
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		      AND metric_name IN @metricNames
+		)
 		SELECT
-		    %s                                                                          AS time_bucket,
-		    messaging_destination                                                       AS topic,
-		    consumer_group                                                              AS consumer_group,
-		    metric_name                                                                 AS metric_name,
-		    sumMerge(value_avg_num) / nullIf(toFloat64(sumMerge(sample_count)), 0)      AS value
-		FROM %s
-		WHERE team_id = @teamID
-		  AND bucket_ts BETWEEN @start AND @end
-		  AND metric_name IN @metricNames
-		  AND messaging_destination != ''
-		  %s
-		GROUP BY time_bucket, topic, consumer_group, metric_name
-		ORDER BY time_bucket ASC, topic ASC, consumer_group ASC, metric_name ASC
-	`, rollupBucketExpr(startMs, endMs), table, rollupInventoryFilter(f))
-	args := append(r.rollupBaseParams(teamID, startMs, endMs), rollupInventoryArgs(f)...)
-	args = append(args, clickhouse.Named("metricNames", metricNames))
-	var out []TopicMetricSample
-	return out, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.GetTopicMetricSamples", &out, query, args...)
-}
-
-// stringSet builds a lookup set from a slice for O(1) metric-name classification.
-func stringSet(s []string) map[string]struct{} {
-	m := make(map[string]struct{}, len(s))
-	for _, v := range s {
-		m[v] = struct{}{}
-	}
-	return m
+		    attributes.'messaging.destination.name'::String          AS topic,
+		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
+		    metric_name                                              AS metric_name,
+		    toFloat64(argMax(value, timestamp))                      AS value,
+		    formatDateTime(max(timestamp), '%Y-%m-%d %H:%M:%S')      AS timestamp
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name IN @metricNames
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'messaging.destination.name'::String != ''
+		GROUP BY topic, consumer_group, metric_name
+		ORDER BY topic, consumer_group, metric_name`
+	args := withMetricNames(metricArgs(teamID, startMs, endMs), metricNames)
+	var rows []TopicMetricSample
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryTopicMetricSamples", &rows, query, args...)
 }

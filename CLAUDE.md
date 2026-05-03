@@ -2,42 +2,97 @@
 
 ## Before any task
 
-1. Read **`CODEBASE_INDEX.md`** (repo root) — full map of modules, ingestion, and architecture.
-2. Read **`.cursor/rules/optik-backend.mdc`** — hot paths, handler/service/repository patterns, and middleware stack.
-3. Read **`.cursor/rules/engineering-workflow.mdc`** — plan before code, two approaches with pros/cons, approval gate.
-4. **Do not modify files** until the user approves the plan (except trivial one-line fixes).
+1. Read **`CODEBASE_INDEX.md`** (repo root) — the canonical map of modules, ingestion, and architecture.
+2. **Plan first.** For non-trivial work (anything beyond a one-line fix), write a plan via `EnterPlanMode` and wait for approval before editing.
 
 ## After every iteration
 
 After completing any task — no matter how small — review and update the following if anything changed:
 
-1. **`CODEBASE_INDEX.md`** — new modules, endpoints, helpers, or config sections.
-2. **`.cursor/rules/optik-backend.mdc`** — new patterns, conventions, or LLD details.
-3. **This file (`CLAUDE.md`)** — new quick-reference paths or principles.
+1. **`CODEBASE_INDEX.md`** — new modules, endpoints, helpers, or schema.
+2. **This file (`CLAUDE.md`)** — new quick-reference paths or principles.
+3. **`db/clickhouse/README.md`** — new migration files or schema-level facts.
 
 This is **mandatory**. Documentation must always reflect the current architecture.
 
 ## Quick reference
 
-- **Stack**: Go 1.25, Gin, ClickHouse, MySQL, Redis, Kafka, OTLP gRPC (ingest surface only — self-telemetry is Prometheus-only).
-- **Server entry**: `cmd/server/main.go`
-- **Module registration**: `internal/app/server/modules_manifest.go` → `configuredModules()`.
-- **Handler helpers**: `internal/shared/httputil/base.go` — `RespondOK`, `RespondErrorWithCause`, `ParseRequiredRange`.
-- **Error codes**: `internal/shared/errorcode/codes.go`.
-- **ClickHouse helpers**: `internal/infra/database/` — `QueryMaps`, `QueryCount`, `SqlTime`, type extractors.
-- **Time bucketing**: `internal/infra/timebucket/timebucket.go` — adaptive (1m/5m/15m/1h/1d).
-- **Rollup Selection**: `internal/infra/rollup/tier.go` — `TierTableFor(prefix, startMs, endMs)` for smart table choice.
-- **Session**: `internal/infra/session/manager.go`.
-- **Middleware**: `internal/infra/middleware/` — public prefixes: `/api/v1/auth/login`, `/otlp/`, `/health`.
-- **Ingestion**: `internal/ingestion/{spans,metrics,logs}/` — handler → mapper → kafka producer → dispatcher → per-partition worker → writer (CH batch + retry + DLQ). Shared generics in `internal/infra/kafka_ingest/` (`dispatcher.go`, `worker.go`, `writer.go`, `accumulator.go`, `metrics.go`, `pools.go`, `pipeline_cfg.go`). Tuning knobs live in `internal/config/ingestion.go` → `IngestPipelineConfig` (per-signal YAML overrides).
-- **Local monitoring**: `deploy/monitoring/stack/docker-compose.yml` — Prometheus `:19091`, Grafana `:13001`. Dashboards in `deploy/monitoring/grafana/dashboards/`: `optikk_overview`, `optikk_http_api` (per-API drill-down), `optikk_grpc`, `optikk_db`, `optikk_redis`, `optikk_kafka`, `optikk_ingest`. All Prometheus-sourced; there is no OTel collector or Tempo — the `/metrics` endpoint is the only self-telemetry surface.
-- **Load test (query-side)**: `make loadtest-smoke` for CI sanity, `make loadtest-all` for the full sweep. k6 scenarios live in `loadtest/scenarios/<module>/`; entrypoints in `loadtest/entrypoints/`. See `loadtest/docs/README.md` for the env-flag table and the Prometheus remote-write setup.
-- **Schema migrations**: `db/clickhouse/*.sql` applied via `internal/infra/database_chmigrate`.
-- **Traces explorer contract**: `internal/modules/traces/explorer/` reads `observability.traces_index` directly. Keep DB scan structs aligned with ClickHouse unsigned types (`start_ms`, `end_ms`, `duration_ns`, `last_seen_ms`, `root_http_status`) and normalize mixed facet types at the SQL boundary (for example `toString(root_http_status)` in facet queries).
+### Stack and entry points
+
+- **Stack**: Go, Gin, gRPC, ClickHouse, MySQL, Redis, Kafka/Redpanda. OTLP gRPC ingest surface only — self-telemetry is Prometheus on `/metrics`.
+- **Server entry**: [cmd/server/main.go](cmd/server/main.go) → [internal/app/server/app.go](internal/app/server/app.go).
+- **Module registration**: [internal/app/server/modules_manifest.go](internal/app/server/modules_manifest.go) → `configuredModules()`. Single `/api/v1` route group with `TenantMiddleware` — no cached/uncached split, no response-cache middleware.
+
+### Shared helpers (use these, don't reinvent)
+
+- **HTTP**: [internal/shared/httputil/base.go](internal/shared/httputil/base.go) — `RespondOK`, `RespondError`, `RespondErrorWithCause`, `ParseRequiredRange`, `ParseRange`, `ParseComparisonRange`, `WithComparison`, `MaxPageSize=200`.
+- **Error codes**: [internal/shared/errorcode/codes.go](internal/shared/errorcode/codes.go).
+- **ClickHouse query budgets**: [internal/infra/database/clickhouse.go](internal/infra/database/clickhouse.go) — three tiers via `DashboardCtx` (3s, 1 GiB, priority 1), `OverviewCtx` (15s, 2 GiB, priority 5), `ExplorerCtx` (60s, 8 GiB, priority 10). All three enable CH per-shard query cache (60s TTL, per-user). Pick the lowest budget that fits — repeat queries within 60s come from cache regardless of tier.
+- **DB instrumentation seam**: `dbutil.SelectCH/QueryCH/ExecCH` (and `SelectSQL/GetSQL/ExecSQL`) emit `optikk_db_{queries_total,query_duration_seconds}` with the `op` label inferred from the call site — pass a meaningful `op` (e.g. `"logsDetail.GetByID"`).
+- **Quantiles**: [internal/shared/quantile/quantile.go](internal/shared/quantile/quantile.go) — `FromHistogram(buckets, counts, q)` for percentile interpolation from fixed-bucket histograms.
+- **Display-time bucketing**: [internal/shared/displaybucket/displaybucket.go](internal/shared/displaybucket/displaybucket.go) — `SumByTime`, `AvgByTime`, `SumByTimeAndKey`, `AvgByTimeAndKey`.
+
+### Time bucketing — single source of truth
+
+[internal/infra/timebucket/timebucket.go](internal/infra/timebucket/timebucket.go) owns all bucket math.
+
+- `BucketSeconds = 300` — **5-minute grain**. `BucketStart(unixSeconds) → uint32` truncates to a 5-minute boundary; all three signals (spans/logs/metrics) store `ts_bucket UInt32` Unix-seconds at this grain.
+- `DisplayBucket(rowUnixSeconds, windowMs)` / `DisplayGrain(windowMs)` are window-adaptive: ≤3h → 1m, ≤24h → 5m, ≤7d → 1h, else 1d. Display-time aggregation is a separate concept from partition-prune buckets.
+- **ClickHouse never computes a bucket itself** in any reader SQL — no `toStartOfHour`, `toStartOfInterval`, `toStartOfDay`, `toStartOfMinute`, `toStartOfFiveMinutes`. The exceptions are `metrics_1m_mv` in `07_metrics_1m.sql` and `spans_1m_mv` in `09_spans_1m.sql`, both of which derive `ts_bucket` server-side at MV evaluation; the value still matches `timebucket.BucketStart`.
+- Display-time aggregation in `SELECT` / `GROUP BY` (e.g. `toStartOfInterval(timestamp, INTERVAL @stepMin MINUTE)`) is permitted — no row is being matched against a bucket value, so no cross-language drift risk.
+- Changing `BucketSeconds` is a breaking schema change — drop the `observability` database on dev clusters and let migrations re-run.
+
+### ClickHouse schema (9 migration files, two rollup tiers)
+
+See [db/clickhouse/README.md](db/clickhouse/README.md) for the per-file table.
+
+- `observability.spans` ([01_spans.sql](db/clickhouse/01_spans.sql)) — raw OTLP spans. PK `(team_id, ts_bucket, fingerprint, service, name, timestamp, trace_id, span_id)`. `attributes JSON(max_dynamic_paths=100)` typed-paths; ALIAS columns for hot reader names. **Aggregate / count / percentile readers project from `observability.spans_1m`; only DETAIL queries stay on raw spans** — per-trace lookups (traces/* trace-id-scoped readers, `traces/explorer.{ListTraces, GetByID-narrow-scan}`), per-span listings (`span_query.ListSpans`, `tracedetail.spans_list`), free-text `db_statement` grouping (slowqueries, collection.GetCollectionQueryTexts), dynamic-threshold queries (`redmetrics.GetApdex`, `slowqueries.GetSlowQueryRate`), heatmaps (`latency.Heatmap`, `saturation/database/latency.GetLatencyHeatmap`), arbitrary-attribute typeahead (`trace_suggest.SuggestAttribute`), and `services/errors.ErrorGroupTraceRows` (per-span list within an error group).
+- `observability.logs` ([02_logs.sql](db/clickhouse/02_logs.sql)) — raw OTLP logs. PK `(team_id, ts_bucket, fingerprint, timestamp)`. Skip-indexes: `idx_log_id` bloom-filter on `log_id` (deep-link lookup); `idx_body_text` native text (inverted) index on `body` with `tokenizer='splitByNonAlpha'` + `preprocessor='lowerUTF8(str)'` (CH 26.2 GA — accelerates `hasToken(body, lower(@search))` and the case-insensitive `lower(body) LIKE` exact-mode predicate; replaces the prior `tokenbf_v1` per migration `10_logs_text_index.sql`). The `log_id` deep-link id is a stable FNV-64a hex of `(trace_id, timestamp_ns, body, fingerprint)` computed in the ingestion mapper. Trace-id-keyed lookups go through `observability.trace_index`.
+- `observability.metrics` ([03_metrics.sql](db/clickhouse/03_metrics.sql)) — raw OTLP metrics. PK `(team_id, ts_bucket, fingerprint, metric_name, timestamp)`. One row per OTel data point; histograms inline in `hist_buckets Array(Float64)` + `hist_counts Array(UInt64)`.
+- `observability.{spans,logs,metrics}_resource` ([04_resources.sql](db/clickhouse/04_resources.sql)) — `ReplacingMergeTree` dictionaries populated by MV from raw, used by reader CTEs to narrow `fingerprint IN (...)` before the main scan.
+- `observability.deployments` ([05_deployments.sql](db/clickhouse/05_deployments.sql)) — VCS metadata per (service, version, environment), populated by MV from spans where `is_root = 1` and `vcs.*` resource attributes are present.
+- `observability.metrics_1m` ([07_metrics_1m.sql](db/clickhouse/07_metrics_1m.sql)) — 1-minute `AggregatingMergeTree` rollup from `observability.metrics` via `metrics_1m_mv`. Five `SimpleAggregateFunction` scalar columns (`val_min`/`val_max`/`val_sum`/`val_count`/`val_last`); histogram cols `hist_buckets` (max), `hist_sum`/`hist_count` (sum) are `SimpleAggregateFunction`; `hist_counts AggregateFunction(sumForEach, Array(UInt64))` requires `-Merge` on read. `attr_hash UInt64 = cityHash64(toJSONString(attributes))` discriminates attribute combos in PK. **Every metrics-bearing reader queries `metrics_1m`, not raw `observability.metrics`** — interpolate p50/p95/p99 Go-side via [quantile.FromHistogram](internal/shared/quantile/quantile.go) (raw observation values are gone by the time data reaches the rollup, so OTel-bucket interpolation is the right primitive).
+- `observability.spans_1m` ([09_spans_1m.sql](db/clickhouse/09_spans_1m.sql)) — 1-minute `AggregatingMergeTree` rollup from `observability.spans` via `spans_1m_mv`. `latency_state AggregateFunction(quantileTiming, Float64)` plus `SimpleAggregateFunction(sum, …)` columns for `request_count`, `error_count`, `duration_ms_sum`, `duration_ms_max`. Group dimensions in PK: `(team_id, ts_bucket, fingerprint, service, name, kind_string, exception_type, status_message_hash)` — error-group queries hit a tight contiguous PK range; non-error rows share `('', 0)` tail keys → no row explosion. Ordinary columns include `peer_service`, `host`, `pod`, `environment`, `is_root`, `http_method`, `http_route`, `http_status_bucket`, `response_status_code`, `status_code_string`, `service_version`, `db_system`, `db_operation_name`, `db_collection_name`, `db_namespace`, `db_response_status`, `server_address`, `error_type`, plus `sample_status_message`, `sample_trace_id`, `sample_exception_stacktrace` (all `SimpleAggregateFunction(any, String)` for drill-in display). `status_message_hash UInt64 = cityHash64(status_message)` provides the stable error-group identity that replaces the phantom column previously referenced by `services/errors` and `services/deployments`. The 30 s clamp / 16 ms quantization above 1024 ms is `quantileTiming`'s documented tradeoff (see [ClickHouse docs](https://clickhouse.com/docs/sql-reference/aggregate-functions/reference/quantiletiming)).
+- `observability.trace_index` ([08_trace_index.sql](db/clickhouse/08_trace_index.sql)) — spans-fed reverse projection. PK `(trace_id, team_id, ts_bucket, fingerprint, timestamp, span_id)`. Populated by `spans_to_trace_index` MV from `observability.spans` where `trace_id != ''`. Used by both `logs/trace_logs` and `traces/explorer.GetByID` to resolve `(team_id, trace_id) → (ts_bucket bounds, fingerprint set)` in O(one granule), then narrow scan against `observability.spans` (for trace details) or `observability.logs` (for trace logs). `log_id` is fetched from `observability.logs` directly; trace_index doesn't carry it. Fingerprint coverage assumption: a service emitting logs without spans for a given trace is invisible — acceptable since a trace fundamentally requires span emission.
+
+### Ingestion
+
+[internal/ingestion/{spans,logs,metrics}/](internal/ingestion/) — flat 7-file layout per signal: `schema/`, `handler.go` → `mapper.go` → `producer.go` → `consumer.go` → `writer.go` + `dlq.go` + `module.go`. Pipeline: gRPC OTLP `Export` → mapper → `[]*schema.Row` → `producer.PublishBatch` (one Kafka record per row, key=teamID) → `consumer.PollFetches` → decode → `writer.Insert` (`async_insert=1, wait_for_async_insert=1`). On any CH insert failure, publish original record bytes verbatim to `optikk.dlq.{signal}` and commit — **no retry loop**.
+
+Shared kafka primitives in [internal/infra/kafka/](internal/infra/kafka/) (flat — `client.go`, `producer.go`, `consumer.go`, `topics.go`, `observability.go`). Topics auto-created at app boot via `kafka.EnsureTopics` (idempotent). Topology config: [internal/config/ingestion.go](internal/config/ingestion.go) — `SignalConfig{Partitions, Replicas, RetentionHours, ConsumerGroup}` per signal.
+
+### Read paths (one line each)
+
+Every reader follows the apm pattern: queries-only `repository.go` (each query `const`, all values bound via `clickhouse.Named()` — **no `fmt.Sprintf` in any SQL, no phantom rollup table refs**); derivations in `service.go`. Filter-bearing modules emit an inline `WITH active_fps AS (... <signal>_resource ...)` CTE **only when a resource-side predicate is present** — when no resource filter is set the CTE is dropped (it would resolve to "every fingerprint in window" and the IN-clause would prune nothing); leading-PK granule pruning still applies. Trace-id-scoped point lookups skip the resource CTE because the trace_id+span_id PREWHERE is already maximal.
+
+- **Logs** ([internal/modules/logs/](internal/modules/logs/)) — `explorer`, `logdetail`, `facets` (package `log_facets`), `trends` (package `log_trends`), `trace_logs`. `explorer` (`POST /logs/query`) and `trends` (peer endpoints `POST /logs/summary` and `POST /logs/trend` — no composite) read `observability.logs` + `logs_resource` via shared `filter.BuildClauses(f)` in [internal/modules/logs/filter/](internal/modules/logs/filter/), each emitting the `active_fps` CTE only when a resource filter is set. `trends.Trend` buckets via `toStartOfInterval(timestamp, INTERVAL @stepMin MINUTE)` at display grain (1m / 5m / 1h / 1d via `timebucket.DisplayGrain`). Search predicate uses `hasToken(body, lower(@search))` (and `lower(body) LIKE` in exact mode) against the `idx_body_text` native text (inverted) index — the `lowerUTF8(str)` preprocessor on the index gives case-insensitivity at index time. `facets` is **one** CH query — a 4-arm `UNION ALL` on `logs_resource` covering service/host/pod/environment; severity is a static label list (`models.SeverityLabels`), no DB call. `logdetail` is a single `const` query keyed on `log_id` (FNV-64a hex), pruned by `idx_log_id` bloom-filter. `trace_logs` (`GET /api/v1/logs/trace/:traceID`) is two `const` queries: step 1 reads `observability.trace_index` (spans-fed) to resolve `(min/max ts_bucket, fingerprint set)`; step 2 PREWHEREs `observability.logs` on three PK slots `(team_id, ts_bucket BETWEEN, fingerprint IN @fps)` plus the `trace_id = @traceID` row check (traceID lowercased once Go-side; storage is canonical lowercase hex from `hex.EncodeToString`). `log_id` comes from the row scan.
+- **Traces** ([internal/modules/traces/](internal/modules/traces/)) — `explorer`, `span_query` read `observability.spans` + `spans_resource` via shared `filter.BuildClauses(f)` in [internal/modules/traces/filter/](internal/modules/traces/filter/). Trace-id-scoped submodules (`tracedetail` mostly, `trace_paths`, `trace_servicemap`, `trace_shape`, `trace_suggest`) skip the resource CTE — `traceIDMatchPredicate` SQL fragment + `traceIDArgs` helper inlined at the bottom of each `repository.go`. Span-side error analytics live in [services/errors](internal/modules/services/errors/), not in a separate traces/errors module.
+- **Metrics** ([internal/modules/metrics/explorer/](internal/modules/metrics/explorer/)) — reads `observability.metrics_1m` + `metrics_resource`. Filter shape and emitter live in [internal/modules/metrics/filter/](internal/modules/metrics/filter/) (canonicalization, sanitization, and clause emission share one home — deviates from the per-module-helper convention).
+- **Services** ([internal/modules/services/](internal/modules/services/)) — `apm`, `httpmetrics` (mixed), `redmetrics`, `slo`, `latency`, `topology`, `errors`, `deployments`. APM-style metrics reads on `metrics_1m`; aggregate / count / percentile reads (redmetrics non-Apdex, slo, errors non-trace-list, deployments, topology, httpmetrics spans-side) on `observability.spans_1m`. DETAIL stays on raw spans: `latency.Heatmap`, `redmetrics.{GetApdex, GetApdexByService}` (dynamic threshold), `errors.ErrorGroupTraceRows` (per-span list). `deployments` joins `observability.spans_1m` ↔ `observability.deployments` for VCS metadata via inline `cityHash64(service, service_version, environment)` deployment_id.
+- **Infrastructure** ([internal/modules/infrastructure/](internal/modules/infrastructure/)) — 7 metrics modules (`connpool`, `cpu`, `disk`, `jvm`, `kubernetes`, `memory`, `network`) read `metrics_1m` + `metrics_resource`; 2 spans modules (`nodes`, `fleet`) read `observability.spans_1m` + `spans_resource` for latency-percentile panels. `infraconsts` holds shared OTel metric-name constants. Panels assume OTel semconv 1.30+ canonical attribute paths.
+- **Saturation / kafka** ([internal/modules/saturation/kafka/](internal/modules/saturation/kafka/)) — 19 routes, all reads on `metrics_1m` + `metrics_resource`. Multi-name OTel aliases via `metric_name IN @metricNames`. Histogram percentiles Go-side; partition-lag is server-side `argMax(value, timestamp)` + DESC LIMIT 200.
+- **Saturation / database** ([internal/modules/saturation/database/](internal/modules/saturation/database/)) — 8 spans-side submodules (`volume`, `errors`, `latency`, `collection`, `system`, `systems`, `summary`, `slowqueries`). Aggregate / count / percentile readers on `observability.spans_1m`; DETAIL on raw spans: heatmaps (`latency.GetLatencyHeatmap`), free-text `db_statement` grouping (`slowqueries.{GetSlowQueryPatterns, GetP99ByQueryText}`, `collection.GetCollectionQueryTexts`), dynamic-threshold (`slowqueries.GetSlowQueryRate`). `connections` reads `metrics_1m` + `metrics_resource` (the `db.client.connection.*` family is metrics-only). `summary` and `systems` are two-phase composites that fan span aggregates + active-connection gauge in parallel via errgroup. Filter helpers: `BuildSpanClauses` / `SpanGroupColumn` for raw-spans queries, `BuildSpans1mClauses` / `Spans1mGroupColumn` for `spans_1m` queries, plus `LatencyBucketBoundsMs` / `LatencyBucketCountsSQL()` for the legacy bucket-array path (still used by the heatmap on raw spans).
+
+### Middleware and session
+
+[internal/infra/middleware/](internal/infra/middleware/) — two files: `middleware.go` (CORS, ErrorRecovery, BodyLimit 10 MiB, TenantMiddleware, RequireRole, GetTenant) and `metrics.go` (HTTPMetricsMiddleware with route-templated labels). Public-prefix list (auth bypass): `/api/v1/auth/login`, `/otlp/`, `/health`. Public-POST list: `/api/v1/auth/forgot-password`, `/api/v1/users`, `/api/v1/teams`. Session manager: [internal/infra/session/manager.go](internal/infra/session/manager.go).
+
+### Local monitoring
+
+[monitoring/](monitoring/) ships a Prometheus + Grafana pair. Ports: Prometheus `:19091`, Grafana `:13001`. Bring-up: `docker compose -f monitoring/stack/docker-compose.yml up -d`. Dashboards in `monitoring/grafana/dashboards/`: `optikk_overview`, `optikk_http_api`, `optikk_grpc`, `optikk_db`, `optikk_redis`, `optikk_kafka`, `optikk_ingest`. All Prometheus-sourced — no OTel collector, no Tempo.
+
+### Load test (query-side)
+
+`make loadtest-smoke` for CI sanity, `make loadtest-all` for full sweep. Scenarios in [loadtest/scenarios/](loadtest/scenarios/), entrypoints in [loadtest/entrypoints/](loadtest/entrypoints/). See [loadtest/docs/README.md](loadtest/docs/README.md).
+
+### Schema migrations
+
+[db/clickhouse/*.sql](db/clickhouse/) applied via [internal/infra/database](internal/infra/database) at boot, lexically. Embedded via [db/clickhouse/embed.go](db/clickhouse/embed.go) (`//go:embed *.sql`). `observability.schema_migrations.version` records each applied filename.
 
 ## Engineering principles
 
-- **Module Architecture**: Strict 6-file pattern (`handler.go`, `service.go`, `repository.go`, `module.go`, `dto.go`, `models.go`). All repository methods must stay in `repository.go`.
+- **Module Architecture**: Strict 6-file pattern (`handler.go`, `service.go`, `repository.go`, `module.go`, `dto.go`, `models.go`). All repository methods stay in `repository.go`.
+- **Apm-style discipline**: Every reader is queries-only repository + derivation in service. SQL is `const`; values bound via `clickhouse.Named()`. **No `fmt.Sprintf` in queries. No phantom rollup tables.** Emit the `WITH active_fps AS (... _resource ...)` CTE for partition pruning **only when a resource-side filter is present**; otherwise the CTE is pure overhead and should be omitted. Push time-range predicates (`timestamp BETWEEN @start AND @end`) into PREWHERE so CH can use per-granule min/max stats — explicit PREWHERE disables auto-promotion, so the move must be manual; keep the same condition in WHERE as the base for filter clauses to tack onto.
 - **SOLID & DRY**: Factor shared behavior when a pattern appears more than once.
 - **Quality**: Leave the code clearer or simpler with every change.
 - **No unsolicited tests**: Do not add tests unless explicitly asked.

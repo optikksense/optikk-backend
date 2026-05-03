@@ -8,9 +8,9 @@ import (
 	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
+	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
 	"github.com/jmoiron/sqlx"
-	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 )
 
 type Repository interface {

@@ -2,35 +2,41 @@ package explorer
 
 import (
 	"context"
-	"fmt"
 
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/filter"
 )
 
 type topKRow struct {
-	TopServices	[]string	`ch:"top_services"`
-	TopOperations	[]string	`ch:"top_operations"`
-	TopHTTPMethods	[]string	`ch:"top_http_methods"`
-	TopHTTPStatuses	[]string	`ch:"top_http_statuses"`
-	TopStatuses	[]string	`ch:"top_statuses"`
+	TopServices     []string `ch:"top_services"`
+	TopOperations   []string `ch:"top_operations"`
+	TopHTTPMethods  []string `ch:"top_http_methods"`
+	TopHTTPStatuses []string `ch:"top_http_statuses"`
+	TopStatuses     []string `ch:"top_statuses"`
 }
 
-// Facets returns counts per dim from traces_index for the given window.
-// Keeps a bounded top-N per dim using a single table scan via topK aggregates.
-func (r *Repository) Facets(ctx context.Context, f querycompiler.Filters) (Facets, error) {
-	compiled := querycompiler.Compile(f, querycompiler.TargetTracesIndex)
-	query := fmt.Sprintf(`
-		SELECT
-			topK(20)(root_service)                 AS top_services,
-			topK(20)(root_operation)               AS top_operations,
-			topK(10)(root_http_method)             AS top_http_methods,
-			topK(15)(toString(root_http_status))   AS top_http_statuses,
-			topK(5)(root_status)                   AS top_statuses
-		FROM %s PREWHERE %s WHERE %s
-	`, tracesIndexTable, compiled.PreWhere, compiled.Where)
+// Facets returns top-N values per dim over the filtered window via topK
+// aggregates in a single scan.
+func (r *Repository) Facets(ctx context.Context, f filter.Filters) (Facets, error) {
+	resourceWhere, where, args := filter.BuildClauses(f)
+
+	query := `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd` + resourceWhere + `
+		)
+		SELECT topK(20)(service)              AS top_services,
+		       topK(20)(name)                 AS top_operations,
+		       topK(10)(http_method)          AS top_http_methods,
+		       topK(15)(response_status_code) AS top_http_statuses,
+		       topK(5)(status_code_string)    AS top_statuses
+		FROM observability.spans_1m
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end AND is_root = 1` + where
+
 	var rows []topKRow
-	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "explorer.Facets", &rows, query, compiled.Args...); err != nil {
+	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "explorer.Facets", &rows, query, args...); err != nil {
 		return Facets{}, err
 	}
 	if len(rows) == 0 {
@@ -50,10 +56,10 @@ func pivotTopK(row topKRow) Facets {
 		return out
 	}
 	return Facets{
-		Service:	toFacetBuckets(row.TopServices),
-		Operation:	toFacetBuckets(row.TopOperations),
-		HTTPMethod:	toFacetBuckets(row.TopHTTPMethods),
-		HTTPStatus:	toFacetBuckets(row.TopHTTPStatuses),
-		Status:		toFacetBuckets(row.TopStatuses),
+		Service:    toFacetBuckets(row.TopServices),
+		Operation:  toFacetBuckets(row.TopOperations),
+		HTTPMethod: toFacetBuckets(row.TopHTTPMethods),
+		HTTPStatus: toFacetBuckets(row.TopHTTPStatuses),
+		Status:     toFacetBuckets(row.TopStatuses),
 	}
 }

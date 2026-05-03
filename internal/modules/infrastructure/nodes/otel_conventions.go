@@ -7,7 +7,7 @@ package nodes
 const (
 	// Span Table Columns - Standard OpenTelemetry fields
 	ColTeamID         = "team_id"
-	ColServiceName    = "service_name"
+	ColServiceName    = "service"
 	ColStartTime      = "start_time"
 	ColDurationMs     = "duration_ms"
 	ColStatus         = "status"

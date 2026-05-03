@@ -17,8 +17,8 @@ vet:
 
 # Query-side load test — see loadtest/docs/README.md for details.
 # Override credentials with EMAIL=... PASSWORD=... ; tune with RPS=... DURATION=... VUS=...
-LOADTEST_EMAIL    ?= loadtest@optikk.local
-LOADTEST_PASSWORD ?= optikk-loadtest
+LOADTEST_EMAIL    ?= user@example.com
+LOADTEST_PASSWORD ?= 123
 LOADTEST_RPS      ?= 10
 LOADTEST_DURATION ?= 1m
 LOADTEST_VUS      ?= 50

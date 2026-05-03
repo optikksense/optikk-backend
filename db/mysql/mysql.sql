@@ -33,3 +33,18 @@ CREATE TABLE IF NOT EXISTS observability.users
      created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
      INDEX idx_user_email (email)
   );
+
+CREATE TABLE IF NOT EXISTS observability.saved_views
+  (
+     id            BIGINT auto_increment PRIMARY KEY,
+     team_id       BIGINT NOT NULL,
+     user_id       BIGINT NOT NULL,
+     scope         VARCHAR(64) NOT NULL,
+     name          VARCHAR(200) NOT NULL,
+     url           VARCHAR(2000) NOT NULL,
+     visibility    ENUM('private','team') NOT NULL DEFAULT 'private',
+     created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     updated_at    DATETIME NULL,
+     INDEX idx_saved_views_team_scope (team_id, scope),
+     INDEX idx_saved_views_user (user_id)
+  );

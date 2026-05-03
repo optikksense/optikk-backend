@@ -11,26 +11,12 @@ import (
 var kafkaProduceBuckets = []float64{.0005, .001, .005, .01, .025, .05, .1, .25, .5}
 
 var (
-	KafkaProduced = promauto.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "optikk",
-		Subsystem: "kafka",
-		Name:      "produced_total",
-		Help:      "Kafka records produced, by topic and result (ok/err).",
-	}, []string{"topic", "result"})
-
 	KafkaProduceDuration = promauto.NewHistogramVec(prometheus.HistogramOpts{
 		Namespace: "optikk",
 		Subsystem: "kafka",
 		Name:      "produce_duration_seconds",
 		Help:      "Kafka produce-record latency in seconds, by topic.",
 		Buckets:   kafkaProduceBuckets,
-	}, []string{"topic"})
-
-	KafkaConsumed = promauto.NewCounterVec(prometheus.CounterOpts{
-		Namespace: "optikk",
-		Subsystem: "kafka",
-		Name:      "consumed_total",
-		Help:      "Kafka records fetched, by topic.",
 	}, []string{"topic"})
 
 	KafkaConsumerLag = promauto.NewGaugeVec(prometheus.GaugeOpts{

@@ -1,41 +1,25 @@
-// Database drilldown sub-modules under /api/v1/saturation/database/{group}/*.
-// Endpoints (all GET, query: startTime+endTime):
-//   /system/{latency,ops,top-collections-by-latency,top-collections-by-volume,
-//            errors,namespaces}
-//   /connections/{count,utilization,limits,pending,timeout-rate,
-//                 wait-time,create-time,use-time}
-//   /collection/{latency,ops,errors,query-texts,read-vs-write}
-//   /errors/{by-system,by-operation,by-error-type,by-collection,
-//            by-status,ratio}
-//   /latency/{by-system,by-operation,by-collection,by-namespace,
-//             by-server,heatmap}
-//   /slow-queries/{patterns,collections,rate,p99-by-text}
-//   /ops/{by-system,by-operation,by-collection,read-vs-write,by-namespace}
+// Composite scenario: walks every saturation/database submodule once per
+// iteration. Per-submodule scenarios live under scenarios/saturation/database/
+// and can be exercised standalone via entrypoints/granular.js.
 
-import { buildClient } from '../../lib/client.js';
-import { adaptiveWindow } from '../../lib/timewindows.js';
-import { cfg } from '../../lib/config.js';
-
-const MOD = 'saturation';
-const GROUPS = {
-  system:        ['latency', 'ops', 'top-collections-by-latency', 'top-collections-by-volume', 'errors', 'namespaces'],
-  connections:   ['count', 'utilization', 'limits', 'pending', 'timeout-rate', 'wait-time', 'create-time', 'use-time'],
-  collection:    ['latency', 'ops', 'errors', 'query-texts', 'read-vs-write'],
-  errors:        ['by-system', 'by-operation', 'by-error-type', 'by-collection', 'by-status', 'ratio'],
-  latency:       ['by-system', 'by-operation', 'by-collection', 'by-namespace', 'by-server', 'heatmap'],
-  'slow-queries':['patterns', 'collections', 'rate', 'p99-by-text'],
-  ops:           ['by-system', 'by-operation', 'by-collection', 'read-vs-write', 'by-namespace'],
-};
+import { dbVolume }       from './database/volume.js';
+import { dbErrors }       from './database/errors.js';
+import { dbLatency }      from './database/latency.js';
+import { dbCollection }   from './database/collection.js';
+import { dbSystem }       from './database/system.js';
+import { dbSystems }      from './database/systems.js';
+import { dbSummary }      from './database/summary.js';
+import { dbSlowQueries }  from './database/slowqueries.js';
+import { dbConnections } from './database/connections.js';
 
 export function saturationDatastoresDrilldown(ctx) {
-  const client = buildClient({ ...ctx, baseUrl: cfg.baseUrl });
-  const w = adaptiveWindow(cfg.lookback);
-  const q = { startTime: w.startTime, endTime: w.endTime };
-
-  for (const group of Object.keys(GROUPS)) {
-    for (const leaf of GROUPS[group]) {
-      const path = `/api/v1/saturation/database/${group}/${leaf}`;
-      client.get(path, q, { module: MOD, endpoint: `GET /saturation/database/${group}/${leaf}` });
-    }
-  }
+  dbSummary(ctx);
+  dbSystems(ctx);
+  dbVolume(ctx);
+  dbErrors(ctx);
+  dbLatency(ctx);
+  dbSlowQueries(ctx);
+  dbConnections(ctx);
+  dbSystem(ctx);
+  dbCollection(ctx);
 }

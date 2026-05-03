@@ -36,16 +36,16 @@ type UserRecord struct {
 
 // TeamRecord is scanned directly by sqlx from the teams table.
 type TeamRecord struct {
-	ID          int64      `db:"id"`
-	OrgName     string     `db:"org_name"`
-	Name        string     `db:"name"`
-	Slug        string     `db:"slug"`
-	Description *string    `db:"description"`
-	Active      bool       `db:"active"`
-	Color       string     `db:"color"`
-	Icon        *string    `db:"icon"`
-	APIKey      string     `db:"api_key"`
-	CreatedAt   time.Time  `db:"created_at"`
+	ID          int64     `db:"id"`
+	OrgName     string    `db:"org_name"`
+	Name        string    `db:"name"`
+	Slug        string    `db:"slug"`
+	Description *string   `db:"description"`
+	Active      bool      `db:"active"`
+	Color       string    `db:"color"`
+	Icon        *string   `db:"icon"`
+	APIKey      string    `db:"api_key"`
+	CreatedAt   time.Time `db:"created_at"`
 }
 
 type ServiceErrorCode string

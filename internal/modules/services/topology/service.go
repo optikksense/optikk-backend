@@ -14,7 +14,7 @@ const (
 
 // Service orchestrates topology construction.
 type Service interface {
-	GetTopology(ctx context.Context, teamID int64, startMs, endMs int64, focusService string) (TopologyResponse, error)
+	GetTopology(ctx context.Context, teamID, startMs, endMs int64, focusService string) (TopologyResponse, error)
 }
 
 type topologyService struct {
@@ -25,7 +25,7 @@ func NewService(repo Repository) Service {
 	return &topologyService{repo: repo}
 }
 
-func (s *topologyService) GetTopology(ctx context.Context, teamID int64, startMs, endMs int64, focusService string) (TopologyResponse, error) {
+func (s *topologyService) GetTopology(ctx context.Context, teamID, startMs, endMs int64, focusService string) (TopologyResponse, error) {
 	var (
 		nodeRows []nodeAggRow
 		edgeRows []edgeAggRow

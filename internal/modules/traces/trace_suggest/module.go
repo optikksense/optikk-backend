@@ -28,8 +28,7 @@ type module struct {
 	handler *Handler
 }
 
-func (m *module) Name() string                      { return "traceSuggest" }
-func (m *module) RouteTarget() registry.RouteTarget { return registry.Cached }
+func (m *module) Name() string { return "traceSuggest" }
 
 func (m *module) configure(db clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	repo := NewRepository(db)

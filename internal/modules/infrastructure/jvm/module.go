@@ -46,8 +46,7 @@ type jvmModule struct {
 	handler *JVMHandler
 }
 
-func (m *jvmModule) Name() string                      { return "jvm" }
-func (m *jvmModule) RouteTarget() registry.RouteTarget { return registry.Cached }
+func (m *jvmModule) Name() string { return "jvm" }
 
 func (m *jvmModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = NewHandler(nativeQuerier, getTenant)

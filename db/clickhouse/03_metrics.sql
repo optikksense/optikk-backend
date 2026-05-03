@@ -1,81 +1,33 @@
 CREATE TABLE IF NOT EXISTS observability.metrics (
     team_id              UInt32 CODEC(T64, ZSTD(1)),
-    env                  LowCardinality(String) DEFAULT 'default',
     metric_name          LowCardinality(String),
     metric_type          LowCardinality(String),
     temporality          LowCardinality(String) DEFAULT 'Unspecified',
     is_monotonic         Bool CODEC(T64, ZSTD(1)),
     unit                 LowCardinality(String) DEFAULT '',
     description          LowCardinality(String) DEFAULT '',
-    resource_fingerprint UInt64 CODEC(ZSTD(3)),
+    fingerprint          String CODEC(ZSTD(3)),
     timestamp            DateTime64(3) CODEC(DoubleDelta, LZ4),
+    ts_bucket            UInt32 CODEC(DoubleDelta, LZ4),
     value                Float64 CODEC(Gorilla, ZSTD(1)),
     hist_sum             Float64 CODEC(Gorilla, ZSTD(1)),
     hist_count           UInt64 CODEC(T64, ZSTD(1)),
     hist_buckets         Array(Float64) CODEC(ZSTD(1)),
-    hist_counts          Array(UInt64) CODEC(T64, ZSTD(1)),
-    attributes           JSON(max_dynamic_paths=100) CODEC(ZSTD(1)),
-    service              LowCardinality(String) MATERIALIZED attributes.`service.name`::String,
-    host                 LowCardinality(String) MATERIALIZED attributes.`host.name`::String,
-    environment          LowCardinality(String) MATERIALIZED attributes.`deployment.environment`::String,
-    k8s_namespace        LowCardinality(String) MATERIALIZED attributes.`k8s.namespace.name`::String,
-    http_method          LowCardinality(String) MATERIALIZED attributes.`http.method`::String,
-    http_status_code     UInt16                 MATERIALIZED attributes.`http.status_code`::UInt16,
-    has_error            Bool                   MATERIALIZED attributes.`error`::Bool,
-    -- state_dim: computed once at raw insert; fans into metrics_gauges + metrics_k8s
-    -- rollups. Replaces the 60-line multiIf that lived in the MV SELECT bodies.
-    state_dim            LowCardinality(String) MATERIALIZED multiIf(
-        metric_name IN ('system.cpu.time','system.cpu.utilization'),
-            attributes.`system.cpu.state`::String,
-        metric_name = 'process.cpu.time',
-            attributes.`process.cpu.state`::String,
-        metric_name IN ('system.memory.usage','system.memory.utilization','system.paging.usage'),
-            attributes.`system.memory.state`::String,
-        metric_name IN ('system.disk.io','system.disk.operations'),
-            attributes.`system.disk.direction`::String,
-        metric_name IN ('system.network.io','system.network.packets','system.network.errors'),
-            attributes.`system.network.direction`::String,
-        metric_name = 'system.network.connections',
-            if(
-                trim(attributes.`system.network.state`::String) != '',
-                attributes.`system.network.state`::String,
-                attributes.`system.network.direction`::String
-            ),
-        metric_name = 'system.process.count',
-            attributes.`process.status`::String,
-        metric_name IN ('system.filesystem.usage','system.filesystem.utilization'),
-            attributes.`system.filesystem.mountpoint`::String,
-        metric_name IN ('jvm.memory.used','jvm.memory.committed','jvm.memory.limit','jvm.memory.used_after_last_gc'),
-            concat(attributes.`jvm.memory.pool.name`::String, '|', attributes.`jvm.memory.type`::String),
-        metric_name = 'jvm.gc.duration',
-            attributes.`jvm.gc.name`::String,
-        metric_name = 'jvm.thread.count',
-            attributes.`jvm.thread.daemon`::String,
-        metric_name IN ('jvm.buffer.memory.usage','jvm.buffer.count','jvm.buffer.memory.limit'),
-            attributes.`jvm.buffer.pool.name`::String,
-        metric_name LIKE 'db.client.connections.%',
-            attributes.`db.client.connections.state`::String,
-        metric_name LIKE 'k8s.pod.%',
-            attributes.`k8s.pod.phase`::String,
-        metric_name LIKE 'k8s.replicaset.%',
-            attributes.`k8s.replicaset.name`::String,
-        metric_name LIKE 'k8s.volume.%',
-            attributes.`k8s.persistentvolumeclaim.name`::String,
-        ''
-    ),
-    INDEX idx_service          service              TYPE set(200)      GRANULARITY 1,
-    INDEX idx_host             host                 TYPE bloom_filter  GRANULARITY 1,
-    INDEX idx_environment      environment          TYPE set(10)       GRANULARITY 1,
-    INDEX idx_k8s_namespace    k8s_namespace        TYPE set(100)      GRANULARITY 1,
-    INDEX idx_http_method      http_method          TYPE set(20)       GRANULARITY 1,
-    INDEX idx_http_status_code http_status_code     TYPE minmax        GRANULARITY 1,
-    INDEX idx_has_error        has_error            TYPE set(2)        GRANULARITY 1,
-    INDEX idx_fingerprint      resource_fingerprint TYPE bloom_filter  GRANULARITY 4
+    hist_counts          Array(UInt64)  CODEC(T64, ZSTD(1)),
+    service              LowCardinality(String) CODEC(ZSTD(1)),
+    host                 LowCardinality(String) CODEC(ZSTD(1)),
+    environment          LowCardinality(String) CODEC(ZSTD(1)),
+    k8s_namespace        LowCardinality(String) CODEC(ZSTD(1)),
+    http_method          LowCardinality(String) CODEC(ZSTD(1)),
+    http_status_code     UInt16 CODEC(T64, ZSTD(1)),
+    resource             JSON(max_dynamic_paths=100) CODEC(ZSTD(1)),
+    attributes           JSON(max_dynamic_paths=100) CODEC(ZSTD(1))
 ) ENGINE = MergeTree()
-PARTITION BY toYYYYMM(timestamp)
-ORDER BY (team_id, metric_name, service, environment, temporality, timestamp, resource_fingerprint)
-TTL timestamp + INTERVAL 1 HOUR DELETE
+PARTITION BY (toYYYYMMDD(timestamp), toHour(timestamp))
+ORDER BY (team_id, ts_bucket, fingerprint, metric_name, timestamp)
+TTL timestamp + INTERVAL 30 DAY DELETE
 SETTINGS
     index_granularity = 8192,
     enable_mixed_granularity_parts = 1,
-    non_replicated_deduplication_window = 1000;
+    max_partitions_per_insert_block = 200,
+    non_replicated_deduplication_window = 100000;

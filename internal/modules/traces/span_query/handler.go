@@ -23,11 +23,14 @@ func (h *Handler) Query(c *gin.Context) {
 		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Invalid request body")
 		return
 	}
-	if req.StartTime <= 0 || req.EndTime <= 0 || req.StartTime >= req.EndTime {
-		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Valid startTime and endTime are required")
+	req.Filters.TeamID = h.GetTenant(c).TeamID
+	req.Filters.StartMs = req.StartTime
+	req.Filters.EndMs = req.EndTime
+	if err := req.Filters.Validate(); err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusBadRequest, errorcode.Validation, "Invalid filters", err)
 		return
 	}
-	resp, err := h.svc.Query(c.Request.Context(), req, h.GetTenant(c).TeamID)
+	resp, err := h.svc.Query(c.Request.Context(), req)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query spans", err)
 		return

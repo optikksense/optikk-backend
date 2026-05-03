@@ -13,7 +13,6 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/auth"
 	"github.com/Optikk-Org/optikk-backend/internal/config"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/middleware"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/oklog/run"
 	"golang.org/x/net/http2"
@@ -24,16 +23,13 @@ import (
 )
 
 type App struct {
-	Config	config.Config
-	Infra	*Infra
-	Modules	[]registry.Module
+	Config  config.Config
+	Infra   *Infra
+	Modules []registry.Module
 }
 
 func New(cfg config.Config) (*App, error) {
 	getTenant := modulecommon.GetTenantFunc(middleware.GetTenant)
-
-	// Initialize global infrastructure parameters.
-	utils.Init(cfg.SpansBucketSeconds(), cfg.LogsBucketSeconds())
 
 	infraDeps, err := newInfra(cfg)
 	if err != nil {
@@ -43,9 +39,9 @@ func New(cfg config.Config) (*App, error) {
 	modules := configuredModules(infraDeps.CH, getTenant, cfg, infraDeps)
 
 	return &App{
-		Config:		cfg,
-		Infra:		infraDeps,
-		Modules:	modules,
+		Config:  cfg,
+		Infra:   infraDeps,
+		Modules: modules,
 	}, nil
 }
 
@@ -112,11 +108,11 @@ func (a *App) addLagPollerActors(g *run.Group, parentCtx context.Context) {
 
 func (a *App) addHTTPServerActor(g *run.Group) {
 	srv := &http.Server{
-		Addr:		fmt.Sprintf(":%s", a.Config.Server.Port),
-		Handler:	h2c.NewHandler(a.Infra.SessionManager.Wrap(a.Router()), &http2.Server{}),
-		ReadTimeout:	30 * time.Second,
-		WriteTimeout:	60 * time.Second,
-		IdleTimeout:	120 * time.Second,
+		Addr:         fmt.Sprintf(":%s", a.Config.Server.Port),
+		Handler:      h2c.NewHandler(a.Infra.SessionManager.Wrap(a.Router()), &http2.Server{}),
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 60 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
 	g.Add(func() error {
 		return srv.ListenAndServe()
@@ -143,16 +139,20 @@ func (a *App) addGRPCServerActor(g *run.Group) error {
 		slog.String("addr", addr),
 		slog.String("hint", "send gRPC metadata x-api-key (team API key); use OTLP gRPC on this port, not HTTP/protobuf"))
 
+	maxStreams := a.Config.OTLP.GRPCMaxConcurrentStr
+	if maxStreams == 0 {
+		maxStreams = 10_000
+	}
 	grpcSrv := grpc.NewServer(
-		grpc.MaxConcurrentStreams(100),
+		grpc.MaxConcurrentStreams(maxStreams),
 		grpc.ConnectionTimeout(30*time.Second),
 		grpc.KeepaliveParams(keepalive.ServerParameters{
-			Time:		20 * time.Second,
-			Timeout:	10 * time.Second,
+			Time:    20 * time.Second,
+			Timeout: 10 * time.Second,
 		}),
 		grpc.KeepaliveEnforcementPolicy(keepalive.EnforcementPolicy{
-			MinTime:		10 * time.Second,
-			PermitWithoutStream:	true,
+			MinTime:             10 * time.Second,
+			PermitWithoutStream: true,
 		}),
 		// Observability interceptors run first so they time the auth
 		// interceptor + handler together; auth unauthorised denials

@@ -1,28 +1,28 @@
 package explorer
 
-import "github.com/Optikk-Org/optikk-backend/internal/modules/traces/querycompiler"
+import "github.com/Optikk-Org/optikk-backend/internal/modules/traces/filter"
 
-// QueryRequest is the wire payload for POST /api/v1/traces/query.
+// QueryRequest is the wire payload for POST /api/v1/traces/query. Filters
+// are embedded directly (no separate compile pass).
 type QueryRequest struct {
-	StartTime int64                            `json:"startTime"`
-	EndTime   int64                            `json:"endTime"`
-	Filters   []querycompiler.StructuredFilter `json:"filters"`
-	Include   []string                         `json:"include"`
-	Limit     int                              `json:"limit"`
-	Cursor    string                           `json:"cursor"`
+	StartTime int64    `json:"startTime"`
+	EndTime   int64    `json:"endTime"`
+	Include   []string `json:"include"`
+	Limit     int      `json:"limit"`
+	Cursor    string   `json:"cursor"`
+
+	filter.Filters
 }
 
 // QueryResponse is the wire response for POST /api/v1/traces/query.
 type QueryResponse struct {
 	Results  []Trace       `json:"results"`
-	Summary  *Summary      `json:"summary,omitempty"`
 	Facets   *Facets       `json:"facets,omitempty"`
 	Trend    []TrendBucket `json:"trend,omitempty"`
 	PageInfo PageInfo      `json:"pageInfo"`
-	Warnings []string      `json:"warnings,omitempty"`
 }
 
-// traceIndexRowDTO scans rows from observability.traces_index.
+// traceIndexRowDTO scans rows from observability.spans (root spans).
 type traceIndexRowDTO struct {
 	TraceID        string   `ch:"trace_id"`
 	StartMs        uint64   `ch:"start_ms"`

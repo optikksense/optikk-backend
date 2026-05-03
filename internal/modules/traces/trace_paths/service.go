@@ -1,4 +1,4 @@
-package trace_paths	//nolint:revive,stylecheck
+package trace_paths //nolint:revive,stylecheck
 
 import (
 	"context"
@@ -14,7 +14,7 @@ type service struct {
 	repo Repository
 }
 
-func NewService(repo Repository) Service	{ return &service{repo: repo} }
+func NewService(repo Repository) Service { return &service{repo: repo} }
 
 func (s *service) GetCriticalPath(ctx context.Context, teamID int64, traceID string) ([]CriticalPathSpan, error) {
 	rows, err := s.repo.GetCriticalPath(ctx, teamID, traceID)
@@ -43,9 +43,9 @@ func buildCriticalPath(rows []criticalPathRow) []CriticalPathSpan {
 }
 
 type criticalNode struct {
-	row		criticalPathRow
-	subtreeEnd	int64
-	children	[]string
+	row        criticalPathRow
+	subtreeEnd int64
+	children   []string
 }
 
 func indexNodes(rows []criticalPathRow) (map[string]*criticalNode, []string) {
@@ -69,8 +69,8 @@ func indexNodes(rows []criticalPathRow) (map[string]*criticalNode, []string) {
 
 func computeSubtreeEnds(nodes map[string]*criticalNode, roots []string) {
 	type frame struct {
-		spanID		string
-		childIdx	int
+		spanID   string
+		childIdx int
 	}
 	for _, root := range roots {
 		stack := []frame{{spanID: root}}
@@ -114,10 +114,10 @@ func walkCriticalChain(nodes map[string]*criticalNode, root string) []CriticalPa
 			break
 		}
 		result = append(result, CriticalPathSpan{
-			SpanID:		n.row.SpanID,
-			OperationName:	n.row.OperationName,
-			ServiceName:	n.row.ServiceName,
-			DurationMs:	n.row.DurationMs,
+			SpanID:        n.row.SpanID,
+			OperationName: n.row.OperationName,
+			ServiceName:   n.row.ServiceName,
+			DurationMs:    n.row.DurationMs,
 		})
 		if len(n.children) == 0 {
 			break
@@ -182,14 +182,14 @@ func walkErrorChain(spans map[string]errorPathRow, leafID string) []ErrorPathSpa
 			break
 		}
 		chain = append(chain, ErrorPathSpan{
-			SpanID:		s.SpanID,
-			ParentSpanID:	s.ParentSpanID,
-			OperationName:	s.OperationName,
-			ServiceName:	s.ServiceName,
-			Status:		s.Status,
-			StatusMessage:	s.StatusMessage,
-			StartTime:	s.StartTime,
-			DurationMs:	s.DurationMs,
+			SpanID:        s.SpanID,
+			ParentSpanID:  s.ParentSpanID,
+			OperationName: s.OperationName,
+			ServiceName:   s.ServiceName,
+			Status:        s.Status,
+			StatusMessage: s.StatusMessage,
+			StartTime:     s.StartTime,
+			DurationMs:    s.DurationMs,
 		})
 		cur = s.ParentSpanID
 	}
