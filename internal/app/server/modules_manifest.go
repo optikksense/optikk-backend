@@ -30,8 +30,10 @@ import (
 	saturation_database_system "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/system"
 	saturation_database_systems "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/systems"
 	saturation_database_volume "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/volume"
-	saturation_kafka "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka"
+	saturation_kafka_client "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka/client"
+	saturation_kafka_consumer "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka/consumer"
 	saturation_kafka_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka/explorer"
+	saturation_kafka_producer "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka/producer"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/services/apm"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/services/deployments"
 	services_errors "github.com/Optikk-Org/optikk-backend/internal/modules/services/errors"
@@ -96,7 +98,9 @@ func configuredModules(
 		saturation_database_system.NewModule(nativeQuerier, getTenant),
 		saturation_database_systems.NewModule(nativeQuerier, getTenant),
 		saturation_database_volume.NewModule(nativeQuerier, getTenant),
-		saturation_kafka.NewModule(nativeQuerier, getTenant),
+		saturation_kafka_producer.NewModule(nativeQuerier, getTenant),
+		saturation_kafka_consumer.NewModule(nativeQuerier, getTenant),
+		saturation_kafka_client.NewModule(nativeQuerier, getTenant),
 		saturation_kafka_explorer.NewModule(nativeQuerier, getTenant),
 		services_topology.NewModule(nativeQuerier, getTenant),
 		spans_explorer.NewModule(nativeQuerier, getTenant),

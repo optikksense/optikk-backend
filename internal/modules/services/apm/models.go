@@ -1,7 +1,5 @@
 package apm
 
-import "github.com/Optikk-Org/optikk-backend/internal/shared/displaybucket"
-
 type HistogramSummary struct {
 	P50 float64 `json:"p50"`
 	P95 float64 `json:"p95"`
@@ -14,7 +12,13 @@ type ProcessMemory struct {
 	VMS float64 `json:"vms"`
 }
 
-type (
-	TimeBucket  = displaybucket.TimeBucket
-	StateBucket = displaybucket.StateBucket
-)
+type TimeBucket struct {
+	Timestamp string   `json:"timestamp"`
+	Value     *float64 `json:"value"`
+}
+
+type StateBucket struct {
+	Timestamp string   `json:"timestamp"`
+	State     string   `json:"state"`
+	Value     *float64 `json:"value"`
+}

@@ -2,10 +2,8 @@ package slowqueries
 
 import (
 	"context"
-	"sort"
 
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/quantile"
 )
 
 type Service struct {
@@ -23,9 +21,7 @@ func (s *Service) GetSlowQueryPatterns(ctx context.Context, teamID, startMs, end
 	}
 	out := make([]SlowQueryPattern, len(rows))
 	for i, r := range rows {
-		p50 := quantile.FromHistogram(filter.LatencyBucketBoundsMs, r.Buckets, 0.50)
-		p95 := quantile.FromHistogram(filter.LatencyBucketBoundsMs, r.Buckets, 0.95)
-		p99 := quantile.FromHistogram(filter.LatencyBucketBoundsMs, r.Buckets, 0.99)
+		p50, p95, p99 := r.P50Ms, r.P95Ms, r.P99Ms
 		out[i] = SlowQueryPattern{
 			QueryText:      r.QueryText,
 			CollectionName: r.CollectionName,
@@ -44,14 +40,13 @@ func (s *Service) GetSlowestCollections(ctx context.Context, teamID, startMs, en
 	if err != nil {
 		return nil, err
 	}
-	bucketSec := filter.BucketWidthSeconds(startMs, endMs)
 	out := make([]SlowCollectionRow, len(rows))
 	for i, r := range rows {
 		p99 := r.P99Ms
-		ops := float64(r.CallCount) / bucketSec
+		ops := r.OpsPerSec
 		var errRate *float64
-		if r.CallCount > 0 {
-			v := float64(r.ErrorCount) / float64(r.CallCount) * 100.0
+		if r.HasCalls != 0 {
+			v := r.ErrorRatePct
 			errRate = &v
 		}
 		out[i] = SlowCollectionRow{
@@ -61,12 +56,6 @@ func (s *Service) GetSlowestCollections(ctx context.Context, teamID, startMs, en
 			ErrorRate:      errRate,
 		}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		return derefOrZero(out[i].P99Ms) > derefOrZero(out[j].P99Ms)
-	})
-	if len(out) > 50 {
-		out = out[:50]
-	}
 	return out, nil
 }
 
@@ -75,40 +64,23 @@ func (s *Service) GetSlowQueryRate(ctx context.Context, teamID, startMs, endMs i
 	if err != nil {
 		return nil, err
 	}
-	bucketSec := filter.BucketWidthSeconds(startMs, endMs)
 	out := make([]SlowRatePoint, len(rows))
 	for i, r := range rows {
-		rate := float64(r.SlowCount) / bucketSec
+		rate := r.SlowPerSec
 		out[i] = SlowRatePoint{TimeBucket: r.TimeBucket, SlowPerSec: &rate}
 	}
 	return out, nil
 }
 
 func (s *Service) GetP99ByQueryText(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, limit int) ([]P99ByQueryText, error) {
-	if limit <= 0 {
-		limit = 10
-	}
 	rows, err := s.repo.GetP99ByQueryText(ctx, teamID, startMs, endMs, f, limit)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]P99ByQueryText, len(rows))
 	for i, r := range rows {
-		p99 := quantile.FromHistogram(filter.LatencyBucketBoundsMs, r.Buckets, 0.99)
+		p99 := r.P99Ms
 		out[i] = P99ByQueryText{QueryText: r.QueryText, P99Ms: &p99}
 	}
-	sort.Slice(out, func(i, j int) bool {
-		return derefOrZero(out[i].P99Ms) > derefOrZero(out[j].P99Ms)
-	})
-	if len(out) > limit {
-		out = out[:limit]
-	}
 	return out, nil
-}
-
-func derefOrZero(p *float64) float64 {
-	if p == nil {
-		return 0
-	}
-	return *p
 }

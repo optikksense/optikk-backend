@@ -130,7 +130,7 @@ func (r *ClickHouseRepository) QueryTLSConnectDurationHistogram(ctx context.Cont
 }
 
 func (r *ClickHouseRepository) QueryServerRequestStatusSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]StatusCountRow, error) {
-	const query = `
+	query := `
 		WITH active_fps AS (
 		    SELECT fingerprint
 		    FROM observability.metrics_resource
@@ -138,7 +138,9 @@ func (r *ClickHouseRepository) QueryServerRequestStatusSeries(ctx context.Contex
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name = @metricName
 		)
-		SELECT timestamp, http_status_code AS status_code, hist_count AS count
+		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + ` AS timestamp,
+		       http_status_code                                  AS status_code,
+		       sum(hist_count)                                   AS count
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -146,6 +148,7 @@ func (r *ClickHouseRepository) QueryServerRequestStatusSeries(ctx context.Contex
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
 		  AND http_status_code != 0
+		GROUP BY timestamp, status_code
 		ORDER BY timestamp, status_code`
 	var rows []StatusCountRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "httpmetrics.QueryServerRequestStatusSeries",
@@ -154,7 +157,7 @@ func (r *ClickHouseRepository) QueryServerRequestStatusSeries(ctx context.Contex
 }
 
 func (r *ClickHouseRepository) QueryServerActiveRequestsSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]MetricSeriesRow, error) {
-	const query = `
+	query := `
 		WITH active_fps AS (
 		    SELECT fingerprint
 		    FROM observability.metrics_resource
@@ -162,13 +165,15 @@ func (r *ClickHouseRepository) QueryServerActiveRequestsSeries(ctx context.Conte
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name = @metricName
 		)
-		SELECT timestamp, val_sum / val_count AS value
+		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + ` AS timestamp,
+		       avg(val_sum / val_count)                          AS value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
+		GROUP BY timestamp
 		ORDER BY timestamp`
 	var rows []MetricSeriesRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "httpmetrics.QueryServerActiveRequestsSeries",

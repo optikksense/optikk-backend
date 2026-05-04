@@ -7,9 +7,9 @@ type OpsTimeSeries struct {
 }
 
 type opsRawDTO struct {
-	TimeBucket string `ch:"time_bucket"`
-	GroupBy    string `ch:"group_by"`
-	OpCount    int64  `ch:"op_count"`
+	TimeBucket string  `ch:"time_bucket"`
+	GroupBy    string  `ch:"group_by"`
+	OpsPerSec  float64 `ch:"ops_per_sec"`
 }
 
 type ReadWritePoint struct {
@@ -19,7 +19,7 @@ type ReadWritePoint struct {
 }
 
 type readWriteRawDTO struct {
-	TimeBucket string `ch:"time_bucket"`
-	ReadCount  int64  `ch:"read_count"`
-	WriteCount int64  `ch:"write_count"`
+	TimeBucket    string  `ch:"time_bucket"`
+	ReadOpsPerSec float64 `ch:"read_ops_per_sec"`
+	WriteOpsPerSec float64 `ch:"write_ops_per_sec"`
 }

@@ -3,8 +3,6 @@ package apm
 import (
 	"context"
 	"time"
-
-	"github.com/Optikk-Org/optikk-backend/internal/shared/displaybucket"
 )
 
 type Service struct {
@@ -36,10 +34,12 @@ func (s *Service) GetRPCRequestRate(ctx context.Context, teamID int64, startMs, 
 	if err != nil {
 		return nil, err
 	}
-	return displaybucket.SumByTime(rows,
-		func(r CountSeriesRow) time.Time { return r.Timestamp },
-		func(r CountSeriesRow) float64 { return float64(r.Count) },
-		startMs, endMs), nil
+	out := make([]TimeBucket, len(rows))
+	for i, r := range rows {
+		v := float64(r.Count)
+		out[i] = TimeBucket{Timestamp: formatBucket(r.Timestamp), Value: &v}
+	}
+	return out, nil
 }
 
 func (s *Service) GetProcessCPU(ctx context.Context, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
@@ -47,11 +47,12 @@ func (s *Service) GetProcessCPU(ctx context.Context, teamID int64, startMs, endM
 	if err != nil {
 		return nil, err
 	}
-	return displaybucket.AvgByTimeAndKey(rows,
-		func(r StateSeriesRow) time.Time { return r.Timestamp },
-		func(r StateSeriesRow) string { return r.State },
-		func(r StateSeriesRow) float64 { return r.Value },
-		startMs, endMs), nil
+	out := make([]StateBucket, len(rows))
+	for i, r := range rows {
+		v := r.Value
+		out[i] = StateBucket{Timestamp: formatBucket(r.Timestamp), State: r.State, Value: &v}
+	}
+	return out, nil
 }
 
 func (s *Service) GetProcessMemory(ctx context.Context, teamID int64, startMs, endMs int64) (ProcessMemory, error) {
@@ -100,9 +101,18 @@ func histogramSummary(row HistogramAggRow) HistogramSummary {
 	}
 }
 
-func foldGaugeSeries(rows []MetricSeriesRow, startMs, endMs int64) []TimeBucket {
-	return displaybucket.AvgByTime(rows,
-		func(r MetricSeriesRow) time.Time { return r.Timestamp },
-		func(r MetricSeriesRow) float64 { return r.Value },
-		startMs, endMs)
+func foldGaugeSeries(rows []MetricSeriesRow, _, _ int64) []TimeBucket {
+	out := make([]TimeBucket, len(rows))
+	for i, r := range rows {
+		v := r.Value
+		out[i] = TimeBucket{Timestamp: formatBucket(r.Timestamp), Value: &v}
+	}
+	return out
+}
+
+// formatBucket renders a CH-emitted display-bucket DateTime as a stable
+// UTC label. Repos already round to the display grain via
+// timebucket.DisplayGrainSQL, so this is pure formatting.
+func formatBucket(t time.Time) string {
+	return t.UTC().Format("2006-01-02 15:04:05")
 }

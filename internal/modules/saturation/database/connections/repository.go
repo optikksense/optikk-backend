@@ -1,11 +1,15 @@
 // Package connections reads OTel `db.client.connection.*` instrumentation
-// metrics from `observability.metrics`. Per the audit, gauges/counters
+// metrics from `observability.metrics_1m`. Per the audit, gauges/counters
 // are instrumentation-side time series (not per-call spans) and live
-// natively on metrics. Every method PREWHEREs raw metrics on
+// natively on metrics. Every method PREWHEREs metrics_1m on
 // `(team_id, ts_bucket, fingerprint IN active_fps, metric_name)` —
-// full PK granule pruning. Service.go folds raw rows into display
-// buckets via `displaybucket` helpers and computes histogram percentiles
-// Go-side via `quantile.FromHistogram`.
+// full PK granule pruning. Histogram percentiles come from
+// `quantilesPrometheusHistogramMerge(...)(latency_state)` server-side,
+// bucketed at the window-adaptive display grain via
+// `timebucket.DisplayGrainSQL` (replaces the prior hardcoded
+// `toStartOfHour` which collapsed short windows to a single bucket).
+// service.go folds raw 1-min gauge rows into display buckets via a
+// per-(bucket, pool[, state]) map keyed on `bucketStr(timestamp)`.
 package connections
 
 import (
@@ -14,6 +18,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
@@ -186,7 +191,7 @@ func (r *ClickHouseRepository) gaugeNoState(ctx context.Context, teamID, startMs
 
 func (r *ClickHouseRepository) poolHistogram(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, metricName, traceLabel string) ([]histRawDTO, error) {
 	filterWhere, filterArgs := filter.BuildMetricClauses(f)
-	const query = `
+	query := `
 		WITH active_fps AS (
 		    SELECT fingerprint
 		    FROM observability.metrics_resource
@@ -198,7 +203,7 @@ func (r *ClickHouseRepository) poolHistogram(ctx context.Context, teamID, startM
 		       qs[2] AS p95,
 		       qs[3] AS p99
 		FROM (
-		    SELECT toStartOfHour(timestamp)                                          AS bucket,
+		    SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `                AS bucket,
 		           attributes.'pool.name'::String                                    AS pool_name,
 		           quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
 		    FROM observability.metrics_1m

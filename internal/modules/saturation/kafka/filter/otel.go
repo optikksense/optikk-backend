@@ -1,12 +1,12 @@
-package kafka
+package filter
 
 // OpenTelemetry semantic conventions for Kafka-related messaging telemetry.
 // Canonical names come first; compatibility aliases preserve historical data.
 //
 // Attribute alias chains for `topic`, `consumer_group`, `operation_name`,
 // `partition`, `messaging.system`, `node-id` are inlined directly in the SQL
-// queries (see repository.go) — the SQL is the source of truth for which
-// attribute names each kafka concept can come from.
+// queries (see each submodule's repository.go) — the SQL is the source of
+// truth for which attribute names each kafka concept can come from.
 
 const (
 	MetricPublishMessages         = "messaging.publish.messages"
@@ -31,32 +31,32 @@ const (
 )
 
 var (
-	producerMetricAliases = []string{
+	ProducerMetrics = []string{
 		MetricPublishMessages,
 		MetricClientSentMessages,
 		"kafka.producer.message.count",
 		"messaging.client.published.messages",
 	}
 
-	consumerMetricAliases = []string{
+	ConsumerMetrics = []string{
 		MetricReceiveMessages,
 		MetricClientReceivedMessages,
 		"kafka.consumer.message.count",
 		"messaging.client.consumed.messages",
 	}
 
-	processMetricAliases = []string{
+	ProcessMetrics = []string{
 		MetricProcessMessages,
 	}
 
-	consumerLagMetricAliases = []string{
+	ConsumerLagMetrics = []string{
 		MetricKafkaConsumerLag,
 		MetricKafkaConsumerLagSum,
 		"kafka.consumer.lag",
 		"queue.depth",
 	}
 
-	rebalanceMetricAliases = []string{
+	RebalanceMetrics = []string{
 		MetricRebalanceCount,
 		MetricJoinCount,
 		MetricSyncCount,
@@ -65,14 +65,14 @@ var (
 		MetricAssignedPartitions,
 	}
 
-	durationMetricAliases = []string{
+	DurationMetrics = []string{
 		MetricPublishDuration,
 		MetricReceiveDuration,
 		MetricProcessDuration,
 		MetricClientOperationDuration,
 	}
 
-	publishOperationAliases = []string{"publish", "produce", "send"}
-	receiveOperationAliases = []string{"receive", "consume"}
-	processOperationAliases = []string{"process"}
+	PublishOperationAliases = []string{"publish", "produce", "send"}
+	ReceiveOperationAliases = []string{"receive", "consume"}
+	ProcessOperationAliases = []string{"process"}
 )

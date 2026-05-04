@@ -5,12 +5,14 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
-// Repository runs the volume / read-vs-write panel queries against raw
-// `observability.spans`. One span per DB call → count() is the op count;
-// service.go converts to per-second rate via filter.BucketWidthSeconds.
+// Repository runs the volume / read-vs-write panel queries against
+// `observability.spans_1m`. SQL emits per-display-bucket rows with
+// per-second rates computed server-side as
+// `sum(request_count) / @bucketGrainSec`; service is pass-through.
 type Repository interface {
 	GetOpsBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]opsRawDTO, error)
 	GetOpsByOperation(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]opsRawDTO, error)
@@ -56,9 +58,9 @@ func (r *ClickHouseRepository) opsSeriesByGroup(ctx context.Context, teamID, sta
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(toDateTime(ts_bucket))    AS time_bucket,
-		       ` + groupCol + `                   AS group_by,
-		       toInt64(sum(request_count))        AS op_count
+		SELECT toString(` + timebucket.DisplayGrainSQL(endMs-startMs) + `)         AS time_bucket,
+		       ` + groupCol + `                                                    AS group_by,
+		       sum(request_count) / @bucketGrainSec                                AS ops_per_sec
 		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
@@ -67,13 +69,14 @@ func (r *ClickHouseRepository) opsSeriesByGroup(ctx context.Context, teamID, sta
 		ORDER BY time_bucket, group_by`
 
 	args := append(filter.SpanArgs(teamID, startMs, endMs), filterArgs...)
+	args = timebucket.WithBucketGrainSec(args, startMs, endMs)
 	var rows []opsRawDTO
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, traceLabel, &rows, query, args...)
 }
 
 // GetReadVsWrite splits ops by upper(db.operation.name) into read-style
 // (SELECT/FIND/GET) vs write-style (INSERT/UPDATE/DELETE/REPLACE/UPSERT/SET/PUT/AGGREGATE).
-// One span per call; counts split via countIf.
+// Per-display-bucket rates computed server-side.
 func (r *ClickHouseRepository) GetReadVsWrite(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]readWriteRawDTO, error) {
 	filterWhere, filterArgs := filter.BuildSpans1mClauses(f)
 
@@ -83,9 +86,9 @@ func (r *ClickHouseRepository) GetReadVsWrite(ctx context.Context, teamID, start
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(toDateTime(ts_bucket))                                                                                                              AS time_bucket,
-		       toInt64(sumIf(request_count, upper(db_operation_name) IN ('SELECT','FIND','GET')))                                                            AS read_count,
-		       toInt64(sumIf(request_count, upper(db_operation_name) IN ('INSERT','UPDATE','DELETE','REPLACE','UPSERT','SET','PUT','AGGREGATE')))            AS write_count
+		SELECT toString(` + timebucket.DisplayGrainSQL(endMs-startMs) + `)                                                                  AS time_bucket,
+		       sumIf(request_count, upper(db_operation_name) IN ('SELECT','FIND','GET')) / @bucketGrainSec                                  AS read_ops_per_sec,
+		       sumIf(request_count, upper(db_operation_name) IN ('INSERT','UPDATE','DELETE','REPLACE','UPSERT','SET','PUT','AGGREGATE')) / @bucketGrainSec AS write_ops_per_sec
 		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
@@ -94,6 +97,7 @@ func (r *ClickHouseRepository) GetReadVsWrite(ctx context.Context, teamID, start
 		ORDER BY time_bucket`
 
 	args := append(filter.SpanArgs(teamID, startMs, endMs), filterArgs...)
+	args = timebucket.WithBucketGrainSec(args, startMs, endMs)
 	var rows []readWriteRawDTO
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "volume.GetReadVsWrite", &rows, query, args...)
 }

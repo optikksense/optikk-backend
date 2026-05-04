@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/displaybucket"
 )
 
 const topNLimit = 20
@@ -46,18 +45,13 @@ func (s *HTTPMetricsService) GetRequestRate(ctx context.Context, teamID int64, s
 	if err != nil {
 		return nil, err
 	}
-	buckets := displaybucket.SumByTimeAndKey(rows,
-		func(r StatusCountRow) time.Time { return r.Timestamp },
-		func(r StatusCountRow) string { return fmt.Sprintf("%d", r.StatusCode) },
-		func(r StatusCountRow) float64 { return float64(r.Count) },
-		startMs, endMs)
-	out := make([]StatusCodeBucket, len(buckets))
-	for i, b := range buckets {
-		var c int64
-		if b.Value != nil {
-			c = int64(*b.Value)
+	out := make([]StatusCodeBucket, len(rows))
+	for i, r := range rows {
+		out[i] = StatusCodeBucket{
+			Timestamp:  formatBucket(r.Timestamp),
+			StatusCode: fmt.Sprintf("%d", r.StatusCode),
+			Count:      int64(r.Count), //nolint:gosec
 		}
-		out[i] = StatusCodeBucket{Timestamp: b.Timestamp, StatusCode: b.State, Count: c}
 	}
 	return out, nil
 }
@@ -75,11 +69,12 @@ func (s *HTTPMetricsService) GetActiveRequests(ctx context.Context, teamID int64
 	if err != nil {
 		return nil, err
 	}
-	dst := displaybucket.AvgByTime(rows,
-		func(r MetricSeriesRow) time.Time { return r.Timestamp },
-		func(r MetricSeriesRow) float64 { return r.Value },
-		startMs, endMs)
-	return toTimeBuckets(dst), nil
+	out := make([]TimeBucket, len(rows))
+	for i, r := range rows {
+		v := r.Value
+		out[i] = TimeBucket{Timestamp: formatBucket(r.Timestamp), Value: &v}
+	}
+	return out, nil
 }
 
 func (s *HTTPMetricsService) GetRequestBodySize(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
@@ -328,12 +323,11 @@ func mapHosts(rows []HostAggRow, n int, withP95 bool) []ExternalHostMetric {
 	return out
 }
 
-func toTimeBuckets(in []displaybucket.TimeBucket) []TimeBucket {
-	out := make([]TimeBucket, len(in))
-	for i, b := range in {
-		out[i] = TimeBucket{Timestamp: b.Timestamp, Value: b.Value}
-	}
-	return out
+// formatBucket renders a CH-emitted display-bucket DateTime as a stable
+// UTC label. Repos already round to the display grain via
+// timebucket.DisplayGrainSQL, so this is pure formatting.
+func formatBucket(t time.Time) string {
+	return t.UTC().Format("2006-01-02 15:04:05")
 }
 
 func errPct(errs, total uint64) float64 {

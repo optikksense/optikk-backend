@@ -4,7 +4,6 @@ import (
 	"context"
 
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/quantile"
 )
 
 type Service struct {
@@ -33,10 +32,9 @@ func (s *Service) GetCollectionOps(ctx context.Context, teamID, startMs, endMs i
 	if err != nil {
 		return nil, err
 	}
-	bucketSec := filter.BucketWidthSeconds(startMs, endMs)
 	out := make([]OpsTimeSeries, len(rows))
 	for i, r := range rows {
-		rate := float64(r.Count) / bucketSec
+		rate := r.OpsPerSec
 		out[i] = OpsTimeSeries{TimeBucket: r.TimeBucket, GroupBy: r.GroupBy, OpsPerSec: &rate}
 	}
 	return out, nil
@@ -47,10 +45,9 @@ func (s *Service) GetCollectionErrors(ctx context.Context, teamID, startMs, endM
 	if err != nil {
 		return nil, err
 	}
-	bucketSec := filter.BucketWidthSeconds(startMs, endMs)
 	out := make([]ErrorTimeSeries, len(rows))
 	for i, r := range rows {
-		rate := float64(r.Count) / bucketSec
+		rate := r.OpsPerSec
 		out[i] = ErrorTimeSeries{TimeBucket: r.TimeBucket, GroupBy: r.GroupBy, ErrorsPerSec: &rate}
 	}
 	return out, nil
@@ -63,7 +60,7 @@ func (s *Service) GetCollectionQueryTexts(ctx context.Context, teamID, startMs, 
 	}
 	out := make([]CollectionTopQuery, len(rows))
 	for i, r := range rows {
-		p99 := quantile.FromHistogram(filter.LatencyBucketBoundsMs, r.Buckets, 0.99)
+		p99 := r.P99Ms
 		out[i] = CollectionTopQuery{
 			QueryText:  r.QueryText,
 			P99Ms:      &p99,
@@ -79,11 +76,10 @@ func (s *Service) GetCollectionReadVsWrite(ctx context.Context, teamID, startMs,
 	if err != nil {
 		return nil, err
 	}
-	bucketSec := filter.BucketWidthSeconds(startMs, endMs)
 	out := make([]ReadWritePoint, len(rows))
 	for i, r := range rows {
-		read := float64(r.ReadCount) / bucketSec
-		write := float64(r.WriteCount) / bucketSec
+		read := r.ReadOpsPerSec
+		write := r.WriteOpsPerSec
 		out[i] = ReadWritePoint{TimeBucket: r.TimeBucket, ReadOpsPerSec: &read, WriteOpsPerSec: &write}
 	}
 	return out, nil

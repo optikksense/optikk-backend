@@ -5,6 +5,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
@@ -178,7 +179,10 @@ func (s *Service) GetConnectionTimeoutRate(ctx context.Context, teamID, startMs,
 	if err != nil {
 		return nil, err
 	}
-	bucketSec := filter.BucketWidthSeconds(startMs, endMs)
+	bucketSec := timebucket.DisplayGrain(endMs - startMs).Seconds()
+	if bucketSec <= 0 {
+		bucketSec = 60
+	}
 	type key struct{ bucket, pool string }
 	folded := map[key]float64{}
 	for _, r := range rows {
@@ -239,9 +243,10 @@ func foldHist(rows []histRawDTO) []PoolLatencyPoint {
 	return out
 }
 
-// bucketStr formats a metric timestamp into a stable per-hour label
-// matching the metrics_resource ts_bucket grain (the natural display
-// grain for db.client.connection.* gauges sampled at 30–60s intervals).
+// bucketStr formats a metric timestamp into a stable label. Repos emit
+// buckets at the window-adaptive display grain (1m / 5m / 1h / 1d) via
+// timebucket.DisplayGrainSQL, so the format string carries minute
+// precision — sub-minute is always 00 at all four grains.
 func bucketStr(t time.Time) string {
 	return t.UTC().Format("2006-01-02 15:04:00")
 }

@@ -16,29 +16,32 @@ func NewService(repo Repository) *Service {
 
 func (s *Service) GetErrorsBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]ErrorTimeSeries, error) {
 	rows, err := s.repo.GetErrorsBySystem(ctx, teamID, startMs, endMs, f)
-	return foldErrorRate(rows, startMs, endMs), err
+	return mapErrorRate(rows), err
 }
 
 func (s *Service) GetErrorsByOperation(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]ErrorTimeSeries, error) {
 	rows, err := s.repo.GetErrorsByOperation(ctx, teamID, startMs, endMs, f)
-	return foldErrorRate(rows, startMs, endMs), err
+	return mapErrorRate(rows), err
 }
 
 func (s *Service) GetErrorsByErrorType(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]ErrorTimeSeries, error) {
 	rows, err := s.repo.GetErrorsByErrorType(ctx, teamID, startMs, endMs, f)
-	return foldErrorRate(rows, startMs, endMs), err
+	return mapErrorRate(rows), err
 }
 
 func (s *Service) GetErrorsByCollection(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]ErrorTimeSeries, error) {
 	rows, err := s.repo.GetErrorsByCollection(ctx, teamID, startMs, endMs, f)
-	return foldErrorRate(rows, startMs, endMs), err
+	return mapErrorRate(rows), err
 }
 
 func (s *Service) GetErrorsByResponseStatus(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]ErrorTimeSeries, error) {
 	rows, err := s.repo.GetErrorsByResponseStatus(ctx, teamID, startMs, endMs, f)
-	return foldErrorRate(rows, startMs, endMs), err
+	return mapErrorRate(rows), err
 }
 
+// GetErrorRatio passes through SQL-emitted percentages. has_data == 0
+// means "no traffic in this bucket" → expose nil to keep the prior
+// JSON shape (NULL on no traffic, 0.0 on real-zero-error traffic).
 func (s *Service) GetErrorRatio(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]ErrorRatioPoint, error) {
 	rows, err := s.repo.GetErrorRatio(ctx, teamID, startMs, endMs, f)
 	if err != nil {
@@ -47,8 +50,8 @@ func (s *Service) GetErrorRatio(ctx context.Context, teamID, startMs, endMs int6
 	out := make([]ErrorRatioPoint, len(rows))
 	for i, r := range rows {
 		var pct *float64
-		if r.TotalCount > 0 {
-			v := float64(r.ErrCount) / float64(r.TotalCount) * 100.0
+		if r.HasData != 0 {
+			v := r.ErrorRatioPct
 			pct = &v
 		}
 		out[i] = ErrorRatioPoint{TimeBucket: r.TimeBucket, ErrorRatioPct: pct}
@@ -56,14 +59,15 @@ func (s *Service) GetErrorRatio(ctx context.Context, teamID, startMs, endMs int6
 	return out, nil
 }
 
-func foldErrorRate(rows []errorRawDTO, startMs, endMs int64) []ErrorTimeSeries {
+// mapErrorRate is a pure DTO translation — rates are already per-second
+// (SQL emits `sum(error_count) / @bucketGrainSec`).
+func mapErrorRate(rows []errorRawDTO) []ErrorTimeSeries {
 	if rows == nil {
 		return nil
 	}
-	bucketSec := filter.BucketWidthSeconds(startMs, endMs)
 	out := make([]ErrorTimeSeries, len(rows))
 	for i, r := range rows {
-		rate := float64(r.ErrCount) / bucketSec
+		rate := r.ErrorsPerSec
 		out[i] = ErrorTimeSeries{TimeBucket: r.TimeBucket, GroupBy: r.GroupBy, ErrorsPerSec: &rate}
 	}
 	return out

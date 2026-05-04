@@ -23,13 +23,12 @@
 // the previous repo code referenced columns (`latency_ms_digest`,
 // `value_sum`, `sample_count`, `db_operation`, `pool_name`,
 // `db_connection_state`, etc.) that don't exist on either raw table.
-// Latency percentiles emit as a fixed-bucket histogram array Go-side
-// via [quantile.FromHistogram].
+// Latency percentiles are computed server-side via `quantileTiming` /
+// `quantilesTiming` (raw-spans inline) and `quantileTimingMerge` /
+// `quantilesTimingMerge` (against `spans_1m.latency_state`).
 package filter
 
 import (
-	"strconv"
-	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -76,10 +75,6 @@ type Filters struct {
 	Server     []string
 }
 
-var LatencyBucketBoundsMs = []float64{
-	1, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, 30000, 1e18,
-}
-
 func SpanArgs(teamID, startMs, endMs int64) []any {
 	bucketStart, bucketEnd := SpanBucketBounds(startMs, endMs)
 	return []any{
@@ -123,20 +118,6 @@ func MetricArgsMulti(teamID, startMs, endMs int64, metricNames []string) []any {
 func MetricBucketBounds(startMs, endMs int64) (uint32, uint32) {
 	return timebucket.BucketStart(startMs / 1000),
 		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
-}
-
-func BucketWidthSeconds(startMs, endMs int64) float64 {
-	hours := float64(endMs-startMs) / 3_600_000.0
-	switch {
-	case hours <= 3:
-		return 60
-	case hours <= 24:
-		return 300
-	case hours <= 168:
-		return 3600
-	default:
-		return 86400
-	}
 }
 
 func BuildSpanClauses(f Filters) (where string, args []any) {
@@ -237,29 +218,3 @@ func Spans1mGroupColumn(attr string) string {
 	return ""
 }
 
-func LatencyBucketCountsSQL() string {
-	var b strings.Builder
-	b.WriteString("[")
-	prev := "0"
-	for i, upperMs := range LatencyBucketBoundsMs {
-		if i > 0 {
-			b.WriteString(", ")
-		}
-		// last bucket: catch-all >= prev
-		if i == len(LatencyBucketBoundsMs)-1 {
-			b.WriteString("countIf(duration_nano >= ")
-			b.WriteString(prev)
-			b.WriteString(")")
-			break
-		}
-		upperNs := strconv.FormatInt(int64(upperMs*1_000_000), 10)
-		b.WriteString("countIf(duration_nano >= ")
-		b.WriteString(prev)
-		b.WriteString(" AND duration_nano < ")
-		b.WriteString(upperNs)
-		b.WriteString(")")
-		prev = upperNs
-	}
-	b.WriteString("]")
-	return b.String()
-}

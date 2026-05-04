@@ -6,18 +6,17 @@ CREATE TABLE IF NOT EXISTS observability.metrics_1m (
     fingerprint          String CODEC(ZSTD(1)),
     attr_hash            UInt64 CODEC(T64, ZSTD(1)),
 
-    -- Scalar (Gauge / Sum) — five aggregations per row.
+    -- Scalar (Gauge / Sum) — four aggregations per row.
     val_min              SimpleAggregateFunction(min, Float64)     CODEC(Gorilla, ZSTD(1)),
     val_max              SimpleAggregateFunction(max, Float64)     CODEC(Gorilla, ZSTD(1)),
     val_sum              SimpleAggregateFunction(sum, Float64)     CODEC(Gorilla, ZSTD(1)),
     val_count            SimpleAggregateFunction(sum, UInt64)      CODEC(T64, ZSTD(1)),
-    val_last             SimpleAggregateFunction(anyLast, Float64) CODEC(Gorilla, ZSTD(1)),
 
-    -- Histogram — element-wise merged bucket counts + a representative
-    -- bucket-bounds array, plus a Prometheus-style quantile state for
-    -- server-side p50/p95/p99 reads via quantilesPrometheusHistogramMerge.
-    hist_buckets         SimpleAggregateFunction(max,        Array(Float64)) CODEC(ZSTD(1)),
-    hist_counts          AggregateFunction(sumForEach, Array(UInt64)) CODEC(ZSTD(1)),
+    -- Histogram — Prometheus-style quantile state for server-side
+    -- p50/p95/p99 reads via quantilesPrometheusHistogramMerge, plus
+    -- per-data-point sum/count for avg-duration panels. Bucket arrays
+    -- live on raw `observability.metrics`; the MV reads them there to
+    -- build `latency_state` and does not project them into the rollup.
     hist_sum             SimpleAggregateFunction(sum, Float64) CODEC(Gorilla, ZSTD(1)),
     hist_count           SimpleAggregateFunction(sum, UInt64)  CODEC(T64, ZSTD(1)),
     latency_state        AggregateFunction(quantilePrometheusHistogram, Float64, UInt64) CODEC(ZSTD(1)),
@@ -56,14 +55,6 @@ SELECT
     maxIf(value,     metric_type IN ('Gauge', 'Sum')) AS val_max,
     sumIf(value,     metric_type IN ('Gauge', 'Sum')) AS val_sum,
     countIf(value,   metric_type IN ('Gauge', 'Sum')) AS val_count,
-    anyLastIf(value, metric_type IN ('Gauge', 'Sum')) AS val_last,
-
-    -- Histogram — element-wise bucket-count merge + representative bounds.
-    -- Non-Histogram source rows return [] from *If, identity under sumForEach
-    -- and lex-less than any real bounds under max — so the rollup row's
-    -- bucket-bounds and bucket-counts come from Histogram contributions only.
-    sumForEachStateIf(hist_counts, metric_type = 'Histogram') AS hist_counts,
-    maxIf(hist_buckets,       metric_type = 'Histogram') AS hist_buckets,
 
     -- Per-data-point histogram totals.
     sumIf(hist_sum,   metric_type = 'Histogram') AS hist_sum,
@@ -72,6 +63,9 @@ SELECT
     -- Prometheus-style quantile state. The -Array combinator feeds each
     -- (bucket_upper_bound, cumulative_count) pair from the per-data-point
     -- arrays into the aggregate; -StateIf gates on Histogram rows only.
+    -- Bucket arrays are read from raw `observability.metrics` and not
+    -- projected into the rollup — `latency_state` carries everything
+    -- readers need.
     quantilePrometheusHistogramArrayStateIf(
         hist_buckets,
         arrayCumSum(hist_counts),
