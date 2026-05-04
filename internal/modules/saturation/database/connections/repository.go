@@ -50,14 +50,15 @@ type gaugeRawDTO struct {
 	Value     float64   `ch:"value"`
 }
 
-// histRawDTO carries the merged bucket-bounds + bucket-counts per (hour-bucket,
-// pool). Service interpolates p50/p95/p99 Go-side via quantile.FromHistogram
-// and converts the seconds-domain values to ms.
+// histRawDTO carries server-side p50/p95/p99 (seconds, via
+// quantilePrometheusHistogramMerge on metrics_1m.latency_state) per
+// (hour-bucket, pool). Service multiplies by 1000 to get ms.
 type histRawDTO struct {
 	Bucket   time.Time `ch:"bucket"`
 	PoolName string    `ch:"pool_name"`
-	Buckets  []float64 `ch:"hist_buckets"`
-	Counts   []uint64  `ch:"hist_counts"`
+	P50      float64   `ch:"p50"`
+	P95      float64   `ch:"p95"`
+	P99      float64   `ch:"p99"`
 }
 
 // GetConnectionCountSeries reads `db.client.connection.count` (gauge by state).
@@ -191,17 +192,23 @@ func (r *ClickHouseRepository) poolHistogram(ctx context.Context, teamID, startM
 		    FROM observability.metrics_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name = @metricName
 		)
-		SELECT toStartOfHour(timestamp)              AS bucket,
-		       attributes.'pool.name'::String        AS pool_name,
-		       max(hist_buckets)                     AS hist_buckets,
-		       sumForEach(hist_counts)               AS hist_counts
-		FROM observability.metrics_1m
-		PREWHERE team_id        = @teamID
-		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint    IN active_fps
-		     AND metric_name    = @metricName
-		WHERE timestamp BETWEEN @start AND @end
-		GROUP BY bucket, pool_name
+		SELECT bucket,
+		       pool_name,
+		       qs[1] AS p50,
+		       qs[2] AS p95,
+		       qs[3] AS p99
+		FROM (
+		    SELECT toStartOfHour(timestamp)                                          AS bucket,
+		           attributes.'pool.name'::String                                    AS pool_name,
+		           quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
+		    FROM observability.metrics_1m
+		    PREWHERE team_id        = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		         AND fingerprint    IN active_fps
+		         AND metric_name    = @metricName
+		    WHERE timestamp BETWEEN @start AND @end
+		    GROUP BY bucket, pool_name
+		)
 		ORDER BY bucket, pool_name`
 	args := append(filter.MetricArgs(teamID, startMs, endMs, metricName), filterArgs...)
 	full := query + filterWhere

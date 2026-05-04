@@ -64,10 +64,11 @@ type JVMMemoryRow struct {
 }
 
 type JVMHistogramAggRow struct {
-	SumHistSum   float64   `ch:"sum_hist_sum"`
-	SumHistCount uint64    `ch:"sum_hist_count"`
-	Buckets      []float64 `ch:"hist_buckets"`
-	Counts       []uint64  `ch:"hist_counts"`
+	SumHistSum   float64 `ch:"sum_hist_sum"`
+	SumHistCount uint64  `ch:"sum_hist_count"`
+	P50          float64 `ch:"p50"`
+	P95          float64 `ch:"p95"`
+	P99          float64 `ch:"p99"`
 }
 
 type JVMGCRow struct {

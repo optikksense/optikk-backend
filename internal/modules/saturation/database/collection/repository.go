@@ -1,7 +1,3 @@
-// Package collection serves DB-collection-scoped panels. Every method
-// PREWHEREs raw `observability.spans` on `(team_id, ts_bucket, fingerprint
-// IN active_fps)` and pins `attributes.'db.collection.name' = @collection`.
-// Latency emits a fixed-bucket histogram (service computes p99 Go-side).
 package collection
 
 import (
@@ -63,16 +59,21 @@ func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID,
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(toDateTime(ts_bucket))                  AS time_bucket,
-		       db_operation_name                                 AS group_by,
-		       quantileTimingMerge(0.5)(latency_state)           AS p50_ms,
-		       quantileTimingMerge(0.95)(latency_state)          AS p95_ms,
-		       quantileTimingMerge(0.99)(latency_state)          AS p99_ms
-		FROM observability.spans_1m
-		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		  AND db_collection_name = @collection` + filterWhere + `
-		GROUP BY time_bucket, group_by
+		SELECT time_bucket,
+		       group_by,
+		       qs[1] AS p50_ms,
+		       qs[2] AS p95_ms,
+		       qs[3] AS p99_ms
+		FROM (
+		    SELECT toString(toDateTime(ts_bucket))                       AS time_bucket,
+		           db_operation_name                                     AS group_by,
+		           quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state)  AS qs
+		    FROM observability.spans_1m
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		    WHERE timestamp BETWEEN @start AND @end
+		      AND db_collection_name = @collection` + filterWhere + `
+		    GROUP BY time_bucket, group_by
+		)
 		ORDER BY time_bucket, group_by`
 
 	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("collection", collection))
@@ -130,10 +131,6 @@ func (r *ClickHouseRepository) GetCollectionErrors(ctx context.Context, teamID, 
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionErrors", &rows, query, args...)
 }
 
-// GetCollectionQueryTexts groups raw spans by the per-call db.query.text
-// (high-cardinality free text) within one collection. Returns top-N rows
-// with their fixed-bucket latency histogram + counts. Service computes
-// p99 Go-side.
 func (r *ClickHouseRepository) GetCollectionQueryTexts(ctx context.Context, teamID, startMs, endMs int64, collection string, f filter.Filters, limit int) ([]queryTextRawDTO, error) {
 	if limit <= 0 {
 		limit = 20
@@ -167,8 +164,6 @@ func (r *ClickHouseRepository) GetCollectionQueryTexts(ctx context.Context, team
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionQueryTexts", &rows, query, args...)
 }
 
-// GetCollectionReadVsWrite splits ops by upper(db.operation.name) within
-// one collection. Same shape as volume.GetReadVsWrite.
 func (r *ClickHouseRepository) GetCollectionReadVsWrite(ctx context.Context, teamID, startMs, endMs int64, collection string) ([]readWriteRawDTO, error) {
 	const query = `
 		WITH active_fps AS (

@@ -34,17 +34,23 @@ func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID, startMs, en
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT service                                                                       AS service,
-		       toInt64(sum(request_count))                                                   AS request_count,
-		       toInt64(sum(error_count))                                                     AS error_count,
-		       quantileTimingMerge(0.5)(latency_state)                                       AS p50_ms,
-		       quantileTimingMerge(0.95)(latency_state)                                      AS p95_ms,
-		       quantileTimingMerge(0.99)(latency_state)                                      AS p99_ms
-		FROM observability.spans_1m
-		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		  AND service != ''
-		GROUP BY service`
+		SELECT service,
+		       request_count,
+		       error_count,
+		       qs[1] AS p50_ms,
+		       qs[2] AS p95_ms,
+		       qs[3] AS p99_ms
+		FROM (
+		    SELECT service                                                AS service,
+		           toInt64(sum(request_count))                            AS request_count,
+		           toInt64(sum(error_count))                              AS error_count,
+		           quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state)   AS qs
+		    FROM observability.spans_1m
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		    WHERE timestamp BETWEEN @start AND @end
+		      AND service != ''
+		    GROUP BY service
+		)`
 	var rows []nodeAggRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "topology.GetNodes", &rows, query, spanArgs(teamID, startMs, endMs)...)
 }
@@ -59,20 +65,27 @@ func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID, startMs, en
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT service                                                                       AS source,
-		       peer_service                                                                  AS target,
-		       toInt64(sum(request_count))                                                   AS call_count,
-		       toInt64(sum(error_count))                                                     AS error_count,
-		       quantileTimingMerge(0.5)(latency_state)                                       AS p50_ms,
-		       quantileTimingMerge(0.95)(latency_state)                                      AS p95_ms
-		FROM observability.spans_1m
-		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		  AND kind_string  = 'Client'
-		  AND service      != ''
-		  AND peer_service != ''
-		  AND service      != peer_service
-		GROUP BY source, target`
+		SELECT source,
+		       target,
+		       call_count,
+		       error_count,
+		       qs[1] AS p50_ms,
+		       qs[2] AS p95_ms
+		FROM (
+		    SELECT service                                          AS source,
+		           peer_service                                     AS target,
+		           toInt64(sum(request_count))                      AS call_count,
+		           toInt64(sum(error_count))                        AS error_count,
+		           quantilesTimingMerge(0.5, 0.95)(latency_state)   AS qs
+		    FROM observability.spans_1m
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		    WHERE timestamp BETWEEN @start AND @end
+		      AND kind_string  = 'Client'
+		      AND service      != ''
+		      AND peer_service != ''
+		      AND service      != peer_service
+		    GROUP BY source, target
+		)`
 	var rows []edgeAggRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "topology.GetEdges", &rows, query, spanArgs(teamID, startMs, endMs)...)
 }

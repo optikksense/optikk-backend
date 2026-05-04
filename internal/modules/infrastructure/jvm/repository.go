@@ -62,9 +62,8 @@ func (r *ClickHouseRepository) QueryJVMMemoryByPool(ctx context.Context, teamID 
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "jvm.QueryJVMMemoryByPool", &rows, query, args...)
 }
 
-// QueryJVMGCDurationHistogram returns the merged histogram across the window
-// for jvm.gc.duration. Service computes P50/P95/P99 via quantile.FromHistogram
-// and Avg = sum_hist_sum / sum_hist_count.
+// QueryJVMGCDurationHistogram returns p50/p95/p99 via the server-side
+// quantilePrometheusHistogram state column on metrics_1m, plus avg = sum/count.
 func (r *ClickHouseRepository) QueryJVMGCDurationHistogram(ctx context.Context, teamID int64, startMs, endMs int64) (JVMHistogramAggRow, error) {
 	const query = `
 		WITH active_fps AS (
@@ -74,17 +73,22 @@ func (r *ClickHouseRepository) QueryJVMGCDurationHistogram(ctx context.Context, 
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name = @metricName
 		)
-		SELECT
-		    sum(hist_sum)            AS sum_hist_sum,
-		    sum(hist_count)          AS sum_hist_count,
-		    max(hist_buckets)        AS hist_buckets,
-		    sumForEach(hist_counts)  AS hist_counts
-		FROM observability.metrics_1m
-		PREWHERE team_id        = @teamID
-		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint   IN active_fps
-		WHERE metric_name = @metricName
-		  AND timestamp BETWEEN @start AND @end`
+		SELECT sum_hist_sum,
+		       sum_hist_count,
+		       qs[1] AS p50,
+		       qs[2] AS p95,
+		       qs[3] AS p99
+		FROM (
+		    SELECT sum(hist_sum)                                                  AS sum_hist_sum,
+		           sum(hist_count)                                                AS sum_hist_count,
+		           quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
+		    FROM observability.metrics_1m
+		    PREWHERE team_id        = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		         AND fingerprint   IN active_fps
+		    WHERE metric_name = @metricName
+		      AND timestamp BETWEEN @start AND @end
+		)`
 	args := withMetricName(metricArgs(teamID, startMs, endMs), infraconsts.MetricJVMGCDuration)
 	var row JVMHistogramAggRow
 	return row, dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "jvm.QueryJVMGCDurationHistogram", &row, query, args...)

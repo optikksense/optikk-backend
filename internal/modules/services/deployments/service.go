@@ -138,8 +138,8 @@ func windowMetrics(ctx context.Context, repo Repository, teamID int64, serviceNa
 		RequestCount: row.RequestCount,
 		ErrorCount:   row.ErrorCount,
 		ErrorRate:    errRate,
-		P95Ms:        row.P95Ms,
-		P99Ms:        row.P99Ms,
+		P95Ms:        float64(row.P95Ms),
+		P99Ms:        float64(row.P99Ms),
 		RPS:          float64(row.RequestCount) / sec,
 	}, nil
 }
@@ -304,12 +304,12 @@ func buildEndpointRegressions(beforeRows, afterRows []endpointMetricAggRow) []De
 			BeforeErrorRate: beforeErrorRate,
 			AfterErrorRate:  afterErrorRate,
 			ErrorRateDelta:  afterErrorRate - beforeErrorRate,
-			BeforeP95Ms:     before.P95Ms,
-			AfterP95Ms:      after.P95Ms,
-			P95DeltaMs:      after.P95Ms - before.P95Ms,
-			BeforeP99Ms:     before.P99Ms,
-			AfterP99Ms:      after.P99Ms,
-			P99DeltaMs:      after.P99Ms - before.P99Ms,
+			BeforeP95Ms:     float64(before.P95Ms),
+			AfterP95Ms:      float64(after.P95Ms),
+			P95DeltaMs:      float64(after.P95Ms) - float64(before.P95Ms),
+			BeforeP99Ms:     float64(before.P99Ms),
+			AfterP99Ms:      float64(after.P99Ms),
+			P99DeltaMs:      float64(after.P99Ms) - float64(before.P99Ms),
 		}
 		regression.RegressionScore = endpointRegressionScore(regression)
 		regressions = append(regressions, regression)

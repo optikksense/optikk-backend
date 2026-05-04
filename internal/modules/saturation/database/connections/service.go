@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/quantile"
 )
 
 type Service struct {
@@ -212,23 +211,20 @@ func (s *Service) GetConnectionUseTime(ctx context.Context, teamID, startMs, end
 	return foldHist(rows), err
 }
 
-// foldHist shapes the per-(hour-bucket, pool) merged-bucket rows from CH into
-// PoolLatencyPoint records. CH has already merged hist_buckets/hist_counts
-// across the rollup minutes that fall in each hour-bucket; this function
-// interpolates p50/p95/p99 Go-side via quantile.FromHistogram and converts
-// the seconds-domain values to milliseconds.
-//
-// Histograms here are seconds-domain (OTel default for `db.client.connection.*time`),
-// so we multiply by 1000 to get ms.
+// foldHist shapes the per-(hour-bucket, pool) percentile rows from CH (already
+// computed server-side via quantilePrometheusHistogramMerge on
+// metrics_1m.latency_state) into PoolLatencyPoint records. The metrics_1m
+// histogram for `db.client.connection.*time` is seconds-domain (OTel default),
+// so we multiply by 1000 to convert to ms.
 func foldHist(rows []histRawDTO) []PoolLatencyPoint {
 	if len(rows) == 0 {
 		return nil
 	}
 	out := make([]PoolLatencyPoint, 0, len(rows))
 	for _, r := range rows {
-		p50 := quantile.FromHistogram(r.Buckets, r.Counts, 0.5) * 1000.0
-		p95 := quantile.FromHistogram(r.Buckets, r.Counts, 0.95) * 1000.0
-		p99 := quantile.FromHistogram(r.Buckets, r.Counts, 0.99) * 1000.0
+		p50 := r.P50 * 1000.0
+		p95 := r.P95 * 1000.0
+		p99 := r.P99 * 1000.0
 		out = append(out, PoolLatencyPoint{
 			TimeBucket: bucketStr(r.Bucket),
 			PoolName:   r.PoolName,

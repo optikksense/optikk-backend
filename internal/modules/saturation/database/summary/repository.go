@@ -43,15 +43,21 @@ func (r *ClickHouseRepository) GetMainStats(ctx context.Context, teamID, startMs
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toUInt64(sum(request_count))                                                   AS total_count,
-		       sum(error_count)                                                               AS error_count,
-		       sum(duration_ms_sum) / nullIf(toFloat64(sum(request_count)), 0)                AS avg_ms,
-		       quantileTimingMerge(0.95)(latency_state)                                       AS p95_ms,
-		       quantileTimingMerge(0.99)(latency_state)                                       AS p99_ms
-		FROM observability.spans_1m
-		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		  AND db_system != ''` + filterWhere
+		SELECT total_count,
+		       error_count,
+		       avg_ms,
+		       qs[1] AS p95_ms,
+		       qs[2] AS p99_ms
+		FROM (
+		    SELECT toUInt64(sum(request_count))                                              AS total_count,
+		           sum(error_count)                                                          AS error_count,
+		           sum(duration_ms_sum) / nullIf(toFloat64(sum(request_count)), 0)           AS avg_ms,
+		           quantilesTimingMerge(0.95, 0.99)(latency_state)                           AS qs
+		    FROM observability.spans_1m
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		    WHERE timestamp BETWEEN @start AND @end
+		      AND db_system != ''` + filterWhere + `
+		)`
 
 	args := append(filter.SpanArgs(teamID, startMs, endMs), filterArgs...)
 	var row mainRawRow

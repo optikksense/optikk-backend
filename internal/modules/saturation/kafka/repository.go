@@ -73,18 +73,23 @@ const histogramAggQuery = `
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name = @metricName
 		)
-		SELECT
-		    sum(hist_sum)            AS sum_hist_sum,
-		    sum(hist_count)          AS sum_hist_count,
-		    max(hist_buckets)        AS hist_buckets,
-		    sumForEach(hist_counts)  AS hist_counts
-		FROM observability.metrics_1m
-		PREWHERE team_id        = @teamID
-		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint   IN active_fps
-		WHERE metric_name = @metricName
-		  AND timestamp BETWEEN @start AND @end
-		  AND lower(attributes.'messaging.system'::String) = 'kafka'`
+		SELECT sum_hist_sum,
+		       sum_hist_count,
+		       qs[1] AS p50,
+		       qs[2] AS p95,
+		       qs[3] AS p99
+		FROM (
+		    SELECT sum(hist_sum)                                                  AS sum_hist_sum,
+		           sum(hist_count)                                                AS sum_hist_count,
+		           quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
+		    FROM observability.metrics_1m
+		    PREWHERE team_id        = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		         AND fingerprint   IN active_fps
+		    WHERE metric_name = @metricName
+		      AND timestamp BETWEEN @start AND @end
+		      AND lower(attributes.'messaging.system'::String) = 'kafka'
+		)`
 
 func (r *ClickHouseRepository) queryHistogramAgg(ctx context.Context, op, metricName string, teamID int64, startMs, endMs int64) (HistogramAggRow, error) {
 	args := withMetricName(metricArgs(teamID, startMs, endMs), metricName)
@@ -188,22 +193,27 @@ const histogramSeriesByTopicQuery = `
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name IN (@metricName, @opDuration)
 		)
-		SELECT
-		    toDateTime(intDiv(toUnixTimestamp(timestamp), @stepSec) * @stepSec) AS timestamp,
-		    attributes.'messaging.destination.name'::String                     AS topic,
-		    max(hist_buckets)                                                   AS hist_buckets,
-		    sumForEach(hist_counts)                                             AS hist_counts
-		FROM observability.metrics_1m
-		PREWHERE team_id        = @teamID
-		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint   IN active_fps
-		WHERE (metric_name = @metricName
-		       OR (metric_name = @opDuration
-		           AND lower(attributes.'messaging.operation.name'::String) IN @opAliases))
-		  AND timestamp BETWEEN @start AND @end
-		  AND attributes.'messaging.destination.name'::String != ''
-		  AND lower(attributes.'messaging.system'::String) = 'kafka'
-		GROUP BY timestamp, topic
+		SELECT timestamp,
+		       topic,
+		       qs[1] AS p50,
+		       qs[2] AS p95,
+		       qs[3] AS p99
+		FROM (
+		    SELECT toDateTime(intDiv(toUnixTimestamp(timestamp), @stepSec) * @stepSec) AS timestamp,
+		           attributes.'messaging.destination.name'::String                     AS topic,
+		           quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state)   AS qs
+		    FROM observability.metrics_1m
+		    PREWHERE team_id        = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		         AND fingerprint   IN active_fps
+		    WHERE (metric_name = @metricName
+		           OR (metric_name = @opDuration
+		               AND lower(attributes.'messaging.operation.name'::String) IN @opAliases))
+		      AND timestamp BETWEEN @start AND @end
+		      AND attributes.'messaging.destination.name'::String != ''
+		      AND lower(attributes.'messaging.system'::String) = 'kafka'
+		    GROUP BY timestamp, topic
+		)
 		ORDER BY timestamp, topic`
 
 func (r *ClickHouseRepository) queryHistogramSeriesByTopic(ctx context.Context, op, metricName string, opAliases []string, teamID int64, startMs, endMs int64) ([]TopicHistogramRow, error) {
@@ -232,22 +242,27 @@ func (r *ClickHouseRepository) QueryProcessLatencyByGroup(ctx context.Context, t
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name IN (@metricName, @opDuration)
 		)
-		SELECT
-		    toDateTime(intDiv(toUnixTimestamp(timestamp), @stepSec) * @stepSec) AS timestamp,
-		    attributes.'messaging.consumer.group.name'::String                  AS consumer_group,
-		    max(hist_buckets)                                                   AS hist_buckets,
-		    sumForEach(hist_counts)                                             AS hist_counts
-		FROM observability.metrics_1m
-		PREWHERE team_id        = @teamID
-		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint   IN active_fps
-		WHERE (metric_name = @metricName
-		       OR (metric_name = @opDuration
-		           AND lower(attributes.'messaging.operation.name'::String) IN @opAliases))
-		  AND timestamp BETWEEN @start AND @end
-		  AND attributes.'messaging.consumer.group.name'::String != ''
-		  AND lower(attributes.'messaging.system'::String) = 'kafka'
-		GROUP BY timestamp, consumer_group
+		SELECT timestamp,
+		       consumer_group,
+		       qs[1] AS p50,
+		       qs[2] AS p95,
+		       qs[3] AS p99
+		FROM (
+		    SELECT toDateTime(intDiv(toUnixTimestamp(timestamp), @stepSec) * @stepSec) AS timestamp,
+		           attributes.'messaging.consumer.group.name'::String                  AS consumer_group,
+		           quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state)   AS qs
+		    FROM observability.metrics_1m
+		    PREWHERE team_id        = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		         AND fingerprint   IN active_fps
+		    WHERE (metric_name = @metricName
+		           OR (metric_name = @opDuration
+		               AND lower(attributes.'messaging.operation.name'::String) IN @opAliases))
+		      AND timestamp BETWEEN @start AND @end
+		      AND attributes.'messaging.consumer.group.name'::String != ''
+		      AND lower(attributes.'messaging.system'::String) = 'kafka'
+		    GROUP BY timestamp, consumer_group
+		)
 		ORDER BY timestamp, consumer_group`
 	args := withMetricName(metricArgs(teamID, startMs, endMs), MetricProcessDuration)
 	args = append(args, clickhouse.Named("opDuration", MetricClientOperationDuration))
@@ -266,20 +281,25 @@ func (r *ClickHouseRepository) QueryClientOperationDurationByOp(ctx context.Cont
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name = @metricName
 		)
-		SELECT
-		    toDateTime(intDiv(toUnixTimestamp(timestamp), @stepSec) * @stepSec) AS timestamp,
-		    attributes.'messaging.operation.name'::String                       AS operation_name,
-		    max(hist_buckets)                                                   AS hist_buckets,
-		    sumForEach(hist_counts)                                             AS hist_counts
-		FROM observability.metrics_1m
-		PREWHERE team_id        = @teamID
-		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint   IN active_fps
-		WHERE metric_name = @metricName
-		  AND timestamp BETWEEN @start AND @end
-		  AND attributes.'messaging.operation.name'::String != ''
-		  AND lower(attributes.'messaging.system'::String) = 'kafka'
-		GROUP BY timestamp, operation_name
+		SELECT timestamp,
+		       operation_name,
+		       qs[1] AS p50,
+		       qs[2] AS p95,
+		       qs[3] AS p99
+		FROM (
+		    SELECT toDateTime(intDiv(toUnixTimestamp(timestamp), @stepSec) * @stepSec) AS timestamp,
+		           attributes.'messaging.operation.name'::String                       AS operation_name,
+		           quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state)   AS qs
+		    FROM observability.metrics_1m
+		    PREWHERE team_id        = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		         AND fingerprint   IN active_fps
+		    WHERE metric_name = @metricName
+		      AND timestamp BETWEEN @start AND @end
+		      AND attributes.'messaging.operation.name'::String != ''
+		      AND lower(attributes.'messaging.system'::String) = 'kafka'
+		    GROUP BY timestamp, operation_name
+		)
 		ORDER BY timestamp, operation_name`
 	args := withMetricName(metricArgs(teamID, startMs, endMs), MetricClientOperationDuration)
 	args = withStepSec(args, startMs, endMs)
@@ -296,12 +316,10 @@ func (r *ClickHouseRepository) QueryE2ELatencyByTopic(ctx context.Context, teamI
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name IN @metricNames
 		)
-		SELECT
-		    toDateTime(intDiv(toUnixTimestamp(timestamp), @stepSec) * @stepSec) AS timestamp,
-		    attributes.'messaging.destination.name'::String                     AS topic,
-		    metric_name                                                         AS metric_name,
-		    max(hist_buckets)                                                   AS hist_buckets,
-		    sumForEach(hist_counts)                                             AS hist_counts
+		SELECT timestamp,
+		       topic,
+		       metric_name,
+		       quantilePrometheusHistogramMerge(0.95)(latency_state) AS p95
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -310,7 +328,9 @@ func (r *ClickHouseRepository) QueryE2ELatencyByTopic(ctx context.Context, teamI
 		  AND timestamp BETWEEN @start AND @end
 		  AND attributes.'messaging.destination.name'::String != ''
 		  AND lower(attributes.'messaging.system'::String) = 'kafka'
-		GROUP BY timestamp, topic, metric_name
+		GROUP BY toDateTime(intDiv(toUnixTimestamp(timestamp), @stepSec) * @stepSec) AS timestamp,
+		         attributes.'messaging.destination.name'::String AS topic,
+		         metric_name
 		ORDER BY timestamp, topic, metric_name`
 	args := withMetricNames(metricArgs(teamID, startMs, endMs), []string{MetricPublishDuration, MetricReceiveDuration, MetricProcessDuration})
 	args = withStepSec(args, startMs, endMs)

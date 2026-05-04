@@ -40,7 +40,16 @@ func (s *REDMetricsService) GetSummary(ctx context.Context, teamID int64, startM
 
 	var totalCount, totalErrors int64
 	var totalP50, totalP95, totalP99 float64
-	for _, row := range rows {
+	services := make([]ServiceREDMetric, len(rows))
+	for i, row := range rows {
+		services[i] = ServiceREDMetric{
+			ServiceName:  row.ServiceName,
+			RequestCount: int64(row.TotalCount),
+			ErrorCount:   int64(row.ErrorCount),
+			AvgLatency:   utils.SanitizeFloat(float64(row.P50Ms)),
+			P95Latency:   utils.SanitizeFloat(float64(row.P95Ms)),
+			P99Latency:   utils.SanitizeFloat(float64(row.P99Ms)),
+		}
 		totalCount += int64(row.TotalCount)  //nolint:gosec // domain-bounded
 		totalErrors += int64(row.ErrorCount) //nolint:gosec // domain-bounded
 		totalP50 += utils.SanitizeFloat(float64(row.P50Ms))
@@ -62,11 +71,13 @@ func (s *REDMetricsService) GetSummary(ctx context.Context, teamID int64, startM
 	return REDSummary{
 		ServiceCount:   serviceCount,
 		TotalSpanCount: totalCount,
+		TotalErrors:    totalErrors,
 		TotalRPS:       utils.SanitizeFloat(float64(totalCount) / durationSec),
 		AvgErrorPct:    utils.SanitizeFloat(avgErrorPct),
 		AvgP50Ms:       utils.SanitizeFloat(avgP50),
 		AvgP95Ms:       utils.SanitizeFloat(avgP95),
 		AvgP99Ms:       utils.SanitizeFloat(avgP99),
+		Services:       services,
 	}, nil
 }
 

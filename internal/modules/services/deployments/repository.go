@@ -212,14 +212,19 @@ func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64
 		return impactAggRow{}, nil
 	}
 	const query = `
-		SELECT toInt64(sum(request_count))                                AS request_count,
-		       toInt64(sum(error_count))                                  AS error_count,
-		       toFloat64(quantileTimingMerge(0.95)(latency_state))        AS p95_ms,
-		       toFloat64(quantileTimingMerge(0.99)(latency_state))        AS p99_ms
-		FROM observability.spans_1m
-		WHERE team_id = @teamID
-		  AND service = @serviceName
-		  AND ts_bucket BETWEEN @bucketStart AND @bucketEnd`
+		SELECT request_count,
+		       error_count,
+		       qs[1] AS p95_ms,
+		       qs[2] AS p99_ms
+		FROM (
+		    SELECT toInt64(sum(request_count))                  AS request_count,
+		           toInt64(sum(error_count))                    AS error_count,
+		           quantilesTimingMerge(0.95, 0.99)(latency_state) AS qs
+		    FROM observability.spans_1m
+		    WHERE team_id = @teamID
+		      AND service = @serviceName
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)`
 	var row impactAggRow
 	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
@@ -298,18 +303,26 @@ func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID 
 
 func (r *ClickHouseRepository) GetEndpointMetricsWindow(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64, limit int) ([]endpointMetricAggRow, error) {
 	const query = `
-		SELECT name                                                            AS operation_name,
-		       name                                                            AS endpoint_name,
-		       http_method                                                     AS http_method,
-		       toInt64(sum(request_count))                                     AS request_count,
-		       toInt64(sum(error_count))                                       AS error_count,
-		       toFloat64(quantileTimingMerge(0.95)(latency_state))             AS p95_ms,
-		       toFloat64(quantileTimingMerge(0.99)(latency_state))             AS p99_ms
-		FROM observability.spans_1m
-		WHERE team_id = @teamID
-		  AND service = @serviceName
-		  AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		GROUP BY name, http_method
+		SELECT operation_name,
+		       endpoint_name,
+		       http_method,
+		       request_count,
+		       error_count,
+		       qs[1] AS p95_ms,
+		       qs[2] AS p99_ms
+		FROM (
+		    SELECT name                                              AS operation_name,
+		           name                                              AS endpoint_name,
+		           http_method                                       AS http_method,
+		           toInt64(sum(request_count))                       AS request_count,
+		           toInt64(sum(error_count))                         AS error_count,
+		           quantilesTimingMerge(0.95, 0.99)(latency_state)   AS qs
+		    FROM observability.spans_1m
+		    WHERE team_id = @teamID
+		      AND service = @serviceName
+		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		    GROUP BY name, http_method
+		)
 		ORDER BY request_count DESC
 		LIMIT @limit`
 	var rows []endpointMetricAggRow

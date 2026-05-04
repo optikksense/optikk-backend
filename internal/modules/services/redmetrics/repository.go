@@ -38,18 +38,24 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		    PREWHERE team_id   = @teamID
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT service                                                              AS service,
-		       sum(request_count)                                                   AS total_count,
-		       sum(error_count)                                                     AS error_count,
-		       quantileTimingMerge(0.5)(latency_state)                              AS p50_ms,
-		       quantileTimingMerge(0.95)(latency_state)                             AS p95_ms,
-		       quantileTimingMerge(0.99)(latency_state)                             AS p99_ms
-		FROM observability.spans_1m
-		PREWHERE team_id     = @teamID
-		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		GROUP BY service`
+		SELECT service,
+		       total_count,
+		       error_count,
+		       qs[1] AS p50_ms,
+		       qs[2] AS p95_ms,
+		       qs[3] AS p99_ms
+		FROM (
+		    SELECT service                                              AS service,
+		           sum(request_count)                                   AS total_count,
+		           sum(error_count)                                     AS error_count,
+		           quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state) AS qs
+		    FROM observability.spans_1m
+		    PREWHERE team_id     = @teamID
+		         AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		         AND fingerprint IN active_fps
+		    WHERE timestamp BETWEEN @start AND @end
+		    GROUP BY service
+		)`
 	var rows []redSummaryServiceRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetSummary",
 		&rows, query, spanArgs(teamID, startMs, endMs)...)
@@ -138,19 +144,25 @@ func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID 
 		    ORDER BY sum(request_count) DESC
 		    LIMIT @candidateLimit
 		)
-		SELECT service                                                              AS service,
-		       name                                                                 AS operation_name,
-		       sum(request_count)                                                   AS span_count,
-		       quantileTimingMerge(0.5)(latency_state)                              AS p50_ms,
-		       quantileTimingMerge(0.95)(latency_state)                             AS p95_ms,
-		       quantileTimingMerge(0.99)(latency_state)                             AS p99_ms
-		FROM observability.spans_1m
-		PREWHERE team_id     = @teamID
-		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		  AND (service, name) IN (SELECT service, operation_name FROM candidates)
-		GROUP BY service, name
+		SELECT service,
+		       operation_name,
+		       span_count,
+		       qs[1] AS p50_ms,
+		       qs[2] AS p95_ms,
+		       qs[3] AS p99_ms
+		FROM (
+		    SELECT service                                              AS service,
+		           name                                                 AS operation_name,
+		           sum(request_count)                                   AS span_count,
+		           quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state) AS qs
+		    FROM observability.spans_1m
+		    PREWHERE team_id     = @teamID
+		         AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		         AND fingerprint IN active_fps
+		    WHERE timestamp BETWEEN @start AND @end
+		      AND (service, name) IN (SELECT service, operation_name FROM candidates)
+		    GROUP BY service, name
+		)
 		ORDER BY p95_ms DESC
 		LIMIT @limit`
 	args := append(spanArgs(teamID, startMs, endMs),

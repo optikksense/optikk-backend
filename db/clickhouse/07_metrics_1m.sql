@@ -14,14 +14,13 @@ CREATE TABLE IF NOT EXISTS observability.metrics_1m (
     val_last             SimpleAggregateFunction(anyLast, Float64) CODEC(Gorilla, ZSTD(1)),
 
     -- Histogram — element-wise merged bucket counts + a representative
-    -- bucket-bounds array. Percentiles interpolated Go-side via
-    -- internal/shared/quantile.FromHistogram. SimpleAggregateFunction means
-    -- readers project these columns directly (no -Merge call); the engine
-    -- merges parts via sumForEach / max.
+    -- bucket-bounds array, plus a Prometheus-style quantile state for
+    -- server-side p50/p95/p99 reads via quantilesPrometheusHistogramMerge.
     hist_buckets         SimpleAggregateFunction(max,        Array(Float64)) CODEC(ZSTD(1)),
     hist_counts          AggregateFunction(sumForEach, Array(UInt64)) CODEC(ZSTD(1)),
     hist_sum             SimpleAggregateFunction(sum, Float64) CODEC(Gorilla, ZSTD(1)),
     hist_count           SimpleAggregateFunction(sum, UInt64)  CODEC(T64, ZSTD(1)),
+    latency_state        AggregateFunction(quantilePrometheusHistogram, Float64, UInt64) CODEC(ZSTD(1)),
 
     service              LowCardinality(String) CODEC(ZSTD(1)),
     host                 LowCardinality(String) CODEC(ZSTD(1)),
@@ -69,6 +68,15 @@ SELECT
     -- Per-data-point histogram totals.
     sumIf(hist_sum,   metric_type = 'Histogram') AS hist_sum,
     sumIf(hist_count, metric_type = 'Histogram') AS hist_count,
+
+    -- Prometheus-style quantile state. The -Array combinator feeds each
+    -- (bucket_upper_bound, cumulative_count) pair from the per-data-point
+    -- arrays into the aggregate; -StateIf gates on Histogram rows only.
+    quantilePrometheusHistogramArrayStateIf(
+        hist_buckets,
+        arrayCumSum(hist_counts),
+        metric_type = 'Histogram'
+    ) AS latency_state,
 
     service,
     host,

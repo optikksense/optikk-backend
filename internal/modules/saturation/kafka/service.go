@@ -9,15 +9,12 @@ import (
 	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/quantile"
 )
 
-// histPctMs interpolates the percentile from a (buckets, counts) histogram
-// (seconds-domain) and returns it in milliseconds. The kafka duration metrics
-// are seconds-domain in OTel.
-func histPctMs(buckets []float64, counts []uint64, q float64) float64 {
-	return quantile.FromHistogram(buckets, counts, q) * 1000.0
-}
+// secondsToMs converts a seconds-domain percentile (as returned by
+// metrics_1m.latency_state, since OTel kafka duration metrics are
+// seconds-domain) into milliseconds.
+func secondsToMs(s float64) float64 { return s * 1000.0 }
 
 type KafkaService struct {
 	repo *ClickHouseRepository
@@ -60,8 +57,8 @@ func (s *KafkaService) GetKafkaSummaryStats(ctx context.Context, teamID int64, s
 	stats.PublishRatePerSec = publishCount.Sum / durationSecs
 	stats.ReceiveRatePerSec = receiveCount.Sum / durationSecs
 	stats.MaxLag = maxLag.Max
-	stats.PublishP95Ms = histPctMs(publishHist.HistBuckets, publishHist.HistCounts, 0.95)
-	stats.ReceiveP95Ms = histPctMs(receiveHist.HistBuckets, receiveHist.HistCounts, 0.95)
+	stats.PublishP95Ms = secondsToMs(publishHist.P95)
+	stats.ReceiveP95Ms = secondsToMs(receiveHist.P95)
 	return stats, nil
 }
 
@@ -135,10 +132,9 @@ func (s *KafkaService) GetProcessRateByGroup(ctx context.Context, teamID int64, 
 	return out, nil
 }
 
-// Latency panels — histograms are merged SQL-side by the rollup query
-// (`max(hist_buckets)` + `sumForEach(hist_counts)` GROUP BY display-bucket,
-// dim); service is a thin per-row mapper that interpolates p50/p95/p99 from
-// the merged buckets via histPctMs (= quantile.FromHistogram * 1000).
+// Latency panels — percentiles are merged server-side via
+// quantilesPrometheusHistogramMerge on metrics_1m.latency_state; service is a
+// thin per-row mapper that converts seconds → ms.
 
 func (s *KafkaService) GetPublishLatencyByTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopicLatencyPoint, error) {
 	rows, err := s.repo.QueryPublishLatencyByTopic(ctx, teamID, startMs, endMs)
@@ -150,9 +146,9 @@ func (s *KafkaService) GetPublishLatencyByTopic(ctx context.Context, teamID int6
 		out[i] = TopicLatencyPoint{
 			Timestamp: formatTime(r.Timestamp),
 			Topic:     r.Topic,
-			P50Ms:     histPctMs(r.HistBuckets, r.HistCounts, 0.5),
-			P95Ms:     histPctMs(r.HistBuckets, r.HistCounts, 0.95),
-			P99Ms:     histPctMs(r.HistBuckets, r.HistCounts, 0.99),
+			P50Ms:     secondsToMs(r.P50),
+			P95Ms:     secondsToMs(r.P95),
+			P99Ms:     secondsToMs(r.P99),
 		}
 	}
 	return out, nil
@@ -168,9 +164,9 @@ func (s *KafkaService) GetReceiveLatencyByTopic(ctx context.Context, teamID int6
 		out[i] = TopicLatencyPoint{
 			Timestamp: formatTime(r.Timestamp),
 			Topic:     r.Topic,
-			P50Ms:     histPctMs(r.HistBuckets, r.HistCounts, 0.5),
-			P95Ms:     histPctMs(r.HistBuckets, r.HistCounts, 0.95),
-			P99Ms:     histPctMs(r.HistBuckets, r.HistCounts, 0.99),
+			P50Ms:     secondsToMs(r.P50),
+			P95Ms:     secondsToMs(r.P95),
+			P99Ms:     secondsToMs(r.P99),
 		}
 	}
 	return out, nil
@@ -186,9 +182,9 @@ func (s *KafkaService) GetProcessLatencyByGroup(ctx context.Context, teamID int6
 		out[i] = GroupLatencyPoint{
 			Timestamp:     formatTime(r.Timestamp),
 			ConsumerGroup: r.ConsumerGroup,
-			P50Ms:         histPctMs(r.HistBuckets, r.HistCounts, 0.5),
-			P95Ms:         histPctMs(r.HistBuckets, r.HistCounts, 0.95),
-			P99Ms:         histPctMs(r.HistBuckets, r.HistCounts, 0.99),
+			P50Ms:         secondsToMs(r.P50),
+			P95Ms:         secondsToMs(r.P95),
+			P99Ms:         secondsToMs(r.P99),
 		}
 	}
 	return out, nil
@@ -204,9 +200,9 @@ func (s *KafkaService) GetClientOperationDuration(ctx context.Context, teamID in
 		out[i] = ClientOpDurationPoint{
 			Timestamp:     formatTime(r.Timestamp),
 			OperationName: r.OperationName,
-			P50Ms:         histPctMs(r.HistBuckets, r.HistCounts, 0.5),
-			P95Ms:         histPctMs(r.HistBuckets, r.HistCounts, 0.95),
-			P99Ms:         histPctMs(r.HistBuckets, r.HistCounts, 0.99),
+			P50Ms:         secondsToMs(r.P50),
+			P95Ms:         secondsToMs(r.P95),
+			P99Ms:         secondsToMs(r.P99),
 		}
 	}
 	return out, nil
@@ -236,7 +232,7 @@ func (s *KafkaService) GetE2ELatency(ctx context.Context, teamID int64, startMs,
 			t = &triple{}
 			acc[k] = t
 		}
-		p95 := histPctMs(r.HistBuckets, r.HistCounts, 0.95)
+		p95 := secondsToMs(r.P95)
 		switch r.MetricName {
 		case MetricPublishDuration:
 			t.publishP95 = p95

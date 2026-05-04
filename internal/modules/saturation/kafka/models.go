@@ -147,46 +147,50 @@ type OperationErrorCounterRow struct {
 	Value         float64   `ch:"value"`
 }
 
-// Histogram time-series rows. HistBuckets/HistCounts come from the rollup's
-// max(hist_buckets) + sumForEach(hist_counts) projections; service computes
-// p50/p95/p99 Go-side via internal/shared/quantile.FromHistogram.
+// Histogram time-series rows. P50/P95/P99 are computed server-side via
+// quantilesPrometheusHistogramMerge on metrics_1m.latency_state (seconds-domain
+// for OTel kafka duration metrics — service multiplies by 1000 for ms).
 type TopicHistogramRow struct {
-	Timestamp   time.Time `ch:"timestamp"`
-	Topic       string    `ch:"topic"`
-	HistBuckets []float64 `ch:"hist_buckets"`
-	HistCounts  []uint64  `ch:"hist_counts"`
+	Timestamp time.Time `ch:"timestamp"`
+	Topic     string    `ch:"topic"`
+	P50       float64   `ch:"p50"`
+	P95       float64   `ch:"p95"`
+	P99       float64   `ch:"p99"`
 }
 
 type GroupHistogramRow struct {
 	Timestamp     time.Time `ch:"timestamp"`
 	ConsumerGroup string    `ch:"consumer_group"`
-	HistBuckets   []float64 `ch:"hist_buckets"`
-	HistCounts    []uint64  `ch:"hist_counts"`
+	P50           float64   `ch:"p50"`
+	P95           float64   `ch:"p95"`
+	P99           float64   `ch:"p99"`
 }
 
 type OperationHistogramRow struct {
 	Timestamp     time.Time `ch:"timestamp"`
 	OperationName string    `ch:"operation_name"`
-	HistBuckets   []float64 `ch:"hist_buckets"`
-	HistCounts    []uint64  `ch:"hist_counts"`
+	P50           float64   `ch:"p50"`
+	P95           float64   `ch:"p95"`
+	P99           float64   `ch:"p99"`
 }
 
 // TopicMetricHistogramRow — used by e2e-latency where metric_name itself is a
 // dimension and the service folds the 3 duration metrics per (timestamp, topic).
+// Only p95 is consumed downstream.
 type TopicMetricHistogramRow struct {
-	Timestamp   time.Time `ch:"timestamp"`
-	Topic       string    `ch:"topic"`
-	MetricName  string    `ch:"metric_name"`
-	HistBuckets []float64 `ch:"hist_buckets"`
-	HistCounts  []uint64  `ch:"hist_counts"`
+	Timestamp  time.Time `ch:"timestamp"`
+	Topic      string    `ch:"topic"`
+	MetricName string    `ch:"metric_name"`
+	P95        float64   `ch:"p95"`
 }
 
 // HistogramAggRow — single aggregated histogram across the window.
 type HistogramAggRow struct {
-	SumHistSum   float64   `ch:"sum_hist_sum"`
-	SumHistCount uint64    `ch:"sum_hist_count"`
-	HistBuckets  []float64 `ch:"hist_buckets"`
-	HistCounts   []uint64  `ch:"hist_counts"`
+	SumHistSum   float64 `ch:"sum_hist_sum"`
+	SumHistCount uint64  `ch:"sum_hist_count"`
+	P50          float64 `ch:"p50"`
+	P95          float64 `ch:"p95"`
+	P99          float64 `ch:"p99"`
 }
 
 type CounterAggRow struct {

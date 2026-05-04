@@ -9,7 +9,6 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/quantile"
 )
 
 type Service struct {
@@ -69,8 +68,8 @@ func (s *Service) GetJVMMemory(ctx context.Context, teamID int64, startMs, endMs
 	return out, nil
 }
 
-// GetJVMGCDuration computes P50/P95/P99 + Avg from the merged histogram via
-// quantile.FromHistogram (mirror of httpmetrics' histogram-percentile path).
+// GetJVMGCDuration returns server-side p50/p95/p99 from metrics_1m.latency_state
+// (quantilePrometheusHistogram), with avg derived from sum/count.
 func (s *Service) GetJVMGCDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
 	row, err := s.repo.QueryJVMGCDurationHistogram(ctx, teamID, startMs, endMs)
 	if err != nil {
@@ -82,9 +81,9 @@ func (s *Service) GetJVMGCDuration(ctx context.Context, teamID int64, startMs, e
 	}
 	return HistogramSummary{
 		Avg: sanitizeFloat(avg),
-		P50: sanitizeFloat(quantile.FromHistogram(row.Buckets, row.Counts, 0.5)),
-		P95: sanitizeFloat(quantile.FromHistogram(row.Buckets, row.Counts, 0.95)),
-		P99: sanitizeFloat(quantile.FromHistogram(row.Buckets, row.Counts, 0.99)),
+		P50: sanitizeFloat(row.P50),
+		P95: sanitizeFloat(row.P95),
+		P99: sanitizeFloat(row.P99),
 	}, nil
 }
 

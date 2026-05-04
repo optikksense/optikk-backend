@@ -75,16 +75,21 @@ func (r *ClickHouseRepository) latencySeriesByGroup(ctx context.Context, teamID,
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(toDateTime(ts_bucket))                  AS time_bucket,
-		       ` + groupCol + `                                  AS group_by,
-		       quantileTimingMerge(0.5)(latency_state)           AS p50_ms,
-		       quantileTimingMerge(0.95)(latency_state)          AS p95_ms,
-		       quantileTimingMerge(0.99)(latency_state)          AS p99_ms
-		FROM observability.spans_1m
-		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		  AND db_system != ''` + filterWhere + `
-		GROUP BY time_bucket, group_by
+		SELECT time_bucket,
+		       group_by,
+		       qs[1] AS p50_ms,
+		       qs[2] AS p95_ms,
+		       qs[3] AS p99_ms
+		FROM (
+		    SELECT toString(toDateTime(ts_bucket))                       AS time_bucket,
+		           ` + groupCol + `                                       AS group_by,
+		           quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state)  AS qs
+		    FROM observability.spans_1m
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		    WHERE timestamp BETWEEN @start AND @end
+		      AND db_system != ''` + filterWhere + `
+		    GROUP BY time_bucket, group_by
+		)
 		ORDER BY time_bucket, group_by`
 
 	args := append(filter.SpanArgs(teamID, startMs, endMs), filterArgs...)

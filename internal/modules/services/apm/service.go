@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/shared/displaybucket"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/quantile"
 )
 
 type Service struct {
@@ -95,9 +94,9 @@ func histogramSummary(row HistogramAggRow) HistogramSummary {
 	}
 	return HistogramSummary{
 		Avg: avg,
-		P50: quantile.FromHistogram(row.Buckets, row.Counts, 0.5),
-		P95: quantile.FromHistogram(row.Buckets, row.Counts, 0.95),
-		P99: quantile.FromHistogram(row.Buckets, row.Counts, 0.99),
+		P50: row.P50,
+		P95: row.P95,
+		P99: row.P99,
 	}
 }
 
