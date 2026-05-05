@@ -56,7 +56,7 @@ func (r *ClickHouseRepository) ServiceErrorRateRowsAll(ctx context.Context, team
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
 		SELECT service                  AS service,
-		       ts_bucket                AS timestamp,
+		       ts_bucket                AS ts_bucket,
 		       sum(request_count)       AS request_count,
 		       sum(error_count)         AS error_count,
 		       sum(duration_ms_sum)     AS duration_ms_sum
@@ -65,8 +65,8 @@ func (r *ClickHouseRepository) ServiceErrorRateRowsAll(ctx context.Context, team
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
 		WHERE ts_bucket BETWEEN @start AND @end
-		GROUP BY service, timestamp
-		ORDER BY timestamp ASC
+		GROUP BY service, ts_bucket
+		ORDER BY ts_bucket ASC
 		LIMIT 10000`
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 — tenant ID fits uint32
@@ -89,7 +89,7 @@ func (r *ClickHouseRepository) ServiceErrorRateRowsByService(ctx context.Context
 		      AND service = @serviceName
 		)
 		SELECT service                  AS service,
-		       ts_bucket                AS timestamp,
+		       ts_bucket                AS ts_bucket,
 		       sum(request_count)       AS request_count,
 		       sum(error_count)         AS error_count,
 		       sum(duration_ms_sum)     AS duration_ms_sum
@@ -98,8 +98,8 @@ func (r *ClickHouseRepository) ServiceErrorRateRowsByService(ctx context.Context
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
 		WHERE ts_bucket BETWEEN @start AND @end
-		GROUP BY service, timestamp
-		ORDER BY timestamp ASC
+		GROUP BY service, ts_bucket
+		ORDER BY ts_bucket ASC
 		LIMIT 10000`
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
@@ -118,13 +118,13 @@ func (r *ClickHouseRepository) ServiceErrorRateRowsByService(ctx context.Context
 func (r *ClickHouseRepository) ErrorVolumeRowsAll(ctx context.Context, teamID int64, startMs, endMs int64) ([]rawServiceErrorRow, error) {
 	const query = `
 		SELECT service              AS service,
-		       ts_bucket            AS timestamp,
+		       ts_bucket            AS ts_bucket,
 		       sum(error_count)     AS error_count
 		FROM observability.spans_1m
 		PREWHERE team_id   = @teamID
 		     AND ts_bucket BETWEEN @start AND @end
-		GROUP BY service, timestamp
-		ORDER BY timestamp ASC
+		GROUP BY service, ts_bucket
+		ORDER BY ts_bucket ASC
 		LIMIT 10000`
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
@@ -145,15 +145,15 @@ func (r *ClickHouseRepository) ErrorVolumeRowsByService(ctx context.Context, tea
 		      AND service = @serviceName
 		)
 		SELECT service              AS service,
-		       ts_bucket            AS timestamp,
+		       ts_bucket            AS ts_bucket,
 		       sum(error_count)     AS error_count
 		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
 		WHERE ts_bucket BETWEEN @start AND @end
-		GROUP BY service, timestamp
-		ORDER BY timestamp ASC
+		GROUP BY service, ts_bucket
+		ORDER BY ts_bucket ASC
 		LIMIT 10000`
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
@@ -249,8 +249,8 @@ func (r *ClickHouseRepository) ErrorGroupDetailRow(ctx context.Context, teamID i
 		SELECT service                              AS service,
 		       name                                 AS operation_name,
 		       any(sample_status_message)           AS status_message,
-		       toInt64(toUInt16OrZero(any(response_status_code))) AS http_status_code,
-		       toInt64(sum(error_count))            AS error_count,
+		       toUInt16OrZero(any(response_status_code)) AS http_status_code,
+		       sum(error_count)                          AS error_count,
 		       max(timestamp)                       AS last_occurrence,
 		       min(timestamp)                       AS first_occurrence,
 		       any(sample_trace_id)                 AS sample_trace_id,
@@ -335,8 +335,8 @@ func (r *ClickHouseRepository) ErrorGroupTimeseriesRows(ctx context.Context, tea
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND service = @groupServiceName
 		)
-		SELECT toDateTime(ts_bucket)              AS timestamp,
-		       toUInt64(sum(error_count))         AS count
+		SELECT ts_bucket                          AS ts_bucket,
+		       sum(error_count)                   AS count
 		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
@@ -346,9 +346,9 @@ func (r *ClickHouseRepository) ErrorGroupTimeseriesRows(ctx context.Context, tea
 		  AND name = @groupOperationName
 		  AND status_message_hash = cityHash64(@groupStatusMessage)
 		  AND toUInt16OrZero(response_status_code) = @groupHTTPStatusCode
-		GROUP BY timestamp
+		GROUP BY ts_bucket
 		HAVING count > 0
-		ORDER BY timestamp ASC`
+		ORDER BY ts_bucket ASC`
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -368,15 +368,15 @@ func (r *ClickHouseRepository) ErrorGroupTimeseriesRows(ctx context.Context, tea
 
 func (r *ClickHouseRepository) ExceptionRateRowsAll(ctx context.Context, teamID int64, startMs, endMs int64) ([]rawExceptionRateRow, error) {
 	const query = `
-		SELECT ts_bucket          AS time_bucket,
+		SELECT ts_bucket          AS ts_bucket,
 		       exception_type     AS exception_type,
 		       sum(error_count)   AS event_count
 		FROM observability.spans_1m
 		PREWHERE team_id   = @teamID
 		     AND ts_bucket BETWEEN @start AND @end
 		WHERE exception_type != ''
-		GROUP BY time_bucket, exception_type
-		ORDER BY time_bucket ASC`
+		GROUP BY ts_bucket, exception_type
+		ORDER BY ts_bucket ASC`
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -395,7 +395,7 @@ func (r *ClickHouseRepository) ExceptionRateRowsByService(ctx context.Context, t
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND service = @serviceName
 		)
-		SELECT ts_bucket          AS time_bucket,
+		SELECT ts_bucket          AS ts_bucket,
 		       exception_type     AS exception_type,
 		       sum(error_count)   AS event_count
 		FROM observability.spans_1m
@@ -404,8 +404,8 @@ func (r *ClickHouseRepository) ExceptionRateRowsByService(ctx context.Context, t
 		     AND fingerprint IN active_fps
 		WHERE ts_bucket BETWEEN @start AND @end
 		  AND exception_type != ''
-		GROUP BY time_bucket, exception_type
-		ORDER BY time_bucket ASC`
+		GROUP BY ts_bucket, exception_type
+		ORDER BY ts_bucket ASC`
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -449,7 +449,7 @@ func (r *ClickHouseRepository) HTTP5xxByRouteRowsAll(ctx context.Context, teamID
 	const query = `
 		SELECT http_route                  AS http_route,
 		       service                     AS service,
-		       toInt64(sum(request_count)) AS count_5xx
+		       sum(request_count)          AS count_5xx
 		FROM observability.spans_1m
 		PREWHERE team_id   = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -480,7 +480,7 @@ func (r *ClickHouseRepository) HTTP5xxByRouteRowsByService(ctx context.Context, 
 		)
 		SELECT http_route                  AS http_route,
 		       service                     AS service,
-		       toInt64(sum(request_count)) AS count_5xx
+		       sum(request_count)          AS count_5xx
 		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
@@ -583,8 +583,8 @@ func (r *ClickHouseRepository) FingerprintTrendRows(ctx context.Context, teamID 
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND service = @serviceName
 		)
-		SELECT ts_bucket                AS ts,
-		       sum(error_count)         AS cnt
+		SELECT ts_bucket               AS ts_bucket,
+		       sum(error_count)        AS cnt
 		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
@@ -593,9 +593,9 @@ func (r *ClickHouseRepository) FingerprintTrendRows(ctx context.Context, teamID 
 		  AND name = @operationName
 		  AND exception_type = @exceptionType
 		  AND status_message_hash = cityHash64(@statusMessage)
-		GROUP BY ts
+		GROUP BY ts_bucket
 		HAVING cnt > 0
-		ORDER BY ts ASC`
+		ORDER BY ts_bucket ASC`
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),

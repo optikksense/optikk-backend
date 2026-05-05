@@ -10,8 +10,8 @@ import (
 )
 
 const traceIndexColumns = `trace_id,
-		timestamp                                                  AS start_ms,
-		timestamp                                                  AS end_ms,
+		timestamp                                                  AS start_time,
+		timestamp                                                  AS end_time,
 		duration_nano                                              AS duration_ns,
 		service                                                    AS root_service,
 		name                                                       AS root_operation,
@@ -23,7 +23,7 @@ const traceIndexColumns = `trace_id,
 		(CASE WHEN has_error THEN 1 ELSE 0 END)                    AS error_count,
 		[service]                                                  AS service_set,
 		false                                                      AS truncated,
-		timestamp                                                  AS last_seen_ms`
+		timestamp                                                  AS last_seen`
 
 type Repository struct {
 	db clickhouse.Conn

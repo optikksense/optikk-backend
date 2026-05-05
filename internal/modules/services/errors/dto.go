@@ -6,17 +6,17 @@ import "time"
 // All Go-side derivations (rate, latency, status-bucket → code, hash) live in service.go.
 
 type rawServiceRateRow struct {
-	ServiceName   string    `ch:"service"`
-	Timestamp     time.Time `ch:"timestamp"`
-	RequestCount  uint64    `ch:"request_count"`
-	ErrorCount    uint64    `ch:"error_count"`
-	DurationMsSum float64   `ch:"duration_ms_sum"`
+	ServiceName   string  `ch:"service"`
+	TsBucket      uint32  `ch:"ts_bucket"`
+	RequestCount  uint64  `ch:"request_count"`
+	ErrorCount    uint64  `ch:"error_count"`
+	DurationMsSum float64 `ch:"duration_ms_sum"`
 }
 
 type rawServiceErrorRow struct {
-	ServiceName string    `ch:"service"`
-	Timestamp   time.Time `ch:"timestamp"`
-	ErrorCount  uint64    `ch:"error_count"`
+	ServiceName string `ch:"service"`
+	TsBucket    uint32 `ch:"ts_bucket"`
+	ErrorCount  uint64 `ch:"error_count"`
 }
 
 type rawErrorGroupRow struct {
@@ -35,7 +35,7 @@ type rawErrorGroupDetailRow struct {
 	OperationName   string    `ch:"operation_name"`
 	StatusMessage   string    `ch:"status_message"`
 	HTTPStatusCode  uint16    `ch:"http_status_code"`
-	ErrorCount      int64     `ch:"error_count"`
+	ErrorCount      uint64    `ch:"error_count"`
 	LastOccurrence  time.Time `ch:"last_occurrence"`
 	FirstOccurrence time.Time `ch:"first_occurrence"`
 	SampleTraceID   string    `ch:"sample_trace_id"`
@@ -52,14 +52,14 @@ type rawErrorGroupTraceRow struct {
 }
 
 type rawTimeBucketCountRow struct {
-	Timestamp time.Time `ch:"timestamp"`
-	Count     uint64    `ch:"count"`
+	TsBucket uint32 `ch:"ts_bucket"`
+	Count    uint64 `ch:"count"`
 }
 
 type rawExceptionRateRow struct {
-	Timestamp     time.Time `ch:"time_bucket"`
-	ExceptionType string    `ch:"exception_type"`
-	Count         uint64    `ch:"event_count"`
+	TsBucket      uint32 `ch:"ts_bucket"`
+	ExceptionType string `ch:"exception_type"`
+	Count         uint64 `ch:"event_count"`
 }
 
 type rawErrorHotspotRow struct {
@@ -72,7 +72,7 @@ type rawErrorHotspotRow struct {
 type rawHTTP5xxRow struct {
 	HTTPRoute   string `ch:"http_route"`
 	ServiceName string `ch:"service"`
-	Count       int64  `ch:"count_5xx"`
+	Count       uint64 `ch:"count_5xx"`
 }
 
 type rawErrorFingerprintRow struct {
@@ -88,6 +88,6 @@ type rawErrorFingerprintRow struct {
 }
 
 type rawFingerprintTrendRow struct {
-	Timestamp time.Time `ch:"ts"`
-	Count     uint64    `ch:"cnt"`
+	TsBucket uint32 `ch:"ts_bucket"`
+	Count    uint64 `ch:"cnt"`
 }

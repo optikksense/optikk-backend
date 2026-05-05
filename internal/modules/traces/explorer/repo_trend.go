@@ -19,9 +19,9 @@ func (r *Repository) Trend(ctx context.Context, f filter.Filters) ([]TrendBucket
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd` + resourceWhere + `
 		)
-		SELECT toString(toDateTime(ts_bucket))                  AS time_bucket,
-		       sum(request_count) - sum(error_count)            AS total,
-		       sum(error_count)                                 AS errors
+		SELECT toString(toDateTime(ts_bucket))           AS time_bucket,
+		       sum(request_count) - sum(error_count)     AS total,
+		       sum(error_count)                          AS errors
 		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end AND is_root = 1` + where + `
@@ -30,7 +30,7 @@ func (r *Repository) Trend(ctx context.Context, f filter.Filters) ([]TrendBucket
 
 	var rows []struct {
 		TimeBucket string `ch:"time_bucket"`
-		Total      uint64 `ch:"total"`
+		Total      int64  `ch:"total"`
 		Errors     uint64 `ch:"errors"`
 	}
 	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "explorer.Trend", &rows, query, args...); err != nil {
@@ -38,7 +38,11 @@ func (r *Repository) Trend(ctx context.Context, f filter.Filters) ([]TrendBucket
 	}
 	out := make([]TrendBucket, len(rows))
 	for i, r := range rows {
-		out[i] = TrendBucket{TimeBucket: r.TimeBucket, Total: r.Total, Errors: r.Errors}
+		total := r.Total
+		if total < 0 {
+			total = 0
+		}
+		out[i] = TrendBucket{TimeBucket: r.TimeBucket, Total: uint64(total), Errors: r.Errors}
 	}
 	return out, nil
 }

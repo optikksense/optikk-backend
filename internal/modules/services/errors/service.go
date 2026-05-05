@@ -3,7 +3,12 @@ package errors
 import (
 	"context"
 	"fmt"
+	"time"
 )
+
+// tsBucketTime converts a UInt32 ts_bucket (Unix-seconds, 5-min boundary)
+// scanned natively from CH into the wire-model time.Time.
+func tsBucketTime(b uint32) time.Time { return time.Unix(int64(b), 0).UTC() }
 
 // GroupIdentity is the identity tuple an ErrorGroup hash resolves back to.
 // Lives in the service layer because hash → identity resolution is service work.
@@ -43,7 +48,7 @@ func (s *Service) GetServiceErrorRate(ctx context.Context, teamID int64, startMs
 		errs := int64(row.ErrorCount)    //nolint:gosec // domain-bounded
 		points[i] = TimeSeriesPoint{
 			ServiceName:  row.ServiceName,
-			Timestamp:    row.Timestamp,
+			Timestamp:    tsBucketTime(row.TsBucket),
 			RequestCount: total,
 			ErrorCount:   errs,
 			ErrorRate:    computeErrorRate(errs, total),
@@ -75,7 +80,7 @@ func (s *Service) GetErrorVolume(ctx context.Context, teamID int64, startMs, end
 		}
 		points = append(points, TimeSeriesPoint{
 			ServiceName: row.ServiceName,
-			Timestamp:   row.Timestamp,
+			Timestamp:   tsBucketTime(row.TsBucket),
 			ErrorCount:  int64(row.ErrorCount), //nolint:gosec // domain-bounded
 		})
 	}
@@ -105,7 +110,7 @@ func (s *Service) GetLatencyDuringErrorWindows(ctx context.Context, teamID int64
 		}
 		points = append(points, TimeSeriesPoint{
 			ServiceName:  row.ServiceName,
-			Timestamp:    row.Timestamp,
+			Timestamp:    tsBucketTime(row.TsBucket),
 			RequestCount: int64(row.RequestCount), //nolint:gosec // domain-bounded
 			ErrorCount:   int64(row.ErrorCount),   //nolint:gosec // domain-bounded
 			AvgLatency:   computeAvgLatency(row.DurationMsSum, row.RequestCount),
@@ -186,7 +191,7 @@ func (s *Service) GetErrorGroupDetail(ctx context.Context, teamID int64, startMs
 		OperationName:   row.OperationName,
 		StatusMessage:   row.StatusMessage,
 		HTTPStatusCode:  int(row.HTTPStatusCode),
-		ErrorCount:      row.ErrorCount,
+		ErrorCount:      int64(row.ErrorCount), //nolint:gosec // domain-bounded
 		LastOccurrence:  row.LastOccurrence,
 		FirstOccurrence: row.FirstOccurrence,
 		SampleTraceID:   row.SampleTraceID,
@@ -229,7 +234,7 @@ func (s *Service) GetErrorGroupTimeseries(ctx context.Context, teamID int64, sta
 	points := make([]TimeSeriesPoint, len(raw))
 	for i, row := range raw {
 		points[i] = TimeSeriesPoint{
-			Timestamp:  row.Timestamp,
+			Timestamp:  tsBucketTime(row.TsBucket),
 			ErrorCount: int64(row.Count), //nolint:gosec // domain-bounded
 		}
 	}
@@ -254,7 +259,7 @@ func (s *Service) GetExceptionRateByType(ctx context.Context, teamID int64, star
 	points := make([]ExceptionRatePoint, len(raw))
 	for i, row := range raw {
 		points[i] = ExceptionRatePoint{
-			Timestamp:     row.Timestamp,
+			Timestamp:     tsBucketTime(row.TsBucket),
 			ExceptionType: row.ExceptionType,
 			Count:         int64(row.Count), //nolint:gosec // domain-bounded
 		}
@@ -304,7 +309,7 @@ func (s *Service) GetHTTP5xxByRoute(ctx context.Context, teamID int64, startMs, 
 		out[i] = HTTP5xxByRoute{
 			HTTPRoute:   row.HTTPRoute,
 			ServiceName: row.ServiceName,
-			Count:       row.Count,
+			Count:       int64(row.Count), //nolint:gosec // domain-bounded
 		}
 	}
 	return out, nil
@@ -352,7 +357,7 @@ func (s *Service) GetFingerprintTrend(ctx context.Context, teamID int64, startMs
 	out := make([]FingerprintTrendPoint, len(raw))
 	for i, row := range raw {
 		out[i] = FingerprintTrendPoint{
-			Timestamp: row.Timestamp,
+			Timestamp: tsBucketTime(row.TsBucket),
 			Count:     int64(row.Count), //nolint:gosec // domain-bounded
 		}
 	}

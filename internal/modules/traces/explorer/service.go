@@ -124,7 +124,7 @@ func buildPageInfo(rows []traceIndexRowDTO, hasMore bool, limit int) PageInfo {
 	info := PageInfo{HasMore: hasMore, Limit: limit}
 	if hasMore && len(rows) > 0 {
 		last := rows[len(rows)-1]
-		info.NextCursor = TraceCursor{StartMs: last.StartMs, TraceID: last.TraceID}.Encode()
+		info.NextCursor = TraceCursor{StartMs: uint64(last.StartTime.UnixMilli()), TraceID: last.TraceID}.Encode()
 	}
 	return info
 }
@@ -132,8 +132,8 @@ func buildPageInfo(rows []traceIndexRowDTO, hasMore bool, limit int) PageInfo {
 func mapTrace(d traceIndexRowDTO) Trace {
 	return Trace{
 		TraceID:        d.TraceID,
-		StartMs:        d.StartMs,
-		EndMs:          d.EndMs,
+		StartMs:        uint64(d.StartTime.UnixMilli()),
+		EndMs:          uint64(d.EndTime.UnixMilli()),
 		DurationMs:     float64(d.DurationNs) / 1_000_000,
 		RootService:    d.RootService,
 		RootOperation:  d.RootOperation,
