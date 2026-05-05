@@ -58,7 +58,7 @@ func (r *ClickHouseRepository) opsSeriesByGroup(ctx context.Context, teamID, sta
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(` + timebucket.DisplayGrainSQL(endMs-startMs) + `)         AS time_bucket,
+		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `                   AS time_bucket,
 		       ` + groupCol + `                                                    AS group_by,
 		       sum(request_count) / @bucketGrainSec                                AS ops_per_sec
 		FROM observability.spans_1m
@@ -86,7 +86,7 @@ func (r *ClickHouseRepository) GetReadVsWrite(ctx context.Context, teamID, start
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(` + timebucket.DisplayGrainSQL(endMs-startMs) + `)                                                                  AS time_bucket,
+		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `                                                                            AS time_bucket,
 		       sumIf(request_count, upper(db_operation_name) IN ('SELECT','FIND','GET')) / @bucketGrainSec                                  AS read_ops_per_sec,
 		       sumIf(request_count, upper(db_operation_name) IN ('INSERT','UPDATE','DELETE','REPLACE','UPSERT','SET','PUT','AGGREGATE')) / @bucketGrainSec AS write_ops_per_sec
 		FROM observability.spans_1m

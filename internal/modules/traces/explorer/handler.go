@@ -38,20 +38,3 @@ func (h *Handler) Query(c *gin.Context) {
 	modulecommon.RespondOK(c, resp)
 }
 
-func (h *Handler) GetByID(c *gin.Context) {
-	traceID := c.Param("traceId")
-	if traceID == "" {
-		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "trace id required")
-		return
-	}
-	resp, err := h.svc.GetByID(c.Request.Context(), h.GetTenant(c).TeamID, traceID)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to fetch trace", err)
-		return
-	}
-	if resp == nil {
-		modulecommon.RespondError(c, http.StatusNotFound, errorcode.NotFound, "trace not found")
-		return
-	}
-	modulecommon.RespondOK(c, resp)
-}

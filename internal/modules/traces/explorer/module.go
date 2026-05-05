@@ -16,7 +16,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 		return
 	}
 	v1.POST("/traces/query", h.Query)
-	v1.GET("/traces/:traceId", h.GetByID)
 }
 
 func NewModule(db clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {

@@ -2,6 +2,7 @@ package errors
 
 import (
 	"context"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
@@ -31,15 +32,15 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 type errorRawDTO struct {
-	TimeBucket   string  `ch:"time_bucket"`
-	GroupBy      string  `ch:"group_by"`
-	ErrorsPerSec float64 `ch:"errors_per_sec"`
+	TimeBucket   time.Time `ch:"time_bucket"`
+	GroupBy      string    `ch:"group_by"`
+	ErrorsPerSec float64   `ch:"errors_per_sec"`
 }
 
 type errorRatioRawDTO struct {
-	TimeBucket    string  `ch:"time_bucket"`
-	ErrorRatioPct float64 `ch:"error_ratio_pct"`
-	HasData       uint8   `ch:"has_data"`
+	TimeBucket    time.Time `ch:"time_bucket"`
+	ErrorRatioPct float64   `ch:"error_ratio_pct"`
+	HasData       uint8     `ch:"has_data"`
 }
 
 func (r *ClickHouseRepository) GetErrorsBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]errorRawDTO, error) {
@@ -75,7 +76,7 @@ func (r *ClickHouseRepository) errorSeriesByGroup(ctx context.Context, teamID, s
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(` + timebucket.DisplayGrainSQL(endMs-startMs) + `)         AS time_bucket,
+		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `                   AS time_bucket,
 		       ` + groupCol + `                                                    AS group_by,
 		       sum(error_count) / @bucketGrainSec                                  AS errors_per_sec
 		FROM observability.spans_1m
@@ -104,9 +105,9 @@ func (r *ClickHouseRepository) GetErrorRatio(ctx context.Context, teamID, startM
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(` + timebucket.DisplayGrainSQL(endMs-startMs) + `)                                  AS time_bucket,
+		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `                                            AS time_bucket,
 		       if(sum(request_count) > 0, sum(error_count) * 100.0 / sum(request_count), 0.0)               AS error_ratio_pct,
-		       if(sum(request_count) > 0, toUInt8(1), toUInt8(0))                                           AS has_data
+		       (sum(request_count) > 0)                                                                     AS has_data
 		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end

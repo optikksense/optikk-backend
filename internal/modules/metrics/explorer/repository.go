@@ -181,8 +181,8 @@ func (r *ClickHouseRepository) listAttributeTagValues(ctx context.Context, teamI
 func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, f filter.Filters) ([]TimeseriesPoint, error) {
 	resourceWhere, where, filterArgs := filter.BuildClauses(f)
 
-	selectCols := "toString(ts_bucket) AS time_bucket"
-	groupByCols := "time_bucket"
+	selectCols := "ts_bucket AS ts_bucket"
+	groupByCols := "ts_bucket"
 	for _, key := range f.GroupBy {
 		col := filter.GroupByColumn(key)
 		alias := "`group_" + filter.SanitizeKey(key) + "`"
@@ -209,7 +209,7 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, f filter.Fil
 		     AND metric_name    = @metricName
 		WHERE timestamp BETWEEN @start AND @end` + where + `
 		GROUP BY ` + groupByCols + `
-		ORDER BY time_bucket ASC
+		ORDER BY ts_bucket ASC
 		LIMIT 10000
 		SETTINGS max_execution_time = 30`
 
@@ -242,7 +242,7 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, f filter.Fil
 				val = row.Sum / float64(row.Count)
 			}
 		}
-		out[i] = TimeseriesPoint{Timestamp: row.Timestamp, Value: val}
+		out[i] = TimeseriesPoint{Timestamp: timebucket.BucketDateTimeString(row.TsBucket), Value: val}
 	}
 	return out, nil
 }

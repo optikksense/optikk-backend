@@ -3,6 +3,7 @@ package slowqueries
 import (
 	"context"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
@@ -67,7 +68,7 @@ func (s *Service) GetSlowQueryRate(ctx context.Context, teamID, startMs, endMs i
 	out := make([]SlowRatePoint, len(rows))
 	for i, r := range rows {
 		rate := r.SlowPerSec
-		out[i] = SlowRatePoint{TimeBucket: r.TimeBucket, SlowPerSec: &rate}
+		out[i] = SlowRatePoint{TimeBucket: timebucket.FormatDisplayBucket(r.TimeBucket), SlowPerSec: &rate}
 	}
 	return out, nil
 }

@@ -3,6 +3,7 @@ package errors
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 )
 
@@ -333,7 +334,7 @@ func (s *Service) ListFingerprints(ctx context.Context, teamID int64, startMs, e
 	out := make([]ErrorFingerprint, len(raw))
 	for i, row := range raw {
 		out[i] = ErrorFingerprint{
-			Fingerprint:   row.Fingerprint,
+			Fingerprint:   strconv.FormatUint(row.StatusMessageHash, 10),
 			ServiceName:   row.ServiceName,
 			OperationName: row.OperationName,
 			ExceptionType: row.ExceptionType,

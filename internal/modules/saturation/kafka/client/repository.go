@@ -30,7 +30,7 @@ const counterAggQuery = `
 		      AND metric_name IN @metricNames
 		)
 		SELECT
-		    toFloat64(sum(value)) AS sum_value
+		    sum(value) AS sum_value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -63,7 +63,7 @@ func (r *Repository) QueryMaxConsumerLag(ctx context.Context, teamID int64, star
 		      AND metric_name IN @metricNames
 		)
 		SELECT
-		    toFloat64(max(value)) AS max_value
+		    max(value) AS max_value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -227,7 +227,7 @@ func (r *Repository) QueryClientOpErrorsByOperation(ctx context.Context, teamID 
 		    timestamp                                                AS timestamp,
 		    attributes.'messaging.operation.name'::String            AS operation_name,
 		    attributes.'error.type'::String                          AS error_type,
-		    toFloat64(hist_count)                                    AS value
+		    hist_count                                               AS value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd

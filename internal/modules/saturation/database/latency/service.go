@@ -3,6 +3,7 @@ package latency
 import (
 	"context"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
@@ -46,20 +47,20 @@ func (s *Service) GetLatencyHeatmap(ctx context.Context, teamID, startMs, endMs 
 	if err != nil {
 		return nil, err
 	}
-	totals := map[string]int64{}
+	totals := map[uint32]uint64{}
 	for _, r := range rows {
-		totals[r.TimeBucket] += r.Count
+		totals[r.TsBucket] += r.Count
 	}
 	out := make([]LatencyHeatmapBucket, len(rows))
 	for i, r := range rows {
 		var density float64
-		if t := totals[r.TimeBucket]; t > 0 {
+		if t := totals[r.TsBucket]; t > 0 {
 			density = float64(r.Count) / float64(t)
 		}
 		out[i] = LatencyHeatmapBucket{
-			TimeBucket:  r.TimeBucket,
+			TimeBucket:  timebucket.BucketDateTimeString(r.TsBucket),
 			BucketLabel: r.BucketLabel,
-			Count:       r.Count,
+			Count:       int64(r.Count), //nolint:gosec // domain-bounded
 			Density:     density,
 		}
 	}
@@ -74,7 +75,7 @@ func foldLatency(rows []latencyRawDTO) []LatencyTimeSeries {
 	for i, r := range rows {
 		p50, p95, p99 := r.P50Ms, r.P95Ms, r.P99Ms
 		out[i] = LatencyTimeSeries{
-			TimeBucket: r.TimeBucket,
+			TimeBucket: timebucket.BucketDateTimeString(r.TsBucket),
 			GroupBy:    r.GroupBy,
 			P50Ms:      &p50,
 			P95Ms:      &p95,

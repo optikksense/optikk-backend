@@ -71,15 +71,15 @@ func (r *ClickHouseRepository) QueryInfrastructureNodeSummary(ctx context.Contex
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
 		SELECT
-		    toInt64(countIf(error_rate > 10))                        AS unhealthy_nodes,
-		    toInt64(countIf(error_rate > 2 AND error_rate <= 10))    AS degraded_nodes,
-		    toInt64(countIf(error_rate <= 2))                        AS healthy_nodes,
-		    toInt64(sum(pod_count))                                  AS total_pods
+		    countIf(error_rate > 10)                                 AS unhealthy_nodes,
+		    countIf(error_rate > 2 AND error_rate <= 10)             AS degraded_nodes,
+		    countIf(error_rate <= 2)                                 AS healthy_nodes,
+		    sum(pod_count)                                           AS total_pods
 		FROM (
 		    SELECT
 		        host,
 		        (sum(error_count) * 100.0
-		            / nullIf(toFloat64(sum(request_count)), 0))      AS error_rate,
+		            / nullIf(sum(request_count), 0))                 AS error_rate,
 		        uniqIf(pod, pod != '')                               AS pod_count
 		    FROM observability.spans_1m
 		    PREWHERE team_id     = @teamID

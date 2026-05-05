@@ -3,6 +3,7 @@ package errors
 import (
 	"context"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
@@ -54,7 +55,7 @@ func (s *Service) GetErrorRatio(ctx context.Context, teamID, startMs, endMs int6
 			v := r.ErrorRatioPct
 			pct = &v
 		}
-		out[i] = ErrorRatioPoint{TimeBucket: r.TimeBucket, ErrorRatioPct: pct}
+		out[i] = ErrorRatioPoint{TimeBucket: timebucket.FormatDisplayBucket(r.TimeBucket), ErrorRatioPct: pct}
 	}
 	return out, nil
 }
@@ -68,7 +69,7 @@ func mapErrorRate(rows []errorRawDTO) []ErrorTimeSeries {
 	out := make([]ErrorTimeSeries, len(rows))
 	for i, r := range rows {
 		rate := r.ErrorsPerSec
-		out[i] = ErrorTimeSeries{TimeBucket: r.TimeBucket, GroupBy: r.GroupBy, ErrorsPerSec: &rate}
+		out[i] = ErrorTimeSeries{TimeBucket: timebucket.FormatDisplayBucket(r.TimeBucket), GroupBy: r.GroupBy, ErrorsPerSec: &rate}
 	}
 	return out
 }

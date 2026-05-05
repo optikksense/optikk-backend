@@ -37,10 +37,10 @@ type RouteAggRow struct {
 }
 
 type RouteErrorSeriesRow struct {
-	Timestamp time.Time `ch:"timestamp"`
-	Route     string    `ch:"route"`
-	Count     uint64    `ch:"req_count"`
-	ErrCount  uint64    `ch:"err_count"`
+	TsBucket uint32 `ch:"ts_bucket"`
+	Route    string `ch:"route"`
+	Count    uint64 `ch:"req_count"`
+	ErrCount uint64 `ch:"err_count"`
 }
 
 type HostAggRow struct {
@@ -215,7 +215,7 @@ func (r *ClickHouseRepository) QueryRouteErrorSeries(ctx context.Context, teamID
 		    PREWHERE team_id   = @teamID
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toDateTime(ts_bucket)        AS timestamp,
+		SELECT ts_bucket                    AS ts_bucket,
 		       name                         AS route,
 		       sum(request_count)           AS req_count,
 		       sum(error_count)             AS err_count
@@ -227,7 +227,7 @@ func (r *ClickHouseRepository) QueryRouteErrorSeries(ctx context.Context, teamID
 		  AND is_root = 1
 		  AND name   != ''
 		GROUP BY ts_bucket, route
-		ORDER BY timestamp, route`
+		ORDER BY ts_bucket, route`
 	var rows []RouteErrorSeriesRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "httpmetrics.QueryRouteErrorSeries",
 		&rows, query, spanArgs(teamID, startMs, endMs)...)

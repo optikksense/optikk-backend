@@ -15,6 +15,26 @@ func BucketStart(unixSeconds int64) uint32 {
 	return uint32((unixSeconds / BucketSeconds) * BucketSeconds)
 }
 
+// BucketTime expands a ts_bucket UInt32 (Unix-seconds-aligned) back into a UTC time.Time.
+// Pair with reader queries that scan ts_bucket natively instead of casting to DateTime in SQL.
+func BucketTime(b uint32) time.Time {
+	return time.Unix(int64(b), 0).UTC()
+}
+
+// BucketDateTimeString formats a ts_bucket UInt32 as ClickHouse's default toString(DateTime)
+// shape "YYYY-MM-DD HH:MM:SS". Use when a reader previously scanned toString(toDateTime(ts_bucket))
+// into a string field for the API contract.
+func BucketDateTimeString(b uint32) string {
+	return time.Unix(int64(b), 0).UTC().Format("2006-01-02 15:04:05")
+}
+
+// FormatDisplayBucket formats a display-grain bucket time.Time as
+// "YYYY-MM-DD HH:MM:SS" (UTC) — the shape CH's default toString(DateTime)
+// produced. Use Go-side after scanning a DisplayGrainSQL bucket as time.Time.
+func FormatDisplayBucket(t time.Time) string {
+	return t.UTC().Format("2006-01-02 15:04:05")
+}
+
 // DisplayBucket buckets a row timestamp into a display-time bucket sized for the requested query window. Grain: ≤3h → 1m, ≤24h → 5m, ≤7d → 1h, otherwise 1d.
 func DisplayBucket(rowUnixSeconds int64, windowMs int64) time.Time {
 	return bucketAt(rowUnixSeconds, displayGrain(windowMs))

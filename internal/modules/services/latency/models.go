@@ -10,7 +10,7 @@ type histogramRow struct {
 }
 
 type heatmapRow struct {
-	TimeBucket string  `ch:"time_bucket"`
-	BucketMs   float64 `ch:"bucket_ms"`
-	Count      uint64  `ch:"count"`
+	TsBucket uint32  `ch:"ts_bucket"`
+	BucketMs float64 `ch:"bucket_ms"`
+	Count    uint64  `ch:"count"`
 }

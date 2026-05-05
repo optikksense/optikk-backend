@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
@@ -32,17 +33,17 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 type latencyRawDTO struct {
-	TimeBucket string  `ch:"time_bucket"`
-	GroupBy    string  `ch:"group_by"`
-	P50Ms      float64 `ch:"p50_ms"`
-	P95Ms      float64 `ch:"p95_ms"`
-	P99Ms      float64 `ch:"p99_ms"`
+	TsBucket uint32  `ch:"ts_bucket"`
+	GroupBy  string  `ch:"group_by"`
+	P50Ms    float64 `ch:"p50_ms"`
+	P95Ms    float64 `ch:"p95_ms"`
+	P99Ms    float64 `ch:"p99_ms"`
 }
 
 type opsRawDTO struct {
-	TimeBucket string  `ch:"time_bucket"`
-	GroupBy    string  `ch:"group_by"`
-	OpsPerSec  float64 `ch:"ops_per_sec"`
+	TimeBucket time.Time `ch:"time_bucket"`
+	GroupBy    string    `ch:"group_by"`
+	OpsPerSec  float64   `ch:"ops_per_sec"`
 }
 
 type collectionLatencyRawDTO struct {
@@ -59,22 +60,22 @@ func (r *ClickHouseRepository) GetSystemLatency(ctx context.Context, teamID, sta
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT time_bucket,
+		SELECT ts_bucket,
 		       group_by,
 		       qs[1] AS p50_ms,
 		       qs[2] AS p95_ms,
 		       qs[3] AS p99_ms
 		FROM (
-		    SELECT toString(toDateTime(ts_bucket))                       AS time_bucket,
+		    SELECT ts_bucket                                              AS ts_bucket,
 		           db_operation_name                                     AS group_by,
 		           quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state)  AS qs
 		    FROM observability.spans_1m
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		    WHERE timestamp BETWEEN @start AND @end
 		      AND db_system = @dbSystem` + filterWhere + `
-		    GROUP BY time_bucket, group_by
+		    GROUP BY ts_bucket, group_by
 		)
-		ORDER BY time_bucket, group_by`
+		ORDER BY ts_bucket, group_by`
 
 	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
 	args = append(args, filterArgs...)
@@ -90,7 +91,7 @@ func (r *ClickHouseRepository) GetSystemOps(ctx context.Context, teamID, startMs
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(` + timebucket.DisplayGrainSQL(endMs-startMs) + `)         AS time_bucket,
+		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `                   AS time_bucket,
 		       db_operation_name                                                   AS group_by,
 		       sum(request_count) / @bucketGrainSec                                AS ops_per_sec
 		FROM observability.spans_1m
@@ -114,7 +115,7 @@ func (r *ClickHouseRepository) GetSystemErrors(ctx context.Context, teamID, star
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(` + timebucket.DisplayGrainSQL(endMs-startMs) + `)         AS time_bucket,
+		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `                   AS time_bucket,
 		       db_operation_name                                                   AS group_by,
 		       sum(error_count) / @bucketGrainSec                                  AS ops_per_sec
 		FROM observability.spans_1m
@@ -178,7 +179,7 @@ func (r *ClickHouseRepository) GetSystemNamespaces(ctx context.Context, teamID, 
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
 		SELECT db_namespace                       AS namespace,
-		       toInt64(sum(request_count))        AS span_count
+		       sum(request_count)                 AS span_count
 		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
@@ -188,6 +189,18 @@ func (r *ClickHouseRepository) GetSystemNamespaces(ctx context.Context, teamID, 
 		ORDER BY span_count DESC`
 
 	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("dbSystem", dbSystem))
-	var rows []SystemNamespace
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "system.GetSystemNamespaces", &rows, query, args...)
+	var rows []systemNamespaceRow
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "system.GetSystemNamespaces", &rows, query, args...); err != nil {
+		return nil, err
+	}
+	out := make([]SystemNamespace, len(rows))
+	for i, row := range rows {
+		out[i] = SystemNamespace{Namespace: row.Namespace, SpanCount: int64(row.SpanCount)} //nolint:gosec // domain-bounded
+	}
+	return out, nil
+}
+
+type systemNamespaceRow struct {
+	Namespace string `ch:"namespace"`
+	SpanCount uint64 `ch:"span_count"`
 }

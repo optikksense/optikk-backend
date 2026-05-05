@@ -42,8 +42,8 @@ func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID, startMs, en
 		       qs[3] AS p99_ms
 		FROM (
 		    SELECT service                                                AS service,
-		           toInt64(sum(request_count))                            AS request_count,
-		           toInt64(sum(error_count))                              AS error_count,
+		           sum(request_count)                                     AS request_count,
+		           sum(error_count)                                       AS error_count,
 		           quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state)   AS qs
 		    FROM observability.spans_1m
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
@@ -74,8 +74,8 @@ func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID, startMs, en
 		FROM (
 		    SELECT service                                          AS source,
 		           peer_service                                     AS target,
-		           toInt64(sum(request_count))                      AS call_count,
-		           toInt64(sum(error_count))                        AS error_count,
+		           sum(request_count)                               AS call_count,
+		           sum(error_count)                                 AS error_count,
 		           quantilesTimingMerge(0.5, 0.95)(latency_state)   AS qs
 		    FROM observability.spans_1m
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps

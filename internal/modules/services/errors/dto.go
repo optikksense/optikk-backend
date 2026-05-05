@@ -76,15 +76,15 @@ type rawHTTP5xxRow struct {
 }
 
 type rawErrorFingerprintRow struct {
-	Fingerprint   string    `ch:"fingerprint"`
-	ServiceName   string    `ch:"service"`
-	OperationName string    `ch:"operation_name"`
-	ExceptionType string    `ch:"exception_type"`
-	StatusMessage string    `ch:"status_message"`
-	FirstSeen     time.Time `ch:"first_seen"`
-	LastSeen      time.Time `ch:"last_seen"`
-	Count         uint64    `ch:"cnt"`
-	SampleTraceID string    `ch:"sample_trace_id"`
+	StatusMessageHash uint64    `ch:"status_message_hash"`
+	ServiceName       string    `ch:"service"`
+	OperationName     string    `ch:"operation_name"`
+	ExceptionType     string    `ch:"exception_type"`
+	StatusMessage     string    `ch:"status_message"`
+	FirstSeen         time.Time `ch:"first_seen"`
+	LastSeen          time.Time `ch:"last_seen"`
+	Count             uint64    `ch:"cnt"`
+	SampleTraceID     string    `ch:"sample_trace_id"`
 }
 
 type rawFingerprintTrendRow struct {

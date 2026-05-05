@@ -166,7 +166,7 @@ func (s *HTTPMetricsService) GetRouteErrorTimeseries(ctx context.Context, teamID
 	windowMs := endMs - startMs
 	agg := map[k]*acc{}
 	for _, r := range rows {
-		key := k{ts: timebucket.DisplayBucket(r.Timestamp.Unix(), windowMs), route: r.Route}
+		key := k{ts: timebucket.DisplayBucket(int64(r.TsBucket), windowMs), route: r.Route}
 		x, ok := agg[key]
 		if !ok {
 			x = &acc{}

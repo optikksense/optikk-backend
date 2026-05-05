@@ -74,7 +74,7 @@ type JVMHistogramAggRow struct {
 type JVMGCRow struct {
 	Timestamp time.Time `ch:"timestamp"`
 	GCName    string    `ch:"gc_name"`
-	Value     float64   `ch:"value"`
+	Value     uint64    `ch:"value"`
 }
 
 type JVMThreadRow struct {

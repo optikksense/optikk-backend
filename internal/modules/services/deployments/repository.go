@@ -54,7 +54,7 @@ const deploymentsJoinSelect = `
 		       cityHash64(service, service_version, environment)                  AS deployment_id,
 		       min(timestamp)                                                     AS first_seen,
 		       max(timestamp)                                                     AS last_seen,
-		       toInt64(sum(request_count))                                        AS span_count
+		       sum(request_count)                                                 AS span_count
 		FROM observability.spans_1m
 		WHERE %s
 		  AND service_version != ''
@@ -119,7 +119,7 @@ func (r *ClickHouseRepository) GetLatestDeploymentsByService(ctx context.Context
 			       cityHash64(service, service_version, environment)                  AS deployment_id,
 			       min(timestamp)                                                     AS first_seen,
 			       max(timestamp)                                                     AS last_seen,
-			       toInt64(sum(request_count))                                        AS span_count
+			       sum(request_count)                                                 AS span_count
 			FROM observability.spans_1m
 			WHERE team_id = @teamID
 			  AND service_version != ''
@@ -181,7 +181,7 @@ func (r *ClickHouseRepository) GetDeploysInRange(ctx context.Context, teamID int
 func (r *ClickHouseRepository) GetVersionTraffic(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) ([]VersionTrafficPoint, error) {
 	const query = `
 		WITH agg AS (
-			SELECT toDateTime(ts_bucket)                              AS timestamp,
+			SELECT ts_bucket                                          AS ts_bucket,
 			       service_version                                    AS service_version,
 			       sum(request_count) / @bucketSeconds                AS rps
 			FROM observability.spans_1m
@@ -189,14 +189,14 @@ func (r *ClickHouseRepository) GetVersionTraffic(ctx context.Context, teamID int
 			  AND service = @serviceName
 			  AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 			  AND service_version != ''
-			GROUP BY timestamp, service_version
+			GROUP BY ts_bucket, service_version
 		)
-		SELECT timestamp                  AS timestamp,
+		SELECT ts_bucket                  AS ts_bucket,
 		       service_version            AS version,
 		       rps                        AS rps
 		FROM agg
-		ORDER BY timestamp ASC, version ASC`
-	var rows []VersionTrafficPoint
+		ORDER BY ts_bucket ASC, version ASC`
+	var rows []versionTrafficRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetVersionTraffic", &rows, query,
 		clickhouse.Named("bucketSeconds", bucketSecs(startMs, endMs)),
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
@@ -204,7 +204,24 @@ func (r *ClickHouseRepository) GetVersionTraffic(ctx context.Context, teamID int
 		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)+uint32(timebucket.BucketSeconds)),
 	)
-	return rows, err
+	if err != nil {
+		return nil, err
+	}
+	out := make([]VersionTrafficPoint, len(rows))
+	for i, row := range rows {
+		out[i] = VersionTrafficPoint{
+			Timestamp: timebucket.BucketTime(row.TsBucket),
+			Version:   row.Version,
+			RPS:       row.RPS,
+		}
+	}
+	return out, nil
+}
+
+type versionTrafficRow struct {
+	TsBucket uint32  `ch:"ts_bucket"`
+	Version  string  `ch:"version"`
+	RPS      float64 `ch:"rps"`
 }
 
 func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (impactAggRow, error) {
@@ -217,8 +234,8 @@ func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64
 		       qs[1] AS p95_ms,
 		       qs[2] AS p99_ms
 		FROM (
-		    SELECT toInt64(sum(request_count))                  AS request_count,
-		           toInt64(sum(error_count))                    AS error_count,
+		    SELECT sum(request_count)                           AS request_count,
+		           sum(error_count)                             AS error_count,
 		           quantilesTimingMerge(0.95, 0.99)(latency_state) AS qs
 		    FROM observability.spans_1m
 		    WHERE team_id = @teamID
@@ -276,9 +293,9 @@ func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID 
 		       hex(status_message_hash)                                   AS group_id,
 		       name                                                       AS operation_name,
 		       any(sample_status_message)                                 AS status_message,
-		       toInt32(multiIf(http_status_bucket = '5xx', 500,
-		                       http_status_bucket = '4xx', 400,
-		                       0))                                        AS http_status_code,
+		       multiIf(http_status_bucket = '5xx', 500,
+		               http_status_bucket = '4xx', 400,
+		               0)                                                 AS http_status_code,
 		       sum(error_count)                                           AS error_count,
 		       max(timestamp)                                             AS last_occurrence,
 		       any(sample_trace_id)                                       AS sample_trace_id
@@ -314,8 +331,8 @@ func (r *ClickHouseRepository) GetEndpointMetricsWindow(ctx context.Context, tea
 		    SELECT name                                              AS operation_name,
 		           name                                              AS endpoint_name,
 		           http_method                                       AS http_method,
-		           toInt64(sum(request_count))                       AS request_count,
-		           toInt64(sum(error_count))                         AS error_count,
+		           sum(request_count)                                AS request_count,
+		           sum(error_count)                                  AS error_count,
 		           quantilesTimingMerge(0.95, 0.99)(latency_state)   AS qs
 		    FROM observability.spans_1m
 		    WHERE team_id = @teamID
@@ -350,7 +367,7 @@ func deploymentsJoinSelectWith(whereClause string) string {
 		       cityHash64(service, service_version, environment)                  AS deployment_id,
 		       min(timestamp)                                                     AS first_seen,
 		       max(timestamp)                                                     AS last_seen,
-		       toInt64(sum(request_count))                                        AS span_count
+		       sum(request_count)                                                 AS span_count
 		FROM observability.spans_1m
 		WHERE ` + whereClause + `
 		  AND service_version != ''

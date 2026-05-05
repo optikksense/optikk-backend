@@ -64,7 +64,7 @@ func (s *deploymentService) ListDeployments(ctx context.Context, teamID int64, s
 			Environment: r.Environment,
 			FirstSeen:   r.FirstSeen,
 			LastSeen:    r.LastSeen,
-			SpanCount:   r.SpanCount,
+			SpanCount:   int64(r.SpanCount), //nolint:gosec // domain-bounded
 			IsActive:    r.Version == active.Version && r.Environment == active.Environment,
 		}
 		out = append(out, d)
@@ -135,8 +135,8 @@ func windowMetrics(ctx context.Context, repo Repository, teamID int64, serviceNa
 		errRate = float64(row.ErrorCount) * 100.0 / float64(row.RequestCount)
 	}
 	return ImpactWindowMetrics{
-		RequestCount: row.RequestCount,
-		ErrorCount:   row.ErrorCount,
+		RequestCount: int64(row.RequestCount), //nolint:gosec // domain-bounded
+		ErrorCount:   int64(row.ErrorCount),   //nolint:gosec // domain-bounded
 		ErrorRate:    errRate,
 		P95Ms:        float64(row.P95Ms),
 		P99Ms:        float64(row.P99Ms),
@@ -188,15 +188,15 @@ func buildErrorRegressions(beforeRows, afterRows []errorGroupAggRow) []Deploymen
 
 	beforeMap := make(map[errorKey]errorGroupAggRow, len(beforeRows))
 	for _, row := range beforeRows {
-		beforeMap[errorKey{operation: row.OperationName, status: row.StatusMessage, code: row.HTTPStatusCode}] = row
+		beforeMap[errorKey{operation: row.OperationName, status: row.StatusMessage, code: int(row.HTTPStatusCode)}] = row
 	}
 
 	keys := make(map[errorKey]struct{}, len(beforeRows)+len(afterRows))
 	for _, row := range beforeRows {
-		keys[errorKey{operation: row.OperationName, status: row.StatusMessage, code: row.HTTPStatusCode}] = struct{}{}
+		keys[errorKey{operation: row.OperationName, status: row.StatusMessage, code: int(row.HTTPStatusCode)}] = struct{}{}
 	}
 	for _, row := range afterRows {
-		keys[errorKey{operation: row.OperationName, status: row.StatusMessage, code: row.HTTPStatusCode}] = struct{}{}
+		keys[errorKey{operation: row.OperationName, status: row.StatusMessage, code: int(row.HTTPStatusCode)}] = struct{}{}
 	}
 
 	regressions := make([]DeploymentCompareErrorRegression, 0, len(keys))
@@ -204,7 +204,7 @@ func buildErrorRegressions(beforeRows, afterRows []errorGroupAggRow) []Deploymen
 		before := beforeMap[key]
 		var after errorGroupAggRow
 		for _, row := range afterRows {
-			if row.OperationName == key.operation && row.StatusMessage == key.status && row.HTTPStatusCode == key.code {
+			if row.OperationName == key.operation && row.StatusMessage == key.status && int(row.HTTPStatusCode) == key.code {
 				after = row
 				break
 			}
@@ -294,13 +294,15 @@ func buildEndpointRegressions(beforeRows, afterRows []endpointMetricAggRow) []De
 			afterErrorRate = float64(after.ErrorCount) * 100.0 / float64(after.RequestCount)
 		}
 
+		beforeReq := int64(before.RequestCount) //nolint:gosec // domain-bounded
+		afterReq := int64(after.RequestCount)   //nolint:gosec // domain-bounded
 		regression := DeploymentCompareEndpointRegression{
 			EndpointName:    key.endpoint,
 			OperationName:   key.span,
 			HTTPMethod:      key.method,
-			BeforeRequests:  before.RequestCount,
-			AfterRequests:   after.RequestCount,
-			RequestDelta:    after.RequestCount - before.RequestCount,
+			BeforeRequests:  beforeReq,
+			AfterRequests:   afterReq,
+			RequestDelta:    afterReq - beforeReq,
 			BeforeErrorRate: beforeErrorRate,
 			AfterErrorRate:  afterErrorRate,
 			ErrorRateDelta:  afterErrorRate - beforeErrorRate,

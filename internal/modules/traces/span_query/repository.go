@@ -2,6 +2,7 @@ package span_query //nolint:revive,stylecheck
 
 import (
 	"context"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
@@ -9,7 +10,7 @@ import (
 )
 
 const spanRowColumns = `span_id, trace_id, parent_span_id, service, name, kind_string,
-		duration_nano, toUnixTimestamp64Nano(timestamp) AS timestamp_ns, has_error,
+		duration_nano, timestamp, has_error,
 		status_code_string, http_method, response_status_code, environment`
 
 type Repository interface {
@@ -30,9 +31,9 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 func (r *ClickHouseRepository) ListSpans(ctx context.Context, f filter.Filters, limit int, cur SpanCursor) ([]spanRowDTO, bool, error) {
 	resourceWhere, where, args := filter.BuildClauses(f)
 	if cur.SpanID != "" {
-		where += ` AND (toUnixTimestamp64Nano(timestamp), span_id) < (@curTs, @curSpanID)`
+		where += ` AND (timestamp, span_id) < (@curTs, @curSpanID)`
 		args = append(args,
-			clickhouse.Named("curTs", cur.TimestampNs),
+			clickhouse.Named("curTs", time.Unix(0, cur.TimestampNs)),
 			clickhouse.Named("curSpanID", cur.SpanID),
 		)
 	}

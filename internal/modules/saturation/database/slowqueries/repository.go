@@ -6,6 +6,7 @@ package slowqueries
 
 import (
 	"context"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
@@ -47,8 +48,8 @@ type slowCollRawDTO struct {
 }
 
 type slowRateRawDTO struct {
-	TimeBucket string  `ch:"time_bucket"`
-	SlowPerSec float64 `ch:"slow_per_sec"`
+	TimeBucket time.Time `ch:"time_bucket"`
+	SlowPerSec float64   `ch:"slow_per_sec"`
 }
 
 type p99ByQueryRawDTO struct {
@@ -71,7 +72,7 @@ func (r *ClickHouseRepository) GetSlowQueryPatterns(ctx context.Context, teamID,
 		    SELECT db_statement                                                                       AS query_text,
 		           attributes.'db.collection.name'::String                                            AS collection_name,
 		           quantileTimingState(duration_nano / 1000000.0)                                     AS lat_state,
-		           toUInt64(count())                                                                  AS call_count,
+		           count()                                                                            AS call_count,
 		           countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                  AS error_count
 		    FROM observability.spans
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
@@ -124,7 +125,7 @@ func (r *ClickHouseRepository) GetSlowestCollections(ctx context.Context, teamID
 		       if(sum(request_count) > 0,
 		          sum(error_count) * 100.0 / sum(request_count),
 		          0.0)                                           AS error_rate_pct,
-		       if(sum(request_count) > 0, toUInt8(1), toUInt8(0)) AS has_calls
+		       (sum(request_count) > 0)                          AS has_calls
 		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
@@ -150,7 +151,7 @@ func (r *ClickHouseRepository) GetSlowQueryRate(ctx context.Context, teamID, sta
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(` + timebucket.DisplayGrainSQL(endMs-startMs) + `)            AS time_bucket,
+		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `                      AS time_bucket,
 		       countIf(duration_nano / 1000000.0 > @thresholdMs) / @bucketGrainSec    AS slow_per_sec
 		FROM observability.spans
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps

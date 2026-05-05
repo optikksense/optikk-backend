@@ -1,8 +1,7 @@
-// Trace detail (core): bundle, spans list, span tree, span attributes.
-// Discovers a trace+span via the explorer, then fans out across the four
+// Trace detail (core): spans list, span tree, span attributes.
+// Discovers a trace+span via the explorer, then fans out across the three
 // detail sub-routes that anchor the trace UI.
 // Endpoints:
-//   GET /api/v1/traces/:traceId/bundle
 //   GET /api/v1/traces/:traceId/spans
 //   GET /api/v1/spans/:spanId/tree
 //   GET /api/v1/traces/:traceId/spans/:spanId/attributes
@@ -18,8 +17,6 @@ export function traceDetailCore(ctx) {
   const { traceId, spanId } = pickTraceAndSpan(client, MOD);
   if (!traceId) return;
 
-  client.get(`/api/v1/traces/${traceId}/bundle`, null,
-    { module: MOD, endpoint: 'GET /traces/:traceId/bundle' });
   client.get(`/api/v1/traces/${traceId}/spans`, null,
     { module: MOD, endpoint: 'GET /traces/:traceId/spans' });
 

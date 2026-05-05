@@ -9,7 +9,7 @@ type deploymentAggRow struct {
 	Environment  string    `ch:"environment"`
 	FirstSeen    time.Time `ch:"first_seen"`
 	LastSeen     time.Time `ch:"last_seen"`
-	SpanCount    int64     `ch:"span_count"`
+	SpanCount    uint64    `ch:"span_count"`
 	CommitSHA    string    `ch:"commit_sha"`
 	CommitAuthor string    `ch:"commit_author"`
 	RepoURL      string    `ch:"repo_url"`
@@ -24,8 +24,8 @@ type activeVersionRow struct {
 
 // impactAggRow is scanned from GetImpactWindow.
 type impactAggRow struct {
-	RequestCount int64  `ch:"request_count"`
-	ErrorCount   int64  `ch:"error_count"`
+	RequestCount uint64 `ch:"request_count"`
+	ErrorCount   uint64 `ch:"error_count"`
 	P95Ms        uint16 `ch:"p95_ms"`
 	P99Ms        uint16 `ch:"p99_ms"`
 }
@@ -35,7 +35,7 @@ type errorGroupAggRow struct {
 	GroupID        string    `ch:"group_id"`
 	OperationName  string    `ch:"operation_name"`
 	StatusMessage  string    `ch:"status_message"`
-	HTTPStatusCode int       `ch:"http_status_code"`
+	HTTPStatusCode uint16    `ch:"http_status_code"`
 	ErrorCount     uint64    `ch:"error_count"`
 	LastOccurrence time.Time `ch:"last_occurrence"`
 	SampleTraceID  string    `ch:"sample_trace_id"`
@@ -45,8 +45,8 @@ type endpointMetricAggRow struct {
 	OperationName string `ch:"operation_name"`
 	EndpointName  string `ch:"endpoint_name"`
 	HTTPMethod    string `ch:"http_method"`
-	RequestCount  int64  `ch:"request_count"`
-	ErrorCount    int64  `ch:"error_count"`
+	RequestCount  uint64 `ch:"request_count"`
+	ErrorCount    uint64 `ch:"error_count"`
 	P95Ms         uint16 `ch:"p95_ms"`
 	P99Ms         uint16 `ch:"p99_ms"`
 }

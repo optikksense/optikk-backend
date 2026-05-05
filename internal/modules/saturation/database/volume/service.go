@@ -3,6 +3,7 @@ package volume
 import (
 	"context"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
@@ -44,7 +45,7 @@ func (s *Service) GetReadVsWrite(ctx context.Context, teamID, startMs, endMs int
 	for i, r := range rows {
 		read := r.ReadOpsPerSec
 		write := r.WriteOpsPerSec
-		out[i] = ReadWritePoint{TimeBucket: r.TimeBucket, ReadOpsPerSec: &read, WriteOpsPerSec: &write}
+		out[i] = ReadWritePoint{TimeBucket: timebucket.FormatDisplayBucket(r.TimeBucket), ReadOpsPerSec: &read, WriteOpsPerSec: &write}
 	}
 	return out, nil
 }
@@ -58,7 +59,7 @@ func mapOpsRate(rows []opsRawDTO) []OpsTimeSeries {
 	out := make([]OpsTimeSeries, len(rows))
 	for i, r := range rows {
 		rate := r.OpsPerSec
-		out[i] = OpsTimeSeries{TimeBucket: r.TimeBucket, GroupBy: r.GroupBy, OpsPerSec: &rate}
+		out[i] = OpsTimeSeries{TimeBucket: timebucket.FormatDisplayBucket(r.TimeBucket), GroupBy: r.GroupBy, OpsPerSec: &rate}
 	}
 	return out
 }

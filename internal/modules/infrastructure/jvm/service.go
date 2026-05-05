@@ -100,7 +100,7 @@ func (s *Service) GetJVMGCCollections(ctx context.Context, teamID int64, startMs
 	windowMs := endMs - startMs
 	for _, r := range rows {
 		k := key{ts: timebucket.DisplayBucket(r.Timestamp.Unix(), windowMs), collector: r.GCName}
-		sums[k] += r.Value
+		sums[k] += float64(r.Value)
 	}
 	out := make([]JVMGCCollectionBucket, 0, len(sums))
 	for k, sum := range sums {

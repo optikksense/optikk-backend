@@ -6,24 +6,22 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/filter"
 )
 
-// QueryRequest is the wire payload for POST /api/v1/traces/query. Filters
-// are embedded directly (no separate compile pass).
+// QueryRequest is the wire payload for POST /api/v1/traces/query (list-only).
+// Facets and trend live at peer endpoints POST /traces/facets and
+// POST /traces/trend.
 type QueryRequest struct {
-	StartTime int64    `json:"startTime"`
-	EndTime   int64    `json:"endTime"`
-	Include   []string `json:"include"`
-	Limit     int      `json:"limit"`
-	Cursor    string   `json:"cursor"`
+	StartTime int64  `json:"startTime"`
+	EndTime   int64  `json:"endTime"`
+	Limit     int    `json:"limit"`
+	Cursor    string `json:"cursor"`
 
 	filter.Filters
 }
 
 // QueryResponse is the wire response for POST /api/v1/traces/query.
 type QueryResponse struct {
-	Results  []Trace       `json:"results"`
-	Facets   *Facets       `json:"facets,omitempty"`
-	Trend    []TrendBucket `json:"trend,omitempty"`
-	PageInfo PageInfo      `json:"pageInfo"`
+	Results  []Trace  `json:"results"`
+	PageInfo PageInfo `json:"pageInfo"`
 }
 
 // traceIndexRowDTO scans rows from observability.spans (root spans).
@@ -47,14 +45,3 @@ type traceIndexRowDTO struct {
 	LastSeen       time.Time `ch:"last_seen"`
 }
 
-type trendRowDTO struct {
-	TimeBucket string `ch:"time_bucket"`
-	Status     string `ch:"status"`
-	Count      uint64 `ch:"count"`
-}
-
-type facetRowDTO struct {
-	Dim   string `ch:"dim"`
-	Value string `ch:"value"`
-	Count uint64 `ch:"count"`
-}

@@ -35,7 +35,7 @@ func (r *Repository) QueryConsumerMetricSamples(ctx context.Context, teamID int6
 		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
 		    attributes.'node-id'::String                             AS node_id,
 		    metric_name                                              AS metric_name,
-		    toFloat64(argMax(value, timestamp))                      AS value,
+		    argMax(value, timestamp)                                 AS value,
 		    formatDateTime(max(timestamp), '%Y-%m-%d %H:%M:%S')      AS timestamp
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
@@ -67,7 +67,7 @@ func (r *Repository) QueryTopicMetricSamples(ctx context.Context, teamID int64, 
 		    attributes.'messaging.destination.name'::String          AS topic,
 		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
 		    metric_name                                              AS metric_name,
-		    toFloat64(argMax(value, timestamp))                      AS value,
+		    argMax(value, timestamp)                                 AS value,
 		    formatDateTime(max(timestamp), '%Y-%m-%d %H:%M:%S')      AS timestamp
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID

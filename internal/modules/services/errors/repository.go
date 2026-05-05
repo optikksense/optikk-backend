@@ -506,7 +506,7 @@ func (r *ClickHouseRepository) HTTP5xxByRouteRowsByService(ctx context.Context, 
 
 func (r *ClickHouseRepository) FingerprintRowsAll(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]rawErrorFingerprintRow, error) {
 	const query = `
-		SELECT toString(status_message_hash)        AS fingerprint,
+		SELECT status_message_hash                  AS status_message_hash,
 		       service                              AS service,
 		       name                                 AS operation_name,
 		       exception_type                       AS exception_type,
@@ -541,7 +541,7 @@ func (r *ClickHouseRepository) FingerprintRowsByService(ctx context.Context, tea
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND service = @serviceName
 		)
-		SELECT toString(status_message_hash)        AS fingerprint,
+		SELECT status_message_hash                  AS status_message_hash,
 		       service                              AS service,
 		       name                                 AS operation_name,
 		       exception_type                       AS exception_type,

@@ -51,9 +51,9 @@ type ContainerRow struct {
 }
 
 type PodRestartRow struct {
-	Pod       string `ch:"pod"`
-	Namespace string `ch:"namespace"`
-	Restarts  int64  `ch:"restarts"`
+	Pod       string  `ch:"pod"`
+	Namespace string  `ch:"namespace"`
+	Restarts  float64 `ch:"restarts"`
 }
 
 type K8sMetricNameRow struct {
@@ -63,7 +63,7 @@ type K8sMetricNameRow struct {
 
 type PhaseRow struct {
 	Phase string `ch:"phase"`
-	Count int64  `ch:"pod_count"`
+	Count uint64 `ch:"pod_count"`
 }
 
 type ReplicaSetRow struct {

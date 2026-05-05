@@ -3,6 +3,7 @@ package system
 import (
 	"context"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
@@ -26,7 +27,7 @@ func (s *Service) GetSystemLatency(ctx context.Context, teamID, startMs, endMs i
 	for i, r := range rows {
 		p50, p95, p99 := r.P50Ms, r.P95Ms, r.P99Ms
 		out[i] = LatencyTimeSeries{
-			TimeBucket: r.TimeBucket,
+			TimeBucket: timebucket.BucketDateTimeString(r.TsBucket),
 			GroupBy:    r.GroupBy,
 			P50Ms:      &p50,
 			P95Ms:      &p95,
@@ -44,7 +45,7 @@ func (s *Service) GetSystemOps(ctx context.Context, teamID, startMs, endMs int64
 	out := make([]OpsTimeSeries, len(rows))
 	for i, r := range rows {
 		rate := r.OpsPerSec
-		out[i] = OpsTimeSeries{TimeBucket: r.TimeBucket, GroupBy: r.GroupBy, OpsPerSec: &rate}
+		out[i] = OpsTimeSeries{TimeBucket: timebucket.FormatDisplayBucket(r.TimeBucket), GroupBy: r.GroupBy, OpsPerSec: &rate}
 	}
 	return out, nil
 }
@@ -57,7 +58,7 @@ func (s *Service) GetSystemErrors(ctx context.Context, teamID, startMs, endMs in
 	out := make([]ErrorTimeSeries, len(rows))
 	for i, r := range rows {
 		rate := r.OpsPerSec
-		out[i] = ErrorTimeSeries{TimeBucket: r.TimeBucket, GroupBy: r.GroupBy, ErrorsPerSec: &rate}
+		out[i] = ErrorTimeSeries{TimeBucket: timebucket.FormatDisplayBucket(r.TimeBucket), GroupBy: r.GroupBy, ErrorsPerSec: &rate}
 	}
 	return out, nil
 }

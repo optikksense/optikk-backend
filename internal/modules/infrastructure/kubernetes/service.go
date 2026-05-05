@@ -57,7 +57,7 @@ func (s *Service) GetPodRestarts(ctx context.Context, teamID int64, startMs, end
 	}
 	out := make([]PodStat, len(rows))
 	for i, r := range rows {
-		out[i] = PodStat{PodName: r.Pod, Namespace: r.Namespace, Restarts: r.Restarts}
+		out[i] = PodStat{PodName: r.Pod, Namespace: r.Namespace, Restarts: int64(r.Restarts)}
 	}
 	return out, nil
 }
@@ -89,7 +89,7 @@ func (s *Service) GetPodPhases(ctx context.Context, teamID int64, startMs, endMs
 	}
 	out := make([]PhaseStat, len(rows))
 	for i, r := range rows {
-		out[i] = PhaseStat{Phase: r.Phase, Count: r.Count}
+		out[i] = PhaseStat{Phase: r.Phase, Count: int64(r.Count)} //nolint:gosec // domain-bounded
 	}
 	return out, nil
 }

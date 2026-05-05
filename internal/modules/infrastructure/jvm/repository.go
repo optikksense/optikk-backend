@@ -108,7 +108,7 @@ func (r *ClickHouseRepository) QueryJVMGCCollectionsByName(ctx context.Context, 
 		SELECT
 		    timestamp                                                AS timestamp,
 		    attributes.'jvm.gc.name'::String                         AS gc_name,
-		    toFloat64(hist_count)                                    AS value
+		    hist_count                                               AS value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd

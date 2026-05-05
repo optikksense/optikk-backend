@@ -129,7 +129,7 @@ func BuildClauses(f Filters) (resourceWhere, where string, args []any) {
 		args = append(args, clickhouse.Named("httpMethods", f.HTTPMethods))
 	}
 	if len(f.HTTPStatuses) > 0 {
-		where += ` AND toString(response_status_code) IN @httpStatuses`
+		where += ` AND response_status_code IN @httpStatuses`
 		args = append(args, clickhouse.Named("httpStatuses", f.HTTPStatuses))
 	}
 	if len(f.Statuses) > 0 {

@@ -96,5 +96,5 @@ type OperationErrorCounterRow struct {
 	Timestamp     time.Time `ch:"timestamp"`
 	OperationName string    `ch:"operation_name"`
 	ErrorType     string    `ch:"error_type"`
-	Value         float64   `ch:"value"`
+	Value         uint64    `ch:"value"`
 }

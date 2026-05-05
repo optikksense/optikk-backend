@@ -3,7 +3,6 @@ package log_trends //nolint:revive,stylecheck
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/filter"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/logs/shared/models"
@@ -24,8 +23,8 @@ func (s *Service) Summary(ctx context.Context, f filter.Filters) (models.Summary
 	return models.Summary{Total: row.Total, Errors: row.Errors, Warns: row.Warns}, nil
 }
 
-// Trend powers POST /api/v1/logs/trend. Buckets are returned at display grain
-// (timebucket.DisplayGrain), grouped server-side via toStartOfInterval.
+// Trend powers POST /api/v1/logs/trend. Buckets are returned at display grain,
+// grouped server-side via timebucket.DisplayGrainSQL.
 func (s *Service) Trend(ctx context.Context, f filter.Filters) ([]models.TrendBucket, error) {
 	rows, err := s.repo.Trend(ctx, f)
 	if err != nil {
@@ -35,13 +34,13 @@ func (s *Service) Trend(ctx context.Context, f filter.Filters) ([]models.TrendBu
 }
 
 // mapTrend is a 1:1 shape mapper — repo rows are already grouped per
-// (ts_bucket, severity_bucket) and ordered ASC. ts_bucket is UInt32
-// Unix-seconds; format Go-side instead of paying for SQL date functions.
+// (time_bucket, severity_bucket) and ordered ASC. time_bucket scans natively
+// as DateTime; format Go-side to match the wire contract.
 func mapTrend(rows []TrendRow) []models.TrendBucket {
 	out := make([]models.TrendBucket, len(rows))
 	for i, r := range rows {
 		out[i] = models.TrendBucket{
-			TimeBucket: time.Unix(int64(r.TsBucket), 0).UTC().Format("2006-01-02 15:04:05"),
+			TimeBucket: r.TimeBucket.UTC().Format("2006-01-02 15:04:05"),
 			Severity:   r.SeverityBucket,
 			Count:      r.Count,
 		}

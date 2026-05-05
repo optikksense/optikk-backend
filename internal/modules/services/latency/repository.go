@@ -68,14 +68,14 @@ func (r *Repository) Heatmap(ctx context.Context, teamID int64, req HeatmapReque
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd` + resourceWhere + `
 		)
-		SELECT toString(ts_bucket)                                                            AS time_bucket,
-		       toFloat64(floor(duration_nano / 1000000.0 / @bucketWidthMs) * @bucketWidthMs)  AS bucket_ms,
+		SELECT ts_bucket                                                                      AS ts_bucket,
+		       floor(duration_nano / 1000000.0 / @bucketWidthMs) * @bucketWidthMs             AS bucket_ms,
 		       count()                                                                        AS count
 		FROM observability.spans
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
-		GROUP BY time_bucket, bucket_ms
-		ORDER BY time_bucket ASC, bucket_ms ASC
+		GROUP BY ts_bucket, bucket_ms
+		ORDER BY ts_bucket ASC, bucket_ms ASC
 		LIMIT 5000`
 	var rows []heatmapRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "latency.Heatmap", &rows, query, args...)

@@ -60,8 +60,8 @@ type NodeServiceAggregateRow struct {
 }
 
 type NodeSummaryRow struct {
-	HealthyNodes   int64  `ch:"healthy_nodes"`
-	DegradedNodes  int64  `ch:"degraded_nodes"`
-	UnhealthyNodes int64  `ch:"unhealthy_nodes"`
-	TotalPods      *int64 `ch:"total_pods"`
+	HealthyNodes   uint64  `ch:"healthy_nodes"`
+	DegradedNodes  uint64  `ch:"degraded_nodes"`
+	UnhealthyNodes uint64  `ch:"unhealthy_nodes"`
+	TotalPods      *uint64 `ch:"total_pods"`
 }

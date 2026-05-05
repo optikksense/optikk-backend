@@ -42,13 +42,15 @@ import (
 	services_redmetrics "github.com/Optikk-Org/optikk-backend/internal/modules/services/redmetrics"
 	services_slo "github.com/Optikk-Org/optikk-backend/internal/modules/services/slo"
 	services_topology "github.com/Optikk-Org/optikk-backend/internal/modules/services/topology"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/detail"
 	spans_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
-	span_query "github.com/Optikk-Org/optikk-backend/internal/modules/traces/span_query"
-	trace_paths "github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_paths"
-	trace_servicemap "github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_servicemap"
-	trace_shape "github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_shape"
-	trace_suggest "github.com/Optikk-Org/optikk-backend/internal/modules/traces/trace_suggest"
-	spans_tracedetail "github.com/Optikk-Org/optikk-backend/internal/modules/traces/tracedetail"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/facets"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/paths"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/servicemap"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/shape"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/span_query"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/suggest"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/trend"
 	user_auth "github.com/Optikk-Org/optikk-backend/internal/modules/user/auth"
 	user_team "github.com/Optikk-Org/optikk-backend/internal/modules/user/team"
 	user_user "github.com/Optikk-Org/optikk-backend/internal/modules/user/user"
@@ -104,12 +106,14 @@ func configuredModules(
 		saturation_kafka_explorer.NewModule(nativeQuerier, getTenant),
 		services_topology.NewModule(nativeQuerier, getTenant),
 		spans_explorer.NewModule(nativeQuerier, getTenant),
-		spans_tracedetail.NewModule(nativeQuerier, getTenant),
+		detail.NewModule(nativeQuerier, getTenant),
 		span_query.NewModule(nativeQuerier, getTenant),
-		trace_paths.NewModule(nativeQuerier, getTenant),
-		trace_servicemap.NewModule(nativeQuerier, getTenant),
-		trace_shape.NewModule(nativeQuerier, getTenant),
-		trace_suggest.NewModule(nativeQuerier, getTenant),
+		facets.NewModule(nativeQuerier, getTenant),
+		paths.NewModule(nativeQuerier, getTenant),
+		servicemap.NewModule(nativeQuerier, getTenant),
+		shape.NewModule(nativeQuerier, getTenant),
+		suggest.NewModule(nativeQuerier, getTenant),
+		trend.NewModule(nativeQuerier, getTenant),
 		services_latency.NewModule(nativeQuerier, getTenant),
 		user_auth.NewModule(infraDeps.DB, getTenant, infraDeps.SessionManager, appConfig),
 		user_team.NewModule(infraDeps.DB, getTenant, appConfig),

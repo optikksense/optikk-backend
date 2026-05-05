@@ -52,12 +52,12 @@ func (s *NodeService) GetInfrastructureNodeSummary(ctx context.Context, teamID i
 	}
 	var totalPods int64
 	if row.TotalPods != nil {
-		totalPods = *row.TotalPods
+		totalPods = int64(*row.TotalPods) //nolint:gosec // domain-bounded
 	}
 	return InfrastructureNodeSummary{
-		HealthyNodes:   row.HealthyNodes,
-		DegradedNodes:  row.DegradedNodes,
-		UnhealthyNodes: row.UnhealthyNodes,
+		HealthyNodes:   int64(row.HealthyNodes),   //nolint:gosec // domain-bounded
+		DegradedNodes:  int64(row.DegradedNodes),  //nolint:gosec // domain-bounded
+		UnhealthyNodes: int64(row.UnhealthyNodes), //nolint:gosec // domain-bounded
 		TotalPods:      totalPods,
 	}, nil
 }

@@ -179,7 +179,7 @@ func (s *Service) GetClientOpErrors(ctx context.Context, teamID int64, startMs, 
 		func(r OperationErrorCounterRow) time.Time { return r.Timestamp },
 		func(r OperationErrorCounterRow) string { return r.OperationName },
 		func(r OperationErrorCounterRow) string { return r.ErrorType },
-		func(r OperationErrorCounterRow) float64 { return r.Value },
+		func(r OperationErrorCounterRow) float64 { return float64(r.Value) },
 		startMs, endMs)
 	out := make([]ErrorRatePoint, len(folds))
 	for i, fld := range folds {

@@ -254,7 +254,7 @@ func (r *Repository) QueryPartitionLagSnapshot(ctx context.Context, teamID int64
 		    attributes.'messaging.destination.name'::String          AS topic,
 		    attributes.'messaging.kafka.destination.partition'::String AS partition,
 		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
-		    toFloat64(argMax(value, timestamp))                      AS lag,
+		    argMax(value, timestamp)                                 AS lag,
 		    max(timestamp)                                           AS timestamp
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID

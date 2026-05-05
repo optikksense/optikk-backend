@@ -237,3 +237,4 @@ func ExtractIDParam(c *gin.Context, key string) (int64, error) {
 	}
 	return id, nil
 }
+
