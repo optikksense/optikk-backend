@@ -32,16 +32,16 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 type patternRawDTO struct {
 	QueryText      string  `ch:"query_text"`
 	CollectionName string  `ch:"collection_name"`
-	P50Ms          float64 `ch:"p50_ms"`
-	P95Ms          float64 `ch:"p95_ms"`
-	P99Ms          float64 `ch:"p99_ms"`
+	P50Ms          float32 `ch:"p50_ms"`
+	P95Ms          float32 `ch:"p95_ms"`
+	P99Ms          float32 `ch:"p99_ms"`
 	CallCount      uint64  `ch:"call_count"`
 	ErrorCount     uint64  `ch:"error_count"`
 }
 
 type slowCollRawDTO struct {
 	CollectionName string  `ch:"collection_name"`
-	P99Ms          float64 `ch:"p99_ms"`
+	P99Ms          float32 `ch:"p99_ms"`
 	OpsPerSec      float64 `ch:"ops_per_sec"`
 	ErrorRatePct   float64 `ch:"error_rate_pct"`
 	HasCalls       uint8   `ch:"has_calls"`
@@ -54,7 +54,7 @@ type slowRateRawDTO struct {
 
 type p99ByQueryRawDTO struct {
 	QueryText string  `ch:"query_text"`
-	P99Ms     float64 `ch:"p99_ms"`
+	P99Ms     float32 `ch:"p99_ms"`
 }
 
 func (r *ClickHouseRepository) GetSlowQueryPatterns(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, limit int) ([]patternRawDTO, error) {

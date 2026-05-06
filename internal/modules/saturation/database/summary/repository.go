@@ -26,8 +26,8 @@ type mainRawRow struct {
 	TotalCount uint64  `ch:"total_count"`
 	ErrorCount uint64  `ch:"error_count"`
 	AvgMs      float64 `ch:"avg_ms"`
-	P95Ms      float64 `ch:"p95_ms"`
-	P99Ms      float64 `ch:"p99_ms"`
+	P95Ms      float32 `ch:"p95_ms"`
+	P99Ms      float32 `ch:"p99_ms"`
 }
 
 type cacheRawRow struct {

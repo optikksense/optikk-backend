@@ -37,7 +37,7 @@ type systemSummaryRawDTO struct {
 	QueryCount    uint64    `ch:"query_count"`
 	ErrorCount    uint64    `ch:"error_count"`
 	AvgLatencyMs  float64   `ch:"avg_latency_ms"`
-	P95Ms         float64   `ch:"p95_ms"`
+	P95Ms         float32   `ch:"p95_ms"`
 	ServerAddress string    `ch:"server_address"`
 	LastSeen      time.Time `ch:"last_seen"`
 }

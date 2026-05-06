@@ -131,7 +131,7 @@ func (r *Repository) QueryE2ELatencyByTopic(ctx context.Context, teamID int64, s
 		SELECT timestamp,
 		       topic,
 		       metric_name,
-		       quantilePrometheusHistogramMerge(0.95)(latency_state) AS p95
+		       quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state)[2] AS p95
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd

@@ -32,9 +32,9 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 type latencyRawDTO struct {
 	TsBucket uint32  `ch:"ts_bucket"`
 	GroupBy  string  `ch:"group_by"`
-	P50Ms    float64 `ch:"p50_ms"`
-	P95Ms    float64 `ch:"p95_ms"`
-	P99Ms    float64 `ch:"p99_ms"`
+	P50Ms    float32 `ch:"p50_ms"`
+	P95Ms    float32 `ch:"p95_ms"`
+	P99Ms    float32 `ch:"p99_ms"`
 }
 
 type latencyHeatmapRawDTO struct {

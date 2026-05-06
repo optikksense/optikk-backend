@@ -78,9 +78,9 @@ func buildNodes(rows []nodeAggRow) []ServiceNode {
 			RequestCount: int64(r.RequestCount), //nolint:gosec // domain-bounded
 			ErrorCount:   int64(r.ErrorCount),   //nolint:gosec // domain-bounded
 			ErrorRate:    errRate,
-			P50LatencyMs: r.P50Ms,
-			P95LatencyMs: r.P95Ms,
-			P99LatencyMs: r.P99Ms,
+			P50LatencyMs: float64(r.P50Ms),
+			P95LatencyMs: float64(r.P95Ms),
+			P99LatencyMs: float64(r.P99Ms),
 			Health:       classifyHealth(errRate),
 		})
 	}
@@ -100,8 +100,8 @@ func buildEdges(rows []edgeAggRow) []ServiceEdge {
 			CallCount:    int64(r.CallCount),  //nolint:gosec // domain-bounded
 			ErrorCount:   int64(r.ErrorCount), //nolint:gosec // domain-bounded
 			ErrorRate:    errRate,
-			P50LatencyMs: r.P50Ms,
-			P95LatencyMs: r.P95Ms,
+			P50LatencyMs: float64(r.P50Ms),
+			P95LatencyMs: float64(r.P95Ms),
 		})
 	}
 	return out

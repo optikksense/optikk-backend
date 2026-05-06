@@ -133,7 +133,7 @@ func (r *ClickHouseRepository) QueryProcessCPUStateSeries(ctx context.Context, t
 		SELECT
 		    ` + timebucket.DisplayGrainSQL(endMs-startMs) + ` AS timestamp,
 		    attributes.` + "`process.cpu.state`" + `::String AS state,
-		    avg(value)                                       AS value
+		    sum(val_sum) / sum(val_count)                    AS value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd

@@ -88,16 +88,20 @@ func (s *Service) GetUptime(ctx context.Context, teamID int64, startMs, endMs in
 	return foldGaugeSeries(rows, startMs, endMs), nil
 }
 
+// OTel RPC / messaging duration histograms are seconds-domain; the wire
+// model is ms.
+const sToMs = 1000.0
+
 func histogramSummary(row HistogramAggRow) HistogramSummary {
 	avg := 0.0
 	if row.SumHistCount > 0 {
-		avg = row.SumHistSum / float64(row.SumHistCount)
+		avg = row.SumHistSum / float64(row.SumHistCount) * sToMs
 	}
 	return HistogramSummary{
 		Avg: avg,
-		P50: row.P50,
-		P95: row.P95,
-		P99: row.P99,
+		P50: row.P50 * sToMs,
+		P95: row.P95 * sToMs,
+		P99: row.P99 * sToMs,
 	}
 }
 

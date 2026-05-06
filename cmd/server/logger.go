@@ -7,7 +7,7 @@ import (
 
 func initLogger() {
 	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: slog.LevelError,
+		Level: slog.LevelInfo,
 	})
 	slog.SetDefault(slog.New(handler))
 }

@@ -22,7 +22,7 @@ func (s *Service) GetCollectionLatency(ctx context.Context, teamID, startMs, end
 	}
 	out := make([]LatencyTimeSeries, len(rows))
 	for i, r := range rows {
-		p50, p95, p99 := r.P50Ms, r.P95Ms, r.P99Ms
+		p50, p95, p99 := float64(r.P50Ms), float64(r.P95Ms), float64(r.P99Ms)
 		out[i] = LatencyTimeSeries{TimeBucket: timebucket.BucketDateTimeString(r.TsBucket), GroupBy: r.GroupBy, P50Ms: &p50, P95Ms: &p95, P99Ms: &p99}
 	}
 	return out, nil
@@ -61,7 +61,7 @@ func (s *Service) GetCollectionQueryTexts(ctx context.Context, teamID, startMs, 
 	}
 	out := make([]CollectionTopQuery, len(rows))
 	for i, r := range rows {
-		p99 := r.P99Ms
+		p99 := float64(r.P99Ms)
 		out[i] = CollectionTopQuery{
 			QueryText:  r.QueryText,
 			P99Ms:      &p99,

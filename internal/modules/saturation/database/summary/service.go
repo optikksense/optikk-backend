@@ -54,8 +54,8 @@ func (s *Service) GetSummaryStats(ctx context.Context, teamID, startMs, endMs in
 	out := SummaryStats{ActiveConnections: conns}
 	if mainOK {
 		avg := main.AvgMs
-		p95 := main.P95Ms
-		p99 := main.P99Ms
+		p95 := float64(main.P95Ms)
+		p99 := float64(main.P99Ms)
 		out.AvgLatencyMs = &avg
 		out.P95LatencyMs = &p95
 		out.P99LatencyMs = &p99

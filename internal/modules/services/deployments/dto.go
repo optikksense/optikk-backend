@@ -24,10 +24,10 @@ type activeVersionRow struct {
 
 // impactAggRow is scanned from GetImpactWindow.
 type impactAggRow struct {
-	RequestCount uint64 `ch:"request_count"`
-	ErrorCount   uint64 `ch:"error_count"`
-	P95Ms        uint16 `ch:"p95_ms"`
-	P99Ms        uint16 `ch:"p99_ms"`
+	RequestCount uint64  `ch:"request_count"`
+	ErrorCount   uint64  `ch:"error_count"`
+	P95Ms        float32 `ch:"p95_ms"`
+	P99Ms        float32 `ch:"p99_ms"`
 }
 
 type errorGroupAggRow struct {
@@ -45,8 +45,8 @@ type endpointMetricAggRow struct {
 	OperationName string `ch:"operation_name"`
 	EndpointName  string `ch:"endpoint_name"`
 	HTTPMethod    string `ch:"http_method"`
-	RequestCount  uint64 `ch:"request_count"`
-	ErrorCount    uint64 `ch:"error_count"`
-	P95Ms         uint16 `ch:"p95_ms"`
-	P99Ms         uint16 `ch:"p99_ms"`
+	RequestCount  uint64  `ch:"request_count"`
+	ErrorCount    uint64  `ch:"error_count"`
+	P95Ms         float32 `ch:"p95_ms"`
+	P99Ms         float32 `ch:"p99_ms"`
 }

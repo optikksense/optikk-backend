@@ -22,7 +22,7 @@ func (s *Service) GetSlowQueryPatterns(ctx context.Context, teamID, startMs, end
 	}
 	out := make([]SlowQueryPattern, len(rows))
 	for i, r := range rows {
-		p50, p95, p99 := r.P50Ms, r.P95Ms, r.P99Ms
+		p50, p95, p99 := float64(r.P50Ms), float64(r.P95Ms), float64(r.P99Ms)
 		out[i] = SlowQueryPattern{
 			QueryText:      r.QueryText,
 			CollectionName: r.CollectionName,
@@ -43,7 +43,7 @@ func (s *Service) GetSlowestCollections(ctx context.Context, teamID, startMs, en
 	}
 	out := make([]SlowCollectionRow, len(rows))
 	for i, r := range rows {
-		p99 := r.P99Ms
+		p99 := float64(r.P99Ms)
 		ops := r.OpsPerSec
 		var errRate *float64
 		if r.HasCalls != 0 {
@@ -80,7 +80,7 @@ func (s *Service) GetP99ByQueryText(ctx context.Context, teamID, startMs, endMs 
 	}
 	out := make([]P99ByQueryText, len(rows))
 	for i, r := range rows {
-		p99 := r.P99Ms
+		p99 := float64(r.P99Ms)
 		out[i] = P99ByQueryText{QueryText: r.QueryText, P99Ms: &p99}
 	}
 	return out, nil

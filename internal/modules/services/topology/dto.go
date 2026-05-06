@@ -7,9 +7,9 @@ type nodeAggRow struct {
 	ServiceName  string  `ch:"service"`
 	RequestCount uint64  `ch:"request_count"`
 	ErrorCount   uint64  `ch:"error_count"`
-	P50Ms        float64 `ch:"p50_ms"`
-	P95Ms        float64 `ch:"p95_ms"`
-	P99Ms        float64 `ch:"p99_ms"`
+	P50Ms        float32 `ch:"p50_ms"`
+	P95Ms        float32 `ch:"p95_ms"`
+	P99Ms        float32 `ch:"p99_ms"`
 }
 
 // edgeAggRow is scanned from the per-(service → peer_service) edge
@@ -19,6 +19,6 @@ type edgeAggRow struct {
 	Target     string  `ch:"target"`
 	CallCount  uint64  `ch:"call_count"`
 	ErrorCount uint64  `ch:"error_count"`
-	P50Ms      float64 `ch:"p50_ms"`
-	P95Ms      float64 `ch:"p95_ms"`
+	P50Ms      float32 `ch:"p50_ms"`
+	P95Ms      float32 `ch:"p95_ms"`
 }

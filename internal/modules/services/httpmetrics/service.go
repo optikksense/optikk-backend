@@ -61,7 +61,7 @@ func (s *HTTPMetricsService) GetRequestDuration(ctx context.Context, teamID int6
 	if err != nil {
 		return HistogramSummary{}, err
 	}
-	return histogramSummary(row), nil
+	return histogramSummary(row, sToMs), nil
 }
 
 func (s *HTTPMetricsService) GetActiveRequests(ctx context.Context, teamID int64, startMs, endMs int64) ([]TimeBucket, error) {
@@ -82,7 +82,7 @@ func (s *HTTPMetricsService) GetRequestBodySize(ctx context.Context, teamID int6
 	if err != nil {
 		return HistogramSummary{}, err
 	}
-	return histogramSummary(row), nil
+	return histogramSummary(row, 1.0), nil
 }
 
 func (s *HTTPMetricsService) GetResponseBodySize(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
@@ -90,7 +90,7 @@ func (s *HTTPMetricsService) GetResponseBodySize(ctx context.Context, teamID int
 	if err != nil {
 		return HistogramSummary{}, err
 	}
-	return histogramSummary(row), nil
+	return histogramSummary(row, 1.0), nil
 }
 
 func (s *HTTPMetricsService) GetClientDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
@@ -98,7 +98,7 @@ func (s *HTTPMetricsService) GetClientDuration(ctx context.Context, teamID int64
 	if err != nil {
 		return HistogramSummary{}, err
 	}
-	return histogramSummary(row), nil
+	return histogramSummary(row, sToMs), nil
 }
 
 func (s *HTTPMetricsService) GetDNSDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
@@ -106,7 +106,7 @@ func (s *HTTPMetricsService) GetDNSDuration(ctx context.Context, teamID int64, s
 	if err != nil {
 		return HistogramSummary{}, err
 	}
-	return histogramSummary(row), nil
+	return histogramSummary(row, sToMs), nil
 }
 
 func (s *HTTPMetricsService) GetTLSDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
@@ -114,7 +114,7 @@ func (s *HTTPMetricsService) GetTLSDuration(ctx context.Context, teamID int64, s
 	if err != nil {
 		return HistogramSummary{}, err
 	}
-	return histogramSummary(row), nil
+	return histogramSummary(row, sToMs), nil
 }
 
 func (s *HTTPMetricsService) GetTopRoutesByVolume(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
@@ -280,16 +280,20 @@ func (s *HTTPMetricsService) GetExternalHostErrorRate(ctx context.Context, teamI
 	return out, nil
 }
 
-func histogramSummary(row HistogramAggRow) HistogramSummary {
+// sToMs converts OTel seconds-domain histograms (request/response durations)
+// to milliseconds. Body-size histograms are bytes-domain — pass 1.0.
+const sToMs = 1000.0
+
+func histogramSummary(row HistogramAggRow, scale float64) HistogramSummary {
 	avg := 0.0
 	if row.SumHistCount > 0 {
-		avg = row.SumHistSum / float64(row.SumHistCount)
+		avg = row.SumHistSum / float64(row.SumHistCount) * scale
 	}
 	return HistogramSummary{
 		Avg: avg,
-		P50: row.P50,
-		P95: row.P95,
-		P99: row.P99,
+		P50: row.P50 * scale,
+		P95: row.P95 * scale,
+		P99: row.P99 * scale,
 	}
 }
 

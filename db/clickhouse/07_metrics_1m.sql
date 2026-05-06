@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS observability.metrics_1m (
     -- build `latency_state` and does not project them into the rollup.
     hist_sum             SimpleAggregateFunction(sum, Float64) CODEC(Gorilla, ZSTD(1)),
     hist_count           SimpleAggregateFunction(sum, UInt64)  CODEC(T64, ZSTD(1)),
-    latency_state        AggregateFunction(quantilePrometheusHistogram, Float64, UInt64) CODEC(ZSTD(1)),
+    latency_state        AggregateFunction(quantilesPrometheusHistogram(0.5, 0.95, 0.99), Float64, UInt64) CODEC(ZSTD(1)),
 
     service              LowCardinality(String) CODEC(ZSTD(1)),
     host                 LowCardinality(String) CODEC(ZSTD(1)),
@@ -66,7 +66,7 @@ SELECT
     -- Bucket arrays are read from raw `observability.metrics` and not
     -- projected into the rollup — `latency_state` carries everything
     -- readers need.
-    quantilePrometheusHistogramArrayStateIf(
+    quantilesPrometheusHistogramArrayStateIf(0.5, 0.95, 0.99)(
         hist_buckets,
         arrayCumSum(hist_counts),
         metric_type = 'Histogram'
