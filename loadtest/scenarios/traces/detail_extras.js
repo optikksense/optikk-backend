@@ -1,7 +1,6 @@
-// Trace detail (extras): span events, span logs, trace logs, related traces.
+// Trace detail (extras): span events, trace logs, related traces.
 // Endpoints:
 //   GET /api/v1/traces/:traceId/span-events
-//   GET /api/v1/traces/:traceId/spans/:spanId/logs
 //   GET /api/v1/traces/:traceId/logs
 //   GET /api/v1/traces/:traceId/related
 
@@ -13,7 +12,7 @@ const MOD = 'traces';
 
 export function traceDetailExtras(ctx) {
   const client = buildClient({ ...ctx, baseUrl: cfg.baseUrl });
-  const { traceId, spanId } = pickTraceAndSpan(client, MOD);
+  const { traceId } = pickTraceAndSpan(client, MOD);
   if (!traceId) return;
 
   client.get(`/api/v1/traces/${traceId}/span-events`, null,
@@ -22,9 +21,4 @@ export function traceDetailExtras(ctx) {
     { module: MOD, endpoint: 'GET /traces/:traceId/logs' });
   client.get(`/api/v1/traces/${traceId}/related`, null,
     { module: MOD, endpoint: 'GET /traces/:traceId/related' });
-
-  if (spanId) {
-    client.get(`/api/v1/traces/${traceId}/spans/${spanId}/logs`, null,
-      { module: MOD, endpoint: 'GET /traces/:traceId/spans/:spanId/logs' });
-  }
 }

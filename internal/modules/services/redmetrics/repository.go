@@ -38,18 +38,24 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		    PREWHERE team_id   = @teamID
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT service                                                              AS service,
-		       sum(request_count)                                                   AS total_count,
-		       sum(error_count)                                                     AS error_count,
-		       quantileTimingMerge(0.5)(latency_state)                              AS p50_ms,
-		       quantileTimingMerge(0.95)(latency_state)                             AS p95_ms,
-		       quantileTimingMerge(0.99)(latency_state)                             AS p99_ms
-		FROM observability.spans_1m
-		PREWHERE team_id     = @teamID
-		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		GROUP BY service`
+		SELECT service,
+		       total_count,
+		       error_count,
+		       qs[1] AS p50_ms,
+		       qs[2] AS p95_ms,
+		       qs[3] AS p99_ms
+		FROM (
+		    SELECT service                                              AS service,
+		           sum(request_count)                                   AS total_count,
+		           sum(error_count)                                     AS error_count,
+		           quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state) AS qs
+		    FROM observability.spans_1m
+		    PREWHERE team_id     = @teamID
+		         AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		         AND fingerprint IN active_fps
+		    WHERE timestamp BETWEEN @start AND @end
+		    GROUP BY service
+		)`
 	var rows []redSummaryServiceRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetSummary",
 		&rows, query, spanArgs(teamID, startMs, endMs)...)
@@ -138,19 +144,25 @@ func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID 
 		    ORDER BY sum(request_count) DESC
 		    LIMIT @candidateLimit
 		)
-		SELECT service                                                              AS service,
-		       name                                                                 AS operation_name,
-		       sum(request_count)                                                   AS span_count,
-		       quantileTimingMerge(0.5)(latency_state)                              AS p50_ms,
-		       quantileTimingMerge(0.95)(latency_state)                             AS p95_ms,
-		       quantileTimingMerge(0.99)(latency_state)                             AS p99_ms
-		FROM observability.spans_1m
-		PREWHERE team_id     = @teamID
-		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		  AND (service, name) IN (SELECT service, operation_name FROM candidates)
-		GROUP BY service, name
+		SELECT service,
+		       operation_name,
+		       span_count,
+		       qs[1] AS p50_ms,
+		       qs[2] AS p95_ms,
+		       qs[3] AS p99_ms
+		FROM (
+		    SELECT service                                              AS service,
+		           name                                                 AS operation_name,
+		           sum(request_count)                                   AS span_count,
+		           quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state) AS qs
+		    FROM observability.spans_1m
+		    PREWHERE team_id     = @teamID
+		         AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		         AND fingerprint IN active_fps
+		    WHERE timestamp BETWEEN @start AND @end
+		      AND (service, name) IN (SELECT service, operation_name FROM candidates)
+		    GROUP BY service, name
+		)
 		ORDER BY p95_ms DESC
 		LIMIT @limit`
 	args := append(spanArgs(teamID, startMs, endMs),
@@ -190,9 +202,9 @@ func (r *ClickHouseRepository) GetTopErrorOperations(ctx context.Context, teamID
 }
 
 type requestRateRawRow struct {
-	Timestamp    time.Time `ch:"timestamp"`
-	ServiceName  string    `ch:"service"`
-	RequestCount uint64    `ch:"request_count"`
+	TsBucket     uint32 `ch:"ts_bucket"`
+	ServiceName  string `ch:"service"`
+	RequestCount uint64 `ch:"request_count"`
 }
 
 func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]requestRateRawRow, error) {
@@ -203,7 +215,7 @@ func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, tea
 		    PREWHERE team_id   = @teamID
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toDateTime(ts_bucket) AS timestamp,
+		SELECT ts_bucket             AS ts_bucket,
 		       service               AS service,
 		       sum(request_count)    AS request_count
 		FROM observability.spans_1m
@@ -212,16 +224,16 @@ func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, tea
 		     AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		GROUP BY ts_bucket, service
-		ORDER BY timestamp ASC`
+		ORDER BY ts_bucket ASC`
 	var rows []requestRateRawRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetRequestRateTimeSeries",
 		&rows, query, spanArgs(teamID, startMs, endMs)...)
 }
 
 type p95LatencyRawRow struct {
-	Timestamp   time.Time `ch:"timestamp"`
-	ServiceName string    `ch:"service"`
-	P95Ms       float32   `ch:"p95_ms"`
+	TsBucket    uint32  `ch:"ts_bucket"`
+	ServiceName string  `ch:"service"`
+	P95Ms       float32 `ch:"p95_ms"`
 }
 
 func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]p95LatencyRawRow, error) {
@@ -232,7 +244,7 @@ func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, team
 		    PREWHERE team_id   = @teamID
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toDateTime(ts_bucket)                                            AS timestamp,
+		SELECT ts_bucket                                                        AS ts_bucket,
 		       service                                                          AS service,
 		       quantileTimingMerge(0.95)(latency_state)                         AS p95_ms
 		FROM observability.spans_1m
@@ -241,16 +253,16 @@ func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, team
 		     AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		GROUP BY ts_bucket, service
-		ORDER BY timestamp ASC`
+		ORDER BY ts_bucket ASC`
 	var rows []p95LatencyRawRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetP95LatencyTimeSeries",
 		&rows, query, spanArgs(teamID, startMs, endMs)...)
 }
 
 type spanKindRawRow struct {
-	Timestamp  time.Time `ch:"timestamp"`
-	KindString string    `ch:"kind_string"`
-	SpanCount  uint64    `ch:"span_count"`
+	TsBucket   uint32 `ch:"ts_bucket"`
+	KindString string `ch:"kind_string"`
+	SpanCount  uint64 `ch:"span_count"`
 }
 
 func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]spanKindRawRow, error) {
@@ -261,7 +273,7 @@ func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID 
 		    PREWHERE team_id   = @teamID
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toDateTime(ts_bucket) AS timestamp,
+		SELECT ts_bucket             AS ts_bucket,
 		       kind_string           AS kind_string,
 		       sum(request_count)    AS span_count
 		FROM observability.spans_1m
@@ -270,17 +282,17 @@ func (r *ClickHouseRepository) GetSpanKindBreakdown(ctx context.Context, teamID 
 		     AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		GROUP BY ts_bucket, kind_string
-		ORDER BY timestamp ASC`
+		ORDER BY ts_bucket ASC`
 	var rows []spanKindRawRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetSpanKindBreakdown",
 		&rows, query, spanArgs(teamID, startMs, endMs)...)
 }
 
 type errorByRouteRawRow struct {
-	Timestamp    time.Time `ch:"timestamp"`
-	HTTPRoute    string    `ch:"http_route"`
-	RequestCount uint64    `ch:"request_count"`
-	ErrorCount   uint64    `ch:"error_count"`
+	TsBucket     uint32 `ch:"ts_bucket"`
+	HTTPRoute    string `ch:"http_route"`
+	RequestCount uint64 `ch:"request_count"`
+	ErrorCount   uint64 `ch:"error_count"`
 }
 
 func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorByRouteRawRow, error) {
@@ -293,7 +305,7 @@ func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int6
 		    PREWHERE team_id   = @teamID
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toDateTime(ts_bucket)                                AS timestamp,
+		SELECT ts_bucket                                            AS ts_bucket,
 		       if(http_route != '', http_route, name)               AS http_route,
 		       sum(request_count)                                   AS request_count,
 		       sum(error_count)                                     AS error_count
@@ -304,7 +316,7 @@ func (r *ClickHouseRepository) GetErrorsByRoute(ctx context.Context, teamID int6
 		WHERE timestamp BETWEEN @start AND @end
 		  AND (http_route != '' OR name != '')
 		GROUP BY ts_bucket, http_route
-		ORDER BY timestamp ASC, error_count DESC`
+		ORDER BY ts_bucket ASC, error_count DESC`
 	var rows []errorByRouteRawRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetErrorsByRoute",
 		&rows, query, spanArgs(teamID, startMs, endMs)...)

@@ -2,7 +2,6 @@ package trace_logs
 
 import (
 	"context"
-	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
@@ -17,8 +16,8 @@ func NewRepository(db clickhouse.Conn) *Repository { return &Repository{db: db} 
 
 // Step 1: resolve (ts_bucket bounds, fingerprint set) from trace_index.
 // Sub-millisecond — first two PK slots pinned, returns one tiny aggregate row.
-// trace_id is lowercased once Go-side in traceIDArgs; storage is canonical
-// lowercase hex (hex.EncodeToString in internal/infra/otlp/protoconv.go).
+// Handler rejects empty trace id at the edge; storage is canonical lowercase
+// hex (hex.EncodeToString in internal/infra/otlp/protoconv.go).
 //
 // `groupUniqArray(1024)(fingerprint)` caps the fingerprint set so very wide
 // traces don't blow the array up (and don't pass an unbounded IN-list to
@@ -89,6 +88,6 @@ func (r *Repository) FetchByBounds(ctx context.Context, teamID int64, traceID st
 func traceIDArgs(teamID int64, traceID string) []any {
 	return []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // domain-bounded
-		clickhouse.Named("traceID", strings.ToLower(traceID)),
+		clickhouse.Named("traceID", traceID),
 	}
 }

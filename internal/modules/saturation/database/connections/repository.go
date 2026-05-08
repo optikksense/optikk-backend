@@ -1,11 +1,15 @@
 // Package connections reads OTel `db.client.connection.*` instrumentation
-// metrics from `observability.metrics`. Per the audit, gauges/counters
+// metrics from `observability.metrics_1m`. Per the audit, gauges/counters
 // are instrumentation-side time series (not per-call spans) and live
-// natively on metrics. Every method PREWHEREs raw metrics on
+// natively on metrics. Every method PREWHEREs metrics_1m on
 // `(team_id, ts_bucket, fingerprint IN active_fps, metric_name)` —
-// full PK granule pruning. Service.go folds raw rows into display
-// buckets via `displaybucket` helpers and computes histogram percentiles
-// Go-side via `quantile.FromHistogram`.
+// full PK granule pruning. Histogram percentiles come from
+// `quantilesPrometheusHistogramMerge(...)(latency_state)` server-side,
+// bucketed at the window-adaptive display grain via
+// `timebucket.DisplayGrainSQL` (replaces the prior hardcoded
+// `toStartOfHour` which collapsed short windows to a single bucket).
+// service.go folds raw 1-min gauge rows into display buckets via a
+// per-(bucket, pool[, state]) map keyed on `bucketStr(timestamp)`.
 package connections
 
 import (
@@ -14,6 +18,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
@@ -50,14 +55,15 @@ type gaugeRawDTO struct {
 	Value     float64   `ch:"value"`
 }
 
-// histRawDTO carries the merged bucket-bounds + bucket-counts per (hour-bucket,
-// pool). Service interpolates p50/p95/p99 Go-side via quantile.FromHistogram
-// and converts the seconds-domain values to ms.
+// histRawDTO carries server-side p50/p95/p99 (seconds, via
+// quantilePrometheusHistogramMerge on metrics_1m.latency_state) per
+// (hour-bucket, pool). Service multiplies by 1000 to get ms.
 type histRawDTO struct {
 	Bucket   time.Time `ch:"bucket"`
 	PoolName string    `ch:"pool_name"`
-	Buckets  []float64 `ch:"hist_buckets"`
-	Counts   []uint64  `ch:"hist_counts"`
+	P50      float64   `ch:"p50"`
+	P95      float64   `ch:"p95"`
+	P99      float64   `ch:"p99"`
 }
 
 // GetConnectionCountSeries reads `db.client.connection.count` (gauge by state).
@@ -185,23 +191,29 @@ func (r *ClickHouseRepository) gaugeNoState(ctx context.Context, teamID, startMs
 
 func (r *ClickHouseRepository) poolHistogram(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, metricName, traceLabel string) ([]histRawDTO, error) {
 	filterWhere, filterArgs := filter.BuildMetricClauses(f)
-	const query = `
+	query := `
 		WITH active_fps AS (
 		    SELECT fingerprint
 		    FROM observability.metrics_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name = @metricName
 		)
-		SELECT toStartOfHour(timestamp)              AS bucket,
-		       attributes.'pool.name'::String        AS pool_name,
-		       max(hist_buckets)                     AS hist_buckets,
-		       sumForEach(hist_counts)               AS hist_counts
-		FROM observability.metrics_1m
-		PREWHERE team_id        = @teamID
-		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint    IN active_fps
-		     AND metric_name    = @metricName
-		WHERE timestamp BETWEEN @start AND @end
-		GROUP BY bucket, pool_name
+		SELECT bucket,
+		       pool_name,
+		       qs[1] AS p50,
+		       qs[2] AS p95,
+		       qs[3] AS p99
+		FROM (
+		    SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `                AS bucket,
+		           attributes.'pool.name'::String                                    AS pool_name,
+		           quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
+		    FROM observability.metrics_1m
+		    PREWHERE team_id        = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		         AND fingerprint    IN active_fps
+		         AND metric_name    = @metricName
+		    WHERE timestamp BETWEEN @start AND @end
+		    GROUP BY bucket, pool_name
+		)
 		ORDER BY bucket, pool_name`
 	args := append(filter.MetricArgs(teamID, startMs, endMs, metricName), filterArgs...)
 	full := query + filterWhere

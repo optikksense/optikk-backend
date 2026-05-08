@@ -36,15 +36,20 @@ func (r *Repository) Histogram(ctx context.Context, teamID int64, req HistogramR
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd` + resourceWhere + `
 		)
-		SELECT quantileTimingMerge(0.5) (latency_state)                         AS p50,
-		       quantileTimingMerge(0.9) (latency_state)                         AS p90,
-		       quantileTimingMerge(0.95)(latency_state)                         AS p95,
-		       quantileTimingMerge(0.99)(latency_state)                         AS p99,
-		       max(duration_ms_max)                                             AS max,
-		       sum(duration_ms_sum) / nullIf(sum(request_count), 0)             AS avg
-		FROM observability.spans_1m
-		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end` + where
+		SELECT qs[1] AS p50,
+		       qs[2] AS p90,
+		       qs[3] AS p95,
+		       qs[4] AS p99,
+		       max,
+		       avg
+		FROM (
+		    SELECT quantilesTimingMerge(0.5, 0.9, 0.95, 0.99)(latency_state) AS qs,
+		           max(duration_ms_max)                                      AS max,
+		           sum(duration_ms_sum) / nullIf(sum(request_count), 0)      AS avg
+		    FROM observability.spans_1m
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		    WHERE timestamp BETWEEN @start AND @end` + where + `
+		)`
 	var out histogramRow
 	return out, dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "latency.Histogram", &out, query, args...)
 }
@@ -63,14 +68,14 @@ func (r *Repository) Heatmap(ctx context.Context, teamID int64, req HeatmapReque
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd` + resourceWhere + `
 		)
-		SELECT toString(ts_bucket)                                                            AS time_bucket,
-		       toFloat64(floor(duration_nano / 1000000.0 / @bucketWidthMs) * @bucketWidthMs)  AS bucket_ms,
+		SELECT ts_bucket                                                                      AS ts_bucket,
+		       floor(duration_nano / 1000000.0 / @bucketWidthMs) * @bucketWidthMs             AS bucket_ms,
 		       count()                                                                        AS count
 		FROM observability.spans
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
-		GROUP BY time_bucket, bucket_ms
-		ORDER BY time_bucket ASC, bucket_ms ASC
+		GROUP BY ts_bucket, bucket_ms
+		ORDER BY ts_bucket ASC, bucket_ms ASC
 		LIMIT 5000`
 	var rows []heatmapRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "latency.Heatmap", &rows, query, args...)

@@ -8,8 +8,6 @@ import (
 	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/displaybucket"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/quantile"
 )
 
 const topNLimit = 20
@@ -47,18 +45,13 @@ func (s *HTTPMetricsService) GetRequestRate(ctx context.Context, teamID int64, s
 	if err != nil {
 		return nil, err
 	}
-	buckets := displaybucket.SumByTimeAndKey(rows,
-		func(r StatusCountRow) time.Time { return r.Timestamp },
-		func(r StatusCountRow) string { return fmt.Sprintf("%d", r.StatusCode) },
-		func(r StatusCountRow) float64 { return float64(r.Count) },
-		startMs, endMs)
-	out := make([]StatusCodeBucket, len(buckets))
-	for i, b := range buckets {
-		var c int64
-		if b.Value != nil {
-			c = int64(*b.Value)
+	out := make([]StatusCodeBucket, len(rows))
+	for i, r := range rows {
+		out[i] = StatusCodeBucket{
+			Timestamp:  formatBucket(r.Timestamp),
+			StatusCode: fmt.Sprintf("%d", r.StatusCode),
+			Count:      int64(r.Count), //nolint:gosec
 		}
-		out[i] = StatusCodeBucket{Timestamp: b.Timestamp, StatusCode: b.State, Count: c}
 	}
 	return out, nil
 }
@@ -68,7 +61,7 @@ func (s *HTTPMetricsService) GetRequestDuration(ctx context.Context, teamID int6
 	if err != nil {
 		return HistogramSummary{}, err
 	}
-	return histogramSummary(row), nil
+	return histogramSummary(row, sToMs), nil
 }
 
 func (s *HTTPMetricsService) GetActiveRequests(ctx context.Context, teamID int64, startMs, endMs int64) ([]TimeBucket, error) {
@@ -76,11 +69,12 @@ func (s *HTTPMetricsService) GetActiveRequests(ctx context.Context, teamID int64
 	if err != nil {
 		return nil, err
 	}
-	dst := displaybucket.AvgByTime(rows,
-		func(r MetricSeriesRow) time.Time { return r.Timestamp },
-		func(r MetricSeriesRow) float64 { return r.Value },
-		startMs, endMs)
-	return toTimeBuckets(dst), nil
+	out := make([]TimeBucket, len(rows))
+	for i, r := range rows {
+		v := r.Value
+		out[i] = TimeBucket{Timestamp: formatBucket(r.Timestamp), Value: &v}
+	}
+	return out, nil
 }
 
 func (s *HTTPMetricsService) GetRequestBodySize(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
@@ -88,7 +82,7 @@ func (s *HTTPMetricsService) GetRequestBodySize(ctx context.Context, teamID int6
 	if err != nil {
 		return HistogramSummary{}, err
 	}
-	return histogramSummary(row), nil
+	return histogramSummary(row, 1.0), nil
 }
 
 func (s *HTTPMetricsService) GetResponseBodySize(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
@@ -96,7 +90,7 @@ func (s *HTTPMetricsService) GetResponseBodySize(ctx context.Context, teamID int
 	if err != nil {
 		return HistogramSummary{}, err
 	}
-	return histogramSummary(row), nil
+	return histogramSummary(row, 1.0), nil
 }
 
 func (s *HTTPMetricsService) GetClientDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
@@ -104,7 +98,7 @@ func (s *HTTPMetricsService) GetClientDuration(ctx context.Context, teamID int64
 	if err != nil {
 		return HistogramSummary{}, err
 	}
-	return histogramSummary(row), nil
+	return histogramSummary(row, sToMs), nil
 }
 
 func (s *HTTPMetricsService) GetDNSDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
@@ -112,7 +106,7 @@ func (s *HTTPMetricsService) GetDNSDuration(ctx context.Context, teamID int64, s
 	if err != nil {
 		return HistogramSummary{}, err
 	}
-	return histogramSummary(row), nil
+	return histogramSummary(row, sToMs), nil
 }
 
 func (s *HTTPMetricsService) GetTLSDuration(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramSummary, error) {
@@ -120,7 +114,7 @@ func (s *HTTPMetricsService) GetTLSDuration(ctx context.Context, teamID int64, s
 	if err != nil {
 		return HistogramSummary{}, err
 	}
-	return histogramSummary(row), nil
+	return histogramSummary(row, sToMs), nil
 }
 
 func (s *HTTPMetricsService) GetTopRoutesByVolume(ctx context.Context, teamID int64, startMs, endMs int64) ([]RouteMetric, error) {
@@ -172,7 +166,7 @@ func (s *HTTPMetricsService) GetRouteErrorTimeseries(ctx context.Context, teamID
 	windowMs := endMs - startMs
 	agg := map[k]*acc{}
 	for _, r := range rows {
-		key := k{ts: timebucket.DisplayBucket(r.Timestamp.Unix(), windowMs), route: r.Route}
+		key := k{ts: timebucket.DisplayBucket(int64(r.TsBucket), windowMs), route: r.Route}
 		x, ok := agg[key]
 		if !ok {
 			x = &acc{}
@@ -286,16 +280,20 @@ func (s *HTTPMetricsService) GetExternalHostErrorRate(ctx context.Context, teamI
 	return out, nil
 }
 
-func histogramSummary(row HistogramAggRow) HistogramSummary {
+// sToMs converts OTel seconds-domain histograms (request/response durations)
+// to milliseconds. Body-size histograms are bytes-domain — pass 1.0.
+const sToMs = 1000.0
+
+func histogramSummary(row HistogramAggRow, scale float64) HistogramSummary {
 	avg := 0.0
 	if row.SumHistCount > 0 {
-		avg = row.SumHistSum / float64(row.SumHistCount)
+		avg = row.SumHistSum / float64(row.SumHistCount) * scale
 	}
 	return HistogramSummary{
 		Avg: avg,
-		P50: quantile.FromHistogram(row.Buckets, row.Counts, 0.5),
-		P95: quantile.FromHistogram(row.Buckets, row.Counts, 0.95),
-		P99: quantile.FromHistogram(row.Buckets, row.Counts, 0.99),
+		P50: row.P50 * scale,
+		P95: row.P95 * scale,
+		P99: row.P99 * scale,
 	}
 }
 
@@ -329,12 +327,11 @@ func mapHosts(rows []HostAggRow, n int, withP95 bool) []ExternalHostMetric {
 	return out
 }
 
-func toTimeBuckets(in []displaybucket.TimeBucket) []TimeBucket {
-	out := make([]TimeBucket, len(in))
-	for i, b := range in {
-		out[i] = TimeBucket{Timestamp: b.Timestamp, Value: b.Value}
-	}
-	return out
+// formatBucket renders a CH-emitted display-bucket DateTime as a stable
+// UTC label. Repos already round to the display grain via
+// timebucket.DisplayGrainSQL, so this is pure formatting.
+func formatBucket(t time.Time) string {
+	return t.UTC().Format("2006-01-02 15:04:05")
 }
 
 func errPct(errs, total uint64) float64 {

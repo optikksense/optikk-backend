@@ -32,7 +32,7 @@ func buildPageInfo(rows []spanRowDTO, hasMore bool, limit int) PageInfo {
 	info := PageInfo{HasMore: hasMore, Limit: limit}
 	if hasMore && len(rows) > 0 {
 		last := rows[len(rows)-1]
-		info.NextCursor = SpanCursor{TimestampNs: last.TimestampNs, SpanID: last.SpanID}.Encode()
+		info.NextCursor = SpanCursor{TimestampNs: last.Timestamp.UnixNano(), SpanID: last.SpanID}.Encode()
 	}
 	return info
 }
@@ -46,7 +46,7 @@ func mapSpan(d spanRowDTO) Span {
 		Operation:          d.Operation,
 		Kind:               d.Kind,
 		DurationMs:         float64(d.DurationNano) / 1_000_000,
-		TimestampNs:        d.TimestampNs,
+		TimestampNs:        d.Timestamp.UnixNano(),
 		HasError:           d.HasError,
 		Status:             d.Status,
 		HTTPMethod:         d.HTTPMethod,

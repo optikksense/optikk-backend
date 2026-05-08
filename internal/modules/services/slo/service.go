@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	"golang.org/x/sync/errgroup"
 )
@@ -109,7 +110,7 @@ func (s *SLOService) GetBurnDown(ctx context.Context, teamID int64, startMs, end
 		}
 
 		points[i] = BurnDownPoint{
-			Timestamp:               row.TimeBucket.UTC().Format(time.RFC3339),
+			Timestamp:               timebucket.BucketTime(row.TimeBucket).Format(time.RFC3339),
 			ErrorBudgetRemainingPct: remaining,
 			CumulativeErrorCount:    cumErrors,
 			CumulativeRequestCount:  cumRequests,
@@ -205,7 +206,7 @@ func buildTimeSlices(rows []TimeSliceRow) []TimeSlice {
 			avgPtr = &avg
 		}
 		slices[i] = TimeSlice{
-			Timestamp:           row.TimeBucket.UTC().Format(time.RFC3339),
+			Timestamp:           timebucket.BucketTime(row.TimeBucket).Format(time.RFC3339),
 			RequestCount:        total,
 			ErrorCount:          errs,
 			AvailabilityPercent: availability,

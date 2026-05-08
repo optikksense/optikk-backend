@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	saturationkafka "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka/consumer"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -55,11 +55,11 @@ var kafkaGroupMetricNames = []string{
 }
 
 type Service struct {
-	kafka *saturationkafka.KafkaService
+	repo *Repository
 }
 
-func NewService(kafkaSvc *saturationkafka.KafkaService) *Service {
-	return &Service{kafka: kafkaSvc}
+func NewService(repo *Repository) *Service {
+	return &Service{repo: repo}
 }
 
 func (s *Service) GetKafkaSummary(ctx context.Context, teamID int64, startMs, endMs int64) (KafkaSummaryResponse, error) {
@@ -124,8 +124,8 @@ func (s *Service) GetKafkaTopicGroups(ctx context.Context, teamID int64, startMs
 	return s.buildKafkaTopicConsumerRows(ctx, teamID, startMs, endMs, topic, "")
 }
 
-func (s *Service) GetKafkaTopicPartitions(ctx context.Context, teamID int64, startMs, endMs int64, topic string) ([]saturationkafka.PartitionLag, error) {
-	return []saturationkafka.PartitionLag{}, nil
+func (s *Service) GetKafkaTopicPartitions(ctx context.Context, teamID int64, startMs, endMs int64, topic string) ([]consumer.PartitionLag, error) {
+	return []consumer.PartitionLag{}, nil
 }
 
 func (s *Service) GetKafkaGroupOverview(ctx context.Context, teamID int64, startMs, endMs int64, group string) (KafkaGroupOverview, error) {
@@ -147,12 +147,12 @@ func (s *Service) GetKafkaGroupTopics(ctx context.Context, teamID int64, startMs
 	return s.buildKafkaTopicRows(ctx, teamID, startMs, endMs, "", group)
 }
 
-func (s *Service) GetKafkaGroupPartitions(ctx context.Context, teamID int64, startMs, endMs int64, group string) ([]saturationkafka.PartitionLag, error) {
-	return []saturationkafka.PartitionLag{}, nil
+func (s *Service) GetKafkaGroupPartitions(ctx context.Context, teamID int64, startMs, endMs int64, group string) ([]consumer.PartitionLag, error) {
+	return []consumer.PartitionLag{}, nil
 }
 
 func (s *Service) buildKafkaTopicRows(ctx context.Context, teamID int64, startMs, endMs int64, filterTopic, filterGroup string) ([]KafkaTopicRow, error) {
-	samples, err := s.kafka.GetTopicMetricSamples(ctx, teamID, startMs, endMs, kafkaTopicMetricNames)
+	samples, err := s.repo.QueryTopicMetricSamples(ctx, teamID, startMs, endMs, kafkaTopicMetricNames)
 	if err != nil {
 		return nil, err
 	}
@@ -228,20 +228,20 @@ func (s *Service) buildKafkaTopicRows(ctx context.Context, teamID int64, startMs
 }
 
 func (s *Service) buildKafkaGroupRows(ctx context.Context, teamID int64, startMs, endMs int64, filterTopic, filterGroup string) ([]KafkaGroupRow, error) {
-	var groupSamples []saturationkafka.ConsumerMetricSample
-	var topicSamples []saturationkafka.TopicMetricSample
+	var groupSamples []ConsumerMetricSample
+	var topicSamples []TopicMetricSample
 
 	g, gctx := errgroup.WithContext(ctx)
 
 	g.Go(func() error {
 		var err error
-		groupSamples, err = s.kafka.GetConsumerMetricSamples(gctx, teamID, startMs, endMs, kafkaGroupMetricNames)
+		groupSamples, err = s.repo.QueryConsumerMetricSamples(gctx, teamID, startMs, endMs, kafkaGroupMetricNames)
 		return err
 	})
 
 	g.Go(func() error {
 		var err error
-		topicSamples, err = s.kafka.GetTopicMetricSamples(gctx, teamID, startMs, endMs, kafkaTopicMetricNames)
+		topicSamples, err = s.repo.QueryTopicMetricSamples(gctx, teamID, startMs, endMs, kafkaTopicMetricNames)
 		return err
 	})
 
@@ -332,7 +332,7 @@ func (s *Service) buildKafkaGroupRows(ctx context.Context, teamID int64, startMs
 }
 
 func (s *Service) buildKafkaTopicConsumerRows(ctx context.Context, teamID int64, startMs, endMs int64, filterTopic, filterGroup string) ([]KafkaTopicConsumerRow, error) {
-	samples, err := s.kafka.GetTopicMetricSamples(ctx, teamID, startMs, endMs, kafkaTopicMetricNames)
+	samples, err := s.repo.QueryTopicMetricSamples(ctx, teamID, startMs, endMs, kafkaTopicMetricNames)
 	if err != nil {
 		return nil, err
 	}

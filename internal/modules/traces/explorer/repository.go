@@ -10,8 +10,8 @@ import (
 )
 
 const traceIndexColumns = `trace_id,
-		timestamp                                                  AS start_ms,
-		timestamp                                                  AS end_ms,
+		timestamp                                                  AS start_time,
+		timestamp                                                  AS end_time,
 		duration_nano                                              AS duration_ns,
 		service                                                    AS root_service,
 		name                                                       AS root_operation,
@@ -23,7 +23,7 @@ const traceIndexColumns = `trace_id,
 		(CASE WHEN has_error THEN 1 ELSE 0 END)                    AS error_count,
 		[service]                                                  AS service_set,
 		false                                                      AS truncated,
-		timestamp                                                  AS last_seen_ms`
+		timestamp                                                  AS last_seen`
 
 type Repository struct {
 	db clickhouse.Conn
@@ -67,37 +67,3 @@ func (r *Repository) ListTraces(ctx context.Context, f filter.Filters, limit int
 	return rows, hasMore, nil
 }
 
-// GetByID reads a single trace summary by trace_id (root span). Two-phase:
-// step 1 resolves (ts_bucket bounds, fingerprint set) from observability.trace_index
-// (single-granule PK lookup leading on trace_id); step 2 narrows raw-span scan
-// to those PK slots. Mirrors the logs/trace_logs pattern.
-func (r *Repository) GetByID(ctx context.Context, teamID int64, traceID string) (*traceIndexRowDTO, error) {
-	const query = `
-		WITH trace_loc AS (
-		    SELECT min(ts_bucket)              AS lo,
-		           max(ts_bucket)              AS hi,
-		           groupUniqArray(fingerprint) AS fps
-		    FROM observability.trace_index
-		    PREWHERE trace_id = @traceID AND team_id = @teamID
-		)
-		SELECT ` + traceIndexColumns + `
-		FROM observability.spans
-		PREWHERE team_id = @teamID
-		     AND ts_bucket BETWEEN (SELECT lo FROM trace_loc) AND (SELECT hi FROM trace_loc)
-		     AND fingerprint IN (SELECT arrayJoin(fps) FROM trace_loc)
-		WHERE trace_id = @traceID AND is_root = 1
-		ORDER BY timestamp DESC
-		LIMIT 1`
-	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("traceID", traceID),
-	}
-	var rows []traceIndexRowDTO
-	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "explorer.GetByID", &rows, query, args...); err != nil {
-		return nil, err
-	}
-	if len(rows) == 0 {
-		return nil, nil
-	}
-	return &rows[0], nil
-}

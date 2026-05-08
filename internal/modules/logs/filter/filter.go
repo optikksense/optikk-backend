@@ -1,13 +1,3 @@
-// Package filter owns the typed log-filter shape, validation, and the
-// where-clause emitter every logs reader (explorer, log_facets,
-// log_trends) shares. Mirrors internal/modules/metrics/filter.
-//
-// The repo-side BuildClauses returns (where, args) ready to
-// splice into a query of shape:
-//
-//	SELECT … FROM observability.logs
-//	PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-//	WHERE timestamp BETWEEN @start AND @end <where>
 package filter
 
 import (
@@ -22,10 +12,6 @@ import (
 
 const maxTimeRangeMs = 30 * 24 * 60 * 60 * 1000
 
-// Filters is the typed filter shape every logs reader consumes. Decoded
-// straight off the wire — frontend sends each dimension as a typed array,
-// and the handler populates TeamID / StartMs / EndMs from session + the
-// top-level request fields.
 type Filters struct {
 	TeamID  int64 `json:"-"`
 	StartMs int64 `json:"-"`
@@ -50,17 +36,12 @@ type Filters struct {
 	Attributes []AttrFilter `json:"attributes,omitempty"`
 }
 
-// AttrFilter is a single predicate over `attributes_string[key]`.
-// Op ∈ {"eq" (default), "neq", "contains", "regex"}.
 type AttrFilter struct {
 	Key   string `json:"key"`
 	Op    string `json:"op,omitempty"`
 	Value string `json:"value"`
 }
 
-// Validate clamps the time range to ≤ 30 days, defaults SearchMode to
-// "ngram", and rejects missing time bounds. Mutates the receiver in place
-// because callers always want the validated/clamped values back.
 func (f *Filters) Validate() error {
 	if f.EndMs <= 0 {
 		f.EndMs = time.Now().UnixMilli()
@@ -80,9 +61,6 @@ func (f *Filters) Validate() error {
 	return nil
 }
 
-// BuildClauses turns Filters into (where, args).
-// Stable bind names so identical predicate combinations
-// produce byte-identical SQL — CH plan cache can hit.
 func BuildClauses(f Filters) (resourceWhere, where string, args []any) {
 	args = []any{
 		clickhouse.Named("teamID", uint32(f.TeamID)), //nolint:gosec // G115
@@ -138,11 +116,6 @@ func BuildClauses(f Filters) (resourceWhere, where string, args []any) {
 		args = append(args, clickhouse.Named("spanID", f.SpanID))
 	}
 	if f.Search != "" {
-		// Both predicates consult idx_body_text — the native inverted index
-		// added in CH 26.2 (see db/clickhouse/02_logs.sql). The index stores
-		// tokens preprocessed via lowerUTF8(str), so we lower() the query
-		// term in-SQL to match — hasTokenCaseInsensitive isn't in the
-		// text-index supported function list.
 		if f.SearchMode == "exact" {
 			where += ` AND lower(body) LIKE concat('%', lower(@search), '%')`
 		} else {

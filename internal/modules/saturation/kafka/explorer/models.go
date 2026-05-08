@@ -84,3 +84,24 @@ type KafkaGroupTopicRow struct {
 	Lag           float64 `json:"lag"`
 	Lead          float64 `json:"lead"`
 }
+
+// ConsumerMetricSample — latest value per (consumer_group, node_id, metric_name)
+// inside the query window. argMax(value, timestamp) collapses each time series
+// to a single representative point.
+type ConsumerMetricSample struct {
+	Timestamp     string  `ch:"timestamp"     json:"timestamp"`
+	ConsumerGroup string  `ch:"consumer_group" json:"consumer_group"`
+	NodeID        string  `ch:"node_id"        json:"node_id"`
+	MetricName    string  `ch:"metric_name"    json:"metric_name"`
+	Value         float64 `ch:"value"          json:"value"`
+}
+
+// TopicMetricSample — latest value per (topic, consumer_group, metric_name)
+// inside the query window.
+type TopicMetricSample struct {
+	Timestamp     string  `ch:"timestamp"     json:"timestamp"`
+	Topic         string  `ch:"topic"          json:"topic"`
+	ConsumerGroup string  `ch:"consumer_group" json:"consumer_group"`
+	MetricName    string  `ch:"metric_name"    json:"metric_name"`
+	Value         float64 `ch:"value"          json:"value"`
+}

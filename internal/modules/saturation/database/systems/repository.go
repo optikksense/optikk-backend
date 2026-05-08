@@ -25,8 +25,8 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 
 type detectedSystemRawDTO struct {
 	DBSystem      string    `ch:"db_system"`
-	SpanCount     int64     `ch:"span_count"`
-	ErrorCount    int64     `ch:"error_count"`
+	SpanCount     uint64    `ch:"span_count"`
+	ErrorCount    uint64    `ch:"error_count"`
 	AvgLatencyMs  float64   `ch:"avg_latency_ms"`
 	ServerAddress string    `ch:"server_address"`
 	LastSeen      time.Time `ch:"last_seen"`
@@ -34,10 +34,10 @@ type detectedSystemRawDTO struct {
 
 type systemSummaryRawDTO struct {
 	DBSystem      string    `ch:"db_system"`
-	QueryCount    int64     `ch:"query_count"`
-	ErrorCount    int64     `ch:"error_count"`
+	QueryCount    uint64    `ch:"query_count"`
+	ErrorCount    uint64    `ch:"error_count"`
 	AvgLatencyMs  float64   `ch:"avg_latency_ms"`
-	P95Ms         float64   `ch:"p95_ms"`
+	P95Ms         float32   `ch:"p95_ms"`
 	ServerAddress string    `ch:"server_address"`
 	LastSeen      time.Time `ch:"last_seen"`
 }
@@ -55,9 +55,9 @@ func (r *ClickHouseRepository) GetDetectedSystems(ctx context.Context, teamID, s
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
 		SELECT db_system                                                                       AS db_system,
-		       toInt64(sum(request_count))                                                     AS span_count,
-		       toInt64(sum(error_count))                                                       AS error_count,
-		       toFloat64(sum(duration_ms_sum) / nullIf(toFloat64(sum(request_count)), 0))      AS avg_latency_ms,
+		       sum(request_count)                                                              AS span_count,
+		       sum(error_count)                                                                AS error_count,
+		       sum(duration_ms_sum) / nullIf(sum(request_count), 0)                            AS avg_latency_ms,
 		       any(server_address)                                                             AS server_address,
 		       max(timestamp)                                                                  AS last_seen
 		FROM observability.spans_1m
@@ -80,9 +80,9 @@ func (r *ClickHouseRepository) GetSystemSummariesRaw(ctx context.Context, teamID
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
 		SELECT db_system                                                                         AS db_system,
-		       toInt64(sum(request_count))                                                       AS query_count,
-		       toInt64(sum(error_count))                                                         AS error_count,
-		       toFloat64(sum(duration_ms_sum) / nullIf(toFloat64(sum(request_count)), 0))        AS avg_latency_ms,
+		       sum(request_count)                                                                AS query_count,
+		       sum(error_count)                                                                  AS error_count,
+		       sum(duration_ms_sum) / nullIf(sum(request_count), 0)                              AS avg_latency_ms,
 		       quantileTimingMerge(0.95)(latency_state)                                          AS p95_ms,
 		       any(server_address)                                                               AS server_address,
 		       max(timestamp)                                                                    AS last_seen
@@ -106,7 +106,7 @@ func (r *ClickHouseRepository) GetActiveConnectionsBySystem(ctx context.Context,
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name = @metricName
 		)
 		SELECT attributes.'db.system'::String   AS db_system,
-		       toFloat64(sum(val_sum) / sum(val_count))            AS avg_used
+		       sum(val_sum) / sum(val_count)            AS avg_used
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd

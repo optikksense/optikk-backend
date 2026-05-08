@@ -11,10 +11,11 @@ import (
 )
 
 type HistogramAggRow struct {
-	SumHistSum   float64   `ch:"sum_hist_sum"`
-	SumHistCount uint64    `ch:"sum_hist_count"`
-	Buckets      []float64 `ch:"hist_buckets"`
-	Counts       []uint64  `ch:"hist_counts"`
+	SumHistSum   float64 `ch:"sum_hist_sum"`
+	SumHistCount uint64  `ch:"sum_hist_count"`
+	P50          float64 `ch:"p50"`
+	P95          float64 `ch:"p95"`
+	P99          float64 `ch:"p99"`
 }
 
 type MetricSeriesRow struct {
@@ -64,17 +65,22 @@ const histogramAggQuery = `
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name = @metricName
 		)
-		SELECT
-		    sum(hist_sum)            AS sum_hist_sum,
-		    sum(hist_count)          AS sum_hist_count,
-		    max(hist_buckets)        AS hist_buckets,
-		    sumForEach(hist_counts)  AS hist_counts
-		FROM observability.metrics_1m
-		PREWHERE team_id        = @teamID
-		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint   IN active_fps
-		WHERE metric_name = @metricName
-		  AND timestamp BETWEEN @start AND @end`
+		SELECT sum_hist_sum,
+		       sum_hist_count,
+		       qs[1] AS p50,
+		       qs[2] AS p95,
+		       qs[3] AS p99
+		FROM (
+		    SELECT sum(hist_sum)                                                  AS sum_hist_sum,
+		           sum(hist_count)                                                AS sum_hist_count,
+		           quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
+		    FROM observability.metrics_1m
+		    PREWHERE team_id        = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		         AND fingerprint   IN active_fps
+		    WHERE metric_name = @metricName
+		      AND timestamp BETWEEN @start AND @end
+		)`
 
 func (r *ClickHouseRepository) QueryRPCDurationHistogram(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramAggRow, error) {
 	var row HistogramAggRow
@@ -90,7 +96,8 @@ func (r *ClickHouseRepository) QueryMessagingPublishDurationHistogram(ctx contex
 	return row, err
 }
 
-const histogramCountSeriesQuery = `
+func (r *ClickHouseRepository) QueryRPCRequestCountSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]CountSeriesRow, error) {
+	query := `
 		WITH active_fps AS (
 		    SELECT fingerprint
 		    FROM observability.metrics_resource
@@ -98,24 +105,24 @@ const histogramCountSeriesQuery = `
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name = @metricName
 		)
-		SELECT timestamp, hist_count AS count
+		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + ` AS timestamp,
+		       sum(hist_count)                                  AS count
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
+		GROUP BY timestamp
 		ORDER BY timestamp`
-
-func (r *ClickHouseRepository) QueryRPCRequestCountSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]CountSeriesRow, error) {
 	var rows []CountSeriesRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "apm.QueryRPCRequestCountSeries",
-		&rows, histogramCountSeriesQuery, singleMetricArgs(teamID, startMs, endMs, MetricRPCServerDuration)...)
+		&rows, query, singleMetricArgs(teamID, startMs, endMs, MetricRPCServerDuration)...)
 	return rows, err
 }
 
 func (r *ClickHouseRepository) QueryProcessCPUStateSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]StateSeriesRow, error) {
-	const query = `
+	query := `
 		WITH active_fps AS (
 		    SELECT fingerprint
 		    FROM observability.metrics_resource
@@ -124,15 +131,16 @@ func (r *ClickHouseRepository) QueryProcessCPUStateSeries(ctx context.Context, t
 		      AND metric_name = @metricName
 		)
 		SELECT
-		    timestamp,
+		    ` + timebucket.DisplayGrainSQL(endMs-startMs) + ` AS timestamp,
 		    attributes.` + "`process.cpu.state`" + `::String AS state,
-		    value
+		    sum(val_sum) / sum(val_count)                    AS value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
+		GROUP BY timestamp, state
 		ORDER BY timestamp, state`
 	var rows []StateSeriesRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "apm.QueryProcessCPUStateSeries",
@@ -163,7 +171,11 @@ func (r *ClickHouseRepository) QueryProcessMemoryAvg(ctx context.Context, teamID
 	return rows, err
 }
 
-const metricSeriesQuery = `
+// metricSeriesQuerySQL emits a per-display-bucket gauge series. avg() over
+// the underlying 1-min `val_sum/val_count` per-row rate gives mean-of-means
+// across raw minutes within each display bucket.
+func metricSeriesQuerySQL(windowMs int64) string {
+	return `
 		WITH active_fps AS (
 		    SELECT fingerprint
 		    FROM observability.metrics_resource
@@ -171,26 +183,29 @@ const metricSeriesQuery = `
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name = @metricName
 		)
-		SELECT timestamp, val_sum / val_count AS value
+		SELECT ` + timebucket.DisplayGrainSQL(windowMs) + ` AS timestamp,
+		       avg(val_sum / val_count)                    AS value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint   IN active_fps
 		WHERE metric_name = @metricName
 		  AND timestamp BETWEEN @start AND @end
+		GROUP BY timestamp
 		ORDER BY timestamp`
+}
 
 func (r *ClickHouseRepository) QueryProcessOpenFDsSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]MetricSeriesRow, error) {
 	var rows []MetricSeriesRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "apm.QueryProcessOpenFDsSeries",
-		&rows, metricSeriesQuery, singleMetricArgs(teamID, startMs, endMs, MetricProcessOpenFDs)...)
+		&rows, metricSeriesQuerySQL(endMs-startMs), singleMetricArgs(teamID, startMs, endMs, MetricProcessOpenFDs)...)
 	return rows, err
 }
 
 func (r *ClickHouseRepository) QueryProcessUptimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]MetricSeriesRow, error) {
 	var rows []MetricSeriesRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "apm.QueryProcessUptimeSeries",
-		&rows, metricSeriesQuery, singleMetricArgs(teamID, startMs, endMs, MetricProcessUptime)...)
+		&rows, metricSeriesQuerySQL(endMs-startMs), singleMetricArgs(teamID, startMs, endMs, MetricProcessUptime)...)
 	return rows, err
 }
 

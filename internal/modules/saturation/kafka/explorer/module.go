@@ -3,7 +3,6 @@ package explorer
 import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	saturationkafka "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -47,9 +46,7 @@ func (m *kafkaExplorerModule) Name() string { return "saturationKafkaExplorer" }
 func (m *kafkaExplorerModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service: NewService(
-			saturationkafka.NewService(saturationkafka.NewRepository(nativeQuerier)),
-		),
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
 }
 

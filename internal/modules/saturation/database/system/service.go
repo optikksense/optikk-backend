@@ -2,8 +2,8 @@ package system
 
 import (
 	"context"
-	"sort"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
@@ -16,8 +16,8 @@ func NewService(repo Repository) *Service {
 }
 
 // GetSystemLatency returns per-(time_bucket, db.operation.name) latency
-// percentiles. Repo emits histogram bucket counts; service interpolates
-// p50/p95/p99 Go-side via quantile.FromHistogram.
+// percentiles. Repo emits server-side p50/p95/p99 via quantilesTimingMerge
+// on spans_1m.latency_state; service is a pass-through.
 func (s *Service) GetSystemLatency(ctx context.Context, teamID, startMs, endMs int64, dbSystem string, f filter.Filters) ([]LatencyTimeSeries, error) {
 	rows, err := s.repo.GetSystemLatency(ctx, teamID, startMs, endMs, dbSystem, f)
 	if err != nil {
@@ -25,9 +25,9 @@ func (s *Service) GetSystemLatency(ctx context.Context, teamID, startMs, endMs i
 	}
 	out := make([]LatencyTimeSeries, len(rows))
 	for i, r := range rows {
-		p50, p95, p99 := r.P50Ms, r.P95Ms, r.P99Ms
+		p50, p95, p99 := float64(r.P50Ms), float64(r.P95Ms), float64(r.P99Ms)
 		out[i] = LatencyTimeSeries{
-			TimeBucket: r.TimeBucket,
+			TimeBucket: timebucket.BucketDateTimeString(r.TsBucket),
 			GroupBy:    r.GroupBy,
 			P50Ms:      &p50,
 			P95Ms:      &p95,
@@ -42,11 +42,10 @@ func (s *Service) GetSystemOps(ctx context.Context, teamID, startMs, endMs int64
 	if err != nil {
 		return nil, err
 	}
-	bucketSec := filter.BucketWidthSeconds(startMs, endMs)
 	out := make([]OpsTimeSeries, len(rows))
 	for i, r := range rows {
-		rate := float64(r.Count) / bucketSec
-		out[i] = OpsTimeSeries{TimeBucket: r.TimeBucket, GroupBy: r.GroupBy, OpsPerSec: &rate}
+		rate := r.OpsPerSec
+		out[i] = OpsTimeSeries{TimeBucket: timebucket.FormatDisplayBucket(r.TimeBucket), GroupBy: r.GroupBy, OpsPerSec: &rate}
 	}
 	return out, nil
 }
@@ -56,58 +55,43 @@ func (s *Service) GetSystemErrors(ctx context.Context, teamID, startMs, endMs in
 	if err != nil {
 		return nil, err
 	}
-	bucketSec := filter.BucketWidthSeconds(startMs, endMs)
 	out := make([]ErrorTimeSeries, len(rows))
 	for i, r := range rows {
-		rate := float64(r.Count) / bucketSec
-		out[i] = ErrorTimeSeries{TimeBucket: r.TimeBucket, GroupBy: r.GroupBy, ErrorsPerSec: &rate}
+		rate := r.OpsPerSec
+		out[i] = ErrorTimeSeries{TimeBucket: timebucket.FormatDisplayBucket(r.TimeBucket), GroupBy: r.GroupBy, ErrorsPerSec: &rate}
 	}
 	return out, nil
 }
 
-// GetSystemTopCollectionsByLatency interpolates per-collection p99 from
-// the bucket-count histogram and orders by p99 desc, top 20.
+// GetSystemTopCollectionsByLatency reads server-side-ranked top-20 rows
+// (p99 desc, collection_name asc); pass-through DTO mapping.
 func (s *Service) GetSystemTopCollectionsByLatency(ctx context.Context, teamID, startMs, endMs int64, dbSystem string) ([]SystemCollectionRow, error) {
 	rows, err := s.repo.GetSystemTopCollectionsByLatency(ctx, teamID, startMs, endMs, dbSystem)
 	if err != nil {
 		return nil, err
 	}
-	collections := foldCollections(rows, startMs, endMs)
-	sort.Slice(collections, func(i, j int) bool {
-		return derefOrZero(collections[i].P99Ms) > derefOrZero(collections[j].P99Ms)
-	})
-	if len(collections) > 20 {
-		collections = collections[:20]
-	}
-	return collections, nil
+	return mapCollections(rows), nil
 }
 
-// GetSystemTopCollectionsByVolume orders by ops_per_sec desc, top 20.
+// GetSystemTopCollectionsByVolume reads server-side-ranked top-20 rows
+// (ops_per_sec desc, collection_name asc); pass-through DTO mapping.
 func (s *Service) GetSystemTopCollectionsByVolume(ctx context.Context, teamID, startMs, endMs int64, dbSystem string) ([]SystemCollectionRow, error) {
 	rows, err := s.repo.GetSystemTopCollectionsByVolume(ctx, teamID, startMs, endMs, dbSystem)
 	if err != nil {
 		return nil, err
 	}
-	collections := foldCollections(rows, startMs, endMs)
-	sort.Slice(collections, func(i, j int) bool {
-		return derefOrZero(collections[i].OpsPerSec) > derefOrZero(collections[j].OpsPerSec)
-	})
-	if len(collections) > 20 {
-		collections = collections[:20]
-	}
-	return collections, nil
+	return mapCollections(rows), nil
 }
 
 func (s *Service) GetSystemNamespaces(ctx context.Context, teamID, startMs, endMs int64, dbSystem string) ([]SystemNamespace, error) {
 	return s.repo.GetSystemNamespaces(ctx, teamID, startMs, endMs, dbSystem)
 }
 
-func foldCollections(rows []collectionLatencyRawDTO, startMs, endMs int64) []SystemCollectionRow {
-	bucketSec := filter.BucketWidthSeconds(startMs, endMs)
+func mapCollections(rows []collectionLatencyRawDTO) []SystemCollectionRow {
 	out := make([]SystemCollectionRow, len(rows))
 	for i, r := range rows {
-		p99 := r.P99Ms
-		ops := float64(r.Count) / bucketSec
+		p99 := float64(r.P99Ms)
+		ops := r.OpsPerSec
 		out[i] = SystemCollectionRow{
 			CollectionName: r.CollectionName,
 			P99Ms:          &p99,
@@ -115,11 +99,4 @@ func foldCollections(rows []collectionLatencyRawDTO, startMs, endMs int64) []Sys
 		}
 	}
 	return out
-}
-
-func derefOrZero(p *float64) float64 {
-	if p == nil {
-		return 0
-	}
-	return *p
 }

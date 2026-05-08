@@ -6,9 +6,38 @@ export function tracesQueryBody(o) {
   const body = {
     startTime: o.startTime,
     endTime:   o.endTime,
-    include:   o.include || ['summary'],
     limit:     o.limit   || 50,
     cursor:    o.cursor  || '',
+  };
+  if (o.filters) {
+    for (const f of o.filters) {
+      if (f.field === 'service') body.services = [f.value];
+      if (f.field === 'http_status') body.httpStatuses = [f.value];
+      if (f.field === 'trace_id') body.traceId = f.value;
+    }
+  }
+  return body;
+}
+
+export function tracesFacetsBody(o) {
+  const body = {
+    startTime: o.startTime,
+    endTime:   o.endTime,
+  };
+  if (o.filters) {
+    for (const f of o.filters) {
+      if (f.field === 'service') body.services = [f.value];
+      if (f.field === 'http_status') body.httpStatuses = [f.value];
+      if (f.field === 'trace_id') body.traceId = f.value;
+    }
+  }
+  return body;
+}
+
+export function tracesTrendBody(o) {
+  const body = {
+    startTime: o.startTime,
+    endTime:   o.endTime,
   };
   if (o.filters) {
     for (const f of o.filters) {

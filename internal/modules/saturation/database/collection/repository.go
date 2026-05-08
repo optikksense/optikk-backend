@@ -1,14 +1,12 @@
-// Package collection serves DB-collection-scoped panels. Every method
-// PREWHEREs raw `observability.spans` on `(team_id, ts_bucket, fingerprint
-// IN active_fps)` and pins `attributes.'db.collection.name' = @collection`.
-// Latency emits a fixed-bucket histogram (service computes p99 Go-side).
 package collection
 
 import (
 	"context"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
@@ -29,30 +27,30 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 type latencyRawDTO struct {
-	TimeBucket string  `ch:"time_bucket"`
-	GroupBy    string  `ch:"group_by"`
-	P50Ms      float64 `ch:"p50_ms"`
-	P95Ms      float64 `ch:"p95_ms"`
-	P99Ms      float64 `ch:"p99_ms"`
+	TsBucket uint32  `ch:"ts_bucket"`
+	GroupBy  string  `ch:"group_by"`
+	P50Ms    float32 `ch:"p50_ms"`
+	P95Ms    float32 `ch:"p95_ms"`
+	P99Ms    float32 `ch:"p99_ms"`
 }
 
 type opsRawDTO struct {
-	TimeBucket string `ch:"time_bucket"`
-	GroupBy    string `ch:"group_by"`
-	Count      uint64 `ch:"op_count"`
+	TimeBucket time.Time `ch:"time_bucket"`
+	GroupBy    string    `ch:"group_by"`
+	OpsPerSec  float64   `ch:"ops_per_sec"`
 }
 
 type queryTextRawDTO struct {
-	QueryText  string   `ch:"query_text"`
-	Buckets    []uint64 `ch:"bucket_counts"`
-	CallCount  uint64   `ch:"call_count"`
-	ErrorCount uint64   `ch:"error_count"`
+	QueryText  string  `ch:"query_text"`
+	P99Ms      float32 `ch:"p99_ms"`
+	CallCount  uint64  `ch:"call_count"`
+	ErrorCount uint64  `ch:"error_count"`
 }
 
 type readWriteRawDTO struct {
-	TimeBucket string `ch:"time_bucket"`
-	ReadCount  uint64 `ch:"read_count"`
-	WriteCount uint64 `ch:"write_count"`
+	TimeBucket     time.Time `ch:"time_bucket"`
+	ReadOpsPerSec  float64   `ch:"read_ops_per_sec"`
+	WriteOpsPerSec float64   `ch:"write_ops_per_sec"`
 }
 
 func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID, startMs, endMs int64, collection string, f filter.Filters) ([]latencyRawDTO, error) {
@@ -63,17 +61,22 @@ func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID,
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(toDateTime(ts_bucket))                  AS time_bucket,
-		       db_operation_name                                 AS group_by,
-		       quantileTimingMerge(0.5)(latency_state)           AS p50_ms,
-		       quantileTimingMerge(0.95)(latency_state)          AS p95_ms,
-		       quantileTimingMerge(0.99)(latency_state)          AS p99_ms
-		FROM observability.spans_1m
-		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		  AND db_collection_name = @collection` + filterWhere + `
-		GROUP BY time_bucket, group_by
-		ORDER BY time_bucket, group_by`
+		SELECT ts_bucket,
+		       group_by,
+		       qs[1] AS p50_ms,
+		       qs[2] AS p95_ms,
+		       qs[3] AS p99_ms
+		FROM (
+		    SELECT ts_bucket                                              AS ts_bucket,
+		           db_operation_name                                     AS group_by,
+		           quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state)  AS qs
+		    FROM observability.spans_1m
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		    WHERE timestamp BETWEEN @start AND @end
+		      AND db_collection_name = @collection` + filterWhere + `
+		    GROUP BY ts_bucket, group_by
+		)
+		ORDER BY ts_bucket, group_by`
 
 	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("collection", collection))
 	args = append(args, filterArgs...)
@@ -89,9 +92,9 @@ func (r *ClickHouseRepository) GetCollectionOps(ctx context.Context, teamID, sta
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(toDateTime(ts_bucket))   AS time_bucket,
-		       db_operation_name                  AS group_by,
-		       toUInt64(sum(request_count))       AS op_count
+		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `                   AS time_bucket,
+		       db_operation_name                                                   AS group_by,
+		       sum(request_count) / @bucketGrainSec                                AS ops_per_sec
 		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
@@ -101,6 +104,7 @@ func (r *ClickHouseRepository) GetCollectionOps(ctx context.Context, teamID, sta
 
 	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("collection", collection))
 	args = append(args, filterArgs...)
+	args = timebucket.WithBucketGrainSec(args, startMs, endMs)
 	var rows []opsRawDTO
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionOps", &rows, query, args...)
 }
@@ -113,27 +117,24 @@ func (r *ClickHouseRepository) GetCollectionErrors(ctx context.Context, teamID, 
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(toDateTime(ts_bucket))   AS time_bucket,
-		       error_type                         AS group_by,
-		       sum(error_count)                   AS op_count
+		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `                   AS time_bucket,
+		       error_type                                                          AS group_by,
+		       sum(error_count) / @bucketGrainSec                                  AS ops_per_sec
 		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND db_collection_name = @collection` + filterWhere + `
 		GROUP BY time_bucket, group_by
-		HAVING op_count > 0
+		HAVING ops_per_sec > 0
 		ORDER BY time_bucket, group_by`
 
 	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("collection", collection))
 	args = append(args, filterArgs...)
+	args = timebucket.WithBucketGrainSec(args, startMs, endMs)
 	var rows []opsRawDTO
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionErrors", &rows, query, args...)
 }
 
-// GetCollectionQueryTexts groups raw spans by the per-call db.query.text
-// (high-cardinality free text) within one collection. Returns top-N rows
-// with their fixed-bucket latency histogram + counts. Service computes
-// p99 Go-side.
 func (r *ClickHouseRepository) GetCollectionQueryTexts(ctx context.Context, teamID, startMs, endMs int64, collection string, f filter.Filters, limit int) ([]queryTextRawDTO, error) {
 	if limit <= 0 {
 		limit = 20
@@ -144,16 +145,24 @@ func (r *ClickHouseRepository) GetCollectionQueryTexts(ctx context.Context, team
 		    SELECT fingerprint
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		),
+		grouped AS (
+		    SELECT db_statement                                                                       AS query_text,
+		           quantileTimingState(duration_nano / 1000000.0)                                     AS lat_state,
+		           count()                                                                            AS call_count,
+		           countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                  AS error_count
+		    FROM observability.spans
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		    WHERE timestamp BETWEEN @start AND @end
+		      AND attributes.'db.collection.name'::String = @collection
+		      AND db_statement != ''` + filterWhere + `
+		    GROUP BY query_text
 		)
-		SELECT db_statement                                                                       AS query_text,
-		       ` + filter.LatencyBucketCountsSQL() + `                                            AS bucket_counts,
-		       toUInt64(count())                                                                  AS call_count,
-		       countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                  AS error_count
-		FROM observability.spans
-		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		  AND attributes.'db.collection.name'::String = @collection
-		  AND db_statement != ''` + filterWhere + `
+		SELECT query_text,
+		       quantileTimingMerge(0.99)(lat_state) AS p99_ms,
+		       any(call_count)                      AS call_count,
+		       any(error_count)                     AS error_count
+		FROM grouped
 		GROUP BY query_text
 		ORDER BY call_count DESC
 		LIMIT @qLimit`
@@ -167,18 +176,16 @@ func (r *ClickHouseRepository) GetCollectionQueryTexts(ctx context.Context, team
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionQueryTexts", &rows, query, args...)
 }
 
-// GetCollectionReadVsWrite splits ops by upper(db.operation.name) within
-// one collection. Same shape as volume.GetReadVsWrite.
 func (r *ClickHouseRepository) GetCollectionReadVsWrite(ctx context.Context, teamID, startMs, endMs int64, collection string) ([]readWriteRawDTO, error) {
-	const query = `
+	query := `
 		WITH active_fps AS (
 		    SELECT fingerprint
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(toDateTime(ts_bucket))                                                                                              AS time_bucket,
-		       toUInt64(sumIf(request_count, upper(db_operation_name) IN ('SELECT','FIND','GET')))                                            AS read_count,
-		       toUInt64(sumIf(request_count, upper(db_operation_name) IN ('INSERT','UPDATE','DELETE','REPLACE','UPSERT','SET','PUT','AGGREGATE'))) AS write_count
+		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `                                                                            AS time_bucket,
+		       sumIf(request_count, upper(db_operation_name) IN ('SELECT','FIND','GET')) / @bucketGrainSec                                  AS read_ops_per_sec,
+		       sumIf(request_count, upper(db_operation_name) IN ('INSERT','UPDATE','DELETE','REPLACE','UPSERT','SET','PUT','AGGREGATE')) / @bucketGrainSec AS write_ops_per_sec
 		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
@@ -187,6 +194,7 @@ func (r *ClickHouseRepository) GetCollectionReadVsWrite(ctx context.Context, tea
 		ORDER BY time_bucket`
 
 	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("collection", collection))
+	args = timebucket.WithBucketGrainSec(args, startMs, endMs)
 	var rows []readWriteRawDTO
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionReadVsWrite", &rows, query, args...)
 }

@@ -30,17 +30,17 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 type latencyRawDTO struct {
-	TimeBucket string  `ch:"time_bucket"`
-	GroupBy    string  `ch:"group_by"`
-	P50Ms      float64 `ch:"p50_ms"`
-	P95Ms      float64 `ch:"p95_ms"`
-	P99Ms      float64 `ch:"p99_ms"`
+	TsBucket uint32  `ch:"ts_bucket"`
+	GroupBy  string  `ch:"group_by"`
+	P50Ms    float32 `ch:"p50_ms"`
+	P95Ms    float32 `ch:"p95_ms"`
+	P99Ms    float32 `ch:"p99_ms"`
 }
 
 type latencyHeatmapRawDTO struct {
-	TimeBucket  string `ch:"time_bucket"`
+	TsBucket    uint32 `ch:"ts_bucket"`
 	BucketLabel string `ch:"bucket_label"`
-	Count       int64  `ch:"count"`
+	Count       uint64 `ch:"count"`
 }
 
 func (r *ClickHouseRepository) GetLatencyBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyRawDTO, error) {
@@ -75,17 +75,22 @@ func (r *ClickHouseRepository) latencySeriesByGroup(ctx context.Context, teamID,
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(toDateTime(ts_bucket))                  AS time_bucket,
-		       ` + groupCol + `                                  AS group_by,
-		       quantileTimingMerge(0.5)(latency_state)           AS p50_ms,
-		       quantileTimingMerge(0.95)(latency_state)          AS p95_ms,
-		       quantileTimingMerge(0.99)(latency_state)          AS p99_ms
-		FROM observability.spans_1m
-		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		  AND db_system != ''` + filterWhere + `
-		GROUP BY time_bucket, group_by
-		ORDER BY time_bucket, group_by`
+		SELECT ts_bucket,
+		       group_by,
+		       qs[1] AS p50_ms,
+		       qs[2] AS p95_ms,
+		       qs[3] AS p99_ms
+		FROM (
+		    SELECT ts_bucket                                              AS ts_bucket,
+		           ` + groupCol + `                                       AS group_by,
+		           quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state)  AS qs
+		    FROM observability.spans_1m
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		    WHERE timestamp BETWEEN @start AND @end
+		      AND db_system != ''` + filterWhere + `
+		    GROUP BY ts_bucket, group_by
+		)
+		ORDER BY ts_bucket, group_by`
 
 	args := append(filter.SpanArgs(teamID, startMs, endMs), filterArgs...)
 	var rows []latencyRawDTO
@@ -103,7 +108,7 @@ func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID, st
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toString(toDateTime(ts_bucket)) AS time_bucket,
+		SELECT ts_bucket                       AS ts_bucket,
 		       multiIf(
 		           duration_nano <    1000000, '< 1ms',
 		           duration_nano <    5000000, '1-5ms',
@@ -116,13 +121,13 @@ func (r *ClickHouseRepository) GetLatencyHeatmap(ctx context.Context, teamID, st
 		           duration_nano < 1000000000, '500ms-1s',
 		           '> 1s'
 		       )                              AS bucket_label,
-		       toInt64(count())               AS count
+		       count()                        AS count
 		FROM observability.spans
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND db_system != ''` + filterWhere + `
-		GROUP BY time_bucket, bucket_label
-		ORDER BY time_bucket, bucket_label`
+		GROUP BY ts_bucket, bucket_label
+		ORDER BY ts_bucket, bucket_label`
 
 	args := append(filter.SpanArgs(teamID, startMs, endMs), filterArgs...)
 	var rows []latencyHeatmapRawDTO

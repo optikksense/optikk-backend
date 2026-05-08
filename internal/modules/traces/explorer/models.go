@@ -19,25 +19,6 @@ type Trace struct {
 	Truncated      bool     `json:"truncated,omitempty"`
 }
 
-type FacetBucket struct {
-	Value string `json:"value"`
-	Count uint64 `json:"count"`
-}
-
-type Facets struct {
-	Service    []FacetBucket `json:"service,omitempty"`
-	Operation  []FacetBucket `json:"operation,omitempty"`
-	HTTPMethod []FacetBucket `json:"http_method,omitempty"`
-	HTTPStatus []FacetBucket `json:"http_status,omitempty"`
-	Status     []FacetBucket `json:"status,omitempty"`
-}
-
-type TrendBucket struct {
-	TimeBucket string `json:"time_bucket"`
-	Total      uint64 `json:"total"`
-	Errors     uint64 `json:"errors"`
-}
-
 type PageInfo struct {
 	HasMore    bool   `json:"hasMore"`
 	NextCursor string `json:"nextCursor,omitempty"`

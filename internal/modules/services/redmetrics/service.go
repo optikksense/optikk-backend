@@ -40,7 +40,16 @@ func (s *REDMetricsService) GetSummary(ctx context.Context, teamID int64, startM
 
 	var totalCount, totalErrors int64
 	var totalP50, totalP95, totalP99 float64
-	for _, row := range rows {
+	services := make([]ServiceREDMetric, len(rows))
+	for i, row := range rows {
+		services[i] = ServiceREDMetric{
+			ServiceName:  row.ServiceName,
+			RequestCount: int64(row.TotalCount),
+			ErrorCount:   int64(row.ErrorCount),
+			AvgLatency:   utils.SanitizeFloat(float64(row.P50Ms)),
+			P95Latency:   utils.SanitizeFloat(float64(row.P95Ms)),
+			P99Latency:   utils.SanitizeFloat(float64(row.P99Ms)),
+		}
 		totalCount += int64(row.TotalCount)  //nolint:gosec // domain-bounded
 		totalErrors += int64(row.ErrorCount) //nolint:gosec // domain-bounded
 		totalP50 += utils.SanitizeFloat(float64(row.P50Ms))
@@ -62,11 +71,13 @@ func (s *REDMetricsService) GetSummary(ctx context.Context, teamID int64, startM
 	return REDSummary{
 		ServiceCount:   serviceCount,
 		TotalSpanCount: totalCount,
+		TotalErrors:    totalErrors,
 		TotalRPS:       utils.SanitizeFloat(float64(totalCount) / durationSec),
 		AvgErrorPct:    utils.SanitizeFloat(avgErrorPct),
 		AvgP50Ms:       utils.SanitizeFloat(avgP50),
 		AvgP95Ms:       utils.SanitizeFloat(avgP95),
 		AvgP99Ms:       utils.SanitizeFloat(avgP99),
+		Services:       services,
 	}, nil
 }
 
@@ -159,7 +170,7 @@ func (s *REDMetricsService) GetRequestRateTimeSeries(ctx context.Context, teamID
 	result := make([]ServiceRatePoint, len(rows))
 	for i, row := range rows {
 		result[i] = ServiceRatePoint{
-			Timestamp:   row.Timestamp,
+			Timestamp:   timebucket.BucketTime(row.TsBucket),
 			ServiceName: row.ServiceName,
 			RPS:         float64(row.RequestCount) / bucketSec,
 		}
@@ -175,7 +186,7 @@ func (s *REDMetricsService) GetP95LatencyTimeSeries(ctx context.Context, teamID 
 	result := make([]ServiceLatencyPoint, len(rows))
 	for i, row := range rows {
 		result[i] = ServiceLatencyPoint{
-			Timestamp:   row.Timestamp,
+			Timestamp:   timebucket.BucketTime(row.TsBucket),
 			ServiceName: row.ServiceName,
 			P95Ms:       utils.SanitizeFloat(float64(row.P95Ms)),
 		}
@@ -191,7 +202,7 @@ func (s *REDMetricsService) GetSpanKindBreakdown(ctx context.Context, teamID int
 	result := make([]SpanKindPoint, len(rows))
 	for i, row := range rows {
 		result[i] = SpanKindPoint{
-			Timestamp:  row.Timestamp,
+			Timestamp:  timebucket.BucketTime(row.TsBucket),
 			KindString: row.KindString,
 			SpanCount:  int64(row.SpanCount), //nolint:gosec // domain-bounded
 		}
@@ -207,7 +218,7 @@ func (s *REDMetricsService) GetErrorsByRoute(ctx context.Context, teamID int64, 
 	result := make([]ErrorByRoutePoint, len(rows))
 	for i, row := range rows {
 		result[i] = ErrorByRoutePoint{
-			Timestamp:    row.Timestamp,
+			Timestamp:    timebucket.BucketTime(row.TsBucket),
 			HttpRoute:    row.HTTPRoute,
 			RequestCount: int64(row.RequestCount), //nolint:gosec // domain-bounded
 			ErrorCount:   int64(row.ErrorCount),   //nolint:gosec // domain-bounded

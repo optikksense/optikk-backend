@@ -24,10 +24,10 @@ func (s *Service) GetDetectedSystems(ctx context.Context, teamID, startMs, endMs
 	for i, r := range rows {
 		out[i] = DetectedSystem{
 			DBSystem:      r.DBSystem,
-			SpanCount:     r.SpanCount,
-			ErrorCount:    r.ErrorCount,
+			SpanCount:     int64(r.SpanCount),  //nolint:gosec // domain-bounded
+			ErrorCount:    int64(r.ErrorCount), //nolint:gosec // domain-bounded
 			AvgLatencyMs:  r.AvgLatencyMs,
-			QueryCount:    r.SpanCount, // alias — every span is a query
+			QueryCount:    int64(r.SpanCount), //nolint:gosec // domain-bounded — alias, every span is a query
 			ServerAddress: r.ServerAddress,
 			LastSeen:      r.LastSeen.Format(time.RFC3339),
 		}
@@ -69,10 +69,10 @@ func (s *Service) GetSystemSummaries(ctx context.Context, teamID, startMs, endMs
 	for i, r := range spanRows {
 		out[i] = SystemSummary{
 			DBSystem:          r.DBSystem,
-			QueryCount:        r.QueryCount,
-			ErrorCount:        r.ErrorCount,
+			QueryCount:        int64(r.QueryCount), //nolint:gosec // domain-bounded
+			ErrorCount:        int64(r.ErrorCount), //nolint:gosec // domain-bounded
 			AvgLatencyMs:      r.AvgLatencyMs,
-			P95LatencyMs:      r.P95Ms,
+			P95LatencyMs:      float64(r.P95Ms),
 			ActiveConnections: conns[r.DBSystem],
 			ServerAddress:     r.ServerAddress,
 			LastSeen:          r.LastSeen.Format(time.RFC3339),

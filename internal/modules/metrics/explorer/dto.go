@@ -25,9 +25,9 @@ type tagValueDTO struct {
 
 // timeseriesPointDTO scans a single row from QueryTimeseries.
 type timeseriesPointDTO struct {
-	Timestamp string  `ch:"time_bucket"`
-	Sum       float64 `ch:"val_sum"`
-	Count     uint64  `ch:"val_count"`
-	Min       float64 `ch:"val_min"`
-	Max       float64 `ch:"val_max"`
+	TsBucket uint32  `ch:"ts_bucket"`
+	Sum      float64 `ch:"val_sum"`
+	Count    uint64  `ch:"val_count"`
+	Min      float64 `ch:"val_min"`
+	Max      float64 `ch:"val_max"`
 }

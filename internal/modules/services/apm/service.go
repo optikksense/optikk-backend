@@ -3,9 +3,6 @@ package apm
 import (
 	"context"
 	"time"
-
-	"github.com/Optikk-Org/optikk-backend/internal/shared/displaybucket"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/quantile"
 )
 
 type Service struct {
@@ -37,10 +34,12 @@ func (s *Service) GetRPCRequestRate(ctx context.Context, teamID int64, startMs, 
 	if err != nil {
 		return nil, err
 	}
-	return displaybucket.SumByTime(rows,
-		func(r CountSeriesRow) time.Time { return r.Timestamp },
-		func(r CountSeriesRow) float64 { return float64(r.Count) },
-		startMs, endMs), nil
+	out := make([]TimeBucket, len(rows))
+	for i, r := range rows {
+		v := float64(r.Count)
+		out[i] = TimeBucket{Timestamp: formatBucket(r.Timestamp), Value: &v}
+	}
+	return out, nil
 }
 
 func (s *Service) GetProcessCPU(ctx context.Context, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
@@ -48,11 +47,12 @@ func (s *Service) GetProcessCPU(ctx context.Context, teamID int64, startMs, endM
 	if err != nil {
 		return nil, err
 	}
-	return displaybucket.AvgByTimeAndKey(rows,
-		func(r StateSeriesRow) time.Time { return r.Timestamp },
-		func(r StateSeriesRow) string { return r.State },
-		func(r StateSeriesRow) float64 { return r.Value },
-		startMs, endMs), nil
+	out := make([]StateBucket, len(rows))
+	for i, r := range rows {
+		v := r.Value
+		out[i] = StateBucket{Timestamp: formatBucket(r.Timestamp), State: r.State, Value: &v}
+	}
+	return out, nil
 }
 
 func (s *Service) GetProcessMemory(ctx context.Context, teamID int64, startMs, endMs int64) (ProcessMemory, error) {
@@ -88,22 +88,35 @@ func (s *Service) GetUptime(ctx context.Context, teamID int64, startMs, endMs in
 	return foldGaugeSeries(rows, startMs, endMs), nil
 }
 
+// OTel RPC / messaging duration histograms are seconds-domain; the wire
+// model is ms.
+const sToMs = 1000.0
+
 func histogramSummary(row HistogramAggRow) HistogramSummary {
 	avg := 0.0
 	if row.SumHistCount > 0 {
-		avg = row.SumHistSum / float64(row.SumHistCount)
+		avg = row.SumHistSum / float64(row.SumHistCount) * sToMs
 	}
 	return HistogramSummary{
 		Avg: avg,
-		P50: quantile.FromHistogram(row.Buckets, row.Counts, 0.5),
-		P95: quantile.FromHistogram(row.Buckets, row.Counts, 0.95),
-		P99: quantile.FromHistogram(row.Buckets, row.Counts, 0.99),
+		P50: row.P50 * sToMs,
+		P95: row.P95 * sToMs,
+		P99: row.P99 * sToMs,
 	}
 }
 
-func foldGaugeSeries(rows []MetricSeriesRow, startMs, endMs int64) []TimeBucket {
-	return displaybucket.AvgByTime(rows,
-		func(r MetricSeriesRow) time.Time { return r.Timestamp },
-		func(r MetricSeriesRow) float64 { return r.Value },
-		startMs, endMs)
+func foldGaugeSeries(rows []MetricSeriesRow, _, _ int64) []TimeBucket {
+	out := make([]TimeBucket, len(rows))
+	for i, r := range rows {
+		v := r.Value
+		out[i] = TimeBucket{Timestamp: formatBucket(r.Timestamp), Value: &v}
+	}
+	return out
+}
+
+// formatBucket renders a CH-emitted display-bucket DateTime as a stable
+// UTC label. Repos already round to the display grain via
+// timebucket.DisplayGrainSQL, so this is pure formatting.
+func formatBucket(t time.Time) string {
+	return t.UTC().Format("2006-01-02 15:04:05")
 }

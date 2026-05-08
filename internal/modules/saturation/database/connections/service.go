@@ -5,8 +5,8 @@ import (
 	"sort"
 	"time"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
-	"github.com/Optikk-Org/optikk-backend/internal/shared/quantile"
 )
 
 type Service struct {
@@ -179,7 +179,10 @@ func (s *Service) GetConnectionTimeoutRate(ctx context.Context, teamID, startMs,
 	if err != nil {
 		return nil, err
 	}
-	bucketSec := filter.BucketWidthSeconds(startMs, endMs)
+	bucketSec := timebucket.DisplayGrain(endMs - startMs).Seconds()
+	if bucketSec <= 0 {
+		bucketSec = 60
+	}
 	type key struct{ bucket, pool string }
 	folded := map[key]float64{}
 	for _, r := range rows {
@@ -212,23 +215,20 @@ func (s *Service) GetConnectionUseTime(ctx context.Context, teamID, startMs, end
 	return foldHist(rows), err
 }
 
-// foldHist shapes the per-(hour-bucket, pool) merged-bucket rows from CH into
-// PoolLatencyPoint records. CH has already merged hist_buckets/hist_counts
-// across the rollup minutes that fall in each hour-bucket; this function
-// interpolates p50/p95/p99 Go-side via quantile.FromHistogram and converts
-// the seconds-domain values to milliseconds.
-//
-// Histograms here are seconds-domain (OTel default for `db.client.connection.*time`),
-// so we multiply by 1000 to get ms.
+// foldHist shapes the per-(hour-bucket, pool) percentile rows from CH (already
+// computed server-side via quantilePrometheusHistogramMerge on
+// metrics_1m.latency_state) into PoolLatencyPoint records. The metrics_1m
+// histogram for `db.client.connection.*time` is seconds-domain (OTel default),
+// so we multiply by 1000 to convert to ms.
 func foldHist(rows []histRawDTO) []PoolLatencyPoint {
 	if len(rows) == 0 {
 		return nil
 	}
 	out := make([]PoolLatencyPoint, 0, len(rows))
 	for _, r := range rows {
-		p50 := quantile.FromHistogram(r.Buckets, r.Counts, 0.5) * 1000.0
-		p95 := quantile.FromHistogram(r.Buckets, r.Counts, 0.95) * 1000.0
-		p99 := quantile.FromHistogram(r.Buckets, r.Counts, 0.99) * 1000.0
+		p50 := r.P50 * 1000.0
+		p95 := r.P95 * 1000.0
+		p99 := r.P99 * 1000.0
 		out = append(out, PoolLatencyPoint{
 			TimeBucket: bucketStr(r.Bucket),
 			PoolName:   r.PoolName,
@@ -243,9 +243,10 @@ func foldHist(rows []histRawDTO) []PoolLatencyPoint {
 	return out
 }
 
-// bucketStr formats a metric timestamp into a stable per-hour label
-// matching the metrics_resource ts_bucket grain (the natural display
-// grain for db.client.connection.* gauges sampled at 30–60s intervals).
+// bucketStr formats a metric timestamp into a stable label. Repos emit
+// buckets at the window-adaptive display grain (1m / 5m / 1h / 1d) via
+// timebucket.DisplayGrainSQL, so the format string carries minute
+// precision — sub-minute is always 00 at all four grains.
 func bucketStr(t time.Time) string {
 	return t.UTC().Format("2006-01-02 15:04:00")
 }

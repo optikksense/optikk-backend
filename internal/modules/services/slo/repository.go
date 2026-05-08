@@ -53,16 +53,16 @@ type SummaryRow struct {
 }
 
 type TimeSliceRow struct {
-	TimeBucket    time.Time `ch:"time_bucket"`
-	RequestCount  uint64    `ch:"request_count"`
-	ErrorCount    uint64    `ch:"error_count"`
-	DurationMsSum float64   `ch:"duration_ms_sum"`
+	TimeBucket    uint32  `ch:"time_bucket"`
+	RequestCount  uint64  `ch:"request_count"`
+	ErrorCount    uint64  `ch:"error_count"`
+	DurationMsSum float64 `ch:"duration_ms_sum"`
 }
 
 type BurnDownRow struct {
-	TimeBucket   time.Time `ch:"time_bucket"`
-	RequestCount uint64    `ch:"request_count"`
-	ErrorCount   uint64    `ch:"error_count"`
+	TimeBucket   uint32 `ch:"time_bucket"`
+	RequestCount uint64 `ch:"request_count"`
+	ErrorCount   uint64 `ch:"error_count"`
 }
 
 type WindowCountsRow struct {
@@ -125,7 +125,7 @@ func (r *ClickHouseRepository) GetTimeSeries(ctx context.Context, teamID int64, 
 		    PREWHERE team_id   = @teamID
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toDateTime(ts_bucket)                                                AS time_bucket,
+		SELECT ts_bucket                                                            AS time_bucket,
 		       sum(request_count)                                                   AS request_count,
 		       sum(error_count)                                                     AS error_count,
 		       sum(duration_ms_sum)                                                 AS duration_ms_sum
@@ -150,7 +150,7 @@ func (r *ClickHouseRepository) GetTimeSeriesByService(ctx context.Context, teamI
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		         AND service   = @serviceName
 		)
-		SELECT toDateTime(ts_bucket)                                                AS time_bucket,
+		SELECT ts_bucket                                                            AS time_bucket,
 		       sum(request_count)                                                   AS request_count,
 		       sum(error_count)                                                     AS error_count,
 		       sum(duration_ms_sum)                                                 AS duration_ms_sum
@@ -176,7 +176,7 @@ func (r *ClickHouseRepository) GetBurnDown(ctx context.Context, teamID int64, st
 		    PREWHERE team_id   = @teamID
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT toDateTime(ts_bucket)                                                AS time_bucket,
+		SELECT ts_bucket                                                            AS time_bucket,
 		       sum(request_count)                                                   AS request_count,
 		       sum(error_count)                                                     AS error_count
 		FROM observability.spans_1m
@@ -200,7 +200,7 @@ func (r *ClickHouseRepository) GetBurnDownByService(ctx context.Context, teamID 
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		         AND service   = @serviceName
 		)
-		SELECT toDateTime(ts_bucket)                                                AS time_bucket,
+		SELECT ts_bucket                                                            AS time_bucket,
 		       sum(request_count)                                                   AS request_count,
 		       sum(error_count)                                                     AS error_count
 		FROM observability.spans_1m

@@ -1,6 +1,10 @@
 package latency
 
-import "context"
+import (
+	"context"
+
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+)
 
 type Service struct{ repo *Repository }
 
@@ -28,7 +32,7 @@ func (s *Service) Heatmap(ctx context.Context, teamID int64, req HeatmapRequest)
 	}
 	cells := make([]HeatmapCell, len(rows))
 	for i, r := range rows {
-		cells[i] = HeatmapCell{TimeBucket: r.TimeBucket, BucketMs: r.BucketMs, Count: r.Count}
+		cells[i] = HeatmapCell{TimeBucket: timebucket.BucketDateTimeString(r.TsBucket), BucketMs: r.BucketMs, Count: r.Count}
 	}
 	return HeatmapResponse{Cells: cells}, nil
 }

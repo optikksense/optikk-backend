@@ -94,7 +94,7 @@ func (r *ClickHouseRepository) QueryPodRestarts(ctx context.Context, teamID int6
 		SELECT
 		    attributes.'k8s.pod.name'::String                        AS pod,
 		    attributes.'k8s.namespace.name'::String                  AS namespace,
-		    toInt64(max(value))                                      AS restarts
+		    max(value)                                               AS restarts
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -154,7 +154,7 @@ func (r *ClickHouseRepository) QueryPodPhases(ctx context.Context, teamID int64,
 		)
 		SELECT
 		    attributes.'k8s.pod.phase'::String  AS phase,
-		    toInt64(count())                    AS pod_count
+		    count()                             AS pod_count
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd

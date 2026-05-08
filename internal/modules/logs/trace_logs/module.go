@@ -1,6 +1,7 @@
 // Package trace_logs owns GET /api/v1/logs/trace/:traceID — fetch all logs
 // for a trace via the observability.trace_index reverse-projection table.
-// Replaces the old tracedetail GET /traces/:traceId/logs route.
+// Replaces the old per-span logs route — the bundle/detail page consumes
+// this endpoint and filters per-span Go-side / FE-side as needed.
 package trace_logs
 
 import (
