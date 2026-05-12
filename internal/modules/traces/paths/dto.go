@@ -12,7 +12,7 @@ type criticalPathRow struct {
 	ServiceName   string    `ch:"service"`
 	DurationMs    float64   `ch:"duration_ms"`
 	Timestamp     time.Time `ch:"timestamp"`
-	DurationNano  int64     `ch:"duration_nano"`
+	DurationNano  uint64    `ch:"duration_nano"`
 }
 
 // errorPathRow is the scan target for GetErrorPath.

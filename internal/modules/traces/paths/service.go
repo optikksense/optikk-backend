@@ -54,7 +54,7 @@ func indexNodes(rows []criticalPathRow) (map[string]*criticalNode, []string) {
 	var roots []string
 	for _, row := range rows {
 		startNs := row.Timestamp.UnixNano()
-		nodes[row.SpanID] = &criticalNode{row: row, startNs: startNs, subtreeEnd: startNs + row.DurationNano}
+		nodes[row.SpanID] = &criticalNode{row: row, startNs: startNs, subtreeEnd: startNs + int64(row.DurationNano)}
 		if isRootParentSpanID(row.ParentSpanID) {
 			roots = append(roots, row.SpanID)
 		}

@@ -106,10 +106,6 @@ func (r *ClickHouseRepository) GetRelatedTraces(ctx context.Context, teamID int6
 	return rows, dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "detail.GetRelatedTraces", &rows, query, args...)
 }
 
-// GetTraceSummary reads a single trace's root-span summary card. The
-// `trace_loc` CTE resolves the trace's (ts_bucket, fingerprint) pairs from
-// observability.trace_index in one PK-leading granule lookup; the spans-side
-// PREWHERE then narrows on the tuple set.
 func (r *ClickHouseRepository) GetTraceSummary(ctx context.Context, teamID int64, traceID string) (*traceSummaryRow, error) {
 	const query = `
 		WITH trace_loc AS (
@@ -202,10 +198,6 @@ func (r *ClickHouseRepository) ListSpansByTrace(ctx context.Context, teamID int6
 	)
 }
 
-// ListSpanSubtree resolves trace_id from span_id in a CTE then projects every
-// span in that trace; service-side filterSubtree keeps only descendants of the
-// root spanID. Cannot use trace_index for narrowing — it's keyed by trace_id,
-// not span_id; would require a separate span_id reverse projection.
 func (r *ClickHouseRepository) ListSpanSubtree(ctx context.Context, teamID int64, spanID string) ([]SpanListItem, error) {
 	const query = `
 		WITH start AS (
@@ -231,13 +223,11 @@ func (r *ClickHouseRepository) ListSpanSubtree(ctx context.Context, teamID int64
 		LIMIT 5000`
 	var rows []SpanListItem
 	return rows, dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "detail.ListSpanSubtree", &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("spanID", spanID),
 	)
 }
 
-// spanBucketBounds returns the 5-minute-aligned [bucketStart, bucketEnd)
-// covering [startMs, endMs] in spans_resource / spans PK terms.
 func spanBucketBounds(startMs, endMs int64) (uint32, uint32) {
 	return timebucket.BucketStart(startMs / 1000),
 		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)

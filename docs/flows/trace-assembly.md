@@ -96,7 +96,7 @@ flowchart TD
 | `root_operation` | String | root span name |
 | `root_status` | String | root span status code |
 | `root_http_method` | String | root span HTTP method |
-| `root_http_status` | UInt16 | root span HTTP status |
+| `root_http_status` | String | root span HTTP status |
 | `span_count` | Int64 | total spans seen |
 | `has_error` | Bool | `errorCount > 0` |
 | `error_count` | Int64 | spans with error status |
