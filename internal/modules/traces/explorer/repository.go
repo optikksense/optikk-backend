@@ -66,4 +66,3 @@ func (r *Repository) ListTraces(ctx context.Context, f filter.Filters, limit int
 	}
 	return rows, hasMore, nil
 }
-

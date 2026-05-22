@@ -80,17 +80,25 @@ func (r *Repository) Summary(ctx context.Context, f filter.Filters) (SummaryRow,
 // Trend display grain is dispatched server-side via timebucket.DisplayGrainSQL
 // to the specific toStartOf{Minute,FiveMinutes,Hour,Day} per window — 10–15%
 // faster than the generic toStartOfInterval form for our 4 fixed grains.
+//
+// Mirrors Summary's shape: head ends at `WHERE timestamp BETWEEN …` so the
+// row-side `where` from filter.BuildClauses (trace_id, span_id, severities,
+// search, attributes) appends cleanly before GROUP BY/ORDER BY.
 const trendCTEHead = `
 	WITH active_fps AS (
 	    SELECT DISTINCT fingerprint
 	    FROM observability.logs_resource
 	    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd`
 
+const trendGroupOrder = `
+	GROUP BY time_bucket, severity_bucket
+	ORDER BY time_bucket ASC, severity_bucket ASC`
+
 func (r *Repository) Trend(ctx context.Context, f filter.Filters) ([]TrendRow, error) {
-	resourceWhere, _, args := filter.BuildClauses(f)
+	resourceWhere, where, args := filter.BuildClauses(f)
 	grainSQL := timebucket.DisplayGrainSQL(f.EndMs - f.StartMs)
 
-	trendTail := `
+	trendCTETail := `
 	)
 	SELECT ` + grainSQL + ` AS time_bucket,
 	       severity_bucket,
@@ -100,10 +108,8 @@ func (r *Repository) Trend(ctx context.Context, f filter.Filters) ([]TrendRow, e
 	     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 	     AND timestamp BETWEEN @start AND @end
 	     AND fingerprint IN active_fps
-	WHERE timestamp BETWEEN @start AND @end
-	GROUP BY time_bucket, severity_bucket
-	ORDER BY time_bucket ASC, severity_bucket ASC`
-	trendBare := `
+	WHERE timestamp BETWEEN @start AND @end`
+	trendBareHead := `
 	SELECT ` + grainSQL + ` AS time_bucket,
 	       severity_bucket,
 	       count() AS count
@@ -111,15 +117,13 @@ func (r *Repository) Trend(ctx context.Context, f filter.Filters) ([]TrendRow, e
 	PREWHERE team_id = @teamID
 	     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 	     AND timestamp BETWEEN @start AND @end
-	WHERE timestamp BETWEEN @start AND @end
-	GROUP BY time_bucket, severity_bucket
-	ORDER BY time_bucket ASC, severity_bucket ASC`
+	WHERE timestamp BETWEEN @start AND @end`
 
 	var query string
 	if resourceWhere == "" {
-		query = trendBare
+		query = trendBareHead + where + trendGroupOrder
 	} else {
-		query = trendCTEHead + resourceWhere + trendTail
+		query = trendCTEHead + resourceWhere + trendCTETail + where + trendGroupOrder
 	}
 	var rows []TrendRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "logsTrends.Trend",

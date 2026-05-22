@@ -5,6 +5,7 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 
+	aiobservability "github.com/Optikk-Org/optikk-backend/internal/modules/aiobservability"
 	infrastructure_connpool "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/connpool"
 	infrastructure_cpu "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/cpu"
 	infrastructure_disk "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/disk"
@@ -16,9 +17,9 @@ import (
 	infrastructure_nodes "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/nodes"
 	log_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/logs/explorer"
 	log_facets "github.com/Optikk-Org/optikk-backend/internal/modules/logs/facets"
-	log_trends "github.com/Optikk-Org/optikk-backend/internal/modules/logs/trends"
 	log_detail "github.com/Optikk-Org/optikk-backend/internal/modules/logs/logdetail"
 	log_trace_logs "github.com/Optikk-Org/optikk-backend/internal/modules/logs/trace_logs"
+	log_trends "github.com/Optikk-Org/optikk-backend/internal/modules/logs/trends"
 	metrics_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/metrics/explorer"
 	saturation_database_collection "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/collection"
 	saturation_database_connections "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/connections"
@@ -65,6 +66,7 @@ func configuredModules(
 	infraDeps *Infra,
 ) []registry.Module {
 	return []registry.Module{
+		aiobservability.NewModule(nativeQuerier, getTenant),
 		apm.NewModule(nativeQuerier, getTenant),
 		deployments.NewModule(nativeQuerier, getTenant),
 		httpmetrics.NewModule(nativeQuerier, getTenant),

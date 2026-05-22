@@ -170,6 +170,13 @@ Trace-id-scoped queries match with a plain `trace_id = @traceID` row predicate; 
 - [explorer/](internal/modules/metrics/explorer/) — `GET /metrics/names`, `GET /metrics/:metricName/tags`, `POST /metrics/explorer/query`. Reads `observability.metrics_1m` with the `metrics_resource` CTE; `ListMetricNames` uses a `WITH names AS (... metrics_resource …)` candidate-narrowing CTE then projects metric metadata. Aggregation expressions emit via `buildAggExpr` (rate divisor uses `strconv.FormatInt`, not `fmt.Sprintf`). Service `convertFEQuery` maps the FE `[{key, operator, value}]` filter shape into `filter.Filters`, validates, hands off to repo; `buildColumnarResult` folds flat per-bucket rows into the columnar `{timestamps, series}` wire shape.
 - [filter/](internal/modules/metrics/filter/) — typed `Filters{Tags []TagFilter, Aggregation, …}` + `TagFilter{Key, Operator, Value}` + `Validate()` (≤30-day clamp, `validAggregations`), `Canonical()` (alias map: `service.name`→`service`, `host.name`→`host`, `deployment.environment`→`environment`, `k8s.namespace.name`→`k8s_namespace`), `ResourceColumn()` (the 4 flat columns on `metrics_resource`), `AttrColumn()` (sanitized `attributes.\`<key>\`::String` JSON-path on `metrics_1m`), `GroupByColumn()`, `SanitizeKey()`, `BuildClauses(f) → (resourceWhere, where, args)`. Stable bind names per canonical resource key; arbitrary attribute filters use indexed `mf0`/`mf1`/… binds. (Deviates from the per-module-helper-at-the-bottom-of-repository.go convention logs/traces follow — chosen for metrics so canonicalization, sanitization, and clause emission share one home.)
 
+#### AI observability read path ([internal/modules/aiobservability/](internal/modules/aiobservability/))
+
+- `GET /api/v1/ai/llm/{request-rate-by-model,latency-by-model,error-rate-by-model,token-usage-by-model,token-usage-by-provider,cost-by-model,cost-by-provider,top-expensive-calls,top-slow-calls}`. Explicit GenAI LLM panels only, no generic summary or timeseries endpoint. Request-rate, latency, error-rate, and token-usage reads use existing `observability.metrics_1m` for `gen_ai.client.operation.duration` and `gen_ai.client.token.usage`; cost and top-call endpoints read raw `observability.spans` because cost and trace identity live in span attributes.
+- `GET /api/v1/ai/prompts/{usage-by-prompt,usage-by-version,latency-by-version,token-usage-by-version,cost-by-version,traces}`. Reads raw spans and extracts Datadog prompt-tracking JSON (`_dd.ml_obs.prompt_tracking`) plus generic `gen_ai.prompt.*` / `prompt.*` fallbacks. It does not project prompt or response body content.
+- `GET /api/v1/ai/agents/{runs-by-agent,tool-calls-by-tool,tool-errors-by-tool,tool-latency-by-tool}` and `/api/v1/ai/retrieval/{request-rate-by-store,latency-by-store,errors-by-store}`. Reads raw spans filtered by `gen_ai.operation.name` (`invoke_agent`, `execute_tool`, `retrieval`) and groups by explicit agent, tool, or store dimensions.
+- `GET /api/v1/ai/traces/query` and `/api/v1/ai/facets`. List and facet GenAI span views over raw `observability.spans`; limit is capped by `httputil.MaxPageSize`.
+
 #### Services read path ([internal/modules/services/](internal/modules/services/))
 
 - [apm/](internal/modules/services/apm/) — `GET /apm/rpc-duration`, `/apm/rpc-request-rate`, `/apm/messaging-publish-duration`, `/apm/process-cpu`, `/apm/process-memory`, `/apm/open-fds`, `/apm/uptime`. Seven repo methods, one per panel — each binds its OTel metric-name const internally (`QueryRPCDurationHistogram`, `QueryMessagingPublishDurationHistogram`, `QueryRPCRequestCountSeries`, `QueryProcessCPUStateSeries`, `QueryProcessMemoryAvg`, `QueryProcessOpenFDsSeries`, `QueryProcessUptimeSeries`). Reads `observability.metrics_1m` with `metrics_resource` CTE. Service: histogram summary (avg + P50/P95/P99 via server-side `quantilesPrometheusHistogramMerge` on `latency_state`), gauge series (`AvgByTime`), state-bucketed series (`AvgByTimeAndKey` for CPU states), multi-metric memory fold.
@@ -253,13 +260,14 @@ From [internal/app/server/modules_manifest.go](internal/app/server/modules_manif
 - **traces**: `explorer`, `detail`, `span_query`, `facets`, `paths`, `servicemap`, `shape`, `suggest`, `trend` (+ `filter` shared package)
 - **logs**: `explorer`, `logdetail` (registered as `log_detail`), `log_facets`, `log_trends`, `trace_logs` (+ `filter` and `shared/models` packages)
 - **metrics**: `explorer` (+ `filter` shared package)
+- **ai_observability**: explicit GenAI routes under `/api/v1/ai/{llm,prompts,agents,retrieval,traces,facets}`; existing `metrics_1m` + raw spans, no dedicated AI rollup table
 - **infrastructure**: `connpool`, `cpu`, `disk`, `jvm`, `kubernetes`, `memory`, `network`, `fleet`, `nodes` (+ `infraconsts` shared package)
 - **saturation**: `kafka/{producer, consumer, client, explorer}` (+ `kafka/filter` and `kafka/internal/shared` packages); `database/{collection, connections, errors, explorer, latency, slowqueries, summary, system, systems, volume}` (+ `database/filter` and `database/internal` packages)
 - **user**: `auth`, `team`, `user`
 - **saved_views**: stores per-user / per-team filter snapshots (FE explorer pages); MySQL-only, no CH
 - **ingestion** (background runners + gRPC registrars): spans, logs, metrics
 
-53 modules total.
+54 modules total.
 
 ## Key directories
 

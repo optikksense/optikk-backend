@@ -36,10 +36,10 @@ type traceIndexRowDTO struct {
 	RootOperation  string    `ch:"root_operation"`
 	RootStatus     string    `ch:"root_status"`
 	RootHTTPMethod string    `ch:"root_http_method"`
-	RootHTTPStatus uint16    `ch:"root_http_status"`
-	SpanCount      uint32    `ch:"span_count"`
+	RootHTTPStatus string    `ch:"root_http_status"`
+	SpanCount      uint8     `ch:"span_count"`
 	HasError       bool      `ch:"has_error"`
-	ErrorCount     uint32    `ch:"error_count"`
+	ErrorCount     uint8     `ch:"error_count"`
 	ServiceSet     []string  `ch:"service_set"`
 	Truncated      bool      `ch:"truncated"`
 	LastSeen       time.Time `ch:"last_seen"`

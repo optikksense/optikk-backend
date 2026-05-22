@@ -56,9 +56,9 @@ func mapTrace(d traceIndexRowDTO) Trace {
 		RootStatus:     d.RootStatus,
 		RootHTTPMethod: d.RootHTTPMethod,
 		RootHTTPStatus: d.RootHTTPStatus,
-		SpanCount:      d.SpanCount,
+		SpanCount:      uint32(d.SpanCount),
 		HasError:       d.HasError,
-		ErrorCount:     d.ErrorCount,
+		ErrorCount:     uint32(d.ErrorCount),
 		ServiceSet:     d.ServiceSet,
 		Truncated:      d.Truncated,
 	}

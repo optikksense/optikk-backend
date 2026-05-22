@@ -187,9 +187,9 @@ func mapTraceSummary(r traceSummaryRow) TraceSummary {
 		RootStatus:     r.RootStatus,
 		RootHTTPMethod: r.RootHTTPMethod,
 		RootHTTPStatus: r.RootHTTPStatus,
-		SpanCount:      r.SpanCount,
+		SpanCount:      uint32(r.SpanCount),
 		HasError:       r.HasError,
-		ErrorCount:     r.ErrorCount,
+		ErrorCount:     uint32(r.ErrorCount),
 		ServiceSet:     r.ServiceSet,
 		Truncated:      r.Truncated,
 	}

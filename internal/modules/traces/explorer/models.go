@@ -11,7 +11,7 @@ type Trace struct {
 	RootOperation  string   `json:"root_operation"`
 	RootStatus     string   `json:"root_status,omitempty"`
 	RootHTTPMethod string   `json:"root_http_method,omitempty"`
-	RootHTTPStatus uint16   `json:"root_http_status,omitempty"`
+	RootHTTPStatus string   `json:"root_http_status,omitempty"`
 	SpanCount      uint32   `json:"span_count"`
 	HasError       bool     `json:"has_error"`
 	ErrorCount     uint32   `json:"error_count"`
