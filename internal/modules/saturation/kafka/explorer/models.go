@@ -1,60 +1,61 @@
 package explorer
 
-type KafkaSummaryResponse struct {
-	TopicCount         int     `json:"topic_count"`
-	GroupCount         int     `json:"group_count"`
-	BytesPerSec        float64 `json:"bytes_per_sec"`
-	AssignedPartitions float64 `json:"assigned_partitions"`
+// Topic Domains
+type TopicThroughputRow struct {
+	Topic         string  `ch:"topic"                json:"topic"`
+	BytesPerSec   float64 `ch:"bytes_per_sec"        json:"bytes_per_sec"`
+	BytesTotal    float64 `ch:"bytes_total"           json:"bytes_total"`
+	RecordsPerSec float64 `ch:"records_per_sec"      json:"records_per_sec"`
+	RecordsTotal  float64 `ch:"records_total"         json:"records_total"`
 }
 
-type KafkaTopicRow struct {
-	Topic              string  `json:"topic"`
-	BytesPerSec        float64 `json:"bytes_per_sec"`
-	BytesTotal         float64 `json:"bytes_total"`
-	RecordsPerSec      float64 `json:"records_per_sec"`
-	RecordsTotal       float64 `json:"records_total"`
-	Lag                float64 `json:"lag"`
-	Lead               float64 `json:"lead"`
-	ConsumerGroupCount int     `json:"consumer_group_count"`
+type TopicLagRow struct {
+	Topic string  `ch:"topic" json:"topic"`
+	Lag   float64 `ch:"lag"   json:"lag"`
+	Lead  float64 `ch:"lead"  json:"lead"`
 }
 
-type KafkaGroupRow struct {
-	ConsumerGroup          string  `json:"consumer_group"`
-	AssignedPartitions     float64 `json:"assigned_partitions"`
-	CommitRate             float64 `json:"commit_rate"`
-	CommitLatencyAvgMs     float64 `json:"commit_latency_avg_ms"`
-	CommitLatencyMaxMs     float64 `json:"commit_latency_max_ms"`
-	FetchRate              float64 `json:"fetch_rate"`
-	FetchLatencyAvgMs      float64 `json:"fetch_latency_avg_ms"`
-	FetchLatencyMaxMs      float64 `json:"fetch_latency_max_ms"`
-	HeartbeatRate          float64 `json:"heartbeat_rate"`
-	FailedRebalancePerHour float64 `json:"failed_rebalance_per_hour"`
-	PollIdleRatio          float64 `json:"poll_idle_ratio"`
-	LastPollSecondsAgo     float64 `json:"last_poll_seconds_ago"`
-	ConnectionCount        float64 `json:"connection_count"`
-	TopicCount             int     `json:"topic_count"`
+type TopicConsumersRow struct {
+	Topic              string `ch:"topic"                json:"topic"`
+	ConsumerGroupCount uint64 `ch:"consumer_group_count" json:"consumer_group_count"`
 }
 
-type KafkaTopicConsumerRow struct {
-	ConsumerGroup string  `json:"consumer_group"`
-	BytesPerSec   float64 `json:"bytes_per_sec"`
-	RecordsPerSec float64 `json:"records_per_sec"`
-	Lag           float64 `json:"lag"`
-	Lead          float64 `json:"lead"`
+// Consumer Group Domains
+type GroupPartitionsRow struct {
+	ConsumerGroup      string  `ch:"consumer_group"      json:"consumer_group"`
+	AssignedPartitions float64 `ch:"assigned_partitions" json:"assigned_partitions"`
 }
 
+type GroupCommitsRow struct {
+	ConsumerGroup      string  `ch:"consumer_group"        json:"consumer_group"`
+	CommitRate         float64 `ch:"commit_rate"           json:"commit_rate"`
+	CommitLatencyAvgMs float64 `ch:"commit_latency_avg_ms" json:"commit_latency_avg_ms"`
+	CommitLatencyMaxMs float64 `ch:"commit_latency_max_ms" json:"commit_latency_max_ms"`
+}
+
+type GroupFetchesRow struct {
+	ConsumerGroup     string  `ch:"consumer_group"       json:"consumer_group"`
+	FetchRate         float64 `ch:"fetch_rate"           json:"fetch_rate"`
+	FetchLatencyAvgMs float64 `ch:"fetch_latency_avg_ms" json:"fetch_latency_avg_ms"`
+	FetchLatencyMaxMs float64 `ch:"fetch_latency_max_ms" json:"fetch_latency_max_ms"`
+}
+
+type GroupHealthRow struct {
+	ConsumerGroup          string  `ch:"consumer_group"            json:"consumer_group"`
+	HeartbeatRate          float64 `ch:"heartbeat_rate"            json:"heartbeat_rate"`
+	FailedRebalancePerHour float64 `ch:"failed_rebalance_per_hour" json:"failed_rebalance_per_hour"`
+	PollIdleRatio          float64 `ch:"poll_idle_ratio"           json:"poll_idle_ratio"`
+	LastPollSecondsAgo     float64 `ch:"last_poll_seconds_ago"     json:"last_poll_seconds_ago"`
+	ConnectionCount        float64 `ch:"connection_count"          json:"connection_count"`
+}
+
+// Legacy Trends and Detail (To be refactored or deleted in a real project, but for now we'll keep the trend points for the detail page charts if needed)
 type KafkaTopicTrendPoint struct {
 	Timestamp     string  `json:"timestamp"`
 	BytesPerSec   float64 `json:"bytes_per_sec"`
 	RecordsPerSec float64 `json:"records_per_sec"`
 	Lag           float64 `json:"lag"`
 	Lead          float64 `json:"lead"`
-}
-
-type KafkaTopicOverview struct {
-	Topic   string                 `json:"topic"`
-	Summary KafkaTopicRow          `json:"summary"`
-	Trend   []KafkaTopicTrendPoint `json:"trend"`
 }
 
 type KafkaGroupTrendPoint struct {
@@ -69,39 +70,26 @@ type KafkaGroupTrendPoint struct {
 	LastPollSecondsAgo     float64 `json:"last_poll_seconds_ago"`
 }
 
-type KafkaGroupOverview struct {
-	ConsumerGroup string                 `json:"consumer_group"`
-	Summary       KafkaGroupRow          `json:"summary"`
-	Trend         []KafkaGroupTrendPoint `json:"trend"`
-}
-
-type KafkaGroupTopicRow struct {
-	Topic         string  `json:"topic"`
-	BytesPerSec   float64 `json:"bytes_per_sec"`
-	BytesTotal    float64 `json:"bytes_total"`
-	RecordsPerSec float64 `json:"records_per_sec"`
-	RecordsTotal  float64 `json:"records_total"`
-	Lag           float64 `json:"lag"`
-	Lead          float64 `json:"lead"`
-}
-
-// ConsumerMetricSample — latest value per (consumer_group, node_id, metric_name)
-// inside the query window. argMax(value, timestamp) collapses each time series
-// to a single representative point.
-type ConsumerMetricSample struct {
-	Timestamp     string  `ch:"timestamp"     json:"timestamp"`
+// Topic-Group Intersection (for the Topic Detail consumers table)
+type TopicGroupThroughputRow struct {
 	ConsumerGroup string  `ch:"consumer_group" json:"consumer_group"`
-	NodeID        string  `ch:"node_id"        json:"node_id"`
-	MetricName    string  `ch:"metric_name"    json:"metric_name"`
-	Value         float64 `ch:"value"          json:"value"`
+	BytesPerSec   float64 `ch:"bytes_per_sec"  json:"bytes_per_sec"`
+	RecordsPerSec float64 `ch:"records_per_sec" json:"records_per_sec"`
 }
 
-// TopicMetricSample — latest value per (topic, consumer_group, metric_name)
-// inside the query window.
-type TopicMetricSample struct {
-	Timestamp     string  `ch:"timestamp"     json:"timestamp"`
-	Topic         string  `ch:"topic"          json:"topic"`
+type TopicGroupLagRow struct {
 	ConsumerGroup string  `ch:"consumer_group" json:"consumer_group"`
-	MetricName    string  `ch:"metric_name"    json:"metric_name"`
-	Value         float64 `ch:"value"          json:"value"`
+	Lag           float64 `ch:"lag"             json:"lag"`
+	Lead          float64 `ch:"lead"            json:"lead"`
+}
+
+// Group-Topic Intersection (for the Group Detail topics table)
+type GroupTopicRow struct {
+	Topic         string  `ch:"topic"           json:"topic"`
+	BytesPerSec   float64 `ch:"bytes_per_sec"   json:"bytes_per_sec"`
+	BytesTotal    float64 `ch:"bytes_total"     json:"bytes_total"`
+	RecordsPerSec float64 `ch:"records_per_sec" json:"records_per_sec"`
+	RecordsTotal  float64 `ch:"records_total"   json:"records_total"`
+	Lag           float64 `ch:"lag"             json:"lag"`
+	Lead          float64 `ch:"lead"            json:"lead"`
 }

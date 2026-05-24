@@ -5,7 +5,6 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 
-	aiobservability "github.com/Optikk-Org/optikk-backend/internal/modules/aiobservability"
 	infrastructure_connpool "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/connpool"
 	infrastructure_cpu "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/cpu"
 	infrastructure_disk "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/disk"
@@ -38,6 +37,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/services/apm"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/services/deployments"
 	services_errors "github.com/Optikk-Org/optikk-backend/internal/modules/services/errors"
+	services_hosts "github.com/Optikk-Org/optikk-backend/internal/modules/services/hosts"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/services/httpmetrics"
 	services_latency "github.com/Optikk-Org/optikk-backend/internal/modules/services/latency"
 	services_redmetrics "github.com/Optikk-Org/optikk-backend/internal/modules/services/redmetrics"
@@ -55,8 +55,6 @@ import (
 	user_auth "github.com/Optikk-Org/optikk-backend/internal/modules/user/auth"
 	user_team "github.com/Optikk-Org/optikk-backend/internal/modules/user/team"
 	user_user "github.com/Optikk-Org/optikk-backend/internal/modules/user/user"
-
-	savedviews "github.com/Optikk-Org/optikk-backend/internal/modules/saved_views"
 )
 
 func configuredModules(
@@ -66,7 +64,6 @@ func configuredModules(
 	infraDeps *Infra,
 ) []registry.Module {
 	return []registry.Module{
-		aiobservability.NewModule(nativeQuerier, getTenant),
 		apm.NewModule(nativeQuerier, getTenant),
 		deployments.NewModule(nativeQuerier, getTenant),
 		httpmetrics.NewModule(nativeQuerier, getTenant),
@@ -90,6 +87,7 @@ func configuredModules(
 		infraDeps.Ingest.Metrics,
 		infraDeps.Ingest.Spans,
 		services_errors.NewModule(nativeQuerier, getTenant),
+		services_hosts.NewModule(nativeQuerier, getTenant),
 		services_redmetrics.NewModule(nativeQuerier, getTenant),
 		services_slo.NewModule(nativeQuerier, getTenant),
 		saturation_explorer.NewModule(nativeQuerier, getTenant),
@@ -120,7 +118,5 @@ func configuredModules(
 		user_auth.NewModule(infraDeps.DB, getTenant, infraDeps.SessionManager, appConfig),
 		user_team.NewModule(infraDeps.DB, getTenant, appConfig),
 		user_user.NewModule(infraDeps.DB, getTenant, appConfig),
-
-		savedviews.NewModule(infraDeps.DB, getTenant),
 	}
 }

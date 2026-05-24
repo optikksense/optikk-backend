@@ -229,19 +229,13 @@ func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64
 		return impactAggRow{}, nil
 	}
 	const query = `
-		SELECT request_count,
-		       error_count,
-		       qs[1] AS p95_ms,
-		       qs[2] AS p99_ms
-		FROM (
-		    SELECT sum(request_count)                           AS request_count,
-		           sum(error_count)                             AS error_count,
-		           quantilesTimingMerge(0.95, 0.99)(latency_state) AS qs
-		    FROM observability.spans_1m
-		    WHERE team_id = @teamID
-		      AND service = @serviceName
-		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		)`
+		SELECT sum(request_count)                           AS request_count,
+		       sum(error_count)                             AS error_count,
+		       quantilesTimingMerge(0.95, 0.99)(latency_state) AS qs
+		FROM observability.spans_1m
+		WHERE team_id = @teamID
+		  AND service = @serviceName
+		  AND ts_bucket BETWEEN @bucketStart AND @bucketEnd`
 	var row impactAggRow
 	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
@@ -251,6 +245,10 @@ func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64
 	).ScanStruct(&row)
 	if err != nil {
 		return impactAggRow{}, err
+	}
+	if len(row.QS) >= 2 {
+		row.P95Ms = row.QS[0]
+		row.P99Ms = row.QS[1]
 	}
 	return row, nil
 }
@@ -320,26 +318,17 @@ func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID 
 
 func (r *ClickHouseRepository) GetEndpointMetricsWindow(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64, limit int) ([]endpointMetricAggRow, error) {
 	const query = `
-		SELECT operation_name,
-		       endpoint_name,
-		       http_method,
-		       request_count,
-		       error_count,
-		       qs[1] AS p95_ms,
-		       qs[2] AS p99_ms
-		FROM (
-		    SELECT name                                              AS operation_name,
-		           name                                              AS endpoint_name,
-		           http_method                                       AS http_method,
-		           sum(request_count)                                AS request_count,
-		           sum(error_count)                                  AS error_count,
-		           quantilesTimingMerge(0.95, 0.99)(latency_state)   AS qs
-		    FROM observability.spans_1m
-		    WHERE team_id = @teamID
-		      AND service = @serviceName
-		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		    GROUP BY name, http_method
-		)
+		SELECT name                                              AS operation_name,
+		       name                                              AS endpoint_name,
+		       http_method                                       AS http_method,
+		       sum(request_count)                                AS request_count,
+		       sum(error_count)                                  AS error_count,
+		       quantilesTimingMerge(0.95, 0.99)(latency_state)   AS qs
+		FROM observability.spans_1m
+		WHERE team_id = @teamID
+		  AND service = @serviceName
+		  AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		GROUP BY name, http_method
 		ORDER BY request_count DESC
 		LIMIT @limit`
 	var rows []endpointMetricAggRow
@@ -350,7 +339,16 @@ func (r *ClickHouseRepository) GetEndpointMetricsWindow(ctx context.Context, tea
 		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)+uint32(timebucket.BucketSeconds)),
 		clickhouse.Named("limit", limit),
 	)
-	return rows, err
+	if err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if len(rows[i].QS) >= 2 {
+			rows[i].P95Ms = rows[i].QS[0]
+			rows[i].P99Ms = rows[i].QS[1]
+		}
+	}
+	return rows, nil
 }
 
 // deploymentsJoinSelectWith inlines the per-method WHERE predicate into the

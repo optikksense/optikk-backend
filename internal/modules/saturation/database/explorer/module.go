@@ -28,7 +28,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 		return
 	}
 
-	v1.GET("/saturation/datastores/summary", h.GetDatastoreSummary)
 	v1.GET("/saturation/datastores/systems", h.GetDatastoreSystems)
 	v1.GET("/saturation/datastores/system/overview", h.GetDatastoreSystemOverview)
 	v1.GET("/saturation/datastores/system/servers", h.GetDatastoreSystemServers)

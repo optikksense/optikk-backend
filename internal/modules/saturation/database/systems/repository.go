@@ -106,7 +106,7 @@ func (r *ClickHouseRepository) GetActiveConnectionsBySystem(ctx context.Context,
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name = @metricName
 		)
 		SELECT attributes.'db.system'::String   AS db_system,
-		       sum(val_sum) / sum(val_count)            AS avg_used
+		       ifNotFinite(sum(val_sum) / sum(val_count), 0)            AS avg_used
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd

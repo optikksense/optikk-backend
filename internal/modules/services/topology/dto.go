@@ -4,21 +4,23 @@ package topology
 // P99 are computed server-side via quantileTimingMerge against spans_1m's
 // latency_state.
 type nodeAggRow struct {
-	ServiceName  string  `ch:"service"`
-	RequestCount uint64  `ch:"request_count"`
-	ErrorCount   uint64  `ch:"error_count"`
-	P50Ms        float32 `ch:"p50_ms"`
-	P95Ms        float32 `ch:"p95_ms"`
-	P99Ms        float32 `ch:"p99_ms"`
+	ServiceName  string    `ch:"service"`
+	RequestCount uint64    `ch:"request_count"`
+	ErrorCount   uint64    `ch:"error_count"`
+	QS           []float32 `ch:"qs"`
+	P50Ms        float32   `ch:"p50_ms"`
+	P95Ms        float32   `ch:"p95_ms"`
+	P99Ms        float32   `ch:"p99_ms"`
 }
 
 // edgeAggRow is scanned from the per-(service → peer_service) edge
 // aggregation. Same percentile shape as nodeAggRow; only p50/p95 used.
 type edgeAggRow struct {
-	Source     string  `ch:"source"`
-	Target     string  `ch:"target"`
-	CallCount  uint64  `ch:"call_count"`
-	ErrorCount uint64  `ch:"error_count"`
-	P50Ms      float32 `ch:"p50_ms"`
-	P95Ms      float32 `ch:"p95_ms"`
+	Source     string    `ch:"source"`
+	Target     string    `ch:"target"`
+	CallCount  uint64    `ch:"call_count"`
+	ErrorCount uint64    `ch:"error_count"`
+	QS         []float32 `ch:"qs"`
+	P50Ms      float32   `ch:"p50_ms"`
+	P95Ms      float32   `ch:"p95_ms"`
 }

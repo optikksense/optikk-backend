@@ -35,7 +35,7 @@ const counterSeriesByTopicQuery = `
 		SELECT
 		    timestamp                                                AS timestamp,
 		    attributes.'messaging.destination.name'::String          AS topic,
-		    val_sum / val_count AS value
+		    ifNotFinite(val_sum / val_count, 0) AS value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -63,7 +63,7 @@ const counterSeriesByGroupQuery = `
 		SELECT
 		    timestamp                                                AS timestamp,
 		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
-		    val_sum / val_count AS value
+		    ifNotFinite(val_sum / val_count, 0) AS value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -101,33 +101,36 @@ func (r *Repository) QueryReceiveLatencyByTopic(ctx context.Context, teamID int6
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name IN (@metricName, @opDuration)
 		)
-		SELECT timestamp,
-		       topic,
-		       qs[1] AS p50,
-		       qs[2] AS p95,
-		       qs[3] AS p99
-		FROM (
-		    SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `        AS timestamp,
-		           attributes.'messaging.destination.name'::String           AS topic,
-		           quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
-		    FROM observability.metrics_1m
-		    PREWHERE team_id        = @teamID
-		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		         AND fingerprint   IN active_fps
-		    WHERE (metric_name = @metricName
-		           OR (metric_name = @opDuration
-		               AND lower(attributes.'messaging.operation.name'::String) IN @opAliases))
-		      AND timestamp BETWEEN @start AND @end
-		      AND attributes.'messaging.destination.name'::String != ''
-		      AND lower(attributes.'messaging.system'::String) = 'kafka'
-		    GROUP BY timestamp, topic
-		)
+		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `        AS timestamp,
+		       attributes.'messaging.destination.name'::String           AS topic,
+		       quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE (metric_name = @metricName
+		       OR (metric_name = @opDuration
+		           AND lower(attributes.'messaging.operation.name'::String) IN @opAliases))
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'messaging.destination.name'::String != ''
+		  AND lower(attributes.'messaging.system'::String) = 'kafka'
+		GROUP BY timestamp, topic
 		ORDER BY timestamp, topic`
 	args := filter.WithMetricName(filter.MetricArgs(teamID, startMs, endMs), filter.MetricReceiveDuration)
 	args = append(args, clickhouse.Named("opDuration", filter.MetricClientOperationDuration))
 	args = filter.WithOpAliases(args, filter.ReceiveOperationAliases)
 	var rows []TopicHistogramRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryReceiveLatencyByTopic", &rows, query, args...)
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryReceiveLatencyByTopic", &rows, query, args...); err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if len(rows[i].QS) >= 3 {
+			rows[i].P50 = rows[i].QS[0]
+			rows[i].P95 = rows[i].QS[1]
+			rows[i].P99 = rows[i].QS[2]
+		}
+	}
+	return rows, nil
 }
 
 func (r *Repository) QueryProcessLatencyByGroup(ctx context.Context, teamID int64, startMs, endMs int64) ([]GroupHistogramRow, error) {
@@ -139,33 +142,36 @@ func (r *Repository) QueryProcessLatencyByGroup(ctx context.Context, teamID int6
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name IN (@metricName, @opDuration)
 		)
-		SELECT timestamp,
-		       consumer_group,
-		       qs[1] AS p50,
-		       qs[2] AS p95,
-		       qs[3] AS p99
-		FROM (
-		    SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `        AS timestamp,
-		           attributes.'messaging.consumer.group.name'::String       AS consumer_group,
-		           quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
-		    FROM observability.metrics_1m
-		    PREWHERE team_id        = @teamID
-		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		         AND fingerprint   IN active_fps
-		    WHERE (metric_name = @metricName
-		           OR (metric_name = @opDuration
-		               AND lower(attributes.'messaging.operation.name'::String) IN @opAliases))
-		      AND timestamp BETWEEN @start AND @end
-		      AND attributes.'messaging.consumer.group.name'::String != ''
-		      AND lower(attributes.'messaging.system'::String) = 'kafka'
-		    GROUP BY timestamp, consumer_group
-		)
+		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `        AS timestamp,
+		       attributes.'messaging.consumer.group.name'::String       AS consumer_group,
+		       quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE (metric_name = @metricName
+		       OR (metric_name = @opDuration
+		           AND lower(attributes.'messaging.operation.name'::String) IN @opAliases))
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'messaging.consumer.group.name'::String != ''
+		  AND lower(attributes.'messaging.system'::String) = 'kafka'
+		GROUP BY timestamp, consumer_group
 		ORDER BY timestamp, consumer_group`
 	args := filter.WithMetricName(filter.MetricArgs(teamID, startMs, endMs), filter.MetricProcessDuration)
 	args = append(args, clickhouse.Named("opDuration", filter.MetricClientOperationDuration))
 	args = filter.WithOpAliases(args, filter.ProcessOperationAliases)
 	var rows []GroupHistogramRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryProcessLatencyByGroup", &rows, query, args...)
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryProcessLatencyByGroup", &rows, query, args...); err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if len(rows[i].QS) >= 3 {
+			rows[i].P50 = rows[i].QS[0]
+			rows[i].P95 = rows[i].QS[1]
+			rows[i].P99 = rows[i].QS[2]
+		}
+	}
+	return rows, nil
 }
 
 // ============================================================================
@@ -184,7 +190,7 @@ const counterErrorsByGroupQuery = `
 		    timestamp                                                AS timestamp,
 		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
 		    attributes.'error.type'::String                          AS error_type,
-		    val_sum / val_count AS value
+		    ifNotFinite(val_sum / val_count, 0) AS value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -227,7 +233,7 @@ func (r *Repository) QueryConsumerLagByGroupTopic(ctx context.Context, teamID in
 		    timestamp                                                AS timestamp,
 		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
 		    attributes.'messaging.destination.name'::String          AS topic,
-		    val_sum / val_count AS value
+		    ifNotFinite(val_sum / val_count, 0) AS value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -254,7 +260,7 @@ func (r *Repository) QueryPartitionLagSnapshot(ctx context.Context, teamID int64
 		    attributes.'messaging.destination.name'::String          AS topic,
 		    attributes.'messaging.kafka.destination.partition'::String AS partition,
 		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
-		    argMax(value, timestamp)                                 AS lag,
+		    argMax(ifNotFinite(val_sum / val_count, 0), timestamp)                   AS lag,
 		    max(timestamp)                                           AS timestamp
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
@@ -290,7 +296,7 @@ func (r *Repository) QueryRebalanceSignals(ctx context.Context, teamID int64, st
 		    timestamp                                                AS timestamp,
 		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
 		    metric_name                                              AS metric_name,
-		    val_sum / val_count AS value
+		    ifNotFinite(val_sum / val_count, 0) AS value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd

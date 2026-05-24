@@ -11,11 +11,12 @@ import (
 )
 
 type HistogramAggRow struct {
-	SumHistSum   float64 `ch:"sum_hist_sum"`
-	SumHistCount uint64  `ch:"sum_hist_count"`
-	P50          float64 `ch:"p50"`
-	P95          float64 `ch:"p95"`
-	P99          float64 `ch:"p99"`
+	SumHistSum   float64   `ch:"sum_hist_sum"`
+	SumHistCount uint64    `ch:"sum_hist_count"`
+	QS           []float64 `ch:"qs"`
+	P50          float64
+	P95          float64
+	P99          float64
 }
 
 type StatusCountRow struct {
@@ -81,28 +82,29 @@ const histogramAggQuery = `
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name = @metricName
 		)
-		SELECT sum_hist_sum,
-		       sum_hist_count,
-		       qs[1] AS p50,
-		       qs[2] AS p95,
-		       qs[3] AS p99
-		FROM (
-		    SELECT sum(hist_sum)                                                  AS sum_hist_sum,
-		           sum(hist_count)                                                AS sum_hist_count,
-		           quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
-		    FROM observability.metrics_1m
-		    PREWHERE team_id        = @teamID
-		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		         AND fingerprint   IN active_fps
-		    WHERE metric_name = @metricName
-		      AND timestamp BETWEEN @start AND @end
-		)`
+		SELECT sum(hist_sum)                                                  AS sum_hist_sum,
+		       sum(hist_count)                                                AS sum_hist_count,
+		       quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name = @metricName
+		  AND timestamp BETWEEN @start AND @end`
 
 func (r *ClickHouseRepository) queryHistogramAgg(ctx context.Context, op, metricName string, teamID int64, startMs, endMs int64) (HistogramAggRow, error) {
 	var row HistogramAggRow
 	err := dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, op,
 		&row, histogramAggQuery, metricArgs(teamID, startMs, endMs, metricName)...)
-	return row, err
+	if err != nil {
+		return HistogramAggRow{}, err
+	}
+	if len(row.QS) >= 3 {
+		row.P50 = row.QS[0]
+		row.P95 = row.QS[1]
+		row.P99 = row.QS[2]
+	}
+	return row, nil
 }
 
 func (r *ClickHouseRepository) QueryServerRequestDurationHistogram(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramAggRow, error) {

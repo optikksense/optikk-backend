@@ -36,22 +36,23 @@ func (r *Repository) Histogram(ctx context.Context, teamID int64, req HistogramR
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd` + resourceWhere + `
 		)
-		SELECT qs[1] AS p50,
-		       qs[2] AS p90,
-		       qs[3] AS p95,
-		       qs[4] AS p99,
-		       max,
-		       avg
-		FROM (
-		    SELECT quantilesTimingMerge(0.5, 0.9, 0.95, 0.99)(latency_state) AS qs,
-		           max(duration_ms_max)                                      AS max,
-		           sum(duration_ms_sum) / nullIf(sum(request_count), 0)      AS avg
-		    FROM observability.spans_1m
-		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		    WHERE timestamp BETWEEN @start AND @end` + where + `
-		)`
+		SELECT quantilesTimingMerge(0.5, 0.9, 0.95, 0.99)(latency_state) AS qs,
+		       max(duration_ms_max)                                      AS max,
+		       sum(duration_ms_sum) / nullIf(sum(request_count), 0)      AS avg
+		FROM observability.spans_1m
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end` + where
 	var out histogramRow
-	return out, dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "latency.Histogram", &out, query, args...)
+	if err := dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "latency.Histogram", &out, query, args...); err != nil {
+		return histogramRow{}, err
+	}
+	if len(out.QS) >= 4 {
+		out.P50 = out.QS[0]
+		out.P90 = out.QS[1]
+		out.P95 = out.QS[2]
+		out.P99 = out.QS[3]
+	}
+	return out, nil
 }
 
 func (r *Repository) Heatmap(ctx context.Context, teamID int64, req HeatmapRequest) ([]heatmapRow, error) {

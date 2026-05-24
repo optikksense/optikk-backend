@@ -29,7 +29,7 @@ func (r *Repository) QueryPublishRateByTopic(ctx context.Context, teamID int64, 
 		SELECT
 		    timestamp                                                AS timestamp,
 		    attributes.'messaging.destination.name'::String          AS topic,
-		    val_sum / val_count AS value
+		    ifNotFinite(val_sum / val_count, 0) AS value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -56,33 +56,36 @@ func (r *Repository) QueryPublishLatencyByTopic(ctx context.Context, teamID int6
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name IN (@metricName, @opDuration)
 		)
-		SELECT timestamp,
-		       topic,
-		       qs[1] AS p50,
-		       qs[2] AS p95,
-		       qs[3] AS p99
-		FROM (
-		    SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `        AS timestamp,
-		           attributes.'messaging.destination.name'::String           AS topic,
-		           quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
-		    FROM observability.metrics_1m
-		    PREWHERE team_id        = @teamID
-		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		         AND fingerprint   IN active_fps
-		    WHERE (metric_name = @metricName
-		           OR (metric_name = @opDuration
-		               AND lower(attributes.'messaging.operation.name'::String) IN @opAliases))
-		      AND timestamp BETWEEN @start AND @end
-		      AND attributes.'messaging.destination.name'::String != ''
-		      AND lower(attributes.'messaging.system'::String) = 'kafka'
-		    GROUP BY timestamp, topic
-		)
+		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `        AS timestamp,
+		       attributes.'messaging.destination.name'::String           AS topic,
+		       quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE (metric_name = @metricName
+		       OR (metric_name = @opDuration
+		           AND lower(attributes.'messaging.operation.name'::String) IN @opAliases))
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'messaging.destination.name'::String != ''
+		  AND lower(attributes.'messaging.system'::String) = 'kafka'
+		GROUP BY timestamp, topic
 		ORDER BY timestamp, topic`
 	args := filter.WithMetricName(filter.MetricArgs(teamID, startMs, endMs), filter.MetricPublishDuration)
 	args = append(args, clickhouse.Named("opDuration", filter.MetricClientOperationDuration))
 	args = filter.WithOpAliases(args, filter.PublishOperationAliases)
 	var rows []TopicHistogramRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryPublishLatencyByTopic", &rows, query, args...)
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryPublishLatencyByTopic", &rows, query, args...); err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if len(rows[i].QS) >= 3 {
+			rows[i].P50 = rows[i].QS[0]
+			rows[i].P95 = rows[i].QS[1]
+			rows[i].P99 = rows[i].QS[2]
+		}
+	}
+	return rows, nil
 }
 
 func (r *Repository) QueryPublishErrorsByTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopicErrorCounterRow, error) {
@@ -98,7 +101,7 @@ func (r *Repository) QueryPublishErrorsByTopic(ctx context.Context, teamID int64
 		    timestamp                                                AS timestamp,
 		    attributes.'messaging.destination.name'::String          AS topic,
 		    attributes.'error.type'::String                          AS error_type,
-		    val_sum / val_count AS value
+		    ifNotFinite(val_sum / val_count, 0) AS value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd

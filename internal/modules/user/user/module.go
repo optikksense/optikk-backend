@@ -18,13 +18,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 		return
 	}
 
-	usersGroup := v1.Group("/users")
-	{
-		usersGroup.GET("", h.GetUsers)
-		usersGroup.GET("/:id", h.GetUserByID)
-		usersGroup.POST("", h.CreateUser)
-	}
-
 	settingsGroup := v1.Group("/settings")
 	{
 		settingsGroup.GET("/profile", h.GetProfile)

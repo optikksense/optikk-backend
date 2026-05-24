@@ -83,3 +83,37 @@ type LatencyBreakdown struct {
 	SpanCount   int64   `json:"spanCount"`
 	PctOfTotal  float64 `json:"pctOfTotal"`
 }
+
+// StatusTimeSeriesPoint is one display-bucket row with span counts split by
+// the OTel http.status_code bucket (`2xx` / `4xx` / `5xx`).
+type StatusTimeSeriesPoint struct {
+	Timestamp   time.Time `json:"timestamp"`
+	Status2xx   int64     `json:"status_2xx"`
+	Status4xx   int64     `json:"status_4xx"`
+	Status5xx   int64     `json:"status_5xx"`
+	StatusOther int64     `json:"status_other"`
+}
+
+// LatencyPercentilesPoint is one display-bucket row with p50/p95/p99 latency.
+type LatencyPercentilesPoint struct {
+	Timestamp time.Time `json:"timestamp"`
+	P50Ms     float64   `json:"p50_ms"`
+	P95Ms     float64   `json:"p95_ms"`
+	P99Ms     float64   `json:"p99_ms"`
+}
+
+// TopEndpoint is one per-operation row used by the Service Detail endpoints
+// table — combines rate, error %, and p50/p95/p99 latency.
+type TopEndpoint struct {
+	OperationName string  `json:"operation_name"`
+	ServiceName   string  `json:"service_name"`
+	SpanKind      string  `json:"span_kind"`
+	HTTPRoute     string  `json:"http_route"`
+	RPS           float64 `json:"rps"`
+	ErrorRate     float64 `json:"error_rate"`
+	ErrorCount    int64   `json:"error_count"`
+	TotalCount    int64   `json:"total_count"`
+	P50Ms         float64 `json:"p50_ms"`
+	P95Ms         float64 `json:"p95_ms"`
+	P99Ms         float64 `json:"p99_ms"`
+}

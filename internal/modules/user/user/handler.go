@@ -23,48 +23,7 @@ func NewHandler(getTenant modulecommon.GetTenantFunc, service *Service) *Handler
 	}
 }
 
-func (h *Handler) GetUsers(c *gin.Context) {
-	users, err := h.Service.GetUsers(
-		h.GetTenant(c).TeamID,
-		modulecommon.ParseIntParam(c, "limit", 100),
-		modulecommon.ParseIntParam(c, "offset", 0),
-	)
-	if err != nil {
-		usershared.RespondServiceError(c, err, "Failed to load users")
-		return
-	}
-	modulecommon.RespondOK(c, users)
-}
 
-func (h *Handler) GetUserByID(c *gin.Context) {
-	userID, err := modulecommon.ExtractIDParam(c, "id")
-	if err != nil {
-		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Invalid user id")
-		return
-	}
-
-	user, err := h.Service.GetUserByID(userID)
-	if err != nil {
-		usershared.RespondServiceError(c, err, "User not found")
-		return
-	}
-	modulecommon.RespondOK(c, user)
-}
-
-func (h *Handler) CreateUser(c *gin.Context) {
-	var req CreateUserRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "Invalid request body")
-		return
-	}
-
-	user, err := h.Service.CreateUser(req)
-	if err != nil {
-		usershared.RespondServiceError(c, err, "Unable to create user")
-		return
-	}
-	modulecommon.RespondOK(c, user)
-}
 
 func (h *Handler) GetProfile(c *gin.Context) {
 	profile, err := h.Service.GetProfile(h.GetTenant(c).UserID)

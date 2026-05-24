@@ -20,15 +20,19 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 		return
 	}
 
-	v1.GET("/saturation/kafka/summary", h.GetKafkaSummary)
-	v1.GET("/saturation/kafka/topics", h.GetKafkaTopics)
-	v1.GET("/saturation/kafka/groups", h.GetKafkaGroups)
-	v1.GET("/saturation/kafka/topic/overview", h.GetKafkaTopicOverview)
-	v1.GET("/saturation/kafka/topic/groups", h.GetKafkaTopicGroups)
-	v1.GET("/saturation/kafka/topic/partitions", h.GetKafkaTopicPartitions)
-	v1.GET("/saturation/kafka/group/overview", h.GetKafkaGroupOverview)
-	v1.GET("/saturation/kafka/group/topics", h.GetKafkaGroupTopics)
-	v1.GET("/saturation/kafka/group/partitions", h.GetKafkaGroupPartitions)
+	v1.GET("/saturation/kafka/topics/throughput", h.GetTopicThroughput)
+	v1.GET("/saturation/kafka/topics/lag", h.GetTopicLag)
+	v1.GET("/saturation/kafka/topics/consumers", h.GetTopicConsumers)
+
+	v1.GET("/saturation/kafka/groups/partitions", h.GetGroupPartitions)
+	v1.GET("/saturation/kafka/groups/commits", h.GetGroupCommits)
+	v1.GET("/saturation/kafka/groups/fetches", h.GetGroupFetches)
+	v1.GET("/saturation/kafka/groups/health", h.GetGroupHealth)
+
+	v1.GET("/saturation/kafka/topic/groups/throughput", h.GetTopicGroupThroughput)
+	v1.GET("/saturation/kafka/topic/groups/lag", h.GetTopicGroupLag)
+
+	v1.GET("/saturation/kafka/group/topics", h.GetGroupTopics)
 }
 
 func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {

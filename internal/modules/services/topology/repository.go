@@ -34,25 +34,27 @@ func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID, startMs, en
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT service,
-		       request_count,
-		       error_count,
-		       qs[1] AS p50_ms,
-		       qs[2] AS p95_ms,
-		       qs[3] AS p99_ms
-		FROM (
-		    SELECT service                                                AS service,
-		           sum(request_count)                                     AS request_count,
-		           sum(error_count)                                       AS error_count,
-		           quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state)   AS qs
-		    FROM observability.spans_1m
-		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		    WHERE timestamp BETWEEN @start AND @end
-		      AND service != ''
-		    GROUP BY service
-		)`
+		SELECT service                                                AS service,
+		       sum(request_count)                                     AS request_count,
+		       sum(error_count)                                       AS error_count,
+		       quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state)   AS qs
+		FROM observability.spans_1m
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND service != ''
+		GROUP BY service`
 	var rows []nodeAggRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "topology.GetNodes", &rows, query, spanArgs(teamID, startMs, endMs)...)
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "topology.GetNodes", &rows, query, spanArgs(teamID, startMs, endMs)...); err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if len(rows[i].QS) >= 3 {
+			rows[i].P50Ms = rows[i].QS[0]
+			rows[i].P95Ms = rows[i].QS[1]
+			rows[i].P99Ms = rows[i].QS[2]
+		}
+	}
+	return rows, nil
 }
 
 // GetEdges derives directed edges from client-kind spans: every Client span
@@ -65,29 +67,30 @@ func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID, startMs, en
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT source,
-		       target,
-		       call_count,
-		       error_count,
-		       qs[1] AS p50_ms,
-		       qs[2] AS p95_ms
-		FROM (
-		    SELECT service                                          AS source,
-		           peer_service                                     AS target,
-		           sum(request_count)                               AS call_count,
-		           sum(error_count)                                 AS error_count,
-		           quantilesTimingMerge(0.5, 0.95)(latency_state)   AS qs
-		    FROM observability.spans_1m
-		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		    WHERE timestamp BETWEEN @start AND @end
-		      AND kind_string  = 'Client'
-		      AND service      != ''
-		      AND peer_service != ''
-		      AND service      != peer_service
-		    GROUP BY source, target
-		)`
+		SELECT service                                          AS source,
+		       peer_service                                     AS target,
+		       sum(request_count)                               AS call_count,
+		       sum(error_count)                                 AS error_count,
+		       quantilesTimingMerge(0.5, 0.95)(latency_state)   AS qs
+		FROM observability.spans_1m
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND kind_string  = 'Client'
+		  AND service      != ''
+		  AND peer_service != ''
+		  AND service      != peer_service
+		GROUP BY source, target`
 	var rows []edgeAggRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "topology.GetEdges", &rows, query, spanArgs(teamID, startMs, endMs)...)
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "topology.GetEdges", &rows, query, spanArgs(teamID, startMs, endMs)...); err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if len(rows[i].QS) >= 2 {
+			rows[i].P50Ms = rows[i].QS[0]
+			rows[i].P95Ms = rows[i].QS[1]
+		}
+	}
+	return rows, nil
 }
 
 // spanArgs binds the 5 parameters every topology query needs: team scope,

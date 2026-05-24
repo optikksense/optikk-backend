@@ -2,6 +2,7 @@ package explorer
 
 import (
 	"context"
+	"sort"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -69,40 +70,83 @@ func (r *ClickHouseRepository) ListMetricNames(ctx context.Context, teamID, star
 }
 
 func (r *ClickHouseRepository) ListTagKeys(ctx context.Context, teamID, startMs, endMs int64, metricName string) ([]TagKeyResult, error) {
-	const query = `
-		SELECT DISTINCT tag_key FROM (
-			SELECT DISTINCT arrayJoin(mapKeys(JSONAllPathsWithTypes(attributes))) AS tag_key
-			FROM observability.metrics_1m
-			PREWHERE team_id        = @teamID
-			     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-			     AND metric_name    = @metricName
-			UNION ALL
-			SELECT * FROM (
-				SELECT 'service' AS tag_key
-				UNION ALL SELECT 'host'
-				UNION ALL SELECT 'environment'
-				UNION ALL SELECT 'k8s_namespace'
-				UNION ALL SELECT 'http_method'
-				UNION ALL SELECT 'http_status_code'
-			)
-		)
-		ORDER BY tag_key
-		LIMIT 200`
 	bucketStart, bucketEnd := metricBucketBounds(startMs, endMs)
-	args := []any{
+
+	// Query 1: Get active fingerprints from metrics_resource
+	const fpQuery = `
+		SELECT DISTINCT fingerprint
+		FROM observability.metrics_resource
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND metric_name = @metricName`
+
+	fpArgs := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", bucketStart),
 		clickhouse.Named("bucketEnd", bucketEnd),
 		clickhouse.Named("metricName", metricName),
 	}
-	var rows []tagKeyDTO
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "metrics.ListTagKeys", &rows, query, args...); err != nil {
+
+	var fps []string
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "metrics.ListTagKeys.GetFPs", &fps, fpQuery, fpArgs...); err != nil {
 		return nil, err
 	}
-	out := make([]TagKeyResult, len(rows))
-	for i, row := range rows {
-		out[i] = TagKeyResult{TagKey: row.TagKey}
+
+	staticKeys := []TagKeyResult{
+		{TagKey: "service"},
+		{TagKey: "host"},
+		{TagKey: "environment"},
+		{TagKey: "k8s_namespace"},
+		{TagKey: "http_method"},
+		{TagKey: "http_status_code"},
 	}
+
+	if len(fps) == 0 {
+		return staticKeys, nil
+	}
+
+	// Query 2: Get dynamic keys from metrics_1m
+	const dynamicQuery = `
+		SELECT DISTINCT arrayJoin(mapKeys(JSONAllPathsWithTypes(attributes))) AS tag_key
+		FROM observability.metrics_1m
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN @fps
+		     AND metric_name = @metricName
+		ORDER BY tag_key
+		LIMIT 200`
+
+	dynamicArgs := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("bucketStart", bucketStart),
+		clickhouse.Named("bucketEnd", bucketEnd),
+		clickhouse.Named("metricName", metricName),
+		clickhouse.Named("fps", fps),
+	}
+
+	var rows []tagKeyDTO
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "metrics.ListTagKeys.GetDynamicKeys", &rows, dynamicQuery, dynamicArgs...); err != nil {
+		return nil, err
+	}
+
+	// Combine dynamic and static keys, deduplicate, and sort
+	seen := make(map[string]bool)
+	var out []TagKeyResult
+	for _, sk := range staticKeys {
+		seen[sk.TagKey] = true
+		out = append(out, sk)
+	}
+	for _, row := range rows {
+		if !seen[row.TagKey] {
+			seen[row.TagKey] = true
+			out = append(out, TagKeyResult{TagKey: row.TagKey})
+		}
+	}
+
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].TagKey < out[j].TagKey
+	})
+
 	return out, nil
 }
 
@@ -148,24 +192,52 @@ func (r *ClickHouseRepository) listResourceTagValues(ctx context.Context, teamID
 }
 
 func (r *ClickHouseRepository) listAttributeTagValues(ctx context.Context, teamID, startMs, endMs int64, metricName, tagKey string) ([]TagValueResult, error) {
+	bucketStart, bucketEnd := metricBucketBounds(startMs, endMs)
+
+	// Query 1: Get active fingerprints from metrics_resource
+	const fpQuery = `
+		SELECT DISTINCT fingerprint
+		FROM observability.metrics_resource
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND metric_name = @metricName`
+
+	fpArgs := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("bucketStart", bucketStart),
+		clickhouse.Named("bucketEnd", bucketEnd),
+		clickhouse.Named("metricName", metricName),
+	}
+
+	var fps []string
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "metrics.ListTagValues.GetFPs", &fps, fpQuery, fpArgs...); err != nil {
+		return nil, err
+	}
+
+	if len(fps) == 0 {
+		return nil, nil
+	}
+
 	col := filter.AttrColumn(tagKey)
 	query := `
 		SELECT ` + col + ` AS tag_value,
 		       count()      AS count
 		FROM observability.metrics_1m
-		PREWHERE team_id        = @teamID
-		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		     AND metric_name    = @metricName
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN @fps
+		     AND metric_name = @metricName
 		WHERE ` + col + ` != ''
 		GROUP BY tag_value
 		ORDER BY count DESC
 		LIMIT 100`
-	bucketStart, bucketEnd := metricBucketBounds(startMs, endMs)
+
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", bucketStart),
 		clickhouse.Named("bucketEnd", bucketEnd),
 		clickhouse.Named("metricName", metricName),
+		clickhouse.Named("fps", fps),
 	}
 	var rows []tagValueDTO
 	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "metrics.ListAttributeTagValues", &rows, query, args...); err != nil {

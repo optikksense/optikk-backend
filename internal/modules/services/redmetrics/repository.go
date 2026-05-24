@@ -20,6 +20,9 @@ type Repository interface {
 	GetSpanKindBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]spanKindRawRow, error)
 	GetErrorsByRoute(ctx context.Context, teamID int64, startMs, endMs int64) ([]errorByRouteRawRow, error)
 	GetLatencyBreakdown(ctx context.Context, teamID int64, startMs, endMs int64) ([]latencyBreakdownRow, error)
+	GetStatusTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]statusBucketTimeseriesRow, error)
+	GetLatencyPercentilesTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]latencyPercentilesTimeseriesRow, error)
+	GetTopEndpointsCombined(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]topEndpointRow, error)
 }
 
 type ClickHouseRepository struct {
@@ -38,27 +41,29 @@ func (r *ClickHouseRepository) GetSummary(ctx context.Context, teamID int64, sta
 		    PREWHERE team_id   = @teamID
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT service,
-		       total_count,
-		       error_count,
-		       qs[1] AS p50_ms,
-		       qs[2] AS p95_ms,
-		       qs[3] AS p99_ms
-		FROM (
-		    SELECT service                                              AS service,
-		           sum(request_count)                                   AS total_count,
-		           sum(error_count)                                     AS error_count,
-		           quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state) AS qs
-		    FROM observability.spans_1m
-		    PREWHERE team_id     = @teamID
-		         AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
-		         AND fingerprint IN active_fps
-		    WHERE timestamp BETWEEN @start AND @end
-		    GROUP BY service
-		)`
+		SELECT service                                              AS service,
+		       sum(request_count)                                   AS total_count,
+		       sum(error_count)                                     AS error_count,
+		       quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state) AS qs
+		FROM observability.spans_1m
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		GROUP BY service`
 	var rows []redSummaryServiceRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetSummary",
-		&rows, query, spanArgs(teamID, startMs, endMs)...)
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetSummary",
+		&rows, query, spanArgs(teamID, startMs, endMs)...); err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if len(rows[i].QS) >= 3 {
+			rows[i].P50Ms = rows[i].QS[0]
+			rows[i].P95Ms = rows[i].QS[1]
+			rows[i].P99Ms = rows[i].QS[2]
+		}
+	}
+	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]apdexRow, error) {
@@ -144,34 +149,36 @@ func (r *ClickHouseRepository) GetTopSlowOperations(ctx context.Context, teamID 
 		    ORDER BY sum(request_count) DESC
 		    LIMIT @candidateLimit
 		)
-		SELECT service,
-		       operation_name,
-		       span_count,
-		       qs[1] AS p50_ms,
-		       qs[2] AS p95_ms,
-		       qs[3] AS p99_ms
-		FROM (
-		    SELECT service                                              AS service,
-		           name                                                 AS operation_name,
-		           sum(request_count)                                   AS span_count,
-		           quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state) AS qs
-		    FROM observability.spans_1m
-		    PREWHERE team_id     = @teamID
-		         AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
-		         AND fingerprint IN active_fps
-		    WHERE timestamp BETWEEN @start AND @end
-		      AND (service, name) IN (SELECT service, operation_name FROM candidates)
-		    GROUP BY service, name
-		)
-		ORDER BY p95_ms DESC
+		SELECT service                                              AS service,
+		       name                                                 AS operation_name,
+		       sum(request_count)                                   AS span_count,
+		       quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state) AS qs
+		FROM observability.spans_1m
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND (service, name) IN (SELECT service, operation_name FROM candidates)
+		GROUP BY service, name
+		ORDER BY qs[2] DESC
 		LIMIT @limit`
 	args := append(spanArgs(teamID, startMs, endMs),
 		clickhouse.Named("limit", limit),
 		clickhouse.Named("candidateLimit", limit*slowOpsCandidatePoolMultiplier),
 	)
 	var rows []slowOperationRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetTopSlowOperations",
-		&rows, query, args...)
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetTopSlowOperations",
+		&rows, query, args...); err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if len(rows[i].QS) >= 3 {
+			rows[i].P50Ms = rows[i].QS[0]
+			rows[i].P95Ms = rows[i].QS[1]
+			rows[i].P99Ms = rows[i].QS[2]
+		}
+	}
+	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetTopErrorOperations(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]errorOperationRow, error) {
