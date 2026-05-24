@@ -24,15 +24,10 @@ type Config struct {
 	Retention      RetentionConfig  `yaml:"retention"`
 	App            AppConfig        `yaml:"app"`
 	Ingestion      IngestionConfig  `yaml:"ingestion"`
-	Alerting       AlertingConfig   `yaml:"alerting"`
+
 }
 
-type AlertingConfig struct {
-	Enabled                   bool   `yaml:"enabled"`
-	EvaluationIntervalSeconds int    `yaml:"evaluation_interval_seconds"`
-	MaxConcurrentQueries      int    `yaml:"max_concurrent_queries"`
-	NotificationKafkaTopic    string `yaml:"notification_kafka_topic"`
-}
+
 
 // Load reads configuration from a YAML file with environment variable overrides.
 // If no path is provided, it defaults to "config.yml".
@@ -180,11 +175,7 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("ingestion.spans_bucket_seconds", 0)
 	v.SetDefault("ingestion.logs_bucket_seconds", 0)
 
-	// alerting
-	v.SetDefault("alerting.enabled", false)
-	v.SetDefault("alerting.evaluation_interval_seconds", 60)
-	v.SetDefault("alerting.max_concurrent_queries", 10)
-	v.SetDefault("alerting.notification_kafka_topic", "optikk.alerts.notifications")
+
 }
 
 func (c Config) validate() error {

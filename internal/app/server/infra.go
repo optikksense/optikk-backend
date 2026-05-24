@@ -44,7 +44,6 @@ type Infra struct {
 	LagPollers     []*kafkainfra.LagPoller
 
 	KafkaProducer    *kgo.Client
-	AlertingConsumer *kgo.Client
 	consumerClients  []*kgo.Client
 }
 
@@ -98,7 +97,7 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 		return nil, err
 	}
 
-	ingest, producerClient, consumerClients, alertingConsumer, lagPollers, err := buildIngest(cfg, chConn)
+	ingest, producerClient, consumerClients, lagPollers, err := buildIngest(cfg, chConn)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +114,6 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 		Ingest:          ingest,
 		LagPollers:       lagPollers,
 		KafkaProducer:    producerClient,
-		AlertingConsumer: alertingConsumer,
 		consumerClients:  consumerClients,
 	}, nil
 }
@@ -152,8 +150,8 @@ func runMigrate(conn clickhouse.Conn, database string) error {
 // buildIngest creates topics, opens one shared producer client + per-signal
 // consumer clients, and constructs the three signal modules. Returns the
 // modules bundle, the producer client (closed at shutdown), the consumer
-// clients (closed at shutdown), and the lag pollers (run by the run.Group).
-func buildIngest(cfg config.Config, ch clickhouse.Conn) (IngestModules, *kgo.Client, []*kgo.Client, *kgo.Client, []*kafkainfra.LagPoller, error) {
+// consumer clients (closed at shutdown), and the lag pollers (run by the run.Group).
+func buildIngest(cfg config.Config, ch clickhouse.Conn) (IngestModules, *kgo.Client, []*kgo.Client, []*kafkainfra.LagPoller, error) {
 	brokers := cfg.KafkaBrokers()
 	topicPrefix := cfg.KafkaTopicPrefix()
 	dlqPrefix := cfg.KafkaDLQPrefix()
@@ -169,12 +167,11 @@ func buildIngest(cfg config.Config, ch clickhouse.Conn) (IngestModules, *kgo.Cli
 		{Name: kafkainfra.DLQTopic(dlqPrefix, kafkainfra.SignalLogs), Partitions: int32(logs.Partitions), Replicas: int16(logs.Replicas), RetentionHours: logs.RetentionHours},
 		{Name: kafkainfra.IngestTopic(topicPrefix, kafkainfra.SignalMetrics), Partitions: int32(metrics.Partitions), Replicas: int16(metrics.Replicas), RetentionHours: metrics.RetentionHours},
 		{Name: kafkainfra.DLQTopic(dlqPrefix, kafkainfra.SignalMetrics), Partitions: int32(metrics.Partitions), Replicas: int16(metrics.Replicas), RetentionHours: metrics.RetentionHours},
-		{Name: cfg.Alerting.NotificationKafkaTopic, Partitions: 4, Replicas: 1, RetentionHours: 24},
 	}
 	ensureCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	if err := kafkainfra.EnsureTopics(ensureCtx, brokers, specs); err != nil {
-		return IngestModules{}, nil, nil, nil, nil, err
+		return IngestModules{}, nil, nil, nil, err
 	}
 
 	kcfg := kafkainfra.Config{
@@ -186,7 +183,7 @@ func buildIngest(cfg config.Config, ch clickhouse.Conn) (IngestModules, *kgo.Cli
 
 	producerClient, err := kafkainfra.NewProducerClient(kcfg)
 	if err != nil {
-		return IngestModules{}, nil, nil, nil, nil, fmt.Errorf("kafka producer client: %w", err)
+		return IngestModules{}, nil, nil, nil, fmt.Errorf("kafka producer client: %w", err)
 	}
 	slog.Info("kafka producer client connected", slog.Any("brokers", brokers))
 	producerBase := kafkainfra.NewProducer(producerClient)
@@ -205,7 +202,7 @@ func buildIngest(cfg config.Config, ch clickhouse.Conn) (IngestModules, *kgo.Cli
 	spansClient, err := kafkainfra.NewConsumerClient(kcfg, spans.ConsumerGroup, spansTopic)
 	if err != nil {
 		closeOnErr()
-		return IngestModules{}, nil, nil, nil, nil, fmt.Errorf("kafka spans consumer: %w", err)
+		return IngestModules{}, nil, nil, nil, fmt.Errorf("kafka spans consumer: %w", err)
 	}
 	consumerClients = append(consumerClients, spansClient)
 	lagPollers = append(lagPollers, kafkainfra.NewLagPoller(spansClient, spans.ConsumerGroup, spansTopic))
@@ -232,7 +229,7 @@ func buildIngest(cfg config.Config, ch clickhouse.Conn) (IngestModules, *kgo.Cli
 	logsClient, err := kafkainfra.NewConsumerClient(kcfg, logs.ConsumerGroup, logsTopic)
 	if err != nil {
 		closeOnErr()
-		return IngestModules{}, nil, nil, nil, nil, fmt.Errorf("kafka logs consumer: %w", err)
+		return IngestModules{}, nil, nil, nil, fmt.Errorf("kafka logs consumer: %w", err)
 	}
 	consumerClients = append(consumerClients, logsClient)
 	lagPollers = append(lagPollers, kafkainfra.NewLagPoller(logsClient, logs.ConsumerGroup, logsTopic))
@@ -259,7 +256,7 @@ func buildIngest(cfg config.Config, ch clickhouse.Conn) (IngestModules, *kgo.Cli
 	metricsClient, err := kafkainfra.NewConsumerClient(kcfg, metrics.ConsumerGroup, metricsTopic)
 	if err != nil {
 		closeOnErr()
-		return IngestModules{}, nil, nil, nil, nil, fmt.Errorf("kafka metrics consumer: %w", err)
+		return IngestModules{}, nil, nil, nil, fmt.Errorf("kafka metrics consumer: %w", err)
 	}
 	consumerClients = append(consumerClients, metricsClient)
 	lagPollers = append(lagPollers, kafkainfra.NewLagPoller(metricsClient, metrics.ConsumerGroup, metricsTopic))
@@ -281,16 +278,7 @@ func buildIngest(cfg config.Config, ch clickhouse.Conn) (IngestModules, *kgo.Cli
 		Consumer: metricsConsumer,
 	}).(*metricsignal.Module)
 
-	// alerting consumer
-	alertingTopic := cfg.Alerting.NotificationKafkaTopic
-	alertingClient, err := kafkainfra.NewConsumerClient(kcfg, "alerting_notifications", alertingTopic)
-	if err != nil {
-		closeOnErr()
-		return IngestModules{}, nil, nil, nil, nil, fmt.Errorf("kafka alerting consumer: %w", err)
-	}
-	consumerClients = append(consumerClients, alertingClient)
-
-	return IngestModules{Logs: logsMod, Metrics: metricsMod, Spans: spansMod}, producerClient, consumerClients, alertingClient, lagPollers, nil
+	return IngestModules{Logs: logsMod, Metrics: metricsMod, Spans: spansMod}, producerClient, consumerClients, lagPollers, nil
 }
 
 func (i *Infra) Close() error {
