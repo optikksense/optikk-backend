@@ -52,7 +52,7 @@ func (m *errorsModule) Name() string { return "servicesErrors" }
 func (m *errorsModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc, redisClient *goredis.Client) {
 	m.handler = &ErrorHandler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
-		Service:  NewService(NewRepository(nativeQuerier), redisClient),
+		Service:  NewService(NewRepository(nativeQuerier)),
 	}
 }
 

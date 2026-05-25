@@ -20,6 +20,7 @@ type rawServiceErrorRow struct {
 }
 
 type rawErrorGroupRow struct {
+	GroupID          string    `ch:"error_group_id"`
 	ServiceName      string    `ch:"service"`
 	OperationName    string    `ch:"operation_name"`
 	StatusMessage    string    `ch:"status_message"`
@@ -31,6 +32,7 @@ type rawErrorGroupRow struct {
 }
 
 type rawErrorGroupDetailRow struct {
+	GroupID         string    `ch:"error_group_id"`
 	ServiceName     string    `ch:"service"`
 	OperationName   string    `ch:"operation_name"`
 	StatusMessage   string    `ch:"status_message"`
