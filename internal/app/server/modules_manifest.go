@@ -86,7 +86,7 @@ func configuredModules(
 		infraDeps.Ingest.Logs,
 		infraDeps.Ingest.Metrics,
 		infraDeps.Ingest.Spans,
-		services_errors.NewModule(nativeQuerier, getTenant),
+		services_errors.NewModule(nativeQuerier, getTenant, infraDeps.RedisClient),
 		services_hosts.NewModule(nativeQuerier, getTenant),
 		services_redmetrics.NewModule(nativeQuerier, getTenant),
 		services_slo.NewModule(nativeQuerier, getTenant),

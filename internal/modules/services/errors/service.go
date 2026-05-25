@@ -2,9 +2,12 @@ package errors
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"time"
+
+	goredis "github.com/redis/go-redis/v9"
 )
 
 // tsBucketTime converts a UInt32 ts_bucket (Unix-seconds, 5-min boundary)
@@ -14,18 +17,19 @@ func tsBucketTime(b uint32) time.Time { return time.Unix(int64(b), 0).UTC() }
 // GroupIdentity is the identity tuple an ErrorGroup hash resolves back to.
 // Lives in the service layer because hash → identity resolution is service work.
 type GroupIdentity struct {
-	Service       string
-	Operation     string
-	StatusMessage string
-	HTTPCode      int
+	Service       string `json:"service"`
+	Operation     string `json:"operation"`
+	StatusMessage string `json:"status_message"`
+	HTTPCode      int    `json:"http_code"`
 }
 
 type Service struct {
-	repo Repository
+	repo        Repository
+	redisClient *goredis.Client
 }
 
-func NewService(repo Repository) *Service {
-	return &Service{repo: repo}
+func NewService(repo Repository, redisClient *goredis.Client) *Service {
+	return &Service{repo: repo, redisClient: redisClient}
 }
 
 // --- Service error rate ---
@@ -122,16 +126,34 @@ func (s *Service) GetLatencyDuringErrorWindows(ctx context.Context, teamID int64
 
 // --- Error groups ---
 
+func (s *Service) cacheGroupIdentities(ctx context.Context, teamID int64, idents map[string]GroupIdentity) {
+	if s.redisClient == nil || len(idents) == 0 {
+		return
+	}
+	pipe := s.redisClient.Pipeline()
+	for groupID, ident := range idents {
+		data, err := json.Marshal(ident)
+		if err != nil {
+			continue
+		}
+		key := fmt.Sprintf("optikk:error_group:team_%d:%s", teamID, groupID)
+		pipe.Set(ctx, key, data, 24*time.Hour)
+	}
+	_, _ = pipe.Exec(ctx)
+}
+
 func (s *Service) GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error) {
 	raw, err := s.fetchErrorGroups(ctx, teamID, startMs, endMs, serviceName, limit)
 	if err != nil {
 		return nil, err
 	}
 	groups := make([]ErrorGroup, len(raw))
+	idents := make(map[string]GroupIdentity, len(raw))
 	for i, row := range raw {
 		code := httpBucketToCode(row.HTTPStatusBucket)
+		groupID := ErrorGroupID(row.ServiceName, row.OperationName, row.StatusMessage, code)
 		groups[i] = ErrorGroup{
-			GroupID:         ErrorGroupID(row.ServiceName, row.OperationName, row.StatusMessage, code),
+			GroupID:         groupID,
 			ServiceName:     row.ServiceName,
 			OperationName:   row.OperationName,
 			StatusMessage:   row.StatusMessage,
@@ -141,7 +163,17 @@ func (s *Service) GetErrorGroups(ctx context.Context, teamID int64, startMs, end
 			FirstOccurrence: row.FirstOccurrence,
 			SampleTraceID:   row.SampleTraceID,
 		}
+		idents[groupID] = GroupIdentity{
+			Service:       row.ServiceName,
+			Operation:     row.OperationName,
+			StatusMessage: row.StatusMessage,
+			HTTPCode:      code,
+		}
 	}
+
+	// Cache resolved group identities asynchronously in Redis
+	go s.cacheGroupIdentities(context.Background(), teamID, idents)
+
 	return groups, nil
 }
 
@@ -153,25 +185,54 @@ func (s *Service) fetchErrorGroups(ctx context.Context, teamID int64, startMs, e
 }
 
 // resolveGroupID re-aggregates the error-group list for the window and finds
-// the row whose hash matches groupID. No cache: each drill-in pays for one
-// fresh aggregation.
+// the row whose hash matches groupID. Uses Redis cache first to bypass expensive ClickHouse aggregations.
 func (s *Service) resolveGroupID(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (GroupIdentity, error) {
+	// 1. Try Redis first
+	if s.redisClient != nil {
+		key := fmt.Sprintf("optikk:error_group:team_%d:%s", teamID, groupID)
+		val, err := s.redisClient.Get(ctx, key).Result()
+		if err == nil {
+			var ident GroupIdentity
+			if json.Unmarshal([]byte(val), &ident) == nil {
+				return ident, nil
+			}
+		}
+	}
+
+	// 2. Fallback to ClickHouse aggregation
 	raw, err := s.repo.ErrorGroupRowsAll(ctx, teamID, startMs, endMs, 500)
 	if err != nil {
 		return GroupIdentity{}, err
 	}
+	
+	var found GroupIdentity
+	var foundOK bool
+	identsToCache := make(map[string]GroupIdentity)
+	
 	for _, row := range raw {
 		code := httpBucketToCode(row.HTTPStatusBucket)
-		if ErrorGroupID(row.ServiceName, row.OperationName, row.StatusMessage, code) == groupID {
-			return GroupIdentity{
-				Service:       row.ServiceName,
-				Operation:     row.OperationName,
-				StatusMessage: row.StatusMessage,
-				HTTPCode:      code,
-			}, nil
+		gID := ErrorGroupID(row.ServiceName, row.OperationName, row.StatusMessage, code)
+		ident := GroupIdentity{
+			Service:       row.ServiceName,
+			Operation:     row.OperationName,
+			StatusMessage: row.StatusMessage,
+			HTTPCode:      code,
+		}
+		identsToCache[gID] = ident
+		if gID == groupID {
+			found = ident
+			foundOK = true
 		}
 	}
-	return GroupIdentity{}, fmt.Errorf("error group %s not found", groupID)
+	
+	if !foundOK {
+		return GroupIdentity{}, fmt.Errorf("error group %s not found", groupID)
+	}
+
+	// Cache back to Redis asynchronously
+	go s.cacheGroupIdentities(context.Background(), teamID, identsToCache)
+
+	return found, nil
 }
 
 func (s *Service) GetErrorGroupDetail(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (*ErrorGroupDetail, error) {
