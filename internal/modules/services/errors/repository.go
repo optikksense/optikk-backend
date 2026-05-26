@@ -285,7 +285,7 @@ func (r *ClickHouseRepository) ErrorGroupTraceRows(ctx context.Context, teamID i
 		     AND s.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		WHERE s.is_error = 1
 		  AND s.timestamp BETWEEN @start AND @end
-		  AND lower(hex(halfMD5(concat(s.service, '|', s.name, '|', s.exception_type, '|', toString(cityHash64(s.status_message)))))) = @groupID
+		  AND s.error_group_id = @groupID
 		ORDER BY s.timestamp DESC
 		LIMIT @limit`
 	args := []any{

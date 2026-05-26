@@ -4,16 +4,12 @@ import "time"
 
 // deploymentAggRow is scanned from ListDeployments aggregation.
 type deploymentAggRow struct {
-	ServiceName  string    `ch:"service"`
-	Version      string    `ch:"version"`
-	Environment  string    `ch:"environment"`
-	FirstSeen    time.Time `ch:"first_seen"`
-	LastSeen     time.Time `ch:"last_seen"`
-	SpanCount    uint64    `ch:"span_count"`
-	CommitSHA    string    `ch:"commit_sha"`
-	CommitAuthor string    `ch:"commit_author"`
-	RepoURL      string    `ch:"repo_url"`
-	PRURL        string    `ch:"pr_url"`
+	ServiceName string    `ch:"service"`
+	Version     string    `ch:"version"`
+	Environment string    `ch:"environment"`
+	FirstSeen   time.Time `ch:"first_seen"`
+	LastSeen    time.Time `ch:"last_seen"`
+	SpanCount   uint64    `ch:"span_count"`
 }
 
 // activeVersionRow is scanned from GetActiveVersion.

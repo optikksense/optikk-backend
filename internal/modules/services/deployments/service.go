@@ -80,16 +80,12 @@ func (s *deploymentService) ListDeployments(ctx context.Context, teamID int64, s
 
 func toServiceLatestDeployment(row deploymentAggRow, isActive bool) ServiceLatestDeployment {
 	return ServiceLatestDeployment{
-		ServiceName:  row.ServiceName,
-		Version:      row.Version,
-		Environment:  row.Environment,
-		DeployedAt:   row.FirstSeen,
-		LastSeenAt:   row.LastSeen,
-		IsActive:     isActive,
-		CommitSHA:    row.CommitSHA,
-		CommitAuthor: row.CommitAuthor,
-		RepoURL:      row.RepoURL,
-		PRURL:        row.PRURL,
+		ServiceName: row.ServiceName,
+		Version:     row.Version,
+		Environment: row.Environment,
+		DeployedAt:  row.FirstSeen,
+		LastSeenAt:  row.LastSeen,
+		IsActive:    isActive,
 	}
 }
 

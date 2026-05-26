@@ -33,7 +33,7 @@ func (s *topologyService) GetTopology(ctx context.Context, teamID, startMs, endM
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
-		rows, err := s.repo.GetNodes(gctx, teamID, startMs, endMs)
+		rows, err := s.repo.GetNodes(gctx, teamID, startMs, endMs, focusService)
 		if err != nil {
 			return err
 		}
@@ -41,7 +41,7 @@ func (s *topologyService) GetTopology(ctx context.Context, teamID, startMs, endM
 		return nil
 	})
 	g.Go(func() error {
-		rows, err := s.repo.GetEdges(gctx, teamID, startMs, endMs)
+		rows, err := s.repo.GetEdges(gctx, teamID, startMs, endMs, focusService)
 		if err != nil {
 			return err
 		}

@@ -47,6 +47,8 @@ CREATE TABLE IF NOT EXISTS observability.spans (
     exception_stacktrace                  String          CODEC(ZSTD(1)),
     exception_escaped                     Bool            CODEC(T64, ZSTD(1)),
 
+    error_group_id                        String          MATERIALIZED lower(hex(halfMD5(concat(service, '|', name, '|', exception_type, '|', toString(cityHash64(status_message)))))) CODEC(ZSTD(1)),
+
     operation_name           LowCardinality(String) ALIAS name,
     start_time               DateTime64(9)          ALIAS timestamp,
     duration_ms              Float64                ALIAS duration_nano / 1000000.0,

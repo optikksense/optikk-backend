@@ -2,6 +2,7 @@ package deployments
 
 import (
 	"context"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
@@ -10,10 +11,8 @@ import (
 
 // Repository runs ClickHouse queries for deployment detection. Reads
 // observability.spans_1m for span aggregates (request/error counts, latency
-// percentiles via quantileTimingMerge) and joins observability.deployments for
-// VCS metadata (commit_sha, commit_author, repo_url, pr_url). deployment_id is
-// computed inline via cityHash64(service, service_version, environment) — same
-// derivation used by the spans_to_deployments MV in 05_deployments.sql.
+// percentiles via quantileTimingMerge). Deployments are inferred from
+// service_version changes in span telemetry — no separate dimension table.
 type Repository interface {
 	ListDeployments(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) ([]deploymentAggRow, error)
 	ListServiceDeployments(ctx context.Context, teamID int64, serviceName string) ([]deploymentAggRow, error)
@@ -46,155 +45,166 @@ func bucketSecs(startMs, endMs int64) float64 {
 	}
 }
 
-const deploymentsJoinSelect = `
-	WITH rollup_agg AS (
+func (r *ClickHouseRepository) ListDeployments(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) ([]deploymentAggRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		         AND service = @serviceName
+		)
 		SELECT service                                                            AS service,
-		       service_version                                                    AS service_version,
+		       service_version                                                    AS version,
 		       environment                                                        AS environment,
-		       cityHash64(service, service_version, environment)                  AS deployment_id,
 		       min(timestamp)                                                     AS first_seen,
 		       max(timestamp)                                                     AS last_seen,
 		       sum(request_count)                                                 AS span_count
 		FROM observability.spans_1m
-		WHERE %s
+		PREWHERE team_id = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
 		  AND service_version != ''
-		GROUP BY service, service_version, environment
-	),
-	deployment_meta AS (
-		SELECT team_id,
-		       deployment_id,
-		       argMax(commit_sha, last_seen)      AS commit_sha,
-		       argMax(commit_author, last_seen)   AS commit_author,
-		       argMax(repo_url, last_seen)        AS repo_url,
-		       argMax(pr_url, last_seen)          AS pr_url
-		FROM observability.deployments
-		WHERE team_id = @teamID
-		GROUP BY team_id, deployment_id
-	)
-	SELECT r.service                          AS service,
-	       r.service_version                  AS version,
-	       r.environment                      AS environment,
-	       r.first_seen                       AS first_seen,
-	       r.last_seen                        AS last_seen,
-	       r.span_count                       AS span_count,
-	       d.commit_sha                       AS commit_sha,
-	       d.commit_author                    AS commit_author,
-	       d.repo_url                         AS repo_url,
-	       d.pr_url                           AS pr_url
-	FROM rollup_agg AS r
-	LEFT JOIN deployment_meta AS d
-	  ON d.deployment_id = r.deployment_id
-	 AND d.team_id = @teamID`
-
-func (r *ClickHouseRepository) ListDeployments(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) ([]deploymentAggRow, error) {
-	const where = `team_id = @teamID AND service = @serviceName AND ts_bucket BETWEEN @bucketStart AND @bucketEnd`
-	query := deploymentsJoinSelectWith(where) + " ORDER BY r.first_seen ASC"
+		GROUP BY service, version, environment
+		ORDER BY first_seen ASC`
 	var rows []deploymentAggRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.ListDeployments", &rows, query,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)+uint32(timebucket.BucketSeconds)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
 	return rows, err
 }
 
 func (r *ClickHouseRepository) ListServiceDeployments(ctx context.Context, teamID int64, serviceName string) ([]deploymentAggRow, error) {
-	const where = `team_id = @teamID AND service = @serviceName`
-	query := deploymentsJoinSelectWith(where) + " ORDER BY r.first_seen ASC"
+	now := time.Now()
+	start := now.Add(-90 * 24 * time.Hour)
+	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		         AND service = @serviceName
+		)
+		SELECT service                                                            AS service,
+		       service_version                                                    AS version,
+		       environment                                                        AS environment,
+		       min(timestamp)                                                     AS first_seen,
+		       max(timestamp)                                                     AS last_seen,
+		       sum(request_count)                                                 AS span_count
+		FROM observability.spans_1m
+		PREWHERE team_id = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND service_version != ''
+		GROUP BY service, version, environment
+		ORDER BY first_seen ASC`
 	var rows []deploymentAggRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.ListServiceDeployments", &rows, query,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
+		clickhouse.Named("bucketStart", timebucket.BucketStart(start.Unix())),
+		clickhouse.Named("bucketEnd", timebucket.BucketStart(now.Unix())+uint32(timebucket.BucketSeconds)),
+		clickhouse.Named("start", start),
+		clickhouse.Named("end", now),
 	)
 	return rows, err
 }
 
 func (r *ClickHouseRepository) GetLatestDeploymentsByService(ctx context.Context, teamID int64) ([]deploymentAggRow, error) {
+	now := time.Now()
+	start := now.Add(-30 * 24 * time.Hour)
 	const query = `
-		WITH rollup_agg AS (
-			SELECT service                                                            AS service,
-			       service_version                                                    AS service_version,
-			       environment                                                        AS environment,
-			       cityHash64(service, service_version, environment)                  AS deployment_id,
-			       min(timestamp)                                                     AS first_seen,
-			       max(timestamp)                                                     AS last_seen,
-			       sum(request_count)                                                 AS span_count
-			FROM observability.spans_1m
-			WHERE team_id = @teamID
-			  AND service_version != ''
-			GROUP BY service, service_version, environment
-		),
-		deployment_meta AS (
-			SELECT team_id,
-			       deployment_id,
-			       argMax(commit_sha, last_seen)      AS commit_sha,
-			       argMax(commit_author, last_seen)   AS commit_author,
-			       argMax(repo_url, last_seen)        AS repo_url,
-			       argMax(pr_url, last_seen)          AS pr_url
-			FROM observability.deployments
-			WHERE team_id = @teamID
-			GROUP BY team_id, deployment_id
-		),
-		latest AS (
-			SELECT service, max(first_seen) AS max_first_seen
-			FROM rollup_agg
-			GROUP BY service
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT r.service                          AS service,
-		       r.service_version                  AS version,
-		       r.environment                      AS environment,
-		       r.first_seen                       AS first_seen,
-		       r.last_seen                        AS last_seen,
-		       r.span_count                       AS span_count,
-		       d.commit_sha                       AS commit_sha,
-		       d.commit_author                    AS commit_author,
-		       d.repo_url                         AS repo_url,
-		       d.pr_url                           AS pr_url
-		FROM rollup_agg AS r
-		INNER JOIN latest
-		  ON r.service = latest.service
-		 AND r.first_seen = latest.max_first_seen
-		LEFT JOIN deployment_meta AS d
-		  ON d.deployment_id = r.deployment_id
-		 AND d.team_id = @teamID
-		ORDER BY r.service ASC`
+		SELECT service                                                            AS service,
+		       service_version                                                    AS version,
+		       environment                                                        AS environment,
+		       min(timestamp)                                                     AS first_seen,
+		       max(timestamp)                                                     AS last_seen,
+		       sum(request_count)                                                 AS span_count
+		FROM observability.spans_1m
+		PREWHERE team_id = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND service_version != ''
+		GROUP BY service, version, environment
+		ORDER BY service ASC, first_seen DESC
+		LIMIT 1 BY service`
 	var rows []deploymentAggRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetLatestDeploymentsByService", &rows, query,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("bucketStart", timebucket.BucketStart(start.Unix())),
+		clickhouse.Named("bucketEnd", timebucket.BucketStart(now.Unix())+uint32(timebucket.BucketSeconds)),
+		clickhouse.Named("start", start),
+		clickhouse.Named("end", now),
 	)
 	return rows, err
 }
 
 func (r *ClickHouseRepository) GetDeploysInRange(ctx context.Context, teamID int64, startMs, endMs int64) ([]deploymentAggRow, error) {
-	const where = `team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd`
-	query := deploymentsJoinSelectWith(where) + " ORDER BY r.first_seen ASC"
+	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		)
+		SELECT service                                                            AS service,
+		       service_version                                                    AS version,
+		       environment                                                        AS environment,
+		       min(timestamp)                                                     AS first_seen,
+		       max(timestamp)                                                     AS last_seen,
+		       sum(request_count)                                                 AS span_count
+		FROM observability.spans_1m
+		PREWHERE team_id = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND service_version != ''
+		GROUP BY service, version, environment
+		ORDER BY first_seen ASC`
 	var rows []deploymentAggRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetDeploysInRange", &rows, query,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)+uint32(timebucket.BucketSeconds)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
 	return rows, err
 }
 
 func (r *ClickHouseRepository) GetVersionTraffic(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) ([]VersionTrafficPoint, error) {
 	const query = `
-		WITH agg AS (
-			SELECT ts_bucket                                          AS ts_bucket,
-			       service_version                                    AS service_version,
-			       sum(request_count) / @bucketSeconds                AS rps
-			FROM observability.spans_1m
-			WHERE team_id = @teamID
-			  AND service = @serviceName
-			  AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-			  AND service_version != ''
-			GROUP BY ts_bucket, service_version
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		         AND service = @serviceName
 		)
-		SELECT ts_bucket                  AS ts_bucket,
-		       service_version            AS version,
-		       rps                        AS rps
-		FROM agg
+		SELECT ts_bucket                                                   AS ts_bucket,
+		       service_version                                             AS version,
+		       sum(request_count) / @bucketSeconds                         AS rps
+		FROM observability.spans_1m
+		PREWHERE team_id = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND service_version != ''
+		GROUP BY ts_bucket, version
 		ORDER BY ts_bucket ASC, version ASC`
 	var rows []versionTrafficRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetVersionTraffic", &rows, query,
@@ -203,6 +213,8 @@ func (r *ClickHouseRepository) GetVersionTraffic(ctx context.Context, teamID int
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)+uint32(timebucket.BucketSeconds)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
 	if err != nil {
 		return nil, err
@@ -229,19 +241,29 @@ func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64
 		return impactAggRow{}, nil
 	}
 	const query = `
-		SELECT sum(request_count)                           AS request_count,
-		       sum(error_count)                             AS error_count,
-		       quantilesTimingMerge(0.95, 0.99)(latency_state) AS qs
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		         AND service = @serviceName
+		)
+		SELECT sum(request_count)                                                 AS request_count,
+		       sum(error_count)                                                   AS error_count,
+		       quantilesTimingMerge(0.95, 0.99)(latency_state)                    AS qs
 		FROM observability.spans_1m
-		WHERE team_id = @teamID
-		  AND service = @serviceName
-		  AND ts_bucket BETWEEN @bucketStart AND @bucketEnd`
+		PREWHERE team_id = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end`
 	var row impactAggRow
 	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)+uint32(timebucket.BucketSeconds)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
 	).ScanStruct(&row)
 	if err != nil {
 		return impactAggRow{}, err
@@ -255,22 +277,24 @@ func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64
 
 func (r *ClickHouseRepository) GetActiveVersion(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (activeVersionRow, error) {
 	const query = `
-		WITH agg AS (
-			SELECT service_version                AS service_version,
-			       environment                    AS environment,
-			       max(timestamp)                 AS last_seen
-			FROM observability.spans_1m
-			WHERE team_id = @teamID
-			  AND service = @serviceName
-			  AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-			  AND is_root = 1
-			  AND service_version != ''
-			GROUP BY service_version, environment
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		         AND service = @serviceName
 		)
-		SELECT service_version AS version,
-		       environment     AS environment
-		FROM agg
-		ORDER BY last_seen DESC
+		SELECT service_version                                             AS version,
+		       environment                                                 AS environment
+		FROM observability.spans_1m
+		PREWHERE team_id = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND is_root = 1
+		  AND service_version != ''
+		GROUP BY version, environment
+		ORDER BY max(timestamp) DESC
 		LIMIT 1`
 	var rows []activeVersionRow
 	err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetActiveVersion", &rows, query,
@@ -278,6 +302,8 @@ func (r *ClickHouseRepository) GetActiveVersion(ctx context.Context, teamID int6
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)+uint32(timebucket.BucketSeconds)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
 	)
 	if err != nil || len(rows) == 0 {
 		return activeVersionRow{}, err
@@ -287,6 +313,13 @@ func (r *ClickHouseRepository) GetActiveVersion(ctx context.Context, teamID int6
 
 func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64, limit int) ([]errorGroupAggRow, error) {
 	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		         AND service = @serviceName
+		)
 		SELECT service                                                    AS service,
 		       hex(status_message_hash)                                   AS group_id,
 		       name                                                       AS operation_name,
@@ -298,9 +331,10 @@ func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID 
 		       max(timestamp)                                             AS last_occurrence,
 		       any(sample_trace_id)                                       AS sample_trace_id
 		FROM observability.spans_1m
-		WHERE team_id = @teamID
-		  AND service = @serviceName
-		  AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		PREWHERE team_id = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
 		GROUP BY service, status_message_hash, name, http_status_bucket
 		HAVING error_count > 0
 		ORDER BY error_count DESC
@@ -311,6 +345,8 @@ func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID 
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)+uint32(timebucket.BucketSeconds)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("limit", limit),
 	)
 	return rows, err
@@ -318,16 +354,24 @@ func (r *ClickHouseRepository) GetErrorGroupsWindow(ctx context.Context, teamID 
 
 func (r *ClickHouseRepository) GetEndpointMetricsWindow(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64, limit int) ([]endpointMetricAggRow, error) {
 	const query = `
-		SELECT name                                              AS operation_name,
-		       name                                              AS endpoint_name,
-		       http_method                                       AS http_method,
-		       sum(request_count)                                AS request_count,
-		       sum(error_count)                                  AS error_count,
-		       quantilesTimingMerge(0.95, 0.99)(latency_state)   AS qs
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		         AND service = @serviceName
+		)
+		SELECT name                                                       AS operation_name,
+		       name                                                       AS endpoint_name,
+		       http_method                                                AS http_method,
+		       sum(request_count)                                         AS request_count,
+		       sum(error_count)                                           AS error_count,
+		       quantilesTimingMerge(0.95, 0.99)(latency_state)            AS qs
 		FROM observability.spans_1m
-		WHERE team_id = @teamID
-		  AND service = @serviceName
-		  AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		PREWHERE team_id = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
 		GROUP BY name, http_method
 		ORDER BY request_count DESC
 		LIMIT @limit`
@@ -337,6 +381,8 @@ func (r *ClickHouseRepository) GetEndpointMetricsWindow(ctx context.Context, tea
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)+uint32(timebucket.BucketSeconds)),
+		clickhouse.Named("start", time.UnixMilli(startMs)),
+		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("limit", limit),
 	)
 	if err != nil {
@@ -350,72 +396,3 @@ func (r *ClickHouseRepository) GetEndpointMetricsWindow(ctx context.Context, tea
 	}
 	return rows, nil
 }
-
-// deploymentsJoinSelectWith inlines the per-method WHERE predicate into the
-// shared rollup_agg + deployment_meta JOIN template. We can't fmt.Sprintf SQL
-// values per project rules, but the where clause itself is a const fragment
-// not derived from any user input; method-specific predicates are bound via
-// clickhouse.Named() args. Each caller passes a fixed const string here.
-func deploymentsJoinSelectWith(whereClause string) string {
-	return `
-	WITH rollup_agg AS (
-		SELECT service                                                            AS service,
-		       service_version                                                    AS service_version,
-		       environment                                                        AS environment,
-		       cityHash64(service, service_version, environment)                  AS deployment_id,
-		       min(timestamp)                                                     AS first_seen,
-		       max(timestamp)                                                     AS last_seen,
-		       sum(request_count)                                                 AS span_count
-		FROM observability.spans_1m
-		WHERE ` + whereClause + `
-		  AND service_version != ''
-		GROUP BY service, service_version, environment
-	),
-	deployment_meta AS (
-		SELECT team_id,
-		       deployment_id,
-		       argMax(commit_sha, last_seen)      AS commit_sha,
-		       argMax(commit_author, last_seen)   AS commit_author,
-		       argMax(repo_url, last_seen)        AS repo_url,
-		       argMax(pr_url, last_seen)          AS pr_url
-		FROM observability.deployments
-		WHERE team_id = @teamID
-		GROUP BY team_id, deployment_id
-	)
-	SELECT r.service                          AS service,
-	       r.service_version                  AS version,
-	       r.environment                      AS environment,
-	       r.first_seen                       AS first_seen,
-	       r.last_seen                        AS last_seen,
-	       r.span_count                       AS span_count,
-	       d.commit_sha                       AS commit_sha,
-	       d.commit_author                    AS commit_author,
-	       d.repo_url                         AS repo_url,
-	       d.pr_url                           AS pr_url
-	FROM rollup_agg AS r
-	LEFT JOIN deployment_meta AS d
-	  ON d.deployment_id = r.deployment_id
-	 AND d.team_id = @teamID`
-}
-
-// queryIntervalMinutes returns the dashboard-step in minutes for the window.
-// Kept exported-internal for service-layer logic that bins by this step.
-func queryIntervalMinutes(tierStepMin int64, startMs, endMs int64) int64 {
-	hours := (endMs - startMs) / 3_600_000
-	var dashStep int64
-	switch {
-	case hours <= 3:
-		dashStep = 1
-	case hours <= 24:
-		dashStep = 5
-	case hours <= 168:
-		dashStep = 60
-	default:
-		dashStep = 1440
-	}
-	if tierStepMin > dashStep {
-		return tierStepMin
-	}
-	return dashStep
-}
-
