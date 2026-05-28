@@ -49,6 +49,9 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/span_query"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/suggest"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/trend"
+	alerting_evaluator "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/evaluator"
+	alerting_monitors "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/monitors"
+	alerting_notifications "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/notifications"
 	user_auth "github.com/Optikk-Org/optikk-backend/internal/modules/user/auth"
 	user_team "github.com/Optikk-Org/optikk-backend/internal/modules/user/team"
 	user_user "github.com/Optikk-Org/optikk-backend/internal/modules/user/user"
@@ -112,5 +115,9 @@ func configuredModules(
 		user_auth.NewModule(infraDeps.DB, getTenant, infraDeps.SessionManager, appConfig),
 		user_team.NewModule(infraDeps.DB, getTenant, appConfig),
 		user_user.NewModule(infraDeps.DB, getTenant, appConfig),
+
+		alerting_monitors.NewModule(infraDeps.DB, getTenant, nativeQuerier),
+		alerting_notifications.NewModule(infraDeps.DB, getTenant),
+		alerting_evaluator.NewModule(infraDeps.DB, nativeQuerier),
 	}
 }
