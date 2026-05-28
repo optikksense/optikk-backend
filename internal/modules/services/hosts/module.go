@@ -1,4 +1,4 @@
-package summary
+package hosts
 
 import (
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -16,27 +16,31 @@ func DefaultConfig() Config {
 }
 
 func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
+	if !cfg.Enabled || h == nil {
+		return
+	}
+	v1.GET("/services/:serviceName/hosts", h.GetHostsForService)
 }
 
 func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
-	module := &dbSummaryModule{}
+	module := &hostsModule{}
 	module.configure(nativeQuerier, getTenant)
 	return module
 }
 
-type dbSummaryModule struct {
+type hostsModule struct {
 	handler *Handler
 }
 
-func (m *dbSummaryModule) Name() string { return "dbSummary" }
+func (m *hostsModule) Name() string { return "serviceHosts" }
 
-func (m *dbSummaryModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
+func (m *hostsModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &Handler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service:  NewService(NewRepository(nativeQuerier)),
 	}
 }
 
-func (m *dbSummaryModule) RegisterRoutes(group *gin.RouterGroup) {
+func (m *hostsModule) RegisterRoutes(group *gin.RouterGroup) {
 	RegisterRoutes(DefaultConfig(), group, m.handler)
 }

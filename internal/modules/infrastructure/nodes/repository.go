@@ -71,26 +71,51 @@ func (r *ClickHouseRepository) QueryInfrastructureNodeSummary(ctx context.Contex
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
 		SELECT
-		    countIf(error_rate > 10)                                 AS unhealthy_nodes,
-		    countIf(error_rate > 2 AND error_rate <= 10)             AS degraded_nodes,
-		    countIf(error_rate <= 2)                                 AS healthy_nodes,
-		    sum(pod_count)                                           AS total_pods
-		FROM (
-		    SELECT
-		        host,
-		        (sum(error_count) * 100.0
-		            / nullIf(sum(request_count), 0))                 AS error_rate,
-		        uniqIf(pod, pod != '')                               AS pod_count
-		    FROM observability.spans_1m
-		    PREWHERE team_id     = @teamID
-		         AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
-		         AND fingerprint IN active_fps
-		    WHERE timestamp BETWEEN @start AND @end
-		    GROUP BY host
-		)`
+		    host,
+		    sum(error_count)      AS error_count,
+		    sum(request_count)    AS request_count,
+		    uniqIf(pod, pod != '') AS pod_count
+		FROM observability.spans_1m
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		GROUP BY host`
 	args := spanArgs(teamID, startMs, endMs)
-	var row NodeSummaryRow
-	return row, dbutil.QueryRowCH(dbutil.DashboardCtx(ctx), r.db, "nodes.QueryInfrastructureNodeSummary", &row, query, args...)
+	type nodeRawSummaryRow struct {
+		Host         string `ch:"host"`
+		ErrorCount   uint64 `ch:"error_count"`
+		RequestCount uint64 `ch:"request_count"`
+		PodCount     uint64 `ch:"pod_count"`
+	}
+	var rawRows []nodeRawSummaryRow
+	if err := dbutil.SelectCH(dbutil.DashboardCtx(ctx), r.db, "nodes.QueryInfrastructureNodeSummary", &rawRows, query, args...); err != nil {
+		return NodeSummaryRow{}, err
+	}
+
+	var healthy, degraded, unhealthy, totalPods uint64
+	for _, raw := range rawRows {
+		totalPods += raw.PodCount
+		var errorRate float64
+		if raw.RequestCount > 0 {
+			errorRate = float64(raw.ErrorCount) * 100.0 / float64(raw.RequestCount)
+		}
+		switch {
+		case errorRate > 10:
+			unhealthy++
+		case errorRate > 2 && errorRate <= 10:
+			degraded++
+		default:
+			healthy++
+		}
+	}
+
+	return NodeSummaryRow{
+		HealthyNodes:   healthy,
+		DegradedNodes:  degraded,
+		UnhealthyNodes: unhealthy,
+		TotalPods:      &totalPods,
+	}, nil
 }
 
 func (r *ClickHouseRepository) QueryInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]NodeServiceAggregateRow, error) {

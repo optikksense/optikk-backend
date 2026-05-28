@@ -27,11 +27,12 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 type latencyRawDTO struct {
-	TsBucket uint32  `ch:"ts_bucket"`
-	GroupBy  string  `ch:"group_by"`
-	P50Ms    float32 `ch:"p50_ms"`
-	P95Ms    float32 `ch:"p95_ms"`
-	P99Ms    float32 `ch:"p99_ms"`
+	TsBucket uint32    `ch:"ts_bucket"`
+	GroupBy  string    `ch:"group_by"`
+	QS       []float32 `ch:"qs"`
+	P50Ms    float32
+	P95Ms    float32
+	P99Ms    float32
 }
 
 type opsRawDTO struct {
@@ -62,26 +63,29 @@ func (r *ClickHouseRepository) GetCollectionLatency(ctx context.Context, teamID,
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
 		SELECT ts_bucket,
-		       group_by,
-		       qs[1] AS p50_ms,
-		       qs[2] AS p95_ms,
-		       qs[3] AS p99_ms
-		FROM (
-		    SELECT ts_bucket                                              AS ts_bucket,
-		           db_operation_name                                     AS group_by,
-		           quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state)  AS qs
-		    FROM observability.spans_1m
-		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		    WHERE timestamp BETWEEN @start AND @end
-		      AND db_collection_name = @collection` + filterWhere + `
-		    GROUP BY ts_bucket, group_by
-		)
+		       db_operation_name                                     AS group_by,
+		       quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state)  AS qs
+		FROM observability.spans_1m
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND db_collection_name = @collection` + filterWhere + `
+		GROUP BY ts_bucket, group_by
 		ORDER BY ts_bucket, group_by`
 
 	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("collection", collection))
 	args = append(args, filterArgs...)
 	var rows []latencyRawDTO
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionLatency", &rows, query, args...)
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "collection.GetCollectionLatency", &rows, query, args...); err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if len(rows[i].QS) >= 3 {
+			rows[i].P50Ms = rows[i].QS[0]
+			rows[i].P95Ms = rows[i].QS[1]
+			rows[i].P99Ms = rows[i].QS[2]
+		}
+	}
+	return rows, nil
 }
 
 func (r *ClickHouseRepository) GetCollectionOps(ctx context.Context, teamID, startMs, endMs int64, collection string, f filter.Filters) ([]opsRawDTO, error) {

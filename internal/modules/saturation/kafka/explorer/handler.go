@@ -41,80 +41,81 @@ func (h *Handler) handleRangeQuery(
 	modulecommon.RespondOK(c, resp)
 }
 
-func (h *Handler) GetKafkaSummary(c *gin.Context) {
-	h.handleRangeQuery(c, "Failed to query kafka explorer summary", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetKafkaSummary(c.Request.Context(), teamID, startMs, endMs)
+func (h *Handler) GetTopicThroughput(c *gin.Context) {
+	topic := c.Query("topic")
+	h.handleRangeQuery(c, "Failed to query topic throughput", func(teamID, startMs, endMs int64) (any, error) {
+		return h.Service.GetTopicThroughput(c.Request.Context(), teamID, startMs, endMs, topic)
 	})
 }
 
-func (h *Handler) GetKafkaTopics(c *gin.Context) {
-	h.handleRangeQuery(c, "Failed to query kafka topics", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetKafkaTopics(c.Request.Context(), teamID, startMs, endMs)
+func (h *Handler) GetTopicLag(c *gin.Context) {
+	topic := c.Query("topic")
+	h.handleRangeQuery(c, "Failed to query topic lag", func(teamID, startMs, endMs int64) (any, error) {
+		return h.Service.GetTopicLag(c.Request.Context(), teamID, startMs, endMs, topic)
 	})
 }
 
-func (h *Handler) GetKafkaGroups(c *gin.Context) {
-	h.handleRangeQuery(c, "Failed to query kafka consumer groups", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetKafkaGroups(c.Request.Context(), teamID, startMs, endMs)
+func (h *Handler) GetTopicConsumers(c *gin.Context) {
+	topic := c.Query("topic")
+	h.handleRangeQuery(c, "Failed to query topic consumers", func(teamID, startMs, endMs int64) (any, error) {
+		return h.Service.GetTopicConsumers(c.Request.Context(), teamID, startMs, endMs, topic)
 	})
 }
 
-func (h *Handler) GetKafkaTopicOverview(c *gin.Context) {
+func (h *Handler) GetGroupPartitions(c *gin.Context) {
+	group := c.Query("group")
+	h.handleRangeQuery(c, "Failed to query group partitions", func(teamID, startMs, endMs int64) (any, error) {
+		return h.Service.GetGroupPartitions(c.Request.Context(), teamID, startMs, endMs, group)
+	})
+}
+
+func (h *Handler) GetGroupCommits(c *gin.Context) {
+	group := c.Query("group")
+	h.handleRangeQuery(c, "Failed to query group commits", func(teamID, startMs, endMs int64) (any, error) {
+		return h.Service.GetGroupCommits(c.Request.Context(), teamID, startMs, endMs, group)
+	})
+}
+
+func (h *Handler) GetGroupFetches(c *gin.Context) {
+	group := c.Query("group")
+	h.handleRangeQuery(c, "Failed to query group fetches", func(teamID, startMs, endMs int64) (any, error) {
+		return h.Service.GetGroupFetches(c.Request.Context(), teamID, startMs, endMs, group)
+	})
+}
+
+func (h *Handler) GetGroupHealth(c *gin.Context) {
+	group := c.Query("group")
+	h.handleRangeQuery(c, "Failed to query group health", func(teamID, startMs, endMs int64) (any, error) {
+		return h.Service.GetGroupHealth(c.Request.Context(), teamID, startMs, endMs, group)
+	})
+}
+
+func (h *Handler) GetTopicGroupThroughput(c *gin.Context) {
 	topic, ok := requireQueryParam(c, "topic")
 	if !ok {
 		return
 	}
-	h.handleRangeQuery(c, "Failed to query kafka topic overview", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetKafkaTopicOverview(c.Request.Context(), teamID, startMs, endMs, topic)
+	h.handleRangeQuery(c, "Failed to query topic group throughput", func(teamID, startMs, endMs int64) (any, error) {
+		return h.Service.GetTopicGroupThroughput(c.Request.Context(), teamID, startMs, endMs, topic)
 	})
 }
 
-func (h *Handler) GetKafkaTopicGroups(c *gin.Context) {
+func (h *Handler) GetTopicGroupLag(c *gin.Context) {
 	topic, ok := requireQueryParam(c, "topic")
 	if !ok {
 		return
 	}
-	h.handleRangeQuery(c, "Failed to query kafka topic groups", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetKafkaTopicGroups(c.Request.Context(), teamID, startMs, endMs, topic)
+	h.handleRangeQuery(c, "Failed to query topic group lag", func(teamID, startMs, endMs int64) (any, error) {
+		return h.Service.GetTopicGroupLag(c.Request.Context(), teamID, startMs, endMs, topic)
 	})
 }
 
-func (h *Handler) GetKafkaTopicPartitions(c *gin.Context) {
-	topic, ok := requireQueryParam(c, "topic")
-	if !ok {
-		return
-	}
-	h.handleRangeQuery(c, "Failed to query kafka topic partitions", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetKafkaTopicPartitions(c.Request.Context(), teamID, startMs, endMs, topic)
-	})
-}
-
-func (h *Handler) GetKafkaGroupOverview(c *gin.Context) {
+func (h *Handler) GetGroupTopics(c *gin.Context) {
 	group, ok := requireQueryParam(c, "group")
 	if !ok {
 		return
 	}
-	h.handleRangeQuery(c, "Failed to query kafka group overview", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetKafkaGroupOverview(c.Request.Context(), teamID, startMs, endMs, group)
-	})
-}
-
-func (h *Handler) GetKafkaGroupTopics(c *gin.Context) {
-	group, ok := requireQueryParam(c, "group")
-	if !ok {
-		return
-	}
-	h.handleRangeQuery(c, "Failed to query kafka group topics", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetKafkaGroupTopics(c.Request.Context(), teamID, startMs, endMs, group)
-	})
-}
-
-func (h *Handler) GetKafkaGroupPartitions(c *gin.Context) {
-	group, ok := requireQueryParam(c, "group")
-	if !ok {
-		return
-	}
-	h.handleRangeQuery(c, "Failed to query kafka group partitions", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetKafkaGroupPartitions(c.Request.Context(), teamID, startMs, endMs, group)
+	h.handleRangeQuery(c, "Failed to query group topics", func(teamID, startMs, endMs int64) (any, error) {
+		return h.Service.GetGroupTopics(c.Request.Context(), teamID, startMs, endMs, group)
 	})
 }

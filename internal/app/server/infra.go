@@ -43,8 +43,8 @@ type Infra struct {
 	Ingest         IngestModules
 	LagPollers     []*kafkainfra.LagPoller
 
-	producerClient  *kgo.Client
-	consumerClients []*kgo.Client
+	KafkaProducer    *kgo.Client
+	consumerClients  []*kgo.Client
 }
 
 func newInfra(cfg config.Config) (_ *Infra, err error) {
@@ -112,9 +112,9 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 		RedisPool:       redisClients.Pool,
 		Authenticator:   authenticator,
 		Ingest:          ingest,
-		LagPollers:      lagPollers,
-		producerClient:  producerClient,
-		consumerClients: consumerClients,
+		LagPollers:       lagPollers,
+		KafkaProducer:    producerClient,
+		consumerClients:  consumerClients,
 	}, nil
 }
 
@@ -150,7 +150,7 @@ func runMigrate(conn clickhouse.Conn, database string) error {
 // buildIngest creates topics, opens one shared producer client + per-signal
 // consumer clients, and constructs the three signal modules. Returns the
 // modules bundle, the producer client (closed at shutdown), the consumer
-// clients (closed at shutdown), and the lag pollers (run by the run.Group).
+// consumer clients (closed at shutdown), and the lag pollers (run by the run.Group).
 func buildIngest(cfg config.Config, ch clickhouse.Conn) (IngestModules, *kgo.Client, []*kgo.Client, []*kafkainfra.LagPoller, error) {
 	brokers := cfg.KafkaBrokers()
 	topicPrefix := cfg.KafkaTopicPrefix()
@@ -291,8 +291,8 @@ func (i *Infra) Close() error {
 		}
 		slog.Info("kafka consumers closed", slog.Int("count", n))
 	}
-	if i.producerClient != nil {
-		i.producerClient.Close()
+	if i.KafkaProducer != nil {
+		i.KafkaProducer.Close()
 		slog.Info("kafka producer closed")
 	}
 	if i.RedisPool != nil {

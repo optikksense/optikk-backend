@@ -30,7 +30,7 @@ const counterAggQuery = `
 		      AND metric_name IN @metricNames
 		)
 		SELECT
-		    sum(value) AS sum_value
+		    sum(val_sum) AS sum_value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -63,7 +63,7 @@ func (r *Repository) QueryMaxConsumerLag(ctx context.Context, teamID int64, star
 		      AND metric_name IN @metricNames
 		)
 		SELECT
-		    max(value) AS max_value
+		    max(val_max) AS max_value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -83,28 +83,29 @@ const histogramAggQuery = `
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name = @metricName
 		)
-		SELECT sum_hist_sum,
-		       sum_hist_count,
-		       qs[1] AS p50,
-		       qs[2] AS p95,
-		       qs[3] AS p99
-		FROM (
-		    SELECT sum(hist_sum)                                                  AS sum_hist_sum,
-		           sum(hist_count)                                                AS sum_hist_count,
-		           quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
-		    FROM observability.metrics_1m
-		    PREWHERE team_id        = @teamID
-		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		         AND fingerprint   IN active_fps
-		    WHERE metric_name = @metricName
-		      AND timestamp BETWEEN @start AND @end
-		      AND lower(attributes.'messaging.system'::String) = 'kafka'
-		)`
+		SELECT sum(hist_sum)                                                  AS sum_hist_sum,
+		       sum(hist_count)                                                AS sum_hist_count,
+		       quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name = @metricName
+		  AND timestamp BETWEEN @start AND @end
+		  AND lower(attributes.'messaging.system'::String) = 'kafka'`
 
 func (r *Repository) queryHistogramAgg(ctx context.Context, op, metricName string, teamID int64, startMs, endMs int64) (HistogramAggRow, error) {
 	args := filter.WithMetricName(filter.MetricArgs(teamID, startMs, endMs), metricName)
 	var row HistogramAggRow
-	return row, dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, op, &row, histogramAggQuery, args...)
+	if err := dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, op, &row, histogramAggQuery, args...); err != nil {
+		return HistogramAggRow{}, err
+	}
+	if len(row.QS) >= 3 {
+		row.P50 = row.QS[0]
+		row.P95 = row.QS[1]
+		row.P99 = row.QS[2]
+	}
+	return row, nil
 }
 
 func (r *Repository) QueryPublishDurationHistogram(ctx context.Context, teamID int64, startMs, endMs int64) (HistogramAggRow, error) {
@@ -165,7 +166,7 @@ func (r *Repository) QueryBrokerConnectionsSeries(ctx context.Context, teamID in
 		SELECT
 		    timestamp                                AS timestamp,
 		    attributes.'server.address'::String      AS broker,
-		    val_sum / val_count AS value
+		    ifNotFinite(val_sum / val_count, 0) AS value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -189,29 +190,32 @@ func (r *Repository) QueryClientOperationDurationByOp(ctx context.Context, teamI
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name = @metricName
 		)
-		SELECT timestamp,
-		       operation_name,
-		       qs[1] AS p50,
-		       qs[2] AS p95,
-		       qs[3] AS p99
-		FROM (
-		    SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `        AS timestamp,
-		           attributes.'messaging.operation.name'::String            AS operation_name,
-		           quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
-		    FROM observability.metrics_1m
-		    PREWHERE team_id        = @teamID
-		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		         AND fingerprint   IN active_fps
-		    WHERE metric_name = @metricName
-		      AND timestamp BETWEEN @start AND @end
-		      AND attributes.'messaging.operation.name'::String != ''
-		      AND lower(attributes.'messaging.system'::String) = 'kafka'
-		    GROUP BY timestamp, operation_name
-		)
+		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `        AS timestamp,
+		       attributes.'messaging.operation.name'::String            AS operation_name,
+		       quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name = @metricName
+		  AND timestamp BETWEEN @start AND @end
+		  AND attributes.'messaging.operation.name'::String != ''
+		  AND lower(attributes.'messaging.system'::String) = 'kafka'
+		GROUP BY timestamp, operation_name
 		ORDER BY timestamp, operation_name`
 	args := filter.WithMetricName(filter.MetricArgs(teamID, startMs, endMs), filter.MetricClientOperationDuration)
 	var rows []OperationHistogramRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryClientOperationDurationByOp", &rows, query, args...)
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryClientOperationDurationByOp", &rows, query, args...); err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if len(rows[i].QS) >= 3 {
+			rows[i].P50 = rows[i].QS[0]
+			rows[i].P95 = rows[i].QS[1]
+			rows[i].P99 = rows[i].QS[2]
+		}
+	}
+	return rows, nil
 }
 
 func (r *Repository) QueryClientOpErrorsByOperation(ctx context.Context, teamID int64, startMs, endMs int64) ([]OperationErrorCounterRow, error) {

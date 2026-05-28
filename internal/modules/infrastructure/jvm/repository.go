@@ -73,25 +73,26 @@ func (r *ClickHouseRepository) QueryJVMGCDurationHistogram(ctx context.Context, 
 		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		      AND metric_name = @metricName
 		)
-		SELECT sum_hist_sum,
-		       sum_hist_count,
-		       qs[1] AS p50,
-		       qs[2] AS p95,
-		       qs[3] AS p99
-		FROM (
-		    SELECT sum(hist_sum)                                                  AS sum_hist_sum,
-		           sum(hist_count)                                                AS sum_hist_count,
-		           quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
-		    FROM observability.metrics_1m
-		    PREWHERE team_id        = @teamID
-		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		         AND fingerprint   IN active_fps
-		    WHERE metric_name = @metricName
-		      AND timestamp BETWEEN @start AND @end
-		)`
+		SELECT sum(hist_sum)                                                  AS sum_hist_sum,
+		       sum(hist_count)                                                AS sum_hist_count,
+		       quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint   IN active_fps
+		WHERE metric_name = @metricName
+		  AND timestamp BETWEEN @start AND @end`
 	args := withMetricName(metricArgs(teamID, startMs, endMs), infraconsts.MetricJVMGCDuration)
 	var row JVMHistogramAggRow
-	return row, dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "jvm.QueryJVMGCDurationHistogram", &row, query, args...)
+	if err := dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "jvm.QueryJVMGCDurationHistogram", &row, query, args...); err != nil {
+		return JVMHistogramAggRow{}, err
+	}
+	if len(row.QS) >= 3 {
+		row.P50 = row.QS[0]
+		row.P95 = row.QS[1]
+		row.P99 = row.QS[2]
+	}
+	return row, nil
 }
 
 // QueryJVMGCCollectionsByName reads `hist_count` (count side of the same

@@ -4,16 +4,12 @@ import "time"
 
 // deploymentAggRow is scanned from ListDeployments aggregation.
 type deploymentAggRow struct {
-	ServiceName  string    `ch:"service"`
-	Version      string    `ch:"version"`
-	Environment  string    `ch:"environment"`
-	FirstSeen    time.Time `ch:"first_seen"`
-	LastSeen     time.Time `ch:"last_seen"`
-	SpanCount    uint64    `ch:"span_count"`
-	CommitSHA    string    `ch:"commit_sha"`
-	CommitAuthor string    `ch:"commit_author"`
-	RepoURL      string    `ch:"repo_url"`
-	PRURL        string    `ch:"pr_url"`
+	ServiceName string    `ch:"service"`
+	Version     string    `ch:"version"`
+	Environment string    `ch:"environment"`
+	FirstSeen   time.Time `ch:"first_seen"`
+	LastSeen    time.Time `ch:"last_seen"`
+	SpanCount   uint64    `ch:"span_count"`
 }
 
 // activeVersionRow is scanned from GetActiveVersion.
@@ -24,10 +20,11 @@ type activeVersionRow struct {
 
 // impactAggRow is scanned from GetImpactWindow.
 type impactAggRow struct {
-	RequestCount uint64  `ch:"request_count"`
-	ErrorCount   uint64  `ch:"error_count"`
-	P95Ms        float32 `ch:"p95_ms"`
-	P99Ms        float32 `ch:"p99_ms"`
+	RequestCount uint64    `ch:"request_count"`
+	ErrorCount   uint64    `ch:"error_count"`
+	QS           []float32 `ch:"qs"`
+	P95Ms        float32
+	P99Ms        float32
 }
 
 type errorGroupAggRow struct {
@@ -42,11 +39,12 @@ type errorGroupAggRow struct {
 }
 
 type endpointMetricAggRow struct {
-	OperationName string `ch:"operation_name"`
-	EndpointName  string `ch:"endpoint_name"`
-	HTTPMethod    string `ch:"http_method"`
-	RequestCount  uint64  `ch:"request_count"`
-	ErrorCount    uint64  `ch:"error_count"`
-	P95Ms         float32 `ch:"p95_ms"`
-	P99Ms         float32 `ch:"p99_ms"`
+	OperationName string    `ch:"operation_name"`
+	EndpointName  string    `ch:"endpoint_name"`
+	HTTPMethod    string    `ch:"http_method"`
+	RequestCount  uint64    `ch:"request_count"`
+	ErrorCount    uint64    `ch:"error_count"`
+	QS            []float32 `ch:"qs"`
+	P95Ms         float32
+	P99Ms         float32
 }

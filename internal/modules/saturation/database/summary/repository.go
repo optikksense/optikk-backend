@@ -23,11 +23,12 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 type mainRawRow struct {
-	TotalCount uint64  `ch:"total_count"`
-	ErrorCount uint64  `ch:"error_count"`
-	AvgMs      float64 `ch:"avg_ms"`
-	P95Ms      float32 `ch:"p95_ms"`
-	P99Ms      float32 `ch:"p99_ms"`
+	TotalCount uint64    `ch:"total_count"`
+	ErrorCount uint64    `ch:"error_count"`
+	AvgMs      float64   `ch:"avg_ms"`
+	QS         []float32 `ch:"qs"`
+	P95Ms      float32
+	P99Ms      float32
 }
 
 type cacheRawRow struct {
@@ -43,25 +44,25 @@ func (r *ClickHouseRepository) GetMainStats(ctx context.Context, teamID, startMs
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT total_count,
-		       error_count,
-		       avg_ms,
-		       qs[1] AS p95_ms,
-		       qs[2] AS p99_ms
-		FROM (
-		    SELECT sum(request_count)                                                        AS total_count,
-		           sum(error_count)                                                          AS error_count,
-		           sum(duration_ms_sum) / nullIf(sum(request_count), 0)                      AS avg_ms,
-		           quantilesTimingMerge(0.95, 0.99)(latency_state)                           AS qs
-		    FROM observability.spans_1m
-		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		    WHERE timestamp BETWEEN @start AND @end
-		      AND db_system != ''` + filterWhere + `
-		)`
+		SELECT sum(request_count)                                                        AS total_count,
+		       sum(error_count)                                                          AS error_count,
+		       sum(duration_ms_sum) / nullIf(sum(request_count), 0)                      AS avg_ms,
+		       quantilesTimingMerge(0.95, 0.99)(latency_state)                           AS qs
+		FROM observability.spans_1m
+		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND db_system != ''` + filterWhere
 
 	args := append(filter.SpanArgs(teamID, startMs, endMs), filterArgs...)
 	var row mainRawRow
-	return row, dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "summary.GetMainStats", &row, query, args...)
+	if err := dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "summary.GetMainStats", &row, query, args...); err != nil {
+		return mainRawRow{}, err
+	}
+	if len(row.QS) >= 2 {
+		row.P95Ms = row.QS[0]
+		row.P99Ms = row.QS[1]
+	}
+	return row, nil
 }
 
 func (r *ClickHouseRepository) GetActiveConnections(ctx context.Context, teamID, startMs, endMs int64) (int64, error) {
@@ -71,7 +72,7 @@ func (r *ClickHouseRepository) GetActiveConnections(ctx context.Context, teamID,
 		    FROM observability.metrics_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name = @metricName
 		)
-		SELECT val_sum / val_count AS avg_used
+		SELECT ifNotFinite(val_sum / val_count, 0) AS avg_used
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -99,7 +100,7 @@ func (r *ClickHouseRepository) GetCacheStats(ctx context.Context, teamID, startM
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
 		SELECT sum(request_count)                         AS total_count,
-		       sum(request_count) - sum(error_count)      AS success_count
+		       toUInt64(sum(request_count) - sum(error_count))      AS success_count
 		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end

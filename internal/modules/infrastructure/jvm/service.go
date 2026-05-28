@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
@@ -80,10 +81,10 @@ func (s *Service) GetJVMGCDuration(ctx context.Context, teamID int64, startMs, e
 		avg = row.SumHistSum / float64(row.SumHistCount)
 	}
 	return HistogramSummary{
-		Avg: sanitizeFloat(avg),
-		P50: sanitizeFloat(row.P50),
-		P95: sanitizeFloat(row.P95),
-		P99: sanitizeFloat(row.P99),
+		Avg: utils.SanitizeFloat(avg),
+		P50: utils.SanitizeFloat(row.P50),
+		P95: utils.SanitizeFloat(row.P95),
+		P99: utils.SanitizeFloat(row.P99),
 	}, nil
 }
 
@@ -108,7 +109,7 @@ func (s *Service) GetJVMGCCollections(ctx context.Context, teamID int64, startMs
 		out = append(out, JVMGCCollectionBucket{
 			Timestamp: formatTime(k.ts),
 			Collector: k.collector,
-			Value:     sanitizeFloatPtr(&v),
+			Value:     utils.SanitizeFloatPtr(&v),
 		})
 	}
 	slices.SortFunc(out, func(a, b JVMGCCollectionBucket) int {
@@ -147,7 +148,7 @@ func (s *Service) GetJVMThreadCount(ctx context.Context, teamID int64, startMs, 
 		var vp *float64
 		if x.count > 0 {
 			v := x.sum / x.count
-			vp = sanitizeFloatPtr(&v)
+			vp = utils.SanitizeFloatPtr(&v)
 		}
 		out = append(out, JVMThreadBucket{Timestamp: formatTime(k.ts), Daemon: k.daemon, Value: vp})
 	}
@@ -189,9 +190,9 @@ func (s *Service) GetJVMCPU(ctx context.Context, teamID int64, startMs, endMs in
 	for _, r := range rows {
 		switch r.MetricName {
 		case infraconsts.MetricJVMCPUTime:
-			result.CPUTimeValue = sanitizeFloat(r.Value)
+			result.CPUTimeValue = utils.SanitizeFloat(r.Value)
 		case infraconsts.MetricJVMCPUUtilization:
-			result.RecentUtilization = sanitizeFloat(r.Value)
+			result.RecentUtilization = utils.SanitizeFloat(r.Value)
 		}
 	}
 	return result, nil
@@ -269,19 +270,7 @@ func (a *avgAcc) avg() *float64 {
 	return &v
 }
 
-func sanitizeFloat(v float64) float64 {
-	if math.IsNaN(v) || math.IsInf(v, 0) {
-		return 0
-	}
-	return v
-}
 
-func sanitizeFloatPtr(v *float64) *float64 {
-	if v == nil || math.IsNaN(*v) || math.IsInf(*v, 0) {
-		return nil
-	}
-	return v
-}
 
 func formatTime(t time.Time) string {
 	return t.UTC().Format("2006-01-02 15:04:05")

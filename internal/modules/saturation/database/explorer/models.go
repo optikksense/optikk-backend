@@ -1,15 +1,5 @@
 package explorer
 
-type DatastoreSummaryResponse struct {
-	TotalSystems      int     `json:"total_systems"`
-	DatabaseSystems   int     `json:"database_systems"`
-	RedisSystems      int     `json:"redis_systems"`
-	QueryCount        int64   `json:"query_count"`
-	P95LatencyMs      float64 `json:"p95_latency_ms"`
-	ErrorRate         float64 `json:"error_rate"`
-	ActiveConnections int64   `json:"active_connections"`
-}
-
 type DatastoreSystemRow struct {
 	System            string  `json:"system"`
 	Category          string  `json:"category"`

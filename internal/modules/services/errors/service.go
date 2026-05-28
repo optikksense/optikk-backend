@@ -2,7 +2,6 @@ package errors
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"time"
 )
@@ -10,15 +9,6 @@ import (
 // tsBucketTime converts a UInt32 ts_bucket (Unix-seconds, 5-min boundary)
 // scanned natively from CH into the wire-model time.Time.
 func tsBucketTime(b uint32) time.Time { return time.Unix(int64(b), 0).UTC() }
-
-// GroupIdentity is the identity tuple an ErrorGroup hash resolves back to.
-// Lives in the service layer because hash → identity resolution is service work.
-type GroupIdentity struct {
-	Service       string
-	Operation     string
-	StatusMessage string
-	HTTPCode      int
-}
 
 type Service struct {
 	repo Repository
@@ -131,7 +121,7 @@ func (s *Service) GetErrorGroups(ctx context.Context, teamID int64, startMs, end
 	for i, row := range raw {
 		code := httpBucketToCode(row.HTTPStatusBucket)
 		groups[i] = ErrorGroup{
-			GroupID:         ErrorGroupID(row.ServiceName, row.OperationName, row.StatusMessage, code),
+			GroupID:         row.GroupID,
 			ServiceName:     row.ServiceName,
 			OperationName:   row.OperationName,
 			StatusMessage:   row.StatusMessage,
@@ -152,34 +142,8 @@ func (s *Service) fetchErrorGroups(ctx context.Context, teamID int64, startMs, e
 	return s.repo.ErrorGroupRowsByService(ctx, teamID, startMs, endMs, serviceName, limit)
 }
 
-// resolveGroupID re-aggregates the error-group list for the window and finds
-// the row whose hash matches groupID. No cache: each drill-in pays for one
-// fresh aggregation.
-func (s *Service) resolveGroupID(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (GroupIdentity, error) {
-	raw, err := s.repo.ErrorGroupRowsAll(ctx, teamID, startMs, endMs, 500)
-	if err != nil {
-		return GroupIdentity{}, err
-	}
-	for _, row := range raw {
-		code := httpBucketToCode(row.HTTPStatusBucket)
-		if ErrorGroupID(row.ServiceName, row.OperationName, row.StatusMessage, code) == groupID {
-			return GroupIdentity{
-				Service:       row.ServiceName,
-				Operation:     row.OperationName,
-				StatusMessage: row.StatusMessage,
-				HTTPCode:      code,
-			}, nil
-		}
-	}
-	return GroupIdentity{}, fmt.Errorf("error group %s not found", groupID)
-}
-
 func (s *Service) GetErrorGroupDetail(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (*ErrorGroupDetail, error) {
-	ident, err := s.resolveGroupID(ctx, teamID, startMs, endMs, groupID)
-	if err != nil {
-		return nil, err
-	}
-	row, err := s.repo.ErrorGroupDetailRow(ctx, teamID, startMs, endMs, ident)
+	row, err := s.repo.ErrorGroupDetailRow(ctx, teamID, startMs, endMs, groupID)
 	if err != nil {
 		return nil, err
 	}
@@ -202,11 +166,7 @@ func (s *Service) GetErrorGroupDetail(ctx context.Context, teamID int64, startMs
 }
 
 func (s *Service) GetErrorGroupTraces(ctx context.Context, teamID int64, startMs, endMs int64, groupID string, limit int) ([]ErrorGroupTrace, error) {
-	ident, err := s.resolveGroupID(ctx, teamID, startMs, endMs, groupID)
-	if err != nil {
-		return nil, err
-	}
-	raw, err := s.repo.ErrorGroupTraceRows(ctx, teamID, startMs, endMs, ident, limit)
+	raw, err := s.repo.ErrorGroupTraceRows(ctx, teamID, startMs, endMs, groupID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -224,11 +184,7 @@ func (s *Service) GetErrorGroupTraces(ctx context.Context, teamID int64, startMs
 }
 
 func (s *Service) GetErrorGroupTimeseries(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) ([]TimeSeriesPoint, error) {
-	ident, err := s.resolveGroupID(ctx, teamID, startMs, endMs, groupID)
-	if err != nil {
-		return nil, err
-	}
-	raw, err := s.repo.ErrorGroupTimeseriesRows(ctx, teamID, startMs, endMs, ident)
+	raw, err := s.repo.ErrorGroupTimeseriesRows(ctx, teamID, startMs, endMs, groupID)
 	if err != nil {
 		return nil, err
 	}

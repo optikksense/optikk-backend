@@ -60,15 +60,3 @@ func (h *Handler) AuthMe(c *gin.Context) {
 	modulecommon.RespondOK(c, response)
 }
 
-func (h *Handler) ValidateToken(c *gin.Context) {
-	response, err := h.Service.ValidateToken(h.GetTenant(c))
-	if err != nil {
-		usershared.RespondServiceError(c, err, "Invalid or expired session")
-		return
-	}
-	modulecommon.RespondOK(c, response)
-}
-
-func (h *Handler) ForgotPassword(c *gin.Context) {
-	modulecommon.RespondOK(c, h.Service.ForgotPassword())
-}

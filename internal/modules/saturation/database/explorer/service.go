@@ -50,49 +50,6 @@ func NewService(
 	}
 }
 
-func (s *Service) GetDatastoreSummary(ctx context.Context, teamID int64, startMs, endMs int64) (DatastoreSummaryResponse, error) {
-	var (
-		systemRows []dbsystems.DetectedSystem
-		summary    dbsummary.SummaryStats
-	)
-	g, gctx := errgroup.WithContext(ctx)
-	g.Go(func() error {
-		var err error
-		systemRows, err = s.dbSystems.GetDetectedSystems(gctx, teamID, startMs, endMs)
-		return err
-	})
-	g.Go(func() error {
-		var err error
-		summary, err = s.dbSummary.GetSummaryStats(gctx, teamID, startMs, endMs, dbfilter.Filters{})
-		return err
-	})
-	if err := g.Wait(); err != nil {
-		return DatastoreSummaryResponse{}, err
-	}
-
-	totalErrors := int64(0)
-	databaseSystems := 0
-	redisSystems := 0
-	for _, row := range systemRows {
-		totalErrors += row.ErrorCount
-		if isRedisSystem(row.DBSystem) {
-			redisSystems++
-			continue
-		}
-		databaseSystems++
-	}
-
-	return DatastoreSummaryResponse{
-		TotalSystems:      len(systemRows),
-		DatabaseSystems:   databaseSystems,
-		RedisSystems:      redisSystems,
-		QueryCount:        summary.SpanCount,
-		P95LatencyMs:      derefFloat(summary.P95LatencyMs),
-		ErrorRate:         safeRatioPct(totalErrors, summary.SpanCount),
-		ActiveConnections: summary.ActiveConnections,
-	}, nil
-}
-
 func (s *Service) GetDatastoreSystems(ctx context.Context, teamID int64, startMs, endMs int64) ([]DatastoreSystemRow, error) {
 	systemRows, err := s.dbSystems.GetSystemSummaries(ctx, teamID, startMs, endMs)
 	if err != nil {

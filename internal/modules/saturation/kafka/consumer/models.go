@@ -84,9 +84,10 @@ type TopicCounterRow struct {
 type TopicHistogramRow struct {
 	Timestamp time.Time `ch:"timestamp"`
 	Topic     string    `ch:"topic"`
-	P50       float64   `ch:"p50"`
-	P95       float64   `ch:"p95"`
-	P99       float64   `ch:"p99"`
+	QS        []float64 `ch:"qs"`
+	P50       float64
+	P95       float64
+	P99       float64
 }
 
 type GroupCounterRow struct {
@@ -98,9 +99,10 @@ type GroupCounterRow struct {
 type GroupHistogramRow struct {
 	Timestamp     time.Time `ch:"timestamp"`
 	ConsumerGroup string    `ch:"consumer_group"`
-	P50           float64   `ch:"p50"`
-	P95           float64   `ch:"p95"`
-	P99           float64   `ch:"p99"`
+	QS            []float64 `ch:"qs"`
+	P50           float64
+	P95           float64
+	P99           float64
 }
 
 type GroupErrorCounterRow struct {

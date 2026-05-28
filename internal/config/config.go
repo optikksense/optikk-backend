@@ -24,7 +24,10 @@ type Config struct {
 	Retention      RetentionConfig  `yaml:"retention"`
 	App            AppConfig        `yaml:"app"`
 	Ingestion      IngestionConfig  `yaml:"ingestion"`
+
 }
+
+
 
 // Load reads configuration from a YAML file with environment variable overrides.
 // If no path is provided, it defaults to "config.yml".
@@ -171,6 +174,8 @@ func setDefaults(v *viper.Viper) {
 	// ingestion
 	v.SetDefault("ingestion.spans_bucket_seconds", 0)
 	v.SetDefault("ingestion.logs_bucket_seconds", 0)
+
+
 }
 
 func (c Config) validate() error {

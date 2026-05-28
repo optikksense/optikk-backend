@@ -62,11 +62,12 @@ type GaugeMaxRow struct {
 
 // HistogramAggRow — single aggregated histogram across the window.
 type HistogramAggRow struct {
-	SumHistSum   float64 `ch:"sum_hist_sum"`
-	SumHistCount uint64  `ch:"sum_hist_count"`
-	P50          float64 `ch:"p50"`
-	P95          float64 `ch:"p95"`
-	P99          float64 `ch:"p99"`
+	SumHistSum   float64   `ch:"sum_hist_sum"`
+	SumHistCount uint64    `ch:"sum_hist_count"`
+	QS           []float64 `ch:"qs"`
+	P50          float64
+	P95          float64
+	P99          float64
 }
 
 // TopicMetricHistogramRow — used by e2e-latency where metric_name itself is a
@@ -87,9 +88,10 @@ type BrokerGaugeRow struct {
 type OperationHistogramRow struct {
 	Timestamp     time.Time `ch:"timestamp"`
 	OperationName string    `ch:"operation_name"`
-	P50           float64   `ch:"p50"`
-	P95           float64   `ch:"p95"`
-	P99           float64   `ch:"p99"`
+	QS            []float64 `ch:"qs"`
+	P50           float64
+	P95           float64
+	P99           float64
 }
 
 type OperationErrorCounterRow struct {

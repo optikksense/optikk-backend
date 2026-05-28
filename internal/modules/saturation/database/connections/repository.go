@@ -1,15 +1,3 @@
-// Package connections reads OTel `db.client.connection.*` instrumentation
-// metrics from `observability.metrics_1m`. Per the audit, gauges/counters
-// are instrumentation-side time series (not per-call spans) and live
-// natively on metrics. Every method PREWHEREs metrics_1m on
-// `(team_id, ts_bucket, fingerprint IN active_fps, metric_name)` —
-// full PK granule pruning. Histogram percentiles come from
-// `quantilesPrometheusHistogramMerge(...)(latency_state)` server-side,
-// bucketed at the window-adaptive display grain via
-// `timebucket.DisplayGrainSQL` (replaces the prior hardcoded
-// `toStartOfHour` which collapsed short windows to a single bucket).
-// service.go folds raw 1-min gauge rows into display buckets via a
-// per-(bucket, pool[, state]) map keyed on `bucketStr(timestamp)`.
 package connections
 
 import (
@@ -61,9 +49,10 @@ type gaugeRawDTO struct {
 type histRawDTO struct {
 	Bucket   time.Time `ch:"bucket"`
 	PoolName string    `ch:"pool_name"`
-	P50      float64   `ch:"p50"`
-	P95      float64   `ch:"p95"`
-	P99      float64   `ch:"p99"`
+	QS       []float64 `ch:"qs"`
+	P50      float64
+	P95      float64
+	P99      float64
 }
 
 // GetConnectionCountSeries reads `db.client.connection.count` (gauge by state).
@@ -128,7 +117,7 @@ func (r *ClickHouseRepository) gaugeWithStateOne(ctx context.Context, teamID, st
 		       metric_name                                                     AS metric_name,
 		       attributes.'pool.name'::String                                  AS pool_name,
 		       attributes.'db.client.connection.state'::String                 AS state,
-		       val_sum / val_count AS value
+		       ifNotFinite(val_sum / val_count, 0) AS value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -153,7 +142,7 @@ func (r *ClickHouseRepository) gaugeWithStateMulti(ctx context.Context, teamID, 
 		       metric_name                                                     AS metric_name,
 		       attributes.'pool.name'::String                                  AS pool_name,
 		       attributes.'db.client.connection.state'::String                 AS state,
-		       val_sum / val_count AS value
+		       ifNotFinite(val_sum / val_count, 0) AS value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -176,7 +165,7 @@ func (r *ClickHouseRepository) gaugeNoState(ctx context.Context, teamID, startMs
 		)
 		SELECT timestamp                              AS timestamp,
 		       attributes.'pool.name'::String          AS pool_name,
-		       val_sum / val_count AS value
+		       ifNotFinite(val_sum / val_count, 0) AS value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -197,26 +186,29 @@ func (r *ClickHouseRepository) poolHistogram(ctx context.Context, teamID, startM
 		    FROM observability.metrics_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name = @metricName
 		)
-		SELECT bucket,
-		       pool_name,
-		       qs[1] AS p50,
-		       qs[2] AS p95,
-		       qs[3] AS p99
-		FROM (
-		    SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `                AS bucket,
-		           attributes.'pool.name'::String                                    AS pool_name,
-		           quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
-		    FROM observability.metrics_1m
-		    PREWHERE team_id        = @teamID
-		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		         AND fingerprint    IN active_fps
-		         AND metric_name    = @metricName
-		    WHERE timestamp BETWEEN @start AND @end
-		    GROUP BY bucket, pool_name
-		)
+		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `                AS bucket,
+		       attributes.'pool.name'::String                                    AS pool_name,
+		       quantilesPrometheusHistogramMerge(0.5, 0.95, 0.99)(latency_state) AS qs
+		FROM observability.metrics_1m
+		PREWHERE team_id        = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint    IN active_fps
+		     AND metric_name    = @metricName
+		WHERE timestamp BETWEEN @start AND @end
+		GROUP BY bucket, pool_name
 		ORDER BY bucket, pool_name`
 	args := append(filter.MetricArgs(teamID, startMs, endMs, metricName), filterArgs...)
 	full := query + filterWhere
 	var rows []histRawDTO
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, traceLabel, &rows, full, args...)
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, traceLabel, &rows, full, args...); err != nil {
+		return nil, err
+	}
+	for i := range rows {
+		if len(rows[i].QS) >= 3 {
+			rows[i].P50 = rows[i].QS[0]
+			rows[i].P95 = rows[i].QS[1]
+			rows[i].P99 = rows[i].QS[2]
+		}
+	}
+	return rows, nil
 }

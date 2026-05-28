@@ -41,12 +41,6 @@ func (h *Handler) handleRangeQuery(
 	modulecommon.RespondOK(c, resp)
 }
 
-func (h *Handler) GetDatastoreSummary(c *gin.Context) {
-	h.handleRangeQuery(c, "Failed to query datastore summary", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetDatastoreSummary(c.Request.Context(), teamID, startMs, endMs)
-	})
-}
-
 func (h *Handler) GetDatastoreSystems(c *gin.Context) {
 	h.handleRangeQuery(c, "Failed to query datastore systems", func(teamID, startMs, endMs int64) (any, error) {
 		return h.Service.GetDatastoreSystems(c.Request.Context(), teamID, startMs, endMs)

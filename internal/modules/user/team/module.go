@@ -14,24 +14,7 @@ func DefaultConfig() Config {
 }
 
 func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
-	if !cfg.Enabled || h == nil {
-		return
-	}
-
-	usersGroup := v1.Group("/users")
-	{
-		usersGroup.POST("/:userId/teams/:teamId", h.AddUserToTeam)
-		usersGroup.DELETE("/:userId/teams/:teamId", h.RemoveUserFromTeam)
-	}
-
-	teamsGroup := v1.Group("/teams")
-	{
-		teamsGroup.GET("", h.GetTeams)
-		teamsGroup.GET("/my-teams", h.GetMyTeams)
-		teamsGroup.GET("/:id", h.GetTeamByID)
-		teamsGroup.GET("/slug/:slug", h.GetTeamBySlug)
-		teamsGroup.POST("", h.CreateTeam)
-	}
+	// All routes removed as the frontend does not consume them.
 }
 
 func NewModule(

@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS observability.spans_1m (
     ts_bucket            UInt32 CODEC(DoubleDelta, LZ4),
     timestamp            DateTime CODEC(DoubleDelta, LZ4),
     fingerprint          String CODEC(ZSTD(1)),
+    error_group_id       String CODEC(ZSTD(1)),
 
     service              LowCardinality(String) CODEC(ZSTD(1)),
     name                 LowCardinality(String) CODEC(ZSTD(1)),
@@ -60,7 +61,7 @@ CREATE TABLE IF NOT EXISTS observability.spans_1m (
     duration_ms_max      SimpleAggregateFunction(max, Float64) CODEC(Gorilla, ZSTD(1))
 ) ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMMDD(timestamp)
-ORDER BY (team_id, ts_bucket, fingerprint, service, name, kind_string, exception_type, status_message_hash)
+ORDER BY (team_id, ts_bucket, fingerprint, service, name, kind_string, exception_type, error_group_id, status_message_hash)
 TTL timestamp + INTERVAL 30 DAY DELETE
 SETTINGS
     index_granularity = 8192,
@@ -74,6 +75,7 @@ SELECT
     toUInt32(intDiv(toUnixTimestamp(toStartOfMinute(timestamp)), 300) * 300) AS ts_bucket,
     toStartOfMinute(timestamp)                                                AS timestamp,
     fingerprint,
+    lower(hex(halfMD5(concat(service, '|', name, '|', exception_type, '|', toString(cityHash64(status_message)))))) AS error_group_id,
 
     service,
     name,
@@ -119,4 +121,4 @@ GROUP BY
     http_method, http_route, http_status_bucket, response_status_code, status_code_string,
     service_version,
     db_system, db_operation_name, db_collection_name, db_namespace, db_response_status, server_address,
-    exception_type, error_type, status_message_hash;
+    exception_type, error_type, status_message_hash, error_group_id;

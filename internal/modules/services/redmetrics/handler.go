@@ -152,3 +152,56 @@ func (h *REDMetricsHandler) GetLatencyBreakdown(c *gin.Context) {
 	}
 	modulecommon.RespondOK(c, resp)
 }
+
+// GetStatusTimeSeries returns rps split by 2xx/4xx/5xx over time for a service.
+func (h *REDMetricsHandler) GetStatusTimeSeries(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+	serviceName := c.Query("serviceName")
+	resp, err := h.Service.GetStatusTimeSeries(c.Request.Context(), teamID, startMs, endMs, serviceName)
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query status time series", err)
+		return
+	}
+	modulecommon.RespondOK(c, resp)
+}
+
+// GetLatencyPercentilesTimeSeries returns p50/p95/p99 over time for a service.
+func (h *REDMetricsHandler) GetLatencyPercentilesTimeSeries(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+	serviceName := c.Query("serviceName")
+	resp, err := h.Service.GetLatencyPercentilesTimeSeries(c.Request.Context(), teamID, startMs, endMs, serviceName)
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query latency percentiles", err)
+		return
+	}
+	modulecommon.RespondOK(c, resp)
+}
+
+// GetTopEndpointsCombined returns per-operation rate/err/percentiles for the
+// Service Detail endpoints table. Primary + comparison payloads are returned
+// when `compareTo=previous_period` is set, letting the FE compute p99 delta.
+func (h *REDMetricsHandler) GetTopEndpointsCombined(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+	serviceName := c.Query("serviceName")
+	limit := modulecommon.ParsePageSize(c, "limit", 50)
+	resp, err := modulecommon.WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
+		return h.Service.GetTopEndpointsCombined(c.Request.Context(), teamID, s, e, serviceName, limit)
+	})
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query top endpoints", err)
+		return
+	}
+	modulecommon.RespondOK(c, resp)
+}
