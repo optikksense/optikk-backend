@@ -51,7 +51,7 @@ func (r *ClickHouseRepository) SuggestScalar(ctx context.Context, teamID, startM
 // the per-data-point attributes JSON on raw spans.
 func (r *ClickHouseRepository) SuggestAttribute(ctx context.Context, teamID, startMs, endMs int64, attrKey, prefix string, limit int) ([]suggestionRow, error) {
 	const query = `
-		SELECT JSONExtractString(toJSONString(attributes), @attrKey) AS value, count() AS count
+		SELECT attributes[@attrKey]::String AS value, count() AS count
 		FROM observability.spans
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		WHERE timestamp BETWEEN @startMs AND @endMs
