@@ -27,11 +27,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *MemoryHandler) {
 		return
 	}
 	g := v1.Group("/infrastructure/memory")
-	g.GET("/usage", h.GetMemoryUsage)
-	g.GET("/usage-percentage", h.GetMemoryUsagePercentage)
-	g.GET("/swap", h.GetSwapUsage)
 	g.GET("/avg", h.GetAvgMemory)
-	g.GET("/by-service", h.GetMemoryByService)
 	g.GET("/by-instance", h.GetMemoryByInstance)
 }
 

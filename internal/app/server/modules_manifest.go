@@ -5,12 +5,9 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 
-	infrastructure_connpool "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/connpool"
 	infrastructure_cpu "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/cpu"
 	infrastructure_disk "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/disk"
 	infrastructure_fleet "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/fleet"
-	infrastructure_jvm "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/jvm"
-	infrastructure_kubernetes "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/kubernetes"
 	infrastructure_memory "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/memory"
 	infrastructure_network "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/network"
 	infrastructure_nodes "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/nodes"
@@ -66,11 +63,8 @@ func configuredModules(
 	return []registry.Module{
 		deployments.NewModule(nativeQuerier, getTenant),
 
-		infrastructure_connpool.NewModule(nativeQuerier, getTenant),
 		infrastructure_cpu.NewModule(nativeQuerier, getTenant),
 		infrastructure_disk.NewModule(nativeQuerier, getTenant),
-		infrastructure_jvm.NewModule(nativeQuerier, getTenant),
-		infrastructure_kubernetes.NewModule(nativeQuerier, getTenant),
 		infrastructure_memory.NewModule(nativeQuerier, getTenant),
 		infrastructure_network.NewModule(nativeQuerier, getTenant),
 		infrastructure_fleet.NewModule(nativeQuerier, getTenant),

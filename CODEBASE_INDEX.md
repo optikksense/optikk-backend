@@ -186,11 +186,13 @@ Trace-id-scoped queries match with a plain `trace_id = @traceID` row predicate; 
 
 #### Infrastructure read paths ([internal/modules/infrastructure/](internal/modules/infrastructure/))
 
-Apm-style across 9 submodules. Seven modules (`connpool`, `cpu`, `disk`, `jvm`, `kubernetes`, `memory`, `network`) read `observability.metrics_1m` with the `metrics_resource` CTE. Two modules (`nodes`, `fleet`) read `observability.spans_1m` with the `spans_resource` CTE for per-host / per-pod RED aggregates with P95 via `quantileTimingMerge(0.95)(latency_state)`.
+Apm-style across 6 submodules. Four modules (`cpu`, `disk`, `memory`, `network`) read `observability.metrics_1m` with the `metrics_resource` CTE — each exposing only `{avg, by-instance}` after the infra-redesign cleanup. Two modules (`nodes`, `fleet`) read `observability.spans_1m` with the `spans_resource` CTE for per-host / per-pod RED aggregates with P95 via `quantileTimingMerge(0.95)(latency_state)`.
+
+The `connpool`, `jvm`, and `kubernetes` modules were removed when their dashboards left the new design — frontend has no consumers for those panels, and CODEBASE_INDEX entries for them are gone.
 
 - **Resolver narrowing**: `WITH active_fps AS (SELECT fingerprint FROM observability.metrics_resource WHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name [= @metricName | IN @metricNames])`. Main query PREWHEREs `(team_id, ts_bucket, fingerprint IN active_fps, metric_name)`.
-- **Repository contract**: queries only, **one CH call per method**. Each module declares its own `metricArgs` / `withMetricName{,s}` / `spanArgs` / `spanBucketBounds` helpers locally. Reads OTel semconv 1.30+ canonical attribute paths inline (e.g., `attributes.'system.cpu.state'::String`, `attributes.'jvm.memory.pool.name'::String`, `attributes.'k8s.container.name'::String`).
-- **Service derivation**: counter→rate computed server-side via `sum(...) / @bucketGrainSec` per `timebucket.DisplayGrainSQL` bucket; gauge avg via SQL-side `avg(val_sum / val_count)` per display bucket; JVM GC duration P50/P95/P99 via server-side `quantilesPrometheusHistogramMerge` on `metrics_1m.latency_state`; multi-metric percentage blends (cpu 3-metric, memory 4-metric, disk 3-metric, connpool 5-metric); `≤1.0 → *100` percentage normalization; NaN scrub via `utils.SanitizeFloat`; RED `error_rate = errCount × 100 / reqCount` and `avg_latency_ms = durationMsSum / reqCount` for `nodes` / `fleet` (computed from `spans_1m`'s `request_count`, `error_count`, `duration_ms_sum` SimpleAggregateFunction columns).
+- **Repository contract**: queries only, **one CH call per method**. Each module declares its own `metricArgs` / `withMetricName{,s}` / `spanArgs` / `spanBucketBounds` helpers locally. Reads OTel semconv 1.30+ canonical attribute paths inline (e.g., `attributes.'system.cpu.state'::String`, `attributes.'k8s.pod.name'::String`).
+- **Service derivation**: gauge avg via SQL-side `avg(val_sum / val_count)`; multi-metric percentage blends (cpu 3-metric, memory 4-metric, disk 3-metric); `≤1.0 → *100` percentage normalization; NaN scrub via `utils.SanitizeFloat`; RED `error_rate = errCount × 100 / reqCount` and `avg_latency_ms = durationMsSum / reqCount` for `nodes` / `fleet` (computed from `spans_1m`'s `request_count`, `error_count`, `duration_ms_sum` SimpleAggregateFunction columns).
 - [infraconsts/](internal/modules/infrastructure/infraconsts/) — shared OTel metric-name + column-name constants. Not a routable module.
 
 Panels assume OTel semconv 1.30+ canonical attribute names. Older instrumentations that emit non-canonical attribute spellings will return empty for those panels until upgraded.
@@ -257,7 +259,7 @@ From [internal/app/server/modules_manifest.go](internal/app/server/modules_manif
 - **logs**: `explorer`, `logdetail` (registered as `log_detail`), `log_facets`, `log_trends`, `trace_logs` (+ `filter` and `shared/models` packages)
 - **metrics**: `explorer` (+ `filter` shared package)
 - **ai_observability**: explicit GenAI routes under `/api/v1/ai/{llm,prompts,agents,retrieval,traces,facets}`; existing `metrics_1m` + raw spans, no dedicated AI rollup table
-- **infrastructure**: `connpool`, `cpu`, `disk`, `jvm`, `kubernetes`, `memory`, `network`, `fleet`, `nodes` (+ `infraconsts` shared package)
+- **infrastructure**: `cpu`, `disk`, `memory`, `network`, `fleet`, `nodes` (+ `infraconsts` shared package)
 - **saturation**: `kafka/{producer, consumer, client, explorer}` (+ `kafka/filter` and `kafka/internal/shared` packages); `database/{collection, connections, errors, explorer, latency, slowqueries, summary, system, systems, volume}` (+ `database/filter` and `database/internal` packages)
 - **user**: `auth`, `team`, `user`
 - **ingestion** (background runners + gRPC registrars): spans, logs, metrics

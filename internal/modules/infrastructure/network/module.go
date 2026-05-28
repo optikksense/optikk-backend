@@ -27,13 +27,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *NetworkHandler) {
 		return
 	}
 	g := v1.Group("/infrastructure/network")
-	g.GET("/io", h.GetNetworkIO)
-	g.GET("/packets", h.GetNetworkPackets)
-	g.GET("/errors", h.GetNetworkErrors)
-	g.GET("/dropped", h.GetNetworkDropped)
-	g.GET("/connections", h.GetNetworkConnections)
 	g.GET("/avg", h.GetAvgNetwork)
-	g.GET("/by-service", h.GetNetworkByService)
 	g.GET("/by-instance", h.GetNetworkByInstance)
 }
 
