@@ -1,0 +1,26 @@
+CREATE TABLE IF NOT EXISTS observability.monitors
+  (
+     id                   BIGINT AUTO_INCREMENT PRIMARY KEY,
+     team_id              BIGINT NOT NULL,
+     name                 VARCHAR(300) NOT NULL,
+     type                 ENUM('metric','apm','log') NOT NULL,
+     priority             ENUM('P1','P2','P3','P4') NOT NULL DEFAULT 'P2',
+     scope_json           JSON NOT NULL,
+     query_json           JSON NOT NULL,
+     conditions_json      JSON NOT NULL,
+     notify_json          JSON NOT NULL,
+     message_template_id  BIGINT NULL,
+     message_body         TEXT NULL,
+     runbook_url          VARCHAR(500) NULL,
+     tags_json            JSON NOT NULL DEFAULT ('[]'),
+     eval_every_sec       INT NOT NULL DEFAULT 300,
+     renotify_every_sec   INT NULL,
+     muted_until          DATETIME NULL,
+     active               TINYINT(1) NOT NULL DEFAULT 1,
+     created_at           DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+     updated_at           DATETIME NULL,
+     created_by_user_id   BIGINT NULL,
+     INDEX idx_m_team_active (team_id, active),
+     INDEX idx_m_team_muted (team_id, muted_until),
+     INDEX idx_m_team_priority (team_id, priority)
+  );
