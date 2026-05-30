@@ -420,44 +420,64 @@ func (s *deploymentService) GetDeploymentCompare(ctx context.Context, teamID int
 		afterStart, afterEnd = normalizeWindow(selected.FirstSeen.UnixMilli(), rows[selectedIndex+1].FirstSeen.UnixMilli())
 	}
 
-	afterMetrics, err := windowMetrics(ctx, s.repo, teamID, serviceName, afterStart, afterEnd)
-	if err != nil {
-		return DeploymentCompareResponse{}, err
-	}
-
 	var beforeWindow *DeploymentCompareWindow
-	var beforeMetrics *ImpactWindowMetrics
 	beforeStart, beforeEnd := int64(0), int64(0)
-	if selectedIndex > 0 {
+	hasBefore := selectedIndex > 0
+	if hasBefore {
 		beforeStart, beforeEnd = normalizeWindow(rows[selectedIndex-1].FirstSeen.UnixMilli(), selected.FirstSeen.UnixMilli())
 		beforeWindow = &DeploymentCompareWindow{StartMs: beforeStart, EndMs: beforeEnd}
-		metrics, err := windowMetrics(ctx, s.repo, teamID, serviceName, beforeStart, beforeEnd)
-		if err != nil {
-			return DeploymentCompareResponse{}, err
-		}
-		beforeMetrics = &metrics
 	}
 
-	beforeErrors := []errorGroupAggRow{}
-	beforeEndpoints := []endpointMetricAggRow{}
-	if beforeWindow != nil {
-		beforeErrors, err = s.repo.GetErrorGroupsWindow(ctx, teamID, serviceName, beforeStart, beforeEnd, maxCompareErrors*2)
-		if err != nil {
-			return DeploymentCompareResponse{}, err
-		}
-		beforeEndpoints, err = s.repo.GetEndpointMetricsWindow(ctx, teamID, serviceName, beforeStart, beforeEnd, maxCompareEndpoints*2)
-		if err != nil {
-			return DeploymentCompareResponse{}, err
-		}
+	// The six window reads are independent once the windows are fixed — fan them
+	// out instead of issuing them serially (same pattern as ListDeployments).
+	var (
+		afterMetrics    ImpactWindowMetrics
+		beforeMetricsV  ImpactWindowMetrics
+		afterErrors     []errorGroupAggRow
+		afterEndpoints  []endpointMetricAggRow
+		beforeErrors    = []errorGroupAggRow{}
+		beforeEndpoints = []endpointMetricAggRow{}
+	)
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		var err error
+		afterMetrics, err = windowMetrics(gctx, s.repo, teamID, serviceName, afterStart, afterEnd)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		afterErrors, err = s.repo.GetErrorGroupsWindow(gctx, teamID, serviceName, afterStart, afterEnd, maxCompareErrors*2)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		afterEndpoints, err = s.repo.GetEndpointMetricsWindow(gctx, teamID, serviceName, afterStart, afterEnd, maxCompareEndpoints*2)
+		return err
+	})
+	if hasBefore {
+		g.Go(func() error {
+			var err error
+			beforeMetricsV, err = windowMetrics(gctx, s.repo, teamID, serviceName, beforeStart, beforeEnd)
+			return err
+		})
+		g.Go(func() error {
+			var err error
+			beforeErrors, err = s.repo.GetErrorGroupsWindow(gctx, teamID, serviceName, beforeStart, beforeEnd, maxCompareErrors*2)
+			return err
+		})
+		g.Go(func() error {
+			var err error
+			beforeEndpoints, err = s.repo.GetEndpointMetricsWindow(gctx, teamID, serviceName, beforeStart, beforeEnd, maxCompareEndpoints*2)
+			return err
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return DeploymentCompareResponse{}, err
 	}
 
-	afterErrors, err := s.repo.GetErrorGroupsWindow(ctx, teamID, serviceName, afterStart, afterEnd, maxCompareErrors*2)
-	if err != nil {
-		return DeploymentCompareResponse{}, err
-	}
-	afterEndpoints, err := s.repo.GetEndpointMetricsWindow(ctx, teamID, serviceName, afterStart, afterEnd, maxCompareEndpoints*2)
-	if err != nil {
-		return DeploymentCompareResponse{}, err
+	var beforeMetrics *ImpactWindowMetrics
+	if hasBefore {
+		beforeMetrics = &beforeMetricsV
 	}
 
 	timelineStart := afterStart

@@ -31,6 +31,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *REDMetricsHandler) {
 	red.GET("/status-timeseries", h.GetStatusTimeSeries)
 	red.GET("/latency-percentiles-timeseries", h.GetLatencyPercentilesTimeSeries)
 	red.GET("/top-endpoints", h.GetTopEndpointsCombined)
+	red.GET("/operation-baseline", h.GetOperationBaseline)
 
 	v1.GET("/spans/latency-breakdown", h.GetLatencyBreakdown)
 }

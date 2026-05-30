@@ -57,17 +57,31 @@ func (s *MetricsExplorerService) ListTags(ctx context.Context, teamID, startMs, 
 		return nil, err
 	}
 
-	tags := make([]FETagEntry, 0, len(keys))
-	for _, k := range keys {
-		values, err := s.repo.ListTagValues(ctx, teamID, startMs, endMs, metricName, k.TagKey)
-		if err != nil {
-			return nil, err
+	keyNames := make([]string, len(keys))
+	for i, k := range keys {
+		keyNames[i] = k.TagKey
+	}
+
+	// One query for every key's values, instead of one query per key.
+	rows, err := s.repo.ListTagValuesForKeys(ctx, teamID, startMs, endMs, metricName, keyNames)
+	if err != nil {
+		return nil, err
+	}
+
+	// Fold (key, value) rows into per-key value lists. Rows arrive ordered by
+	// (tag_key, count DESC), so the most common values come first per key.
+	valuesByKey := make(map[string][]string, len(keys))
+	for _, row := range rows {
+		valuesByKey[row.TagKey] = append(valuesByKey[row.TagKey], row.TagValue)
+	}
+
+	tags := make([]FETagEntry, len(keys))
+	for i, k := range keys {
+		vals := valuesByKey[k.TagKey]
+		if vals == nil {
+			vals = []string{} // preserve [] (not null) for keys with no values
 		}
-		vals := make([]string, len(values))
-		for i, v := range values {
-			vals[i] = v.TagValue
-		}
-		tags = append(tags, FETagEntry{Key: k.TagKey, Values: vals})
+		tags[i] = FETagEntry{Key: k.TagKey, Values: vals}
 	}
 	return tags, nil
 }

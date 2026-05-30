@@ -39,3 +39,11 @@ type errorOperationRow struct {
 	TotalCount    uint64 `ch:"total_count"`
 	ErrorCount    uint64 `ch:"error_count"`
 }
+
+type operationBaselineRow struct {
+	SpanCount uint64    `ch:"span_count"`
+	QS        []float32 `ch:"qs"`
+	P50Ms     float32   `ch:"p50_ms"`
+	P95Ms     float32   `ch:"p95_ms"`
+	P99Ms     float32   `ch:"p99_ms"`
+}

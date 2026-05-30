@@ -257,14 +257,14 @@ func (r *ClickHouseRepository) GetImpactWindow(ctx context.Context, teamID int64
 		     AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end`
 	var row impactAggRow
-	err := r.db.QueryRow(dbutil.OverviewCtx(ctx), query,
+	err := dbutil.QueryRowCH(dbutil.OverviewCtx(ctx), r.db, "deployments.GetImpactWindow", &row, query,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)+uint32(timebucket.BucketSeconds)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
-	).ScanStruct(&row)
+	)
 	if err != nil {
 		return impactAggRow{}, err
 	}
