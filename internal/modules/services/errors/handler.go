@@ -3,6 +3,7 @@ package errors
 import (
 	"net/http"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/cursor"
 	"github.com/Optikk-Org/optikk-backend/internal/shared/errorcode"
 
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
@@ -77,8 +78,15 @@ func (h *ErrorHandler) GetErrorGroups(c *gin.Context) {
 	if !ok {
 		return
 	}
+	cursorStr := c.Query("cursor")
+	var cur ErrorGroupsCursor
+	if cursorStr != "" {
+		if decoded, ok := cursor.Decode[ErrorGroupsCursor](cursorStr); ok {
+			cur = decoded
+		}
+	}
 
-	groups, err := h.Service.GetErrorGroups(c.Request.Context(), teamID, startMs, endMs, serviceName, limit)
+	groups, err := h.Service.GetErrorGroups(c.Request.Context(), teamID, startMs, endMs, serviceName, limit, cur)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query overview errors", err)
 		return

@@ -34,7 +34,6 @@ import (
 	saturation_kafka_consumer "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka/consumer"
 	saturation_kafka_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka/explorer"
 	saturation_kafka_producer "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka/producer"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/services/deployments"
 	services_errors "github.com/Optikk-Org/optikk-backend/internal/modules/services/errors"
 	services_hosts "github.com/Optikk-Org/optikk-backend/internal/modules/services/hosts"
 	services_redmetrics "github.com/Optikk-Org/optikk-backend/internal/modules/services/redmetrics"
@@ -60,8 +59,6 @@ func configuredModules(
 	infraDeps *Infra,
 ) []registry.Module {
 	return []registry.Module{
-		deployments.NewModule(nativeQuerier, getTenant),
-
 		infrastructure_cpu.NewModule(nativeQuerier, getTenant),
 		infrastructure_disk.NewModule(nativeQuerier, getTenant),
 		infrastructure_memory.NewModule(nativeQuerier, getTenant),

@@ -4,6 +4,8 @@ import (
 	"context"
 	"strconv"
 	"time"
+
+	"github.com/Optikk-Org/optikk-backend/internal/infra/cursor"
 )
 
 // tsBucketTime converts a UInt32 ts_bucket (Unix-seconds, 5-min boundary)
@@ -112,15 +114,19 @@ func (s *Service) GetLatencyDuringErrorWindows(ctx context.Context, teamID int64
 
 // --- Error groups ---
 
-func (s *Service) GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorGroup, error) {
-	raw, err := s.fetchErrorGroups(ctx, teamID, startMs, endMs, serviceName, limit)
+func (s *Service) GetErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int, cursorIn ErrorGroupsCursor) (PaginatedErrorGroups, error) {
+	raw, err := s.fetchErrorGroups(ctx, teamID, startMs, endMs, serviceName, limit+1, cursorIn)
 	if err != nil {
-		return nil, err
+		return PaginatedErrorGroups{}, err
 	}
-	groups := make([]ErrorGroup, len(raw))
+	hasMore := len(raw) > limit
+	if hasMore {
+		raw = raw[:limit]
+	}
+	results := make([]ErrorGroup, len(raw))
 	for i, row := range raw {
 		code := httpBucketToCode(row.HTTPStatusBucket)
-		groups[i] = ErrorGroup{
+		results[i] = ErrorGroup{
 			GroupID:         row.GroupID,
 			ServiceName:     row.ServiceName,
 			OperationName:   row.OperationName,
@@ -132,14 +138,29 @@ func (s *Service) GetErrorGroups(ctx context.Context, teamID int64, startMs, end
 			SampleTraceID:   row.SampleTraceID,
 		}
 	}
-	return groups, nil
+	var nextCursor string
+	if hasMore && len(raw) > 0 {
+		lastRow := raw[len(raw)-1]
+		nextCursor = cursor.Encode(ErrorGroupsCursor{
+			ErrorCount: lastRow.ErrorCount,
+			GroupID:    lastRow.GroupID,
+		})
+	}
+	return PaginatedErrorGroups{
+		Results: results,
+		PageInfo: PageInfo{
+			HasMore:    hasMore,
+			NextCursor: nextCursor,
+			Limit:      limit,
+		},
+	}, nil
 }
 
-func (s *Service) fetchErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]rawErrorGroupRow, error) {
+func (s *Service) fetchErrorGroups(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int, cursorIn ErrorGroupsCursor) ([]rawErrorGroupRow, error) {
 	if serviceName == "" {
-		return s.repo.ErrorGroupRowsAll(ctx, teamID, startMs, endMs, limit)
+		return s.repo.ErrorGroupRowsAll(ctx, teamID, startMs, endMs, limit, cursorIn)
 	}
-	return s.repo.ErrorGroupRowsByService(ctx, teamID, startMs, endMs, serviceName, limit)
+	return s.repo.ErrorGroupRowsByService(ctx, teamID, startMs, endMs, serviceName, limit, cursorIn)
 }
 
 func (s *Service) GetErrorGroupDetail(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (*ErrorGroupDetail, error) {

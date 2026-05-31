@@ -16,8 +16,8 @@ type Repository interface {
 	ErrorVolumeRowsAll(ctx context.Context, teamID int64, startMs, endMs int64) ([]rawServiceErrorRow, error)
 	ErrorVolumeRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]rawServiceErrorRow, error)
 
-	ErrorGroupRowsAll(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]rawErrorGroupRow, error)
-	ErrorGroupRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]rawErrorGroupRow, error)
+	ErrorGroupRowsAll(ctx context.Context, teamID int64, startMs, endMs int64, limit int, cursor ErrorGroupsCursor) ([]rawErrorGroupRow, error)
+	ErrorGroupRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int, cursor ErrorGroupsCursor) ([]rawErrorGroupRow, error)
 
 	ErrorGroupDetailRow(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (*rawErrorGroupDetailRow, error)
 	ErrorGroupTraceRows(ctx context.Context, teamID int64, startMs, endMs int64, groupID string, limit int) ([]rawErrorGroupTraceRow, error)
@@ -169,8 +169,13 @@ func (r *ClickHouseRepository) ErrorVolumeRowsByService(ctx context.Context, tea
 
 // --- Error groups ---
 
-func (r *ClickHouseRepository) ErrorGroupRowsAll(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]rawErrorGroupRow, error) {
-	const query = `
+func (r *ClickHouseRepository) ErrorGroupRowsAll(ctx context.Context, teamID int64, startMs, endMs int64, limit int, cursor ErrorGroupsCursor) ([]rawErrorGroupRow, error) {
+	var paginationFilter string
+	if !cursor.IsZero() {
+		paginationFilter = "AND (error_count < @cursorCount OR (error_count = @cursorCount AND error_group_id > @cursorID))"
+	}
+
+	query := `
 		SELECT error_group_id                   AS error_group_id,
 		       service                          AS service,
 		       name                             AS operation_name,
@@ -184,21 +189,28 @@ func (r *ClickHouseRepository) ErrorGroupRowsAll(ctx context.Context, teamID int
 		PREWHERE team_id   = @teamID
 		     AND ts_bucket BETWEEN @start AND @end
 		GROUP BY error_group_id, service, name, exception_type, status_message_hash, http_status_bucket
-		HAVING error_count > 0
-		ORDER BY error_count DESC
+		HAVING error_count > 0 ` + paginationFilter + `
+		ORDER BY error_count DESC, error_group_id ASC
 		LIMIT @limit`
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("limit", limit),
+		clickhouse.Named("cursorCount", cursor.ErrorCount),
+		clickhouse.Named("cursorID", cursor.GroupID),
 	}
 	var rows []rawErrorGroupRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.ErrorGroupsAll", &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) ErrorGroupRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]rawErrorGroupRow, error) {
-	const query = `
+func (r *ClickHouseRepository) ErrorGroupRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int, cursor ErrorGroupsCursor) ([]rawErrorGroupRow, error) {
+	var paginationFilter string
+	if !cursor.IsZero() {
+		paginationFilter = "AND (error_count < @cursorCount OR (error_count = @cursorCount AND error_group_id > @cursorID))"
+	}
+
+	query := `
 		WITH active_fps AS (
 		    SELECT fingerprint
 		    FROM observability.spans_resource
@@ -221,8 +233,8 @@ func (r *ClickHouseRepository) ErrorGroupRowsByService(ctx context.Context, team
 		     AND fingerprint IN active_fps
 		WHERE ts_bucket BETWEEN @start AND @end
 		GROUP BY error_group_id, service, name, exception_type, status_message_hash, http_status_bucket
-		HAVING error_count > 0
-		ORDER BY error_count DESC
+		HAVING error_count > 0 ` + paginationFilter + `
+		ORDER BY error_count DESC, error_group_id ASC
 		LIMIT @limit`
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
@@ -232,6 +244,8 @@ func (r *ClickHouseRepository) ErrorGroupRowsByService(ctx context.Context, team
 		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)),
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("limit", limit),
+		clickhouse.Named("cursorCount", cursor.ErrorCount),
+		clickhouse.Named("cursorID", cursor.GroupID),
 	}
 	var rows []rawErrorGroupRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.ErrorGroupsByService", &rows, query, args...)
