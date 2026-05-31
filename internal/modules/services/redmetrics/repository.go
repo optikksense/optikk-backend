@@ -14,7 +14,6 @@ type Repository interface {
 	GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]apdexRow, error)
 	GetApdexByService(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]apdexRow, error)
 	GetRequestRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]requestRateRawRow, error)
-	GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]p95LatencyRawRow, error)
 	GetStatusTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]statusBucketTimeseriesRow, error)
 	GetLatencyPercentilesTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]latencyPercentilesTimeseriesRow, error)
 	GetTopEndpointsCombined(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int, cursor TopEndpointsCursor) ([]topEndpointRow, error)
@@ -271,34 +270,6 @@ func (r *ClickHouseRepository) GetRequestRateTimeSeries(ctx context.Context, tea
 		&rows, query, spanArgs(teamID, startMs, endMs)...)
 }
 
-type p95LatencyRawRow struct {
-	TsBucket    uint32  `ch:"ts_bucket"`
-	ServiceName string  `ch:"service"`
-	P95Ms       float32 `ch:"p95_ms"`
-}
-
-func (r *ClickHouseRepository) GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]p95LatencyRawRow, error) {
-	const query = `
-		WITH active_fps AS (
-		    SELECT DISTINCT fingerprint
-		    FROM observability.spans_resource
-		    PREWHERE team_id   = @teamID
-		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		)
-		SELECT ts_bucket                                                        AS ts_bucket,
-		       service                                                          AS service,
-		       quantileTimingMerge(0.95)(latency_state)                         AS p95_ms
-		FROM observability.spans_1m
-		PREWHERE team_id     = @teamID
-		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		GROUP BY ts_bucket, service
-		ORDER BY ts_bucket ASC`
-	var rows []p95LatencyRawRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetP95LatencyTimeSeries",
-		&rows, query, spanArgs(teamID, startMs, endMs)...)
-}
 
 func (r *ClickHouseRepository) GetSaturationTimeSeries(
 	ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, metricNames []string,

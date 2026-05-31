@@ -13,7 +13,6 @@ type Service interface {
 	GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) (REDSummary, error)
 	GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]ApdexScore, error)
 	GetRequestRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceRatePoint, error)
-	GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceLatencyPoint, error)
 	GetStatusTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]StatusTimeSeriesPoint, error)
 	GetLatencyPercentilesTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]LatencyPercentilesPoint, error)
 	GetTopEndpointsCombined(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int, cursor TopEndpointsCursor) (PaginatedEndpoints, error)
@@ -219,21 +218,6 @@ func (s *REDMetricsService) GetRequestRateTimeSeries(ctx context.Context, teamID
 	return result, nil
 }
 
-func (s *REDMetricsService) GetP95LatencyTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceLatencyPoint, error) {
-	rows, err := s.repo.GetP95LatencyTimeSeries(ctx, teamID, startMs, endMs)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]ServiceLatencyPoint, len(rows))
-	for i, row := range rows {
-		result[i] = ServiceLatencyPoint{
-			Timestamp:   timebucket.BucketTime(row.TsBucket),
-			ServiceName: row.ServiceName,
-			P95Ms:       utils.SanitizeFloat(float64(row.P95Ms)),
-		}
-	}
-	return result, nil
-}
 
 func (s *REDMetricsService) GetServiceSummary(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (ServiceSummaryResponse, error) {
 	redRow, err := s.repo.GetServiceREDMetrics(ctx, teamID, startMs, endMs, serviceName)

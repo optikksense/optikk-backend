@@ -21,8 +21,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 		return
 	}
 	shared.RegisterGET(v1, "/produce-rate-by-topic", h.GetProduceRateByTopic)
-	shared.RegisterGET(v1, "/publish-latency-by-topic", h.GetPublishLatencyByTopic)
-	shared.RegisterGET(v1, "/publish-errors", h.GetPublishErrors)
 }
 
 func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {

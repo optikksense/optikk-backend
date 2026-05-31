@@ -22,10 +22,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	}
 	shared.RegisterGroup(v1, "/ops", func(g *gin.RouterGroup) {
 		g.GET("/by-system", h.GetOpsBySystem)
-		g.GET("/by-operation", h.GetOpsByOperation)
-		g.GET("/by-collection", h.GetOpsByCollection)
-		g.GET("/read-vs-write", h.GetReadVsWrite)
-		g.GET("/by-namespace", h.GetOpsByNamespace)
 	})
 }
 

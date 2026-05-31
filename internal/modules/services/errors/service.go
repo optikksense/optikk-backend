@@ -2,7 +2,6 @@ package errors
 
 import (
 	"context"
-	"strconv"
 	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/cursor"
@@ -80,37 +79,6 @@ func (s *Service) GetErrorVolume(ctx context.Context, teamID int64, startMs, end
 	return points, nil
 }
 
-// --- Latency during error windows ---
-// Reuses the ServiceErrorRate query — same shape, post-processing drops zero-error rows.
-
-func (s *Service) GetLatencyDuringErrorWindows(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
-	var (
-		raw []rawServiceRateRow
-		err error
-	)
-	if serviceName == "" {
-		raw, err = s.repo.ServiceErrorRateRowsAll(ctx, teamID, startMs, endMs)
-	} else {
-		raw, err = s.repo.ServiceErrorRateRowsByService(ctx, teamID, startMs, endMs, serviceName)
-	}
-	if err != nil {
-		return nil, err
-	}
-	points := make([]TimeSeriesPoint, 0, len(raw))
-	for _, row := range raw {
-		if row.ErrorCount == 0 {
-			continue
-		}
-		points = append(points, TimeSeriesPoint{
-			ServiceName:  row.ServiceName,
-			Timestamp:    tsBucketTime(row.TsBucket),
-			RequestCount: int64(row.RequestCount), //nolint:gosec // domain-bounded
-			ErrorCount:   int64(row.ErrorCount),   //nolint:gosec // domain-bounded
-			AvgLatency:   computeAvgLatency(row.DurationMsSum, row.RequestCount),
-		})
-	}
-	return points, nil
-}
 
 // --- Error groups ---
 
@@ -219,31 +187,6 @@ func (s *Service) GetErrorGroupTimeseries(ctx context.Context, teamID int64, sta
 	return points, nil
 }
 
-// --- Exception rate by type ---
-
-func (s *Service) GetExceptionRateByType(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]ExceptionRatePoint, error) {
-	var (
-		raw []rawExceptionRateRow
-		err error
-	)
-	if serviceName == "" {
-		raw, err = s.repo.ExceptionRateRowsAll(ctx, teamID, startMs, endMs)
-	} else {
-		raw, err = s.repo.ExceptionRateRowsByService(ctx, teamID, startMs, endMs, serviceName)
-	}
-	if err != nil {
-		return nil, err
-	}
-	points := make([]ExceptionRatePoint, len(raw))
-	for i, row := range raw {
-		points[i] = ExceptionRatePoint{
-			Timestamp:     tsBucketTime(row.TsBucket),
-			ExceptionType: row.ExceptionType,
-			Count:         int64(row.Count), //nolint:gosec // domain-bounded
-		}
-	}
-	return points, nil
-}
 
 // --- Error hotspot ---
 
@@ -267,80 +210,7 @@ func (s *Service) GetErrorHotspot(ctx context.Context, teamID int64, startMs, en
 	return cells, nil
 }
 
-// --- HTTP 5xx by route ---
 
-func (s *Service) GetHTTP5xxByRoute(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]HTTP5xxByRoute, error) {
-	var (
-		raw []rawHTTP5xxRow
-		err error
-	)
-	if serviceName == "" {
-		raw, err = s.repo.HTTP5xxByRouteRowsAll(ctx, teamID, startMs, endMs)
-	} else {
-		raw, err = s.repo.HTTP5xxByRouteRowsByService(ctx, teamID, startMs, endMs, serviceName)
-	}
-	if err != nil {
-		return nil, err
-	}
-	out := make([]HTTP5xxByRoute, len(raw))
-	for i, row := range raw {
-		out[i] = HTTP5xxByRoute{
-			HTTPRoute:   row.HTTPRoute,
-			ServiceName: row.ServiceName,
-			Count:       int64(row.Count), //nolint:gosec // domain-bounded
-		}
-	}
-	return out, nil
-}
-
-// --- Fingerprint list ---
-
-func (s *Service) ListFingerprints(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorFingerprint, error) {
-	var (
-		raw []rawErrorFingerprintRow
-		err error
-	)
-	if serviceName == "" {
-		raw, err = s.repo.FingerprintRowsAll(ctx, teamID, startMs, endMs, limit)
-	} else {
-		raw, err = s.repo.FingerprintRowsByService(ctx, teamID, startMs, endMs, serviceName, limit)
-	}
-	if err != nil {
-		return nil, err
-	}
-	out := make([]ErrorFingerprint, len(raw))
-	for i, row := range raw {
-		out[i] = ErrorFingerprint{
-			Fingerprint:   strconv.FormatUint(row.StatusMessageHash, 10),
-			ServiceName:   row.ServiceName,
-			OperationName: row.OperationName,
-			ExceptionType: row.ExceptionType,
-			StatusMessage: row.StatusMessage,
-			FirstSeen:     row.FirstSeen,
-			LastSeen:      row.LastSeen,
-			Count:         int64(row.Count), //nolint:gosec // domain-bounded
-			SampleTraceID: row.SampleTraceID,
-		}
-	}
-	return out, nil
-}
-
-// --- Fingerprint trend ---
-
-func (s *Service) GetFingerprintTrend(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName, exceptionType, statusMessage string) ([]FingerprintTrendPoint, error) {
-	raw, err := s.repo.FingerprintTrendRows(ctx, teamID, startMs, endMs, serviceName, operationName, exceptionType, statusMessage)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]FingerprintTrendPoint, len(raw))
-	for i, row := range raw {
-		out[i] = FingerprintTrendPoint{
-			Timestamp: tsBucketTime(row.TsBucket),
-			Count:     int64(row.Count), //nolint:gosec // domain-bounded
-		}
-	}
-	return out, nil
-}
 
 // --- helpers (service-layer derivations) ---
 

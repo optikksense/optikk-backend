@@ -51,24 +51,6 @@ func (h *ErrorHandler) GetErrorVolume(c *gin.Context) {
 	modulecommon.RespondOK(c, points)
 }
 
-func (h *ErrorHandler) GetLatencyDuringErrorWindows(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	serviceName := c.Query("serviceName")
-
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
-
-	points, err := h.Service.GetLatencyDuringErrorWindows(c.Request.Context(), teamID, startMs, endMs, serviceName)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query latency during error windows", err)
-		return
-	}
-
-	modulecommon.RespondOK(c, points)
-}
-
 func (h *ErrorHandler) GetErrorGroups(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	serviceName := c.Query("serviceName")
@@ -146,22 +128,6 @@ func (h *ErrorHandler) GetErrorGroupTimeseries(c *gin.Context) {
 
 // Migrated from errortracking
 
-func (h *ErrorHandler) GetExceptionRateByType(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
-	serviceName := c.Query("serviceName")
-
-	points, err := h.Service.GetExceptionRateByType(c.Request.Context(), teamID, startMs, endMs, serviceName)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query exception rate by type", err)
-		return
-	}
-	modulecommon.RespondOK(c, points)
-}
-
 func (h *ErrorHandler) GetErrorHotspot(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
@@ -177,66 +143,3 @@ func (h *ErrorHandler) GetErrorHotspot(c *gin.Context) {
 	modulecommon.RespondOK(c, cells)
 }
 
-func (h *ErrorHandler) GetHTTP5xxByRoute(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
-	serviceName := c.Query("serviceName")
-
-	rows, err := h.Service.GetHTTP5xxByRoute(c.Request.Context(), teamID, startMs, endMs, serviceName)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query HTTP 5xx by route", err)
-		return
-	}
-	modulecommon.RespondOK(c, rows)
-}
-
-// Migrated from errorfingerprint
-
-// ListFingerprints handles GET /v1/errors/fingerprints
-func (h *ErrorHandler) ListFingerprints(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
-	serviceName := c.Query("serviceName")
-	limit := modulecommon.ParseIntParam(c, "limit", 100)
-	if limit <= 0 || limit > 500 {
-		limit = 100
-	}
-
-	fps, err := h.Service.ListFingerprints(c.Request.Context(), teamID, startMs, endMs, serviceName, limit)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query error fingerprints", err)
-		return
-	}
-	modulecommon.RespondOK(c, fps)
-}
-
-// GetFingerprintTrend handles GET /v1/errors/fingerprints/trend
-func (h *ErrorHandler) GetFingerprintTrend(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
-	serviceName := c.Query("serviceName")
-	operationName := c.Query("operationName")
-	exceptionType := c.Query("exceptionType")
-	statusMessage := c.Query("statusMessage")
-
-	if serviceName == "" || operationName == "" {
-		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.BadRequest, "serviceName and operationName are required")
-		return
-	}
-
-	points, err := h.Service.GetFingerprintTrend(c.Request.Context(), teamID, startMs, endMs, serviceName, operationName, exceptionType, statusMessage)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query fingerprint trend", err)
-		return
-	}
-	modulecommon.RespondOK(c, points)
-}

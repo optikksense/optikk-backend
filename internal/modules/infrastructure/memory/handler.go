@@ -50,20 +50,3 @@ func (h *MemoryHandler) GetMemoryByInstance(c *gin.Context) {
 	modulecommon.RespondOK(c, resp)
 }
 
-func (h *MemoryHandler) GetMemoryTopHosts(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
-	limit := modulecommon.ParseIntParam(c, "limit", defaultTopHosts)
-	if limit <= 0 || limit > maxTopHosts {
-		limit = defaultTopHosts
-	}
-	resp, err := h.Service.GetMemoryTopHosts(c.Request.Context(), teamID, startMs, endMs, limit)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query top memory hosts", err)
-		return
-	}
-	modulecommon.RespondOK(c, resp)
-}

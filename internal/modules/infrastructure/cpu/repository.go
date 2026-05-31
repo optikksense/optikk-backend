@@ -13,7 +13,6 @@ import (
 type Repository interface {
 	QueryCPUUtilizationAgg(ctx context.Context, teamID int64, startMs, endMs int64) ([]CPUMetricNameRow, error)
 	QueryCPUUtilizationByInstance(ctx context.Context, teamID int64, startMs, endMs int64) ([]CPUInstanceMetricRow, error)
-	QueryCPUByHost(ctx context.Context, teamID int64, startMs, endMs int64) ([]CPUHostMetricRow, error)
 }
 
 type ClickHouseRepository struct {
@@ -24,9 +23,6 @@ func NewRepository(db clickhouse.Conn) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-// QueryCPUUtilizationAgg returns one row per CPU-utilization metric with the
-// average value across the window. Service folds the 3 metrics into a single
-// dashboard percentage.
 func (r *ClickHouseRepository) QueryCPUUtilizationAgg(ctx context.Context, teamID int64, startMs, endMs int64) ([]CPUMetricNameRow, error) {
 	const query = `
 		WITH active_fps AS (
@@ -80,41 +76,6 @@ func (r *ClickHouseRepository) QueryCPUUtilizationByInstance(ctx context.Context
 	var rows []CPUInstanceMetricRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "cpu.QueryCPUUtilizationByInstance", &rows, query, args...)
 }
-
-// QueryCPUByHost returns per-(host, metric) averages across the window, one
-// row per metric per host. Service folds the 3-metric blend per host, then
-// ranks DESC and limits — the multi-metric percentage blend is Go-side, so the
-// top-N ranking cannot be pushed into SQL. Mirrors QueryCPUUtilizationByInstance
-// collapsed to host granularity.
-func (r *ClickHouseRepository) QueryCPUByHost(ctx context.Context, teamID int64, startMs, endMs int64) ([]CPUHostMetricRow, error) {
-	const query = `
-		WITH active_fps AS (
-		    SELECT fingerprint
-		    FROM observability.metrics_resource
-		    WHERE team_id = @teamID
-		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		      AND metric_name IN @metricNames
-		)
-		SELECT
-		    host                           AS host,
-		    metric_name                    AS metric_name,
-		    sum(val_sum) / sum(val_count)  AS value
-		FROM observability.metrics_1m
-		PREWHERE team_id        = @teamID
-		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint   IN active_fps
-		WHERE metric_name IN @metricNames
-		  AND timestamp BETWEEN @start AND @end
-		  AND host != ''
-		GROUP BY host, metric_name`
-	args := withMetricNames(metricArgs(teamID, startMs, endMs), infraconsts.CPUMetrics)
-	var rows []CPUHostMetricRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "cpu.QueryCPUByHost", &rows, query, args...)
-}
-
-// ---------------------------------------------------------------------------
-// Local helpers — each module owns its own.
-// ---------------------------------------------------------------------------
 
 func metricArgs(teamID int64, startMs, endMs int64) []any {
 	bucketStart, bucketEnd := metricBucketBounds(startMs, endMs)

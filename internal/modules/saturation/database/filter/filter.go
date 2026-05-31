@@ -1,31 +1,3 @@
-// Package filter owns the typed database-saturation filter shape, OTel
-// constants, helper bind producers, and the SQL clause emitter every
-// db saturation submodule shares. Mirrors internal/modules/metrics/filter
-// + internal/modules/{logs,traces}/filter.
-//
-// **Source-table assignment** (decided per OTel semconv 1.30+):
-//
-//   - DB RED panels (volume / errors / latency / collection / system /
-//     systems / summary / slowqueries) read `observability.spans`. Each DB
-//     call is one span with `duration_nano`, `has_error`,
-//     `response_status_code`, the flat `db_system` / `db_name` /
-//     `db_statement` columns, and the per-data-point `attributes` JSON
-//     (carries `db.operation.name`, `db.collection.name`, `db.namespace`,
-//     `error.type`, `server.address`).
-//
-//   - Connection-pool gauges/histograms (`connections` submodule) read
-//     `observability.metrics`. The OTel `db.client.connection.*` family
-//     is instrumentation-side: `count` / `max` / `idle.max` /
-//     `idle.min` / `pending_requests` / `timeouts` (gauges/counters)
-//     and `wait_time` / `create_time` / `use_time` (histograms).
-//
-// **No phantom rollup table** — `db_histograms_rollup` was never built;
-// the previous repo code referenced columns (`latency_ms_digest`,
-// `value_sum`, `sample_count`, `db_operation`, `pool_name`,
-// `db_connection_state`, etc.) that don't exist on either raw table.
-// Latency percentiles are computed server-side via `quantileTiming` /
-// `quantilesTiming` (raw-spans inline) and `quantileTimingMerge` /
-// `quantilesTimingMerge` (against `spans_1m.latency_state`).
 package filter
 
 import (
@@ -217,4 +189,3 @@ func Spans1mGroupColumn(attr string) string {
 	}
 	return ""
 }
-

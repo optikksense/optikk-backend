@@ -26,7 +26,6 @@ var memMetricNames = []string{
 type Repository interface {
 	QueryMemoryUtilizationAgg(ctx context.Context, teamID int64, startMs, endMs int64) ([]MemoryMetricNameRow, error)
 	QueryMemoryUtilizationForInstance(ctx context.Context, teamID int64, startMs, endMs int64, host, pod, serviceName string) ([]MemoryMetricNameRow, error)
-	QueryMemoryByHost(ctx context.Context, teamID int64, startMs, endMs int64) ([]MemoryHostMetricRow, error)
 }
 
 type ClickHouseRepository struct {
@@ -93,36 +92,6 @@ func (r *ClickHouseRepository) QueryMemoryUtilizationForInstance(ctx context.Con
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "memory.QueryMemoryUtilizationForInstance", &rows, query, args...)
 }
 
-// QueryMemoryByHost returns per-(host, metric) averages across the window, one
-// row per metric per host. Service folds the 4-metric memory blend per host,
-// then ranks DESC and limits — the blend is Go-side, so the top-N ranking
-// cannot be pushed into SQL. Mirrors QueryMemoryUtilizationAgg with host as a
-// group dimension.
-func (r *ClickHouseRepository) QueryMemoryByHost(ctx context.Context, teamID int64, startMs, endMs int64) ([]MemoryHostMetricRow, error) {
-	const query = `
-		WITH active_fps AS (
-		    SELECT fingerprint
-		    FROM observability.metrics_resource
-		    WHERE team_id = @teamID
-		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		      AND metric_name IN @metricNames
-		)
-		SELECT
-		    host                           AS host,
-		    metric_name                    AS metric_name,
-		    sum(val_sum) / sum(val_count)  AS value
-		FROM observability.metrics_1m
-		PREWHERE team_id        = @teamID
-		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint   IN active_fps
-		WHERE metric_name IN @metricNames
-		  AND timestamp BETWEEN @start AND @end
-		  AND host != ''
-		GROUP BY host, metric_name`
-	args := withMetricNames(metricArgs(teamID, startMs, endMs), memMetricNames)
-	var rows []MemoryHostMetricRow
-	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "memory.QueryMemoryByHost", &rows, query, args...)
-}
 
 // ---------------------------------------------------------------------------
 // Local helpers — each module owns its own.

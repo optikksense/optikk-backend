@@ -21,15 +21,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 		return
 	}
 	shared.RegisterGET(v1, "/consume-rate-by-topic", h.GetConsumeRateByTopic)
-	shared.RegisterGET(v1, "/receive-latency-by-topic", h.GetReceiveLatencyByTopic)
-	shared.RegisterGET(v1, "/consume-rate-by-group", h.GetConsumeRateByGroup)
-	shared.RegisterGET(v1, "/process-rate-by-group", h.GetProcessRateByGroup)
-	shared.RegisterGET(v1, "/process-latency-by-group", h.GetProcessLatencyByGroup)
-	shared.RegisterGET(v1, "/consume-errors", h.GetConsumeErrors)
-	shared.RegisterGET(v1, "/process-errors", h.GetProcessErrors)
 	shared.RegisterGET(v1, "/consumer-lag-by-group", h.GetConsumerLagByGroup)
-	shared.RegisterGET(v1, "/lag-per-partition", h.GetConsumerLagPerPartition)
-	shared.RegisterGET(v1, "/rebalance-signals", h.GetRebalanceSignals)
 }
 
 func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {

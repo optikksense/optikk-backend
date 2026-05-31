@@ -3,7 +3,6 @@ package slowqueries
 import (
 	"context"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
@@ -32,56 +31,6 @@ func (s *Service) GetSlowQueryPatterns(ctx context.Context, teamID, startMs, end
 			CallCount:      int64(r.CallCount),  //nolint:gosec
 			ErrorCount:     int64(r.ErrorCount), //nolint:gosec
 		}
-	}
-	return out, nil
-}
-
-func (s *Service) GetSlowestCollections(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]SlowCollectionRow, error) {
-	rows, err := s.repo.GetSlowestCollections(ctx, teamID, startMs, endMs, f)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]SlowCollectionRow, len(rows))
-	for i, r := range rows {
-		p99 := float64(r.P99Ms)
-		ops := r.OpsPerSec
-		var errRate *float64
-		if r.HasCalls != 0 {
-			v := r.ErrorRatePct
-			errRate = &v
-		}
-		out[i] = SlowCollectionRow{
-			CollectionName: r.CollectionName,
-			P99Ms:          &p99,
-			OpsPerSec:      &ops,
-			ErrorRate:      errRate,
-		}
-	}
-	return out, nil
-}
-
-func (s *Service) GetSlowQueryRate(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, thresholdMs float64) ([]SlowRatePoint, error) {
-	rows, err := s.repo.GetSlowQueryRate(ctx, teamID, startMs, endMs, f, thresholdMs)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]SlowRatePoint, len(rows))
-	for i, r := range rows {
-		rate := r.SlowPerSec
-		out[i] = SlowRatePoint{TimeBucket: timebucket.FormatDisplayBucket(r.TimeBucket), SlowPerSec: &rate}
-	}
-	return out, nil
-}
-
-func (s *Service) GetP99ByQueryText(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, limit int) ([]P99ByQueryText, error) {
-	rows, err := s.repo.GetP99ByQueryText(ctx, teamID, startMs, endMs, f, limit)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]P99ByQueryText, len(rows))
-	for i, r := range rows {
-		p99 := float64(r.P99Ms)
-		out[i] = P99ByQueryText{QueryText: r.QueryText, P99Ms: &p99}
 	}
 	return out, nil
 }

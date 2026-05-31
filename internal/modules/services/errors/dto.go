@@ -58,12 +58,6 @@ type rawTimeBucketCountRow struct {
 	Count    uint64 `ch:"count"`
 }
 
-type rawExceptionRateRow struct {
-	TsBucket      uint32 `ch:"ts_bucket"`
-	ExceptionType string `ch:"exception_type"`
-	Count         uint64 `ch:"event_count"`
-}
-
 type rawErrorHotspotRow struct {
 	ServiceName   string `ch:"service"`
 	OperationName string `ch:"operation_name"`
@@ -71,28 +65,6 @@ type rawErrorHotspotRow struct {
 	TotalCount    uint64 `ch:"total_count"`
 }
 
-type rawHTTP5xxRow struct {
-	HTTPRoute   string `ch:"http_route"`
-	ServiceName string `ch:"service"`
-	Count       uint64 `ch:"count_5xx"`
-}
-
-type rawErrorFingerprintRow struct {
-	StatusMessageHash uint64    `ch:"status_message_hash"`
-	ServiceName       string    `ch:"service"`
-	OperationName     string    `ch:"operation_name"`
-	ExceptionType     string    `ch:"exception_type"`
-	StatusMessage     string    `ch:"status_message"`
-	FirstSeen         time.Time `ch:"first_seen"`
-	LastSeen          time.Time `ch:"last_seen"`
-	Count             uint64    `ch:"cnt"`
-	SampleTraceID     string    `ch:"sample_trace_id"`
-}
-
-type rawFingerprintTrendRow struct {
-	TsBucket uint32 `ch:"ts_bucket"`
-	Count    uint64 `ch:"cnt"`
-}
 
 type ErrorGroupsCursor struct {
 	ErrorCount uint64 `json:"cnt"`

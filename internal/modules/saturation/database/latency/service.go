@@ -20,53 +20,6 @@ func (s *Service) GetLatencyBySystem(ctx context.Context, teamID, startMs, endMs
 	return foldLatency(rows), err
 }
 
-func (s *Service) GetLatencyByOperation(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]LatencyTimeSeries, error) {
-	rows, err := s.repo.GetLatencyByOperation(ctx, teamID, startMs, endMs, f)
-	return foldLatency(rows), err
-}
-
-func (s *Service) GetLatencyByCollection(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]LatencyTimeSeries, error) {
-	rows, err := s.repo.GetLatencyByCollection(ctx, teamID, startMs, endMs, f)
-	return foldLatency(rows), err
-}
-
-func (s *Service) GetLatencyByNamespace(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]LatencyTimeSeries, error) {
-	rows, err := s.repo.GetLatencyByNamespace(ctx, teamID, startMs, endMs, f)
-	return foldLatency(rows), err
-}
-
-func (s *Service) GetLatencyByServer(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]LatencyTimeSeries, error) {
-	rows, err := s.repo.GetLatencyByServer(ctx, teamID, startMs, endMs, f)
-	return foldLatency(rows), err
-}
-
-// GetLatencyHeatmap converts raw counts into per-bucket density (fraction
-// of the time-bucket's total). Pass-through count preserved.
-func (s *Service) GetLatencyHeatmap(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]LatencyHeatmapBucket, error) {
-	rows, err := s.repo.GetLatencyHeatmap(ctx, teamID, startMs, endMs, f)
-	if err != nil {
-		return nil, err
-	}
-	totals := map[uint32]uint64{}
-	for _, r := range rows {
-		totals[r.TsBucket] += r.Count
-	}
-	out := make([]LatencyHeatmapBucket, len(rows))
-	for i, r := range rows {
-		var density float64
-		if t := totals[r.TsBucket]; t > 0 {
-			density = float64(r.Count) / float64(t)
-		}
-		out[i] = LatencyHeatmapBucket{
-			TimeBucket:  timebucket.BucketDateTimeString(r.TsBucket),
-			BucketLabel: r.BucketLabel,
-			Count:       int64(r.Count), //nolint:gosec // domain-bounded
-			Density:     density,
-		}
-	}
-	return out, nil
-}
-
 func foldLatency(rows []latencyRawDTO) []LatencyTimeSeries {
 	if rows == nil {
 		return nil

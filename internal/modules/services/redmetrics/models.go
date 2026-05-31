@@ -60,11 +60,6 @@ type ServiceRatePoint struct {
 	RPS         float64   `json:"rps"          ch:"rps"`
 }
 
-type ServiceLatencyPoint struct {
-	Timestamp   time.Time `json:"timestamp"    ch:"timestamp"`
-	ServiceName string    `json:"service_name" ch:"service"`
-	P95Ms       float64   `json:"p95_ms"       ch:"p95_ms"`
-}
 
 type SpanKindPoint struct {
 	Timestamp  time.Time `json:"timestamp"   ch:"timestamp"`
