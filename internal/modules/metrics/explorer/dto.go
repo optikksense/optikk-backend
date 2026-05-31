@@ -23,6 +23,14 @@ type tagValueDTO struct {
 	Count    uint64 `ch:"count"`
 }
 
+// tagKeyValueDTO scans the result of ListTagValuesForKeys — one (key, value)
+// pair per row, so every tag key's values come back in a single query.
+type tagKeyValueDTO struct {
+	TagKey   string `ch:"tag_key"`
+	TagValue string `ch:"tag_value"`
+	Count    uint64 `ch:"count"`
+}
+
 // timeseriesPointDTO scans a single row from QueryTimeseries.
 type timeseriesPointDTO struct {
 	TsBucket uint32  `ch:"ts_bucket"`

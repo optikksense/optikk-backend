@@ -105,6 +105,17 @@ type LatencyPercentilesPoint struct {
 	P99Ms     float64   `json:"p99_ms"`
 }
 
+// OperationBaseline is the windowed p50/p95/p99 for a single service+operation,
+// powering the Trace Detail Duration card's "N× slower than p50" comparison.
+type OperationBaseline struct {
+	ServiceName   string  `json:"service_name"`
+	OperationName string  `json:"operation_name"`
+	P50Ms         float64 `json:"p50_ms"`
+	P95Ms         float64 `json:"p95_ms"`
+	P99Ms         float64 `json:"p99_ms"`
+	SpanCount     int64   `json:"span_count"`
+}
+
 // TopEndpoint is one per-operation row used by the Service Detail endpoints
 // table — combines rate, error %, and p50/p95/p99 latency.
 type TopEndpoint struct {

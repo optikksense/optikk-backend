@@ -19,6 +19,7 @@ type Service interface {
 	GetTopEndpointsCombined(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int, cursor TopEndpointsCursor) (PaginatedEndpoints, error)
 	GetServiceSummary(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (ServiceSummaryResponse, error)
 	GetSaturationTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]SaturationTimeSeriesPoint, error)
+	GetOperationBaseline(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) (OperationBaseline, error)
 }
 
 type REDMetricsService struct {
@@ -184,6 +185,21 @@ func (s *REDMetricsService) GetApdex(ctx context.Context, teamID int64, startMs,
 		}
 	}
 	return result, nil
+}
+
+func (s *REDMetricsService) GetOperationBaseline(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) (OperationBaseline, error) {
+	row, err := s.repo.GetOperationBaseline(ctx, teamID, startMs, endMs, serviceName, operationName)
+	if err != nil {
+		return OperationBaseline{}, err
+	}
+	return OperationBaseline{
+		ServiceName:   serviceName,
+		OperationName: operationName,
+		P50Ms:         utils.SanitizeFloat(float64(row.P50Ms)),
+		P95Ms:         utils.SanitizeFloat(float64(row.P95Ms)),
+		P99Ms:         utils.SanitizeFloat(float64(row.P99Ms)),
+		SpanCount:     int64(row.SpanCount), //nolint:gosec // domain-bounded
+	}, nil
 }
 
 func (s *REDMetricsService) GetRequestRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServiceRatePoint, error) {

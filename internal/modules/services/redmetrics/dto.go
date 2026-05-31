@@ -59,3 +59,11 @@ type PaginatedEndpoints struct {
 	Results  []TopEndpoint `json:"results"`
 	PageInfo PageInfo      `json:"pageInfo"`
 }
+
+type operationBaselineRow struct {
+	SpanCount uint64    `ch:"span_count"`
+	QS        []float32 `ch:"qs"`
+	P50Ms     float32   `ch:"p50_ms"`
+	P95Ms     float32   `ch:"p95_ms"`
+	P99Ms     float32   `ch:"p99_ms"`
+}

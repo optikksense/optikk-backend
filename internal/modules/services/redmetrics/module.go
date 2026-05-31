@@ -29,6 +29,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *REDMetricsHandler) {
 	red.GET("/top-endpoints", h.GetTopEndpointsCombined)
 	red.GET("/services/:serviceName/summary", h.GetServiceSummary)
 	red.GET("/services/:serviceName/saturation-timeseries", h.GetSaturationTimeSeries)
+	red.GET("/operation-baseline", h.GetOperationBaseline)
 }
 
 func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {

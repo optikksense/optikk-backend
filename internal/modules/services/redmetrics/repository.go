@@ -22,6 +22,7 @@ type Repository interface {
 	GetServiceSaturationAggs(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, metricNames []string) ([]serviceMetricRow, error)
 	GetSaturationTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, metricNames []string) ([]serviceMetricTimeseriesRow, error)
 	GetFleetSaturationAggs(ctx context.Context, teamID int64, startMs, endMs int64, metricNames []string) ([]serviceMetricRow, error)
+	GetOperationBaseline(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) (operationBaselineRow, error)
 }
 
 type ClickHouseRepository struct {
@@ -159,6 +160,45 @@ func (r *ClickHouseRepository) GetServiceREDMetrics(ctx context.Context, teamID 
 		row.P99Ms = row.QS[2]
 	}
 	return &row, nil
+}
+
+func (r *ClickHouseRepository) GetOperationBaseline(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) (operationBaselineRow, error) {
+	const query = `
+		WITH active_fps AS (
+		    SELECT DISTINCT fingerprint
+		    FROM observability.spans_resource
+		    PREWHERE team_id   = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		         AND service   = @serviceName
+		)
+		SELECT sum(request_count)                                   AS span_count,
+		       quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state) AS qs
+		FROM observability.spans_1m
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND fingerprint IN active_fps
+		WHERE timestamp BETWEEN @start AND @end
+		  AND service = @serviceName
+		  AND name    = @operationName`
+	args := append(spanArgs(teamID, startMs, endMs),
+		clickhouse.Named("serviceName", serviceName),
+		clickhouse.Named("operationName", operationName),
+	)
+	var rows []operationBaselineRow
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetOperationBaseline",
+		&rows, query, args...); err != nil {
+		return operationBaselineRow{}, err
+	}
+	if len(rows) == 0 {
+		return operationBaselineRow{}, nil
+	}
+	row := rows[0]
+	if len(row.QS) >= 3 {
+		row.P50Ms = row.QS[0]
+		row.P95Ms = row.QS[1]
+		row.P99Ms = row.QS[2]
+	}
+	return row, nil
 }
 
 func (r *ClickHouseRepository) GetServiceSaturationAggs(
