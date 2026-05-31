@@ -93,3 +93,23 @@ type rawFingerprintTrendRow struct {
 	TsBucket uint32 `ch:"ts_bucket"`
 	Count    uint64 `ch:"cnt"`
 }
+
+type ErrorGroupsCursor struct {
+	ErrorCount uint64 `json:"cnt"`
+	GroupID    string `json:"id"`
+}
+
+func (c ErrorGroupsCursor) IsZero() bool {
+	return c.ErrorCount == 0 && c.GroupID == ""
+}
+
+type PageInfo struct {
+	HasMore    bool   `json:"hasMore"`
+	NextCursor string `json:"nextCursor,omitempty"`
+	Limit      int    `json:"limit"`
+}
+
+type PaginatedErrorGroups struct {
+	Results  []ErrorGroup `json:"results"`
+	PageInfo PageInfo     `json:"pageInfo"`
+}

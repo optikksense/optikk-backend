@@ -3,6 +3,8 @@ package explorer
 import (
 	"context"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
@@ -15,6 +17,7 @@ type Repository interface {
 	ListMetricNames(ctx context.Context, teamID, startMs, endMs int64, search string) ([]MetricNameResult, error)
 	ListTagKeys(ctx context.Context, teamID, startMs, endMs int64, metricName string) ([]TagKeyResult, error)
 	ListTagValues(ctx context.Context, teamID, startMs, endMs int64, metricName, tagKey string) ([]TagValueResult, error)
+	ListTagValuesForKeys(ctx context.Context, teamID, startMs, endMs int64, metricName string, keys []string) ([]tagKeyValueDTO, error)
 	QueryTimeseries(ctx context.Context, f filter.Filters) ([]TimeseriesPoint, error)
 }
 
@@ -248,6 +251,91 @@ func (r *ClickHouseRepository) listAttributeTagValues(ctx context.Context, teamI
 		out[i] = TagValueResult{TagValue: row.TagValue, Count: row.Count}
 	}
 	return out, nil
+}
+
+// ListTagValuesForKeys returns the distinct values (with occurrence counts) for
+// every supplied tag key in a SINGLE ClickHouse query. It replaces the prior
+// per-key fan-out — one query per key, each re-resolving the same fingerprint
+// set — that made the tag picker issue O(keys) serial round-trips. Resource keys
+// read the flat metrics_resource columns; attribute keys read the metrics_1m JSON
+// typed subcolumn (attributes.`<key>`::String, identical to listAttributeTagValues
+// so value semantics are unchanged across all value types), narrowed by an inline
+// active_fps CTE so no extra fingerprint round-trip is paid. Key names are bound
+// as @k<n> parameters; only closed-set / SanitizeKey'd identifiers are spliced —
+// the same discipline as QueryTimeseries.
+func (r *ClickHouseRepository) ListTagValuesForKeys(ctx context.Context, teamID, startMs, endMs int64, metricName string, keys []string) ([]tagKeyValueDTO, error) {
+	if len(keys) == 0 {
+		return nil, nil
+	}
+	bucketStart, bucketEnd := metricBucketBounds(startMs, endMs)
+	args := []any{
+		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("bucketStart", bucketStart),
+		clickhouse.Named("bucketEnd", bucketEnd),
+		clickhouse.Named("metricName", metricName),
+	}
+
+	arms := make([]string, 0, len(keys))
+	needFPs := false
+	for i, key := range keys {
+		label := "k" + strconv.Itoa(i)
+		args = append(args, clickhouse.Named(label, key))
+		if canonical := filter.Canonical(key); canonical != "" {
+			col := filter.ResourceColumn(canonical)
+			if col == "" {
+				continue
+			}
+			arms = append(arms, `
+				SELECT @`+label+` AS tag_key, `+col+` AS tag_value, count() AS c
+				FROM observability.metrics_resource
+				PREWHERE team_id     = @teamID
+				     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+				     AND metric_name = @metricName
+				WHERE `+col+` != ''
+				GROUP BY tag_value`)
+			continue
+		}
+		col := filter.AttrColumn(key)
+		needFPs = true
+		arms = append(arms, `
+			SELECT @`+label+` AS tag_key, `+col+` AS tag_value, count() AS c
+			FROM observability.metrics_1m
+			PREWHERE team_id     = @teamID
+			     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+			     AND fingerprint IN active_fps
+			     AND metric_name = @metricName
+			WHERE `+col+` != ''
+			GROUP BY tag_value`)
+	}
+	if len(arms) == 0 {
+		return nil, nil
+	}
+
+	var cte string
+	if needFPs {
+		cte = `
+			WITH active_fps AS (
+			    SELECT fingerprint
+			    FROM observability.metrics_resource
+			    PREWHERE team_id     = @teamID
+			         AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+			         AND metric_name = @metricName
+			)`
+	}
+
+	query := cte + `
+		SELECT tag_key, tag_value, sum(c) AS count
+		FROM (` + strings.Join(arms, "\n\t\t\tUNION ALL") + `
+		)
+		GROUP BY tag_key, tag_value
+		ORDER BY tag_key, count DESC
+		LIMIT 100 BY tag_key`
+
+	var rows []tagKeyValueDTO
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "metrics.ListTagValuesForKeys", &rows, query, args...); err != nil {
+		return nil, err
+	}
+	return rows, nil
 }
 
 func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, f filter.Filters) ([]TimeseriesPoint, error) {

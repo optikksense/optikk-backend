@@ -7,6 +7,12 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// Top-N host ranking defaults shared by the /top endpoint handler.
+const (
+	defaultTopHosts = 6
+	maxTopHosts     = 50
+)
+
 type Config struct {
 	Enabled bool
 }
@@ -27,12 +33,9 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *MemoryHandler) {
 		return
 	}
 	g := v1.Group("/infrastructure/memory")
-	g.GET("/usage", h.GetMemoryUsage)
-	g.GET("/usage-percentage", h.GetMemoryUsagePercentage)
-	g.GET("/swap", h.GetSwapUsage)
 	g.GET("/avg", h.GetAvgMemory)
-	g.GET("/by-service", h.GetMemoryByService)
 	g.GET("/by-instance", h.GetMemoryByInstance)
+	g.GET("/top", h.GetMemoryTopHosts)
 }
 
 func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {

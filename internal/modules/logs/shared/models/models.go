@@ -107,11 +107,17 @@ type Summary struct {
 	Warns  uint64 `json:"warns"`
 }
 
-// TrendBucket is a single severity-bucketed histogram bar.
+// TrendBucket is a single display-grain bar carrying the total log count plus
+// per-severity-tier counts so the FE can render a severity-stacked trend. The
+// tier thresholds match the Summary query (severity_bucket >= 4 → error,
+// = 3 → warn, = 2 → info, <= 1 → debug/unset), so total == error+warn+info+debug.
 type TrendBucket struct {
 	TimeBucket string `json:"time_bucket"`
-	Severity   uint8  `json:"severity_bucket"`
-	Count      uint64 `json:"count"`
+	Total      uint64 `json:"total"`
+	Error      uint64 `json:"error"`
+	Warn       uint64 `json:"warn"`
+	Info       uint64 `json:"info"`
+	Debug      uint64 `json:"debug"`
 }
 
 // PageInfo carries cursor state.

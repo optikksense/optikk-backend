@@ -15,7 +15,6 @@ type Repository interface {
 	GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
 	GetTraceSummary(ctx context.Context, teamID int64, traceID string) (*traceSummaryRow, error)
 	ListSpansByTrace(ctx context.Context, teamID int64, traceID string) ([]SpanListItem, error)
-	ListSpanSubtree(ctx context.Context, teamID int64, spanID string) ([]SpanListItem, error)
 }
 
 type ClickHouseRepository struct {
@@ -195,36 +194,6 @@ func (r *ClickHouseRepository) ListSpansByTrace(ctx context.Context, teamID int6
 	return rows, dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "detail.ListSpansByTrace", &rows, query,
 		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
 		clickhouse.Named("traceID", traceID),
-	)
-}
-
-func (r *ClickHouseRepository) ListSpanSubtree(ctx context.Context, teamID int64, spanID string) ([]SpanListItem, error) {
-	const query = `
-		WITH start AS (
-		    SELECT trace_id
-		    FROM observability.spans
-		    PREWHERE team_id = @teamID AND span_id = @spanID
-		    LIMIT 1
-		)
-		SELECT span_id,
-		       parent_span_id,
-		       trace_id,
-		       service,
-		       name,
-		       kind_string,
-		       status_code_string,
-		       has_error,
-		       duration_nano / 1000000.0          AS duration_ms,
-		       timestamp
-		FROM observability.spans
-		PREWHERE team_id = @teamID
-		WHERE trace_id IN (SELECT trace_id FROM start)
-		ORDER BY timestamp ASC
-		LIMIT 5000`
-	var rows []SpanListItem
-	return rows, dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "detail.ListSpanSubtree", &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("spanID", spanID),
 	)
 }
 

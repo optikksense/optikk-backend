@@ -20,7 +20,6 @@ type Service interface {
 	GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*SpanAttributes, error)
 	GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
 	ListSpansByTrace(ctx context.Context, teamID int64, traceID string) ([]SpanListItem, error)
-	ListSpanSubtree(ctx context.Context, teamID int64, spanID string) ([]SpanListItem, error)
 }
 
 type DetailService struct {
@@ -155,16 +154,6 @@ func (s *DetailService) ListSpansByTrace(ctx context.Context, teamID int64, trac
 	}
 	fillStartNs(rows)
 	return rows, nil
-}
-
-func (s *DetailService) ListSpanSubtree(ctx context.Context, teamID int64, spanID string) ([]SpanListItem, error) {
-	rows, err := s.repo.ListSpanSubtree(ctx, teamID, spanID)
-	if err != nil {
-		return nil, err
-	}
-	subtree := filterSubtree(rows, spanID)
-	fillStartNs(subtree)
-	return subtree, nil
 }
 
 // fillStartNs derives the wire-level StartNs from the natively-scanned
@@ -373,28 +362,4 @@ func parseEventJSON(raw string) (name string, attrs string) {
 		return obj.Name, "{}"
 	}
 	return obj.Name, string(b)
-}
-
-// filterSubtree walks the flat list and keeps only spans reachable from
-// rootID via the parent_span_id → span_id chain. Service-side; the CH query
-// can't express transitive closure cleanly without recursive CTEs.
-func filterSubtree(rows []SpanListItem, rootID string) []SpanListItem {
-	keep := map[string]bool{rootID: true}
-	changed := true
-	for changed {
-		changed = false
-		for _, row := range rows {
-			if !keep[row.SpanID] && keep[row.ParentSpanID] {
-				keep[row.SpanID] = true
-				changed = true
-			}
-		}
-	}
-	out := make([]SpanListItem, 0, len(rows))
-	for _, row := range rows {
-		if keep[row.SpanID] {
-			out = append(out, row)
-		}
-	}
-	return out
 }

@@ -114,8 +114,7 @@ func spanArgs(teamID, startMs, endMs int64, focusService string) []any {
 }
 
 // spanBucketBounds returns the 5-minute-aligned [bucketStart, bucketEnd)
-// covering [startMs, endMs] in spans_resource / spans PK terms. Same shape
-// as services/latency.spanBucketBounds.
+// covering [startMs, endMs] in spans_resource / spans PK terms.
 func spanBucketBounds(startMs, endMs int64) (uint32, uint32) {
 	return timebucket.BucketStart(startMs / 1000),
 		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)

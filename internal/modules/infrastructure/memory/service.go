@@ -1,13 +1,10 @@
 package memory
 
 import (
-	"cmp"
 	"context"
 	"math"
-	"slices"
-	"time"
+	"sort"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
@@ -17,54 +14,6 @@ type Service struct {
 
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
-}
-
-func (s *Service) GetMemoryUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
-	rows, err := s.repo.QueryMemoryUsageByState(ctx, teamID, startMs, endMs)
-	if err != nil {
-		return nil, err
-	}
-	return foldStateCounter(rows, startMs, endMs), nil
-}
-
-func (s *Service) GetSwapUsage(ctx context.Context, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
-	rows, err := s.repo.QuerySwapUsageByState(ctx, teamID, startMs, endMs)
-	if err != nil {
-		return nil, err
-	}
-	return foldStateGauge(rows, startMs, endMs), nil
-}
-
-func (s *Service) GetMemoryUsagePercentage(ctx context.Context, teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
-	rows, err := s.repo.QueryMemoryUsageByPod(ctx, teamID, startMs, endMs)
-	if err != nil {
-		return nil, err
-	}
-	type key struct {
-		t   time.Time
-		pod string
-	}
-	folded := map[key][]MemoryMetricNameRow{}
-	windowMs := endMs - startMs
-	for _, r := range rows {
-		k := key{t: timebucket.DisplayBucket(r.Timestamp.Unix(), windowMs), pod: r.Pod}
-		folded[k] = append(folded[k], MemoryMetricNameRow{MetricName: r.MetricName, Value: r.Value})
-	}
-	out := make([]ResourceBucket, 0, len(folded))
-	for k, group := range folded {
-		out = append(out, ResourceBucket{
-			Timestamp: formatTime(k.t),
-			Pod:       k.pod,
-			Value:     foldMemoryMetricRows(group),
-		})
-	}
-	slices.SortFunc(out, func(a, b ResourceBucket) int {
-		if c := cmp.Compare(a.Timestamp, b.Timestamp); c != 0 {
-			return c
-		}
-		return cmp.Compare(a.Pod, b.Pod)
-	})
-	return out, nil
 }
 
 func (s *Service) GetAvgMemory(ctx context.Context, teamID int64, startMs, endMs int64) (MetricValue, error) {
@@ -79,14 +28,6 @@ func (s *Service) GetAvgMemory(ctx context.Context, teamID int64, startMs, endMs
 	return MetricValue{Value: *avg}, nil
 }
 
-func (s *Service) GetMemoryByService(ctx context.Context, teamID int64, serviceName string, startMs, endMs int64) (*float64, error) {
-	rows, err := s.repo.QueryMemoryUtilizationForService(ctx, teamID, startMs, endMs, serviceName)
-	if err != nil {
-		return nil, err
-	}
-	return foldMemoryMetricRows(rows), nil
-}
-
 func (s *Service) GetMemoryByInstance(ctx context.Context, teamID int64, host, pod, container, serviceName string, startMs, endMs int64) (*float64, error) {
 	_ = container
 	rows, err := s.repo.QueryMemoryUtilizationForInstance(ctx, teamID, startMs, endMs, host, pod, serviceName)
@@ -96,68 +37,39 @@ func (s *Service) GetMemoryByInstance(ctx context.Context, teamID int64, host, p
 	return foldMemoryMetricRows(rows), nil
 }
 
+// GetMemoryTopHosts returns the top-N hosts by blended memory utilization,
+// ranked DESC. The 4-metric blend is Go-side, so ranking happens after the fold.
+func (s *Service) GetMemoryTopHosts(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]HostValue, error) {
+	rows, err := s.repo.QueryMemoryByHost(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return nil, err
+	}
+	byHost := map[string][]MemoryMetricNameRow{}
+	order := []string{}
+	for _, r := range rows {
+		if _, ok := byHost[r.Host]; !ok {
+			order = append(order, r.Host)
+		}
+		byHost[r.Host] = append(byHost[r.Host], MemoryMetricNameRow{MetricName: r.MetricName, Value: r.Value})
+	}
+	out := make([]HostValue, 0, len(order))
+	for _, host := range order {
+		v := foldMemoryMetricRows(byHost[host])
+		if v == nil {
+			continue
+		}
+		out = append(out, HostValue{Host: host, Value: *v})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Value > out[j].Value })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
 // ---------------------------------------------------------------------------
 // Folds + normalization.
 // ---------------------------------------------------------------------------
-
-// foldStateCounter sums values per (display_bucket, state).
-func foldStateCounter(rows []MemoryStateRow, startMs, endMs int64) []StateBucket {
-	type key struct {
-		ts    time.Time
-		state string
-	}
-	sums := map[key]float64{}
-	windowMs := endMs - startMs
-	for _, r := range rows {
-		k := key{ts: timebucket.DisplayBucket(r.Timestamp.Unix(), windowMs), state: r.State}
-		sums[k] += r.Value
-	}
-	out := make([]StateBucket, 0, len(sums))
-	for k, sum := range sums {
-		v := sum
-		out = append(out, StateBucket{Timestamp: formatTime(k.ts), State: k.state, Value: &v})
-	}
-	slices.SortFunc(out, sortStateBucket)
-	return out
-}
-
-func foldStateGauge(rows []MemoryStateRow, startMs, endMs int64) []StateBucket {
-	type key struct {
-		ts    time.Time
-		state string
-	}
-	type acc struct{ sum, count float64 }
-	agg := map[key]*acc{}
-	windowMs := endMs - startMs
-	for _, r := range rows {
-		k := key{ts: timebucket.DisplayBucket(r.Timestamp.Unix(), windowMs), state: r.State}
-		x, ok := agg[k]
-		if !ok {
-			x = &acc{}
-			agg[k] = x
-		}
-		x.sum += r.Value
-		x.count++
-	}
-	out := make([]StateBucket, 0, len(agg))
-	for k, x := range agg {
-		var vp *float64
-		if x.count > 0 {
-			v := x.sum / x.count
-			vp = &v
-		}
-		out = append(out, StateBucket{Timestamp: formatTime(k.ts), State: k.state, Value: vp})
-	}
-	slices.SortFunc(out, sortStateBucket)
-	return out
-}
-
-func sortStateBucket(a, b StateBucket) int {
-	if c := cmp.Compare(a.Timestamp, b.Timestamp); c != 0 {
-		return c
-	}
-	return cmp.Compare(a.State, b.State)
-}
 
 // foldMemoryMetricRows blends the 4-metric memory family into a single
 // utilization percentage:
@@ -201,8 +113,4 @@ func averageFloats(values []float64) *float64 {
 	}
 	avg := sum / float64(count)
 	return &avg
-}
-
-func formatTime(t time.Time) string {
-	return t.UTC().Format("2006-01-02 15:04:05")
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 
 	chembed "github.com/Optikk-Org/optikk-backend/db/clickhouse"
+	mysqlembed "github.com/Optikk-Org/optikk-backend/db/mysql"
 	"github.com/Optikk-Org/optikk-backend/internal/auth"
 	"github.com/Optikk-Org/optikk-backend/internal/config"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
@@ -57,6 +58,10 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 		slog.String("database", cfg.MySQL.Database),
 		slog.Int("max_open_conns", cfg.MySQL.MaxOpenConns),
 	)
+	if err := runMySQLMigrate(dbConn); err != nil {
+		_ = dbConn.Close() //nolint:errcheck
+		return nil, fmt.Errorf("mysql migrate: %w", err)
+	}
 	defer func() {
 		if err != nil {
 			_ = dbConn.Close() //nolint:errcheck
@@ -144,6 +149,22 @@ func runMigrate(conn clickhouse.Conn, database string) error {
 		return err
 	}
 	slog.Info("chmigrate: complete", slog.Int("applied", applied), slog.Int("skipped", skipped))
+	return nil
+}
+
+func runMySQLMigrate(db *sql.DB) error {
+	m := &dbutil.MySQLMigrator{
+		DB:     db,
+		FS:     mysqlembed.FS,
+		Logger: func(format string, args ...any) { slog.Info(fmt.Sprintf("mysqlmigrate: "+format, args...)) },
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	stmts, err := m.Up(ctx)
+	if err != nil {
+		return err
+	}
+	slog.Info("mysqlmigrate: complete", slog.Int("statements", stmts))
 	return nil
 }
 

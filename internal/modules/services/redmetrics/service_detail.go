@@ -2,8 +2,12 @@ package redmetrics
 
 import (
 	"context"
+	"time"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/cursor"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
 // GetStatusTimeSeries pivots per-bucket / per-status-class rows into one
@@ -15,10 +19,14 @@ func (s *REDMetricsService) GetStatusTimeSeries(
 	if err != nil {
 		return nil, err
 	}
-	return pivotStatusRows(rows), nil
+	grainSec := float64(timebucket.DisplayGrain(endMs - startMs).Seconds())
+	if grainSec <= 0 {
+		grainSec = 60
+	}
+	return pivotStatusRows(rows, grainSec), nil
 }
 
-func pivotStatusRows(rows []statusBucketTimeseriesRow) []StatusTimeSeriesPoint {
+func pivotStatusRows(rows []statusBucketTimeseriesRow, grainSec float64) []StatusTimeSeriesPoint {
 	byTs := make(map[int64]*StatusTimeSeriesPoint, len(rows))
 	order := make([]int64, 0, len(rows))
 	for _, row := range rows {
@@ -29,7 +37,7 @@ func pivotStatusRows(rows []statusBucketTimeseriesRow) []StatusTimeSeriesPoint {
 			byTs[key] = pt
 			order = append(order, key)
 		}
-		count := int64(row.RequestCount) //nolint:gosec // domain-bounded
+		count := float64(row.RequestCount) / grainSec
 		writeStatusCount(pt, row.StatusBucket, count)
 	}
 	out := make([]StatusTimeSeriesPoint, len(order))
@@ -39,7 +47,7 @@ func pivotStatusRows(rows []statusBucketTimeseriesRow) []StatusTimeSeriesPoint {
 	return out
 }
 
-func writeStatusCount(pt *StatusTimeSeriesPoint, bucket string, count int64) {
+func writeStatusCount(pt *StatusTimeSeriesPoint, bucket string, count float64) {
 	switch bucket {
 	case "2xx":
 		pt.Status2xx += count
@@ -76,21 +84,45 @@ func (s *REDMetricsService) GetLatencyPercentilesTimeSeries(
 // GetTopEndpointsCombined returns per-operation rate / errPct / p50 / p95 / p99
 // sorted by request volume.
 func (s *REDMetricsService) GetTopEndpointsCombined(
-	ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int,
-) ([]TopEndpoint, error) {
-	rows, err := s.repo.GetTopEndpointsCombined(ctx, teamID, startMs, endMs, serviceName, limit)
+	ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int, cursorIn TopEndpointsCursor,
+) (PaginatedEndpoints, error) {
+	rows, err := s.repo.GetTopEndpointsCombined(ctx, teamID, startMs, endMs, serviceName, limit+1, cursorIn)
 	if err != nil {
-		return nil, err
+		return PaginatedEndpoints{}, err
 	}
+
+	hasMore := len(rows) > limit
+	if hasMore {
+		rows = rows[:limit]
+	}
+
 	durationSec := float64(endMs-startMs) / 1000.0
 	if durationSec <= 0 {
 		durationSec = 1
 	}
-	out := make([]TopEndpoint, len(rows))
+
+	results := make([]TopEndpoint, len(rows))
 	for i, row := range rows {
-		out[i] = toTopEndpoint(row, durationSec)
+		results[i] = toTopEndpoint(row, durationSec)
 	}
-	return out, nil
+
+	var nextCursor string
+	if hasMore && len(rows) > 0 {
+		lastRow := rows[len(rows)-1]
+		nextCursor = cursor.Encode(TopEndpointsCursor{
+			TotalCount:    lastRow.TotalCount,
+			OperationName: lastRow.OperationName,
+		})
+	}
+
+	return PaginatedEndpoints{
+		Results: results,
+		PageInfo: PageInfo{
+			HasMore:    hasMore,
+			NextCursor: nextCursor,
+			Limit:      limit,
+		},
+	}, nil
 }
 
 func toTopEndpoint(row topEndpointRow, durationSec float64) TopEndpoint {
@@ -113,4 +145,53 @@ func toTopEndpoint(row topEndpointRow, durationSec float64) TopEndpoint {
 		P95Ms:         utils.SanitizeFloat(float64(row.P95Ms)),
 		P99Ms:         utils.SanitizeFloat(float64(row.P99Ms)),
 	}
+}
+
+func (s *REDMetricsService) GetSaturationTimeSeries(
+	ctx context.Context, teamID int64, startMs, endMs int64, serviceName string,
+) ([]SaturationTimeSeriesPoint, error) {
+	metricNames := []string{
+		infraconsts.MetricSystemCPUUtilization,
+		infraconsts.MetricSystemCPUUsage,
+		infraconsts.MetricProcessCPUUsage,
+	}
+
+	rows, err := s.repo.GetSaturationTimeSeries(ctx, teamID, startMs, endMs, serviceName, metricNames)
+	if err != nil {
+		return nil, err
+	}
+
+	// Pivot/group by timestamp
+	type timeBucket struct {
+		values []float64
+	}
+	byTime := make(map[int64]*timeBucket)
+	var order []int64
+
+	for _, row := range rows {
+		key := row.BucketAt.Unix()
+		tb, ok := byTime[key]
+		if !ok {
+			tb = &timeBucket{}
+			byTime[key] = tb
+			order = append(order, key)
+		}
+		if v := normalizeUtilization(row.Value); v != nil {
+			tb.values = append(tb.values, *v)
+		}
+	}
+
+	out := make([]SaturationTimeSeriesPoint, 0, len(order))
+	for _, key := range order {
+		tb := byTime[key]
+		avg := averageFloats(tb.values)
+		if avg != nil {
+			out = append(out, SaturationTimeSeriesPoint{
+				Timestamp: time.Unix(key, 0).UTC(),
+				Value:     utils.SanitizeFloat(*avg),
+			})
+		}
+	}
+
+	return out, nil
 }

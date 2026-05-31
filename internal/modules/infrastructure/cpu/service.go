@@ -1,13 +1,10 @@
 package cpu
 
 import (
-	"cmp"
 	"context"
 	"math"
-	"slices"
-	"time"
+	"sort"
 
-	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
@@ -17,84 +14,6 @@ type Service struct {
 
 func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
-}
-
-// GetCPUTime returns per-(display_bucket, state) totals from system.cpu.time.
-func (s *Service) GetCPUTime(ctx context.Context, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
-	rows, err := s.repo.QueryCPUTimeByState(ctx, teamID, startMs, endMs)
-	if err != nil {
-		return nil, err
-	}
-	return foldStateBuckets(rows, startMs, endMs), nil
-}
-
-// GetProcessCount returns per-(display_bucket, state) gauge averages for system.process.count.
-func (s *Service) GetProcessCount(ctx context.Context, teamID int64, startMs, endMs int64) ([]StateBucket, error) {
-	rows, err := s.repo.QueryProcessCountByState(ctx, teamID, startMs, endMs)
-	if err != nil {
-		return nil, err
-	}
-	return foldStateGauge(rows, startMs, endMs), nil
-}
-
-// GetCPUUsagePercentage folds the 3-metric utilization family per (timestamp, pod).
-func (s *Service) GetCPUUsagePercentage(ctx context.Context, teamID int64, startMs, endMs int64) ([]ResourceBucket, error) {
-	rows, err := s.repo.QueryCPUUtilizationByPod(ctx, teamID, startMs, endMs)
-	if err != nil {
-		return nil, err
-	}
-	type key struct {
-		t   time.Time
-		pod string
-	}
-	folded := map[key][]float64{}
-	windowMs := endMs - startMs
-	for _, r := range rows {
-		v := normalizeUtilization(r.Value)
-		if v == nil {
-			continue
-		}
-		k := key{t: timebucket.DisplayBucket(r.Timestamp.Unix(), windowMs), pod: r.Pod}
-		folded[k] = append(folded[k], *v)
-	}
-	out := make([]ResourceBucket, 0, len(folded))
-	for k, vals := range folded {
-		out = append(out, ResourceBucket{
-			Timestamp: formatTime(k.t),
-			Pod:       k.pod,
-			Value:     averageFloats(vals),
-		})
-	}
-	slices.SortFunc(out, func(a, b ResourceBucket) int {
-		if c := cmp.Compare(a.Timestamp, b.Timestamp); c != 0 {
-			return c
-		}
-		return cmp.Compare(a.Pod, b.Pod)
-	})
-	return out, nil
-}
-
-// GetLoadAverage returns the 1m/5m/15m load averages aggregated across the window.
-func (s *Service) GetLoadAverage(ctx context.Context, teamID int64, startMs, endMs int64) (LoadAverageResult, error) {
-	rows, err := s.repo.QueryLoadAverages(ctx, teamID, startMs, endMs)
-	if err != nil {
-		return LoadAverageResult{}, err
-	}
-	var result LoadAverageResult
-	for _, r := range rows {
-		if math.IsNaN(r.Value) || math.IsInf(r.Value, 0) {
-			continue
-		}
-		switch r.MetricName {
-		case infraconsts.MetricSystemCPULoadAvg1m:
-			result.Load1m = r.Value
-		case infraconsts.MetricSystemCPULoadAvg5m:
-			result.Load5m = r.Value
-		case infraconsts.MetricSystemCPULoadAvg15m:
-			result.Load15m = r.Value
-		}
-	}
-	return result, nil
 }
 
 // GetAvgCPU folds the 3-metric utilization family across the window.
@@ -108,27 +27,6 @@ func (s *Service) GetAvgCPU(ctx context.Context, teamID int64, startMs, endMs in
 		return MetricValue{Value: 0}, nil
 	}
 	return MetricValue{Value: *avg}, nil
-}
-
-// GetCPUByService returns one row per service with the 3-metric fold applied per service.
-func (s *Service) GetCPUByService(ctx context.Context, teamID int64, startMs, endMs int64) ([]CPUServiceMetric, error) {
-	rows, err := s.repo.QueryCPUUtilizationByService(ctx, teamID, startMs, endMs)
-	if err != nil {
-		return nil, err
-	}
-	byService := map[string][]CPUMetricNameRow{}
-	order := []string{}
-	for _, r := range rows {
-		if _, ok := byService[r.Service]; !ok {
-			order = append(order, r.Service)
-		}
-		byService[r.Service] = append(byService[r.Service], CPUMetricNameRow{MetricName: r.MetricName, Value: r.Value})
-	}
-	out := make([]CPUServiceMetric, 0, len(order))
-	for _, name := range order {
-		out = append(out, CPUServiceMetric{ServiceName: name, Value: foldCPUMetricRows(byService[name])})
-	}
-	return out, nil
 }
 
 // GetCPUByInstance returns one row per (host, pod, container, service) with the 3-metric fold applied.
@@ -160,67 +58,39 @@ func (s *Service) GetCPUByInstance(ctx context.Context, teamID int64, startMs, e
 	return out, nil
 }
 
+// GetCPUTopHosts returns the top-N hosts by blended CPU utilization, ranked
+// DESC. The 3-metric blend is Go-side, so ranking happens after the fold.
+func (s *Service) GetCPUTopHosts(ctx context.Context, teamID int64, startMs, endMs int64, limit int) ([]HostValue, error) {
+	rows, err := s.repo.QueryCPUByHost(ctx, teamID, startMs, endMs)
+	if err != nil {
+		return nil, err
+	}
+	byHost := map[string][]CPUMetricNameRow{}
+	order := []string{}
+	for _, r := range rows {
+		if _, ok := byHost[r.Host]; !ok {
+			order = append(order, r.Host)
+		}
+		byHost[r.Host] = append(byHost[r.Host], CPUMetricNameRow{MetricName: r.MetricName, Value: r.Value})
+	}
+	out := make([]HostValue, 0, len(order))
+	for _, host := range order {
+		v := foldCPUMetricRows(byHost[host])
+		if v == nil {
+			continue
+		}
+		out = append(out, HostValue{Host: host, Value: *v})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Value > out[j].Value })
+	if limit > 0 && len(out) > limit {
+		out = out[:limit]
+	}
+	return out, nil
+}
+
 // ---------------------------------------------------------------------------
 // Folds + normalization.
 // ---------------------------------------------------------------------------
-
-func foldStateBuckets(rows []CPUStateRow, startMs, endMs int64) []StateBucket {
-	type key struct {
-		ts    time.Time
-		state string
-	}
-	sums := map[key]float64{}
-	windowMs := endMs - startMs
-	for _, r := range rows {
-		k := key{ts: timebucket.DisplayBucket(r.Timestamp.Unix(), windowMs), state: r.State}
-		sums[k] += r.Value
-	}
-	out := make([]StateBucket, 0, len(sums))
-	for k, sum := range sums {
-		v := sum
-		out = append(out, StateBucket{Timestamp: formatTime(k.ts), State: k.state, Value: &v})
-	}
-	slices.SortFunc(out, sortStateBucket)
-	return out
-}
-
-func foldStateGauge(rows []CPUStateRow, startMs, endMs int64) []StateBucket {
-	type key struct {
-		ts    time.Time
-		state string
-	}
-	type acc struct{ sum, count float64 }
-	agg := map[key]*acc{}
-	windowMs := endMs - startMs
-	for _, r := range rows {
-		k := key{ts: timebucket.DisplayBucket(r.Timestamp.Unix(), windowMs), state: r.State}
-		x, ok := agg[k]
-		if !ok {
-			x = &acc{}
-			agg[k] = x
-		}
-		x.sum += r.Value
-		x.count++
-	}
-	out := make([]StateBucket, 0, len(agg))
-	for k, x := range agg {
-		var vp *float64
-		if x.count > 0 {
-			v := x.sum / x.count
-			vp = &v
-		}
-		out = append(out, StateBucket{Timestamp: formatTime(k.ts), State: k.state, Value: vp})
-	}
-	slices.SortFunc(out, sortStateBucket)
-	return out
-}
-
-func sortStateBucket(a, b StateBucket) int {
-	if c := cmp.Compare(a.Timestamp, b.Timestamp); c != 0 {
-		return c
-	}
-	return cmp.Compare(a.State, b.State)
-}
 
 // foldCPUMetricRows blends the 3-metric utilization family into one percentage.
 func foldCPUMetricRows(rows []CPUMetricNameRow) *float64 {
@@ -273,8 +143,4 @@ func averageFloats(values []float64) *float64 {
 	}
 	avg := sum / float64(count)
 	return &avg
-}
-
-func formatTime(t time.Time) string {
-	return t.UTC().Format("2006-01-02 15:04:05")
 }

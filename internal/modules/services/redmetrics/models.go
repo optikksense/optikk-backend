@@ -15,12 +15,15 @@ type REDSummary struct {
 }
 
 type ServiceREDMetric struct {
-	ServiceName  string  `json:"service_name"`
-	RequestCount int64   `json:"request_count"`
-	ErrorCount   int64   `json:"error_count"`
-	AvgLatency   float64 `json:"avg_latency"`
-	P95Latency   float64 `json:"p95_latency"`
-	P99Latency   float64 `json:"p99_latency"`
+	ServiceName       string  `json:"service_name"`
+	RequestCount      int64   `json:"request_count"`
+	ErrorCount        int64   `json:"error_count"`
+	AvgLatency        float64 `json:"avg_latency"`
+	P95Latency        float64 `json:"p95_latency"`
+	P99Latency        float64 `json:"p99_latency"`
+	CPUUtilization    float64 `json:"cpu_utilization"`
+	MemoryUtilization float64 `json:"memory_utilization"`
+	DiskUtilization   float64 `json:"disk_utilization"`
 }
 
 
@@ -88,10 +91,10 @@ type LatencyBreakdown struct {
 // the OTel http.status_code bucket (`2xx` / `4xx` / `5xx`).
 type StatusTimeSeriesPoint struct {
 	Timestamp   time.Time `json:"timestamp"`
-	Status2xx   int64     `json:"status_2xx"`
-	Status4xx   int64     `json:"status_4xx"`
-	Status5xx   int64     `json:"status_5xx"`
-	StatusOther int64     `json:"status_other"`
+	Status2xx   float64   `json:"status_2xx"`
+	Status4xx   float64   `json:"status_4xx"`
+	Status5xx   float64   `json:"status_5xx"`
+	StatusOther float64   `json:"status_other"`
 }
 
 // LatencyPercentilesPoint is one display-bucket row with p50/p95/p99 latency.
@@ -100,6 +103,17 @@ type LatencyPercentilesPoint struct {
 	P50Ms     float64   `json:"p50_ms"`
 	P95Ms     float64   `json:"p95_ms"`
 	P99Ms     float64   `json:"p99_ms"`
+}
+
+// OperationBaseline is the windowed p50/p95/p99 for a single service+operation,
+// powering the Trace Detail Duration card's "N× slower than p50" comparison.
+type OperationBaseline struct {
+	ServiceName   string  `json:"service_name"`
+	OperationName string  `json:"operation_name"`
+	P50Ms         float64 `json:"p50_ms"`
+	P95Ms         float64 `json:"p95_ms"`
+	P99Ms         float64 `json:"p99_ms"`
+	SpanCount     int64   `json:"span_count"`
 }
 
 // TopEndpoint is one per-operation row used by the Service Detail endpoints
@@ -117,3 +131,35 @@ type TopEndpoint struct {
 	P95Ms         float64 `json:"p95_ms"`
 	P99Ms         float64 `json:"p99_ms"`
 }
+
+type ServiceSummaryResponse struct {
+	ServiceName       string  `json:"service_name"`
+	RequestCount      int64   `json:"request_count"`
+	ErrorCount        int64   `json:"error_count"`
+	RPS               float64 `json:"rps"`
+	ErrorRate         float64 `json:"error_rate"`
+	P50Ms             float64 `json:"p50_ms"`
+	P95Ms             float64 `json:"p95_ms"`
+	P99Ms             float64 `json:"p99_ms"`
+	CPUUtilization    float64 `json:"cpu_utilization"`
+	MemoryUtilization float64 `json:"memory_utilization"`
+	DiskUtilization   float64 `json:"disk_utilization"`
+}
+
+type SaturationTimeSeriesPoint struct {
+	Timestamp time.Time `json:"timestamp"`
+	Value     float64   `json:"value"`
+}
+
+type serviceMetricTimeseriesRow struct {
+	BucketAt   time.Time `ch:"bucket_at"`
+	MetricName string    `ch:"metric_name"`
+	Value      float64   `ch:"value"`
+}
+
+type serviceMetricRow struct {
+	Service    string  `ch:"service"`
+	MetricName string  `ch:"metric_name"`
+	Value      float64 `ch:"value"`
+}
+

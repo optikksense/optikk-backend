@@ -5,12 +5,12 @@ import (
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 
-	infrastructure_connpool "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/connpool"
+	alerting_evaluator "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/evaluator"
+	alerting_monitors "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/monitors"
+	alerting_notifications "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/notifications"
 	infrastructure_cpu "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/cpu"
 	infrastructure_disk "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/disk"
 	infrastructure_fleet "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/fleet"
-	infrastructure_jvm "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/jvm"
-	infrastructure_kubernetes "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/kubernetes"
 	infrastructure_memory "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/memory"
 	infrastructure_network "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/network"
 	infrastructure_nodes "github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/nodes"
@@ -34,14 +34,9 @@ import (
 	saturation_kafka_consumer "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka/consumer"
 	saturation_kafka_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka/explorer"
 	saturation_kafka_producer "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka/producer"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/services/apm"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/services/deployments"
 	services_errors "github.com/Optikk-Org/optikk-backend/internal/modules/services/errors"
 	services_hosts "github.com/Optikk-Org/optikk-backend/internal/modules/services/hosts"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/services/httpmetrics"
-	services_latency "github.com/Optikk-Org/optikk-backend/internal/modules/services/latency"
 	services_redmetrics "github.com/Optikk-Org/optikk-backend/internal/modules/services/redmetrics"
-	services_slo "github.com/Optikk-Org/optikk-backend/internal/modules/services/slo"
 	services_topology "github.com/Optikk-Org/optikk-backend/internal/modules/services/topology"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/detail"
 	spans_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
@@ -64,15 +59,8 @@ func configuredModules(
 	infraDeps *Infra,
 ) []registry.Module {
 	return []registry.Module{
-		apm.NewModule(nativeQuerier, getTenant),
-		deployments.NewModule(nativeQuerier, getTenant),
-		httpmetrics.NewModule(nativeQuerier, getTenant),
-
-		infrastructure_connpool.NewModule(nativeQuerier, getTenant),
 		infrastructure_cpu.NewModule(nativeQuerier, getTenant),
 		infrastructure_disk.NewModule(nativeQuerier, getTenant),
-		infrastructure_jvm.NewModule(nativeQuerier, getTenant),
-		infrastructure_kubernetes.NewModule(nativeQuerier, getTenant),
 		infrastructure_memory.NewModule(nativeQuerier, getTenant),
 		infrastructure_network.NewModule(nativeQuerier, getTenant),
 		infrastructure_fleet.NewModule(nativeQuerier, getTenant),
@@ -89,7 +77,6 @@ func configuredModules(
 		services_errors.NewModule(nativeQuerier, getTenant, infraDeps.RedisClient),
 		services_hosts.NewModule(nativeQuerier, getTenant),
 		services_redmetrics.NewModule(nativeQuerier, getTenant),
-		services_slo.NewModule(nativeQuerier, getTenant),
 		saturation_explorer.NewModule(nativeQuerier, getTenant),
 		saturation_database_collection.NewModule(nativeQuerier, getTenant),
 		saturation_database_connections.NewModule(nativeQuerier, getTenant),
@@ -114,9 +101,12 @@ func configuredModules(
 		shape.NewModule(nativeQuerier, getTenant),
 		suggest.NewModule(nativeQuerier, getTenant),
 		trend.NewModule(nativeQuerier, getTenant),
-		services_latency.NewModule(nativeQuerier, getTenant),
 		user_auth.NewModule(infraDeps.DB, getTenant, infraDeps.SessionManager, appConfig),
 		user_team.NewModule(infraDeps.DB, getTenant, appConfig),
 		user_user.NewModule(infraDeps.DB, getTenant, appConfig),
+
+		alerting_monitors.NewModule(infraDeps.DB, getTenant, nativeQuerier),
+		alerting_notifications.NewModule(infraDeps.DB, getTenant),
+		alerting_evaluator.NewModule(infraDeps.DB, nativeQuerier),
 	}
 }

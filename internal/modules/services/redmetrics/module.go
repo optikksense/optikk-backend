@@ -22,17 +22,14 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *REDMetricsHandler) {
 	red := v1.Group("/spans/red")
 	red.GET("/summary", h.GetSummary)
 	red.GET("/apdex", h.GetApdex)
-	red.GET("/top-slow-operations", h.GetTopSlowOperations)
-	red.GET("/top-error-operations", h.GetTopErrorOperations)
 	red.GET("/request-rate", h.GetRequestRateTimeSeries)
 	red.GET("/p95-latency", h.GetP95LatencyTimeSeries)
-	red.GET("/span-kind-breakdown", h.GetSpanKindBreakdown)
-	red.GET("/errors-by-route", h.GetErrorsByRoute)
 	red.GET("/status-timeseries", h.GetStatusTimeSeries)
 	red.GET("/latency-percentiles-timeseries", h.GetLatencyPercentilesTimeSeries)
 	red.GET("/top-endpoints", h.GetTopEndpointsCombined)
-
-	v1.GET("/spans/latency-breakdown", h.GetLatencyBreakdown)
+	red.GET("/services/:serviceName/summary", h.GetServiceSummary)
+	red.GET("/services/:serviceName/saturation-timeseries", h.GetSaturationTimeSeries)
+	red.GET("/operation-baseline", h.GetOperationBaseline)
 }
 
 func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {

@@ -24,7 +24,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	v1.GET("/traces/:traceId/spans/:spanId/attributes", h.GetSpanAttributes)
 	v1.GET("/traces/:traceId/related", h.GetRelatedTraces)
 	v1.GET("/traces/:traceId/spans", h.GetTraceSpans)
-	v1.GET("/spans/:spanId/tree", h.GetSpanTree)
 }
 
 func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {

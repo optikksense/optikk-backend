@@ -60,7 +60,6 @@ func (r *ClickHouseRepository) GetStatusTimeSeries(
 		     AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		      ` + serviceWherePred(serviceName) + `
-		  AND http_status_bucket != ''
 		GROUP BY bucket_at, http_status_bucket
 		ORDER BY bucket_at ASC`
 	var rows []statusBucketTimeseriesRow
@@ -106,8 +105,13 @@ func (r *ClickHouseRepository) GetLatencyPercentilesTimeSeries(
 }
 
 func (r *ClickHouseRepository) GetTopEndpointsCombined(
-	ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int,
+	ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int, cursor TopEndpointsCursor,
 ) ([]topEndpointRow, error) {
+	var paginationFilter string
+	if !cursor.IsZero() {
+		paginationFilter = "AND (total_count < @cursorCount OR (total_count = @cursorCount AND operation_name > @cursorOp))"
+	}
+
 	query := `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
@@ -130,9 +134,14 @@ func (r *ClickHouseRepository) GetTopEndpointsCombined(
 		WHERE timestamp BETWEEN @start AND @end
 		      ` + serviceWherePred(serviceName) + `
 		GROUP BY service, name
-		ORDER BY total_count DESC
+		HAVING 1 = 1 ` + paginationFilter + `
+		ORDER BY total_count DESC, operation_name ASC
 		LIMIT @limit`
-	args := append(detailArgs(teamID, startMs, endMs, serviceName), clickhouse.Named("limit", limit))
+	args := append(detailArgs(teamID, startMs, endMs, serviceName),
+		clickhouse.Named("limit", limit),
+		clickhouse.Named("cursorCount", cursor.TotalCount),
+		clickhouse.Named("cursorOp", cursor.OperationName),
+	)
 	var rows []topEndpointRow
 	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetTopEndpointsCombined",
 		&rows, query, args...); err != nil {
