@@ -80,7 +80,7 @@ func (r *ClickHouseRepository) QueryMemoryUtilizationForInstance(ctx context.Con
 		  AND timestamp BETWEEN @start AND @end
 		  AND host    = @host
 		  AND service = @serviceName
-		  AND attributes.'k8s.pod.name'::String = @pod
+		  AND pod = @pod
 		GROUP BY metric_name`
 	args := withMetricNames(metricArgs(teamID, startMs, endMs), memMetricNames)
 	args = append(args,

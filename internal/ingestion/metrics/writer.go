@@ -18,7 +18,7 @@ var chColumns = []string{
 	"ts_bucket",
 	"value", "hist_sum", "hist_count",
 	"hist_buckets", "hist_counts",
-	"service", "host", "environment", "k8s_namespace", "http_method", "http_status_code",
+	"service", "host", "environment", "k8s_namespace", "pod", "container", "http_method", "http_status_code",
 	"resource", "attributes",
 }
 
@@ -79,6 +79,8 @@ func rowValues(r *schema.Row) []any {
 		r.GetHost(),
 		r.GetEnvironment(),
 		r.GetK8SNamespace(),
+		r.GetPod(),
+		r.GetContainer(),
 		r.GetHttpMethod(),
 		uint16(r.GetHttpStatusCode()), //nolint:gosec
 		r.GetResource(),

@@ -3,6 +3,7 @@ package redmetrics
 import (
 	"context"
 	"math"
+	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/cursor"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
@@ -206,28 +207,44 @@ func (s *REDMetricsService) GetRequestAndErrorRateTimeSeries(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	// Divide by the display-grain width (not a fixed 5-min bucket) so RPS stays a
-	// true per-second rate after the query coarsens buckets for wider windows.
-	grainSec := float64(timebucket.DisplayGrain(endMs - startMs).Seconds())
+
+	grain := timebucket.DisplayGrain(endMs - startMs)
+	grainSec := float64(grain.Seconds())
 	if grainSec <= 0 {
 		grainSec = 60
 	}
-	result := make([]ServicePerformancePoint, len(rows))
-	for i, row := range rows {
-		var errorPct float64
-		if row.RequestCount > 0 {
-			errorPct = (float64(row.ErrorCount) / float64(row.RequestCount)) * 100.0
-		}
-		result[i] = ServicePerformancePoint{
-			Timestamp:    row.BucketAt,
-			ServiceName:  row.ServiceName,
-			RPS:          float64(row.RequestCount) / grainSec,
-			RequestCount: row.RequestCount,
-			ErrorCount:   row.ErrorCount,
-			ErrorPct:     utils.SanitizeFloat(errorPct),
-		}
+
+	startTime := time.UnixMilli(startMs).UTC().Truncate(grain)
+	endTime := time.UnixMilli(endMs).UTC().Truncate(grain)
+
+	rowMap := make(map[int64]requestRateRawRow)
+	for _, row := range rows {
+		ts := row.BucketAt.UTC().Truncate(grain).Unix()
+		rowMap[ts] = row
 	}
-	return result, nil
+
+	var points []ServicePerformancePoint
+	for t := startTime; !t.After(endTime); t = t.Add(grain) {
+		row, ok := rowMap[t.Unix()]
+		var reqCount, errCount uint64
+		var rps, errorPct float64
+		if ok {
+			reqCount = row.RequestCount
+			errCount = row.ErrorCount
+			rps = float64(reqCount) / grainSec
+			if reqCount > 0 {
+				errorPct = (float64(errCount) / float64(reqCount)) * 100.0
+			}
+		}
+		points = append(points, ServicePerformancePoint{
+			Timestamp:    t,
+			RPS:          rps,
+			RequestCount: reqCount,
+			ErrorCount:   errCount,
+			ErrorPct:     utils.SanitizeFloat(errorPct),
+		})
+	}
+	return points, nil
 }
 
 func (s *REDMetricsService) GetServiceSummary(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (ServiceSummaryResponse, error) {
@@ -344,32 +361,39 @@ func (s *REDMetricsService) GetStatusTimeSeries(
 	if err != nil {
 		return nil, err
 	}
-	grainSec := float64(timebucket.DisplayGrain(endMs - startMs).Seconds())
+	grain := timebucket.DisplayGrain(endMs - startMs)
+	grainSec := float64(grain.Seconds())
 	if grainSec <= 0 {
 		grainSec = 60
 	}
-	return pivotStatusRows(rows, grainSec), nil
-}
 
-func pivotStatusRows(rows []statusBucketTimeseriesRow, grainSec float64) []StatusTimeSeriesPoint {
-	byTs := make(map[int64]*StatusTimeSeriesPoint, len(rows))
-	order := make([]int64, 0, len(rows))
+	startTime := time.UnixMilli(startMs).UTC().Truncate(grain)
+	endTime := time.UnixMilli(endMs).UTC().Truncate(grain)
+
+	byTs := make(map[int64]*StatusTimeSeriesPoint)
 	for _, row := range rows {
-		key := row.BucketAt.Unix()
+		key := row.BucketAt.UTC().Truncate(grain).Unix()
 		pt, ok := byTs[key]
 		if !ok {
-			pt = &StatusTimeSeriesPoint{Timestamp: row.BucketAt}
+			pt = &StatusTimeSeriesPoint{Timestamp: row.BucketAt.UTC().Truncate(grain)}
 			byTs[key] = pt
-			order = append(order, key)
 		}
 		count := float64(row.RequestCount) / grainSec
 		writeStatusCount(pt, row.StatusBucket, count)
 	}
-	out := make([]StatusTimeSeriesPoint, len(order))
-	for i, key := range order {
-		out[i] = *byTs[key]
+
+	var points []StatusTimeSeriesPoint
+	for t := startTime; !t.After(endTime); t = t.Add(grain) {
+		pt, ok := byTs[t.Unix()]
+		if ok {
+			points = append(points, *pt)
+		} else {
+			points = append(points, StatusTimeSeriesPoint{
+				Timestamp: t,
+			})
+		}
 	}
-	return out
+	return points, nil
 }
 
 func writeStatusCount(pt *StatusTimeSeriesPoint, bucket string, count float64) {
@@ -394,16 +418,34 @@ func (s *REDMetricsService) GetLatencyPercentilesTimeSeries(
 	if err != nil {
 		return nil, err
 	}
-	out := make([]LatencyPercentilesPoint, len(rows))
-	for i, row := range rows {
-		out[i] = LatencyPercentilesPoint{
-			Timestamp: row.BucketAt,
-			P50Ms:     utils.SanitizeFloat(float64(row.P50Ms)),
-			P95Ms:     utils.SanitizeFloat(float64(row.P95Ms)),
-			P99Ms:     utils.SanitizeFloat(float64(row.P99Ms)),
-		}
+
+	grain := timebucket.DisplayGrain(endMs - startMs)
+	startTime := time.UnixMilli(startMs).UTC().Truncate(grain)
+	endTime := time.UnixMilli(endMs).UTC().Truncate(grain)
+
+	rowMap := make(map[int64]latencyPercentilesTimeseriesRow)
+	for _, row := range rows {
+		ts := row.BucketAt.UTC().Truncate(grain).Unix()
+		rowMap[ts] = row
 	}
-	return out, nil
+
+	var points []LatencyPercentilesPoint
+	for t := startTime; !t.After(endTime); t = t.Add(grain) {
+		row, ok := rowMap[t.Unix()]
+		var p50, p95, p99 float64
+		if ok {
+			p50 = utils.SanitizeFloat(float64(row.P50Ms))
+			p95 = utils.SanitizeFloat(float64(row.P95Ms))
+			p99 = utils.SanitizeFloat(float64(row.P99Ms))
+		}
+		points = append(points, LatencyPercentilesPoint{
+			Timestamp: t,
+			P50Ms:     p50,
+			P95Ms:     p95,
+			P99Ms:     p99,
+		})
+	}
+	return points, nil
 }
 
 // GetTopEndpointsCombined returns per-operation rate / errPct / p50 / p95 / p99

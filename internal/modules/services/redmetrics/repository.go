@@ -242,7 +242,6 @@ func (r *ClickHouseRepository) GetServiceSaturationAggs(
 
 type requestRateRawRow struct {
 	BucketAt     time.Time `ch:"bucket_at"`
-	ServiceName  string    `ch:"service"`
 	RequestCount uint64    `ch:"request_count"`
 	ErrorCount   uint64    `ch:"error_count"`
 }
@@ -256,7 +255,6 @@ func (r *ClickHouseRepository) GetRequestAndErrorRateTimeSeries(ctx context.Cont
 		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
 		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + ` AS bucket_at,
-		       service               AS service,
 		       sum(request_count)    AS request_count,
 		       sum(error_count)      AS error_count
 		FROM observability.spans_1m
@@ -264,7 +262,7 @@ func (r *ClickHouseRepository) GetRequestAndErrorRateTimeSeries(ctx context.Cont
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
-		GROUP BY bucket_at, service
+		GROUP BY bucket_at
 		ORDER BY bucket_at ASC`
 	var rows []requestRateRawRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetRequestAndErrorRateTimeSeries",

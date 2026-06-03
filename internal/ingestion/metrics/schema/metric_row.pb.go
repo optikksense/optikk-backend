@@ -2,7 +2,7 @@
 // versions:
 // 	protoc-gen-go v1.36.11
 // 	protoc        v7.34.1
-// source: internal/ingestion/metrics/schema/metric_row.proto
+// source: metric_row.proto
 
 package schema
 
@@ -40,7 +40,7 @@ type Row struct {
 	HistCounts  []uint64               `protobuf:"varint,14,rep,packed,name=hist_counts,json=histCounts,proto3" json:"hist_counts,omitempty"`
 	Resource    map[string]string      `protobuf:"bytes,15,rep,name=resource,proto3" json:"resource,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	Attributes  map[string]string      `protobuf:"bytes,16,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
-	// ts_bucket_hour_seconds is the hour-aligned bucket value from internal/infra/timebucket.MetricsHourBucket.
+	// ts_bucket_hour_seconds carries the 5-minute-aligned bucket value from internal/infra/timebucket.BucketStart (Unix seconds). Field name kept for proto wire-compat.
 	TsBucketHourSeconds int64 `protobuf:"varint,17,opt,name=ts_bucket_hour_seconds,json=tsBucketHourSeconds,proto3" json:"ts_bucket_hour_seconds,omitempty"`
 	// Top-level resource/attribute labels written by the mapper; tier MVs pass these through.
 	Service        string `protobuf:"bytes,20,opt,name=service,proto3" json:"service,omitempty"`
@@ -49,13 +49,15 @@ type Row struct {
 	K8SNamespace   string `protobuf:"bytes,23,opt,name=k8s_namespace,json=k8sNamespace,proto3" json:"k8s_namespace,omitempty"`
 	HttpMethod     string `protobuf:"bytes,24,opt,name=http_method,json=httpMethod,proto3" json:"http_method,omitempty"`
 	HttpStatusCode uint32 `protobuf:"varint,25,opt,name=http_status_code,json=httpStatusCode,proto3" json:"http_status_code,omitempty"`
+	Pod            string `protobuf:"bytes,26,opt,name=pod,proto3" json:"pod,omitempty"`
+	Container      string `protobuf:"bytes,27,opt,name=container,proto3" json:"container,omitempty"`
 	unknownFields  protoimpl.UnknownFields
 	sizeCache      protoimpl.SizeCache
 }
 
 func (x *Row) Reset() {
 	*x = Row{}
-	mi := &file_internal_ingestion_metrics_schema_metric_row_proto_msgTypes[0]
+	mi := &file_metric_row_proto_msgTypes[0]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -67,7 +69,7 @@ func (x *Row) String() string {
 func (*Row) ProtoMessage() {}
 
 func (x *Row) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_ingestion_metrics_schema_metric_row_proto_msgTypes[0]
+	mi := &file_metric_row_proto_msgTypes[0]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -80,7 +82,7 @@ func (x *Row) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Row.ProtoReflect.Descriptor instead.
 func (*Row) Descriptor() ([]byte, []int) {
-	return file_internal_ingestion_metrics_schema_metric_row_proto_rawDescGZIP(), []int{0}
+	return file_metric_row_proto_rawDescGZIP(), []int{0}
 }
 
 func (x *Row) GetTeamId() uint32 {
@@ -244,11 +246,25 @@ func (x *Row) GetHttpStatusCode() uint32 {
 	return 0
 }
 
-var File_internal_ingestion_metrics_schema_metric_row_proto protoreflect.FileDescriptor
+func (x *Row) GetPod() string {
+	if x != nil {
+		return x.Pod
+	}
+	return ""
+}
 
-const file_internal_ingestion_metrics_schema_metric_row_proto_rawDesc = "" +
+func (x *Row) GetContainer() string {
+	if x != nil {
+		return x.Container
+	}
+	return ""
+}
+
+var File_metric_row_proto protoreflect.FileDescriptor
+
+const file_metric_row_proto_rawDesc = "" +
 	"\n" +
-	"2internal/ingestion/metrics/schema/metric_row.proto\x12\x18optikk.ingest.metrics.v1\"\xbd\a\n" +
+	"\x10metric_row.proto\x12\x18optikk.ingest.metrics.v1\"\xed\a\n" +
 	"\x03Row\x12\x17\n" +
 	"\ateam_id\x18\x01 \x01(\rR\x06teamId\x12\x1f\n" +
 	"\vmetric_name\x18\x02 \x01(\tR\n" +
@@ -280,7 +296,9 @@ const file_internal_ingestion_metrics_schema_metric_row_proto_rawDesc = "" +
 	"\rk8s_namespace\x18\x17 \x01(\tR\fk8sNamespace\x12\x1f\n" +
 	"\vhttp_method\x18\x18 \x01(\tR\n" +
 	"httpMethod\x12(\n" +
-	"\x10http_status_code\x18\x19 \x01(\rR\x0ehttpStatusCode\x1a;\n" +
+	"\x10http_status_code\x18\x19 \x01(\rR\x0ehttpStatusCode\x12\x10\n" +
+	"\x03pod\x18\x1a \x01(\tR\x03pod\x12\x1c\n" +
+	"\tcontainer\x18\x1b \x01(\tR\tcontainer\x1a;\n" +
 	"\rResourceEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a=\n" +
@@ -289,24 +307,24 @@ const file_internal_ingestion_metrics_schema_metric_row_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01BOZMgithub.com/Optikk-Org/optikk-backend/internal/ingestion/metrics/schema;schemab\x06proto3"
 
 var (
-	file_internal_ingestion_metrics_schema_metric_row_proto_rawDescOnce sync.Once
-	file_internal_ingestion_metrics_schema_metric_row_proto_rawDescData []byte
+	file_metric_row_proto_rawDescOnce sync.Once
+	file_metric_row_proto_rawDescData []byte
 )
 
-func file_internal_ingestion_metrics_schema_metric_row_proto_rawDescGZIP() []byte {
-	file_internal_ingestion_metrics_schema_metric_row_proto_rawDescOnce.Do(func() {
-		file_internal_ingestion_metrics_schema_metric_row_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_internal_ingestion_metrics_schema_metric_row_proto_rawDesc), len(file_internal_ingestion_metrics_schema_metric_row_proto_rawDesc)))
+func file_metric_row_proto_rawDescGZIP() []byte {
+	file_metric_row_proto_rawDescOnce.Do(func() {
+		file_metric_row_proto_rawDescData = protoimpl.X.CompressGZIP(unsafe.Slice(unsafe.StringData(file_metric_row_proto_rawDesc), len(file_metric_row_proto_rawDesc)))
 	})
-	return file_internal_ingestion_metrics_schema_metric_row_proto_rawDescData
+	return file_metric_row_proto_rawDescData
 }
 
-var file_internal_ingestion_metrics_schema_metric_row_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
-var file_internal_ingestion_metrics_schema_metric_row_proto_goTypes = []any{
+var file_metric_row_proto_msgTypes = make([]protoimpl.MessageInfo, 3)
+var file_metric_row_proto_goTypes = []any{
 	(*Row)(nil), // 0: optikk.ingest.metrics.v1.Row
 	nil,         // 1: optikk.ingest.metrics.v1.Row.ResourceEntry
 	nil,         // 2: optikk.ingest.metrics.v1.Row.AttributesEntry
 }
-var file_internal_ingestion_metrics_schema_metric_row_proto_depIdxs = []int32{
+var file_metric_row_proto_depIdxs = []int32{
 	1, // 0: optikk.ingest.metrics.v1.Row.resource:type_name -> optikk.ingest.metrics.v1.Row.ResourceEntry
 	2, // 1: optikk.ingest.metrics.v1.Row.attributes:type_name -> optikk.ingest.metrics.v1.Row.AttributesEntry
 	2, // [2:2] is the sub-list for method output_type
@@ -316,26 +334,26 @@ var file_internal_ingestion_metrics_schema_metric_row_proto_depIdxs = []int32{
 	0, // [0:2] is the sub-list for field type_name
 }
 
-func init() { file_internal_ingestion_metrics_schema_metric_row_proto_init() }
-func file_internal_ingestion_metrics_schema_metric_row_proto_init() {
-	if File_internal_ingestion_metrics_schema_metric_row_proto != nil {
+func init() { file_metric_row_proto_init() }
+func file_metric_row_proto_init() {
+	if File_metric_row_proto != nil {
 		return
 	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
-			RawDescriptor: unsafe.Slice(unsafe.StringData(file_internal_ingestion_metrics_schema_metric_row_proto_rawDesc), len(file_internal_ingestion_metrics_schema_metric_row_proto_rawDesc)),
+			RawDescriptor: unsafe.Slice(unsafe.StringData(file_metric_row_proto_rawDesc), len(file_metric_row_proto_rawDesc)),
 			NumEnums:      0,
 			NumMessages:   3,
 			NumExtensions: 0,
 			NumServices:   0,
 		},
-		GoTypes:           file_internal_ingestion_metrics_schema_metric_row_proto_goTypes,
-		DependencyIndexes: file_internal_ingestion_metrics_schema_metric_row_proto_depIdxs,
-		MessageInfos:      file_internal_ingestion_metrics_schema_metric_row_proto_msgTypes,
+		GoTypes:           file_metric_row_proto_goTypes,
+		DependencyIndexes: file_metric_row_proto_depIdxs,
+		MessageInfos:      file_metric_row_proto_msgTypes,
 	}.Build()
-	File_internal_ingestion_metrics_schema_metric_row_proto = out.File
-	file_internal_ingestion_metrics_schema_metric_row_proto_goTypes = nil
-	file_internal_ingestion_metrics_schema_metric_row_proto_depIdxs = nil
+	File_metric_row_proto = out.File
+	file_metric_row_proto_goTypes = nil
+	file_metric_row_proto_depIdxs = nil
 }

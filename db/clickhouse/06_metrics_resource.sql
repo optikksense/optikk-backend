@@ -9,9 +9,7 @@ CREATE TABLE IF NOT EXISTS observability.metrics_resource (
     service          LowCardinality(String) CODEC(ZSTD(1)),
     host             LowCardinality(String) CODEC(ZSTD(1)),
     environment      LowCardinality(String) CODEC(ZSTD(1)),
-    k8s_namespace    LowCardinality(String) CODEC(ZSTD(1)),
-    http_method      LowCardinality(String) CODEC(ZSTD(1)),
-    http_status_code UInt16 CODEC(T64, ZSTD(1))
+    k8s_namespace    LowCardinality(String) CODEC(ZSTD(1))
 ) ENGINE = ReplacingMergeTree()
 PARTITION BY toYYYYMMDD(toDateTime(ts_bucket))
 ORDER BY (team_id, ts_bucket, metric_name, service, fingerprint)
@@ -30,8 +28,6 @@ SELECT DISTINCT
     service,
     host,
     environment,
-    k8s_namespace,
-    http_method,
-    http_status_code
+    k8s_namespace
 FROM observability.metrics
 WHERE fingerprint != '';

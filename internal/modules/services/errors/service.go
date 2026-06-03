@@ -2,8 +2,10 @@ package errors
 
 import (
 	"context"
+	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/cursor"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 )
 
 type Service struct {
@@ -29,18 +31,78 @@ func (s *Service) GetServiceErrorRate(ctx context.Context, teamID int64, startMs
 	if err != nil {
 		return nil, err
 	}
-	points := make([]TimeSeriesPoint, len(raw))
-	for i, row := range raw {
-		total := int64(row.RequestCount) //nolint:gosec // domain-bounded
-		errs := int64(row.ErrorCount)    //nolint:gosec // domain-bounded
-		points[i] = TimeSeriesPoint{
-			ServiceName:  row.ServiceName,
-			Timestamp:    row.BucketAt,
+
+	grain := timebucket.DisplayGrain(endMs - startMs)
+	startTime := time.UnixMilli(startMs).UTC().Truncate(grain)
+	endTime := time.UnixMilli(endMs).UTC().Truncate(grain)
+
+	if serviceName == "" {
+		serviceNames := make(map[string]bool)
+		for _, row := range raw {
+			if row.ServiceName != "" {
+				serviceNames[row.ServiceName] = true
+			}
+		}
+
+		rowMap := make(map[string]map[int64]rawServiceRateRow)
+		for svc := range serviceNames {
+			rowMap[svc] = make(map[int64]rawServiceRateRow)
+		}
+		for _, row := range raw {
+			ts := row.BucketAt.UTC().Truncate(grain).Unix()
+			if rowMap[row.ServiceName] != nil {
+				rowMap[row.ServiceName][ts] = row
+			}
+		}
+
+		var points []TimeSeriesPoint
+		for svc := range serviceNames {
+			for t := startTime; !t.After(endTime); t = t.Add(grain) {
+				row, ok := rowMap[svc][t.Unix()]
+				var total, errs int64
+				var durationMsSum float64
+				if ok {
+					total = int64(row.RequestCount)
+					errs = int64(row.ErrorCount)
+					durationMsSum = row.DurationMsSum
+				}
+				points = append(points, TimeSeriesPoint{
+					ServiceName:  svc,
+					Timestamp:    t,
+					RequestCount: total,
+					ErrorCount:   errs,
+					ErrorRate:    computeErrorRate(errs, total),
+					AvgLatency:   computeAvgLatency(durationMsSum, uint64(total)),
+				})
+			}
+		}
+		return points, nil
+	}
+
+	rowMap := make(map[int64]rawServiceRateRow)
+	for _, row := range raw {
+		ts := row.BucketAt.UTC().Truncate(grain).Unix()
+		rowMap[ts] = row
+	}
+
+	var points []TimeSeriesPoint
+	for t := startTime; !t.After(endTime); t = t.Add(grain) {
+		row, ok := rowMap[t.Unix()]
+		var total, errs int64
+		var durationMsSum float64
+		if ok {
+			total = int64(row.RequestCount)
+			errs = int64(row.ErrorCount)
+			durationMsSum = row.DurationMsSum
+		}
+		points = append(points, TimeSeriesPoint{
+			ServiceName:  serviceName,
+			Timestamp:    t,
 			RequestCount: total,
 			ErrorCount:   errs,
 			ErrorRate:    computeErrorRate(errs, total),
-			AvgLatency:   computeAvgLatency(row.DurationMsSum, row.RequestCount),
-		}
+			AvgLatency:   computeAvgLatency(durationMsSum, uint64(total)),
+		})
 	}
 	return points, nil
 }
@@ -60,15 +122,65 @@ func (s *Service) GetErrorVolume(ctx context.Context, teamID int64, startMs, end
 	if err != nil {
 		return nil, err
 	}
-	points := make([]TimeSeriesPoint, 0, len(raw))
+
+	grain := timebucket.DisplayGrain(endMs - startMs)
+	startTime := time.UnixMilli(startMs).UTC().Truncate(grain)
+	endTime := time.UnixMilli(endMs).UTC().Truncate(grain)
+
+	if serviceName == "" {
+		serviceNames := make(map[string]bool)
+		for _, row := range raw {
+			if row.ServiceName != "" {
+				serviceNames[row.ServiceName] = true
+			}
+		}
+
+		rowMap := make(map[string]map[int64]rawServiceErrorRow)
+		for svc := range serviceNames {
+			rowMap[svc] = make(map[int64]rawServiceErrorRow)
+		}
+		for _, row := range raw {
+			ts := row.BucketAt.UTC().Truncate(grain).Unix()
+			if rowMap[row.ServiceName] != nil {
+				rowMap[row.ServiceName][ts] = row
+			}
+		}
+
+		var points []TimeSeriesPoint
+		for svc := range serviceNames {
+			for t := startTime; !t.After(endTime); t = t.Add(grain) {
+				row, ok := rowMap[svc][t.Unix()]
+				var errs int64
+				if ok {
+					errs = int64(row.ErrorCount)
+				}
+				points = append(points, TimeSeriesPoint{
+					ServiceName: svc,
+					Timestamp:   t,
+					ErrorCount:  errs,
+				})
+			}
+		}
+		return points, nil
+	}
+
+	rowMap := make(map[int64]rawServiceErrorRow)
 	for _, row := range raw {
-		if row.ErrorCount == 0 {
-			continue
+		ts := row.BucketAt.UTC().Truncate(grain).Unix()
+		rowMap[ts] = row
+	}
+
+	var points []TimeSeriesPoint
+	for t := startTime; !t.After(endTime); t = t.Add(grain) {
+		row, ok := rowMap[t.Unix()]
+		var errs int64
+		if ok {
+			errs = int64(row.ErrorCount)
 		}
 		points = append(points, TimeSeriesPoint{
-			ServiceName: row.ServiceName,
-			Timestamp:   row.BucketAt,
-			ErrorCount:  int64(row.ErrorCount), //nolint:gosec // domain-bounded
+			ServiceName: serviceName,
+			Timestamp:   t,
+			ErrorCount:  errs,
 		})
 	}
 	return points, nil
@@ -252,12 +364,28 @@ func (s *Service) GetErrorGroupTimeseries(ctx context.Context, teamID int64, sta
 	if err != nil {
 		return nil, err
 	}
-	points := make([]TimeSeriesPoint, len(raw))
-	for i, row := range raw {
-		points[i] = TimeSeriesPoint{
-			Timestamp:  row.BucketAt,
-			ErrorCount: int64(row.Count), //nolint:gosec // domain-bounded
+
+	grain := timebucket.DisplayGrain(endMs - startMs)
+	startTime := time.UnixMilli(startMs).UTC().Truncate(grain)
+	endTime := time.UnixMilli(endMs).UTC().Truncate(grain)
+
+	rowMap := make(map[int64]rawTimeBucketCountRow)
+	for _, row := range raw {
+		ts := row.BucketAt.UTC().Truncate(grain).Unix()
+		rowMap[ts] = row
+	}
+
+	var points []TimeSeriesPoint
+	for t := startTime; !t.After(endTime); t = t.Add(grain) {
+		row, ok := rowMap[t.Unix()]
+		var count int64
+		if ok {
+			count = int64(row.Count)
 		}
+		points = append(points, TimeSeriesPoint{
+			Timestamp:  t,
+			ErrorCount: count,
+		})
 	}
 	return points, nil
 }

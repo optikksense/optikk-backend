@@ -151,12 +151,12 @@ func (r *ClickHouseRepository) ErrorGroupRowsAll(ctx context.Context, teamID int
 		SELECT error_group_id                   AS error_group_id,
 		       service                          AS service,
 		       name                             AS operation_name,
-		       any(sample_status_message)       AS status_message,
+		       argMax(sample_status_message, timestamp) AS status_message,
 		       http_status_bucket               AS http_status_bucket,
 		       sum(error_count)                 AS error_count,
 		       max(timestamp)                   AS last_occurrence,
 		       min(timestamp)                   AS first_occurrence,
-		       any(sample_trace_id)             AS sample_trace_id
+		       argMax(sample_trace_id, timestamp)       AS sample_trace_id
 		FROM observability.spans_1m
 		PREWHERE team_id   = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -191,12 +191,12 @@ func (r *ClickHouseRepository) ErrorGroupRowsByService(ctx context.Context, team
 		SELECT error_group_id                   AS error_group_id,
 		       service                          AS service,
 		       name                             AS operation_name,
-		       any(sample_status_message)       AS status_message,
+		       argMax(sample_status_message, timestamp) AS status_message,
 		       http_status_bucket               AS http_status_bucket,
 		       sum(error_count)                 AS error_count,
 		       max(timestamp)                   AS last_occurrence,
 		       min(timestamp)                   AS first_occurrence,
-		       any(sample_trace_id)             AS sample_trace_id
+		       argMax(sample_trace_id, timestamp)       AS sample_trace_id
 		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd

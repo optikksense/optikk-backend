@@ -28,9 +28,10 @@ CREATE TABLE IF NOT EXISTS observability.metrics_1m (
     host                 LowCardinality(String) CODEC(ZSTD(1)),
     environment          LowCardinality(String) CODEC(ZSTD(1)),
     k8s_namespace        LowCardinality(String) CODEC(ZSTD(1)),
+    pod                  LowCardinality(String) CODEC(ZSTD(1)),
+    container            LowCardinality(String) CODEC(ZSTD(1)),
     http_method          LowCardinality(String) CODEC(ZSTD(1)),
     http_status_code     UInt16 CODEC(T64, ZSTD(1)),
-    resource             JSON(max_dynamic_paths=100) CODEC(ZSTD(1)),
     attributes           JSON(max_dynamic_paths=100) CODEC(ZSTD(1))
 ) ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMMDD(timestamp)
@@ -54,7 +55,6 @@ SELECT
     fingerprint,
     cityHash64(toJSONString(attributes))                                      AS attr_hash,
     attributes,
-    resource,
 
     -- Scalar (Gauge / Sum) — fire once per source row, conditional on type.
     minIf(value,     metric_type IN ('Gauge', 'Sum')) AS val_min,
@@ -82,6 +82,8 @@ SELECT
     host,
     environment,
     k8s_namespace,
+    pod,
+    container,
     http_method,
     http_status_code
 FROM observability.metrics
@@ -96,10 +98,11 @@ GROUP BY
     fingerprint,
     attr_hash,
     attributes,
-    resource,
     service,
     host,
     environment,
     k8s_namespace,
+    pod,
+    container,
     http_method,
     http_status_code;

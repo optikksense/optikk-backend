@@ -55,7 +55,6 @@ type ErrorOperation struct {
 
 type ServicePerformancePoint struct {
 	Timestamp    time.Time `json:"timestamp"    ch:"timestamp"`
-	ServiceName  string    `json:"service_name" ch:"service"`
 	RPS          float64   `json:"rps"          ch:"rps"`
 	RequestCount uint64    `json:"request_count"`
 	ErrorCount   uint64    `json:"error_count"`
