@@ -2,21 +2,41 @@ package explorer
 
 import (
 	"context"
+	"fmt"
+	"log/slog"
+	"strings"
 )
 
-// Service orchestrates the traces list read path. Facets and trend live at
-// peer endpoints (facets, trend) — the FE fans out three parallel
-// requests; the server does not compose them.
+const (
+	defaultSuggestLimit = 10
+	maxSuggestLimit     = 50
+)
+
+var scalarFields = map[string]struct{}{
+	"service":     {},
+	"operation":   {},
+	"http_method": {},
+	"http_status": {},
+	"status":      {},
+	"environment": {},
+}
+
+func IsScalarField(field string) bool {
+	_, ok := scalarFields[field]
+	return ok
+}
+
 type Service struct {
 	repo *Repository
 }
 
-func NewService(repo *Repository) *Service { return &Service{repo: repo} }
+func NewService(repo *Repository) *Service {
+	return &Service{repo: repo}
+}
 
 func (s *Service) Query(ctx context.Context, req QueryRequest) (QueryResponse, error) {
-	limit := pickLimit(req.Limit, 50, 500)
-	cur, _ := DecodeCursor(req.Cursor)
-	rows, hasMore, err := s.repo.ListTraces(ctx, req.Filters, limit, cur)
+	limit := pickExplorerLimit(req.Limit, 50, 500)
+	rows, hasMore, err := s.repo.Query(ctx, req)
 	if err != nil {
 		return QueryResponse{}, err
 	}
@@ -26,7 +46,7 @@ func (s *Service) Query(ctx context.Context, req QueryRequest) (QueryResponse, e
 	}, nil
 }
 
-func pickLimit(v, def, maxLimit int) int {
+func pickExplorerLimit(v, def, maxLimit int) int {
 	if v <= 0 {
 		return def
 	}
@@ -70,4 +90,42 @@ func mapTraces(rows []traceIndexRowDTO) []Trace {
 		out[i] = mapTrace(r)
 	}
 	return out
+}
+
+func (s *Service) QueryFacets(ctx context.Context, req FacetsRequest) (Facets, error) {
+	return s.repo.QueryFacets(ctx, req)
+}
+
+func (s *Service) QueryTrend(ctx context.Context, req TrendRequest) ([]TrendBucket, error) {
+	return s.repo.QueryTrend(ctx, req)
+}
+
+func (s *Service) Suggest(ctx context.Context, req SuggestRequest, teamID int64) (SuggestResponse, error) {
+	limit := pickSuggestLimit(req.Limit)
+	rows, err := s.fetchSuggest(ctx, teamID, req, limit)
+	if err != nil {
+		slog.ErrorContext(ctx, "suggest: Suggest failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("field", req.Field))
+		return SuggestResponse{}, err
+	}
+	return SuggestResponse{Suggestions: rows}, nil
+}
+
+func (s *Service) fetchSuggest(ctx context.Context, teamID int64, req SuggestRequest, limit int) ([]Suggestion, error) {
+	if strings.HasPrefix(req.Field, "@") {
+		return s.repo.SuggestAttribute(ctx, teamID, req.StartTime, req.EndTime, req.Field, req.Prefix, limit)
+	}
+	if !IsScalarField(req.Field) {
+		return nil, fmt.Errorf("suggest: unknown scalar field %q", req.Field)
+	}
+	return s.repo.SuggestScalar(ctx, teamID, req.StartTime, req.EndTime, req.Field, req.Prefix, limit)
+}
+
+func pickSuggestLimit(v int) int {
+	if v <= 0 {
+		return defaultSuggestLimit
+	}
+	if v > maxSuggestLimit {
+		return maxSuggestLimit
+	}
+	return v
 }

@@ -22,7 +22,7 @@ message Row {
   repeated uint64 hist_counts  = 14;
   map<string, string> resource = 15;
   map<string, string> attributes = 16;
-  // ts_bucket_hour_seconds is the hour-aligned bucket value from internal/infra/timebucket.MetricsHourBucket.
+  // ts_bucket_hour_seconds carries the 5-minute-aligned bucket value from internal/infra/timebucket.BucketStart (Unix seconds). Field name kept for proto wire-compat.
   int64 ts_bucket_hour_seconds = 17;
   // Top-level resource/attribute labels written by the mapper; tier MVs pass these through.
   string service = 20;
@@ -31,4 +31,6 @@ message Row {
   string k8s_namespace = 23;
   string http_method = 24;
   uint32 http_status_code = 25;
+  string pod = 26;
+  string container = 27;
 }

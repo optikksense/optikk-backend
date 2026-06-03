@@ -28,11 +28,6 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	v1.GET("/saturation/kafka/groups/commits", h.GetGroupCommits)
 	v1.GET("/saturation/kafka/groups/fetches", h.GetGroupFetches)
 	v1.GET("/saturation/kafka/groups/health", h.GetGroupHealth)
-
-	v1.GET("/saturation/kafka/topic/groups/throughput", h.GetTopicGroupThroughput)
-	v1.GET("/saturation/kafka/topic/groups/lag", h.GetTopicGroupLag)
-
-	v1.GET("/saturation/kafka/group/topics", h.GetGroupTopics)
 }
 
 func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {

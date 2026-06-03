@@ -2,7 +2,6 @@ package explorer
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/Optikk-Org/optikk-backend/internal/shared/errorcode"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
@@ -12,15 +11,6 @@ import (
 type Handler struct {
 	modulecommon.DBTenant
 	Service *Service
-}
-
-func requireQueryParam(c *gin.Context, key string) (string, bool) {
-	value := strings.TrimSpace(c.Query(key))
-	if value == "" {
-		modulecommon.RespondError(c, http.StatusBadRequest, "MISSING_PARAM", key+" query param is required")
-		return "", false
-	}
-	return value, true
 }
 
 func (h *Handler) handleRangeQuery(
@@ -87,35 +77,5 @@ func (h *Handler) GetGroupHealth(c *gin.Context) {
 	group := c.Query("group")
 	h.handleRangeQuery(c, "Failed to query group health", func(teamID, startMs, endMs int64) (any, error) {
 		return h.Service.GetGroupHealth(c.Request.Context(), teamID, startMs, endMs, group)
-	})
-}
-
-func (h *Handler) GetTopicGroupThroughput(c *gin.Context) {
-	topic, ok := requireQueryParam(c, "topic")
-	if !ok {
-		return
-	}
-	h.handleRangeQuery(c, "Failed to query topic group throughput", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetTopicGroupThroughput(c.Request.Context(), teamID, startMs, endMs, topic)
-	})
-}
-
-func (h *Handler) GetTopicGroupLag(c *gin.Context) {
-	topic, ok := requireQueryParam(c, "topic")
-	if !ok {
-		return
-	}
-	h.handleRangeQuery(c, "Failed to query topic group lag", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetTopicGroupLag(c.Request.Context(), teamID, startMs, endMs, topic)
-	})
-}
-
-func (h *Handler) GetGroupTopics(c *gin.Context) {
-	group, ok := requireQueryParam(c, "group")
-	if !ok {
-		return
-	}
-	h.handleRangeQuery(c, "Failed to query group topics", func(teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetGroupTopics(c.Request.Context(), teamID, startMs, endMs, group)
 	})
 }

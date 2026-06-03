@@ -10,12 +10,16 @@ import (
 
 const defaultRelatedLimit = 10
 
-// Handler hosts every route on the trace-detail page: per-trace summary,
-// per-span events/attributes, related-traces window query, and the per-trace
-// spans list.
 type Handler struct {
 	modulecommon.DBTenant
-	Service Service
+	svc *Service
+}
+
+func NewHandler(getTenant modulecommon.GetTenantFunc, svc *Service) *Handler {
+	return &Handler{
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		svc:      svc,
+	}
 }
 
 func (h *Handler) GetTraceSummary(c *gin.Context) {
@@ -25,7 +29,7 @@ func (h *Handler) GetTraceSummary(c *gin.Context) {
 		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "trace id required")
 		return
 	}
-	resp, err := h.Service.GetTraceSummary(c.Request.Context(), teamID, traceID)
+	resp, err := h.svc.GetTraceSummary(c.Request.Context(), teamID, traceID)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to fetch trace", err)
 		return
@@ -44,7 +48,7 @@ func (h *Handler) GetSpanEvents(c *gin.Context) {
 		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "trace id required")
 		return
 	}
-	events, err := h.Service.GetSpanEvents(c.Request.Context(), teamID, traceID)
+	events, err := h.svc.GetSpanEvents(c.Request.Context(), teamID, traceID)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query span events", err)
 		return
@@ -65,7 +69,7 @@ func (h *Handler) GetSpanAttributes(c *gin.Context) {
 		return
 	}
 
-	attrs, err := h.Service.GetSpanAttributes(c.Request.Context(), teamID, traceID, spanID)
+	attrs, err := h.svc.GetSpanAttributes(c.Request.Context(), teamID, traceID, spanID)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query span attributes", err)
 		return
@@ -101,7 +105,7 @@ func (h *Handler) GetRelatedTraces(c *gin.Context) {
 		limit = defaultRelatedLimit
 	}
 
-	traces, err := h.Service.GetRelatedTraces(c.Request.Context(), teamID, serviceName, operationName, startMs, endMs, traceID, limit)
+	traces, err := h.svc.GetRelatedTraces(c.Request.Context(), teamID, serviceName, operationName, startMs, endMs, traceID, limit)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query related traces", err)
 		return
@@ -116,7 +120,7 @@ func (h *Handler) GetTraceSpans(c *gin.Context) {
 		modulecommon.RespondError(c, http.StatusBadRequest, errorcode.Validation, "trace id required")
 		return
 	}
-	items, err := h.Service.ListSpansByTrace(c.Request.Context(), teamID, traceID)
+	items, err := h.svc.ListSpansByTrace(c.Request.Context(), teamID, traceID)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to list trace spans", err)
 		return

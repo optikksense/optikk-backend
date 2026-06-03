@@ -1,6 +1,8 @@
 package explorer
 
-import "github.com/Optikk-Org/optikk-backend/internal/infra/cursor"
+import (
+	"github.com/Optikk-Org/optikk-backend/internal/infra/cursor"
+)
 
 type Trace struct {
 	TraceID        string   `json:"trace_id"`
@@ -41,4 +43,32 @@ func (c TraceCursor) Encode() string {
 
 func DecodeCursor(raw string) (TraceCursor, bool) {
 	return cursor.Decode[TraceCursor](raw)
+}
+
+type FacetBucket struct {
+	Value string `json:"value"`
+	Count uint64 `json:"count"`
+}
+
+type Facets struct {
+	Service    []FacetBucket `json:"service,omitempty"`
+	Operation  []FacetBucket `json:"operation,omitempty"`
+	HTTPMethod []FacetBucket `json:"http_method,omitempty"`
+	HTTPStatus []FacetBucket `json:"http_status,omitempty"`
+	Status     []FacetBucket `json:"status,omitempty"`
+}
+
+type TrendBucket struct {
+	TimeBucket string `json:"time_bucket"`
+	Total      uint64 `json:"total"`
+	Errors     uint64 `json:"errors"`
+}
+
+type Suggestion struct {
+	Value string `json:"value"`
+	Count uint64 `json:"count"`
+}
+
+type SuggestResponse struct {
+	Suggestions []Suggestion `json:"suggestions"`
 }

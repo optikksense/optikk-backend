@@ -69,27 +69,3 @@ type KafkaGroupTrendPoint struct {
 	PollIdleRatio          float64 `json:"poll_idle_ratio"`
 	LastPollSecondsAgo     float64 `json:"last_poll_seconds_ago"`
 }
-
-// Topic-Group Intersection (for the Topic Detail consumers table)
-type TopicGroupThroughputRow struct {
-	ConsumerGroup string  `ch:"consumer_group" json:"consumer_group"`
-	BytesPerSec   float64 `ch:"bytes_per_sec"  json:"bytes_per_sec"`
-	RecordsPerSec float64 `ch:"records_per_sec" json:"records_per_sec"`
-}
-
-type TopicGroupLagRow struct {
-	ConsumerGroup string  `ch:"consumer_group" json:"consumer_group"`
-	Lag           float64 `ch:"lag"             json:"lag"`
-	Lead          float64 `ch:"lead"            json:"lead"`
-}
-
-// Group-Topic Intersection (for the Group Detail topics table)
-type GroupTopicRow struct {
-	Topic         string  `ch:"topic"           json:"topic"`
-	BytesPerSec   float64 `ch:"bytes_per_sec"   json:"bytes_per_sec"`
-	BytesTotal    float64 `ch:"bytes_total"     json:"bytes_total"`
-	RecordsPerSec float64 `ch:"records_per_sec" json:"records_per_sec"`
-	RecordsTotal  float64 `ch:"records_total"   json:"records_total"`
-	Lag           float64 `ch:"lag"             json:"lag"`
-	Lead          float64 `ch:"lead"            json:"lead"`
-}

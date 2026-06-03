@@ -26,17 +26,14 @@ func ErrorGroupID(service, operation, statusMessage string, httpCode int) string
 }
 
 type ErrorGroupDetail struct {
-	GroupID          string    `json:"group_id"`
-	ServiceName      string    `json:"service_name"`
-	OperationName    string    `json:"operation_name"`
-	StatusMessage    string    `json:"status_message"`
-	HTTPStatusCode   int       `json:"http_status_code"`
-	ErrorCount       int64     `json:"error_count"`
-	LastOccurrence   time.Time `json:"last_occurrence"`
-	FirstOccurrence  time.Time `json:"first_occurrence"`
-	SampleTraceID    string    `json:"sample_trace_id"`
-	SampleStacktrace string    `json:"sample_stacktrace,omitempty"`
-	ExceptionType    string    `json:"exception_type,omitempty"`
+	GroupID         string    `json:"group_id"`
+	ServiceName     string    `json:"service_name"`
+	OperationName   string    `json:"operation_name"`
+	HTTPStatusCode  int       `json:"http_status_code"`
+	ErrorCount      int64     `json:"error_count"`
+	LastOccurrence  time.Time `json:"last_occurrence"`
+	FirstOccurrence time.Time `json:"first_occurrence"`
+	ExceptionType   string    `json:"exception_type,omitempty"`
 }
 
 type ErrorGroupTrace struct {
@@ -45,6 +42,41 @@ type ErrorGroupTrace struct {
 	Timestamp  time.Time `json:"timestamp"`
 	DurationMs float64   `json:"duration_ms"`
 	StatusCode string    `json:"status_code"`
+}
+
+type PaginatedErrorTraces struct {
+	Results  []ErrorGroupTrace `json:"results"`
+	PageInfo PageInfo          `json:"pageInfo"`
+}
+
+// ErrorLatestOccurrence is the request context of a group's most recent error span.
+type ErrorLatestOccurrence struct {
+	TraceID        string    `json:"trace_id"`
+	SpanID         string    `json:"span_id"`
+	Timestamp      time.Time `json:"timestamp"`
+	DurationMs     float64   `json:"duration_ms"`
+	Message        string    `json:"message"`
+	Stacktrace     string    `json:"stacktrace,omitempty"`
+	HTTPMethod     string    `json:"http_method"`
+	HTTPRoute      string    `json:"http_route"`
+	HTTPStatusCode string    `json:"http_status_code"`
+	ServiceVersion string    `json:"service_version"`
+	Environment    string    `json:"environment"`
+	Pod            string    `json:"pod"`
+	Host           string    `json:"host"`
+}
+
+// ErrorFacet is one value within a facet dimension, with its share of the group's errors.
+type ErrorFacet struct {
+	Name  string  `json:"name"`
+	Count int64   `json:"count"`
+	Pct   float64 `json:"pct"`
+}
+
+// ErrorFacetGroup is the distribution of a group's errors across one tag dimension.
+type ErrorFacetGroup struct {
+	Key    string       `json:"key"`
+	Facets []ErrorFacet `json:"facets"`
 }
 
 type TimeSeriesPoint struct {
@@ -56,44 +88,12 @@ type TimeSeriesPoint struct {
 	AvgLatency   float64   `json:"avg_latency"`
 }
 
-// ExceptionRatePoint imported from errortracking
-type ExceptionRatePoint struct {
-	Timestamp     time.Time `json:"timestamp"      ch:"time_bucket"`
-	ExceptionType string    `json:"exception_type" ch:"exception_type"`
-	Count         int64     `json:"count"          ch:"event_count"`
-}
-
 // ErrorHotspotCell imported from errortracking
 type ErrorHotspotCell struct {
 	ServiceName   string  `json:"service_name"   ch:"service"`
 	OperationName string  `json:"operation_name" ch:"operation_name"`
+	GroupID       string  `json:"group_id"       ch:"error_group_id"`
 	ErrorRate     float64 `json:"error_rate"     ch:"error_rate"`
 	ErrorCount    int64   `json:"error_count"    ch:"error_count"`
 	TotalCount    int64   `json:"total_count"    ch:"total_count"`
-}
-
-// HTTP5xxByRoute imported from errortracking
-type HTTP5xxByRoute struct {
-	HTTPRoute   string `json:"http_route"   ch:"http_route"`
-	ServiceName string `json:"service_name" ch:"service"`
-	Count       int64  `json:"count"        ch:"count_5xx"`
-}
-
-// ErrorFingerprint imported from errorfingerprint
-type ErrorFingerprint struct {
-	Fingerprint   string    `json:"fingerprint"  ch:"fingerprint"`
-	ServiceName   string    `json:"serviceName"  ch:"service"`
-	OperationName string    `json:"operationName" ch:"operation_name"`
-	ExceptionType string    `json:"exceptionType" ch:"exception_type"`
-	StatusMessage string    `json:"statusMessage" ch:"status_message"`
-	FirstSeen     time.Time `json:"firstSeen"    ch:"first_seen"`
-	LastSeen      time.Time `json:"lastSeen"     ch:"last_seen"`
-	Count         int64     `json:"count"        ch:"cnt"`
-	SampleTraceID string    `json:"sampleTraceId" ch:"sample_trace_id"`
-}
-
-// FingerprintTrendPoint imported from errorfingerprint
-type FingerprintTrendPoint struct {
-	Timestamp time.Time `json:"timestamp" ch:"ts"`
-	Count     int64     `json:"count"     ch:"cnt"`
 }

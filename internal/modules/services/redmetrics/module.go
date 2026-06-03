@@ -22,13 +22,11 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *REDMetricsHandler) {
 	red := v1.Group("/spans/red")
 	red.GET("/summary", h.GetSummary)
 	red.GET("/apdex", h.GetApdex)
-	red.GET("/request-rate", h.GetRequestRateTimeSeries)
-	red.GET("/p95-latency", h.GetP95LatencyTimeSeries)
+	red.GET("/request-and-error-rate", h.GetRequestAndErrorRateTimeSeries)
 	red.GET("/status-timeseries", h.GetStatusTimeSeries)
 	red.GET("/latency-percentiles-timeseries", h.GetLatencyPercentilesTimeSeries)
 	red.GET("/top-endpoints", h.GetTopEndpointsCombined)
 	red.GET("/services/:serviceName/summary", h.GetServiceSummary)
-	red.GET("/services/:serviceName/saturation-timeseries", h.GetSaturationTimeSeries)
 	red.GET("/operation-baseline", h.GetOperationBaseline)
 }
 

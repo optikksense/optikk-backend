@@ -41,21 +41,3 @@ func (h *CPUHandler) GetCPUByInstance(c *gin.Context) {
 	}
 	modulecommon.RespondOK(c, resp)
 }
-
-func (h *CPUHandler) GetCPUTopHosts(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
-	limit := modulecommon.ParseIntParam(c, "limit", defaultTopHosts)
-	if limit <= 0 || limit > maxTopHosts {
-		limit = defaultTopHosts
-	}
-	resp, err := h.Service.GetCPUTopHosts(c.Request.Context(), teamID, startMs, endMs, limit)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query top CPU hosts", err)
-		return
-	}
-	modulecommon.RespondOK(c, resp)
-}

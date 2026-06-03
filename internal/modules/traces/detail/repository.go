@@ -9,23 +9,36 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 )
 
-type Repository interface {
-	GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]spanEventCombinedRow, error)
-	GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*spanAttributeRow, error)
-	GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
-	GetTraceSummary(ctx context.Context, teamID int64, traceID string) (*traceSummaryRow, error)
-	ListSpansByTrace(ctx context.Context, teamID int64, traceID string) ([]SpanListItem, error)
-}
-
-type ClickHouseRepository struct {
+type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
-	return &ClickHouseRepository{db: db}
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
 }
 
-func (r *ClickHouseRepository) GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*spanAttributeRow, error) {
+func (r *Repository) GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]spanEventCombinedRow, error) {
+	const query = `
+		WITH trace_loc AS (
+		    SELECT ts_bucket, fingerprint
+		    FROM observability.trace_index
+		    PREWHERE trace_id = @traceID AND team_id = @teamID
+		)
+		SELECT span_id, trace_id, timestamp, events,
+		       exception_type, exception_message, exception_stacktrace
+		FROM observability.spans
+		PREWHERE team_id = @teamID
+		     AND (ts_bucket, fingerprint) IN (SELECT ts_bucket, fingerprint FROM trace_loc)
+		     AND trace_id = @traceID
+		WHERE NOT empty(events) OR NOT empty(exception_type)`
+	var rows []spanEventCombinedRow
+	return rows, dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "detail.GetSpanEvents", &rows, query,
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("traceID", traceID),
+	)
+}
+
+func (r *Repository) GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*spanAttributeRow, error) {
 	const query = `
 		WITH trace_loc AS (
 		    SELECT ts_bucket, fingerprint
@@ -49,7 +62,7 @@ func (r *ClickHouseRepository) GetSpanAttributes(ctx context.Context, teamID int
 		LIMIT 1`
 	var rows []spanAttributeRow
 	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "detail.GetSpanAttributes", &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("traceID", traceID),
 		clickhouse.Named("spanID", spanID),
 	); err != nil {
@@ -62,7 +75,7 @@ func (r *ClickHouseRepository) GetSpanAttributes(ctx context.Context, teamID int
 	return &row, nil
 }
 
-func (r *ClickHouseRepository) GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
+func (r *Repository) GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
 	const query = `
 		WITH active_fps AS (
 		    SELECT fingerprint
@@ -91,7 +104,7 @@ func (r *ClickHouseRepository) GetRelatedTraces(ctx context.Context, teamID int6
 		LIMIT @limit`
 	bucketStart, bucketEnd := spanBucketBounds(startMs, endMs)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("bucketStart", bucketStart),
 		clickhouse.Named("bucketEnd", bucketEnd),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -105,7 +118,7 @@ func (r *ClickHouseRepository) GetRelatedTraces(ctx context.Context, teamID int6
 	return rows, dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "detail.GetRelatedTraces", &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) GetTraceSummary(ctx context.Context, teamID int64, traceID string) (*traceSummaryRow, error) {
+func (r *Repository) GetTraceSummary(ctx context.Context, teamID int64, traceID string) (*TraceSummary, error) {
 	const query = `
 		WITH trace_loc AS (
 		    SELECT ts_bucket, fingerprint
@@ -133,9 +146,24 @@ func (r *ClickHouseRepository) GetTraceSummary(ctx context.Context, teamID int64
 		     AND is_root  = 1
 		ORDER BY timestamp DESC
 		LIMIT 1`
-	var rows []traceSummaryRow
+	var rows []struct {
+		TraceID        string    `ch:"trace_id"`
+		StartTime      time.Time `ch:"start_time"`
+		EndTime        time.Time `ch:"end_time"`
+		DurationNs     uint64    `ch:"duration_ns"`
+		RootService    string    `ch:"root_service"`
+		RootOperation  string    `ch:"root_operation"`
+		RootStatus     string    `ch:"root_status"`
+		RootHTTPMethod string    `ch:"root_http_method"`
+		RootHTTPStatus string    `ch:"root_http_status"`
+		SpanCount      uint8     `ch:"span_count"`
+		HasError       bool      `ch:"has_error"`
+		ErrorCount     uint8     `ch:"error_count"`
+		ServiceSet     []string  `ch:"service_set"`
+		Truncated      bool      `ch:"truncated"`
+	}
 	if err := dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "detail.GetTraceSummary", &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("traceID", traceID),
 	); err != nil {
 		return nil, err
@@ -143,31 +171,26 @@ func (r *ClickHouseRepository) GetTraceSummary(ctx context.Context, teamID int64
 	if len(rows) == 0 {
 		return nil, nil
 	}
-	return &rows[0], nil
+	res := rows[0]
+	return &TraceSummary{
+		TraceID:        res.TraceID,
+		StartMs:        uint64(res.StartTime.UnixMilli()),
+		EndMs:          uint64(res.EndTime.UnixMilli()),
+		DurationMs:     float64(res.DurationNs) / 1_000_000,
+		RootService:    res.RootService,
+		RootOperation:  res.RootOperation,
+		RootStatus:     res.RootStatus,
+		RootHTTPMethod: res.RootHTTPMethod,
+		RootHTTPStatus: res.RootHTTPStatus,
+		SpanCount:      uint32(res.SpanCount),
+		HasError:       res.HasError,
+		ErrorCount:     uint32(res.ErrorCount),
+		ServiceSet:     res.ServiceSet,
+		Truncated:      res.Truncated,
+	}, nil
 }
 
-func (r *ClickHouseRepository) GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]spanEventCombinedRow, error) {
-	const query = `
-		WITH trace_loc AS (
-		    SELECT ts_bucket, fingerprint
-		    FROM observability.trace_index
-		    PREWHERE trace_id = @traceID AND team_id = @teamID
-		)
-		SELECT span_id, trace_id, timestamp, events,
-		       exception_type, exception_message, exception_stacktrace
-		FROM observability.spans
-		PREWHERE team_id = @teamID
-		     AND (ts_bucket, fingerprint) IN (SELECT ts_bucket, fingerprint FROM trace_loc)
-		     AND trace_id = @traceID
-		WHERE NOT empty(events) OR NOT empty(exception_type)`
-	var rows []spanEventCombinedRow
-	return rows, dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "detail.GetSpanEvents", &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("traceID", traceID),
-	)
-}
-
-func (r *ClickHouseRepository) ListSpansByTrace(ctx context.Context, teamID int64, traceID string) ([]SpanListItem, error) {
+func (r *Repository) ListSpansByTrace(ctx context.Context, teamID int64, traceID string) ([]SpanListItem, error) {
 	const query = `
 		WITH trace_loc AS (
 		    SELECT ts_bucket, fingerprint
@@ -192,7 +215,7 @@ func (r *ClickHouseRepository) ListSpansByTrace(ctx context.Context, teamID int6
 		LIMIT 5000`
 	var rows []SpanListItem
 	return rows, dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "detail.ListSpansByTrace", &rows, query,
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("traceID", traceID),
 	)
 }

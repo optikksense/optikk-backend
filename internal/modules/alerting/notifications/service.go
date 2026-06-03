@@ -28,8 +28,8 @@ func NewService(repo Repository, dispatcher dispatch.Dispatcher) *Service {
 // Sentinel errors -----------------------------------------------------------
 
 var (
-	ErrNotFound       = errors.New("notification resource not found")
-	ErrChannelInUse   = errors.New("channel is in use by one or more monitors")
+	ErrNotFound     = errors.New("notification resource not found")
+	ErrChannelInUse = errors.New("channel is in use by one or more monitors")
 )
 
 // ErrValidation wraps a user-facing validation message.

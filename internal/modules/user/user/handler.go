@@ -23,8 +23,6 @@ func NewHandler(getTenant modulecommon.GetTenantFunc, service *Service) *Handler
 	}
 }
 
-
-
 func (h *Handler) GetProfile(c *gin.Context) {
 	profile, err := h.Service.GetProfile(h.GetTenant(c).UserID)
 	if err != nil {

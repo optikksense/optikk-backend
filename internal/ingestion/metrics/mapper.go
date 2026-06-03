@@ -131,6 +131,8 @@ func baseRow(
 		Host:                hdr.resMap["host.name"],
 		Environment:         hdr.resMap["deployment.environment"],
 		K8SNamespace:        hdr.resMap["k8s.namespace.name"],
+		Pod:                 hdr.resMap["k8s.pod.name"],
+		Container:           hdr.resMap["k8s.container.name"],
 		HttpMethod:          attrs["http.method"],
 		HttpStatusCode:      parseHTTPStatus(attrs["http.status_code"]),
 	}

@@ -3,42 +3,36 @@ package servicemap
 import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
 
-type Config struct{ Enabled bool }
+type Config struct {
+	Enabled bool
+}
 
-func DefaultConfig() Config { return Config{Enabled: true} }
-
-func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
-	if !cfg.Enabled || h == nil {
-		return
-	}
+func RegisterRoutes(v1 *gin.RouterGroup, h *Handler) {
 	v1.GET("/traces/:traceId/service-map", h.GetServiceMap)
 	v1.GET("/traces/:traceId/errors", h.GetTraceErrors)
 }
 
-func NewModule(db clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
-	m := &module{}
-	m.configure(db, getTenant)
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
+	m := &tracesServicemapModule{}
+	m.configure(nativeQuerier, getTenant)
 	return m
 }
 
-type module struct {
+type tracesServicemapModule struct {
 	handler *Handler
 }
 
-func (m *module) Name() string { return "traceServicemap" }
+func (m *tracesServicemapModule) Name() string { return "tracesServicemap" }
 
-func (m *module) configure(db clickhouse.Conn, getTenant registry.GetTenantFunc) {
+func (m *tracesServicemapModule) configure(db clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	repo := NewRepository(db)
 	svc := NewService(repo)
 	m.handler = NewHandler(getTenant, svc)
 }
 
-func (m *module) RegisterRoutes(group *gin.RouterGroup) {
-	RegisterRoutes(DefaultConfig(), group, m.handler)
+func (m *tracesServicemapModule) RegisterRoutes(group *gin.RouterGroup) {
+	RegisterRoutes(group, m.handler)
 }
-
-var _ modulecommon.GetTenantFunc = modulecommon.GetTenantFunc(nil)

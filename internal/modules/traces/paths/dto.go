@@ -1,10 +1,9 @@
 package paths
 
-import "time"
+import (
+	"time"
+)
 
-// criticalPathRow is the scan target for GetCriticalPath. Native CH types
-// (timestamp + duration_nano) are scanned; the service layer converts to
-// nanoseconds for the longest-path graph algorithm.
 type criticalPathRow struct {
 	SpanID        string    `ch:"span_id"`
 	ParentSpanID  string    `ch:"parent_span_id"`
@@ -15,8 +14,6 @@ type criticalPathRow struct {
 	DurationNano  uint64    `ch:"duration_nano"`
 }
 
-// errorPathRow is the scan target for GetErrorPath.
-// The chain traversal algorithm runs in the service layer.
 type errorPathRow struct {
 	SpanID        string    `ch:"span_id"`
 	ParentSpanID  string    `ch:"parent_span_id"`

@@ -6,9 +6,6 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/filter"
 )
 
-// QueryRequest is the wire payload for POST /api/v1/traces/query (list-only).
-// Facets and trend live at peer endpoints POST /traces/facets and
-// POST /traces/trend.
 type QueryRequest struct {
 	StartTime int64  `json:"startTime"`
 	EndTime   int64  `json:"endTime"`
@@ -18,15 +15,11 @@ type QueryRequest struct {
 	filter.Filters
 }
 
-// QueryResponse is the wire response for POST /api/v1/traces/query.
 type QueryResponse struct {
 	Results  []Trace  `json:"results"`
 	PageInfo PageInfo `json:"pageInfo"`
 }
 
-// traceIndexRowDTO scans rows from observability.spans (root spans).
-// All temporal fields scan native CH DateTime/DateTime64 into time.Time;
-// conversion to wire-model Unix-millis happens in service.go.
 type traceIndexRowDTO struct {
 	TraceID        string    `ch:"trace_id"`
 	StartTime      time.Time `ch:"start_time"`
@@ -45,3 +38,37 @@ type traceIndexRowDTO struct {
 	LastSeen       time.Time `ch:"last_seen"`
 }
 
+type FacetsRequest struct {
+	StartTime int64 `json:"startTime"`
+	EndTime   int64 `json:"endTime"`
+
+	filter.Filters
+}
+
+type topKRow struct {
+	TopServices     []string `ch:"top_services"`
+	TopOperations   []string `ch:"top_operations"`
+	TopHTTPMethods  []string `ch:"top_http_methods"`
+	TopHTTPStatuses []string `ch:"top_http_statuses"`
+	TopStatuses     []string `ch:"top_statuses"`
+}
+
+type TrendRequest struct {
+	StartTime int64 `json:"startTime"`
+	EndTime   int64 `json:"endTime"`
+
+	filter.Filters
+}
+
+type SuggestRequest struct {
+	StartTime int64  `json:"startTime"`
+	EndTime   int64  `json:"endTime"`
+	Field     string `json:"field"`
+	Prefix    string `json:"prefix"`
+	Limit     int    `json:"limit"`
+}
+
+type suggestionRow struct {
+	Value string `ch:"value"`
+	Count uint64 `ch:"count"`
+}

@@ -41,16 +41,3 @@ func (s *Service) GetGroupFetches(ctx context.Context, teamID, startMs, endMs in
 func (s *Service) GetGroupHealth(ctx context.Context, teamID, startMs, endMs int64, group string) ([]GroupHealthRow, error) {
 	return s.repo.QueryGroupHealth(ctx, teamID, startMs, endMs, group)
 }
-
-// Detail Intersections
-func (s *Service) GetTopicGroupThroughput(ctx context.Context, teamID, startMs, endMs int64, topic string) ([]TopicGroupThroughputRow, error) {
-	return s.repo.QueryTopicGroupThroughput(ctx, teamID, startMs, endMs, topic)
-}
-
-func (s *Service) GetTopicGroupLag(ctx context.Context, teamID, startMs, endMs int64, topic string) ([]TopicGroupLagRow, error) {
-	return s.repo.QueryTopicGroupLag(ctx, teamID, startMs, endMs, topic)
-}
-
-func (s *Service) GetGroupTopics(ctx context.Context, teamID, startMs, endMs int64, group string) ([]GroupTopicRow, error) {
-	return s.repo.QueryGroupTopics(ctx, teamID, startMs, endMs, group)
-}

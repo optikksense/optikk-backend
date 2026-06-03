@@ -1,9 +1,9 @@
 package servicemap
 
-import "time"
+import (
+	"time"
+)
 
-// serviceMapSpanRow is the scan target for GetServiceMapSpans — just enough to
-// build per-trace service nodes + client→server edges in the service layer.
 type serviceMapSpanRow struct {
 	SpanID       string  `ch:"span_id"`
 	ParentSpanID string  `ch:"parent_span_id"`
@@ -12,7 +12,6 @@ type serviceMapSpanRow struct {
 	HasError     bool    `ch:"has_error"`
 }
 
-// traceErrorRow is the scan target for GetTraceErrors — one row per error span.
 type traceErrorRow struct {
 	SpanID           string    `ch:"span_id"`
 	ServiceName      string    `ch:"service"`

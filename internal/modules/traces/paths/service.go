@@ -3,20 +3,18 @@ package paths
 import (
 	"context"
 	"log/slog"
+	"strings"
 )
 
-type Service interface {
-	GetCriticalPath(ctx context.Context, teamID int64, traceID string) ([]CriticalPathSpan, error)
-	GetErrorPath(ctx context.Context, teamID int64, traceID string) ([]ErrorPathSpan, error)
+type Service struct {
+	repo *Repository
 }
 
-type service struct {
-	repo Repository
+func NewService(repo *Repository) *Service {
+	return &Service{repo: repo}
 }
 
-func NewService(repo Repository) Service { return &service{repo: repo} }
-
-func (s *service) GetCriticalPath(ctx context.Context, teamID int64, traceID string) ([]CriticalPathSpan, error) {
+func (s *Service) GetCriticalPath(ctx context.Context, teamID int64, traceID string) ([]CriticalPathSpan, error) {
 	rows, err := s.repo.GetCriticalPath(ctx, teamID, traceID)
 	if err != nil {
 		slog.ErrorContext(ctx, "paths: GetCriticalPath failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
@@ -25,7 +23,7 @@ func (s *service) GetCriticalPath(ctx context.Context, teamID int64, traceID str
 	return buildCriticalPath(rows), nil
 }
 
-func (s *service) GetErrorPath(ctx context.Context, teamID int64, traceID string) ([]ErrorPathSpan, error) {
+func (s *Service) GetErrorPath(ctx context.Context, teamID int64, traceID string) ([]ErrorPathSpan, error) {
 	rows, err := s.repo.GetErrorPath(ctx, teamID, traceID)
 	if err != nil {
 		slog.ErrorContext(ctx, "paths: GetErrorPath failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
@@ -196,4 +194,11 @@ func walkErrorChain(spans map[string]errorPathRow, leafID string) []ErrorPathSpa
 		cur = s.ParentSpanID
 	}
 	return chain
+}
+
+// isRootParentSpanID treats empty string and all-zero hex as "no parent" —
+// both forms appear in real data depending on SDK and ingest path.
+func isRootParentSpanID(parentID string) bool {
+	trimmed := strings.Trim(parentID, "\x00")
+	return trimmed == "" || trimmed == "0000000000000000"
 }

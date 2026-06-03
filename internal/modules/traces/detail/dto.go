@@ -1,8 +1,9 @@
 package detail
 
-import "time"
+import (
+	"time"
+)
 
-// spanEventRow is the scan target for the events ARRAY JOIN query.
 type spanEventRow struct {
 	SpanID    string    `ch:"span_id"`
 	TraceID   string    `ch:"trace_id"`
@@ -10,7 +11,6 @@ type spanEventRow struct {
 	EventJSON string    `ch:"event_json"`
 }
 
-// exceptionRow is the scan target for the span exception fields query.
 type exceptionRow struct {
 	SpanID              string    `ch:"span_id"`
 	TraceID             string    `ch:"trace_id"`
@@ -20,7 +20,6 @@ type exceptionRow struct {
 	ExceptionStacktrace string    `ch:"exception_stacktrace"`
 }
 
-// spanEventCombinedRow fetches events (as array) and exception fields in one scan.
 type spanEventCombinedRow struct {
 	SpanID              string    `ch:"span_id"`
 	TraceID             string    `ch:"trace_id"`
@@ -31,10 +30,6 @@ type spanEventCombinedRow struct {
 	ExceptionStacktrace string    `ch:"exception_stacktrace"`
 }
 
-// spanAttributeRow is the scan target for GetSpanAttributes.
-// AttributesJSON is the toJSONString-serialized attributes column; the service
-// layer flattens it into a Map(String, String) shape and merges in resource
-// attributes (currently always empty — spans have no separate resource store).
 type spanAttributeRow struct {
 	SpanID              string `ch:"span_id"`
 	TraceID             string `ch:"trace_id"`

@@ -1,6 +1,6 @@
 package redmetrics
 
-type redSummaryServiceRow struct {
+type redMetricsRow struct {
 	ServiceName string    `ch:"service"`
 	TotalCount  uint64    `ch:"total_count"`
 	ErrorCount  uint64    `ch:"error_count"`

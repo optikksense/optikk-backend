@@ -4,31 +4,33 @@ import (
 	"context"
 	"log/slog"
 	"sort"
+
+	"github.com/Optikk-Org/optikk-backend/internal/modules/services/topology"
 )
 
-type Service interface {
-	GetServiceMap(ctx context.Context, teamID int64, traceID string) (ServiceMapResponse, error)
-	GetTraceErrors(ctx context.Context, teamID int64, traceID string) ([]TraceErrorGroup, error)
+type Service struct {
+	repo *Repository
 }
 
-type service struct {
-	repo Repository
+func NewService(repo *Repository) *Service {
+	return &Service{repo: repo}
 }
 
-func NewService(repo Repository) Service { return &service{repo: repo} }
-
-// GetServiceMap builds the per-trace service map (Datadog-style node+edge graph).
-func (s *service) GetServiceMap(ctx context.Context, teamID int64, traceID string) (ServiceMapResponse, error) {
+// GetServiceMap builds the per-trace service map and returns it in the shared
+// topology shape. Edges come from this trace's parent→child span links; p95/p99
+// are left at zero (a single trace has no latency distribution) and the frontend
+// layers in RED-metric percentiles per service.
+func (s *Service) GetServiceMap(ctx context.Context, teamID int64, traceID string) (topology.TopologyResponse, error) {
 	rows, err := s.repo.GetServiceMapSpans(ctx, teamID, traceID)
 	if err != nil {
 		slog.ErrorContext(ctx, "servicemap: GetServiceMap failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
-		return ServiceMapResponse{}, err
+		return topology.TopologyResponse{}, err
 	}
-	return ServiceMapResponse{Nodes: nodesFromSpans(rows), Edges: edgesFromSpans(rows)}, nil
+	return topology.BuildGraph(nodeAggsFromSpans(rows), edgeAggsFromSpans(rows)), nil
 }
 
 // GetTraceErrors groups error spans by exception_type (or status_message fallback).
-func (s *service) GetTraceErrors(ctx context.Context, teamID int64, traceID string) ([]TraceErrorGroup, error) {
+func (s *Service) GetTraceErrors(ctx context.Context, teamID int64, traceID string) ([]TraceErrorGroup, error) {
 	rows, err := s.repo.GetTraceErrors(ctx, teamID, traceID)
 	if err != nil {
 		slog.ErrorContext(ctx, "servicemap: GetTraceErrors failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
@@ -37,38 +39,44 @@ func (s *service) GetTraceErrors(ctx context.Context, teamID int64, traceID stri
 	return groupErrors(rows), nil
 }
 
-func nodesFromSpans(rows []serviceMapSpanRow) []ServiceMapNode {
-	nodeMap := make(map[string]*ServiceMapNode)
+// nodeAggsFromSpans aggregates this trace's spans per service. P50Ms holds the
+// running total during aggregation, then is converted to the mean; p95/p99 are
+// left at zero for the frontend to fill from RED metrics.
+func nodeAggsFromSpans(rows []serviceMapSpanRow) []topology.NodeAgg {
+	aggMap := make(map[string]*topology.NodeAgg)
 	for i := range rows {
 		r := &rows[i]
 		if r.ServiceName == "" {
 			continue
 		}
-		n, ok := nodeMap[r.ServiceName]
+		a, ok := aggMap[r.ServiceName]
 		if !ok {
-			n = &ServiceMapNode{Service: r.ServiceName}
-			nodeMap[r.ServiceName] = n
+			a = &topology.NodeAgg{Service: r.ServiceName}
+			aggMap[r.ServiceName] = a
 		}
-		n.SpanCount++
-		n.TotalMs += r.DurationMs
+		a.RequestCount++
+		a.P50Ms += r.DurationMs
 		if r.HasError {
-			n.ErrorCount++
+			a.ErrorCount++
 		}
 	}
-	out := make([]ServiceMapNode, 0, len(nodeMap))
-	for _, n := range nodeMap {
-		out = append(out, *n)
+	out := make([]topology.NodeAgg, 0, len(aggMap))
+	for _, a := range aggMap {
+		if a.RequestCount > 0 {
+			a.P50Ms /= float64(a.RequestCount)
+		}
+		out = append(out, *a)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].TotalMs > out[j].TotalMs })
 	return out
 }
 
-func edgesFromSpans(rows []serviceMapSpanRow) []ServiceMapEdge {
+// edgeAggsFromSpans derives service→service edges from parent→child span links.
+func edgeAggsFromSpans(rows []serviceMapSpanRow) []topology.EdgeAgg {
 	bySpan := make(map[string]*serviceMapSpanRow, len(rows))
 	for i := range rows {
 		bySpan[rows[i].SpanID] = &rows[i]
 	}
-	edgeMap := make(map[[2]string]*ServiceMapEdge)
+	aggMap := make(map[[2]string]*topology.EdgeAgg)
 	for i := range rows {
 		child := &rows[i]
 		parent := bySpan[child.ParentSpanID]
@@ -76,22 +84,24 @@ func edgesFromSpans(rows []serviceMapSpanRow) []ServiceMapEdge {
 			continue
 		}
 		key := [2]string{parent.ServiceName, child.ServiceName}
-		e, ok := edgeMap[key]
+		a, ok := aggMap[key]
 		if !ok {
-			e = &ServiceMapEdge{From: parent.ServiceName, To: child.ServiceName}
-			edgeMap[key] = e
+			a = &topology.EdgeAgg{Source: parent.ServiceName, Target: child.ServiceName}
+			aggMap[key] = a
 		}
-		e.CallCount++
-		e.TotalMs += child.DurationMs
+		a.CallCount++
+		a.P50Ms += child.DurationMs
 		if child.HasError {
-			e.ErrorCount++
+			a.ErrorCount++
 		}
 	}
-	out := make([]ServiceMapEdge, 0, len(edgeMap))
-	for _, e := range edgeMap {
-		out = append(out, *e)
+	out := make([]topology.EdgeAgg, 0, len(aggMap))
+	for _, a := range aggMap {
+		if a.CallCount > 0 {
+			a.P50Ms /= float64(a.CallCount)
+		}
+		out = append(out, *a)
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].CallCount > out[j].CallCount })
 	return out
 }
 

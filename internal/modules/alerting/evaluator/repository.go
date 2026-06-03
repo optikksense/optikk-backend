@@ -44,14 +44,14 @@ type DueMonitor struct {
 // UpdateStateArgs is the post-evaluation state write. The repo CAS-checks
 // PrevStatus to avoid clobbering a concurrent ack.
 type UpdateStateArgs struct {
-	MonitorID         int64
-	PrevStatus        string
-	NewStatus         string
-	CurrentValue      sql.NullFloat64
-	LastEvaluatedAt   time.Time
-	NextEvaluationAt  time.Time
-	TriggeredAt       sql.NullTime
-	LastNotifiedAt    sql.NullTime
+	MonitorID          int64
+	PrevStatus         string
+	NewStatus          string
+	CurrentValue       sql.NullFloat64
+	LastEvaluatedAt    time.Time
+	NextEvaluationAt   time.Time
+	TriggeredAt        sql.NullTime
+	LastNotifiedAt     sql.NullTime
 	IncrementEvalCount bool
 }
 
@@ -108,15 +108,15 @@ type dueRow struct {
 
 func (r dueRow) toDue() DueMonitor {
 	state := models.MonitorStateRow{
-		MonitorID:        r.SMonitorID.Int64,
-		Status:           r.SStatus.String,
-		CurrentValue:     r.SCurrentValue,
-		LastEvaluatedAt:  r.SLastEvaluatedAt,
-		TriggeredAt:      r.STriggeredAt,
-		LastNotifiedAt:   r.SLastNotifiedAt,
-		EvaluationCount:  r.SEvaluationCount.Int64,
-		AckedByUserID:    r.SAckedByUserID,
-		AckedAt:          r.SAckedAt,
+		MonitorID:       r.SMonitorID.Int64,
+		Status:          r.SStatus.String,
+		CurrentValue:    r.SCurrentValue,
+		LastEvaluatedAt: r.SLastEvaluatedAt,
+		TriggeredAt:     r.STriggeredAt,
+		LastNotifiedAt:  r.SLastNotifiedAt,
+		EvaluationCount: r.SEvaluationCount.Int64,
+		AckedByUserID:   r.SAckedByUserID,
+		AckedAt:         r.SAckedAt,
 	}
 	if r.SNextEvaluationAt.Valid {
 		state.NextEvaluationAt = r.SNextEvaluationAt.Time

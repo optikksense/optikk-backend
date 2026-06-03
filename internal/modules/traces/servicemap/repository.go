@@ -7,25 +7,15 @@ import (
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 )
 
-// Repository runs trace-id-scoped point lookups for the per-trace service
-// map. Queries only — service.go folds rows into nodes/edges and groups
-// errors by exception type.
-type Repository interface {
-	GetServiceMapSpans(ctx context.Context, teamID int64, traceID string) ([]serviceMapSpanRow, error)
-	GetTraceErrors(ctx context.Context, teamID int64, traceID string) ([]traceErrorRow, error)
-}
-
-type ClickHouseRepository struct {
+type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
-	return &ClickHouseRepository{db: db}
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
 }
 
-// GetServiceMapSpans returns the minimal per-span projection needed to build a
-// per-trace service map (client→server graph) in the service layer.
-func (r *ClickHouseRepository) GetServiceMapSpans(ctx context.Context, teamID int64, traceID string) ([]serviceMapSpanRow, error) {
+func (r *Repository) GetServiceMapSpans(ctx context.Context, teamID int64, traceID string) ([]serviceMapSpanRow, error) {
 	const query = `
 		WITH trace_loc AS (
 		    SELECT ts_bucket, fingerprint
@@ -47,9 +37,7 @@ func (r *ClickHouseRepository) GetServiceMapSpans(ctx context.Context, teamID in
 	return rows, dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "servicemap.GetServiceMapSpans", &rows, query, traceIDArgs(teamID, traceID)...)
 }
 
-// GetTraceErrors returns the raw error-span rows for a trace. Aggregation into
-// groups by exception_type happens in the service layer.
-func (r *ClickHouseRepository) GetTraceErrors(ctx context.Context, teamID int64, traceID string) ([]traceErrorRow, error) {
+func (r *Repository) GetTraceErrors(ctx context.Context, teamID int64, traceID string) ([]traceErrorRow, error) {
 	const query = `
 		WITH trace_loc AS (
 		    SELECT ts_bucket, fingerprint
@@ -77,7 +65,7 @@ func (r *ClickHouseRepository) GetTraceErrors(ctx context.Context, teamID int64,
 
 func traceIDArgs(teamID int64, traceID string) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("traceID", traceID),
 	}
 }

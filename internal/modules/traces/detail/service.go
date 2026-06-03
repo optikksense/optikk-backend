@@ -11,39 +11,24 @@ import (
 	"strings"
 )
 
-// Service is the unified trace-detail surface — every per-trace and per-span
-// read for the FE detail page. The FE fans these out client-side; the server
-// does not compose them.
-type Service interface {
-	GetTraceSummary(ctx context.Context, teamID int64, traceID string) (*TraceSummary, error)
-	GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]SpanEvent, error)
-	GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*SpanAttributes, error)
-	GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error)
-	ListSpansByTrace(ctx context.Context, teamID int64, traceID string) ([]SpanListItem, error)
+type Service struct {
+	repo *Repository
 }
 
-type DetailService struct {
-	repo Repository
+func NewService(repo *Repository) *Service {
+	return &Service{repo: repo}
 }
 
-func NewService(repo Repository) Service {
-	return &DetailService{repo: repo}
-}
-
-func (s *DetailService) GetTraceSummary(ctx context.Context, teamID int64, traceID string) (*TraceSummary, error) {
+func (s *Service) GetTraceSummary(ctx context.Context, teamID int64, traceID string) (*TraceSummary, error) {
 	row, err := s.repo.GetTraceSummary(ctx, teamID, traceID)
 	if err != nil {
 		slog.ErrorContext(ctx, "detail: GetTraceSummary failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
 		return nil, err
 	}
-	if row == nil {
-		return nil, nil
-	}
-	out := mapTraceSummary(*row)
-	return &out, nil
+	return row, nil
 }
 
-func (s *DetailService) GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]SpanEvent, error) {
+func (s *Service) GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]SpanEvent, error) {
 	combined, err := s.repo.GetSpanEvents(ctx, teamID, traceID)
 	if err != nil {
 		slog.ErrorContext(ctx, "detail: GetSpanEvents failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
@@ -108,7 +93,7 @@ func (s *DetailService) GetSpanEvents(ctx context.Context, teamID int64, traceID
 	return events, nil
 }
 
-func (s *DetailService) GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*SpanAttributes, error) {
+func (s *Service) GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*SpanAttributes, error) {
 	row, err := s.repo.GetSpanAttributes(ctx, teamID, traceID, spanID)
 	if err != nil {
 		slog.ErrorContext(ctx, "detail: GetSpanAttributes failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID), slog.String("span_id", spanID))
@@ -122,7 +107,7 @@ func (s *DetailService) GetSpanAttributes(ctx context.Context, teamID int64, tra
 	if attrs == nil {
 		attrs = map[string]string{}
 	}
-	resourceAttrs := map[string]string{} // spans table has no separate resource-attribute store
+	resourceAttrs := map[string]string{}
 
 	return &SpanAttributes{
 		SpanID:                row.SpanID,
@@ -143,11 +128,11 @@ func (s *DetailService) GetSpanAttributes(ctx context.Context, teamID int64, tra
 	}, nil
 }
 
-func (s *DetailService) GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
+func (s *Service) GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
 	return s.repo.GetRelatedTraces(ctx, teamID, serviceName, operationName, startMs, endMs, excludeTraceID, limit)
 }
 
-func (s *DetailService) ListSpansByTrace(ctx context.Context, teamID int64, traceID string) ([]SpanListItem, error) {
+func (s *Service) ListSpansByTrace(ctx context.Context, teamID int64, traceID string) ([]SpanListItem, error) {
 	rows, err := s.repo.ListSpansByTrace(ctx, teamID, traceID)
 	if err != nil {
 		return nil, err
@@ -156,42 +141,12 @@ func (s *DetailService) ListSpansByTrace(ctx context.Context, teamID int64, trac
 	return rows, nil
 }
 
-// fillStartNs derives the wire-level StartNs from the natively-scanned
-// Timestamp column. The SQL reads `timestamp` (DateTime64) directly per the
-// "scan native CH types; convert in Go" rule.
 func fillStartNs(items []SpanListItem) {
 	for i := range items {
 		items[i].StartNs = items[i].Timestamp.UnixNano()
 	}
 }
 
-func mapTraceSummary(r traceSummaryRow) TraceSummary {
-	return TraceSummary{
-		TraceID:        r.TraceID,
-		StartMs:        uint64(r.StartTime.UnixMilli()), //nolint:gosec // G115
-		EndMs:          uint64(r.EndTime.UnixMilli()),   //nolint:gosec // G115
-		DurationMs:     float64(r.DurationNs) / 1_000_000,
-		RootService:    r.RootService,
-		RootOperation:  r.RootOperation,
-		RootStatus:     r.RootStatus,
-		RootHTTPMethod: r.RootHTTPMethod,
-		RootHTTPStatus: r.RootHTTPStatus,
-		SpanCount:      uint32(r.SpanCount),
-		HasError:       r.HasError,
-		ErrorCount:     uint32(r.ErrorCount),
-		ServiceSet:     r.ServiceSet,
-		Truncated:      r.Truncated,
-	}
-}
-
-// flattenJSONAttrs mirrors the shape that CH's CAST(JSON, 'Map(String, String)')
-// produces: every leaf value becomes a single map entry, keyed by the dot-joined
-// path, with the value stringified. Returns nil for empty / malformed input.
-//   - nested objects: keys joined with '.'
-//   - arrays: element keys "<path>.<index>"; arrays of objects/arrays recurse
-//   - numbers: shortest-round-trip repr (json.Number → string as written)
-//   - bools: "true" / "false"
-//   - null: emitted as ""
 func flattenJSONAttrs(jsonStr string) map[string]string {
 	jsonStr = strings.TrimSpace(jsonStr)
 	if jsonStr == "" || jsonStr == "{}" || jsonStr == "null" {
@@ -256,9 +211,6 @@ func walkJSONAttrs(out map[string]string, prefix string, v any) {
 	}
 }
 
-// parseSpanLinks decodes the `links` column (JSON array of OTLP link objects)
-// into typed SpanLink records. Returns nil on empty/invalid input — link data
-// is optional, never fatal.
 func parseSpanLinks(raw string) []SpanLink {
 	raw = strings.TrimSpace(raw)
 	if raw == "" || raw == "[]" {
@@ -287,11 +239,6 @@ type spanLinkWire struct {
 	Attributes map[string]string `json:"attributes,omitempty"`
 }
 
-// splitEventRows folds the combined per-span result into separate event-row
-// and exception-row lists. Each span contributes one event-row per element
-// in its events array; spans with a non-empty exception_type contribute one
-// exception-row each. Exceptions are reversed for display order (latest
-// first).
 func splitEventRows(rows []spanEventCombinedRow) ([]spanEventRow, []exceptionRow) {
 	var events []spanEventRow
 	var exceptions []exceptionRow
@@ -321,8 +268,6 @@ var (
 	reMultiSpace    = regexp.MustCompile(`\s+`)
 )
 
-// normalizeDBStatement collapses literals to `?` placeholders so similar
-// db.statement values group together in the UI.
 func normalizeDBStatement(stmt string) string {
 	if stmt == "" {
 		return ""
@@ -333,12 +278,6 @@ func normalizeDBStatement(stmt string) string {
 	return strings.TrimSpace(s)
 }
 
-// parseEventJSON extracts the event name and attributes JSON from an event
-// string stored in the events column. New format events are JSON objects:
-//
-//	{"name":"...","timeUnixNano":"...","attributes":{...}}
-//
-// Legacy events are plain strings containing just the event name.
 func parseEventJSON(raw string) (name string, attrs string) {
 	raw = strings.TrimSpace(raw)
 	if len(raw) == 0 {

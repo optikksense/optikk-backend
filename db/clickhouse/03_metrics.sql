@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS observability.metrics (
     host                 LowCardinality(String) CODEC(ZSTD(1)),
     environment          LowCardinality(String) CODEC(ZSTD(1)),
     k8s_namespace        LowCardinality(String) CODEC(ZSTD(1)),
+    pod                  LowCardinality(String) CODEC(ZSTD(1)),
+    container            LowCardinality(String) CODEC(ZSTD(1)),
     http_method          LowCardinality(String) CODEC(ZSTD(1)),
     http_status_code     UInt16 CODEC(T64, ZSTD(1)),
     resource             JSON(max_dynamic_paths=100) CODEC(ZSTD(1)),

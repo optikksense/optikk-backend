@@ -10,11 +10,14 @@ import (
 
 type Handler struct {
 	modulecommon.DBTenant
-	svc Service
+	svc *Service
 }
 
-func NewHandler(getTenant modulecommon.GetTenantFunc, svc Service) *Handler {
-	return &Handler{DBTenant: modulecommon.DBTenant{GetTenant: getTenant}, svc: svc}
+func NewHandler(getTenant modulecommon.GetTenantFunc, svc *Service) *Handler {
+	return &Handler{
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		svc:      svc,
+	}
 }
 
 func (h *Handler) GetCriticalPath(c *gin.Context) {

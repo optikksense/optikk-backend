@@ -3,24 +3,23 @@ package explorer
 import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
 
-type Config struct{ Enabled bool }
-
-func DefaultConfig() Config { return Config{Enabled: true} }
-
-func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
-	if !cfg.Enabled || h == nil {
-		return
-	}
-	v1.POST("/traces/query", h.Query)
+type Config struct {
+	Enabled bool
 }
 
-func NewModule(db clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
+func RegisterRoutes(v1 *gin.RouterGroup, h *Handler) {
+	v1.POST("/traces/query", h.Query)
+	v1.POST("/traces/facets", h.QueryFacets)
+	v1.POST("/traces/trend", h.QueryTrend)
+	v1.POST("/traces/suggest", h.Suggest)
+}
+
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
 	m := &tracesExplorerModule{}
-	m.configure(db, getTenant)
+	m.configure(nativeQuerier, getTenant)
 	return m
 }
 
@@ -37,7 +36,5 @@ func (m *tracesExplorerModule) configure(db clickhouse.Conn, getTenant registry.
 }
 
 func (m *tracesExplorerModule) RegisterRoutes(group *gin.RouterGroup) {
-	RegisterRoutes(DefaultConfig(), group, m.handler)
+	RegisterRoutes(group, m.handler)
 }
-
-var _ modulecommon.GetTenantFunc = modulecommon.GetTenantFunc(nil)

@@ -2,15 +2,11 @@ package errors
 
 import (
 	"context"
-	"strconv"
 	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/cursor"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 )
-
-// tsBucketTime converts a UInt32 ts_bucket (Unix-seconds, 5-min boundary)
-// scanned natively from CH into the wire-model time.Time.
-func tsBucketTime(b uint32) time.Time { return time.Unix(int64(b), 0).UTC() }
 
 type Service struct {
 	repo Repository
@@ -35,18 +31,78 @@ func (s *Service) GetServiceErrorRate(ctx context.Context, teamID int64, startMs
 	if err != nil {
 		return nil, err
 	}
-	points := make([]TimeSeriesPoint, len(raw))
-	for i, row := range raw {
-		total := int64(row.RequestCount) //nolint:gosec // domain-bounded
-		errs := int64(row.ErrorCount)    //nolint:gosec // domain-bounded
-		points[i] = TimeSeriesPoint{
-			ServiceName:  row.ServiceName,
-			Timestamp:    tsBucketTime(row.TsBucket),
+
+	grain := timebucket.DisplayGrain(endMs - startMs)
+	startTime := time.UnixMilli(startMs).UTC().Truncate(grain)
+	endTime := time.UnixMilli(endMs).UTC().Truncate(grain)
+
+	if serviceName == "" {
+		serviceNames := make(map[string]bool)
+		for _, row := range raw {
+			if row.ServiceName != "" {
+				serviceNames[row.ServiceName] = true
+			}
+		}
+
+		rowMap := make(map[string]map[int64]rawServiceRateRow)
+		for svc := range serviceNames {
+			rowMap[svc] = make(map[int64]rawServiceRateRow)
+		}
+		for _, row := range raw {
+			ts := row.BucketAt.UTC().Truncate(grain).Unix()
+			if rowMap[row.ServiceName] != nil {
+				rowMap[row.ServiceName][ts] = row
+			}
+		}
+
+		var points []TimeSeriesPoint
+		for svc := range serviceNames {
+			for t := startTime; !t.After(endTime); t = t.Add(grain) {
+				row, ok := rowMap[svc][t.Unix()]
+				var total, errs int64
+				var durationMsSum float64
+				if ok {
+					total = int64(row.RequestCount)
+					errs = int64(row.ErrorCount)
+					durationMsSum = row.DurationMsSum
+				}
+				points = append(points, TimeSeriesPoint{
+					ServiceName:  svc,
+					Timestamp:    t,
+					RequestCount: total,
+					ErrorCount:   errs,
+					ErrorRate:    computeErrorRate(errs, total),
+					AvgLatency:   computeAvgLatency(durationMsSum, uint64(total)),
+				})
+			}
+		}
+		return points, nil
+	}
+
+	rowMap := make(map[int64]rawServiceRateRow)
+	for _, row := range raw {
+		ts := row.BucketAt.UTC().Truncate(grain).Unix()
+		rowMap[ts] = row
+	}
+
+	var points []TimeSeriesPoint
+	for t := startTime; !t.After(endTime); t = t.Add(grain) {
+		row, ok := rowMap[t.Unix()]
+		var total, errs int64
+		var durationMsSum float64
+		if ok {
+			total = int64(row.RequestCount)
+			errs = int64(row.ErrorCount)
+			durationMsSum = row.DurationMsSum
+		}
+		points = append(points, TimeSeriesPoint{
+			ServiceName:  serviceName,
+			Timestamp:    t,
 			RequestCount: total,
 			ErrorCount:   errs,
 			ErrorRate:    computeErrorRate(errs, total),
-			AvgLatency:   computeAvgLatency(row.DurationMsSum, row.RequestCount),
-		}
+			AvgLatency:   computeAvgLatency(durationMsSum, uint64(total)),
+		})
 	}
 	return points, nil
 }
@@ -66,47 +122,65 @@ func (s *Service) GetErrorVolume(ctx context.Context, teamID int64, startMs, end
 	if err != nil {
 		return nil, err
 	}
-	points := make([]TimeSeriesPoint, 0, len(raw))
-	for _, row := range raw {
-		if row.ErrorCount == 0 {
-			continue
-		}
-		points = append(points, TimeSeriesPoint{
-			ServiceName: row.ServiceName,
-			Timestamp:   tsBucketTime(row.TsBucket),
-			ErrorCount:  int64(row.ErrorCount), //nolint:gosec // domain-bounded
-		})
-	}
-	return points, nil
-}
 
-// --- Latency during error windows ---
-// Reuses the ServiceErrorRate query — same shape, post-processing drops zero-error rows.
+	grain := timebucket.DisplayGrain(endMs - startMs)
+	startTime := time.UnixMilli(startMs).UTC().Truncate(grain)
+	endTime := time.UnixMilli(endMs).UTC().Truncate(grain)
 
-func (s *Service) GetLatencyDuringErrorWindows(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]TimeSeriesPoint, error) {
-	var (
-		raw []rawServiceRateRow
-		err error
-	)
 	if serviceName == "" {
-		raw, err = s.repo.ServiceErrorRateRowsAll(ctx, teamID, startMs, endMs)
-	} else {
-		raw, err = s.repo.ServiceErrorRateRowsByService(ctx, teamID, startMs, endMs, serviceName)
+		serviceNames := make(map[string]bool)
+		for _, row := range raw {
+			if row.ServiceName != "" {
+				serviceNames[row.ServiceName] = true
+			}
+		}
+
+		rowMap := make(map[string]map[int64]rawServiceErrorRow)
+		for svc := range serviceNames {
+			rowMap[svc] = make(map[int64]rawServiceErrorRow)
+		}
+		for _, row := range raw {
+			ts := row.BucketAt.UTC().Truncate(grain).Unix()
+			if rowMap[row.ServiceName] != nil {
+				rowMap[row.ServiceName][ts] = row
+			}
+		}
+
+		var points []TimeSeriesPoint
+		for svc := range serviceNames {
+			for t := startTime; !t.After(endTime); t = t.Add(grain) {
+				row, ok := rowMap[svc][t.Unix()]
+				var errs int64
+				if ok {
+					errs = int64(row.ErrorCount)
+				}
+				points = append(points, TimeSeriesPoint{
+					ServiceName: svc,
+					Timestamp:   t,
+					ErrorCount:  errs,
+				})
+			}
+		}
+		return points, nil
 	}
-	if err != nil {
-		return nil, err
-	}
-	points := make([]TimeSeriesPoint, 0, len(raw))
+
+	rowMap := make(map[int64]rawServiceErrorRow)
 	for _, row := range raw {
-		if row.ErrorCount == 0 {
-			continue
+		ts := row.BucketAt.UTC().Truncate(grain).Unix()
+		rowMap[ts] = row
+	}
+
+	var points []TimeSeriesPoint
+	for t := startTime; !t.After(endTime); t = t.Add(grain) {
+		row, ok := rowMap[t.Unix()]
+		var errs int64
+		if ok {
+			errs = int64(row.ErrorCount)
 		}
 		points = append(points, TimeSeriesPoint{
-			ServiceName:  row.ServiceName,
-			Timestamp:    tsBucketTime(row.TsBucket),
-			RequestCount: int64(row.RequestCount), //nolint:gosec // domain-bounded
-			ErrorCount:   int64(row.ErrorCount),   //nolint:gosec // domain-bounded
-			AvgLatency:   computeAvgLatency(row.DurationMsSum, row.RequestCount),
+			ServiceName: serviceName,
+			Timestamp:   t,
+			ErrorCount:  errs,
 		})
 	}
 	return points, nil
@@ -172,24 +246,90 @@ func (s *Service) GetErrorGroupDetail(ctx context.Context, teamID int64, startMs
 		return nil, nil
 	}
 	return &ErrorGroupDetail{
-		GroupID:          groupID,
-		ServiceName:      row.ServiceName,
-		OperationName:    row.OperationName,
-		StatusMessage:    row.StatusMessage,
-		HTTPStatusCode:   int(row.HTTPStatusCode),
-		ErrorCount:       int64(row.ErrorCount), //nolint:gosec // domain-bounded
-		LastOccurrence:   row.LastOccurrence,
-		FirstOccurrence:  row.FirstOccurrence,
-		SampleTraceID:    row.SampleTraceID,
-		ExceptionType:    row.ExceptionType,
-		SampleStacktrace: row.StackTrace,
+		GroupID:         groupID,
+		ServiceName:     row.ServiceName,
+		OperationName:   row.OperationName,
+		HTTPStatusCode:  int(row.HTTPStatusCode),
+		ErrorCount:      int64(row.ErrorCount), //nolint:gosec // domain-bounded
+		LastOccurrence:  row.LastOccurrence,
+		FirstOccurrence: row.FirstOccurrence,
+		ExceptionType:   row.ExceptionType,
 	}, nil
 }
 
-func (s *Service) GetErrorGroupTraces(ctx context.Context, teamID int64, startMs, endMs int64, groupID string, limit int) ([]ErrorGroupTrace, error) {
-	raw, err := s.repo.ErrorGroupTraceRows(ctx, teamID, startMs, endMs, groupID, limit)
+// facetColumns are the spans_1m dimensions exposed as "Where it happens" facets.
+// This list is the SQL-injection whitelist for ErrorGroupFacetRows — only these
+// column names are ever interpolated into the query.
+var facetColumns = []string{"service_version", "environment", "pod", "http_route"}
+
+func (s *Service) GetErrorGroupLatestOccurrence(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (*ErrorLatestOccurrence, error) {
+	row, err := s.repo.ErrorGroupLatestOccurrenceRow(ctx, teamID, startMs, endMs, groupID)
 	if err != nil {
 		return nil, err
+	}
+	if row == nil {
+		return nil, nil
+	}
+	return &ErrorLatestOccurrence{
+		TraceID:        row.TraceID,
+		SpanID:         row.SpanID,
+		Timestamp:      row.Timestamp,
+		DurationMs:     row.DurationMs,
+		Message:        row.ExceptionMessage,
+		Stacktrace:     row.StackTrace,
+		HTTPMethod:     row.HTTPMethod,
+		HTTPRoute:      row.HTTPRoute,
+		HTTPStatusCode: row.HTTPStatusCode,
+		ServiceVersion: row.ServiceVersion,
+		Environment:    row.Environment,
+		Pod:            row.Pod,
+		Host:           row.Host,
+	}, nil
+}
+
+func (s *Service) GetErrorGroupFacets(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) ([]ErrorFacetGroup, error) {
+	groups := make([]ErrorFacetGroup, 0, len(facetColumns))
+	for _, col := range facetColumns {
+		raw, err := s.repo.ErrorGroupFacetRows(ctx, teamID, startMs, endMs, groupID, col)
+		if err != nil {
+			return nil, err
+		}
+		if len(raw) == 0 {
+			continue
+		}
+		var total int64
+		for _, r := range raw {
+			total += int64(r.Count) //nolint:gosec // domain-bounded
+		}
+		facets := make([]ErrorFacet, len(raw))
+		for i, r := range raw {
+			count := int64(r.Count) //nolint:gosec // domain-bounded
+			facets[i] = ErrorFacet{
+				Name:  r.Value,
+				Count: count,
+				Pct:   facetPct(count, total),
+			}
+		}
+		groups = append(groups, ErrorFacetGroup{Key: col, Facets: facets})
+	}
+	return groups, nil
+}
+
+func facetPct(count, total int64) float64 {
+	if total <= 0 {
+		return 0
+	}
+	return float64(count) * 100.0 / float64(total)
+}
+
+func (s *Service) GetErrorGroupTraces(ctx context.Context, teamID int64, startMs, endMs int64, groupID string, limit int, cursorIn ErrorTracesCursor) (PaginatedErrorTraces, error) {
+	raw, err := s.repo.ErrorGroupTraceRows(ctx, teamID, startMs, endMs, groupID, limit+1, cursorIn)
+	if err != nil {
+		return PaginatedErrorTraces{}, err
+	}
+	hasMore := len(raw) > limit
+	if hasMore {
+		raw = raw[:limit]
 	}
 	traces := make([]ErrorGroupTrace, len(raw))
 	for i, row := range raw {
@@ -201,7 +341,22 @@ func (s *Service) GetErrorGroupTraces(ctx context.Context, teamID int64, startMs
 			StatusCode: row.StatusCode,
 		}
 	}
-	return traces, nil
+	var nextCursor string
+	if hasMore && len(raw) > 0 {
+		lastRow := raw[len(raw)-1]
+		nextCursor = cursor.Encode(ErrorTracesCursor{
+			Timestamp: lastRow.Timestamp,
+			SpanID:    lastRow.SpanID,
+		})
+	}
+	return PaginatedErrorTraces{
+		Results: traces,
+		PageInfo: PageInfo{
+			HasMore:    hasMore,
+			NextCursor: nextCursor,
+			Limit:      limit,
+		},
+	}, nil
 }
 
 func (s *Service) GetErrorGroupTimeseries(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) ([]TimeSeriesPoint, error) {
@@ -209,38 +364,28 @@ func (s *Service) GetErrorGroupTimeseries(ctx context.Context, teamID int64, sta
 	if err != nil {
 		return nil, err
 	}
-	points := make([]TimeSeriesPoint, len(raw))
-	for i, row := range raw {
-		points[i] = TimeSeriesPoint{
-			Timestamp:  tsBucketTime(row.TsBucket),
-			ErrorCount: int64(row.Count), //nolint:gosec // domain-bounded
-		}
-	}
-	return points, nil
-}
 
-// --- Exception rate by type ---
+	grain := timebucket.DisplayGrain(endMs - startMs)
+	startTime := time.UnixMilli(startMs).UTC().Truncate(grain)
+	endTime := time.UnixMilli(endMs).UTC().Truncate(grain)
 
-func (s *Service) GetExceptionRateByType(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]ExceptionRatePoint, error) {
-	var (
-		raw []rawExceptionRateRow
-		err error
-	)
-	if serviceName == "" {
-		raw, err = s.repo.ExceptionRateRowsAll(ctx, teamID, startMs, endMs)
-	} else {
-		raw, err = s.repo.ExceptionRateRowsByService(ctx, teamID, startMs, endMs, serviceName)
+	rowMap := make(map[int64]rawTimeBucketCountRow)
+	for _, row := range raw {
+		ts := row.BucketAt.UTC().Truncate(grain).Unix()
+		rowMap[ts] = row
 	}
-	if err != nil {
-		return nil, err
-	}
-	points := make([]ExceptionRatePoint, len(raw))
-	for i, row := range raw {
-		points[i] = ExceptionRatePoint{
-			Timestamp:     tsBucketTime(row.TsBucket),
-			ExceptionType: row.ExceptionType,
-			Count:         int64(row.Count), //nolint:gosec // domain-bounded
+
+	var points []TimeSeriesPoint
+	for t := startTime; !t.After(endTime); t = t.Add(grain) {
+		row, ok := rowMap[t.Unix()]
+		var count int64
+		if ok {
+			count = int64(row.Count)
 		}
+		points = append(points, TimeSeriesPoint{
+			Timestamp:  t,
+			ErrorCount: count,
+		})
 	}
 	return points, nil
 }
@@ -259,87 +404,13 @@ func (s *Service) GetErrorHotspot(ctx context.Context, teamID int64, startMs, en
 		cells[i] = ErrorHotspotCell{
 			ServiceName:   row.ServiceName,
 			OperationName: row.OperationName,
+			GroupID:       row.GroupID,
 			ErrorRate:     computeErrorRate(errs, total),
 			ErrorCount:    errs,
 			TotalCount:    total,
 		}
 	}
 	return cells, nil
-}
-
-// --- HTTP 5xx by route ---
-
-func (s *Service) GetHTTP5xxByRoute(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]HTTP5xxByRoute, error) {
-	var (
-		raw []rawHTTP5xxRow
-		err error
-	)
-	if serviceName == "" {
-		raw, err = s.repo.HTTP5xxByRouteRowsAll(ctx, teamID, startMs, endMs)
-	} else {
-		raw, err = s.repo.HTTP5xxByRouteRowsByService(ctx, teamID, startMs, endMs, serviceName)
-	}
-	if err != nil {
-		return nil, err
-	}
-	out := make([]HTTP5xxByRoute, len(raw))
-	for i, row := range raw {
-		out[i] = HTTP5xxByRoute{
-			HTTPRoute:   row.HTTPRoute,
-			ServiceName: row.ServiceName,
-			Count:       int64(row.Count), //nolint:gosec // domain-bounded
-		}
-	}
-	return out, nil
-}
-
-// --- Fingerprint list ---
-
-func (s *Service) ListFingerprints(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int) ([]ErrorFingerprint, error) {
-	var (
-		raw []rawErrorFingerprintRow
-		err error
-	)
-	if serviceName == "" {
-		raw, err = s.repo.FingerprintRowsAll(ctx, teamID, startMs, endMs, limit)
-	} else {
-		raw, err = s.repo.FingerprintRowsByService(ctx, teamID, startMs, endMs, serviceName, limit)
-	}
-	if err != nil {
-		return nil, err
-	}
-	out := make([]ErrorFingerprint, len(raw))
-	for i, row := range raw {
-		out[i] = ErrorFingerprint{
-			Fingerprint:   strconv.FormatUint(row.StatusMessageHash, 10),
-			ServiceName:   row.ServiceName,
-			OperationName: row.OperationName,
-			ExceptionType: row.ExceptionType,
-			StatusMessage: row.StatusMessage,
-			FirstSeen:     row.FirstSeen,
-			LastSeen:      row.LastSeen,
-			Count:         int64(row.Count), //nolint:gosec // domain-bounded
-			SampleTraceID: row.SampleTraceID,
-		}
-	}
-	return out, nil
-}
-
-// --- Fingerprint trend ---
-
-func (s *Service) GetFingerprintTrend(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName, exceptionType, statusMessage string) ([]FingerprintTrendPoint, error) {
-	raw, err := s.repo.FingerprintTrendRows(ctx, teamID, startMs, endMs, serviceName, operationName, exceptionType, statusMessage)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]FingerprintTrendPoint, len(raw))
-	for i, row := range raw {
-		out[i] = FingerprintTrendPoint{
-			Timestamp: tsBucketTime(row.TsBucket),
-			Count:     int64(row.Count), //nolint:gosec // domain-bounded
-		}
-	}
-	return out, nil
 }
 
 // --- helpers (service-layer derivations) ---

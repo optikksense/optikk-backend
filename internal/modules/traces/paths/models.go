@@ -1,10 +1,9 @@
-// Package paths exposes trace chain analysis endpoints (critical-path
-// and error-path) split out of the legacy detail module.
 package paths
 
-import "time"
+import (
+	"time"
+)
 
-// CriticalPathSpan is one hop in the longest dependency chain of a trace.
 type CriticalPathSpan struct {
 	SpanID        string  `json:"span_id"        ch:"span_id"`
 	OperationName string  `json:"operation_name" ch:"operation_name"`
@@ -12,7 +11,6 @@ type CriticalPathSpan struct {
 	DurationMs    float64 `json:"duration_ms"    ch:"duration_ms"`
 }
 
-// ErrorPathSpan is one hop in the error ancestry chain (leaf error → root).
 type ErrorPathSpan struct {
 	SpanID        string    `json:"span_id"        ch:"span_id"`
 	ParentSpanID  string    `json:"parent_span_id" ch:"parent_span_id"`

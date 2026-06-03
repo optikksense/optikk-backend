@@ -2,29 +2,20 @@ package paths
 
 import (
 	"context"
-	"strings"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 )
 
-// Repository runs trace-id-scoped point lookups for path reconstruction.
-// Queries only — graph traversal (critical path / error chain) lives in
-// service.go.
-type Repository interface {
-	GetCriticalPath(ctx context.Context, teamID int64, traceID string) ([]criticalPathRow, error)
-	GetErrorPath(ctx context.Context, teamID int64, traceID string) ([]errorPathRow, error)
-}
-
-type ClickHouseRepository struct {
+type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
-	return &ClickHouseRepository{db: db}
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
 }
 
-func (r *ClickHouseRepository) GetCriticalPath(ctx context.Context, teamID int64, traceID string) ([]criticalPathRow, error) {
+func (r *Repository) GetCriticalPath(ctx context.Context, teamID int64, traceID string) ([]criticalPathRow, error) {
 	const query = `
 		WITH trace_loc AS (
 		    SELECT ts_bucket, fingerprint
@@ -48,7 +39,7 @@ func (r *ClickHouseRepository) GetCriticalPath(ctx context.Context, teamID int64
 	return rows, dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "paths.GetCriticalPath", &rows, query, traceIDArgs(teamID, traceID)...)
 }
 
-func (r *ClickHouseRepository) GetErrorPath(ctx context.Context, teamID int64, traceID string) ([]errorPathRow, error) {
+func (r *Repository) GetErrorPath(ctx context.Context, teamID int64, traceID string) ([]errorPathRow, error) {
 	const query = `
 		WITH trace_loc AS (
 		    SELECT ts_bucket, fingerprint
@@ -76,14 +67,7 @@ func (r *ClickHouseRepository) GetErrorPath(ctx context.Context, teamID int64, t
 
 func traceIDArgs(teamID int64, traceID string) []any {
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("traceID", traceID),
 	}
-}
-
-// isRootParentSpanID treats empty string and all-zero hex as "no parent" —
-// both forms appear in real data depending on SDK and ingest path.
-func isRootParentSpanID(parentID string) bool {
-	trimmed := strings.Trim(parentID, "\x00")
-	return trimmed == "" || trimmed == "0000000000000000"
 }
