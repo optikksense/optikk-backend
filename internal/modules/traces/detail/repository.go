@@ -1,4 +1,4 @@
-package traces
+package detail
 
 import (
 	"context"
@@ -9,7 +9,15 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 )
 
-func (r *ClickHouseRepository) GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]spanEventCombinedRow, error) {
+type Repository struct {
+	db clickhouse.Conn
+}
+
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
+}
+
+func (r *Repository) GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]spanEventCombinedRow, error) {
 	const query = `
 		WITH trace_loc AS (
 		    SELECT ts_bucket, fingerprint
@@ -30,7 +38,7 @@ func (r *ClickHouseRepository) GetSpanEvents(ctx context.Context, teamID int64, 
 	)
 }
 
-func (r *ClickHouseRepository) GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*spanAttributeRow, error) {
+func (r *Repository) GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*spanAttributeRow, error) {
 	const query = `
 		WITH trace_loc AS (
 		    SELECT ts_bucket, fingerprint
@@ -67,7 +75,7 @@ func (r *ClickHouseRepository) GetSpanAttributes(ctx context.Context, teamID int
 	return &row, nil
 }
 
-func (r *ClickHouseRepository) GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
+func (r *Repository) GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
 	const query = `
 		WITH active_fps AS (
 		    SELECT fingerprint
@@ -110,7 +118,7 @@ func (r *ClickHouseRepository) GetRelatedTraces(ctx context.Context, teamID int6
 	return rows, dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "detail.GetRelatedTraces", &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) GetTraceSummary(ctx context.Context, teamID int64, traceID string) (*TraceSummary, error) {
+func (r *Repository) GetTraceSummary(ctx context.Context, teamID int64, traceID string) (*TraceSummary, error) {
 	const query = `
 		WITH trace_loc AS (
 		    SELECT ts_bucket, fingerprint
@@ -182,7 +190,7 @@ func (r *ClickHouseRepository) GetTraceSummary(ctx context.Context, teamID int64
 	}, nil
 }
 
-func (r *ClickHouseRepository) ListSpansByTrace(ctx context.Context, teamID int64, traceID string) ([]SpanListItem, error) {
+func (r *Repository) ListSpansByTrace(ctx context.Context, teamID int64, traceID string) ([]SpanListItem, error) {
 	const query = `
 		WITH trace_loc AS (
 		    SELECT ts_bucket, fingerprint

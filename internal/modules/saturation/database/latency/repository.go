@@ -2,9 +2,11 @@ package latency
 
 import (
 	"context"
+	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
@@ -25,7 +27,7 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 }
 
 type latencyRawDTO struct {
-	TsBucket uint32    `ch:"ts_bucket"`
+	BucketAt time.Time `ch:"bucket_at"`
 	GroupBy  string    `ch:"group_by"`
 	QS       []float32 `ch:"qs"`
 	P50Ms    float32
@@ -49,15 +51,15 @@ func (r *ClickHouseRepository) latencySeriesByGroup(ctx context.Context, teamID,
 		    FROM observability.spans_resource
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		)
-		SELECT ts_bucket,
+		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + ` AS bucket_at,
 		       ` + groupCol + `                                       AS group_by,
 		       quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state)  AS qs
 		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND db_system != ''` + filterWhere + `
-		GROUP BY ts_bucket, group_by
-		ORDER BY ts_bucket, group_by`
+		GROUP BY bucket_at, group_by
+		ORDER BY bucket_at, group_by`
 
 	args := append(filter.SpanArgs(teamID, startMs, endMs), filterArgs...)
 	var rows []latencyRawDTO

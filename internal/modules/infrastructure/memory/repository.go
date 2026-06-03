@@ -92,7 +92,6 @@ func (r *ClickHouseRepository) QueryMemoryUtilizationForInstance(ctx context.Con
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "memory.QueryMemoryUtilizationForInstance", &rows, query, args...)
 }
 
-
 // ---------------------------------------------------------------------------
 // Local helpers — each module owns its own.
 // ---------------------------------------------------------------------------

@@ -1,4 +1,4 @@
-package traces
+package paths
 
 import (
 	"context"
@@ -7,7 +7,15 @@ import (
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 )
 
-func (r *ClickHouseRepository) GetCriticalPath(ctx context.Context, teamID int64, traceID string) ([]criticalPathRow, error) {
+type Repository struct {
+	db clickhouse.Conn
+}
+
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
+}
+
+func (r *Repository) GetCriticalPath(ctx context.Context, teamID int64, traceID string) ([]criticalPathRow, error) {
 	const query = `
 		WITH trace_loc AS (
 		    SELECT ts_bucket, fingerprint
@@ -31,7 +39,7 @@ func (r *ClickHouseRepository) GetCriticalPath(ctx context.Context, teamID int64
 	return rows, dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "paths.GetCriticalPath", &rows, query, traceIDArgs(teamID, traceID)...)
 }
 
-func (r *ClickHouseRepository) GetErrorPath(ctx context.Context, teamID int64, traceID string) ([]errorPathRow, error) {
+func (r *Repository) GetErrorPath(ctx context.Context, teamID int64, traceID string) ([]errorPathRow, error) {
 	const query = `
 		WITH trace_loc AS (
 		    SELECT ts_bucket, fingerprint

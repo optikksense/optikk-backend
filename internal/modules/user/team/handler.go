@@ -15,4 +15,3 @@ func NewHandler(getTenant modulecommon.GetTenantFunc, service *Service) *Handler
 		Service:  service,
 	}
 }
-

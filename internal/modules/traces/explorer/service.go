@@ -1,4 +1,4 @@
-package traces
+package explorer
 
 import (
 	"context"
@@ -26,7 +26,15 @@ func IsScalarField(field string) bool {
 	return ok
 }
 
-func (s *TracesService) Query(ctx context.Context, req QueryRequest) (QueryResponse, error) {
+type Service struct {
+	repo *Repository
+}
+
+func NewService(repo *Repository) *Service {
+	return &Service{repo: repo}
+}
+
+func (s *Service) Query(ctx context.Context, req QueryRequest) (QueryResponse, error) {
 	limit := pickExplorerLimit(req.Limit, 50, 500)
 	rows, hasMore, err := s.repo.Query(ctx, req)
 	if err != nil {
@@ -84,15 +92,15 @@ func mapTraces(rows []traceIndexRowDTO) []Trace {
 	return out
 }
 
-func (s *TracesService) QueryFacets(ctx context.Context, req FacetsRequest) (Facets, error) {
+func (s *Service) QueryFacets(ctx context.Context, req FacetsRequest) (Facets, error) {
 	return s.repo.QueryFacets(ctx, req)
 }
 
-func (s *TracesService) QueryTrend(ctx context.Context, req TrendRequest) ([]TrendBucket, error) {
+func (s *Service) QueryTrend(ctx context.Context, req TrendRequest) ([]TrendBucket, error) {
 	return s.repo.QueryTrend(ctx, req)
 }
 
-func (s *TracesService) Suggest(ctx context.Context, req SuggestRequest, teamID int64) (SuggestResponse, error) {
+func (s *Service) Suggest(ctx context.Context, req SuggestRequest, teamID int64) (SuggestResponse, error) {
 	limit := pickSuggestLimit(req.Limit)
 	rows, err := s.fetchSuggest(ctx, teamID, req, limit)
 	if err != nil {
@@ -102,7 +110,7 @@ func (s *TracesService) Suggest(ctx context.Context, req SuggestRequest, teamID 
 	return SuggestResponse{Suggestions: rows}, nil
 }
 
-func (s *TracesService) fetchSuggest(ctx context.Context, teamID int64, req SuggestRequest, limit int) ([]Suggestion, error) {
+func (s *Service) fetchSuggest(ctx context.Context, teamID int64, req SuggestRequest, limit int) ([]Suggestion, error) {
 	if strings.HasPrefix(req.Field, "@") {
 		return s.repo.SuggestAttribute(ctx, teamID, req.StartTime, req.EndTime, req.Field, req.Prefix, limit)
 	}

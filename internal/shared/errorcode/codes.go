@@ -27,5 +27,3 @@ const (
 	NoData      = "NO_DATA"
 	PartialData = "PARTIAL_DATA"
 )
-
-

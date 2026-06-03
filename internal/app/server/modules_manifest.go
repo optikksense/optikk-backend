@@ -23,13 +23,16 @@ import (
 	saturation_database_latency "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/latency"
 	saturation_database_slowqueries "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/slowqueries"
 	saturation_database_volume "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/volume"
-	saturation_kafka_consumer"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka/consumer"
+	saturation_kafka_consumer "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka/consumer"
 	saturation_kafka_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka/explorer"
 	saturation_kafka_producer "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka/producer"
 	services_errors "github.com/Optikk-Org/optikk-backend/internal/modules/services/errors"
 	services_redmetrics "github.com/Optikk-Org/optikk-backend/internal/modules/services/redmetrics"
 	services_topology "github.com/Optikk-Org/optikk-backend/internal/modules/services/topology"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/traces"
+	traces_detail "github.com/Optikk-Org/optikk-backend/internal/modules/traces/detail"
+	traces_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
+	traces_paths "github.com/Optikk-Org/optikk-backend/internal/modules/traces/paths"
+	traces_servicemap "github.com/Optikk-Org/optikk-backend/internal/modules/traces/servicemap"
 	user_auth "github.com/Optikk-Org/optikk-backend/internal/modules/user/auth"
 	user_team "github.com/Optikk-Org/optikk-backend/internal/modules/user/team"
 	user_user "github.com/Optikk-Org/optikk-backend/internal/modules/user/user"
@@ -66,7 +69,10 @@ func configuredModules(
 		saturation_kafka_consumer.NewModule(nativeQuerier, getTenant),
 		saturation_kafka_explorer.NewModule(nativeQuerier, getTenant),
 		services_topology.NewModule(nativeQuerier, getTenant),
-		traces.NewModule(nativeQuerier, getTenant),
+		traces_explorer.NewModule(nativeQuerier, getTenant),
+		traces_detail.NewModule(nativeQuerier, getTenant),
+		traces_paths.NewModule(nativeQuerier, getTenant),
+		traces_servicemap.NewModule(nativeQuerier, getTenant),
 		user_auth.NewModule(infraDeps.DB, getTenant, infraDeps.SessionManager, appConfig),
 		user_team.NewModule(infraDeps.DB, getTenant, appConfig),
 		user_user.NewModule(infraDeps.DB, getTenant, appConfig),

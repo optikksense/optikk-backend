@@ -57,7 +57,6 @@ func (s *Service) GetCPUByInstance(ctx context.Context, teamID int64, startMs, e
 	return out, nil
 }
 
-
 // ---------------------------------------------------------------------------
 // Folds + normalization.
 // ---------------------------------------------------------------------------

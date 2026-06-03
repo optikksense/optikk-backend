@@ -49,4 +49,3 @@ func (h *MemoryHandler) GetMemoryByInstance(c *gin.Context) {
 	}
 	modulecommon.RespondOK(c, resp)
 }
-

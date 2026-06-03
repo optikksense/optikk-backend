@@ -6,17 +6,17 @@ import "time"
 // All Go-side derivations (rate, latency, status-bucket → code, hash) live in service.go.
 
 type rawServiceRateRow struct {
-	ServiceName   string  `ch:"service"`
-	TsBucket      uint32  `ch:"ts_bucket"`
-	RequestCount  uint64  `ch:"request_count"`
-	ErrorCount    uint64  `ch:"error_count"`
-	DurationMsSum float64 `ch:"duration_ms_sum"`
+	ServiceName   string    `ch:"service"`
+	BucketAt      time.Time `ch:"bucket_at"`
+	RequestCount  uint64    `ch:"request_count"`
+	ErrorCount    uint64    `ch:"error_count"`
+	DurationMsSum float64   `ch:"duration_ms_sum"`
 }
 
 type rawServiceErrorRow struct {
-	ServiceName string `ch:"service"`
-	TsBucket    uint32 `ch:"ts_bucket"`
-	ErrorCount  uint64 `ch:"error_count"`
+	ServiceName string    `ch:"service"`
+	BucketAt    time.Time `ch:"bucket_at"`
+	ErrorCount  uint64    `ch:"error_count"`
 }
 
 type rawErrorGroupRow struct {
@@ -35,14 +35,11 @@ type rawErrorGroupDetailRow struct {
 	GroupID         string    `ch:"error_group_id"`
 	ServiceName     string    `ch:"service"`
 	OperationName   string    `ch:"operation_name"`
-	StatusMessage   string    `ch:"status_message"`
 	HTTPStatusCode  uint16    `ch:"http_status_code"`
 	ErrorCount      uint64    `ch:"error_count"`
 	LastOccurrence  time.Time `ch:"last_occurrence"`
 	FirstOccurrence time.Time `ch:"first_occurrence"`
-	SampleTraceID   string    `ch:"sample_trace_id"`
 	ExceptionType   string    `ch:"exception_type"`
-	StackTrace      string    `ch:"stack_trace"`
 }
 
 type rawErrorGroupTraceRow struct {
@@ -53,18 +50,43 @@ type rawErrorGroupTraceRow struct {
 	StatusCode string    `ch:"status_code"`
 }
 
+// rawErrorLatestOccurrenceRow is the single most recent error span of a group,
+// scanned from the raw spans table for the "Request context · latest occurrence"
+// card, the error banner, the stack trace, and the "Open trace" link.
+type rawErrorLatestOccurrenceRow struct {
+	TraceID          string    `ch:"trace_id"`
+	SpanID           string    `ch:"span_id"`
+	Timestamp        time.Time `ch:"timestamp"`
+	DurationMs       float64   `ch:"duration_ms"`
+	ExceptionMessage string    `ch:"exception_message"`
+	StackTrace       string    `ch:"exception_stacktrace"`
+	HTTPMethod       string    `ch:"http_method"`
+	HTTPRoute        string    `ch:"http_route"`
+	HTTPStatusCode   string    `ch:"response_status_code"`
+	ServiceVersion   string    `ch:"service_version"`
+	Environment      string    `ch:"environment"`
+	Pod              string    `ch:"pod"`
+	Host             string    `ch:"host"`
+}
+
+// rawErrorFacetRow is one bucket of a single facet dimension (e.g. one pod).
+type rawErrorFacetRow struct {
+	Value string `ch:"value"`
+	Count uint64 `ch:"count"`
+}
+
 type rawTimeBucketCountRow struct {
-	TsBucket uint32 `ch:"ts_bucket"`
-	Count    uint64 `ch:"count"`
+	BucketAt time.Time `ch:"bucket_at"`
+	Count    uint64    `ch:"count"`
 }
 
 type rawErrorHotspotRow struct {
 	ServiceName   string `ch:"service"`
 	OperationName string `ch:"operation_name"`
+	GroupID       string `ch:"error_group_id"`
 	ErrorCount    uint64 `ch:"error_count"`
 	TotalCount    uint64 `ch:"total_count"`
 }
-
 
 type ErrorGroupsCursor struct {
 	ErrorCount uint64 `json:"cnt"`
@@ -73,6 +95,15 @@ type ErrorGroupsCursor struct {
 
 func (c ErrorGroupsCursor) IsZero() bool {
 	return c.ErrorCount == 0 && c.GroupID == ""
+}
+
+type ErrorTracesCursor struct {
+	Timestamp time.Time `json:"ts"`
+	SpanID    string    `json:"sid"`
+}
+
+func (c ErrorTracesCursor) IsZero() bool {
+	return c.Timestamp.IsZero() && c.SpanID == ""
 }
 
 type PageInfo struct {

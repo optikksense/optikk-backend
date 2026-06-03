@@ -36,7 +36,6 @@ func (s *Service) GetMemoryByInstance(ctx context.Context, teamID int64, host, p
 	return foldMemoryMetricRows(rows), nil
 }
 
-
 // ---------------------------------------------------------------------------
 // Folds + normalization.
 // ---------------------------------------------------------------------------

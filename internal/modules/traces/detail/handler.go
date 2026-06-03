@@ -1,4 +1,4 @@
-package traces
+package detail
 
 import (
 	"net/http"
@@ -9,6 +9,18 @@ import (
 )
 
 const defaultRelatedLimit = 10
+
+type Handler struct {
+	modulecommon.DBTenant
+	svc *Service
+}
+
+func NewHandler(getTenant modulecommon.GetTenantFunc, svc *Service) *Handler {
+	return &Handler{
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		svc:      svc,
+	}
+}
 
 func (h *Handler) GetTraceSummary(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID

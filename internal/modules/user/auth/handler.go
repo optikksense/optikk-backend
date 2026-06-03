@@ -59,4 +59,3 @@ func (h *Handler) AuthMe(c *gin.Context) {
 	}
 	modulecommon.RespondOK(c, response)
 }
-

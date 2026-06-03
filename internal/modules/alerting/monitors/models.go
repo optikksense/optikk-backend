@@ -42,12 +42,12 @@ type MonitorListResponse struct {
 
 // StatusCounts powers the list-page KPI strip.
 type StatusCounts struct {
-	Alert   int `json:"alert"`
-	Warn    int `json:"warn"`
-	OK      int `json:"ok"`
-	NoData  int `json:"no_data"`
-	Muted   int `json:"muted"`
-	Total   int `json:"total"`
+	Alert  int `json:"alert"`
+	Warn   int `json:"warn"`
+	OK     int `json:"ok"`
+	NoData int `json:"no_data"`
+	Muted  int `json:"muted"`
+	Total  int `json:"total"`
 }
 
 // toResponse merges a monitors row + (optional) state row into the wire shape.

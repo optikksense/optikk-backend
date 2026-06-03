@@ -27,6 +27,8 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ErrorHandler) {
 	v1.GET("/errors/groups/:groupId", h.GetErrorGroupDetail)
 	v1.GET("/errors/groups/:groupId/traces", h.GetErrorGroupTraces)
 	v1.GET("/errors/groups/:groupId/timeseries", h.GetErrorGroupTimeseries)
+	v1.GET("/errors/groups/:groupId/latest-occurrence", h.GetErrorGroupLatestOccurrence)
+	v1.GET("/errors/groups/:groupId/facets", h.GetErrorGroupFacets)
 
 	v1.GET("/spans/error-hotspot", h.GetErrorHotspot)
 }

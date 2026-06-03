@@ -41,4 +41,3 @@ func (h *CPUHandler) GetCPUByInstance(c *gin.Context) {
 	}
 	modulecommon.RespondOK(c, resp)
 }
-

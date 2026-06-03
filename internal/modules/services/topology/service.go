@@ -52,12 +52,8 @@ func (s *topologyService) GetTopology(ctx context.Context, teamID, startMs, endM
 		return TopologyResponse{}, err
 	}
 
-	nodes := buildNodes(nodeRows)
-	edges := buildEdges(edgeRows)
-
-	// Ensure every edge endpoint has a node, even if it has no inbound spans
-	// (e.g. a pure CLIENT-only producer).
-	nodes = addMissingEdgeNodes(nodes, edges)
+	graph := BuildGraph(nodeAggsFromRows(nodeRows), edgeAggsFromRows(edgeRows))
+	nodes, edges := graph.Nodes, graph.Edges
 
 	if focusService != "" {
 		nodes, edges = filterNeighborhood(nodes, edges, focusService)
@@ -66,73 +62,35 @@ func (s *topologyService) GetTopology(ctx context.Context, teamID, startMs, endM
 	return TopologyResponse{Nodes: nodes, Edges: edges}, nil
 }
 
-func buildNodes(rows []nodeAggRow) []ServiceNode {
-	out := make([]ServiceNode, 0, len(rows))
-	for _, r := range rows {
-		var errRate float64
-		if r.RequestCount > 0 {
-			errRate = float64(r.ErrorCount) / float64(r.RequestCount)
-		}
-		out = append(out, ServiceNode{
-			Name:         r.ServiceName,
+// nodeAggsFromRows maps the rollup query rows onto the neutral BuildGraph input.
+func nodeAggsFromRows(rows []nodeAggRow) []NodeAgg {
+	out := make([]NodeAgg, len(rows))
+	for i, r := range rows {
+		out[i] = NodeAgg{
+			Service:      r.ServiceName,
 			RequestCount: int64(r.RequestCount), //nolint:gosec // domain-bounded
 			ErrorCount:   int64(r.ErrorCount),   //nolint:gosec // domain-bounded
-			ErrorRate:    errRate,
-			P50LatencyMs: float64(r.P50Ms),
-			P95LatencyMs: float64(r.P95Ms),
-			P99LatencyMs: float64(r.P99Ms),
-			Health:       classifyHealth(errRate),
-		})
+			P50Ms:        float64(r.P50Ms),
+			P95Ms:        float64(r.P95Ms),
+			P99Ms:        float64(r.P99Ms),
+		}
 	}
 	return out
 }
 
-func buildEdges(rows []edgeAggRow) []ServiceEdge {
-	out := make([]ServiceEdge, 0, len(rows))
-	for _, r := range rows {
-		var errRate float64
-		if r.CallCount > 0 {
-			errRate = float64(r.ErrorCount) / float64(r.CallCount)
+func edgeAggsFromRows(rows []edgeAggRow) []EdgeAgg {
+	out := make([]EdgeAgg, len(rows))
+	for i, r := range rows {
+		out[i] = EdgeAgg{
+			Source:     r.Source,
+			Target:     r.Target,
+			CallCount:  int64(r.CallCount),  //nolint:gosec // domain-bounded
+			ErrorCount: int64(r.ErrorCount), //nolint:gosec // domain-bounded
+			P50Ms:      float64(r.P50Ms),
+			P95Ms:      float64(r.P95Ms),
 		}
-		out = append(out, ServiceEdge{
-			Source:       r.Source,
-			Target:       r.Target,
-			CallCount:    int64(r.CallCount),  //nolint:gosec // domain-bounded
-			ErrorCount:   int64(r.ErrorCount), //nolint:gosec // domain-bounded
-			ErrorRate:    errRate,
-			P50LatencyMs: float64(r.P50Ms),
-			P95LatencyMs: float64(r.P95Ms),
-		})
 	}
 	return out
-}
-
-func classifyHealth(errRate float64) string {
-	switch {
-	case errRate > unhealthyErrorRate:
-		return HealthUnhealthy
-	case errRate > degradedErrorRate:
-		return HealthDegraded
-	default:
-		return HealthHealthy
-	}
-}
-
-func addMissingEdgeNodes(nodes []ServiceNode, edges []ServiceEdge) []ServiceNode {
-	index := make(map[string]struct{}, len(nodes))
-	for _, n := range nodes {
-		index[n.Name] = struct{}{}
-	}
-	for _, e := range edges {
-		for _, name := range []string{e.Source, e.Target} {
-			if _, ok := index[name]; ok {
-				continue
-			}
-			nodes = append(nodes, ServiceNode{Name: name, Health: HealthHealthy})
-			index[name] = struct{}{}
-		}
-	}
-	return nodes
 }
 
 // filterNeighborhood keeps only the focus service and its direct neighbors

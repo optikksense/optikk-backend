@@ -35,16 +35,16 @@ type MonitorRow struct {
 
 // MonitorStateRow is the raw row for observability.monitor_state.
 type MonitorStateRow struct {
-	MonitorID        int64          `db:"monitor_id"`
-	Status           string         `db:"status"`
+	MonitorID        int64           `db:"monitor_id"`
+	Status           string          `db:"status"`
 	CurrentValue     sql.NullFloat64 `db:"current_value"`
-	LastEvaluatedAt  sql.NullTime   `db:"last_evaluated_at"`
-	NextEvaluationAt time.Time      `db:"next_evaluation_at"`
-	TriggeredAt      sql.NullTime   `db:"triggered_at"`
-	LastNotifiedAt   sql.NullTime   `db:"last_notified_at"`
-	EvaluationCount  int64          `db:"evaluation_count"`
-	AckedByUserID    sql.NullInt64  `db:"acked_by_user_id"`
-	AckedAt          sql.NullTime   `db:"acked_at"`
+	LastEvaluatedAt  sql.NullTime    `db:"last_evaluated_at"`
+	NextEvaluationAt time.Time       `db:"next_evaluation_at"`
+	TriggeredAt      sql.NullTime    `db:"triggered_at"`
+	LastNotifiedAt   sql.NullTime    `db:"last_notified_at"`
+	EvaluationCount  int64           `db:"evaluation_count"`
+	AckedByUserID    sql.NullInt64   `db:"acked_by_user_id"`
+	AckedAt          sql.NullTime    `db:"acked_at"`
 }
 
 // MonitorEventRow is the raw row for observability.monitor_events.

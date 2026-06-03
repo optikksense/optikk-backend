@@ -2,14 +2,9 @@ package errors
 
 import (
 	"context"
-	"time"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/cursor"
 )
-
-// tsBucketTime converts a UInt32 ts_bucket (Unix-seconds, 5-min boundary)
-// scanned natively from CH into the wire-model time.Time.
-func tsBucketTime(b uint32) time.Time { return time.Unix(int64(b), 0).UTC() }
 
 type Service struct {
 	repo Repository
@@ -40,7 +35,7 @@ func (s *Service) GetServiceErrorRate(ctx context.Context, teamID int64, startMs
 		errs := int64(row.ErrorCount)    //nolint:gosec // domain-bounded
 		points[i] = TimeSeriesPoint{
 			ServiceName:  row.ServiceName,
-			Timestamp:    tsBucketTime(row.TsBucket),
+			Timestamp:    row.BucketAt,
 			RequestCount: total,
 			ErrorCount:   errs,
 			ErrorRate:    computeErrorRate(errs, total),
@@ -72,13 +67,12 @@ func (s *Service) GetErrorVolume(ctx context.Context, teamID int64, startMs, end
 		}
 		points = append(points, TimeSeriesPoint{
 			ServiceName: row.ServiceName,
-			Timestamp:   tsBucketTime(row.TsBucket),
+			Timestamp:   row.BucketAt,
 			ErrorCount:  int64(row.ErrorCount), //nolint:gosec // domain-bounded
 		})
 	}
 	return points, nil
 }
-
 
 // --- Error groups ---
 
@@ -140,24 +134,90 @@ func (s *Service) GetErrorGroupDetail(ctx context.Context, teamID int64, startMs
 		return nil, nil
 	}
 	return &ErrorGroupDetail{
-		GroupID:          groupID,
-		ServiceName:      row.ServiceName,
-		OperationName:    row.OperationName,
-		StatusMessage:    row.StatusMessage,
-		HTTPStatusCode:   int(row.HTTPStatusCode),
-		ErrorCount:       int64(row.ErrorCount), //nolint:gosec // domain-bounded
-		LastOccurrence:   row.LastOccurrence,
-		FirstOccurrence:  row.FirstOccurrence,
-		SampleTraceID:    row.SampleTraceID,
-		ExceptionType:    row.ExceptionType,
-		SampleStacktrace: row.StackTrace,
+		GroupID:         groupID,
+		ServiceName:     row.ServiceName,
+		OperationName:   row.OperationName,
+		HTTPStatusCode:  int(row.HTTPStatusCode),
+		ErrorCount:      int64(row.ErrorCount), //nolint:gosec // domain-bounded
+		LastOccurrence:  row.LastOccurrence,
+		FirstOccurrence: row.FirstOccurrence,
+		ExceptionType:   row.ExceptionType,
 	}, nil
 }
 
-func (s *Service) GetErrorGroupTraces(ctx context.Context, teamID int64, startMs, endMs int64, groupID string, limit int) ([]ErrorGroupTrace, error) {
-	raw, err := s.repo.ErrorGroupTraceRows(ctx, teamID, startMs, endMs, groupID, limit)
+// facetColumns are the spans_1m dimensions exposed as "Where it happens" facets.
+// This list is the SQL-injection whitelist for ErrorGroupFacetRows — only these
+// column names are ever interpolated into the query.
+var facetColumns = []string{"service_version", "environment", "pod", "http_route"}
+
+func (s *Service) GetErrorGroupLatestOccurrence(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (*ErrorLatestOccurrence, error) {
+	row, err := s.repo.ErrorGroupLatestOccurrenceRow(ctx, teamID, startMs, endMs, groupID)
 	if err != nil {
 		return nil, err
+	}
+	if row == nil {
+		return nil, nil
+	}
+	return &ErrorLatestOccurrence{
+		TraceID:        row.TraceID,
+		SpanID:         row.SpanID,
+		Timestamp:      row.Timestamp,
+		DurationMs:     row.DurationMs,
+		Message:        row.ExceptionMessage,
+		Stacktrace:     row.StackTrace,
+		HTTPMethod:     row.HTTPMethod,
+		HTTPRoute:      row.HTTPRoute,
+		HTTPStatusCode: row.HTTPStatusCode,
+		ServiceVersion: row.ServiceVersion,
+		Environment:    row.Environment,
+		Pod:            row.Pod,
+		Host:           row.Host,
+	}, nil
+}
+
+func (s *Service) GetErrorGroupFacets(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) ([]ErrorFacetGroup, error) {
+	groups := make([]ErrorFacetGroup, 0, len(facetColumns))
+	for _, col := range facetColumns {
+		raw, err := s.repo.ErrorGroupFacetRows(ctx, teamID, startMs, endMs, groupID, col)
+		if err != nil {
+			return nil, err
+		}
+		if len(raw) == 0 {
+			continue
+		}
+		var total int64
+		for _, r := range raw {
+			total += int64(r.Count) //nolint:gosec // domain-bounded
+		}
+		facets := make([]ErrorFacet, len(raw))
+		for i, r := range raw {
+			count := int64(r.Count) //nolint:gosec // domain-bounded
+			facets[i] = ErrorFacet{
+				Name:  r.Value,
+				Count: count,
+				Pct:   facetPct(count, total),
+			}
+		}
+		groups = append(groups, ErrorFacetGroup{Key: col, Facets: facets})
+	}
+	return groups, nil
+}
+
+func facetPct(count, total int64) float64 {
+	if total <= 0 {
+		return 0
+	}
+	return float64(count) * 100.0 / float64(total)
+}
+
+func (s *Service) GetErrorGroupTraces(ctx context.Context, teamID int64, startMs, endMs int64, groupID string, limit int, cursorIn ErrorTracesCursor) (PaginatedErrorTraces, error) {
+	raw, err := s.repo.ErrorGroupTraceRows(ctx, teamID, startMs, endMs, groupID, limit+1, cursorIn)
+	if err != nil {
+		return PaginatedErrorTraces{}, err
+	}
+	hasMore := len(raw) > limit
+	if hasMore {
+		raw = raw[:limit]
 	}
 	traces := make([]ErrorGroupTrace, len(raw))
 	for i, row := range raw {
@@ -169,7 +229,22 @@ func (s *Service) GetErrorGroupTraces(ctx context.Context, teamID int64, startMs
 			StatusCode: row.StatusCode,
 		}
 	}
-	return traces, nil
+	var nextCursor string
+	if hasMore && len(raw) > 0 {
+		lastRow := raw[len(raw)-1]
+		nextCursor = cursor.Encode(ErrorTracesCursor{
+			Timestamp: lastRow.Timestamp,
+			SpanID:    lastRow.SpanID,
+		})
+	}
+	return PaginatedErrorTraces{
+		Results: traces,
+		PageInfo: PageInfo{
+			HasMore:    hasMore,
+			NextCursor: nextCursor,
+			Limit:      limit,
+		},
+	}, nil
 }
 
 func (s *Service) GetErrorGroupTimeseries(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) ([]TimeSeriesPoint, error) {
@@ -180,13 +255,12 @@ func (s *Service) GetErrorGroupTimeseries(ctx context.Context, teamID int64, sta
 	points := make([]TimeSeriesPoint, len(raw))
 	for i, row := range raw {
 		points[i] = TimeSeriesPoint{
-			Timestamp:  tsBucketTime(row.TsBucket),
+			Timestamp:  row.BucketAt,
 			ErrorCount: int64(row.Count), //nolint:gosec // domain-bounded
 		}
 	}
 	return points, nil
 }
-
 
 // --- Error hotspot ---
 
@@ -202,6 +276,7 @@ func (s *Service) GetErrorHotspot(ctx context.Context, teamID int64, startMs, en
 		cells[i] = ErrorHotspotCell{
 			ServiceName:   row.ServiceName,
 			OperationName: row.OperationName,
+			GroupID:       row.GroupID,
 			ErrorRate:     computeErrorRate(errs, total),
 			ErrorCount:    errs,
 			TotalCount:    total,
@@ -209,8 +284,6 @@ func (s *Service) GetErrorHotspot(ctx context.Context, teamID int64, startMs, en
 	}
 	return cells, nil
 }
-
-
 
 // --- helpers (service-layer derivations) ---
 

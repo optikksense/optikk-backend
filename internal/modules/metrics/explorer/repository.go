@@ -341,8 +341,8 @@ func (r *ClickHouseRepository) ListTagValuesForKeys(ctx context.Context, teamID,
 func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, f filter.Filters) ([]TimeseriesPoint, error) {
 	resourceWhere, where, filterArgs := filter.BuildClauses(f)
 
-	selectCols := "ts_bucket AS ts_bucket"
-	groupByCols := "ts_bucket"
+	selectCols := bucketGrainSQL(f.StartMs, f.EndMs, f.Step) + " AS bucket_at"
+	groupByCols := "bucket_at"
 	for _, key := range f.GroupBy {
 		col := filter.GroupByColumn(key)
 		alias := "`group_" + filter.SanitizeKey(key) + "`"
@@ -369,7 +369,7 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, f filter.Fil
 		     AND metric_name    = @metricName
 		WHERE timestamp BETWEEN @start AND @end` + where + `
 		GROUP BY ` + groupByCols + `
-		ORDER BY ts_bucket ASC
+		ORDER BY bucket_at ASC
 		LIMIT 10000
 		SETTINGS max_execution_time = 30`
 
@@ -402,7 +402,7 @@ func (r *ClickHouseRepository) QueryTimeseries(ctx context.Context, f filter.Fil
 				val = row.Sum / float64(row.Count)
 			}
 		}
-		out[i] = TimeseriesPoint{Timestamp: timebucket.BucketDateTimeString(row.TsBucket), Value: val}
+		out[i] = TimeseriesPoint{Timestamp: timebucket.FormatDisplayBucket(row.BucketAt), Value: val}
 	}
 	return out, nil
 }
@@ -422,6 +422,24 @@ func metricArgs(f filter.Filters) []any {
 		clickhouse.Named("metricName", f.MetricName),
 		clickhouse.Named("start", time.UnixMilli(f.StartMs)),
 		clickhouse.Named("end", time.UnixMilli(f.EndMs)),
+	}
+}
+
+// bucketGrainSQL returns the toStartOf* fragment matching bucketDurationSeconds,
+// so the query buckets rows at exactly the grain the rate divisor assumes. Expects
+// a `timestamp` column (1-min aligned in metrics_1m) in scope.
+func bucketGrainSQL(startMs, endMs int64, step string) string {
+	switch bucketDurationSeconds(startMs, endMs, step) {
+	case 60:
+		return "toStartOfMinute(timestamp)"
+	case 900:
+		return "toStartOfFifteenMinutes(timestamp)"
+	case 3600:
+		return "toStartOfHour(timestamp)"
+	case 86400:
+		return "toStartOfDay(timestamp)"
+	default: // 300
+		return "toStartOfFiveMinutes(timestamp)"
 	}
 }
 

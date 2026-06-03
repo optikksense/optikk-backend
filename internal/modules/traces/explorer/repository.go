@@ -1,4 +1,4 @@
-package traces
+package explorer
 
 import (
 	"context"
@@ -10,6 +10,14 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/traces/filter"
 )
+
+type Repository struct {
+	db clickhouse.Conn
+}
+
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
+}
 
 const traceIndexColumns = `trace_id,
 		timestamp                                                  AS start_time,
@@ -27,7 +35,7 @@ const traceIndexColumns = `trace_id,
 		false                                                      AS truncated,
 		timestamp                                                  AS last_seen`
 
-func (r *ClickHouseRepository) Query(ctx context.Context, req QueryRequest) ([]traceIndexRowDTO, bool, error) {
+func (r *Repository) Query(ctx context.Context, req QueryRequest) ([]traceIndexRowDTO, bool, error) {
 	resourceWhere, where, args := filter.BuildClauses(req.Filters)
 	cur, _ := DecodeCursor(req.Cursor)
 	if cur.TraceID != "" {
@@ -63,7 +71,7 @@ func (r *ClickHouseRepository) Query(ctx context.Context, req QueryRequest) ([]t
 	return rows, hasMore, nil
 }
 
-func (r *ClickHouseRepository) QueryFacets(ctx context.Context, req FacetsRequest) (Facets, error) {
+func (r *Repository) QueryFacets(ctx context.Context, req FacetsRequest) (Facets, error) {
 	resourceWhere, where, args := filter.BuildClauses(req.Filters)
 
 	query := `
@@ -110,7 +118,7 @@ func pivotTopK(row topKRow) Facets {
 	}
 }
 
-func (r *ClickHouseRepository) QueryTrend(ctx context.Context, req TrendRequest) ([]TrendBucket, error) {
+func (r *Repository) QueryTrend(ctx context.Context, req TrendRequest) ([]TrendBucket, error) {
 	resourceWhere, where, args := filter.BuildClauses(req.Filters)
 	grainSQL := timebucket.DisplayGrainSQL(req.EndTime - req.StartTime)
 
@@ -152,7 +160,7 @@ func (r *ClickHouseRepository) QueryTrend(ctx context.Context, req TrendRequest)
 	return out, nil
 }
 
-func (r *ClickHouseRepository) SuggestScalar(ctx context.Context, teamID, startMs, endMs int64, field, prefix string, limit int) ([]Suggestion, error) {
+func (r *Repository) SuggestScalar(ctx context.Context, teamID, startMs, endMs int64, field, prefix string, limit int) ([]Suggestion, error) {
 	column := scalarFieldExpr(field)
 	query := `
 		SELECT ` + column + `        AS value,
@@ -176,7 +184,7 @@ func (r *ClickHouseRepository) SuggestScalar(ctx context.Context, teamID, startM
 	return out, nil
 }
 
-func (r *ClickHouseRepository) SuggestAttribute(ctx context.Context, teamID, startMs, endMs int64, attrKey, prefix string, limit int) ([]Suggestion, error) {
+func (r *Repository) SuggestAttribute(ctx context.Context, teamID, startMs, endMs int64, attrKey, prefix string, limit int) ([]Suggestion, error) {
 	const query = `
 		SELECT attributes[@attrKey]::String AS value, count() AS count
 		FROM observability.spans

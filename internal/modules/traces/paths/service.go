@@ -1,4 +1,4 @@
-package traces
+package paths
 
 import (
 	"context"
@@ -6,7 +6,15 @@ import (
 	"strings"
 )
 
-func (s *TracesService) GetCriticalPath(ctx context.Context, teamID int64, traceID string) ([]CriticalPathSpan, error) {
+type Service struct {
+	repo *Repository
+}
+
+func NewService(repo *Repository) *Service {
+	return &Service{repo: repo}
+}
+
+func (s *Service) GetCriticalPath(ctx context.Context, teamID int64, traceID string) ([]CriticalPathSpan, error) {
 	rows, err := s.repo.GetCriticalPath(ctx, teamID, traceID)
 	if err != nil {
 		slog.ErrorContext(ctx, "paths: GetCriticalPath failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))
@@ -15,7 +23,7 @@ func (s *TracesService) GetCriticalPath(ctx context.Context, teamID int64, trace
 	return buildCriticalPath(rows), nil
 }
 
-func (s *TracesService) GetErrorPath(ctx context.Context, teamID int64, traceID string) ([]ErrorPathSpan, error) {
+func (s *Service) GetErrorPath(ctx context.Context, teamID int64, traceID string) ([]ErrorPathSpan, error) {
 	rows, err := s.repo.GetErrorPath(ctx, teamID, traceID)
 	if err != nil {
 		slog.ErrorContext(ctx, "paths: GetErrorPath failed", slog.Any("error", err), slog.Int64("team_id", teamID), slog.String("trace_id", traceID))

@@ -93,16 +93,27 @@ func (h *ErrorHandler) GetErrorGroupDetail(c *gin.Context) {
 	modulecommon.RespondOK(c, detail)
 }
 
+const maxTracesLimit = 20
+
 func (h *ErrorHandler) GetErrorGroupTraces(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	groupID := c.Param("groupId")
-	limit := modulecommon.ParseIntParam(c, "limit", 50)
+	limit := modulecommon.ParseIntParam(c, "limit", maxTracesLimit)
+	if limit < 1 || limit > maxTracesLimit {
+		limit = maxTracesLimit
+	}
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
+	var cur ErrorTracesCursor
+	if cursorStr := c.Query("cursor"); cursorStr != "" {
+		if decoded, ok := cursor.Decode[ErrorTracesCursor](cursorStr); ok {
+			cur = decoded
+		}
+	}
 
-	traces, err := h.Service.GetErrorGroupTraces(c.Request.Context(), teamID, startMs, endMs, groupID, limit)
+	traces, err := h.Service.GetErrorGroupTraces(c.Request.Context(), teamID, startMs, endMs, groupID, limit, cur)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query error group traces", err)
 		return
@@ -126,6 +137,38 @@ func (h *ErrorHandler) GetErrorGroupTimeseries(c *gin.Context) {
 	modulecommon.RespondOK(c, points)
 }
 
+func (h *ErrorHandler) GetErrorGroupLatestOccurrence(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	groupID := c.Param("groupId")
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+
+	occ, err := h.Service.GetErrorGroupLatestOccurrence(c.Request.Context(), teamID, startMs, endMs, groupID)
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query error group latest occurrence", err)
+		return
+	}
+	modulecommon.RespondOK(c, occ)
+}
+
+func (h *ErrorHandler) GetErrorGroupFacets(c *gin.Context) {
+	teamID := h.GetTenant(c).TeamID
+	groupID := c.Param("groupId")
+	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
+	if !ok {
+		return
+	}
+
+	facets, err := h.Service.GetErrorGroupFacets(c.Request.Context(), teamID, startMs, endMs, groupID)
+	if err != nil {
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query error group facets", err)
+		return
+	}
+	modulecommon.RespondOK(c, facets)
+}
+
 // Migrated from errortracking
 
 func (h *ErrorHandler) GetErrorHotspot(c *gin.Context) {
@@ -142,4 +185,3 @@ func (h *ErrorHandler) GetErrorHotspot(c *gin.Context) {
 	}
 	modulecommon.RespondOK(c, cells)
 }
-

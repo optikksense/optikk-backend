@@ -26,7 +26,6 @@ type ServiceREDMetric struct {
 	DiskUtilization   float64 `json:"disk_utilization"`
 }
 
-
 type ApdexScore struct {
 	ServiceName string  `json:"service_name"`
 	Apdex       float64 `json:"apdex"`
@@ -54,12 +53,14 @@ type ErrorOperation struct {
 	TotalCount    int64   `json:"total_count"    ch:"total_count"`
 }
 
-type ServiceRatePoint struct {
-	Timestamp   time.Time `json:"timestamp"    ch:"timestamp"`
-	ServiceName string    `json:"service_name" ch:"service"`
-	RPS         float64   `json:"rps"          ch:"rps"`
+type ServicePerformancePoint struct {
+	Timestamp    time.Time `json:"timestamp"    ch:"timestamp"`
+	ServiceName  string    `json:"service_name" ch:"service"`
+	RPS          float64   `json:"rps"          ch:"rps"`
+	RequestCount uint64    `json:"request_count"`
+	ErrorCount   uint64    `json:"error_count"`
+	ErrorPct     float64   `json:"error_pct"`
 }
-
 
 type SpanKindPoint struct {
 	Timestamp  time.Time `json:"timestamp"   ch:"timestamp"`
@@ -141,20 +142,10 @@ type ServiceSummaryResponse struct {
 	DiskUtilization   float64 `json:"disk_utilization"`
 }
 
-type SaturationTimeSeriesPoint struct {
-	Timestamp time.Time `json:"timestamp"`
-	Value     float64   `json:"value"`
-}
 
-type serviceMetricTimeseriesRow struct {
-	BucketAt   time.Time `ch:"bucket_at"`
-	MetricName string    `ch:"metric_name"`
-	Value      float64   `ch:"value"`
-}
 
 type serviceMetricRow struct {
 	Service    string  `ch:"service"`
 	MetricName string  `ch:"metric_name"`
 	Value      float64 `ch:"value"`
 }
-
