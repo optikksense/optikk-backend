@@ -6,7 +6,19 @@ import (
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 )
 
+<<<<<<< HEAD:internal/modules/traces/repository_servicemap.go
 func (r *ClickHouseRepository) GetServiceMapSpans(ctx context.Context, teamID int64, traceID string) ([]serviceMapSpanRow, error) {
+=======
+type Repository struct {
+	db clickhouse.Conn
+}
+
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
+}
+
+func (r *Repository) GetServiceMapSpans(ctx context.Context, teamID int64, traceID string) ([]serviceMapSpanRow, error) {
+>>>>>>> f512576e76eb5e661aabd2a3202a40891770b326:internal/modules/traces/servicemap/repository.go
 	const query = `
 		WITH trace_loc AS (
 		    SELECT ts_bucket, fingerprint
@@ -28,7 +40,11 @@ func (r *ClickHouseRepository) GetServiceMapSpans(ctx context.Context, teamID in
 	return rows, dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "servicemap.GetServiceMapSpans", &rows, query, traceIDArgs(teamID, traceID)...)
 }
 
+<<<<<<< HEAD:internal/modules/traces/repository_servicemap.go
 func (r *ClickHouseRepository) GetTraceErrors(ctx context.Context, teamID int64, traceID string) ([]traceErrorRow, error) {
+=======
+func (r *Repository) GetTraceErrors(ctx context.Context, teamID int64, traceID string) ([]traceErrorRow, error) {
+>>>>>>> f512576e76eb5e661aabd2a3202a40891770b326:internal/modules/traces/servicemap/repository.go
 	const query = `
 		WITH trace_loc AS (
 		    SELECT ts_bucket, fingerprint
@@ -53,3 +69,13 @@ func (r *ClickHouseRepository) GetTraceErrors(ctx context.Context, teamID int64,
 	var rows []traceErrorRow
 	return rows, dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "servicemap.GetTraceErrors", &rows, query, traceIDArgs(teamID, traceID)...)
 }
+<<<<<<< HEAD:internal/modules/traces/repository_servicemap.go
+=======
+
+func traceIDArgs(teamID int64, traceID string) []any {
+	return []any{
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("traceID", traceID),
+	}
+}
+>>>>>>> f512576e76eb5e661aabd2a3202a40891770b326:internal/modules/traces/servicemap/repository.go

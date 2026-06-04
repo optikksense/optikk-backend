@@ -28,7 +28,7 @@ func foldLatency(rows []latencyRawDTO) []LatencyTimeSeries {
 	for i, r := range rows {
 		p50, p95, p99 := float64(r.P50Ms), float64(r.P95Ms), float64(r.P99Ms)
 		out[i] = LatencyTimeSeries{
-			TimeBucket: timebucket.BucketDateTimeString(r.TsBucket),
+			TimeBucket: timebucket.FormatDisplayBucket(r.BucketAt),
 			GroupBy:    r.GroupBy,
 			P50Ms:      &p50,
 			P95Ms:      &p95,

@@ -7,7 +7,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> f512576e76eb5e661aabd2a3202a40891770b326
 type Config struct {
 	Enabled bool
 }

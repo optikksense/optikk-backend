@@ -10,6 +10,21 @@ import (
 
 const defaultRelatedLimit = 10
 
+<<<<<<< HEAD:internal/modules/traces/handler_detail.go
+=======
+type Handler struct {
+	modulecommon.DBTenant
+	svc *Service
+}
+
+func NewHandler(getTenant modulecommon.GetTenantFunc, svc *Service) *Handler {
+	return &Handler{
+		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
+		svc:      svc,
+	}
+}
+
+>>>>>>> f512576e76eb5e661aabd2a3202a40891770b326:internal/modules/traces/detail/handler.go
 func (h *Handler) GetTraceSummary(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	traceID := c.Param("traceId")

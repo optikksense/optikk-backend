@@ -19,9 +19,9 @@ import (
 // Service runs the per-tick evaluation loop. It's stateless except for the
 // injected dependencies; one Service instance handles all monitors.
 type Service struct {
-	repo       Repository
-	queries    query.Registry
-	dispatcher dispatch.Dispatcher
+	repo        Repository
+	queries     query.Registry
+	dispatcher  dispatch.Dispatcher
 	concurrency int
 }
 

@@ -50,17 +50,21 @@ func (h *REDMetricsHandler) GetApdex(c *gin.Context) {
 	modulecommon.RespondOK(c, resp)
 }
 
-func (h *REDMetricsHandler) GetRequestRateTimeSeries(c *gin.Context) {
+func (h *REDMetricsHandler) GetRequestAndErrorRateTimeSeries(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
 	if !ok {
 		return
 	}
 	resp, err := modulecommon.WithComparison(c, startMs, endMs, func(s, e int64) (any, error) {
-		return h.Service.GetRequestRateTimeSeries(c.Request.Context(), teamID, s, e)
+		return h.Service.GetRequestAndErrorRateTimeSeries(c.Request.Context(), teamID, s, e)
 	})
 	if err != nil {
+<<<<<<< HEAD
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query request rate time series", err)
+=======
+		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query request and error rate time series", err)
+>>>>>>> f512576e76eb5e661aabd2a3202a40891770b326
 		return
 	}
 	modulecommon.RespondOK(c, resp)
@@ -83,20 +87,7 @@ func (h *REDMetricsHandler) GetServiceSummary(c *gin.Context) {
 	modulecommon.RespondOK(c, resp)
 }
 
-func (h *REDMetricsHandler) GetSaturationTimeSeries(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
-	serviceName := c.Param("serviceName")
-	resp, err := h.Service.GetSaturationTimeSeries(c.Request.Context(), teamID, startMs, endMs, serviceName)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query saturation time series", err)
-		return
-	}
-	modulecommon.RespondOK(c, resp)
-}
+
 
 // GetStatusTimeSeries returns rps split by 2xx/4xx/5xx over time for a service.
 func (h *REDMetricsHandler) GetStatusTimeSeries(c *gin.Context) {

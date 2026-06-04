@@ -124,32 +124,15 @@ func AttrColumn(key string) string {
 	return "attributes.`" + SanitizeKey(key) + "`::String"
 }
 
-// GroupByColumn picks ResourceColumn (when canonical) or AttrColumn for the
-// SELECT/GROUP BY of a user-supplied groupBy key. For canonical resource
-// keys against observability.metrics, the resource value lives under the
-// resource JSON column rather than the data-point attributes column.
+// GroupByColumn picks the flat resource column (when canonical) or AttrColumn
+// for the SELECT/GROUP BY of a user-supplied groupBy key. metrics_1m carries
+// the canonical resource dims as flat LowCardinality columns, so resource
+// group-bys read those directly rather than a resource JSON path.
 func GroupByColumn(key string) string {
 	if canonical := Canonical(key); canonical != "" {
-		return resourceJSONPath(canonical)
+		return ResourceColumn(canonical)
 	}
 	return AttrColumn(key)
-}
-
-// resourceJSONPath returns the resource JSON-path column expression for a
-// canonical resource key against observability.metrics (raw table, not
-// the dictionary). Used by GROUP BY when grouping by a resource dim.
-func resourceJSONPath(canonical string) string {
-	switch canonical {
-	case "service":
-		return "resource.`service.name`::String"
-	case "host":
-		return "resource.`host.name`::String"
-	case "environment":
-		return "resource.`deployment.environment`::String"
-	case "k8s_namespace":
-		return "resource.`k8s.namespace.name`::String"
-	}
-	return ""
 }
 
 // SanitizeKey strips characters outside [a-zA-Z0-9._-]. The metrics module

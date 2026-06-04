@@ -9,7 +9,37 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 )
 
+<<<<<<< HEAD:internal/modules/traces/repository_detail.go
 func (r *ClickHouseRepository) GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]spanEventCombinedRow, error) {
+	const query = `
+		WITH trace_loc AS (
+		    SELECT ts_bucket, fingerprint
+		    FROM observability.trace_index
+		    PREWHERE trace_id = @traceID AND team_id = @teamID
+		)
+		SELECT span_id, trace_id, timestamp, events,
+		       exception_type, exception_message, exception_stacktrace
+		FROM observability.spans
+		PREWHERE team_id = @teamID
+		     AND (ts_bucket, fingerprint) IN (SELECT ts_bucket, fingerprint FROM trace_loc)
+		     AND trace_id = @traceID
+		WHERE NOT empty(events) OR NOT empty(exception_type)`
+	var rows []spanEventCombinedRow
+	return rows, dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "detail.GetSpanEvents", &rows, query,
+		clickhouse.Named("teamID", uint32(teamID)),
+		clickhouse.Named("traceID", traceID),
+	)
+=======
+type Repository struct {
+	db clickhouse.Conn
+}
+
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
+>>>>>>> f512576e76eb5e661aabd2a3202a40891770b326:internal/modules/traces/detail/repository.go
+}
+
+func (r *Repository) GetSpanEvents(ctx context.Context, teamID int64, traceID string) ([]spanEventCombinedRow, error) {
 	const query = `
 		WITH trace_loc AS (
 		    SELECT ts_bucket, fingerprint
@@ -30,7 +60,7 @@ func (r *ClickHouseRepository) GetSpanEvents(ctx context.Context, teamID int64, 
 	)
 }
 
-func (r *ClickHouseRepository) GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*spanAttributeRow, error) {
+func (r *Repository) GetSpanAttributes(ctx context.Context, teamID int64, traceID, spanID string) (*spanAttributeRow, error) {
 	const query = `
 		WITH trace_loc AS (
 		    SELECT ts_bucket, fingerprint
@@ -67,7 +97,7 @@ func (r *ClickHouseRepository) GetSpanAttributes(ctx context.Context, teamID int
 	return &row, nil
 }
 
-func (r *ClickHouseRepository) GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
+func (r *Repository) GetRelatedTraces(ctx context.Context, teamID int64, serviceName, operationName string, startMs, endMs int64, excludeTraceID string, limit int) ([]RelatedTrace, error) {
 	const query = `
 		WITH active_fps AS (
 		    SELECT fingerprint
@@ -110,7 +140,11 @@ func (r *ClickHouseRepository) GetRelatedTraces(ctx context.Context, teamID int6
 	return rows, dbutil.SelectCH(dbutil.ExplorerCtx(ctx), r.db, "detail.GetRelatedTraces", &rows, query, args...)
 }
 
+<<<<<<< HEAD:internal/modules/traces/repository_detail.go
 func (r *ClickHouseRepository) GetTraceSummary(ctx context.Context, teamID int64, traceID string) (*TraceSummary, error) {
+=======
+func (r *Repository) GetTraceSummary(ctx context.Context, teamID int64, traceID string) (*TraceSummary, error) {
+>>>>>>> f512576e76eb5e661aabd2a3202a40891770b326:internal/modules/traces/detail/repository.go
 	const query = `
 		WITH trace_loc AS (
 		    SELECT ts_bucket, fingerprint
@@ -182,7 +216,11 @@ func (r *ClickHouseRepository) GetTraceSummary(ctx context.Context, teamID int64
 	}, nil
 }
 
+<<<<<<< HEAD:internal/modules/traces/repository_detail.go
 func (r *ClickHouseRepository) ListSpansByTrace(ctx context.Context, teamID int64, traceID string) ([]SpanListItem, error) {
+=======
+func (r *Repository) ListSpansByTrace(ctx context.Context, teamID int64, traceID string) ([]SpanListItem, error) {
+>>>>>>> f512576e76eb5e661aabd2a3202a40891770b326:internal/modules/traces/detail/repository.go
 	const query = `
 		WITH trace_loc AS (
 		    SELECT ts_bucket, fingerprint

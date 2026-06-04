@@ -61,7 +61,7 @@ CREATE TABLE IF NOT EXISTS observability.spans_1m (
     duration_ms_max      SimpleAggregateFunction(max, Float64) CODEC(Gorilla, ZSTD(1))
 ) ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMMDD(timestamp)
-ORDER BY (team_id, ts_bucket, fingerprint, service, name, kind_string, exception_type, error_group_id, status_message_hash)
+ORDER BY (team_id, ts_bucket, fingerprint, service, name, kind_string, exception_type, error_group_id, status_message_hash, timestamp)
 TTL timestamp + INTERVAL 30 DAY DELETE
 SETTINGS
     index_granularity = 8192,

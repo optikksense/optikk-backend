@@ -80,7 +80,7 @@ func (r *ClickHouseRepository) QueryMemoryUtilizationForInstance(ctx context.Con
 		  AND timestamp BETWEEN @start AND @end
 		  AND host    = @host
 		  AND service = @serviceName
-		  AND attributes.'k8s.pod.name'::String = @pod
+		  AND pod = @pod
 		GROUP BY metric_name`
 	args := withMetricNames(metricArgs(teamID, startMs, endMs), memMetricNames)
 	args = append(args,
@@ -92,7 +92,10 @@ func (r *ClickHouseRepository) QueryMemoryUtilizationForInstance(ctx context.Con
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "memory.QueryMemoryUtilizationForInstance", &rows, query, args...)
 }
 
+<<<<<<< HEAD
 
+=======
+>>>>>>> f512576e76eb5e661aabd2a3202a40891770b326
 // ---------------------------------------------------------------------------
 // Local helpers — each module owns its own.
 // ---------------------------------------------------------------------------

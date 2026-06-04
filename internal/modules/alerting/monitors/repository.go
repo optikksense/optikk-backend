@@ -34,20 +34,20 @@ func NewRepository(db *sql.DB) *MySQLRepository {
 // insertArgs bundles the column values for INSERT/UPDATE. Encoding to JSON
 // happens in service.go; the repo just binds bytes verbatim.
 type insertArgs struct {
-	TeamID            int64
-	Name              string
-	Type              string
-	Priority          string
-	ScopeJSON         []byte
-	QueryJSON         []byte
-	ConditionsJSON    []byte
-	NotifyJSON        []byte
-	MessageBody       sql.NullString
-	RunbookURL        sql.NullString
-	TagsJSON          []byte
-	EvalEverySec      int
-	RenotifyEverySec  sql.NullInt64
-	CreatedByUserID   sql.NullInt64
+	TeamID           int64
+	Name             string
+	Type             string
+	Priority         string
+	ScopeJSON        []byte
+	QueryJSON        []byte
+	ConditionsJSON   []byte
+	NotifyJSON       []byte
+	MessageBody      sql.NullString
+	RunbookURL       sql.NullString
+	TagsJSON         []byte
+	EvalEverySec     int
+	RenotifyEverySec sql.NullInt64
+	CreatedByUserID  sql.NullInt64
 }
 
 const insertMonitor = `

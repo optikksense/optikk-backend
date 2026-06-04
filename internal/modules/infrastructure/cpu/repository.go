@@ -58,8 +58,8 @@ func (r *ClickHouseRepository) QueryCPUUtilizationByInstance(ctx context.Context
 		)
 		SELECT
 		    host                                                     AS host,
-		    attributes.'k8s.pod.name'::String                        AS pod,
-		    attributes.'k8s.container.name'::String                  AS container,
+		    pod                                                      AS pod,
+		    container                                                AS container,
 		    service                                                  AS service,
 		    metric_name                                              AS metric_name,
 		    sum(val_sum) / sum(val_count)                                               AS value

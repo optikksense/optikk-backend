@@ -1,5 +1,7 @@
 package explorer
 
+import "time"
+
 // ClickHouse scan DTOs — these match the column aliases in repository queries.
 // They are intentionally separate from the API-facing models so the DB shape
 // can evolve independently of the JSON contract.
@@ -33,9 +35,9 @@ type tagKeyValueDTO struct {
 
 // timeseriesPointDTO scans a single row from QueryTimeseries.
 type timeseriesPointDTO struct {
-	TsBucket uint32  `ch:"ts_bucket"`
-	Sum      float64 `ch:"val_sum"`
-	Count    uint64  `ch:"val_count"`
-	Min      float64 `ch:"val_min"`
-	Max      float64 `ch:"val_max"`
+	BucketAt time.Time `ch:"bucket_at"`
+	Sum      float64   `ch:"val_sum"`
+	Count    uint64    `ch:"val_count"`
+	Min      float64   `ch:"val_min"`
+	Max      float64   `ch:"val_max"`
 }
