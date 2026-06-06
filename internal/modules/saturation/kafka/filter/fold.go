@@ -9,9 +9,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 )
 
-// SecondsToMs converts a seconds-domain percentile (as returned by
-// metrics_1m.latency_state, since OTel kafka duration metrics are
-// seconds-domain) into milliseconds.
+// SecondsToMs converts a seconds-domain percentile into milliseconds.
 func SecondsToMs(s float64) float64 { return s * 1000.0 }
 
 // FormatTime is the canonical wire format for kafka panel timestamps.
@@ -27,9 +25,8 @@ type CounterRateFold struct {
 	Rate float64
 }
 
-// FoldCounterRateByDim sums values per (display_bucket, dim), then divides by
-// the bucket-grain seconds to produce a rate. Caller passes a typed row plus
-// extractor closures so the helper works with any row shape.
+// FoldCounterRateByDim sums values per (display_bucket, dim) and divides
+// by the bucket-grain seconds to produce a rate.
 func FoldCounterRateByDim[R any](rows []R, tsOf func(R) time.Time, dimOf func(R) string, valOf func(R) float64, startMs, endMs int64) []CounterRateFold {
 	type key struct {
 		ts  time.Time

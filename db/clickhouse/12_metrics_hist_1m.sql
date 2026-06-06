@@ -1,7 +1,7 @@
--- 1-minute scalar (Gauge/Sum) rollup from observability.metrics via
--- metrics_1m_mv. Carries series identity + scalar aggregates + fixed attributes.
+-- 1-minute histogram rollup from observability.metrics via metrics_hist_1m_mv.
+-- Carries series identity + histogram aggregate state + fixed attributes.
 
-CREATE TABLE IF NOT EXISTS observability.metrics_1m (
+CREATE TABLE IF NOT EXISTS observability.metrics_hist_1m (
     team_id              UInt32 CODEC(T64, ZSTD(1)),
     ts_bucket            UInt32 CODEC(DoubleDelta, LZ4),
     timestamp            DateTime CODEC(DoubleDelta, LZ4),
@@ -15,11 +15,9 @@ CREATE TABLE IF NOT EXISTS observability.metrics_1m (
     messaging_consumer_group      LowCardinality(String) DEFAULT '' CODEC(ZSTD(1)),
     messaging_system              LowCardinality(String) DEFAULT '' CODEC(ZSTD(1)),
 
-    -- Scalar (Gauge / Sum) — four aggregations per row.
-    val_min              SimpleAggregateFunction(min, Float64) CODEC(Gorilla, ZSTD(1)),
-    val_max              SimpleAggregateFunction(max, Float64) CODEC(Gorilla, ZSTD(1)),
-    val_sum              SimpleAggregateFunction(sum, Float64) CODEC(Gorilla, ZSTD(1)),
-    val_count            SimpleAggregateFunction(sum, UInt64)  CODEC(T64, ZSTD(1))
+    hist_sum             SimpleAggregateFunction(sum, Float64) CODEC(Gorilla, ZSTD(1)),
+    hist_count           SimpleAggregateFunction(sum, UInt64)  CODEC(T64, ZSTD(1)),
+    latency_state        AggregateFunction(quantilesPrometheusHistogram(0.5, 0.95, 0.99), Float64, UInt64) CODEC(ZSTD(1))
 ) ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMMDD(timestamp)
 ORDER BY (team_id, metric_name, ts_bucket, fingerprint, db_system, db_connection_state, messaging_destination, messaging_consumer_group, messaging_system, timestamp)
@@ -29,8 +27,8 @@ SETTINGS
     enable_mixed_granularity_parts = 1,
     ttl_only_drop_parts = 1;
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS observability.metrics_1m_mv
-TO observability.metrics_1m AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS observability.metrics_hist_1m_mv
+TO observability.metrics_hist_1m AS
 SELECT
     team_id,
     toUInt32(intDiv(toUnixTimestamp(timestamp), 300) * 300) AS ts_bucket,
@@ -45,12 +43,14 @@ SELECT
     attributes.'messaging.consumer.group.name'::String AS messaging_consumer_group,
     attributes.'messaging.system'::String              AS messaging_system,
 
-    min(value)   AS val_min,
-    max(value)   AS val_max,
-    sum(value)   AS val_sum,
-    count()      AS val_count
+    sum(hist_sum)   AS hist_sum,
+    sum(hist_count) AS hist_count,
+    quantilesPrometheusHistogramArrayState(0.5, 0.95, 0.99)(
+        hist_buckets,
+        arrayCumSum(hist_counts)
+    ) AS latency_state
 FROM observability.metrics
-WHERE metric_type IN ('Gauge', 'Sum')
+WHERE metric_type = 'Histogram'
 GROUP BY
     team_id,
     ts_bucket,

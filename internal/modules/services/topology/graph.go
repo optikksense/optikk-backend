@@ -1,8 +1,6 @@
 package topology
 
 // NodeAgg is the source-agnostic per-service aggregate that feeds BuildGraph.
-// Both the rollup-based topology query and the per-trace span aggregation map
-// their rows onto this shape so they share one derivation path.
 type NodeAgg struct {
 	Service      string
 	RequestCount int64
@@ -12,7 +10,7 @@ type NodeAgg struct {
 	P99Ms        float64
 }
 
-// EdgeAgg is the source-agnostic directed-call aggregate that feeds BuildGraph.
+// EdgeAgg is the source-agnostic directed-call aggregate for BuildGraph.
 type EdgeAgg struct {
 	Source     string
 	Target     string
@@ -22,10 +20,7 @@ type EdgeAgg struct {
 	P95Ms      float64
 }
 
-// BuildGraph derives the node+edge graph (error-rate, health classification,
-// missing-edge-node backfill) from neutral aggregates. This is the shared,
-// authoritative graph builder used by both the runtime topology and the
-// per-trace service map.
+// BuildGraph derives the node+edge graph from neutral aggregates.
 func BuildGraph(nodeAggs []NodeAgg, edgeAggs []EdgeAgg) TopologyResponse {
 	nodes := buildNodes(nodeAggs)
 	edges := buildEdges(edgeAggs)

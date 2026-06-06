@@ -10,11 +10,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
-// All read paths follow the apm/httpmetrics pattern: `WITH active_fps AS
-// (... metrics_resource ...)` CTE so the main `observability.metrics` scan
-// PREWHEREs on (team_id, ts_bucket, fingerprint). Service composes the
-// 4-metric memory fold (system.memory.utilization + system.memory.usage +
-// jvm.memory.used + jvm.memory.max).
+// All read paths query metrics by joining metrics_resource on fingerprint.
 
 var memMetricNames = []string{
 	infraconsts.MetricSystemMemoryUtilization,
@@ -38,22 +34,14 @@ func NewRepository(db clickhouse.Conn) Repository {
 
 func (r *ClickHouseRepository) QueryMemoryUtilizationAgg(ctx context.Context, teamID int64, startMs, endMs int64) ([]MemoryMetricNameRow, error) {
 	const query = `
-		WITH active_fps AS (
-		    SELECT fingerprint
-		    FROM observability.metrics_resource
-		    WHERE team_id = @teamID
-		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		      AND metric_name IN @metricNames
-		)
 		SELECT
 		    metric_name AS metric_name,
 		    sum(val_sum) / sum(val_count)  AS value
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint   IN active_fps
-		WHERE metric_name IN @metricNames
-		  AND timestamp BETWEEN @start AND @end
+		     AND metric_name   IN @metricNames
+		     AND timestamp   BETWEEN @start AND @end
 		GROUP BY metric_name`
 	args := withMetricNames(metricArgs(teamID, startMs, endMs), memMetricNames)
 	var rows []MemoryMetricNameRow
@@ -61,13 +49,14 @@ func (r *ClickHouseRepository) QueryMemoryUtilizationAgg(ctx context.Context, te
 }
 
 func (r *ClickHouseRepository) QueryMemoryUtilizationForInstance(ctx context.Context, teamID int64, startMs, endMs int64, host, pod, serviceName string) ([]MemoryMetricNameRow, error) {
+	// Filter resolves to a fingerprint set via metrics_resource,
+	// then narrows the scalar rollup by fingerprint.
 	const query = `
-		WITH active_fps AS (
+		WITH fps AS (
 		    SELECT fingerprint
 		    FROM observability.metrics_resource
-		    WHERE team_id = @teamID
-		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		      AND metric_name IN @metricNames
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		    WHERE host = @host AND service = @serviceName AND pod = @pod
 		)
 		SELECT
 		    metric_name AS metric_name,
@@ -75,12 +64,9 @@ func (r *ClickHouseRepository) QueryMemoryUtilizationForInstance(ctx context.Con
 		FROM observability.metrics_1m
 		PREWHERE team_id        = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint   IN active_fps
-		WHERE metric_name IN @metricNames
-		  AND timestamp BETWEEN @start AND @end
-		  AND host    = @host
-		  AND service = @serviceName
-		  AND pod = @pod
+		     AND metric_name   IN @metricNames
+		     AND timestamp   BETWEEN @start AND @end
+		WHERE fingerprint IN fps
 		GROUP BY metric_name`
 	args := withMetricNames(metricArgs(teamID, startMs, endMs), memMetricNames)
 	args = append(args,
@@ -92,14 +78,12 @@ func (r *ClickHouseRepository) QueryMemoryUtilizationForInstance(ctx context.Con
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "memory.QueryMemoryUtilizationForInstance", &rows, query, args...)
 }
 
-// ---------------------------------------------------------------------------
-// Local helpers — each module owns its own.
-// ---------------------------------------------------------------------------
+// Local helpers.
 
 func metricArgs(teamID int64, startMs, endMs int64) []any {
 	bucketStart, bucketEnd := metricBucketBounds(startMs, endMs)
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("bucketStart", bucketStart),
 		clickhouse.Named("bucketEnd", bucketEnd),
 		clickhouse.Named("start", time.UnixMilli(startMs)),

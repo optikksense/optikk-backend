@@ -4,7 +4,7 @@
 CREATE TABLE IF NOT EXISTS observability.spans_resource (
     team_id     UInt32 CODEC(T64, ZSTD(1)),
     ts_bucket   UInt32 CODEC(DoubleDelta, LZ4),
-    fingerprint String CODEC(ZSTD(1)),
+    fingerprint UInt64 CODEC(T64, ZSTD(1)),
     service     LowCardinality(String) CODEC(ZSTD(1)),
     host        LowCardinality(String) CODEC(ZSTD(1)),
     pod         LowCardinality(String) CODEC(ZSTD(1)),
@@ -28,4 +28,4 @@ SELECT DISTINCT
     pod,
     environment
 FROM observability.spans
-WHERE fingerprint != '';
+WHERE fingerprint != 0;

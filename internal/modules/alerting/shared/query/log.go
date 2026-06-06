@@ -11,9 +11,7 @@ import (
 	models "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/shared/models"
 )
 
-// LogBackend evaluates log monitors against observability.logs. Match uses
-// hasToken on the body when the query has free text; structured filters
-// (severity, service) come from the scope tags.
+// LogBackend evaluates log monitors against observability.logs.
 type LogBackend struct {
 	db clickhouse.Conn
 }

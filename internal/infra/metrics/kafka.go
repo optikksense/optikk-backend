@@ -5,9 +5,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// Kafka produce buckets: tighter low end than HTTP since per-record
-// publish latency is mostly local enqueue. Consumer lag is a gauge —
-// no histogram needed.
+// Kafka produce buckets: tighter low end than HTTP.
+// Consumer lag is a gauge; no histogram needed.
 var kafkaProduceBuckets = []float64{.0005, .001, .005, .01, .025, .05, .1, .25, .5}
 
 var (

@@ -9,11 +9,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 )
 
-// nodes reads `observability.spans` for per-host RED aggregates. Mirrors
-// httpmetrics' route/external-host queries: `WITH active_fps AS (SELECT
-// DISTINCT fingerprint FROM observability.spans_resource WHERE team_id +
-// ts_bucket)` CTE so the main spans scan PREWHEREs on (team_id, ts_bucket,
-// fingerprint) — first three slots of the spans PK.
+// Repository reads observability.spans for per-host RED aggregates.
 
 type Repository interface {
 	QueryInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]NodeAggregateRow, error)
@@ -152,14 +148,12 @@ func (r *ClickHouseRepository) QueryInfrastructureNodeServices(ctx context.Conte
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "nodes.QueryInfrastructureNodeServices", &rows, query, args...)
 }
 
-// ---------------------------------------------------------------------------
-// Local helpers — each module owns its own.
-// ---------------------------------------------------------------------------
+// Local helpers.
 
 func spanArgs(teamID int64, startMs, endMs int64) []any {
 	bucketStart, bucketEnd := spanBucketBounds(startMs, endMs)
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("bucketStart", bucketStart),
 		clickhouse.Named("bucketEnd", bucketEnd),
 		clickhouse.Named("start", time.UnixMilli(startMs)),

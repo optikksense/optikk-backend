@@ -7,19 +7,19 @@ import (
 	"time"
 )
 
-// OtlRedisStream configures Redis Streams OTLP ingest (XADD + background consumers).
+// OtlRedisStream configures Redis Streams OTLP ingest.
 type OtlRedisStream struct {
-	// MaxLenApprox is approximate MAXLEN per ingest stream (spans and metrics).
+	// MaxLenApprox is the approximate MAXLEN per ingest stream.
 	MaxLenApprox int64 `yaml:"max_len_approx"`
-	// LogsMaxLenApprox is approximate MAXLEN specific to the logs ingest stream.
+	// LogsMaxLenApprox is the approximate MAXLEN for the logs ingest stream.
 	LogsMaxLenApprox int64 `yaml:"logs_max_len_approx"`
-	// StreamTTLSeconds is the maximum age of stream entries (using MINID ~ pruning if Redis 6.2+).
+	// StreamTTLSeconds is the maximum age of stream entries for pruning.
 	StreamTTLSeconds int64 `yaml:"stream_ttl_seconds"`
 	// ChBatchSize is max rows per ClickHouse flush from stream reads.
 	ChBatchSize int `yaml:"ch_batch_size"`
-	// ChFlushIntervalMs bounds how long the CH consumer waits before flushing a partial batch.
+	// ChFlushIntervalMs bounds ClickHouse flush wait for partial batches.
 	ChFlushIntervalMs int64 `yaml:"ch_flush_interval_ms"`
-	// XReadBlockMs is BLOCK timeout for XREADGROUP (consumer wait).
+	// XReadBlockMs is the BLOCK timeout for XREADGROUP.
 	XReadBlockMs int64 `yaml:"xread_block_ms"`
 	// XReadCount is COUNT for each XREADGROUP batch.
 	XReadCount int64 `yaml:"xread_count"`
@@ -30,7 +30,7 @@ type RedisConfig struct {
 	Host     string `yaml:"host"`
 	Port     string `yaml:"port"`
 	Password string `yaml:"password"`
-	// DB selects the Redis logical database index (go-redis / redigo). Default 0.
+	// DB selects the Redis logical database index (default 0).
 	DB int `yaml:"db"`
 }
 
@@ -70,14 +70,16 @@ func (c Config) OtlXReadBlock() time.Duration {
 
 func (c Config) OtlLogsMaxLen() int64 {
 	if c.OtlRedisStream.MaxLenApprox <= 0 {
-		return 5000 // default for logs
+		// default for logs
+		return 5000
 	}
 	return c.OtlRedisStream.MaxLenApprox
 }
 
 func (c Config) OtlSpansMaxLen() int64 {
 	if c.OtlRedisStream.MaxLenApprox <= 0 {
-		return 1000 // default for spans
+		// default for spans
+		return 1000
 	}
 	return c.OtlRedisStream.MaxLenApprox
 }
@@ -85,7 +87,7 @@ func (c Config) OtlSpansMaxLen() int64 {
 func (c Config) OtlStreamTTL() time.Duration {
 	n := c.OtlRedisStream.StreamTTLSeconds
 	if n <= 0 {
-		return 3600 * time.Second // 1 hour
+		return 3600 * time.Second
 	}
 	return time.Duration(n) * time.Second
 }

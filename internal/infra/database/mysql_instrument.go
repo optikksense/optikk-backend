@@ -10,13 +10,10 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// Parallel of the ClickHouse seam, wrapping sqlx on the MariaDB side.
-// Repos call these instead of r.db.GetContext / SelectContext /
-// ExecContext so we get the same (Prom histogram + error log)
-// envelope. `op` convention stays `<module>.<MethodName>`.
+// Parallel of the ClickHouse seam, wrapping sqlx on the MariaDB side
+// with a Prometheus histogram and error logging.
 
-// GetSQL scans a single row into dest. sqlx ErrNoRows is not wrapped
-// here — the caller decides whether to treat "missing" as an error.
+// GetSQL scans a single row into dest without wrapping ErrNoRows.
 func GetSQL(ctx context.Context, db *sqlx.DB, op string, dest any, query string, args ...any) error {
 	done := startSQLOp(ctx)
 	start := time.Now()

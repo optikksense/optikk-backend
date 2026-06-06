@@ -26,14 +26,8 @@ type Config struct {
 	Ingestion      IngestionConfig  `yaml:"ingestion"`
 }
 
-// Load reads configuration from a YAML file with environment variable overrides.
+// Load reads YAML configuration with environment variable overrides.
 // If no path is provided, it defaults to "config.yml".
-// Relative paths are resolved against the current working directory, then each parent
-// directory up to the filesystem root (so e.g. debugging with cwd cmd/server still finds
-// the repo-root config.yml).
-// Environment variables use the OPTIKK_ prefix with dots replaced by underscores
-// (e.g., mysql.host → OPTIKK_MYSQL_HOST).
-// In production (environment: production), passwords must not use insecure defaults.
 func Load(path ...string) (Config, error) {
 	p := "config.yml"
 	if len(path) > 0 && path[0] != "" {
@@ -97,9 +91,8 @@ func resolveConfigFilePath(p string) (string, error) {
 	}
 }
 
-// setDefaults registers all known config keys with Viper so that
-// AutomaticEnv() can resolve environment variable overrides even for
-// keys that are absent from the YAML file.
+// setDefaults registers known keys with Viper so environment overrides
+// resolve even if the keys are absent from the YAML file.
 func setDefaults(v *viper.Viper) {
 	// top-level
 	v.SetDefault("environment", "")

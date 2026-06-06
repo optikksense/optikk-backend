@@ -46,7 +46,7 @@ func (s *REDMetricsService) GetSummary(ctx context.Context, teamID int64, startM
 	}
 	sats, err := s.repo.GetFleetSaturationAggs(ctx, teamID, startMs, endMs, metricNames)
 	if err != nil {
-		sats = nil // Fallback gracefully if query fails
+		sats = nil
 	}
 
 	// Map saturation per service
@@ -119,8 +119,8 @@ func (s *REDMetricsService) GetSummary(ctx context.Context, teamID int64, startM
 			MemoryUtilization: utils.SanitizeFloat(memVal),
 			DiskUtilization:   utils.SanitizeFloat(diskVal),
 		}
-		totalCount += int64(row.TotalCount)  //nolint:gosec // domain-bounded
-		totalErrors += int64(row.ErrorCount) //nolint:gosec // domain-bounded
+		totalCount += int64(row.TotalCount)
+		totalErrors += int64(row.ErrorCount)
 		totalP50 += utils.SanitizeFloat(float64(row.P50Ms))
 		totalP95 += utils.SanitizeFloat(float64(row.P95Ms))
 		totalP99 += utils.SanitizeFloat(float64(row.P99Ms))
@@ -164,9 +164,9 @@ func (s *REDMetricsService) GetApdex(ctx context.Context, teamID int64, startMs,
 
 	result := make([]ApdexScore, len(rows))
 	for i, row := range rows {
-		total := int64(row.TotalCount)      //nolint:gosec // domain-bounded
-		satisfied := int64(row.Satisfied)   //nolint:gosec // domain-bounded
-		tolerating := int64(row.Tolerating) //nolint:gosec // domain-bounded
+		total := int64(row.TotalCount)
+		satisfied := int64(row.Satisfied)
+		tolerating := int64(row.Tolerating)
 		frustrated := total - satisfied - tolerating
 		if frustrated < 0 {
 			frustrated = 0
@@ -198,7 +198,7 @@ func (s *REDMetricsService) GetOperationBaseline(ctx context.Context, teamID int
 		P50Ms:         utils.SanitizeFloat(float64(row.P50Ms)),
 		P95Ms:         utils.SanitizeFloat(float64(row.P95Ms)),
 		P99Ms:         utils.SanitizeFloat(float64(row.P99Ms)),
-		SpanCount:     int64(row.SpanCount), //nolint:gosec // domain-bounded
+		SpanCount:     int64(row.SpanCount),
 	}, nil
 }
 
@@ -263,7 +263,7 @@ func (s *REDMetricsService) GetServiceSummary(ctx context.Context, teamID int64,
 
 	sats, err := s.repo.GetServiceSaturationAggs(ctx, teamID, startMs, endMs, serviceName, metricNames)
 	if err != nil {
-		sats = nil // Fallback gracefully if query fails
+		sats = nil
 	}
 
 	// Map saturation
@@ -493,8 +493,8 @@ func (s *REDMetricsService) GetTopEndpointsCombined(
 }
 
 func toTopEndpoint(row topEndpointRow, durationSec float64) TopEndpoint {
-	total := int64(row.TotalCount) //nolint:gosec // domain-bounded
-	errs := int64(row.ErrorCount)  //nolint:gosec // domain-bounded
+	total := int64(row.TotalCount)
+	errs := int64(row.ErrorCount)
 	errRate := 0.0
 	if total > 0 {
 		errRate = float64(errs) / float64(total)

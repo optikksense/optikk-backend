@@ -1,21 +1,5 @@
-// Package filter owns the typed traces-filter shape, validation, and the
-// inline-CTE clause emitter every traces reader (explorer, span_query,
-// errors) shares. Mirrors internal/modules/metrics/filter and
-// internal/modules/logs/filter.
-//
-// The repo-side BuildClauses returns (resourceWhere, where, args) ready to
-// splice into a query of shape:
-//
-//	WITH active_fps AS (
-//	    SELECT DISTINCT fingerprint
-//	    FROM observability.spans_resource
-//	    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-//	    <resourceWhere>
-//	)
-//	SELECT … FROM observability.spans
-//	PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-//	     AND fingerprint IN active_fps
-//	WHERE timestamp BETWEEN @start AND @end <where>
+// Package filter defines the traces filter shape, validation, and SQL clause
+// emitter.
 package filter
 
 import (
@@ -30,10 +14,7 @@ import (
 
 const maxTimeRangeMs = 30 * 24 * 60 * 60 * 1000
 
-// Filters is the typed filter shape every traces reader consumes. Decoded
-// straight off the wire — frontend sends each dimension as a typed array,
-// and the handler populates TeamID / StartMs / EndMs from session + the
-// top-level request fields.
+// Filters represents the query filters used for traces read path.
 type Filters struct {
 	TeamID  int64 `json:"-"`
 	StartMs int64 `json:"-"`
@@ -61,16 +42,14 @@ type Filters struct {
 	Attributes []AttrFilter `json:"attributes,omitempty"`
 }
 
-// AttrFilter is a single predicate over `attributes_string[key]`.
-// Op ∈ {"eq" (default), "neq", "contains", "regex"}.
+// AttrFilter represents a single key-value filter over attributes.
 type AttrFilter struct {
 	Key   string `json:"key"`
 	Op    string `json:"op,omitempty"`
 	Value string `json:"value"`
 }
 
-// Validate clamps the time range to ≤ 30 days, defaults SearchMode to
-// "ngram", and rejects missing time bounds. Mutates the receiver in place.
+// Validate checks and normalizes the filters.
 func (f *Filters) Validate() error {
 	if f.EndMs <= 0 {
 		f.EndMs = time.Now().UnixMilli()
@@ -90,13 +69,10 @@ func (f *Filters) Validate() error {
 	return nil
 }
 
-// BuildClauses turns Filters into (resourceWhere, where, args) — same
-// emission previously duplicated across explorer, span_query, and errors.
-// Stable bind names so identical predicate combinations produce
-// byte-identical SQL — CH plan cache can hit.
+// BuildClauses converts traces filters into SQL where clauses and arguments.
 func BuildClauses(f Filters) (resourceWhere, where string, args []any) {
 	args = []any{
-		clickhouse.Named("teamID", uint32(f.TeamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(f.TeamID)),
 		clickhouse.Named("bucketStart", timebucket.BucketStart(f.StartMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.BucketStart(f.EndMs/1000)+uint32(timebucket.BucketSeconds)),
 		clickhouse.Named("start", time.UnixMilli(f.StartMs)),
@@ -150,11 +126,11 @@ func BuildClauses(f Filters) (resourceWhere, where string, args []any) {
 	}
 	if f.MinDurationNs > 0 {
 		where += ` AND duration_nano >= @minDur`
-		args = append(args, clickhouse.Named("minDur", uint64(f.MinDurationNs))) //nolint:gosec // G115
+		args = append(args, clickhouse.Named("minDur", uint64(f.MinDurationNs)))
 	}
 	if f.MaxDurationNs > 0 {
 		where += ` AND duration_nano <= @maxDur`
-		args = append(args, clickhouse.Named("maxDur", uint64(f.MaxDurationNs))) //nolint:gosec // G115
+		args = append(args, clickhouse.Named("maxDur", uint64(f.MaxDurationNs)))
 	}
 	if f.HasError != nil {
 		if *f.HasError {

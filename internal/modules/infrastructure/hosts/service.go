@@ -18,11 +18,8 @@ func NewService(repo Repository) *Service {
 	return &Service{repo: repo}
 }
 
-// GetHosts returns every host with its blended CPU / memory / disk utilization,
-// the max as the saturation score, its subsystem and tone. When serviceName is
-// non-empty the result is narrowed to the hosts running that service and each
-// host is enriched with RED traffic (rps, error rate, p99, status), ranked by
-// request volume; otherwise all hosts are ranked by saturation DESC.
+// GetHosts returns hosts with CPU/mem/disk utilization and saturation scores,
+// optionally narrowed and enriched with RED traffic for a service.
 func (s *Service) GetHosts(ctx context.Context, teamID, startMs, endMs int64, serviceName string) ([]Host, error) {
 	util, err := s.repo.QueryHostUtilization(ctx, teamID, startMs, endMs)
 	if err != nil {
@@ -79,9 +76,8 @@ func foldUtilization(rows []hostMetricRow) (map[string]Host, []string) {
 	return byHost, order
 }
 
-// enrichWithSpans keeps only the hosts present in the spans result (those
-// running the service), folds RED traffic onto their saturation row, and ranks
-// by request volume. spans is already ordered by request_count DESC.
+// enrichWithSpans folds RED traffic onto hosts running the service,
+// ranking them by request volume.
 func enrichWithSpans(byHost map[string]Host, spans []hostSpansRow, windowMs int64) []Host {
 	durationSec := float64(windowMs) / 1000.0
 	if durationSec <= 0 {
@@ -92,8 +88,8 @@ func enrichWithSpans(byHost map[string]Host, spans []hostSpansRow, windowMs int6
 		h := byHost[row.Host] // zero saturation if the host has no metrics
 		h.Host = row.Host
 
-		total := int64(row.RequestCount) //nolint:gosec // domain-bounded
-		errs := int64(row.ErrorCount)    //nolint:gosec // domain-bounded
+		total := int64(row.RequestCount)
+		errs := int64(row.ErrorCount)
 		errRate := 0.0
 		if total > 0 {
 			errRate = float64(errs) / float64(total)
@@ -114,8 +110,8 @@ func enrichWithSpans(byHost map[string]Host, spans []hostSpansRow, windowMs int6
 	return out
 }
 
-// classifyHost replicates the design's red/yellow/green dot scheme:
-// >=10% errors or >=2s p99 → error; >=2% errors or >=1s p99 → warn; else healthy.
+// classifyHost categorizes a host status (error/warn/healthy) based on
+// error rate and p99 latency thresholds.
 func classifyHost(errRate, p99Ms float64) HostStatus {
 	if errRate >= 0.10 || p99Ms >= 2000 {
 		return HostError
@@ -126,9 +122,7 @@ func classifyHost(errRate, p99Ms float64) HostStatus {
 	return HostHealthy
 }
 
-// ---------------------------------------------------------------------------
-// Folds — mirror the infra cpu/memory/disk modules (their folds are unexported).
-// ---------------------------------------------------------------------------
+// Folds mirroring the infra cpu/memory/disk modules.
 
 func foldCPU(m map[string]float64) *float64 {
 	return averagePresent(m,
@@ -152,8 +146,7 @@ func foldMem(m map[string]float64) *float64 {
 }
 
 func foldDisk(m map[string]float64) *float64 {
-	// Only system.disk.utilization is a percentage; disk.free/total are raw
-	// bytes and are rejected by the >100 guard in normalizeUtilization.
+	// Only system.disk.utilization is a percentage; raw bytes are rejected.
 	return averagePresent(m, infraconsts.MetricSystemDiskUtilization)
 }
 
@@ -169,8 +162,8 @@ func averagePresent(m map[string]float64, metricNames ...string) *float64 {
 	return average(values)
 }
 
-// normalizeUtilization applies the ≤1.0 → *100 percentage convention and rejects
-// NaN/Inf, negatives, and already-out-of-range values (raw byte counts).
+// normalizeUtilization normalizes percentages and rejects NaN/Inf, negatives,
+// and raw byte counts.
 func normalizeUtilization(v float64) *float64 {
 	if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v > infraconsts.PercentageThreshold*100 {
 		return nil

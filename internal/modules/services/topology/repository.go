@@ -10,8 +10,7 @@ import (
 )
 
 // Repository runs ClickHouse queries that power the runtime service topology.
-// Queries only — all derivation (percentile interpolation, error-rate, health
-// classification) lives in service.go.
+// All derivation logic lives in service.go.
 type Repository interface {
 	GetNodes(ctx context.Context, teamID, startMs, endMs int64, focusService string) ([]nodeAggRow, error)
 	GetEdges(ctx context.Context, teamID, startMs, endMs int64, focusService string) ([]edgeAggRow, error)
@@ -25,11 +24,7 @@ func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
 	return &ClickHouseRepository{db: db}
 }
 
-// GetNodes returns per-service RED aggregates plus p50/p95/p99 latency,
-// computed via quantileTimingMerge on spans_1m's latency_state. It always
-// aggregates every service in range; pruning to a focus service's neighborhood
-// is owned solely by filterNeighborhood (service.go), so kept neighbor nodes
-// retain their full RED metrics rather than being backfilled from edges.
+// GetNodes returns per-service RED aggregates and p50/p95/p99 latency.
 func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID, startMs, endMs int64, _ string) ([]nodeAggRow, error) {
 	const query = `
 		SELECT service                                                AS service,
@@ -55,12 +50,7 @@ func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID, startMs, en
 	return rows, nil
 }
 
-// GetEdges derives directed edges from parent→child span links in the raw
-// spans table: a child span whose parent belongs to a different service is one
-// (parent.service → child.service) call. This mirrors the trace service map's
-// edge derivation and does not depend on the peer_service attribute, which most
-// instrumentation (incl. the OTel demo) never emits. The spans_1m rollup can't
-// back this — it has no span_id/parent_span_id — so edges read raw spans.
+// GetEdges derives directed edges from parent-child span links.
 func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID, startMs, endMs int64, focusService string) ([]edgeAggRow, error) {
 	const query = `
 		SELECT p.service                                                              AS source,
@@ -93,13 +83,11 @@ func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID, startMs, en
 	return rows, nil
 }
 
-// baseArgs binds the 5 scope parameters every topology query needs: team scope,
-// 5-minute-aligned ts_bucket bounds for PREWHERE, and millisecond timestamp
-// bounds for the row-side WHERE.
+// baseArgs binds the parameters needed for topology queries.
 func baseArgs(teamID, startMs, endMs int64) []any {
 	bucketStart, bucketEnd := spanBucketBounds(startMs, endMs)
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("bucketStart", bucketStart),
 		clickhouse.Named("bucketEnd", bucketEnd),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -112,8 +100,7 @@ func spanArgs(teamID, startMs, endMs int64, focusService string) []any {
 	return append(baseArgs(teamID, startMs, endMs), clickhouse.Named("focusService", focusService))
 }
 
-// spanBucketBounds returns the 5-minute-aligned [bucketStart, bucketEnd)
-// covering [startMs, endMs] in spans_resource / spans PK terms.
+// spanBucketBounds returns bucket bounds covering [startMs, endMs].
 func spanBucketBounds(startMs, endMs int64) (uint32, uint32) {
 	return timebucket.BucketStart(startMs / 1000),
 		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)

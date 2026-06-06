@@ -24,9 +24,8 @@ func hashAddByte(h uint64, b byte) uint64 {
 	return h
 }
 
-// FingerprintHash computes a stable FNV-64a hash of ALL resource attributes,
-// sorted by key. This is used as the uniqueness suffix in the composite
-// fingerprint string. Sorting guarantees order-independence.
+// FingerprintHash computes a stable FNV-64a hash of all resource attributes
+// sorted by key. Sorting guarantees order-independence.
 func FingerprintHash(attrs map[string]string) uint64 {
 	if len(attrs) == 0 {
 		return offset64

@@ -197,19 +197,27 @@ func (s *Service) GetErrorGroups(ctx context.Context, teamID int64, startMs, end
 	if hasMore {
 		raw = raw[:limit]
 	}
+
+	// Exemplar message + trace come from the most recent actual error span.
+	samples, err := s.fetchErrorGroupSamples(ctx, teamID, startMs, endMs, raw)
+	if err != nil {
+		return PaginatedErrorGroups{}, err
+	}
+
 	results := make([]ErrorGroup, len(raw))
 	for i, row := range raw {
 		code := httpBucketToCode(row.HTTPStatusBucket)
+		sample := samples[row.GroupID]
 		results[i] = ErrorGroup{
 			GroupID:         row.GroupID,
 			ServiceName:     row.ServiceName,
 			OperationName:   row.OperationName,
-			StatusMessage:   row.StatusMessage,
+			StatusMessage:   sample.StatusMessage,
 			HTTPStatusCode:  code,
-			ErrorCount:      int64(row.ErrorCount), //nolint:gosec // domain-bounded
+			ErrorCount:      int64(row.ErrorCount),
 			LastOccurrence:  row.LastOccurrence,
 			FirstOccurrence: row.FirstOccurrence,
-			SampleTraceID:   row.SampleTraceID,
+			SampleTraceID:   sample.SampleTraceID,
 		}
 	}
 	var nextCursor string
@@ -237,6 +245,27 @@ func (s *Service) fetchErrorGroups(ctx context.Context, teamID int64, startMs, e
 	return s.repo.ErrorGroupRowsByService(ctx, teamID, startMs, endMs, serviceName, limit, cursorIn)
 }
 
+// fetchErrorGroupSamples resolves exemplar message and trace_id
+// for the page's groups.
+func (s *Service) fetchErrorGroupSamples(ctx context.Context, teamID int64, startMs, endMs int64, groups []rawErrorGroupRow) (map[string]rawErrorGroupSampleRow, error) {
+	if len(groups) == 0 {
+		return map[string]rawErrorGroupSampleRow{}, nil
+	}
+	groupIDs := make([]string, len(groups))
+	for i, g := range groups {
+		groupIDs[i] = g.GroupID
+	}
+	rows, err := s.repo.ErrorGroupSamples(ctx, teamID, startMs, endMs, groupIDs)
+	if err != nil {
+		return nil, err
+	}
+	samples := make(map[string]rawErrorGroupSampleRow, len(rows))
+	for _, row := range rows {
+		samples[row.GroupID] = row
+	}
+	return samples, nil
+}
+
 func (s *Service) GetErrorGroupDetail(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (*ErrorGroupDetail, error) {
 	row, err := s.repo.ErrorGroupDetailRow(ctx, teamID, startMs, endMs, groupID)
 	if err != nil {
@@ -250,16 +279,14 @@ func (s *Service) GetErrorGroupDetail(ctx context.Context, teamID int64, startMs
 		ServiceName:     row.ServiceName,
 		OperationName:   row.OperationName,
 		HTTPStatusCode:  int(row.HTTPStatusCode),
-		ErrorCount:      int64(row.ErrorCount), //nolint:gosec // domain-bounded
+		ErrorCount:      int64(row.ErrorCount),
 		LastOccurrence:  row.LastOccurrence,
 		FirstOccurrence: row.FirstOccurrence,
 		ExceptionType:   row.ExceptionType,
 	}, nil
 }
 
-// facetColumns are the spans_1m dimensions exposed as "Where it happens" facets.
-// This list is the SQL-injection whitelist for ErrorGroupFacetRows — only these
-// column names are ever interpolated into the query.
+// facetColumns are the spans_1m dimensions exposed as facets.
 var facetColumns = []string{"service_version", "environment", "pod", "http_route"}
 
 func (s *Service) GetErrorGroupLatestOccurrence(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (*ErrorLatestOccurrence, error) {
@@ -299,11 +326,11 @@ func (s *Service) GetErrorGroupFacets(ctx context.Context, teamID int64, startMs
 		}
 		var total int64
 		for _, r := range raw {
-			total += int64(r.Count) //nolint:gosec // domain-bounded
+			total += int64(r.Count)
 		}
 		facets := make([]ErrorFacet, len(raw))
 		for i, r := range raw {
-			count := int64(r.Count) //nolint:gosec // domain-bounded
+			count := int64(r.Count)
 			facets[i] = ErrorFacet{
 				Name:  r.Value,
 				Count: count,
@@ -399,8 +426,8 @@ func (s *Service) GetErrorHotspot(ctx context.Context, teamID int64, startMs, en
 	}
 	cells := make([]ErrorHotspotCell, len(raw))
 	for i, row := range raw {
-		total := int64(row.TotalCount) //nolint:gosec // domain-bounded
-		errs := int64(row.ErrorCount)  //nolint:gosec // domain-bounded
+		total := int64(row.TotalCount)
+		errs := int64(row.ErrorCount)
 		cells[i] = ErrorHotspotCell{
 			ServiceName:   row.ServiceName,
 			OperationName: row.OperationName,

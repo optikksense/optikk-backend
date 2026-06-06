@@ -10,8 +10,7 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// Repository owns every SQL touch across channels, policies, and templates.
-// Channel-usage counts are computed inline by the service via CountChannelUsage.
+// Repository owns SQL operations across channels, policies, and templates.
 type Repository interface {
 	CreateChannel(ctx context.Context, row models.ChannelRow) (int64, error)
 	UpdateChannel(ctx context.Context, id, teamID int64, row models.ChannelRow) error
@@ -247,8 +246,7 @@ func (r *MySQLRepository) ListTemplates(ctx context.Context, teamID int64) ([]mo
 	return rows, err
 }
 
-// ChannelInUse reports whether any monitor's notify_json references the channel.
-// Used by service.DeleteChannel to return 409 when the channel is still bound.
+// ChannelInUse checks if any monitor references the given channel.
 func (r *MySQLRepository) ChannelInUse(ctx context.Context, channelID, teamID int64) (bool, error) {
 	var cnt int
 	err := dbutil.GetSQL(ctx, r.db, "notifications.ChannelInUse", &cnt, `

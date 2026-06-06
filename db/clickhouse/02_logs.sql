@@ -14,7 +14,7 @@ CREATE TABLE IF NOT EXISTS observability.logs (
     attributes_number    Map(LowCardinality(String), Float64) CODEC(ZSTD(1)),
     attributes_bool      Map(LowCardinality(String), Bool) CODEC(ZSTD(1)),
     resource             JSON(max_dynamic_paths=100) CODEC(ZSTD(1)),
-    fingerprint          String CODEC(ZSTD(1)),
+    fingerprint          UInt64 CODEC(T64, ZSTD(1)),
     log_id               String CODEC(ZSTD(1)),
     scope_name           String CODEC(ZSTD(1)),
     scope_version        String CODEC(ZSTD(1)),

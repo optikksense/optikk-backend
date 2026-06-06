@@ -10,13 +10,8 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 )
 
-// Migrator applies ClickHouse DDL migrations from FS to the target database.
-//
-// Each file in FS is one migration; its basename is the version. A tracking
-// table `<Database>.schema_migrations` records applied versions. Re-runs are
-// idempotent — already-applied files are skipped. The schema is
-// additive-only; mistakes are corrected by writing a new migration with a
-// higher version number, never by editing or deleting an existing one.
+// Migrator applies ClickHouse DDL migrations from FS to the database.
+// Already-applied migrations are skipped using a schema tracking table.
 type Migrator struct {
 	DB       clickhouse.Conn
 	FS       fs.FS
@@ -94,9 +89,8 @@ func (m *Migrator) ensureTrackingTable(ctx context.Context) error {
 	if m.Database == "" {
 		m.Database = "observability"
 	}
-	// The `observability` database is created by the first migration. On a
-	// fresh cluster the tracking table needs the database to exist first;
-	// CREATE IF NOT EXISTS makes both calls safe to re-run.
+	// Database and tracking table are created if not exist, making it safe
+	// to re-run on a fresh cluster.
 	if err := m.DB.Exec(ctx, "CREATE DATABASE IF NOT EXISTS "+m.Database); err != nil {
 		return err
 	}
@@ -161,11 +155,8 @@ func (m *Migrator) logf(format string, args ...any) {
 	m.Logger(format, args...)
 }
 
-// splitMigrationStatements breaks a multi-statement SQL blob into individual
-// statements. Strips `-- line comments`, ignores whitespace-only fragments,
-// and splits on `;` outside single-quoted strings. Our DDL files don't embed
-// semicolons inside string literals; if a future migration does, switch to
-// a proper tokenizer.
+// splitMigrationStatements splits SQL into individual statements by semicolon.
+// It strips line comments and ignores semicolons inside single quotes.
 func splitMigrationStatements(sql string) []string {
 	var out []string
 	var buf strings.Builder

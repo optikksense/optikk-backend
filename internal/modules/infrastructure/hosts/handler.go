@@ -13,9 +13,7 @@ type Handler struct {
 	Service *Service
 }
 
-// GetHosts is GET /api/v1/infrastructure/hosts. With no ?service= it returns the
-// fleet-wide host saturation list; with ?service=<name> it returns the hosts
-// running that service, enriched with RED traffic.
+// GetHosts retrieves the host saturation list, optionally filtered by service.
 func (h *Handler) GetHosts(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)

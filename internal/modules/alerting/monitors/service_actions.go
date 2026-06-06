@@ -11,8 +11,8 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/alerting/shared/query"
 )
 
-// ErrNotAlerting is returned by Ack when the monitor isn't currently in
-// alert/warn — there's nothing to acknowledge.
+// ErrNotAlerting is returned by Ack when the monitor is not currently in
+// alert or warn status.
 var ErrNotAlerting = errors.New("monitor is not currently alerting")
 
 // Ack acknowledges the current alert.
@@ -62,8 +62,7 @@ type TestResult struct {
 	Threshold     float64 `json:"threshold"`
 }
 
-// Test evaluates the monitor once and returns the decision without changing
-// state. Useful for the wizard's "Test on existing data" affordance.
+// Test evaluates the monitor once without changing state.
 func (s *Service) Test(ctx context.Context, teamID, id int64, queries query.Registry) (TestResult, error) {
 	row, state, err := s.repo.GetByID(ctx, id, teamID)
 	if err != nil {
@@ -130,8 +129,7 @@ func (s *Service) Series(ctx context.Context, teamID, id int64, queries query.Re
 	}, nil
 }
 
-// SeriesResponse pairs the bucketed values with the monitor's thresholds so
-// the chart can render dashed reference lines without a second request.
+// SeriesResponse pairs bucketed values with the monitor's thresholds.
 type SeriesResponse struct {
 	Points            []query.Point `json:"points"`
 	AlertThreshold    *float64      `json:"alert_threshold,omitempty"`
@@ -204,10 +202,8 @@ type StatusBand struct {
 	EndedAt   time.Time `json:"ended_at"`
 }
 
-// buildBands materializes the [start..end] window as a sequence of bands.
-// Walk the events in order; the segment between two consecutive triggered
-// events is "alert", between triggered and recovered is "alert", etc. v1 keeps
-// this simple: alternate alert↔ok arms around triggered/recovered pairs.
+// buildBands materializes the start-to-end window as a sequence of bands
+// by walking events in chronological order.
 func buildBands(events []models.MonitorEventRow, start, end time.Time) []StatusBand {
 	if len(events) == 0 {
 		return []StatusBand{{Status: "ok", StartedAt: start, EndedAt: end}}

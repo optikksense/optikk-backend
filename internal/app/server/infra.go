@@ -59,12 +59,12 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 		slog.Int("max_open_conns", cfg.MySQL.MaxOpenConns),
 	)
 	if err := runMySQLMigrate(dbConn); err != nil {
-		_ = dbConn.Close() //nolint:errcheck
+		_ = dbConn.Close()
 		return nil, fmt.Errorf("mysql migrate: %w", err)
 	}
 	defer func() {
 		if err != nil {
-			_ = dbConn.Close() //nolint:errcheck
+			_ = dbConn.Close()
 		}
 	}()
 
@@ -78,7 +78,7 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 	)
 	defer func() {
 		if err != nil {
-			_ = chConn.Close() //nolint:errcheck
+			_ = chConn.Close()
 		}
 	}()
 
@@ -93,7 +93,7 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 	defer func() {
 		if err != nil {
 			redisClients.Pool.Close()
-			_ = redisClients.Client.Close() //nolint:errcheck
+			_ = redisClients.Client.Close()
 		}
 	}()
 
@@ -129,7 +129,7 @@ func openClickHouse(cfg config.Config) (clickhouse.Conn, error) {
 		return nil, fmt.Errorf("clickhouse: %w", err)
 	}
 	if err := runMigrate(chConn, cfg.ClickHouse.Database); err != nil {
-		_ = chConn.Close() //nolint:errcheck
+		_ = chConn.Close()
 		return nil, fmt.Errorf("clickhouse migrate: %w", err)
 	}
 	return chConn, nil
@@ -168,10 +168,8 @@ func runMySQLMigrate(db *sql.DB) error {
 	return nil
 }
 
-// buildIngest creates topics, opens one shared producer client + per-signal
-// consumer clients, and constructs the three signal modules. Returns the
-// modules bundle, the producer client (closed at shutdown), the consumer
-// consumer clients (closed at shutdown), and the lag pollers (run by the run.Group).
+// buildIngest sets up Kafka topics, clients, lag pollers, and signal modules.
+// Returns modules, producer, consumers, and lag pollers.
 func buildIngest(cfg config.Config, ch clickhouse.Conn) (IngestModules, *kgo.Client, []*kgo.Client, []*kafkainfra.LagPoller, error) {
 	brokers := cfg.KafkaBrokers()
 	topicPrefix := cfg.KafkaTopicPrefix()
@@ -317,18 +315,18 @@ func (i *Infra) Close() error {
 		slog.Info("kafka producer closed")
 	}
 	if i.RedisPool != nil {
-		_ = i.RedisPool.Close() //nolint:errcheck
+		_ = i.RedisPool.Close()
 	}
 	if i.RedisClient != nil {
-		_ = i.RedisClient.Close() //nolint:errcheck
+		_ = i.RedisClient.Close()
 		slog.Info("redis connection closed")
 	}
 	if i.CH != nil {
-		_ = i.CH.Close() //nolint:errcheck
+		_ = i.CH.Close()
 		slog.Info("clickhouse connection closed")
 	}
 	if i.DB != nil {
-		_ = i.DB.Close() //nolint:errcheck
+		_ = i.DB.Close()
 		slog.Info("mysql connection closed")
 	}
 	return nil

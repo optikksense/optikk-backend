@@ -4,8 +4,6 @@ package mysql
 
 import "embed"
 
-// FS holds the schema file(s) picked up at compile time.
-// All statements use CREATE TABLE IF NOT EXISTS, so re-runs are safe.
-//
+// FS holds compile-time schema files. Re-runs are safe (IF NOT EXISTS).
 //go:embed *.sql
 var FS embed.FS

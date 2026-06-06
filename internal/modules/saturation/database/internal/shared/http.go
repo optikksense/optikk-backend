@@ -1,6 +1,5 @@
-// Package shared holds HTTP-side helpers reused across all 9 db saturation
-// submodules' handlers. SQL emission lives in the sibling
-// `internal/modules/saturation/database/filter/` package.
+// Package shared holds HTTP-side helpers reused across database saturation
+// submodules' handlers.
 package shared
 
 import (
@@ -10,9 +9,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ParseFilters extracts the standard ?db_system / ?collection / ?namespace
-// /?server query-string filters into the typed shape consumed by every
-// repo.
+// ParseFilters extracts query-string filters into the typed shape consumed
+// by every repository.
 func ParseFilters(c *gin.Context) filter.Filters {
 	return filter.Filters{
 		DBSystem:   c.QueryArray("db_system"),

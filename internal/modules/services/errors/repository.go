@@ -18,6 +18,7 @@ type Repository interface {
 
 	ErrorGroupRowsAll(ctx context.Context, teamID int64, startMs, endMs int64, limit int, cursor ErrorGroupsCursor) ([]rawErrorGroupRow, error)
 	ErrorGroupRowsByService(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int, cursor ErrorGroupsCursor) ([]rawErrorGroupRow, error)
+	ErrorGroupSamples(ctx context.Context, teamID int64, startMs, endMs int64, groupIDs []string) ([]rawErrorGroupSampleRow, error)
 
 	ErrorGroupDetailRow(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (*rawErrorGroupDetailRow, error)
 	ErrorGroupTraceRows(ctx context.Context, teamID int64, startMs, endMs int64, groupID string, limit int, cursor ErrorTracesCursor) ([]rawErrorGroupTraceRow, error)
@@ -151,12 +152,10 @@ func (r *ClickHouseRepository) ErrorGroupRowsAll(ctx context.Context, teamID int
 		SELECT error_group_id                   AS error_group_id,
 		       service                          AS service,
 		       name                             AS operation_name,
-		       argMax(sample_status_message, timestamp) AS status_message,
 		       http_status_bucket               AS http_status_bucket,
 		       sum(error_count)                 AS error_count,
 		       max(timestamp)                   AS last_occurrence,
-		       min(timestamp)                   AS first_occurrence,
-		       argMax(sample_trace_id, timestamp)       AS sample_trace_id
+		       min(timestamp)                   AS first_occurrence
 		FROM observability.spans_1m
 		PREWHERE team_id   = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
@@ -191,12 +190,10 @@ func (r *ClickHouseRepository) ErrorGroupRowsByService(ctx context.Context, team
 		SELECT error_group_id                   AS error_group_id,
 		       service                          AS service,
 		       name                             AS operation_name,
-		       argMax(sample_status_message, timestamp) AS status_message,
 		       http_status_bucket               AS http_status_bucket,
 		       sum(error_count)                 AS error_count,
 		       max(timestamp)                   AS last_occurrence,
-		       min(timestamp)                   AS first_occurrence,
-		       argMax(sample_trace_id, timestamp)       AS sample_trace_id
+		       min(timestamp)                   AS first_occurrence
 		FROM observability.spans_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
@@ -214,6 +211,26 @@ func (r *ClickHouseRepository) ErrorGroupRowsByService(ctx context.Context, team
 	)
 	var rows []rawErrorGroupRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.ErrorGroupsByService", &rows, query, args...)
+}
+
+// ErrorGroupSamples returns status message and trace ID exemplars for groups.
+func (r *ClickHouseRepository) ErrorGroupSamples(ctx context.Context, teamID int64, startMs, endMs int64, groupIDs []string) ([]rawErrorGroupSampleRow, error) {
+	const query = `
+		SELECT error_group_id                    AS error_group_id,
+		       argMax(status_message, timestamp) AS status_message,
+		       argMax(trace_id, timestamp)       AS sample_trace_id
+		FROM observability.spans
+		PREWHERE team_id   = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		WHERE is_error = 1
+		  AND timestamp BETWEEN @start AND @end
+		  AND error_group_id IN @groupIDs
+		GROUP BY error_group_id`
+	args := append(spanArgs(teamID, startMs, endMs),
+		clickhouse.Named("groupIDs", groupIDs),
+	)
+	var rows []rawErrorGroupSampleRow
+	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.ErrorGroupSamples", &rows, query, args...)
 }
 
 // --- Group drill-in (always scoped by GroupIdentity) ---
@@ -265,7 +282,7 @@ func (r *ClickHouseRepository) ErrorGroupTraceRows(ctx context.Context, teamID i
 		ORDER BY s.timestamp DESC, s.span_id ASC
 		LIMIT @limit`
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
@@ -292,7 +309,7 @@ func (r *ClickHouseRepository) ErrorGroupTimeseriesRows(ctx context.Context, tea
 		HAVING count > 0
 		ORDER BY bucket_at ASC`
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
@@ -303,8 +320,7 @@ func (r *ClickHouseRepository) ErrorGroupTimeseriesRows(ctx context.Context, tea
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "errors.ErrorGroupTimeseries", &rows, query, args...)
 }
 
-// Single most recent error span of the group — full columns from the raw spans
-// table for the "Request context · latest occurrence" card, banner, and stack trace.
+// ErrorGroupLatestOccurrenceRow returns the latest error span of the group.
 func (r *ClickHouseRepository) ErrorGroupLatestOccurrenceRow(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (*rawErrorLatestOccurrenceRow, error) {
 	const query = `
 		SELECT s.trace_id                  AS trace_id,
@@ -338,9 +354,7 @@ func (r *ClickHouseRepository) ErrorGroupLatestOccurrenceRow(ctx context.Context
 	return &row, nil
 }
 
-// Distribution of the group's errors across a single tag dimension. The caller
-// must pass a whitelisted column name (see service.go facetColumns) — it is
-// interpolated into the SQL, so it must never come from user input.
+// ErrorGroupFacetRows returns error distribution across a single tag dimension.
 func (r *ClickHouseRepository) ErrorGroupFacetRows(ctx context.Context, teamID int64, startMs, endMs int64, groupID, column string) ([]rawErrorFacetRow, error) {
 	query := `
 		SELECT ` + column + `             AS value,

@@ -13,10 +13,8 @@ import (
 
 const apiKeyHeader = "x-api-key"
 
-// UnaryInterceptor authenticates every unary OTLP RPC. On success the resolved
-// team id is installed into ctx via WithTeamID and downstream handlers read it
-// with TeamIDFromContext — this is the single team-resolution site for
-// the entire ingest path.
+// UnaryInterceptor authenticates unary OTLP RPCs and binds team IDs to the
+// context, serving as the single team-resolution site for ingest.
 func UnaryInterceptor(resolver TeamResolver) grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, _ *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		teamID, err := resolveFromContext(ctx, resolver)
@@ -27,8 +25,7 @@ func UnaryInterceptor(resolver TeamResolver) grpc.UnaryServerInterceptor {
 	}
 }
 
-// StreamInterceptor is the streaming counterpart for completeness; OTLP uses
-// unary RPCs today, but any future streaming ingest RPC gets auth for free.
+// StreamInterceptor provides authentication for streaming ingest RPCs.
 func StreamInterceptor(resolver TeamResolver) grpc.StreamServerInterceptor {
 	return func(srv any, ss grpc.ServerStream, _ *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 		teamID, err := resolveFromContext(ss.Context(), resolver)

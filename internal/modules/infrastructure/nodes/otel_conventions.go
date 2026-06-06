@@ -1,7 +1,6 @@
 package nodes
 
-// OpenTelemetry Semantic Conventions for Infrastructure Nodes
-// Based on OpenTelemetry Semantic Conventions for Resources
+// OpenTelemetry Semantic Conventions for Infrastructure Nodes and Resources.
 // Reference: https://opentelemetry.io/docs/specs/semconv/resource/
 
 const (

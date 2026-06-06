@@ -24,7 +24,7 @@ const (
 )
 
 func mapRequest(teamID int64, req *logspb.ExportLogsServiceRequest) []*schema.Row {
-	nowNs := uint64(time.Now().UnixNano()) //nolint:gosec
+	nowNs := uint64(time.Now().UnixNano())
 	var rows []*schema.Row
 	for _, rl := range req.GetResourceLogs() {
 		var resAttrs []*commonpb.KeyValue
@@ -32,7 +32,7 @@ func mapRequest(teamID int64, req *logspb.ExportLogsServiceRequest) []*schema.Ro
 			resAttrs = rl.Resource.Attributes
 		}
 		resourceMap := otlp.AttrsToMap(resAttrs)
-		fp := fingerprint.Calculate(resourceMap)
+		fp := fingerprint.CalculateHash(resourceMap)
 		for _, sl := range rl.GetScopeLogs() {
 			scopeName, scopeVersion := "", ""
 			if sl.GetScope() != nil {
@@ -47,7 +47,7 @@ func mapRequest(teamID int64, req *logspb.ExportLogsServiceRequest) []*schema.Ro
 	return rows
 }
 
-func buildLogRow(teamID int64, resource map[string]string, fp, scopeName, scopeVersion string, lr *logv1.LogRecord, nowNs uint64) *schema.Row {
+func buildLogRow(teamID int64, resource map[string]string, fp uint64, scopeName, scopeVersion string, lr *logv1.LogRecord, nowNs uint64) *schema.Row {
 	tsNs := lr.GetTimeUnixNano()
 	if tsNs == 0 {
 		tsNs = lr.GetObservedTimeUnixNano()
@@ -65,7 +65,7 @@ func buildLogRow(teamID int64, resource map[string]string, fp, scopeName, scopeV
 	if dropped > 0 {
 		obsmetrics.MapperAttrsDropped.WithLabelValues("logs").Add(float64(dropped))
 	}
-	sevNum := uint32(lr.GetSeverityNumber()) //nolint:gosec
+	sevNum := uint32(lr.GetSeverityNumber())
 	res := fillResourceFallbacks(resource, attrStr)
 
 	traceID := zeroOut(otlp.BytesToHex(lr.GetTraceId()), zeroTraceHex)
@@ -73,9 +73,9 @@ func buildLogRow(teamID int64, resource map[string]string, fp, scopeName, scopeV
 	logID := computeLogID(traceID, tsNs, body, fp)
 
 	return &schema.Row{
-		TeamId:              uint32(teamID), //nolint:gosec
+		TeamId:              uint32(teamID),
 		TsBucket:            tsBucket,
-		TimestampNs:         int64(tsNs), //nolint:gosec
+		TimestampNs:         int64(tsNs),
 		ObservedTimestampNs: observedNs,
 		TraceId:             traceID,
 		SpanId:              zeroOut(otlp.BytesToHex(lr.GetSpanId()), zeroSpanHex),
@@ -99,10 +99,9 @@ func buildLogRow(teamID int64, resource map[string]string, fp, scopeName, scopeV
 	}
 }
 
-// computeLogID returns a stable 16-char hex hash of (trace_id, timestamp_ns,
-// body, fingerprint). FNV-64a, mirroring internal/infra/fingerprint/hash.go.
-// Used as the row's deep-link id; logdetail looks up rows by this value.
-func computeLogID(traceID string, tsNs uint64, body, fp string) string {
+// computeLogID returns a stable FNV-64a hex hash of the log attributes.
+// This is used as the row's deep-link ID.
+func computeLogID(traceID string, tsNs uint64, body string, fp uint64) string {
 	const (
 		offset64      uint64 = 14695981039346656037
 		prime64       uint64 = 1099511628211
@@ -127,7 +126,7 @@ func computeLogID(traceID string, tsNs uint64, body, fp string) string {
 	h = addByte(h, separatorByte)
 	h = addStr(h, body)
 	h = addByte(h, separatorByte)
-	h = addStr(h, fp)
+	h = addStr(h, strconv.FormatUint(fp, 10))
 	return fmt.Sprintf("%016x", h)
 }
 
@@ -139,9 +138,7 @@ func resolveSeverity(lr *logv1.LogRecord) string {
 }
 
 // severityBucketFor maps an OTel severity_number to the on-disk severity tier
-// (0=TRACE/UNSET, 1=DEBUG, 2=INFO, 3=WARN, 4=ERROR, 5=FATAL). Mirrors the
-// multiIf ladder that used to live as a CH MATERIALIZED column on
-// observability.logs; kept Go-side so writer and reader can't drift.
+// (0=TRACE/UNSET, 1=DEBUG, 2=INFO, 3=WARN, 4=ERROR, 5=FATAL).
 func severityBucketFor(severityNumber uint32) uint8 {
 	switch {
 	case severityNumber >= 21:

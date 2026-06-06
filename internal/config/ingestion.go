@@ -3,11 +3,7 @@ package config
 import "fmt"
 
 // IngestionConfig owns per-signal Kafka topology (topic partitions, replicas,
-// retention) and the consumer-group identity. Topic names are derived from
-// Kafka.TopicPrefix + signal; DLQ topic from Kafka.DLQPrefix + signal. There
-// is no app-side batching to tune — the only knobs are at the Kafka client
-// level (producer linger / batch_max_bytes in KafkaConfig) and at ClickHouse
-// (async_insert applied via context decoration in the writer).
+// retention) and the consumer-group identity.
 type IngestionConfig struct {
 	Spans   SignalConfig `yaml:"spans"`
 	Logs    SignalConfig `yaml:"logs"`

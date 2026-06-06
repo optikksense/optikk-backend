@@ -30,9 +30,11 @@ func (s *NodeService) GetInfrastructureNodes(ctx context.Context, teamID int64, 
 		errorRate, avgLatency := redDerivations(r.RequestCount, r.ErrorCount, r.DurationMsSum)
 		out[i] = InfrastructureNode{
 			Host:           r.Host,
-			PodCount:       int64(r.PodCount), //nolint:gosec
-			ContainerCount: 0,                 // not derived from spans
-			Services:       []string{},        // omitted from fleet view for performance
+			PodCount:       int64(r.PodCount),
+			// Container count is not derived from spans.
+			ContainerCount: 0,
+			// Services are omitted from fleet view for performance.
+			Services:       []string{},
 			RequestCount:   int64(r.RequestCount),
 			ErrorCount:     int64(r.ErrorCount),
 			ErrorRate:      errorRate,
@@ -52,12 +54,12 @@ func (s *NodeService) GetInfrastructureNodeSummary(ctx context.Context, teamID i
 	}
 	var totalPods int64
 	if row.TotalPods != nil {
-		totalPods = int64(*row.TotalPods) //nolint:gosec // domain-bounded
+		totalPods = int64(*row.TotalPods)
 	}
 	return InfrastructureNodeSummary{
-		HealthyNodes:   int64(row.HealthyNodes),   //nolint:gosec // domain-bounded
-		DegradedNodes:  int64(row.DegradedNodes),  //nolint:gosec // domain-bounded
-		UnhealthyNodes: int64(row.UnhealthyNodes), //nolint:gosec // domain-bounded
+		HealthyNodes:   int64(row.HealthyNodes),
+		DegradedNodes:  int64(row.DegradedNodes),
+		UnhealthyNodes: int64(row.UnhealthyNodes),
 		TotalPods:      totalPods,
 	}, nil
 }
@@ -72,7 +74,7 @@ func (s *NodeService) GetInfrastructureNodeServices(ctx context.Context, teamID 
 		errorRate, avgLatency := redDerivations(r.RequestCount, r.ErrorCount, r.DurationMsSum)
 		out[i] = InfrastructureNodeService{
 			ServiceName:  r.Service,
-			RequestCount: int64(r.RequestCount), //nolint:gosec
+			RequestCount: int64(r.RequestCount),
 			ErrorCount:   int64(r.ErrorCount),
 			ErrorRate:    errorRate,
 			AvgLatencyMs: avgLatency,

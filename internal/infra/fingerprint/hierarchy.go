@@ -1,6 +1,6 @@
 package fingerprint
 
-// DimensionHierarchyNode is one level of the resource identity tree; the walker picks the first matching label and recurses into subHierarchies.
+// DimensionHierarchyNode represents a level in the resource identity tree.
 type DimensionHierarchyNode struct {
 	labels         []string
 	subHierarchies []DimensionHierarchyNode
@@ -28,7 +28,7 @@ func (n *DimensionHierarchyNode) Identifier(attrs map[string]string) []IdLabelVa
 	return result
 }
 
-// ResourceHierarchy returns the singleton OpenTelemetry resource identity tree, built once to avoid rebuilding per span on the ingest hot path.
+// ResourceHierarchy returns the cached OpenTelemetry resource identity tree.
 func ResourceHierarchy() *DimensionHierarchyNode {
 	return defaultRoot
 }
@@ -74,7 +74,7 @@ func platformLevel() *DimensionHierarchyNode {
 	}
 }
 
-// clusterLevel branches into service-oriented (tried first) then node-oriented (fallback).
+// clusterLevel branches into service-oriented or node-oriented levels.
 func clusterLevel() *DimensionHierarchyNode {
 	return &DimensionHierarchyNode{
 		labels: []string{
@@ -89,7 +89,7 @@ func clusterLevel() *DimensionHierarchyNode {
 	}
 }
 
-// serviceView: namespace → service → environment → version → instance → container → component.
+// serviceView matches service identity from namespace down to component.
 func serviceView() *DimensionHierarchyNode {
 	return &DimensionHierarchyNode{
 		labels:         namespaceLabels,
@@ -136,7 +136,7 @@ func containerLevel() *DimensionHierarchyNode {
 	}
 }
 
-// nodeView: AZ → node → pod → container — infrastructure-oriented fallback when no service-level identity is present.
+// nodeView matches infrastructure fallback when service identity is missing.
 func nodeView() *DimensionHierarchyNode {
 	return &DimensionHierarchyNode{
 		labels:         []string{"cloud.availability_zone"},

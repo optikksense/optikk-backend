@@ -62,14 +62,14 @@ func (s *topologyService) GetTopology(ctx context.Context, teamID, startMs, endM
 	return TopologyResponse{Nodes: nodes, Edges: edges}, nil
 }
 
-// nodeAggsFromRows maps the rollup query rows onto the neutral BuildGraph input.
+// nodeAggsFromRows maps rollup query rows onto neutral BuildGraph inputs.
 func nodeAggsFromRows(rows []nodeAggRow) []NodeAgg {
 	out := make([]NodeAgg, len(rows))
 	for i, r := range rows {
 		out[i] = NodeAgg{
 			Service:      r.ServiceName,
-			RequestCount: int64(r.RequestCount), //nolint:gosec // domain-bounded
-			ErrorCount:   int64(r.ErrorCount),   //nolint:gosec // domain-bounded
+			RequestCount: int64(r.RequestCount),
+			ErrorCount:   int64(r.ErrorCount),
 			P50Ms:        float64(r.P50Ms),
 			P95Ms:        float64(r.P95Ms),
 			P99Ms:        float64(r.P99Ms),
@@ -84,8 +84,8 @@ func edgeAggsFromRows(rows []edgeAggRow) []EdgeAgg {
 		out[i] = EdgeAgg{
 			Source:     r.Source,
 			Target:     r.Target,
-			CallCount:  int64(r.CallCount),  //nolint:gosec // domain-bounded
-			ErrorCount: int64(r.ErrorCount), //nolint:gosec // domain-bounded
+			CallCount:  int64(r.CallCount),
+			ErrorCount: int64(r.ErrorCount),
 			P50Ms:      float64(r.P50Ms),
 			P95Ms:      float64(r.P95Ms),
 		}

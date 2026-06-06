@@ -1,8 +1,5 @@
-// Package query implements the three monitor query backends: metric (reads
-// observability.metrics_1m), apm (reads observability.spans_1m), log (reads
-// observability.logs). Each backend exposes Scalar (single-value evaluation)
-// and Series (bucketed timeseries for the detail-page chart). The evaluator
-// dispatches by monitor type via the Backends map.
+// Package query implements the query backends (metric, apm, log)
+// for monitor evaluation and timeseries generation.
 package query
 
 import (
@@ -15,9 +12,8 @@ import (
 	models "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/shared/models"
 )
 
-// ScalarResult is the single value Scalar returns. HasData is false when the
-// underlying CH query produced no rows (or below min_sample); the decide
-// function reads this to apply the monitor's no_data disposition.
+// ScalarResult is the value returned by Scalar. HasData is false if
+// the ClickHouse query returns no rows.
 type ScalarResult struct {
 	Value   float64
 	HasData bool
@@ -29,22 +25,20 @@ type Point struct {
 	Value    float64 `json:"value"`
 }
 
-// Backend is the per-type query interface. Implementations: metric, apm, log.
+// Backend is the query interface implemented by metric, apm, and log.
 type Backend interface {
 	Scalar(ctx context.Context, m models.MonitorRow, q models.MonitorQuery, scope models.Scope, cond models.Conditions, now time.Time) (ScalarResult, error)
 	Series(ctx context.Context, m models.MonitorRow, q models.MonitorQuery, scope models.Scope, cond models.Conditions, windowMs int64, now time.Time) ([]Point, error)
 }
 
-// Registry bundles the three backends so the evaluator and the monitors-series
-// handler can dispatch without importing each backend directly.
+// Registry bundles the backends to allow evaluator and series dispatch.
 type Registry struct {
 	Metric Backend
 	APM    Backend
 	Log    Backend
 }
 
-// For returns the backend for the given monitor type. Returns nil + an error
-// when the type isn't one of metric/apm/log.
+// For returns the backend for the given monitor type.
 func (r Registry) For(t string) (Backend, error) {
 	switch t {
 	case "metric":
@@ -91,5 +85,5 @@ func scopeServiceTag(scope models.Scope, key string) string {
 
 // teamIDArg binds the team_id parameter as CH UInt32.
 func teamIDArg(teamID int64) any {
-	return clickhouse.Named("teamID", uint32(teamID)) //nolint:gosec // G115 — TeamID fits UInt32
+	return clickhouse.Named("teamID", uint32(teamID))
 }

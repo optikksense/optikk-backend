@@ -28,8 +28,8 @@ func (s *Service) GetSlowQueryPatterns(ctx context.Context, teamID, startMs, end
 			P50Ms:          &p50,
 			P95Ms:          &p95,
 			P99Ms:          &p99,
-			CallCount:      int64(r.CallCount),  //nolint:gosec
-			ErrorCount:     int64(r.ErrorCount), //nolint:gosec
+			CallCount:      int64(r.CallCount),
+			ErrorCount:     int64(r.ErrorCount),
 		}
 	}
 	return out, nil

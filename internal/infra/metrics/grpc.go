@@ -5,9 +5,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// gRPC ingest calls (OTLP export) run orders of magnitude faster than API
-// HTTP requests — most are sub-10 ms writes to Kafka. Buckets optimised
-// for that range: 0.5 ms → 1 s.
+// grpcBuckets are optimized for fast OTLP writes (sub-10ms) ranging from
+// 0.5ms to 1s.
 var grpcBuckets = []float64{.0005, .001, .005, .01, .025, .05, .1, .25, .5, 1}
 
 var (

@@ -44,26 +44,26 @@ func AttrsToMap(kvs []*commonpb.KeyValue) map[string]string {
 	return m
 }
 
-// ResourceFingerprint computes a stable, order-independent xxhash64 of resource attributes.
+// ResourceFingerprint computes a stable xxhash64 of resource attributes.
 func ResourceFingerprint(kvs []*commonpb.KeyValue) uint64 {
 	if len(kvs) == 0 {
 		return 0
 	}
 
-	// 1. Copy and Sort lexicographically by Key to guarantee order-independent hashing
+	// 1. Sort lexicographically by key to ensure order-independent hashing
 	sorted := make([]*commonpb.KeyValue, len(kvs))
 	copy(sorted, kvs)
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[i].Key < sorted[j].Key
 	})
 
-	// 2. Hash using xxhash with null-byte delimiters to prevent boundary collisions
+	// 2. Hash using xxhash with null-byte delimiters to prevent collisions
 	h := xxhash.New()
 	for _, kv := range sorted {
 		_, _ = h.Write([]byte(kv.Key))
-		_, _ = h.Write([]byte{0}) // null delimiter
+		_, _ = h.Write([]byte{0})
 		_, _ = h.Write([]byte(AnyValueString(kv.Value)))
-		_, _ = h.Write([]byte{0}) // null delimiter
+		_, _ = h.Write([]byte{0})
 	}
 	return h.Sum64()
 }
@@ -73,7 +73,7 @@ func NanoToTime(ns uint64) time.Time {
 	if ns == 0 {
 		return time.Now()
 	}
-	return time.Unix(0, int64(ns)) //nolint:gosec // G115
+	return time.Unix(0, int64(ns))
 }
 
 // BytesToHex converts a byte slice to a hex string.

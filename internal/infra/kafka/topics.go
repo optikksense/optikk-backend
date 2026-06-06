@@ -12,16 +12,15 @@ import (
 	"github.com/twmb/franz-go/pkg/kerr"
 )
 
-// Signal name constants — used by topic naming and the observability hooks.
+// Signal name constants used by topic naming and the observability hooks.
 const (
 	SignalSpans   = "spans"
 	SignalLogs    = "logs"
 	SignalMetrics = "metrics"
 )
 
-// TopicSpec describes one Kafka topic that EnsureTopics will create at boot
-// if missing. Existing topics are left as-is (we don't reconfigure live
-// retention/replication — that's an ops concern).
+// TopicSpec describes a Kafka topic to be created at boot if missing.
+// Existing topics are left untouched.
 type TopicSpec struct {
 	Name           string
 	Partitions     int32
@@ -29,8 +28,8 @@ type TopicSpec struct {
 	RetentionHours int
 }
 
-// EnsureTopics creates each spec's topic on the broker if missing. Idempotent:
-// TopicAlreadyExists is treated as success. Called once at app boot.
+// EnsureTopics creates the specified topics on the broker if missing.
+// It is idempotent and called once at app boot.
 func EnsureTopics(ctx context.Context, brokers []string, specs []TopicSpec) error {
 	cli, err := NewProducerClient(Config{Brokers: brokers})
 	if err != nil {
@@ -77,8 +76,8 @@ func isTopicExists(err error) bool {
 	return strings.Contains(strings.ToLower(err.Error()), "topic already exists")
 }
 
-// IngestTopic returns "{prefix}.{signal}" — e.g. ("optikk.ingest","spans") → "optikk.ingest.spans".
+// IngestTopic returns "{prefix}.{signal}" (e.g. "optikk.ingest.spans").
 func IngestTopic(prefix, signal string) string { return prefix + "." + signal }
 
-// DLQTopic returns "{dlqPrefix}.{signal}" — e.g. ("optikk.dlq","spans") → "optikk.dlq.spans".
+// DLQTopic returns "{dlqPrefix}.{signal}" (e.g. "optikk.dlq.spans").
 func DLQTopic(dlqPrefix, signal string) string { return dlqPrefix + "." + signal }

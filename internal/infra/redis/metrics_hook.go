@@ -11,9 +11,8 @@ import (
 	goredis "github.com/redis/go-redis/v9"
 )
 
-// redis metrics live here rather than in internal/infra/metrics because
-// they're specific to this subsystem and the collector is a local-import
-// go-redis hook. Keeps the metrics package free of go-redis dependency.
+// Redis metrics are defined here to keep the general metrics package free
+// of the go-redis dependency.
 var (
 	redisCommandsTotal = promauto.NewCounterVec(prometheus.CounterOpts{
 		Namespace: "optikk",
@@ -35,8 +34,7 @@ type metricsHook struct{}
 
 var _ goredis.Hook = metricsHook{}
 
-// DialHook is a pass-through — connect-level timing doesn't add enough
-// signal over the existing go-redis pool metrics.
+// DialHook is a pass-through. Connect-level timing is omitted.
 func (metricsHook) DialHook(next goredis.DialHook) goredis.DialHook {
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		return next(ctx, network, addr)

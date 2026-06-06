@@ -7,10 +7,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 )
 
-// ---------------------------------------------------------------------------
-// OTel semantic-convention names + canonical metric names. Re-exported here
-// so consumers don't reach into the internal/shared package.
-// ---------------------------------------------------------------------------
+// OTel semantic-convention names and canonical metric names.
 
 const (
 	AttrDBSystem         = "db.system"
@@ -50,7 +47,7 @@ type Filters struct {
 func SpanArgs(teamID, startMs, endMs int64) []any {
 	bucketStart, bucketEnd := SpanBucketBounds(startMs, endMs)
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("bucketStart", bucketStart),
 		clickhouse.Named("bucketEnd", bucketEnd),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -112,9 +109,7 @@ func BuildSpanClauses(f Filters) (where string, args []any) {
 	return where, args
 }
 
-// BuildSpans1mClauses is the spans_1m analog of BuildSpanClauses. The four
-// db-attribute paths are first-class columns in spans_1m, extracted in the
-// MV from spans' typed-path attributes.
+// BuildSpans1mClauses builds SQL filter clauses for the spans_1m table.
 func BuildSpans1mClauses(f Filters) (where string, args []any) {
 	if len(f.DBSystem) > 0 {
 		where += ` AND db_system IN @dbSystem`
@@ -167,9 +162,7 @@ func SpanGroupColumn(attr string) string {
 	return ""
 }
 
-// Spans1mGroupColumn is the spans_1m analog of SpanGroupColumn. Returns the
-// concrete spans_1m column name extracted in spans_1m_mv from the attributes
-// JSON path, or first-class column when one already exists on spans_1m.
+// Spans1mGroupColumn returns the spans_1m column name for the attribute.
 func Spans1mGroupColumn(attr string) string {
 	switch attr {
 	case AttrDBSystem:

@@ -1,6 +1,4 @@
-// Package monitors owns CRUD + state actions + history/series readers for the
-// alerting platform's monitor objects. The 6-file pattern is per-responsibility:
-// each *.go file has one job. See the alerting module README in CODEBASE_INDEX.md.
+// Package monitors handles CRUD, state actions, and history for monitors.
 package monitors
 
 import (
@@ -26,18 +24,20 @@ type CreateMonitorRequest struct {
 // UpdateMonitorRequest mirrors Create but is applied to an existing id.
 type UpdateMonitorRequest = CreateMonitorRequest
 
-// MuteRequest takes a duration in seconds (0 = until manually unmuted is
-// not supported; pass a long duration instead).
+// MuteRequest specifies the mute duration in seconds.
 type MuteRequest struct {
 	DurationSec int `json:"duration_sec" binding:"required"`
 }
 
-// ListQuery encapsulates the GET /monitors filters parsed from the query string.
+// ListQuery encapsulates the GET /monitors filters parsed from query string.
 type ListQuery struct {
-	Status   string // alert | warn | ok | no_data | "" (all)
-	Type     string // metric | apm | log | "" (all)
+	// Status values: alert, warn, ok, no_data, or empty (all).
+	Status   string
+	// Type values: metric, apm, log, or empty (all).
+	Type     string
 	Priority string
-	Muted    *bool // nil = any; true = only muted; false = only not-muted
+	// Muted: nil for any, true for only muted, false for only not-muted.
+	Muted    *bool
 	Search   string
 	Limit    int
 	Offset   int

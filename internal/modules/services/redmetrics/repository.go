@@ -47,7 +47,7 @@ func (r *ClickHouseRepository) GetFleetREDMetrics(ctx context.Context, teamID in
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
+		     AND timestamp   BETWEEN @start AND @end
 		GROUP BY service`
 	var rows []redMetricsRow
 	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetFleetREDMetrics",
@@ -80,7 +80,7 @@ func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, start
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
+		     AND timestamp   BETWEEN @start AND @end
 		GROUP BY service
 		ORDER BY total_count DESC`
 	args := append(spanArgs(teamID, startMs, endMs),
@@ -109,8 +109,8 @@ func (r *ClickHouseRepository) GetApdexByService(ctx context.Context, teamID int
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		  AND service   = @serviceName
+		     AND timestamp   BETWEEN @start AND @end
+		WHERE service   = @serviceName
 		GROUP BY service
 		ORDER BY total_count DESC`
 	args := append(spanArgs(teamID, startMs, endMs),
@@ -140,8 +140,8 @@ func (r *ClickHouseRepository) GetServiceREDMetrics(ctx context.Context, teamID 
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		  AND service = @serviceName
+		     AND timestamp   BETWEEN @start AND @end
+		WHERE service = @serviceName
 		GROUP BY service`
 	var rows []redMetricsRow
 	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetServiceREDMetrics",
@@ -175,8 +175,8 @@ func (r *ClickHouseRepository) GetOperationBaseline(ctx context.Context, teamID 
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		  AND service = @serviceName
+		     AND timestamp   BETWEEN @start AND @end
+		WHERE service = @serviceName
 		  AND name    = @operationName`
 	args := append(spanArgs(teamID, startMs, endMs),
 		clickhouse.Named("serviceName", serviceName),
@@ -212,24 +212,23 @@ func (r *ClickHouseRepository) GetServiceSaturationAggs(
 		         AND host        != ''
 		),
 		active_fps AS (
-		    SELECT fingerprint
-		    FROM observability.metrics_resource
+		    SELECT fingerprint, any(service) AS service
+		    FROM observability.metrics_resource AS mr
 		    PREWHERE team_id     = @teamID
 		         AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
-		         AND metric_name IN @metricNames
-		         AND (service = @serviceName OR host IN service_hosts)
+		    WHERE (mr.service = @serviceName OR mr.host IN service_hosts)
+		    GROUP BY fingerprint
 		)
 		SELECT
-		    service,
-		    metric_name,
-		    sum(val_sum) / sum(val_count) AS value
-		FROM observability.metrics_1m
-		PREWHERE team_id     = @teamID
-		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint IN active_fps
-		WHERE metric_name IN @metricNames
-		  AND timestamp BETWEEN @start AND @end
-		  AND (service = @serviceName OR host IN service_hosts)
+		    r.service                         AS service,
+		    m.metric_name                     AS metric_name,
+		    sum(m.val_sum) / sum(m.val_count) AS value
+		FROM observability.metrics_1m AS m
+		INNER JOIN active_fps AS r ON m.fingerprint = r.fingerprint
+		PREWHERE m.team_id     = @teamID
+		     AND m.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND m.metric_name IN @metricNames
+		     AND m.timestamp   BETWEEN @start AND @end
 		GROUP BY service, metric_name`
 	args := append(spanArgs(teamID, startMs, endMs),
 		clickhouse.Named("serviceName", serviceName),
@@ -261,7 +260,7 @@ func (r *ClickHouseRepository) GetRequestAndErrorRateTimeSeries(ctx context.Cont
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
+		     AND timestamp   BETWEEN @start AND @end
 		GROUP BY bucket_at
 		ORDER BY bucket_at ASC`
 	var rows []requestRateRawRow
@@ -273,25 +272,26 @@ func (r *ClickHouseRepository) GetRequestAndErrorRateTimeSeries(ctx context.Cont
 func (r *ClickHouseRepository) GetFleetSaturationAggs(
 	ctx context.Context, teamID int64, startMs, endMs int64, metricNames []string,
 ) ([]serviceMetricRow, error) {
+	// service is grouped from metrics_resource (by fingerprint); the scalar
+	// rollup supplies the values.
 	const query = `
-		WITH active_fps AS (
-		    SELECT fingerprint
-		    FROM observability.metrics_resource
-		    PREWHERE team_id     = @teamID
-		         AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
-		         AND metric_name IN @metricNames
+		WITH fps AS (
+		    SELECT fingerprint, any(service) AS service
+		    FROM observability.metrics_resource AS mr
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		    WHERE mr.service != ''
+		    GROUP BY fingerprint
 		)
 		SELECT
-		    service,
-		    metric_name,
-		    sum(val_sum) / sum(val_count) AS value
-		FROM observability.metrics_1m
-		PREWHERE team_id     = @teamID
-		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint IN active_fps
-		WHERE metric_name IN @metricNames
-		  AND timestamp BETWEEN @start AND @end
-		  AND service != ''
+		    r.service                         AS service,
+		    m.metric_name                     AS metric_name,
+		    sum(m.val_sum) / sum(m.val_count) AS value
+		FROM observability.metrics_1m AS m
+		INNER JOIN fps AS r ON m.fingerprint = r.fingerprint
+		PREWHERE m.team_id     = @teamID
+		     AND m.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND m.metric_name IN @metricNames
+		     AND m.timestamp   BETWEEN @start AND @end
 		GROUP BY service, metric_name`
 	args := append(spanArgs(teamID, startMs, endMs),
 		clickhouse.Named("metricNames", metricNames),
@@ -304,7 +304,7 @@ func (r *ClickHouseRepository) GetFleetSaturationAggs(
 func spanArgs(teamID int64, startMs, endMs int64) []any {
 	bucketStart, bucketEnd := spanBucketBounds(startMs, endMs)
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 — TeamID fits UInt32
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("bucketStart", bucketStart),
 		clickhouse.Named("bucketEnd", bucketEnd),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -366,7 +366,8 @@ func (r *ClickHouseRepository) GetStatusTimeSeries(
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
+		     AND timestamp   BETWEEN @start AND @end
+		WHERE 1=1
 		      ` + serviceWherePred(serviceName) + `
 		GROUP BY bucket_at, http_status_bucket
 		ORDER BY bucket_at ASC`
@@ -393,7 +394,8 @@ func (r *ClickHouseRepository) GetLatencyPercentilesTimeSeries(
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
+		     AND timestamp   BETWEEN @start AND @end
+		WHERE 1=1
 		      ` + serviceWherePred(serviceName) + `
 		GROUP BY bucket_at
 		ORDER BY bucket_at ASC`
@@ -439,7 +441,8 @@ func (r *ClickHouseRepository) GetTopEndpointsCombined(
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
+		     AND timestamp   BETWEEN @start AND @end
+		WHERE 1=1
 		      ` + serviceWherePred(serviceName) + `
 		GROUP BY service, name
 		HAVING 1 = 1 ` + paginationFilter + `

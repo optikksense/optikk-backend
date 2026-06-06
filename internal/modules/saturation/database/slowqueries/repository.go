@@ -1,7 +1,4 @@
-// Package slowqueries serves the slow-query panels. Queries operate over
-// raw `observability.spans`: each DB call is one span with `duration_nano`,
-// `db_statement`, and the OTel db.* attributes. No rollup table exists or
-// is needed — the per-query-text grouping is the high-cardinality leaf.
+// Package slowqueries serves the slow-query panels by querying spans.
 package slowqueries
 
 import (
@@ -77,7 +74,7 @@ func (r *ClickHouseRepository) GetSlowQueryPatterns(ctx context.Context, teamID,
 		ORDER BY call_count DESC
 		LIMIT @qLimit`
 
-	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("qLimit", uint64(limit))) //nolint:gosec
+	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("qLimit", uint64(limit)))
 	args = append(args, filterArgs...)
 	var rows []patternRawDTO
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "slowqueries.GetSlowQueryPatterns", &rows, query, args...)

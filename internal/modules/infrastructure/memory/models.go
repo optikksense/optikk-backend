@@ -1,16 +1,12 @@
 package memory
 
-// ---------------------------------------------------------------------------
-// HTTP response DTOs (API contract).
-// ---------------------------------------------------------------------------
+// HTTP response DTOs.
 
 type MetricValue struct {
 	Value float64 `json:"value"`
 }
 
-// ---------------------------------------------------------------------------
-// Internal repository row types — raw rows out of CH.
-// ---------------------------------------------------------------------------
+// Internal repository row types.
 
 type MemoryMetricNameRow struct {
 	MetricName string  `ch:"metric_name"`

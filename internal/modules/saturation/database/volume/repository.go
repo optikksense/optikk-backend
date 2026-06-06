@@ -9,10 +9,7 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
-// Repository runs the volume / read-vs-write panel queries against
-// `observability.spans_1m`. SQL emits per-display-bucket rows with
-// per-second rates computed server-side as
-// `sum(request_count) / @bucketGrainSec`; service is pass-through.
+// Repository runs database volume queries against observability.spans_1m.
 type Repository interface {
 	GetOpsBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]opsRawDTO, error)
 }

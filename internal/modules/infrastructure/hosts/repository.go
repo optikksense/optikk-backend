@@ -25,34 +25,32 @@ func NewRepository(db clickhouse.Conn) Repository {
 	return &ClickHouseRepository{db: db}
 }
 
-// QueryHostUtilization returns one row per (host, metric) for the CPU, memory and
-// disk utilization families across the window. Follows the shared active_fps CTE
-// pattern used by the infra metric repositories.
+// QueryHostUtilization returns metric utilization for CPU, memory, and disk.
 func (r *ClickHouseRepository) QueryHostUtilization(ctx context.Context, teamID, startMs, endMs int64) ([]hostMetricRow, error) {
+	// Host is grouped from metrics_resource; the scalar rollup supplies values.
 	const query = `
-		WITH active_fps AS (
-		    SELECT fingerprint
-		    FROM observability.metrics_resource
-		    WHERE team_id = @teamID
-		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		      AND metric_name IN @metricNames
+		WITH fps AS (
+		    SELECT fingerprint, any(host) AS host
+		    FROM observability.metrics_resource AS mr
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		    WHERE mr.host != ''
+		    GROUP BY fingerprint
 		)
 		SELECT
-		    host                           AS host,
-		    metric_name                    AS metric_name,
-		    sum(val_sum) / sum(val_count)  AS value
-		FROM observability.metrics_1m
-		PREWHERE team_id        = @teamID
-		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint   IN active_fps
-		WHERE metric_name IN @metricNames
-		  AND timestamp BETWEEN @start AND @end
-		  AND host != ''
+		    r.host                            AS host,
+		    m.metric_name                     AS metric_name,
+		    sum(m.val_sum) / sum(m.val_count) AS value
+		FROM observability.metrics_1m AS m
+		INNER JOIN fps AS r ON m.fingerprint = r.fingerprint
+		PREWHERE m.team_id     = @teamID
+		     AND m.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND m.metric_name IN @metricNames
+		     AND m.timestamp   BETWEEN @start AND @end
 		GROUP BY host, metric_name`
 
 	bucketStart, bucketEnd := metricBucketBounds(startMs, endMs)
 	args := []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("bucketStart", bucketStart),
 		clickhouse.Named("bucketEnd", bucketEnd),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -63,8 +61,7 @@ func (r *ClickHouseRepository) QueryHostUtilization(ctx context.Context, teamID,
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "hosts.QueryHostUtilization", &rows, query, args...)
 }
 
-// QueryHostSpans returns per-host RED aggregates from spans_1m restricted to
-// the requested service.
+// QueryHostSpans returns host RED aggregates from spans_1m.
 func (r *ClickHouseRepository) QueryHostSpans(
 	ctx context.Context, teamID, startMs, endMs int64, serviceName string,
 ) ([]hostSpansRow, error) {
@@ -87,8 +84,8 @@ func (r *ClickHouseRepository) QueryHostSpans(
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		  AND service   = @serviceName
+		     AND timestamp   BETWEEN @start AND @end
+		WHERE service   = @serviceName
 		GROUP BY host
 		ORDER BY request_count DESC`
 	args := append(spanArgs(teamID, startMs, endMs),
@@ -108,7 +105,7 @@ func metricBucketBounds(startMs, endMs int64) (uint32, uint32) {
 func spanArgs(teamID, startMs, endMs int64) []any {
 	bucketStart, bucketEnd := metricBucketBounds(startMs, endMs)
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 — TeamID fits UInt32
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("bucketStart", bucketStart),
 		clickhouse.Named("bucketEnd", bucketEnd),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -116,7 +113,7 @@ func spanArgs(teamID, startMs, endMs int64) []any {
 	}
 }
 
-// utilizationMetricNames is the CPU + memory + disk metric families in one slice.
+// utilizationMetricNames returns the CPU, memory, and disk metric names.
 func utilizationMetricNames() []string {
 	names := make([]string, 0, len(infraconsts.CPUMetrics)+len(infraconsts.MemoryMetrics)+len(infraconsts.DiskMetrics))
 	names = append(names, infraconsts.CPUMetrics...)

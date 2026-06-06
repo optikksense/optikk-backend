@@ -10,9 +10,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// HandleRangeQuery is the common shape every kafka panel handler reaches for:
-// pull tenant + required range, fan to a teamID-scoped query, and respond.
-// Free function so each submodule's handler can reuse it without inheritance.
+// HandleRangeQuery parses tenant and range, executes query, and responds.
 func HandleRangeQuery(
 	c *gin.Context,
 	getTenant registry.GetTenantFunc,

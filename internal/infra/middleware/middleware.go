@@ -61,9 +61,8 @@ func CORSMiddleware(allowedOrigins string) gin.HandlerFunc {
 
 		if c.Request.Method == http.MethodOptions {
 			headers.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			// traceparent + tracestate added so browser FetchInstrumentation
-			// can propagate W3C trace context to the backend without tripping
-			// CORS preflight. See optikk-frontend/src/shared/telemetry/browserOtel.ts.
+			// Allow traceparent/tracestate headers for browser FetchInstrumentation
+			// without tripping CORS preflight.
 			headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Team-Id, X-User-Id, X-User-Email, X-User-Role, traceparent, tracestate")
 			headers.Set("Access-Control-Allow-Credentials", "true")
 			c.AbortWithStatus(http.StatusNoContent)
@@ -89,9 +88,8 @@ func ErrorRecovery() gin.HandlerFunc {
 	})
 }
 
-// BodyLimitMiddleware rejects request bodies larger than maxBytes to prevent
-// memory exhaustion from oversized payloads. WebSocket upgrade requests are
-// excluded since they use a different framing protocol.
+// BodyLimitMiddleware limits request bodies to maxBytes.
+// WebSocket requests are excluded.
 func BodyLimitMiddleware(maxBytes int64) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if strings.EqualFold(c.GetHeader("Upgrade"), "websocket") {
@@ -105,7 +103,7 @@ func BodyLimitMiddleware(maxBytes int64) gin.HandlerFunc {
 	}
 }
 
-// publicPrefixes are paths that are always public regardless of HTTP method.
+// publicPrefixes are paths that are always public.
 var publicPrefixes = []string{
 	"/api/v1/auth/login",
 	"/otlp/",
@@ -119,7 +117,7 @@ var publicPOSTPrefixes = []string{
 	"/api/v1/teams",
 }
 
-// isPublicRequest returns true if the request method and path do not require authentication.
+// isPublicRequest checks if the request is public.
 func isPublicRequest(method, path string) bool {
 	for _, p := range publicPrefixes {
 		if strings.HasPrefix(path, p) {
@@ -160,8 +158,7 @@ func abortForbiddenTeam(c *gin.Context, email string, requestedTeamID int64) {
 	))
 }
 
-// resolveTeam returns the effective team ID for the request.
-// It aborts c and returns (0, false) on any auth violation.
+// resolveTeam returns the team ID or aborts on auth violation.
 func resolveTeam(c *gin.Context, state session.AuthState) (int64, bool) {
 	requested := utils.ToInt64(c.GetHeader("X-Team-Id"), 0)
 	if requested == 0 {
@@ -223,8 +220,7 @@ func authorizedForTeam(teamIDs []int64, defaultTeamID, requestedTeamID int64) bo
 	return false
 }
 
-// RequireRole returns middleware that restricts access to users whose role
-// matches one of the allowed roles. Must be placed after TenantMiddleware.
+// RequireRole restricts access to the specified roles.
 func RequireRole(allowed ...string) gin.HandlerFunc {
 	roleSet := make(map[string]struct{}, len(allowed))
 	for _, r := range allowed {

@@ -7,9 +7,8 @@ import (
 	models "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/shared/models"
 )
 
-// MonitorResponse is the wire shape returned by GET / list / create / update.
-// Status fields are pulled from the monitor_state table and reflect the most
-// recent evaluator decision.
+// MonitorResponse is the wire shape returned by GET / list / create / update,
+// reflecting the most recent evaluator decision.
 type MonitorResponse struct {
 	ID               int64                `json:"id"`
 	Name             string               `json:"name"`
@@ -50,9 +49,8 @@ type StatusCounts struct {
 	Total  int `json:"total"`
 }
 
-// toResponse merges a monitors row + (optional) state row into the wire shape.
-// State may be zero-value when no evaluation has happened yet — in that case
-// status defaults to "no_data" with no timestamps.
+// toResponse merges a monitors row + state row into the wire shape.
+// State may be zero-value if no evaluation has happened yet.
 func toResponse(row models.MonitorRow, state models.MonitorStateRow) MonitorResponse {
 	out := MonitorResponse{
 		ID:           row.ID,

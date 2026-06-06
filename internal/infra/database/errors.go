@@ -9,7 +9,7 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 )
 
-// chErrorMessages maps ClickHouse server error codes to human-readable messages.
+// chErrorMessages maps ClickHouse codes to human-readable messages.
 var chErrorMessages = map[int32]string{
 	60:  "Database table not found",
 	16:  "Column not found in table",
@@ -46,9 +46,8 @@ var networkErrorPatterns = []struct {
 // sqlStripPattern matches SQL keywords and everything after them.
 var sqlStripPattern = regexp.MustCompile(`(?i)\s+(SELECT|INSERT|UPDATE|DELETE|FROM|WHERE|IN SCOPE)\s+.*`)
 
-// SanitizeError converts a raw error into a human-readable message suitable for
-// API responses. Full details are preserved in server logs; this function strips
-// SQL queries, stack traces, and internal identifiers.
+// SanitizeError converts a raw error into a clean, human-readable message.
+// It strips SQL queries, stack traces, and internal identifiers.
 func SanitizeError(err error) string {
 	if err == nil {
 		return ""
@@ -80,7 +79,7 @@ func SanitizeError(err error) string {
 	return sanitizeRawMessage(msg)
 }
 
-// sanitizeRawMessage strips SQL query fragments and truncates to a safe length.
+// sanitizeRawMessage strips SQL queries and truncates to a safe length.
 func sanitizeRawMessage(msg string) string {
 	msg = sqlStripPattern.ReplaceAllString(msg, "")
 	msg = strings.TrimSpace(msg)

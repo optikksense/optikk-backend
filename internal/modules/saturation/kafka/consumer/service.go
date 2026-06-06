@@ -18,7 +18,7 @@ func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
 }
 
-// GetConsumeRateByTopic — counter sum per (bucket, topic) divided by bucket-grain seconds.
+// GetConsumeRateByTopic returns counter sum divided by bucket-grain seconds.
 func (s *Service) GetConsumeRateByTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopicRatePoint, error) {
 	rows, err := s.repo.QueryConsumeRateByTopic(ctx, teamID, startMs, endMs)
 	if err != nil {
@@ -36,7 +36,7 @@ func (s *Service) GetConsumeRateByTopic(ctx context.Context, teamID int64, start
 	return out, nil
 }
 
-// GetConsumerLagByGroup — averages lag per (bucket, group, topic).
+// GetConsumerLagByGroup returns average lag per bucket, group, and topic.
 func (s *Service) GetConsumerLagByGroup(ctx context.Context, teamID int64, startMs, endMs int64) ([]LagPoint, error) {
 	rows, err := s.repo.QueryConsumerLagByGroupTopic(ctx, teamID, startMs, endMs)
 	if err != nil {

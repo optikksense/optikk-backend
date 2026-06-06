@@ -14,9 +14,7 @@ const (
 	defaultUnknown = "unknown"
 )
 
-// fleet reads `observability.spans` for per-pod RED aggregates with the same
-// `WITH active_fps AS (... spans_resource ...)` CTE httpmetrics uses for its
-// route/external-host queries. Service derives error_rate / avg_latency_ms.
+// fleet reads spans for per-pod RED aggregates using spans_resource.
 
 type Repository interface {
 	QueryFleetPods(ctx context.Context, teamID int64, startMs, endMs int64) ([]FleetPodAggregateRow, error)
@@ -65,14 +63,12 @@ func (r *ClickHouseRepository) QueryFleetPods(ctx context.Context, teamID int64,
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "fleet.QueryFleetPods", &rows, query, args...)
 }
 
-// ---------------------------------------------------------------------------
-// Local helpers — each module owns its own.
-// ---------------------------------------------------------------------------
+// Local helpers.
 
 func spanArgs(teamID int64, startMs, endMs int64) []any {
 	bucketStart, bucketEnd := spanBucketBounds(startMs, endMs)
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("bucketStart", bucketStart),
 		clickhouse.Named("bucketEnd", bucketEnd),
 		clickhouse.Named("start", time.UnixMilli(startMs)),

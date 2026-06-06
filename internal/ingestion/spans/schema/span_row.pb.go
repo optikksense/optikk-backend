@@ -37,15 +37,12 @@ type Row struct {
 	KindString          string                 `protobuf:"bytes,11,opt,name=kind_string,json=kindString,proto3" json:"kind_string,omitempty"`
 	DurationNano        uint64                 `protobuf:"varint,12,opt,name=duration_nano,json=durationNano,proto3" json:"duration_nano,omitempty"`
 	HasError            bool                   `protobuf:"varint,13,opt,name=has_error,json=hasError,proto3" json:"has_error,omitempty"`
-	IsRemote            bool                   `protobuf:"varint,14,opt,name=is_remote,json=isRemote,proto3" json:"is_remote,omitempty"`
 	StatusCode          int32                  `protobuf:"varint,15,opt,name=status_code,json=statusCode,proto3" json:"status_code,omitempty"` // int16 at CH
 	StatusCodeString    string                 `protobuf:"bytes,16,opt,name=status_code_string,json=statusCodeString,proto3" json:"status_code_string,omitempty"`
 	StatusMessage       string                 `protobuf:"bytes,17,opt,name=status_message,json=statusMessage,proto3" json:"status_message,omitempty"`
 	HttpUrl             string                 `protobuf:"bytes,18,opt,name=http_url,json=httpUrl,proto3" json:"http_url,omitempty"`
 	HttpMethod          string                 `protobuf:"bytes,19,opt,name=http_method,json=httpMethod,proto3" json:"http_method,omitempty"`
 	HttpHost            string                 `protobuf:"bytes,20,opt,name=http_host,json=httpHost,proto3" json:"http_host,omitempty"`
-	ExternalHttpUrl     string                 `protobuf:"bytes,21,opt,name=external_http_url,json=externalHttpUrl,proto3" json:"external_http_url,omitempty"`
-	ExternalHttpMethod  string                 `protobuf:"bytes,22,opt,name=external_http_method,json=externalHttpMethod,proto3" json:"external_http_method,omitempty"`
 	ResponseStatusCode  string                 `protobuf:"bytes,23,opt,name=response_status_code,json=responseStatusCode,proto3" json:"response_status_code,omitempty"`
 	Attributes          map[string]string      `protobuf:"bytes,24,rep,name=attributes,proto3" json:"attributes,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"bytes,2,opt,name=value"`
 	Events              []string               `protobuf:"bytes,25,rep,name=events,proto3" json:"events,omitempty"`
@@ -54,7 +51,7 @@ type Row struct {
 	ExceptionMessage    string                 `protobuf:"bytes,28,opt,name=exception_message,json=exceptionMessage,proto3" json:"exception_message,omitempty"`
 	ExceptionStacktrace string                 `protobuf:"bytes,29,opt,name=exception_stacktrace,json=exceptionStacktrace,proto3" json:"exception_stacktrace,omitempty"`
 	ExceptionEscaped    bool                   `protobuf:"varint,30,opt,name=exception_escaped,json=exceptionEscaped,proto3" json:"exception_escaped,omitempty"`
-	Fingerprint         string                 `protobuf:"bytes,31,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"`
+	Fingerprint         uint64                 `protobuf:"varint,31,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"`
 	// Top-level resource + span-level labels promoted from attributes JSON; mapper-written, stripped from the attribute map post-extraction.
 	Service          string `protobuf:"bytes,32,opt,name=service,proto3" json:"service,omitempty"`
 	Host             string `protobuf:"bytes,33,opt,name=host,proto3" json:"host,omitempty"`
@@ -192,13 +189,6 @@ func (x *Row) GetHasError() bool {
 	return false
 }
 
-func (x *Row) GetIsRemote() bool {
-	if x != nil {
-		return x.IsRemote
-	}
-	return false
-}
-
 func (x *Row) GetStatusCode() int32 {
 	if x != nil {
 		return x.StatusCode
@@ -237,20 +227,6 @@ func (x *Row) GetHttpMethod() string {
 func (x *Row) GetHttpHost() string {
 	if x != nil {
 		return x.HttpHost
-	}
-	return ""
-}
-
-func (x *Row) GetExternalHttpUrl() string {
-	if x != nil {
-		return x.ExternalHttpUrl
-	}
-	return ""
-}
-
-func (x *Row) GetExternalHttpMethod() string {
-	if x != nil {
-		return x.ExternalHttpMethod
 	}
 	return ""
 }
@@ -311,11 +287,11 @@ func (x *Row) GetExceptionEscaped() bool {
 	return false
 }
 
-func (x *Row) GetFingerprint() string {
+func (x *Row) GetFingerprint() uint64 {
 	if x != nil {
 		return x.Fingerprint
 	}
-	return ""
+	return 0
 }
 
 func (x *Row) GetService() string {
@@ -399,7 +375,7 @@ var File_span_row_proto protoreflect.FileDescriptor
 
 const file_span_row_proto_rawDesc = "" +
 	"\n" +
-	"\x0espan_row.proto\x12\x16optikk.ingest.spans.v1\"\xda\v\n" +
+	"\x0espan_row.proto\x12\x16optikk.ingest.spans.v1\"\xa5\v\n" +
 	"\x03Row\x12\x1b\n" +
 	"\tts_bucket\x18\x01 \x01(\x04R\btsBucket\x12\x17\n" +
 	"\ateam_id\x18\x02 \x01(\rR\x06teamId\x12!\n" +
@@ -416,8 +392,7 @@ const file_span_row_proto_rawDesc = "" +
 	"\vkind_string\x18\v \x01(\tR\n" +
 	"kindString\x12#\n" +
 	"\rduration_nano\x18\f \x01(\x04R\fdurationNano\x12\x1b\n" +
-	"\thas_error\x18\r \x01(\bR\bhasError\x12\x1b\n" +
-	"\tis_remote\x18\x0e \x01(\bR\bisRemote\x12\x1f\n" +
+	"\thas_error\x18\r \x01(\bR\bhasError\x12\x1f\n" +
 	"\vstatus_code\x18\x0f \x01(\x05R\n" +
 	"statusCode\x12,\n" +
 	"\x12status_code_string\x18\x10 \x01(\tR\x10statusCodeString\x12%\n" +
@@ -425,9 +400,7 @@ const file_span_row_proto_rawDesc = "" +
 	"\bhttp_url\x18\x12 \x01(\tR\ahttpUrl\x12\x1f\n" +
 	"\vhttp_method\x18\x13 \x01(\tR\n" +
 	"httpMethod\x12\x1b\n" +
-	"\thttp_host\x18\x14 \x01(\tR\bhttpHost\x12*\n" +
-	"\x11external_http_url\x18\x15 \x01(\tR\x0fexternalHttpUrl\x120\n" +
-	"\x14external_http_method\x18\x16 \x01(\tR\x12externalHttpMethod\x120\n" +
+	"\thttp_host\x18\x14 \x01(\tR\bhttpHost\x120\n" +
 	"\x14response_status_code\x18\x17 \x01(\tR\x12responseStatusCode\x12K\n" +
 	"\n" +
 	"attributes\x18\x18 \x03(\v2+.optikk.ingest.spans.v1.Row.AttributesEntryR\n" +
@@ -438,7 +411,7 @@ const file_span_row_proto_rawDesc = "" +
 	"\x11exception_message\x18\x1c \x01(\tR\x10exceptionMessage\x121\n" +
 	"\x14exception_stacktrace\x18\x1d \x01(\tR\x13exceptionStacktrace\x12+\n" +
 	"\x11exception_escaped\x18\x1e \x01(\bR\x10exceptionEscaped\x12 \n" +
-	"\vfingerprint\x18\x1f \x01(\tR\vfingerprint\x12\x18\n" +
+	"\vfingerprint\x18\x1f \x01(\x04R\vfingerprint\x12\x18\n" +
 	"\aservice\x18  \x01(\tR\aservice\x12\x12\n" +
 	"\x04host\x18! \x01(\tR\x04host\x12\x10\n" +
 	"\x03pod\x18\" \x01(\tR\x03pod\x12'\n" +
@@ -453,7 +426,7 @@ const file_span_row_proto_rawDesc = "" +
 	"\x12http_status_bucket\x18* \x01(\tR\x10httpStatusBucket\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01BMZKgithub.com/Optikk-Org/optikk-backend/internal/ingestion/spans/schema;schemab\x06proto3"
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x0e\x10\x0fJ\x04\b\x15\x10\x16J\x04\b\x16\x10\x17R\tis_remoteR\x11external_http_urlR\x14external_http_methodBMZKgithub.com/Optikk-Org/optikk-backend/internal/ingestion/spans/schema;schemab\x06proto3"
 
 var (
 	file_span_row_proto_rawDescOnce sync.Once

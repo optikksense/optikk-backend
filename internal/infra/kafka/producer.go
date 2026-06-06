@@ -8,9 +8,8 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// Producer is a thin wrapper around *kgo.Client. One instance is shared across
-// all signal producers — kgo batches concurrent Produce calls on the same
-// client into broker-level batches under linger / batch_max_bytes.
+// Producer is a thin wrapper around *kgo.Client shared across all signal
+// producers, batching concurrent Produce calls.
 type Producer struct {
 	client *kgo.Client
 }
@@ -18,8 +17,7 @@ type Producer struct {
 func NewProducer(client *kgo.Client) *Producer { return &Producer{client: client} }
 
 // PublishBatch produces every record asynchronously and waits for all acks.
-// First error wins and is returned to the caller. Callers retry the whole
-// batch as a unit (CH dedup window absorbs replays).
+// The first error is returned, and callers retry the entire batch.
 func (p *Producer) PublishBatch(ctx context.Context, records []*kgo.Record) error {
 	if len(records) == 0 {
 		return nil

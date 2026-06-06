@@ -1,6 +1,4 @@
-// Package shared holds HTTP-side helpers reused across all saturation/kafka
-// submodules' handlers. SQL emission lives in the sibling
-// `internal/modules/saturation/kafka/filter/` package.
+// Package shared holds HTTP-side helpers reused across saturation/kafka.
 package shared
 
 import "github.com/gin-gonic/gin"

@@ -1,8 +1,4 @@
 // Package evaluator runs the BackgroundRunner that ticks the alerting platform.
-// Per tick: load due monitors, evaluate against ClickHouse, decide the new
-// status, persist state + events, fire dispatch. Single responsibility per
-// file: repository owns SQL touches, service owns the per-monitor decide
-// loop, module owns the run.Group integration.
 package evaluator
 
 import (
@@ -15,9 +11,7 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// Repository owns the evaluator-side reads + state mutations. Channels are
-// fetched here too because the evaluator needs them to dispatch — keeping the
-// query in this package avoids a circular import with notifications.
+// Repository owns evaluator-side database reads and state mutations.
 type Repository interface {
 	LoadDue(ctx context.Context, now time.Time, limit int) ([]DueMonitor, error)
 	UpdateState(ctx context.Context, args UpdateStateArgs) error
@@ -34,15 +28,13 @@ func NewRepository(db *sql.DB) *MySQLRepository {
 	return &MySQLRepository{db: sqlx.NewDb(db, "mysql")}
 }
 
-// DueMonitor pairs a monitor row with its current state row (the LEFT JOIN
-// always returns a state row since INSERTs create it).
+// DueMonitor pairs a monitor row with its current state row.
 type DueMonitor struct {
 	Monitor models.MonitorRow
 	State   models.MonitorStateRow
 }
 
-// UpdateStateArgs is the post-evaluation state write. The repo CAS-checks
-// PrevStatus to avoid clobbering a concurrent ack.
+// UpdateStateArgs holds the arguments for updating monitor state.
 type UpdateStateArgs struct {
 	MonitorID          int64
 	PrevStatus         string
@@ -90,8 +82,7 @@ func (r *MySQLRepository) LoadDue(ctx context.Context, now time.Time, limit int)
 	return out, nil
 }
 
-// dueRow flattens the JOIN row for sqlx. Aliases avoid column-name collisions
-// between m.id and s.monitor_id even though sqlx handles `s_` prefixed names.
+// dueRow flattens the JOIN row for sqlx mapping.
 type dueRow struct {
 	models.MonitorRow
 	SMonitorID        sql.NullInt64   `db:"s_monitor_id"`
@@ -125,8 +116,7 @@ func (r dueRow) toDue() DueMonitor {
 }
 
 func (r *MySQLRepository) UpdateState(ctx context.Context, args UpdateStateArgs) error {
-	// CAS on prev status so a concurrent ack doesn't get blown away. If the
-	// status moved out from under us, the next tick will re-evaluate.
+	// Perform CAS on prev status to avoid clobbering concurrent changes.
 	q := `
 		UPDATE observability.monitor_state
 		   SET status = ?, current_value = ?, last_evaluated_at = ?, next_evaluation_at = ?,

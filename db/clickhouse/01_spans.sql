@@ -13,15 +13,12 @@ CREATE TABLE IF NOT EXISTS observability.spans (
     kind_string                           LowCardinality(String) CODEC(ZSTD(1)),
     duration_nano                         UInt64          CODEC(T64, ZSTD(1)),
     has_error                             Bool            CODEC(T64, ZSTD(1)),
-    is_remote                             Bool            CODEC(T64, ZSTD(1)),
     status_code                           Int16           CODEC(T64, ZSTD(1)),
     status_code_string                    LowCardinality(String) CODEC(ZSTD(1)),
     status_message                        String          CODEC(ZSTD(1)),
     http_url                              LowCardinality(String) CODEC(ZSTD(1)),
     http_method                           LowCardinality(String) CODEC(ZSTD(1)),
     http_host                             LowCardinality(String) CODEC(ZSTD(1)),
-    external_http_url                     LowCardinality(String) CODEC(ZSTD(1)),
-    external_http_method                  LowCardinality(String) CODEC(ZSTD(1)),
     response_status_code                  LowCardinality(String) CODEC(ZSTD(1)),
 
     service                               LowCardinality(String) CODEC(ZSTD(1)),
@@ -38,7 +35,7 @@ CREATE TABLE IF NOT EXISTS observability.spans (
 
     attributes                            JSON(max_dynamic_paths = 100) CODEC(ZSTD(1)),
 
-    fingerprint                           String          CODEC(ZSTD(1)),
+    fingerprint                           UInt64          CODEC(T64, ZSTD(1)),
     events                                Array(String)   CODEC(ZSTD(2)),
     links                                 String          CODEC(ZSTD(1)),
 

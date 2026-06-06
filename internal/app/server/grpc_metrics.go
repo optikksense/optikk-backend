@@ -9,12 +9,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// grpcMetricsUnary records start count, handled count, and handling
-// duration for every unary gRPC call. Method label is the FullMethod
-// (e.g. /opentelemetry.proto.collector.trace.v1.TraceService/Export);
-// code label is the canonical gRPC status string (`OK`, `Unauthenticated`,
-// `Internal`, …). Interceptor is chained first so it times the whole
-// stack including downstream interceptors.
+// grpcMetricsUnary records count and duration for unary gRPC calls.
 func grpcMetricsUnary() grpc.UnaryServerInterceptor {
 	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
 		metrics.GRPCStarted.WithLabelValues(info.FullMethod).Inc()

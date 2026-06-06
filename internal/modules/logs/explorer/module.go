@@ -1,6 +1,4 @@
-// Package explorer owns POST /api/v1/logs/query — the list-only endpoint.
-// Summary / facets / trend are exposed separately at /logs/trends and
-// /logs/facets; the frontend fetches them in parallel as needed.
+// Package explorer implements the logs query endpoint for searching logs.
 package explorer
 
 import (

@@ -1,8 +1,5 @@
-// Package kafka holds the franz-go client construction, the thin Producer +
-// Consumer wrappers used by every signal, and the topic-ensure helper called
-// at app boot. Everything here is signal-agnostic; per-signal config (topic,
-// partitions, consumer group) is declared next to each signal's producer.go /
-// consumer.go.
+// Package kafka provides shared Kafka client helpers for producers and
+// consumers. Per-signal configs are declared next to their handlers.
 package kafka
 
 import (
@@ -12,19 +9,18 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// Config holds broker + producer-tuning inputs every kgo client in this
-// process needs. Per-role options (consumer group, disable auto-commit, etc.)
-// are layered on top inside NewProducerClient / NewConsumerClient.
+// Config holds Kafka broker and producer-tuning configuration inputs.
 type Config struct {
 	Brokers       []string
-	LingerMs      int    // producer linger; default 20ms
-	BatchMaxBytes int    // producer batch cap; default 1 MiB
-	Compression   string // "zstd" (default) | "lz4" | "snappy" | "gzip" | "none"
+	// LingerMs is the producer linger duration (default 20ms).
+	LingerMs      int
+	// BatchMaxBytes is the producer batch cap (default 1 MiB).
+	BatchMaxBytes int
+	// Compression: "zstd" (default), "lz4", "snappy", "gzip", "none".
+	Compression   string
 }
 
-// NewProducerClient returns a kgo.Client tuned for producing. Producer-side
-// batching (linger + batch_max_bytes) is the only batching layer in this
-// pipeline — there is no app-side accumulator.
+// NewProducerClient returns a Kafka client tuned for producing records.
 func NewProducerClient(cfg Config) (*kgo.Client, error) {
 	if len(cfg.Brokers) == 0 {
 		return nil, fmt.Errorf("kafka: brokers required")
@@ -41,8 +37,8 @@ func NewProducerClient(cfg Config) (*kgo.Client, error) {
 	)
 }
 
-// NewConsumerClient returns a kgo.Client joined to groupID and reading topic.
-// Offsets are committed manually after each polled batch is flushed to CH.
+// NewConsumerClient returns a Kafka client configured for the given topic.
+// Offsets are committed manually after each batch is flushed.
 func NewConsumerClient(cfg Config, groupID, topic string) (*kgo.Client, error) {
 	if len(cfg.Brokers) == 0 {
 		return nil, fmt.Errorf("kafka: brokers required")
@@ -70,7 +66,7 @@ func linger(cfg Config) time.Duration {
 
 func batchMax(cfg Config) int32 {
 	if cfg.BatchMaxBytes > 0 {
-		return int32(cfg.BatchMaxBytes) //nolint:gosec // bounded by config
+		return int32(cfg.BatchMaxBytes)
 	}
 	return 1 << 20
 }

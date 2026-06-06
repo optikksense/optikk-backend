@@ -11,8 +11,6 @@ import (
 )
 
 // APMBackend evaluates APM monitors against observability.spans_1m.
-// Tracks: errors (error_count / request_count * 100), hits (request_count
-// per second), latency (quantileTimingMerge p99), apdex (raw spans).
 type APMBackend struct {
 	db clickhouse.Conn
 }
@@ -112,8 +110,6 @@ func (b *APMBackend) Series(ctx context.Context, m models.MonitorRow, q models.M
 }
 
 // apmTrackValue projects the requested track from the aggregate row.
-// Per-second rate divides by the window (in seconds), not the bucket grain,
-// because Scalar is evaluated over the full eval window in one shot.
 func apmTrackValue(track string, row apmAggRow, windowSec int64) float64 {
 	switch track {
 	case "errors":
@@ -129,9 +125,7 @@ func apmTrackValue(track string, row apmAggRow, windowSec int64) float64 {
 	case "latency":
 		return row.P99
 	case "apdex":
-		// Apdex requires raw-span granularity (satisfied/tolerating buckets).
-		// v1 returns 0 here so the monitor renders no-data — callers should
-		// avoid creating apdex monitors until raw-span evaluation lands.
+		// Apdex is not yet supported and returns 0.
 		return 0
 	}
 	return 0

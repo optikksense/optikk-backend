@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS observability.spans_1m (
     team_id              UInt32 CODEC(T64, ZSTD(1)),
     ts_bucket            UInt32 CODEC(DoubleDelta, LZ4),
     timestamp            DateTime CODEC(DoubleDelta, LZ4),
-    fingerprint          String CODEC(ZSTD(1)),
+    fingerprint          UInt64 CODEC(T64, ZSTD(1)),
     error_group_id       String CODEC(ZSTD(1)),
 
     service              LowCardinality(String) CODEC(ZSTD(1)),
@@ -46,19 +46,13 @@ CREATE TABLE IF NOT EXISTS observability.spans_1m (
     error_type           LowCardinality(String) CODEC(ZSTD(1)),
     status_message_hash  UInt64 CODEC(T64, ZSTD(1)),
 
-    -- Sample fields for drill-in (any() over the minute window)
-    sample_status_message       SimpleAggregateFunction(any, String) CODEC(ZSTD(1)),
-    sample_trace_id             SimpleAggregateFunction(any, String) CODEC(ZSTD(1)),
-    sample_exception_stacktrace SimpleAggregateFunction(any, String) CODEC(ZSTD(1)),
-
     -- Latency state — quantileTimingMerge(q)(latency_state) at read time.
     latency_state        AggregateFunction(quantileTiming, Float64) CODEC(ZSTD(1)),
 
     -- Counts + sums.
     request_count        SimpleAggregateFunction(sum, UInt64)  CODEC(T64, ZSTD(1)),
     error_count          SimpleAggregateFunction(sum, UInt64)  CODEC(T64, ZSTD(1)),
-    duration_ms_sum      SimpleAggregateFunction(sum, Float64) CODEC(Gorilla, ZSTD(1)),
-    duration_ms_max      SimpleAggregateFunction(max, Float64) CODEC(Gorilla, ZSTD(1))
+    duration_ms_sum      SimpleAggregateFunction(sum, Float64) CODEC(Gorilla, ZSTD(1))
 ) ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMMDD(timestamp)
 ORDER BY (team_id, ts_bucket, fingerprint, service, name, kind_string, exception_type, error_group_id, status_message_hash, timestamp)
@@ -72,8 +66,8 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS observability.spans_1m_mv
 TO observability.spans_1m AS
 SELECT
     team_id,
-    toUInt32(intDiv(toUnixTimestamp(toStartOfMinute(timestamp)), 300) * 300) AS ts_bucket,
-    toStartOfMinute(timestamp)                                                AS timestamp,
+    toUInt32(intDiv(toUnixTimestamp(timestamp), 300) * 300) AS ts_bucket,
+    toStartOfMinute(timestamp)                              AS timestamp,
     fingerprint,
     lower(hex(halfMD5(concat(service, '|', name, '|', exception_type, '|', toString(cityHash64(status_message)))))) AS error_group_id,
 
@@ -105,15 +99,10 @@ SELECT
     attributes.'error.type'::String          AS error_type,
     cityHash64(status_message)               AS status_message_hash,
 
-    any(status_message)                      AS sample_status_message,
-    any(trace_id)                            AS sample_trace_id,
-    any(exception_stacktrace)                AS sample_exception_stacktrace,
-
     quantileTimingState(duration_nano / 1000000.0)                                    AS latency_state,
     count()                                                                           AS request_count,
     countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                 AS error_count,
-    sum(duration_nano / 1000000.0)                                                    AS duration_ms_sum,
-    max(duration_nano / 1000000.0)                                                    AS duration_ms_max
+    sum(duration_nano / 1000000.0)                                                    AS duration_ms_sum
 FROM observability.spans
 GROUP BY
     team_id, ts_bucket, timestamp, fingerprint,

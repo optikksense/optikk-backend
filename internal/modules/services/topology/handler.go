@@ -14,8 +14,7 @@ type Handler struct {
 	Service Service
 }
 
-// GetTopology is GET /services/topology.
-// Optional ?service=<name> prunes the result to the 1-hop neighborhood of that service.
+// GetTopology returns the service topology graph, optionally filtered.
 func (h *Handler) GetTopology(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)

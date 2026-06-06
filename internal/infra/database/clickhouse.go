@@ -43,12 +43,8 @@ func OpenClickHouseConn(dsn string) (clickhouse.Conn, error) {
 	return conn, nil
 }
 
-// Per-budget ClickHouse settings applied via clickhouse.Context. Lower `priority` = scheduled first when CH is saturated; Dashboard panels run ahead of Explorer scans.
-// use_query_condition_cache (CH 25.3+) memoizes per-granule "did this filter match?"
-// bits across queries with different SELECT shapes but identical PREWHERE/WHERE.
-// Our explorer pattern is "one filter, three SELECT shapes" (/logs/query +
-// /logs/summary + /logs/trend share filter.BuildClauses), so the second and third
-// call hit the cache regardless of which budget tier they ride.
+// Per-budget ClickHouse settings applied via clickhouse.Context.
+// Keeps dashboard queries prioritized over background explorer scans.
 var dashboardSettings = clickhouse.Settings{
 	"max_execution_time":              3,
 	"max_rows_to_read":                20_000_000,

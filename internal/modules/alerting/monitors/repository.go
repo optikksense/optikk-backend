@@ -12,9 +12,7 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// Repository owns every SQL touch for monitors + monitor_state CRUD reads.
-// Mutations that move state (ack/mute/test/transition) live in repository_state.go
-// once the evaluator lands. Phase 1 ships CRUD only.
+// Repository owns all SQL operations for monitors and monitor_state CRUD.
 type Repository interface {
 	Create(ctx context.Context, row insertArgs) (int64, error)
 	Update(ctx context.Context, id, teamID int64, row insertArgs) error
@@ -31,8 +29,7 @@ func NewRepository(db *sql.DB) *MySQLRepository {
 	return &MySQLRepository{db: sqlx.NewDb(db, "mysql")}
 }
 
-// insertArgs bundles the column values for INSERT/UPDATE. Encoding to JSON
-// happens in service.go; the repo just binds bytes verbatim.
+// insertArgs bundles the column values for INSERT/UPDATE operations.
 type insertArgs struct {
 	TeamID           int64
 	Name             string

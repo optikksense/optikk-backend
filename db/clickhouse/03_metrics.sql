@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS observability.metrics (
     is_monotonic         Bool CODEC(T64, ZSTD(1)),
     unit                 LowCardinality(String) DEFAULT '',
     description          LowCardinality(String) DEFAULT '',
-    fingerprint          String CODEC(ZSTD(3)),
+    fingerprint          UInt64 CODEC(T64, ZSTD(1)),
     timestamp            DateTime64(3) CODEC(DoubleDelta, LZ4),
     ts_bucket            UInt32 CODEC(DoubleDelta, LZ4),
     value                Float64 CODEC(Gorilla, ZSTD(1)),
@@ -20,8 +20,6 @@ CREATE TABLE IF NOT EXISTS observability.metrics (
     k8s_namespace        LowCardinality(String) CODEC(ZSTD(1)),
     pod                  LowCardinality(String) CODEC(ZSTD(1)),
     container            LowCardinality(String) CODEC(ZSTD(1)),
-    http_method          LowCardinality(String) CODEC(ZSTD(1)),
-    http_status_code     UInt16 CODEC(T64, ZSTD(1)),
     resource             JSON(max_dynamic_paths=100) CODEC(ZSTD(1)),
     attributes           JSON(max_dynamic_paths=100) CODEC(ZSTD(1))
 ) ENGINE = MergeTree()

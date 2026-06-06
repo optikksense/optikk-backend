@@ -2,7 +2,6 @@ package explorer
 
 import (
 	"net/http"
-	"strings"
 
 	"github.com/Optikk-Org/optikk-backend/internal/shared/errorcode"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
@@ -34,7 +33,7 @@ func (h *Handler) ListMetricNames(c *gin.Context) {
 	for i, r := range results {
 		entries[i] = FEMetricNameEntry{
 			Name:        r.MetricName,
-			Type:        normalizeMetricType(r.MetricType),
+			Type:        r.MetricType,
 			Unit:        r.Unit,
 			Description: r.Description,
 		}
@@ -83,27 +82,10 @@ func (h *Handler) Query(c *gin.Context) {
 	}
 
 	teamID := h.GetTenant(c).TeamID
-	result, err := h.Service.QueryForFrontend(c.Request.Context(), teamID, req)
+	result, err := h.Service.Query(c.Request.Context(), teamID, req)
 	if err != nil {
 		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to execute explorer query", err)
 		return
 	}
 	modulecommon.RespondOK(c, result)
-}
-
-// normalizeMetricType maps ClickHouse/OTLP metric type names to the lowercase
-// values the frontend Zod schema expects.
-func normalizeMetricType(t string) string {
-	switch strings.ToLower(t) {
-	case "gauge":
-		return "gauge"
-	case "sum":
-		return "counter"
-	case "histogram":
-		return "histogram"
-	case "summary":
-		return "summary"
-	default:
-		return "gauge"
-	}
 }

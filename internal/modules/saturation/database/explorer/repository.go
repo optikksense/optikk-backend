@@ -53,8 +53,8 @@ func (r *ClickHouseRepository) GetSystemSummariesRaw(ctx context.Context, teamID
 		       max(timestamp)                                                                    AS last_seen
 		FROM observability.spans_1m
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		  AND db_system != ''
+		     AND timestamp BETWEEN @start AND @end
+		WHERE db_system != ''
 		GROUP BY db_system
 		ORDER BY query_count DESC`
 
@@ -63,23 +63,18 @@ func (r *ClickHouseRepository) GetSystemSummariesRaw(ctx context.Context, teamID
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "datastoreSystems.GetSystemSummariesRaw", &rows, query, args...)
 }
 
+// GetActiveConnectionsBySystem returns active connections by database system.
 func (r *ClickHouseRepository) GetActiveConnectionsBySystem(ctx context.Context, teamID, startMs, endMs int64) (map[string]int64, error) {
 	const query = `
-		WITH active_fps AS (
-		    SELECT fingerprint
-		    FROM observability.metrics_resource
-		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name = @metricName
-		)
-		SELECT attributes.'db.system'::String   AS db_system,
-		       ifNotFinite(sum(val_sum) / sum(val_count), 0)            AS avg_used
+		SELECT db_system,
+		       ifNotFinite(sum(val_sum) / sum(val_count), 0) AS avg_used
 		FROM observability.metrics_1m
-		PREWHERE team_id        = @teamID
-		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint    IN active_fps
-		     AND metric_name    = @metricName
-		WHERE timestamp BETWEEN @start AND @end
-		  AND attributes.'db.client.connection.state'::String = 'used'
-		  AND attributes.'db.system'::String != ''
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND metric_name = @metricName
+		     AND timestamp   BETWEEN @start AND @end
+		WHERE db_connection_state = 'used'
+		  AND db_system != ''
 		GROUP BY db_system`
 
 	args := filter.MetricArgs(teamID, startMs, endMs, filter.MetricDBConnectionCount)

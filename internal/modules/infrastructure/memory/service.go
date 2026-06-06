@@ -36,17 +36,9 @@ func (s *Service) GetMemoryByInstance(ctx context.Context, teamID int64, host, p
 	return foldMemoryMetricRows(rows), nil
 }
 
-// ---------------------------------------------------------------------------
-// Folds + normalization.
-// ---------------------------------------------------------------------------
+// Folds and normalization helper functions.
 
-// foldMemoryMetricRows blends the 4-metric memory family into a single
-// utilization percentage:
-//   - system.memory.utilization: gauge fraction → ≤1.0 → *100
-//   - jvm.memory.used / jvm.memory.max: ratio used/max * 100
-//
-// Only metrics present produce contributions; remaining are skipped (preserves
-// the original calculateAverage-of-non-empty-slice behaviour).
+// foldMemoryMetricRows blends memory metrics into a utilization percentage.
 func foldMemoryMetricRows(rows []MemoryMetricNameRow) *float64 {
 	by := make(map[string]float64, len(rows))
 	for _, r := range rows {

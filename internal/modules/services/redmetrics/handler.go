@@ -85,7 +85,7 @@ func (h *REDMetricsHandler) GetServiceSummary(c *gin.Context) {
 
 
 
-// GetStatusTimeSeries returns rps split by 2xx/4xx/5xx over time for a service.
+// GetStatusTimeSeries returns status split by HTTP family over time.
 func (h *REDMetricsHandler) GetStatusTimeSeries(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
@@ -101,7 +101,7 @@ func (h *REDMetricsHandler) GetStatusTimeSeries(c *gin.Context) {
 	modulecommon.RespondOK(c, resp)
 }
 
-// GetLatencyPercentilesTimeSeries returns p50/p95/p99 over time for a service.
+// GetLatencyPercentilesTimeSeries returns p50/p95/p99 latency over time.
 func (h *REDMetricsHandler) GetLatencyPercentilesTimeSeries(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
@@ -117,8 +117,7 @@ func (h *REDMetricsHandler) GetLatencyPercentilesTimeSeries(c *gin.Context) {
 	modulecommon.RespondOK(c, resp)
 }
 
-// GetOperationBaseline returns windowed p50/p95/p99 for one service+operation,
-// powering the Trace Detail Duration "N× slower than p50" comparison.
+// GetOperationBaseline returns windowed p50/p95/p99 for service + operation.
 func (h *REDMetricsHandler) GetOperationBaseline(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
@@ -139,9 +138,7 @@ func (h *REDMetricsHandler) GetOperationBaseline(c *gin.Context) {
 	modulecommon.RespondOK(c, resp)
 }
 
-// GetTopEndpointsCombined returns per-operation rate/err/percentiles for the
-// Service Detail endpoints table. Primary + comparison payloads are returned
-// when `compareTo=previous_period` is set, letting the FE compute p99 delta.
+// GetTopEndpointsCombined returns per-operation metrics for the endpoints.
 func (h *REDMetricsHandler) GetTopEndpointsCombined(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)

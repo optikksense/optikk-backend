@@ -11,9 +11,7 @@ import (
 )
 
 // Repository runs latency-by-* panels against `observability.spans_1m`.
-// Each method computes p50/p95/p99 server-side via quantileTimingMerge on
-// the rollup's latency_state; service.go is a trivial passthrough. The
-// heatmap path stays on raw spans (needs per-span band classification).
+// It computes percentiles via quantileTimingMerge on latency_state.
 type Repository interface {
 	GetLatencyBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyRawDTO, error)
 }

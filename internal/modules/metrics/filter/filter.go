@@ -1,13 +1,5 @@
-// Package filter owns the typed Filters shape, canonical resource-key
-// resolution, and SQL clause emission for the metrics module's read path.
-//
-// Metrics is an open-dimension explorer — the user can filter on any tag key
-// — so Filters keeps a generic Tags []TagFilter list rather than a closed
-// set of typed dimensions like logs/traces. BuildClauses partitions that
-// list internally into a resource-CTE fragment (canonical resource keys
-// against observability.metrics_resource) and a row-WHERE fragment
-// (everything else against observability.metrics's per-data-point attributes
-// JSON column).
+// Package filter defines the Filters shape, canonical resource-key
+// resolution, and SQL clause emission for the metrics read path.
 package filter
 
 import (
@@ -34,18 +26,14 @@ type Filters struct {
 	Tags []TagFilter
 }
 
-// TagFilter is a single filter row (post-handler-normalization). Operator
-// values are the SQL forms ("=", "!=", "IN", "NOT IN") — frontend operator
-// names ("eq"/"neq"/"in"/"not_in") are mapped before reaching here.
+// TagFilter represents a single filter row with SQL-form operators.
 type TagFilter struct {
 	Key      string
 	Operator string
 	Values   []string
 }
 
-// validAggregations is the set of aggregation functions the repo supports.
-// Kept here so Validate can check up front rather than the repo failing
-// halfway through query construction.
+// validAggregations is the set of supported aggregation functions.
 var validAggregations = map[string]bool{
 	"avg": true, "sum": true, "min": true, "max": true, "count": true,
 	"p50": true, "p75": true, "p95": true, "p99": true,
@@ -100,9 +88,7 @@ func Canonical(key string) string {
 	return keyAliases[key]
 }
 
-// ResourceColumn returns the metrics_resource column for a canonical
-// resource key. metrics_resource stores these as flat LowCardinality
-// columns, so the CTE-side fragment is a simple "<col> IN @<bind>" form.
+// ResourceColumn returns the low-cardinality column for a resource key.
 func ResourceColumn(canonical string) string {
 	switch canonical {
 	case "service":
@@ -117,28 +103,12 @@ func ResourceColumn(canonical string) string {
 	return ""
 }
 
-// AttrColumn returns the JSON-path column expression for a non-resource
-// tag key against observability.metrics's per-data-point attributes column.
-// The key is sanitized against [a-zA-Z0-9._-] before being spliced in.
+// AttrColumn returns the attributes JSON column expression for a tag key.
 func AttrColumn(key string) string {
 	return "attributes.`" + SanitizeKey(key) + "`::String"
 }
 
-// GroupByColumn picks the flat resource column (when canonical) or AttrColumn
-// for the SELECT/GROUP BY of a user-supplied groupBy key. metrics_1m carries
-// the canonical resource dims as flat LowCardinality columns, so resource
-// group-bys read those directly rather than a resource JSON path.
-func GroupByColumn(key string) string {
-	if canonical := Canonical(key); canonical != "" {
-		return ResourceColumn(canonical)
-	}
-	return AttrColumn(key)
-}
-
-// SanitizeKey strips characters outside [a-zA-Z0-9._-]. The metrics module
-// accepts arbitrary user-supplied tag keys for column expressions; this
-// guard prevents SQL injection via the key part. Values always bind via
-// clickhouse.Named() and never need this.
+// SanitizeKey strips characters outside [a-zA-Z0-9._-] to prevent injection.
 func SanitizeKey(key string) string {
 	var b strings.Builder
 	b.Grow(len(key))
@@ -161,18 +131,8 @@ var validOperators = map[string]bool{
 	"NOT IN": true,
 }
 
-// BuildClauses partitions f.Tags into (resourceWhere, where, args) ready to
-// splice into the canonical metrics query shape (see package doc).
-//
-// Resource keys collapse into 8 stable bind names (services / excServices /
-// hosts / excHosts / environments / excEnvironments / k8sNamespaces /
-// excK8sNamespaces) — multiple filter rows on the same canonical key fold
-// into one IN/NOT IN clause. Row-side keys emit per-row clauses with
-// indexed bind names (mf0, mf1, …).
-//
-// Identical filter shapes (same set of canonical keys touched, same row-key
-// order) produce byte-identical SQL strings — CH's plan cache can hit.
-func BuildClauses(f Filters) (resourceWhere, where string, args []any) {
+// BuildClauses partitions f.Tags into resource and attribute clauses.
+func BuildClauses(f Filters) (resourceWhere, attrWhere string, args []any) {
 	type resourceAccum struct {
 		positive []string
 		negative []string
@@ -208,22 +168,21 @@ func BuildClauses(f Filters) (resourceWhere, where string, args []any) {
 		rowIdx++
 		switch t.Operator {
 		case "=":
-			where += " AND " + col + " = @" + bind
+			attrWhere += " AND " + col + " = @" + bind
 			args = append(args, clickhouse.Named(bind, t.Values[0]))
 		case "!=":
-			where += " AND " + col + " != @" + bind
+			attrWhere += " AND " + col + " != @" + bind
 			args = append(args, clickhouse.Named(bind, t.Values[0]))
 		case "IN":
-			where += " AND " + col + " IN @" + bind
+			attrWhere += " AND " + col + " IN @" + bind
 			args = append(args, clickhouse.Named(bind, t.Values))
 		case "NOT IN":
-			where += " AND " + col + " NOT IN @" + bind
+			attrWhere += " AND " + col + " NOT IN @" + bind
 			args = append(args, clickhouse.Named(bind, t.Values))
 		}
 	}
 
-	// Emit resource clauses in fixed order so identical filter shapes produce
-	// byte-identical SQL even when the input list ordering varies.
+	// Emit resource clauses in a fixed order for plan cache hits.
 	for _, spec := range []struct {
 		canonical string
 		col       string
@@ -246,5 +205,5 @@ func BuildClauses(f Filters) (resourceWhere, where string, args []any) {
 		}
 	}
 
-	return resourceWhere, where, args
+	return resourceWhere, attrWhere, args
 }

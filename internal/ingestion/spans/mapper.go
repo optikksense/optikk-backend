@@ -31,7 +31,7 @@ func mapRequest(teamID int64, req *tracepb.ExportTraceServiceRequest) []*schema.
 			resAttrs = rs.Resource.Attributes
 		}
 		resMap := otlp.AttrsToMap(resAttrs)
-		fp := fingerprint.Calculate(resMap)
+		fp := fingerprint.CalculateHash(resMap)
 		for _, ss := range rs.GetScopeSpans() {
 			for _, s := range ss.GetSpans() {
 				rows = append(rows, buildSpanRow(teamID, resMap, fp, s))
@@ -41,7 +41,7 @@ func mapRequest(teamID int64, req *tracepb.ExportTraceServiceRequest) []*schema.
 	return rows
 }
 
-func buildSpanRow(teamID int64, resMap map[string]string, fp string, s *trace.Span) *schema.Row {
+func buildSpanRow(teamID int64, resMap map[string]string, fp uint64, s *trace.Span) *schema.Row {
 	timestampNs := s.GetStartTimeUnixNano()
 	tsBucket := timebucket.BucketStart(int64(timestampNs / nsPerSecond))
 
@@ -59,19 +59,13 @@ func buildSpanRow(teamID int64, resMap map[string]string, fp string, s *trace.Sp
 	httpURL := firstNonEmpty(spanMap, "http.url", "url.full")
 	httpHost := firstNonEmpty(spanMap, "http.host", "net.host.name")
 	httpStatus := firstNonEmpty(spanMap, "http.status_code", "http.response.status_code")
-	externalURL := ""
-	externalMethod := ""
-	if s.GetKind() == trace.Span_SPAN_KIND_CLIENT {
-		externalURL = httpURL
-		externalMethod = httpMethod
-	}
 
 	stripPromotedKeys(merged)
 
 	return &schema.Row{
 		TsBucket:            uint64(tsBucket),
-		TeamId:              uint32(teamID),     //nolint:gosec
-		TimestampNs:         int64(timestampNs), //nolint:gosec
+		TeamId:              uint32(teamID),
+		TimestampNs:         int64(timestampNs),
 		TraceId:             zeroOut(otlp.BytesToHex(s.GetTraceId()), zeroTraceHex),
 		SpanId:              zeroOut(otlp.BytesToHex(s.GetSpanId()), zeroSpanHex),
 		ParentSpanId:        zeroOut(otlp.BytesToHex(s.GetParentSpanId()), zeroSpanHex),
@@ -82,15 +76,12 @@ func buildSpanRow(teamID int64, resMap map[string]string, fp string, s *trace.Sp
 		KindString:          spanKindString(s.GetKind()),
 		DurationNano:        spanDuration(s),
 		HasError:            statusCode == trace.Status_STATUS_CODE_ERROR,
-		IsRemote:            false,
 		StatusCode:          int32(statusCode),
 		StatusCodeString:    statusCodeString(statusCode),
 		StatusMessage:       statusMsg,
 		HttpUrl:             httpURL,
 		HttpMethod:          httpMethod,
 		HttpHost:            httpHost,
-		ExternalHttpUrl:     externalURL,
-		ExternalHttpMethod:  externalMethod,
 		ResponseStatusCode:  httpStatus,
 		HttpStatusBucket:    httpStatusBucket(httpStatus, statusCode == trace.Status_STATUS_CODE_ERROR),
 		Service:             resMap["service.name"],
@@ -235,9 +226,8 @@ func firstNonEmpty(m map[string]string, keys ...string) string {
 	return ""
 }
 
-// promotedSpanKeys are the OTLP attribute keys promoted to dedicated CH
-// columns; the row's attribute map is stripped of these post-extraction so the
-// JSON column doesn't carry duplicates.
+// promotedSpanKeys are OTLP attribute keys promoted to dedicated CH columns.
+// These are stripped post-extraction to prevent duplicate JSON data.
 var promotedSpanKeys = []string{
 	"http.method", "http.request.method",
 	"http.url", "url.full",

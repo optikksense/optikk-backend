@@ -12,10 +12,7 @@ import (
 	models "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/shared/models"
 )
 
-// Service owns business logic for the four notification sub-resources. The
-// integrations catalog is static — it lists every supported channel type and
-// flags Slack as "connected" while the rest stay "not_connected" until their
-// transports are wired (out of scope for v1).
+// Service owns business logic for the four notification sub-resources.
 type Service struct {
 	repo       Repository
 	dispatcher dispatch.Dispatcher
@@ -110,9 +107,7 @@ func (s *Service) ListChannels(ctx context.Context, teamID int64) ([]ChannelResp
 	return out, nil
 }
 
-// TestChannel runs a synthetic dispatch against the configured transport.
-// The synthetic Payload mirrors a real "Alerting" trigger so users see what
-// real Slack messages will look like in their channel.
+// TestChannel runs a synthetic dispatch mirroring a real Alerting trigger.
 func (s *Service) TestChannel(ctx context.Context, teamID, id int64) (map[string]any, error) {
 	row, err := s.repo.GetChannel(ctx, id, teamID)
 	if err != nil {
@@ -334,9 +329,6 @@ func buildTemplateRow(teamID int64, req CreateTemplateRequest) (models.TemplateR
 // Integrations catalog ------------------------------------------------------
 
 // integrationCatalog is the static catalog rendered by the Integrations tab.
-// Only Slack is "connected" (its Transport is wired); everything else stays
-// "not_connected" with a count that reflects channels of that type created via
-// the channels endpoint (the rows still go through the Stub transport).
 var integrationCatalog = []struct {
 	ID    string
 	Name  string
@@ -353,9 +345,7 @@ var integrationCatalog = []struct {
 	{"jira", "Jira", "Auto-create tickets on trigger", "#2563eb"},
 }
 
-// ListIntegrations returns the catalog with channel counts and connected flag.
-// Slack is the only type marked "connected"; the count reflects how many
-// channels of each type the team has configured.
+// ListIntegrations returns the catalog with channel counts and status.
 func (s *Service) ListIntegrations(ctx context.Context, teamID int64) ([]IntegrationCatalogEntry, error) {
 	rows, err := s.repo.ListChannels(ctx, teamID)
 	if err != nil {

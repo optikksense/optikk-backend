@@ -13,10 +13,8 @@ type Service struct {
 
 func NewService(repo *Repository) *Service { return &Service{repo: repo} }
 
-// Compute fires ONE CH query that returns top-N values for all four resource
-// dims (service/host/pod/environment) on observability.logs_resource. Severity
-// is a static label list — see models.SeverityLabels — no DB call. Rows are
-// folded into the typed Facets struct by `dim`.
+// Compute returns top-N values for service, host, pod, and environment facets.
+// Severity is populated from static models.SeverityLabels.
 func (s *Service) Compute(ctx context.Context, f filter.Filters) (models.Facets, error) {
 	rows, err := s.repo.Compute(ctx, f)
 	if err != nil {

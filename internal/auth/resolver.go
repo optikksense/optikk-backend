@@ -30,9 +30,8 @@ type TeamResolver interface {
 	ResolveTeamID(ctx context.Context, apiKey string) (int64, error)
 }
 
-// Authenticator is the single implementation of TeamResolver used by the
-// gRPC ingest interceptor. MySQL is the source of truth; Redis caches hits
-// and invalid-key sentinels for cacheTTL to spare the DB.
+// Authenticator resolves API keys using MySQL, caching hits and invalid keys
+// in Redis for cacheTTL to minimize DB load.
 type Authenticator struct {
 	db    *sql.DB
 	redis *goredis.Client
@@ -60,8 +59,8 @@ func (a *Authenticator) ResolveTeamID(ctx context.Context, apiKey string) (int64
 	return id, nil
 }
 
-// lookupCache returns (teamID, true) on cache hit; (0, false) on miss or error.
-// Invalid-key sentinel is surfaced via error in the caller below.
+// lookupCache returns (teamID, true) on hit, or (0, false) on miss/error.
+// Invalid-key sentinel is handled as an error in the caller.
 func (a *Authenticator) lookupCache(ctx context.Context, apiKey string) (int64, bool) {
 	if a.redis == nil {
 		return 0, false
@@ -98,7 +97,8 @@ func (a *Authenticator) cacheSet(ctx context.Context, apiKey, value string) {
 	if a.redis == nil {
 		return
 	}
-	_ = a.redis.Set(ctx, apiKeyCacheKey(apiKey), value, cacheTTL).Err() //nolint:errcheck
+	//nolint:errcheck
+	_ = a.redis.Set(ctx, apiKeyCacheKey(apiKey), value, cacheTTL).Err()
 }
 
 func apiKeyCacheKey(apiKey string) string {
