@@ -168,7 +168,6 @@ func (h *ErrorHandler) GetErrorGroupFacets(c *gin.Context) {
 	}
 	modulecommon.RespondOK(c, facets)
 }
-
 // Migrated from errortracking
 
 func (h *ErrorHandler) GetErrorHotspot(c *gin.Context) {
@@ -185,3 +184,4 @@ func (h *ErrorHandler) GetErrorHotspot(c *gin.Context) {
 	}
 	modulecommon.RespondOK(c, cells)
 }
+

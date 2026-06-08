@@ -12,3 +12,4 @@ type MemoryMetricNameRow struct {
 	MetricName string  `ch:"metric_name"`
 	Value      float64 `ch:"value"`
 }
+

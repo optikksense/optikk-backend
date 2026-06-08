@@ -84,7 +84,6 @@ type rawTimeBucketCountRow struct {
 	BucketAt time.Time `ch:"bucket_at"`
 	Count    uint64    `ch:"count"`
 }
-
 type rawErrorHotspotRow struct {
 	ServiceName   string `ch:"service"`
 	OperationName string `ch:"operation_name"`
@@ -92,6 +91,7 @@ type rawErrorHotspotRow struct {
 	ErrorCount    uint64 `ch:"error_count"`
 	TotalCount    uint64 `ch:"total_count"`
 }
+
 
 type ErrorGroupsCursor struct {
 	ErrorCount uint64 `json:"cnt"`

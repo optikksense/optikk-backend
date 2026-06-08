@@ -440,6 +440,7 @@ func (s *Service) GetErrorHotspot(ctx context.Context, teamID int64, startMs, en
 	return cells, nil
 }
 
+
 // --- helpers (service-layer derivations) ---
 
 func httpBucketToCode(bucket string) int {
