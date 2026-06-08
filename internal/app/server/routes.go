@@ -71,14 +71,11 @@ func (a *App) healthReady(c *gin.Context) {
 		if res.chErr != "" {
 			payload["clickhouse"] = res.chErr
 		}
-		if res.redisErr != "" {
-			payload["redis"] = res.redisErr
-		}
 		c.JSON(http.StatusServiceUnavailable, payload)
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{"status": "ready", "mysql": "ok", "clickhouse": "ok", "redis": "ok"})
+	c.JSON(http.StatusOK, gin.H{"status": "ready", "mysql": "ok", "clickhouse": "ok"})
 }
 
 func (a *App) probeReady(ctx context.Context) *healthResult {
@@ -90,15 +87,6 @@ func (a *App) probeReady(ctx context.Context) *healthResult {
 	if err := a.Infra.CH.Ping(ctx); err != nil {
 		slog.ErrorContext(ctx, "health check failed", slog.String("service", "clickhouse"), slog.String("error", err.Error()))
 		res.chErr = err.Error()
-		return res
-	}
-	if a.Infra.RedisClient == nil {
-		res.redisErr = "client not configured"
-		return res
-	}
-	if err := a.Infra.RedisClient.Ping(ctx).Err(); err != nil {
-		slog.ErrorContext(ctx, "health check failed", slog.String("service", "redis"), slog.String("error", err.Error()))
-		res.redisErr = err.Error()
 		return res
 	}
 	res.ready = true

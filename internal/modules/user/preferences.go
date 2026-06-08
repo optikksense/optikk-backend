@@ -1,4 +1,4 @@
-package userpage
+package user
 
 type UserPreferences struct {
 	Theme                string   `json:"theme,omitempty"`

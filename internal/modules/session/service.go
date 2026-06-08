@@ -2,15 +2,12 @@ package session
 
 import (
 	"context"
-	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/Optikk-Org/optikk-backend/internal/config"
-	"github.com/alexedwards/scs/redisstore"
 	"github.com/alexedwards/scs/v2"
-	redigoredis "github.com/gomodule/redigo/redis"
 )
 
 const (
@@ -21,14 +18,13 @@ const (
 	authTeamIDsKey       = "auth_team_ids"
 )
 
-type SessionManager struct {
+// Service manages the application HTTP sessions.
+type Service struct {
 	*scs.SessionManager
 }
 
-func NewManager(cfg config.Config, pool *redigoredis.Pool) (*SessionManager, error) {
-	if pool == nil {
-		return nil, fmt.Errorf("redis pool is required for sessions")
-	}
+// NewService creates and configures a new session service.
+func NewService(cfg config.Config, repo *Repository) *Service {
 	sessionManager := scs.New()
 	sessionManager.Lifetime = cfg.SessionLifetime()
 	sessionManager.IdleTimeout = cfg.SessionIdleTimeout()
@@ -40,47 +36,51 @@ func NewManager(cfg config.Config, pool *redigoredis.Pool) (*SessionManager, err
 	sessionManager.Cookie.Secure = cfg.Session.CookieSecure
 	sessionManager.Cookie.SameSite = parseSameSite(cfg.Session.CookieSameSite)
 	sessionManager.Cookie.Persist = true
-	sessionManager.Store = redisstore.New(pool)
+	sessionManager.Store = repo.Store
 
-	return &SessionManager{
+	return &Service{
 		SessionManager: sessionManager,
-	}, nil
+	}
 }
 
-func (m *SessionManager) Wrap(next http.Handler) http.Handler {
-	return m.LoadAndSave(next)
+// Wrap wraps an http.Handler with session middleware.
+func (s *Service) Wrap(next http.Handler) http.Handler {
+	return s.LoadAndSave(next)
 }
 
-func (m *SessionManager) CreateAuthSession(ctx context.Context, state AuthState) error {
-	if err := m.RenewToken(ctx); err != nil {
+// CreateAuthSession creates a session for the authenticated user.
+func (s *Service) CreateAuthSession(ctx context.Context, state AuthState) error {
+	if err := s.RenewToken(ctx); err != nil {
 		return err
 	}
-	m.clearAuthState(ctx)
+	s.clearAuthState(ctx)
 
-	m.Put(ctx, authUserIDKey, state.UserID)
-	m.Put(ctx, authEmailKey, state.Email)
-	m.Put(ctx, authRoleKey, state.Role)
-	m.Put(ctx, authDefaultTeamIDKey, state.DefaultTeamID)
-	m.Put(ctx, authTeamIDsKey, encodeInt64List(state.TeamIDs))
+	s.Put(ctx, authUserIDKey, state.UserID)
+	s.Put(ctx, authEmailKey, state.Email)
+	s.Put(ctx, authRoleKey, state.Role)
+	s.Put(ctx, authDefaultTeamIDKey, state.DefaultTeamID)
+	s.Put(ctx, authTeamIDsKey, encodeInt64List(state.TeamIDs))
 	return nil
 }
 
-func (m *SessionManager) DestroySession(ctx context.Context) error {
-	return m.Destroy(ctx)
+// DestroySession terminates the current session.
+func (s *Service) DestroySession(ctx context.Context) error {
+	return s.Destroy(ctx)
 }
 
-func (m *SessionManager) GetAuthState(ctx context.Context) (AuthState, bool) {
-	userID := m.GetInt64(ctx, authUserIDKey)
+// GetAuthState retrieves the AuthState from the current session.
+func (s *Service) GetAuthState(ctx context.Context) (AuthState, bool) {
+	userID := s.GetInt64(ctx, authUserIDKey)
 	if userID == 0 {
 		return AuthState{}, false
 	}
 
 	state := AuthState{
 		UserID:        userID,
-		Email:         m.GetString(ctx, authEmailKey),
-		Role:          m.GetString(ctx, authRoleKey),
-		DefaultTeamID: m.GetInt64(ctx, authDefaultTeamIDKey),
-		TeamIDs:       decodeInt64List(m.GetString(ctx, authTeamIDsKey)),
+		Email:         s.GetString(ctx, authEmailKey),
+		Role:          s.GetString(ctx, authRoleKey),
+		DefaultTeamID: s.GetInt64(ctx, authDefaultTeamIDKey),
+		TeamIDs:       decodeInt64List(s.GetString(ctx, authTeamIDsKey)),
 	}
 
 	if len(state.TeamIDs) == 0 && state.DefaultTeamID > 0 {
@@ -90,12 +90,12 @@ func (m *SessionManager) GetAuthState(ctx context.Context) (AuthState, bool) {
 	return state, true
 }
 
-func (m *SessionManager) clearAuthState(ctx context.Context) {
-	m.Remove(ctx, authUserIDKey)
-	m.Remove(ctx, authEmailKey)
-	m.Remove(ctx, authRoleKey)
-	m.Remove(ctx, authDefaultTeamIDKey)
-	m.Remove(ctx, authTeamIDsKey)
+func (s *Service) clearAuthState(ctx context.Context) {
+	s.Remove(ctx, authUserIDKey)
+	s.Remove(ctx, authEmailKey)
+	s.Remove(ctx, authRoleKey)
+	s.Remove(ctx, authDefaultTeamIDKey)
+	s.Remove(ctx, authTeamIDsKey)
 }
 
 func encodeInt64List(values []int64) string {

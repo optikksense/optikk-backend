@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/metrics"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/session"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/session"
 	"github.com/Optikk-Org/optikk-backend/internal/shared/errorcode"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"

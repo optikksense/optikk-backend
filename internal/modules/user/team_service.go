@@ -1,31 +1,22 @@
-package team
+package user
 
 import (
+	"context"
+	"log/slog"
 	"strings"
 	"time"
-
-	"log/slog"
-
-	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
 )
 
-type Service struct {
-	repo Repository
-}
-
-func NewService(repo Repository) *Service {
-	return &Service{repo: repo}
-}
-
+// GetTeams returns active teams in the same organization.
 func (s *Service) GetTeams(teamID int64) ([]TeamResponse, error) {
 	currentTeam, err := s.repo.FindTeamByID(teamID)
 	if err != nil {
-		return nil, usershared.NewInternalError("Failed to load team", err)
+		return nil, NewInternalError("Failed to load team", err)
 	}
 
 	teams, err := s.repo.ListActiveTeamsByOrganization(currentTeam.OrgName)
 	if err != nil {
-		return nil, usershared.NewInternalError("Failed to load teams", err)
+		return nil, NewInternalError("Failed to load teams", err)
 	}
 
 	items := make([]TeamResponse, 0, len(teams))
@@ -35,14 +26,15 @@ func (s *Service) GetTeams(teamID int64) ([]TeamResponse, error) {
 	return items, nil
 }
 
+// GetMyTeams returns all teams associated with the given user.
 func (s *Service) GetMyTeams(userID int64) ([]TeamSummary, error) {
 	user, err := s.repo.FindActiveUserByID(userID)
 	if err != nil {
-		return nil, usershared.NewInternalError("Failed to load teams", err)
+		return nil, NewInternalError("Failed to load teams", err)
 	}
 
-	memberships, _ := usershared.ParseTeamMemberships(usershared.ValueOr(user.TeamsJSON, "[]"))
-	teamIDs := usershared.TeamIDsFromMemberships(memberships)
+	memberships, _ := ParseTeamMemberships(ValueOr(user.TeamsJSON, "[]"))
+	teamIDs := TeamIDsFromMemberships(memberships)
 	if len(teamIDs) == 0 {
 		return []TeamSummary{}, nil
 	}
@@ -54,7 +46,7 @@ func (s *Service) GetMyTeams(userID int64) ([]TeamSummary, error) {
 
 	teams, err := s.repo.ListActiveTeamsByIDs(teamIDs)
 	if err != nil {
-		return nil, usershared.NewInternalError("Failed to load teams", err)
+		return nil, NewInternalError("Failed to load teams", err)
 	}
 
 	items := make([]TeamSummary, 0, len(teams))
@@ -71,27 +63,30 @@ func (s *Service) GetMyTeams(userID int64) ([]TeamSummary, error) {
 	return items, nil
 }
 
+// GetTeamByID retrieves a team by its ID.
 func (s *Service) GetTeamByID(teamID int64) (TeamResponse, error) {
 	team, err := s.repo.FindTeamByID(teamID)
 	if err != nil {
-		return TeamResponse{}, usershared.NewNotFoundError("Team not found", err)
+		return TeamResponse{}, NewNotFoundError("Team not found", err)
 	}
 	return toTeamResponse(team), nil
 }
 
+// GetTeamBySlug retrieves a team by its slug.
 func (s *Service) GetTeamBySlug(currentTeamID int64, slug string) (TeamResponse, error) {
 	currentTeam, err := s.repo.FindTeamByID(currentTeamID)
 	if err != nil {
-		return TeamResponse{}, usershared.NewInternalError("Failed to load team", err)
+		return TeamResponse{}, NewInternalError("Failed to load team", err)
 	}
 
 	team, err := s.repo.FindTeamBySlug(currentTeam.OrgName, slug)
 	if err != nil {
-		return TeamResponse{}, usershared.NewNotFoundError("Team not found", err)
+		return TeamResponse{}, NewNotFoundError("Team not found", err)
 	}
 	return toTeamResponse(team), nil
 }
 
+// CreateTeam inserts a new team with an API key.
 func (s *Service) CreateTeam(req CreateTeamRequest) (TeamResponse, error) {
 	name := strings.TrimSpace(req.TeamName)
 	orgName := strings.TrimSpace(req.OrgName)
@@ -105,9 +100,9 @@ func (s *Service) CreateTeam(req CreateTeamRequest) (TeamResponse, error) {
 		color = "#3B82F6"
 	}
 
-	apiKey, err := usershared.GenerateAPIKey()
+	apiKey, err := GenerateAPIKey()
 	if err != nil {
-		return TeamResponse{}, usershared.NewInternalError("Failed to generate api key", err)
+		return TeamResponse{}, NewInternalError("Failed to generate api key", err)
 	}
 
 	var descriptionPtr *string
@@ -124,25 +119,26 @@ func (s *Service) CreateTeam(req CreateTeamRequest) (TeamResponse, error) {
 	if err != nil {
 		slog.Error("Failed to create team", slog.Any("error", err), slog.String("org_name", orgName), slog.String("name", name))
 		if strings.Contains(err.Error(), "1062") || strings.Contains(err.Error(), "Duplicate entry") {
-			return TeamResponse{}, usershared.NewValidationError("Team already exists in this organization", err)
+			return TeamResponse{}, NewValidationError("Team already exists in this organization", err)
 		}
-		return TeamResponse{}, usershared.NewInternalError("Failed to create team", err)
+		return TeamResponse{}, NewInternalError("Failed to create team", err)
 	}
 
 	team, err := s.repo.FindTeamByID(teamID)
 	if err != nil {
-		return TeamResponse{}, usershared.NewInternalError("Failed to load created team", err)
+		return TeamResponse{}, NewInternalError("Failed to load created team", err)
 	}
 	return toTeamResponse(team), nil
 }
 
+// AddUserToTeam adds a user to a team with a specific role.
 func (s *Service) AddUserToTeam(userID, teamID int64, role string) error {
 	user, err := s.repo.FindUserByID(userID)
 	if err != nil {
-		return usershared.NewInternalError("User not found", err)
+		return NewInternalError("User not found", err)
 	}
 
-	memberships, _ := usershared.ParseTeamMemberships(usershared.ValueOr(user.TeamsJSON, "[]"))
+	memberships, _ := ParseTeamMemberships(ValueOr(user.TeamsJSON, "[]"))
 	found := false
 	for i, membership := range memberships {
 		if membership.TeamID == teamID {
@@ -152,44 +148,50 @@ func (s *Service) AddUserToTeam(userID, teamID int64, role string) error {
 		}
 	}
 	if !found {
-		memberships = append(memberships, usershared.TeamMembership{TeamID: teamID, Role: role})
+		memberships = append(memberships, TeamMembership{TeamID: teamID, Role: role})
 	}
 
-	teamsJSON, err := usershared.BuildTeamMembershipsJSON(memberships)
+	teamsJSON, err := BuildTeamMembershipsJSON(memberships)
 	if err != nil {
-		return usershared.NewInternalError("Failed to build teams JSON", err)
+		return NewInternalError("Failed to build teams JSON", err)
 	}
 	if err := s.repo.UpdateUserTeams(userID, teamsJSON); err != nil {
-		return usershared.NewInternalError("Unable to add user to team", err)
+		return NewInternalError("Unable to add user to team", err)
 	}
 	return nil
 }
 
+// RemoveUserFromTeam removes a user from a team.
 func (s *Service) RemoveUserFromTeam(userID, teamID int64) error {
 	user, err := s.repo.FindUserByID(userID)
 	if err != nil {
-		return usershared.NewInternalError("User not found", err)
+		return NewInternalError("User not found", err)
 	}
 
-	memberships, _ := usershared.ParseTeamMemberships(usershared.ValueOr(user.TeamsJSON, "[]"))
-	filtered := make([]usershared.TeamMembership, 0, len(memberships))
+	memberships, _ := ParseTeamMemberships(ValueOr(user.TeamsJSON, "[]"))
+	filtered := make([]TeamMembership, 0, len(memberships))
 	for _, membership := range memberships {
 		if membership.TeamID != teamID {
 			filtered = append(filtered, membership)
 		}
 	}
 
-	teamsJSON, err := usershared.BuildTeamMembershipsJSON(filtered)
+	teamsJSON, err := BuildTeamMembershipsJSON(filtered)
 	if err != nil {
-		return usershared.NewInternalError("Failed to build teams JSON", err)
+		return NewInternalError("Failed to build teams JSON", err)
 	}
 	if err := s.repo.UpdateUserTeams(userID, teamsJSON); err != nil {
-		return usershared.NewInternalError("Unable to remove user from team", err)
+		return NewInternalError("Unable to remove user from team", err)
 	}
 	return nil
 }
 
-func toTeamResponse(team usershared.TeamRecord) TeamResponse {
+// FindTeamIDByAPIKey resolves a team ID from its API key.
+func (s *Service) FindTeamIDByAPIKey(ctx context.Context, apiKey string) (int64, error) {
+	return s.repo.FindTeamIDByAPIKey(ctx, apiKey)
+}
+
+func toTeamResponse(team TeamRecord) TeamResponse {
 	return TeamResponse{
 		ID:          team.ID,
 		OrgName:     team.OrgName,

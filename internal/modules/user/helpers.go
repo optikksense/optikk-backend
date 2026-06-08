@@ -1,4 +1,4 @@
-package shared
+package user
 
 import (
 	"crypto/rand"
@@ -7,6 +7,7 @@ import (
 	"strings"
 )
 
+// ParseTeamMemberships parses the json string of memberships.
 func ParseTeamMemberships(raw string) ([]TeamMembership, error) {
 	var memberships []TeamMembership
 	if raw == "" || raw == "null" {
@@ -16,6 +17,7 @@ func ParseTeamMemberships(raw string) ([]TeamMembership, error) {
 	return memberships, err
 }
 
+// BuildTeamMembershipsJSON encodes memberships into a json string.
 func BuildTeamMembershipsJSON(memberships []TeamMembership) (string, error) {
 	if len(memberships) == 0 {
 		return "[]", nil
@@ -24,6 +26,7 @@ func BuildTeamMembershipsJSON(memberships []TeamMembership) (string, error) {
 	return string(data), err
 }
 
+// TeamIDsFromMemberships extracts team ids from a list of memberships.
 func TeamIDsFromMemberships(memberships []TeamMembership) []int64 {
 	ids := make([]int64, len(memberships))
 	for i, membership := range memberships {
@@ -32,6 +35,7 @@ func TeamIDsFromMemberships(memberships []TeamMembership) []int64 {
 	return ids
 }
 
+// GenerateAPIKey generates a new secure random API key.
 func GenerateAPIKey() (string, error) {
 	bytes := make([]byte, 32)
 	if _, err := rand.Read(bytes); err != nil {
@@ -40,7 +44,7 @@ func GenerateAPIKey() (string, error) {
 	return hex.EncodeToString(bytes), nil
 }
 
-// NullableString returns nil if s is empty, mapping it to SQL NULL.
+// NullableString maps an empty string to nil.
 func NullableString(s string) *string {
 	trimmed := strings.TrimSpace(s)
 	if trimmed == "" {
@@ -49,6 +53,7 @@ func NullableString(s string) *string {
 	return &trimmed
 }
 
+// ValueOrEmpty returns the string value or empty if nil.
 func ValueOrEmpty(s *string) string {
 	if s == nil {
 		return ""
@@ -56,6 +61,7 @@ func ValueOrEmpty(s *string) string {
 	return *s
 }
 
+// ValueOr returns the string value or a default fallback if nil.
 func ValueOr(s *string, fallback string) string {
 	if s == nil {
 		return fallback

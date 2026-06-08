@@ -17,8 +17,6 @@ type Config struct {
 	MySQL          MySQLConfig      `yaml:"mysql"`
 	ClickHouse     ClickHouseConfig `yaml:"clickhouse"`
 	Session        SessionConfig    `yaml:"session"`
-	OtlRedisStream OtlRedisStream   `yaml:"otl_redis_stream"`
-	Redis          RedisConfig      `yaml:"redis"`
 	Kafka          KafkaConfig      `yaml:"kafka"`
 	OTLP           OTLPConfig       `yaml:"otlp"`
 	Retention      RetentionConfig  `yaml:"retention"`
@@ -130,21 +128,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("session.cookie_http_only", false)
 	v.SetDefault("session.cookie_same_site", "")
 
-	// otl_redis_stream
-	v.SetDefault("otl_redis_stream.max_len_approx", 0)
-	v.SetDefault("otl_redis_stream.logs_max_len_approx", 0)
-	v.SetDefault("otl_redis_stream.stream_ttl_seconds", 0)
-	v.SetDefault("otl_redis_stream.ch_batch_size", 0)
-	v.SetDefault("otl_redis_stream.ch_flush_interval_ms", 0)
-	v.SetDefault("otl_redis_stream.xread_block_ms", 0)
-	v.SetDefault("otl_redis_stream.xread_count", 0)
-
-	// redis
-	v.SetDefault("redis.enabled", false)
-	v.SetDefault("redis.host", "")
-	v.SetDefault("redis.port", "")
-	v.SetDefault("redis.password", "")
-	v.SetDefault("redis.db", 0)
 
 	// kafka (required OTLP ingest queue)
 	v.SetDefault("kafka.broker_list", "")
@@ -171,12 +154,7 @@ func (c Config) validate() error {
 	if err := c.validateKafkaIngestion(); err != nil {
 		return err
 	}
-	if !c.Redis.Enabled {
-		return fmt.Errorf("redis.enabled must be true (required for sessions)")
-	}
-	if err := c.validateRedis(); err != nil {
-		return err
-	}
+
 	isProd := strings.EqualFold(c.Environment, "production")
 	if !isProd {
 		return nil

@@ -12,7 +12,6 @@ type healthResult struct {
 	ready     bool
 	mysqlErr  string
 	chErr     string
-	redisErr  string
 	expiresAt time.Time
 }
 

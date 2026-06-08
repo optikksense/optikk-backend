@@ -1,4 +1,4 @@
-package auth
+package user
 
 import (
 	"context"
@@ -6,35 +6,23 @@ import (
 	"strings"
 	"time"
 
-	sessionauth "github.com/Optikk-Org/optikk-backend/internal/infra/session"
-	usershared "github.com/Optikk-Org/optikk-backend/internal/modules/user/internal/shared"
+	sessionauth "github.com/Optikk-Org/optikk-backend/internal/modules/session"
 	contracts "github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
 	"golang.org/x/crypto/bcrypt"
 )
 
-type Service struct {
-	repo     Repository
-	sessions sessionauth.Manager
-}
-
-func NewService(repo Repository, sessions sessionauth.Manager) *Service {
-	return &Service{
-		repo:     repo,
-		sessions: sessions,
-	}
-}
-
+// Login authenticates a user and establishes their session.
 func (s *Service) Login(ctx context.Context, req LoginRequest, clientIP string) (AuthContextResponse, error) {
 	email := strings.TrimSpace(req.Email)
 	password := strings.TrimSpace(req.Password)
 
 	user, err := s.repo.FindActiveUserByEmail(email)
 	if err != nil {
-		return AuthContextResponse{}, usershared.NewValidationError("Invalid email or password", err)
+		return AuthContextResponse{}, NewValidationError("Invalid email or password", err)
 	}
 
 	if user.PasswordHash != nil && *user.PasswordHash != "" && bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(password)) != nil {
-		return AuthContextResponse{}, usershared.NewValidationError("Invalid email or password", nil)
+		return AuthContextResponse{}, NewValidationError("Invalid email or password", nil)
 	}
 
 	if err := s.repo.UpdateUserLastLogin(user.ID, time.Now().UTC()); err != nil {
@@ -54,16 +42,17 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, clientIP string) 
 		TeamIDs:       teamIDs,
 	}); err != nil {
 		slog.WarnContext(ctx, "AUTH_EVENT session_create_failed", slog.Int64("user_id", user.ID), slog.String("email", user.Email), slog.Any("error", err))
-		return AuthContextResponse{}, usershared.NewInternalError("Failed to create session", err)
+		return AuthContextResponse{}, NewInternalError("Failed to create session", err)
 	}
 
 	slog.InfoContext(ctx, "AUTH_EVENT login_success", slog.Int64("user_id", user.ID), slog.String("email", user.Email), slog.Int64("team_id", teamID), slog.String("ip", clientIP))
 	return response, nil
 }
 
+// Logout destroys the user's active session.
 func (s *Service) Logout(ctx context.Context, tenant contracts.TenantContext, clientIP string) (MessageResponse, error) {
 	if err := s.sessions.DestroySession(ctx); err != nil {
-		return MessageResponse{}, usershared.NewInternalError("Failed to end session", err)
+		return MessageResponse{}, NewInternalError("Failed to end session", err)
 	}
 	if tenant.UserID > 0 {
 		slog.InfoContext(ctx, "AUTH_EVENT logout", slog.Int64("user_id", tenant.UserID), slog.String("email", tenant.UserEmail), slog.String("ip", clientIP))
@@ -71,17 +60,18 @@ func (s *Service) Logout(ctx context.Context, tenant contracts.TenantContext, cl
 	return MessageResponse{Message: "Logged out successfully"}, nil
 }
 
+// AuthContext loads details of the logged-in user.
 func (s *Service) AuthContext(userID int64) (AuthContextResponse, error) {
 	if userID == 0 {
-		return AuthContextResponse{}, usershared.NewUnauthorizedError("Not authenticated", nil)
+		return AuthContextResponse{}, NewUnauthorizedError("Not authenticated", nil)
 	}
 
 	user, err := s.repo.FindActiveUserByID(userID)
 	if err != nil {
-		return AuthContextResponse{}, usershared.NewUnauthorizedError("Not authenticated", err)
+		return AuthContextResponse{}, NewUnauthorizedError("Not authenticated", err)
 	}
 
-	authUser := usershared.AuthUser{
+	authUser := AuthUser{
 		ID:        user.ID,
 		Email:     user.Email,
 		Name:      user.Name,
@@ -90,14 +80,15 @@ func (s *Service) AuthContext(userID int64) (AuthContextResponse, error) {
 	}
 	response, _, _, err := s.buildAuthContextResponse(authUser)
 	if err != nil {
-		return AuthContextResponse{}, usershared.NewUnauthorizedError("Not authenticated: no teams associated", err)
+		return AuthContextResponse{}, NewUnauthorizedError("Not authenticated: no teams associated", err)
 	}
 	return response, nil
 }
 
+// ValidateToken confirms validity of the active tenant session.
 func (s *Service) ValidateToken(tenant contracts.TenantContext) (ValidateTokenResponse, error) {
 	if tenant.UserID == 0 {
-		return ValidateTokenResponse{}, usershared.NewUnauthorizedError("Invalid or expired session", nil)
+		return ValidateTokenResponse{}, NewUnauthorizedError("Invalid or expired session", nil)
 	}
 	return ValidateTokenResponse{
 		Valid:  true,
@@ -107,13 +98,14 @@ func (s *Service) ValidateToken(tenant contracts.TenantContext) (ValidateTokenRe
 	}, nil
 }
 
+// ForgotPassword handles basic password recovery info.
 func (s *Service) ForgotPassword() MessageResponse {
 	return MessageResponse{
 		Message: "Password resets are managed by your IT administrator. Please contact your IT admin for assistance.",
 	}
 }
 
-func (s *Service) buildAuthContextResponse(user usershared.AuthUser) (resp AuthContextResponse, teamID int64, teamIDs []int64, err error) {
+func (s *Service) buildAuthContextResponse(user AuthUser) (resp AuthContextResponse, teamID int64, teamIDs []int64, err error) {
 	teams, err := s.listTeamsForUser(user.TeamsJSON)
 	if err != nil {
 		slog.Warn("AUTH_EVENT team_fetch_failed", slog.Int64("user_id", user.ID), slog.String("email", user.Email), slog.Any("error", err))
@@ -121,7 +113,7 @@ func (s *Service) buildAuthContextResponse(user usershared.AuthUser) (resp AuthC
 	}
 
 	if len(teams) == 0 {
-		return AuthContextResponse{}, 0, nil, usershared.NewValidationError("Account has no associated teams. Contact your administrator.", nil)
+		return AuthContextResponse{}, 0, nil, NewValidationError("Account has no associated teams. Contact your administrator.", nil)
 	}
 
 	var currentTeam *AuthTeamSummary
@@ -151,12 +143,12 @@ func (s *Service) buildAuthContextResponse(user usershared.AuthUser) (resp AuthC
 }
 
 func (s *Service) listTeamsForUser(teamsJSON *string) ([]AuthTeamSummary, error) {
-	memberships, err := usershared.ParseTeamMemberships(usershared.ValueOr(teamsJSON, "[]"))
+	memberships, err := ParseTeamMemberships(ValueOr(teamsJSON, "[]"))
 	if err != nil {
 		return nil, err
 	}
 
-	teamIDs := usershared.TeamIDsFromMemberships(memberships)
+	teamIDs := TeamIDsFromMemberships(memberships)
 	if len(teamIDs) == 0 {
 		return []AuthTeamSummary{}, nil
 	}

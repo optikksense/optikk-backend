@@ -1,4 +1,18 @@
-package userpage
+package user
+
+type LoginRequest struct {
+	Email    string `json:"email" binding:"required,email" example:"user@example.com"`
+	Password string `json:"password" binding:"required" example:"securePassword123"`
+}
+
+type CreateTeamRequest struct {
+	TeamName    string `json:"team_name" binding:"required"`
+	OrgName     string `json:"org_name" binding:"required"`
+	Slug        string `json:"slug"`
+	Description string `json:"description"`
+	Color       string `json:"color"`
+	Icon        string `json:"icon"`
+}
 
 type CreateUserRequest struct {
 	Email     string  `json:"email" binding:"required,email"`

@@ -16,13 +16,11 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/config"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	kafkainfra "github.com/Optikk-Org/optikk-backend/internal/infra/kafka"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/redis"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/session"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/session"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/user"
 	logsignal "github.com/Optikk-Org/optikk-backend/internal/ingestion/logs"
 	metricsignal "github.com/Optikk-Org/optikk-backend/internal/ingestion/metrics"
 	spansignal "github.com/Optikk-Org/optikk-backend/internal/ingestion/spans"
-	redigoredis "github.com/gomodule/redigo/redis"
-	goredis "github.com/redis/go-redis/v9"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -38,8 +36,6 @@ type Infra struct {
 	DB             *sql.DB
 	CH             clickhouse.Conn
 	SessionManager session.Manager
-	RedisClient    *goredis.Client
-	RedisPool      *redigoredis.Pool
 	Authenticator  *auth.Authenticator
 	Ingest         IngestModules
 	LagPollers     []*kafkainfra.LagPoller
@@ -82,44 +78,25 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 		}
 	}()
 
-	redisClients, err := redis.NewClients(cfg)
-	if err != nil {
-		return nil, err
-	}
-	slog.Info("redis connected",
-		slog.String("addr", cfg.RedisAddr()),
-		slog.Int("db", cfg.Redis.DB),
-	)
-	defer func() {
-		if err != nil {
-			redisClients.Pool.Close()
-			_ = redisClients.Client.Close()
-		}
-	}()
-
-	sessionManager, err := newSessionManager(cfg, redisClients.Pool)
-	if err != nil {
-		return nil, err
-	}
+	sessionManager := newSessionManager(cfg, dbConn)
 
 	ingest, producerClient, consumerClients, lagPollers, err := buildIngest(cfg, chConn)
 	if err != nil {
 		return nil, err
 	}
 
-	authenticator := auth.NewAuthenticator(dbConn, redisClients.Client)
+	userRepo := user.NewRepository(dbConn, cfg)
+	authenticator := auth.NewAuthenticator(userRepo)
 
 	return &Infra{
-		DB:              dbConn,
-		CH:              chConn,
-		SessionManager:  sessionManager,
-		RedisClient:     redisClients.Client,
-		RedisPool:       redisClients.Pool,
-		Authenticator:   authenticator,
-		Ingest:          ingest,
-		LagPollers:       lagPollers,
-		KafkaProducer:    producerClient,
-		consumerClients:  consumerClients,
+		DB:             dbConn,
+		CH:             chConn,
+		SessionManager: sessionManager,
+		Authenticator:  authenticator,
+		Ingest:         ingest,
+		LagPollers:     lagPollers,
+		KafkaProducer:  producerClient,
+		consumerClients: consumerClients,
 	}, nil
 }
 
@@ -314,13 +291,6 @@ func (i *Infra) Close() error {
 		i.KafkaProducer.Close()
 		slog.Info("kafka producer closed")
 	}
-	if i.RedisPool != nil {
-		_ = i.RedisPool.Close()
-	}
-	if i.RedisClient != nil {
-		_ = i.RedisClient.Close()
-		slog.Info("redis connection closed")
-	}
 	if i.CH != nil {
 		_ = i.CH.Close()
 		slog.Info("clickhouse connection closed")
@@ -332,9 +302,7 @@ func (i *Infra) Close() error {
 	return nil
 }
 
-func newSessionManager(cfg config.Config, pool *redigoredis.Pool) (session.Manager, error) {
-	if pool == nil {
-		return nil, fmt.Errorf("session manager requires redis pool")
-	}
-	return session.NewManager(cfg, pool)
+func newSessionManager(cfg config.Config, db *sql.DB) session.Manager {
+	repo := session.NewRepository(db)
+	return session.NewService(cfg, repo)
 }
