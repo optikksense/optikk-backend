@@ -20,11 +20,11 @@ type KafkaConfig struct {
 
 	// Producer-side batching knobs (kgo).
 	// Compression is the codec to use, default "zstd".
-	Compression   string `yaml:"compression"`
+	Compression string `yaml:"compression"`
 	// LingerMs is the producer linger duration in ms, default 20.
-	LingerMs      int    `yaml:"linger_ms"`
+	LingerMs int `yaml:"linger_ms"`
 	// BatchMaxBytes is the maximum batch size, default 1 MiB.
-	BatchMaxBytes int    `yaml:"batch_max_bytes"`
+	BatchMaxBytes int `yaml:"batch_max_bytes"`
 }
 
 func (c Config) validateKafkaIngestion() error {

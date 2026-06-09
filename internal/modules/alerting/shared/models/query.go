@@ -10,17 +10,17 @@ type MonitorQuery struct {
 
 // MetricQuery: aggregate a metric over a window with optional resource tags.
 type MetricQuery struct {
-	Metric      string `json:"metric"`
+	Metric string `json:"metric"`
 	// Aggregation can be avg, sum, min, max, p50, p95, or p99.
 	Aggregation string `json:"aggregation"`
 	// WindowSec is the window size in seconds (e.g. 60, 300, 900, 3600).
-	WindowSec   int    `json:"window_sec"`
+	WindowSec int `json:"window_sec"`
 }
 
 // APMQuery: track an apm signal on a service+resource.
 type APMQuery struct {
-	Service   string `json:"service"`
-	Resource  string `json:"resource,omitempty"`
+	Service  string `json:"service"`
+	Resource string `json:"resource,omitempty"`
 	// Track can be errors, hits, latency, or apdex.
 	Track     string `json:"track"`
 	WindowSec int    `json:"window_sec"`
@@ -28,7 +28,7 @@ type APMQuery struct {
 
 // LogQuery: count log events matching a query, grouped optionally.
 type LogQuery struct {
-	Query     string `json:"query"`
+	Query string `json:"query"`
 	// GroupBy can be service, host, status, or none.
 	GroupBy   string `json:"group_by,omitempty"`
 	WindowSec int    `json:"window_sec"`

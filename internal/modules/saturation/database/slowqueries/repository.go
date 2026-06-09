@@ -9,16 +9,12 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
-type Repository interface {
-	GetSlowQueryPatterns(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, limit int) ([]patternRawDTO, error)
-}
-
-type ClickHouseRepository struct {
+type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
-	return &ClickHouseRepository{db: db}
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
 }
 
 type patternRawDTO struct {
@@ -31,7 +27,7 @@ type patternRawDTO struct {
 	ErrorCount     uint64  `ch:"error_count"`
 }
 
-func (r *ClickHouseRepository) GetSlowQueryPatterns(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, limit int) ([]patternRawDTO, error) {
+func (r *Repository) GetSlowQueryPatterns(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, limit int) ([]patternRawDTO, error) {
 	if limit <= 0 {
 		limit = 10
 	}

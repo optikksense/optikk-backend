@@ -8,6 +8,7 @@ import (
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	models "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/shared/models"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/chargs"
 )
 
 // APMBackend evaluates APM monitors against observability.spans_1m.
@@ -132,7 +133,7 @@ func apmTrackValue(track string, row apmAggRow, windowSec int64) float64 {
 }
 
 func apmArgs(teamID int64, service string, startMs, endMs int64) []any {
-	bs, be := bucketBounds(startMs, endMs)
+	bs, be := chargs.BucketBounds(startMs, endMs)
 	return []any{
 		teamIDArg(teamID),
 		clickhouse.Named("bucketStart", bs),

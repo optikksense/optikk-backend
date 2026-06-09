@@ -6,12 +6,12 @@ import (
 
 // Service manages user, team, and auth-related operations.
 type Service struct {
-	repo     Repository
+	repo     *Repository
 	sessions sessionauth.Manager
 }
 
 // NewService creates a new Service instance.
-func NewService(repo Repository, sessions sessionauth.Manager) *Service {
+func NewService(repo *Repository, sessions sessionauth.Manager) *Service {
 	return &Service{
 		repo:     repo,
 		sessions: sessions,

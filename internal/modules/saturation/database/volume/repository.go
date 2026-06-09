@@ -9,24 +9,19 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
-// Repository runs database volume queries against observability.spans_1m.
-type Repository interface {
-	GetOpsBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]opsRawDTO, error)
-}
-
-type ClickHouseRepository struct {
+type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
-	return &ClickHouseRepository{db: db}
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
 }
 
-func (r *ClickHouseRepository) GetOpsBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]opsRawDTO, error) {
+func (r *Repository) GetOpsBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]opsRawDTO, error) {
 	return r.opsSeriesByGroup(ctx, teamID, startMs, endMs, f, filter.AttrDBSystem, "volume.GetOpsBySystem")
 }
 
-func (r *ClickHouseRepository) opsSeriesByGroup(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, attr, traceLabel string) ([]opsRawDTO, error) {
+func (r *Repository) opsSeriesByGroup(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, attr, traceLabel string) ([]opsRawDTO, error) {
 	groupCol := filter.Spans1mGroupColumn(attr)
 	if groupCol == "" {
 		return nil, nil

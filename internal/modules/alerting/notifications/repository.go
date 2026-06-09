@@ -10,38 +10,17 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// Repository owns SQL operations across channels, policies, and templates.
-type Repository interface {
-	CreateChannel(ctx context.Context, row models.ChannelRow) (int64, error)
-	UpdateChannel(ctx context.Context, id, teamID int64, row models.ChannelRow) error
-	DeleteChannel(ctx context.Context, id, teamID int64) error
-	GetChannel(ctx context.Context, id, teamID int64) (models.ChannelRow, error)
-	ListChannels(ctx context.Context, teamID int64) ([]models.ChannelRow, error)
-	CountChannelUsage(ctx context.Context, teamID int64) (map[int64]int, error)
-	MarkChannelDelivered(ctx context.Context, id int64, at time.Time, errText sql.NullString) error
-
-	CreatePolicy(ctx context.Context, row models.PolicyRow) (int64, error)
-	UpdatePolicy(ctx context.Context, id, teamID int64, row models.PolicyRow) error
-	DeletePolicy(ctx context.Context, id, teamID int64) error
-	ListPolicies(ctx context.Context, teamID int64) ([]models.PolicyRow, error)
-
-	CreateTemplate(ctx context.Context, row models.TemplateRow) (int64, error)
-	UpdateTemplate(ctx context.Context, id, teamID int64, row models.TemplateRow) error
-	DeleteTemplate(ctx context.Context, id, teamID int64) error
-	ListTemplates(ctx context.Context, teamID int64) ([]models.TemplateRow, error)
-}
-
-type MySQLRepository struct {
+type Repository struct {
 	db *sqlx.DB
 }
 
-func NewRepository(db *sql.DB) *MySQLRepository {
-	return &MySQLRepository{db: sqlx.NewDb(db, "mysql")}
+func NewRepository(db *sql.DB) *Repository {
+	return &Repository{db: sqlx.NewDb(db, "mysql")}
 }
 
 // Channels ------------------------------------------------------------------
 
-func (r *MySQLRepository) CreateChannel(ctx context.Context, row models.ChannelRow) (int64, error) {
+func (r *Repository) CreateChannel(ctx context.Context, row models.ChannelRow) (int64, error) {
 	res, err := dbutil.ExecSQL(ctx, r.db, "notifications.CreateChannel", `
 		INSERT INTO observability.notification_channels
 		  (team_id, type, name, config_json, status, created_at)
@@ -53,7 +32,7 @@ func (r *MySQLRepository) CreateChannel(ctx context.Context, row models.ChannelR
 	return res.LastInsertId()
 }
 
-func (r *MySQLRepository) UpdateChannel(ctx context.Context, id, teamID int64, row models.ChannelRow) error {
+func (r *Repository) UpdateChannel(ctx context.Context, id, teamID int64, row models.ChannelRow) error {
 	res, err := dbutil.ExecSQL(ctx, r.db, "notifications.UpdateChannel", `
 		UPDATE observability.notification_channels
 		   SET type = ?, name = ?, config_json = ?, updated_at = ?
@@ -69,7 +48,7 @@ func (r *MySQLRepository) UpdateChannel(ctx context.Context, id, teamID int64, r
 	return nil
 }
 
-func (r *MySQLRepository) DeleteChannel(ctx context.Context, id, teamID int64) error {
+func (r *Repository) DeleteChannel(ctx context.Context, id, teamID int64) error {
 	res, err := dbutil.ExecSQL(ctx, r.db, "notifications.DeleteChannel",
 		`DELETE FROM observability.notification_channels WHERE id = ? AND team_id = ?`, id, teamID)
 	if err != nil {
@@ -85,7 +64,7 @@ func (r *MySQLRepository) DeleteChannel(ctx context.Context, id, teamID int64) e
 const channelCols = `id, team_id, type, name, config_json, status,
   last_used_at, last_delivery_at, last_error_text, created_at, updated_at`
 
-func (r *MySQLRepository) GetChannel(ctx context.Context, id, teamID int64) (models.ChannelRow, error) {
+func (r *Repository) GetChannel(ctx context.Context, id, teamID int64) (models.ChannelRow, error) {
 	var row models.ChannelRow
 	err := dbutil.GetSQL(ctx, r.db, "notifications.GetChannel", &row,
 		`SELECT `+channelCols+` FROM observability.notification_channels WHERE id = ? AND team_id = ? LIMIT 1`,
@@ -93,7 +72,7 @@ func (r *MySQLRepository) GetChannel(ctx context.Context, id, teamID int64) (mod
 	return row, err
 }
 
-func (r *MySQLRepository) ListChannels(ctx context.Context, teamID int64) ([]models.ChannelRow, error) {
+func (r *Repository) ListChannels(ctx context.Context, teamID int64) ([]models.ChannelRow, error) {
 	var rows []models.ChannelRow
 	err := dbutil.SelectSQL(ctx, r.db, "notifications.ListChannels", &rows,
 		`SELECT `+channelCols+` FROM observability.notification_channels WHERE team_id = ? ORDER BY created_at DESC`,
@@ -101,7 +80,7 @@ func (r *MySQLRepository) ListChannels(ctx context.Context, teamID int64) ([]mod
 	return rows, err
 }
 
-func (r *MySQLRepository) CountChannelUsage(ctx context.Context, teamID int64) (map[int64]int, error) {
+func (r *Repository) CountChannelUsage(ctx context.Context, teamID int64) (map[int64]int, error) {
 	rows, err := r.db.QueryxContext(ctx, `
 		SELECT j.channel_id AS cid, COUNT(*) AS cnt
 		  FROM observability.monitors m
@@ -126,7 +105,7 @@ func (r *MySQLRepository) CountChannelUsage(ctx context.Context, teamID int64) (
 	return out, rows.Err()
 }
 
-func (r *MySQLRepository) MarkChannelDelivered(ctx context.Context, id int64, at time.Time, errText sql.NullString) error {
+func (r *Repository) MarkChannelDelivered(ctx context.Context, id int64, at time.Time, errText sql.NullString) error {
 	status := "ok"
 	if errText.Valid && errText.String != "" {
 		status = "warn"
@@ -144,7 +123,7 @@ func (r *MySQLRepository) MarkChannelDelivered(ctx context.Context, id int64, at
 const policyCols = `id, team_id, name, match_dsl, actions_json, hits_30d,
   last_used_at, enabled, position, created_at, updated_at`
 
-func (r *MySQLRepository) CreatePolicy(ctx context.Context, row models.PolicyRow) (int64, error) {
+func (r *Repository) CreatePolicy(ctx context.Context, row models.PolicyRow) (int64, error) {
 	res, err := dbutil.ExecSQL(ctx, r.db, "notifications.CreatePolicy", `
 		INSERT INTO observability.notification_policies
 		  (team_id, name, match_dsl, actions_json, enabled, position, created_at)
@@ -156,7 +135,7 @@ func (r *MySQLRepository) CreatePolicy(ctx context.Context, row models.PolicyRow
 	return res.LastInsertId()
 }
 
-func (r *MySQLRepository) UpdatePolicy(ctx context.Context, id, teamID int64, row models.PolicyRow) error {
+func (r *Repository) UpdatePolicy(ctx context.Context, id, teamID int64, row models.PolicyRow) error {
 	res, err := dbutil.ExecSQL(ctx, r.db, "notifications.UpdatePolicy", `
 		UPDATE observability.notification_policies
 		   SET name = ?, match_dsl = ?, actions_json = ?, enabled = ?, position = ?, updated_at = ?
@@ -172,7 +151,7 @@ func (r *MySQLRepository) UpdatePolicy(ctx context.Context, id, teamID int64, ro
 	return nil
 }
 
-func (r *MySQLRepository) DeletePolicy(ctx context.Context, id, teamID int64) error {
+func (r *Repository) DeletePolicy(ctx context.Context, id, teamID int64) error {
 	res, err := dbutil.ExecSQL(ctx, r.db, "notifications.DeletePolicy",
 		`DELETE FROM observability.notification_policies WHERE id = ? AND team_id = ?`, id, teamID)
 	if err != nil {
@@ -185,7 +164,7 @@ func (r *MySQLRepository) DeletePolicy(ctx context.Context, id, teamID int64) er
 	return nil
 }
 
-func (r *MySQLRepository) ListPolicies(ctx context.Context, teamID int64) ([]models.PolicyRow, error) {
+func (r *Repository) ListPolicies(ctx context.Context, teamID int64) ([]models.PolicyRow, error) {
 	var rows []models.PolicyRow
 	err := dbutil.SelectSQL(ctx, r.db, "notifications.ListPolicies", &rows,
 		`SELECT `+policyCols+` FROM observability.notification_policies WHERE team_id = ? ORDER BY position ASC, id ASC`,
@@ -197,7 +176,7 @@ func (r *MySQLRepository) ListPolicies(ctx context.Context, teamID int64) ([]mod
 
 const templateCols = `id, team_id, name, description, body, used_count, created_at, updated_at`
 
-func (r *MySQLRepository) CreateTemplate(ctx context.Context, row models.TemplateRow) (int64, error) {
+func (r *Repository) CreateTemplate(ctx context.Context, row models.TemplateRow) (int64, error) {
 	res, err := dbutil.ExecSQL(ctx, r.db, "notifications.CreateTemplate", `
 		INSERT INTO observability.notification_templates
 		  (team_id, name, description, body, created_at)
@@ -209,7 +188,7 @@ func (r *MySQLRepository) CreateTemplate(ctx context.Context, row models.Templat
 	return res.LastInsertId()
 }
 
-func (r *MySQLRepository) UpdateTemplate(ctx context.Context, id, teamID int64, row models.TemplateRow) error {
+func (r *Repository) UpdateTemplate(ctx context.Context, id, teamID int64, row models.TemplateRow) error {
 	res, err := dbutil.ExecSQL(ctx, r.db, "notifications.UpdateTemplate", `
 		UPDATE observability.notification_templates
 		   SET name = ?, description = ?, body = ?, updated_at = ?
@@ -225,7 +204,7 @@ func (r *MySQLRepository) UpdateTemplate(ctx context.Context, id, teamID int64, 
 	return nil
 }
 
-func (r *MySQLRepository) DeleteTemplate(ctx context.Context, id, teamID int64) error {
+func (r *Repository) DeleteTemplate(ctx context.Context, id, teamID int64) error {
 	res, err := dbutil.ExecSQL(ctx, r.db, "notifications.DeleteTemplate",
 		`DELETE FROM observability.notification_templates WHERE id = ? AND team_id = ?`, id, teamID)
 	if err != nil {
@@ -238,7 +217,7 @@ func (r *MySQLRepository) DeleteTemplate(ctx context.Context, id, teamID int64) 
 	return nil
 }
 
-func (r *MySQLRepository) ListTemplates(ctx context.Context, teamID int64) ([]models.TemplateRow, error) {
+func (r *Repository) ListTemplates(ctx context.Context, teamID int64) ([]models.TemplateRow, error) {
 	var rows []models.TemplateRow
 	err := dbutil.SelectSQL(ctx, r.db, "notifications.ListTemplates", &rows,
 		`SELECT `+templateCols+` FROM observability.notification_templates WHERE team_id = ? ORDER BY created_at DESC`,
@@ -247,7 +226,7 @@ func (r *MySQLRepository) ListTemplates(ctx context.Context, teamID int64) ([]mo
 }
 
 // ChannelInUse checks if any monitor references the given channel.
-func (r *MySQLRepository) ChannelInUse(ctx context.Context, channelID, teamID int64) (bool, error) {
+func (r *Repository) ChannelInUse(ctx context.Context, channelID, teamID int64) (bool, error) {
 	var cnt int
 	err := dbutil.GetSQL(ctx, r.db, "notifications.ChannelInUse", &cnt, `
 		SELECT COUNT(*)

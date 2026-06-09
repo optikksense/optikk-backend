@@ -6,27 +6,22 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/chargs"
 )
 
 const defaultUnknownHost = "unknown"
 
-type Repository interface {
-	QueryHostUtilization(ctx context.Context, teamID, startMs, endMs int64) ([]hostMetricRow, error)
-	QueryHostSpans(ctx context.Context, teamID, startMs, endMs int64, serviceName string) ([]hostSpansRow, error)
-}
-
-type ClickHouseRepository struct {
+type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) Repository {
-	return &ClickHouseRepository{db: db}
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
 }
 
 // QueryHostUtilization returns metric utilization for CPU, memory, and disk.
-func (r *ClickHouseRepository) QueryHostUtilization(ctx context.Context, teamID, startMs, endMs int64) ([]hostMetricRow, error) {
+func (r *Repository) QueryHostUtilization(ctx context.Context, teamID, startMs, endMs int64) ([]hostMetricRow, error) {
 	// Host is grouped from metrics_resource; the scalar rollup supplies values.
 	const query = `
 		WITH fps AS (
@@ -48,7 +43,7 @@ func (r *ClickHouseRepository) QueryHostUtilization(ctx context.Context, teamID,
 		     AND m.timestamp   BETWEEN @start AND @end
 		GROUP BY host, metric_name`
 
-	bucketStart, bucketEnd := metricBucketBounds(startMs, endMs)
+	bucketStart, bucketEnd := chargs.BucketBounds(startMs, endMs)
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("bucketStart", bucketStart),
@@ -62,7 +57,7 @@ func (r *ClickHouseRepository) QueryHostUtilization(ctx context.Context, teamID,
 }
 
 // QueryHostSpans returns host RED aggregates from spans_1m.
-func (r *ClickHouseRepository) QueryHostSpans(
+func (r *Repository) QueryHostSpans(
 	ctx context.Context, teamID, startMs, endMs int64, serviceName string,
 ) ([]hostSpansRow, error) {
 	const query = `
@@ -88,29 +83,13 @@ func (r *ClickHouseRepository) QueryHostSpans(
 		WHERE service   = @serviceName
 		GROUP BY host
 		ORDER BY request_count DESC`
-	args := append(spanArgs(teamID, startMs, endMs),
+	args := append(chargs.RangeArgs(teamID, startMs, endMs),
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("unknownHost", defaultUnknownHost),
 	)
 	var rows []hostSpansRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "hosts.QueryHostSpans",
 		&rows, query, args...)
-}
-
-func metricBucketBounds(startMs, endMs int64) (uint32, uint32) {
-	return timebucket.BucketStart(startMs / 1000),
-		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
-}
-
-func spanArgs(teamID, startMs, endMs int64) []any {
-	bucketStart, bucketEnd := metricBucketBounds(startMs, endMs)
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("bucketStart", bucketStart),
-		clickhouse.Named("bucketEnd", bucketEnd),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
 }
 
 // utilizationMetricNames returns the CPU, memory, and disk metric names.

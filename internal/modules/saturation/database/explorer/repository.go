@@ -9,17 +9,12 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
-type Repository interface {
-	GetSystemSummariesRaw(ctx context.Context, teamID, startMs, endMs int64) ([]systemSummaryRawDTO, error)
-	GetActiveConnectionsBySystem(ctx context.Context, teamID, startMs, endMs int64) (map[string]int64, error)
-}
-
-type ClickHouseRepository struct {
+type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
-	return &ClickHouseRepository{db: db}
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
 }
 
 type systemSummaryRawDTO struct {
@@ -37,7 +32,7 @@ type connRawRow struct {
 	Avg      float64 `ch:"avg_used"`
 }
 
-func (r *ClickHouseRepository) GetSystemSummariesRaw(ctx context.Context, teamID, startMs, endMs int64) ([]systemSummaryRawDTO, error) {
+func (r *Repository) GetSystemSummariesRaw(ctx context.Context, teamID, startMs, endMs int64) ([]systemSummaryRawDTO, error) {
 	const query = `
 		WITH active_fps AS (
 		    SELECT fingerprint
@@ -64,7 +59,7 @@ func (r *ClickHouseRepository) GetSystemSummariesRaw(ctx context.Context, teamID
 }
 
 // GetActiveConnectionsBySystem returns active connections by database system.
-func (r *ClickHouseRepository) GetActiveConnectionsBySystem(ctx context.Context, teamID, startMs, endMs int64) (map[string]int64, error) {
+func (r *Repository) GetActiveConnectionsBySystem(ctx context.Context, teamID, startMs, endMs int64) (map[string]int64, error) {
 	const query = `
 		SELECT db_system,
 		       ifNotFinite(sum(val_sum) / sum(val_count), 0) AS avg_used

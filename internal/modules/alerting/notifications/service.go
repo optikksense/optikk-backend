@@ -14,11 +14,11 @@ import (
 
 // Service owns business logic for the four notification sub-resources.
 type Service struct {
-	repo       Repository
-	dispatcher dispatch.Dispatcher
+	repo       *Repository
+	dispatcher *dispatch.Dispatcher
 }
 
-func NewService(repo Repository, dispatcher dispatch.Dispatcher) *Service {
+func NewService(repo *Repository, dispatcher *dispatch.Dispatcher) *Service {
 	return &Service{repo: repo, dispatcher: dispatcher}
 }
 
@@ -63,15 +63,12 @@ func (s *Service) UpdateChannel(ctx context.Context, teamID, id int64, req Updat
 }
 
 func (s *Service) DeleteChannel(ctx context.Context, teamID, id int64) error {
-	myRepo, ok := s.repo.(*MySQLRepository)
-	if ok {
-		inUse, err := myRepo.ChannelInUse(ctx, id, teamID)
-		if err != nil {
-			return err
-		}
-		if inUse {
-			return ErrChannelInUse
-		}
+	inUse, err := s.repo.ChannelInUse(ctx, id, teamID)
+	if err != nil {
+		return err
+	}
+	if inUse {
+		return ErrChannelInUse
 	}
 	if err := s.repo.DeleteChannel(ctx, id, teamID); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {

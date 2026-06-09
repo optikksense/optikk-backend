@@ -9,10 +9,10 @@ import (
 )
 
 type Service struct {
-	repo Repository
+	repo *Repository
 }
 
-func NewService(repo Repository) *Service {
+func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
 }
 
@@ -439,7 +439,6 @@ func (s *Service) GetErrorHotspot(ctx context.Context, teamID int64, startMs, en
 	}
 	return cells, nil
 }
-
 
 // --- helpers (service-layer derivations) ---
 

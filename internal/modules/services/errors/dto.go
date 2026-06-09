@@ -92,7 +92,6 @@ type rawErrorHotspotRow struct {
 	TotalCount    uint64 `ch:"total_count"`
 }
 
-
 type ErrorGroupsCursor struct {
 	ErrorCount uint64 `json:"cnt"`
 	GroupID    string `json:"id"`

@@ -17,16 +17,16 @@ const (
 // Host is the unified host resource representation. RED traffic fields
 // are populated only when scoped to a service.
 type Host struct {
-	Host       string  `json:"host"`
+	Host string `json:"host"`
 	// Subsystem is "kafka", "database", or "other".
-	Subsystem  string  `json:"subsystem"`
-	CPU        float64 `json:"cpu"`
-	Mem        float64 `json:"mem"`
-	Disk       float64 `json:"disk"`
+	Subsystem string  `json:"subsystem"`
+	CPU       float64 `json:"cpu"`
+	Mem       float64 `json:"mem"`
+	Disk      float64 `json:"disk"`
 	// Saturation is the max of CPU, memory, and disk.
 	Saturation float64 `json:"saturation"`
 	// Tone is "ok", "warn", or "err".
-	Tone       string  `json:"tone"`
+	Tone string `json:"tone"`
 
 	// Service-scoped enrichment — present only when filtered by service.
 	Zone         string     `json:"zone,omitempty"`

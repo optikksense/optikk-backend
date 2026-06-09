@@ -2,30 +2,22 @@ package topology
 
 import (
 	"context"
-	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/chargs"
 )
 
-// Repository runs ClickHouse queries that power the runtime service topology.
-// All derivation logic lives in service.go.
-type Repository interface {
-	GetNodes(ctx context.Context, teamID, startMs, endMs int64, focusService string) ([]nodeAggRow, error)
-	GetEdges(ctx context.Context, teamID, startMs, endMs int64, focusService string) ([]edgeAggRow, error)
-}
-
-type ClickHouseRepository struct {
+type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
-	return &ClickHouseRepository{db: db}
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
 }
 
 // GetNodes returns per-service RED aggregates and p50/p95/p99 latency.
-func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID, startMs, endMs int64, _ string) ([]nodeAggRow, error) {
+func (r *Repository) GetNodes(ctx context.Context, teamID, startMs, endMs int64, _ string) ([]nodeAggRow, error) {
 	const query = `
 		SELECT service                                                AS service,
 		       sum(request_count)                                     AS request_count,
@@ -37,7 +29,7 @@ func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID, startMs, en
 		  AND service != ''
 		GROUP BY service`
 	var rows []nodeAggRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "topology.GetNodes", &rows, query, baseArgs(teamID, startMs, endMs)...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "topology.GetNodes", &rows, query, chargs.RangeArgs(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	for i := range rows {
@@ -51,7 +43,7 @@ func (r *ClickHouseRepository) GetNodes(ctx context.Context, teamID, startMs, en
 }
 
 // GetEdges derives directed edges from parent-child span links.
-func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID, startMs, endMs int64, focusService string) ([]edgeAggRow, error) {
+func (r *Repository) GetEdges(ctx context.Context, teamID, startMs, endMs int64, focusService string) ([]edgeAggRow, error) {
 	const query = `
 		SELECT p.service                                                              AS source,
 		       c.service                                                              AS target,
@@ -83,25 +75,7 @@ func (r *ClickHouseRepository) GetEdges(ctx context.Context, teamID, startMs, en
 	return rows, nil
 }
 
-// baseArgs binds the parameters needed for topology queries.
-func baseArgs(teamID, startMs, endMs int64) []any {
-	bucketStart, bucketEnd := spanBucketBounds(startMs, endMs)
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("bucketStart", bucketStart),
-		clickhouse.Named("bucketEnd", bucketEnd),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
-
 // spanArgs is baseArgs plus the focused-service filter bound for GetEdges.
 func spanArgs(teamID, startMs, endMs int64, focusService string) []any {
-	return append(baseArgs(teamID, startMs, endMs), clickhouse.Named("focusService", focusService))
-}
-
-// spanBucketBounds returns bucket bounds covering [startMs, endMs].
-func spanBucketBounds(startMs, endMs int64) (uint32, uint32) {
-	return timebucket.BucketStart(startMs / 1000),
-		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
+	return append(chargs.RangeArgs(teamID, startMs, endMs), clickhouse.Named("focusService", focusService))
 }

@@ -1,9 +1,8 @@
 package topology
 
 import (
-	"net/http"
+	"context"
 
-	"github.com/Optikk-Org/optikk-backend/internal/shared/errorcode"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -11,22 +10,13 @@ import (
 // Handler serves the runtime service topology API.
 type Handler struct {
 	modulecommon.DBTenant
-	Service Service
+	Service *Service
 }
 
 // GetTopology returns the service topology graph, optionally filtered.
 func (h *Handler) GetTopology(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
 	service := c.Query("service")
-
-	out, err := h.Service.GetTopology(c.Request.Context(), teamID, startMs, endMs, service)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to build service topology", err)
-		return
-	}
-	modulecommon.RespondOK(c, out)
+	modulecommon.HandleRangeQuery(c, h.GetTenant, "Failed to build service topology", func(ctx context.Context, teamID, startMs, endMs int64) (any, error) {
+		return h.Service.GetTopology(ctx, teamID, startMs, endMs, service)
+	})
 }

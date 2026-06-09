@@ -6,7 +6,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/chargs"
 )
 
 type Repository struct {
@@ -102,7 +102,7 @@ func (r *Repository) GetRelatedTraces(ctx context.Context, teamID int64, service
 		  AND trace_id != @excludeTraceID
 		ORDER BY timestamp DESC
 		LIMIT @limit`
-	bucketStart, bucketEnd := spanBucketBounds(startMs, endMs)
+	bucketStart, bucketEnd := chargs.BucketBounds(startMs, endMs)
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("bucketStart", bucketStart),
@@ -218,9 +218,4 @@ func (r *Repository) ListSpansByTrace(ctx context.Context, teamID int64, traceID
 		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("traceID", traceID),
 	)
-}
-
-func spanBucketBounds(startMs, endMs int64) (uint32, uint32) {
-	return timebucket.BucketStart(startMs / 1000),
-		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }

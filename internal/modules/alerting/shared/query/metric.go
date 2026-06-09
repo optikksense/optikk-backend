@@ -8,6 +8,7 @@ import (
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	models "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/shared/models"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/chargs"
 )
 
 // MetricBackend evaluates metric monitors against ClickHouse rollup tables.
@@ -101,7 +102,7 @@ func metricSource(agg string) (table, expr string) {
 }
 
 func metricArgs(teamID int64, metricName string, startMs, endMs int64) []any {
-	bs, be := bucketBounds(startMs, endMs)
+	bs, be := chargs.BucketBounds(startMs, endMs)
 	return []any{
 		teamIDArg(teamID),
 		clickhouse.Named("bucketStart", bs),
@@ -124,9 +125,4 @@ func (s scalarRow) IsZeroNoData() bool { return false }
 type bucketRow struct {
 	Bucket time.Time `ch:"bucket"`
 	Value  float64   `ch:"value"`
-}
-
-func bucketBounds(startMs, endMs int64) (uint32, uint32) {
-	return timebucket.BucketStart(startMs / 1000),
-		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }

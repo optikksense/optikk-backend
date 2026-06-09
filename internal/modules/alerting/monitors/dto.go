@@ -32,13 +32,13 @@ type MuteRequest struct {
 // ListQuery encapsulates the GET /monitors filters parsed from query string.
 type ListQuery struct {
 	// Status values: alert, warn, ok, no_data, or empty (all).
-	Status   string
+	Status string
 	// Type values: metric, apm, log, or empty (all).
 	Type     string
 	Priority string
 	// Muted: nil for any, true for only muted, false for only not-muted.
-	Muted    *bool
-	Search   string
-	Limit    int
-	Offset   int
+	Muted  *bool
+	Search string
+	Limit  int
+	Offset int
 }

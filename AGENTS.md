@@ -78,6 +78,16 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ## 7. Project Specific:
 - Repositories contains only query, no logic in repository files, all the logic moved to service layer 
 
+## 8. Mind-map invariants (keep the codebase navigable)
+- One shape per layer: every module is `module/handler/service/repository/dto/models`.
+- One home per concept: shared CH arg builders live in `internal/shared/chargs`;
+  the range-query handler wrapper is `httputil.HandleRangeQuery`; infra OTel
+  constants live in `infraconsts`. Never re-declare these locally.
+- One policy per pattern: `Repository`/`Service` are concrete structs.
+  Interfaces only at points of real polymorphism (`dispatch.Transport`,
+  `query.Backend`) — never for a single implementation.
+- Dependencies point one way: handler → service → repository.
+
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.

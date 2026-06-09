@@ -1,9 +1,7 @@
 package fleet
 
 import (
-	"net/http"
-
-	"github.com/Optikk-Org/optikk-backend/internal/shared/errorcode"
+	"context"
 
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
@@ -11,21 +9,11 @@ import (
 
 type Handler struct {
 	modulecommon.DBTenant
-	Service Service
+	Service *Service
 }
 
 func (h *Handler) GetFleetPods(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
-
-	rows, err := h.Service.GetFleetPods(c.Request.Context(), teamID, startMs, endMs)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query fleet pods", err)
-		return
-	}
-
-	modulecommon.RespondOK(c, rows)
+	modulecommon.HandleRangeQuery(c, h.GetTenant, "Failed to query fleet pods", func(ctx context.Context, teamID, startMs, endMs int64) (any, error) {
+		return h.Service.GetFleetPods(ctx, teamID, startMs, endMs)
+	})
 }

@@ -80,8 +80,8 @@ type Conditions struct {
 	RecoveryThreshold *float64 `json:"recovery_threshold,omitempty"`
 	NoDataAfterSec    int      `json:"no_data_after_sec"`
 	// NoDataAs is the state if data is missing: no_data, alert, or ok.
-	NoDataAs          string   `json:"no_data_as"`
-	MinSample         *int     `json:"min_sample,omitempty"`
+	NoDataAs  string `json:"no_data_as"`
+	MinSample *int   `json:"min_sample,omitempty"`
 }
 
 // MarshalScope / Conditions helpers keep service code free of json plumbing.

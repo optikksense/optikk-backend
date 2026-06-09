@@ -7,28 +7,19 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/metrics/filter"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/chargs"
 )
 
-type Repository interface {
-	ListMetricNames(ctx context.Context, teamID, startMs, endMs int64, search string) ([]metricNameDTO, error)
-	ListAttributeTagKeys(ctx context.Context, teamID, startMs, endMs int64, metricName string) ([]tagKeyDTO, error)
-	ListResourceTagValues(ctx context.Context, teamID, startMs, endMs int64, metricName, canonical string) ([]tagValueDTO, error)
-	ListAttributeTagValues(ctx context.Context, teamID, startMs, endMs int64, metricName, tagKey string) ([]tagValueDTO, error)
-	ListTagValuesForKeys(ctx context.Context, teamID, startMs, endMs int64, metricName string, keys []string) ([]tagKeyValueDTO, error)
-	QueryRollupSeries(ctx context.Context, f filter.Filters) ([]timeseriesPointDTO, error)
-}
-
-type ClickHouseRepository struct {
+type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) Repository {
-	return &ClickHouseRepository{db: db}
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
 }
 
-func (r *ClickHouseRepository) ListMetricNames(ctx context.Context, teamID, startMs, endMs int64, search string) ([]metricNameDTO, error) {
+func (r *Repository) ListMetricNames(ctx context.Context, teamID, startMs, endMs int64, search string) ([]metricNameDTO, error) {
 	// Active metric names come from rollups and metrics_meta metadata.
 	const query = `
 		SELECT mn.metric_name      AS metric_name,
@@ -48,7 +39,7 @@ func (r *ClickHouseRepository) ListMetricNames(ctx context.Context, teamID, star
 		GROUP BY metric_name
 		ORDER BY metric_name
 		LIMIT 100`
-	bucketStart, bucketEnd := metricBucketBounds(startMs, endMs)
+	bucketStart, bucketEnd := chargs.BucketBounds(startMs, endMs)
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("bucketStart", bucketStart),
@@ -62,8 +53,8 @@ func (r *ClickHouseRepository) ListMetricNames(ctx context.Context, teamID, star
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) ListAttributeTagKeys(ctx context.Context, teamID, startMs, endMs int64, metricName string) ([]tagKeyDTO, error) {
-	bucketStart, bucketEnd := metricBucketBounds(startMs, endMs)
+func (r *Repository) ListAttributeTagKeys(ctx context.Context, teamID, startMs, endMs int64, metricName string) ([]tagKeyDTO, error) {
+	bucketStart, bucketEnd := chargs.BucketBounds(startMs, endMs)
 
 	// Reads distinct attribute keys from metrics_attr (metric_name leads PK).
 	const dynamicQuery = `
@@ -89,7 +80,7 @@ func (r *ClickHouseRepository) ListAttributeTagKeys(ctx context.Context, teamID,
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) ListResourceTagValues(ctx context.Context, teamID, startMs, endMs int64, metricName, canonical string) ([]tagValueDTO, error) {
+func (r *Repository) ListResourceTagValues(ctx context.Context, teamID, startMs, endMs int64, metricName, canonical string) ([]tagValueDTO, error) {
 	col := filter.ResourceColumn(canonical)
 	if col == "" {
 		return nil, nil
@@ -112,7 +103,7 @@ func (r *ClickHouseRepository) ListResourceTagValues(ctx context.Context, teamID
 		GROUP BY tag_value
 		ORDER BY count DESC
 		LIMIT 100`
-	bucketStart, bucketEnd := metricBucketBounds(startMs, endMs)
+	bucketStart, bucketEnd := chargs.BucketBounds(startMs, endMs)
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("bucketStart", bucketStart),
@@ -126,8 +117,8 @@ func (r *ClickHouseRepository) ListResourceTagValues(ctx context.Context, teamID
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) ListAttributeTagValues(ctx context.Context, teamID, startMs, endMs int64, metricName, tagKey string) ([]tagValueDTO, error) {
-	bucketStart, bucketEnd := metricBucketBounds(startMs, endMs)
+func (r *Repository) ListAttributeTagValues(ctx context.Context, teamID, startMs, endMs int64, metricName, tagKey string) ([]tagValueDTO, error) {
+	bucketStart, bucketEnd := chargs.BucketBounds(startMs, endMs)
 
 	col := filter.AttrColumn(tagKey)
 	query := `
@@ -156,7 +147,7 @@ func (r *ClickHouseRepository) ListAttributeTagValues(ctx context.Context, teamI
 }
 
 // ListTagValuesForKeys returns distinct values and counts for tag keys.
-func (r *ClickHouseRepository) ListTagValuesForKeys(ctx context.Context, teamID, startMs, endMs int64, metricName string, keys []string) ([]tagKeyValueDTO, error) {
+func (r *Repository) ListTagValuesForKeys(ctx context.Context, teamID, startMs, endMs int64, metricName string, keys []string) ([]tagKeyValueDTO, error) {
 	if len(keys) == 0 {
 		return nil, nil
 	}
@@ -164,7 +155,7 @@ func (r *ClickHouseRepository) ListTagValuesForKeys(ctx context.Context, teamID,
 	if len(arms) == 0 {
 		return nil, nil
 	}
-	bucketStart, bucketEnd := metricBucketBounds(startMs, endMs)
+	bucketStart, bucketEnd := chargs.BucketBounds(startMs, endMs)
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("bucketStart", bucketStart),
@@ -200,7 +191,7 @@ func (r *ClickHouseRepository) ListTagValuesForKeys(ctx context.Context, teamID,
 }
 
 // QueryRollupSeries queries aggregated metrics (scalar or raw) for timeseries.
-func (r *ClickHouseRepository) QueryRollupSeries(ctx context.Context, f filter.Filters) ([]timeseriesPointDTO, error) {
+func (r *Repository) QueryRollupSeries(ctx context.Context, f filter.Filters) ([]timeseriesPointDTO, error) {
 	fromTable, cte, joins, selectCols, groupByCols, filterArgs := filter.BuildSelection(f)
 
 	var valSelect string
@@ -238,14 +229,8 @@ func (r *ClickHouseRepository) QueryRollupSeries(ctx context.Context, f filter.F
 	return rows, nil
 }
 
-func metricBucketBounds(startMs, endMs int64) (uint32, uint32) {
-	bucketStart := timebucket.BucketStart(startMs / 1000)
-	bucketEnd := timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
-	return bucketStart, bucketEnd
-}
-
 func metricArgs(f filter.Filters) []any {
-	bucketStart, bucketEnd := metricBucketBounds(f.StartMs, f.EndMs)
+	bucketStart, bucketEnd := chargs.BucketBounds(f.StartMs, f.EndMs)
 	return []any{
 		clickhouse.Named("teamID", uint32(f.TeamID)),
 		clickhouse.Named("bucketStart", bucketStart),

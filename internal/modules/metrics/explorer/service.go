@@ -11,23 +11,15 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/metrics/filter"
 )
 
-type Service interface {
-	ListMetricNames(ctx context.Context, teamID, startMs, endMs int64, search string) ([]MetricNameResult, error)
-	ListTagKeys(ctx context.Context, teamID, startMs, endMs int64, metricName string) ([]TagKeyResult, error)
-	ListTagValues(ctx context.Context, teamID, startMs, endMs int64, metricName, tagKey string) ([]TagValueResult, error)
-	ListTags(ctx context.Context, teamID, startMs, endMs int64, metricName, tagKey string) ([]FETagEntry, error)
-	Query(ctx context.Context, teamID int64, req FEQueryRequest) (*FEQueryResponse, error)
+type Service struct {
+	repo *Repository
 }
 
-type MetricsExplorerService struct {
-	repo Repository
+func NewService(repo *Repository) *Service {
+	return &Service{repo: repo}
 }
 
-func NewService(repo Repository) Service {
-	return &MetricsExplorerService{repo: repo}
-}
-
-func (s *MetricsExplorerService) ListMetricNames(ctx context.Context, teamID, startMs, endMs int64, search string) ([]MetricNameResult, error) {
+func (s *Service) ListMetricNames(ctx context.Context, teamID, startMs, endMs int64, search string) ([]MetricNameResult, error) {
 	rows, err := s.repo.ListMetricNames(ctx, teamID, startMs, endMs, search)
 	if err != nil {
 		return nil, err
@@ -61,7 +53,7 @@ func normalizeMetricType(t string) string {
 	}
 }
 
-func (s *MetricsExplorerService) ListTagKeys(ctx context.Context, teamID, startMs, endMs int64, metricName string) ([]TagKeyResult, error) {
+func (s *Service) ListTagKeys(ctx context.Context, teamID, startMs, endMs int64, metricName string) ([]TagKeyResult, error) {
 	rows, err := s.repo.ListAttributeTagKeys(ctx, teamID, startMs, endMs, metricName)
 	if err != nil {
 		return nil, err
@@ -94,7 +86,7 @@ func (s *MetricsExplorerService) ListTagKeys(ctx context.Context, teamID, startM
 	return out, nil
 }
 
-func (s *MetricsExplorerService) ListTagValues(ctx context.Context, teamID, startMs, endMs int64, metricName, tagKey string) ([]TagValueResult, error) {
+func (s *Service) ListTagValues(ctx context.Context, teamID, startMs, endMs int64, metricName, tagKey string) ([]TagValueResult, error) {
 	var rows []tagValueDTO
 	var err error
 	if canonical := filter.Canonical(tagKey); canonical != "" {
@@ -114,7 +106,7 @@ func (s *MetricsExplorerService) ListTagValues(ctx context.Context, teamID, star
 
 // ListTags merges tag keys and their values into the frontend-expected
 // format. If tagKey is non-empty, only that key's values are returned.
-func (s *MetricsExplorerService) ListTags(ctx context.Context, teamID, startMs, endMs int64, metricName, tagKey string) ([]FETagEntry, error) {
+func (s *Service) ListTags(ctx context.Context, teamID, startMs, endMs int64, metricName, tagKey string) ([]FETagEntry, error) {
 	if tagKey != "" {
 		values, err := s.ListTagValues(ctx, teamID, startMs, endMs, metricName, tagKey)
 		if err != nil {
@@ -164,7 +156,7 @@ func (s *MetricsExplorerService) ListTags(ctx context.Context, teamID, startMs, 
 
 // Query executes queries and returns columnar results.
 // Each query is converted to a typed filter.Filters and validated.
-func (s *MetricsExplorerService) Query(ctx context.Context, teamID int64, req FEQueryRequest) (*FEQueryResponse, error) {
+func (s *Service) Query(ctx context.Context, teamID int64, req FEQueryRequest) (*FEQueryResponse, error) {
 	results := make(map[string]FEQueryResult, len(req.Queries))
 
 	for _, feq := range req.Queries {

@@ -2,30 +2,30 @@ package nodes
 
 import (
 	"context"
-	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/chargs"
 )
 
 // Repository reads observability.spans for per-host RED aggregates.
 
-type Repository interface {
-	QueryInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]NodeAggregateRow, error)
-	QueryInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (NodeSummaryRow, error)
-	QueryInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]NodeServiceAggregateRow, error)
-}
+// Query limits and defaults for node aggregates.
+const (
+	MaxNodes       = 200
+	MaxServices    = 100
+	DefaultUnknown = "unknown"
+)
 
-type ClickHouseRepository struct {
+type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) Repository {
-	return &ClickHouseRepository{db: db}
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
 }
 
-func (r *ClickHouseRepository) QueryInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]NodeAggregateRow, error) {
+func (r *Repository) QueryInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]NodeAggregateRow, error) {
 	const query = `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
@@ -49,7 +49,7 @@ func (r *ClickHouseRepository) QueryInfrastructureNodes(ctx context.Context, tea
 		GROUP BY host
 		ORDER BY request_count DESC
 		LIMIT @maxNodes`
-	args := spanArgs(teamID, startMs, endMs)
+	args := chargs.RangeArgs(teamID, startMs, endMs)
 	args = append(args,
 		clickhouse.Named("defaultUnknown", DefaultUnknown),
 		clickhouse.Named("maxNodes", uint64(MaxNodes)),
@@ -58,7 +58,7 @@ func (r *ClickHouseRepository) QueryInfrastructureNodes(ctx context.Context, tea
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "nodes.QueryInfrastructureNodes", &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) QueryInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (NodeSummaryRow, error) {
+func (r *Repository) QueryInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (NodeSummaryRow, error) {
 	const query = `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
@@ -77,7 +77,7 @@ func (r *ClickHouseRepository) QueryInfrastructureNodeSummary(ctx context.Contex
 		     AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		GROUP BY host`
-	args := spanArgs(teamID, startMs, endMs)
+	args := chargs.RangeArgs(teamID, startMs, endMs)
 	type nodeRawSummaryRow struct {
 		Host         string `ch:"host"`
 		ErrorCount   uint64 `ch:"error_count"`
@@ -114,7 +114,7 @@ func (r *ClickHouseRepository) QueryInfrastructureNodeSummary(ctx context.Contex
 	}, nil
 }
 
-func (r *ClickHouseRepository) QueryInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]NodeServiceAggregateRow, error) {
+func (r *Repository) QueryInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]NodeServiceAggregateRow, error) {
 	const query = `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
@@ -138,7 +138,7 @@ func (r *ClickHouseRepository) QueryInfrastructureNodeServices(ctx context.Conte
 		GROUP BY service
 		ORDER BY request_count DESC
 		LIMIT @maxServices`
-	args := spanArgs(teamID, startMs, endMs)
+	args := chargs.RangeArgs(teamID, startMs, endMs)
 	args = append(args,
 		clickhouse.Named("host", host),
 		clickhouse.Named("defaultUnknown", DefaultUnknown),
@@ -146,22 +146,4 @@ func (r *ClickHouseRepository) QueryInfrastructureNodeServices(ctx context.Conte
 	)
 	var rows []NodeServiceAggregateRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "nodes.QueryInfrastructureNodeServices", &rows, query, args...)
-}
-
-// Local helpers.
-
-func spanArgs(teamID int64, startMs, endMs int64) []any {
-	bucketStart, bucketEnd := spanBucketBounds(startMs, endMs)
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("bucketStart", bucketStart),
-		clickhouse.Named("bucketEnd", bucketEnd),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
-
-func spanBucketBounds(startMs, endMs int64) (uint32, uint32) {
-	return timebucket.BucketStart(startMs / 1000),
-		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }

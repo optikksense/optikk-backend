@@ -10,7 +10,7 @@ import (
 
 type Handler struct {
 	GetTenant modulecommon.GetTenantFunc
-	Service   Service
+	Service   *Service
 }
 
 // ListMetricNames handles GET /metrics/names

@@ -6,21 +6,15 @@ import (
 	"time"
 )
 
-type Service interface {
-	GetInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]InfrastructureNode, error)
-	GetInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (InfrastructureNodeSummary, error)
-	GetInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error)
+type Service struct {
+	repo *Repository
 }
 
-type NodeService struct {
-	repo Repository
+func NewService(repo *Repository) *Service {
+	return &Service{repo: repo}
 }
 
-func NewService(repo Repository) Service {
-	return &NodeService{repo: repo}
-}
-
-func (s *NodeService) GetInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]InfrastructureNode, error) {
+func (s *Service) GetInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]InfrastructureNode, error) {
 	rows, err := s.repo.QueryInfrastructureNodes(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
@@ -29,24 +23,24 @@ func (s *NodeService) GetInfrastructureNodes(ctx context.Context, teamID int64, 
 	for i, r := range rows {
 		errorRate, avgLatency := redDerivations(r.RequestCount, r.ErrorCount, r.DurationMsSum)
 		out[i] = InfrastructureNode{
-			Host:           r.Host,
-			PodCount:       int64(r.PodCount),
+			Host:     r.Host,
+			PodCount: int64(r.PodCount),
 			// Container count is not derived from spans.
 			ContainerCount: 0,
 			// Services are omitted from fleet view for performance.
-			Services:       []string{},
-			RequestCount:   int64(r.RequestCount),
-			ErrorCount:     int64(r.ErrorCount),
-			ErrorRate:      errorRate,
-			AvgLatencyMs:   avgLatency,
-			P95LatencyMs:   float64(r.P95LatencyMs),
-			LastSeen:       r.LastSeen.Format(time.RFC3339),
+			Services:     []string{},
+			RequestCount: int64(r.RequestCount),
+			ErrorCount:   int64(r.ErrorCount),
+			ErrorRate:    errorRate,
+			AvgLatencyMs: avgLatency,
+			P95LatencyMs: float64(r.P95LatencyMs),
+			LastSeen:     r.LastSeen.Format(time.RFC3339),
 		}
 	}
 	return out, nil
 }
 
-func (s *NodeService) GetInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (InfrastructureNodeSummary, error) {
+func (s *Service) GetInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (InfrastructureNodeSummary, error) {
 	row, err := s.repo.QueryInfrastructureNodeSummary(ctx, teamID, startMs, endMs)
 	if err != nil {
 		slog.ErrorContext(ctx, "nodes: GetInfrastructureNodeSummary failed", slog.Any("error", err), slog.Int64("team_id", teamID))
@@ -64,7 +58,7 @@ func (s *NodeService) GetInfrastructureNodeSummary(ctx context.Context, teamID i
 	}, nil
 }
 
-func (s *NodeService) GetInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error) {
+func (s *Service) GetInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]InfrastructureNodeService, error) {
 	rows, err := s.repo.QueryInfrastructureNodeServices(ctx, teamID, host, startMs, endMs)
 	if err != nil {
 		return nil, err

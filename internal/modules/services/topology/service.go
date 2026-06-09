@@ -12,20 +12,15 @@ const (
 	degradedErrorRate  = 0.01
 )
 
-// Service orchestrates topology construction.
-type Service interface {
-	GetTopology(ctx context.Context, teamID, startMs, endMs int64, focusService string) (TopologyResponse, error)
+type Service struct {
+	repo *Repository
 }
 
-type topologyService struct {
-	repo Repository
+func NewService(repo *Repository) *Service {
+	return &Service{repo: repo}
 }
 
-func NewService(repo Repository) Service {
-	return &topologyService{repo: repo}
-}
-
-func (s *topologyService) GetTopology(ctx context.Context, teamID, startMs, endMs int64, focusService string) (TopologyResponse, error) {
+func (s *Service) GetTopology(ctx context.Context, teamID, startMs, endMs int64, focusService string) (TopologyResponse, error) {
 	var (
 		nodeRows []nodeAggRow
 		edgeRows []edgeAggRow

@@ -12,21 +12,12 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// Repository owns all SQL operations for monitors and monitor_state CRUD.
-type Repository interface {
-	Create(ctx context.Context, row insertArgs) (int64, error)
-	Update(ctx context.Context, id, teamID int64, row insertArgs) error
-	Delete(ctx context.Context, id, teamID int64) error
-	GetByID(ctx context.Context, id, teamID int64) (models.MonitorRow, models.MonitorStateRow, error)
-	List(ctx context.Context, teamID int64, q ListQuery) ([]models.MonitorRow, []models.MonitorStateRow, error)
-}
-
-type MySQLRepository struct {
+type Repository struct {
 	db *sqlx.DB
 }
 
-func NewRepository(db *sql.DB) *MySQLRepository {
-	return &MySQLRepository{db: sqlx.NewDb(db, "mysql")}
+func NewRepository(db *sql.DB) *Repository {
+	return &Repository{db: sqlx.NewDb(db, "mysql")}
 }
 
 // insertArgs bundles the column values for INSERT/UPDATE operations.
@@ -63,7 +54,7 @@ VALUES
   (?, 'no_data', ?)
 `
 
-func (r *MySQLRepository) Create(ctx context.Context, row insertArgs) (int64, error) {
+func (r *Repository) Create(ctx context.Context, row insertArgs) (int64, error) {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -103,7 +94,7 @@ UPDATE observability.monitors
  WHERE id = ? AND team_id = ?
 `
 
-func (r *MySQLRepository) Update(ctx context.Context, id, teamID int64, row insertArgs) error {
+func (r *Repository) Update(ctx context.Context, id, teamID int64, row insertArgs) error {
 	res, err := dbutil.ExecSQL(ctx, r.db, "monitors.Update", updateMonitor,
 		row.Name, row.Type, row.Priority,
 		row.ScopeJSON, row.QueryJSON, row.ConditionsJSON, row.NotifyJSON,
@@ -120,7 +111,7 @@ func (r *MySQLRepository) Update(ctx context.Context, id, teamID int64, row inse
 	return nil
 }
 
-func (r *MySQLRepository) Delete(ctx context.Context, id, teamID int64) error {
+func (r *Repository) Delete(ctx context.Context, id, teamID int64) error {
 	tx, err := r.db.BeginTxx(ctx, nil)
 	if err != nil {
 		return err
@@ -161,7 +152,7 @@ const selectStateCols = `
   s.evaluation_count, s.acked_by_user_id, s.acked_at
 `
 
-func (r *MySQLRepository) GetByID(ctx context.Context, id, teamID int64) (models.MonitorRow, models.MonitorStateRow, error) {
+func (r *Repository) GetByID(ctx context.Context, id, teamID int64) (models.MonitorRow, models.MonitorStateRow, error) {
 	var row models.MonitorRow
 	var state models.MonitorStateRow
 	q := fmt.Sprintf(`
@@ -212,7 +203,7 @@ func (m monitorWithState) toRows() (models.MonitorRow, models.MonitorStateRow, e
 	return m.MonitorRow, state, nil
 }
 
-func (r *MySQLRepository) List(ctx context.Context, teamID int64, q ListQuery) ([]models.MonitorRow, []models.MonitorStateRow, error) {
+func (r *Repository) List(ctx context.Context, teamID int64, q ListQuery) ([]models.MonitorRow, []models.MonitorStateRow, error) {
 	where := []string{"m.team_id = ?"}
 	args := []any{teamID}
 	if q.Type != "" {

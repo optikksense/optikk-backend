@@ -111,7 +111,7 @@ type OperationBaseline struct {
 	SpanCount     int64   `json:"span_count"`
 }
 
-// TopEndpoint is one per-operation row used by the Service Detail endpoints
+// TopEndpoint is one per-operation row used by the *Service Detail endpoints
 // table — combines rate, error %, and p50/p95/p99 latency.
 type TopEndpoint struct {
 	OperationName string  `json:"operation_name"`
@@ -140,8 +140,6 @@ type ServiceSummaryResponse struct {
 	MemoryUtilization float64 `json:"memory_utilization"`
 	DiskUtilization   float64 `json:"disk_utilization"`
 }
-
-
 
 type serviceMetricRow struct {
 	Service    string  `ch:"service"`

@@ -5,5 +5,6 @@ package clickhouse
 import "embed"
 
 // FS holds the schema files applied in lexical order by the migrator.
+//
 //go:embed *.sql
 var FS embed.FS

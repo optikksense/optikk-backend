@@ -76,7 +76,8 @@ Local development uses Redpanda from [docker-compose.yml](docker-compose.yml).
 | [internal/infra/metrics/](internal/infra/metrics/) | `promauto`-registered Prometheus collectors: `http.go`, `grpc.go`, `db.go`, `kafka.go`, `auth.go`, `ingest.go`. |
 | [internal/infra/otlp/](internal/infra/otlp/) | `protoconv.go`, `typed_attrs.go` — OTLP proto→Go helpers shared by all three ingest signals. |
 | [internal/infra/fingerprint/](internal/infra/fingerprint/) | Resource fingerprint computation used by ingest mappers. |
-| [internal/shared/httputil/](internal/shared/httputil/) | `RespondOK`, `RespondError`, `RespondErrorWithCause`, `ParseRequiredRange`, `ParseRange`, `ParseComparisonRange`, `WithComparison`, `ExtractIDParam`, `MaxPageSize=200`, `GetTenantFunc`, `DBTenant`. |
+| [internal/shared/httputil/](internal/shared/httputil/) | `RespondOK`, `RespondError`, `RespondErrorWithCause`, `ParseRequiredRange`, `ParseRange`, `ParseComparisonRange`, `WithComparison`, `ExtractIDParam`, `MaxPageSize=200`, `GetTenantFunc`, `DBTenant`, `HandleRangeQuery` (the canonical tenant+range+respond handler wrapper — handlers with only optional query params use it via closure capture; handlers with required-param validation or `WithComparison` stay explicit). |
+| [internal/shared/chargs/](internal/shared/chargs/) | Single home for the shared ClickHouse named-arg builders: `RangeArgs(teamID, startMs, endMs)` (teamID + bucket bounds + start/end binds), `BucketBounds(startMs, endMs)`, `WithMetricNames(args, names)`. Signal-specific WHERE-clause builders stay in each domain's `filter` package. |
 | [internal/shared/errorcode/](internal/shared/errorcode/) | Stable error-code constants returned in API error responses. |
 | [internal/shared/contracts/](internal/shared/contracts/) | `context.go` (TenantContext type) + `response.go` (response envelopes). |
 
@@ -181,12 +182,12 @@ Trace-id-scoped queries match with a plain `trace_id = @traceID` row predicate; 
 
 #### Infrastructure read paths ([internal/modules/infrastructure/](internal/modules/infrastructure/))
 
-Apm-style across 6 submodules. Four modules (`cpu`, `disk`, `memory`, `network`) read `observability.metrics_1m` with the `metrics_resource` CTE — each exposing only `{avg, by-instance}` after the infra-redesign cleanup. Two modules (`nodes`, `fleet`) read `observability.spans_1m` with the `spans_resource` CTE for per-host / per-pod RED aggregates with P95 via `quantileTimingMerge(0.95)(latency_state)`.
+Apm-style across 5 submodules (plus `infraconsts`). Two modules (`cpu`, `memory`) read `observability.metrics_1m` with the `metrics_resource` CTE — each exposing only `{avg, by-instance}` after the infra-redesign cleanup (`disk` and `network` modules were removed). Two modules (`nodes`, `fleet`) read `observability.spans_1m` with the `spans_resource` CTE for per-host / per-pod RED aggregates with P95 via `quantileTimingMerge(0.95)(latency_state)`.
 
 The `connpool`, `jvm`, and `kubernetes` modules were removed when their dashboards left the new design — frontend has no consumers for those panels, and CODEBASE_INDEX entries for them are gone.
 
 - **Resolver narrowing**: `WITH active_fps AS (SELECT fingerprint FROM observability.metrics_resource WHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name [= @metricName | IN @metricNames])`. Main query PREWHEREs `(team_id, ts_bucket, fingerprint IN active_fps, metric_name)`.
-- **Repository contract**: queries only, **one CH call per method**. Each module declares its own `metricArgs` / `withMetricName{,s}` / `spanArgs` / `spanBucketBounds` helpers locally. Reads OTel semconv 1.30+ canonical attribute paths inline (e.g., `attributes.'system.cpu.state'::String`, `attributes.'k8s.pod.name'::String`).
+- **Repository contract**: queries only, **one CH call per method**. The standard teamID + bucket-bound + time-range binds come from the shared [internal/shared/chargs](internal/shared/chargs/) package (`chargs.RangeArgs` / `chargs.BucketBounds` / `chargs.WithMetricNames`) — no module declares local copies. Reads OTel semconv 1.30+ canonical attribute paths inline (e.g., `attributes.'system.cpu.state'::String`, `attributes.'k8s.pod.name'::String`).
 - **Service derivation**: gauge avg via SQL-side `avg(val_sum / val_count)`; multi-metric percentage blends (cpu 3-metric, memory 4-metric, disk 3-metric); `≤1.0 → *100` percentage normalization; NaN scrub via `utils.SanitizeFloat`; RED `error_rate = errCount × 100 / reqCount` and `avg_latency_ms = durationMsSum / reqCount` for `nodes` / `fleet` (computed from `spans_1m`'s `request_count`, `error_count`, `duration_ms_sum` SimpleAggregateFunction columns).
 - [hosts/](internal/modules/infrastructure/hosts/) — 1 route `GET /infrastructure/hosts[?service=<name>]` → `[]Host`. **No `?service`**: fleet-wide host saturation `{host, subsystem, cpu, mem, disk, saturation=max(cpu,mem,disk), tone}`, ranked by saturation DESC — one CH query (`QueryHostUtilization`) over the CPU+memory+disk OTel families (`infraconsts.{CPU,Memory,Disk}Metrics`) grouped by `(host, metric_name)`, folded per family Go-side; `subsystem` from a host-name prefix heuristic (`kafka*`/`*broker*` → kafka, `pg*`/`postgres*`/`mysql*`/`db*` → database). Backs the Saturation overview fleet map, most-saturated-hosts table, and Kafka broker-CPU grid (FE filters `subsystem === "kafka"`). **With `?service`**: the same saturation rows narrowed to the hosts running that service and enriched with per-host RED from `spans_1m` (`QueryHostSpans`: rps, error_rate, p99_ms via `quantileTimingMerge(0.99)`, status, zone, last_seen), ranked by request volume — backs the Service Detail Hosts grid. Merged 2026-06 from the former `saturation/hosts` + `services/hosts` modules.
 - [infraconsts/](internal/modules/infrastructure/infraconsts/) — shared OTel metric-name + column-name constants. Not a routable module.
@@ -200,7 +201,7 @@ Panels assume OTel semconv 1.30+ canonical attribute names. Older instrumentatio
 Apm-style across 2 actor-aligned panel submodules — `producer`, `consumer` — plus the `explorer/` composer. Surviving panel routes live under `/api/v1/saturation/kafka/...` and read `observability.metrics_1m` via the `metrics_resource` CTE. Each repo method binds its OTel metric-name set as a closed const internally and pulls shared bind helpers (`MetricArgs` / `WithMetricName{,s}` / `WithOpAliases`) from [filter/](internal/modules/saturation/kafka/filter/).
 
 - [filter/](internal/modules/saturation/kafka/filter/) — shared SQL/OTel/fold helpers. `args.go` (`MetricArgs`, `WithMetricName{,s}`, `WithOpAliases`, `MetricBucketBounds`); `otel.go` (canonical metric constants + `Producer/Consumer/Process/ConsumerLag/Rebalance/Duration` alias arrays + `Publish/Receive/Process` operation aliases); `fold.go` (`FoldCounterRateByDim`, `FoldErrorRateByPair`, `SecondsToMs`, `FormatTime`).
-- [internal/shared/](internal/modules/saturation/kafka/internal/shared/) — HTTP-side helpers: `routes.go` exposes `SaturationRoutePrefix = "/saturation/kafka"` + `RegisterGET`/`RegisterGroup`; `handler.go` exposes `HandleRangeQuery(c, getTenant, errMessage, query)` — the closure-based range-query helper free-function form, reused by every submodule's handler.
+- [internal/shared/](internal/modules/saturation/kafka/internal/shared/) — HTTP-side helpers: `routes.go` exposes `SaturationRoutePrefix = "/saturation/kafka"` + `RegisterGET`/`RegisterGroup`. The closure-based range-query helper now lives in `httputil.HandleRangeQuery` (promoted from here), used by every submodule's handler.
 - [producer/](internal/modules/saturation/kafka/producer/) — 1 live route (`/produce-rate-by-topic`); `/publish-latency-by-topic` + `/publish-errors` route registrations removed (handlers/repo retained, unreachable).
 - [consumer/](internal/modules/saturation/kafka/consumer/) — 2 live routes (`/consume-rate-by-topic`, `/consumer-lag-by-group`); the other 8 (`receive-latency`, `consume/process-rate-by-group`, `process-latency-by-group`, `consume/process-errors`, `lag-per-partition`, `rebalance-signals`) had their route registrations removed. `partitionLagTopN = 200` cap + the `PartitionLag` DTO remain in `repository.go`.
 - `client/` — **deleted** (e2e-latency / summary-stats / broker-connections etc. were all design-dropped; module was standalone, unregistered + dir removed).
@@ -232,6 +233,8 @@ Most feature modules follow the canonical 6-file layout:
 - `dto.go` (where needed) — request/response shapes
 - `models.go` (where needed) — internal scan/projection structs
 
+`Repository` and `Service` are concrete structs (`NewRepository(db) *Repository`, `NewService(repo *Repository) *Service`). Interfaces exist only at points of real polymorphism — today `dispatch.Transport` (Slack/Stub) and `query.Backend` (Metric/APM/Log). Do not add an interface for a single implementation.
+
 Treat the manifest and package contents as the source of truth.
 
 ## Request surfaces
@@ -257,7 +260,7 @@ From [internal/app/server/modules_manifest.go](internal/app/server/modules_manif
 - **logs**: `explorer`, `logdetail` (registered as `log_detail`), `log_facets`, `log_trends`, `trace_logs` (+ `filter` and `shared/models` packages)
 - **metrics**: `explorer` (+ `filter` shared package)
 - **ai_observability**: explicit GenAI routes under `/api/v1/ai/{llm,prompts,agents,retrieval,traces,facets}`; existing `metrics_1m` + raw spans, no dedicated AI rollup table
-- **infrastructure**: `cpu`, `disk`, `memory`, `network`, `fleet`, `nodes`, `hosts` (+ `infraconsts` shared package). `cpu` and `memory` each expose `{avg, by-instance, top}` — `GET /infrastructure/{cpu,memory}/top?limit=N` returns top-N hosts by utilization for the infra "top consumers" panels.
+- **infrastructure**: `cpu`, `memory`, `fleet`, `nodes`, `hosts` (+ `infraconsts` shared package). `cpu` and `memory` each expose `{avg, by-instance}` only (the `disk`/`network` modules and the `/top` routes were removed; the FE top-consumers panel derives from node data client-side).
 - **saturation**: `kafka/{producer, consumer, explorer}` (+ `kafka/filter` and `kafka/internal/shared` packages); `database/{explorer, latency, slowqueries, volume}` (+ `database/filter` and `database/internal` packages). Simplified 2026-06 to the design handoff — `kafka/client` and `database/{collection, connections, errors, summary, system}` were deleted, the `systems` library was merged into `explorer`, and every surviving module trimmed to only the routes the single-overview pages call (see the Saturation read-path sections).
 - **user**: `auth`, `team`, `user`
 - **ingestion** (background runners + gRPC registrars): spans, logs, metrics
@@ -303,6 +306,8 @@ make build
 make vet
 go test ./...
 ```
+
+The tree is `gofmt`-clean as of 2026-06 — run `gofmt -w` on files you touch before committing (verify with `gofmt -l . | grep -v scratch`).
 
 ## Load test (query-side)
 

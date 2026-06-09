@@ -16,11 +16,11 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/config"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	kafkainfra "github.com/Optikk-Org/optikk-backend/internal/infra/kafka"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/session"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/user"
 	logsignal "github.com/Optikk-Org/optikk-backend/internal/ingestion/logs"
 	metricsignal "github.com/Optikk-Org/optikk-backend/internal/ingestion/metrics"
 	spansignal "github.com/Optikk-Org/optikk-backend/internal/ingestion/spans"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/session"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/user"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -40,8 +40,8 @@ type Infra struct {
 	Ingest         IngestModules
 	LagPollers     []*kafkainfra.LagPoller
 
-	KafkaProducer    *kgo.Client
-	consumerClients  []*kgo.Client
+	KafkaProducer   *kgo.Client
+	consumerClients []*kgo.Client
 }
 
 func newInfra(cfg config.Config) (_ *Infra, err error) {
@@ -89,13 +89,13 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 	authenticator := auth.NewAuthenticator(userRepo)
 
 	return &Infra{
-		DB:             dbConn,
-		CH:             chConn,
-		SessionManager: sessionManager,
-		Authenticator:  authenticator,
-		Ingest:         ingest,
-		LagPollers:     lagPollers,
-		KafkaProducer:  producerClient,
+		DB:              dbConn,
+		CH:              chConn,
+		SessionManager:  sessionManager,
+		Authenticator:   authenticator,
+		Ingest:          ingest,
+		LagPollers:      lagPollers,
+		KafkaProducer:   producerClient,
 		consumerClients: consumerClients,
 	}, nil
 }

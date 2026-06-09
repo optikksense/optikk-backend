@@ -11,13 +11,13 @@ import (
 
 // Config holds Kafka broker and producer-tuning configuration inputs.
 type Config struct {
-	Brokers       []string
+	Brokers []string
 	// LingerMs is the producer linger duration (default 20ms).
-	LingerMs      int
+	LingerMs int
 	// BatchMaxBytes is the producer batch cap (default 1 MiB).
 	BatchMaxBytes int
 	// Compression: "zstd" (default), "lz4", "snappy", "gzip", "none".
-	Compression   string
+	Compression string
 }
 
 // NewProducerClient returns a Kafka client tuned for producing records.

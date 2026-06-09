@@ -11,21 +11,12 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// Repository owns evaluator-side database reads and state mutations.
-type Repository interface {
-	LoadDue(ctx context.Context, now time.Time, limit int) ([]DueMonitor, error)
-	UpdateState(ctx context.Context, args UpdateStateArgs) error
-	InsertEvent(ctx context.Context, e models.MonitorEventRow) error
-	GetChannelsByIDs(ctx context.Context, teamID int64, ids []int64) ([]models.ChannelRow, error)
-	MarkChannelDelivered(ctx context.Context, id int64, at time.Time, errText sql.NullString) error
-}
-
-type MySQLRepository struct {
+type Repository struct {
 	db *sqlx.DB
 }
 
-func NewRepository(db *sql.DB) *MySQLRepository {
-	return &MySQLRepository{db: sqlx.NewDb(db, "mysql")}
+func NewRepository(db *sql.DB) *Repository {
+	return &Repository{db: sqlx.NewDb(db, "mysql")}
 }
 
 // DueMonitor pairs a monitor row with its current state row.
@@ -47,7 +38,7 @@ type UpdateStateArgs struct {
 	IncrementEvalCount bool
 }
 
-func (r *MySQLRepository) LoadDue(ctx context.Context, now time.Time, limit int) ([]DueMonitor, error) {
+func (r *Repository) LoadDue(ctx context.Context, now time.Time, limit int) ([]DueMonitor, error) {
 	const query = `
 		SELECT
 		  m.id, m.team_id, m.name, m.type, m.priority,
@@ -115,7 +106,7 @@ func (r dueRow) toDue() DueMonitor {
 	return DueMonitor{Monitor: r.MonitorRow, State: state}
 }
 
-func (r *MySQLRepository) UpdateState(ctx context.Context, args UpdateStateArgs) error {
+func (r *Repository) UpdateState(ctx context.Context, args UpdateStateArgs) error {
 	// Perform CAS on prev status to avoid clobbering concurrent changes.
 	q := `
 		UPDATE observability.monitor_state
@@ -135,7 +126,7 @@ func (r *MySQLRepository) UpdateState(ctx context.Context, args UpdateStateArgs)
 	return err
 }
 
-func (r *MySQLRepository) InsertEvent(ctx context.Context, e models.MonitorEventRow) error {
+func (r *Repository) InsertEvent(ctx context.Context, e models.MonitorEventRow) error {
 	_, err := dbutil.ExecSQL(ctx, r.db, "evaluator.InsertEvent", `
 		INSERT INTO observability.monitor_events
 		  (monitor_id, team_id, kind, value, threshold, started_at)
@@ -144,7 +135,7 @@ func (r *MySQLRepository) InsertEvent(ctx context.Context, e models.MonitorEvent
 	return err
 }
 
-func (r *MySQLRepository) GetChannelsByIDs(ctx context.Context, teamID int64, ids []int64) ([]models.ChannelRow, error) {
+func (r *Repository) GetChannelsByIDs(ctx context.Context, teamID int64, ids []int64) ([]models.ChannelRow, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -165,7 +156,7 @@ func (r *MySQLRepository) GetChannelsByIDs(ctx context.Context, teamID int64, id
 	return rows, nil
 }
 
-func (r *MySQLRepository) MarkChannelDelivered(ctx context.Context, id int64, at time.Time, errText sql.NullString) error {
+func (r *Repository) MarkChannelDelivered(ctx context.Context, id int64, at time.Time, errText sql.NullString) error {
 	status := "ok"
 	if errText.Valid && errText.String != "" {
 		status = "warn"

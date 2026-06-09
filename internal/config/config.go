@@ -12,16 +12,16 @@ import (
 )
 
 type Config struct {
-	Environment    string           `yaml:"environment"`
-	Server         ServerConfig     `yaml:"server"`
-	MySQL          MySQLConfig      `yaml:"mysql"`
-	ClickHouse     ClickHouseConfig `yaml:"clickhouse"`
-	Session        SessionConfig    `yaml:"session"`
-	Kafka          KafkaConfig      `yaml:"kafka"`
-	OTLP           OTLPConfig       `yaml:"otlp"`
-	Retention      RetentionConfig  `yaml:"retention"`
-	App            AppConfig        `yaml:"app"`
-	Ingestion      IngestionConfig  `yaml:"ingestion"`
+	Environment string           `yaml:"environment"`
+	Server      ServerConfig     `yaml:"server"`
+	MySQL       MySQLConfig      `yaml:"mysql"`
+	ClickHouse  ClickHouseConfig `yaml:"clickhouse"`
+	Session     SessionConfig    `yaml:"session"`
+	Kafka       KafkaConfig      `yaml:"kafka"`
+	OTLP        OTLPConfig       `yaml:"otlp"`
+	Retention   RetentionConfig  `yaml:"retention"`
+	App         AppConfig        `yaml:"app"`
+	Ingestion   IngestionConfig  `yaml:"ingestion"`
 }
 
 // Load reads YAML configuration with environment variable overrides.
@@ -127,7 +127,6 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("session.cookie_secure", false)
 	v.SetDefault("session.cookie_http_only", false)
 	v.SetDefault("session.cookie_same_site", "")
-
 
 	// kafka (required OTLP ingest queue)
 	v.SetDefault("kafka.broker_list", "")

@@ -17,10 +17,7 @@ var ErrNotAlerting = errors.New("monitor is not currently alerting")
 
 // Ack acknowledges the current alert.
 func (s *Service) Ack(ctx context.Context, teamID, userID, id int64) error {
-	r, ok := s.repo.(*MySQLRepository)
-	if !ok {
-		return errors.New("ack requires the mysql repository")
-	}
+	r := s.repo
 	if err := r.Ack(ctx, id, teamID, userID, time.Now().UTC()); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return ErrNotAlerting
@@ -32,10 +29,7 @@ func (s *Service) Ack(ctx context.Context, teamID, userID, id int64) error {
 
 // Mute sets a mute window. duration=0 clears the mute.
 func (s *Service) Mute(ctx context.Context, teamID, id int64, durationSec int) error {
-	r, ok := s.repo.(*MySQLRepository)
-	if !ok {
-		return errors.New("mute requires the mysql repository")
-	}
+	r := s.repo
 	var until sql.NullTime
 	if durationSec > 0 {
 		until = sql.NullTime{Valid: true, Time: time.Now().UTC().Add(time.Duration(durationSec) * time.Second)}
@@ -139,10 +133,7 @@ type SeriesResponse struct {
 
 // Events returns recent events for a single monitor.
 func (s *Service) Events(ctx context.Context, teamID, id int64, limit int) ([]MonitorEventResponse, error) {
-	r, ok := s.repo.(*MySQLRepository)
-	if !ok {
-		return nil, errors.New("events requires the mysql repository")
-	}
+	r := s.repo
 	rows, err := r.Events(ctx, id, teamID, limit)
 	if err != nil {
 		return nil, err
@@ -152,10 +143,7 @@ func (s *Service) Events(ctx context.Context, teamID, id int64, limit int) ([]Mo
 
 // Activity returns recent events across all team monitors.
 func (s *Service) Activity(ctx context.Context, teamID int64, sinceMs int64, limit int) ([]MonitorEventResponse, error) {
-	r, ok := s.repo.(*MySQLRepository)
-	if !ok {
-		return nil, errors.New("activity requires the mysql repository")
-	}
+	r := s.repo
 	since := time.Now().UTC().Add(-1 * time.Hour)
 	if sinceMs > 0 {
 		since = time.UnixMilli(sinceMs).UTC()
@@ -169,10 +157,7 @@ func (s *Service) Activity(ctx context.Context, teamID int64, sinceMs int64, lim
 
 // StatusTimeline returns 24h status bands derived from monitor_events.
 func (s *Service) StatusTimeline(ctx context.Context, teamID, id int64, windowMs int64) (StatusTimelineResponse, error) {
-	r, ok := s.repo.(*MySQLRepository)
-	if !ok {
-		return StatusTimelineResponse{}, errors.New("status-timeline requires the mysql repository")
-	}
+	r := s.repo
 	if windowMs <= 0 {
 		windowMs = 24 * 60 * 60 * 1000
 	}

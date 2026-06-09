@@ -10,18 +10,12 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
-// Repository runs latency-by-* panels against `observability.spans_1m`.
-// It computes percentiles via quantileTimingMerge on latency_state.
-type Repository interface {
-	GetLatencyBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyRawDTO, error)
-}
-
-type ClickHouseRepository struct {
+type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
-	return &ClickHouseRepository{db: db}
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
 }
 
 type latencyRawDTO struct {
@@ -33,11 +27,11 @@ type latencyRawDTO struct {
 	P99Ms    float32
 }
 
-func (r *ClickHouseRepository) GetLatencyBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyRawDTO, error) {
+func (r *Repository) GetLatencyBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyRawDTO, error) {
 	return r.latencySeriesByGroup(ctx, teamID, startMs, endMs, f, filter.AttrDBSystem, "latency.GetLatencyBySystem")
 }
 
-func (r *ClickHouseRepository) latencySeriesByGroup(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, attr, traceLabel string) ([]latencyRawDTO, error) {
+func (r *Repository) latencySeriesByGroup(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, attr, traceLabel string) ([]latencyRawDTO, error) {
 	groupCol := filter.Spans1mGroupColumn(attr)
 	if groupCol == "" {
 		return nil, nil
