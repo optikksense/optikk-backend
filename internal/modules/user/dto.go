@@ -5,6 +5,11 @@ type LoginRequest struct {
 	Password string `json:"password" binding:"required" example:"securePassword123"`
 }
 
+type LoginResponse struct {
+	AuthContextResponse
+	AccessToken string `json:"accessToken"`
+}
+
 type CreateTeamRequest struct {
 	TeamName    string `json:"team_name" binding:"required"`
 	OrgName     string `json:"org_name" binding:"required"`

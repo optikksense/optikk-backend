@@ -19,7 +19,7 @@ import (
 	logsignal "github.com/Optikk-Org/optikk-backend/internal/ingestion/logs"
 	metricsignal "github.com/Optikk-Org/optikk-backend/internal/ingestion/metrics"
 	spansignal "github.com/Optikk-Org/optikk-backend/internal/ingestion/spans"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/session"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/token"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/user"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
@@ -33,12 +33,12 @@ type IngestModules struct {
 
 // Infra holds process-wide infrastructure constructed at startup.
 type Infra struct {
-	DB             *sql.DB
-	CH             clickhouse.Conn
-	SessionManager session.Manager
-	Authenticator  *auth.Authenticator
-	Ingest         IngestModules
-	LagPollers     []*kafkainfra.LagPoller
+	DB            *sql.DB
+	CH            clickhouse.Conn
+	Tokens        *token.Service
+	Authenticator *auth.Authenticator
+	Ingest        IngestModules
+	LagPollers    []*kafkainfra.LagPoller
 
 	KafkaProducer   *kgo.Client
 	consumerClients []*kgo.Client
@@ -78,8 +78,6 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 		}
 	}()
 
-	sessionManager := newSessionManager(cfg, dbConn)
-
 	ingest, producerClient, consumerClients, lagPollers, err := buildIngest(cfg, chConn)
 	if err != nil {
 		return nil, err
@@ -91,7 +89,7 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 	return &Infra{
 		DB:              dbConn,
 		CH:              chConn,
-		SessionManager:  sessionManager,
+		Tokens:          token.NewService(cfg),
 		Authenticator:   authenticator,
 		Ingest:          ingest,
 		LagPollers:      lagPollers,
@@ -300,9 +298,4 @@ func (i *Infra) Close() error {
 		slog.Info("mysql connection closed")
 	}
 	return nil
-}
-
-func newSessionManager(cfg config.Config, db *sql.DB) session.Manager {
-	repo := session.NewRepository(db)
-	return session.NewService(cfg, repo)
 }

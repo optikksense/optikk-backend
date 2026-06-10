@@ -3,7 +3,7 @@ package slowqueries
 import (
 	"context"
 
-	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -15,6 +15,6 @@ type Handler struct {
 
 func (h *Handler) GetSlowQueryPatterns(c *gin.Context) {
 	modulecommon.HandleRangeQuery(c, h.GetTenant, "Failed to query slow query patterns", func(ctx context.Context, teamID, startMs, endMs int64) (any, error) {
-		return h.Service.GetSlowQueryPatterns(ctx, teamID, startMs, endMs, shared.ParseFilters(c), shared.ParseLimit(c, 20))
+		return h.Service.GetSlowQueryPatterns(ctx, teamID, startMs, endMs, filter.ParseFilters(c), filter.ParseLimit(c, 20))
 	})
 }

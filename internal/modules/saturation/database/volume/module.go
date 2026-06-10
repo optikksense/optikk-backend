@@ -3,7 +3,6 @@ package volume
 import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -20,9 +19,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}
-	shared.RegisterGroup(v1, "/ops", func(g *gin.RouterGroup) {
-		g.GET("/by-system", h.GetOpsBySystem)
-	})
+	v1.GET("/saturation/database/ops/by-system", h.GetOpsBySystem)
 }
 
 func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {

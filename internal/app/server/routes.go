@@ -47,7 +47,7 @@ func (a *App) setupHealthRoutes(r *gin.Engine) {
 
 func (a *App) setupAPIRoutes(r *gin.Engine) {
 	v1 := r.Group("/api/v1")
-	v1.Use(middleware.TenantMiddleware(a.Infra.SessionManager))
+	v1.Use(middleware.TenantMiddleware(a.Infra.Tokens))
 	for _, mod := range a.Modules {
 		mod.RegisterRoutes(v1)
 	}

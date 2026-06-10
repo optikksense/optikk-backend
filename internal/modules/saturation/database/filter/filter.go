@@ -1,10 +1,12 @@
 package filter
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	"github.com/gin-gonic/gin"
 )
 
 // OTel semantic-convention names and canonical metric names.
@@ -42,6 +44,26 @@ type Filters struct {
 	Collection []string
 	Namespace  []string
 	Server     []string
+}
+
+// ParseFilters extracts query-string filters into the typed shape consumed
+// by every repository.
+func ParseFilters(c *gin.Context) Filters {
+	return Filters{
+		DBSystem:   c.QueryArray("db_system"),
+		Collection: c.QueryArray("collection"),
+		Namespace:  c.QueryArray("namespace"),
+		Server:     c.QueryArray("server"),
+	}
+}
+
+func ParseLimit(c *gin.Context, def int) int {
+	if s := c.Query("limit"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil && v > 0 {
+			return v
+		}
+	}
+	return def
 }
 
 func SpanArgs(teamID, startMs, endMs int64) []any {

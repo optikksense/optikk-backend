@@ -1,19 +1,19 @@
 package user
 
 import (
-	sessionauth "github.com/Optikk-Org/optikk-backend/internal/modules/session"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/token"
 )
 
 // Service manages user, team, and auth-related operations.
 type Service struct {
-	repo     *Repository
-	sessions sessionauth.Manager
+	repo   *Repository
+	tokens *token.Service
 }
 
 // NewService creates a new Service instance.
-func NewService(repo *Repository, sessions sessionauth.Manager) *Service {
+func NewService(repo *Repository, tokens *token.Service) *Service {
 	return &Service{
-		repo:     repo,
-		sessions: sessions,
+		repo:   repo,
+		tokens: tokens,
 	}
 }

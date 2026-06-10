@@ -107,7 +107,7 @@ func (a *App) addLagPollerActors(g *run.Group, parentCtx context.Context) {
 func (a *App) addHTTPServerActor(g *run.Group) {
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%s", a.Config.Server.Port),
-		Handler:      h2c.NewHandler(a.Infra.SessionManager.Wrap(a.Router()), &http2.Server{}),
+		Handler:      h2c.NewHandler(a.Router(), &http2.Server{}),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,

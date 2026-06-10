@@ -6,58 +6,96 @@ import (
 	"strings"
 	"time"
 
-	sessionauth "github.com/Optikk-Org/optikk-backend/internal/modules/session"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/token"
 	contracts "github.com/Optikk-Org/optikk-backend/internal/shared/contracts"
 	"golang.org/x/crypto/bcrypt"
 )
 
-// Login authenticates a user and establishes their session.
-func (s *Service) Login(ctx context.Context, req LoginRequest, clientIP string) (AuthContextResponse, error) {
+// Login authenticates a user and issues access and refresh tokens.
+func (s *Service) Login(ctx context.Context, req LoginRequest, clientIP string) (LoginResponse, string, error) {
 	email := strings.TrimSpace(req.Email)
 	password := strings.TrimSpace(req.Password)
 
 	user, err := s.repo.FindActiveUserByEmail(email)
 	if err != nil {
-		return AuthContextResponse{}, NewValidationError("Invalid email or password", err)
+		return LoginResponse{}, "", NewValidationError("Invalid email or password", err)
 	}
 
 	if user.PasswordHash != nil && *user.PasswordHash != "" && bcrypt.CompareHashAndPassword([]byte(*user.PasswordHash), []byte(password)) != nil {
-		return AuthContextResponse{}, NewValidationError("Invalid email or password", nil)
+		return LoginResponse{}, "", NewValidationError("Invalid email or password", nil)
 	}
 
 	if err := s.repo.UpdateUserLastLogin(user.ID, time.Now().UTC()); err != nil {
 		slog.WarnContext(ctx, "AUTH_EVENT login_update_failed", slog.Int64("user_id", user.ID), slog.String("email", user.Email), slog.Any("error", err))
 	}
 
-	response, teamID, teamIDs, err := s.buildAuthContextResponse(user)
+	response, refresh, err := s.issueTokens(user)
 	if err != nil {
-		return AuthContextResponse{}, err
+		return LoginResponse{}, "", err
 	}
 
-	if err := s.sessions.CreateAuthSession(ctx, sessionauth.AuthState{
+	slog.InfoContext(ctx, "AUTH_EVENT login_success", slog.Int64("user_id", user.ID), slog.String("email", user.Email), slog.String("ip", clientIP))
+	return response, refresh, nil
+}
+
+// Refresh validates a refresh token and issues a new token pair.
+func (s *Service) Refresh(ctx context.Context, refreshToken string) (LoginResponse, string, error) {
+	userID, err := s.tokens.ParseRefresh(refreshToken)
+	if err != nil {
+		return LoginResponse{}, "", NewUnauthorizedError("Invalid or expired refresh token", err)
+	}
+
+	user, err := s.repo.FindActiveUserByID(userID)
+	if err != nil {
+		return LoginResponse{}, "", NewUnauthorizedError("Invalid or expired refresh token", err)
+	}
+
+	authUser := AuthUser{
+		ID:        user.ID,
+		Email:     user.Email,
+		Name:      user.Name,
+		AvatarURL: user.AvatarURL,
+		TeamsJSON: user.TeamsJSON,
+	}
+	response, refresh, err := s.issueTokens(authUser)
+	if err != nil {
+		return LoginResponse{}, "", NewUnauthorizedError("Invalid or expired refresh token", err)
+	}
+	return response, refresh, nil
+}
+
+// issueTokens builds the auth context and signs a new token pair.
+func (s *Service) issueTokens(user AuthUser) (LoginResponse, string, error) {
+	response, teamID, teamIDs, err := s.buildAuthContextResponse(user)
+	if err != nil {
+		return LoginResponse{}, "", err
+	}
+
+	access, err := s.tokens.SignAccess(token.AuthState{
 		UserID:        user.ID,
 		Email:         user.Email,
 		Role:          "member",
 		DefaultTeamID: teamID,
 		TeamIDs:       teamIDs,
-	}); err != nil {
-		slog.WarnContext(ctx, "AUTH_EVENT session_create_failed", slog.Int64("user_id", user.ID), slog.String("email", user.Email), slog.Any("error", err))
-		return AuthContextResponse{}, NewInternalError("Failed to create session", err)
+	})
+	if err != nil {
+		return LoginResponse{}, "", NewInternalError("Failed to issue access token", err)
 	}
 
-	slog.InfoContext(ctx, "AUTH_EVENT login_success", slog.Int64("user_id", user.ID), slog.String("email", user.Email), slog.Int64("team_id", teamID), slog.String("ip", clientIP))
-	return response, nil
+	refresh, err := s.tokens.SignRefresh(user.ID)
+	if err != nil {
+		return LoginResponse{}, "", NewInternalError("Failed to issue refresh token", err)
+	}
+
+	return LoginResponse{AuthContextResponse: response, AccessToken: access}, refresh, nil
 }
 
-// Logout destroys the user's active session.
-func (s *Service) Logout(ctx context.Context, tenant contracts.TenantContext, clientIP string) (MessageResponse, error) {
-	if err := s.sessions.DestroySession(ctx); err != nil {
-		return MessageResponse{}, NewInternalError("Failed to end session", err)
-	}
+// Logout logs the logout event; token invalidation is cookie removal.
+func (s *Service) Logout(ctx context.Context, tenant contracts.TenantContext, clientIP string) MessageResponse {
 	if tenant.UserID > 0 {
 		slog.InfoContext(ctx, "AUTH_EVENT logout", slog.Int64("user_id", tenant.UserID), slog.String("email", tenant.UserEmail), slog.String("ip", clientIP))
 	}
-	return MessageResponse{Message: "Logged out successfully"}, nil
+	return MessageResponse{Message: "Logged out successfully"}
 }
 
 // AuthContext loads details of the logged-in user.

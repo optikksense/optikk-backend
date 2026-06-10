@@ -68,8 +68,8 @@ Local development uses Redpanda from [docker-compose.yml](docker-compose.yml).
 | [internal/infra/database/](internal/infra/database/) | MySQL + ClickHouse clients. `clickhouse.go` exposes three budget contexts: `DashboardCtx` (3s execution, 1 GiB memory, priority 1), `OverviewCtx` (15s, 2 GiB, priority 5), `ExplorerCtx` (60s, 8 GiB, priority 10). **All three budgets enable CH per-shard query cache** with 60s TTL and per-user isolation, so identical queries within the TTL window return without re-execution. `clickhouse_instrument.go` / `mysql_instrument.go` / `instrument_common.go` provide `SelectCH/QueryCH/ExecCH` + `SelectSQL/GetSQL/ExecSQL` seams that emit `optikk_db_{queries_total,query_duration_seconds}` per call. `migrate.go` + `migrate_chmigrate.go` apply schema during boot. |
 | [internal/infra/kafka/](internal/infra/kafka/) | Flat package: `client.go`, `producer.go`, `consumer.go`, `topics.go`, `observability.go`. franz-go-based; one shared producer client across all signals, one consumer client per signal. |
 | [internal/infra/redis/](internal/infra/redis/) | go-redis client + metrics hook (`metrics_hook.go` → `optikk_redis_{commands_total,command_duration_seconds}`). |
-| [internal/infra/session/](internal/infra/session/) | Session manager + auth-state plumbing. Mounted via `Wrap(handler)` in `addHTTPServerActor`. |
-| [internal/infra/middleware/](internal/infra/middleware/) | Two files only: `metrics.go` (`HTTPMetricsMiddleware`, route-templated metrics) and `middleware.go` (`CORSMiddleware`, `ErrorRecovery`, `BodyLimitMiddleware`, `TenantMiddleware`, `RequireRole`, `GetTenant`, public-prefix list `/api/v1/auth/login`, `/otlp/`, `/health` + public-POST list `/api/v1/auth/forgot-password`, `/api/v1/users`, `/api/v1/teams`). |
+| [internal/infra/token/](internal/infra/token/) | Stateless JWT auth (`golang-jwt/v5`, HS256). `token.go`: `Service` with `SignAccess`/`ParseAccess` (AuthState claims: sub, email, role, dtid, tids) + `SignRefresh`/`ParseRefresh` (sub only); a `typ` claim blocks access/refresh confusion. `cookie.go`: httpOnly refresh cookie scoped to `/api/v1/auth/refresh`. Config under `auth.*` (`jwt_secret`, `access_ttl_ms` 15m, `refresh_ttl_ms` 7d, cookie attrs). No DB state — refresh revalidates the user via `FindActiveUserByID`. |
+| [internal/infra/middleware/](internal/infra/middleware/) | Two files only: `metrics.go` (`HTTPMetricsMiddleware`, route-templated metrics) and `middleware.go` (`CORSMiddleware`, `ErrorRecovery`, `BodyLimitMiddleware`, `TenantMiddleware` (parses `Authorization: Bearer` access JWT via `token.Service`), `RequireRole`, `GetTenant`, public-prefix list `/api/v1/auth/login`, `/api/v1/auth/refresh`, `/api/v1/auth/logout`, `/otlp/`, `/health` + public-POST list `/api/v1/auth/forgot-password`, `/api/v1/users`, `/api/v1/teams`). |
 | [internal/infra/timebucket/](internal/infra/timebucket/) | Single source of truth for bucket math. `BucketSeconds = 300` (5-minute grain) — `ts_bucket UInt32 = (unixSeconds / 300) * 300`. `DisplayBucket` / `DisplayGrain` window-adaptive: ≤3h → 1m, ≤24h → 5m, ≤7d → 1h, else 1d. ClickHouse never computes a bucket itself in any reader SQL. |
 | [internal/infra/cursor/](internal/infra/cursor/) | Cursor encode/decode helpers for explorer-style keyset pagination. |
 | [internal/infra/utils/](internal/infra/utils/) | `conv.go` — unit-conversion helpers (e.g. `SanitizeFloat` for NaN scrub). |
@@ -201,7 +201,6 @@ Panels assume OTel semconv 1.30+ canonical attribute names. Older instrumentatio
 Apm-style across 2 actor-aligned panel submodules — `producer`, `consumer` — plus the `explorer/` composer. Surviving panel routes live under `/api/v1/saturation/kafka/...` and read `observability.metrics_1m` via the `metrics_resource` CTE. Each repo method binds its OTel metric-name set as a closed const internally and pulls shared bind helpers (`MetricArgs` / `WithMetricName{,s}` / `WithOpAliases`) from [filter/](internal/modules/saturation/kafka/filter/).
 
 - [filter/](internal/modules/saturation/kafka/filter/) — shared SQL/OTel/fold helpers. `args.go` (`MetricArgs`, `WithMetricName{,s}`, `WithOpAliases`, `MetricBucketBounds`); `otel.go` (canonical metric constants + `Producer/Consumer/Process/ConsumerLag/Rebalance/Duration` alias arrays + `Publish/Receive/Process` operation aliases); `fold.go` (`FoldCounterRateByDim`, `FoldErrorRateByPair`, `SecondsToMs`, `FormatTime`).
-- [internal/shared/](internal/modules/saturation/kafka/internal/shared/) — HTTP-side helpers: `routes.go` exposes `SaturationRoutePrefix = "/saturation/kafka"` + `RegisterGET`/`RegisterGroup`. The closure-based range-query helper now lives in `httputil.HandleRangeQuery` (promoted from here), used by every submodule's handler.
 - [producer/](internal/modules/saturation/kafka/producer/) — 1 live route (`/produce-rate-by-topic`); `/publish-latency-by-topic` + `/publish-errors` route registrations removed (handlers/repo retained, unreachable).
 - [consumer/](internal/modules/saturation/kafka/consumer/) — 2 live routes (`/consume-rate-by-topic`, `/consumer-lag-by-group`); the other 8 (`receive-latency`, `consume/process-rate-by-group`, `process-latency-by-group`, `consume/process-errors`, `lag-per-partition`, `rebalance-signals`) had their route registrations removed. `partitionLagTopN = 200` cap + the `PartitionLag` DTO remain in `repository.go`.
 - `client/` — **deleted** (e2e-latency / summary-stats / broker-connections etc. were all design-dropped; module was standalone, unregistered + dir removed).
@@ -217,10 +216,9 @@ Error-rate panels depend on OTel semconv 1.30+ `error.type` data-point attribute
 
 Surviving submodules: `explorer` (the `/saturation/datastores/systems` reader), `latency`, `volume`, `slowqueries` — each trimmed to the single by-system/patterns reader the overview uses.
 
-- [filter/](internal/modules/saturation/database/filter/) — typed `Filters` (DBSystem/Collection/Namespace/Server) + OTel constants (`AttrDB*` / `MetricDB*`) + `BuildSpanClauses(f)` + `BuildMetricClauses(f)` + `SpanArgs/SpanBucketBounds` (1-min) + `MetricArgs/MetricArgsMulti/MetricBucketBounds` (1-min). Latency percentiles + per-second rates + display-grain bucketing are all computed server-side (`timebucket.DisplayGrainSQL` + `WithBucketGrainSec`).
+- [filter/](internal/modules/saturation/database/filter/) — typed `Filters` (DBSystem/Collection/Namespace/Server) + HTTP query-string parsers (`ParseFilters`/`ParseLimit`) + OTel constants (`AttrDB*` / `MetricDB*`) + `BuildSpanClauses(f)` + `BuildMetricClauses(f)` + `SpanArgs/SpanBucketBounds` (1-min) + `MetricArgs/MetricArgsMulti/MetricBucketBounds` (1-min). Latency percentiles + per-second rates + display-grain bucketing are all computed server-side (`timebucket.DisplayGrainSQL` + `WithBucketGrainSec`).
 - **Source-table choice (per OTel semconv 1.30+)**: the surviving readers are all spans-side. `latency.GetLatencyBySystem`, `volume.GetOpsBySystem`, and `explorer.GetSystemSummariesRaw` (p95) read the `observability.spans_1m` rollup via `BuildSpans1mClauses` / `Spans1mGroupColumn` and project `quantileTimingMerge`/per-second rates; `slowqueries.GetSlowQueryPatterns` groups raw `observability.spans` by free-text `db_statement` and computes percentiles inline (`quantilesTiming(...)(duration_nano / 1e6)`, no `-Merge`). `explorer.GetDatastoreSystems` also fans out a metrics-side active-connection gauge (`db.client.connection.count`, `metrics_1m`) in parallel via errgroup, joining on `db_system`.
 - **Repos clean** — every method is `const query = `…``. **No `fmt.Sprintf`, no `%s`, no phantom-rollup column references.**
-- [internal/](internal/modules/saturation/database/internal/) holds HTTP-layer helpers (`ParseFilters` / `ParseLimit` / `ParseThreshold` / `RequireCollection` / `RequireDBSystem` / `RegisterGET` / `RegisterGroup` — single-prefix registration under `/saturation/database/*`).
 
 ### Module shape
 
@@ -245,7 +243,9 @@ Treat the manifest and package contents as the source of truth.
 - Prometheus metrics: `/metrics`
 - Product APIs: `/api/v1/...` (single group, `TenantMiddleware`)
 
-Public-prefix list (auth bypass) lives in [internal/infra/middleware/middleware.go](internal/infra/middleware/middleware.go): `/api/v1/auth/login`, `/otlp/`, `/health`. Public-POST list: `/api/v1/auth/forgot-password`, `/api/v1/users`, `/api/v1/teams`.
+Public-prefix list (auth bypass) lives in [internal/infra/middleware/middleware.go](internal/infra/middleware/middleware.go): `/api/v1/auth/login`, `/api/v1/auth/refresh`, `/api/v1/auth/logout`, `/otlp/`, `/health`. Public-POST list: `/api/v1/auth/forgot-password`, `/api/v1/users`, `/api/v1/teams`.
+
+Auth is JWT-based (no server-side sessions): `POST /api/v1/auth/login` returns `accessToken` (15m, sent as `Authorization: Bearer`) in the body plus an httpOnly refresh-JWT cookie (7d, rotated) scoped to `/api/v1/auth/refresh`; `POST /api/v1/auth/refresh` re-issues both; `POST /api/v1/auth/logout` clears the cookie. See [internal/infra/token/](internal/infra/token/).
 
 ### gRPC
 
@@ -276,7 +276,7 @@ From [internal/app/server/modules_manifest.go](internal/app/server/modules_manif
 | [internal/app/](internal/app/) | App composition, registry, routes, infra wiring. |
 | [internal/auth/](internal/auth/) | HTTP/gRPC auth interceptors. |
 | [internal/config/](internal/config/) | Config structs, defaults, validation. |
-| [internal/infra/](internal/infra/) | Cross-cutting infra: database, kafka, redis, session, middleware, timebucket, otlp, cursor, utils, fingerprint, metrics. |
+| [internal/infra/](internal/infra/) | Cross-cutting infra: database, kafka, redis, token, middleware, timebucket, otlp, cursor, utils, fingerprint, metrics. |
 | [internal/ingestion/](internal/ingestion/) | OTLP ingest pipeline (spans/logs/metrics, flat 7-file layout per signal). |
 | [internal/modules/](internal/modules/) | Product/domain APIs. |
 | [internal/shared/](internal/shared/) | Shared contracts and helpers: contracts, errorcode, httputil. |

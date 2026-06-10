@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Optikk-Org/optikk-backend/internal/infra/token"
 	"github.com/Optikk-Org/optikk-backend/internal/shared/errorcode"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
@@ -13,13 +14,15 @@ import (
 type Handler struct {
 	modulecommon.DBTenant
 	Service *Service
+	Tokens  *token.Service
 }
 
 // NewHandler creates a new Handler instance.
-func NewHandler(getTenant modulecommon.GetTenantFunc, service *Service) *Handler {
+func NewHandler(getTenant modulecommon.GetTenantFunc, service *Service, tokens *token.Service) *Handler {
 	return &Handler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service:  service,
+		Tokens:   tokens,
 	}
 }
 
@@ -34,21 +37,36 @@ func (h *Handler) Login(c *gin.Context) {
 	req.Email = strings.TrimSpace(req.Email)
 	req.Password = strings.TrimSpace(req.Password)
 
-	response, err := h.Service.Login(c.Request.Context(), req, c.ClientIP())
+	response, refresh, err := h.Service.Login(c.Request.Context(), req, c.ClientIP())
 	if err != nil {
 		RespondServiceError(c, err, "Failed to login")
 		return
 	}
+	h.Tokens.SetRefreshCookie(c.Writer, refresh)
 	modulecommon.RespondOK(c, response)
 }
 
-// Logout destroys the current login session.
-func (h *Handler) Logout(c *gin.Context) {
-	response, err := h.Service.Logout(c.Request.Context(), h.GetTenant(c), c.ClientIP())
-	if err != nil {
-		RespondServiceError(c, err, "Failed to logout")
+// Refresh exchanges a valid refresh cookie for a new token pair.
+func (h *Handler) Refresh(c *gin.Context) {
+	raw, err := c.Cookie(h.Tokens.RefreshCookieName())
+	if err != nil || raw == "" {
+		modulecommon.RespondError(c, http.StatusUnauthorized, errorcode.Unauthorized, "Missing refresh token")
 		return
 	}
+
+	response, refresh, err := h.Service.Refresh(c.Request.Context(), raw)
+	if err != nil {
+		RespondServiceError(c, err, "Failed to refresh token")
+		return
+	}
+	h.Tokens.SetRefreshCookie(c.Writer, refresh)
+	modulecommon.RespondOK(c, response)
+}
+
+// Logout clears the refresh cookie.
+func (h *Handler) Logout(c *gin.Context) {
+	response := h.Service.Logout(c.Request.Context(), h.GetTenant(c), c.ClientIP())
+	h.Tokens.ClearRefreshCookie(c.Writer)
 	modulecommon.RespondOK(c, response)
 }
 

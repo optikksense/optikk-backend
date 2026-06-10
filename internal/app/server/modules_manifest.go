@@ -1,8 +1,6 @@
 package server
 
 import (
-	"context"
-
 	"github.com/ClickHouse/clickhouse-go/v2"
 
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
@@ -31,7 +29,6 @@ import (
 	services_errors "github.com/Optikk-Org/optikk-backend/internal/modules/services/errors"
 	services_redmetrics "github.com/Optikk-Org/optikk-backend/internal/modules/services/redmetrics"
 	services_topology "github.com/Optikk-Org/optikk-backend/internal/modules/services/topology"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/session"
 	traces_detail "github.com/Optikk-Org/optikk-backend/internal/modules/traces/detail"
 	traces_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
 	traces_paths "github.com/Optikk-Org/optikk-backend/internal/modules/traces/paths"
@@ -46,9 +43,7 @@ func configuredModules(
 	infraDeps *Infra,
 ) []registry.Module {
 	userRepo := user.NewRepository(infraDeps.DB, appConfig)
-	userService := user.NewService(userRepo, infraDeps.SessionManager)
-
-	sessionService := infraDeps.SessionManager.(*session.Service)
+	userService := user.NewService(userRepo, infraDeps.Tokens)
 
 	return []registry.Module{
 		infrastructure_cpu.NewModule(nativeQuerier, getTenant),
@@ -80,8 +75,7 @@ func configuredModules(
 		traces_paths.NewModule(nativeQuerier, getTenant),
 		traces_servicemap.NewModule(nativeQuerier, getTenant),
 
-		session.NewModule(sessionService),
-		user.NewModule(getTenant, userService),
+		user.NewModule(getTenant, userService, infraDeps.Tokens),
 
 		alerting_monitors.NewModule(infraDeps.DB, getTenant, nativeQuerier),
 		alerting_notifications.NewModule(infraDeps.DB, getTenant),

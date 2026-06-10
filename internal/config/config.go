@@ -16,7 +16,7 @@ type Config struct {
 	Server      ServerConfig     `yaml:"server"`
 	MySQL       MySQLConfig      `yaml:"mysql"`
 	ClickHouse  ClickHouseConfig `yaml:"clickhouse"`
-	Session     SessionConfig    `yaml:"session"`
+	Auth        AuthConfig       `yaml:"auth"`
 	Kafka       KafkaConfig      `yaml:"kafka"`
 	OTLP        OTLPConfig       `yaml:"otlp"`
 	Retention   RetentionConfig  `yaml:"retention"`
@@ -118,15 +118,14 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("clickhouse.production", false)
 	v.SetDefault("clickhouse.cloud_host", "")
 
-	// session
-	v.SetDefault("session.lifetime_ms", 0)
-	v.SetDefault("session.idle_timeout_ms", 0)
-	v.SetDefault("session.cookie_name", "")
-	v.SetDefault("session.cookie_domain", "")
-	v.SetDefault("session.cookie_path", "")
-	v.SetDefault("session.cookie_secure", false)
-	v.SetDefault("session.cookie_http_only", false)
-	v.SetDefault("session.cookie_same_site", "")
+	// auth
+	v.SetDefault("auth.jwt_secret", "")
+	v.SetDefault("auth.access_ttl_ms", 900000)
+	v.SetDefault("auth.refresh_ttl_ms", 604800000)
+	v.SetDefault("auth.refresh_cookie_name", "optikk_refresh")
+	v.SetDefault("auth.cookie_domain", "")
+	v.SetDefault("auth.cookie_secure", false)
+	v.SetDefault("auth.cookie_same_site", "lax")
 
 	// kafka (required OTLP ingest queue)
 	v.SetDefault("kafka.broker_list", "")
@@ -154,6 +153,10 @@ func (c Config) validate() error {
 		return err
 	}
 
+	if c.Auth.JWTSecret == "" {
+		return fmt.Errorf("auth.jwt_secret must be set")
+	}
+
 	isProd := strings.EqualFold(c.Environment, "production")
 	if !isProd {
 		return nil
@@ -164,6 +167,9 @@ func (c Config) validate() error {
 	}
 	if c.ClickHouse.Password == "clickhouse123" {
 		errs = append(errs, "clickhouse.password must be set in production")
+	}
+	if c.Auth.JWTSecret == "dev-only-change-me-0123456789abcdef" {
+		errs = append(errs, "auth.jwt_secret must be set in production")
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("insecure configuration detected: %s", strings.Join(errs, "; "))

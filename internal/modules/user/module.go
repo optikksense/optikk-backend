@@ -2,6 +2,7 @@ package user
 
 import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/token"
 	"github.com/gin-gonic/gin"
 )
 
@@ -22,6 +23,7 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	authGroup := v1.Group("/auth")
 	{
 		authGroup.POST("/login", h.Login)
+		authGroup.POST("/refresh", h.Refresh)
 		authGroup.POST("/logout", h.Logout)
 		authGroup.GET("/me", h.AuthMe)
 	}
@@ -38,9 +40,10 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 func NewModule(
 	getTenant registry.GetTenantFunc,
 	service *Service,
+	tokens *token.Service,
 ) registry.Module {
 	return &userModule{
-		handler: NewHandler(getTenant, service),
+		handler: NewHandler(getTenant, service, tokens),
 	}
 }
 
