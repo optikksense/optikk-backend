@@ -72,6 +72,9 @@ func (r *Repository) Query(ctx context.Context, req QueryRequest) ([]traceIndexR
 }
 
 func (r *Repository) QueryFacets(ctx context.Context, req FacetsRequest) (Facets, error) {
+	if timebucket.UseHourRollup(req.EndTime - req.StartTime) {
+		req.Filters.StartMs = timebucket.FloorMsToHour(req.Filters.StartMs)
+	}
 	resourceWhere, where, args := filter.BuildClauses(req.Filters)
 
 	query := `
@@ -85,7 +88,7 @@ func (r *Repository) QueryFacets(ctx context.Context, req FacetsRequest) (Facets
 		       topK(10)(http_method)          AS top_http_methods,
 		       topK(15)(response_status_code) AS top_http_statuses,
 		       topK(5)(status_code_string)    AS top_statuses
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(req.EndTime-req.StartTime) + `
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end AND is_root = 1` + where
 
@@ -119,6 +122,9 @@ func pivotTopK(row topKRow) Facets {
 }
 
 func (r *Repository) QueryTrend(ctx context.Context, req TrendRequest) ([]TrendBucket, error) {
+	if timebucket.UseHourRollup(req.EndTime - req.StartTime) {
+		req.Filters.StartMs = timebucket.FloorMsToHour(req.Filters.StartMs)
+	}
 	resourceWhere, where, args := filter.BuildClauses(req.Filters)
 	grainSQL := timebucket.DisplayGrainSQL(req.EndTime - req.StartTime)
 
@@ -131,7 +137,7 @@ func (r *Repository) QueryTrend(ctx context.Context, req TrendRequest) ([]TrendB
 		SELECT ` + grainSQL + `                          AS time_bucket,
 		       sum(request_count) - sum(error_count)     AS total,
 		       sum(error_count)                          AS errors
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(req.EndTime-req.StartTime) + `
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end AND is_root = 1` + where + `
 		GROUP BY time_bucket
@@ -161,11 +167,14 @@ func (r *Repository) QueryTrend(ctx context.Context, req TrendRequest) ([]TrendB
 }
 
 func (r *Repository) SuggestScalar(ctx context.Context, teamID, startMs, endMs int64, field, prefix string, limit int) ([]Suggestion, error) {
+	if timebucket.UseHourRollup(endMs - startMs) {
+		startMs = timebucket.FloorMsToHour(startMs)
+	}
 	column := scalarFieldExpr(field)
 	query := `
 		SELECT ` + column + `        AS value,
 		       sum(request_count)    AS count
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		WHERE timestamp BETWEEN @startMs AND @endMs
 		  AND ` + column + ` != ''

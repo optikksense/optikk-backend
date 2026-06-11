@@ -22,10 +22,3 @@ func SanitizeFloat(v float64) float64 {
 	return v
 }
 
-// SanitizeFloatPtr returns nil if v is nil or points to NaN or Inf, otherwise returns v.
-func SanitizeFloatPtr(v *float64) *float64 {
-	if v == nil || math.IsNaN(*v) || math.IsInf(*v, 0) {
-		return nil
-	}
-	return v
-}

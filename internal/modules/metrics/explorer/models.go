@@ -1,40 +1,33 @@
 package explorer
 
-// ---------------------------------------------------------------------------
-// Internal domain models (returned by repository methods).
-//
-// Filter / query input shapes live in internal/modules/metrics/filter — the
-// repo consumes filter.Filters directly. The types below are output-only.
-// ---------------------------------------------------------------------------
+// Internal domain models returned by repository methods.
 
 // MetricNameResult holds a metric name for autocomplete search.
 type MetricNameResult struct {
-	MetricName  string `json:"metric_name"  ch:"metric_name"`
-	MetricType  string `json:"metric_type"  ch:"metric_type"`
-	Unit        string `json:"unit"         ch:"unit"`
-	Description string `json:"description"  ch:"description"`
+	MetricName  string `json:"metric_name"`
+	MetricType  string `json:"metric_type"`
+	Unit        string `json:"unit"`
+	Description string `json:"description"`
 }
 
 // TagKeyResult holds an attribute key available for a given metric.
 type TagKeyResult struct {
-	TagKey string `json:"tag_key" ch:"tag_key"`
+	TagKey string `json:"tag_key"`
 }
 
 // TagValueResult holds an attribute value and its occurrence count.
 type TagValueResult struct {
-	TagValue string `json:"tag_value" ch:"tag_value"`
-	Count    uint64 `json:"count"     ch:"count"`
+	TagValue string `json:"tag_value"`
+	Count    uint64 `json:"count"`
 }
 
 // TimeseriesPoint is a single aggregated data point from the explorer query.
 type TimeseriesPoint struct {
-	Timestamp string  `json:"timestamp" ch:"time_bucket"`
-	Value     float64 `json:"value"     ch:"agg_value"`
+	Timestamp string  `json:"timestamp"`
+	Value     float64 `json:"value"`
 }
 
-// ---------------------------------------------------------------------------
-// Frontend-facing models (match the optic-frontend Zod schemas)
-// ---------------------------------------------------------------------------
+// Frontend-facing models matching frontend schemas.
 
 // FEMetricNameEntry matches the frontend metricNameEntrySchema.
 type FEMetricNameEntry struct {

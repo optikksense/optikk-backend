@@ -1,8 +1,4 @@
 // Package evaluator runs the BackgroundRunner that ticks the alerting platform.
-// Per tick: load due monitors, evaluate against ClickHouse, decide the new
-// status, persist state + events, fire dispatch. Single responsibility per
-// file: repository owns SQL touches, service owns the per-monitor decide
-// loop, module owns the run.Group integration.
 package evaluator
 
 import (
@@ -15,34 +11,21 @@ import (
 	"github.com/jmoiron/sqlx"
 )
 
-// Repository owns the evaluator-side reads + state mutations. Channels are
-// fetched here too because the evaluator needs them to dispatch — keeping the
-// query in this package avoids a circular import with notifications.
-type Repository interface {
-	LoadDue(ctx context.Context, now time.Time, limit int) ([]DueMonitor, error)
-	UpdateState(ctx context.Context, args UpdateStateArgs) error
-	InsertEvent(ctx context.Context, e models.MonitorEventRow) error
-	GetChannelsByIDs(ctx context.Context, teamID int64, ids []int64) ([]models.ChannelRow, error)
-	MarkChannelDelivered(ctx context.Context, id int64, at time.Time, errText sql.NullString) error
-}
-
-type MySQLRepository struct {
+type Repository struct {
 	db *sqlx.DB
 }
 
-func NewRepository(db *sql.DB) *MySQLRepository {
-	return &MySQLRepository{db: sqlx.NewDb(db, "mysql")}
+func NewRepository(db *sql.DB) *Repository {
+	return &Repository{db: sqlx.NewDb(db, "mysql")}
 }
 
-// DueMonitor pairs a monitor row with its current state row (the LEFT JOIN
-// always returns a state row since INSERTs create it).
+// DueMonitor pairs a monitor row with its current state row.
 type DueMonitor struct {
 	Monitor models.MonitorRow
 	State   models.MonitorStateRow
 }
 
-// UpdateStateArgs is the post-evaluation state write. The repo CAS-checks
-// PrevStatus to avoid clobbering a concurrent ack.
+// UpdateStateArgs holds the arguments for updating monitor state.
 type UpdateStateArgs struct {
 	MonitorID          int64
 	PrevStatus         string
@@ -55,7 +38,7 @@ type UpdateStateArgs struct {
 	IncrementEvalCount bool
 }
 
-func (r *MySQLRepository) LoadDue(ctx context.Context, now time.Time, limit int) ([]DueMonitor, error) {
+func (r *Repository) LoadDue(ctx context.Context, now time.Time, limit int) ([]DueMonitor, error) {
 	const query = `
 		SELECT
 		  m.id, m.team_id, m.name, m.type, m.priority,
@@ -90,8 +73,7 @@ func (r *MySQLRepository) LoadDue(ctx context.Context, now time.Time, limit int)
 	return out, nil
 }
 
-// dueRow flattens the JOIN row for sqlx. Aliases avoid column-name collisions
-// between m.id and s.monitor_id even though sqlx handles `s_` prefixed names.
+// dueRow flattens the JOIN row for sqlx mapping.
 type dueRow struct {
 	models.MonitorRow
 	SMonitorID        sql.NullInt64   `db:"s_monitor_id"`
@@ -124,9 +106,8 @@ func (r dueRow) toDue() DueMonitor {
 	return DueMonitor{Monitor: r.MonitorRow, State: state}
 }
 
-func (r *MySQLRepository) UpdateState(ctx context.Context, args UpdateStateArgs) error {
-	// CAS on prev status so a concurrent ack doesn't get blown away. If the
-	// status moved out from under us, the next tick will re-evaluate.
+func (r *Repository) UpdateState(ctx context.Context, args UpdateStateArgs) error {
+	// Perform CAS on prev status to avoid clobbering concurrent changes.
 	q := `
 		UPDATE observability.monitor_state
 		   SET status = ?, current_value = ?, last_evaluated_at = ?, next_evaluation_at = ?,
@@ -145,7 +126,7 @@ func (r *MySQLRepository) UpdateState(ctx context.Context, args UpdateStateArgs)
 	return err
 }
 
-func (r *MySQLRepository) InsertEvent(ctx context.Context, e models.MonitorEventRow) error {
+func (r *Repository) InsertEvent(ctx context.Context, e models.MonitorEventRow) error {
 	_, err := dbutil.ExecSQL(ctx, r.db, "evaluator.InsertEvent", `
 		INSERT INTO observability.monitor_events
 		  (monitor_id, team_id, kind, value, threshold, started_at)
@@ -154,7 +135,7 @@ func (r *MySQLRepository) InsertEvent(ctx context.Context, e models.MonitorEvent
 	return err
 }
 
-func (r *MySQLRepository) GetChannelsByIDs(ctx context.Context, teamID int64, ids []int64) ([]models.ChannelRow, error) {
+func (r *Repository) GetChannelsByIDs(ctx context.Context, teamID int64, ids []int64) ([]models.ChannelRow, error) {
 	if len(ids) == 0 {
 		return nil, nil
 	}
@@ -175,7 +156,7 @@ func (r *MySQLRepository) GetChannelsByIDs(ctx context.Context, teamID int64, id
 	return rows, nil
 }
 
-func (r *MySQLRepository) MarkChannelDelivered(ctx context.Context, id int64, at time.Time, errText sql.NullString) error {
+func (r *Repository) MarkChannelDelivered(ctx context.Context, id int64, at time.Time, errText sql.NullString) error {
 	status := "ok"
 	if errText.Valid && errText.String != "" {
 		status = "warn"

@@ -8,11 +8,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// HTTPMetricsMiddleware populates the `optikk_http_*` Prometheus metrics.
-// Route label is Gin's FullPath() (the template, e.g. `/api/v1/users/:id`)
-// so cardinality stays bounded regardless of IDs in the URL. Requests that
-// miss every route (404s) are labelled `__unmatched__` so they still show
-// up as traffic without exploding series count.
+// HTTPMetricsMiddleware populates `optikk_http_*` Prometheus metrics.
+// Route labels use Gin's FullPath() template to bound cardinality.
 func HTTPMetricsMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		metrics.HTTPInFlight.Inc()

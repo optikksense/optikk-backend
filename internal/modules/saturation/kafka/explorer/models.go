@@ -49,7 +49,7 @@ type GroupHealthRow struct {
 	ConnectionCount        float64 `ch:"connection_count"          json:"connection_count"`
 }
 
-// Legacy Trends and Detail (To be refactored or deleted in a real project, but for now we'll keep the trend points for the detail page charts if needed)
+// Legacy Trends and Detail model structures.
 type KafkaTopicTrendPoint struct {
 	Timestamp     string  `json:"timestamp"`
 	BytesPerSec   float64 `json:"bytes_per_sec"`

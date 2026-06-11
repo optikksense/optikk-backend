@@ -7,32 +7,19 @@ import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/chargs"
 )
 
-type Repository interface {
-	GetFleetREDMetrics(ctx context.Context, teamID int64, startMs, endMs int64) ([]redMetricsRow, error)
-	GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]apdexRow, error)
-	GetApdexByService(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]apdexRow, error)
-	GetRequestAndErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]requestRateRawRow, error)
-	GetStatusTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]statusBucketTimeseriesRow, error)
-	GetLatencyPercentilesTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]latencyPercentilesTimeseriesRow, error)
-	GetTopEndpointsCombined(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int, cursor TopEndpointsCursor) ([]topEndpointRow, error)
-	GetServiceREDMetrics(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (*redMetricsRow, error)
-	GetServiceSaturationAggs(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, metricNames []string) ([]serviceMetricRow, error)
-	GetFleetSaturationAggs(ctx context.Context, teamID int64, startMs, endMs int64, metricNames []string) ([]serviceMetricRow, error)
-	GetOperationBaseline(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) (operationBaselineRow, error)
-}
-
-type ClickHouseRepository struct {
+type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
-	return &ClickHouseRepository{db: db}
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
 }
 
-func (r *ClickHouseRepository) GetFleetREDMetrics(ctx context.Context, teamID int64, startMs, endMs int64) ([]redMetricsRow, error) {
-	const query = `
+func (r *Repository) GetFleetREDMetrics(ctx context.Context, teamID int64, startMs, endMs int64) ([]redMetricsRow, error) {
+	query := `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
 		    FROM observability.spans_resource
@@ -43,15 +30,15 @@ func (r *ClickHouseRepository) GetFleetREDMetrics(ctx context.Context, teamID in
 		       sum(request_count)                                   AS total_count,
 		       sum(error_count)                                     AS error_count,
 		       quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state) AS qs
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
+		     AND timestamp   BETWEEN @start AND @end
 		GROUP BY service`
 	var rows []redMetricsRow
 	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetFleetREDMetrics",
-		&rows, query, spanArgs(teamID, startMs, endMs)...); err != nil {
+		&rows, query, chargs.RollupRangeArgs(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	for i := range rows {
@@ -64,7 +51,7 @@ func (r *ClickHouseRepository) GetFleetREDMetrics(ctx context.Context, teamID in
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]apdexRow, error) {
+func (r *Repository) GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64) ([]apdexRow, error) {
 	const query = `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
@@ -80,10 +67,10 @@ func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, start
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
+		     AND timestamp   BETWEEN @start AND @end
 		GROUP BY service
 		ORDER BY total_count DESC`
-	args := append(spanArgs(teamID, startMs, endMs),
+	args := append(chargs.RangeArgs(teamID, startMs, endMs),
 		clickhouse.Named("satisfiedNs", uint64(satisfiedMs*1_000_000)),
 		clickhouse.Named("toleratingNs", uint64(toleratingMs*1_000_000)),
 	)
@@ -92,7 +79,7 @@ func (r *ClickHouseRepository) GetApdex(ctx context.Context, teamID int64, start
 		&rows, query, args...)
 }
 
-func (r *ClickHouseRepository) GetApdexByService(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]apdexRow, error) {
+func (r *Repository) GetApdexByService(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]apdexRow, error) {
 	const query = `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
@@ -109,11 +96,11 @@ func (r *ClickHouseRepository) GetApdexByService(ctx context.Context, teamID int
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		  AND service   = @serviceName
+		     AND timestamp   BETWEEN @start AND @end
+		WHERE service   = @serviceName
 		GROUP BY service
 		ORDER BY total_count DESC`
-	args := append(spanArgs(teamID, startMs, endMs),
+	args := append(chargs.RangeArgs(teamID, startMs, endMs),
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("satisfiedNs", uint64(satisfiedMs*1_000_000)),
 		clickhouse.Named("toleratingNs", uint64(toleratingMs*1_000_000)),
@@ -123,8 +110,8 @@ func (r *ClickHouseRepository) GetApdexByService(ctx context.Context, teamID int
 		&rows, query, args...)
 }
 
-func (r *ClickHouseRepository) GetServiceREDMetrics(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (*redMetricsRow, error) {
-	const query = `
+func (r *Repository) GetServiceREDMetrics(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (*redMetricsRow, error) {
+	query := `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
 		    FROM observability.spans_resource
@@ -136,12 +123,12 @@ func (r *ClickHouseRepository) GetServiceREDMetrics(ctx context.Context, teamID 
 		       sum(request_count)                                   AS total_count,
 		       sum(error_count)                                     AS error_count,
 		       quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state) AS qs
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		  AND service = @serviceName
+		     AND timestamp   BETWEEN @start AND @end
+		WHERE service = @serviceName
 		GROUP BY service`
 	var rows []redMetricsRow
 	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetServiceREDMetrics",
@@ -160,8 +147,8 @@ func (r *ClickHouseRepository) GetServiceREDMetrics(ctx context.Context, teamID 
 	return &row, nil
 }
 
-func (r *ClickHouseRepository) GetOperationBaseline(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) (operationBaselineRow, error) {
-	const query = `
+func (r *Repository) GetOperationBaseline(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) (operationBaselineRow, error) {
+	query := `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
 		    FROM observability.spans_resource
@@ -171,14 +158,14 @@ func (r *ClickHouseRepository) GetOperationBaseline(ctx context.Context, teamID 
 		)
 		SELECT sum(request_count)                                   AS span_count,
 		       quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state) AS qs
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
-		  AND service = @serviceName
+		     AND timestamp   BETWEEN @start AND @end
+		WHERE service = @serviceName
 		  AND name    = @operationName`
-	args := append(spanArgs(teamID, startMs, endMs),
+	args := append(chargs.RollupRangeArgs(teamID, startMs, endMs),
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("operationName", operationName),
 	)
@@ -199,39 +186,38 @@ func (r *ClickHouseRepository) GetOperationBaseline(ctx context.Context, teamID 
 	return row, nil
 }
 
-func (r *ClickHouseRepository) GetServiceSaturationAggs(
+func (r *Repository) GetServiceSaturationAggs(
 	ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, metricNames []string,
 ) ([]serviceMetricRow, error) {
-	const query = `
+	query := `
 		WITH service_hosts AS (
 		    SELECT DISTINCT host
-		    FROM observability.spans_1m
+		    FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		    PREWHERE team_id     = @teamID
 		         AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		         AND service     = @serviceName
 		         AND host        != ''
 		),
 		active_fps AS (
-		    SELECT fingerprint
-		    FROM observability.metrics_resource
+		    SELECT fingerprint, any(service) AS service
+		    FROM observability.metrics_resource AS mr
 		    PREWHERE team_id     = @teamID
 		         AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
-		         AND metric_name IN @metricNames
-		         AND (service = @serviceName OR host IN service_hosts)
+		    WHERE (mr.service = @serviceName OR mr.host IN service_hosts)
+		    GROUP BY fingerprint
 		)
 		SELECT
-		    service,
-		    metric_name,
-		    sum(val_sum) / sum(val_count) AS value
-		FROM observability.metrics_1m
-		PREWHERE team_id     = @teamID
-		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint IN active_fps
-		WHERE metric_name IN @metricNames
-		  AND timestamp BETWEEN @start AND @end
-		  AND (service = @serviceName OR host IN service_hosts)
+		    r.service                         AS service,
+		    m.metric_name                     AS metric_name,
+		    sum(m.val_sum) / sum(m.val_count) AS value
+		FROM ` + timebucket.MetricsRollup(endMs-startMs) + ` AS m
+		INNER JOIN active_fps AS r ON m.fingerprint = r.fingerprint
+		PREWHERE m.team_id     = @teamID
+		     AND m.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND m.metric_name IN @metricNames
+		     AND m.timestamp   BETWEEN @start AND @end
 		GROUP BY service, metric_name`
-	args := append(spanArgs(teamID, startMs, endMs),
+	args := append(chargs.RollupRangeArgs(teamID, startMs, endMs),
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("metricNames", metricNames),
 	)
@@ -246,7 +232,7 @@ type requestRateRawRow struct {
 	ErrorCount   uint64    `ch:"error_count"`
 }
 
-func (r *ClickHouseRepository) GetRequestAndErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]requestRateRawRow, error) {
+func (r *Repository) GetRequestAndErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]requestRateRawRow, error) {
 	query := `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
@@ -257,64 +243,48 @@ func (r *ClickHouseRepository) GetRequestAndErrorRateTimeSeries(ctx context.Cont
 		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + ` AS bucket_at,
 		       sum(request_count)    AS request_count,
 		       sum(error_count)      AS error_count
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
+		     AND timestamp   BETWEEN @start AND @end
 		GROUP BY bucket_at
 		ORDER BY bucket_at ASC`
 	var rows []requestRateRawRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetRequestAndErrorRateTimeSeries",
-		&rows, query, spanArgs(teamID, startMs, endMs)...)
+		&rows, query, chargs.RollupRangeArgs(teamID, startMs, endMs)...)
 }
 
-
-func (r *ClickHouseRepository) GetFleetSaturationAggs(
+func (r *Repository) GetFleetSaturationAggs(
 	ctx context.Context, teamID int64, startMs, endMs int64, metricNames []string,
 ) ([]serviceMetricRow, error) {
-	const query = `
-		WITH active_fps AS (
-		    SELECT fingerprint
-		    FROM observability.metrics_resource
-		    PREWHERE team_id     = @teamID
-		         AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
-		         AND metric_name IN @metricNames
+	// service is grouped from metrics_resource (by fingerprint); the scalar
+	// rollup supplies the values.
+	query := `
+		WITH fps AS (
+		    SELECT fingerprint, any(service) AS service
+		    FROM observability.metrics_resource AS mr
+		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		    WHERE mr.service != ''
+		    GROUP BY fingerprint
 		)
 		SELECT
-		    service,
-		    metric_name,
-		    sum(val_sum) / sum(val_count) AS value
-		FROM observability.metrics_1m
-		PREWHERE team_id     = @teamID
-		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint IN active_fps
-		WHERE metric_name IN @metricNames
-		  AND timestamp BETWEEN @start AND @end
-		  AND service != ''
+		    r.service                         AS service,
+		    m.metric_name                     AS metric_name,
+		    sum(m.val_sum) / sum(m.val_count) AS value
+		FROM ` + timebucket.MetricsRollup(endMs-startMs) + ` AS m
+		INNER JOIN fps AS r ON m.fingerprint = r.fingerprint
+		PREWHERE m.team_id     = @teamID
+		     AND m.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND m.metric_name IN @metricNames
+		     AND m.timestamp   BETWEEN @start AND @end
 		GROUP BY service, metric_name`
-	args := append(spanArgs(teamID, startMs, endMs),
+	args := append(chargs.RollupRangeArgs(teamID, startMs, endMs),
 		clickhouse.Named("metricNames", metricNames),
 	)
 	var rows []serviceMetricRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetFleetSaturationAggs",
 		&rows, query, args...)
-}
-
-func spanArgs(teamID int64, startMs, endMs int64) []any {
-	bucketStart, bucketEnd := spanBucketBounds(startMs, endMs)
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115 — TeamID fits UInt32
-		clickhouse.Named("bucketStart", bucketStart),
-		clickhouse.Named("bucketEnd", bucketEnd),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
-
-func spanBucketBounds(startMs, endMs int64) (uint32, uint32) {
-	return timebucket.BucketStart(startMs / 1000),
-		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }
 
 // statusBucketTimeseriesRow is one (bucket, status-class) row from spans_1m.
@@ -347,7 +317,7 @@ type topEndpointRow struct {
 	P99Ms         float32   `ch:"p99_ms"`
 }
 
-func (r *ClickHouseRepository) GetStatusTimeSeries(
+func (r *Repository) GetStatusTimeSeries(
 	ctx context.Context, teamID int64, startMs, endMs int64, serviceName string,
 ) ([]statusBucketTimeseriesRow, error) {
 	grainSQL := timebucket.DisplayGrainSQL(endMs - startMs)
@@ -362,11 +332,12 @@ func (r *ClickHouseRepository) GetStatusTimeSeries(
 		SELECT ` + grainSQL + ` AS bucket_at,
 		       http_status_bucket AS http_status_bucket,
 		       sum(request_count) AS request_count
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
+		     AND timestamp   BETWEEN @start AND @end
+		WHERE 1=1
 		      ` + serviceWherePred(serviceName) + `
 		GROUP BY bucket_at, http_status_bucket
 		ORDER BY bucket_at ASC`
@@ -375,7 +346,7 @@ func (r *ClickHouseRepository) GetStatusTimeSeries(
 		&rows, query, detailArgs(teamID, startMs, endMs, serviceName)...)
 }
 
-func (r *ClickHouseRepository) GetLatencyPercentilesTimeSeries(
+func (r *Repository) GetLatencyPercentilesTimeSeries(
 	ctx context.Context, teamID int64, startMs, endMs int64, serviceName string,
 ) ([]latencyPercentilesTimeseriesRow, error) {
 	grainSQL := timebucket.DisplayGrainSQL(endMs - startMs)
@@ -389,11 +360,12 @@ func (r *ClickHouseRepository) GetLatencyPercentilesTimeSeries(
 		)
 		SELECT ` + grainSQL + ` AS bucket_at,
 		       quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state) AS qs
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
+		     AND timestamp   BETWEEN @start AND @end
+		WHERE 1=1
 		      ` + serviceWherePred(serviceName) + `
 		GROUP BY bucket_at
 		ORDER BY bucket_at ASC`
@@ -412,7 +384,7 @@ func (r *ClickHouseRepository) GetLatencyPercentilesTimeSeries(
 	return rows, nil
 }
 
-func (r *ClickHouseRepository) GetTopEndpointsCombined(
+func (r *Repository) GetTopEndpointsCombined(
 	ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int, cursor TopEndpointsCursor,
 ) ([]topEndpointRow, error) {
 	var paginationFilter string
@@ -435,11 +407,12 @@ func (r *ClickHouseRepository) GetTopEndpointsCombined(
 		       sum(request_count)                                   AS total_count,
 		       sum(error_count)                                     AS error_count,
 		       quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state) AS qs
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
-		WHERE timestamp BETWEEN @start AND @end
+		     AND timestamp   BETWEEN @start AND @end
+		WHERE 1=1
 		      ` + serviceWherePred(serviceName) + `
 		GROUP BY service, name
 		HAVING 1 = 1 ` + paginationFilter + `
@@ -480,7 +453,7 @@ func serviceWherePred(serviceName string) string {
 }
 
 func detailArgs(teamID int64, startMs, endMs int64, serviceName string) []any {
-	args := spanArgs(teamID, startMs, endMs)
+	args := chargs.RollupRangeArgs(teamID, startMs, endMs)
 	if serviceName != "" {
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}

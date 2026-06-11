@@ -8,11 +8,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// Consumer wraps *kgo.Client with a Run(ctx, handler) loop. Each PollFetches
-// return is handed to the handler as one batch; on nil error the records are
-// committed and the loop continues. Handler errors leave offsets uncommitted
-// so the next poll re-fetches and retries (the DLQ path commits-and-skips
-// after publishing to optikk.dlq.{signal}).
+// Consumer wraps a kgo.Client to poll and commit records in a loop.
 type Consumer struct {
 	client *kgo.Client
 }
@@ -22,8 +18,7 @@ func NewConsumer(client *kgo.Client) *Consumer { return &Consumer{client: client
 func (c *Consumer) Client() *kgo.Client { return c.client }
 func (c *Consumer) Close()              { c.client.Close() }
 
-// RecordHandler processes one polled batch. Returning nil commits offsets;
-// returning an error keeps the records uncommitted so they're re-fetched.
+// RecordHandler processes a batch of records. Returning error skips commit.
 type RecordHandler func(ctx context.Context, recs []*kgo.Record) error
 
 // Run blocks until ctx is cancelled or the client is closed.

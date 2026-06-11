@@ -31,7 +31,7 @@ type Row struct {
 	IsMonotonic bool                   `protobuf:"varint,5,opt,name=is_monotonic,json=isMonotonic,proto3" json:"is_monotonic,omitempty"`
 	Unit        string                 `protobuf:"bytes,6,opt,name=unit,proto3" json:"unit,omitempty"`
 	Description string                 `protobuf:"bytes,7,opt,name=description,proto3" json:"description,omitempty"`
-	Fingerprint string                 `protobuf:"bytes,8,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"`
+	Fingerprint uint64                 `protobuf:"varint,8,opt,name=fingerprint,proto3" json:"fingerprint,omitempty"`
 	TimestampNs int64                  `protobuf:"varint,9,opt,name=timestamp_ns,json=timestampNs,proto3" json:"timestamp_ns,omitempty"`
 	Value       float64                `protobuf:"fixed64,10,opt,name=value,proto3" json:"value,omitempty"`
 	HistSum     float64                `protobuf:"fixed64,11,opt,name=hist_sum,json=histSum,proto3" json:"hist_sum,omitempty"`
@@ -43,16 +43,14 @@ type Row struct {
 	// ts_bucket_hour_seconds carries the 5-minute-aligned bucket value from internal/infra/timebucket.BucketStart (Unix seconds). Field name kept for proto wire-compat.
 	TsBucketHourSeconds int64 `protobuf:"varint,17,opt,name=ts_bucket_hour_seconds,json=tsBucketHourSeconds,proto3" json:"ts_bucket_hour_seconds,omitempty"`
 	// Top-level resource/attribute labels written by the mapper; tier MVs pass these through.
-	Service        string `protobuf:"bytes,20,opt,name=service,proto3" json:"service,omitempty"`
-	Host           string `protobuf:"bytes,21,opt,name=host,proto3" json:"host,omitempty"`
-	Environment    string `protobuf:"bytes,22,opt,name=environment,proto3" json:"environment,omitempty"`
-	K8SNamespace   string `protobuf:"bytes,23,opt,name=k8s_namespace,json=k8sNamespace,proto3" json:"k8s_namespace,omitempty"`
-	HttpMethod     string `protobuf:"bytes,24,opt,name=http_method,json=httpMethod,proto3" json:"http_method,omitempty"`
-	HttpStatusCode uint32 `protobuf:"varint,25,opt,name=http_status_code,json=httpStatusCode,proto3" json:"http_status_code,omitempty"`
-	Pod            string `protobuf:"bytes,26,opt,name=pod,proto3" json:"pod,omitempty"`
-	Container      string `protobuf:"bytes,27,opt,name=container,proto3" json:"container,omitempty"`
-	unknownFields  protoimpl.UnknownFields
-	sizeCache      protoimpl.SizeCache
+	Service       string `protobuf:"bytes,20,opt,name=service,proto3" json:"service,omitempty"`
+	Host          string `protobuf:"bytes,21,opt,name=host,proto3" json:"host,omitempty"`
+	Environment   string `protobuf:"bytes,22,opt,name=environment,proto3" json:"environment,omitempty"`
+	K8SNamespace  string `protobuf:"bytes,23,opt,name=k8s_namespace,json=k8sNamespace,proto3" json:"k8s_namespace,omitempty"`
+	Pod           string `protobuf:"bytes,26,opt,name=pod,proto3" json:"pod,omitempty"`
+	Container     string `protobuf:"bytes,27,opt,name=container,proto3" json:"container,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
 }
 
 func (x *Row) Reset() {
@@ -134,11 +132,11 @@ func (x *Row) GetDescription() string {
 	return ""
 }
 
-func (x *Row) GetFingerprint() string {
+func (x *Row) GetFingerprint() uint64 {
 	if x != nil {
 		return x.Fingerprint
 	}
-	return ""
+	return 0
 }
 
 func (x *Row) GetTimestampNs() int64 {
@@ -232,20 +230,6 @@ func (x *Row) GetK8SNamespace() string {
 	return ""
 }
 
-func (x *Row) GetHttpMethod() string {
-	if x != nil {
-		return x.HttpMethod
-	}
-	return ""
-}
-
-func (x *Row) GetHttpStatusCode() uint32 {
-	if x != nil {
-		return x.HttpStatusCode
-	}
-	return 0
-}
-
 func (x *Row) GetPod() string {
 	if x != nil {
 		return x.Pod
@@ -264,7 +248,7 @@ var File_metric_row_proto protoreflect.FileDescriptor
 
 const file_metric_row_proto_rawDesc = "" +
 	"\n" +
-	"\x10metric_row.proto\x12\x18optikk.ingest.metrics.v1\"\xed\a\n" +
+	"\x10metric_row.proto\x12\x18optikk.ingest.metrics.v1\"\xcd\a\n" +
 	"\x03Row\x12\x17\n" +
 	"\ateam_id\x18\x01 \x01(\rR\x06teamId\x12\x1f\n" +
 	"\vmetric_name\x18\x02 \x01(\tR\n" +
@@ -275,7 +259,7 @@ const file_metric_row_proto_rawDesc = "" +
 	"\fis_monotonic\x18\x05 \x01(\bR\visMonotonic\x12\x12\n" +
 	"\x04unit\x18\x06 \x01(\tR\x04unit\x12 \n" +
 	"\vdescription\x18\a \x01(\tR\vdescription\x12 \n" +
-	"\vfingerprint\x18\b \x01(\tR\vfingerprint\x12!\n" +
+	"\vfingerprint\x18\b \x01(\x04R\vfingerprint\x12!\n" +
 	"\ftimestamp_ns\x18\t \x01(\x03R\vtimestampNs\x12\x14\n" +
 	"\x05value\x18\n" +
 	" \x01(\x01R\x05value\x12\x19\n" +
@@ -293,10 +277,7 @@ const file_metric_row_proto_rawDesc = "" +
 	"\aservice\x18\x14 \x01(\tR\aservice\x12\x12\n" +
 	"\x04host\x18\x15 \x01(\tR\x04host\x12 \n" +
 	"\venvironment\x18\x16 \x01(\tR\venvironment\x12#\n" +
-	"\rk8s_namespace\x18\x17 \x01(\tR\fk8sNamespace\x12\x1f\n" +
-	"\vhttp_method\x18\x18 \x01(\tR\n" +
-	"httpMethod\x12(\n" +
-	"\x10http_status_code\x18\x19 \x01(\rR\x0ehttpStatusCode\x12\x10\n" +
+	"\rk8s_namespace\x18\x17 \x01(\tR\fk8sNamespace\x12\x10\n" +
 	"\x03pod\x18\x1a \x01(\tR\x03pod\x12\x1c\n" +
 	"\tcontainer\x18\x1b \x01(\tR\tcontainer\x1a;\n" +
 	"\rResourceEntry\x12\x10\n" +
@@ -304,7 +285,7 @@ const file_metric_row_proto_rawDesc = "" +
 	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01\x1a=\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01BOZMgithub.com/Optikk-Org/optikk-backend/internal/ingestion/metrics/schema;schemab\x06proto3"
+	"\x05value\x18\x02 \x01(\tR\x05value:\x028\x01J\x04\b\x18\x10\x19J\x04\b\x19\x10\x1aR\vhttp_methodR\x10http_status_codeBOZMgithub.com/Optikk-Org/optikk-backend/internal/ingestion/metrics/schema;schemab\x06proto3"
 
 var (
 	file_metric_row_proto_rawDescOnce sync.Once

@@ -6,6 +6,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka/filter"
 )
 
@@ -17,14 +18,16 @@ func NewRepository(db clickhouse.Conn) *Repository {
 	return &Repository{db: db}
 }
 
+// buildFilterArgs constructs filtering clauses and arguments for queries.
 func buildFilterArgs(teamID, startMs, endMs int64, metricNames []string, filterCol, filterVal string) (string, []any) {
+	startMs, endMs = timebucket.SnapRangeForRollup(startMs, endMs)
 	args := filter.WithMetricNames(filter.MetricArgs(teamID, startMs, endMs), metricNames)
 	var extraWhere string
 	if filterVal != "" {
 		if filterCol == "topic" {
-			extraWhere = "AND attributes.'messaging.destination.name'::String = @filterVal"
+			extraWhere = "AND messaging_destination = @filterVal"
 		} else if filterCol == "consumer_group" {
-			extraWhere = "AND attributes.'messaging.consumer.group.name'::String = @filterVal"
+			extraWhere = "AND messaging_consumer_group = @filterVal"
 		}
 		args = append(args, clickhouse.Named("filterVal", filterVal))
 	}
@@ -38,15 +41,12 @@ var topicThroughputMetrics = []string{
 	"kafka.consumer.records_consumed_total",
 }
 
+// QueryTopicThroughput returns consumption rates and totals per topic.
 func (r *Repository) QueryTopicThroughput(ctx context.Context, teamID, startMs, endMs int64, topic string) ([]TopicThroughputRow, error) {
 	extraWhere, args := buildFilterArgs(teamID, startMs, endMs, topicThroughputMetrics, "topic", topic)
 	query := fmt.Sprintf(`
-		WITH active_fps AS (
-		    SELECT fingerprint FROM observability.metrics_resource
-		    WHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name IN @metricNames
-		)
 		SELECT
-		    attributes.'messaging.destination.name'::String AS topic,
+		    messaging_destination AS topic,
 		    avg(if(metric_name = 'kafka.consumer.bytes_consumed_rate',
 		           ifNotFinite(val_sum / val_count, 0), NULL))    AS bytes_per_sec,
 		    max(if(metric_name = 'kafka.consumer.bytes_consumed_total',
@@ -55,14 +55,13 @@ func (r *Repository) QueryTopicThroughput(ctx context.Context, teamID, startMs, 
 		           ifNotFinite(val_sum / val_count, 0), NULL))    AS records_per_sec,
 		    max(if(metric_name = 'kafka.consumer.records_consumed_total',
 		           ifNotFinite(val_sum / val_count, 0), NULL))    AS records_total
-		FROM observability.metrics_1m
-		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		WHERE metric_name IN @metricNames
-		  AND timestamp BETWEEN @start AND @end
-		  AND attributes.'messaging.destination.name'::String != ''
-		  %s
+		FROM `+timebucket.MetricsRollup(endMs-startMs)+`
+		PREWHERE team_id   = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND metric_name IN @metricNames
+		     AND timestamp BETWEEN @start AND @end
+		WHERE messaging_destination != '' %s
 		GROUP BY topic
-		HAVING topic != ''
 		ORDER BY bytes_per_sec DESC, topic ASC`, extraWhere)
 	rows := make([]TopicThroughputRow, 0)
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryTopicThroughput", &rows, query, args...)
@@ -73,48 +72,41 @@ var topicLagMetrics = []string{
 	"kafka.consumer.records_lead",
 }
 
+// QueryTopicLag returns max lag and lead per topic.
 func (r *Repository) QueryTopicLag(ctx context.Context, teamID, startMs, endMs int64, topic string) ([]TopicLagRow, error) {
 	extraWhere, args := buildFilterArgs(teamID, startMs, endMs, topicLagMetrics, "topic", topic)
 	query := fmt.Sprintf(`
-		WITH active_fps AS (
-		    SELECT fingerprint FROM observability.metrics_resource
-		    WHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name IN @metricNames
-		)
 		SELECT
-		    attributes.'messaging.destination.name'::String AS topic,
+		    messaging_destination AS topic,
 		    max(if(metric_name = 'kafka.consumer.records_lag',
 		           ifNotFinite(val_sum / val_count, 0), NULL))  AS lag,
 		    max(if(metric_name = 'kafka.consumer.records_lead',
 		           ifNotFinite(val_sum / val_count, 0), NULL))  AS lead
-		FROM observability.metrics_1m
-		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		WHERE metric_name IN @metricNames
-		  AND timestamp BETWEEN @start AND @end
-		  AND attributes.'messaging.destination.name'::String != ''
-		  %s
+		FROM `+timebucket.MetricsRollup(endMs-startMs)+`
+		PREWHERE team_id   = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND metric_name IN @metricNames
+		     AND timestamp BETWEEN @start AND @end
+		WHERE messaging_destination != '' %s
 		GROUP BY topic
-		HAVING topic != ''
 		ORDER BY lag DESC, topic ASC`, extraWhere)
 	rows := make([]TopicLagRow, 0)
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryTopicLag", &rows, query, args...)
 }
 
+// QueryTopicConsumers returns count of consumer groups per topic.
 func (r *Repository) QueryTopicConsumers(ctx context.Context, teamID, startMs, endMs int64, topic string) ([]TopicConsumersRow, error) {
 	extraWhere, args := buildFilterArgs(teamID, startMs, endMs, topicLagMetrics, "topic", topic)
 	query := fmt.Sprintf(`
-		WITH active_fps AS (
-		    SELECT fingerprint FROM observability.metrics_resource
-		    WHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name IN @metricNames
-		)
 		SELECT
-		    attributes.'messaging.destination.name'::String AS topic,
-		    count(DISTINCT attributes.'messaging.consumer.group.name'::String) AS consumer_group_count
-		FROM observability.metrics_1m
-		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		WHERE metric_name IN @metricNames
-		  AND timestamp BETWEEN @start AND @end
-		  AND attributes.'messaging.destination.name'::String != ''
-		  %s
+		    messaging_destination AS topic,
+		    count(DISTINCT messaging_consumer_group) AS consumer_group_count
+		FROM `+timebucket.MetricsRollup(endMs-startMs)+`
+		PREWHERE team_id   = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND metric_name IN @metricNames
+		     AND timestamp BETWEEN @start AND @end
+		WHERE messaging_destination != '' %s
 		GROUP BY topic
 		ORDER BY topic ASC`, extraWhere)
 	rows := make([]TopicConsumersRow, 0)
@@ -123,24 +115,20 @@ func (r *Repository) QueryTopicConsumers(ctx context.Context, teamID, startMs, e
 
 var groupPartitionMetrics = []string{"kafka.consumer.assigned_partitions"}
 
+// QueryGroupPartitions returns partitions assigned per consumer group.
 func (r *Repository) QueryGroupPartitions(ctx context.Context, teamID, startMs, endMs int64, group string) ([]GroupPartitionsRow, error) {
 	extraWhere, args := buildFilterArgs(teamID, startMs, endMs, groupPartitionMetrics, "consumer_group", group)
 	query := fmt.Sprintf(`
-		WITH active_fps AS (
-		    SELECT fingerprint FROM observability.metrics_resource
-		    WHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name IN @metricNames
-		)
 		SELECT
-		    attributes.'messaging.consumer.group.name'::String AS consumer_group,
-		    max(ifNotFinite(val_sum / val_count, 0))            AS assigned_partitions
-		FROM observability.metrics_1m
-		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		WHERE metric_name IN @metricNames
-		  AND timestamp BETWEEN @start AND @end
-		  AND attributes.'messaging.consumer.group.name'::String != ''
-		  %s
+		    messaging_consumer_group AS consumer_group,
+		    max(ifNotFinite(val_sum / val_count, 0)) AS assigned_partitions
+		FROM `+timebucket.MetricsRollup(endMs-startMs)+`
+		PREWHERE team_id   = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND metric_name IN @metricNames
+		     AND timestamp BETWEEN @start AND @end
+		WHERE messaging_consumer_group != '' %s
 		GROUP BY consumer_group
-		HAVING consumer_group != ''
 		ORDER BY assigned_partitions DESC, consumer_group ASC`, extraWhere)
 	rows := make([]GroupPartitionsRow, 0)
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryGroupPartitions", &rows, query, args...)
@@ -152,29 +140,25 @@ var groupCommitMetrics = []string{
 	"kafka.consumer.commit_latency_max",
 }
 
+// QueryGroupCommits returns commit rate and latencies per consumer group.
 func (r *Repository) QueryGroupCommits(ctx context.Context, teamID, startMs, endMs int64, group string) ([]GroupCommitsRow, error) {
 	extraWhere, args := buildFilterArgs(teamID, startMs, endMs, groupCommitMetrics, "consumer_group", group)
 	query := fmt.Sprintf(`
-		WITH active_fps AS (
-		    SELECT fingerprint FROM observability.metrics_resource
-		    WHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name IN @metricNames
-		)
 		SELECT
-		    attributes.'messaging.consumer.group.name'::String AS consumer_group,
+		    messaging_consumer_group AS consumer_group,
 		    avg(if(metric_name = 'kafka.consumer.commit_rate',
 		           ifNotFinite(val_sum / val_count, 0), NULL))        AS commit_rate,
 		    ifNotFinite(avg(if(metric_name = 'kafka.consumer.commit_latency_avg',
 		           ifNotFinite(val_sum / val_count, 0), NULL)), 0)    AS commit_latency_avg_ms,
 		    max(if(metric_name = 'kafka.consumer.commit_latency_max',
 		           ifNotFinite(val_sum / val_count, 0), NULL))        AS commit_latency_max_ms
-		FROM observability.metrics_1m
-		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		WHERE metric_name IN @metricNames
-		  AND timestamp BETWEEN @start AND @end
-		  AND attributes.'messaging.consumer.group.name'::String != ''
-		  %s
+		FROM `+timebucket.MetricsRollup(endMs-startMs)+`
+		PREWHERE team_id   = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND metric_name IN @metricNames
+		     AND timestamp BETWEEN @start AND @end
+		WHERE messaging_consumer_group != '' %s
 		GROUP BY consumer_group
-		HAVING consumer_group != ''
 		ORDER BY consumer_group ASC`, extraWhere)
 	rows := make([]GroupCommitsRow, 0)
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryGroupCommits", &rows, query, args...)
@@ -186,29 +170,25 @@ var groupFetchMetrics = []string{
 	"kafka.consumer.fetch_latency_max",
 }
 
+// QueryGroupFetches returns fetch rate and latencies per consumer group.
 func (r *Repository) QueryGroupFetches(ctx context.Context, teamID, startMs, endMs int64, group string) ([]GroupFetchesRow, error) {
 	extraWhere, args := buildFilterArgs(teamID, startMs, endMs, groupFetchMetrics, "consumer_group", group)
 	query := fmt.Sprintf(`
-		WITH active_fps AS (
-		    SELECT fingerprint FROM observability.metrics_resource
-		    WHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name IN @metricNames
-		)
 		SELECT
-		    attributes.'messaging.consumer.group.name'::String AS consumer_group,
+		    messaging_consumer_group AS consumer_group,
 		    avg(if(metric_name = 'kafka.consumer.fetch_rate',
 		           ifNotFinite(val_sum / val_count, 0), NULL))        AS fetch_rate,
 		    ifNotFinite(avg(if(metric_name = 'kafka.consumer.fetch_latency_avg',
 		           ifNotFinite(val_sum / val_count, 0), NULL)), 0)    AS fetch_latency_avg_ms,
 		    max(if(metric_name = 'kafka.consumer.fetch_latency_max',
 		           ifNotFinite(val_sum / val_count, 0), NULL))        AS fetch_latency_max_ms
-		FROM observability.metrics_1m
-		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		WHERE metric_name IN @metricNames
-		  AND timestamp BETWEEN @start AND @end
-		  AND attributes.'messaging.consumer.group.name'::String != ''
-		  %s
+		FROM `+timebucket.MetricsRollup(endMs-startMs)+`
+		PREWHERE team_id   = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND metric_name IN @metricNames
+		     AND timestamp BETWEEN @start AND @end
+		WHERE messaging_consumer_group != '' %s
 		GROUP BY consumer_group
-		HAVING consumer_group != ''
 		ORDER BY consumer_group ASC`, extraWhere)
 	rows := make([]GroupFetchesRow, 0)
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryGroupFetches", &rows, query, args...)
@@ -222,15 +202,12 @@ var groupHealthMetrics = []string{
 	"kafka.consumer.connection_count",
 }
 
+// QueryGroupHealth returns health metrics per consumer group.
 func (r *Repository) QueryGroupHealth(ctx context.Context, teamID, startMs, endMs int64, group string) ([]GroupHealthRow, error) {
 	extraWhere, args := buildFilterArgs(teamID, startMs, endMs, groupHealthMetrics, "consumer_group", group)
 	query := fmt.Sprintf(`
-		WITH active_fps AS (
-		    SELECT fingerprint FROM observability.metrics_resource
-		    WHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name IN @metricNames
-		)
 		SELECT
-		    attributes.'messaging.consumer.group.name'::String AS consumer_group,
+		    messaging_consumer_group AS consumer_group,
 		    avg(if(metric_name = 'kafka.consumer.heartbeat_rate',
 		           ifNotFinite(val_sum / val_count, 0), NULL))                    AS heartbeat_rate,
 		    avg(if(metric_name = 'kafka.consumer.failed_rebalance_rate_per_hour',
@@ -241,14 +218,13 @@ func (r *Repository) QueryGroupHealth(ctx context.Context, teamID, startMs, endM
 		           ifNotFinite(val_sum / val_count, 0), NULL))                    AS last_poll_seconds_ago,
 		    max(if(metric_name = 'kafka.consumer.connection_count',
 		           ifNotFinite(val_sum / val_count, 0), NULL))                    AS connection_count
-		FROM observability.metrics_1m
-		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
-		WHERE metric_name IN @metricNames
-		  AND timestamp BETWEEN @start AND @end
-		  AND attributes.'messaging.consumer.group.name'::String != ''
-		  %s
+		FROM `+timebucket.MetricsRollup(endMs-startMs)+`
+		PREWHERE team_id   = @teamID
+		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		     AND metric_name IN @metricNames
+		     AND timestamp BETWEEN @start AND @end
+		WHERE messaging_consumer_group != '' %s
 		GROUP BY consumer_group
-		HAVING consumer_group != ''
 		ORDER BY consumer_group ASC`, extraWhere)
 	rows := make([]GroupHealthRow, 0)
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryGroupHealth", &rows, query, args...)

@@ -63,7 +63,7 @@ func (f *Filters) Validate() error {
 
 func BuildClauses(f Filters) (resourceWhere, where string, args []any) {
 	args = []any{
-		clickhouse.Named("teamID", uint32(f.TeamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(f.TeamID)),
 		clickhouse.Named("bucketStart", timebucket.BucketStart(f.StartMs/1000)),
 		clickhouse.Named("bucketEnd", timebucket.BucketStart(f.EndMs/1000)+uint32(timebucket.BucketSeconds)),
 		clickhouse.Named("start", time.UnixMilli(f.StartMs)),

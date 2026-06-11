@@ -1,6 +1,5 @@
-// Package log_facets owns POST /api/v1/logs/facets — top-N facet buckets
-// per dimension (severity, service, host, pod, environment). Also exposed
-// as a Service method so the explorer aggregator can fan it as an include.
+// Package log_facets provides top-N facet buckets per dimension.
+// It is also exposed as a Service method for external callers.
 package log_facets //nolint:revive,stylecheck
 
 import (
@@ -20,11 +19,6 @@ func NewModule(db clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Mo
 	return m
 }
 
-// NewService builds a wired Service so explorer can compose facets without
-// going through the HTTP surface.
-func NewServiceFromDB(db clickhouse.Conn) *Service {
-	return NewService(NewRepository(db))
-}
 
 type module struct {
 	handler *Handler

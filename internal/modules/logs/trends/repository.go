@@ -22,9 +22,8 @@ type SummaryRow struct {
 	Warns  uint64 `ch:"warns"`
 }
 
-// TrendRow is one display-grain bucket carrying the total count plus per-tier
-// countIf aggregates. Tier thresholds mirror the Summary query so total ==
-// error + warn + info + debug.
+// TrendRow is one display-grain bucket carrying total and per-tier counts.
+// Tier thresholds mirror the Summary query.
 type TrendRow struct {
 	TimeBucket time.Time `ch:"time_bucket"`
 	Total      uint64    `ch:"total"`
@@ -34,16 +33,8 @@ type TrendRow struct {
 	Debug      uint64    `ch:"debug"`
 }
 
-// Summary readers come in two shapes: with-CTE (when a resource-side
-// predicate exists, narrowing fingerprints first) and bare (when no resource
-// filter is set — active_fps would equal "every fingerprint in window" and
-// the fingerprint-IN-clause would prune nothing). Granule pruning stays tight
-// in the bare form via the (team_id, ts_bucket) leading PK columns.
-//
-// `timestamp BETWEEN` is in PREWHERE so CH uses the per-granule DateTime64
-// min/max stat to prune within a bucket; explicit PREWHERE disables auto
-// promotion. The condition is repeated in WHERE as the base for filter
-// clauses to tack onto.
+// Summary reads use CTE to narrow fingerprints when resource predicates exist.
+// Otherwise, it queries bare using leading PK columns for pruning.
 const summaryCTEHead = `
 	WITH active_fps AS (
 	    SELECT DISTINCT fingerprint
@@ -83,17 +74,8 @@ func (r *Repository) Summary(ctx context.Context, f filter.Filters) (SummaryRow,
 		&row, query, args...)
 }
 
-// Trend display grain is dispatched server-side via timebucket.DisplayGrainSQL
-// to the specific toStartOf{Minute,FiveMinutes,Hour,Day} per window — 10–15%
-// faster than the generic toStartOfInterval form for our 4 fixed grains.
-//
-// One row per display bucket carrying total + per-severity-tier countIf
-// aggregates (severity-stacked trend). Tier thresholds mirror the Summary
-// query so total == error + warn + info + debug.
-//
-// Mirrors Summary's shape: head ends at `WHERE timestamp BETWEEN …` so the
-// row-side `where` from filter.BuildClauses (trace_id, span_id, severities,
-// search, attributes) appends cleanly before GROUP BY/ORDER BY.
+// Trend queries aggregate countIf per severity tier into display buckets.
+// Dispatched using adaptive display grain and supports trailing filters.
 const trendCTEHead = `
 	WITH active_fps AS (
 	    SELECT DISTINCT fingerprint

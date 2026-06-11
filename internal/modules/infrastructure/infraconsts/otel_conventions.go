@@ -1,6 +1,6 @@
 package infraconsts
 
-// OpenTelemetry Semantic Conventions for Infrastructure / Resource Utilization Metrics
+// OpenTelemetry Semantic Conventions for Infrastructure & Resource Metrics.
 // Reference: https://opentelemetry.io/docs/specs/semconv/system/
 
 const (
@@ -149,6 +149,3 @@ var (
 	}
 )
 
-func AttrFloat(attrName string) string {
-	return "attributes.'" + attrName + "'::Float64"
-}

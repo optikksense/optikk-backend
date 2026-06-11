@@ -9,11 +9,10 @@ import (
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	models "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/shared/models"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/chargs"
 )
 
-// LogBackend evaluates log monitors against observability.logs. Match uses
-// hasToken on the body when the query has free text; structured filters
-// (severity, service) come from the scope tags.
+// LogBackend evaluates log monitors against observability.logs.
 type LogBackend struct {
 	db clickhouse.Conn
 }
@@ -81,7 +80,7 @@ func (b *LogBackend) Series(ctx context.Context, m models.MonitorRow, q models.M
 }
 
 func logArgs(teamID int64, queryText string, startMs, endMs int64) []any {
-	bs, be := bucketBounds(startMs, endMs)
+	bs, be := chargs.BucketBounds(startMs, endMs)
 	return []any{
 		teamIDArg(teamID),
 		clickhouse.Named("bucketStart", bs),

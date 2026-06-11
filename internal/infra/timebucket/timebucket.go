@@ -1,4 +1,5 @@
-// Package timebucket is the single source of truth for every bucket value in the system. Writers and readers call the same helpers; ClickHouse never computes a bucket itself.
+// Package timebucket provides the source of truth for system bucket values.
+// Both writers and readers call the same helpers to align bucket values.
 package timebucket
 
 import (
@@ -9,33 +10,22 @@ import (
 
 const BucketSeconds int64 = 300
 
-// BucketStart truncates a Unix-second timestamp down to the start of its 5-minute bucket.
-// Returned as UInt32 so it round-trips losslessly through the CH ts_bucket column.
+// BucketStart truncates a Unix-second timestamp to its 5-minute bucket.
+// Returned as UInt32 for lossless round-trips through ClickHouse.
 func BucketStart(unixSeconds int64) uint32 {
 	return uint32((unixSeconds / BucketSeconds) * BucketSeconds)
 }
 
-// BucketTime expands a ts_bucket UInt32 (Unix-seconds-aligned) back into a UTC time.Time.
-// Pair with reader queries that scan ts_bucket natively instead of casting to DateTime in SQL.
-func BucketTime(b uint32) time.Time {
-	return time.Unix(int64(b), 0).UTC()
-}
 
-// BucketDateTimeString formats a ts_bucket UInt32 as ClickHouse's default toString(DateTime)
-// shape "YYYY-MM-DD HH:MM:SS". Use when a reader previously scanned toString(toDateTime(ts_bucket))
-// into a string field for the API contract.
-func BucketDateTimeString(b uint32) string {
-	return time.Unix(int64(b), 0).UTC().Format("2006-01-02 15:04:05")
-}
 
-// FormatDisplayBucket formats a display-grain bucket time.Time as
-// "YYYY-MM-DD HH:MM:SS" (UTC) — the shape CH's default toString(DateTime)
-// produced. Use Go-side after scanning a DisplayGrainSQL bucket as time.Time.
+// FormatDisplayBucket formats a display-grain bucket time.Time as UTC
+// "YYYY-MM-DD HH:MM:SS" for consistency with ClickHouse string formats.
 func FormatDisplayBucket(t time.Time) string {
 	return t.UTC().Format("2006-01-02 15:04:05")
 }
 
-// DisplayBucket buckets a row timestamp into a display-time bucket sized for the requested query window. Grain: ≤3h → 1m, ≤24h → 5m, ≤7d → 1h, otherwise 1d.
+// DisplayBucket buckets a row timestamp into a display-time bucket.
+// Grain is based on query window: <=3h: 1m, <=24h: 5m, <=7d: 1h, else 1d.
 func DisplayBucket(rowUnixSeconds int64, windowMs int64) time.Time {
 	return bucketAt(rowUnixSeconds, displayGrain(windowMs))
 }
@@ -62,11 +52,8 @@ func bucketAt(unixSeconds int64, grain time.Duration) time.Time {
 	return time.Unix(unixSeconds, 0).UTC().Truncate(grain)
 }
 
-// DisplayGrainSQL returns the fastest CH SQL fragment for the
-// window-adaptive display grain, dispatching to the specific
-// toStartOf{Minute,FiveMinutes,Hour,Day} function — 10–15% faster
-// than the general toStartOfInterval form for our 4 fixed grains.
-// Returned fragment expects a `timestamp` column in scope.
+// DisplayGrainSQL returns the fastest CH SQL fragment for adaptive grain.
+// The returned fragment expects a `timestamp` column in scope.
 func DisplayGrainSQL(windowMs int64) string {
 	switch displayGrain(windowMs) {
 	case time.Minute:
@@ -80,10 +67,56 @@ func DisplayGrainSQL(windowMs int64) string {
 	}
 }
 
-// WithBucketGrainSec appends `@bucketGrainSec` — the display-bucket grain
-// in seconds (60 / 300 / 3600 / 86400 matching `DisplayGrain`). SQL emits
-// per-display-bucket counts and divides by this to get a per-second rate
-// within each bucket.
+// UseHourRollup reports whether a query window should read the 1h rollup
+// tier instead of the 1m tier. True exactly when the display grain is >= 1h
+// (window > 24h), so hourly rows always satisfy the display grain losslessly.
+func UseHourRollup(windowMs int64) bool {
+	return displayGrain(windowMs) >= time.Hour
+}
+
+// FloorMsToHour floors a Unix-ms timestamp to its hour boundary. Used to snap
+// the window start when routing to the 1h tier: hourly rows are all-or-nothing,
+// and the first display bucket is hour-labeled either way.
+func FloorMsToHour(ms int64) int64 {
+	return ms - ms%(3600*1000)
+}
+
+// SnapRangeForRollup floors the window start to its hour when the window
+// routes to the 1h tier. Use at the top of rollup readers that build their
+// ClickHouse args manually (the chargs.RollupRangeArgs path does this itself).
+func SnapRangeForRollup(startMs, endMs int64) (int64, int64) {
+	if UseHourRollup(endMs - startMs) {
+		return FloorMsToHour(startMs), endMs
+	}
+	return startMs, endMs
+}
+
+// SpansRollup returns the spans RED rollup table for the query window.
+func SpansRollup(windowMs int64) string {
+	if UseHourRollup(windowMs) {
+		return "observability.spans_1h"
+	}
+	return "observability.spans_1m"
+}
+
+// MetricsRollup returns the scalar metrics rollup table for the query window.
+func MetricsRollup(windowMs int64) string {
+	if UseHourRollup(windowMs) {
+		return "observability.metrics_1h"
+	}
+	return "observability.metrics_1m"
+}
+
+// MetricsHistRollup returns the histogram metrics rollup table for the query window.
+func MetricsHistRollup(windowMs int64) string {
+	if UseHourRollup(windowMs) {
+		return "observability.metrics_hist_1h"
+	}
+	return "observability.metrics_hist_1m"
+}
+
+// WithBucketGrainSec appends @bucketGrainSec in seconds matching DisplayGrain.
+// Used to compute rates from counts within each display bucket.
 func WithBucketGrainSec(args []any, startMs, endMs int64) []any {
 	sec := int64(displayGrain(endMs - startMs).Seconds())
 	if sec <= 0 {

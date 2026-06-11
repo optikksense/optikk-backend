@@ -11,19 +11,16 @@ import (
 	models "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/shared/models"
 )
 
-// Service owns CRUD validation + JSON marshaling between wire <-> repository.
-// State-changing actions (ack, mute, test) belong to service_state.go and the
-// evaluator-side decide logic belongs to shared/expr; this file stays focused
-// on the create/read/list/update/delete responsibilities.
+// Service owns CRUD validation and JSON marshaling for monitors.
 type Service struct {
-	repo Repository
+	repo *Repository
 }
 
-func NewService(repo Repository) *Service {
+func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
 }
 
-// ErrNotFound is returned when the monitor isn't owned by the requesting team.
+// ErrNotFound indicates the monitor was not found for the team.
 var ErrNotFound = errors.New("monitor not found")
 
 // ErrValidation wraps a user-facing validation message.
@@ -105,9 +102,7 @@ func (s *Service) List(ctx context.Context, teamID int64, q ListQuery) (MonitorL
 	return MonitorListResponse{Items: items, Counts: counts}, nil
 }
 
-// buildInsertArgs validates the request shape and packs it for the repository.
-// All JSON encoding lives here so the repo only sees []byte. Single
-// responsibility: shape the row args.
+// buildInsertArgs validates the request and prepares it for the repository.
 func buildInsertArgs(teamID, userID int64, req CreateMonitorRequest) (insertArgs, error) {
 	name := strings.TrimSpace(req.Name)
 	if name == "" {

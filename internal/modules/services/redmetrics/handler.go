@@ -1,6 +1,7 @@
 package redmetrics
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/cursor"
@@ -12,21 +13,13 @@ import (
 
 type REDMetricsHandler struct {
 	modulecommon.DBTenant
-	Service Service
+	Service *Service
 }
 
 func (h *REDMetricsHandler) GetSummary(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
-	resp, err := h.Service.GetSummary(c.Request.Context(), teamID, startMs, endMs)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query RED summary", err)
-		return
-	}
-	modulecommon.RespondOK(c, resp)
+	modulecommon.HandleRangeQuery(c, h.GetTenant, "Failed to query RED summary", func(ctx context.Context, teamID, startMs, endMs int64) (any, error) {
+		return h.Service.GetSummary(ctx, teamID, startMs, endMs)
+	})
 }
 
 func (h *REDMetricsHandler) GetApdex(c *gin.Context) {
@@ -83,42 +76,23 @@ func (h *REDMetricsHandler) GetServiceSummary(c *gin.Context) {
 	modulecommon.RespondOK(c, resp)
 }
 
-
-
-// GetStatusTimeSeries returns rps split by 2xx/4xx/5xx over time for a service.
+// GetStatusTimeSeries returns status split by HTTP family over time.
 func (h *REDMetricsHandler) GetStatusTimeSeries(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
 	serviceName := c.Query("serviceName")
-	resp, err := h.Service.GetStatusTimeSeries(c.Request.Context(), teamID, startMs, endMs, serviceName)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query status time series", err)
-		return
-	}
-	modulecommon.RespondOK(c, resp)
+	modulecommon.HandleRangeQuery(c, h.GetTenant, "Failed to query status time series", func(ctx context.Context, teamID, startMs, endMs int64) (any, error) {
+		return h.Service.GetStatusTimeSeries(ctx, teamID, startMs, endMs, serviceName)
+	})
 }
 
-// GetLatencyPercentilesTimeSeries returns p50/p95/p99 over time for a service.
+// GetLatencyPercentilesTimeSeries returns p50/p95/p99 latency over time.
 func (h *REDMetricsHandler) GetLatencyPercentilesTimeSeries(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
 	serviceName := c.Query("serviceName")
-	resp, err := h.Service.GetLatencyPercentilesTimeSeries(c.Request.Context(), teamID, startMs, endMs, serviceName)
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query latency percentiles", err)
-		return
-	}
-	modulecommon.RespondOK(c, resp)
+	modulecommon.HandleRangeQuery(c, h.GetTenant, "Failed to query latency percentiles", func(ctx context.Context, teamID, startMs, endMs int64) (any, error) {
+		return h.Service.GetLatencyPercentilesTimeSeries(ctx, teamID, startMs, endMs, serviceName)
+	})
 }
 
-// GetOperationBaseline returns windowed p50/p95/p99 for one service+operation,
-// powering the Trace Detail Duration "N× slower than p50" comparison.
+// GetOperationBaseline returns windowed p50/p95/p99 for service + operation.
 func (h *REDMetricsHandler) GetOperationBaseline(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
@@ -139,9 +113,7 @@ func (h *REDMetricsHandler) GetOperationBaseline(c *gin.Context) {
 	modulecommon.RespondOK(c, resp)
 }
 
-// GetTopEndpointsCombined returns per-operation rate/err/percentiles for the
-// Service Detail endpoints table. Primary + comparison payloads are returned
-// when `compareTo=previous_period` is set, letting the FE compute p99 delta.
+// GetTopEndpointsCombined returns per-operation metrics for the endpoints.
 func (h *REDMetricsHandler) GetTopEndpointsCombined(c *gin.Context) {
 	teamID := h.GetTenant(c).TeamID
 	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)

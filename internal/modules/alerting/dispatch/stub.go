@@ -7,10 +7,8 @@ import (
 	models "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/shared/models"
 )
 
-// Stub is the no-op transport used for channel types we ship as "Install"
-// cards in v1 (pagerduty / opsgenie / teams / email / webhook / jira). It
-// logs the payload at info level so test deliveries are visible in dev logs,
-// then succeeds — the channels repo marks the channel as delivered.
+// Stub is the no-op transport for channel types shipped as "Install" cards.
+// It logs the payload at info level for visibility, then succeeds.
 type Stub struct{}
 
 func NewStub() *Stub { return &Stub{} }

@@ -17,7 +17,7 @@ CREATE TABLE IF NOT EXISTS observability.trace_index (
     trace_id    String         CODEC(ZSTD(1)),
     team_id     UInt32         CODEC(T64, ZSTD(1)),
     ts_bucket   UInt32         CODEC(DoubleDelta, LZ4),
-    fingerprint String         CODEC(ZSTD(1)),
+    fingerprint UInt64         CODEC(ZSTD(1)),
     timestamp   DateTime64(9)  CODEC(DoubleDelta, LZ4),
     span_id     String         CODEC(ZSTD(1)),
     is_root     UInt8          CODEC(T64, ZSTD(1))

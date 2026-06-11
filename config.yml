@@ -21,22 +21,15 @@ clickhouse:
   password: clickhouse123
   secure: false
 
-session:
-  lifetime_ms: 86400000
-  idle_timeout_ms: 7200000
-  cookie_name: optikk_session
+auth:
+  jwt_secret: "dev-only-change-me-0123456789abcdef"
+  access_ttl_ms: 900000
+  refresh_ttl_ms: 604800000
+  refresh_cookie_name: optikk_refresh
   cookie_domain: ""
-  cookie_path: "/"
   cookie_secure: false
-  cookie_http_only: true
   cookie_same_site: lax
 
-redis:
-  enabled: true
-  host: "127.0.0.1"
-  port: "16379"
-  password: ""
-  db: 0
 
 otlp:
   grpc_port: "4317"

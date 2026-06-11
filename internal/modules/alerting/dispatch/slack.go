@@ -13,8 +13,6 @@ import (
 )
 
 // SlackWebhook posts a Slack-format attachment to an incoming-webhook URL.
-// 5s timeout, one retry on 5xx — anything else surfaces as an error so the
-// notifications repo can record last_error_text and flip channel status.
 type SlackWebhook struct {
 	client *http.Client
 }
@@ -24,8 +22,7 @@ func NewSlackWebhook() *SlackWebhook {
 	return &SlackWebhook{client: &http.Client{Timeout: 5 * time.Second}}
 }
 
-// slackAttachment matches the legacy Slack incoming-webhook schema, which is
-// the simplest path that renders well in every workspace.
+// slackAttachment matches the legacy Slack incoming-webhook schema.
 type slackAttachment struct {
 	Color    string       `json:"color"`
 	Pretext  string       `json:"pretext,omitempty"`
@@ -106,14 +103,14 @@ func isRetryable(err error) bool {
 }
 
 func buildAttachment(p Payload) slackAttachment {
-	color := "#22c55e" // ok green
+	color := "#22c55e"
 	switch p.Status {
 	case "alert":
-		color = "#ef4444" // red
+		color = "#ef4444"
 	case "warn":
-		color = "#f59e0b" // amber
+		color = "#f59e0b"
 	case "no_data":
-		color = "#6b7280" // gray
+		color = "#6b7280"
 	}
 	pretext := p.Transition
 	if p.IsRecovery {

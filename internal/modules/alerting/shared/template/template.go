@@ -1,9 +1,5 @@
-// Package template renders a notification message body against a Payload
-// derived from an evaluation. It supports the small mustache subset called out
-// in the Datadog-style design: scalar variables ({{value}}, {{threshold}},
-// {{service.name}}) and section blocks for status arms ({{#is_alert}}…
-// {{/is_alert}}). Single responsibility: convert a template body + variables
-// into a finished string. No external dep.
+// Package template renders notification message bodies against payload values.
+// It supports scalar mustache variables and status section blocks.
 package template
 
 import (
@@ -11,9 +7,8 @@ import (
 	"strings"
 )
 
-// Vars carries the substitution map and the three status booleans the section
-// blocks read. Keys that aren't found render as the empty string — matches
-// mustache "missing key" semantics so missing context never breaks delivery.
+// Vars carries the substitution map and the three status booleans for sections.
+// Missing keys render as the empty string to prevent breaking delivery.
 type Vars struct {
 	Values     map[string]string
 	IsAlert    bool
@@ -21,9 +16,8 @@ type Vars struct {
 	IsRecovery bool
 }
 
-// Render evaluates body against v. Unknown sections render as empty; the
-// renderer is single-pass and never panics on malformed input — it returns
-// what it could and leaves the rest as-is.
+// Render evaluates the body against the provided Vars.
+// The renderer is single-pass and returns whatever it can process on error.
 func Render(body string, v Vars) string {
 	out := body
 	out = renderSections(out, "is_alert", v.IsAlert)
@@ -69,9 +63,8 @@ func renderScalars(body string, values map[string]string) string {
 				return out.String()
 			}
 			key := strings.TrimSpace(body[i+2 : i+end])
-			// section markers leak through unchanged so the caller can detect
-			// templates that reference unhandled sections, but in practice
-			// renderSections has stripped these already.
+			// Section markers leak through unchanged if not previously stripped
+			// by renderSections.
 			if strings.HasPrefix(key, "#") || strings.HasPrefix(key, "/") {
 				out.WriteString(body[i : i+end+2])
 				i += end + 2

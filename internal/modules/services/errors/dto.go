@@ -3,7 +3,7 @@ package errors
 import "time"
 
 // Raw ClickHouse row structs scanned directly from query results.
-// All Go-side derivations (rate, latency, status-bucket → code, hash) live in service.go.
+// All Go-side derivations live in service.go.
 
 type rawServiceRateRow struct {
 	ServiceName   string    `ch:"service"`
@@ -23,12 +23,18 @@ type rawErrorGroupRow struct {
 	GroupID          string    `ch:"error_group_id"`
 	ServiceName      string    `ch:"service"`
 	OperationName    string    `ch:"operation_name"`
-	StatusMessage    string    `ch:"status_message"`
 	HTTPStatusBucket string    `ch:"http_status_bucket"`
 	ErrorCount       uint64    `ch:"error_count"`
 	LastOccurrence   time.Time `ch:"last_occurrence"`
 	FirstOccurrence  time.Time `ch:"first_occurrence"`
-	SampleTraceID    string    `ch:"sample_trace_id"`
+}
+
+// rawErrorGroupSampleRow carries the exemplar status message and trace_id
+// resolved from raw spans.
+type rawErrorGroupSampleRow struct {
+	GroupID       string `ch:"error_group_id"`
+	StatusMessage string `ch:"status_message"`
+	SampleTraceID string `ch:"sample_trace_id"`
 }
 
 type rawErrorGroupDetailRow struct {
@@ -51,8 +57,7 @@ type rawErrorGroupTraceRow struct {
 }
 
 // rawErrorLatestOccurrenceRow is the single most recent error span of a group,
-// scanned from the raw spans table for the "Request context · latest occurrence"
-// card, the error banner, the stack trace, and the "Open trace" link.
+// scanned from the raw spans table.
 type rawErrorLatestOccurrenceRow struct {
 	TraceID          string    `ch:"trace_id"`
 	SpanID           string    `ch:"span_id"`
@@ -79,7 +84,6 @@ type rawTimeBucketCountRow struct {
 	BucketAt time.Time `ch:"bucket_at"`
 	Count    uint64    `ch:"count"`
 }
-
 type rawErrorHotspotRow struct {
 	ServiceName   string `ch:"service"`
 	OperationName string `ch:"operation_name"`

@@ -8,10 +8,10 @@ import (
 )
 
 type Service struct {
-	repo Repository
+	repo *Repository
 }
 
-func NewService(repo Repository) *Service {
+func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
 }
 
@@ -28,7 +28,7 @@ func (s *Service) GetAvgCPU(ctx context.Context, teamID int64, startMs, endMs in
 	return MetricValue{Value: *avg}, nil
 }
 
-// GetCPUByInstance returns one row per (host, pod, container, service) with the 3-metric fold applied.
+// GetCPUByInstance returns rows per instance with the 3-metric fold applied.
 func (s *Service) GetCPUByInstance(ctx context.Context, teamID int64, startMs, endMs int64) ([]CPUInstanceMetric, error) {
 	rows, err := s.repo.QueryCPUUtilizationByInstance(ctx, teamID, startMs, endMs)
 	if err != nil {
@@ -57,11 +57,9 @@ func (s *Service) GetCPUByInstance(ctx context.Context, teamID int64, startMs, e
 	return out, nil
 }
 
-// ---------------------------------------------------------------------------
-// Folds + normalization.
-// ---------------------------------------------------------------------------
+// Folds and normalization helper functions.
 
-// foldCPUMetricRows blends the 3-metric utilization family into one percentage.
+// foldCPUMetricRows blends the 3-metric utilization family into a percentage.
 func foldCPUMetricRows(rows []CPUMetricNameRow) *float64 {
 	byMetric := map[string]float64{}
 	for _, r := range rows {
@@ -85,9 +83,8 @@ func foldCPUMetricRows(rows []CPUMetricNameRow) *float64 {
 	return averageFloats(values)
 }
 
-// normalizeUtilization applies the ≤1.0 → *100 percentage convention. Drops
-// NaN/Inf, negative values, and values already above 100% (the original code
-// rejects v > 1.0 * 100 = 100 as a sentinel for already-normalized garbage).
+// normalizeUtilization applies the utilization percentage convention
+// and drops invalid values.
 func normalizeUtilization(v float64) *float64 {
 	if math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v > infraconsts.PercentageThreshold*100 {
 		return nil

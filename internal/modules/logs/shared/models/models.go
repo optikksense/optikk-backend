@@ -1,4 +1,4 @@
-// Package models holds wire + domain types shared by every logs submodule (explorer, logdetail, log_facets, log_trends).
+// Package models holds shared wire and domain types for logs submodules.
 package models
 
 import (
@@ -84,14 +84,12 @@ type FacetValue struct {
 	Count uint64 `json:"count"`
 }
 
-// SeverityLabels is the closed set of severity-bucket labels (mirrors the
-// on-disk severity_bucket → text mapping in the logs ingest mapper). Returned
-// directly by /logs/facets — severity is a fixed enum, no DB query needed.
+// SeverityLabels maps severity_bucket numbers to display text.
+// Returned by /logs/facets directly without querying the database.
 var SeverityLabels = []string{"UNSET", "DEBUG", "INFO", "WARN", "ERROR", "FATAL"}
 
-// Facets groups per-dim top-N counts. Severity is a static label list (no
-// counts) since the values are a closed enum; resource dims are top-N from
-// observability.logs_resource.
+// Facets groups per-dimension top-N counts. Severity is a static list,
+// while resource dimensions are loaded from the database.
 type Facets struct {
 	Severity    []string     `json:"severity_bucket"`
 	Service     []FacetValue `json:"service"`
@@ -107,10 +105,8 @@ type Summary struct {
 	Warns  uint64 `json:"warns"`
 }
 
-// TrendBucket is a single display-grain bar carrying the total log count plus
-// per-severity-tier counts so the FE can render a severity-stacked trend. The
-// tier thresholds match the Summary query (severity_bucket >= 4 → error,
-// = 3 → warn, = 2 → info, <= 1 → debug/unset), so total == error+warn+info+debug.
+// TrendBucket captures log counts grouped by display-grain and severity tier.
+// Used by front-end to render severity-stacked log trend charts.
 type TrendBucket struct {
 	TimeBucket string `json:"time_bucket"`
 	Total      uint64 `json:"total"`

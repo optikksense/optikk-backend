@@ -10,16 +10,14 @@ import (
 )
 
 type Service struct {
-	repo Repository
+	repo *Repository
 }
 
-func NewService(repo Repository) *Service {
+func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
 }
 
-// GetDatastoreSystems fans out the spans-side aggregate + the metrics-side
-// active-connections query in parallel, joins them on db_system, and maps the
-// result to the wire shape ranked by query volume.
+// GetDatastoreSystems fetches datastore summaries and connections.
 func (s *Service) GetDatastoreSystems(ctx context.Context, teamID, startMs, endMs int64) ([]DatastoreSystemRow, error) {
 	var (
 		spanRows []systemSummaryRawDTO
@@ -35,8 +33,7 @@ func (s *Service) GetDatastoreSystems(ctx context.Context, teamID, startMs, endM
 		return nil
 	})
 	g.Go(func() error {
-		// Active-connection metric is best-effort; absence shouldn't fail the
-		// whole panel.
+		// Active-connection metric is best-effort; absence shouldn't fail the query.
 		c, err := s.repo.GetActiveConnectionsBySystem(gctx, teamID, startMs, endMs)
 		if err == nil {
 			conns = c
@@ -49,8 +46,8 @@ func (s *Service) GetDatastoreSystems(ctx context.Context, teamID, startMs, endM
 
 	rows := make([]DatastoreSystemRow, 0, len(spanRows))
 	for _, r := range spanRows {
-		queryCount := int64(r.QueryCount) //nolint:gosec // domain-bounded
-		errorCount := int64(r.ErrorCount) //nolint:gosec // domain-bounded
+		queryCount := int64(r.QueryCount)
+		errorCount := int64(r.ErrorCount)
 		rows = append(rows, DatastoreSystemRow{
 			System:            r.DBSystem,
 			Category:          datastoreCategory(r.DBSystem),

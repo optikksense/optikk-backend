@@ -1,6 +1,4 @@
-// Package common contains shared HTTP handler helpers and module dependencies.
-// Each domain file exposes a Handler struct wired with a DB connection and
-// a tenant-extraction function injected by the parent app package.
+// Package httputil contains shared HTTP handler helpers and dependencies.
 package httputil
 
 import (
@@ -9,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -35,9 +32,8 @@ func RespondError(c *gin.Context, status int, code, msg string) {
 	c.JSON(status, types.Failure(code, msg, c.Request.URL.Path))
 }
 
-// RespondErrorWithCause logs the underlying error server-side before responding.
-// The cause is appended to the client-facing message so the caller knows why it failed.
-// Use this instead of RespondError when you have access to the original error.
+// RespondErrorWithCause logs the underlying error server-side and appends
+// the cause to the client-facing message.
 func RespondErrorWithCause(c *gin.Context, status int, code, msg string, err error) {
 	if err != nil {
 		slog.Error("request error",
@@ -93,39 +89,6 @@ func ParsePageSize(c *gin.Context, key string, fallback int) int {
 	return size
 }
 
-func ParseListParam(c *gin.Context, key string) []string {
-	vals := c.QueryArray(key)
-	if len(vals) == 0 {
-		vals = c.QueryArray(key + "[]")
-	}
-	if len(vals) > 0 {
-		clean := make([]string, 0, len(vals))
-		for _, v := range vals {
-			v = strings.TrimSpace(v)
-			if v != "" {
-				clean = append(clean, v)
-			}
-		}
-		return clean
-	}
-	raw := c.Query(key)
-	if raw == "" {
-		return nil
-	}
-	parts := strings.Split(raw, ",")
-	clean := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			clean = append(clean, p)
-		}
-	}
-	if len(clean) == 0 {
-		return nil
-	}
-	return clean
-}
-
 func ParseRange(c *gin.Context) (startMs, endMs int64, err error) {
 	now := time.Now().UnixMilli()
 	end := ParseInt64Param(c, "endTime", 0)
@@ -157,10 +120,8 @@ func ParseRequiredRange(c *gin.Context) (startMs, endMs int64, ok bool) {
 	return start, end, true
 }
 
-// ParseComparisonRange returns an optional comparison time range.
-// If compareStart is provided, it returns the comparison window.
-// If only "compareTo" is provided (e.g. "previous_period"), it auto-calculates
-// the comparison range based on the primary range.
+// ParseComparisonRange returns an optional comparison time range,
+// auto-calculating it based on the primary range if necessary.
 func ParseComparisonRange(c *gin.Context, startMs, endMs int64) (cmpStart, cmpEnd int64, ok bool) {
 	cmpStart = ParseInt64Param(c, "compareStart", 0)
 	cmpEnd = ParseInt64Param(c, "compareEnd", 0)
@@ -182,16 +143,14 @@ func ParseComparisonRange(c *gin.Context, startMs, endMs int64) (cmpStart, cmpEn
 	}
 }
 
-// ComparisonResponse wraps a primary result with an optional comparison result.
+// ComparisonResponse wraps a primary result with an optional comparison.
 type ComparisonResponse struct {
 	Data       any `json:"data"`
 	Comparison any `json:"comparison,omitempty"`
 }
 
-// WithComparison executes a query for the primary range and optionally for the comparison range.
-// Returns a ComparisonResponse containing both results. Primary and comparison
-// queries run concurrently when comparison is active so total latency is
-// bounded by max(primary, comparison) instead of their sum.
+// WithComparison executes queries for both primary and optional comparison
+// ranges, running them concurrently when comparison is active.
 func WithComparison(c *gin.Context, startMs, endMs int64, queryFn func(s, e int64) (any, error)) (ComparisonResponse, error) {
 	cmpStart, cmpEnd, hasCmp := ParseComparisonRange(c, startMs, endMs)
 
@@ -228,12 +187,4 @@ func WithComparison(c *gin.Context, startMs, endMs int64, queryFn func(s, e int6
 		resp.Comparison = comparison
 	}
 	return resp, nil
-}
-
-func ExtractIDParam(c *gin.Context, key string) (int64, error) {
-	id, err := strconv.ParseInt(c.Param(key), 10, 64)
-	if err != nil {
-		return 0, errors.New("invalid id")
-	}
-	return id, nil
 }

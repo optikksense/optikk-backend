@@ -16,26 +16,19 @@ type Repository struct {
 
 func NewRepository(db clickhouse.Conn) *Repository { return &Repository{db: db} }
 
-// dimRow is the scan target for the unified facets query. `dim` is the
-// resource-dim discriminator (service/host/pod/environment); `value` is the
-// dim value; `cnt` is the row count.
+// dimRow is the scan target for the unified facets query.
 type dimRow struct {
 	Dim   string `ch:"dim"`
 	Value string `ch:"value"`
 	Count uint64 `ch:"cnt"`
 }
 
-// Compute runs ONE CH query that returns top-N values for all four resource
-// dims at once via UNION ALL on observability.logs_resource. Replaces the
-// previous 5-goroutine fan-out (4 × TopValues + 1 × SeverityCounts). Severity
-// is a closed enum returned statically by service.go — no DB call.
+// Compute returns top-N values for all resource dimensions in one query.
 func (r *Repository) Compute(ctx context.Context, f filter.Filters) ([]dimRow, error) {
 	resourceWhere, _, args := filter.BuildClauses(f)
 	args = append(args, clickhouse.Named("facetLimit", uint64(facetTopN)))
 
-	// Each UNION arm shares the same PREWHERE shape on logs_resource so the
-	// CH planner can dedup the underlying granule reads. Even when it doesn't,
-	// one round-trip + one plan compile beats five.
+	// Each UNION arm shares the same PREWHERE shape on logs_resource.
 	query := facetArm("service", resourceWhere) +
 		" UNION ALL " + facetArm("host", resourceWhere) +
 		" UNION ALL " + facetArm("pod", resourceWhere) +
@@ -49,9 +42,7 @@ func (r *Repository) Compute(ctx context.Context, f filter.Filters) ([]dimRow, e
 	return rows, nil
 }
 
-// facetArm builds one UNION arm. `dim` is from a closed set (service/host/
-// pod/environment), so the inline column splice is safe. `resourceWhere` is
-// emitted by filter.BuildClauses and contains only named-arg references.
+// facetArm builds a single UNION arm for the specified resource dimension.
 func facetArm(dim, resourceWhere string) string {
 	return `
 		SELECT '` + dim + `' AS dim, ` + dim + ` AS value, count() AS cnt

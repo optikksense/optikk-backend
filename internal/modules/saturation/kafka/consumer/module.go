@@ -3,7 +3,6 @@ package consumer
 import (
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
-	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka/internal/shared"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -20,8 +19,8 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *Handler) {
 	if !cfg.Enabled || h == nil {
 		return
 	}
-	shared.RegisterGET(v1, "/consume-rate-by-topic", h.GetConsumeRateByTopic)
-	shared.RegisterGET(v1, "/consumer-lag-by-group", h.GetConsumerLagByGroup)
+	v1.GET("/saturation/kafka/consume-rate-by-topic", h.GetConsumeRateByTopic)
+	v1.GET("/saturation/kafka/consumer-lag-by-group", h.GetConsumerLagByGroup)
 }
 
 func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {

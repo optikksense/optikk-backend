@@ -1,7 +1,5 @@
-// Package expr is the evaluator's pure decide function. Given the previous
-// state, a fresh evaluation value, and the monitor's stored conditions, it
-// returns the new status and the transition flags the evaluator uses to decide
-// whether to write a monitor_events row or fire a dispatch.
+// Package expr provides the pure decide function for evaluating monitor state
+// transitions.
 package expr
 
 import (
@@ -10,11 +8,7 @@ import (
 	models "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/shared/models"
 )
 
-// Decision is the output of Decide. NewStatus is always populated; Transition
-// is true iff the status differs from prev.Status (no-data → no-data is not a
-// transition). ShouldNotify reflects whether dispatch is owed — either a
-// transition into alert/warn/recovered, or a renotify interval elapsed while
-// alerting.
+// Decision contains the output status and notification flags of Decide.
 type Decision struct {
 	NewStatus    string
 	Transition   bool
@@ -22,11 +16,7 @@ type Decision struct {
 	IsRecovery   bool
 }
 
-// Decide is pure: same inputs → same Decision. Hysteresis lives here:
-// recovery requires the value to cross RecoveryThreshold (not Warn) so a
-// monitor that bounces between alert and warn around the warn line doesn't
-// flap. NoData disposition (`no_data` | `alert` | `ok`) is consulted only
-// when the underlying query had no data.
+// Decide evaluates a monitor's conditions to output a new Decision.
 func Decide(prev models.MonitorStateRow, m models.MonitorRow, cond models.Conditions, value float64, hasData bool, renotifyEverySec int64, now time.Time) Decision {
 	prevStatus := prev.Status
 	if prevStatus == "" {
@@ -59,9 +49,7 @@ func Decide(prev models.MonitorStateRow, m models.MonitorRow, cond models.Condit
 	}
 }
 
-// classify maps a (prev, value) pair to a new status under the monitor's
-// conditions. Recovery threshold is consulted only when prev is alert/warn —
-// from ok we use warn/alert directly. This is the hysteresis loop.
+// classify maps a (prev, value) pair to a new status under the conditions.
 func classify(prev string, cond models.Conditions, value float64, hasData bool) string {
 	if !hasData {
 		switch cond.NoDataAs {

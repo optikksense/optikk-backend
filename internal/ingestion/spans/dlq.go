@@ -8,9 +8,7 @@ import (
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
-// DLQ republishes the original record bytes (verbatim — no envelope) to the
-// per-signal DLQ topic on writer failure. Replay tooling can re-feed records
-// without any decode step.
+// DLQ republishes original record bytes to the DLQ topic on writer failure.
 type DLQ struct {
 	base  *kafkainfra.Producer
 	topic string
@@ -20,9 +18,8 @@ func NewDLQ(base *kafkainfra.Producer, topic string) *DLQ {
 	return &DLQ{base: base, topic: topic}
 }
 
-// PublishAll forwards every original kgo.Record to the DLQ topic. Errors are
-// logged but never returned — DLQ failure must not block the consumer (the
-// records are about to be committed regardless to unblock the partition).
+// PublishAll forwards all records to the DLQ topic. Errors are logged but
+// do not block the consumer.
 func (d *DLQ) PublishAll(ctx context.Context, recs []*kgo.Record, reason error) {
 	if d == nil || len(recs) == 0 {
 		return

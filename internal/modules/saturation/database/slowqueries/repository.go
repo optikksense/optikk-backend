@@ -1,7 +1,4 @@
-// Package slowqueries serves the slow-query panels. Queries operate over
-// raw `observability.spans`: each DB call is one span with `duration_nano`,
-// `db_statement`, and the OTel db.* attributes. No rollup table exists or
-// is needed — the per-query-text grouping is the high-cardinality leaf.
+// Package slowqueries serves the slow-query panels by querying spans.
 package slowqueries
 
 import (
@@ -12,16 +9,12 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
-type Repository interface {
-	GetSlowQueryPatterns(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, limit int) ([]patternRawDTO, error)
-}
-
-type ClickHouseRepository struct {
+type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
-	return &ClickHouseRepository{db: db}
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
 }
 
 type patternRawDTO struct {
@@ -34,7 +27,7 @@ type patternRawDTO struct {
 	ErrorCount     uint64  `ch:"error_count"`
 }
 
-func (r *ClickHouseRepository) GetSlowQueryPatterns(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, limit int) ([]patternRawDTO, error) {
+func (r *Repository) GetSlowQueryPatterns(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, limit int) ([]patternRawDTO, error) {
 	if limit <= 0 {
 		limit = 10
 	}
@@ -77,7 +70,7 @@ func (r *ClickHouseRepository) GetSlowQueryPatterns(ctx context.Context, teamID,
 		ORDER BY call_count DESC
 		LIMIT @qLimit`
 
-	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("qLimit", uint64(limit))) //nolint:gosec
+	args := append(filter.SpanArgs(teamID, startMs, endMs), clickhouse.Named("qLimit", uint64(limit)))
 	args = append(args, filterArgs...)
 	var rows []patternRawDTO
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "slowqueries.GetSlowQueryPatterns", &rows, query, args...)

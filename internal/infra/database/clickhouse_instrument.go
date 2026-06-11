@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/metrics"
 )
 
@@ -21,21 +20,6 @@ func SelectCH(ctx context.Context, conn clickhouse.Conn, op string, dest any, qu
 	return err
 }
 
-func QueryCH(ctx context.Context, conn clickhouse.Conn, op, query string, args ...any) (driver.Rows, error) {
-	done := startCHOp(ctx)
-	start := time.Now()
-	rows, err := conn.Query(ctx, query, args...)
-	done(err, start, op)
-	return rows, err
-}
-
-func ExecCH(ctx context.Context, conn clickhouse.Conn, op, query string, args ...any) error {
-	done := startCHOp(ctx)
-	start := time.Now()
-	err := conn.Exec(ctx, query, args...)
-	done(err, start, op)
-	return err
-}
 
 func QueryRowCH(ctx context.Context, conn clickhouse.Conn, op string, dest any, query string, args ...any) error {
 	done := startCHOp(ctx)

@@ -1,11 +1,8 @@
-// Package models holds the shared row + wire types for the alerting platform.
-// Each type maps a stored MySQL row or a JSON sub-document to its Go-side shape
-// so monitors / notifications / evaluator / dispatch all read from one schema.
+// Package models holds shared row and wire types for the alerting platform.
 package models
 
 import (
 	"database/sql"
-	"encoding/json"
 	"time"
 )
 
@@ -75,20 +72,15 @@ type ScopeTag struct {
 
 // Conditions are common to all monitor types.
 type Conditions struct {
-	Comparator        string   `json:"comparator"` // above | below | equal
+	// Comparator specifies the operator: above, below, or equal.
+	Comparator        string   `json:"comparator"`
 	AlertThreshold    *float64 `json:"alert_threshold,omitempty"`
 	WarnThreshold     *float64 `json:"warn_threshold,omitempty"`
 	RecoveryThreshold *float64 `json:"recovery_threshold,omitempty"`
 	NoDataAfterSec    int      `json:"no_data_after_sec"`
-	NoDataAs          string   `json:"no_data_as"` // no_data | alert | ok
-	MinSample         *int     `json:"min_sample,omitempty"`
+	// NoDataAs is the state if data is missing: no_data, alert, or ok.
+	NoDataAs  string `json:"no_data_as"`
+	MinSample *int   `json:"min_sample,omitempty"`
 }
 
-// MarshalScope / Conditions helpers keep service code free of json plumbing.
-func MarshalJSON(v any) ([]byte, error) { return json.Marshal(v) }
-func UnmarshalJSON(b []byte, v any) error {
-	if len(b) == 0 {
-		return nil
-	}
-	return json.Unmarshal(b, v)
-}
+

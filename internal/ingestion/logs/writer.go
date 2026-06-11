@@ -66,7 +66,7 @@ func rowValues(r *schema.Row) []any {
 		r.GetSpanId(),
 		r.GetTraceFlags(),
 		r.GetSeverityText(),
-		uint8(r.GetSeverityNumber()), //nolint:gosec
+		uint8(r.GetSeverityNumber()),
 		severityBucketFor(r.GetSeverityNumber()),
 		r.GetBody(),
 		r.GetAttributesString(),

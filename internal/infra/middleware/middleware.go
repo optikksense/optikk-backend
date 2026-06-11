@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/metrics"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/session"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/token"
 	"github.com/Optikk-Org/optikk-backend/internal/shared/errorcode"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/utils"
@@ -61,10 +61,9 @@ func CORSMiddleware(allowedOrigins string) gin.HandlerFunc {
 
 		if c.Request.Method == http.MethodOptions {
 			headers.Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			// traceparent + tracestate added so browser FetchInstrumentation
-			// can propagate W3C trace context to the backend without tripping
-			// CORS preflight. See optikk-frontend/src/shared/telemetry/browserOtel.ts.
-			headers.Set("Access-Control-Allow-Headers", "Content-Type, X-Team-Id, X-User-Id, X-User-Email, X-User-Role, traceparent, tracestate")
+			// Allow traceparent/tracestate headers for browser FetchInstrumentation
+			// without tripping CORS preflight.
+			headers.Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Team-Id, X-User-Id, X-User-Email, X-User-Role, traceparent, tracestate")
 			headers.Set("Access-Control-Allow-Credentials", "true")
 			c.AbortWithStatus(http.StatusNoContent)
 			return
@@ -89,9 +88,8 @@ func ErrorRecovery() gin.HandlerFunc {
 	})
 }
 
-// BodyLimitMiddleware rejects request bodies larger than maxBytes to prevent
-// memory exhaustion from oversized payloads. WebSocket upgrade requests are
-// excluded since they use a different framing protocol.
+// BodyLimitMiddleware limits request bodies to maxBytes.
+// WebSocket requests are excluded.
 func BodyLimitMiddleware(maxBytes int64) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if strings.EqualFold(c.GetHeader("Upgrade"), "websocket") {
@@ -105,9 +103,11 @@ func BodyLimitMiddleware(maxBytes int64) gin.HandlerFunc {
 	}
 }
 
-// publicPrefixes are paths that are always public regardless of HTTP method.
+// publicPrefixes are paths that are always public.
 var publicPrefixes = []string{
 	"/api/v1/auth/login",
+	"/api/v1/auth/refresh",
+	"/api/v1/auth/logout",
 	"/otlp/",
 	"/health",
 }
@@ -119,7 +119,7 @@ var publicPOSTPrefixes = []string{
 	"/api/v1/teams",
 }
 
-// isPublicRequest returns true if the request method and path do not require authentication.
+// isPublicRequest checks if the request is public.
 func isPublicRequest(method, path string) bool {
 	for _, p := range publicPrefixes {
 		if strings.HasPrefix(path, p) {
@@ -160,9 +160,8 @@ func abortForbiddenTeam(c *gin.Context, email string, requestedTeamID int64) {
 	))
 }
 
-// resolveTeam returns the effective team ID for the request.
-// It aborts c and returns (0, false) on any auth violation.
-func resolveTeam(c *gin.Context, state session.AuthState) (int64, bool) {
+// resolveTeam returns the team ID or aborts on auth violation.
+func resolveTeam(c *gin.Context, state token.AuthState) (int64, bool) {
 	requested := utils.ToInt64(c.GetHeader("X-Team-Id"), 0)
 	if requested == 0 {
 		if state.DefaultTeamID == 0 {
@@ -178,9 +177,23 @@ func resolveTeam(c *gin.Context, state session.AuthState) (int64, bool) {
 	return requested, true
 }
 
-func TenantMiddleware(sessions session.Manager) gin.HandlerFunc {
+// bearerAuthState extracts and verifies the Authorization bearer token.
+func bearerAuthState(c *gin.Context, tokens *token.Service) (token.AuthState, bool) {
+	header := c.GetHeader("Authorization")
+	raw, found := strings.CutPrefix(header, "Bearer ")
+	if !found || raw == "" {
+		return token.AuthState{}, false
+	}
+	state, err := tokens.ParseAccess(raw)
+	if err != nil {
+		return token.AuthState{}, false
+	}
+	return state, true
+}
+
+func TenantMiddleware(tokens *token.Service) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authState, ok := sessions.GetAuthState(c.Request.Context())
+		authState, ok := bearerAuthState(c, tokens)
 		if !ok {
 			if isPublicRequest(c.Request.Method, c.Request.URL.Path) {
 				c.Next()
@@ -223,32 +236,6 @@ func authorizedForTeam(teamIDs []int64, defaultTeamID, requestedTeamID int64) bo
 	return false
 }
 
-// RequireRole returns middleware that restricts access to users whose role
-// matches one of the allowed roles. Must be placed after TenantMiddleware.
-func RequireRole(allowed ...string) gin.HandlerFunc {
-	roleSet := make(map[string]struct{}, len(allowed))
-	for _, r := range allowed {
-		roleSet[r] = struct{}{}
-	}
-	return func(c *gin.Context) {
-		tenant := GetTenant(c)
-		if _, ok := roleSet[tenant.UserRole]; !ok {
-			metrics.AuthDenied.WithLabelValues("forbidden_role").Inc()
-			slog.WarnContext(c.Request.Context(), "RBAC_DENIED",
-				slog.String("method", c.Request.Method),
-				slog.String("path", c.Request.URL.Path),
-				slog.String("role", tenant.UserRole),
-				slog.String("user", tenant.UserEmail),
-				slog.String("ip", c.ClientIP()),
-			)
-			c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
-				"FORBIDDEN_ROLE", "Insufficient permissions", c.Request.URL.Path,
-			))
-			return
-		}
-		c.Next()
-	}
-}
 
 func GetTenant(c *gin.Context) types.TenantContext {
 	v, ok := c.Get(string(tenantKey))

@@ -13,7 +13,7 @@ import (
 )
 
 // ProducerConfig declares the topic-side identity for the spans signal.
-// Partitions / Replicas / RetentionHours feed kafka.EnsureTopics at boot.
+// Configuration options feed kafka.EnsureTopics at boot.
 type ProducerConfig struct {
 	Topic          string
 	Partitions     int32
@@ -21,9 +21,8 @@ type ProducerConfig struct {
 	RetentionHours int
 }
 
-// Producer turns mapped Rows into Kafka records and publishes them via the
-// shared *kafkainfra.Producer. One record per Row; key is teamID for sticky
-// per-team partitioning. Producer-side batching is delegated to franz-go.
+// Producer publishes mapped Rows to Kafka using the shared base producer.
+// The key is teamID for sticky per-team partitioning.
 type Producer struct {
 	cfg  ProducerConfig
 	base *kafkainfra.Producer
@@ -33,9 +32,8 @@ func NewProducer(cfg ProducerConfig, base *kafkainfra.Producer) *Producer {
 	return &Producer{cfg: cfg, base: base}
 }
 
-// Publish marshals every row into one kgo.Record and produces them in one
-// async batch (PublishBatch waits for all acks before returning). The OTLP
-// gRPC handler blocks on this until the broker has the records.
+// Publish marshals each row into a kgo.Record and produces them in a batch.
+// The call blocks until the broker has acknowledged all records.
 func (p *Producer) Publish(ctx context.Context, rows []*schema.Row) error {
 	if len(rows) == 0 {
 		return nil

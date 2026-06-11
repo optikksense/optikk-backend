@@ -1,7 +1,5 @@
 // Package notifications owns channels, policies, templates, and the static
-// integrations catalog for the alerting platform. Channel rows back monitor
-// notify lists; templates carry custom message bodies; policies are CRUD-only
-// in v1 (the evaluator does not yet consult them).
+// integrations catalog for the alerting platform.
 package notifications
 
 import (

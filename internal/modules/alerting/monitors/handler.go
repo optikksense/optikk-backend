@@ -12,10 +12,7 @@ import (
 	httputil "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 )
 
-// Handler shapes Gin handlers for the monitors module's HTTP routes.
-// One handler method per route; none of them carry business logic — they parse
-// + delegate + respond. Queries is the per-type CH backend registry used by
-// the test, series, and (transitively) status-timeline routes.
+// Handler processes HTTP request parsing and delegation for monitors.
 type Handler struct {
 	httputil.DBTenant
 	Service *Service

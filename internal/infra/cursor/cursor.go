@@ -1,4 +1,4 @@
-// Package cursor provides generic base64+JSON encoding for keyset pagination cursors.
+// Package cursor provides generic base64+JSON keyset pagination cursors.
 package cursor
 
 import (

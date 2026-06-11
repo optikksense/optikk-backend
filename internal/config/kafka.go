@@ -5,12 +5,11 @@ import (
 	"strings"
 )
 
-// KafkaConfig configures the Kafka-backed OTLP ingest queue (required).
-// Per-signal topology (partitions/replicas/retention) lives on IngestionConfig;
-// this struct holds only broker connectivity + producer transport tuning.
+// KafkaConfig configures the Kafka-backed OTLP ingest queue.
+// Signal topologies live in IngestionConfig; this holds connectivity & tuning.
 type KafkaConfig struct {
-	// BrokerList is a comma-separated list of host:port brokers (env-friendly: OPTIKK_KAFKA_BROKER_LIST).
-	// When non-empty after parsing, it takes precedence over Brokers.
+	// BrokerList is a list of host:port brokers (takes precedence).
+	// Env equivalent: OPTIKK_KAFKA_BROKER_LIST.
 	BrokerList string   `yaml:"broker_list"`
 	Brokers    []string `yaml:"brokers"`
 
@@ -20,9 +19,12 @@ type KafkaConfig struct {
 	DLQPrefix string `yaml:"dlq_prefix"`
 
 	// Producer-side batching knobs (kgo).
-	Compression   string `yaml:"compression"`     // default "zstd"
-	LingerMs      int    `yaml:"linger_ms"`       // default 20
-	BatchMaxBytes int    `yaml:"batch_max_bytes"` // default 1 MiB
+	// Compression is the codec to use, default "zstd".
+	Compression string `yaml:"compression"`
+	// LingerMs is the producer linger duration in ms, default 20.
+	LingerMs int `yaml:"linger_ms"`
+	// BatchMaxBytes is the maximum batch size, default 1 MiB.
+	BatchMaxBytes int `yaml:"batch_max_bytes"`
 }
 
 func (c Config) validateKafkaIngestion() error {
@@ -32,8 +34,8 @@ func (c Config) validateKafkaIngestion() error {
 	return nil
 }
 
-// KafkaBrokers returns broker addresses from kafka.broker_list (comma-separated) when set,
-// otherwise kafka.brokers from YAML.
+// KafkaBrokers returns broker addresses from BrokerList when set,
+// otherwise from Brokers.
 func (c Config) KafkaBrokers() []string {
 	if s := strings.TrimSpace(c.Kafka.BrokerList); s != "" {
 		var out []string
@@ -66,7 +68,7 @@ func (c Config) KafkaDLQPrefix() string {
 	return "optikk.dlq"
 }
 
-// KafkaCompression returns the producer batch compression codec (default zstd).
+// KafkaCompression returns the batch compression codec (default zstd).
 func (c Config) KafkaCompression() string {
 	if s := strings.TrimSpace(strings.ToLower(c.Kafka.Compression)); s != "" {
 		return s

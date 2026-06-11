@@ -6,22 +6,21 @@ import (
 	models "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/shared/models"
 )
 
-// DefaultDispatcher routes payloads by channel type. Slack uses the live HTTP
-// transport; everything else falls through to the stub. The evaluator and the
-// notifications.Service's TestChannel handler both share this single dispatcher.
-type DefaultDispatcher struct {
+// Dispatcher routes alert payloads to their configured channels,
+// using Slack webhook or a fallback stub.
+type Dispatcher struct {
 	slack *SlackWebhook
 	stub  *Stub
 }
 
-func NewDefaultDispatcher() *DefaultDispatcher {
-	return &DefaultDispatcher{
+func NewDefaultDispatcher() *Dispatcher {
+	return &Dispatcher{
 		slack: NewSlackWebhook(),
 		stub:  NewStub(),
 	}
 }
 
-func (d *DefaultDispatcher) Dispatch(ctx context.Context, ch models.ChannelRow, p Payload) error {
+func (d *Dispatcher) Dispatch(ctx context.Context, ch models.ChannelRow, p Payload) error {
 	if ch.Type == "slack" {
 		return d.slack.Send(ctx, ch, p)
 	}

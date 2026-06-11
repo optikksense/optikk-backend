@@ -9,21 +9,16 @@ import (
 	"strings"
 )
 
-// MySQLMigrator applies MySQL DDL migrations from FS on server boot.
-//
-// Unlike the ClickHouse Migrator, it does NOT use a tracking table because
-// every statement in the MySQL schema is idempotent (CREATE TABLE IF NOT
-// EXISTS / CREATE DATABASE IF NOT EXISTS). This keeps the mechanism dead
-// simple: read every .sql file in lexical order, split into statements,
-// and execute each one.
+// MySQLMigrator runs idempotent DDL migrations from FS on server boot in
+// lexical order.
 type MySQLMigrator struct {
 	DB     *sql.DB
 	FS     fs.FS
 	Logger func(format string, args ...any)
 }
 
-// Up applies every SQL file from the embedded FS in lexical order.
-// Returns the count of statements executed and any error encountered.
+// Up applies all SQL migrations in lexical order.
+// It returns the statement count and any error.
 func (m *MySQLMigrator) Up(ctx context.Context) (stmts int, err error) {
 	files, err := m.listFiles()
 	if err != nil {

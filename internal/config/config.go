@@ -12,28 +12,20 @@ import (
 )
 
 type Config struct {
-	Environment    string           `yaml:"environment"`
-	Server         ServerConfig     `yaml:"server"`
-	MySQL          MySQLConfig      `yaml:"mysql"`
-	ClickHouse     ClickHouseConfig `yaml:"clickhouse"`
-	Session        SessionConfig    `yaml:"session"`
-	OtlRedisStream OtlRedisStream   `yaml:"otl_redis_stream"`
-	Redis          RedisConfig      `yaml:"redis"`
-	Kafka          KafkaConfig      `yaml:"kafka"`
-	OTLP           OTLPConfig       `yaml:"otlp"`
-	Retention      RetentionConfig  `yaml:"retention"`
-	App            AppConfig        `yaml:"app"`
-	Ingestion      IngestionConfig  `yaml:"ingestion"`
+	Environment string           `yaml:"environment"`
+	Server      ServerConfig     `yaml:"server"`
+	MySQL       MySQLConfig      `yaml:"mysql"`
+	ClickHouse  ClickHouseConfig `yaml:"clickhouse"`
+	Auth        AuthConfig       `yaml:"auth"`
+	Kafka       KafkaConfig      `yaml:"kafka"`
+	OTLP        OTLPConfig       `yaml:"otlp"`
+	Retention   RetentionConfig  `yaml:"retention"`
+	App         AppConfig        `yaml:"app"`
+	Ingestion   IngestionConfig  `yaml:"ingestion"`
 }
 
-// Load reads configuration from a YAML file with environment variable overrides.
+// Load reads YAML configuration with environment variable overrides.
 // If no path is provided, it defaults to "config.yml".
-// Relative paths are resolved against the current working directory, then each parent
-// directory up to the filesystem root (so e.g. debugging with cwd cmd/server still finds
-// the repo-root config.yml).
-// Environment variables use the OPTIKK_ prefix with dots replaced by underscores
-// (e.g., mysql.host → OPTIKK_MYSQL_HOST).
-// In production (environment: production), passwords must not use insecure defaults.
 func Load(path ...string) (Config, error) {
 	p := "config.yml"
 	if len(path) > 0 && path[0] != "" {
@@ -97,9 +89,8 @@ func resolveConfigFilePath(p string) (string, error) {
 	}
 }
 
-// setDefaults registers all known config keys with Viper so that
-// AutomaticEnv() can resolve environment variable overrides even for
-// keys that are absent from the YAML file.
+// setDefaults registers known keys with Viper so environment overrides
+// resolve even if the keys are absent from the YAML file.
 func setDefaults(v *viper.Viper) {
 	// top-level
 	v.SetDefault("environment", "")
@@ -127,31 +118,14 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("clickhouse.production", false)
 	v.SetDefault("clickhouse.cloud_host", "")
 
-	// session
-	v.SetDefault("session.lifetime_ms", 0)
-	v.SetDefault("session.idle_timeout_ms", 0)
-	v.SetDefault("session.cookie_name", "")
-	v.SetDefault("session.cookie_domain", "")
-	v.SetDefault("session.cookie_path", "")
-	v.SetDefault("session.cookie_secure", false)
-	v.SetDefault("session.cookie_http_only", false)
-	v.SetDefault("session.cookie_same_site", "")
-
-	// otl_redis_stream
-	v.SetDefault("otl_redis_stream.max_len_approx", 0)
-	v.SetDefault("otl_redis_stream.logs_max_len_approx", 0)
-	v.SetDefault("otl_redis_stream.stream_ttl_seconds", 0)
-	v.SetDefault("otl_redis_stream.ch_batch_size", 0)
-	v.SetDefault("otl_redis_stream.ch_flush_interval_ms", 0)
-	v.SetDefault("otl_redis_stream.xread_block_ms", 0)
-	v.SetDefault("otl_redis_stream.xread_count", 0)
-
-	// redis
-	v.SetDefault("redis.enabled", false)
-	v.SetDefault("redis.host", "")
-	v.SetDefault("redis.port", "")
-	v.SetDefault("redis.password", "")
-	v.SetDefault("redis.db", 0)
+	// auth
+	v.SetDefault("auth.jwt_secret", "")
+	v.SetDefault("auth.access_ttl_ms", 900000)
+	v.SetDefault("auth.refresh_ttl_ms", 604800000)
+	v.SetDefault("auth.refresh_cookie_name", "optikk_refresh")
+	v.SetDefault("auth.cookie_domain", "")
+	v.SetDefault("auth.cookie_secure", false)
+	v.SetDefault("auth.cookie_same_site", "lax")
 
 	// kafka (required OTLP ingest queue)
 	v.SetDefault("kafka.broker_list", "")
@@ -178,12 +152,11 @@ func (c Config) validate() error {
 	if err := c.validateKafkaIngestion(); err != nil {
 		return err
 	}
-	if !c.Redis.Enabled {
-		return fmt.Errorf("redis.enabled must be true (required for sessions)")
+
+	if c.Auth.JWTSecret == "" {
+		return fmt.Errorf("auth.jwt_secret must be set")
 	}
-	if err := c.validateRedis(); err != nil {
-		return err
-	}
+
 	isProd := strings.EqualFold(c.Environment, "production")
 	if !isProd {
 		return nil
@@ -194,6 +167,9 @@ func (c Config) validate() error {
 	}
 	if c.ClickHouse.Password == "clickhouse123" {
 		errs = append(errs, "clickhouse.password must be set in production")
+	}
+	if c.Auth.JWTSecret == "dev-only-change-me-0123456789abcdef" {
+		errs = append(errs, "auth.jwt_secret must be set in production")
 	}
 	if len(errs) > 0 {
 		return fmt.Errorf("insecure configuration detected: %s", strings.Join(errs, "; "))

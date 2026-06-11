@@ -16,30 +16,20 @@ func NewRepository(db clickhouse.Conn) *Repository {
 	return &Repository{db: db}
 }
 
-// ============================================================================
-// Counter rate panels — sum value per (display_bucket, dim)
-// ============================================================================
+// Counter rate panels.
 
 const counterSeriesByTopicQuery = `
-		WITH active_fps AS (
-		    SELECT fingerprint
-		    FROM observability.metrics_resource
-		    WHERE team_id = @teamID
-		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		      AND metric_name IN @metricNames
-		)
 		SELECT
-		    timestamp                                                AS timestamp,
-		    attributes.'messaging.destination.name'::String          AS topic,
-		    ifNotFinite(val_sum / val_count, 0) AS value
-		FROM observability.metrics_1m
-		PREWHERE team_id        = @teamID
-		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint   IN active_fps
-		WHERE metric_name IN @metricNames
-		  AND timestamp BETWEEN @start AND @end
-		  AND attributes.'messaging.destination.name'::String != ''
-		  AND lower(attributes.'messaging.system'::String) = 'kafka'
+		    timestamp,
+		    messaging_destination                AS topic,
+		    ifNotFinite(val_sum / val_count, 0)  AS value
+		FROM observability.metrics_1m -- pinned to 1m: Go-side rate folds assume per-minute rows
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND metric_name IN @metricNames
+		     AND timestamp   BETWEEN @start AND @end
+		WHERE messaging_destination != ''
+		  AND lower(messaging_system) = 'kafka'
 		ORDER BY timestamp`
 
 func (r *Repository) QueryConsumeRateByTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]TopicCounterRow, error) {
@@ -48,31 +38,21 @@ func (r *Repository) QueryConsumeRateByTopic(ctx context.Context, teamID int64, 
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "kafka.QueryConsumeRateByTopic", &rows, counterSeriesByTopicQuery, args...)
 }
 
-// ============================================================================
-// Lag panels
-// ============================================================================
+// Lag panels.
 
 func (r *Repository) QueryConsumerLagByGroupTopic(ctx context.Context, teamID int64, startMs, endMs int64) ([]GroupTopicGaugeRow, error) {
 	const query = `
-		WITH active_fps AS (
-		    SELECT fingerprint
-		    FROM observability.metrics_resource
-		    WHERE team_id = @teamID
-		      AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		      AND metric_name IN @metricNames
-		)
 		SELECT
-		    timestamp                                                AS timestamp,
-		    attributes.'messaging.consumer.group.name'::String       AS consumer_group,
-		    attributes.'messaging.destination.name'::String          AS topic,
-		    ifNotFinite(val_sum / val_count, 0) AS value
-		FROM observability.metrics_1m
-		PREWHERE team_id        = @teamID
-		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		     AND fingerprint   IN active_fps
-		WHERE metric_name IN @metricNames
-		  AND timestamp BETWEEN @start AND @end
-		  AND attributes.'messaging.consumer.group.name'::String != ''
+		    timestamp,
+		    messaging_consumer_group             AS consumer_group,
+		    messaging_destination                AS topic,
+		    ifNotFinite(val_sum / val_count, 0)  AS value
+		FROM observability.metrics_1m -- pinned to 1m: Go-side rate folds assume per-minute rows
+		PREWHERE team_id     = @teamID
+		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
+		     AND metric_name IN @metricNames
+		     AND timestamp   BETWEEN @start AND @end
+		WHERE messaging_consumer_group != ''
 		ORDER BY timestamp`
 	args := filter.WithMetricNames(filter.MetricArgs(teamID, startMs, endMs), filter.ConsumerLagMetrics)
 	var rows []GroupTopicGaugeRow

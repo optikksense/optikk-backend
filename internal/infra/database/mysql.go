@@ -6,12 +6,11 @@ import (
 	"strings"
 	"time"
 
-	_ "github.com/go-sql-driver/mysql" // MySQL driver registration
+	_ "github.com/go-sql-driver/mysql"
 )
 
-// injectMySQLTimeouts adds connection-level timeouts and parseTime=true to the DSN
-// if not already present. parseTime=true is required for sqlx to scan MySQL datetime
-// columns directly into time.Time struct fields.
+// injectMySQLTimeouts adds DSN timeouts and parseTime=true (required to scan
+// MySQL datetime columns into time.Time fields) if not already present.
 func injectMySQLTimeouts(dsn string) string {
 	params := map[string]string{
 		"timeout":      "5s",
@@ -31,9 +30,7 @@ func injectMySQLTimeouts(dsn string) string {
 	return dsn
 }
 
-// Open opens a MySQL connection pool, applies connection pool settings, and verifies
-// connectivity with a ping. Repositories should wrap the returned *sql.DB with
-// sqlx.NewDb for structured scanning.
+// Open opens a MySQL connection pool, configures limits, and pings the DB.
 func Open(dsn string, maxOpen, maxIdle int) (*sql.DB, error) {
 	dsn = injectMySQLTimeouts(dsn)
 	db, err := sql.Open("mysql", dsn)

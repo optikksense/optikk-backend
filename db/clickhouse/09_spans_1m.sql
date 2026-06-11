@@ -1,9 +1,11 @@
--- 1-minute spans rollup. Mirrors the metrics_1m pattern: AggregatingMergeTree
+-- 1-minute spans RED rollup. Mirrors the metrics_1m pattern: AggregatingMergeTree
 -- fed by an MV from the raw table. quantileTimingState replaces SQL-side
 -- quantileTiming() in percentile call sites; SimpleAggregateFunction columns
--- replace count()/sum() over raw spans. Extended PK leaf with exception_type
--- + status_message_hash so error-grouping queries hit a contiguous range
--- (non-error rows share ('', 0) tail keys → no row explosion).
+-- replace count()/sum() over raw spans.
+-- Error-tracking dimensions (error_group_id, exception_type) live in
+-- spans_errors_1m (13_spans_errors_1m.sql) — keeping them here multiplied
+-- rollup cardinality by the number of distinct error groups. error_type stays:
+-- it is a bounded OTel dim used by saturation/database group-bys.
 -- ts_bucket invariant preserved (5-min Go-side semantics; the MV derives it
 -- server-side at MV evaluation only).
 
@@ -11,8 +13,7 @@ CREATE TABLE IF NOT EXISTS observability.spans_1m (
     team_id              UInt32 CODEC(T64, ZSTD(1)),
     ts_bucket            UInt32 CODEC(DoubleDelta, LZ4),
     timestamp            DateTime CODEC(DoubleDelta, LZ4),
-    fingerprint          String CODEC(ZSTD(1)),
-    error_group_id       String CODEC(ZSTD(1)),
+    fingerprint          UInt64 CODEC(ZSTD(1)),
 
     service              LowCardinality(String) CODEC(ZSTD(1)),
     name                 LowCardinality(String) CODEC(ZSTD(1)),
@@ -41,15 +42,8 @@ CREATE TABLE IF NOT EXISTS observability.spans_1m (
     db_response_status   LowCardinality(String) CODEC(ZSTD(1)),
     server_address       LowCardinality(String) CODEC(ZSTD(1)),
 
-    -- Error analytics (replaces phantom column references in services/errors + services/deployments)
-    exception_type       LowCardinality(String) CODEC(ZSTD(1)),
+    -- Bounded error dim for DB-saturation group-bys (OTel error.type).
     error_type           LowCardinality(String) CODEC(ZSTD(1)),
-    status_message_hash  UInt64 CODEC(T64, ZSTD(1)),
-
-    -- Sample fields for drill-in (any() over the minute window)
-    sample_status_message       SimpleAggregateFunction(any, String) CODEC(ZSTD(1)),
-    sample_trace_id             SimpleAggregateFunction(any, String) CODEC(ZSTD(1)),
-    sample_exception_stacktrace SimpleAggregateFunction(any, String) CODEC(ZSTD(1)),
 
     -- Latency state — quantileTimingMerge(q)(latency_state) at read time.
     latency_state        AggregateFunction(quantileTiming, Float64) CODEC(ZSTD(1)),
@@ -57,11 +51,10 @@ CREATE TABLE IF NOT EXISTS observability.spans_1m (
     -- Counts + sums.
     request_count        SimpleAggregateFunction(sum, UInt64)  CODEC(T64, ZSTD(1)),
     error_count          SimpleAggregateFunction(sum, UInt64)  CODEC(T64, ZSTD(1)),
-    duration_ms_sum      SimpleAggregateFunction(sum, Float64) CODEC(Gorilla, ZSTD(1)),
-    duration_ms_max      SimpleAggregateFunction(max, Float64) CODEC(Gorilla, ZSTD(1))
+    duration_ms_sum      SimpleAggregateFunction(sum, Float64) CODEC(Gorilla, ZSTD(1))
 ) ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMMDD(timestamp)
-ORDER BY (team_id, ts_bucket, fingerprint, service, name, kind_string, exception_type, error_group_id, status_message_hash, timestamp)
+ORDER BY (team_id, ts_bucket, fingerprint, service, name, kind_string, timestamp)
 TTL timestamp + INTERVAL 30 DAY DELETE
 SETTINGS
     index_granularity = 8192,
@@ -72,10 +65,9 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS observability.spans_1m_mv
 TO observability.spans_1m AS
 SELECT
     team_id,
-    toUInt32(intDiv(toUnixTimestamp(toStartOfMinute(timestamp)), 300) * 300) AS ts_bucket,
-    toStartOfMinute(timestamp)                                                AS timestamp,
+    toUInt32(intDiv(toUnixTimestamp(timestamp), 300) * 300) AS ts_bucket,
+    toStartOfMinute(timestamp)                              AS timestamp,
     fingerprint,
-    lower(hex(halfMD5(concat(service, '|', name, '|', exception_type, '|', toString(cityHash64(status_message)))))) AS error_group_id,
 
     service,
     name,
@@ -101,19 +93,12 @@ SELECT
     attributes.'db.response.status_code'::String  AS db_response_status,
     attributes.'server.address'::String           AS server_address,
 
-    exception_type,
     attributes.'error.type'::String          AS error_type,
-    cityHash64(status_message)               AS status_message_hash,
-
-    any(status_message)                      AS sample_status_message,
-    any(trace_id)                            AS sample_trace_id,
-    any(exception_stacktrace)                AS sample_exception_stacktrace,
 
     quantileTimingState(duration_nano / 1000000.0)                                    AS latency_state,
     count()                                                                           AS request_count,
     countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                 AS error_count,
-    sum(duration_nano / 1000000.0)                                                    AS duration_ms_sum,
-    max(duration_nano / 1000000.0)                                                    AS duration_ms_max
+    sum(duration_nano / 1000000.0)                                                    AS duration_ms_sum
 FROM observability.spans
 GROUP BY
     team_id, ts_bucket, timestamp, fingerprint,
@@ -121,4 +106,4 @@ GROUP BY
     http_method, http_route, http_status_bucket, response_status_code, status_code_string,
     service_version,
     db_system, db_operation_name, db_collection_name, db_namespace, db_response_status, server_address,
-    exception_type, error_type, status_message_hash, error_group_id;
+    error_type;

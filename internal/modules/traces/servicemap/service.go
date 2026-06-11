@@ -16,10 +16,7 @@ func NewService(repo *Repository) *Service {
 	return &Service{repo: repo}
 }
 
-// GetServiceMap builds the per-trace service map and returns it in the shared
-// topology shape. Edges come from this trace's parent→child span links; p95/p99
-// are left at zero (a single trace has no latency distribution) and the frontend
-// layers in RED-metric percentiles per service.
+// GetServiceMap builds the per-trace service map in the shared topology shape.
 func (s *Service) GetServiceMap(ctx context.Context, teamID int64, traceID string) (topology.TopologyResponse, error) {
 	rows, err := s.repo.GetServiceMapSpans(ctx, teamID, traceID)
 	if err != nil {
@@ -29,7 +26,7 @@ func (s *Service) GetServiceMap(ctx context.Context, teamID int64, traceID strin
 	return topology.BuildGraph(nodeAggsFromSpans(rows), edgeAggsFromSpans(rows)), nil
 }
 
-// GetTraceErrors groups error spans by exception_type (or status_message fallback).
+// GetTraceErrors groups error spans by exception type.
 func (s *Service) GetTraceErrors(ctx context.Context, teamID int64, traceID string) ([]TraceErrorGroup, error) {
 	rows, err := s.repo.GetTraceErrors(ctx, teamID, traceID)
 	if err != nil {
@@ -39,9 +36,7 @@ func (s *Service) GetTraceErrors(ctx context.Context, teamID int64, traceID stri
 	return groupErrors(rows), nil
 }
 
-// nodeAggsFromSpans aggregates this trace's spans per service. P50Ms holds the
-// running total during aggregation, then is converted to the mean; p95/p99 are
-// left at zero for the frontend to fill from RED metrics.
+// nodeAggsFromSpans aggregates this trace's spans per service.
 func nodeAggsFromSpans(rows []serviceMapSpanRow) []topology.NodeAgg {
 	aggMap := make(map[string]*topology.NodeAgg)
 	for i := range rows {
@@ -70,7 +65,7 @@ func nodeAggsFromSpans(rows []serviceMapSpanRow) []topology.NodeAgg {
 	return out
 }
 
-// edgeAggsFromSpans derives service→service edges from parent→child span links.
+// edgeAggsFromSpans derives service edges from parent-child span links.
 func edgeAggsFromSpans(rows []serviceMapSpanRow) []topology.EdgeAgg {
 	bySpan := make(map[string]*serviceMapSpanRow, len(rows))
 	for i := range rows {

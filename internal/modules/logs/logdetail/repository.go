@@ -21,11 +21,8 @@ const getByIDQuery = `
 	     AND log_id = @logID
 	LIMIT 1`
 
-// GetByID resolves a single log row by its stable log_id (FNV-64a hex computed
-// by the ingestion mapper from trace_id, timestamp_ns, body, fingerprint).
-// PREWHERE is on (team_id, log_id) only — the idx_log_id bloom-filter
-// skip-index defined inline in db/clickhouse/02_logs.sql prunes granules
-// across the full 30-day partition set without needing a ts_bucket bound.
+// GetByID resolves a single log row by its stable log_id.
+// It queries ClickHouse by teamID and logID using the log_id skip-index.
 func (r *Repository) GetByID(ctx context.Context, teamID int64, logID string) (*models.LogRow, error) {
 	args := []any{
 		clickhouse.Named("teamID", uint32(teamID)),

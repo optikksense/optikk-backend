@@ -16,10 +16,7 @@ type ConsumerConfig struct {
 	ConsumerGroup string
 }
 
-// Consumer polls Kafka, decodes records, hands them to the writer, and on
-// failure routes the original record bytes to the DLQ topic. Offsets are
-// committed by the underlying *kafkainfra.Consumer once the handler returns
-// nil.
+// Consumer processes Kafka records, writes them, and routes failures to DLQ.
 type Consumer struct {
 	cfg    ConsumerConfig
 	client *kafkainfra.Consumer
@@ -58,7 +55,8 @@ func (c *Consumer) handle(ctx context.Context, recs []*kgo.Record) error {
 			slog.Any("error", err),
 		)
 		c.dlq.PublishAll(ctx, recs, err)
-		return nil // commit offsets to unblock the partition
+		// Commit offsets to unblock the partition.
+		return nil
 	}
 	return nil
 }

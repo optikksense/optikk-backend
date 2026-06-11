@@ -9,27 +9,20 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
-// Repository runs the volume / read-vs-write panel queries against
-// `observability.spans_1m`. SQL emits per-display-bucket rows with
-// per-second rates computed server-side as
-// `sum(request_count) / @bucketGrainSec`; service is pass-through.
-type Repository interface {
-	GetOpsBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]opsRawDTO, error)
-}
-
-type ClickHouseRepository struct {
+type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
-	return &ClickHouseRepository{db: db}
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
 }
 
-func (r *ClickHouseRepository) GetOpsBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]opsRawDTO, error) {
+func (r *Repository) GetOpsBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]opsRawDTO, error) {
 	return r.opsSeriesByGroup(ctx, teamID, startMs, endMs, f, filter.AttrDBSystem, "volume.GetOpsBySystem")
 }
 
-func (r *ClickHouseRepository) opsSeriesByGroup(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, attr, traceLabel string) ([]opsRawDTO, error) {
+func (r *Repository) opsSeriesByGroup(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, attr, traceLabel string) ([]opsRawDTO, error) {
+	startMs, endMs = timebucket.SnapRangeForRollup(startMs, endMs)
 	groupCol := filter.Spans1mGroupColumn(attr)
 	if groupCol == "" {
 		return nil, nil
@@ -45,7 +38,7 @@ func (r *ClickHouseRepository) opsSeriesByGroup(ctx context.Context, teamID, sta
 		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `                   AS time_bucket,
 		       ` + groupCol + `                                                    AS group_by,
 		       sum(request_count) / @bucketGrainSec                                AS ops_per_sec
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND db_system != ''` + filterWhere + `

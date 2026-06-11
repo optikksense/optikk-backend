@@ -91,10 +91,8 @@ func runAddContextCancelActor(g *run.Group, ctx context.Context) {
 		func(error) { cancel() })
 }
 
-// addLagPollerActors wires one run.Group actor per Kafka consumer-lag
-// poller so each one runs alongside the HTTP + gRPC servers and stops
-// cleanly on shutdown. Pollers publish `optikk_kafka_consumer_lag_records`
-// every 15 s via raw `kmsg` calls against the existing consumer client.
+// addLagPollerActors adds a run.Group actor per Kafka consumer-lag poller to
+// run alongside other servers and publish lag records every 15s.
 func (a *App) addLagPollerActors(g *run.Group, parentCtx context.Context) {
 	for _, p := range a.Infra.LagPollers {
 		p := p
@@ -109,7 +107,7 @@ func (a *App) addLagPollerActors(g *run.Group, parentCtx context.Context) {
 func (a *App) addHTTPServerActor(g *run.Group) {
 	srv := &http.Server{
 		Addr:         fmt.Sprintf(":%s", a.Config.Server.Port),
-		Handler:      h2c.NewHandler(a.Infra.SessionManager.Wrap(a.Router()), &http2.Server{}),
+		Handler:      h2c.NewHandler(a.Router(), &http2.Server{}),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
@@ -154,9 +152,8 @@ func (a *App) addGRPCServerActor(g *run.Group) error {
 			MinTime:             10 * time.Second,
 			PermitWithoutStream: true,
 		}),
-		// Observability interceptors run first so they time the auth
-		// interceptor + handler together; auth unauthorised denials
-		// still show up in the metrics with code=Unauthenticated.
+		// Observability interceptors run first to time auth and handlers together;
+		// unauthorized denials show up in metrics with Unauthenticated code.
 		grpc.ChainUnaryInterceptor(
 			grpcMetricsUnary(),
 			auth.UnaryInterceptor(a.Infra.Authenticator),

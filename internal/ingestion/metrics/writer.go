@@ -18,7 +18,7 @@ var chColumns = []string{
 	"ts_bucket",
 	"value", "hist_sum", "hist_count",
 	"hist_buckets", "hist_counts",
-	"service", "host", "environment", "k8s_namespace", "pod", "container", "http_method", "http_status_code",
+	"service", "host", "environment", "k8s_namespace", "pod", "container",
 	"resource", "attributes",
 }
 
@@ -68,7 +68,8 @@ func rowValues(r *schema.Row) []any {
 		r.GetDescription(),
 		r.GetFingerprint(),
 		time.Unix(0, r.GetTimestampNs()),
-		uint32(r.GetTsBucketHourSeconds()), //nolint:gosec // ts_bucket is now 5-min-aligned UInt32 Unix-seconds; field name kept for proto wire-compat
+		// ts_bucket is 5-min-aligned UInt32; field name kept for proto compat.
+		uint32(r.GetTsBucketHourSeconds()),
 
 		r.GetValue(),
 		r.GetHistSum(),
@@ -81,8 +82,6 @@ func rowValues(r *schema.Row) []any {
 		r.GetK8SNamespace(),
 		r.GetPod(),
 		r.GetContainer(),
-		r.GetHttpMethod(),
-		uint16(r.GetHttpStatusCode()), //nolint:gosec
 		r.GetResource(),
 		r.GetAttributes(),
 	}

@@ -1,42 +1,29 @@
+-- 1-minute scalar (Gauge/Sum) rollup from observability.metrics via
+-- metrics_1m_mv. Carries series identity + scalar aggregates + fixed attributes.
+
 CREATE TABLE IF NOT EXISTS observability.metrics_1m (
     team_id              UInt32 CODEC(T64, ZSTD(1)),
     ts_bucket            UInt32 CODEC(DoubleDelta, LZ4),
     timestamp            DateTime CODEC(DoubleDelta, LZ4),
     metric_name          LowCardinality(String),
-    metric_type          LowCardinality(String) CODEC(ZSTD(1)),
-    unit                 LowCardinality(String) DEFAULT '' CODEC(ZSTD(1)),
-    description          LowCardinality(String) DEFAULT '' CODEC(ZSTD(1)),
-    fingerprint          String CODEC(ZSTD(1)),
-    attr_hash            UInt64 CODEC(T64, ZSTD(1)),
+    fingerprint          UInt64 CODEC(ZSTD(1)),
+
+    -- Fixed columns replace attr_hash
+    db_system                     LowCardinality(String) DEFAULT '' CODEC(ZSTD(1)),
+    db_connection_state           LowCardinality(String) DEFAULT '' CODEC(ZSTD(1)),
+    messaging_destination         LowCardinality(String) DEFAULT '' CODEC(ZSTD(1)),
+    messaging_consumer_group      LowCardinality(String) DEFAULT '' CODEC(ZSTD(1)),
+    messaging_system              LowCardinality(String) DEFAULT '' CODEC(ZSTD(1)),
 
     -- Scalar (Gauge / Sum) — four aggregations per row.
-    val_min              SimpleAggregateFunction(min, Float64)     CODEC(Gorilla, ZSTD(1)),
-    val_max              SimpleAggregateFunction(max, Float64)     CODEC(Gorilla, ZSTD(1)),
-    val_sum              SimpleAggregateFunction(sum, Float64)     CODEC(Gorilla, ZSTD(1)),
-    val_count            SimpleAggregateFunction(sum, UInt64)      CODEC(T64, ZSTD(1)),
-
-    -- Histogram — Prometheus-style quantile state for server-side
-    -- p50/p95/p99 reads via quantilesPrometheusHistogramMerge, plus
-    -- per-data-point sum/count for avg-duration panels. Bucket arrays
-    -- live on raw `observability.metrics`; the MV reads them there to
-    -- build `latency_state` and does not project them into the rollup.
-    hist_sum             SimpleAggregateFunction(sum, Float64) CODEC(Gorilla, ZSTD(1)),
-    hist_count           SimpleAggregateFunction(sum, UInt64)  CODEC(T64, ZSTD(1)),
-    latency_state        AggregateFunction(quantilesPrometheusHistogram(0.5, 0.95, 0.99), Float64, UInt64) CODEC(ZSTD(1)),
-
-    service              LowCardinality(String) CODEC(ZSTD(1)),
-    host                 LowCardinality(String) CODEC(ZSTD(1)),
-    environment          LowCardinality(String) CODEC(ZSTD(1)),
-    k8s_namespace        LowCardinality(String) CODEC(ZSTD(1)),
-    pod                  LowCardinality(String) CODEC(ZSTD(1)),
-    container            LowCardinality(String) CODEC(ZSTD(1)),
-    http_method          LowCardinality(String) CODEC(ZSTD(1)),
-    http_status_code     UInt16 CODEC(T64, ZSTD(1)),
-    attributes           JSON(max_dynamic_paths=100) CODEC(ZSTD(1))
+    val_min              SimpleAggregateFunction(min, Float64) CODEC(Gorilla, ZSTD(1)),
+    val_max              SimpleAggregateFunction(max, Float64) CODEC(Gorilla, ZSTD(1)),
+    val_sum              SimpleAggregateFunction(sum, Float64) CODEC(Gorilla, ZSTD(1)),
+    val_count            SimpleAggregateFunction(sum, UInt64)  CODEC(T64, ZSTD(1))
 ) ENGINE = AggregatingMergeTree()
 PARTITION BY toYYYYMMDD(timestamp)
-ORDER BY (team_id, ts_bucket, fingerprint, metric_name, attr_hash, timestamp)
-TTL timestamp + INTERVAL 90 DAY DELETE
+ORDER BY (team_id, metric_name, ts_bucket, fingerprint, db_system, db_connection_state, messaging_destination, messaging_consumer_group, messaging_system, timestamp)
+TTL timestamp + INTERVAL 30 DAY DELETE
 SETTINGS
     index_granularity = 8192,
     enable_mixed_granularity_parts = 1,
@@ -46,63 +33,32 @@ CREATE MATERIALIZED VIEW IF NOT EXISTS observability.metrics_1m_mv
 TO observability.metrics_1m AS
 SELECT
     team_id,
-    toUInt32(intDiv(toUnixTimestamp(toStartOfMinute(timestamp)), 300) * 300) AS ts_bucket,
-    toStartOfMinute(timestamp)                                                AS timestamp,
+    toUInt32(intDiv(toUnixTimestamp(timestamp), 300) * 300) AS ts_bucket,
+    toStartOfMinute(timestamp)                              AS timestamp,
     metric_name,
-    metric_type,
-    unit,
-    description,
     fingerprint,
-    cityHash64(toJSONString(attributes))                                      AS attr_hash,
-    attributes,
 
-    -- Scalar (Gauge / Sum) — fire once per source row, conditional on type.
-    minIf(value,     metric_type IN ('Gauge', 'Sum')) AS val_min,
-    maxIf(value,     metric_type IN ('Gauge', 'Sum')) AS val_max,
-    sumIf(value,     metric_type IN ('Gauge', 'Sum')) AS val_sum,
-    countIf(value,   metric_type IN ('Gauge', 'Sum')) AS val_count,
+    -- Extract fixed columns
+    attributes.'db.system'::String                     AS db_system,
+    attributes.'db.client.connection.state'::String    AS db_connection_state,
+    attributes.'messaging.destination.name'::String    AS messaging_destination,
+    attributes.'messaging.consumer.group.name'::String AS messaging_consumer_group,
+    attributes.'messaging.system'::String              AS messaging_system,
 
-    -- Per-data-point histogram totals.
-    sumIf(hist_sum,   metric_type = 'Histogram') AS hist_sum,
-    sumIf(hist_count, metric_type = 'Histogram') AS hist_count,
-
-    -- Prometheus-style quantile state. The -Array combinator feeds each
-    -- (bucket_upper_bound, cumulative_count) pair from the per-data-point
-    -- arrays into the aggregate; -StateIf gates on Histogram rows only.
-    -- Bucket arrays are read from raw `observability.metrics` and not
-    -- projected into the rollup — `latency_state` carries everything
-    -- readers need.
-    quantilesPrometheusHistogramArrayStateIf(0.5, 0.95, 0.99)(
-        hist_buckets,
-        arrayCumSum(hist_counts),
-        metric_type = 'Histogram'
-    ) AS latency_state,
-
-    service,
-    host,
-    environment,
-    k8s_namespace,
-    pod,
-    container,
-    http_method,
-    http_status_code
+    min(value)   AS val_min,
+    max(value)   AS val_max,
+    sum(value)   AS val_sum,
+    count()      AS val_count
 FROM observability.metrics
+WHERE metric_type IN ('Gauge', 'Sum')
 GROUP BY
     team_id,
     ts_bucket,
     timestamp,
     metric_name,
-    metric_type,
-    unit,
-    description,
     fingerprint,
-    attr_hash,
-    attributes,
-    service,
-    host,
-    environment,
-    k8s_namespace,
-    pod,
-    container,
-    http_method,
-    http_status_code;
+    db_system,
+    db_connection_state,
+    messaging_destination,
+    messaging_consumer_group,
+    messaging_system;

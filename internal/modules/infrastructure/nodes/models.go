@@ -2,9 +2,7 @@ package nodes
 
 import "time"
 
-// ---------------------------------------------------------------------------
-// HTTP response DTOs (API contract).
-// ---------------------------------------------------------------------------
+// HTTP response DTOs.
 
 type InfrastructureNode struct {
 	Host           string   `json:"host"`
@@ -36,9 +34,7 @@ type InfrastructureNodeSummary struct {
 	TotalPods      int64 `json:"total_pods"`
 }
 
-// ---------------------------------------------------------------------------
-// Internal repository row types — raw rows out of CH.
-// ---------------------------------------------------------------------------
+// Internal repository row types.
 
 type NodeAggregateRow struct {
 	Host          string    `ch:"host"`

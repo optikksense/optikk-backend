@@ -1,9 +1,5 @@
-// Package spans is the OTLP spans ingestion path: gRPC handler → mapper →
-// producer (Kafka) → consumer (Kafka) → writer (ClickHouse). One file per
-// stage, no in-memory accumulation. Producer-side batching is delegated to
-// franz-go (linger / batch_max_bytes); consumer flushes whatever a single
-// PollFetches returns to CH as one batch insert; CH async_insert=1 provides
-// server-side coalescing on top.
+// Package spans provides the OTLP spans ingestion path: gRPC handler to
+// Kafka producer.
 package spans
 
 import (
@@ -18,8 +14,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
-// Handler is the gRPC TraceServiceServer. Auth is enforced upstream by the
-// auth interceptor; teamID is read from ctx.
+// Handler implements the gRPC TraceServiceServer.
 type Handler struct {
 	tracepb.UnimplementedTraceServiceServer
 	producer *Producer

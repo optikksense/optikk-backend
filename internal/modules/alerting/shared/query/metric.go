@@ -8,11 +8,10 @@ import (
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	models "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/shared/models"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/chargs"
 )
 
-// MetricBackend evaluates metric monitors against observability.metrics_1m.
-// avg/sum/min/max read the SimpleAggregateFunction columns; p50/p95/p99 read
-// the AggregateFunction(quantilesPrometheusHistogram, ...) state column.
+// MetricBackend evaluates metric monitors against ClickHouse rollup tables.
 type MetricBackend struct {
 	db clickhouse.Conn
 }
@@ -30,23 +29,16 @@ func (b *MetricBackend) Scalar(ctx context.Context, m models.MonitorRow, q model
 	endMs := now.UnixMilli()
 	startMs := endMs - windowSec*1000
 
+	table, expr := metricSource(q.Metric.Aggregation)
 	query := `
-		WITH active_fps AS (
-		    SELECT fingerprint
-		    FROM observability.metrics_resource
-		    PREWHERE team_id     = @teamID
-		         AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
-		         AND metric_name = @metricName
-		)
-		SELECT ` + metricAggExpr() + ` AS value
-		FROM observability.metrics_1m
+		SELECT ` + expr + ` AS value
+		FROM observability.` + table + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND metric_name = @metricName
-		     AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end`
 
-	args := metricArgs(m.TeamID, q.Metric.Metric, startMs, endMs, q.Metric.Aggregation)
+	args := metricArgs(m.TeamID, q.Metric.Metric, startMs, endMs)
 	var rows []scalarRow
 	if err := dbutil.SelectCH(dbutil.DashboardCtx(ctx), b.db, "alerting.metric.Scalar", &rows, query, args...); err != nil {
 		return ScalarResult{}, err
@@ -65,26 +57,19 @@ func (b *MetricBackend) Series(ctx context.Context, m models.MonitorRow, q model
 	endMs := now.UnixMilli()
 	startMs := endMs - windowMs
 
+	table, expr := metricSource(q.Metric.Aggregation)
 	query := `
-		WITH active_fps AS (
-		    SELECT fingerprint
-		    FROM observability.metrics_resource
-		    PREWHERE team_id     = @teamID
-		         AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
-		         AND metric_name = @metricName
-		)
 		SELECT ` + timebucket.DisplayGrainSQL(windowMs) + ` AS bucket, ` +
-		metricAggExpr() + ` AS value
-		FROM observability.metrics_1m
+		expr + ` AS value
+		FROM observability.` + table + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND metric_name = @metricName
-		     AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		GROUP BY bucket
 		ORDER BY bucket`
 
-	args := metricArgs(m.TeamID, q.Metric.Metric, startMs, endMs, q.Metric.Aggregation)
+	args := metricArgs(m.TeamID, q.Metric.Metric, startMs, endMs)
 	var rows []bucketRow
 	if err := dbutil.SelectCH(dbutil.DashboardCtx(ctx), b.db, "alerting.metric.Series", &rows, query, args...); err != nil {
 		return nil, err
@@ -96,36 +81,33 @@ func (b *MetricBackend) Series(ctx context.Context, m models.MonitorRow, q model
 	return out, nil
 }
 
-// metricAggExpr returns the SELECT-list expression for the aggregation. The
-// percentile arms use the Prometheus-style merge so the result is a true
-// histogram_quantile-equivalent value.
-func metricAggExpr() string {
-	// The aggregation isn't a bind because CH doesn't allow parameter
-	// substitution in projection function calls. The caller validates the
-	// aggregation against a closed set before this is reached. Single
-	// responsibility: pick the projection by agg name.
-	return `multiIf(
-		@aggregation = 'avg', sum(val_sum) / sum(val_count),
-		@aggregation = 'sum', sum(val_sum),
-		@aggregation = 'min', min(val_min),
-		@aggregation = 'max', max(val_max),
-		@aggregation = 'p50', (quantilesPrometheusHistogramMerge(0.50, 0.95, 0.99)(latency_state))[1],
-		@aggregation = 'p95', (quantilesPrometheusHistogramMerge(0.50, 0.95, 0.99)(latency_state))[2],
-		@aggregation = 'p99', (quantilesPrometheusHistogramMerge(0.50, 0.95, 0.99)(latency_state))[3],
-		sum(val_sum) / sum(val_count))`
+// metricSource picks the rollup table and SELECT expression for aggregation.
+func metricSource(agg string) (table, expr string) {
+	switch agg {
+	case "sum":
+		return "metrics_1m", "sum(val_sum)"
+	case "min":
+		return "metrics_1m", "min(val_min)"
+	case "max":
+		return "metrics_1m", "max(val_max)"
+	case "p50":
+		return "metrics_hist_1m", "(quantilesPrometheusHistogramMerge(0.50, 0.95, 0.99)(latency_state))[1]"
+	case "p95":
+		return "metrics_hist_1m", "(quantilesPrometheusHistogramMerge(0.50, 0.95, 0.99)(latency_state))[2]"
+	case "p99":
+		return "metrics_hist_1m", "(quantilesPrometheusHistogramMerge(0.50, 0.95, 0.99)(latency_state))[3]"
+	default: // avg
+		return "metrics_1m", "sum(val_sum) / sum(val_count)"
+	}
 }
 
-func metricArgs(teamID int64, metricName string, startMs, endMs int64, agg string) []any {
-	bs, be := bucketBounds(startMs, endMs)
-	if agg == "" {
-		agg = "avg"
-	}
+func metricArgs(teamID int64, metricName string, startMs, endMs int64) []any {
+	bs, be := chargs.BucketBounds(startMs, endMs)
 	return []any{
 		teamIDArg(teamID),
 		clickhouse.Named("bucketStart", bs),
 		clickhouse.Named("bucketEnd", be),
 		clickhouse.Named("metricName", metricName),
-		clickhouse.Named("aggregation", agg),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
 		clickhouse.Named("end", time.UnixMilli(endMs)),
 	}
@@ -136,18 +118,11 @@ type scalarRow struct {
 	Value float64 `ch:"value"`
 }
 
-// IsZeroNoData heuristic: an exact 0.0 from the no-rows-but-Coalesced default
-// can't be distinguished from a legit zero scalar. We treat the no-rows case
-// in the caller via len(rows)==0; this method exists for future heuristic use.
+// IsZeroNoData checks if the returned scalar represents no data.
 func (s scalarRow) IsZeroNoData() bool { return false }
 
 // bucketRow is the destination for a Series query.
 type bucketRow struct {
 	Bucket time.Time `ch:"bucket"`
 	Value  float64   `ch:"value"`
-}
-
-func bucketBounds(startMs, endMs int64) (uint32, uint32) {
-	return timebucket.BucketStart(startMs / 1000),
-		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }

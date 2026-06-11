@@ -13,7 +13,7 @@ message Row {
   bool   is_monotonic = 5;
   string unit = 6;
   string description = 7;
-  string fingerprint = 8;
+  uint64 fingerprint = 8;
   int64  timestamp_ns = 9;
   double value = 10;
   double hist_sum = 11;
@@ -29,8 +29,8 @@ message Row {
   string host = 21;
   string environment = 22;
   string k8s_namespace = 23;
-  string http_method = 24;
-  uint32 http_status_code = 25;
+  reserved 24, 25;            // retired: http_method, http_status_code (never read)
+  reserved "http_method", "http_status_code";
   string pod = 26;
   string container = 27;
 }

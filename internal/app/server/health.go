@@ -12,7 +12,6 @@ type healthResult struct {
 	ready     bool
 	mysqlErr  string
 	chErr     string
-	redisErr  string
 	expiresAt time.Time
 }
 
@@ -29,9 +28,8 @@ func newHealthCache() *healthCache {
 	return hc
 }
 
-// get returns a cached or freshly-computed health snapshot. Concurrent callers
-// with an expired cache share a single refresh: the first takes the slot and
-// others wait on the condvar rather than piling probe pings onto the backends.
+// get returns a cached or freshly-computed health snapshot. Concurrent
+// callers with an expired cache share a single refresh via Cond.
 func (h *healthCache) get(ctx context.Context, probe func(ctx context.Context) *healthResult) *healthResult {
 	h.mu.Lock()
 	if h.current != nil && time.Now().Before(h.current.expiresAt) {

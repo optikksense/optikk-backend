@@ -33,9 +33,7 @@ import (
 	traces_explorer "github.com/Optikk-Org/optikk-backend/internal/modules/traces/explorer"
 	traces_paths "github.com/Optikk-Org/optikk-backend/internal/modules/traces/paths"
 	traces_servicemap "github.com/Optikk-Org/optikk-backend/internal/modules/traces/servicemap"
-	user_auth "github.com/Optikk-Org/optikk-backend/internal/modules/user/auth"
-	user_team "github.com/Optikk-Org/optikk-backend/internal/modules/user/team"
-	user_user "github.com/Optikk-Org/optikk-backend/internal/modules/user/user"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/user"
 )
 
 func configuredModules(
@@ -44,6 +42,9 @@ func configuredModules(
 	appConfig registry.AppConfig,
 	infraDeps *Infra,
 ) []registry.Module {
+	userRepo := user.NewRepository(infraDeps.DB, appConfig)
+	userService := user.NewService(userRepo, infraDeps.Tokens)
+
 	return []registry.Module{
 		infrastructure_cpu.NewModule(nativeQuerier, getTenant),
 		infrastructure_memory.NewModule(nativeQuerier, getTenant),
@@ -59,7 +60,7 @@ func configuredModules(
 		infraDeps.Ingest.Logs,
 		infraDeps.Ingest.Metrics,
 		infraDeps.Ingest.Spans,
-		services_errors.NewModule(nativeQuerier, getTenant, infraDeps.RedisClient),
+		services_errors.NewModule(nativeQuerier, getTenant),
 		services_redmetrics.NewModule(nativeQuerier, getTenant),
 		saturation_explorer.NewModule(nativeQuerier, getTenant),
 		saturation_database_latency.NewModule(nativeQuerier, getTenant),
@@ -73,9 +74,8 @@ func configuredModules(
 		traces_detail.NewModule(nativeQuerier, getTenant),
 		traces_paths.NewModule(nativeQuerier, getTenant),
 		traces_servicemap.NewModule(nativeQuerier, getTenant),
-		user_auth.NewModule(infraDeps.DB, getTenant, infraDeps.SessionManager, appConfig),
-		user_team.NewModule(infraDeps.DB, getTenant, appConfig),
-		user_user.NewModule(infraDeps.DB, getTenant, appConfig),
+
+		user.NewModule(getTenant, userService, infraDeps.Tokens),
 
 		alerting_monitors.NewModule(infraDeps.DB, getTenant, nativeQuerier),
 		alerting_notifications.NewModule(infraDeps.DB, getTenant),

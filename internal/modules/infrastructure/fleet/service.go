@@ -5,19 +5,15 @@ import (
 	"time"
 )
 
-type Service interface {
-	GetFleetPods(ctx context.Context, teamID int64, startMs, endMs int64) ([]FleetPod, error)
+type Service struct {
+	repo *Repository
 }
 
-type fleetService struct {
-	repo Repository
+func NewService(repo *Repository) *Service {
+	return &Service{repo: repo}
 }
 
-func NewService(repo Repository) Service {
-	return &fleetService{repo: repo}
-}
-
-func (s *fleetService) GetFleetPods(ctx context.Context, teamID int64, startMs, endMs int64) ([]FleetPod, error) {
+func (s *Service) GetFleetPods(ctx context.Context, teamID int64, startMs, endMs int64) ([]FleetPod, error) {
 	rows, err := s.repo.QueryFleetPods(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
@@ -33,7 +29,7 @@ func (s *fleetService) GetFleetPods(ctx context.Context, teamID int64, startMs, 
 			PodName:      r.Pod,
 			Host:         r.Host,
 			Services:     services,
-			RequestCount: int64(r.RequestCount), //nolint:gosec
+			RequestCount: int64(r.RequestCount),
 			ErrorCount:   int64(r.ErrorCount),
 			ErrorRate:    errorRate,
 			AvgLatencyMs: avgLatency,

@@ -1,11 +1,9 @@
 package latency
 
 import (
-	"net/http"
+	"context"
 
-	"github.com/Optikk-Org/optikk-backend/internal/shared/errorcode"
-
-	shared "github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/internal/shared"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
 )
@@ -16,15 +14,7 @@ type Handler struct {
 }
 
 func (h *Handler) GetLatencyBySystem(c *gin.Context) {
-	teamID := h.GetTenant(c).TeamID
-	startMs, endMs, ok := modulecommon.ParseRequiredRange(c)
-	if !ok {
-		return
-	}
-	resp, err := h.Service.GetLatencyBySystem(c.Request.Context(), teamID, startMs, endMs, shared.ParseFilters(c))
-	if err != nil {
-		modulecommon.RespondErrorWithCause(c, http.StatusInternalServerError, errorcode.Internal, "Failed to query latency by system", err)
-		return
-	}
-	modulecommon.RespondOK(c, resp)
+	modulecommon.HandleRangeQuery(c, h.GetTenant, "Failed to query latency by system", func(ctx context.Context, teamID, startMs, endMs int64) (any, error) {
+		return h.Service.GetLatencyBySystem(ctx, teamID, startMs, endMs, filter.ParseFilters(c))
+	})
 }

@@ -8,11 +8,10 @@ import (
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	models "github.com/Optikk-Org/optikk-backend/internal/modules/alerting/shared/models"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/chargs"
 )
 
 // APMBackend evaluates APM monitors against observability.spans_1m.
-// Tracks: errors (error_count / request_count * 100), hits (request_count
-// per second), latency (quantileTimingMerge p99), apdex (raw spans).
 type APMBackend struct {
 	db clickhouse.Conn
 }
@@ -30,6 +29,10 @@ func (b *APMBackend) Scalar(ctx context.Context, m models.MonitorRow, q models.M
 	endMs := now.UnixMilli()
 	startMs := endMs - windowSec*1000
 
+	// Scalar evaluation stays on spans_1m regardless of window: the tracked
+	// value divides counts by the exact windowSec, and the 1h tier's
+	// hour-snapped edges would skew that math. The 1m tier carries the full
+	// 30-day retention, so every alert window is servable.
 	const query = `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
@@ -72,6 +75,7 @@ func (b *APMBackend) Series(ctx context.Context, m models.MonitorRow, q models.M
 	}
 	endMs := now.UnixMilli()
 	startMs := endMs - windowMs
+	startMs, endMs = timebucket.SnapRangeForRollup(startMs, endMs)
 
 	query := `
 		WITH active_fps AS (
@@ -85,7 +89,7 @@ func (b *APMBackend) Series(ctx context.Context, m models.MonitorRow, q models.M
 		       sum(request_count)                       AS request_count,
 		       sum(error_count)                         AS error_count,
 		       quantileTimingMerge(0.99)(latency_state) AS p99
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(windowMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -112,8 +116,6 @@ func (b *APMBackend) Series(ctx context.Context, m models.MonitorRow, q models.M
 }
 
 // apmTrackValue projects the requested track from the aggregate row.
-// Per-second rate divides by the window (in seconds), not the bucket grain,
-// because Scalar is evaluated over the full eval window in one shot.
 func apmTrackValue(track string, row apmAggRow, windowSec int64) float64 {
 	switch track {
 	case "errors":
@@ -129,16 +131,14 @@ func apmTrackValue(track string, row apmAggRow, windowSec int64) float64 {
 	case "latency":
 		return row.P99
 	case "apdex":
-		// Apdex requires raw-span granularity (satisfied/tolerating buckets).
-		// v1 returns 0 here so the monitor renders no-data — callers should
-		// avoid creating apdex monitors until raw-span evaluation lands.
+		// Apdex is not yet supported and returns 0.
 		return 0
 	}
 	return 0
 }
 
 func apmArgs(teamID int64, service string, startMs, endMs int64) []any {
-	bs, be := bucketBounds(startMs, endMs)
+	bs, be := chargs.BucketBounds(startMs, endMs)
 	return []any{
 		teamIDArg(teamID),
 		clickhouse.Named("bucketStart", bs),

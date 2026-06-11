@@ -2,35 +2,32 @@ package nodes
 
 import (
 	"context"
-	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	"github.com/Optikk-Org/optikk-backend/internal/shared/chargs"
 )
 
-// nodes reads `observability.spans` for per-host RED aggregates. Mirrors
-// httpmetrics' route/external-host queries: `WITH active_fps AS (SELECT
-// DISTINCT fingerprint FROM observability.spans_resource WHERE team_id +
-// ts_bucket)` CTE so the main spans scan PREWHEREs on (team_id, ts_bucket,
-// fingerprint) — first three slots of the spans PK.
+// Repository reads observability.spans for per-host RED aggregates.
 
-type Repository interface {
-	QueryInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]NodeAggregateRow, error)
-	QueryInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (NodeSummaryRow, error)
-	QueryInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]NodeServiceAggregateRow, error)
-}
+// Query limits and defaults for node aggregates.
+const (
+	MaxNodes       = 200
+	MaxServices    = 100
+	DefaultUnknown = "unknown"
+)
 
-type ClickHouseRepository struct {
+type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) Repository {
-	return &ClickHouseRepository{db: db}
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
 }
 
-func (r *ClickHouseRepository) QueryInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]NodeAggregateRow, error) {
-	const query = `
+func (r *Repository) QueryInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]NodeAggregateRow, error) {
+	query := `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
 		    FROM observability.spans_resource
@@ -45,7 +42,7 @@ func (r *ClickHouseRepository) QueryInfrastructureNodes(ctx context.Context, tea
 		    sum(duration_ms_sum)                                                                 AS duration_ms_sum,
 		    quantileTimingMerge(0.95)(latency_state)                                             AS p95_latency_ms,
 		    max(timestamp)                                                                       AS last_seen
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -53,7 +50,7 @@ func (r *ClickHouseRepository) QueryInfrastructureNodes(ctx context.Context, tea
 		GROUP BY host
 		ORDER BY request_count DESC
 		LIMIT @maxNodes`
-	args := spanArgs(teamID, startMs, endMs)
+	args := chargs.RollupRangeArgs(teamID, startMs, endMs)
 	args = append(args,
 		clickhouse.Named("defaultUnknown", DefaultUnknown),
 		clickhouse.Named("maxNodes", uint64(MaxNodes)),
@@ -62,8 +59,8 @@ func (r *ClickHouseRepository) QueryInfrastructureNodes(ctx context.Context, tea
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "nodes.QueryInfrastructureNodes", &rows, query, args...)
 }
 
-func (r *ClickHouseRepository) QueryInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (NodeSummaryRow, error) {
-	const query = `
+func (r *Repository) QueryInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (NodeSummaryRow, error) {
+	query := `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
 		    FROM observability.spans_resource
@@ -75,13 +72,13 @@ func (r *ClickHouseRepository) QueryInfrastructureNodeSummary(ctx context.Contex
 		    sum(error_count)      AS error_count,
 		    sum(request_count)    AS request_count,
 		    uniqIf(pod, pod != '') AS pod_count
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		GROUP BY host`
-	args := spanArgs(teamID, startMs, endMs)
+	args := chargs.RollupRangeArgs(teamID, startMs, endMs)
 	type nodeRawSummaryRow struct {
 		Host         string `ch:"host"`
 		ErrorCount   uint64 `ch:"error_count"`
@@ -118,8 +115,8 @@ func (r *ClickHouseRepository) QueryInfrastructureNodeSummary(ctx context.Contex
 	}, nil
 }
 
-func (r *ClickHouseRepository) QueryInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]NodeServiceAggregateRow, error) {
-	const query = `
+func (r *Repository) QueryInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]NodeServiceAggregateRow, error) {
+	query := `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
 		    FROM observability.spans_resource
@@ -133,7 +130,7 @@ func (r *ClickHouseRepository) QueryInfrastructureNodeServices(ctx context.Conte
 		    sum(duration_ms_sum)                                                                 AS duration_ms_sum,
 		    quantileTimingMerge(0.95)(latency_state)                                             AS p95_latency_ms,
 		    uniqIf(pod, pod != '')                                                               AS pod_count
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -142,7 +139,7 @@ func (r *ClickHouseRepository) QueryInfrastructureNodeServices(ctx context.Conte
 		GROUP BY service
 		ORDER BY request_count DESC
 		LIMIT @maxServices`
-	args := spanArgs(teamID, startMs, endMs)
+	args := chargs.RollupRangeArgs(teamID, startMs, endMs)
 	args = append(args,
 		clickhouse.Named("host", host),
 		clickhouse.Named("defaultUnknown", DefaultUnknown),
@@ -150,24 +147,4 @@ func (r *ClickHouseRepository) QueryInfrastructureNodeServices(ctx context.Conte
 	)
 	var rows []NodeServiceAggregateRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "nodes.QueryInfrastructureNodeServices", &rows, query, args...)
-}
-
-// ---------------------------------------------------------------------------
-// Local helpers — each module owns its own.
-// ---------------------------------------------------------------------------
-
-func spanArgs(teamID int64, startMs, endMs int64) []any {
-	bucketStart, bucketEnd := spanBucketBounds(startMs, endMs)
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
-		clickhouse.Named("bucketStart", bucketStart),
-		clickhouse.Named("bucketEnd", bucketEnd),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
-
-func spanBucketBounds(startMs, endMs int64) (uint32, uint32) {
-	return timebucket.BucketStart(startMs / 1000),
-		timebucket.BucketStart(endMs/1000) + uint32(timebucket.BucketSeconds)
 }

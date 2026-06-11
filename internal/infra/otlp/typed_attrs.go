@@ -6,17 +6,8 @@ import (
 	commonpb "go.opentelemetry.io/proto/otlp/common/v1"
 )
 
-// TypedAttrs partitions OTLP KeyValue attributes into three typed maps in one
-// pass (strings, numbers, bools) and caps the string map at maxStringKeys
-// using a deterministic sort-by-key truncation. Number and bool maps are not
-// capped — in practice they stay tiny (<16 entries) and dropping them
-// silently hides signal.
-//
-// Bytes values are treated as strings (hex-decoded upstream) because the
-// attribute-string CH column is `Map(String,String)`; no Map(String,Bytes).
-//
-// Returned maps are freshly allocated — if the caller wants pooled maps,
-// pass them in via TypedAttrsInto instead.
+// TypedAttrs partitions OTLP attributes into three typed maps
+// (strings, numbers, bools) and caps the string map at maxStringKeys.
 func TypedAttrs(kvs []*commonpb.KeyValue, maxStringKeys int) (
 	strMap map[string]string,
 	numMap map[string]float64,
@@ -30,8 +21,8 @@ func TypedAttrs(kvs []*commonpb.KeyValue, maxStringKeys int) (
 	return
 }
 
-// TypedAttrsInto is the pooled-map variant of TypedAttrs. Returns the count
-// of string-map entries dropped by the cap.
+// TypedAttrsInto partitions attributes into existing maps and returns
+// the number of string-map entries dropped by the cap.
 func TypedAttrsInto(
 	kvs []*commonpb.KeyValue,
 	maxStringKeys int,
@@ -62,18 +53,14 @@ func TypedAttrsInto(
 	return 0
 }
 
-// capStringMapDeterministic trims strMap down to exactly max entries, keeping
-// the lexicographically-smallest keys so different Go runtimes + map
-// iteration orders produce the same set. Returns the number of entries that
-// were dropped.
+// capStringMapDeterministic trims strMap down to max entries by sorting keys
+// lexicographically. Returns the count of dropped entries.
 func capStringMapDeterministic(strMap map[string]string, max int) int {
 	return CapStringMap(strMap, max)
 }
 
-// CapStringMap trims strMap down to exactly max entries, keeping the
-// lexicographically-smallest keys. Shared by signals that carry a single
-// merged attribute map (spans) alongside those using the typed 3-way split
-// (logs). Returns the count of entries dropped; ≤0 means no-op.
+// CapStringMap trims strMap down to max entries, keeping lexicographically
+// smallest keys. Returns the count of entries dropped.
 func CapStringMap(strMap map[string]string, max int) int {
 	if max <= 0 || len(strMap) <= max {
 		return 0

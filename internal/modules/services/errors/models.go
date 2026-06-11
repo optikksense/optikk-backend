@@ -1,9 +1,6 @@
 package errors
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"fmt"
 	"time"
 )
 
@@ -19,11 +16,6 @@ type ErrorGroup struct {
 	SampleTraceID   string    `json:"sample_trace_id"`
 }
 
-// ErrorGroupID computes a deterministic hash from the group's identity fields.
-func ErrorGroupID(service, operation, statusMessage string, httpCode int) string {
-	h := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%d", service, operation, statusMessage, httpCode)))
-	return hex.EncodeToString(h[:8])
-}
 
 type ErrorGroupDetail struct {
 	GroupID         string    `json:"group_id"`
@@ -49,7 +41,7 @@ type PaginatedErrorTraces struct {
 	PageInfo PageInfo          `json:"pageInfo"`
 }
 
-// ErrorLatestOccurrence is the request context of a group's most recent error span.
+// ErrorLatestOccurrence is the context of a group's most recent error span.
 type ErrorLatestOccurrence struct {
 	TraceID        string    `json:"trace_id"`
 	SpanID         string    `json:"span_id"`
@@ -66,14 +58,14 @@ type ErrorLatestOccurrence struct {
 	Host           string    `json:"host"`
 }
 
-// ErrorFacet is one value within a facet dimension, with its share of the group's errors.
+// ErrorFacet is one value within a facet dimension with its error count share.
 type ErrorFacet struct {
 	Name  string  `json:"name"`
 	Count int64   `json:"count"`
 	Pct   float64 `json:"pct"`
 }
 
-// ErrorFacetGroup is the distribution of a group's errors across one tag dimension.
+// ErrorFacetGroup is the distribution of group errors across one tag dimension.
 type ErrorFacetGroup struct {
 	Key    string       `json:"key"`
 	Facets []ErrorFacet `json:"facets"`

@@ -1,12 +1,7 @@
 package filter
 
-// OpenTelemetry semantic conventions for Kafka-related messaging telemetry.
-// Canonical names come first; compatibility aliases preserve historical data.
-//
-// Attribute alias chains for `topic`, `consumer_group`, `operation_name`,
-// `partition`, `messaging.system`, `node-id` are inlined directly in the SQL
-// queries (see each submodule's repository.go) — the SQL is the source of
-// truth for which attribute names each kafka concept can come from.
+// OpenTelemetry semantic conventions for Kafka messaging telemetry.
+// Source of truth for attribute mappings is in each repository's SQL queries.
 
 const (
 	MetricPublishMessages         = "messaging.publish.messages"

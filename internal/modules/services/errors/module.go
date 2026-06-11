@@ -5,7 +5,6 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/app/registry"
 	modulecommon "github.com/Optikk-Org/optikk-backend/internal/shared/httputil"
 	"github.com/gin-gonic/gin"
-	goredis "github.com/redis/go-redis/v9"
 )
 
 type Config struct {
@@ -33,9 +32,9 @@ func RegisterRoutes(cfg Config, v1 *gin.RouterGroup, h *ErrorHandler) {
 	v1.GET("/spans/error-hotspot", h.GetErrorHotspot)
 }
 
-func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc, redisClient *goredis.Client) registry.Module {
+func NewModule(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Module {
 	module := &errorsModule{}
-	module.configure(nativeQuerier, getTenant, redisClient)
+	module.configure(nativeQuerier, getTenant)
 	return module
 }
 
@@ -45,7 +44,7 @@ type errorsModule struct {
 
 func (m *errorsModule) Name() string { return "servicesErrors" }
 
-func (m *errorsModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc, redisClient *goredis.Client) {
+func (m *errorsModule) configure(nativeQuerier clickhouse.Conn, getTenant registry.GetTenantFunc) {
 	m.handler = &ErrorHandler{
 		DBTenant: modulecommon.DBTenant{GetTenant: getTenant},
 		Service:  NewService(NewRepository(nativeQuerier)),

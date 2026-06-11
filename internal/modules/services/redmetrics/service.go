@@ -11,26 +11,15 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 )
 
-type Service interface {
-	GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) (REDSummary, error)
-	GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]ApdexScore, error)
-	GetRequestAndErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServicePerformancePoint, error)
-	GetStatusTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]StatusTimeSeriesPoint, error)
-	GetLatencyPercentilesTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) ([]LatencyPercentilesPoint, error)
-	GetTopEndpointsCombined(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int, cursor TopEndpointsCursor) (PaginatedEndpoints, error)
-	GetServiceSummary(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (ServiceSummaryResponse, error)
-	GetOperationBaseline(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) (OperationBaseline, error)
+type Service struct {
+	repo *Repository
 }
 
-type REDMetricsService struct {
-	repo Repository
+func NewService(repo *Repository) *Service {
+	return &Service{repo: repo}
 }
 
-func NewService(repo Repository) Service {
-	return &REDMetricsService{repo: repo}
-}
-
-func (s *REDMetricsService) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) (REDSummary, error) {
+func (s *Service) GetSummary(ctx context.Context, teamID int64, startMs, endMs int64) (REDSummary, error) {
 	rows, err := s.repo.GetFleetREDMetrics(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return REDSummary{}, err
@@ -46,7 +35,7 @@ func (s *REDMetricsService) GetSummary(ctx context.Context, teamID int64, startM
 	}
 	sats, err := s.repo.GetFleetSaturationAggs(ctx, teamID, startMs, endMs, metricNames)
 	if err != nil {
-		sats = nil // Fallback gracefully if query fails
+		sats = nil
 	}
 
 	// Map saturation per service
@@ -119,8 +108,8 @@ func (s *REDMetricsService) GetSummary(ctx context.Context, teamID int64, startM
 			MemoryUtilization: utils.SanitizeFloat(memVal),
 			DiskUtilization:   utils.SanitizeFloat(diskVal),
 		}
-		totalCount += int64(row.TotalCount)  //nolint:gosec // domain-bounded
-		totalErrors += int64(row.ErrorCount) //nolint:gosec // domain-bounded
+		totalCount += int64(row.TotalCount)
+		totalErrors += int64(row.ErrorCount)
 		totalP50 += utils.SanitizeFloat(float64(row.P50Ms))
 		totalP95 += utils.SanitizeFloat(float64(row.P95Ms))
 		totalP99 += utils.SanitizeFloat(float64(row.P99Ms))
@@ -150,7 +139,7 @@ func (s *REDMetricsService) GetSummary(ctx context.Context, teamID int64, startM
 	}, nil
 }
 
-func (s *REDMetricsService) GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]ApdexScore, error) {
+func (s *Service) GetApdex(ctx context.Context, teamID int64, startMs, endMs int64, satisfiedMs, toleratingMs float64, serviceName string) ([]ApdexScore, error) {
 	var rows []apdexRow
 	var err error
 	if serviceName != "" {
@@ -164,9 +153,9 @@ func (s *REDMetricsService) GetApdex(ctx context.Context, teamID int64, startMs,
 
 	result := make([]ApdexScore, len(rows))
 	for i, row := range rows {
-		total := int64(row.TotalCount)      //nolint:gosec // domain-bounded
-		satisfied := int64(row.Satisfied)   //nolint:gosec // domain-bounded
-		tolerating := int64(row.Tolerating) //nolint:gosec // domain-bounded
+		total := int64(row.TotalCount)
+		satisfied := int64(row.Satisfied)
+		tolerating := int64(row.Tolerating)
 		frustrated := total - satisfied - tolerating
 		if frustrated < 0 {
 			frustrated = 0
@@ -187,7 +176,7 @@ func (s *REDMetricsService) GetApdex(ctx context.Context, teamID int64, startMs,
 	return result, nil
 }
 
-func (s *REDMetricsService) GetOperationBaseline(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) (OperationBaseline, error) {
+func (s *Service) GetOperationBaseline(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) (OperationBaseline, error) {
 	row, err := s.repo.GetOperationBaseline(ctx, teamID, startMs, endMs, serviceName, operationName)
 	if err != nil {
 		return OperationBaseline{}, err
@@ -198,11 +187,11 @@ func (s *REDMetricsService) GetOperationBaseline(ctx context.Context, teamID int
 		P50Ms:         utils.SanitizeFloat(float64(row.P50Ms)),
 		P95Ms:         utils.SanitizeFloat(float64(row.P95Ms)),
 		P99Ms:         utils.SanitizeFloat(float64(row.P99Ms)),
-		SpanCount:     int64(row.SpanCount), //nolint:gosec // domain-bounded
+		SpanCount:     int64(row.SpanCount),
 	}, nil
 }
 
-func (s *REDMetricsService) GetRequestAndErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServicePerformancePoint, error) {
+func (s *Service) GetRequestAndErrorRateTimeSeries(ctx context.Context, teamID int64, startMs, endMs int64) ([]ServicePerformancePoint, error) {
 	rows, err := s.repo.GetRequestAndErrorRateTimeSeries(ctx, teamID, startMs, endMs)
 	if err != nil {
 		return nil, err
@@ -247,7 +236,7 @@ func (s *REDMetricsService) GetRequestAndErrorRateTimeSeries(ctx context.Context
 	return points, nil
 }
 
-func (s *REDMetricsService) GetServiceSummary(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (ServiceSummaryResponse, error) {
+func (s *Service) GetServiceSummary(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (ServiceSummaryResponse, error) {
 	redRow, err := s.repo.GetServiceREDMetrics(ctx, teamID, startMs, endMs, serviceName)
 	if err != nil {
 		return ServiceSummaryResponse{}, err
@@ -263,7 +252,7 @@ func (s *REDMetricsService) GetServiceSummary(ctx context.Context, teamID int64,
 
 	sats, err := s.repo.GetServiceSaturationAggs(ctx, teamID, startMs, endMs, serviceName, metricNames)
 	if err != nil {
-		sats = nil // Fallback gracefully if query fails
+		sats = nil
 	}
 
 	// Map saturation
@@ -354,7 +343,7 @@ func averageFloats(vals []float64) *float64 {
 
 // GetStatusTimeSeries pivots per-bucket / per-status-class rows into one
 // point per bucket with 2xx / 4xx / 5xx (and "other") counts.
-func (s *REDMetricsService) GetStatusTimeSeries(
+func (s *Service) GetStatusTimeSeries(
 	ctx context.Context, teamID int64, startMs, endMs int64, serviceName string,
 ) ([]StatusTimeSeriesPoint, error) {
 	rows, err := s.repo.GetStatusTimeSeries(ctx, teamID, startMs, endMs, serviceName)
@@ -411,7 +400,7 @@ func writeStatusCount(pt *StatusTimeSeriesPoint, bucket string, count float64) {
 
 // GetLatencyPercentilesTimeSeries returns p50/p95/p99 over time for one service
 // (or for all team services when serviceName is empty).
-func (s *REDMetricsService) GetLatencyPercentilesTimeSeries(
+func (s *Service) GetLatencyPercentilesTimeSeries(
 	ctx context.Context, teamID int64, startMs, endMs int64, serviceName string,
 ) ([]LatencyPercentilesPoint, error) {
 	rows, err := s.repo.GetLatencyPercentilesTimeSeries(ctx, teamID, startMs, endMs, serviceName)
@@ -450,7 +439,7 @@ func (s *REDMetricsService) GetLatencyPercentilesTimeSeries(
 
 // GetTopEndpointsCombined returns per-operation rate / errPct / p50 / p95 / p99
 // sorted by request volume.
-func (s *REDMetricsService) GetTopEndpointsCombined(
+func (s *Service) GetTopEndpointsCombined(
 	ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, limit int, cursorIn TopEndpointsCursor,
 ) (PaginatedEndpoints, error) {
 	rows, err := s.repo.GetTopEndpointsCombined(ctx, teamID, startMs, endMs, serviceName, limit+1, cursorIn)
@@ -493,8 +482,8 @@ func (s *REDMetricsService) GetTopEndpointsCombined(
 }
 
 func toTopEndpoint(row topEndpointRow, durationSec float64) TopEndpoint {
-	total := int64(row.TotalCount) //nolint:gosec // domain-bounded
-	errs := int64(row.ErrorCount)  //nolint:gosec // domain-bounded
+	total := int64(row.TotalCount)
+	errs := int64(row.ErrorCount)
 	errRate := 0.0
 	if total > 0 {
 		errRate = float64(errs) / float64(total)

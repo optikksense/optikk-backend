@@ -10,20 +10,12 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
-// Repository runs latency-by-* panels against `observability.spans_1m`.
-// Each method computes p50/p95/p99 server-side via quantileTimingMerge on
-// the rollup's latency_state; service.go is a trivial passthrough. The
-// heatmap path stays on raw spans (needs per-span band classification).
-type Repository interface {
-	GetLatencyBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyRawDTO, error)
-}
-
-type ClickHouseRepository struct {
+type Repository struct {
 	db clickhouse.Conn
 }
 
-func NewRepository(db clickhouse.Conn) *ClickHouseRepository {
-	return &ClickHouseRepository{db: db}
+func NewRepository(db clickhouse.Conn) *Repository {
+	return &Repository{db: db}
 }
 
 type latencyRawDTO struct {
@@ -35,11 +27,12 @@ type latencyRawDTO struct {
 	P99Ms    float32
 }
 
-func (r *ClickHouseRepository) GetLatencyBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyRawDTO, error) {
+func (r *Repository) GetLatencyBySystem(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters) ([]latencyRawDTO, error) {
 	return r.latencySeriesByGroup(ctx, teamID, startMs, endMs, f, filter.AttrDBSystem, "latency.GetLatencyBySystem")
 }
 
-func (r *ClickHouseRepository) latencySeriesByGroup(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, attr, traceLabel string) ([]latencyRawDTO, error) {
+func (r *Repository) latencySeriesByGroup(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, attr, traceLabel string) ([]latencyRawDTO, error) {
+	startMs, endMs = timebucket.SnapRangeForRollup(startMs, endMs)
 	groupCol := filter.Spans1mGroupColumn(attr)
 	if groupCol == "" {
 		return nil, nil
@@ -54,7 +47,7 @@ func (r *ClickHouseRepository) latencySeriesByGroup(ctx context.Context, teamID,
 		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + ` AS bucket_at,
 		       ` + groupCol + `                                       AS group_by,
 		       quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state)  AS qs
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND db_system != ''` + filterWhere + `

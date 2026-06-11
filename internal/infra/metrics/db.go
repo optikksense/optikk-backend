@@ -5,9 +5,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-// DB histogram buckets: 1 ms → 1 s. Most ClickHouse indexed reads land
-// under 50 ms; MySQL user/team lookups under 10 ms. The long tail (1 s+)
-// gets bucketed into +Inf so Grafana can flag it.
+// dbBuckets provides histogram buckets from 1ms to 1s for database queries.
 var dbBuckets = []float64{.001, .005, .01, .025, .05, .1, .25, .5, 1}
 
 var (

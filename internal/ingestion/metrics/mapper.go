@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"math"
-	"strconv"
 
 	"github.com/Optikk-Org/optikk-backend/internal/infra/fingerprint"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/otlp"
@@ -15,7 +14,7 @@ import (
 
 type rowHeader struct {
 	teamID      uint32
-	fingerprint string
+	fingerprint uint64
 	resMap      map[string]string
 }
 
@@ -28,8 +27,8 @@ func mapRequest(teamID int64, req *metricspb.ExportMetricsServiceRequest) []*sch
 		}
 		resMap := otlp.AttrsToMap(resAttrs)
 		hdr := rowHeader{
-			teamID:      uint32(teamID), //nolint:gosec
-			fingerprint: fingerprint.Calculate(resMap),
+			teamID:      uint32(teamID),
+			fingerprint: fingerprint.CalculateHash(resMap),
 			resMap:      resMap,
 		}
 		for _, sm := range rm.GetScopeMetrics() {
@@ -62,23 +61,21 @@ func appendMetric(rows []*schema.Row, hdr rowHeader, m *metricsdatapb.Metric) []
 }
 
 func gaugeRow(hdr rowHeader, m *metricsdatapb.Metric, dp *metricsdatapb.NumberDataPoint) *schema.Row {
-	tsNs := int64(dp.GetTimeUnixNano()) //nolint:gosec
+	tsNs := int64(dp.GetTimeUnixNano())
 	attrs := otlp.AttrsToMap(dp.GetAttributes())
 	return scalarRow(hdr, m, "Gauge", "Unspecified", false, tsNs, attrs, numberValue(dp))
 }
 
 func sumRow(hdr rowHeader, m *metricsdatapb.Metric, temporality string, isMono bool, dp *metricsdatapb.NumberDataPoint) *schema.Row {
-	tsNs := int64(dp.GetTimeUnixNano()) //nolint:gosec
+	tsNs := int64(dp.GetTimeUnixNano())
 	attrs := otlp.AttrsToMap(dp.GetAttributes())
 	return scalarRow(hdr, m, "Sum", temporality, isMono, tsNs, attrs, numberValue(dp))
 }
 
-// histogramRow emits one Row per OTel histogram data point. The OTel
-// `explicit_bounds` array carries N-1 boundaries for N buckets; the implicit
-// last bucket has upper bound +Inf. We carry the explicit bounds plus +Inf in
-// hist_buckets, and the per-bucket counts unchanged in hist_counts.
+// histogramRow maps an OTel histogram data point to a Schema Row,
+// converting bounds to hist_buckets and keeping counts in hist_counts.
 func histogramRow(hdr rowHeader, m *metricsdatapb.Metric, temporality string, dp *metricsdatapb.HistogramDataPoint) *schema.Row {
-	tsNs := int64(dp.GetTimeUnixNano()) //nolint:gosec
+	tsNs := int64(dp.GetTimeUnixNano())
 	attrs := otlp.AttrsToMap(dp.GetAttributes())
 	sum := 0.0
 	if dp.Sum != nil {
@@ -133,8 +130,6 @@ func baseRow(
 		K8SNamespace:        hdr.resMap["k8s.namespace.name"],
 		Pod:                 hdr.resMap["k8s.pod.name"],
 		Container:           hdr.resMap["k8s.container.name"],
-		HttpMethod:          attrs["http.method"],
-		HttpStatusCode:      parseHTTPStatus(attrs["http.status_code"]),
 	}
 }
 
@@ -157,15 +152,4 @@ func numberValue(dp *metricsdatapb.NumberDataPoint) float64 {
 		return float64(v.AsInt)
 	}
 	return 0
-}
-
-func parseHTTPStatus(s string) uint32 {
-	if s == "" {
-		return 0
-	}
-	v, err := strconv.ParseUint(s, 10, 32)
-	if err != nil {
-		return 0
-	}
-	return uint32(v)
 }

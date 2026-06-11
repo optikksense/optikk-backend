@@ -1,9 +1,7 @@
 package models
 
-// MonitorQuery is a discriminated union over the supported monitor types.
-// Exactly one of Metric / APM / Log is populated, matching the row's `type`.
-// The evaluator dispatches on the monitor type to the corresponding shared/query
-// implementation; CRUD validates each shape via Validate().
+// MonitorQuery is a discriminated union over supported monitor types.
+// Dispatches to the corresponding shared/query implementation.
 type MonitorQuery struct {
 	Metric *MetricQuery `json:"metric,omitempty"`
 	APM    *APMQuery    `json:"apm,omitempty"`
@@ -12,23 +10,27 @@ type MonitorQuery struct {
 
 // MetricQuery: aggregate a metric over a window with optional resource tags.
 type MetricQuery struct {
-	Metric      string `json:"metric"`
-	Aggregation string `json:"aggregation"` // avg | sum | min | max | p50 | p95 | p99
-	WindowSec   int    `json:"window_sec"`  // 60, 300, 900, 3600
+	Metric string `json:"metric"`
+	// Aggregation can be avg, sum, min, max, p50, p95, or p99.
+	Aggregation string `json:"aggregation"`
+	// WindowSec is the window size in seconds (e.g. 60, 300, 900, 3600).
+	WindowSec int `json:"window_sec"`
 }
 
 // APMQuery: track an apm signal on a service+resource.
 type APMQuery struct {
-	Service   string `json:"service"`
-	Resource  string `json:"resource,omitempty"`
-	Track     string `json:"track"` // errors | hits | latency | apdex
+	Service  string `json:"service"`
+	Resource string `json:"resource,omitempty"`
+	// Track can be errors, hits, latency, or apdex.
+	Track     string `json:"track"`
 	WindowSec int    `json:"window_sec"`
 }
 
 // LogQuery: count log events matching a query, grouped optionally.
 type LogQuery struct {
-	Query     string `json:"query"`
-	GroupBy   string `json:"group_by,omitempty"` // service | host | status | none
+	Query string `json:"query"`
+	// GroupBy can be service, host, status, or none.
+	GroupBy   string `json:"group_by,omitempty"`
 	WindowSec int    `json:"window_sec"`
 }
 

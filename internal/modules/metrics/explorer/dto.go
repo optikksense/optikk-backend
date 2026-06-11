@@ -2,9 +2,8 @@ package explorer
 
 import "time"
 
-// ClickHouse scan DTOs — these match the column aliases in repository queries.
-// They are intentionally separate from the API-facing models so the DB shape
-// can evolve independently of the JSON contract.
+// ClickHouse scan DTOs match column aliases in repository queries.
+// They are separate from API models to allow independent evolution.
 
 // metricNameDTO scans the result of ListMetricNames.
 type metricNameDTO struct {
@@ -33,7 +32,7 @@ type tagKeyValueDTO struct {
 	Count    uint64 `ch:"count"`
 }
 
-// timeseriesPointDTO scans a single row from QueryTimeseries.
+// timeseriesPointDTO scans a single row from QueryRollupSeries.
 type timeseriesPointDTO struct {
 	BucketAt time.Time `ch:"bucket_at"`
 	Sum      float64   `ch:"val_sum"`

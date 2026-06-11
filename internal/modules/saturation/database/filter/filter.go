@@ -1,16 +1,15 @@
 package filter
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
+	"github.com/gin-gonic/gin"
 )
 
-// ---------------------------------------------------------------------------
-// OTel semantic-convention names + canonical metric names. Re-exported here
-// so consumers don't reach into the internal/shared package.
-// ---------------------------------------------------------------------------
+// OTel semantic-convention names and canonical metric names.
 
 const (
 	AttrDBSystem         = "db.system"
@@ -47,10 +46,30 @@ type Filters struct {
 	Server     []string
 }
 
+// ParseFilters extracts query-string filters into the typed shape consumed
+// by every repository.
+func ParseFilters(c *gin.Context) Filters {
+	return Filters{
+		DBSystem:   c.QueryArray("db_system"),
+		Collection: c.QueryArray("collection"),
+		Namespace:  c.QueryArray("namespace"),
+		Server:     c.QueryArray("server"),
+	}
+}
+
+func ParseLimit(c *gin.Context, def int) int {
+	if s := c.Query("limit"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil && v > 0 {
+			return v
+		}
+	}
+	return def
+}
+
 func SpanArgs(teamID, startMs, endMs int64) []any {
 	bucketStart, bucketEnd := SpanBucketBounds(startMs, endMs)
 	return []any{
-		clickhouse.Named("teamID", uint32(teamID)), //nolint:gosec // G115
+		clickhouse.Named("teamID", uint32(teamID)),
 		clickhouse.Named("bucketStart", bucketStart),
 		clickhouse.Named("bucketEnd", bucketEnd),
 		clickhouse.Named("start", time.UnixMilli(startMs)),
@@ -75,17 +94,6 @@ func MetricArgs(teamID, startMs, endMs int64, metricName string) []any {
 	}
 }
 
-func MetricArgsMulti(teamID, startMs, endMs int64, metricNames []string) []any {
-	bucketStart, bucketEnd := MetricBucketBounds(startMs, endMs)
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("bucketStart", bucketStart),
-		clickhouse.Named("bucketEnd", bucketEnd),
-		clickhouse.Named("metricNames", metricNames),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
 
 func MetricBucketBounds(startMs, endMs int64) (uint32, uint32) {
 	return timebucket.BucketStart(startMs / 1000),
@@ -112,9 +120,7 @@ func BuildSpanClauses(f Filters) (where string, args []any) {
 	return where, args
 }
 
-// BuildSpans1mClauses is the spans_1m analog of BuildSpanClauses. The four
-// db-attribute paths are first-class columns in spans_1m, extracted in the
-// MV from spans' typed-path attributes.
+// BuildSpans1mClauses builds SQL filter clauses for the spans_1m table.
 func BuildSpans1mClauses(f Filters) (where string, args []any) {
 	if len(f.DBSystem) > 0 {
 		where += ` AND db_system IN @dbSystem`
@@ -135,41 +141,9 @@ func BuildSpans1mClauses(f Filters) (where string, args []any) {
 	return where, args
 }
 
-func BuildMetricClauses(f Filters) (where string, args []any) {
-	if len(f.DBSystem) > 0 {
-		where += ` AND attributes.'` + AttrDBSystem + `'::String IN @dbSystem`
-		args = append(args, clickhouse.Named("dbSystem", f.DBSystem))
-	}
-	if len(f.Server) > 0 {
-		where += ` AND attributes.'` + AttrServerAddress + `'::String IN @dbServer`
-		args = append(args, clickhouse.Named("dbServer", f.Server))
-	}
-	return where, args
-}
 
-func SpanGroupColumn(attr string) string {
-	switch attr {
-	case AttrDBSystem:
-		return "db_system"
-	case AttrDBOperationName:
-		return "attributes.'" + AttrDBOperationName + "'::String"
-	case AttrDBCollectionName:
-		return "attributes.'" + AttrDBCollectionName + "'::String"
-	case AttrDBNamespace:
-		return "attributes.'" + AttrDBNamespace + "'::String"
-	case AttrServerAddress:
-		return "attributes.'" + AttrServerAddress + "'::String"
-	case AttrErrorType:
-		return "attributes.'" + AttrErrorType + "'::String"
-	case AttrDBResponseStatus:
-		return "attributes.'" + AttrDBResponseStatus + "'::String"
-	}
-	return ""
-}
 
-// Spans1mGroupColumn is the spans_1m analog of SpanGroupColumn. Returns the
-// concrete spans_1m column name extracted in spans_1m_mv from the attributes
-// JSON path, or first-class column when one already exists on spans_1m.
+// Spans1mGroupColumn returns the spans_1m column name for the attribute.
 func Spans1mGroupColumn(attr string) string {
 	switch attr {
 	case AttrDBSystem:

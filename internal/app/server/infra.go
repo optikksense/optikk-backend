@@ -16,13 +16,11 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/config"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
 	kafkainfra "github.com/Optikk-Org/optikk-backend/internal/infra/kafka"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/redis"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/session"
 	logsignal "github.com/Optikk-Org/optikk-backend/internal/ingestion/logs"
 	metricsignal "github.com/Optikk-Org/optikk-backend/internal/ingestion/metrics"
 	spansignal "github.com/Optikk-Org/optikk-backend/internal/ingestion/spans"
-	redigoredis "github.com/gomodule/redigo/redis"
-	goredis "github.com/redis/go-redis/v9"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/token"
+	"github.com/Optikk-Org/optikk-backend/internal/modules/user"
 	"github.com/twmb/franz-go/pkg/kgo"
 )
 
@@ -35,17 +33,15 @@ type IngestModules struct {
 
 // Infra holds process-wide infrastructure constructed at startup.
 type Infra struct {
-	DB             *sql.DB
-	CH             clickhouse.Conn
-	SessionManager session.Manager
-	RedisClient    *goredis.Client
-	RedisPool      *redigoredis.Pool
-	Authenticator  *auth.Authenticator
-	Ingest         IngestModules
-	LagPollers     []*kafkainfra.LagPoller
+	DB            *sql.DB
+	CH            clickhouse.Conn
+	Tokens        *token.Service
+	Authenticator *auth.Authenticator
+	Ingest        IngestModules
+	LagPollers    []*kafkainfra.LagPoller
 
-	KafkaProducer    *kgo.Client
-	consumerClients  []*kgo.Client
+	KafkaProducer   *kgo.Client
+	consumerClients []*kgo.Client
 }
 
 func newInfra(cfg config.Config) (_ *Infra, err error) {
@@ -59,12 +55,12 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 		slog.Int("max_open_conns", cfg.MySQL.MaxOpenConns),
 	)
 	if err := runMySQLMigrate(dbConn); err != nil {
-		_ = dbConn.Close() //nolint:errcheck
+		_ = dbConn.Close()
 		return nil, fmt.Errorf("mysql migrate: %w", err)
 	}
 	defer func() {
 		if err != nil {
-			_ = dbConn.Close() //nolint:errcheck
+			_ = dbConn.Close()
 		}
 	}()
 
@@ -78,48 +74,27 @@ func newInfra(cfg config.Config) (_ *Infra, err error) {
 	)
 	defer func() {
 		if err != nil {
-			_ = chConn.Close() //nolint:errcheck
+			_ = chConn.Close()
 		}
 	}()
-
-	redisClients, err := redis.NewClients(cfg)
-	if err != nil {
-		return nil, err
-	}
-	slog.Info("redis connected",
-		slog.String("addr", cfg.RedisAddr()),
-		slog.Int("db", cfg.Redis.DB),
-	)
-	defer func() {
-		if err != nil {
-			redisClients.Pool.Close()
-			_ = redisClients.Client.Close() //nolint:errcheck
-		}
-	}()
-
-	sessionManager, err := newSessionManager(cfg, redisClients.Pool)
-	if err != nil {
-		return nil, err
-	}
 
 	ingest, producerClient, consumerClients, lagPollers, err := buildIngest(cfg, chConn)
 	if err != nil {
 		return nil, err
 	}
 
-	authenticator := auth.NewAuthenticator(dbConn, redisClients.Client)
+	userRepo := user.NewRepository(dbConn, cfg)
+	authenticator := auth.NewAuthenticator(userRepo)
 
 	return &Infra{
 		DB:              dbConn,
 		CH:              chConn,
-		SessionManager:  sessionManager,
-		RedisClient:     redisClients.Client,
-		RedisPool:       redisClients.Pool,
+		Tokens:          token.NewService(cfg),
 		Authenticator:   authenticator,
 		Ingest:          ingest,
-		LagPollers:       lagPollers,
-		KafkaProducer:    producerClient,
-		consumerClients:  consumerClients,
+		LagPollers:      lagPollers,
+		KafkaProducer:   producerClient,
+		consumerClients: consumerClients,
 	}, nil
 }
 
@@ -129,7 +104,7 @@ func openClickHouse(cfg config.Config) (clickhouse.Conn, error) {
 		return nil, fmt.Errorf("clickhouse: %w", err)
 	}
 	if err := runMigrate(chConn, cfg.ClickHouse.Database); err != nil {
-		_ = chConn.Close() //nolint:errcheck
+		_ = chConn.Close()
 		return nil, fmt.Errorf("clickhouse migrate: %w", err)
 	}
 	return chConn, nil
@@ -168,10 +143,8 @@ func runMySQLMigrate(db *sql.DB) error {
 	return nil
 }
 
-// buildIngest creates topics, opens one shared producer client + per-signal
-// consumer clients, and constructs the three signal modules. Returns the
-// modules bundle, the producer client (closed at shutdown), the consumer
-// consumer clients (closed at shutdown), and the lag pollers (run by the run.Group).
+// buildIngest sets up Kafka topics, clients, lag pollers, and signal modules.
+// Returns modules, producer, consumers, and lag pollers.
 func buildIngest(cfg config.Config, ch clickhouse.Conn) (IngestModules, *kgo.Client, []*kgo.Client, []*kafkainfra.LagPoller, error) {
 	brokers := cfg.KafkaBrokers()
 	topicPrefix := cfg.KafkaTopicPrefix()
@@ -316,27 +289,13 @@ func (i *Infra) Close() error {
 		i.KafkaProducer.Close()
 		slog.Info("kafka producer closed")
 	}
-	if i.RedisPool != nil {
-		_ = i.RedisPool.Close() //nolint:errcheck
-	}
-	if i.RedisClient != nil {
-		_ = i.RedisClient.Close() //nolint:errcheck
-		slog.Info("redis connection closed")
-	}
 	if i.CH != nil {
-		_ = i.CH.Close() //nolint:errcheck
+		_ = i.CH.Close()
 		slog.Info("clickhouse connection closed")
 	}
 	if i.DB != nil {
-		_ = i.DB.Close() //nolint:errcheck
+		_ = i.DB.Close()
 		slog.Info("mysql connection closed")
 	}
 	return nil
-}
-
-func newSessionManager(cfg config.Config, pool *redigoredis.Pool) (session.Manager, error) {
-	if pool == nil {
-		return nil, fmt.Errorf("session manager requires redis pool")
-	}
-	return session.NewManager(cfg, pool)
 }

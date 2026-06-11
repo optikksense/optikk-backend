@@ -8,9 +8,8 @@ import (
 	"github.com/Optikk-Org/optikk-backend/internal/modules/alerting/shared/query"
 )
 
-// Module wires the monitors endpoints into the v1 router. CRUD + state actions
-// (ack/mute/unmute) + per-monitor reads (events, series, status-timeline) +
-// the team-wide activity feed. The CH conn is needed for test/series/timeline.
+// Module wires the monitors endpoints into the v1 router.
+// It supports CRUD, state actions, and per-monitor query views.
 type Module struct {
 	handler *Handler
 }

@@ -1,8 +1,6 @@
 package topology
 
-// nodeAggRow is scanned from the per-service RED aggregation query. P50/P95/
-// P99 are computed server-side via quantileTimingMerge against spans_1m's
-// latency_state.
+// nodeAggRow is scanned from the per-service RED aggregation query.
 type nodeAggRow struct {
 	ServiceName  string    `ch:"service"`
 	RequestCount uint64    `ch:"request_count"`
@@ -13,8 +11,7 @@ type nodeAggRow struct {
 	P99Ms        float32   `ch:"p99_ms"`
 }
 
-// edgeAggRow is scanned from the per-(service → peer_service) edge
-// aggregation. Same percentile shape as nodeAggRow; only p50/p95 used.
+// edgeAggRow is scanned from the service-to-peer edge aggregation query.
 type edgeAggRow struct {
 	Source     string    `ch:"source"`
 	Target     string    `ch:"target"`

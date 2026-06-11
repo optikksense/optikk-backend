@@ -25,9 +25,6 @@ func NewModule(db clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Mo
 	return m
 }
 
-func NewServiceFromDB(db clickhouse.Conn) *Service {
-	return NewService(NewRepository(db))
-}
 
 type module struct {
 	handler *Handler
