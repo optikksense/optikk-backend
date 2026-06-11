@@ -32,14 +32,8 @@ func MetricArgs(teamID int64, startMs, endMs int64) []any {
 	}
 }
 
-func WithMetricName(args []any, metricName string) []any {
-	return append(args, clickhouse.Named("metricName", metricName))
-}
 
 func WithMetricNames(args []any, metricNames []string) []any {
 	return append(args, clickhouse.Named("metricNames", metricNames))
 }
 
-func WithOpAliases(args []any, opAliases []string) []any {
-	return append(args, clickhouse.Named("opAliases", opAliases))
-}

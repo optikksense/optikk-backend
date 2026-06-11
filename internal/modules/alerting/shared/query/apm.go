@@ -29,6 +29,10 @@ func (b *APMBackend) Scalar(ctx context.Context, m models.MonitorRow, q models.M
 	endMs := now.UnixMilli()
 	startMs := endMs - windowSec*1000
 
+	// Scalar evaluation stays on spans_1m regardless of window: the tracked
+	// value divides counts by the exact windowSec, and the 1h tier's
+	// hour-snapped edges would skew that math. The 1m tier carries the full
+	// 30-day retention, so every alert window is servable.
 	const query = `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
@@ -71,6 +75,7 @@ func (b *APMBackend) Series(ctx context.Context, m models.MonitorRow, q models.M
 	}
 	endMs := now.UnixMilli()
 	startMs := endMs - windowMs
+	startMs, endMs = timebucket.SnapRangeForRollup(startMs, endMs)
 
 	query := `
 		WITH active_fps AS (
@@ -84,7 +89,7 @@ func (b *APMBackend) Series(ctx context.Context, m models.MonitorRow, q models.M
 		       sum(request_count)                       AS request_count,
 		       sum(error_count)                         AS error_count,
 		       quantileTimingMerge(0.99)(latency_state) AS p99
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(windowMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps

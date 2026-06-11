@@ -19,11 +19,6 @@ type Migrator struct {
 	Logger   func(format string, args ...any)
 }
 
-// MigrationStatus describes the apply state for a single migration file.
-type MigrationStatus struct {
-	Version string
-	Applied bool
-}
 
 const migrationTrackingTable = "schema_migrations"
 
@@ -64,26 +59,6 @@ func (m *Migrator) Up(ctx context.Context) (applied int, skipped int, err error)
 	return applied, skipped, nil
 }
 
-// Status returns the applied/pending state for every file, in apply order.
-func (m *Migrator) Status(ctx context.Context) ([]MigrationStatus, error) {
-	if err := m.ensureTrackingTable(ctx); err != nil {
-		return nil, err
-	}
-	files, err := m.listFiles()
-	if err != nil {
-		return nil, err
-	}
-	appliedSet, err := m.appliedVersions(ctx)
-	if err != nil {
-		return nil, err
-	}
-	out := make([]MigrationStatus, len(files))
-	for i, name := range files {
-		_, ok := appliedSet[name]
-		out[i] = MigrationStatus{Version: name, Applied: ok}
-	}
-	return out, nil
-}
 
 func (m *Migrator) ensureTrackingTable(ctx context.Context) error {
 	if m.Database == "" {

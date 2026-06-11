@@ -22,6 +22,7 @@ func (r *Repository) GetOpsBySystem(ctx context.Context, teamID, startMs, endMs 
 }
 
 func (r *Repository) opsSeriesByGroup(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, attr, traceLabel string) ([]opsRawDTO, error) {
+	startMs, endMs = timebucket.SnapRangeForRollup(startMs, endMs)
 	groupCol := filter.Spans1mGroupColumn(attr)
 	if groupCol == "" {
 		return nil, nil
@@ -37,7 +38,7 @@ func (r *Repository) opsSeriesByGroup(ctx context.Context, teamID, startMs, endM
 		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + `                   AS time_bucket,
 		       ` + groupCol + `                                                    AS group_by,
 		       sum(request_count) / @bucketGrainSec                                AS ops_per_sec
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND db_system != ''` + filterWhere + `

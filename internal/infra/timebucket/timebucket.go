@@ -16,17 +16,7 @@ func BucketStart(unixSeconds int64) uint32 {
 	return uint32((unixSeconds / BucketSeconds) * BucketSeconds)
 }
 
-// BucketTime expands a ts_bucket UInt32 back into a UTC time.Time.
-// Use this to scan ts_bucket natively instead of casting in SQL.
-func BucketTime(b uint32) time.Time {
-	return time.Unix(int64(b), 0).UTC()
-}
 
-// BucketDateTimeString formats a ts_bucket UInt32 as "YYYY-MM-DD HH:MM:SS".
-// Used when API contracts expect a string representation.
-func BucketDateTimeString(b uint32) string {
-	return time.Unix(int64(b), 0).UTC().Format("2006-01-02 15:04:05")
-}
 
 // FormatDisplayBucket formats a display-grain bucket time.Time as UTC
 // "YYYY-MM-DD HH:MM:SS" for consistency with ClickHouse string formats.
@@ -75,6 +65,54 @@ func DisplayGrainSQL(windowMs int64) string {
 	default:
 		return "toStartOfDay(timestamp)"
 	}
+}
+
+// UseHourRollup reports whether a query window should read the 1h rollup
+// tier instead of the 1m tier. True exactly when the display grain is >= 1h
+// (window > 24h), so hourly rows always satisfy the display grain losslessly.
+func UseHourRollup(windowMs int64) bool {
+	return displayGrain(windowMs) >= time.Hour
+}
+
+// FloorMsToHour floors a Unix-ms timestamp to its hour boundary. Used to snap
+// the window start when routing to the 1h tier: hourly rows are all-or-nothing,
+// and the first display bucket is hour-labeled either way.
+func FloorMsToHour(ms int64) int64 {
+	return ms - ms%(3600*1000)
+}
+
+// SnapRangeForRollup floors the window start to its hour when the window
+// routes to the 1h tier. Use at the top of rollup readers that build their
+// ClickHouse args manually (the chargs.RollupRangeArgs path does this itself).
+func SnapRangeForRollup(startMs, endMs int64) (int64, int64) {
+	if UseHourRollup(endMs - startMs) {
+		return FloorMsToHour(startMs), endMs
+	}
+	return startMs, endMs
+}
+
+// SpansRollup returns the spans RED rollup table for the query window.
+func SpansRollup(windowMs int64) string {
+	if UseHourRollup(windowMs) {
+		return "observability.spans_1h"
+	}
+	return "observability.spans_1m"
+}
+
+// MetricsRollup returns the scalar metrics rollup table for the query window.
+func MetricsRollup(windowMs int64) string {
+	if UseHourRollup(windowMs) {
+		return "observability.metrics_1h"
+	}
+	return "observability.metrics_1m"
+}
+
+// MetricsHistRollup returns the histogram metrics rollup table for the query window.
+func MetricsHistRollup(windowMs int64) string {
+	if UseHourRollup(windowMs) {
+		return "observability.metrics_hist_1h"
+	}
+	return "observability.metrics_hist_1m"
 }
 
 // WithBucketGrainSec appends @bucketGrainSec in seconds matching DisplayGrain.

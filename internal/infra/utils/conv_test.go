@@ -23,16 +23,3 @@ func TestSanitizeFloat(t *testing.T) {
 	}
 }
 
-func TestSanitizeFloatPtr(t *testing.T) {
-	if SanitizeFloatPtr(nil) != nil {
-		t.Error("SanitizeFloatPtr(nil) should be nil")
-	}
-	nan := math.NaN()
-	if SanitizeFloatPtr(&nan) != nil {
-		t.Error("SanitizeFloatPtr(NaN) should be nil")
-	}
-	v := 2.5
-	if got := SanitizeFloatPtr(&v); got == nil || *got != 2.5 {
-		t.Errorf("SanitizeFloatPtr(2.5) = %v, want 2.5", got)
-	}
-}

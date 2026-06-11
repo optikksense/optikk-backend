@@ -149,6 +149,3 @@ var (
 	}
 )
 
-func AttrFloat(attrName string) string {
-	return "attributes.'" + attrName + "'::Float64"
-}

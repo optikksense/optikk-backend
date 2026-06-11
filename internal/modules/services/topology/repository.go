@@ -5,6 +5,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/shared/chargs"
 )
 
@@ -18,18 +19,18 @@ func NewRepository(db clickhouse.Conn) *Repository {
 
 // GetNodes returns per-service RED aggregates and p50/p95/p99 latency.
 func (r *Repository) GetNodes(ctx context.Context, teamID, startMs, endMs int64, _ string) ([]nodeAggRow, error) {
-	const query = `
+	query := `
 		SELECT service                                                AS service,
 		       sum(request_count)                                     AS request_count,
 		       sum(error_count)                                       AS error_count,
 		       quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state)   AS qs
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		WHERE timestamp BETWEEN @start AND @end
 		  AND service != ''
 		GROUP BY service`
 	var rows []nodeAggRow
-	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "topology.GetNodes", &rows, query, chargs.RangeArgs(teamID, startMs, endMs)...); err != nil {
+	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "topology.GetNodes", &rows, query, chargs.RollupRangeArgs(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	for i := range rows {

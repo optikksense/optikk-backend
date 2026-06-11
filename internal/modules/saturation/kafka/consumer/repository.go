@@ -23,7 +23,7 @@ const counterSeriesByTopicQuery = `
 		    timestamp,
 		    messaging_destination                AS topic,
 		    ifNotFinite(val_sum / val_count, 0)  AS value
-		FROM observability.metrics_1m
+		FROM observability.metrics_1m -- pinned to 1m: Go-side rate folds assume per-minute rows
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND metric_name IN @metricNames
@@ -47,7 +47,7 @@ func (r *Repository) QueryConsumerLagByGroupTopic(ctx context.Context, teamID in
 		    messaging_consumer_group             AS consumer_group,
 		    messaging_destination                AS topic,
 		    ifNotFinite(val_sum / val_count, 0)  AS value
-		FROM observability.metrics_1m
+		FROM observability.metrics_1m -- pinned to 1m: Go-side rate folds assume per-minute rows
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND metric_name IN @metricNames

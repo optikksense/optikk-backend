@@ -6,6 +6,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/database/filter"
 )
 
@@ -33,7 +34,8 @@ type connRawRow struct {
 }
 
 func (r *Repository) GetSystemSummariesRaw(ctx context.Context, teamID, startMs, endMs int64) ([]systemSummaryRawDTO, error) {
-	const query = `
+	startMs, endMs = timebucket.SnapRangeForRollup(startMs, endMs)
+	query := `
 		WITH active_fps AS (
 		    SELECT fingerprint
 		    FROM observability.spans_resource
@@ -46,7 +48,7 @@ func (r *Repository) GetSystemSummariesRaw(ctx context.Context, teamID, startMs,
 		       quantileTimingMerge(0.95)(latency_state)                                          AS p95_ms,
 		       any(server_address)                                                               AS server_address,
 		       max(timestamp)                                                                    AS last_seen
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		     AND timestamp BETWEEN @start AND @end
 		WHERE db_system != ''
@@ -60,10 +62,11 @@ func (r *Repository) GetSystemSummariesRaw(ctx context.Context, teamID, startMs,
 
 // GetActiveConnectionsBySystem returns active connections by database system.
 func (r *Repository) GetActiveConnectionsBySystem(ctx context.Context, teamID, startMs, endMs int64) (map[string]int64, error) {
-	const query = `
+	startMs, endMs = timebucket.SnapRangeForRollup(startMs, endMs)
+	query := `
 		SELECT db_system,
 		       ifNotFinite(sum(val_sum) / sum(val_count), 0) AS avg_used
-		FROM observability.metrics_1m
+		FROM ` + timebucket.MetricsRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND metric_name = @metricName

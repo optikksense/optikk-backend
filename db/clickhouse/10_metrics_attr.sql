@@ -16,12 +16,15 @@ CREATE TABLE IF NOT EXISTS observability.metrics_attr (
     team_id          UInt32 CODEC(T64, ZSTD(1)),
     ts_bucket        UInt32 CODEC(DoubleDelta, LZ4),
     metric_name      LowCardinality(String),
-    attr_hash        UInt64 CODEC(T64, ZSTD(1)),
+    attr_hash        UInt64 CODEC(ZSTD(1)),
     attributes       JSON(max_dynamic_paths=100) CODEC(ZSTD(1))
 ) ENGINE = ReplacingMergeTree()
-PARTITION BY toYYYYMMDD(toDateTime(ts_bucket))
+-- Weekly partitions: ORDER BY carries no ts_bucket, so ReplacingMergeTree only
+-- dedups within a partition — daily partitions would duplicate each label set
+-- up to ~30x over the TTL window; weekly caps it at ~5x with <=7d drop lag.
+PARTITION BY toMonday(toDateTime(ts_bucket))
 ORDER BY (team_id, metric_name, attr_hash)
-TTL toDateTime(ts_bucket) + INTERVAL 90 DAY DELETE
+TTL toDateTime(ts_bucket) + INTERVAL 30 DAY DELETE
 SETTINGS
     index_granularity = 8192,
     ttl_only_drop_parts = 1;

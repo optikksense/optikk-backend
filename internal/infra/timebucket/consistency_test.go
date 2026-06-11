@@ -30,18 +30,7 @@ func TestBucketStartMatchesMVDerivation(t *testing.T) {
 	}
 }
 
-// BucketTime(BucketStart(s)) must land on the bucket start, losslessly.
-func TestBucketRoundTrip(t *testing.T) {
-	s := int64(1735689607)
-	b := BucketStart(s)
-	tm := BucketTime(b)
-	if tm.Unix() != int64(b) {
-		t.Errorf("BucketTime round-trip: got %d, want %d", tm.Unix(), b)
-	}
-	if tm.Unix()%BucketSeconds != 0 {
-		t.Errorf("BucketTime not bucket-aligned: %d", tm.Unix())
-	}
-}
+
 
 // Display grain windows: <=3h: 1m, <=24h: 5m, <=7d: 1h, else 1d.
 func TestDisplayGrainWindows(t *testing.T) {

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
-	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 )
 
 const (
@@ -102,20 +101,3 @@ func ExplorerCtx(ctx context.Context) context.Context {
 	return clickhouse.Context(ctx, clickhouse.WithSettings(explorerSettings))
 }
 
-func SpanBaseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("bucketStart", timebucket.BucketStart(startMs/1000)),
-		clickhouse.Named("bucketEnd", timebucket.BucketStart(endMs/1000)+uint32(timebucket.BucketSeconds)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
-
-func SimpleBaseParams(teamID int64, startMs, endMs int64) []any {
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}

@@ -236,31 +236,6 @@ func authorizedForTeam(teamIDs []int64, defaultTeamID, requestedTeamID int64) bo
 	return false
 }
 
-// RequireRole restricts access to the specified roles.
-func RequireRole(allowed ...string) gin.HandlerFunc {
-	roleSet := make(map[string]struct{}, len(allowed))
-	for _, r := range allowed {
-		roleSet[r] = struct{}{}
-	}
-	return func(c *gin.Context) {
-		tenant := GetTenant(c)
-		if _, ok := roleSet[tenant.UserRole]; !ok {
-			metrics.AuthDenied.WithLabelValues("forbidden_role").Inc()
-			slog.WarnContext(c.Request.Context(), "RBAC_DENIED",
-				slog.String("method", c.Request.Method),
-				slog.String("path", c.Request.URL.Path),
-				slog.String("role", tenant.UserRole),
-				slog.String("user", tenant.UserEmail),
-				slog.String("ip", c.ClientIP()),
-			)
-			c.AbortWithStatusJSON(http.StatusForbidden, types.Failure(
-				"FORBIDDEN_ROLE", "Insufficient permissions", c.Request.URL.Path,
-			))
-			return
-		}
-		c.Next()
-	}
-}
 
 func GetTenant(c *gin.Context) types.TenantContext {
 	v, ok := c.Get(string(tenantKey))

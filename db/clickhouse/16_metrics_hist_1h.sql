@@ -1,7 +1,12 @@
--- 1-minute histogram rollup from observability.metrics via metrics_hist_1m_mv.
--- Carries series identity + histogram aggregate state + fixed attributes.
+-- 1-hour histogram rollup, cascaded from metrics_hist_1m. The
+-- quantilesPrometheusHistogram state merges losslessly across tiers via
+-- -MergeState. Query-acceleration tier: readers route here when the query
+-- window exceeds 24h (timebucket.UseHourRollup). Column set and ORDER BY
+-- mirror metrics_hist_1m so reader SQL differs only by table name and grain.
+-- ts_bucket is hour-aligned here; hour boundaries are also valid 5-min
+-- boundaries, so Go-side BETWEEN bucket filters keep working unchanged.
 
-CREATE TABLE IF NOT EXISTS observability.metrics_hist_1m (
+CREATE TABLE IF NOT EXISTS observability.metrics_hist_1h (
     team_id              UInt32 CODEC(T64, ZSTD(1)),
     ts_bucket            UInt32 CODEC(DoubleDelta, LZ4),
     timestamp            DateTime CODEC(DoubleDelta, LZ4),
@@ -24,33 +29,27 @@ ORDER BY (team_id, metric_name, ts_bucket, fingerprint, db_system, db_connection
 TTL timestamp + INTERVAL 30 DAY DELETE
 SETTINGS
     index_granularity = 8192,
-    enable_mixed_granularity_parts = 1,
     ttl_only_drop_parts = 1;
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS observability.metrics_hist_1m_mv
-TO observability.metrics_hist_1m AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS observability.metrics_hist_1h_mv
+TO observability.metrics_hist_1h AS
 SELECT
     team_id,
-    toUInt32(intDiv(toUnixTimestamp(timestamp), 300) * 300) AS ts_bucket,
-    toStartOfMinute(timestamp)                              AS timestamp,
+    toUInt32(toUnixTimestamp(toStartOfHour(timestamp))) AS ts_bucket,
+    toStartOfHour(timestamp)                            AS timestamp,
     metric_name,
     fingerprint,
 
-    -- Extract fixed columns
-    attributes.'db.system'::String                     AS db_system,
-    attributes.'db.client.connection.state'::String    AS db_connection_state,
-    attributes.'messaging.destination.name'::String    AS messaging_destination,
-    attributes.'messaging.consumer.group.name'::String AS messaging_consumer_group,
-    attributes.'messaging.system'::String              AS messaging_system,
+    db_system,
+    db_connection_state,
+    messaging_destination,
+    messaging_consumer_group,
+    messaging_system,
 
     sum(hist_sum)   AS hist_sum,
     sum(hist_count) AS hist_count,
-    quantilesPrometheusHistogramArrayState(0.5, 0.95, 0.99)(
-        hist_buckets,
-        arrayCumSum(hist_counts)
-    ) AS latency_state
-FROM observability.metrics
-WHERE metric_type = 'Histogram'
+    quantilesPrometheusHistogramMergeState(0.5, 0.95, 0.99)(latency_state) AS latency_state
+FROM observability.metrics_hist_1m
 GROUP BY
     team_id,
     ts_bucket,

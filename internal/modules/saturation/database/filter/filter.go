@@ -94,17 +94,6 @@ func MetricArgs(teamID, startMs, endMs int64, metricName string) []any {
 	}
 }
 
-func MetricArgsMulti(teamID, startMs, endMs int64, metricNames []string) []any {
-	bucketStart, bucketEnd := MetricBucketBounds(startMs, endMs)
-	return []any{
-		clickhouse.Named("teamID", uint32(teamID)),
-		clickhouse.Named("bucketStart", bucketStart),
-		clickhouse.Named("bucketEnd", bucketEnd),
-		clickhouse.Named("metricNames", metricNames),
-		clickhouse.Named("start", time.UnixMilli(startMs)),
-		clickhouse.Named("end", time.UnixMilli(endMs)),
-	}
-}
 
 func MetricBucketBounds(startMs, endMs int64) (uint32, uint32) {
 	return timebucket.BucketStart(startMs / 1000),
@@ -152,37 +141,7 @@ func BuildSpans1mClauses(f Filters) (where string, args []any) {
 	return where, args
 }
 
-func BuildMetricClauses(f Filters) (where string, args []any) {
-	if len(f.DBSystem) > 0 {
-		where += ` AND attributes.'` + AttrDBSystem + `'::String IN @dbSystem`
-		args = append(args, clickhouse.Named("dbSystem", f.DBSystem))
-	}
-	if len(f.Server) > 0 {
-		where += ` AND attributes.'` + AttrServerAddress + `'::String IN @dbServer`
-		args = append(args, clickhouse.Named("dbServer", f.Server))
-	}
-	return where, args
-}
 
-func SpanGroupColumn(attr string) string {
-	switch attr {
-	case AttrDBSystem:
-		return "db_system"
-	case AttrDBOperationName:
-		return "attributes.'" + AttrDBOperationName + "'::String"
-	case AttrDBCollectionName:
-		return "attributes.'" + AttrDBCollectionName + "'::String"
-	case AttrDBNamespace:
-		return "attributes.'" + AttrDBNamespace + "'::String"
-	case AttrServerAddress:
-		return "attributes.'" + AttrServerAddress + "'::String"
-	case AttrErrorType:
-		return "attributes.'" + AttrErrorType + "'::String"
-	case AttrDBResponseStatus:
-		return "attributes.'" + AttrDBResponseStatus + "'::String"
-	}
-	return ""
-}
 
 // Spans1mGroupColumn returns the spans_1m column name for the attribute.
 func Spans1mGroupColumn(attr string) string {

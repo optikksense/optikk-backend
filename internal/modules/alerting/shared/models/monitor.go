@@ -3,7 +3,6 @@ package models
 
 import (
 	"database/sql"
-	"encoding/json"
 	"time"
 )
 
@@ -84,11 +83,4 @@ type Conditions struct {
 	MinSample *int   `json:"min_sample,omitempty"`
 }
 
-// MarshalScope / Conditions helpers keep service code free of json plumbing.
-func MarshalJSON(v any) ([]byte, error) { return json.Marshal(v) }
-func UnmarshalJSON(b []byte, v any) error {
-	if len(b) == 0 {
-		return nil
-	}
-	return json.Unmarshal(b, v)
-}
+

@@ -32,6 +32,7 @@ func (r *Repository) GetLatencyBySystem(ctx context.Context, teamID, startMs, en
 }
 
 func (r *Repository) latencySeriesByGroup(ctx context.Context, teamID, startMs, endMs int64, f filter.Filters, attr, traceLabel string) ([]latencyRawDTO, error) {
+	startMs, endMs = timebucket.SnapRangeForRollup(startMs, endMs)
 	groupCol := filter.Spans1mGroupColumn(attr)
 	if groupCol == "" {
 		return nil, nil
@@ -46,7 +47,7 @@ func (r *Repository) latencySeriesByGroup(ctx context.Context, teamID, startMs, 
 		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + ` AS bucket_at,
 		       ` + groupCol + `                                       AS group_by,
 		       quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state)  AS qs
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		  AND db_system != ''` + filterWhere + `

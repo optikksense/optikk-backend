@@ -23,7 +23,7 @@ func (r *Repository) QueryPublishRateByTopic(ctx context.Context, teamID int64, 
 		    timestamp,
 		    messaging_destination                AS topic,
 		    ifNotFinite(val_sum / val_count, 0)  AS value
-		FROM observability.metrics_1m
+		FROM observability.metrics_1m -- pinned to 1m: Go-side rate folds assume per-minute rows
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND metric_name IN @metricNames

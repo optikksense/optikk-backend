@@ -19,11 +19,6 @@ func NewModule(db clickhouse.Conn, getTenant registry.GetTenantFunc) registry.Mo
 	return m
 }
 
-// NewService builds a wired Service so explorer can compose facets without
-// going through the HTTP surface.
-func NewServiceFromDB(db clickhouse.Conn) *Service {
-	return NewService(NewRepository(db))
-}
 
 type module struct {
 	handler *Handler

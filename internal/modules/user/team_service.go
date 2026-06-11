@@ -93,6 +93,11 @@ func (s *Service) CreateTeam(req CreateTeamRequest) (TeamResponse, error) {
 	slug := strings.TrimSpace(req.Slug)
 	if slug == "" {
 		slug = strings.ToLower(strings.ReplaceAll(name, " ", "-"))
+		if len(slug) > 8 {
+			slug = strings.TrimRight(slug[:8], "-")
+		}
+	} else if len(slug) > 50 {
+		slug = strings.TrimRight(slug[:50], "-")
 	}
 
 	color := strings.TrimSpace(req.Color)

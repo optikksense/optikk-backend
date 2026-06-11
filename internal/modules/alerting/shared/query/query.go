@@ -73,15 +73,7 @@ func DecodeConditions(row models.MonitorRow) models.Conditions {
 	return c
 }
 
-// scopeServiceTag returns the value of the first tag matching key (or "").
-func scopeServiceTag(scope models.Scope, key string) string {
-	for _, t := range scope.Tags {
-		if t.Key == key {
-			return t.Value
-		}
-	}
-	return ""
-}
+
 
 // teamIDArg binds the team_id parameter as CH UInt32.
 func teamIDArg(teamID int64) any {

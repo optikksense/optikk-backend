@@ -5,6 +5,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/shared/chargs"
 )
 
@@ -26,7 +27,7 @@ func NewRepository(db clickhouse.Conn) *Repository {
 }
 
 func (r *Repository) QueryInfrastructureNodes(ctx context.Context, teamID int64, startMs, endMs int64) ([]NodeAggregateRow, error) {
-	const query = `
+	query := `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
 		    FROM observability.spans_resource
@@ -41,7 +42,7 @@ func (r *Repository) QueryInfrastructureNodes(ctx context.Context, teamID int64,
 		    sum(duration_ms_sum)                                                                 AS duration_ms_sum,
 		    quantileTimingMerge(0.95)(latency_state)                                             AS p95_latency_ms,
 		    max(timestamp)                                                                       AS last_seen
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -49,7 +50,7 @@ func (r *Repository) QueryInfrastructureNodes(ctx context.Context, teamID int64,
 		GROUP BY host
 		ORDER BY request_count DESC
 		LIMIT @maxNodes`
-	args := chargs.RangeArgs(teamID, startMs, endMs)
+	args := chargs.RollupRangeArgs(teamID, startMs, endMs)
 	args = append(args,
 		clickhouse.Named("defaultUnknown", DefaultUnknown),
 		clickhouse.Named("maxNodes", uint64(MaxNodes)),
@@ -59,7 +60,7 @@ func (r *Repository) QueryInfrastructureNodes(ctx context.Context, teamID int64,
 }
 
 func (r *Repository) QueryInfrastructureNodeSummary(ctx context.Context, teamID int64, startMs, endMs int64) (NodeSummaryRow, error) {
-	const query = `
+	query := `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
 		    FROM observability.spans_resource
@@ -71,13 +72,13 @@ func (r *Repository) QueryInfrastructureNodeSummary(ctx context.Context, teamID 
 		    sum(error_count)      AS error_count,
 		    sum(request_count)    AS request_count,
 		    uniqIf(pod, pod != '') AS pod_count
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
 		GROUP BY host`
-	args := chargs.RangeArgs(teamID, startMs, endMs)
+	args := chargs.RollupRangeArgs(teamID, startMs, endMs)
 	type nodeRawSummaryRow struct {
 		Host         string `ch:"host"`
 		ErrorCount   uint64 `ch:"error_count"`
@@ -115,7 +116,7 @@ func (r *Repository) QueryInfrastructureNodeSummary(ctx context.Context, teamID 
 }
 
 func (r *Repository) QueryInfrastructureNodeServices(ctx context.Context, teamID int64, host string, startMs, endMs int64) ([]NodeServiceAggregateRow, error) {
-	const query = `
+	query := `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
 		    FROM observability.spans_resource
@@ -129,7 +130,7 @@ func (r *Repository) QueryInfrastructureNodeServices(ctx context.Context, teamID
 		    sum(duration_ms_sum)                                                                 AS duration_ms_sum,
 		    quantileTimingMerge(0.95)(latency_state)                                             AS p95_latency_ms,
 		    uniqIf(pod, pod != '')                                                               AS pod_count
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -138,7 +139,7 @@ func (r *Repository) QueryInfrastructureNodeServices(ctx context.Context, teamID
 		GROUP BY service
 		ORDER BY request_count DESC
 		LIMIT @maxServices`
-	args := chargs.RangeArgs(teamID, startMs, endMs)
+	args := chargs.RollupRangeArgs(teamID, startMs, endMs)
 	args = append(args,
 		clickhouse.Named("host", host),
 		clickhouse.Named("defaultUnknown", DefaultUnknown),

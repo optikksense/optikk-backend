@@ -1,9 +1,6 @@
 package errors
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
-	"fmt"
 	"time"
 )
 
@@ -19,11 +16,6 @@ type ErrorGroup struct {
 	SampleTraceID   string    `json:"sample_trace_id"`
 }
 
-// ErrorGroupID computes a deterministic hash from the group's identity fields.
-func ErrorGroupID(service, operation, statusMessage string, httpCode int) string {
-	h := sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%d", service, operation, statusMessage, httpCode)))
-	return hex.EncodeToString(h[:8])
-}
 
 type ErrorGroupDetail struct {
 	GroupID         string    `json:"group_id"`

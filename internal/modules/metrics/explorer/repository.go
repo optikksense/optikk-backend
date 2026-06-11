@@ -7,6 +7,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/metrics/filter"
 	"github.com/Optikk-Org/optikk-backend/internal/shared/chargs"
 )
@@ -20,17 +21,18 @@ func NewRepository(db clickhouse.Conn) *Repository {
 }
 
 func (r *Repository) ListMetricNames(ctx context.Context, teamID, startMs, endMs int64, search string) ([]metricNameDTO, error) {
+	startMs, endMs = timebucket.SnapRangeForRollup(startMs, endMs)
 	// Active metric names come from rollups and metrics_meta metadata.
-	const query = `
+	query := `
 		SELECT mn.metric_name      AS metric_name,
 		       any(md.metric_type) AS metric_type,
 		       any(md.unit)        AS unit,
 		       any(md.description) AS description
 		FROM (
-		    SELECT DISTINCT metric_name FROM observability.metrics_1m
+		    SELECT DISTINCT metric_name FROM ` + timebucket.MetricsRollup(endMs-startMs) + `
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		    UNION DISTINCT
-		    SELECT DISTINCT metric_name FROM observability.metrics_hist_1m
+		    SELECT DISTINCT metric_name FROM ` + timebucket.MetricsHistRollup(endMs-startMs) + `
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		) mn
 		LEFT JOIN observability.metrics_meta md
@@ -81,16 +83,17 @@ func (r *Repository) ListAttributeTagKeys(ctx context.Context, teamID, startMs, 
 }
 
 func (r *Repository) ListResourceTagValues(ctx context.Context, teamID, startMs, endMs int64, metricName, canonical string) ([]tagValueDTO, error) {
+	startMs, endMs = timebucket.SnapRangeForRollup(startMs, endMs)
 	col := filter.ResourceColumn(canonical)
 	if col == "" {
 		return nil, nil
 	}
 	query := `
 		WITH fps AS (
-		    SELECT DISTINCT fingerprint FROM observability.metrics_1m
+		    SELECT DISTINCT fingerprint FROM ` + timebucket.MetricsRollup(endMs-startMs) + `
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name = @metricName
 		    UNION DISTINCT
-		    SELECT DISTINCT fingerprint FROM observability.metrics_hist_1m
+		    SELECT DISTINCT fingerprint FROM ` + timebucket.MetricsHistRollup(endMs-startMs) + `
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name = @metricName
 		)
 		SELECT ` + col + ` AS tag_value,
@@ -148,6 +151,7 @@ func (r *Repository) ListAttributeTagValues(ctx context.Context, teamID, startMs
 
 // ListTagValuesForKeys returns distinct values and counts for tag keys.
 func (r *Repository) ListTagValuesForKeys(ctx context.Context, teamID, startMs, endMs int64, metricName string, keys []string) ([]tagKeyValueDTO, error) {
+	startMs, endMs = timebucket.SnapRangeForRollup(startMs, endMs)
 	if len(keys) == 0 {
 		return nil, nil
 	}
@@ -168,10 +172,10 @@ func (r *Repository) ListTagValuesForKeys(ctx context.Context, teamID, startMs, 
 	if needFps {
 		fpsCTE = `
 		WITH fps AS (
-		    SELECT DISTINCT fingerprint FROM observability.metrics_1m
+		    SELECT DISTINCT fingerprint FROM ` + timebucket.MetricsRollup(endMs-startMs) + `
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name = @metricName
 		    UNION DISTINCT
-		    SELECT DISTINCT fingerprint FROM observability.metrics_hist_1m
+		    SELECT DISTINCT fingerprint FROM ` + timebucket.MetricsHistRollup(endMs-startMs) + `
 		    PREWHERE team_id = @teamID AND ts_bucket BETWEEN @bucketStart AND @bucketEnd AND metric_name = @metricName
 		)`
 	}
@@ -192,6 +196,9 @@ func (r *Repository) ListTagValuesForKeys(ctx context.Context, teamID, startMs, 
 
 // QueryRollupSeries queries aggregated metrics (scalar or raw) for timeseries.
 func (r *Repository) QueryRollupSeries(ctx context.Context, f filter.Filters) ([]timeseriesPointDTO, error) {
+	if filter.BucketDurationSeconds(f.StartMs, f.EndMs, f.Step) >= 3600 {
+		f.StartMs = timebucket.FloorMsToHour(f.StartMs)
+	}
 	fromTable, cte, joins, selectCols, groupByCols, filterArgs := filter.BuildSelection(f)
 
 	var valSelect string

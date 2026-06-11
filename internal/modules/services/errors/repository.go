@@ -33,7 +33,7 @@ func (r *Repository) ServiceErrorRateRowsAll(ctx context.Context, teamID int64, 
 		       sum(request_count)       AS request_count,
 		       sum(error_count)         AS error_count,
 		       sum(duration_ms_sum)     AS duration_ms_sum
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -60,7 +60,7 @@ func (r *Repository) ServiceErrorRateRowsByService(ctx context.Context, teamID i
 		       sum(request_count)       AS request_count,
 		       sum(error_count)         AS error_count,
 		       sum(duration_ms_sum)     AS duration_ms_sum
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -82,7 +82,7 @@ func (r *Repository) ErrorVolumeRowsAll(ctx context.Context, teamID int64, start
 		SELECT service              AS service,
 		       ` + timebucket.DisplayGrainSQL(endMs-startMs) + ` AS bucket_at,
 		       sum(error_count)     AS error_count
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id   = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		WHERE timestamp BETWEEN @start AND @end
@@ -106,7 +106,7 @@ func (r *Repository) ErrorVolumeRowsByService(ctx context.Context, teamID int64,
 		SELECT service              AS service,
 		       ` + timebucket.DisplayGrainSQL(endMs-startMs) + ` AS bucket_at,
 		       sum(error_count)     AS error_count
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -137,11 +137,11 @@ func (r *Repository) ErrorGroupRowsAll(ctx context.Context, teamID int64, startM
 		       sum(error_count)                 AS error_count,
 		       max(timestamp)                   AS last_occurrence,
 		       min(timestamp)                   AS first_occurrence
-		FROM observability.spans_1m
+		FROM observability.spans_errors_1m
 		PREWHERE team_id   = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		WHERE timestamp BETWEEN @start AND @end
-		GROUP BY error_group_id, service, name, exception_type, status_message_hash, http_status_bucket
+		GROUP BY error_group_id, service, name, http_status_bucket
 		HAVING error_count > 0 ` + paginationFilter + `
 		ORDER BY error_count DESC, error_group_id ASC
 		LIMIT @limit`
@@ -175,12 +175,12 @@ func (r *Repository) ErrorGroupRowsByService(ctx context.Context, teamID int64, 
 		       sum(error_count)                 AS error_count,
 		       max(timestamp)                   AS last_occurrence,
 		       min(timestamp)                   AS first_occurrence
-		FROM observability.spans_1m
+		FROM observability.spans_errors_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
 		WHERE timestamp BETWEEN @start AND @end
-		GROUP BY error_group_id, service, name, exception_type, status_message_hash, http_status_bucket
+		GROUP BY error_group_id, service, name, http_status_bucket
 		HAVING error_count > 0 ` + paginationFilter + `
 		ORDER BY error_count DESC, error_group_id ASC
 		LIMIT @limit`
@@ -226,7 +226,7 @@ func (r *Repository) ErrorGroupDetailRow(ctx context.Context, teamID int64, star
 		       max(timestamp)                       AS last_occurrence,
 		       min(timestamp)                       AS first_occurrence,
 		       any(exception_type)                  AS exception_type
-		FROM observability.spans_1m
+		FROM observability.spans_errors_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		WHERE timestamp BETWEEN @start AND @end
@@ -281,7 +281,7 @@ func (r *Repository) ErrorGroupTimeseriesRows(ctx context.Context, teamID int64,
 	query := `
 		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + ` AS bucket_at,
 		       sum(error_count)                   AS count
-		FROM observability.spans_1m
+		FROM observability.spans_errors_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		WHERE timestamp BETWEEN @start AND @end
@@ -340,7 +340,7 @@ func (r *Repository) ErrorGroupFacetRows(ctx context.Context, teamID int64, star
 	query := `
 		SELECT ` + column + `             AS value,
 		       sum(error_count)           AS count
-		FROM observability.spans_1m
+		FROM observability.spans_errors_1m
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		WHERE timestamp BETWEEN @start AND @end
@@ -360,19 +360,39 @@ func (r *Repository) ErrorGroupFacetRows(ctx context.Context, teamID int64, star
 // --- Error hotspot (no service filter) ---
 
 func (r *Repository) ErrorHotspotRows(ctx context.Context, teamID int64, startMs, endMs int64) ([]rawErrorHotspotRow, error) {
-	const query = `
-		SELECT service                             AS service,
-		       name                                AS operation_name,
-		       argMax(s.error_group_id, s.error_count) AS error_group_id,
-		       sum(error_count)                    AS error_count,
-		       sum(request_count)                  AS total_count
-		FROM observability.spans_1m AS s
-		PREWHERE team_id   = @teamID
-		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
-		WHERE timestamp BETWEEN @start AND @end
-		  AND name != ''
-		GROUP BY service, name
-		HAVING error_count > 0
+	query := `
+		WITH error_groups AS (
+		    SELECT service,
+		           name,
+		           argMax(error_group_id, group_error_count) AS error_group_id,
+		           sum(group_error_count)                    AS error_count
+		    FROM (
+		        SELECT service, name, error_group_id, sum(error_count) AS group_error_count
+		        FROM observability.spans_errors_1m
+		        PREWHERE team_id   = @teamID
+		             AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		        WHERE timestamp BETWEEN @start AND @end
+		          AND name != ''
+		        GROUP BY service, name, error_group_id
+		    )
+		    GROUP BY service, name
+		),
+		totals AS (
+		    SELECT service, name, sum(request_count) AS total_count
+		    FROM ` + timebucket.SpansRollup(endMs-startMs) + `
+		    PREWHERE team_id   = @teamID
+		         AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
+		    WHERE timestamp BETWEEN @start AND @end
+		      AND name != ''
+		    GROUP BY service, name
+		)
+		SELECT g.service        AS service,
+		       g.name           AS operation_name,
+		       g.error_group_id AS error_group_id,
+		       g.error_count    AS error_count,
+		       t.total_count    AS total_count
+		FROM error_groups g
+		LEFT JOIN totals t ON g.service = t.service AND g.name = t.name
 		ORDER BY error_count DESC
 		LIMIT 500`
 	args := chargs.RangeArgs(teamID, startMs, endMs)

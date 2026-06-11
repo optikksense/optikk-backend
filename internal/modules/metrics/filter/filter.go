@@ -40,11 +40,7 @@ var validAggregations = map[string]bool{
 	"rate": true,
 }
 
-// IsValidAggregation reports whether agg is one of the supported
-// aggregation function names.
-func IsValidAggregation(agg string) bool {
-	return validAggregations[agg]
-}
+
 
 // Validate clamps to ≤30 days, defaults Aggregation, rejects empty
 // MetricName, missing time range, and unknown aggregation.

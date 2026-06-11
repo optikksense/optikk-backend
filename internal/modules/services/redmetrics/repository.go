@@ -19,7 +19,7 @@ func NewRepository(db clickhouse.Conn) *Repository {
 }
 
 func (r *Repository) GetFleetREDMetrics(ctx context.Context, teamID int64, startMs, endMs int64) ([]redMetricsRow, error) {
-	const query = `
+	query := `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
 		    FROM observability.spans_resource
@@ -30,7 +30,7 @@ func (r *Repository) GetFleetREDMetrics(ctx context.Context, teamID int64, start
 		       sum(request_count)                                   AS total_count,
 		       sum(error_count)                                     AS error_count,
 		       quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state) AS qs
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -38,7 +38,7 @@ func (r *Repository) GetFleetREDMetrics(ctx context.Context, teamID int64, start
 		GROUP BY service`
 	var rows []redMetricsRow
 	if err := dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetFleetREDMetrics",
-		&rows, query, chargs.RangeArgs(teamID, startMs, endMs)...); err != nil {
+		&rows, query, chargs.RollupRangeArgs(teamID, startMs, endMs)...); err != nil {
 		return nil, err
 	}
 	for i := range rows {
@@ -111,7 +111,7 @@ func (r *Repository) GetApdexByService(ctx context.Context, teamID int64, startM
 }
 
 func (r *Repository) GetServiceREDMetrics(ctx context.Context, teamID int64, startMs, endMs int64, serviceName string) (*redMetricsRow, error) {
-	const query = `
+	query := `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
 		    FROM observability.spans_resource
@@ -123,7 +123,7 @@ func (r *Repository) GetServiceREDMetrics(ctx context.Context, teamID int64, sta
 		       sum(request_count)                                   AS total_count,
 		       sum(error_count)                                     AS error_count,
 		       quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state) AS qs
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -148,7 +148,7 @@ func (r *Repository) GetServiceREDMetrics(ctx context.Context, teamID int64, sta
 }
 
 func (r *Repository) GetOperationBaseline(ctx context.Context, teamID int64, startMs, endMs int64, serviceName, operationName string) (operationBaselineRow, error) {
-	const query = `
+	query := `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
 		    FROM observability.spans_resource
@@ -158,14 +158,14 @@ func (r *Repository) GetOperationBaseline(ctx context.Context, teamID int64, sta
 		)
 		SELECT sum(request_count)                                   AS span_count,
 		       quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state) AS qs
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
 		     AND timestamp   BETWEEN @start AND @end
 		WHERE service = @serviceName
 		  AND name    = @operationName`
-	args := append(chargs.RangeArgs(teamID, startMs, endMs),
+	args := append(chargs.RollupRangeArgs(teamID, startMs, endMs),
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("operationName", operationName),
 	)
@@ -189,10 +189,10 @@ func (r *Repository) GetOperationBaseline(ctx context.Context, teamID int64, sta
 func (r *Repository) GetServiceSaturationAggs(
 	ctx context.Context, teamID int64, startMs, endMs int64, serviceName string, metricNames []string,
 ) ([]serviceMetricRow, error) {
-	const query = `
+	query := `
 		WITH service_hosts AS (
 		    SELECT DISTINCT host
-		    FROM observability.spans_1m
+		    FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		    PREWHERE team_id     = @teamID
 		         AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		         AND service     = @serviceName
@@ -210,14 +210,14 @@ func (r *Repository) GetServiceSaturationAggs(
 		    r.service                         AS service,
 		    m.metric_name                     AS metric_name,
 		    sum(m.val_sum) / sum(m.val_count) AS value
-		FROM observability.metrics_1m AS m
+		FROM ` + timebucket.MetricsRollup(endMs-startMs) + ` AS m
 		INNER JOIN active_fps AS r ON m.fingerprint = r.fingerprint
 		PREWHERE m.team_id     = @teamID
 		     AND m.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND m.metric_name IN @metricNames
 		     AND m.timestamp   BETWEEN @start AND @end
 		GROUP BY service, metric_name`
-	args := append(chargs.RangeArgs(teamID, startMs, endMs),
+	args := append(chargs.RollupRangeArgs(teamID, startMs, endMs),
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("metricNames", metricNames),
 	)
@@ -243,7 +243,7 @@ func (r *Repository) GetRequestAndErrorRateTimeSeries(ctx context.Context, teamI
 		SELECT ` + timebucket.DisplayGrainSQL(endMs-startMs) + ` AS bucket_at,
 		       sum(request_count)    AS request_count,
 		       sum(error_count)      AS error_count
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -252,7 +252,7 @@ func (r *Repository) GetRequestAndErrorRateTimeSeries(ctx context.Context, teamI
 		ORDER BY bucket_at ASC`
 	var rows []requestRateRawRow
 	return rows, dbutil.SelectCH(dbutil.OverviewCtx(ctx), r.db, "redmetrics.GetRequestAndErrorRateTimeSeries",
-		&rows, query, chargs.RangeArgs(teamID, startMs, endMs)...)
+		&rows, query, chargs.RollupRangeArgs(teamID, startMs, endMs)...)
 }
 
 func (r *Repository) GetFleetSaturationAggs(
@@ -260,7 +260,7 @@ func (r *Repository) GetFleetSaturationAggs(
 ) ([]serviceMetricRow, error) {
 	// service is grouped from metrics_resource (by fingerprint); the scalar
 	// rollup supplies the values.
-	const query = `
+	query := `
 		WITH fps AS (
 		    SELECT fingerprint, any(service) AS service
 		    FROM observability.metrics_resource AS mr
@@ -272,14 +272,14 @@ func (r *Repository) GetFleetSaturationAggs(
 		    r.service                         AS service,
 		    m.metric_name                     AS metric_name,
 		    sum(m.val_sum) / sum(m.val_count) AS value
-		FROM observability.metrics_1m AS m
+		FROM ` + timebucket.MetricsRollup(endMs-startMs) + ` AS m
 		INNER JOIN fps AS r ON m.fingerprint = r.fingerprint
 		PREWHERE m.team_id     = @teamID
 		     AND m.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND m.metric_name IN @metricNames
 		     AND m.timestamp   BETWEEN @start AND @end
 		GROUP BY service, metric_name`
-	args := append(chargs.RangeArgs(teamID, startMs, endMs),
+	args := append(chargs.RollupRangeArgs(teamID, startMs, endMs),
 		clickhouse.Named("metricNames", metricNames),
 	)
 	var rows []serviceMetricRow
@@ -332,7 +332,7 @@ func (r *Repository) GetStatusTimeSeries(
 		SELECT ` + grainSQL + ` AS bucket_at,
 		       http_status_bucket AS http_status_bucket,
 		       sum(request_count) AS request_count
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -360,7 +360,7 @@ func (r *Repository) GetLatencyPercentilesTimeSeries(
 		)
 		SELECT ` + grainSQL + ` AS bucket_at,
 		       quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state) AS qs
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -407,7 +407,7 @@ func (r *Repository) GetTopEndpointsCombined(
 		       sum(request_count)                                   AS total_count,
 		       sum(error_count)                                     AS error_count,
 		       quantilesTimingMerge(0.5, 0.95, 0.99)(latency_state) AS qs
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -453,7 +453,7 @@ func serviceWherePred(serviceName string) string {
 }
 
 func detailArgs(teamID int64, startMs, endMs int64, serviceName string) []any {
-	args := chargs.RangeArgs(teamID, startMs, endMs)
+	args := chargs.RollupRangeArgs(teamID, startMs, endMs)
 	if serviceName != "" {
 		args = append(args, clickhouse.Named("serviceName", serviceName))
 	}

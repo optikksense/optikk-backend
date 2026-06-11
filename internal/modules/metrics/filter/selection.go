@@ -41,7 +41,13 @@ func BuildSelection(f Filters) (fromTable, cte, joins, selectCols, groupByCols s
 		return fromTable, "", "", selectCols, groupByCols, args
 	}
 
-	fromTable = "observability.metrics_1m"
+	// Route by effective grain, not window: an explicit fine step keeps the
+	// query on the 1m tier even for long windows.
+	if BucketDurationSeconds(f.StartMs, f.EndMs, f.Step) >= 3600 {
+		fromTable = "observability.metrics_1h"
+	} else {
+		fromTable = "observability.metrics_1m"
+	}
 	selectCols = bucketGrainSQL(f.StartMs, f.EndMs, f.Step) + " AS bucket_at"
 	groupByCols = "bucket_at"
 

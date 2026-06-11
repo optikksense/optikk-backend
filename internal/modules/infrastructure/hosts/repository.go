@@ -6,6 +6,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/infrastructure/infraconsts"
 	"github.com/Optikk-Org/optikk-backend/internal/shared/chargs"
 )
@@ -22,8 +23,9 @@ func NewRepository(db clickhouse.Conn) *Repository {
 
 // QueryHostUtilization returns metric utilization for CPU, memory, and disk.
 func (r *Repository) QueryHostUtilization(ctx context.Context, teamID, startMs, endMs int64) ([]hostMetricRow, error) {
+	startMs, endMs = timebucket.SnapRangeForRollup(startMs, endMs)
 	// Host is grouped from metrics_resource; the scalar rollup supplies values.
-	const query = `
+	query := `
 		WITH fps AS (
 		    SELECT fingerprint, any(host) AS host
 		    FROM observability.metrics_resource AS mr
@@ -35,7 +37,7 @@ func (r *Repository) QueryHostUtilization(ctx context.Context, teamID, startMs, 
 		    r.host                            AS host,
 		    m.metric_name                     AS metric_name,
 		    sum(m.val_sum) / sum(m.val_count) AS value
-		FROM observability.metrics_1m AS m
+		FROM ` + timebucket.MetricsRollup(endMs-startMs) + ` AS m
 		INNER JOIN fps AS r ON m.fingerprint = r.fingerprint
 		PREWHERE m.team_id     = @teamID
 		     AND m.ts_bucket   BETWEEN @bucketStart AND @bucketEnd
@@ -60,7 +62,7 @@ func (r *Repository) QueryHostUtilization(ctx context.Context, teamID, startMs, 
 func (r *Repository) QueryHostSpans(
 	ctx context.Context, teamID, startMs, endMs int64, serviceName string,
 ) ([]hostSpansRow, error) {
-	const query = `
+	query := `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
 		    FROM observability.spans_resource
@@ -75,7 +77,7 @@ func (r *Repository) QueryHostSpans(
 		    sum(error_count)                          AS error_count,
 		    quantileTimingMerge(0.99)(latency_state)  AS p99_ms,
 		    max(timestamp)                            AS last_seen
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -83,7 +85,7 @@ func (r *Repository) QueryHostSpans(
 		WHERE service   = @serviceName
 		GROUP BY host
 		ORDER BY request_count DESC`
-	args := append(chargs.RangeArgs(teamID, startMs, endMs),
+	args := append(chargs.RollupRangeArgs(teamID, startMs, endMs),
 		clickhouse.Named("serviceName", serviceName),
 		clickhouse.Named("unknownHost", defaultUnknownHost),
 	)

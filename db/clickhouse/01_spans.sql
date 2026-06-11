@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS observability.spans (
 
     attributes                            JSON(max_dynamic_paths = 100) CODEC(ZSTD(1)),
 
-    fingerprint                           UInt64          CODEC(T64, ZSTD(1)),
+    fingerprint                           UInt64          CODEC(ZSTD(1)),
     events                                Array(String)   CODEC(ZSTD(2)),
     links                                 String          CODEC(ZSTD(1)),
 
@@ -44,7 +44,12 @@ CREATE TABLE IF NOT EXISTS observability.spans (
     exception_stacktrace                  String          CODEC(ZSTD(1)),
     exception_escaped                     Bool            CODEC(T64, ZSTD(1)),
 
-    error_group_id                        String          MATERIALIZED lower(hex(halfMD5(concat(service, '|', name, '|', exception_type, '|', toString(cityHash64(status_message)))))) CODEC(ZSTD(1)),
+    -- Group key = (service, name, exception_type, http_status_bucket) — all bounded
+    -- dims. status_message is deliberately excluded: messages embed request IDs /
+    -- user values, so hashing them explodes one logical error into thousands of
+    -- groups. The representative message is fetched per group at read time
+    -- (argMax(status_message) over raw spans in services/errors).
+    error_group_id                        String          MATERIALIZED lower(hex(halfMD5(concat(service, '|', name, '|', exception_type, '|', http_status_bucket)))) CODEC(ZSTD(1)),
 
     operation_name           LowCardinality(String) ALIAS name,
     start_time               DateTime64(9)          ALIAS timestamp,
@@ -54,11 +59,10 @@ CREATE TABLE IF NOT EXISTS observability.spans (
     is_error                 UInt8                  ALIAS if(has_error OR toUInt16OrZero(response_status_code) >= 400, 1, 0),
     is_root                  UInt8                  ALIAS if((parent_span_id = '') OR (parent_span_id = '0000000000000000'), 1, 0)
 ) ENGINE = MergeTree()
-PARTITION BY (toYYYYMMDD(timestamp), toHour(timestamp))
+PARTITION BY toYYYYMMDD(timestamp)
 ORDER BY (team_id, ts_bucket, fingerprint, service, name, timestamp, trace_id, span_id)
 TTL timestamp + INTERVAL 30 DAY DELETE
 SETTINGS
     index_granularity = 8192,
-    max_partitions_per_insert_block = 200,
     non_replicated_deduplication_window = 100000,
     ttl_only_drop_parts = 1;

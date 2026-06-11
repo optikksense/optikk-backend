@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS observability.metrics (
     is_monotonic         Bool CODEC(T64, ZSTD(1)),
     unit                 LowCardinality(String) DEFAULT '',
     description          LowCardinality(String) DEFAULT '',
-    fingerprint          UInt64 CODEC(T64, ZSTD(1)),
+    fingerprint          UInt64 CODEC(ZSTD(1)),
     timestamp            DateTime64(3) CODEC(DoubleDelta, LZ4),
     ts_bucket            UInt32 CODEC(DoubleDelta, LZ4),
     value                Float64 CODEC(Gorilla, ZSTD(1)),
@@ -23,11 +23,11 @@ CREATE TABLE IF NOT EXISTS observability.metrics (
     resource             JSON(max_dynamic_paths=100) CODEC(ZSTD(1)),
     attributes           JSON(max_dynamic_paths=100) CODEC(ZSTD(1))
 ) ENGINE = MergeTree()
-PARTITION BY (toYYYYMMDD(timestamp), toHour(timestamp))
+PARTITION BY toYYYYMMDD(timestamp)
 ORDER BY (team_id, ts_bucket, fingerprint, metric_name, timestamp)
 TTL timestamp + INTERVAL 30 DAY DELETE
 SETTINGS
     index_granularity = 8192,
     enable_mixed_granularity_parts = 1,
-    max_partitions_per_insert_block = 200,
-    non_replicated_deduplication_window = 100000;
+    non_replicated_deduplication_window = 100000,
+    ttl_only_drop_parts = 1;

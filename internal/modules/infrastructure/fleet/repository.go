@@ -5,6 +5,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/shared/chargs"
 )
 
@@ -24,7 +25,7 @@ func NewRepository(db clickhouse.Conn) *Repository {
 }
 
 func (r *Repository) QueryFleetPods(ctx context.Context, teamID int64, startMs, endMs int64) ([]FleetPodAggregateRow, error) {
-	const query = `
+	query := `
 		WITH active_fps AS (
 		    SELECT DISTINCT fingerprint
 		    FROM observability.spans_resource
@@ -40,7 +41,7 @@ func (r *Repository) QueryFleetPods(ctx context.Context, teamID int64, startMs, 
 		    sum(duration_ms_sum)                                                                 AS duration_ms_sum,
 		    quantileTimingMerge(0.95)(latency_state)                                             AS p95_latency_ms,
 		    max(timestamp)                                                                       AS last_seen
-		FROM observability.spans_1m
+		FROM ` + timebucket.SpansRollup(endMs-startMs) + `
 		PREWHERE team_id     = @teamID
 		     AND ts_bucket   BETWEEN @bucketStart AND @bucketEnd
 		     AND fingerprint IN active_fps
@@ -49,7 +50,7 @@ func (r *Repository) QueryFleetPods(ctx context.Context, teamID int64, startMs, 
 		GROUP BY pod, host
 		ORDER BY request_count DESC
 		LIMIT @maxFleetPods`
-	args := chargs.RangeArgs(teamID, startMs, endMs)
+	args := chargs.RollupRangeArgs(teamID, startMs, endMs)
 	args = append(args,
 		clickhouse.Named("defaultUnknown", defaultUnknown),
 		clickhouse.Named("maxFleetPods", uint64(maxFleetPods)),

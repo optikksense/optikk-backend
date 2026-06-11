@@ -6,6 +6,7 @@ import (
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	dbutil "github.com/Optikk-Org/optikk-backend/internal/infra/database"
+	"github.com/Optikk-Org/optikk-backend/internal/infra/timebucket"
 	"github.com/Optikk-Org/optikk-backend/internal/modules/saturation/kafka/filter"
 )
 
@@ -19,6 +20,7 @@ func NewRepository(db clickhouse.Conn) *Repository {
 
 // buildFilterArgs constructs filtering clauses and arguments for queries.
 func buildFilterArgs(teamID, startMs, endMs int64, metricNames []string, filterCol, filterVal string) (string, []any) {
+	startMs, endMs = timebucket.SnapRangeForRollup(startMs, endMs)
 	args := filter.WithMetricNames(filter.MetricArgs(teamID, startMs, endMs), metricNames)
 	var extraWhere string
 	if filterVal != "" {
@@ -53,7 +55,7 @@ func (r *Repository) QueryTopicThroughput(ctx context.Context, teamID, startMs, 
 		           ifNotFinite(val_sum / val_count, 0), NULL))    AS records_per_sec,
 		    max(if(metric_name = 'kafka.consumer.records_consumed_total',
 		           ifNotFinite(val_sum / val_count, 0), NULL))    AS records_total
-		FROM observability.metrics_1m
+		FROM `+timebucket.MetricsRollup(endMs-startMs)+`
 		PREWHERE team_id   = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND metric_name IN @metricNames
@@ -80,7 +82,7 @@ func (r *Repository) QueryTopicLag(ctx context.Context, teamID, startMs, endMs i
 		           ifNotFinite(val_sum / val_count, 0), NULL))  AS lag,
 		    max(if(metric_name = 'kafka.consumer.records_lead',
 		           ifNotFinite(val_sum / val_count, 0), NULL))  AS lead
-		FROM observability.metrics_1m
+		FROM `+timebucket.MetricsRollup(endMs-startMs)+`
 		PREWHERE team_id   = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND metric_name IN @metricNames
@@ -99,7 +101,7 @@ func (r *Repository) QueryTopicConsumers(ctx context.Context, teamID, startMs, e
 		SELECT
 		    messaging_destination AS topic,
 		    count(DISTINCT messaging_consumer_group) AS consumer_group_count
-		FROM observability.metrics_1m
+		FROM `+timebucket.MetricsRollup(endMs-startMs)+`
 		PREWHERE team_id   = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND metric_name IN @metricNames
@@ -120,7 +122,7 @@ func (r *Repository) QueryGroupPartitions(ctx context.Context, teamID, startMs, 
 		SELECT
 		    messaging_consumer_group AS consumer_group,
 		    max(ifNotFinite(val_sum / val_count, 0)) AS assigned_partitions
-		FROM observability.metrics_1m
+		FROM `+timebucket.MetricsRollup(endMs-startMs)+`
 		PREWHERE team_id   = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND metric_name IN @metricNames
@@ -150,7 +152,7 @@ func (r *Repository) QueryGroupCommits(ctx context.Context, teamID, startMs, end
 		           ifNotFinite(val_sum / val_count, 0), NULL)), 0)    AS commit_latency_avg_ms,
 		    max(if(metric_name = 'kafka.consumer.commit_latency_max',
 		           ifNotFinite(val_sum / val_count, 0), NULL))        AS commit_latency_max_ms
-		FROM observability.metrics_1m
+		FROM `+timebucket.MetricsRollup(endMs-startMs)+`
 		PREWHERE team_id   = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND metric_name IN @metricNames
@@ -180,7 +182,7 @@ func (r *Repository) QueryGroupFetches(ctx context.Context, teamID, startMs, end
 		           ifNotFinite(val_sum / val_count, 0), NULL)), 0)    AS fetch_latency_avg_ms,
 		    max(if(metric_name = 'kafka.consumer.fetch_latency_max',
 		           ifNotFinite(val_sum / val_count, 0), NULL))        AS fetch_latency_max_ms
-		FROM observability.metrics_1m
+		FROM `+timebucket.MetricsRollup(endMs-startMs)+`
 		PREWHERE team_id   = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND metric_name IN @metricNames
@@ -216,7 +218,7 @@ func (r *Repository) QueryGroupHealth(ctx context.Context, teamID, startMs, endM
 		           ifNotFinite(val_sum / val_count, 0), NULL))                    AS last_poll_seconds_ago,
 		    max(if(metric_name = 'kafka.consumer.connection_count',
 		           ifNotFinite(val_sum / val_count, 0), NULL))                    AS connection_count
-		FROM observability.metrics_1m
+		FROM `+timebucket.MetricsRollup(endMs-startMs)+`
 		PREWHERE team_id   = @teamID
 		     AND ts_bucket BETWEEN @bucketStart AND @bucketEnd
 		     AND metric_name IN @metricNames

@@ -286,7 +286,7 @@ func (s *Service) GetErrorGroupDetail(ctx context.Context, teamID int64, startMs
 	}, nil
 }
 
-// facetColumns are the spans_1m dimensions exposed as facets.
+// facetColumns are the spans_errors_1m dimensions exposed as facets.
 var facetColumns = []string{"service_version", "environment", "pod", "http_route"}
 
 func (s *Service) GetErrorGroupLatestOccurrence(ctx context.Context, teamID int64, startMs, endMs int64, groupID string) (*ErrorLatestOccurrence, error) {

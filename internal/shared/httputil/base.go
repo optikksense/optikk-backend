@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -88,39 +87,6 @@ func ParsePageSize(c *gin.Context, key string, fallback int) int {
 		size = fallback
 	}
 	return size
-}
-
-func ParseListParam(c *gin.Context, key string) []string {
-	vals := c.QueryArray(key)
-	if len(vals) == 0 {
-		vals = c.QueryArray(key + "[]")
-	}
-	if len(vals) > 0 {
-		clean := make([]string, 0, len(vals))
-		for _, v := range vals {
-			v = strings.TrimSpace(v)
-			if v != "" {
-				clean = append(clean, v)
-			}
-		}
-		return clean
-	}
-	raw := c.Query(key)
-	if raw == "" {
-		return nil
-	}
-	parts := strings.Split(raw, ",")
-	clean := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			clean = append(clean, p)
-		}
-	}
-	if len(clean) == 0 {
-		return nil
-	}
-	return clean
 }
 
 func ParseRange(c *gin.Context) (startMs, endMs int64, err error) {
@@ -221,12 +187,4 @@ func WithComparison(c *gin.Context, startMs, endMs int64, queryFn func(s, e int6
 		resp.Comparison = comparison
 	}
 	return resp, nil
-}
-
-func ExtractIDParam(c *gin.Context, key string) (int64, error) {
-	id, err := strconv.ParseInt(c.Param(key), 10, 64)
-	if err != nil {
-		return 0, errors.New("invalid id")
-	}
-	return id, nil
 }

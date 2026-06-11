@@ -28,6 +28,17 @@ func RangeArgs(teamID, startMs, endMs int64) []any {
 	}
 }
 
+// RollupRangeArgs is RangeArgs for rollup-tier readers. When the window
+// routes to the 1h tier (timebucket.UseHourRollup), the start floors to its
+// hour boundary so the edge hour's all-or-nothing 1h row is fully covered;
+// the end stays as-is so the in-progress hour still contributes partial data.
+func RollupRangeArgs(teamID, startMs, endMs int64) []any {
+	if timebucket.UseHourRollup(endMs - startMs) {
+		startMs = timebucket.FloorMsToHour(startMs)
+	}
+	return RangeArgs(teamID, startMs, endMs)
+}
+
 // WithMetricNames appends the metricNames bind to args.
 func WithMetricNames(args []any, names []string) []any {
 	return append(args, clickhouse.Named("metricNames", names))

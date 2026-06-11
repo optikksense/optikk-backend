@@ -37,7 +37,7 @@ func TeamIDsFromMemberships(memberships []TeamMembership) []int64 {
 
 // GenerateAPIKey generates a new secure random API key.
 func GenerateAPIKey() (string, error) {
-	bytes := make([]byte, 32)
+	bytes := make([]byte, 4)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", err
 	}
@@ -53,13 +53,6 @@ func NullableString(s string) *string {
 	return &trimmed
 }
 
-// ValueOrEmpty returns the string value or empty if nil.
-func ValueOrEmpty(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}
 
 // ValueOr returns the string value or a default fallback if nil.
 func ValueOr(s *string, fallback string) string {

@@ -1,15 +1,13 @@
--- 1-minute spans RED rollup. Mirrors the metrics_1m pattern: AggregatingMergeTree
--- fed by an MV from the raw table. quantileTimingState replaces SQL-side
--- quantileTiming() in percentile call sites; SimpleAggregateFunction columns
--- replace count()/sum() over raw spans.
--- Error-tracking dimensions (error_group_id, exception_type) live in
--- spans_errors_1m (13_spans_errors_1m.sql) — keeping them here multiplied
--- rollup cardinality by the number of distinct error groups. error_type stays:
--- it is a bounded OTel dim used by saturation/database group-bys.
--- ts_bucket invariant preserved (5-min Go-side semantics; the MV derives it
--- server-side at MV evaluation only).
+-- 1-hour spans RED rollup, cascaded from spans_1m (not from raw spans — the
+-- aggregate states merge losslessly, so re-reading raw rows would only add
+-- MV cost on the hot insert path). Query-acceleration tier: readers route
+-- here when the query window exceeds 24h (timebucket.UseHourRollup), scanning
+-- ~60x fewer rows. Column set and ORDER BY mirror spans_1m so reader SQL
+-- differs only by table name and grain.
+-- ts_bucket is hour-aligned here; hour boundaries are also valid 5-min
+-- boundaries, so Go-side BETWEEN bucket filters keep working unchanged.
 
-CREATE TABLE IF NOT EXISTS observability.spans_1m (
+CREATE TABLE IF NOT EXISTS observability.spans_1h (
     team_id              UInt32 CODEC(T64, ZSTD(1)),
     ts_bucket            UInt32 CODEC(DoubleDelta, LZ4),
     timestamp            DateTime CODEC(DoubleDelta, LZ4),
@@ -58,15 +56,14 @@ ORDER BY (team_id, ts_bucket, fingerprint, service, name, kind_string, timestamp
 TTL timestamp + INTERVAL 30 DAY DELETE
 SETTINGS
     index_granularity = 8192,
-    enable_mixed_granularity_parts = 1,
     ttl_only_drop_parts = 1;
 
-CREATE MATERIALIZED VIEW IF NOT EXISTS observability.spans_1m_mv
-TO observability.spans_1m AS
+CREATE MATERIALIZED VIEW IF NOT EXISTS observability.spans_1h_mv
+TO observability.spans_1h AS
 SELECT
     team_id,
-    toUInt32(intDiv(toUnixTimestamp(timestamp), 300) * 300) AS ts_bucket,
-    toStartOfMinute(timestamp)                              AS timestamp,
+    toUInt32(toUnixTimestamp(toStartOfHour(timestamp))) AS ts_bucket,
+    toStartOfHour(timestamp)                            AS timestamp,
     fingerprint,
 
     service,
@@ -76,7 +73,7 @@ SELECT
     host,
     pod,
     environment,
-    if((parent_span_id = '') OR (parent_span_id = '0000000000000000'), 1, 0) AS is_root,
+    is_root,
 
     http_method,
     http_route,
@@ -87,19 +84,19 @@ SELECT
     service_version,
 
     db_system,
-    attributes.'db.operation.name'::String        AS db_operation_name,
-    attributes.'db.collection.name'::String       AS db_collection_name,
-    attributes.'db.namespace'::String             AS db_namespace,
-    attributes.'db.response.status_code'::String  AS db_response_status,
-    attributes.'server.address'::String           AS server_address,
+    db_operation_name,
+    db_collection_name,
+    db_namespace,
+    db_response_status,
+    server_address,
 
-    attributes.'error.type'::String          AS error_type,
+    error_type,
 
-    quantileTimingState(duration_nano / 1000000.0)                                    AS latency_state,
-    count()                                                                           AS request_count,
-    countIf(has_error OR toUInt16OrZero(response_status_code) >= 400)                 AS error_count,
-    sum(duration_nano / 1000000.0)                                                    AS duration_ms_sum
-FROM observability.spans
+    quantileTimingMergeState(latency_state) AS latency_state,
+    sum(request_count)                      AS request_count,
+    sum(error_count)                        AS error_count,
+    sum(duration_ms_sum)                    AS duration_ms_sum
+FROM observability.spans_1m
 GROUP BY
     team_id, ts_bucket, timestamp, fingerprint,
     service, name, kind_string, peer_service, host, pod, environment, is_root,
